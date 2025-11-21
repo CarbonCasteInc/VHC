@@ -3,26 +3,10 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { randomBytes } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { promises as fs } from 'node:fs';
-import dotenv from 'dotenv';
 import { execa } from 'execa';
-
-const REQUIRED_ENV_KEYS = [
-  'MINIO_ROOT_USER',
-  'MINIO_ROOT_PASSWORD',
-  'TURN_SECRET',
-  'JWT_SECRET',
-  'AGREGATOR_KEY',
-  'TLS_CA_KEY'
-];
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const REPO_ROOT = path.resolve(__dirname, '../../../../');
-const INFRA_DOCKER_DIR = path.join(REPO_ROOT, 'infra', 'docker');
-const ENV_FILE = path.join(INFRA_DOCKER_DIR, '.env');
-const COMPOSE_FILE = path.join(INFRA_DOCKER_DIR, 'docker-compose.yml');
+import { COMPOSE_FILE, ENV_FILE, INFRA_DOCKER_DIR, loadEnv, pathExists } from './env.js';
+import { bootstrapCheck } from './commands/check.js';
 
 const format = {
   info: (msg: string) => console.log(chalk.cyan(msg)),
@@ -30,15 +14,6 @@ const format = {
   warn: (msg: string) => console.warn(chalk.yellow(msg)),
   error: (msg: string) => console.error(chalk.red(msg))
 };
-
-async function pathExists(target: string): Promise<boolean> {
-  try {
-    await fs.access(target);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function randomBase64Url(bytes = 32): string {
   return randomBytes(bytes).toString('base64url');
@@ -95,18 +70,6 @@ async function ensureDockerAvailable() {
   }
 }
 
-async function loadEnv(): Promise<Record<string, string>> {
-  if (!(await pathExists(ENV_FILE))) {
-    throw new Error(`Missing ${ENV_FILE}. Run 'pnpm vh bootstrap init' first.`);
-  }
-  const raw = await fs.readFile(ENV_FILE, 'utf8');
-  const parsed = dotenv.parse(raw);
-  const missing = REQUIRED_ENV_KEYS.filter((key) => !parsed[key] || parsed[key].trim() === '');
-  if (missing.length > 0) {
-    throw new Error(`Missing required secrets in ${ENV_FILE}: ${missing.join(', ')}`);
-  }
-  return parsed;
-}
 
 async function runComposeUp(envMap: Record<string, string>) {
   const composeExists = await pathExists(COMPOSE_FILE);
@@ -168,6 +131,18 @@ function registerBootstrapCommands(program: Command) {
         await ensureDockerAvailable();
         const env = await loadEnv();
         await runComposeUp(env);
+      } catch (error) {
+        format.error((error as Error).message);
+        process.exitCode = 1;
+      }
+    });
+
+  bootstrap
+    .command('check')
+    .description('Validate the running home server stack')
+    .action(async () => {
+      try {
+        await bootstrapCheck();
       } catch (error) {
         format.error((error as Error).message);
         process.exitCode = 1;
