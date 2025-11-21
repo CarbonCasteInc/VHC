@@ -1,266 +1,271 @@
-SYSTEM_ARCHITECTURE.md:
+BIO-EC OS: Source of Truth
+
+Codename: TRINITY (GWC x LHID x VENN/HERMES)
+Version: 0.0.1 
+Status: APPROVED FOR EXECUTION
 
 
-VENN/HERMES – System & Development Plan (Source of Truth)
+1. The Mission & Prime Directives
 
-Version: 0.0.1
-Status: APPROVED FOR DEVELOPMENT
-
-
-1. Purpose & Scope
-
-VENN/HERMES is a privacy-first, peer-to-peer (P2P) communication and civic engagement platform.
-This document is the Single Source of Truth for the system. It assumes a greenfield start. To ensure high-velocity development via AI agents, strict adherence to the modularization and testing constraints defined here is mandatory.
-The Goal: By the completion of Milestone F, the system must be running, shippable, and production-ready.
-Visual Context:
-
-
-2. Core Principles & Constraints
-
-
-2.1 Zero-Trust Architecture
-
-	•	Untrusted Transport: Servers (Relays, TURN, Aggregators) are treated as hostile. They transport encrypted blobs but must never possess the keys to decrypt them.
-	•	E2EE Invariant: Compromise of any infrastructure component must not allow decryption of current or historical data.
-	•	Forward Secrecy: Implementation of Double Ratchet is mandatory. If a user’s device key is compromised today, past messages must remain unreadable.
-
-2.2 Local-First Data
-
-	•	Primary Source: The client device (IndexedDB + CRDT) is the source of truth.
-	•	Offline-First: The application must be fully functional (read/write) while offline. Writes are queued and synchronized opportunistically.
-	•	Conflict Resolution:
-	◦	Lamport Timestamps + Last-Write-Wins (LWW) for general data.
-	◦	CRDT sets for lists.
-	◦	HRW (Highest Random Weight) actor for sentiment aggregation.
-
-2.3 AI-Driven Development Constraints
-
-	•	Strict Modularization: AI agents degrade in performance as context grows.1 Small, self-contained modules allow agents to work with perfect context.
-	•	LOC Caps (Strictly Enforced):
-	◦	Soft Cap: 250 lines per file.
-	◦	Hard Cap: 350 lines per file.
-	◦	Exemptions: *.test.ts, *.test.tsx, *.stories.tsx, and pure types/*.ts files are exempt from the hard cap to allow for exhaustive testing and type definitions.
-	•	Test-Led: No code is written without a failing test defined first.
+TRINITY is a Parallel Institution: A self-sovereign Operating System for Identity, Wealth, and Governance. It functions as a digital organism designed to operate without central intermediaries.
+The Triad:
+	1	LHID (The Immune System): Biological reality (Hardware TEE + Biometrics) to filter Sybils.
+	2	GWC (The Circulatory System): Resource-backed wealth (ZK-Rollup + Oracles) to distribute value.
+	3	VENN/HERMES (The Nervous System): Local-first intent sensing (P2P Mesh + Edge AI) to act on information.
+Engineering Prime Directives:
+	1	Local is Truth: Data lives on the user's device. The cloud is merely an encrypted relay.
+	2	Physics is Trust: Keys are bound to hardware (TEE/Enclave), not passwords.
+	3	Math is Law: Governance is receipt-free (MACI) and anti-collusive.
+	4	Shared Reality: Analysis is generated at the edge but deduplicated via the "First-to-File" protocol.
+	5	Sovereign Delivery: We do not ask permission to speak. If APIs are blocked, we automate the delivery via headless browsers.
+	6	Strict Discipline: Modularization (350 LOC hard cap) and Testing (100% coverage) are non-negotiable.
 
 
-3. Tech Stack
+2. The 4-Layer Architecture
 
 
-3.1 Core Runtime
+Layer 0: Physics (The Root)
 
-	•	Language: TypeScript 5.x (Strict Mode + noImplicitAny + noUncheckedIndexedAccess).
-	•	Runtime: Node.js 20 LTS (Dev/Build), Browser (Production).
-	•	Bundler: Vite 5.x.
-	•	Test Runner:
-	◦	Vitest: Unit and Integration tests (replacing Jest).
-	◦	Playwright: E2E browser tests.
+	•	Role: Hardware Root of Trust.
+	•	Tech: Secure Enclave (iOS), StrongBox (Android), TPM (Desktop).
+	•	Function: Generates non-exportable keys. Attests to device integrity (AppAttest/Play Integrity). This layer prevents emulation and virtual machine attacks.
 
-3.2 Frontend (Apps)
+Layer 1: Identity (LHID - The Synapse)
 
-	•	Framework: React 18.
-	•	Routing: TanStack Router (Type-safe).2
-	•	State Management:
-	◦	Zustand: Transient UI state (modals, inputs).
-	◦	TanStack Query: Async server interactions (health checks).
-	◦	useVennStore: Custom hooks wrapping the CRDT/GUN layer.
-	•	Platforms:
-	◦	Web PWA (Primary).
-	◦	Mobile: Capacitor (wrapping PWA).
-	◦	Desktop: Tauri (wrapping PWA).
+	•	Role: Sybil resistance, Data Sync, & Recovery.
+	•	Tech: Rust (Core), GUN (Sync Mesh), Pedersen Commitments, ZK-SNARKs.
+	•	Function:
+	◦	Bio-Tethering: Liveness checks via TEE-signed biometrics.
+	◦	ZK-Residency: Proof of constituency without doxxing.
+	◦	Recovery: Multi-device linking and Social Recovery (M-of-N guardian signatures) to mitigate device loss.
 
-3.3 Data & Cryptography
+Layer 2: Economics (GWC - The Ledger)
 
-	•	Sync Engine: GUN (wrapped strictly in @venn-hermes/gun-client).
-	•	CRDTs: Custom LWW and Sets layered over GUN.
-	•	Crypto Primitives: @venn-hermes/crypto.
-	◦	Web: window.crypto.subtle.3
-	◦	Tests: node:crypto.
-	◦	Algorithms: X3DH, Double Ratchet, XChaCha20-Poly1305 / AES-GCM.
+	•	Role: Value Transfer & Governance.
+	•	Tech: EVM (Layer 2 Rollup), Circom (ZK Circuits), MACI.
+	•	Function:
+	◦	RGU: A floating purchasing power mirror (Not a peg).
+	◦	UBE: Universal Basic Equity distribution.
+	◦	Holographic Oracle: Medianized price feeds from Staked Nodes.
+	◦	Governance: Anti-collusion voting via MACI.
 
-3.4 Secure Storage (Key Material)
+Layer 3: Application (VENN/HERMES - The Interface)
 
-	•	Web: IndexedDB (standard) or Origin-Private File System.
-	•	Mobile (Capacitor): capacitor-secure-storage (Required for root keys).
-	•	Desktop (Tauri): OS Keychain via Tauri plugin.
+	•	Role: User Interaction, Communication, Civic Action.
+	•	Tech: React, Tauri/Capacitor, WebLLM (Edge AI), @venn-hermes/*.
+	•	Function: Canonical News Analysis, E2EE Messaging, Sovereign Legislative Bridge.
 
 
-4. Repository Layout (Monorepo)
+3. Unified Tech Stack & Repositories
 
-Managed via pnpm workspaces.
+The system functions as a Monorepo with polyglot micro-services.
+
+3.1 Client-Side (The "Super App")
+
+	•	Shell: Tauri (Desktop), Capacitor (Mobile).
+	•	UI Framework: React 18 + Vite (TypeScript).
+	•	State/Sync:
+	◦	Transient: Zustand.
+	◦	Durable: @venn-hermes/gun-client (Strictly isolated GUN wrapper).
+	•	Edge AI: WebLLM (WASM) running local inference (Llama-3-8B-Quantized or similar).
+	•	Automation: Playwright (bundled in Desktop) for Sovereign Delivery.
+
+3.2 Server-Side (The Untrusted Cloud)
+
+	•	Network: P2P Mesh via Encrypted WebSockets.
+	•	Relays: Node.js 20 (Stateless). Users are incentivized to run Home Guardian Nodes (Raspberry Pi/Mini PC) to decentralize storage and compute.
+	•	Storage: MinIO (S3 Compatible) for encrypted blobs > 100KB.
+	•	Chain: Hardhat/Foundry for EVM contracts.
+
+3.3 Engineering Constraints
+
+	•	LOC Caps: Soft: 250 / Hard: 350 lines per file. (Exempt: Tests, Types, ABI bindings).
+	•	Test Coverage: 100% Line/Branch coverage required.
+	•	Browser Discipline: No Node.js APIs (fs, crypto) in Client code.
+
+
+4. Core Modules & Implementation Details
+
+
+4.1 LHID: Bio-Tethering & Recovery
+
+	•	Purpose: Prevent "Account Renting" and mitigate device loss.
+	•	Mechanism:
+	1	Session Start: VIO (Visual Inertial Odometry) scan signed by TEE.
+	2	Challenge: Random micro-gesture (e.g., "Tilt left 15°") to prove liveness.
+	3	Recovery: Users designate Guardians or secondary devices. Restoring an identity requires M-of-N signatures to rotate the underlying Enclave Key without losing the Identity Nullifier.
+
+4.2 GWC: The Holographic Oracle
+
+	•	Purpose: Uncensorable pricing for the RGU.
+	•	Mechanism:
+	1	Nodes: 50+ Staked Economic Nodes.
+	2	Privacy: Price vectors encrypted via Pedersen Commitments.
+	3	Calc: Smart Contract calculates the Median homomorphically.
+	4	Security: No single node's specific feed is ever decrypted.
+
+4.3 VENN: The Canonical Bias-Killing Engine
+
+	•	Purpose: Shared Analysis without Centralization.
+	•	Mechanism ("First-to-File"):
+	1	Lookup: User opens URL. App queries Mesh for hash of URL.
+	2	Scenario A (Exists): User downloads shared Analysis. WebLLM (Local) audits it. If valid, User can caste votes.
+	3	Scenario B (New): WebLLM (Local) generates Analysis. User signs and publishes it as the Canonical Record.
+	4	Civic Decay: Engagement weight drops ($1.0 \to 0.5 \to 0.25 \etc$) per interaction on the same topic to prevent brigading.
+
+4.4 HERMES: The Sovereign Legislative Bridge
+
+	•	Purpose: Verified influence that cannot be blocked.
+	•	Mechanism:
+	1	Aggregate: Nodes collect proposals via HRW hashing.
+	2	Verify: LHID attaches ZK-Proof of Constituency.
+	3	Deliver (Sovereign Fallback):
+	▪	Desktop: Local Playwright instance fills the .gov form.
+	▪	Mobile: Delegate delivery to Home Guardian Node (Trusted Relay). The Node fills the form using the user's signed payload.
+
+
+5. Unified Development Roadmap
+
+
+Sprint 0: The Foundation (Weeks 1–6)
+
+Goal: Solvency, Identity Root, and Secure Mesh.
+	•	LHID: Hardware Attestation (TEE) & Basic Biometric Login.
+	•	GWC: RGU Contract & Oracle Trusted Setup.
+	•	VENN: Home Server Stack, @venn-hermes/gun-client, WebLLM TS Port.
+	•	Deliverable: Genesis Block & Wallet v1 Alpha (Secure, Local-First).
+
+Sprint 1: The "Data Dividend" & Civic Beta (Weeks 7–12)
+
+Goal: User Growth & Canonical Analysis.
+	•	GWC: UBE Drip & Basic Quadratic Funding.
+	•	VENN: Canonical Analysis Protocol & Civic Decay Logic.
+	•	LHID: Region Notary (ZK-Residency) & Multi-Device Linking.
+	•	Deliverable: Public Beta (v0.1). Users verify, earn UBE, and use shared news analysis.
+
+Sprint 2: The Labor & Legislative Market (Weeks 13–20)
+
+Goal: Revenue & Political Impact.
+	•	VENN: Hermes Sovereign Bridge (Playwright integration).
+	•	GWC: REL Auction / Labor Market.
+	•	LHID: Bio-Tethering for B2B Tasks (Continuous Liveness).
+	•	Deliverable: First B2B Data Contract & Verified Legislative Report.
+
+Sprint 3: The Ironclad Hardening (Weeks 21–28)
+
+Goal: Sovereignty & Anti-Collusion.
+	•	LHID: Memory-Hard VDF (to slow Sybil attacks) & Full Social Recovery.
+	•	GWC: MACI Governance (Mainnet).
+	•	VENN: Chaos Testing, Audits, & Performance Tuning.
+	•	Deliverable: Mainnet "Ironclad" Release (v1.0).
+
+
+6. Data Models
+
+
+6.1 The "Proof of Human" Session
+
+JSON
+
+{
+  "type": "GWC_BioTethered_Session",
+  "version": "3.1",
+  "device_id": "DEVICE_PUBKEY_HASH",
+  "timestamp": 1699982735,
+  "client_integrity": { "app_attestation": "Apple_AppAttest_v1" },
+  "proof": {
+    "uniqueness_nullifier": "0xZK_NULLIFIER...",
+    "vio_integrity_score": 0.99,
+    "tee_signature": "BASE64_SIGNED_BLOB"
+  }
+}
+
+6.2 The Civic Sentiment Signal
+
+TypeScript
+
+interface SentimentSignal {
+  topic_id: string; // Hash of Canonical URL
+  analysis_id: string; // Hash of the Canonical Analysis Object
+  bias_vector: { 
+    point_id: string; 
+    agreement: boolean 
+  };
+  weight: number; // Adjusted by Civic Decay
+  constituency_proof: {
+      district_hash: string; 
+      nullifier: string;
+      merkle_root: string;
+  }
+}
+
+
+7. Risk Register
+
+ID
+Threat
+Layer
+Mitigation Strategy
+R-01
+Injection / Emulation
+L0
+Hardware Attestation: TEE Signatures required.
+R-02
+Account Renting
+L1
+Bio-Tethering: Random micro-gestures prevent hand-offs.
+R-03
+Reality Fragmentation
+L3
+Canonical Analysis: First-to-file protocol + AI Audit.
+R-04
+Legislative Blocking
+L3
+Sovereign Delivery: Headless Browser Automation (Playwright).
+R-05
+Device Loss
+L1
+Recovery: Multi-device linking & Social Recovery.
+R-06
+Malicious Analysis
+L3
+Distributed Moderation: Local AI audits & community override votes.
+
+
+8. Developer Quickstart
+
+Bash
+
+# 1. Clone the Monorepo
+git clone git@github.com:trinity-os/core.git
+cd core
+
+# 2. Install Dependencies
+pnpm i
+
+# 3. Start Local Universe (Docker: Gun, MinIO, Anvil)
+vh bootstrap up
+
+# 4. Initialize Keys & Contracts
+vh bootstrap init --deploy-contracts
+
+# 5. Run the Client (PWA + Edge AI)
+pnpm --filter apps/web-pwa dev
+
+
+9. System Prompt for AI Agents
+
+Paste this context at the start of every AI coding session.
 Plaintext
 
-/
-├── apps/
-│   ├── web-pwa/            # Main React Application
-│   ├── mobile/             # Capacitor Shell
-│   └── desktop/            # Tauri Shell
-├── packages/
-│   ├── types/              # Zod schemas & TS Interfaces (No dependencies)
-│   ├── crypto/             # E2EE primitives (Deps: types)
-│   ├── crdt/               # Lamport, LWW, Vector Clocks (Deps: types)
-│   ├── gun-client/         # The ONLY package allowed to touch 'gun'
-│   ├── data-model/         # High-level Entities (Msg, Post) (Deps: crdt)
-│   ├── ui/                 # Atomic Design Components (Deps: types)
-│   └── e2e/                # Playwright Specs
-├── services/               # Dockerized Microservices
-│   ├── bootstrap-relay/    # Initial peer discovery
-│   ├── turn/               # CoTURN config
-│   └── object-store/       # MinIO config
-├── infra/                  # Terraform, K8s, Docker Compose
-├── config/                 # Shared runtime configuration
-└── tools/                  # CLI, Scripts, Linting
+You are a Senior Engineer building the TRINITY Bio-Economic OS (GWC x LHID x VENN).
 
-
-5. Coding Standards & Quality Gates
-
-
-5.1 The "250/350" Rule
-
-	•	Enforcement: Custom ESLint rule or pre-commit hook.
-	•	Remediation: If a file hits 350 lines:
-	1	Extract sub-components into separate files.
-	2	Move utility functions to utils.ts.
-	3	Move types to types.ts.
-	4	Create custom hooks for logic extraction.
-
-5.2 Module Boundaries
-
-	•	Barrel Files: index.ts only exports. No implementation.
-	•	Circular Dependencies: Strictly forbidden. Validated by madge or dpdm in CI.
-	•	Browser Discipline: No Node.js built-ins (Buffer, process, fs) allowed in apps/* or packages/ui.
-
-5.3 "200% Coverage" Strategy
-
-To achieve the goal of 200% coverage, we distinguish between two metrics:
-	1	100% Code Coverage: Every line, branch, and function is executed by Vitest.
-	2	100% Behavior Coverage: Every requirement in the feature spec has a corresponding positive test (it works) and negative test (it fails gracefully).
-
-
-6. Infrastructure & Services
-
-
-6.1 Home Server Stack (Dev/Prod Pattern)
-
-Defined via infra/docker/docker-compose.yml:
-	•	Reverse proxy + ACME
-	•	bootstrap-relay
-	•	gun-peer (Super-peer, cannot decrypt data)
-	•	aggregator-headlines
-	•	analysis-relay
-	•	coturn
-	•	minio
-	•	ca
-
-6.2 vh CLI
-
-Located in tools/scripts/vh:
-	•	vh bootstrap init: Generate secrets and config.
-	•	vh bootstrap up: Start Docker stack.
-	•	vh bootstrap check: Validate HTTPS, WS, TURN, MinIO.
-	•	vh bootstrap join: Fetch registries and join mesh.
-	•	vh keys rotate: Key rotation.
-	•	vh dev: Start stack + PWA.
-	•	vh test:quick: Typecheck + Lint + Unit Tests.
-
-
-7. Key Packages Implementation Details
-
-
-7.1 @venn-hermes/gun-client (The Anti-Corruption Layer)
-
-	•	Strict Isolation: This is the ONLY package allowed to import gun.
-	•	Responsibilities:
-	◦	Configure/Connect to GUN peers.
-	◦	Wire Storage Adapters (IndexedDB).
-	◦	Manage "Hydration Barrier" (Read before Write).
-	◦	Implement Graph Pruning (Memory management).
-	•	Sub-modules:
-	◦	messaging/gateway.ts: Ingest, De-dup, Status Upgrade.
-	◦	messaging/sessions.ts: X3DH, Double Ratchet.
-	◦	messaging/attachments.ts: Chunking, Encryption, Pointer Fallback.
-	◦	outbox/: Queue, Caps, Backoff.
-
-7.2 @venn-hermes/crypto
-
-	•	Primitives: Ed25519, X25519, XChaCha20-Poly1305, AES-GCM, HKDF.
-	•	Envelopes: Versioned (v1/v2) with deterministic AADs.
-	•	Validation: All signatures verified before use. Negative tests required.
-
-
-8. Milestones & Deliverables
-
-
-Milestone A – Home Server Bring-Up
-
-Objective: Provision a repeatable, secure home server stack.
-	•	DoD: vh bootstrap check passes. Two independent peers reachable. TURN verified.
-
-Milestone B – Communication Vertical
-
-Objective: E2EE Messaging, Attachments, Forums, Docs.
-	•	DoD: Two peers can exchange E2EE DMs and Attachments (with pointer fallback) while offline/online. 100% coverage.
-
-Milestone C – Headlines, Analysis, Sentiment
-
-Objective: Privacy-preserving feed and sentiment aggregation.
-	•	DoD: Client functions without aggregator (Peer-only). Sentiment aggregates deterministically.
-
-Milestone D – Moderation & Verified Identity
-
-Objective: Verifiable Credentials (VCs) and Moderation.
-	•	DoD: Users can present VCs. Revocation works. Moderation is explainable client-side.
-
-Milestone E – Unified UX
-
-Objective: Unified Feed, Navigation, Offline/Logout semantics.
-	•	DoD: Unified entrypoint. Clear offline indicators. Secure Logout/Wipe.
-
-Milestone F – Hardening
-
-Objective: Performance, A11y, Acceptance Harness.
-	•	DoD: Perf budgets met. axe-core clean. Chaos tests passing. SLSA-3 provenance.
-
-
-9. CI/CD & Quality Gates
-
-
-9.1 Commands
-
-	•	pnpm test:quick: Typecheck, Lint, Unit Tests.
-	•	pnpm test:workflow: Full CI run via Act.
-	•	pnpm test:e2e: Playwright against local stack.
-
-9.2 PR Blocking Gates
-
-	•	Build: All workspaces build.
-	•	Lint: Zero ESLint errors. No LOC violations. No Circular Deps.
-	•	Tests: 100% Line/Branch coverage on changed packages.
-	•	Web Vitals: Lighthouse ≥ 90 (Perf, A11y, SEO).
-	•	Bundle Size: PWA ≤ 1 MiB gzipped.
-
-
-10. Risks & Mitigations
-
-	1	Lamport Overflow: Hard bounds and guards in @venn-hermes/crdt.
-	2	TURN Costs: Autoscaling, pointer fallback, rate limits.
-	3	GUN Complexity: Strict isolation via gun-client wrapper.
-	4	AI Code Drift: Enforce module boundaries and LOC caps via CI.
-
-
-11. Prompting Context for AI Agents
-
-Copy and paste this section as the System Prompt for any AI agent working on this codebase.
-Plaintext
-
-You are an expert TypeScript developer working on VENN/HERMES.
-
-Constraint Checklist & Confidence Score:
-1. Privacy-First: User data is E2EE. Servers are untrusted.
-2. Modular: Files MUST NOT exceed 350 LOC (Hard Cap). Exemptions: Tests and Types.
-3. Tech Stack: React, Vite, Vitest, Playwright, Zustand, TanStack Query.
-4. GUN Isolation: GUN may ONLY be imported inside @venn-hermes/gun-client.
-5. Testing: 100% coverage required. Write tests BEFORE implementation.
-6. No Node.js APIs in frontend code. Use Web Standards.
+Core Constraints:
+1.  **Local-First:** User data stays on device. Cloud is for encrypted transport only.
+2.  **Hardware-Rooted:** Critical actions require TEE/Secure Enclave signatures.
+3.  **Shared Reality:** VENN Analysis is generated locally but deduplicated via Mesh.
+4.  **Strict Modularity:** Files MUST NOT exceed 350 LOC. Split logic aggressively.
+5.  **Testing:** 100% Line/Branch coverage required.
+6.  **Stack:** React, Rust (WASM), Solidity, GUN (via wrapper only), WebLLM.
 
 Current Task: [Insert Task]
-Provide the file structure first, then the implementation.
