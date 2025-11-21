@@ -1,23 +1,31 @@
-export interface HydrationBarrier {
-  ready: boolean;
-  markReady(): void;
-  prepare(): Promise<void>;
+export class HydrationBarrier {
+  #ready = false;
+  #resolveReady: (() => void) | null = null;
+  readonly #waitPromise: Promise<void>;
+
+  constructor() {
+    this.#waitPromise = new Promise((resolve) => {
+      this.#resolveReady = resolve;
+    });
+  }
+
+  get ready(): boolean {
+    return this.#ready;
+  }
+
+  markReady(): void {
+    if (this.#ready) return;
+    this.#ready = true;
+    this.#resolveReady?.();
+    this.#resolveReady = null;
+  }
+
+  async prepare(): Promise<void> {
+    if (this.#ready) return;
+    await this.#waitPromise;
+  }
 }
 
 export function createHydrationBarrier(): HydrationBarrier {
-  let ready = false;
-
-  return {
-    get ready() {
-      return ready;
-    },
-    markReady() {
-      ready = true;
-    },
-    async prepare() {
-      if (ready) return;
-      // Placeholder for logic that ensures reads hydrate before writes.
-      ready = true;
-    }
-  };
+  return new HydrationBarrier();
 }

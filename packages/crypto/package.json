@@ -9,11 +9,19 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./primitives": {
+      "import": "./dist/primitives.js",
+      "types": "./dist/primitives.d.ts"
+    },
+    "./provider": {
+      "import": "./dist/provider.js",
+      "types": "./dist/provider.d.ts"
     }
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "echo 'No tests yet'",
+    "test": "vitest run",
     "lint": "echo 'No lint yet'"
   },
   "dependencies": {
@@ -21,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
-    "typescript": "^5.4.5"
+    "typescript": "^5.4.5",
+    "vitest": "^2.1.4"
   }
 }
