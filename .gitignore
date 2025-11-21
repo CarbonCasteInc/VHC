@@ -13,6 +13,8 @@ dist/
 build/
 out/
 *.tsbuildinfo
+artifacts/
+cache/
 target/
 
 # Environment & Secrets (NEVER COMMIT)

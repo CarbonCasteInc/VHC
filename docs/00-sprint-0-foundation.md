@@ -1,3 +1,5 @@
+00-sprint-0-foundation.md:
+
 # Sprint 0: The Foundation - Implementation Checklist
 
 **Context:** `System_Architecture.md` v0.0.1 (Single Source of Truth)

@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { promises as fs } from 'node:fs';
 import { execa } from 'execa';
-import { COMPOSE_FILE, ENV_FILE, INFRA_DOCKER_DIR, loadEnv, pathExists } from './env.js';
+import { COMPOSE_FILE, ENV_FILE, INFRA_DOCKER_DIR, REPO_ROOT, loadEnv, pathExists } from './env.js';
 import { bootstrapCheck } from './commands/check.js';
 
 const format = {
@@ -150,6 +150,21 @@ function registerBootstrapCommands(program: Command) {
     });
 
   program.addCommand(bootstrap);
+
+  program
+    .command('dev')
+    .description('Run the web PWA in dev mode (assumes stack is up)')
+    .action(async () => {
+      try {
+        await execa('pnpm', ['--filter', 'apps/web-pwa', 'dev'], {
+          cwd: REPO_ROOT,
+          stdio: 'inherit'
+        });
+      } catch (error) {
+        format.error((error as Error).message);
+        process.exitCode = 1;
+      }
+    });
 }
 
 async function main() {

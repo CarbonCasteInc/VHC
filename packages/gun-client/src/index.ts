@@ -32,7 +32,7 @@ function normalizePeers(peers?: string[]): string[] {
     if (trimmed.endsWith('/gun')) {
       return trimmed;
     }
-    return `${trimmed.replace(/\/+$, '')}/gun`;
+    return `${trimmed.replace(/\/+$/, '')}/gun`;
   });
 }
 

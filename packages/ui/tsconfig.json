@@ -1,0 +1,15 @@
+{
+  "extends": "../../tools/ts-config/base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "ESNext",
+    "moduleResolution": "Node",
+    "jsx": "react-jsx",
+    "declaration": true,
+    "esModuleInterop": true,
+    "types": ["react", "react-dom"],
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

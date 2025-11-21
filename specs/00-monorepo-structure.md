@@ -1,3 +1,5 @@
+00-monorepo-structure.md:
+
 # Monorepo Structure Specification
 
 **Source of Truth:** `System_Architecture.md` Section 4 & 5

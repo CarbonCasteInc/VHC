@@ -1,0 +1,22 @@
+{
+  "name": "@vh/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TRINITY smart contracts workspace",
+  "scripts": {
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:localhost": "hardhat run scripts/deploy.ts --network localhost"
+  },
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@openzeppelin/contracts": "5.0.2",
+    "@types/node": "^20.11.30",
+    "chai": "^4.4.1",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.27.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

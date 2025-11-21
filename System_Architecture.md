@@ -1,3 +1,5 @@
+System_Architecture.md:
+
 BIO-EC OS: Source of Truth
 
 Codename: TRINITY (GWC x LHID x VENN/HERMES)
