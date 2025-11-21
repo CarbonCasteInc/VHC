@@ -1,0 +1,19 @@
+http:
+  routers:
+    attestation:
+      rule: PathPrefix(`/api/attestation`)
+      entryPoints:
+        - web
+      middlewares:
+        - attestation-strip
+      service: attestation-service
+  middlewares:
+    attestation-strip:
+      stripPrefix:
+        prefixes:
+          - /api/attestation
+  services:
+    attestation-service:
+      loadBalancer:
+        servers:
+          - url: http://attestation-verifier:3000

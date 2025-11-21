@@ -1,14 +1,30 @@
 import { z } from 'zod';
 
+export interface AttestationPayload {
+  platform: 'ios' | 'android' | 'web';
+  integrityToken: string;
+  deviceKey: string;
+  nonce: string;
+}
+
+export interface VerificationResult {
+  success: boolean;
+  trustScore: number;
+  issuedAt: number;
+}
+
 export const AttestationPayloadSchema = z.object({
-  deviceIdentifier: z.string().min(1),
-  timestamp: z.number().int().nonnegative(),
-  nonce: z.string().min(16),
-  payload: z.string().optional(),
-  signature: z.string().optional()
+  platform: z.enum(['ios', 'android', 'web']),
+  integrityToken: z.string().min(1),
+  deviceKey: z.string().min(1),
+  nonce: z.string().min(1)
 });
 
-export type AttestationPayload = z.infer<typeof AttestationPayloadSchema>;
+export const VerificationResultSchema = z.object({
+  success: z.boolean(),
+  trustScore: z.number().min(0).max(1),
+  issuedAt: z.number().int().nonnegative()
+});
 
 export type UniquenessNullifier = string;
 

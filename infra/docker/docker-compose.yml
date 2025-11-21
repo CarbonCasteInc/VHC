@@ -2,11 +2,11 @@ name: vh-home-stack
 
 services:
   traefik:
-    image: traefik:2.11.2
+    image: traefik:v3.1
     command:
       - --api.insecure=true
-      - --providers.docker=true
-      - --providers.docker.exposedbydefault=false
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
       - --entrypoints.web.address=:80
       - --entrypoints.websecure.address=:443
     ports:
@@ -15,6 +15,7 @@ services:
       - "8081:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik-dynamic.yml:/etc/traefik/dynamic/attestation.yml:ro
     networks:
       - vh_net
 
@@ -75,6 +76,25 @@ services:
       - "8545:8545"
     networks:
       - vh_net
+
+  attestation-verifier:
+    build:
+      context: ../../services/attestation-verifier
+      dockerfile: Dockerfile
+    image: vh/attestation-verifier:latest
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.attestation.rule=PathPrefix(`/api/attestation`)"
+      - "traefik.http.routers.attestation.entrypoints=web"
+      - "traefik.http.routers.attestation.service=attestation"
+      - "traefik.http.services.attestation.loadbalancer.server.port=3000"
+      - "traefik.http.middlewares.attestation-strip.stripprefix.prefixes=/api/attestation"
+      - "traefik.http.routers.attestation.middlewares=attestation-strip"
+    networks:
+      - vh_net
+    depends_on:
+      - traefik
 
 volumes:
   minio_data:

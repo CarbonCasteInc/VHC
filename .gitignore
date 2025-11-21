@@ -13,6 +13,7 @@ dist/
 build/
 out/
 *.tsbuildinfo
+target/
 
 # Environment & Secrets (NEVER COMMIT)
 .env
