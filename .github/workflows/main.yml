@@ -2,58 +2,59 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 jobs:
   quality:
+    name: Quality Guard
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9  # Using 9 for stability, or 10 if strictly required
 
-      - name: Setup Node
+      - name: Use Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'pnpm'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10
-
-      - name: Install dependencies
+      - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint (LOC cap enforced)
+      - name: Lint (LOC & Rules)
         run: pnpm lint
 
-      - name: Circular dependency check
+      - name: Circular Dependency Check
         run: pnpm deps:check
 
   test-and-build:
+    name: Test & Build
     runs-on: ubuntu-latest
+    needs: quality
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
 
-      - name: Setup Node
+      - name: Use Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'pnpm'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v3
-        with:
-          version: 10
-
-      - name: Install dependencies
+      - name: Install Dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Tests
+      - name: Unit Tests
         run: pnpm test:quick
 
       - name: Build
