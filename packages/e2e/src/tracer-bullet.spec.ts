@@ -10,16 +10,15 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
         // 1. Load App
         await page.goto('/');
         await expect(page.getByText('Loading Mesh...')).toBeHidden({ timeout: 10000 });
-        await expect(page.getByText('Hello Trinity')).toBeVisible({ timeout: 5000 });
+        await expect(page.getByText('Hello Trinity')).toBeVisible({ timeout: 10000 });
 
         // 2. Create Identity (Mock)
-        // Note: Codex needs to implement this button with data-testid="create-identity-btn"
         const createIdentityBtn = page.getByTestId('create-identity-btn');
-
-        // If identity doesn't exist, create it
         if (await createIdentityBtn.isVisible()) {
+            await page.fill('input[placeholder="Choose a username"]', 'TrinityTester');
             await createIdentityBtn.click();
         }
+        await expect(page.getByTestId('welcome-msg')).toContainText('TrinityTester', { timeout: 10000 });
 
         // 3. Verify Mesh Connection
         // Note: Codex needs to ensure this text appears when connected

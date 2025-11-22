@@ -155,7 +155,9 @@ const HomeComponent = () => {
         <div className="space-y-3">
           <div className="flex items-center gap-3 text-sm text-slate-600">
             <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">Connected to mesh</span>
-            <span className="text-slate-500">Identity: {profile.username}</span>
+            <span className="text-slate-500" data-testid="welcome-msg">
+              Welcome, {profile.username}
+            </span>
           </div>
 
           <div className="flex flex-wrap gap-3">

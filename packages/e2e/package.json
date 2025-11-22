@@ -2,8 +2,8 @@
     "name": "@vh/e2e",
     "version": "0.0.0",
     "private": true,
-    "scripts": {
-        "test": "playwright test",
+  "scripts": {
+        "test": "VITE_E2E_MODE=true pnpm --filter @vh/web-pwa build && VITE_E2E_MODE=true playwright test",
         "test:ui": "playwright test --ui",
         "test:debug": "playwright test --debug",
         "codegen": "playwright codegen"

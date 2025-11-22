@@ -18,9 +18,12 @@ export default defineConfig({
         },
     ],
     webServer: {
-        command: 'cd ../.. && VITE_E2E_MODE=true pnpm --filter @vh/web-pwa dev',
+        command: 'cd ../.. && VITE_E2E_MODE=true pnpm --filter @vh/web-pwa preview',
         url: 'http://localhost:5173',
-        reuseExistingServer: !process.env.CI,
+        reuseExistingServer: false,
         timeout: 120 * 1000,
+        env: {
+            VITE_E2E_MODE: 'true'
+        }
     },
 });

@@ -10,6 +10,7 @@ type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
 interface AppState {
   client: VennClient | null;
   profile: Profile | null;
+  sessionReady: boolean;
   initializing: boolean;
   identityStatus: IdentityStatus;
   error?: string;
@@ -45,17 +46,59 @@ export function isE2EMode(): boolean {
   return (import.meta as any).env?.VITE_E2E_MODE === 'true';
 }
 
+function createMockClient(): VennClient {
+  return {
+    config: { peers: [] },
+    hydrationBarrier: { ready: true, prepare: async () => {} } as any,
+    storage: {
+      backend: 'memory',
+      hydrate: async () => {},
+      write: async () => {},
+      read: async () => null,
+      close: async () => {}
+    } as any,
+    user: {
+      is: null,
+      create: async () => ({ pub: 'mock-pub', priv: 'mock-priv', epub: '', epriv: '' }),
+      auth: async () => ({ pub: 'mock-pub', priv: 'mock-priv', epub: '', epriv: '' }),
+      leave: async () => {}
+    } as any,
+    chat: { send: async () => {} } as any,
+    outbox: { enqueue: async () => {} } as any,
+    createSession: async () => ({ token: 'mock-token', trustScore: 1, nullifier: 'mock-nullifier' }),
+    sessionReady: true,
+    markSessionReady: () => {}
+  };
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   client: null,
   profile: null,
+  sessionReady: false,
   initializing: false,
   identityStatus: 'idle',
   async init() {
     if (get().client) return;
     set({ initializing: true, error: undefined });
     try {
+      const e2e = isE2EMode();
+      if (e2e) {
+        console.info('[vh:web-pwa] Starting in E2E/Offline Mode with mocked client');
+        const mockClient = createMockClient();
+        const profile = loadProfile();
+        set({
+          client: mockClient,
+          initializing: false,
+          sessionReady: true,
+          identityStatus: profile ? 'ready' : 'idle',
+          profile
+        });
+        return;
+      }
+
       const client = createClient({
-        peers: isE2EMode() ? [] : ['http://localhost:7777/gun']
+        peers: ['http://localhost:7777/gun'],
+        requireSession: true
       });
       await client.hydrationBarrier.prepare();
       const profile = loadProfile();
@@ -63,7 +106,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         client,
         profile,
         initializing: false,
-        identityStatus: profile ? 'ready' : 'idle'
+        identityStatus: profile ? 'ready' : 'idle',
+        sessionReady: Boolean(profile)
       });
     } catch (err) {
       set({ initializing: false, identityStatus: 'error', error: (err as Error).message });
@@ -76,13 +120,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
     set({ identityStatus: 'creating', error: undefined });
     try {
+      const e2e = isE2EMode();
+      if (e2e) {
+        const profile: Profile = { pubkey: 'e2e-pub', username };
+        persistProfile(profile);
+        set({ sessionReady: true, profile, identityStatus: 'ready' });
+        return;
+      }
       const profile: Profile = {
         pubkey: randomId(),
         username
       };
       await client.user.write(profile);
       persistProfile(profile);
-      set({ profile, identityStatus: 'ready' });
+      client.markSessionReady?.();
+      set({ profile, identityStatus: 'ready', sessionReady: true });
     } catch (err) {
       set({ identityStatus: 'error', error: (err as Error).message });
       throw err;

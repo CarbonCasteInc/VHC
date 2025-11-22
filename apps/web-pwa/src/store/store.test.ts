@@ -115,8 +115,9 @@ describe('useAppStore', () => {
     const spy = vi.spyOn(storeModule, 'isE2EMode');
     expect(isE2EMode()).toBe(true);
     await useAppStore.getState().init();
-    expect((createClient as unknown as vi.Mock).mock.calls).toHaveLength(1);
-    expect((createClient as unknown as vi.Mock).mock.calls[0][0].peers).toEqual([]);
+    expect((createClient as unknown as vi.Mock).mock.calls).toHaveLength(0);
+    expect(useAppStore.getState().client?.config.peers).toEqual([]);
+    expect(useAppStore.getState().sessionReady).toBe(true);
     spy.mockRestore();
     delete (globalThis as any).__VH_E2E_OVERRIDE__;
   });
