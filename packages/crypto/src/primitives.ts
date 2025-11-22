@@ -22,7 +22,7 @@ function normalizeHashInput(input: HashInput): ArrayBuffer {
   }
 
   if (input instanceof ArrayBuffer) {
-    return input.slice(0);
+    return copyToArrayBuffer(input);
   }
 
   if (ArrayBuffer.isView(input)) {

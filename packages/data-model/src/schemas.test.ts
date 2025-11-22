@@ -42,6 +42,18 @@ describe('data-model schemas', () => {
     ).toThrow();
   });
 
+  it('rejects invalid message timestamp', () => {
+    expect(() =>
+      MessageSchema.parse({
+        id: '1',
+        timestamp: -1,
+        sender: 'pk',
+        content: 'cipher',
+        kind: 'text'
+      })
+    ).toThrow();
+  });
+
   it('rejects analysis with out-of-range sentiment score', () => {
     expect(() =>
       AnalysisSchema.parse({
@@ -52,6 +64,17 @@ describe('data-model schemas', () => {
         sentimentScore: -2,
         timestamp: Date.now()
       })
+    ).toThrow();
+  });
+
+  it('rejects signal missing required fields', () => {
+    expect(() =>
+      SignalSchema.parse({
+        topic_id: '',
+        analysis_id: '',
+        bias_vector: {},
+        weight: 'bad'
+      } as any)
     ).toThrow();
   });
 });

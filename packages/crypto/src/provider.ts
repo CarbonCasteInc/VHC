@@ -5,26 +5,18 @@ export interface CryptoProvider {
 
 let cachedProvider: CryptoProvider | null = null;
 
-function hasBrowserCrypto(candidate: unknown): candidate is CryptoProvider {
-  if (!candidate) return false;
-  if (typeof candidate !== 'object') return false;
-  return (
-    typeof (candidate as CryptoProvider).getRandomValues === 'function' &&
-    typeof (candidate as CryptoProvider).subtle !== 'undefined'
-  );
-}
-
 export async function getWebCrypto(): Promise<CryptoProvider> {
   if (cachedProvider) {
     return cachedProvider;
   }
 
-  const globalCrypto =
-    typeof globalThis !== 'undefined'
-      ? (globalThis as typeof globalThis & { crypto?: Crypto }).crypto
-      : undefined;
+  const globalCrypto = (globalThis as typeof globalThis & { crypto?: Crypto }).crypto;
 
-  if (globalCrypto && hasBrowserCrypto(globalCrypto)) {
+  if (
+    globalCrypto &&
+    typeof (globalCrypto as CryptoProvider).getRandomValues === 'function' &&
+    typeof (globalCrypto as CryptoProvider).subtle !== 'undefined'
+  ) {
     cachedProvider = globalCrypto as CryptoProvider;
     return cachedProvider;
   }
