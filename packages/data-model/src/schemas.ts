@@ -2,8 +2,8 @@ import { z } from 'zod';
 
 export const ProfileSchema = z.object({
   pubkey: z.string().min(1),
-  name: z.string().min(1),
-  bio: z.string().optional(),
+  username: z.string().min(3).max(30),
+  bio: z.string().max(140).optional(),
   avatarCid: z.string().optional()
 });
 
@@ -12,27 +12,21 @@ export const MessageSchema = z.object({
   timestamp: z.number().int().nonnegative(),
   sender: z.string().min(1),
   content: z.string().min(1),
-  kind: z.enum(['text', 'image'])
+  kind: z.enum(['text', 'image', 'system'])
 });
 
 export const AnalysisSchema = z.object({
+  canonicalId: z.string().min(1),
   summary: z.string().min(1),
   biases: z.array(z.string().min(1)),
   counterpoints: z.array(z.string().min(1)),
   sentimentScore: z.number().min(-1).max(1),
-  canonicalId: z.string().min(1)
+  timestamp: z.number().int().nonnegative()
 });
 
 export const SignalSchema = z.object({
   topic_id: z.string().min(1),
-  bias_vector: z.object({
-    point_id: z.string().min(1),
-    agreement: z.boolean()
-  }),
-  weight: z.number(),
-  constituency_proof: z.object({
-    district_hash: z.string().min(1),
-    nullifier: z.string().min(1),
-    merkle_root: z.string().min(1)
-  })
+  analysis_id: z.string().min(1),
+  bias_vector: z.record(z.boolean()),
+  weight: z.number()
 });
