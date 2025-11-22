@@ -40,8 +40,8 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
         await expect(currentStatus).toHaveText(/Status: complete/, { timeout: 30000 });
 
         // 6. Verify Result
-        await expect(page.getByText('Summary')).toBeVisible();
-        await expect(page.getByText('Biases')).toBeVisible();
+        await expect(page.getByText('Summary', { exact: true })).toBeVisible();
+        await expect(page.getByText('Biases', { exact: true })).toBeVisible();
 
         // 7. Verify Persistence (Reload)
         await page.reload();
