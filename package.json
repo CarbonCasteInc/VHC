@@ -9,9 +9,11 @@
     "vh": "pnpm --filter \"@vh/cli\" exec tsx src/index.ts",
     "test:quick": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:e2e": "pnpm --filter @vh/e2e test",
     "test:workflow": "act -j build-and-test",
     "deps:check": "madge --circular --extensions ts,tsx .",
-    "lint:loc": "./tools/scripts/check-loc.sh"
+    "lint:loc": "./tools/scripts/check-loc.sh",
+    "bundle:check": "node tools/scripts/check-bundle-size.js"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.4",
