@@ -38,10 +38,10 @@ class MockWorker implements Worker {
   postMessage(message: WorkerPayload) {
     if (message.type === 'LOAD_MODEL') {
       setTimeout(() => {
-        this.onmessage?.call(this as unknown as Worker, { data: { type: 'ready', modelId: message.modelId } } as MessageEvent<WorkerMessage>);
+        this.onmessage?.call(this as unknown as Worker, { data: { type: 'progress', progress: 25, message: 'Mock load...' } } as MessageEvent<WorkerMessage>);
       }, 20);
       setTimeout(() => {
-        this.onmessage?.call(this as unknown as Worker, { data: { type: 'progress', progress: 25, message: 'Mock load...' } } as MessageEvent<WorkerMessage>);
+        this.onmessage?.call(this as unknown as Worker, { data: { type: 'ready', modelId: message.modelId } } as MessageEvent<WorkerMessage>);
       }, 80);
     }
 

@@ -20,6 +20,10 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
     - *Impl*: Vitest excludes `packages/e2e`. Playwright runs separately.
 - **E2E Lazy Loading**: Heavy dependencies (e.g., WebLLM) must be lazy-loaded and mocked in E2E.
     - *Impl*: Check `VITE_E2E_MODE` to swap real workers for lightweight mocks.
+- **Mock Fidelity**: Mocks must simulate realistic timing and event ordering (e.g., `ready` is terminal).
+    - *Impl*: `setTimeout` sequences in mocks must match real lifecycle (no race conditions).
+- **True Offline Mode**: Offline mode must strictly disable *all* network attempts.
+    - *Impl*: No default peers/endpoints. If `peers: []` is passed, connection count must be 0.
 
 ### 2.3 Build Hygiene
 - **Strict Exclusion**: Production builds (`tsc`) must exclude test files.

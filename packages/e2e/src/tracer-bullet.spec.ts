@@ -30,7 +30,7 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
         await expect(page.getByText(/Peers: \d+/)).toBeVisible();
 
         // 4. Run Analysis
-        const analyzeBtn = page.getByText('Analyze demo');
+        const analyzeBtn = page.getByTestId('analyze-btn');
         await expect(analyzeBtn).toBeVisible();
         await analyzeBtn.click();
 

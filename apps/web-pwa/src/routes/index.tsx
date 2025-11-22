@@ -71,7 +71,7 @@ const HomeComponent = () => {
       try {
         const mod = await import('@vh/ai-engine/worker?worker');
         if (!cancelled) {
-          const WorkerCtor = (mod as any).default as { new (): Worker };
+          const WorkerCtor = (mod as any).default as { new(): Worker };
           setWorkerFactory(() => () => new WorkerCtor());
         }
       } catch (err) {
@@ -140,7 +140,7 @@ const HomeComponent = () => {
             />
             <Button
               type="submit"
-              onClick={() => {}}
+              onClick={() => { }}
               disabled={identityStatus === 'creating'}
               data-testid="create-identity-btn"
             >
@@ -163,7 +163,12 @@ const HomeComponent = () => {
             <Button variant="secondary" onClick={() => console.log('open settings')}>
               Open Settings
             </Button>
-            <Button variant="ghost" onClick={handleAnalyze} disabled={!client || status === 'generating' || status === 'loading'}>
+            <Button
+              variant="ghost"
+              onClick={handleAnalyze}
+              disabled={!client || status === 'generating' || status === 'loading'}
+              data-testid="analyze-btn"
+            >
               {status === 'generating' || status === 'loading' ? 'Analyzing…' : 'Analyze demo'}
             </Button>
             {status !== 'idle' && (

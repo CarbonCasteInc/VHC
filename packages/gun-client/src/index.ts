@@ -28,7 +28,7 @@ export interface VennClient {
 }
 
 function normalizePeers(peers?: string[]): string[] {
-  const list = peers && peers.length > 0 ? peers : DEFAULT_PEERS;
+  const list = peers !== undefined ? peers : DEFAULT_PEERS;
   return list.map((peer) => {
     const trimmed = peer.trim();
     if (trimmed.endsWith('/gun')) {

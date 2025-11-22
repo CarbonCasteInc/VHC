@@ -78,9 +78,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     try {
       const profile: Profile = {
         pubkey: randomId(),
-        username,
-        bio: undefined,
-        avatarCid: undefined
+        username
       };
       await client.user.write(profile);
       persistProfile(profile);
