@@ -2,7 +2,8 @@ import type { AttestationPayload, SessionResponse } from '@vh/types';
 
 export interface Session extends SessionResponse {}
 
-const DEFAULT_VERIFIER_URL = process.env.ATTESTATION_URL ?? 'http://localhost:3000/verify';
+const DEFAULT_VERIFIER_URL =
+  (import.meta as any).env?.ATTESTATION_URL ?? (typeof process !== 'undefined' ? process.env.ATTESTATION_URL : undefined) ?? 'http://localhost:3000/verify';
 
 export async function createSession(
   attestation: AttestationPayload,

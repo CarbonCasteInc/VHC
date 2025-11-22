@@ -9,12 +9,8 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
 
         // 1. Load App
         await page.goto('/');
-        try {
-            await expect(page.getByText('Hello Trinity')).toBeVisible({ timeout: 5000 });
-        } catch (e) {
-            fs.writeFileSync('page_dump.html', await page.content());
-            throw e;
-        }
+        await expect(page.getByText('Loading Mesh...')).toBeHidden({ timeout: 10000 });
+        await expect(page.getByText('Hello Trinity')).toBeVisible({ timeout: 5000 });
 
         // 2. Create Identity (Mock)
         // Note: Codex needs to implement this button with data-testid="create-identity-btn"

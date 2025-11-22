@@ -7,6 +7,10 @@ export default defineConfig({
   server: {
     host: true
   },
+  define: {
+    'process.env': {},
+    global: 'window'
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
