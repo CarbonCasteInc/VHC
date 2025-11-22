@@ -10,7 +10,7 @@
 - [ ] Zero-Trust & Forward Secrecy requirements captured in a visible checklist.
 - [ ] Local-First data plan documented (CRDT conflict policy, offline queues, hydration barrier).
 - [ ] AI-driven development guardrails codified (LOC caps, module boundaries, 200% coverage).
-- [ ] Vite + React + Node 20 + pnpm confirmed as the canonical toolchain.
+- [x] Vite + React + Node 20 + pnpm confirmed as the canonical toolchain.
 
 ---
 
@@ -33,8 +33,8 @@
 ## Phase 1: Repository & Infrastructure (Day 1-3)
 
 ### 1.1 Monorepo Scaffolding
-- [ ] **Init:** Initialize `pnpm` workspace with `apps/`, `packages/`, `services/`, `infra/`, `tools/`.
-- [ ] **Config:** Configure `tsconfig.base.json` (Strict Mode, no implicit any, no unchecked indexed access).
+- [x] **Init:** Initialize `pnpm` workspace with `apps/`, `packages/`, `services/`, `infra/`, `tools/`.
+- [x] **Config:** Configure `tsconfig.base.json` (Strict Mode, no implicit any, no unchecked indexed access).
 - [ ] **Linting:** Configure `eslint` with **custom rule** to warn at 250 LOC and fail at 350 LOC.
 - [ ] **Testing:** Configure `vitest` workspace-wide.
 - [ ] **Pre-commit:** Setup `husky` to run lint + test:quick on commit.
@@ -42,12 +42,12 @@
 - [ ] **Browser Discipline:** Add ESLint rule to forbid Node built-ins in `apps/*` + `packages/ui`.
 
 ### 1.2 The `vh` CLI (Developer Experience)
-- [ ] **Scaffold:** Create `tools/scripts/vh` entry point (Node.js CLI).
-- [ ] **Cmd:** Implement `vh bootstrap init` (Generate local secrets for MinIO/Turn/JWT).
-- [ ] **Cmd:** Implement `vh bootstrap up` (Docker Compose orchestration).
-- [ ] **Docker:** Create `infra/docker/docker-compose.yml` (MinIO, Gun-Relay, CoTURN, Aggregators).
-- [ ] **Cmd:** Implement `vh bootstrap check` to run TLS/TURN diagnostics defined in System Architecture §6.2.
-- [ ] **Cmd:** Add `vh dev` (stack + PWA) and `vh test:quick` wrappers.
+- [x] **Scaffold:** Create `tools/scripts/vh` entry point (Node.js CLI).
+- [x] **Cmd:** Implement `vh bootstrap init` (Generate local secrets for MinIO/Turn/JWT).
+- [x] **Cmd:** Implement `vh bootstrap up` (Docker Compose orchestration).
+- [x] **Docker:** Create `infra/docker/docker-compose.yml` (MinIO, Gun-Relay, CoTURN, Aggregators).
+- [x] **Cmd:** Implement `vh bootstrap check` to run TLS/TURN diagnostics defined in System Architecture §6.2.
+- [x] **Cmd:** Add `vh dev` (stack + PWA) and `vh test:quick` wrappers.
 
 ### 1.3 CI/CD Pipeline
 - [ ] **Workflow:** Create `.github/workflows/main.yml`.
@@ -64,23 +64,23 @@
 ## Phase 2: Core Packages & Identity (The Bedrock)
 
 ### 2.1 Core Libraries
-- [ ] **Types:** Create `packages/types` (Zod schemas & TS Interfaces).
-- [ ] **Crypto:** Create `packages/crypto` (E2EE primitives, wrappers for `window.crypto.subtle`).
-- [ ] **CRDT:** Create `packages/crdt` (Lamport, LWW, Vector Clocks).
+- [x] **Types:** Create `packages/types` (Zod schemas & TS Interfaces).
+- [x] **Crypto:** Create `packages/crypto` (E2EE primitives, wrappers for `window.crypto.subtle`).
+- [x] **CRDT:** Create `packages/crdt` (Lamport, LWW, Vector Clocks).
 - [ ] **Data:** Create `packages/data-model` (High-level Entities: Msg, Post).
-- [ ] **Gun Client:** Create `packages/gun-client` with hydration barrier + graph pruning scaffolding.
+- [x] **Gun Client:** Create `packages/gun-client` with hydration barrier + graph pruning scaffolding.
 
 ### 2.2 Hardware Attestation (The Root)
-- [ ] **Spec:** Define `AttestationPayload` interface in `packages/types`.
+- [x] **Spec:** Define `AttestationPayload` interface in `packages/types`.
 - [ ] **Native (iOS):** Implement Capacitor plugin stub for `DCAppAttestService` (Swift).
 - [ ] **Native (Android):** Implement Capacitor plugin stub for `KeyGenParameterSpec` (Kotlin).
-- [ ] **Service:** Build `services/attestation-verifier` (Rust/WASM) to verify Apple/Google cert chains.
+- [x] **Service:** Build `services/attestation-verifier` (Rust/WASM) to verify Apple/Google cert chains.
 - [ ] **Test:** Write `attestation.test.ts` using mock certificates.
 
 ### 2.3 LHID Core & Networking
-- [ ] **Graph:** Initialize `packages/gun-client` (Strict Isolation - The ONLY package importing `gun`).
+- [x] **Graph:** Initialize `packages/gun-client` (Strict Isolation - The ONLY package importing `gun`).
 - [ ] **Auth:** Implement `createSession(attestation)` -> returns `UniquenessNullifier`.
-- [ ] **Storage:** Implement `EncryptedStorageAdapter` (IndexedDB + WebCrypto).
+- [x] **Storage:** Implement `EncryptedStorageAdapter` (IndexedDB + WebCrypto).
 - [ ] **Outbox:** Scaffold offline queue + retry policy following Local-First mandate.
 - [ ] **Docs:** Capture hydration barrier and conflict resolution strategy (Lamport + LWW + CRDT sets) in `packages/crdt/README.md`.
 
@@ -90,12 +90,12 @@
 
 ## Phase 2.2: Guardian Node Deployment (Geekom)
 
-- [ ] **OS:** Ubuntu Server 24.04 installed & SSH secured.
-- [ ] **Deps:** Docker, Node 20, pnpm installed.
-- [ ] **Repo:** Cloned to `/opt/venn-hermes`.
-- [ ] **Secrets:** Production `.env` generated via `vh bootstrap init` (run with `--force` when rotating).
-- [ ] **Launch:** Stack running via `vh bootstrap up`.
-- [ ] **Verify:** MinIO (port 9001) and Traefik (port 8081) reachable from LAN clients; TURN (3478/udp) accessible through firewall.
+- [x] **OS:** Ubuntu Server 24.04 installed & SSH secured.
+- [x] **Deps:** Docker, Node 20, pnpm installed.
+- [x] **Repo:** Cloned to `/opt/venn-hermes`.
+- [x] **Secrets:** Production `.env` generated via `vh bootstrap init` (run with `--force` when rotating).
+- [x] **Launch:** Stack running via `vh bootstrap up`.
+- [x] **Verify:** MinIO (port 9001) and Traefik (port 8081) reachable from LAN clients; TURN (3478/udp) accessible through firewall.
 
 **DoD:** Guardian node advertises all services on the LAN, Docker containers stay healthy, and secrets are stored securely on the Geekom host.
 
@@ -104,15 +104,15 @@
 ## Phase 3: GWC (Economic Layer) Foundation
 
 ### 3.1 Contracts (Solidity)
-- [ ] **Env:** Setup Hardhat/Foundry in `packages/contracts`.
-- [ ] **Token:** Implement `RGU.sol` (ERC-20 with AccessControl).
-- [ ] **Oracle:** Implement `MedianOracle.sol` (Simple commit-reveal logic).
+- [x] **Env:** Setup Hardhat/Foundry in `packages/contracts`.
+- [x] **Token:** Implement `RGU.sol` (ERC-20 with AccessControl).
+- [x] **Oracle:** Implement `MedianOracle.sol` (Simple commit-reveal logic).
 - [ ] **Test:** 100% coverage for Token Mint/Burn and Oracle math.
 - [ ] **Audit Prep:** Document threat model + zero-trust assumptions for contracts.
 
 ### 3.2 Local Chain
-- [ ] **Script:** Update `vh bootstrap up` to spin up local Anvil node.
-- [ ] **Deploy:** Create deterministic deployment script for Genesis Block.
+- [x] **Script:** Update `vh bootstrap up` to spin up local Anvil node.
+- [x] **Deploy:** Create deterministic deployment script for Genesis Block.
 - [ ] **Monitor:** Add health-check endpoints consumed by `vh bootstrap check`.
 
 **DoD:** Local CLI can deploy contracts deterministically, emit events consumed by `packages/gun-client`, and all Solidity tests report 100% coverage.
@@ -124,19 +124,19 @@
 ### 4.1 VENN Client (Tauri/React)
 - [ ] **Shell:** Init Tauri app in `apps/desktop`.
 - [ ] **Shell:** Init Capacitor app in `apps/mobile`.
-- [ ] **Web:** Init React app in `apps/web-pwa`.
-- [ ] **UI:** Create `packages/ui` (Atomic Design Components).
-- [ ] **Stack:** Setup React + Vite + Tailwind + TanStack Router.
+- [x] **Web:** Init React app in `apps/web-pwa`.
+- [x] **UI:** Create `packages/ui` (Atomic Design Components).
+- [x] **Stack:** Setup React + Vite + Tailwind + TanStack Router.
 - [ ] **State:** Setup `Zustand` store connected to `@venn-hermes/gun-client`.
 - [ ] **Query:** Integrate TanStack Query for health checks + aggregator reads.
 - [ ] **Security:** Implement secure logout/wipe flow placeholder aligning with Milestone E goal.
 - [ ] **Accessibility:** Add axe-core smoke test to `pnpm test:quick`.
 
 ### 4.2 WebLLM Integration (The Nervous System)
-- [ ] **Engine:** Create `packages/ai-engine`.
-- [ ] **WASM:** Integrate `mlc-llm` WebLLM runtime.
-- [ ] **Worker:** Move AI inference to a Web Worker (off main thread).
-- [ ] **Prompt:** Port the "Bias Detection" prompt (from Python) to TypeScript template literals.
+- [x] **Engine:** Create `packages/ai-engine`.
+- [x] **WASM:** Integrate `mlc-llm` WebLLM runtime.
+- [x] **Worker:** Move AI inference to a Web Worker (off main thread).
+- [x] **Prompt:** Port the "Bias Detection" prompt (from Python) to TypeScript template literals.
 - [ ] **Privacy:** Ensure inference requests only operate on encrypted / local data blobs per System Architecture §2.
 
 **DoD:** Tauri/Capacitor/Web shells render initial navigation, can call into `@venn-hermes/gun-client`, and trigger a placeholder AI inference completed inside a Worker.
@@ -145,9 +145,8 @@
 
 ## Phase 5: Integration & Acceptance
 
-### 5.1 The "Tracer Bullet"
-- [ ] **E2E:** Create `packages/e2e` (Playwright Specs).
-- [ ] **Test:** Write a Playwright test that:
+- [x] **E2E:** Create `packages/e2e` (Playwright Specs).
+- [x] **Test:** Write a Playwright test that:
     1. Starts the stack (`vh bootstrap up`).
     2. Launches the Web App.
     3. Generates a (Mock) Attestation.
