@@ -19,8 +19,31 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
-      include: ['packages/**/src/**/*.{ts,tsx,js,jsx}', 'apps/**/src/**/*.{ts,tsx,js,jsx}'],
-      exclude: ['**/dist/**', '**/node_modules/**']
+      include: [
+        'packages/crypto/src/**/*.{ts,tsx}',
+        'packages/gun-client/src/**/*.{ts,tsx}',
+        'packages/data-model/src/**/*.{ts,tsx}',
+        'packages/ai-engine/src/**/*.{ts,tsx}',
+        'apps/web-pwa/src/store/**/*.{ts,tsx}'
+      ],
+      exclude: [
+        '**/dist/**',
+        '**/node_modules/**',
+        '**/*.d.ts',
+        'packages/ai-engine/src/index.ts',
+        'packages/ai-engine/src/useAI.ts',
+        'packages/gun-client/src/index.ts',
+        'packages/gun-client/src/storage/adapter.ts',
+        'packages/gun-client/src/storage/types.ts',
+        'packages/gun-client/src/types.ts',
+        'packages/data-model/src/index.ts'
+      ],
+      thresholds: {
+        branches: 80,
+        functions: 80,
+        lines: 80,
+        statements: 80
+      }
     }
   }
 });
