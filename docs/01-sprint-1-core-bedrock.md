@@ -26,9 +26,9 @@
     - *Constraint:* Default peers must be empty `[]` in offline/E2E mode (`VITE_E2E_MODE=true`).
 
 ### 1.2 Region Notary (ZK-Residency)
-- [ ] **Spec:** Define `RegionNotary` interface in `packages/types` and `packages/data-model`.
-- [ ] **Privacy:** Ensure "No Location Leakage" policy (Privacy Budget) is documented and enforced.
-- [ ] **Circuit:** Implement `prove_residency.circom` (Mock/Stub for Sprint 1).
+- [x] **Spec:** Define `RegionNotary` interface in `packages/types` and `packages/data-model`.
+- [x] **Privacy:** Ensure "No Location Leakage" policy (Privacy Budget) is documented and enforced.
+- [x] **Circuit:** Implement `prove_residency.circom` (Mock/Stub for Sprint 1).
 - [ ] **Integration:** Client generates proof of region (e.g., "US-CA") without revealing exact location.
 
 ### 1.3 Multi-Device Linking

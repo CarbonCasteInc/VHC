@@ -3,9 +3,11 @@ import {
   AttestationPayloadSchema,
   VerificationResultSchema,
   SessionResponseSchema,
+  RegionProofSchema,
   type AttestationPayload,
   type VerificationResult,
-  type SessionResponse
+  type SessionResponse,
+  type RegionProof
 } from './index';
 
 describe('types schemas', () => {
@@ -49,6 +51,26 @@ describe('types schemas', () => {
   it('rejects session response with low trust type', () => {
     expect(() =>
       SessionResponseSchema.parse({ token: '', trustScore: -1, nullifier: '' })
+    ).toThrow();
+  });
+
+  it('validates region proof', () => {
+    expect(() =>
+      RegionProofSchema.parse({
+        proof: 'base64-proof',
+        publicSignals: ['district-hash', 'nullifier'],
+        timestamp: Date.now()
+      })
+    ).not.toThrow();
+  });
+
+  it('rejects region proof with empty signals or negative timestamp', () => {
+    expect(() =>
+      RegionProofSchema.parse({
+        proof: '',
+        publicSignals: [],
+        timestamp: -10
+      })
     ).toThrow();
   });
 });

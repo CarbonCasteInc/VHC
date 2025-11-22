@@ -19,6 +19,12 @@ export interface SessionResponse {
   nullifier: string;
 }
 
+export interface RegionProof {
+  proof: string;
+  publicSignals: string[];
+  timestamp: number;
+}
+
 export const AttestationPayloadSchema = z.object({
   platform: z.enum(['ios', 'android', 'web']),
   integrityToken: z.string().min(1),
@@ -36,6 +42,12 @@ export const SessionResponseSchema = z.object({
   token: z.string().min(1),
   trustScore: z.number().min(0).max(1),
   nullifier: z.string().min(1)
+});
+
+export const RegionProofSchema = z.object({
+  proof: z.string().min(1),
+  publicSignals: z.array(z.string().min(1)).min(1),
+  timestamp: z.number().int().nonnegative()
 });
 
 export type UniquenessNullifier = string;
