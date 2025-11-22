@@ -1,8 +1,10 @@
 import { createRootRoute, createRoute, Outlet } from '@tanstack/react-router';
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@vh/ui';
 import { createClient } from '@vh/gun-client';
-import { useAI } from '@vh/ai-engine';
+import { useAI, type AnalysisResult } from '@vh/ai-engine';
+import AIWorker from '@vh/ai-engine/worker?worker';
+import { useIdentity } from '../hooks/useIdentity';
 
 const vennClient = createClient({ peers: ['http://localhost:7777/gun'] });
 
@@ -27,57 +29,119 @@ const RootComponent = () => (
 );
 
 const HomeComponent = () => {
+  const { identity, status: identityStatus, createIdentity, error: identityError } = useIdentity();
   const {
     state: { status, progress, result, message },
     analyze,
     reset
-  } = useAI();
+  } = useAI({
+    workerFactory: () => new AIWorker(),
+  });
+
+  const [history, setHistory] = useState<AnalysisResult[]>(() => {
+    try {
+      const raw = localStorage.getItem('vh_analysis_history');
+      return raw ? (JSON.parse(raw) as AnalysisResult[]) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    if (result) {
+      setHistory((prev) => {
+        const next = [result, ...prev].slice(0, 5);
+        localStorage.setItem('vh_analysis_history', JSON.stringify(next));
+        return next;
+      });
+    }
+  }, [result]);
 
   const handleAnalyze = () => {
     const demo = `A local-first stack powers civic analysis. The system processes text on-device to surface bias and provide balanced counterpoints.`;
+    if (!identity) return;
     analyze(demo);
   };
 
   return (
     <section className="space-y-4">
       <p className="text-lg text-slate-700">Your Guardian Node stack is live. Next: hydrate the graph and start composing signals.</p>
-      <div className="flex gap-3">
-        <Button onClick={() => console.log('bootstrap mesh')}>Bootstrap Mesh</Button>
-        <Button variant="secondary" onClick={() => console.log('open settings')}>
-          Open Settings
-        </Button>
-        <Button variant="ghost" onClick={handleAnalyze} disabled={status === 'generating' || status === 'loading'}>
-          {status === 'generating' || status === 'loading' ? 'Analyzing…' : 'Analyze demo'}
-        </Button>
-        {status !== 'idle' && (
-          <Button variant="ghost" onClick={reset}>
-            Reset
-          </Button>
-        )}
-      </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="flex items-center justify-between text-sm text-slate-600">
-          <span>Status: {status}</span>
-          <span>Progress: {progress}%</span>
-        </div>
-        {message && <p className="mt-2 text-sm text-slate-600">{message}</p>}
-        {result && (
-          <div className="mt-4 space-y-2">
-            <p className="font-semibold text-slate-900">Summary</p>
-            <p className="text-sm text-slate-700">{result.summary}</p>
-            <p className="font-semibold text-slate-900">Biases</p>
-            <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700">
-              {result.biases.map((bias, idx) => (
-                <li key={idx}>
-                  <span className="font-medium text-slate-900">{bias}</span>
-                  {result.counterpoints[idx] && <span className="text-slate-600"> · Counterpoint: {result.counterpoints[idx]}</span>}
-                </li>
-              ))}
-            </ul>
+      {!identity && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-slate-800">
+          <p className="font-semibold">Welcome to TRINITY</p>
+          <p className="text-sm text-amber-800">No identity found. Create a local identity to join the mesh.</p>
+          <div className="mt-3 flex gap-3">
+            <Button onClick={() => createIdentity()} disabled={identityStatus === 'creating'}>
+              {identityStatus === 'creating' ? 'Creating…' : 'Create Identity'}
+            </Button>
+            {identityError && <span className="text-xs text-red-700">{identityError}</span>}
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {identity && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 text-sm text-slate-600">
+            <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-700">Connected to mesh</span>
+            <span className="text-slate-500">Identity: {identity.id.slice(0, 8)}…</span>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Button onClick={() => console.log('bootstrap mesh')}>Bootstrap Mesh</Button>
+            <Button variant="secondary" onClick={() => console.log('open settings')}>
+              Open Settings
+            </Button>
+            <Button variant="ghost" onClick={handleAnalyze} disabled={status === 'generating' || status === 'loading'}>
+              {status === 'generating' || status === 'loading' ? 'Analyzing…' : 'Analyze demo'}
+            </Button>
+            {status !== 'idle' && (
+              <Button variant="ghost" onClick={reset}>
+                Reset
+              </Button>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-center justify-between text-sm text-slate-600">
+              <span>Status: {status}</span>
+              <span>Progress: {progress}%</span>
+            </div>
+            {message && <p className="mt-2 text-sm text-slate-600">{message}</p>}
+            {result && (
+              <div className="mt-4 space-y-2">
+                <p className="font-semibold text-slate-900">Summary</p>
+                <p className="text-sm text-slate-700">{result.summary}</p>
+                <p className="font-semibold text-slate-900">Biases</p>
+                <ul className="list-disc space-y-1 pl-4 text-sm text-slate-700">
+                  {result.biases.map((bias, idx) => (
+                    <li key={idx}>
+                      <span className="font-medium text-slate-900">{bias}</span>
+                      {result.counterpoints[idx] && (
+                        <span className="text-slate-600"> · Counterpoint: {result.counterpoints[idx]}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {history.length > 0 && (
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <p className="font-semibold text-slate-900">Recent Analyses</p>
+              <ul className="mt-2 space-y-2 text-sm text-slate-700">
+                {history.map((entry, idx) => (
+                  <li key={idx} className="rounded border border-slate-100 bg-slate-50 p-2">
+                    <p className="font-medium text-slate-900">{entry.summary}</p>
+                    <p className="text-slate-600">Biases: {entry.biases.join(' · ')}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </section>
   );
 };

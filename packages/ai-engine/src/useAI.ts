@@ -30,17 +30,18 @@ export interface UseAIOptions {
 
 const DEFAULT_MODEL_ID = 'Llama-3-8B-Instruct-q4f32_1-MLC';
 
-class MockWorker {
-  onmessage: ((event: MessageEvent<WorkerMessage>) => void) | null = null;
-  onerror: ((event: Event) => void) | null = null;
+class MockWorker implements Worker {
+  onmessage: ((this: Worker, ev: MessageEvent<WorkerMessage>) => any) | null = null;
+  onmessageerror: ((this: Worker, ev: MessageEvent) => any) | null = null;
+  onerror: ((this: AbstractWorker, ev: ErrorEvent) => any) | null = null;
 
   postMessage(message: WorkerPayload) {
     if (message.type === 'LOAD_MODEL') {
       setTimeout(() => {
-        this.onmessage?.({ data: { type: 'ready', modelId: message.modelId } } as MessageEvent<WorkerMessage>);
+        this.onmessage?.call(this as unknown as Worker, { data: { type: 'ready', modelId: message.modelId } } as MessageEvent<WorkerMessage>);
       }, 20);
       setTimeout(() => {
-        this.onmessage?.({ data: { type: 'progress', progress: 25, message: 'Mock load...' } } as MessageEvent<WorkerMessage>);
+        this.onmessage?.call(this as unknown as Worker, { data: { type: 'progress', progress: 25, message: 'Mock load...' } } as MessageEvent<WorkerMessage>);
       }, 80);
     }
 
@@ -54,7 +55,7 @@ class MockWorker {
           counterpoints: ['N/A'],
           confidence: 0.5
         };
-        this.onmessage?.({ data: { type: 'result', result: mock, raw: JSON.stringify(mock) } } as MessageEvent<WorkerMessage>);
+        this.onmessage?.call(this as unknown as Worker, { data: { type: 'result', result: mock, raw: JSON.stringify(mock) } } as MessageEvent<WorkerMessage>);
       }, 200);
     }
   }
@@ -63,15 +64,17 @@ class MockWorker {
     /* noop */
   }
 
-  addEventListener() {
+  addEventListener<K extends keyof WorkerEventMap>(type: K, listener: (this: Worker, ev: WorkerEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void {
     /* noop */
   }
 
-  removeEventListener() {
+  removeEventListener<K extends keyof WorkerEventMap>(type: K, listener: (this: Worker, ev: WorkerEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void {
     /* noop */
   }
 
-  dispatchEvent(): boolean {
+  dispatchEvent(event: Event): boolean {
     return true;
   }
 }
