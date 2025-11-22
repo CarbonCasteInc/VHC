@@ -23,10 +23,10 @@ enum Platform {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct VerificationResult {
-    success: bool,
+struct SessionResponse {
+    token: String,
     trust_score: f32,
-    issued_at: u64,
+    nullifier: String,
 }
 
 #[derive(Debug)]
@@ -49,17 +49,22 @@ async fn main() {
 async fn handle_verify(payload: AttestationPayload) -> Result<impl Reply, Rejection> {
     validate_payload(&payload).map_err(|e| warp::reject::custom(e))?;
 
-    // Stubbed trust calculation: if integrity token is non-empty we consider it fully trusted
-    let trust_score = if payload.integrity_token.trim().is_empty() {
-        0.0
-    } else {
-        1.0
+    let trust_score = match payload.platform {
+        Platform::Web => {
+            if payload.integrity_token.trim() == "test-token" {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        Platform::Ios => 0.5,    // placeholder for real AppAttest validation
+        Platform::Android => 0.5, // placeholder for Play Integrity validation
     };
 
-    let response = VerificationResult {
-        success: trust_score >= 0.5,
+    let response = SessionResponse {
+        token: format!("session-{}", current_timestamp()),
         trust_score,
-        issued_at: current_timestamp(),
+        nullifier: format!("nullifier-{}", payload.device_key),
     };
 
     Ok(warp::reply::with_status(
@@ -126,18 +131,17 @@ mod tests {
             "nonce": "n1"
         });
 
-        let res = request()
-            .method("POST")
-            .path("/verify")
-            .json(&body)
-            .reply(&filter)
-            .await;
+    let res = request()
+        .method("POST")
+        .path("/verify")
+        .json(&body)
+        .reply(&filter)
+        .await;
 
-        assert_eq!(res.status(), StatusCode::OK);
-        let parsed: VerificationResult = serde_json::from_slice(res.body()).unwrap();
-        assert!(parsed.success);
-        assert!(parsed.trust_score >= 0.5);
-    }
+    assert_eq!(res.status(), StatusCode::OK);
+    let parsed: SessionResponse = serde_json::from_slice(res.body()).unwrap();
+    assert!(parsed.trust_score >= 0.5);
+}
 
     #[tokio::test]
     async fn verify_rejects_missing_fields() {

@@ -3,6 +3,7 @@ import type { StorageAdapter } from './storage/types';
 export interface VennClientConfig {
   peers?: string[];
   storage?: StorageAdapter;
+  requireSession?: boolean;
 }
 
 export interface Namespace<T = unknown> {
