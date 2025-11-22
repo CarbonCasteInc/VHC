@@ -9,21 +9,23 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
 
 ## 2. CI/CD & Tooling Guardrails
 
-### 2.1 Dependency Management
+### 2.1 Dependency & Type Hygiene
 - **Single Source of Truth**: `package.json` defines `packageManager`. CI uses `pnpm/action-setup` (no version arg).
+- **Type Isolation**:
+    - **Pinning**: Root `package.json` must use `pnpm.overrides` to force a single version of `@types/node` and other conflicting globals.
+    - **Leaf Isolation**: Pure data/logic packages (`types`, `crdt`) must strictly limit global types in `tsconfig.json` (e.g., `"types": []` or `"types": ["node"]`) to prevent pollution from test runners.
 
 ### 2.2 Testing Discipline
 - **Source-Based Testing**: Unit tests (`test:quick`) run against `src/`, not `dist/`.
     - *Impl*: `vitest.config.ts` aliases `@vh/*` -> `./packages/*/src`.
-    - *Impl*: Internal packages export `src/index.ts` for dev tools.
 - **Segmentation**: Unit (Vitest) and E2E (Playwright) never overlap.
-    - *Impl*: Vitest excludes `packages/e2e`. Playwright runs separately.
-- **E2E Lazy Loading**: Heavy dependencies (e.g., WebLLM) must be lazy-loaded and mocked in E2E.
-    - *Impl*: Check `VITE_E2E_MODE` to swap real workers for lightweight mocks.
-- **Mock Fidelity**: Mocks must simulate realistic timing and event ordering (e.g., `ready` is terminal).
-    - *Impl*: `setTimeout` sequences in mocks must match real lifecycle (no race conditions).
-- **True Offline Mode**: Offline mode must strictly disable *all* network attempts.
-    - *Impl*: No default peers/endpoints. If `peers: []` is passed, connection count must be 0.
+    - *Impl*: Vitest excludes `packages/e2e`. Playwright runs separately against a built preview.
+- **True Offline Mode (The Short-Circuit)**:
+    - **Rule**: E2E tests must not just "configure" network down; they must **bypass initialization** of heavy I/O subsystems entirely.
+    - *Impl*: App State must detect `VITE_E2E_MODE` and inject **Full Mocks** (not just empty configs) for Gun, WebLLM, and Auth. No WebSocket or WASM initialization allowed in Playwright.
+- **Runtime Compatibility**:
+    - **Rule**: Legacy libs accessing `process` or `global` must be stubbed at the Bundler level, not the Code level.
+    - *Impl*: `vite.config.ts` uses `define: { 'process.env': {}, global: 'window' }` to satisfy strict browser environments without polyfilling Node core.
 
 ### 2.3 Build Hygiene
 - **Strict Exclusion**: Production builds (`tsc`) must exclude test files.
