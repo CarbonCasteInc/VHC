@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::env;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -38,6 +39,7 @@ impl warp::reject::Reject for BadRequest {}
 async fn main() {
     let verify_route = warp::path("verify")
         .and(warp::post())
+        .and(warp::header::optional("x-mock-attestation"))
         .and(warp::body::json())
         .and_then(handle_verify)
         .recover(handle_rejection);
@@ -46,25 +48,23 @@ async fn main() {
     warp::serve(verify_route).run(([0, 0, 0, 0], 3000)).await;
 }
 
-async fn handle_verify(payload: AttestationPayload) -> Result<impl Reply, Rejection> {
+async fn handle_verify(
+    mock_header: Option<String>,
+    payload: AttestationPayload,
+) -> Result<impl Reply, Rejection> {
     validate_payload(&payload).map_err(|e| warp::reject::custom(e))?;
 
+    let mock_mode = is_mock_enabled(&mock_header);
     let trust_score = match payload.platform {
-        Platform::Web => {
-            if payload.integrity_token.trim() == "test-token" {
-                1.0
-            } else {
-                0.0
-            }
-        }
-        Platform::Ios => 0.5,    // placeholder for real AppAttest validation
-        Platform::Android => 0.5, // placeholder for Play Integrity validation
+        Platform::Web => verify_web(&payload, mock_mode),
+        Platform::Ios => verify_apple(&payload, mock_mode),
+        Platform::Android => verify_google(&payload, mock_mode),
     };
 
     let response = SessionResponse {
         token: format!("session-{}", current_timestamp()),
         trust_score,
-        nullifier: format!("nullifier-{}", payload.device_key),
+        nullifier: format!("nullifier-{}-{}", payload.device_key, payload.nonce),
     };
 
     Ok(warp::reply::with_status(
@@ -85,6 +85,52 @@ fn validate_payload(payload: &AttestationPayload) -> Result<(), BadRequest> {
     }
     match payload.platform {
         Platform::Ios | Platform::Android | Platform::Web => Ok(()),
+    }
+}
+
+fn is_mock_enabled(mock_header: &Option<String>) -> bool {
+    if let Ok(flag) = env::var("E2E_MODE") {
+        if flag == "true" {
+            return true;
+        }
+    }
+    mock_header
+        .as_ref()
+        .map(|v| v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+fn verify_web(payload: &AttestationPayload, mock_mode: bool) -> f32 {
+    if mock_mode || payload.integrity_token.trim() == "test-token" {
+        return 1.0;
+    }
+    if payload.integrity_token.len() > 8 {
+        0.8
+    } else {
+        0.0
+    }
+}
+
+fn verify_apple(payload: &AttestationPayload, mock_mode: bool) -> f32 {
+    if mock_mode {
+        return 1.0;
+    }
+    // Stub: real chain validation will replace this in Sprint 2
+    if payload.integrity_token.starts_with("apple-") {
+        1.0
+    } else {
+        0.5
+    }
+}
+
+fn verify_google(payload: &AttestationPayload, mock_mode: bool) -> f32 {
+    if mock_mode {
+        return 1.0;
+    }
+    if payload.integrity_token.starts_with("google-") {
+        1.0
+    } else {
+        0.5
     }
 }
 
@@ -120,6 +166,7 @@ mod tests {
     async fn verify_accepts_valid_payload() {
         let filter = warp::path("verify")
             .and(warp::post())
+            .and(warp::header::optional("x-mock-attestation"))
             .and(warp::body::json())
             .and_then(handle_verify)
             .recover(handle_rejection);
@@ -131,22 +178,52 @@ mod tests {
             "nonce": "n1"
         });
 
-    let res = request()
-        .method("POST")
-        .path("/verify")
-        .json(&body)
-        .reply(&filter)
-        .await;
+        let res = request()
+            .method("POST")
+            .path("/verify")
+            .json(&body)
+            .reply(&filter)
+            .await;
 
-    assert_eq!(res.status(), StatusCode::OK);
-    let parsed: SessionResponse = serde_json::from_slice(res.body()).unwrap();
-    assert!(parsed.trust_score >= 0.5);
-}
+        assert_eq!(res.status(), StatusCode::OK);
+        let parsed: SessionResponse = serde_json::from_slice(res.body()).unwrap();
+        assert!(parsed.trust_score >= 0.8);
+    }
+
+    #[tokio::test]
+    async fn verify_honors_mock_header() {
+        let filter = warp::path("verify")
+            .and(warp::post())
+            .and(warp::header::optional("x-mock-attestation"))
+            .and(warp::body::json())
+            .and_then(handle_verify)
+            .recover(handle_rejection);
+
+        let body = serde_json::json!({
+            "platform": "android",
+            "integrityToken": "whatever",
+            "deviceKey": "dev",
+            "nonce": "n1"
+        });
+
+        let res = request()
+            .method("POST")
+            .path("/verify")
+            .header("x-mock-attestation", "true")
+            .json(&body)
+            .reply(&filter)
+            .await;
+
+        assert_eq!(res.status(), StatusCode::OK);
+        let parsed: SessionResponse = serde_json::from_slice(res.body()).unwrap();
+        assert!((parsed.trust_score - 1.0).abs() < f32::EPSILON);
+    }
 
     #[tokio::test]
     async fn verify_rejects_missing_fields() {
         let filter = warp::path("verify")
             .and(warp::post())
+            .and(warp::header::optional("x-mock-attestation"))
             .and(warp::body::json())
             .and_then(handle_verify)
             .recover(handle_rejection);

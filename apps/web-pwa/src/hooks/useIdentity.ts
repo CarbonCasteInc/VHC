@@ -1,16 +1,22 @@
+import { useCallback, useEffect, useState } from 'react';
+import type { AttestationPayload } from '@vh/types';
+import { createSession } from '@vh/gun-client';
+
 const IDENTITY_KEY = 'vh_identity';
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
+const ATTESTATION_URL =
+  (import.meta as any).env?.VITE_ATTESTATION_URL ?? 'http://localhost:3000/verify';
 
 export type IdentityStatus = 'anonymous' | 'creating' | 'ready' | 'error';
 
 export interface IdentityRecord {
   id: string;
   createdAt: number;
-  attestation: {
-    platform: 'web';
-    integrityToken: string;
-    deviceKey: string;
-    nonce: string;
+  attestation: AttestationPayload;
+  session: {
+    token: string;
+    trustScore: number;
+    nullifier: string;
   };
 }
 
@@ -43,15 +49,20 @@ export function useIdentity() {
   const createIdentity = useCallback(async () => {
     try {
       setStatus('creating');
+      const attestation = buildAttestation();
+      const session = E2E_MODE
+        ? { token: 'mock-session', trustScore: 1, nullifier: 'mock-nullifier' }
+        : await createSession(attestation, ATTESTATION_URL);
+
+      if (session.trustScore < 0.5) {
+        throw new Error('Security Error: Low Trust Device');
+      }
+
       const record: IdentityRecord = {
         id: randomToken(),
         createdAt: Date.now(),
-        attestation: {
-          platform: 'web',
-          integrityToken: randomToken(),
-          deviceKey: randomToken(),
-          nonce: randomToken()
-        }
+        attestation,
+        session
       };
       persistIdentity(record);
       setIdentity(record);
@@ -76,4 +87,21 @@ export function useIdentity() {
     createIdentity
   };
 }
-import { useCallback, useEffect, useState } from 'react';
+
+function buildAttestation(): AttestationPayload {
+  if (E2E_MODE) {
+    return {
+      platform: 'web',
+      integrityToken: 'test-token',
+      deviceKey: 'mock-device',
+      nonce: 'mock-nonce'
+    };
+  }
+
+  return {
+    platform: 'web',
+    integrityToken: randomToken(),
+    deviceKey: randomToken(),
+    nonce: randomToken()
+  };
+}
