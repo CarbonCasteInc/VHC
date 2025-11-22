@@ -3,7 +3,7 @@ import { createClient, type VennClient } from '@vh/gun-client';
 import type { Profile } from '@vh/data-model';
 
 const PROFILE_KEY = 'vh_profile';
-const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
+const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
 
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
 
@@ -37,6 +37,14 @@ function randomId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+export function isE2EMode(): boolean {
+  const override = (globalThis as any)[E2E_OVERRIDE_KEY];
+  if (typeof override === 'boolean') {
+    return override;
+  }
+  return (import.meta as any).env?.VITE_E2E_MODE === 'true';
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   client: null,
   profile: null,
@@ -47,7 +55,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ initializing: true, error: undefined });
     try {
       const client = createClient({
-        peers: E2E_MODE ? [] : ['http://localhost:7777/gun']
+        peers: isE2EMode() ? [] : ['http://localhost:7777/gun']
       });
       await client.hydrationBarrier.prepare();
       const profile = loadProfile();

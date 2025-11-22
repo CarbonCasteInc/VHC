@@ -15,6 +15,12 @@ export default defineConfig({
       'apps/**/src/**/*.{test,spec}.{ts,tsx,js,jsx}'
     ],
     exclude: ['packages/e2e/**', '**/node_modules/**', '**/dist/**'],
-    watch: false
+    watch: false,
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'lcov'],
+      include: ['packages/**/src/**/*.{ts,tsx,js,jsx}', 'apps/**/src/**/*.{ts,tsx,js,jsx}'],
+      exclude: ['**/dist/**', '**/node_modules/**']
+    }
   }
 });
