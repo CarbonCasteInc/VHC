@@ -32,3 +32,6 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
 - **Strict Exclusion**: Production builds (`tsc`) must exclude test files.
     - *Impl*: `tsconfig.json` excludes `src/**/*.test.ts`.
 - **Browser-Safe Dependencies**: Packages consumed by the web app must avoid Node core modules (e.g., `crypto`, `node:` imports) and expose browser-safe entrypoints. Use pure JS implementations for hashing/utility functions or ship explicit browser bundles to prevent bundler externalization errors.
+- **Bundle Budget**:
+    - **Initial Load**: Critical-path bundles must be < **1 MiB gzip**.
+    - **Lazy AI/WASM Assets**: Allowed up to **10 MiB gzip** if **lazy-loaded** and **cached by the Service Worker** to avoid re-downloads. Initial route render must not block on these assets.
