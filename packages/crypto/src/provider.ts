@@ -21,7 +21,17 @@ export async function getWebCrypto(): Promise<CryptoProvider> {
     return cachedProvider;
   }
 
-  const nodeCrypto = await import('node:crypto');
-  cachedProvider = nodeCrypto.webcrypto as unknown as CryptoProvider;
-  return cachedProvider;
+  const isNode =
+    typeof process !== 'undefined' &&
+    typeof process.versions === 'object' &&
+    typeof (process.versions as Record<string, unknown>).node === 'string';
+
+  if (isNode) {
+    const moduleId = 'node:crypto';
+    const nodeCrypto = await import(/* @vite-ignore */ moduleId);
+    cachedProvider = nodeCrypto.webcrypto as unknown as CryptoProvider;
+    return cachedProvider;
+  }
+
+  throw new Error('WebCrypto is not available in this environment');
 }

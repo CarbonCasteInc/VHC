@@ -11,6 +11,9 @@ export default defineConfig({
     'process.env': {},
     global: 'window'
   },
+  worker: {
+    format: 'es'
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
