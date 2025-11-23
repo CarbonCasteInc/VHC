@@ -1,4 +1,3 @@
-import { createHash } from 'crypto';
 import type { AnalysisResult } from './prompts';
 
 export interface CanonicalAnalysis extends AnalysisResult {
@@ -13,8 +12,19 @@ export interface AnalysisStore {
   listRecent(limit?: number): Promise<CanonicalAnalysis[]>;
 }
 
+function toHex(value: number) {
+  return value.toString(16).padStart(8, '0');
+}
+
+// Lightweight FNV-1a hash to keep the function sync and browser-friendly.
 export function hashUrl(url: string): string {
-  return createHash('sha256').update(url.trim().toLowerCase()).digest('hex');
+  const normalized = url.trim().toLowerCase();
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < normalized.length; i++) {
+    hash ^= normalized.charCodeAt(i);
+    hash = (hash * 0x01000193) >>> 0;
+  }
+  return toHex(hash);
 }
 
 export async function getOrGenerate(
