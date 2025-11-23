@@ -79,8 +79,8 @@
 - [ ] **Storage:** Persist decay state locally to ensure idempotent application across sessions.
 
 ### 3.3 UI Polish & Integration
-- [ ] **Feed:** Create a "News Feed" view showing recent Canonical Analyses.
-- [ ] **Wallet:** Create a "Wallet" view showing RGU balance and UBE claim status.
+- [x] **Feed:** Create a "News Feed" view showing recent Canonical Analyses.
+- [x] **Wallet:** Create a "Wallet" view showing RGU balance and UBE claim status.
 - [ ] **Performance:** Enforce Bundle Budget (≤ 1 MiB gz) and Lighthouse Perf ≥ 90.
 
 **DoD:** User can paste a URL, generate/view an Analysis (local inference), and see it appear in the global feed. UI meets performance budgets.

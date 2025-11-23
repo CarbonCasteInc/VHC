@@ -6,7 +6,9 @@
   "scripts": {
     "build": "hardhat compile",
     "test": "hardhat test",
-    "deploy:localhost": "hardhat run scripts/deploy.ts --network localhost"
+    "deploy:localhost": "hardhat run scripts/deploy.ts --network localhost",
+    "deploy:testnet:sepolia": "hardhat run scripts/deploy-testnet.ts --network sepolia",
+    "deploy:testnet:base": "hardhat run scripts/deploy-testnet.ts --network baseSepolia"
   },
   "license": "UNLICENSED",
   "devDependencies": {

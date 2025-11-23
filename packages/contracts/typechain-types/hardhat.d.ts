@@ -54,13 +54,37 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IERC165__factory>;
     getContractFactory(
+      name: "Math",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Math__factory>;
+    getContractFactory(
+      name: "Faucet",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.Faucet__factory>;
+    getContractFactory(
+      name: "IMintableToken",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IMintableToken__factory>;
+    getContractFactory(
       name: "MedianOracle",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.MedianOracle__factory>;
     getContractFactory(
+      name: "QuadraticFunding",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.QuadraticFunding__factory>;
+    getContractFactory(
       name: "RGU",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.RGU__factory>;
+    getContractFactory(
+      name: "IMintableERC20",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.IMintableERC20__factory>;
+    getContractFactory(
+      name: "UBE",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.UBE__factory>;
 
     getContractAt(
       name: "AccessControl",
@@ -113,15 +137,45 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.IERC165>;
     getContractAt(
+      name: "Math",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Math>;
+    getContractAt(
+      name: "Faucet",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.Faucet>;
+    getContractAt(
+      name: "IMintableToken",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IMintableToken>;
+    getContractAt(
       name: "MedianOracle",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.MedianOracle>;
     getContractAt(
+      name: "QuadraticFunding",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.QuadraticFunding>;
+    getContractAt(
       name: "RGU",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.RGU>;
+    getContractAt(
+      name: "IMintableERC20",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.IMintableERC20>;
+    getContractAt(
+      name: "UBE",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.UBE>;
 
     deployContract(
       name: "AccessControl",
@@ -164,13 +218,37 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IERC165>;
     deployContract(
+      name: "Math",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Math>;
+    deployContract(
+      name: "Faucet",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Faucet>;
+    deployContract(
+      name: "IMintableToken",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMintableToken>;
+    deployContract(
       name: "MedianOracle",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MedianOracle>;
     deployContract(
+      name: "QuadraticFunding",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.QuadraticFunding>;
+    deployContract(
       name: "RGU",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.RGU>;
+    deployContract(
+      name: "IMintableERC20",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMintableERC20>;
+    deployContract(
+      name: "UBE",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.UBE>;
 
     deployContract(
       name: "AccessControl",
@@ -223,15 +301,45 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IERC165>;
     deployContract(
+      name: "Math",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Math>;
+    deployContract(
+      name: "Faucet",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.Faucet>;
+    deployContract(
+      name: "IMintableToken",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMintableToken>;
+    deployContract(
       name: "MedianOracle",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MedianOracle>;
     deployContract(
+      name: "QuadraticFunding",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.QuadraticFunding>;
+    deployContract(
       name: "RGU",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.RGU>;
+    deployContract(
+      name: "IMintableERC20",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.IMintableERC20>;
+    deployContract(
+      name: "UBE",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.UBE>;
 
     // default types
     getContractFactory(
