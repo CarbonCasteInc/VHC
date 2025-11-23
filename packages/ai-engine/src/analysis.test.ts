@@ -24,6 +24,10 @@ describe('analysis first-to-file', () => {
     expect(a).toBe(b);
   });
 
+  it('hashes empty/whitespace consistently', () => {
+    expect(hashUrl('  ')).toBe(hashUrl(''));
+  });
+
   it('returns existing analysis without regenerating', async () => {
     const store = new MemoryStore();
     const url = 'https://example.com/post';

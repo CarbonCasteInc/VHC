@@ -35,4 +35,22 @@ describe('civic decay', () => {
     expect(third.interactions).toBe(3);
     expect(third.lastUpdated).toBe(3);
   });
+
+  it('persists and reloads state', () => {
+    const storage = new MemoryStorage();
+    applyDecay({ topicId: 'topic', weight: 1, timestamp: 1 }, storage);
+    const persisted = getDecayState(storage);
+    expect(Object.keys(persisted)).toContain('topic');
+    expect(persisted.topic.weight).toBe(1);
+  });
+
+  it('returns empty state if storage read fails', () => {
+    const storage = {
+      getItem: () => {
+        throw new Error('broken');
+      },
+      setItem: () => {}
+    };
+    expect(getDecayState(storage as any)).toEqual({});
+  });
 });

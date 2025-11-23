@@ -14,6 +14,7 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
 - **Type Isolation**:
     - **Pinning**: Root `package.json` must use `pnpm.overrides` to force a single version of `@types/node` and other conflicting globals.
     - **Leaf Isolation**: Pure data/logic packages (`types`, `crdt`) must strictly limit global types in `tsconfig.json` (e.g., `"types": []` or `"types": ["node"]`) to prevent pollution from test runners.
+- **Lockstep Updates**: Adding or changing workspace packages requires regenerating `pnpm-lock.yaml` with `pnpm install`; choose published versions only. CI uses `--frozen-lockfile` and will fail otherwise.
 
 ### 2.2 Testing Discipline
 - **Source-Based Testing**: Unit tests (`test:quick`) run against `src/`, not `dist/`.
@@ -30,3 +31,4 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
 ### 2.3 Build Hygiene
 - **Strict Exclusion**: Production builds (`tsc`) must exclude test files.
     - *Impl*: `tsconfig.json` excludes `src/**/*.test.ts`.
+- **Browser-Safe Dependencies**: Packages consumed by the web app must avoid Node core modules (e.g., `crypto`, `node:` imports) and expose browser-safe entrypoints. Use pure JS implementations for hashing/utility functions or ship explicit browser bundles to prevent bundler externalization errors.

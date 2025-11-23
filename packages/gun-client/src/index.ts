@@ -28,6 +28,7 @@ export interface VennClient {
   user: Namespace<Record<string, unknown>>;
   chat: Namespace<Record<string, unknown>>;
   outbox: Namespace<Record<string, unknown>>;
+  mesh: ChainWithGet<Record<string, unknown>>;
   sessionReady: boolean;
   markSessionReady(): void;
   linkDevice(deviceKey: string): Promise<void>;
@@ -138,6 +139,7 @@ export function createClient(config: VennClientConfig = {}): VennClient {
     config: { ...config, peers },
     hydrationBarrier,
     storage,
+    mesh: root as unknown as ChainWithGet<Record<string, unknown>>,
     sessionReady,
     markSessionReady() {
       sessionReady = true;

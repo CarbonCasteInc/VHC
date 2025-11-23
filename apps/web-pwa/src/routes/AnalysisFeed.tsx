@@ -1,7 +1,9 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { Button } from '@vh/ui';
 import type { AnalysisResult } from '../../../../packages/ai-engine/src/prompts';
-import { getOrGenerate, hashUrl, type CanonicalAnalysis } from '../../../../packages/ai-engine/src/analysis';
+import { getOrGenerate, type CanonicalAnalysis } from '../../../../packages/ai-engine/src/analysis';
+import { useAppStore } from '../store';
+import { useIdentity } from '../hooks/useIdentity';
 
 const FEED_KEY = 'vh_canonical_analyses';
 
@@ -33,13 +35,43 @@ async function getFromFeed(urlHash: string, feed: CanonicalAnalysis[]) {
   return existing ?? null;
 }
 
+function createGunStore(client: ReturnType<typeof useAppStore>['client'] | null) {
+  const mesh = (client as any)?.mesh ?? (client as any)?.gun ?? null;
+  if (!mesh?.get) return null;
+  const analyses = mesh.get('analyses');
+  if (!analyses?.get) return null;
+  return {
+    async getByHash(urlHash: string) {
+      return new Promise<CanonicalAnalysis | null>((resolve) => {
+        analyses.get(urlHash).once((data?: CanonicalAnalysis) => {
+          resolve((data as CanonicalAnalysis | null) ?? null);
+        });
+      });
+    },
+    async save(record: CanonicalAnalysis) {
+      return new Promise<void>((resolve, reject) => {
+        analyses.get(record.urlHash).put(record, (ack?: { err?: string }) => {
+          if (ack?.err) {
+            reject(new Error(ack.err));
+            return;
+          }
+          resolve();
+        });
+      });
+    }
+  };
+}
+
 export const AnalysisFeed: React.FC = () => {
   const [url, setUrl] = useState('');
   const [feed, setFeed] = useState<CanonicalAnalysis[]>(() => loadFeed().data);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const { client } = useAppStore();
+  const { identity } = useIdentity();
 
   const store = useMemo(() => loadFeed(), []);
+  const gunStore = useMemo(() => createGunStore(client), [client]);
 
   const sortedFeed = useMemo(
     () => [...feed].sort((a, b) => b.timestamp - a.timestamp).slice(0, 10),
@@ -47,17 +79,9 @@ export const AnalysisFeed: React.FC = () => {
   );
 
   const runAnalysis = useCallback(
-    async (targetUrl: string) => {
+    async (targetUrl: string): Promise<{ analysis: CanonicalAnalysis; notice?: string }> => {
       setBusy(true);
-      const urlHash = hashUrl(targetUrl);
-      const existing = await getFromFeed(urlHash, feed);
-      if (existing) {
-        setMessage('Analysis already exists. Showing cached result.');
-        setBusy(false);
-        return existing;
-      }
-
-      return new Promise<CanonicalAnalysis>((resolve) => {
+      return new Promise<{ analysis: CanonicalAnalysis; notice?: string }>((resolve, reject) => {
         const generate = async (): Promise<AnalysisResult> =>
           new Promise((res) =>
             setTimeout(
@@ -75,30 +99,65 @@ export const AnalysisFeed: React.FC = () => {
             )
           );
 
-        void getOrGenerate(
-          targetUrl,
-          {
-            async getByHash(hash) {
-              return getFromFeed(hash, feed);
-            },
-            async save(record) {
-              const next = [record, ...feed];
-              setFeed(next);
-              store.save(next);
-            },
-            async listRecent() {
-              return feed;
+        let reusedFromMesh = false;
+        let reusedFromLocal = false;
+
+        const analysisStore = {
+          async getByHash(hash: string) {
+            const local = await getFromFeed(hash, feed);
+            if (local) {
+              reusedFromLocal = true;
+              return local;
+            }
+            if (gunStore) {
+              const meshRecord = await gunStore.getByHash(hash);
+              if (meshRecord) {
+                reusedFromMesh = true;
+                return meshRecord;
+              }
+            }
+            return null;
+          },
+          async save(record: CanonicalAnalysis) {
+            const next = [record, ...feed];
+            setFeed(next);
+            store.save(next);
+            if (gunStore) {
+              await gunStore.save(record);
             }
           },
-          generate
-        )
+          async listRecent() {
+            return feed;
+          }
+        };
+
+        void analysisStore.listRecent();
+
+        void getOrGenerate(targetUrl, analysisStore, generate)
           .then((result) => {
-            resolve(result.analysis);
+            let notice: string | undefined;
+            if (result.reused && reusedFromMesh) {
+              notice = 'Analysis fetched from mesh.';
+              const alreadyInFeed = feed.some((item) => item.urlHash === result.analysis.urlHash);
+              if (!alreadyInFeed) {
+                const next = [result.analysis, ...feed];
+                setFeed(next);
+                store.save(next);
+              }
+            } else if (result.reused) {
+              notice = 'Analysis already exists. Showing cached result.';
+            } else if (!gunStore) {
+              notice = 'Analysis stored locally only.';
+            } else if (!identity) {
+              notice = 'Analysis stored locally; connect identity to sync.';
+            }
+            resolve({ analysis: result.analysis, notice });
           })
+          .catch((error) => reject(error))
           .finally(() => setBusy(false));
       });
     },
-    [feed, store]
+    [feed, gunStore, identity, store]
   );
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -110,8 +169,8 @@ export const AnalysisFeed: React.FC = () => {
       return;
     }
     try {
-      const analysis = await runAnalysis(targetUrl);
-      setMessage(`Analysis ready for ${analysis.url}`);
+      const { analysis, notice } = await runAnalysis(targetUrl);
+      setMessage(notice ?? `Analysis ready for ${analysis.url}`);
       setUrl('');
     } catch (err) {
       setMessage((err as Error).message);
@@ -134,9 +193,9 @@ export const AnalysisFeed: React.FC = () => {
           className="w-full rounded border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
           placeholder="Paste URL to analyze"
           value={url}
-      onChange={(e) => setUrl(e.target.value)}
-      data-testid="analysis-url-input"
-    />
+          onChange={(e) => setUrl(e.target.value)}
+          data-testid="analysis-url-input"
+        />
         <Button type="submit" disabled={busy}>
           {busy ? 'Analyzing…' : 'Analyze'}
         </Button>
