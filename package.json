@@ -13,7 +13,7 @@
     "test:workflow": "act -j build-and-test",
     "deps:check": "madge --circular --extensions ts,tsx .",
     "lint:loc": "./tools/scripts/check-loc.sh",
-    "bundle:check": "node tools/scripts/check-bundle-size.js"
+    "bundle:check": "node tools/scripts/check-bundle-size.mjs"
   },
   "pnpm": {
     "overrides": {
