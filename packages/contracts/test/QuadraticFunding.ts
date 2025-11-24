@@ -132,26 +132,88 @@ describe('QuadraticFunding', () => {
     expect(await qf.distributedMatching()).to.equal(expectedMatch1 + expectedMatch2);
   });
 
+  it('should allow treasurer to pool funds via poolFunds alias', async function () {
+    const { qf, rgu, treasurer } = await loadFixture(deployFixture);
+    const amount = ethers.parseEther('100');
+    await rgu.mint(treasurer.address, amount);
+    await rgu.connect(treasurer).approve(await qf.getAddress(), amount);
+
+    await expect(qf.connect(treasurer).poolFunds(amount))
+      .to.emit(qf, 'MatchingPoolFunded')
+      .withArgs(treasurer.address, amount, amount);
+
+    await expect(qf.connect(treasurer).poolFunds(0)).to.be.revertedWith('amount required');
+  });
+
+  it('reverts matching when no contributions exist', async function () {
+    const { qf, recipient1 } = await loadFixture(deployFixture);
+    await qf.registerProject(recipient1.address);
+    await qf.closeRound();
+
+    await expect(qf.matchFunds()).to.be.revertedWith('no weight');
+  });
+
+  it('should cap match amount if pool is exhausted', async function () {
+    const { qf, rgu, treasurer, recipient1, voter1 } = await loadFixture(deployFixture);
+
+    const poolAmount = ethers.parseEther('10');
+    await rgu.mint(treasurer.address, poolAmount);
+    await rgu.connect(treasurer).approve(await qf.getAddress(), poolAmount);
+    await qf.connect(treasurer).fundMatchingPool(poolAmount);
+
+    const qfFresh = await ethers.getContractAt('QuadraticFunding', await qf.getAddress());
+    const expiry = (await time.latest()) + 3600;
+    await qfFresh.recordParticipant(voter1.address, 10000, expiry);
+
+    const voteAmount = ethers.parseEther('100');
+    await rgu.mint(voter1.address, voteAmount);
+    await rgu.connect(voter1).approve(await qf.getAddress(), voteAmount);
+    await qfFresh.connect(voter1).castVote(1, voteAmount);
+
+    await qf.closeRound();
+    await qf.matchFunds();
+
+    const details = await qf.projectDetails(1);
+    expect(details.matchedAmount).to.equal(poolAmount);
+  });
+
+  it('returns 0 for previewMatch if project does not exist or has no contributions', async function () {
+    const { qf } = await loadFixture(deployFixture);
+    expect(await qf.previewMatch(999)).to.equal(0);
+    expect(await qf.previewMatch(1)).to.equal(0); // Exists but no contribs
+  });
+
   it('enforces attestation and round rules for voting and withdrawals', async () => {
     const { qf, attestor, voter1, treasurer, rgu, project1Id, outsider } = await loadFixture(deployFixture);
     const expiry = (await time.latest()) + 1000;
-    await qf.connect(attestor).recordParticipant(voter1.address, 9000, expiry);
 
-    expect(await qf.previewMatch(project1Id)).to.equal(0);
+    // Attest voter
+    await qf.connect(attestor).getFunction("recordParticipant")(voter1.address, 10000, expiry);
 
-    const seed = ethers.parseUnits('10', 18);
-    await rgu.mint(voter1.address, seed);
-    await rgu.connect(voter1).approve(await qf.getAddress(), seed);
+    // Fund voter
+    await rgu.mint(voter1.address, ethers.parseEther("100"));
+    await rgu.connect(voter1).approve(await qf.getAddress(), ethers.parseEther("100"));
 
-    await expect(qf.connect(outsider).castVote(project1Id, seed)).to.be.revertedWith('not attested');
-    await expect(qf.connect(voter1).castVote(999, seed)).to.be.revertedWith('invalid project');
+    // Vote
+    await expect(qf.connect(voter1).getFunction("castVote")(project1Id, ethers.parseEther("10")))
+      .to.emit(qf, 'VoteCast');
+
+    // Outsider cannot vote
+    await expect(qf.connect(outsider).getFunction("castVote")(project1Id, ethers.parseEther("10")))
+      .to.be.revertedWith("not attested");
+    await expect(qf.connect(voter1).castVote(999, ethers.parseEther("10"))).to.be.revertedWith('invalid project');
     await expect(qf.connect(voter1).castVote(project1Id, 0)).to.be.revertedWith('amount required');
 
     await expect(qf.withdraw(project1Id)).to.be.revertedWith('round open');
     await qf.closeRound();
-    await expect(qf.matchFunds()).to.be.revertedWith('no weight');
-    await expect(qf.matchFunds()).to.be.revertedWith('no weight');
-    await expect(qf.connect(voter1).castVote(project1Id, seed)).to.be.revertedWith('round closed');
+
+    // Should succeed because we have votes
+    await expect(qf.matchFunds()).to.emit(qf, 'MatchingCalculated');
+
+    // Should fail if called again
+    await expect(qf.matchFunds()).to.be.revertedWith('already matched');
+
+    await expect(qf.connect(voter1).getFunction("castVote")(project1Id, ethers.parseEther("10"))).to.be.revertedWith('round closed');
 
     await expect(qf.connect(outsider).withdraw(project1Id)).to.be.revertedWith('not recipient');
 
