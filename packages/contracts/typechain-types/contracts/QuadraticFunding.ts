@@ -90,8 +90,8 @@ export interface QuadraticFundingInterface extends Interface {
       | "registerProject"
       | "renounceRole"
       | "revokeRole"
-      | "rgu"
       | "roundClosed"
+      | "rvu"
       | "setMinTrustScore"
       | "supportsInterface"
       | "withdraw"
@@ -212,11 +212,11 @@ export interface QuadraticFundingInterface extends Interface {
     functionFragment: "revokeRole",
     values: [BytesLike, AddressLike]
   ): string;
-  encodeFunctionData(functionFragment: "rgu", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "roundClosed",
     values?: undefined
   ): string;
+  encodeFunctionData(functionFragment: "rvu", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "setMinTrustScore",
     values: [BigNumberish]
@@ -309,11 +309,11 @@ export interface QuadraticFundingInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "revokeRole", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "rgu", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "roundClosed",
     data: BytesLike
   ): Result;
+  decodeFunctionResult(functionFragment: "rvu", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "setMinTrustScore",
     data: BytesLike
@@ -661,9 +661,9 @@ export interface QuadraticFunding extends BaseContract {
     "nonpayable"
   >;
 
-  rgu: TypedContractMethod<[], [string], "view">;
-
   roundClosed: TypedContractMethod<[], [boolean], "view">;
+
+  rvu: TypedContractMethod<[], [string], "view">;
 
   setMinTrustScore: TypedContractMethod<
     [newThreshold: BigNumberish],
@@ -799,11 +799,11 @@ export interface QuadraticFunding extends BaseContract {
     "nonpayable"
   >;
   getFunction(
-    nameOrSignature: "rgu"
-  ): TypedContractMethod<[], [string], "view">;
-  getFunction(
     nameOrSignature: "roundClosed"
   ): TypedContractMethod<[], [boolean], "view">;
+  getFunction(
+    nameOrSignature: "rvu"
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "setMinTrustScore"
   ): TypedContractMethod<[newThreshold: BigNumberish], [void], "nonpayable">;

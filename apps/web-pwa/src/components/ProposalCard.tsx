@@ -15,7 +15,7 @@ export const ProposalCard: React.FC<ProposalCardProps> = ({ proposal, onVote }) 
           <h3 className="text-lg font-semibold text-slate-900">{proposal.title}</h3>
           <p className="text-sm text-slate-700">{proposal.summary}</p>
           <p className="text-xs text-slate-500">Author: {proposal.author}</p>
-          <p className="text-xs text-slate-500">Request: {proposal.fundingRequest} RGU</p>
+          <p className="text-xs text-slate-500">Request: {proposal.fundingRequest} RVU</p>
           <p className="text-xs text-slate-500">Recipient: {proposal.recipient}</p>
         </div>
         <div className="text-sm text-slate-700">

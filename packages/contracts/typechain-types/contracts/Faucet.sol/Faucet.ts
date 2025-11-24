@@ -55,7 +55,7 @@ export interface FaucetInterface extends Interface {
       | "renounceRole"
       | "revokeAttestation"
       | "revokeRole"
-      | "rgu"
+      | "rvu"
       | "setConfig"
       | "supportsInterface"
   ): FunctionFragment;
@@ -125,7 +125,7 @@ export interface FaucetInterface extends Interface {
     functionFragment: "revokeRole",
     values: [BytesLike, AddressLike]
   ): string;
-  encodeFunctionData(functionFragment: "rgu", values?: undefined): string;
+  encodeFunctionData(functionFragment: "rvu", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "setConfig",
     values: [BigNumberish, BigNumberish, BigNumberish]
@@ -177,7 +177,7 @@ export interface FaucetInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "revokeRole", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "rgu", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "rvu", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "setConfig", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "supportsInterface",
@@ -418,7 +418,7 @@ export interface Faucet extends BaseContract {
     "nonpayable"
   >;
 
-  rgu: TypedContractMethod<[], [string], "view">;
+  rvu: TypedContractMethod<[], [string], "view">;
 
   setConfig: TypedContractMethod<
     [
@@ -510,7 +510,7 @@ export interface Faucet extends BaseContract {
     "nonpayable"
   >;
   getFunction(
-    nameOrSignature: "rgu"
+    nameOrSignature: "rvu"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "setConfig"

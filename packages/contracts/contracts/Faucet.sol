@@ -12,7 +12,7 @@ contract Faucet is AccessControl {
 
     uint256 private constant TRUST_SCORE_SCALE = 1e4; // 10000 == trust score of 1.0
 
-    IMintableToken public immutable rgu;
+    IMintableToken public immutable rvu;
     uint256 public dripAmount;
     uint256 public cooldown;
     uint256 public minTrustScore; // scaled by TRUST_SCORE_SCALE
@@ -31,8 +31,8 @@ contract Faucet is AccessControl {
     event FaucetDrip(address indexed user, uint256 amount, uint256 nextClaimAt);
     event ConfigUpdated(uint256 dripAmount, uint256 cooldown, uint256 minTrustScore);
 
-    constructor(address rguToken, uint256 dripAmount_, uint256 cooldown_, uint256 minTrustScore_) {
-        require(rguToken != address(0), "invalid token");
+    constructor(address rvuToken, uint256 dripAmount_, uint256 cooldown_, uint256 minTrustScore_) {
+        require(rvuToken != address(0), "invalid token");
         require(dripAmount_ > 0, "drip must be > 0");
         require(cooldown_ > 0, "cooldown must be > 0");
         require(minTrustScore_ <= TRUST_SCORE_SCALE, "min trust too high");
@@ -40,7 +40,7 @@ contract Faucet is AccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ATTESTOR_ROLE, msg.sender);
 
-        rgu = IMintableToken(rguToken);
+        rvu = IMintableToken(rvuToken);
         dripAmount = dripAmount_;
         cooldown = cooldown_;
         minTrustScore = minTrustScore_;
@@ -82,7 +82,7 @@ contract Faucet is AccessControl {
         require(last == 0 || block.timestamp >= last + cooldown, "cooldown active");
 
         lastClaimAt[msg.sender] = block.timestamp;
-        rgu.mint(msg.sender, dripAmount);
+        rvu.mint(msg.sender, dripAmount);
 
         emit FaucetDrip(msg.sender, dripAmount, block.timestamp + cooldown);
     }

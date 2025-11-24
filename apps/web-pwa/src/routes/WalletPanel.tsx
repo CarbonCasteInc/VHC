@@ -63,8 +63,8 @@ export const WalletPanel: React.FC = () => {
 
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <div className="rounded border border-slate-100 bg-slate-50 px-3 py-2">
-          <p className="text-xs uppercase tracking-wide text-slate-500">RGU Balance</p>
-          <p className="text-lg font-semibold text-slate-900">{formattedBalance ?? '-'} RGU</p>
+          <p className="text-xs uppercase tracking-wide text-slate-500">RVU Balance</p>
+          <p className="text-lg font-semibold text-slate-900">{formattedBalance ?? '-'} RVU</p>
         </div>
         <div className="rounded border border-slate-100 bg-slate-50 px-3 py-2">
           <p className="text-xs uppercase tracking-wide text-slate-500">Trust Score</p>

@@ -61,7 +61,7 @@ export const ProposalSchema = z.object({
   author: z.string().min(1), // Pubkey
   title: z.string().min(10),
   summary: z.string().max(500),
-  fundingRequest: z.string().regex(/^\d+$/), // BigInt as string for RGU
+  fundingRequest: z.string().regex(/^\d+$/), // BigInt as string for RVU
   recipient: z.string().min(1), // Address
   attestationProof: z.string().min(1), // ZK or signature
   timestamp: z.number().int().nonnegative()
@@ -69,7 +69,7 @@ export const ProposalSchema = z.object({
 
 export const VoteSchema = z.object({
   proposalId: z.string().uuid(),
-  amount: z.string().regex(/^\d+$/), // RGU staked
+  amount: z.string().regex(/^\d+$/), // RVU staked
   direction: z.enum(['for', 'against']),
   voter: z.string().min(1) // Pubkey
 });

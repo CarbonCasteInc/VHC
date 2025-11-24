@@ -12,7 +12,7 @@ contract UBE is AccessControl {
 
     uint256 private constant TRUST_SCORE_SCALE = 1e4; // 10000 == trust score of 1.0
 
-    IMintableERC20 public immutable rgu;
+    IMintableERC20 public immutable rvu;
     uint256 public dripAmount;
     uint256 public claimInterval;
     uint256 public minTrustScore;
@@ -32,8 +32,8 @@ contract UBE is AccessControl {
     event UBEClaimed(address indexed user, uint256 amount, uint256 claimedAt, uint256 nextClaimAt);
     event ClaimConfigUpdated(uint256 dripAmount, uint256 claimInterval, uint256 minTrustScore);
 
-    constructor(address rguToken, uint256 dripAmount_, uint256 claimInterval_, uint256 minTrustScore_) {
-        require(rguToken != address(0), "invalid token");
+    constructor(address rvuToken, uint256 dripAmount_, uint256 claimInterval_, uint256 minTrustScore_) {
+        require(rvuToken != address(0), "invalid token");
         require(dripAmount_ > 0, "drip must be > 0");
         require(claimInterval_ > 0, "interval must be > 0");
         require(minTrustScore_ <= TRUST_SCORE_SCALE, "min trust too high");
@@ -41,7 +41,7 @@ contract UBE is AccessControl {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ATTESTOR_ROLE, msg.sender);
 
-        rgu = IMintableERC20(rguToken);
+        rvu = IMintableERC20(rvuToken);
         dripAmount = dripAmount_;
         claimInterval = claimInterval_;
         minTrustScore = minTrustScore_;
@@ -93,7 +93,7 @@ contract UBE is AccessControl {
         require(record.lastClaimAt == 0 || block.timestamp >= nextClaimAt, "claim cooldown");
 
         record.lastClaimAt = block.timestamp;
-        rgu.mint(msg.sender, dripAmount);
+        rvu.mint(msg.sender, dripAmount);
 
         emit UBEClaimed(msg.sender, dripAmount, block.timestamp, block.timestamp + claimInterval);
     }

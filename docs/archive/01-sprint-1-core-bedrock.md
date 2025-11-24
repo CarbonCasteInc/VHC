@@ -47,7 +47,7 @@
 - [x] **Infra:** Configure Hardhat for Sepolia/Base Testnet deployment.
 - [x] **Security:** Enforce strict separation of environment variables (no Mainnet keys in Testnet env).
 - [x] **Script:** Create `deploy-testnet.ts` with **Etherscan verification**.
-- [x] **Faucet:** Implement a simple testnet faucet for RGU tokens (rate-limited by Attestation).
+- [x] **Faucet:** Implement a simple testnet faucet for RVU tokens (rate-limited by Attestation).
 
 ### 2.2 UBE Drip (Universal Basic Equity)
 - [x] **Contract:** Implement `UBE.sol` (Drip logic based on verified identity).
@@ -75,7 +75,7 @@
 
 ### 3.3 UI Polish & Integration
 - [x] **Feed:** Create a "News Feed" view showing recent Canonical Analyses.
-- [x] **Wallet:** Create a "Wallet" view showing RGU balance and UBE claim status.
+- [x] **Wallet:** Create a "Wallet" view showing RVU balance and UBE claim status.
 - [x] **Performance:** Enforce Bundle Budget (≤ 1 MiB gz) and Lighthouse Perf ≥ 90.
 
 **DoD:** User can paste a URL, generate/view an Analysis (local inference), and see it appear in the global feed. UI meets performance budgets.

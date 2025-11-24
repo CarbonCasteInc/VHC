@@ -11,7 +11,7 @@ contract QuadraticFunding is AccessControl {
 
     uint256 private constant TRUST_SCORE_SCALE = 1e4; // 10000 == trust score of 1.0
 
-    IERC20 public immutable rgu;
+    IERC20 public immutable rvu;
     uint256 public minTrustScore;
     uint256 public projectCount;
     uint256 private totalWeight;
@@ -48,15 +48,15 @@ contract QuadraticFunding is AccessControl {
     event FundsWithdrawn(uint256 indexed projectId, address indexed recipient, uint256 amount);
     event MinTrustScoreUpdated(uint256 minTrustScore);
 
-    constructor(address rguToken, uint256 minTrustScore_) {
-        require(rguToken != address(0), "invalid token");
+    constructor(address rvuToken, uint256 minTrustScore_) {
+        require(rvuToken != address(0), "invalid token");
         require(minTrustScore_ <= TRUST_SCORE_SCALE, "min trust too high");
 
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         _grantRole(ATTESTOR_ROLE, msg.sender);
         _grantRole(TREASURER_ROLE, msg.sender);
 
-        rgu = IERC20(rguToken);
+        rvu = IERC20(rvuToken);
         minTrustScore = minTrustScore_;
     }
 
@@ -94,7 +94,7 @@ contract QuadraticFunding is AccessControl {
     function _fundMatchingPool(uint256 amount) internal {
         require(amount > 0, "amount required");
         matchingPool += amount;
-        bool ok = rgu.transferFrom(msg.sender, address(this), amount);
+        bool ok = rvu.transferFrom(msg.sender, address(this), amount);
         require(ok, "transfer failed");
 
         emit MatchingPoolFunded(msg.sender, amount, matchingPool);
@@ -134,7 +134,7 @@ contract QuadraticFunding is AccessControl {
         uint256 newWeight = project.sumOfSqrtContributions * project.sumOfSqrtContributions;
         totalWeight = totalWeight + newWeight - oldWeight;
 
-        bool ok = rgu.transferFrom(msg.sender, address(this), amount);
+        bool ok = rvu.transferFrom(msg.sender, address(this), amount);
         require(ok, "transfer failed");
 
         emit VoteCast(projectId, msg.sender, amount, newContribution);
@@ -196,7 +196,7 @@ contract QuadraticFunding is AccessControl {
             distributedMatching = newDistributed;
         }
 
-        bool ok = rgu.transfer(msg.sender, totalPayout);
+        bool ok = rvu.transfer(msg.sender, totalPayout);
         require(ok, "transfer failed");
 
         emit FundsWithdrawn(projectId, msg.sender, totalPayout);

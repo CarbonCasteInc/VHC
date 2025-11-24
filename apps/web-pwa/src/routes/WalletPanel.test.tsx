@@ -60,7 +60,7 @@ describe('WalletPanel', () => {
 
     render(<WalletPanel />);
 
-    expect(screen.getByText(/42\.5 RGU/)).toBeInTheDocument();
+    expect(screen.getByText(/42\.5 RVU/)).toBeInTheDocument();
     expect(screen.getByText('92.0%')).toBeInTheDocument();
 
     const refreshButton = screen.getByText('Refresh');

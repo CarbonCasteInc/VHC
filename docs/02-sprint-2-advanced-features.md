@@ -25,7 +25,7 @@
 
 ### 1.2 Proposal System
 - [x] **Schema:** Define `Proposal` schema in `data-model` with validation (Zod).
-- [x] **Flow:** Create "Submit Proposal" flow (requires minimum RGU stake + Attestation).
+- [x] **Flow:** Create "Submit Proposal" flow (requires minimum RVU stake + Attestation).
 - [x] **E2E:** Verify "Submit -> Vote -> Match" flow in Offline Mock Mode.
 
 ---

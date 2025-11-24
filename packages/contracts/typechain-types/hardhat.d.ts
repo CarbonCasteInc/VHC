@@ -74,9 +74,9 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.QuadraticFunding__factory>;
     getContractFactory(
-      name: "RGU",
+      name: "RVU",
       signerOrOptions?: ethers.Signer | FactoryOptions
-    ): Promise<Contracts.RGU__factory>;
+    ): Promise<Contracts.RVU__factory>;
     getContractFactory(
       name: "IMintableERC20",
       signerOrOptions?: ethers.Signer | FactoryOptions
@@ -162,10 +162,10 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.QuadraticFunding>;
     getContractAt(
-      name: "RGU",
+      name: "RVU",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
-    ): Promise<Contracts.RGU>;
+    ): Promise<Contracts.RVU>;
     getContractAt(
       name: "IMintableERC20",
       address: string | ethers.Addressable,
@@ -238,9 +238,9 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.QuadraticFunding>;
     deployContract(
-      name: "RGU",
+      name: "RVU",
       signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.RGU>;
+    ): Promise<Contracts.RVU>;
     deployContract(
       name: "IMintableERC20",
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -326,10 +326,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.QuadraticFunding>;
     deployContract(
-      name: "RGU",
+      name: "RVU",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
-    ): Promise<Contracts.RGU>;
+    ): Promise<Contracts.RVU>;
     deployContract(
       name: "IMintableERC20",
       args: any[],
