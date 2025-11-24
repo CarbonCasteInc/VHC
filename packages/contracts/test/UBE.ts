@@ -6,23 +6,23 @@ import { ethers } from 'hardhat';
 describe('UBE', () => {
   async function deployFixture() {
     const [deployer, attestor, user, other] = await ethers.getSigners();
-    const rgu = await ethers.deployContract('RGU');
-    await rgu.waitForDeployment();
+    const rvu = await ethers.deployContract('RVU');
+    await rvu.waitForDeployment();
 
     const drip = ethers.parseUnits('12', 18);
     const interval = 24 * 60 * 60;
     const minTrust = 5000;
-    const ube = await ethers.deployContract('UBE', [await rgu.getAddress(), drip, interval, minTrust]);
+    const ube = await ethers.deployContract('UBE', [await rvu.getAddress(), drip, interval, minTrust]);
     await ube.waitForDeployment();
 
-    await rgu.grantRole(await rgu.MINTER_ROLE(), await ube.getAddress());
+    await rvu.grantRole(await rvu.MINTER_ROLE(), await ube.getAddress());
     await ube.grantRole(await ube.ATTESTOR_ROLE(), attestor.address);
 
-    return { rgu, ube, deployer, attestor, user, other, drip, interval, minTrust };
+    return { rvu, ube, deployer, attestor, user, other, drip, interval, minTrust };
   }
 
   it('allows attested users to claim on cadence', async () => {
-    const { ube, rgu, user, attestor, drip, interval } = await deployFixture();
+    const { ube, rvu, user, attestor, drip, interval } = await deployFixture();
     const expires = (await time.latest()) + 2 * interval;
     const nullifier = ethers.encodeBytes32String('nullifier-1');
 
@@ -36,12 +36,12 @@ describe('UBE', () => {
     await expect(ube.connect(user).claim())
       .to.emit(ube, 'UBEClaimed')
       .withArgs(user.address, drip, anyValue, anyValue);
-    expect(await rgu.balanceOf(user.address)).to.equal(drip);
+    expect(await rvu.balanceOf(user.address)).to.equal(drip);
 
     await expect(ube.connect(user).claim()).to.be.revertedWith('claim cooldown');
     await time.increase(interval + 1);
     await ube.connect(user).claim();
-    expect(await rgu.balanceOf(user.address)).to.equal(drip * 2n);
+    expect(await rvu.balanceOf(user.address)).to.equal(drip * 2n);
   });
 
   it('prevents claims when trust is low or attestation expired', async () => {

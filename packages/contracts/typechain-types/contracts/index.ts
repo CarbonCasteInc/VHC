@@ -7,4 +7,4 @@ import type * as ubeSol from "./UBE.sol";
 export type { ubeSol };
 export type { MedianOracle } from "./MedianOracle";
 export type { QuadraticFunding } from "./QuadraticFunding";
-export type { RGU } from "./RGU";
+export type { RVU } from "./RVU";

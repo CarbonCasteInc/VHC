@@ -105,7 +105,7 @@
 
 ### 3.1 Contracts (Solidity)
 - [x] **Env:** Setup Hardhat/Foundry in `packages/contracts`.
-- [x] **Token:** Implement `RGU.sol` (ERC-20 with AccessControl).
+- [x] **Token:** Implement `RVU.sol` (ERC-20 with AccessControl).
 - [x] **Oracle:** Implement `MedianOracle.sol` (Simple commit-reveal logic).
 - [x] **Test:** 100% coverage for Token Mint/Burn and Oracle math.
 - [x] **Audit Prep:** Document threat model + zero-trust assumptions for contracts.

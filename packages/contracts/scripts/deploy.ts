@@ -6,15 +6,15 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log(`Deploying contracts with ${deployer.address}`);
 
-  const rgu = await ethers.deployContract('RGU');
-  await rgu.waitForDeployment();
-  const rguAddress = await rgu.getAddress();
-  console.log(`RGU deployed at ${rguAddress}`);
+  const rvu = await ethers.deployContract('RVU');
+  await rvu.waitForDeployment();
+  const rvuAddress = await rvu.getAddress();
+  console.log(`RVU deployed at ${rvuAddress}`);
 
   const mintAmount = ethers.parseUnits('1000000', 18);
-  const mintTx = await rgu.mint(deployer.address, mintAmount);
+  const mintTx = await rvu.mint(deployer.address, mintAmount);
   await mintTx.wait();
-  console.log('Minted 1,000,000 RGU to deployer');
+  console.log('Minted 1,000,000 RVU to deployer');
 
   const oracle = await ethers.deployContract('MedianOracle');
   await oracle.waitForDeployment();
@@ -28,7 +28,7 @@ async function main() {
     network: 'localhost',
     deployedAt: new Date().toISOString(),
     contracts: {
-      RGU: rguAddress,
+      RVU: rvuAddress,
       MedianOracle: oracleAddress
     }
   };

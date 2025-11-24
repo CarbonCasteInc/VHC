@@ -36,7 +36,7 @@
 ### 2.1 Testnet Deployment
 - [ ] **Infra:** Configure Hardhat for Sepolia/Base Testnet deployment.
 - [ ] **Script:** Create `deploy-testnet.ts` with Etherscan verification.
-- [ ] **Faucet:** Implement a simple testnet faucet for RGU tokens (rate-limited by Attestation).
+- [ ] **Faucet:** Implement a simple testnet faucet for RVU tokens (rate-limited by Attestation).
 
 ### 2.2 UBE Drip (Universal Basic Equity)
 - [ ] **Contract:** Implement `UBE.sol` (Drip logic based on verified identity).
@@ -67,7 +67,7 @@
 
 ### 3.3 UI Polish & Integration
 - [ ] **Feed:** Create a "News Feed" view showing recent Canonical Analyses.
-- [ ] **Wallet:** Create a "Wallet" view showing RGU balance and UBE claim status.
+- [ ] **Wallet:** Create a "Wallet" view showing RVU balance and UBE claim status.
 
 **DoD:** User can paste a URL, generate/view an Analysis, and see it appear in the global feed.
 

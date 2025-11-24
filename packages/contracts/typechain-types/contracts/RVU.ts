@@ -23,7 +23,7 @@ import type {
   TypedContractMethod,
 } from "../common";
 
-export interface RGUInterface extends Interface {
+export interface RVUInterface extends Interface {
   getFunction(
     nameOrSignature:
       | "BURNER_ROLE"
@@ -269,11 +269,11 @@ export namespace TransferEvent {
   export type LogDescription = TypedLogDescription<Event>;
 }
 
-export interface RGU extends BaseContract {
-  connect(runner?: ContractRunner | null): RGU;
+export interface RVU extends BaseContract {
+  connect(runner?: ContractRunner | null): RVU;
   waitForDeployment(): Promise<this>;
 
-  interface: RGUInterface;
+  interface: RVUInterface;
 
   queryFilter<TCEvent extends TypedContractEvent>(
     event: TCEvent,

@@ -19,11 +19,11 @@ describe('QuadraticFunding', () => {
   async function deployFixture() {
     const [deployer, attestor, treasurer, voter1, voter2, recipient1, recipient2, outsider] =
       await ethers.getSigners();
-    const rgu = await ethers.deployContract('RGU');
-    await rgu.waitForDeployment();
+    const rvu = await ethers.deployContract('RVU');
+    await rvu.waitForDeployment();
 
     const minTrust = 6000;
-    const qf = await ethers.deployContract('QuadraticFunding', [await rgu.getAddress(), minTrust]);
+    const qf = await ethers.deployContract('QuadraticFunding', [await rvu.getAddress(), minTrust]);
     await qf.waitForDeployment();
 
     await qf.grantRole(await qf.ATTESTOR_ROLE(), attestor.address);
@@ -35,7 +35,7 @@ describe('QuadraticFunding', () => {
     const project2Id = await qf.projectCount();
 
     return {
-      rgu,
+      rvu,
       qf,
       deployer,
       attestor,
@@ -53,7 +53,7 @@ describe('QuadraticFunding', () => {
 
   it('distributes matching pool and contributions after a round', async () => {
     const {
-      rgu,
+      rvu,
       qf,
       attestor,
       treasurer,
@@ -70,8 +70,8 @@ describe('QuadraticFunding', () => {
     await qf.connect(attestor).recordParticipant(voter2.address, 7000, expiry);
 
     const matchingPool = ethers.parseUnits('200', 18);
-    await rgu.mint(treasurer.address, matchingPool);
-    await rgu.connect(treasurer).approve(await qf.getAddress(), matchingPool);
+    await rvu.mint(treasurer.address, matchingPool);
+    await rvu.connect(treasurer).approve(await qf.getAddress(), matchingPool);
     await expect(qf.connect(treasurer).fundMatchingPool(matchingPool))
       .to.emit(qf, 'MatchingPoolFunded')
       .withArgs(treasurer.address, matchingPool, matchingPool);
@@ -80,12 +80,12 @@ describe('QuadraticFunding', () => {
     const contrib2 = ethers.parseUnits('25', 18);
     const contrib3 = ethers.parseUnits('10', 18);
 
-    await rgu.mint(voter1.address, contrib1 + contrib3);
-    await rgu.mint(voter2.address, contrib2);
+    await rvu.mint(voter1.address, contrib1 + contrib3);
+    await rvu.mint(voter2.address, contrib2);
 
     const qfAddress = await qf.getAddress();
-    await rgu.connect(voter1).approve(qfAddress, contrib1 + contrib3);
-    await rgu.connect(voter2).approve(qfAddress, contrib2);
+    await rvu.connect(voter1).approve(qfAddress, contrib1 + contrib3);
+    await rvu.connect(voter2).approve(qfAddress, contrib2);
 
     await expect(qf.connect(voter1).castVote(project2Id, contrib3))
       .to.emit(qf, 'VoteCast')
@@ -114,11 +114,11 @@ describe('QuadraticFunding', () => {
     await expect(qf.closeRound()).to.emit(qf, 'RoundClosed');
     await expect(qf.matchFunds()).to.emit(qf, 'MatchingCalculated');
 
-    const beforeRecipient1 = await rgu.balanceOf(recipient1.address);
+    const beforeRecipient1 = await rvu.balanceOf(recipient1.address);
     await expect(qf.connect(recipient1).withdraw(project1Id))
       .to.emit(qf, 'FundsWithdrawn')
       .withArgs(project1Id, recipient1.address, contrib1 + contrib2 + expectedMatch1);
-    expect(await rgu.balanceOf(recipient1.address)).to.equal(
+    expect(await rvu.balanceOf(recipient1.address)).to.equal(
       beforeRecipient1 + contrib1 + contrib2 + expectedMatch1
     );
     expect(await qf.distributedMatching()).to.equal(expectedMatch1);
@@ -126,17 +126,17 @@ describe('QuadraticFunding', () => {
 
     await expect(qf.connect(recipient1).withdraw(project1Id)).to.be.revertedWith('already withdrawn');
 
-    const beforeRecipient2 = await rgu.balanceOf(recipient2.address);
+    const beforeRecipient2 = await rvu.balanceOf(recipient2.address);
     await qf.connect(recipient2).withdraw(project2Id);
-    expect(await rgu.balanceOf(recipient2.address)).to.equal(beforeRecipient2 + contrib3 + expectedMatch2);
+    expect(await rvu.balanceOf(recipient2.address)).to.equal(beforeRecipient2 + contrib3 + expectedMatch2);
     expect(await qf.distributedMatching()).to.equal(expectedMatch1 + expectedMatch2);
   });
 
   it('should allow treasurer to pool funds via poolFunds alias', async function () {
-    const { qf, rgu, treasurer } = await loadFixture(deployFixture);
+    const { qf, rvu, treasurer } = await loadFixture(deployFixture);
     const amount = ethers.parseEther('100');
-    await rgu.mint(treasurer.address, amount);
-    await rgu.connect(treasurer).approve(await qf.getAddress(), amount);
+    await rvu.mint(treasurer.address, amount);
+    await rvu.connect(treasurer).approve(await qf.getAddress(), amount);
 
     await expect(qf.connect(treasurer).poolFunds(amount))
       .to.emit(qf, 'MatchingPoolFunded')
@@ -154,11 +154,11 @@ describe('QuadraticFunding', () => {
   });
 
   it('should cap match amount if pool is exhausted', async function () {
-    const { qf, rgu, treasurer, recipient1, voter1 } = await loadFixture(deployFixture);
+    const { qf, rvu, treasurer, recipient1, voter1 } = await loadFixture(deployFixture);
 
     const poolAmount = ethers.parseEther('10');
-    await rgu.mint(treasurer.address, poolAmount);
-    await rgu.connect(treasurer).approve(await qf.getAddress(), poolAmount);
+    await rvu.mint(treasurer.address, poolAmount);
+    await rvu.connect(treasurer).approve(await qf.getAddress(), poolAmount);
     await qf.connect(treasurer).fundMatchingPool(poolAmount);
 
     const qfFresh = await ethers.getContractAt('QuadraticFunding', await qf.getAddress());
@@ -166,8 +166,8 @@ describe('QuadraticFunding', () => {
     await qfFresh.recordParticipant(voter1.address, 10000, expiry);
 
     const voteAmount = ethers.parseEther('100');
-    await rgu.mint(voter1.address, voteAmount);
-    await rgu.connect(voter1).approve(await qf.getAddress(), voteAmount);
+    await rvu.mint(voter1.address, voteAmount);
+    await rvu.connect(voter1).approve(await qf.getAddress(), voteAmount);
     await qfFresh.connect(voter1).castVote(1, voteAmount);
 
     await qf.closeRound();
@@ -184,15 +184,15 @@ describe('QuadraticFunding', () => {
   });
 
   it('enforces attestation and round rules for voting and withdrawals', async () => {
-    const { qf, attestor, voter1, treasurer, rgu, project1Id, outsider } = await loadFixture(deployFixture);
+    const { qf, attestor, voter1, treasurer, rvu, project1Id, outsider } = await loadFixture(deployFixture);
     const expiry = (await time.latest()) + 1000;
 
     // Attest voter
     await qf.connect(attestor).getFunction("recordParticipant")(voter1.address, 10000, expiry);
 
     // Fund voter
-    await rgu.mint(voter1.address, ethers.parseEther("100"));
-    await rgu.connect(voter1).approve(await qf.getAddress(), ethers.parseEther("100"));
+    await rvu.mint(voter1.address, ethers.parseEther("100"));
+    await rvu.connect(voter1).approve(await qf.getAddress(), ethers.parseEther("100"));
 
     // Vote
     await expect(qf.connect(voter1).getFunction("castVote")(project1Id, ethers.parseEther("10")))

@@ -18,7 +18,7 @@ export const VoteControl: React.FC<VoteControlProps> = ({ onSubmit, disabled }) 
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
       <div className="flex items-center gap-3">
-        <label className="text-sm text-slate-700">Vote Amount (RGU)</label>
+        <label className="text-sm text-slate-700">Vote Amount (RVU)</label>
         <input
           type="number"
           min={1}

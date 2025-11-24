@@ -25,7 +25,7 @@ test.describe('Golden Path E2E', () => {
     const claimButton = page.getByRole('button', { name: /Claim UBE/i });
     await claimButton.click();
     await expect(claimButton).toBeDisabled({ timeout: 5_000 });
-    await expect(page.getByText(/RGU Balance/i).locator('xpath=../p[contains(@class,"text-lg")]')).toContainText('RGU', {
+    await expect(page.getByText(/RVU Balance/i).locator('xpath=../p[contains(@class,"text-lg")]')).toContainText('RVU', {
       timeout: 5_000
     });
 

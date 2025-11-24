@@ -40,7 +40,7 @@ export interface UBEInterface extends Interface {
       | "registerIdentity"
       | "renounceRole"
       | "revokeRole"
-      | "rgu"
+      | "rvu"
       | "setClaimConfig"
       | "supportsInterface"
   ): FunctionFragment;
@@ -108,7 +108,7 @@ export interface UBEInterface extends Interface {
     functionFragment: "revokeRole",
     values: [BytesLike, AddressLike]
   ): string;
-  encodeFunctionData(functionFragment: "rgu", values?: undefined): string;
+  encodeFunctionData(functionFragment: "rvu", values?: undefined): string;
   encodeFunctionData(
     functionFragment: "setClaimConfig",
     values: [BigNumberish, BigNumberish, BigNumberish]
@@ -159,7 +159,7 @@ export interface UBEInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "revokeRole", data: BytesLike): Result;
-  decodeFunctionResult(functionFragment: "rgu", data: BytesLike): Result;
+  decodeFunctionResult(functionFragment: "rvu", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "setClaimConfig",
     data: BytesLike
@@ -408,7 +408,7 @@ export interface UBE extends BaseContract {
     "nonpayable"
   >;
 
-  rgu: TypedContractMethod<[], [string], "view">;
+  rvu: TypedContractMethod<[], [string], "view">;
 
   setClaimConfig: TypedContractMethod<
     [
@@ -510,7 +510,7 @@ export interface UBE extends BaseContract {
     "nonpayable"
   >;
   getFunction(
-    nameOrSignature: "rgu"
+    nameOrSignature: "rvu"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "setClaimConfig"

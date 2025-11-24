@@ -33,14 +33,14 @@ async function main() {
   const [deployer] = await ethers.getSigners();
   console.log(`Deploying to ${network.name} with ${deployer.address}`);
 
-  const rgu = await ethers.deployContract('RGU');
-  await rgu.waitForDeployment();
-  const rguAddress = await rgu.getAddress();
-  console.log(`RGU deployed at ${rguAddress}`);
+  const rvu = await ethers.deployContract('RVU');
+  await rvu.waitForDeployment();
+  const rvuAddress = await rvu.getAddress();
+  console.log(`RVU deployed at ${rvuAddress}`);
 
   const initialMint = ethers.parseUnits('1000000', 18);
-  await (await rgu.mint(deployer.address, initialMint)).wait();
-  console.log('Seeded deployer with 1,000,000 RGU');
+  await (await rvu.mint(deployer.address, initialMint)).wait();
+  console.log('Seeded deployer with 1,000,000 RVU');
 
   const oracle = await ethers.deployContract('MedianOracle');
   await oracle.waitForDeployment();
@@ -50,20 +50,20 @@ async function main() {
   const minTrustScore = 5000; // 0.5 on TRUST_SCORE_SCALE (1e4)
   const faucetDrip = ethers.parseUnits('10', 18);
   const faucetCooldown = 6 * 60 * 60; // 6 hours
-  const faucet = await ethers.deployContract('Faucet', [rguAddress, faucetDrip, faucetCooldown, minTrustScore]);
+  const faucet = await ethers.deployContract('Faucet', [rvuAddress, faucetDrip, faucetCooldown, minTrustScore]);
   await faucet.waitForDeployment();
   const faucetAddress = await faucet.getAddress();
-  await (await rgu.grantRole(await rgu.MINTER_ROLE(), faucetAddress)).wait();
+  await (await rvu.grantRole(await rvu.MINTER_ROLE(), faucetAddress)).wait();
   console.log(`Faucet deployed at ${faucetAddress} (minter role granted)`);
 
   const ubeDrip = ethers.parseUnits('25', 18);
-  const ube = await ethers.deployContract('UBE', [rguAddress, ubeDrip, DAY_IN_SECONDS, minTrustScore]);
+  const ube = await ethers.deployContract('UBE', [rvuAddress, ubeDrip, DAY_IN_SECONDS, minTrustScore]);
   await ube.waitForDeployment();
   const ubeAddress = await ube.getAddress();
-  await (await rgu.grantRole(await rgu.MINTER_ROLE(), ubeAddress)).wait();
+  await (await rvu.grantRole(await rvu.MINTER_ROLE(), ubeAddress)).wait();
   console.log(`UBE deployed at ${ubeAddress} (minter role granted)`);
 
-  const quadraticFunding = await ethers.deployContract('QuadraticFunding', [rguAddress, minTrustScore]);
+  const quadraticFunding = await ethers.deployContract('QuadraticFunding', [rvuAddress, minTrustScore]);
   await quadraticFunding.waitForDeployment();
   const qfAddress = await quadraticFunding.getAddress();
   await (await quadraticFunding.grantRole(await quadraticFunding.ATTESTOR_ROLE(), deployer.address)).wait();
@@ -71,15 +71,15 @@ async function main() {
   console.log(`QuadraticFunding deployed at ${qfAddress}`);
 
   const matchingSeed = ethers.parseUnits('50000', 18);
-  await (await rgu.approve(qfAddress, matchingSeed)).wait();
+  await (await rvu.approve(qfAddress, matchingSeed)).wait();
   await (await quadraticFunding.fundMatchingPool(matchingSeed)).wait();
-  console.log(`Seeded matching pool with ${ethers.formatUnits(matchingSeed, 18)} RGU`);
+  console.log(`Seeded matching pool with ${ethers.formatUnits(matchingSeed, 18)} RVU`);
 
-  await verify(rguAddress, []);
+  await verify(rvuAddress, []);
   await verify(oracleAddress, []);
-  await verify(faucetAddress, [rguAddress, faucetDrip, faucetCooldown, minTrustScore]);
-  await verify(ubeAddress, [rguAddress, ubeDrip, DAY_IN_SECONDS, minTrustScore]);
-  await verify(qfAddress, [rguAddress, minTrustScore]);
+  await verify(faucetAddress, [rvuAddress, faucetDrip, faucetCooldown, minTrustScore]);
+  await verify(ubeAddress, [rvuAddress, ubeDrip, DAY_IN_SECONDS, minTrustScore]);
+  await verify(qfAddress, [rvuAddress, minTrustScore]);
 
   const deploymentsDir = path.resolve(__dirname, '../deployments');
   mkdirSync(deploymentsDir, { recursive: true });
@@ -89,7 +89,7 @@ async function main() {
     deployedAt: new Date().toISOString(),
     deployer: deployer.address,
     contracts: {
-      RGU: rguAddress,
+      RVU: rvuAddress,
       MedianOracle: oracleAddress,
       Faucet: faucetAddress,
       UBE: ubeAddress,

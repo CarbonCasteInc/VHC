@@ -49,7 +49,7 @@ TRINITY is a **Parallel Institution**: A self-sovereign Operating System for Ide
   * **Role:** Value Transfer & Governance.
   * **Tech:** EVM (Layer 2 Rollup), Circom (ZK Circuits), MACI.
   * **Function:**
-      * **RGU:** A floating purchasing power mirror (Not a peg).
+      * **RVU:** Real Value Unit (floating purchasing power mirror; not a peg).
       * **UBE:** Universal Basic Equity distribution.
       * **Holographic Oracle:** Medianized price feeds from Staked Nodes.
       * **Governance:** Anti-collusion voting via MACI.
@@ -103,7 +103,7 @@ The system functions as a Monorepo with polyglot micro-services.
 
 ### 4.2 GWC: The Holographic Oracle
 
-  * **Purpose:** Uncensorable pricing for the RGU.
+  * **Purpose:** Uncensorable pricing for the RVU.
   * **Mechanism:**
     1.  **Nodes:** 50+ Staked Economic Nodes.
     2.  **Privacy:** Price vectors encrypted via Pedersen Commitments.

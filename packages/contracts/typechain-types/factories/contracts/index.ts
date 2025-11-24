@@ -5,4 +5,4 @@ export * as faucetSol from "./Faucet.sol";
 export * as ubeSol from "./UBE.sol";
 export { MedianOracle__factory } from "./MedianOracle__factory";
 export { QuadraticFunding__factory } from "./QuadraticFunding__factory";
-export { RGU__factory } from "./RGU__factory";
+export { RVU__factory } from "./RVU__factory";

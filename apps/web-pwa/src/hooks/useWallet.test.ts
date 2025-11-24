@@ -71,7 +71,7 @@ type UseWalletHook = typeof import('./useWallet')['useWallet'];
 
 const baseEnv = {
   VITE_UBE_ADDRESS: '0xUBE',
-  VITE_RGU_ADDRESS: '0xRGU',
+  VITE_RVU_ADDRESS: '0xRVU',
   VITE_RPC_URL: 'http://rpc',
   VITE_E2E_MODE: 'false'
 };
@@ -102,7 +102,7 @@ async function loadHook(envOverrides: Record<string, string>, e2eMode: boolean, 
     }
   };
   setEnvVar('VITE_UBE_ADDRESS', processEnv.VITE_UBE_ADDRESS);
-  setEnvVar('VITE_RGU_ADDRESS', processEnv.VITE_RGU_ADDRESS);
+  setEnvVar('VITE_RVU_ADDRESS', processEnv.VITE_RVU_ADDRESS);
   setEnvVar('VITE_RPC_URL', processEnv.VITE_RPC_URL);
   setEnvVar('VITE_E2E_MODE', processEnv.VITE_E2E_MODE);
   if (options.skipEnv) {
@@ -259,7 +259,7 @@ describe('useWallet', () => {
       processEnv: {
         VITE_RPC_URL: 'http://fallback-rpc',
         VITE_UBE_ADDRESS: '0xU',
-        VITE_RGU_ADDRESS: '0xR',
+        VITE_RVU_ADDRESS: '0xR',
         VITE_E2E_MODE: 'false'
       }
     });
@@ -323,7 +323,7 @@ describe('useWallet', () => {
     });
     expect(result.current.error).toContain('Connect wallet');
 
-    const useWalletMissingConfig = await loadHook({ VITE_UBE_ADDRESS: '', VITE_RGU_ADDRESS: '' }, false);
+    const useWalletMissingConfig = await loadHook({ VITE_UBE_ADDRESS: '', VITE_RVU_ADDRESS: '' }, false);
     const { result: missingConfig } = renderHook(() => useWalletMissingConfig());
     await act(async () => {
       await missingConfig.current.refresh();

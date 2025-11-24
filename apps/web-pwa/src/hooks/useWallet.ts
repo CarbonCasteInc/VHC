@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, parseUnits } from 'ethers';
 import { isE2EMode } from '../store';
 
-const RGU_ABI = ['function balanceOf(address account) view returns (uint256)'];
+const RVU_ABI = ['function balanceOf(address account) view returns (uint256)'];
 const UBE_ABI = [
   'function claim() external',
   'function getClaimStatus(address user) view returns (bool eligible,uint256 nextClaimAt,uint256 trustScore,uint256 expiresAt,bytes32 nullifier)'
@@ -18,7 +18,7 @@ function resolveEnv(value?: string) {
 
 const RPC_URL = resolveEnv(ENV.VITE_RPC_URL) ?? resolveEnv(FALLBACK_ENV?.VITE_RPC_URL) ?? 'http://localhost:8545';
 const UBE_ADDRESS = resolveEnv(ENV.VITE_UBE_ADDRESS) ?? resolveEnv(FALLBACK_ENV?.VITE_UBE_ADDRESS) ?? '';
-const RGU_ADDRESS = resolveEnv(ENV.VITE_RGU_ADDRESS) ?? resolveEnv(FALLBACK_ENV?.VITE_RGU_ADDRESS) ?? '';
+const RVU_ADDRESS = resolveEnv(ENV.VITE_RVU_ADDRESS) ?? resolveEnv(FALLBACK_ENV?.VITE_RVU_ADDRESS) ?? '';
 const MOCK_NULLIFIER = '0x6d6f636b2d6e756c6c69666965720000000000000000000000000000000000';
 
 let testSetAccount: ((value: string | null) => void) | null = null;
@@ -50,7 +50,7 @@ export function useWallet() {
     testSetBalance = setBalance;
   }
 
-  const hasConfig = useMemo(() => Boolean(UBE_ADDRESS && RGU_ADDRESS), []);
+  const hasConfig = useMemo(() => Boolean(UBE_ADDRESS && RVU_ADDRESS), []);
 
   const connect = useCallback(async () => {
     if (e2e) {
@@ -94,8 +94,8 @@ export function useWallet() {
     setLoading(true);
     try {
       const readProvider = provider ?? new JsonRpcProvider(RPC_URL);
-      const rgu = new Contract(RGU_ADDRESS, RGU_ABI, readProvider);
-      const rawBalance = (await rgu.balanceOf(account)) as bigint;
+      const rvu = new Contract(RVU_ADDRESS, RVU_ABI, readProvider);
+      const rawBalance = (await rvu.balanceOf(account)) as bigint;
       setBalance(rawBalance);
 
       const ube = new Contract(UBE_ADDRESS, UBE_ABI, readProvider);
