@@ -216,7 +216,10 @@ interface SentimentSignal {
       merkle_root: string;
   }
 }
+
 ```
+
+`analysis_id` SHOULD be the hash of the serialized `CanonicalAnalysis` object; `topic_id` is the `urlHash` derived from the normalized URL.
 
 -----
 
@@ -266,6 +269,8 @@ Summaries and bias tables MUST NOT introduce information absent from the source 
 * The first successfully validated analysis for a `urlHash` is reused; later writes cannot overwrite it in v1.
 * Corrections/disagreements are separate signals (votes, sentiment, replies), not mutations of the canonical object.
 * Future versions (e.g., `canonical-analysis-v2`) may introduce explicit amendment/supersession; v1 treats the record as append-only.
+
+URLs are normalized upstream; the canonical schema enforces `url` as a valid URL (Zod `.url()`), and hashing always uses the normalized form.
 
 See `docs/canonical-analysis-v1.md` for the precise wire-format contract and validation rules.
 

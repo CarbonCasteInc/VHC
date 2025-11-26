@@ -5,7 +5,7 @@
 **Context:** `System_Architecture.md` v0.0.1 (Sprint 1: The "Data Dividend" & Civic Beta)
 **Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/canonical-analysis-v1.md`.
 **Goal:** Connect the PWA to the Attestation Service, deploy Contracts to Testnet, and enable the "First-to-File" Canonical Analysis protocol.
-**Status:** [ ] In Progress
+**Status:** Archived
 
 ### Guiding Constraints & Quality Gates
 - [ ] **Non-Negotiables:**
@@ -70,6 +70,7 @@
 ## Phase 3: VENN (Application & Nervous System)
 
 ### 3.1 Canonical Analysis Protocol
+*Note:* CanonicalAnalysis shape is now governed by `docs/canonical-analysis-v1.md`; this section captures the historical first implementation.
 - [x] **Schema:** Define `CanonicalAnalysis` (with `urlHash`) and `CivicDecay` schemas.
 - [x] **Protocol:** Implement `getOrGenerate` (First-to-File) and `applyDecay` logic.
 

@@ -5,7 +5,7 @@
 **Context:** `System_Architecture.md` v0.0.1 (Single Source of Truth)
 **Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/canonical-analysis-v1.md`.
 **Goal:** Establish the Monorepo, Hardware Roots of Trust, security posture, and basic mesh connectivity required for Milestone A readiness.
-**Status:** [ ] In Progress
+**Status:** Archived
 
 ### Guiding Constraints from the System Architecture
 - [x] Zero-Trust & Forward Secrecy requirements captured in a visible checklist.

@@ -119,8 +119,17 @@
 ### 2.3 Canonical Analysis Hard Contract (VENN Engine)
 - [ ] **Schema Lock:** `canonical-analysis-v1` Zod schema implemented in `packages/data-model` and exported as the single `CanonicalAnalysis` type (used by ai-engine, storage, and UI); spec anchored in `docs/canonical-analysis-v1.md`.
 - [ ] **AI Engine Alignment:**
-    - [ ] `AnalysisResult` in `packages/ai-engine/src/prompts.ts` matches the contract (`summary`, `bias_claim_quote`, `justify_bias_claim`, `biases`, `counterpoints`, `sentimentScore`, `confidence?`, `perspectives?`, `schemaVersion`, `timestamp`, `url`, `urlHash`).
+    - [ ] `AnalysisResult` in `packages/ai-engine/src/prompts.ts` matches the contract:
+        - `summary`
+        - `bias_claim_quote`
+        - `justify_bias_claim`
+        - `biases`
+        - `counterpoints`
+        - `sentimentScore`
+        - `confidence?`
+        - `perspectives?`
     - [ ] `PRIMARY_OUTPUT_FORMAT_REQ` shows `sentimentScore` and `confidence` in the sample JSON.
+    - [ ] Canonical metadata (`schemaVersion`, `url`, `urlHash`, `timestamp`) is added in `getOrGenerate` when constructing `CanonicalAnalysis`, not emitted by the model.
 - [ ] **Worker Contract:**
     - [ ] `worker.ts` unwraps `{ step_by_step, final_refined }` and validates raw `AnalysisResult` fallback.
     - [ ] Tests cover wrapped + raw responses and validation failures.
