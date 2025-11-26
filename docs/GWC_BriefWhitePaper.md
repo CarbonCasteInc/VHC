@@ -6,7 +6,7 @@ Version: 1.0 (The "Ironclad" Release) Date: November 20, 2025 Status: Execution 
 Abstract
 The Global Wealth Chain (GWC) is a decentralized public utility designed to solve the two existential crises of the 21st century: the debasement of fiat currency and the decoupling of human labor from economic value due to Artificial Intelligence.
 
-GWC introduces the Global Wealth Unit (GWU), a floating index-token that mirrors global net wealth in real terms. Unlike stablecoins, GWU is not pegged to debt (fiat); it is anchored to a regulated benchmark of civilization’s equity. This is paired with the Resource Exchange Layer (REL), a hardware-secured marketplace where verified humans convert intentional attention into computational capabilities and liquidity.
+GWC introduces the Real Value Unit (RVU), a floating index-token that mirrors global net wealth in real terms. Unlike stablecoins, RVU is not pegged to debt (fiat); it is anchored to a regulated benchmark of civilization’s equity. This is paired with the Resource Exchange Layer (REL), a hardware-secured marketplace where verified humans convert intentional attention into computational capabilities and liquidity.
 
 Secured by Hardware-Attested Identity (PoP v3), Memory-Hard Verifiable Delay Functions, and MACI Anti-Collusion Governance, GWC offers a mathematically and legally resilient life-raft for the transition to a post-labor economy.
 
@@ -27,28 +27,28 @@ We cannot patch this system. We must build a parallel substrate. We need a store
 
 GWC is that substrate. It is the "Iron Bank" of the people—legitimate, real, secure, and fair.
 
-2. The Wealth Layer: The Global Wealth Unit (GWU)
+2. The Wealth Layer: The Real Value Unit (RVU)
 2.1 The Concept: A Purchasing Power Mirror
 
-GWU is not a stablecoin. Stablecoins are pegged to fiat, inheriting the inflation and political risk of the dollar or euro. GWU is a Index-Tracking Crypto-Asset. It is designed to preserve purchasing power by mirroring the RGU-Real-v1 benchmark—a comprehensive index of global equities, commodities, real estate, and broad money, adjusted for purchasing power parity (PPP).
+RVU is not a stablecoin. Stablecoins are pegged to fiat, inheriting the inflation and political risk of the dollar or euro. RVU is a Index-Tracking Crypto-Asset. It is designed to preserve purchasing power by mirroring the RVU-Real-v1 benchmark—a comprehensive index of global equities, commodities, real estate, and broad money, adjusted for purchasing power parity (PPP).
 
 2.2 The Mechanism: Floating, Not Pegged
 
 The system enforces the invariant S(t)=I(t) (Supply equals Index Value) through a triple-lock mechanism:
 
-Continuous Primary Issuance Auctions (CPIA): When demand drives the price above the index (P>NAV), the protocol auctions new GWU to the market, capturing the premium into a Public Purse.
+Continuous Primary Issuance Auctions (CPIA): When demand drives the price above the index (P>NAV), the protocol auctions new RVU to the market, capturing the premium into a Public Purse.
 
 Permissionless ArbVaults: Automated vaults dampen volatility within defined bands, buying and selling to keep the price aligned with the index without guaranteeing a fixed redemption.
 
-Bounded Open Market Operations (OMO): If the price falls significantly below the index (P<NAV), the protocol utilizes the Public Purse reserves to buy back and burn GWU, supporting the floor.
+Bounded Open Market Operations (OMO): If the price falls significantly below the index (P<NAV), the protocol utilizes the Public Purse reserves to buy back and burn RVU, supporting the floor.
 
 2.3 The Legal Shield: BMR Compliance
 
-To ensure durability against regulatory capture, the RGU-Real-v1 index is registered under the EU Benchmarks Regulation (BMR) .
+To ensure durability against regulatory capture, the RVU-Real-v1 index is registered under the EU Benchmarks Regulation (BMR) .
 
-Classification: GWU is a crypto-asset referencing a regulated benchmark.
+Classification: RVU is a crypto-asset referencing a regulated benchmark.
 
-Compliance: This legally differentiates GWU from "Asset-Referenced Tokens" (ARTs) under MiCA, as we offer no fixed redemption claim to a single fiat currency. We offer exposure to a transparent, audited measure of wealth.
+Compliance: This legally differentiates RVU from "Asset-Referenced Tokens" (ARTs) under MiCA, as we offer no fixed redemption claim to a single fiat currency. We offer exposure to a transparent, audited measure of wealth.
 
 3. The Resource Exchange Layer (REL): The Human Union
 3.1 The Pivot: Data as Labor
@@ -65,7 +65,7 @@ We explicitly separate the economy into two lanes to prevent AI dominance:
 
 Human Lane: Requires Hardware Attestation. Can mint AU.
 
-Agent Lane: Can only spend GWU to buy Compute. Cannot mint AU. This ensures that the upside of the AI economy flows to human participants.
+Agent Lane: Can only spend RVU to buy Compute. Cannot mint AU. This ensures that the upside of the AI economy flows to human participants.
 
 4. The Ironclad Technical Stack
 We reject the fragility of current crypto-systems. We build for a hostile 2025 threat landscape.
@@ -100,7 +100,7 @@ Season 0: The Foundations (Current)
 
 Objective: Solvency & Security.
 
-Deliverables: Wallet v1 (Sanctuary Mode), PoP v3 (Hardware Attestation), GWU Core (BMR Registration), MACI Governance.
+Deliverables: Wallet v1 (Sanctuary Mode), PoP v3 (Hardware Attestation), RVU Core (BMR Registration), MACI Governance.
 
 Metric: Zero successful injection attacks in red-team drills.
 
@@ -108,7 +108,7 @@ Season 1: The Labor Union
 
 Objective: Revenue Generation.
 
-Deliverables: Launch of "Intent Tasks" focused on RLHF for major AI labs. Revenue flows to Public Purse to support GWU.
+Deliverables: Launch of "Intent Tasks" focused on RLHF for major AI labs. Revenue flows to Public Purse to support RVU.
 
 Metric: >$10M annualized revenue from Data Labor contracts.
 
