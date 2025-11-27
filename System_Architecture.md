@@ -107,7 +107,7 @@ We unify identity across LUMA, GWC, and VENN using three primitives:
 
 * **TrustScore (0–1):** Device/session trust derived from hardware attestation. On-chain representation: integer 0–10000 (`scaled = Math.round(trustScore * 10000)`, using `TRUST_SCORE_SCALE`). Thresholds (v0): 0.5 for session/UBE/Faucet, 0.7 for QF.
 * **UniquenessNullifier:** Stable per-human key. Off-chain: string. On-chain: `bytes32` hash. Shared across PWA identity, `SentimentSignal.constituency_proof.nullifier`, Region proofs, and UBE/QF attestation.
-* **ConstituencyProof:** Derived from a RegionProof SNARK. Public signals: `[district_hash, nullifier, merkle_root]`. Used to attribute civic signals to a district without exposing raw region codes.
+* **ConstituencyProof:** Derived from a RegionProof SNARK. Public signals: `[district_hash, nullifier, merkle_root]`. Used to attribute civic signals to a district without exposing raw region codes; `district_hash` is never stored on-chain.
 
 Invariants: same human → same nullifier across all layers; scaled trustScore = `Math.round(trustScore * 10000)`. See `docs/spec-identity-trust-constituency.md` for the canonical contract.
 
@@ -137,6 +137,23 @@ Instrumentation focuses on:
 * `RVU.totalSupply()`.
 * `RVU.balanceOf(QuadraticFunding)`.
 * Aggregate distribution counters (e.g., `UBE.totalDistributed`, `Faucet.totalDripped`, `QuadraticFunding.distributedMatching`) to monitor inflation and governance flow. See `docs/spec-rvu-economics-v0.md` for the canonical Season 0 economic contract.
+
+#### 4.2.2 XP Ledger v0 (Participation Weight)
+
+XP is a per-nullifier, non-transferable, monotonic ledger that prototypes the future participation weight GWC will use for value distribution.
+
+* **Shape (per UniquenessNullifier):**
+  * `civicXP` (news, sentiment, Eye/Lightbulb interactions),
+  * `socialXP` (messaging/HERMES, later),
+  * `projectXP` (proposals, governance/QF actions),
+  * `totalXP = f(civicXP, socialXP, projectXP)` (e.g., weighted sum),
+  * `lastUpdated` (timestamp).
+* **Distribution model (future):** `share_i = totalXP_i^γ / Σ totalXP_j^γ` (γ tunable; α pool fraction tunable when issuing RVU/GWU).
+* **Emission (Season 0 candidates):** first Lightbulb interaction on a topic, subsequent engagements (diminishing), full read sequences, UBE claims (“Daily Boost”), proposal support/creation, REL tasks later.
+* **Invariants:** per-nullifier, non-transferable, monotonic (no negative XP), tracks are stable even if emission coefficients change over time.
+* **Privacy:** XP ledger is sensitive (per-nullifier); stored on-device, optionally encrypted to a trusted node; only safe aggregates (e.g., district averages with cohort thresholds) may leave the device. Never publish `{district_hash, nullifier, XP}` together.
+
+See `docs/spec-xp-ledger-v0.md` for the canonical Season 0 XP ledger contract.
 
 ### 4.3 VENN: The Canonical Bias Engine
 
@@ -171,6 +188,8 @@ For each canonical article (topic):
   * Changes in `agreement` plus the user’s current Lightbulb `weight` are emitted as `SentimentSignal` events.
 
 Civic Decay is applied per-user-per-topic. Reads (expanding an analysis) advance the user’s `eye_weight`; engagement interactions (stance changes, feedback) advance the user’s Lightbulb `weight`, each step using `E_new = E_current + 0.3 * (2.0 - E_current)` toward a 2.0 ceiling. This ensures diminishing returns on repeat interactions while rewarding sustained engagement.
+
+*Privacy semantics:* Per-user `SentimentSignal` events are sensitive and MUST NOT be replicated in plaintext on the mesh. Public surfaces and mesh projections use `AggregateSentiment` and per-district aggregates only (counts/ratios/average weights) with no nullifiers; `district_hash` appears only in aggregates, never in individual public events.
 
 #### 4.3.2 AI Engine & Analysis Pipeline
 
@@ -245,6 +264,7 @@ In Season 0, main objects:
 | Wallet balances   | React state (`balance`, `claimStatus`)                           | –                                              | `RVU.balanceOf`, `UBE.getClaimStatus`, tx log    | –            | Sensitive |
 | IdentityRecord    | `localStorage: vh_identity` (attestation, trustScore, nullifier) | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
 | RegionProof       | Local-only (per `spec-identity-trust-constituency.md`)           | – (no v0 usage)                                | –                                                | –            | Sensitive |
+| XP Ledger         | `localStorage: vh_xp_ledger` (per nullifier XP tracks)           | – (or encrypted outbox to Guardian node)       | –                                                | –            | Sensitive |
 | Messages (future) | TBD                                                              | `vh/chat/*`, `vh/outbox/*` (guarded; see below)| –                                                | Attachments  | Sensitive |
 
 Rules:
@@ -466,6 +486,8 @@ See `docs/spec-rvu-economics-v0.md` for detailed Season 0 economic semantics.
 | **R-07** | Civic Signal Drift (types/math diverge between client, mesh, and chain) | L1/L3 | **Canonical Contract:** Enforce single spec (`spec-civic-sentiment.md`), shared types in `packages/types`, and Zod schemas in `packages/data-model`. CI blocks on schema mismatch. |
 | **R-08** | Identity/Trust Drift | L1/L2/L3 | **Canonical Contract:** Enforce single spec (`spec-identity-trust-constituency.md`), shared types (`TrustScore`, `UniquenessNullifier`, `ConstituencyProof`), and bridge logic. CI blocks on schema mismatch. |
 | **R-09** | AI Contract Drift | L3 | **Canonical Contract:** Enforce `AI_ENGINE_CONTRACT.md`, `canonical-analysis-v1` schema, and worker/schema tests on prompt/parse/validation. |
+| **R-10** | Constituency De-anonymization | L1/L3 | **Aggregation Only:** Keep `SentimentSignal` local/encrypted; publish only per-district aggregates with cohort thresholds; no `district_hash` on-chain; see `spec-data-topology-privacy-v0.md`. |
+| **R-11** | Mesh Metadata Leakage | L1/L3 | **Mesh Hygiene:** Only public objects in plaintext `vh/*`; sensitive data via encrypted outbox; audit Gun paths; feature-flag chat/outbox until E2EE; see `spec-data-topology-privacy-v0.md`. |
 
 -----
 

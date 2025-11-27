@@ -287,6 +287,30 @@
   - [ ] Apply rounding/binning to small counts in public dashboards.
   - [ ] Tests: simulate small district samples and assert we do not render raw counts.
 
+### 2.9 XP Ledger (Participation Weight)
+
+**Goal:** Treat XP as the prototype GWC participation ledger (per nullifier, monotonic, partitioned tracks) and wire Season 0 emissions.
+
+- [ ] **Spec & Types:**
+  - [ ] Add `docs/spec-xp-ledger-v0.md` and mirror types in `packages/types` (`XpLedger`, `XpTrack`, `TotalXpFunction`).
+  - [ ] `totalXP` computed via a deterministic function over tracks (e.g., weighted sum).
+
+- [ ] **Storage & Privacy:**
+  - [ ] Store XP ledger per nullifier on-device (e.g., `vh_xp_ledger`); optionally encrypt to a trusted node.
+  - [ ] Ensure no public mesh writes of `{ district_hash, nullifier, XP }`; only safe aggregates exposed.
+
+- [ ] **Emission Rules (Season 0):**
+  - [ ] Define and implement XP increments for: first Lightbulb interaction on a topic, subsequent engagements (diminishing), full read sequences, UBE claim, proposal support/creation; stubs for REL tasks later.
+  - [ ] Make coefficients configurable; changing coefficients affects future accrual only (no retro-edits).
+
+- [ ] **Hooks & UI:**
+  - [ ] Add `useXpLedger` (per nullifier) consuming events from sentiment/UBE/proposal flows.
+  - [ ] Surface XP totals and track breakdown in wallet/control panel; mark as “proto participation weight.”
+
+- [ ] **Tests & Consistency:**
+  - [ ] Tests for monotonic updates, track-to-totalXP determinism, and event-driven increments (first vs subsequent interactions).
+  - [ ] Tests/linters to ensure no `{ district_hash, nullifier, XP }` appears in public data paths.
+
 **Goal:** Make RVU v0, UBE, Faucet, and QF behavior explicit, measurable, and aligned with Season 0 UX.
 
 - [ ] **RVU v0 Instrumentation:**

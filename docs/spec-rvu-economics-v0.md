@@ -48,3 +48,15 @@ This spec captures the Season 0 economic contract (RVU v0, UBE, Faucet, Quadrati
 - UBE claim UI: trustScore gating; XP-only vs RVU-claim mode configurable.
 - Faucet UI: hidden/restricted for normal users; guarded by env/whitelist.
 - Governance: public PWA avoids on-chain `castVote` in S0; internal tools/scripts exercise QF for test rounds.
+
+## 8. XP Linkage (Participation Weight)
+
+- XP is the off-chain, per-nullifier participation ledger (see `spec-xp-ledger-v0.md`), partitioned into `civicXP`, `socialXP`, `projectXP`, with `totalXP` as a deterministic function.
+- XP prototypes the future distribution weight for GWC:
+
+```
+share_i = totalXP_i^γ / Σ_j totalXP_j^γ
+RVU_i   = α * pool * share_i
+```
+
+- XP is non-transferable, monotonic, and per-nullifier; emission parameters can evolve without retro-editing historic XP. When GWU/RVU index mechanics go live, a defined fraction of new issuance can be allocated using this weight function.

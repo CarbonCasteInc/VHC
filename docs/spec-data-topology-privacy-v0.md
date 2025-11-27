@@ -15,6 +15,7 @@ This spec defines where data lives (device, mesh, chain, cloud), what is public 
 | Wallet balances   | React state (`balance`, `claimStatus`)                           | –                                              | `RVU.balanceOf`, `UBE.getClaimStatus`, tx log    | –            | Sensitive |
 | IdentityRecord    | `localStorage: vh_identity` (attestation, trustScore, nullifier) | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
 | RegionProof       | Local-only (per `spec-identity-trust-constituency.md`)           | – (no v0 usage)                                | –                                                | –            | Sensitive |
+| XP Ledger         | `localStorage: vh_xp_ledger` (per nullifier XP tracks)           | – (or encrypted outbox to Guardian node)       | –                                                | –            | Sensitive |
 | Messages (future) | TBD                                                              | `vh/chat/*`, `vh/outbox/*` (guarded; see below)| –                                                | Attachments  | Sensitive |
 
 ## 2. Classification & Rules
@@ -26,6 +27,7 @@ Rules:
 - Only Public objects may be stored plaintext under `vh/*` in the mesh.
 - Sensitive objects either stay on-device or travel via encrypted channels (user-scoped Gun space, outbox to Guardian Nodes).
 - `district_hash` and `nullifier` never appear together in any public structure; no identity/constituency data in CanonicalAnalysis.
+- XP ledger (per nullifier) is sensitive; only safe aggregates with cohort thresholds may be exposed.
 
 ## 3. Sentiment & Constituency Flow
 
