@@ -173,3 +173,12 @@ const canonical: CanonicalAnalysisV1 = {
 - Fact-only checks: reject summaries/biases that introduce unseen named entities.
 - Fuzz tests: truncating article text must not yield longer/more specific summaries than the available text.
 - Snapshot example payload to ensure deterministic JSON shape.
+
+## 6. Privacy & Replication
+
+CanonicalAnalysisV1 objects represent **public analyses of public articles**:
+
+- Stored locally (feed + cache) and MAY be replicated in plaintext to the mesh under `vh/analyses/<urlHash>`.
+- MUST NOT include identity fields (nullifier, wallet, email, etc.) or constituency fields (`district_hash`, `RegionProof`, etc.).
+
+Authorship and reward mapping, if needed, MUST be maintained in separate, privacy-preserving structures (e.g., encrypted mappings keyed by nullifier) and are out of scope for this schema.

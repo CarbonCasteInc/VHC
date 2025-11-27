@@ -81,6 +81,8 @@ At the application layer (VENN), each verified human can read canonical analyses
 
 These signals are aggregated into public dashboards and feed directly into MACI-governed decisions and Quadratic Funding rounds. The protocol does not guess what people want; it samples their will through a cryptographically verifiable channel.
 
+Privacy stance: Constituency data (district hashes, nullifiers) stays on-device or in encrypted channels and is only exposed as aggregated per-district stats; no per-user constituency is written to public meshes or chains.
+
 4. The Ironclad Technical Stack
 We reject the fragility of current crypto-systems. We build for a hostile 2025 threat landscape.
 

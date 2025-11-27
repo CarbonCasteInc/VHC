@@ -74,3 +74,5 @@ Create a precise, engine-agnostic pipeline: prompt → engine → JSON → valid
 - Schema tests: valid/invalid payloads; wrapper + bare.
 - Validation tests: quote/year mismatches generate warnings.
 - Worker integration: end-to-end success, parse error paths, caching.
+
+Note: `CanonicalAnalysis` objects are public analyses; engine outputs MUST NOT include identity or constituency data.

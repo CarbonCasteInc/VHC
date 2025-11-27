@@ -18,7 +18,7 @@ TRINITY is a **Parallel Institution**: A self-sovereign Operating System for Ide
 
 **Engineering Prime Directives:**
 
-1.  **Local is Truth:** Data lives on the user's device. The cloud is merely an encrypted relay.
+1.  **Local is Truth:** Canonical identity and civic state live on the user's device. Mesh and chain hold public or encrypted replicas; untrusted infrastructure sees routing metadata, not raw identity or constituency.
 2.  **Physics is Trust:** Keys are bound to hardware (TEE/Enclave), not passwords.
 3.  **Math is Law:** Governance is receipt-free (MACI) and anti-collusive.
 4.  **Shared Reality:** Analysis is generated at the edge but deduplicated via the "First-to-File" protocol.
@@ -227,6 +227,33 @@ This pipeline is independent of model choice; swapping remote/local engines only
           * **Mobile:** Delegate delivery to **Home Guardian Node** (Trusted Relay). The Node fills the form using the user's signed payload.
 
 -----
+
+### 4.5 Data Topology & Privacy v0
+
+TRINITY is local-first, not local-only. Devices hold canonical state; mesh and chain hold public or encrypted replicas. We distinguish:
+
+* **Public-by-design objects:** shared civic/economic data (public articles, canonical analyses, aggregate sentiment, project funding).
+* **Sensitive objects:** identity, constituency, per-user sentiment, messages, and wallet↔identity mappings.
+
+In Season 0, main objects:
+
+| Object            | On Device                                                        | Mesh / Gun                                     | On-chain                                        | Cloud / MinIO | Class      |
+|-------------------|------------------------------------------------------------------|------------------------------------------------|--------------------------------------------------|--------------|-----------|
+| CanonicalAnalysis | `localStorage: vh_canonical_analyses`, IndexedDB `vh-ai-cache`   | `vh/analyses/<urlHash> = CanonicalAnalysis`    | –                                                | –            | Public    |
+| Sentiment (v0)    | `localStorage: vh_civic_scores_v1` (per item:perspective)        | –                                              | –                                                | –            | Sensitive |
+| Proposals (v0 UI) | React state only                                                 | –                                              | QF `Project` (recipient/amounts, no metadata)    | –            | Public    |
+| Wallet balances   | React state (`balance`, `claimStatus`)                           | –                                              | `RVU.balanceOf`, `UBE.getClaimStatus`, tx log    | –            | Sensitive |
+| IdentityRecord    | `localStorage: vh_identity` (attestation, trustScore, nullifier) | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
+| RegionProof       | Local-only (per `spec-identity-trust-constituency.md`)           | – (no v0 usage)                                | –                                                | –            | Sensitive |
+| Messages (future) | TBD                                                              | `vh/chat/*`, `vh/outbox/*` (guarded; see below)| –                                                | Attachments  | Sensitive |
+
+Rules:
+
+* Only **public** objects may be stored in plaintext under `vh/*` in the mesh.
+* **Sensitive** objects must either remain on-device only, or be sent via encrypted user-scoped channels (e.g., Gun SEA / outbox) to trusted aggregators.
+* CanonicalAnalysis is public content and never includes nullifiers, district hashes, or wallet addresses.
+
+See `docs/spec-data-topology-privacy-v0.md` for the canonical Season 0 topology and invariants.
 
 ## 5. Unified Development Roadmap
 

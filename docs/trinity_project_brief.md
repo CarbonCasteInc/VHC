@@ -37,7 +37,7 @@ The system operates three tightly‑coupled layers:
 1. **LUMA – Identity / “Proof of Human”**  
    - Hardware‑attested identity (device secure enclave + biometrics / liveness).  
    - One real human → one **nullifier** (stable per-human key, reused everywhere).  
-   - Outputs a **trustScore** (0..1) and a **scaledTrustScore** (0..10000) for gating actions (sessions, UBE, QF).  
+   - Outputs a **trustScore** (0..1) and a **scaledTrustScore** (0..10000) for gating actions (sessions, UBE, QF), with a metadata-minimizing, local-first architecture: sensitive identity and constituency data stays on-device; only aggregated or encrypted signals ever leave.  
    - Optional region proof → the person becomes a **constituent** in a district, without doxxing their address.
 
 2. **GWC – Global Wealth Chain (Economics)**  
@@ -229,6 +229,8 @@ Under the hood, the contracts are concrete:
   - Voting in RVU with quadratic aggregation,  
   - Matching pool and withdrawals.  
   - Season 0: on-chain rounds are curated/internal; public proposal UI uses local-only voting to test UX before wiring real RVU.
+
+**Privacy stance:** Canonical analyses and aggregate sentiment are public; per-user sentiment, region proofs, and wallet/identity mappings are treated as sensitive and never written to public meshes or chains.
 
 - **MedianOracle**  
   - Commit–reveal median price oracle, ready to feed into future GWU index logic, not yet wired into RVU directly.

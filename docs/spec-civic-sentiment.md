@@ -134,3 +134,19 @@ Invariants:
 - On each full read/expand of the analysis, apply `calculateDecay`/`applyDecay` to update `eye_weight`.
 - Aggregated Eye for a topic is a deterministic function of all `eye_weight` values (e.g., sum or average). An optional secondary metric is the count of users with `eye_weight > 0`.
 - Eye reflects reading interest, including repeat visits; it does not use `SentimentSignal` and does not affect Lightbulb `weight`.
+
+## 8. Privacy & Topology
+
+Event-level `SentimentSignal` objects are **sensitive**:
+
+- They bind `agreement` and `weight` to a `constituency_proof` (district_hash + nullifier).
+- They MUST NOT be stored in plaintext on the public mesh or chain.
+- They SHOULD remain on-device or be sent via encrypted outbox to a trusted aggregator (e.g., Guardian Node).
+
+Public-facing and mesh-replicated data must use **AggregateSentiment** and similar aggregate structures only:
+
+- No per-user nullifiers.
+- No raw `RegionProof` or `ConstituencyProof`.
+- `district_hash` appears only in per-district aggregates, never joined with individual identifiers.
+
+On-chain contracts (UBE, Faucet, QF) remain region-agnostic; they do not consume `district_hash` or per-user sentiment. See `spec-data-topology-privacy-v0.md` for placement rules.

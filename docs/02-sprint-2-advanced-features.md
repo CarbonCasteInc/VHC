@@ -261,6 +261,32 @@
 
 ## Phase 2.7 Season 0 Economics & Metrics (RVU / UBE / Faucet / QF)
 
+### 2.8 Data Topology & Privacy v0
+
+**Goal:** Make data placement explicit and enforce public vs sensitive object rules across device, mesh, and chain.
+
+- [ ] **Topology Spec:**
+  - [ ] Add `docs/spec-data-topology-privacy-v0.md` capturing object locations (device, mesh, chain, cloud).
+  - [ ] Ensure `System_Architecture.md` §4.5 mirrors this table.
+
+- [ ] **Mesh Policy:**
+  - [ ] Restrict plaintext Gun usage to `vh/analyses/<urlHash>` (CanonicalAnalysis) and aggregate sentiment namespaces (no per-user IDs).
+  - [ ] Audit current Gun writes; remove or guard any sensitive writes under `vh/*`.
+
+- [ ] **Sentiment Flow:**
+  - [ ] Keep event-level `SentimentSignal` local-only or in encrypted outbox.
+  - [ ] Expose only aggregated per-topic/per-district stats to mesh or dashboards.
+  - [ ] Tests: ensure no public data structure combines `{ district_hash, nullifier }`.
+
+- [ ] **Chat / Outbox Guardrails:**
+  - [ ] Mark `chat` and `outbox` namespaces as “E2EE required” in `@vh/gun-client`.
+  - [ ] Add feature flags to prevent plaintext usage in production until encryption is implemented.
+
+- [ ] **Aggregation Safety:**
+  - [ ] Implement minimal cohort size checks (e.g., N ≥ 20) for per-district stats.
+  - [ ] Apply rounding/binning to small counts in public dashboards.
+  - [ ] Tests: simulate small district samples and assert we do not render raw counts.
+
 **Goal:** Make RVU v0, UBE, Faucet, and QF behavior explicit, measurable, and aligned with Season 0 UX.
 
 - [ ] **RVU v0 Instrumentation:**
