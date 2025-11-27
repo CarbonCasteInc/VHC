@@ -127,18 +127,22 @@ The system functions as a Monorepo with polyglot micro-services.
 
 For each canonical article (topic):
 
-* **Eye (👁 Read Count):** Number of distinct verified humans who have opened the full analysis (not just seen the headline). Tracked per `topic_id`, aggregated across users.
+* **Eye (👁 Read Interest):**
+  * For each `topic_id` and user, track a per-topic read score `eye_weight ∈ [0, 2]` updated via Civic Decay on each full read/expand.
+  * The Eye metric displayed for a topic is an aggregate over all users’ `eye_weight` (e.g., sum or average) and may optionally show raw unique reader counts (`eye_weight > 0`).
+  * Repeated reads contribute with diminishing returns and can never exceed 2 units of read interest.
 * **Lightbulb (💡 Engagement Weight):**
-  * Per-user-per-topic engagement weight `weight ∈ [0, 2]`.
+  * Per-user-per-topic engagement weight `weight ∈ [0, 2]`, driven by engagement interactions (table stances, feedback) and independent from Eye read score; repeated reads alone do not change Lightbulb.
   * Updated via Civic Decay on each meaningful interaction:
     * Formula: `E_new = E_current + 0.3 * (2.0 - E_current)`.
     * Monotonic, asymptotically approaches 2.0, never exceeds it.
   * Aggregate Lightbulb per topic is a function of all user weights (e.g., sum or average) stored in `AggregateSentiment`.
 * **Per-point Sentiment:**
   * For each `(topic_id, point_id)` (bias or counterpoint), each user has `agreement ∈ {-1, 0, +1}` representing Disagree / Neutral / Agree.
-  * Changes in `agreement` plus the user’s current `weight` are emitted as `SentimentSignal` events.
+  * For aggregation, only committed votes are counted (`+1` or `-1`); neutral (`0`) is tracked per user but does not contribute to per-cell ratios.
+  * Changes in `agreement` plus the user’s current Lightbulb `weight` are emitted as `SentimentSignal` events.
 
-Civic Decay is applied per-user-per-topic. Each qualifying interaction (expanding an analysis, changing a per-point stance, submitting feedback) advances the user’s Lightbulb weight one step closer to 2.0 using `E_new = E_current + 0.3 * (2.0 - E_current)`. This ensures diminishing returns on spammy interactions while rewarding sustained engagement.
+Civic Decay is applied per-user-per-topic. Reads (expanding an analysis) advance the user’s `eye_weight`; engagement interactions (stance changes, feedback) advance the user’s Lightbulb `weight`, each step using `E_new = E_current + 0.3 * (2.0 - E_current)` toward a 2.0 ceiling. This ensures diminishing returns on repeat interactions while rewarding sustained engagement.
 
 ### 4.4 HERMES: The Sovereign Legislative Bridge
 
@@ -227,7 +231,7 @@ interface SentimentSignal {
   analysis_id: string;    // Hash of the Canonical Analysis Object
   point_id: string;       // ID of the bias/counterpoint/perspective
   agreement: 1 | 0 | -1;  // 3-state Agree / None / Disagree
-  weight: number;         // User’s per-topic Lightbulb, in [0, 2]
+  weight: number;         // User’s per-topic Lightbulb from engagement, in [0, 2]
 
   constituency_proof: {
       district_hash: string; 
@@ -238,15 +242,23 @@ interface SentimentSignal {
   emitted_at: number;     // Unix timestamp
 }
 
+interface PointStats {
+  agree: number;    // distinct users with final agreement = +1
+  disagree: number; // distinct users with final agreement = -1
+}
+
 // Aggregate-level: mesh / ledger projection
 interface AggregateSentiment {
   topic_id: string;
   analysis_id: string;
 
-  // For each point_id, the dominant stance or distribution
+  // Per point: committed votes only (neutral not counted)
+  point_stats: Record<string, PointStats>;
+
+  // Optional convenience: derived dominant stance per point based on point_stats
   bias_vector: Record<string, 1 | 0 | -1>;
 
-  // Global engagement signal (function of all user weights, e.g. sum or average)
+  // Global engagement signal (function of all user Lightbulb weights, e.g. sum or average)
   weight: number;          // Aggregate Lightbulb
   engagementScore: number; // Additional metric if needed (e.g. entropy, variance)
 }
@@ -255,7 +267,8 @@ interface AggregateSentiment {
 Invariants:
 
 * For any SentimentSignal, `0 ≤ weight ≤ 2`.
-* For any topic and user, `weight` is updated only via the Civic Decay function.
+* For any topic and user, Lightbulb `weight` is updated only via the Civic Decay function on engagement interactions.
+* Per-point aggregates ignore neutral (`0`) when computing `point_stats`; `bias_vector` is derived from `point_stats` (e.g., sign of `agree - disagree`).
 * `AggregateSentiment` is a deterministic function of the stream of SentimentSignal events.
 
 See `docs/spec-civic-sentiment.md` for the normative contract across client, mesh, and chain.

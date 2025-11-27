@@ -23,7 +23,7 @@ interface SentimentSignal {
   analysis_id: string;    // Hash of the Canonical Analysis Object
   point_id: string;       // ID of the bias/counterpoint/perspective
   agreement: 1 | 0 | -1;  // 3-state Agree / None / Disagree
-  weight: number;         // User’s per-topic Lightbulb, in [0, 2]
+  weight: number;         // User’s per-topic Lightbulb (engagement), in [0, 2]
 
   constituency_proof: {
     district_hash: string;
@@ -35,26 +35,35 @@ interface SentimentSignal {
 }
 ```
 
+`weight` is the user’s engagement Lightbulb for this topic (from table interactions), not their read score; Eye is derived separately from per-topic read events.
+
 Invariants:
 
 - `0 ≤ weight ≤ 2`.
-- For any topic and user, `weight` is updated only via the Civic Decay function.
+- For any topic and user, `weight` is updated only via the Civic Decay function on engagement interactions.
 - `agreement` is a 3-state toggle; there is no partial sentiment.
 
 Emission rules:
 
 - Emit on any change to `agreement` for a `(topic_id, point_id)`.
-- Emit on first read/expand of an analysis to capture initial Eye/Lightbulb contributions.
 - Emit when constituency proof changes for the user to preserve rollup integrity.
 
 ## 3. Aggregate Contract: AggregateSentiment
 
 ```ts
+interface PointStats {
+  agree: number;
+  disagree: number;
+}
+
 interface AggregateSentiment {
   topic_id: string;
   analysis_id: string;
 
-  // For each point_id, the dominant stance or distribution
+  // Per point: committed votes only (neutral not counted)
+  point_stats: Record<string, PointStats>;
+
+  // Optional convenience: dominant stance per point based on point_stats
   bias_vector: Record<string, 1 | 0 | -1>;
 
   // Global engagement signal (function of all user weights)
@@ -65,7 +74,8 @@ interface AggregateSentiment {
 
 Computation guidelines:
 
-- `bias_vector` is derived from the stream of `SentimentSignal` events (majority stance or stored distribution).
+- `point_stats` are unweighted counts of final `agreement = +1` (agree) and `agreement = -1` (disagree); neutral (`0`) is not counted.
+- `bias_vector` is derived from `point_stats` (e.g., sign of `agree - disagree`) or stored distribution.
 - Aggregate Lightbulb should be deterministic (e.g., sum of weights or averaged per unique user) and documented in the consuming service.
 
 ## 4. Civic Decay
@@ -91,10 +101,12 @@ Invariants:
 - Monotonic increase per step; cannot exceed `2.0`.
 - Idempotent per interaction: one qualifying interaction = one decay step.
 - Only this function may update `weight`.
+- For Eye: each read (expanding an analysis) applies one decay step to `eye_weight(topic, user)`.
+- For Lightbulb: each engagement interaction (stance change, feedback) applies one decay step to `lightbulb_weight(topic, user)` and drives `SentimentSignal.weight`.
 
 ## 5. Lifecycle & Storage
 
-- **Client state:** `useSentimentState` stores `agreement` per `(topic_id, point_id)`; `useEngagementState` stores per-topic `weight`; `useReadTracker` records first read per `topic_id`.
+- **Client state:** `useSentimentState` stores `agreement` per `(topic_id, point_id)`; `useEngagementState` stores per-topic engagement `weight`; `useReadTracker` (or `useReadState`) stores per-topic `eye_weight` applying decay on each expand/read.
 - **Types:** `packages/types` exports `SentimentSignal` and `AggregateSentiment`.
 - **Schemas:** `packages/data-model` hosts `SentimentSignalSchema` and `AggregateSentimentSchema` (Zod) mirroring the above.
 - **Engine:** `packages/ai-engine/src/decay.ts` implements `calculateDecay` / `applyDecay` using this spec.
@@ -104,6 +116,15 @@ Invariants:
 
 - All emitted events validate via `SentimentSignalSchema.parse`.
 - Civic Decay tests prove monotonic, bounded progression and clamp behavior at 0 and 2.
-- Eye increments only once per user per `topic_id`; Lightbulb uses the decay output.
+- Eye read scores use the decay function: repeated reads yield monotonic increase in `eye_weight(topic, user)`, bounded in `[0, 2]`.
+- Neutral (`agreement = 0`) is tracked per user but never appears in `point_stats`.
+- Lightbulb uses the decay output on engagement interactions only.
 - UI tests enforce 3-state sentiment toggles and persistence across reloads.
 - Integration tests round-trip: UI interaction → `SentimentSignal` → `AggregateSentiment` projection with deterministic results.
+
+## 7. Eye (Read Interest) Semantics
+
+- For each `(topic_id, user)` track a per-topic read score `eye_weight ∈ [0, 2]`.
+- On each full read/expand of the analysis, apply `calculateDecay`/`applyDecay` to update `eye_weight`.
+- Aggregated Eye for a topic is a deterministic function of all `eye_weight` values (e.g., sum or average). An optional secondary metric is the count of users with `eye_weight > 0`.
+- Eye reflects reading interest, including repeat visits; it does not use `SentimentSignal` and does not affect Lightbulb `weight`.

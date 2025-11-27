@@ -38,8 +38,8 @@
 - [x] **Feed:** Virtualized infinite scroll.
     - **Tests:** Component tests for windowing thresholds, empty/error states.
 - [x] **Metrics:**
-    - **Eye:** Read Count (number of distinct users who expanded the analysis at least once).
-    - **Lightbulb:** Global Engagement Score (aggregate of all per-user Lightbulb weights for the topic).
+    - **Eye:** Read Interest derived from per-user `eye_weight ∈ [0,2]` (Civic Decay applied on each read/expand). UI may show Eye score plus unique readers (`eye_weight > 0`).
+    - **Lightbulb:** Engagement Score derived from per-user `lightbulb_weight ∈ [0,2]` (Civic Decay applied on table interactions), used for story-level engagement (not per-cell ratios).
 - [x] **Transitions:** "Lift & Hover" effect (Scale + Z-Index) on expansion.
     - **Tests:** Verify lift state, metric rendering, and a11y/keyboard support.
 - [x] **Analysis UI:**
@@ -136,12 +136,13 @@
   - [ ] Update `AnalysisView` / `PerspectiveRow` to use 3-state toggles:
         0 → +1, +1 → 0, 0 → -1, -1 → 0.
   - [ ] Update component tests to assert 3-state behavior and persistence.
+  - [ ] Per-cell aggregates use committed votes only: `agreement = +1` increments `agree`, `agreement = -1` increments `disagree`, `agreement = 0` is not counted.
 
 - [ ] **Eye & Lightbulb Wiring:**
-  - [ ] Implement `useReadTracker` to record first-time expansions per `topic_id`.
-  - [ ] On first expand of a headline card, increment `readCount` once per user (local stub).
-  - [ ] Implement `useEngagementState` (per-topic `weight ∈ [0,2]`),
-        calling `calculateDecay` on each sentiment change.
+  - [ ] Implement `useReadTracker` / `useReadState` to store per-topic `eye_weight ∈ [0,2]`, applying `calculateDecay` on each expand/read.
+  - [ ] Aggregate Eye metrics for display from per-user `eye_weight` (e.g., sum / average and unique readers).
+  - [ ] Implement `useEngagementState` (per-topic `lightbulb_weight ∈ [0,2]`),
+        calling `calculateDecay` only on engagement interactions (stance changes, later feedback), not on reads.
   - [ ] Render per-user Lightbulb from `useEngagementState` in `HeadlineCard`
         (global aggregate will later come from `AggregateSentiment`).
 

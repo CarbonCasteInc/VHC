@@ -66,7 +66,7 @@
 ## Phase 2: Core Packages & Identity (The Bedrock)
 
 ### 2.1 Core Libraries
-- [x] **Types:** Create `packages/types` (Zod schemas & TS Interfaces), including shared civic data contracts (e.g. SentimentSignal, AggregateSentiment) as defined in `System_Architecture.md`.
+- [x] **Types:** Create `packages/types` (Zod schemas & TS Interfaces), including shared civic data contracts (SentimentSignal, AggregateSentiment, Eye read semantics) as defined in `System_Architecture.md` and `docs/spec-civic-sentiment.md`.
 - [x] **Crypto:** Create `packages/crypto` (E2EE primitives, wrappers for `window.crypto.subtle`).
 - [x] **CRDT:** Create `packages/crdt` (Lamport, LWW, Vector Clocks).
 - [x] **Data:** Create `packages/data-model` (High-level Entities: Msg, Post).
