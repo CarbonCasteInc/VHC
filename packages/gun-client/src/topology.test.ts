@@ -17,4 +17,11 @@ describe('TopologyGuard', () => {
     const guard = new TopologyGuard();
     expect(() => guard.validateWrite('vh/public/aggregates/topic', { ratio: 0.5 })).not.toThrow();
   });
+
+  it('blocks any public payload combining district_hash and nullifier', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('vh/public/aggregates/topic', { district_hash: 'd', nullifier: 'n' })
+    ).toThrow();
+  });
 });

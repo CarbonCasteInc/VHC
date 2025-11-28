@@ -28,7 +28,9 @@ describe('useSentimentState', () => {
     useSentimentState.getState().setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proof });
     let agreement = useSentimentState.getState().getAgreement(TOPIC, POINT);
     expect(agreement).toBe(1);
-    expect(useSentimentState.getState().signals.at(-1)?.agreement).toBe(1);
+    const firstSignal = useSentimentState.getState().signals.at(-1);
+    expect(firstSignal?.agreement).toBe(1);
+    expect(firstSignal?.weight).toBe(1);
 
     // same desired toggles back to neutral
     useSentimentState.getState().setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proof });

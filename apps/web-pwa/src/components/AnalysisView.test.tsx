@@ -32,7 +32,7 @@ const sample: FeedItem = {
 };
 
 describe('AnalysisView', () => {
-  it('renders perspectives and updates 3-state sentiment', () => {
+  it('renders perspectives and updates per-cell sentiment', () => {
     useSentimentState.setState({
       ...useSentimentState.getState(),
       agreements: {},
@@ -41,12 +41,11 @@ describe('AnalysisView', () => {
       signals: []
     });
     render(<AnalysisView item={sample} />);
-    const agree = screen.getByLabelText('Agree');
+    const agree = screen.getByLabelText('Agree frame');
     fireEvent.click(agree);
-    expect(screen.getByLabelText('Engagement score')).toHaveTextContent('💡');
-    expect(useSentimentState.getState().getAgreement(sample.id, sample.perspectives[0].id)).toBe(1);
+    expect(useSentimentState.getState().getAgreement(sample.id, 'pa:frame')).toBe(1);
 
     fireEvent.click(agree);
-    expect(useSentimentState.getState().getAgreement(sample.id, sample.perspectives[0].id)).toBe(0);
+    expect(useSentimentState.getState().getAgreement(sample.id, 'pa:frame')).toBe(0);
   });
 });

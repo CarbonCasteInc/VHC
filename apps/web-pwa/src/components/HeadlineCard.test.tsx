@@ -5,6 +5,17 @@ import '@testing-library/jest-dom/vitest';
 import { describe, expect, it } from 'vitest';
 import HeadlineCard from './HeadlineCard';
 import type { FeedItem } from '../hooks/useFeedStore';
+import { vi } from 'vitest';
+
+vi.mock('../hooks/useRegion', () => ({
+  useRegion: () => ({
+    proof: {
+      district_hash: 'test-district',
+      nullifier: 'test-nullifier',
+      merkle_root: 'test-root'
+    }
+  })
+}));
 
 const sample: FeedItem = {
   id: 'card-1',
@@ -38,5 +49,10 @@ describe('HeadlineCard', () => {
 
     // Read count should increment on first expansion
     expect(screen.getByTestId('read-count')).toHaveTextContent('👁️ 5.0');
+
+    // Sentiment click should not collapse the card
+    const agreeFrame = screen.getByLabelText('Agree frame');
+    fireEvent.click(agreeFrame);
+    expect(screen.getByText(/Frame view/)).toBeInTheDocument();
   });
 });

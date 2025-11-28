@@ -15,6 +15,7 @@ export const HeadlineCard: React.FC<HeadlineCardProps> = ({ item }) => {
 
   // Get eye weight from sentiment store for this item
   const eyeWeight = useSentimentState((s) => s.getEyeWeight(item.id));
+  const lightbulbWeight = useSentimentState((s) => s.getLightbulbWeight(item.id));
   const recordRead = useSentimentState((s) => s.recordRead);
 
   // Calculate displayed read count: base + eye weight contribution (decayed toward 2)
@@ -70,7 +71,7 @@ export const HeadlineCard: React.FC<HeadlineCardProps> = ({ item }) => {
       </div>
       <div className="mt-3 flex items-center gap-3 text-xs text-slate-300">
         <span aria-label="Read count" data-testid="read-count">👁️ {displayedReadCount}</span>
-        <span aria-label="Engagement score">💡 {item.engagementScore.toFixed(1)}</span>
+        <span aria-label="Engagement score">💡 {lightbulbWeight.toFixed(2)}</span>
         <span className="ml-auto text-slate-400">{expanded ? 'Tap to collapse' : 'Tap to expand'}</span>
       </div>
       {expanded && (

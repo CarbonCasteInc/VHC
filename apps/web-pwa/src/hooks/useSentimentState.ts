@@ -71,7 +71,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
       const nextAgreements = { ...state.agreements, [key]: nextAgreement };
 
       const currentWeight = state.lightbulb[topicId] ?? 0;
-      const nextWeight = decayStep(currentWeight);
+      const nextWeight = currentWeight === 0 ? 1 : decayStep(currentWeight);
       const nextLightbulb = { ...state.lightbulb, [topicId]: nextWeight };
 
       const signal: SentimentSignal = {

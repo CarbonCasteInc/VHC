@@ -41,6 +41,9 @@ importers:
       '@vh/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@vh/data-model':
+        specifier: workspace:*
+        version: link:../../packages/data-model
       '@vh/gun-client':
         specifier: workspace:*
         version: link:../../packages/gun-client
@@ -295,6 +298,15 @@ importers:
       snarkjs:
         specifier: ^0.7.5
         version: 0.7.5
+
+  services/bridge-stub:
+    devDependencies:
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.9
+        version: 2.1.9(@types/node@20.17.19)(jsdom@24.1.3)
 
   tools/eslint-config:
     dependencies:

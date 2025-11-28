@@ -8,15 +8,17 @@ interface AnalysisViewProps {
 }
 
 function PerspectiveRow({ itemId, perspective }: { itemId: string; perspective: Perspective }) {
-  const agreement = useSentimentState((s) => s.getAgreement(itemId, perspective.id));
+  const framePointId = `${perspective.id}:frame`;
+  const reframePointId = `${perspective.id}:reframe`;
+  const frameAgreement = useSentimentState((s) => s.getAgreement(itemId, framePointId));
+  const reframeAgreement = useSentimentState((s) => s.getAgreement(itemId, reframePointId));
   const setAgreement = useSentimentState((s) => s.setAgreement);
-  const lightbulb = useSentimentState((s) => s.getLightbulbWeight(itemId));
   const { proof } = useRegion();
 
-  const handleSet = (desired: -1 | 0 | 1) => {
+  const handleSet = (pointId: string, desired: -1 | 0 | 1) => {
     setAgreement({
       topicId: itemId,
-      pointId: perspective.id,
+      pointId,
       analysisId: itemId,
       desired,
       constituency_proof: proof || undefined
@@ -24,24 +26,64 @@ function PerspectiveRow({ itemId, perspective }: { itemId: string; perspective: 
   };
 
   return (
-    <div className="grid grid-cols-2 gap-2 rounded border border-slate-600/50 bg-slate-900/40 p-3">
-      <div className="text-sm text-slate-50">{perspective.frame}</div>
-      <div className="text-sm text-slate-50">{perspective.reframe}</div>
-      <div className="col-span-2 flex items-center justify-between gap-2 text-xs text-slate-300">
-        <div className="flex items-center gap-1">
-          <ToggleButton label="Disagree" active={agreement === -1} onClick={() => handleSet(-1)} ariaLabel="Disagree" variant="disagree">
+    <div className="grid grid-cols-2 gap-3 rounded border border-slate-600/50 bg-slate-900/40 p-3">
+      <div className="flex flex-col gap-2">
+        <div className="text-sm text-slate-50">{perspective.frame}</div>
+        <div className="flex items-center gap-1 text-xs text-slate-300">
+          <ToggleButton
+            label="Disagree"
+            active={frameAgreement === -1}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSet(framePointId, frameAgreement === -1 ? 0 : -1);
+            }}
+            ariaLabel="Disagree frame"
+            variant="disagree"
+          >
             –
           </ToggleButton>
-          <ToggleButton label="Neutral" active={agreement === 0} onClick={() => handleSet(0)} ariaLabel="Neutral">
-            ○
-          </ToggleButton>
-          <ToggleButton label="Agree" active={agreement === 1} onClick={() => handleSet(1)} ariaLabel="Agree" variant="agree">
+          <ToggleButton
+            label="Agree"
+            active={frameAgreement === 1}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSet(framePointId, frameAgreement === 1 ? 0 : 1);
+            }}
+            ariaLabel="Agree frame"
+            variant="agree"
+          >
             +
           </ToggleButton>
         </div>
-        <span className="min-w-[4rem] text-right" aria-label="Engagement score">
-          💡 {lightbulb.toFixed(2)}
-        </span>
+      </div>
+      <div className="flex flex-col gap-2">
+        <div className="text-sm text-slate-50">{perspective.reframe}</div>
+        <div className="flex items-center gap-1 text-xs text-slate-300">
+          <ToggleButton
+            label="Disagree"
+            active={reframeAgreement === -1}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSet(reframePointId, reframeAgreement === -1 ? 0 : -1);
+            }}
+            ariaLabel="Disagree reframe"
+            variant="disagree"
+          >
+            –
+          </ToggleButton>
+          <ToggleButton
+            label="Agree"
+            active={reframeAgreement === 1}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSet(reframePointId, reframeAgreement === 1 ? 0 : 1);
+            }}
+            ariaLabel="Agree reframe"
+            variant="agree"
+          >
+            +
+          </ToggleButton>
+        </div>
       </div>
     </div>
   );
@@ -57,7 +99,7 @@ function ToggleButton({
 }: {
   children: React.ReactNode;
   active: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   ariaLabel: string;
   label: string;
   variant?: 'agree' | 'disagree' | 'default';
