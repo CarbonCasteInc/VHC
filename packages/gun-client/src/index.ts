@@ -20,7 +20,7 @@ interface ChainWithGet<T> extends ChainLike<T> {
   get(key: string): ChainWithGet<T>;
 }
 
-const DEFAULT_PEERS = ['http://localhost:7777/gun'];
+const DEFAULT_PEERS = ['http://localhost:9780/gun'];
 
 export interface VennClient {
   config: VennClientConfig & { peers: string[] };

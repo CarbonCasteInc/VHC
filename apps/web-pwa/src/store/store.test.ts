@@ -9,7 +9,7 @@ const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), ready: tr
 vi.mock('@vh/gun-client', () => ({
   createClient: vi.fn(() => ({
     hydrationBarrier: mockHydration,
-    config: { peers: ['http://localhost:7777/gun'] },
+    config: { peers: ['http://localhost:9780/gun'] },
     user: { write: mockWrite },
     chat: { read: vi.fn(), write: vi.fn() },
     outbox: { read: vi.fn(), write: vi.fn() },

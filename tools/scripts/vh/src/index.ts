@@ -92,7 +92,7 @@ async function runComposeUp(envMap: Record<string, string>) {
     { name: 'Traefik Dashboard', url: 'http://localhost:8081' },
     { name: 'MinIO API', url: 'http://localhost:9000' },
     { name: 'MinIO Console', url: 'http://localhost:9001' },
-    { name: 'Relay (placeholder)', url: 'ws://localhost:7777' },
+    { name: 'Relay', url: 'ws://localhost:9780' },
     { name: 'TURN (UDP/TCP)', url: 'turn:localhost:3478', note: `secret ${envMap.TURN_SECRET?.slice(0, 8)}…` },
     { name: 'Anvil RPC', url: 'http://localhost:8545' }
   ];

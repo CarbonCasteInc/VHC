@@ -136,7 +136,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       const client = createClient({
-        peers: ['http://localhost:7777/gun'],
+        peers: ['http://localhost:9780/gun'],
         requireSession: true
       });
       await client.hydrationBarrier.prepare();
