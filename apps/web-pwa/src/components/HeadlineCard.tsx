@@ -23,6 +23,12 @@ export const HeadlineCard: React.FC<HeadlineCardProps> = ({ item }) => {
     return (item.readCount + eyeWeight).toFixed(1);
   }, [item.readCount, eyeWeight]);
 
+  // Aggregate Lightbulb = seeded engagementScore (other users) + local per-user weight
+  const displayedLightbulb = useMemo(() => {
+    const base = Number.isFinite(item.engagementScore) ? item.engagementScore : 0;
+    return (base + lightbulbWeight).toFixed(2);
+  }, [item.engagementScore, lightbulbWeight]);
+
   // Simulate brief loading state when expanding (for UX feedback)
   useEffect(() => {
     if (expanded) {
@@ -71,7 +77,7 @@ export const HeadlineCard: React.FC<HeadlineCardProps> = ({ item }) => {
       </div>
       <div className="mt-3 flex items-center gap-3 text-xs text-slate-300">
         <span aria-label="Read count" data-testid="read-count">👁️ {displayedReadCount}</span>
-        <span aria-label="Engagement score">💡 {lightbulbWeight.toFixed(2)}</span>
+        <span aria-label="Engagement score">💡 {displayedLightbulb}</span>
         <span className="ml-auto text-slate-400">{expanded ? 'Tap to collapse' : 'Tap to expand'}</span>
       </div>
       {expanded && (

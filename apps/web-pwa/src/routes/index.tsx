@@ -40,6 +40,7 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
             <nav className="flex items-center gap-3 text-sm font-medium">
               <Link to="/" className="[&.active]:text-teal-700 hover:text-teal-600">VENN</Link>
               <Link to="/hermes" className="[&.active]:text-teal-700 hover:text-teal-600">HERMES</Link>
+              <Link to="/governance" className="[&.active]:text-teal-700 hover:text-teal-600">AGORA</Link>
               <Link to="/dashboard" className="[&.active]:text-teal-700 hover:text-teal-600" aria-label="User dashboard">User</Link>
             </nav>
             <p>Peers: {peersCount}</p>
@@ -280,14 +281,6 @@ const DashboardContent = () => {
           <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">Loading analyses…</div>}>
             <AnalysisFeed />
           </Suspense>
-          <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">Loading proposals…</div>}>
-            <ProposalList />
-          </Suspense>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-            <p className="text-sm font-semibold text-slate-900">Civic Feed</p>
-            <FeedList />
-          </div>
-
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between text-sm text-slate-600">
               <span data-testid="current-status">Status: {status}</span>
@@ -355,6 +348,18 @@ const DashboardComponent = () => (
   </section>
 );
 
+const GovernanceComponent = () => (
+  <section className="space-y-4">
+    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <h2 className="text-xl font-semibold text-slate-900">Governance</h2>
+      <p className="text-sm text-slate-600">Season 0: local-only voting with per-user status.</p>
+    </div>
+    <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-700">Loading proposals…</div>}>
+      <ProposalList />
+    </Suspense>
+  </section>
+);
+
 const rootRoute = createRootRoute({
   component: RootComponent,
   notFoundComponent: () => <div className="text-slate-700">Not Found</div>
@@ -371,10 +376,15 @@ const hermesRoute = createRoute({
     </section>
   )
 });
+const governanceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/governance',
+  component: GovernanceComponent
+});
 const dashboardRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/dashboard',
   component: DashboardComponent
 });
 
-export const routeTree = rootRoute.addChildren([indexRoute, hermesRoute, dashboardRoute]);
+export const routeTree = rootRoute.addChildren([indexRoute, hermesRoute, governanceRoute, dashboardRoute]);

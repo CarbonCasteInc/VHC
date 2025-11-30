@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FeedItem } from '../hooks/useFeedStore';
 import AnalysisView from './AnalysisView';
 import { useSentimentState } from '../hooks/useSentimentState';
+import * as IdentityHook from '../hooks/useIdentity';
 
 vi.mock('../hooks/useRegion', () => ({
   useRegion: () => ({
@@ -40,6 +41,15 @@ describe('AnalysisView', () => {
       eye: {},
       signals: []
     });
+    vi.spyOn(IdentityHook, 'useIdentity').mockReturnValue({
+      identity: {
+        id: 'id',
+        createdAt: Date.now(),
+        attestation: { platform: 'web', integrityToken: 't', deviceKey: 'd', nonce: 'n' },
+        session: { token: 't', trustScore: 1, scaledTrustScore: 10000, nullifier: 'n' }
+      },
+      status: 'ready'
+    } as any);
     render(<AnalysisView item={sample} />);
     const agree = screen.getByLabelText('Agree frame');
     fireEvent.click(agree);

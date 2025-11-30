@@ -5,22 +5,41 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WalletPanel } from './WalletPanel';
 import '@testing-library/jest-dom/vitest';
 
+const lastOnClickRef = vi.hoisted(() => ({ handler: null as any }));
 const connect = vi.fn();
 const refresh = vi.fn();
 const claimUBE = vi.fn();
 
 const mockUseWallet = vi.fn();
 
+const identityMock = vi.hoisted(() => ({ identity: null as any, status: 'anonymous' }));
+const xpState = vi.hoisted(() => ({
+  tracks: { civic: 0, social: 0, project: 0 },
+  totalXP: 0,
+  claimDailyBoost: vi.fn(() => 0)
+}));
+
 vi.mock('../hooks/useWallet', () => ({
   useWallet: (...args: unknown[]) => mockUseWallet(...args)
 }));
 
 vi.mock('../hooks/useIdentity', () => ({
-  useIdentity: () => ({ identity: null, status: 'anonymous' })
+  useIdentity: () => identityMock
 }));
 
 vi.mock('../hooks/useXpLedger', () => ({
-  useXpLedger: () => ({ tracks: { civic: 0, social: 0, project: 0 }, totalXP: 0 })
+  useXpLedger: (() => {
+    const useXpLedgerMock = () => xpState;
+    (useXpLedgerMock as any).getState = () => xpState;
+    return useXpLedgerMock;
+  })()
+}));
+
+vi.mock('@vh/ui', () => ({
+  Button: (props: any) => {
+    lastOnClickRef.handler = props.onClick;
+    return <button {...props} />;
+  }
 }));
 
 function setupWalletState(state: Partial<ReturnType<typeof mockUseWallet>>) {
@@ -42,6 +61,13 @@ beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
   vi.clearAllMocks();
+  localStorage.clear();
+  lastOnClickRef.handler = null;
+  identityMock.identity = null;
+  identityMock.status = 'anonymous';
+  xpState.tracks = { civic: 0, social: 0, project: 0 };
+  xpState.totalXP = 0;
+  xpState.claimDailyBoost = vi.fn(() => 0);
   setupWalletState({});
 });
 
@@ -92,8 +118,7 @@ describe('WalletPanel', () => {
     render(<WalletPanel />);
 
     expect(screen.getByText(/in 1h/)).toBeInTheDocument();
-    const boostButtons = screen.getAllByText('Daily Boost');
-    const claimBtn = boostButtons.find((el) => el.tagName === 'BUTTON');
+    const claimBtn = screen.getByRole('button', { name: /Come back tomorrow|Daily Boost/ });
     expect(claimBtn).toBeDisabled();
   });
 
@@ -157,5 +182,92 @@ describe('WalletPanel', () => {
     });
     render(<WalletPanel />);
     expect(screen.getByText(/in 30m/)).toBeInTheDocument();
+  });
+
+  it('shows identity trust when available and displays local mock mint', async () => {
+    identityMock.identity = {
+      id: 'id',
+      createdAt: Date.now(),
+      attestation: { platform: 'web', integrityToken: 't', deviceKey: 'd', nonce: 'n' },
+      session: { token: 'tok', trustScore: 0.9, scaledTrustScore: 9000, nullifier: 'n' }
+    };
+    identityMock.status = 'ready';
+    xpState.claimDailyBoost = vi.fn(() => 10);
+
+    render(<WalletPanel />);
+
+    expect(screen.getByText('90.0%')).toBeInTheDocument();
+
+    const claimBtn = screen.getByRole('button', { name: /Daily Boost/ });
+    fireEvent.click(claimBtn);
+
+    await Promise.resolve();
+    expect(screen.getByText(/\(\+10 mock\)/)).toBeInTheDocument();
+    expect(xpState.claimDailyBoost).toHaveBeenCalledWith(0.9);
+    expect(localStorage.getItem('vh_local_boost_next')).not.toBeNull();
+    expect(claimUBE).not.toHaveBeenCalled();
+  });
+
+  it('applies stored local cooldown even when identity is eligible', async () => {
+    const future = Math.floor(Date.now() / 1000) + 60;
+    localStorage.setItem('vh_local_boost_next', String(future));
+    identityMock.identity = {
+      id: 'id',
+      createdAt: Date.now(),
+      attestation: { platform: 'web', integrityToken: 't', deviceKey: 'd', nonce: 'n' },
+      session: { token: 'tok', trustScore: 0.9, scaledTrustScore: 9000, nullifier: 'n' }
+    };
+    identityMock.status = 'ready';
+
+    render(<WalletPanel />);
+    await Promise.resolve();
+
+    const claimBtn = screen.getByRole('button', { name: /Come back tomorrow|Daily Boost/ });
+    expect(claimBtn).toBeDisabled();
+    expect(claimBtn).toHaveTextContent('Come back tomorrow');
+  });
+
+  it('short-circuits claim handler when locally ineligible', async () => {
+    identityMock.identity = {
+      id: 'id',
+      createdAt: Date.now(),
+      attestation: { platform: 'web', integrityToken: 't', deviceKey: 'd', nonce: 'n' },
+      session: { token: 'tok', trustScore: 0.4, scaledTrustScore: 4000, nullifier: 'n' }
+    };
+    identityMock.status = 'ready';
+
+    render(<WalletPanel />);
+    const claimBtn = screen.getByRole('button', { name: /Come back tomorrow|Daily Boost/ });
+    expect(claimBtn).toBeDisabled();
+    lastOnClickRef.handler?.({ preventDefault() {}, stopPropagation() {} });
+    await Promise.resolve();
+
+    expect(xpState.claimDailyBoost).not.toHaveBeenCalled();
+    expect(claimUBE).not.toHaveBeenCalled();
+    expect(localStorage.getItem('vh_local_boost_next')).toBeNull();
+  });
+
+  it('uses scaled trustScore fallback and skips local mint when on-chain eligible', async () => {
+    identityMock.identity = {
+      id: 'id',
+      createdAt: Date.now(),
+      attestation: { platform: 'web', integrityToken: 't', deviceKey: 'd', nonce: 'n' },
+      session: { token: 'tok', trustScore: undefined as unknown as number, scaledTrustScore: 9600, nullifier: 'n' }
+    };
+    identityMock.status = 'ready';
+    xpState.claimDailyBoost = vi.fn(() => 12);
+    setupWalletState({
+      account: '0x1234',
+      claimStatus: { eligible: true, nextClaimAt: 0, trustScore: 9200, expiresAt: 0, nullifier: '0x' }
+    });
+
+    render(<WalletPanel />);
+    const claimBtn = screen.getByRole('button', { name: /Daily Boost/ });
+    fireEvent.click(claimBtn);
+    await Promise.resolve();
+
+    expect(claimUBE).toHaveBeenCalled();
+    expect(xpState.claimDailyBoost).toHaveBeenCalledWith(0.96);
+    expect(screen.queryByText(/\(\+12 mock\)/)).not.toBeInTheDocument();
   });
 });

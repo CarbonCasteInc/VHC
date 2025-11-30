@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Button } from '@vh/ui';
 import { useWallet } from '../hooks/useWallet';
 import { useIdentity } from '../hooks/useIdentity';
@@ -29,6 +29,7 @@ export const WalletPanel: React.FC = () => {
   const {
     account,
     formattedBalance,
+    balance,
     claimStatus,
     connect: connectWallet,
     refresh: refreshWallet,
@@ -39,7 +40,31 @@ export const WalletPanel: React.FC = () => {
   } = useWallet();
   const { identity } = useIdentity();
   const { tracks, totalXP } = useXpLedger();
+  const [localNextClaimAt, setLocalNextClaimAt] = useState<number>(0);
+  const [localBalanceDelta, setLocalBalanceDelta] = useState<bigint>(0n);
 
+  // Persist local cooldown per device to avoid accidental spam
+  useEffect(() => {
+    const stored = localStorage.getItem('vh_local_boost_next');
+    if (stored) {
+      const ts = Number(stored);
+      if (!Number.isNaN(ts)) {
+        setLocalNextClaimAt(ts);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (localNextClaimAt) {
+      localStorage.setItem('vh_local_boost_next', String(localNextClaimAt));
+    }
+  }, [localNextClaimAt]);
+
+  const trustScoreFloat =
+    identity?.session?.trustScore ??
+    (identity?.session?.scaledTrustScore != null ? identity.session.scaledTrustScore / 10000 : undefined);
+  const eligibleLocal =
+    trustScoreFloat != null && trustScoreFloat >= 0.5 && (localNextClaimAt === 0 || localNextClaimAt * 1000 <= Date.now());
   const nextClaimLabel = useMemo(() => formatNextClaimLabel(claimStatus), [claimStatus]);
   // Prefer local identity trust score, fallback to wallet/chain trust score
   const trustLabel = useMemo(() => {
@@ -72,7 +97,13 @@ export const WalletPanel: React.FC = () => {
       <div className="mt-3 grid gap-3 sm:grid-cols-3">
         <div className="rounded border border-slate-100 bg-slate-50 px-3 py-2">
           <p className="text-xs uppercase tracking-wide text-slate-500">RVU Balance</p>
-          <p className="text-lg font-semibold text-slate-900">{formattedBalance ?? '-'} RVU</p>
+          <p className="text-lg font-semibold text-slate-900">
+            {formattedBalance ?? '-'}
+            {localBalanceDelta > 0n && (
+              <span className="ml-1 text-xs text-emerald-700">(+{Number(localBalanceDelta) / 1e18} mock)</span>
+            )}{' '}
+            RVU
+          </p>
         </div>
         <div className="rounded border border-slate-100 bg-slate-50 px-3 py-2">
           <p className="text-xs uppercase tracking-wide text-slate-500">Trust Score</p>
@@ -109,8 +140,26 @@ export const WalletPanel: React.FC = () => {
       </div>
 
       <div className="mt-4 flex items-center gap-3">
-        <Button onClick={() => void claimUBE()} disabled={!claimStatus?.eligible || claimingUBE || walletLoading}>
-          {claimingUBE ? 'Claiming…' : 'Daily Boost'}
+        <Button
+          onClick={() => {
+            if (!claimStatus?.eligible && !eligibleLocal) return;
+            void (async () => {
+              if (claimStatus?.eligible) {
+                await claimUBE();
+              }
+              if (trustScoreFloat != null) {
+                const rvMinted = useXpLedger.getState().claimDailyBoost(trustScoreFloat);
+                const now = Math.floor(Date.now() / 1000);
+                setLocalNextClaimAt(now + 24 * 60 * 60);
+                if (claimStatus?.eligible !== true) {
+                  setLocalBalanceDelta((prev) => prev + BigInt(rvMinted) * 10n ** 18n);
+                }
+              }
+            })();
+          }}
+          disabled={(!claimStatus?.eligible && !eligibleLocal) || claimingUBE || walletLoading}
+        >
+          {claimingUBE ? 'Claiming…' : claimStatus?.eligible || eligibleLocal ? 'Daily Boost' : 'Come back tomorrow'}
         </Button>
         {walletError && <span className="text-xs text-red-700">{walletError}</span>}
       </div>

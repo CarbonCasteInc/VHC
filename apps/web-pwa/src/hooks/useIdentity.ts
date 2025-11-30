@@ -8,6 +8,7 @@ const DEV_MODE = (import.meta as any).env?.DEV === true || (import.meta as any).
 const ATTESTATION_URL =
   (import.meta as any).env?.VITE_ATTESTATION_URL ?? 'http://localhost:3000/verify';
 const VERIFIER_TIMEOUT_MS = Number((import.meta as any).env?.VITE_ATTESTATION_TIMEOUT_MS) || 2000;
+const IDENTITY_CHANGED_EVENT = 'vh_identity_changed';
 
 export type IdentityStatus = 'anonymous' | 'creating' | 'ready' | 'error';
 
@@ -37,6 +38,11 @@ function loadIdentity(): IdentityRecord | null {
 
 function persistIdentity(record: IdentityRecord) {
   localStorage.setItem(IDENTITY_KEY, JSON.stringify(record));
+}
+
+function emitIdentityChanged(record: IdentityRecord) {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent(IDENTITY_CHANGED_EVENT, { detail: record }));
 }
 
 function randomToken(): string {
@@ -99,6 +105,7 @@ export function useIdentity() {
         }
       };
       persistIdentity(record);
+      emitIdentityChanged(record);
       setIdentity(record);
       setStatus('ready');
       setError(undefined);
@@ -114,6 +121,26 @@ export function useIdentity() {
     }
   }, [identity, createIdentity]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleIdentityChanged = () => {
+      const next = loadIdentity();
+      setIdentity(next);
+      setStatus(next ? 'ready' : 'anonymous');
+    };
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === IDENTITY_KEY) {
+        handleIdentityChanged();
+      }
+    };
+    window.addEventListener(IDENTITY_CHANGED_EVENT, handleIdentityChanged);
+    window.addEventListener('storage', handleStorage);
+    return () => {
+      window.removeEventListener(IDENTITY_CHANGED_EVENT, handleIdentityChanged);
+      window.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
   const linkDevice = useCallback(async () => {
     if (!identity) {
       throw new Error('Identity not ready');
@@ -124,6 +151,7 @@ export function useIdentity() {
       linkedDevices: [...(identity.linkedDevices ?? []), newDevice]
     };
     persistIdentity(updated);
+    emitIdentityChanged(updated);
     setIdentity(updated);
     return newDevice;
   }, [identity]);
@@ -135,6 +163,7 @@ export function useIdentity() {
     const code = `link-${randomToken()}`;
     const updated: IdentityRecord = { ...identity, pendingLinkCode: code };
     persistIdentity(updated);
+    emitIdentityChanged(updated);
     setIdentity(updated);
     return code;
   }, [identity]);
@@ -150,6 +179,7 @@ export function useIdentity() {
       const linked = [...(identity.linkedDevices ?? []), `linked-${randomToken()}`];
       const updated: IdentityRecord = { ...identity, linkedDevices: linked, pendingLinkCode: undefined };
       persistIdentity(updated);
+      emitIdentityChanged(updated);
       setIdentity(updated);
       return linked;
     },
