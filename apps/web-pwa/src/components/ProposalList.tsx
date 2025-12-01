@@ -1,12 +1,23 @@
-import React from 'react';
-import useGovernance from '../hooks/useGovernance';
+import React, { useEffect, useMemo } from 'react';
+import useGovernance, { MIN_TRUST_TO_VOTE } from '../hooks/useGovernance';
 import ProposalCard from './ProposalCard';
 import { useIdentity } from '../hooks/useIdentity';
+import { useXpLedger } from '../hooks/useXpLedger';
 
 export const ProposalList: React.FC = () => {
   const { identity } = useIdentity();
   const voterId = identity?.session?.nullifier ?? null;
-  const { proposals, loading, error, submitVote, lastAction, votedDirections } = useGovernance(voterId);
+  const trustScore = useMemo(() => {
+    if (identity?.session?.trustScore != null) return identity.session.trustScore;
+    if (identity?.session?.scaledTrustScore != null) return identity.session.scaledTrustScore / 10000;
+    return null;
+  }, [identity]);
+  const canVote = voterId != null && trustScore != null && trustScore >= MIN_TRUST_TO_VOTE;
+  const { proposals, loading, error, submitVote, lastAction, votedDirections } = useGovernance(voterId, trustScore);
+
+  useEffect(() => {
+    useXpLedger.getState().setActiveNullifier(voterId);
+  }, [voterId]);
 
   if (loading) return <p className="text-sm text-slate-500">Loading proposals...</p>;
   if (error) return <p className="text-sm text-red-600">{error}</p>;
@@ -20,7 +31,13 @@ export const ProposalList: React.FC = () => {
         </div>
       )}
       {proposals.map((p) => (
-        <ProposalCard key={p.id} proposal={p} onVote={submitVote} votedDirection={votedDirections[p.id]} />
+        <ProposalCard
+          key={p.id}
+          proposal={p}
+          onVote={(proposalId, amount, direction) => submitVote({ proposalId, amount, direction })}
+          votedDirection={votedDirections[p.id]}
+          canVote={canVote}
+        />
       ))}
     </div>
   );

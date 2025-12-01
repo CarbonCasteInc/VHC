@@ -6,9 +6,10 @@ interface ProposalCardProps {
   proposal: Proposal;
   onVote: (proposalId: string, amount: number, direction: 'for' | 'against') => Promise<'recorded' | 'updated' | 'switched' | void>;
   votedDirection?: 'for' | 'against';
+  canVote?: boolean;
 }
 
-export const ProposalCard: React.FC<ProposalCardProps> = ({ proposal, onVote, votedDirection }) => {
+export const ProposalCard: React.FC<ProposalCardProps> = ({ proposal, onVote, votedDirection, canVote }) => {
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-card p-5 shadow-sm shadow-slate-900/5 dark:border-slate-700">
       <div className="flex items-start justify-between">
@@ -33,6 +34,7 @@ export const ProposalCard: React.FC<ProposalCardProps> = ({ proposal, onVote, vo
         <VoteControl
           onSubmit={(amount, direction) => onVote(proposal.id, amount, direction)}
           votedDirection={votedDirection}
+          disabled={canVote === false}
         />
       </div>
     </div>

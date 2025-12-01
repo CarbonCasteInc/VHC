@@ -6,17 +6,35 @@ interface XpState {
   tracks: Record<Track, number>;
   totalXP: number;
   lastUpdated: number;
+  activeNullifier: string | null;
   addXp: (track: Track, amount: number) => void;
   calculateRvu: (trustScore: number) => number;
   claimDailyBoost: (trustScore: number) => number;
+  setActiveNullifier: (nullifier: string | null) => void;
 }
 
 const STORAGE_KEY = 'vh_xp_ledger';
+const IDENTITY_STORAGE_KEY = 'vh_identity';
 const DAILY_BOOST_RVU = 10;
 
-function loadLedger(): Omit<XpState, 'addXp' | 'calculateRvu' | 'claimDailyBoost'> {
+function storageKey(nullifier: string | null) {
+  return nullifier ? `${STORAGE_KEY}:${nullifier}` : STORAGE_KEY;
+}
+
+function readIdentityNullifier(): string | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { session?: { nullifier?: string } };
+    return parsed?.session?.nullifier ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function loadLedger(targetNullifier: string | null = null): Omit<XpState, 'addXp' | 'calculateRvu' | 'claimDailyBoost' | 'setActiveNullifier' | 'activeNullifier'> {
+  try {
+    const raw = localStorage.getItem(storageKey(targetNullifier));
     if (!raw) {
       return {
         tracks: { civic: 0, social: 0, project: 0 },
@@ -36,8 +54,8 @@ function loadLedger(): Omit<XpState, 'addXp' | 'calculateRvu' | 'claimDailyBoost
 }
 
 function persist(state: XpState) {
-  const { addXp, calculateRvu, claimDailyBoost, ...rest } = state;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
+  const { addXp, calculateRvu, claimDailyBoost, setActiveNullifier, ...rest } = state;
+  localStorage.setItem(storageKey(state.activeNullifier), JSON.stringify(rest));
 }
 
 function clampRvu(value: number): number {
@@ -52,34 +70,58 @@ function clampTrust(trustScore: number): number {
   return trustScore;
 }
 
-export const useXpLedger = create<XpState>((set, get) => ({
-  ...loadLedger(),
-  addXp(track, amount) {
-    set((state) => {
-      const nextTracks = { ...state.tracks, [track]: Math.max(0, (state.tracks[track] ?? 0) + amount) } as Record<Track, number>;
-      const nextTotal = nextTracks.civic + nextTracks.social + nextTracks.project;
-      const nextState: XpState = {
-        ...state,
-        tracks: nextTracks,
-        totalXP: nextTotal,
-        lastUpdated: Date.now(),
-        addXp: state.addXp,
-        calculateRvu: state.calculateRvu,
-        claimDailyBoost: state.claimDailyBoost
-      };
-      persist(nextState);
-      return nextState;
-    });
-  },
-  calculateRvu(trustScore) {
-    const clampedTrust = clampTrust(trustScore);
-    const scaled = Math.round(clampedTrust * 10000);
-    return clampRvu(get().totalXP * (scaled / 10000));
-  },
-  claimDailyBoost(trustScore) {
-    if (clampTrust(trustScore) < 0.5) return 0;
-    const rvMint = DAILY_BOOST_RVU;
-    get().addXp('civic', rvMint);
-    return rvMint;
-  }
-}));
+export const useXpLedger = create<XpState>((set, get) => {
+  const initialNullifier = readIdentityNullifier();
+  return {
+    ...loadLedger(initialNullifier),
+    activeNullifier: initialNullifier,
+    addXp(track, amount) {
+      set((state) => {
+        const nextTracks = {
+          ...state.tracks,
+          [track]: Math.max(0, (state.tracks[track] ?? 0) + amount)
+        } as Record<Track, number>;
+        const nextTotal = nextTracks.civic + nextTracks.social + nextTracks.project;
+        const nextState: XpState = {
+          ...state,
+          tracks: nextTracks,
+          totalXP: nextTotal,
+          lastUpdated: Date.now(),
+          addXp: state.addXp,
+          calculateRvu: state.calculateRvu,
+          claimDailyBoost: state.claimDailyBoost,
+          setActiveNullifier: state.setActiveNullifier
+        };
+        persist(nextState);
+        return nextState;
+      });
+    },
+    calculateRvu(trustScore) {
+      const clampedTrust = clampTrust(trustScore);
+      const scaled = Math.round(clampedTrust * 10000);
+      return clampRvu(get().totalXP * (scaled / 10000));
+    },
+    claimDailyBoost(trustScore) {
+      if (clampTrust(trustScore) < 0.5) return 0;
+      const rvMint = DAILY_BOOST_RVU;
+      get().addXp('civic', rvMint);
+      return rvMint;
+    },
+    setActiveNullifier(nullifier) {
+      const ledger = loadLedger(nullifier);
+      set((state) => {
+        const nextState: XpState = {
+          ...state,
+          ...ledger,
+          activeNullifier: nullifier,
+          addXp: state.addXp,
+          calculateRvu: state.calculateRvu,
+          claimDailyBoost: state.claimDailyBoost,
+          setActiveNullifier: state.setActiveNullifier
+        };
+        persist(nextState);
+        return nextState;
+      });
+    }
+  };
+});

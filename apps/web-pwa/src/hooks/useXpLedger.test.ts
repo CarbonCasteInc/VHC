@@ -10,10 +10,13 @@ describe('useXpLedger', () => {
       tracks: { civic: 0, social: 0, project: 0 },
       totalXP: 0,
       lastUpdated: 0,
+      activeNullifier: null,
       addXp: useXpLedger.getState().addXp,
       calculateRvu: useXpLedger.getState().calculateRvu,
-      claimDailyBoost: useXpLedger.getState().claimDailyBoost
+      claimDailyBoost: useXpLedger.getState().claimDailyBoost,
+      setActiveNullifier: useXpLedger.getState().setActiveNullifier
     });
+    useXpLedger.getState().setActiveNullifier('nullifier-1');
   });
 
   it('adds XP and recomputes total', () => {
@@ -23,7 +26,7 @@ describe('useXpLedger', () => {
     expect(state.tracks.civic).toBe(5);
     expect(state.tracks.project).toBe(3);
     expect(state.totalXP).toBe(8);
-    const persisted = JSON.parse(localStorage.getItem('vh_xp_ledger') ?? '{}');
+    const persisted = JSON.parse(localStorage.getItem('vh_xp_ledger:nullifier-1') ?? '{}');
     expect(persisted.totalXP).toBe(8);
   });
 
@@ -45,5 +48,15 @@ describe('useXpLedger', () => {
     const boosted = useXpLedger.getState().claimDailyBoost(0.6);
     expect(boosted).toBe(10);
     expect(useXpLedger.getState().totalXP).toBeGreaterThan(0);
+  });
+
+  it('switches ledgers when nullifier changes', () => {
+    useXpLedger.getState().addXp('project', 4);
+    useXpLedger.getState().setActiveNullifier('nullifier-2');
+    expect(useXpLedger.getState().totalXP).toBe(0);
+    useXpLedger.getState().addXp('project', 2);
+    expect(JSON.parse(localStorage.getItem('vh_xp_ledger:nullifier-2') ?? '{}').totalXP).toBe(2);
+    useXpLedger.getState().setActiveNullifier('nullifier-1');
+    expect(useXpLedger.getState().tracks.project).toBe(4);
   });
 });

@@ -68,8 +68,8 @@ function weightForActiveCount(count: number): number {
 
 export const useSentimentState = create<SentimentStore>((set, get) => ({
   agreements: loadMap(AGREEMENTS_KEY) as Record<string, Agreement>,
-  lightbulb: {}, // start clean per user; aggregate is shown elsewhere
-  eye: {},
+  lightbulb: loadMap(LIGHTBULB_KEY),
+  eye: loadMap(EYE_KEY),
   signals: [],
   setAgreement({ topicId, pointId, analysisId, desired, constituency_proof }) {
     if (!constituency_proof) {
