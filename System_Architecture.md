@@ -54,11 +54,11 @@ TRINITY is a **Parallel Institution**: A self-sovereign Operating System for Ide
       * **Holographic Oracle:** Medianized price feeds from Staked Nodes.
       * **Governance:** Anti-collusion voting via MACI.
 
-### Layer 3: Application (VENN - The Interface)
+### Layer 3: Application (VENN-HERMES - The Interface)
 
-  * **Role:** User Interaction, Communication, Civic Action.
+  * **Role:** User Interaction, Communication, Civic Action (HERMES).
   * **Tech:** React, Tauri/Capacitor, WebLLM (Edge AI), `@venn-hermes/*`.
-  * **Function:** Canonical News Analysis, E2EE Messaging, Sovereign Legislative Bridge.
+  * **Function:** Canonical News Analysis, E2EE Messaging, Sovereign Legislative Bridge (VENN).
 
 -----
 
@@ -103,7 +103,7 @@ The system functions as a Monorepo with polyglot micro-services.
 
 #### 4.1.5 Identity, Trust & Constituency Model
 
-We unify identity across LUMA, GWC, and VENN using three primitives:
+We unify identity across LUMA, GWC, and VENN-HERMES using three primitives:
 
 * **TrustScore (0–1):** Device/session trust derived from hardware attestation. On-chain representation: integer 0–10000 (`scaled = Math.round(trustScore * 10000)`, using `TRUST_SCORE_SCALE`). Thresholds (v0): 0.5 for session/UBE/Faucet, 0.7 for QF.
 * **UniquenessNullifier:** Stable per-human key. Off-chain: string. On-chain: `bytes32` hash. Shared across PWA identity, `SentimentSignal.constituency_proof.nullifier`, Region proofs, and UBE/QF attestation.
@@ -301,15 +301,23 @@ See `docs/spec-data-topology-privacy-v0.md` for the canonical Season 0 topology 
   * **Engine:** AI Optimization (<2s) & Persistent Caching.
   * **Deliverable:** A fully functional "News App" with Governance capabilities.
 
-### Sprint 3: The Agora (Weeks 21–28)
+### Sprint 3: The Agora - Communication (Weeks 21–26)
 
-**Goal:** The Action (Messaging, Bridge).
+**Goal:** The Dialogue (Messaging, Forum).
 
-  * **HERMES:** Sovereign Legislative Bridge (Playwright).
-  * **HERMES:** E2EE Messaging & Collaborative Docs.
+  * **HERMES:** P2P E2EE Messaging (Direct & Group).
+  * **HERMES:** Threaded Civic Forum (Debate & Counterpoints).
+  * **Deliverable:** Beta v0.8 (Secure Communication).
+
+### Sprint 4: The Agora - Action (Weeks 27–32)
+
+**Goal:** The Bridge (Docs, Legislation).
+
+  * **HERMES:** Collaborative Documents (CRDTs).
+  * **HERMES:** Sovereign Legislative Bridge (Playwright Automation).
   * **Deliverable:** Beta v0.9 (Full Feature Set).
 
-### Sprint 4: The Ironclad Hardening (Weeks 29–36)
+### Sprint 5: The Ironclad Hardening (Weeks 33–40)
 
 **Goal:** Sovereignty & Anti-Collusion (Mainnet Prep).
 
