@@ -86,24 +86,24 @@
 - [x] **Privacy:** Do not leak plaintext into Gun; encrypted payload only.
 
 #### 2.2.3 Messaging Store (`apps/web-pwa/src/store/hermesMessaging.ts`)
-- [ ] **Implement `useChatStore` (Zustand)** that only depends on:
+- [x] **Implement `useChatStore` (Zustand)** that only depends on:
     - `@vh/gun-client` (for graph I/O)
     - `@vh/data-model` (for Zod validation)
     - `@vh/types` (for identity / trustScore)
-- [ ] **API:**
+- [x] **API:**
     - `sendMessage(recipientIdentityKey, plaintext, type: 'text' | 'image' | 'file')`
     - `subscribeToChannel(channelId) -> unsubscribe()`
-- [ ] **Internally:**
+- [x] **Internally:**
     - Derive `channelId` via `deriveChannelId`.
     - Encrypt + sign, then write to:
         - Recipient inbox (`~recipient/hermes/inbox`)
         - Sender outbox (`~sender/hermes/outbox`)
         - Local chat history (`~sender/hermes/chats/<channelId>`)
-- [ ] **Deduplication:** De-duplicate messages by `id` when building channel history.
-- [ ] **Error Handling:**
+- [x] **Deduplication:** De-duplicate messages by `id` when building channel history.
+- [x] **Error Handling:**
     - On Gun put error (`ack.err`), mark message as `status: 'failed'` in `useChatStore`. Do not retry automatically.
     - On timeout, follow the "proceed without ack" model from `gun-client`, but keep `status: 'pending'` until message is reflected in inbox/history.
-- [ ] **E2E Mock (Messaging):** When `VITE_E2E_MODE=true`, inject an in-memory `useChatStore` implementation:
+- [x] **E2E Mock (Messaging):** When `VITE_E2E_MODE=true`, inject an in-memory `useChatStore` implementation:
     - Same public API (`sendMessage`, `subscribeToChannel`).
     - Stores messages in local memory only.
     - Does not touch `@vh/gun-client` or open any network connections.
@@ -167,12 +167,12 @@
 
 ### 3.2 Forum Store (`apps/web-pwa/src/store/hermesForum.ts`)
 
-- [ ] **Implement `useForumStore` (Zustand)** that depends on:
+- [x] **Implement `useForumStore` (Zustand)** that depends on:
     - `@vh/gun-client` (for graph I/O)
     - `@vh/data-model` (for Zod validation)
     - `@vh/types` (for identity / trustScore)
-- [ ] **One-Vote-Per-User:** Track vote state per `(user, targetId)`. Updating a vote overwrites the previous one.
-- [ ] **E2E Mock (Forum):** When `VITE_E2E_MODE=true`, use an in-memory `useForumStore`:
+- [x] **One-Vote-Per-User:** Track vote state per `(user, targetId)`. Updating a vote overwrites the previous one.
+- [x] **E2E Mock (Forum):** When `VITE_E2E_MODE=true`, use an in-memory `useForumStore`:
     - Manages threads/comments in memory.
     - Skips Gun entirely.
     - Still enforces trust gating (`trustScore >= 0.5`) using the local identity hook.
