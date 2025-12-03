@@ -53,15 +53,15 @@
 **Canonical Reference:** `docs/spec-hermes-messaging-v0.md`
 
 ### 2.1 Data Model & Schema (`packages/data-model`)
-- [ ] **Schema Definition:** Implement `Message` and `Channel` exactly as defined in `docs/spec-hermes-messaging-v0.md` §2 in `packages/data-model/src/schemas/hermes/message.ts`:
+- [x] **Schema Definition:** Implement `Message` and `Channel` exactly as defined in `docs/spec-hermes-messaging-v0.md` §2 in `packages/data-model/src/schemas/hermes/message.ts`:
     - `Message`: includes `id`, `channelId`, `sender`, `recipient`, `timestamp`, `type`, encrypted `content`, and `signature`.
     - `sender` / `recipient` are set to the session nullifier (`SessionResponse.nullifier`), the canonical identity key across TRINITY.
     - `Channel`: includes `id` (deterministic hash of sorted participant keys), `participants`, `lastMessageAt`, `type: 'dm'`.
     - Add `schemaVersion: 'hermes-message-v0' | 'hermes-channel-v0'` fields for forward-compatibility.
     - **Note:** Group chats (`type: 'group'`) are explicitly v1+. Sprint 3 is strictly 1:1 DMs.
-- [ ] **Validation:** Zod schemas for strict runtime checking.
-- [ ] **Types:** Export TypeScript types to `packages/types`.
-- [ ] **Channel ID Helper:** Implement `deriveChannelId(participants: string[]): string` in `packages/data-model`, defined as `sha256(sort(participants).join('|'))`. Use browser-safe crypto from `@vh/crypto`. All messaging code must use this canonical derivation.
+- [x] **Validation:** Zod schemas for strict runtime checking.
+- [x] **Types:** Export TypeScript types to `packages/types`.
+- [x] **Channel ID Helper:** Implement `deriveChannelId(participants: string[]): string` in `packages/data-model`, defined as `sha256(sort(participants).join('|'))`. Use browser-safe crypto from `@vh/crypto`. All messaging code must use this canonical derivation.
 
 ### 2.2 Transport Layer (`packages/gun-client`) & Messaging Store (`apps/web-pwa`)
 
@@ -142,16 +142,16 @@
 
 ### 3.1 Data Model (`packages/data-model`)
 
-- [ ] **Schema Definition:** Implement `Thread` and `Comment` exactly as defined in `docs/spec-hermes-forum-v0.md` §2 in `packages/data-model/src/schemas/hermes/forum.ts`:
+- [x] **Schema Definition:** Implement `Thread` and `Comment` exactly as defined in `docs/spec-hermes-forum-v0.md` §2 in `packages/data-model/src/schemas/hermes/forum.ts`:
     - `Thread`: has `score = (upvotes - downvotes) * decayFactor`.
     - `Comment`: uses `type: 'reply' | 'counterpoint'` and optional `targetId` for counterpoints.
     - Add `schemaVersion: 'hermes-thread-v0' | 'hermes-comment-v0'`.
     - Add `sourceAnalysisId?: string` to `Thread` for linking back to VENN analysis.
     - **Note:** No separate `Counterpoint` type; `Comment` with `type: 'counterpoint'` and `targetId` covers it.
-- [ ] **Content Size Limits:**
+- [x] **Content Size Limits:**
     - `title`: ≤ 200 characters.
     - `content`: ≤ 10,000 characters.
-- [ ] **Validation:** Use Zod schemas, exported via `packages/types`.
+- [x] **Validation:** Use Zod schemas, exported via `packages/types`.
 
 - [ ] **Storage Topology:** Implement Gun storage paths per `spec-hermes-forum-v0.md` §5:
     - Threads: `vh/forum/threads/<threadId>`
@@ -160,7 +160,7 @@
         - `vh/forum/indexes/date`
         - `vh/forum/indexes/tags/<tag>/<threadId>`
 
-- [ ] **Score & Decay:** Implement score computation as:
+- [x] **Score & Decay:** Implement score computation as:
     - `score = (upvotes - downvotes) * exp(-λ * ageInHours)`
     - λ ≈ 0.0144 (half-life ~48h). Document the chosen λ in the spec comments.
     - Encapsulate this in a `computeThreadScore(thread, now)` helper in `packages/data-model`.
