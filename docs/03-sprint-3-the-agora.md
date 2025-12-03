@@ -37,10 +37,10 @@
 - [ ] **XP & Privacy:** Any XP accrual from Messaging/Forum must write only to the on-device XP ledger (`civicXP` / `socialXP` in `spec-xp-ledger-v0.md`), never emitting `{district_hash, nullifier, XP}` off-device.
 
 ### 1.6 HERMES vs AGORA Naming
-- [ ] **Navigation Model:**
+- [x] **Navigation Model:**
     - **HERMES** = Communications layer: Messaging (DMs) + Forum (public civic discourse).
     - **AGORA** = Governance & projects (Sprint 4+): Collaborative documents, project/policy development, decision-making.
-- [ ] **Routing:**
+- [x] **Routing:**
     - HERMES tab → `/hermes` → surfaces both Messaging and Forum.
     - AGORA tab → `/governance` (or `/agora`) → governance/proposals (Sprint 4+).
 - [ ] **Elevation Path (Future):** Forum threads can be elevated into AGORA projects based on engagement, upvotes, and tags.
@@ -111,26 +111,26 @@
 ### 2.3 UI Implementation (`apps/web-pwa`)
 
 #### 2.3.1 Components
-- [ ] `ChatLayout`: Split view (Channel List / Message Thread).
-- [ ] `ChannelList`: Virtualized list of active conversations.
-- [ ] `MessageBubble`: Sent/Received styles, timestamp, status (sending/sent/failed).
-- [ ] `Composer`: Input area with auto-expanding text, send button.
-- [ ] `ContactQR`: Displays current device's identity key (nullifier) as QR code.
-- [ ] `ScanContact`: Camera-based QR scanner with fallback to manual entry on desktop.
+- [x] `ChatLayout`: Split view (Channel List / Message Thread).
+- [x] `ChannelList`: Virtualized list of active conversations.
+- [x] `MessageBubble`: Sent/Received styles, timestamp, status (sending/sent/failed).
+- [x] `Composer`: Input area with auto-expanding text, send button.
+- [x] `ContactQR`: Displays current device's identity key (nullifier) as QR code.
+- [x] `ScanContact`: Camera-based QR scanner with fallback to manual entry on desktop.
 
 #### 2.3.2 Features
-- [ ] **Direct Messages (1:1 only):**
+- [x] **Direct Messages (1:1 only):**
     - Start chat by:
         - Scanning a QR code containing the peer's identity key (nullifier), or
         - Pasting their identity key manually.
     - **No global user search or central directory in v0.**
-- [ ] **Contact QR & Scanner:**
+- [x] **Contact QR & Scanner:**
     - Add "Share Contact" button that shows the current device's identity key as a QR code.
     - Add "Scan Contact" flow (uses camera where available; falls back to manual entry on desktop).
-- [ ] **Optimistic UI:** Display messages immediately while syncing in background.
+- [x] **Optimistic UI:** Display messages immediately while syncing in background.
 
 #### 2.3.3 Identity & UX Constraints
-- [ ] **Identity Requirement:** If `useIdentity()` has no active identity/session, the Messaging UI shows a "Create identity to start messaging" gate instead of the chat UI.
+- [x] **Identity Requirement:** If `useIdentity()` has no active identity/session, the Messaging UI shows a "Create identity to start messaging" gate instead of the chat UI.
 - [ ] **Device Label (Optional v0):** When multiple devices are linked, show which device a message came from. Reserve a `deviceId` field in the Message schema for this purpose.
 
 ---
@@ -180,37 +180,37 @@
 ### 3.3 UI Implementation (`apps/web-pwa`)
 
 #### 3.3.1 Components
-- [ ] `ForumFeed`: List of active threads sorted by engagement/time.
-- [ ] `ThreadView`: Main post + nested comment tree.
-- [ ] `CommentNode`: The comment content + "Counterpoints" side-panel or expandable section.
-- [ ] `NewThreadForm`: Form for creating new threads with title, content (Markdown), and tags.
-- [ ] `CounterpointPanel`: Side-by-side view for original argument and counterpoint(s).
+- [x] `ForumFeed`: List of active threads sorted by engagement/time.
+- [x] `ThreadView`: Main post + nested comment tree.
+- [x] `CommentNode`: The comment content + "Counterpoints" side-panel or expandable section.
+- [x] `NewThreadForm`: Form for creating new threads with title, content (Markdown), and tags.
+- [x] `CounterpointPanel`: Side-by-side view for original argument and counterpoint(s).
 
 #### 3.3.2 Features
-- [ ] **Structured Debate:** Users can reply normally OR post a "Counterpoint" which appears distinctly next to the original point (side-by-side or expandable section).
-- [ ] **Sorting Options:**
+- [x] **Structured Debate:** Users can reply normally OR post a "Counterpoint" which appears distinctly next to the original point (side-by-side or expandable section).
+- [x] **Sorting Options:**
     - **Hot:** Descending `score` (includes decay).
     - **New:** Descending `timestamp`.
     - **Top:** Descending `(upvotes - downvotes)` (no decay).
-- [ ] **Auto-collapse:** Low-score content (negative votes) auto-collapses in the UI.
+- [x] **Auto-collapse:** Low-score content (negative votes) auto-collapses in the UI.
 - [ ] **Markdown Sanitization:** Sanitize all Markdown before rendering to prevent XSS.
 
 #### 3.3.3 Trust Gating
-- [ ] **Trust gating:** All "New Thread", "Reply", "Counterpoint", and Vote buttons are disabled unless:
+- [x] **Trust gating:** All "New Thread", "Reply", "Counterpoint", and Vote buttons are disabled unless:
     - There is an active session/identity, AND
     - `identity.session.trustScore >= 0.5` (as per `spec-hermes-forum-v0.md` §4.1).
-- [ ] **Non-attested users can still read threads/comments.**
+- [x] **Non-attested users can still read threads/comments.**
 
 #### 3.3.4 Voting Semantics (v0)
-- [ ] **Raw Vote Storage:** Persist raw upvotes/downvotes as 1 person = 1 vote (no weighting in storage).
-- [ ] **One-Vote-Per-User:** For each `(user, targetId)`, only one vote is allowed. Updates overwrite.
+- [x] **Raw Vote Storage:** Persist raw upvotes/downvotes as 1 person = 1 vote (no weighting in storage).
+- [x] **One-Vote-Per-User:** For each `(user, targetId)`, only one vote is allowed. Updates overwrite.
 - [ ] **XP-Weighted Score (Client Only):** Compute a derived XP-weighted score in the client/UI only:
     - `weightedScore = Σ sign(vote) * f(civicXP, tag)`
     - For Sprint 3, implement `f` as a simple monotonic function, e.g., `1 + log10(1 + civicXP_tag)`, but keep the raw counts canonical.
-- [ ] **Privacy:** Never store per-nullifier XP alongside content in Gun; XP reads come from the local XP ledger only.
+- [x] **Privacy:** Never store per-nullifier XP alongside content in Gun; XP reads come from the local XP ledger only.
 
 #### 3.3.5 VENN Integration
-- [ ] **VENN Integration:** From a Canonical Analysis view, expose a "Discuss in Forum" CTA that:
+- [x] **VENN Integration:** From a Canonical Analysis view, expose a "Discuss in Forum" CTA that:
     - Creates (or navigates to) a Thread tagged with the analysis/topic id.
     - Stores a `sourceAnalysisId` field on the Thread (string, optional) to link back.
 
