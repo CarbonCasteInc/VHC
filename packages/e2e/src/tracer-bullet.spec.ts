@@ -9,7 +9,7 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
 
         // 1. Load App
         await page.goto('/');
-        await page.getByRole('link', { name: 'User' }).click();
+        await page.getByTestId('user-link').click();
         await page.waitForURL('**/dashboard');
         await expect(page.getByText('Loading Mesh…')).toBeHidden({ timeout: 10000 });
         const createIdentityBtn = page.getByTestId('create-identity-btn');

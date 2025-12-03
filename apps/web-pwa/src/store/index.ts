@@ -67,38 +67,101 @@ function resolveGunPeers(): string[] {
   return ['http://100.75.18.26:7777/gun', 'http://localhost:9780/gun'];
 }
 
+/**
+ * Check if we're in a multi-user E2E test with shared mesh
+ * (set by Playwright fixture via addInitScript)
+ */
+function useSharedMesh(): boolean {
+  return typeof window !== 'undefined' && (window as any).__VH_USE_SHARED_MESH__ === true;
+}
+
+/**
+ * Shared mesh functions exposed by Playwright fixture.
+ * Falls back to localStorage when not in multi-user test.
+ */
+const sharedMeshOps = {
+  async write(path: string, value: any): Promise<void> {
+    if (useSharedMesh() && typeof (window as any).__vhMeshWrite === 'function') {
+      await (window as any).__vhMeshWrite(path, value);
+    } else {
+      // Fallback to localStorage
+      const key = '__VH_MESH_STORE__';
+      try {
+        const store = JSON.parse(localStorage.getItem(key) || '{}');
+        const parts = path.split('/');
+        let current = store;
+        for (let i = 0; i < parts.length - 1; i++) {
+          current[parts[i]] = current[parts[i]] ?? {};
+          current = current[parts[i]];
+        }
+        current[parts[parts.length - 1]] = value;
+        localStorage.setItem(key, JSON.stringify(store));
+      } catch { /* ignore */ }
+    }
+  },
+  
+  async read(path: string): Promise<any> {
+    if (useSharedMesh() && typeof (window as any).__vhMeshRead === 'function') {
+      return await (window as any).__vhMeshRead(path);
+    } else {
+      // Fallback to localStorage
+      const key = '__VH_MESH_STORE__';
+      try {
+        const store = JSON.parse(localStorage.getItem(key) || '{}');
+        const parts = path.split('/');
+        let current = store;
+        for (const part of parts) {
+          current = current?.[part];
+        }
+        return current ?? null;
+      } catch {
+        return null;
+      }
+    }
+  },
+  
+  async list(prefix: string): Promise<Array<{ path: string; value: any }>> {
+    if (useSharedMesh() && typeof (window as any).__vhMeshList === 'function') {
+      return await (window as any).__vhMeshList(prefix);
+    }
+    return [];
+  }
+};
+
 function createMockClient(): VennClient {
-  const MESH_STORAGE_KEY = '__VH_MESH_STORE__';
-  const readMesh = () => {
-    try {
-      const raw = localStorage.getItem(MESH_STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as Record<string, any>) : {};
-    } catch {
-      return {};
-    }
-  };
-  const writeMesh = (data: Record<string, any>) => {
-    try {
-      localStorage.setItem(MESH_STORAGE_KEY, JSON.stringify(data));
-    } catch {
-      /* ignore */
-    }
-  };
   const mesh = {
     get(scope: string) {
       return {
         get(key: string) {
+          const path = `${scope}/${key}`;
           return {
             once(cb: (data: any) => void) {
-              const store = readMesh();
-              cb(store[scope]?.[key]);
+              sharedMeshOps.read(path).then(cb);
             },
             put(value: any, cb?: (ack?: { err?: string }) => void) {
-              const store = readMesh();
-              store[scope] = store[scope] ?? {};
-              store[scope][key] = value;
-              writeMesh(store);
-              cb?.();
+              sharedMeshOps.write(path, value).then(() => cb?.());
+            },
+            get(subKey: string) {
+              const subPath = `${path}/${subKey}`;
+              return {
+                once(cb: (data: any) => void) {
+                  sharedMeshOps.read(subPath).then(cb);
+                },
+                put(value: any, cb?: (ack?: { err?: string }) => void) {
+                  sharedMeshOps.write(subPath, value).then(() => cb?.());
+                },
+                get(subSubKey: string) {
+                  const subSubPath = `${subPath}/${subSubKey}`;
+                  return {
+                    once(cb: (data: any) => void) {
+                      sharedMeshOps.read(subSubPath).then(cb);
+                    },
+                    put(value: any, cb?: (ack?: { err?: string }) => void) {
+                      sharedMeshOps.write(subSubPath, value).then(() => cb?.());
+                    }
+                  };
+                }
+              };
             }
           };
         }
@@ -116,6 +179,8 @@ function createMockClient(): VennClient {
       read: async () => null,
       close: async () => { }
     } as any,
+    gun: {} as any,
+    topologyGuard: { validateWrite: () => {} } as any,
     user: {
       is: null,
       create: async () => ({ pub: 'mock-pub', priv: 'mock-priv', epub: '', epriv: '' }),
@@ -127,7 +192,9 @@ function createMockClient(): VennClient {
     createSession: async () => ({ token: 'mock-token', trustScore: 1, nullifier: 'mock-nullifier' }),
     mesh,
     sessionReady: true,
-    markSessionReady: () => { }
+    markSessionReady: () => { },
+    linkDevice: async () => { },
+    shutdown: async () => { }
   };
 }
 

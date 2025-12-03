@@ -65,7 +65,8 @@ export function useIdentity() {
       let session: { token: string; trustScore: number; nullifier: string };
 
       if (E2E_MODE) {
-        session = { token: 'mock-session', trustScore: 1, nullifier: 'mock-nullifier' };
+        // Use unique nullifier per identity so multi-user tests work
+        session = { token: `mock-session-${randomToken()}`, trustScore: 1, nullifier: `mock-nullifier-${randomToken()}` };
       } else {
         try {
           const verifierPromise = createSession(attestation, ATTESTATION_URL);

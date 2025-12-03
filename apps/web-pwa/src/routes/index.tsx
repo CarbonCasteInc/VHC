@@ -49,14 +49,6 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
             <Link to="/hermes" className="hover:text-teal-700 dark:hover:text-emerald-300 [&.active]:text-teal-700 dark:[&.active]:text-emerald-300">HERMES</Link>
             <span className="text-slate-400 dark:text-slate-600">/</span>
             <Link to="/governance" className="hover:text-teal-700 dark:hover:text-emerald-300 [&.active]:text-teal-700 dark:[&.active]:text-emerald-300">AGORA</Link>
-            <a
-              href="/dashboard"
-              data-testid="user-link-fallback"
-              className="sr-only"
-              aria-label="User"
-            >
-              User
-            </a>
           </nav>
           <div className="flex items-center justify-end gap-2 text-sm text-slate-500 dark:text-slate-300">
             <ThemeToggle />
