@@ -24,4 +24,24 @@ describe('TopologyGuard', () => {
       guard.validateWrite('vh/public/aggregates/topic', { district_hash: 'd', nullifier: 'n' })
     ).toThrow();
   });
+
+  it('allows hermes inbox writes when encrypted flag is present', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('~alice-nullifier/hermes/inbox/msg-123', { __encrypted: true, ciphertext: 'x' })
+    ).not.toThrow();
+  });
+
+  it('allows forum namespaces', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('vh/forum/threads/thread-1', { title: 'hello', content: 'body' })
+    ).not.toThrow();
+  });
+
+  it('rejects invalid hermes prefixes and raw user paths', () => {
+    const guard = new TopologyGuard();
+    expect(() => guard.validateWrite('vh/hermes/inbox', {})).toThrow();
+    expect(() => guard.validateWrite('~user/raw/data', {})).toThrow();
+  });
 });

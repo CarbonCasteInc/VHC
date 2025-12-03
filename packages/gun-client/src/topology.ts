@@ -9,11 +9,19 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/public/', classification: 'public' },
   { pathPrefix: 'vh/sensitive/', classification: 'sensitive' },
   { pathPrefix: 'vh/local/', classification: 'local' },
+  { pathPrefix: 'vh/user/', classification: 'local' },
   // legacy namespaces
   { pathPrefix: 'vh/chat/', classification: 'sensitive' },
   { pathPrefix: 'vh/outbox/', classification: 'sensitive' },
   { pathPrefix: 'vh/analyses/', classification: 'public' },
-  { pathPrefix: 'vh/aggregates/', classification: 'public' }
+  { pathPrefix: 'vh/aggregates/', classification: 'public' },
+  // HERMES messaging
+  { pathPrefix: '~*/hermes/inbox', classification: 'sensitive' },
+  { pathPrefix: '~*/hermes/outbox', classification: 'sensitive' },
+  { pathPrefix: '~*/hermes/chats', classification: 'sensitive' },
+  // Forum
+  { pathPrefix: 'vh/forum/threads/', classification: 'public' },
+  { pathPrefix: 'vh/forum/indexes/', classification: 'public' }
 ];
 
 function containsPII(value: unknown): boolean {
@@ -24,6 +32,18 @@ function containsPII(value: unknown): boolean {
   );
 }
 
+function matchesRule(path: string, rule: TopologyRule): boolean {
+  if (!rule.pathPrefix.includes('*')) {
+    return path.startsWith(rule.pathPrefix);
+  }
+  const escaped = rule.pathPrefix
+    .replace(/[.+?^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '.*')
+    .replace(/\*/g, '[^/]+');
+  const regex = new RegExp(`^${escaped}`);
+  return regex.test(path);
+}
+
 export class TopologyGuard {
   private rules: TopologyRule[];
 
@@ -32,9 +52,9 @@ export class TopologyGuard {
   }
 
   validateWrite(path: string, data: unknown): void {
-    const rule = this.rules.find((r) => path.startsWith(r.pathPrefix));
+    const rule = this.rules.find((r) => matchesRule(path, r));
     if (!rule) {
-      return;
+      throw new Error(`Topology violation: disallowed path ${path}`);
     }
     if (rule.classification === 'public') {
       if (containsPII(data)) {

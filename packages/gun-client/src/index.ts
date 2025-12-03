@@ -1,24 +1,12 @@
 import Gun from 'gun';
 import 'gun/sea';
 import type { IGunInstance } from 'gun';
+import { waitForRemote, type ChainAck, type ChainLike, type ChainWithGet } from './chain';
 import { createStorageAdapter } from './storage/adapter';
 import type { StorageAdapter, StorageRecord } from './storage/types';
 import { HydrationBarrier, createHydrationBarrier } from './sync/barrier';
 import type { Namespace, VennClientConfig } from './types';
 import { TopologyGuard } from './topology';
-
-interface ChainAck {
-  err?: string;
-}
-
-interface ChainLike<T> {
-  once(callback: (data: T | undefined) => void): unknown;
-  put(value: T, callback?: (ack?: ChainAck) => void): unknown;
-}
-
-interface ChainWithGet<T> extends ChainLike<T> {
-  get(key: string): ChainWithGet<T>;
-}
 
 const DEFAULT_PEERS = ['http://localhost:9780/gun'];
 
@@ -26,6 +14,8 @@ export interface VennClient {
   config: VennClientConfig & { peers: string[] };
   hydrationBarrier: HydrationBarrier;
   storage: StorageAdapter;
+  topologyGuard: TopologyGuard;
+  gun: IGunInstance;
   user: Namespace<Record<string, unknown>>;
   chat: Namespace<Record<string, unknown>>;
   outbox: Namespace<Record<string, unknown>>;
@@ -98,27 +88,6 @@ function createNamespace<T>(
   };
 }
 
-async function waitForRemote<T>(chain: ChainLike<T>, barrier: HydrationBarrier): Promise<void> {
-  await barrier.prepare();
-  await new Promise<void>((resolve) => {
-    let resolved = false;
-    const timer = setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        console.warn('[vh:gun-client] waitForRemote timed out, proceeding anyway');
-        resolve();
-      }
-    }, 500);
-    chain.once(() => {
-      if (!resolved) {
-        resolved = true;
-        clearTimeout(timer);
-        resolve();
-      }
-    });
-  });
-}
-
 export function createClient(config: VennClientConfig = {}): VennClient {
   const hydrationBarrier = createHydrationBarrier();
   const peers = normalizePeers(config.peers);
@@ -171,6 +140,8 @@ export function createClient(config: VennClientConfig = {}): VennClient {
     config: { ...config, peers },
     hydrationBarrier,
     storage,
+    topologyGuard: guard,
+    gun,
     mesh: root as unknown as ChainWithGet<Record<string, unknown>>,
     sessionReady,
     markSessionReady() {
@@ -193,3 +164,7 @@ export { createStorageAdapter } from './storage/adapter';
 export type { StorageAdapter, StorageRecord } from './storage/types';
 export type { VennClientConfig, Namespace } from './types';
 export { createSession } from './auth';
+export * from './hermesAdapters';
+export * from './hermesCrypto';
+export * from './forumAdapters';
+export type { ChainWithGet } from './chain';
