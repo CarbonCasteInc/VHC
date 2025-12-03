@@ -3,6 +3,8 @@ import type { FeedItem, Perspective } from '../hooks/useFeedStore';
 import { useSentimentState } from '../hooks/useSentimentState';
 import { useRegion } from '../hooks/useRegion';
 import { useIdentity } from '../hooks/useIdentity';
+import { useForumStore } from '../store/hermesForum';
+import { useRouter } from '@tanstack/react-router';
 
 interface AnalysisViewProps {
   item: FeedItem;
@@ -148,6 +150,8 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ item }) => {
   const canVote = Boolean(identity);
   const [warn, setWarn] = React.useState(false);
   const warnOnceRef = React.useRef<NodeJS.Timeout | null>(null);
+  const forumStore = useForumStore();
+  const router = useRouter();
 
   const showWarn = () => {
     setWarn(true);
@@ -195,7 +199,29 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ item }) => {
               <PerspectiveRow itemId={item.id} perspective={p} onBlockedVote={showWarn} />
             </div>
           ))}
+      </div>
+    </div>
+
+      <div className="mt-4 flex items-center justify-between rounded-lg border border-slate-700/60 bg-slate-900/40 p-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-100">Discuss in Forum</p>
+          <p className="text-xs text-slate-300">
+            Continue the conversation in HERMES Forum with threaded replies and counterpoints.
+          </p>
         </div>
+        <button
+          className="rounded-full bg-emerald-500 px-3 py-1 text-sm font-semibold text-slate-900 hover:bg-emerald-400"
+          onClick={() => {
+            const existing = Array.from(forumStore.threads.values()).find((t) => t.sourceAnalysisId === item.id);
+            if (existing) {
+              router.navigate({ to: '/hermes/forum/$threadId', params: { threadId: existing.id } });
+              return;
+            }
+            router.navigate({ to: '/hermes/forum', search: { sourceAnalysisId: item.id, title: item.title } as any });
+          }}
+        >
+          Discuss in Forum
+        </button>
       </div>
     </div>
   );
