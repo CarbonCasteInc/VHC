@@ -18,17 +18,17 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'lcov'],
       include: [
-        'packages/data-model/src/**/*.{ts,tsx}',
-        'packages/crdt/src/**/*.{ts,tsx}',
-        'packages/crypto/src/**/*.{ts,tsx}',
-        'packages/types/src/**/*.{ts,tsx}',
-        'packages/ai-engine/src/analysis.ts',
-        'packages/ai-engine/src/decay.ts',
-        'apps/web-pwa/src/hooks/useWallet.ts',
-        'apps/web-pwa/src/routes/WalletPanel.tsx',
-        'apps/web-pwa/src/routes/AnalysisFeed.tsx'
+        'packages/*/src/**/*.{ts,tsx}',
+        'apps/**/src/**/*.{ts,tsx}'
       ],
-      exclude: ['**/dist/**', '**/node_modules/**', 'packages/e2e/**'],
+      exclude: [
+        '**/dist/**',
+        '**/node_modules/**',
+        'packages/e2e/**',
+        '**/*.test.*',
+        '**/*.spec.*',
+        '**/*.d.ts'
+      ],
       thresholds: {
         branches: 100,
         functions: 100,
