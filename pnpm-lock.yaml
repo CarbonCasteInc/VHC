@@ -186,6 +186,9 @@ importers:
 
   packages/data-model:
     dependencies:
+      '@vh/crypto':
+        specifier: workspace:*
+        version: link:../crypto
       '@vh/types':
         specifier: workspace:*
         version: link:../types

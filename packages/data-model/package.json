@@ -16,6 +16,7 @@
     "test": "vitest run --config ../../vitest.config.ts --dir ../../"
   },
   "dependencies": {
+    "@vh/crypto": "workspace:*",
     "@vh/types": "workspace:*",
     "uuid": "^13.0.0",
     "zod": "^3.23.8"

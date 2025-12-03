@@ -7,3 +7,5 @@ export type CanonicalAnalysis = import('zod').infer<typeof import('./schemas').C
 export type XpLedger = import('zod').infer<typeof import('./schemas').XpLedgerSchema>;
 export type XpTrack = import('zod').infer<typeof import('./schemas').XpTrackSchema>;
 export * from './curated-projects';
+export * from './schemas/hermes/message';
+export * from './schemas/hermes/forum';

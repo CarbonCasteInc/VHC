@@ -88,6 +88,85 @@ export const SentimentSignalSchema = z.object({
   emitted_at: z.number().int().nonnegative()
 });
 
+export type HermesMessageType = 'text' | 'image' | 'file';
+export type HermesChannelType = 'dm';
+export type HermesAttachmentType = 'image' | 'file';
+
+export interface HermesPayload {
+  text?: string;
+  attachmentUrl?: string;
+  attachmentType?: HermesAttachmentType;
+}
+
+export interface HermesMessage {
+  id: string;
+  schemaVersion: 'hermes-message-v0';
+  channelId: string;
+  sender: string;
+  recipient: string;
+  timestamp: number;
+  content: string;
+  type: HermesMessageType;
+  signature: string;
+  deviceId?: string;
+}
+
+export interface HermesChannel {
+  id: string;
+  schemaVersion: 'hermes-channel-v0';
+  participants: string[];
+  lastMessageAt: number;
+  type: HermesChannelType;
+}
+
+export interface HermesThread {
+  id: string;
+  schemaVersion: 'hermes-thread-v0';
+  title: string;
+  content: string;
+  author: string;
+  timestamp: number;
+  tags: string[];
+  sourceAnalysisId?: string;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+}
+
+interface BaseHermesComment {
+  id: string;
+  schemaVersion: 'hermes-comment-v0';
+  threadId: string;
+  parentId: string | null;
+  content: string;
+  author: string;
+  timestamp: number;
+  upvotes: number;
+  downvotes: number;
+}
+
+export type HermesComment =
+  | (BaseHermesComment & {
+      type: 'reply';
+      targetId?: undefined;
+    })
+  | (BaseHermesComment & {
+      type: 'counterpoint';
+      targetId: string;
+    });
+
+export type HermesModerationAction = 'hide' | 'remove';
+
+export interface HermesModerationEvent {
+  id: string;
+  targetId: string;
+  action: HermesModerationAction;
+  moderator: string;
+  reason: string;
+  timestamp: number;
+  signature: string;
+}
+
 export { z };
 
 export function decodeRegionProof(tuple: RegionProofTuple): ConstituencyProof {

@@ -9,5 +9,10 @@ describe('data-model index exports', () => {
     expect(index.AggregateSentimentSchema).toBeDefined();
     expect(index.CanonicalAnalysisSchema).toBeDefined();
     expect(index.XpLedgerSchema).toBeDefined();
+    expect(index.HermesMessageSchema).toBeDefined();
+    expect(index.HermesChannelSchema).toBeDefined();
+    expect(index.HermesThreadSchema).toBeDefined();
+    expect(index.HermesCommentSchema).toBeDefined();
+    expect(index.ModerationEventSchema).toBeDefined();
   });
 });
