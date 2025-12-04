@@ -3,7 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useGovernance, useGovernanceStore } from './useGovernance';
-import { useXpLedger } from './useXpLedger';
+import { useXpLedger } from '../store/xpLedger';
 
 describe('useGovernance', () => {
   beforeEach(() => {

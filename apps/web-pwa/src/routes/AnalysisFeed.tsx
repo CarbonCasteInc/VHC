@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { Link } from '@tanstack/react-router';
 import { Button } from '@vh/ui';
 import type { AnalysisResult } from '../../../../packages/ai-engine/src/prompts';
 import { getOrGenerate, type CanonicalAnalysis } from '../../../../packages/ai-engine/src/analysis';
@@ -209,6 +210,15 @@ export const AnalysisFeed: React.FC = () => {
             <p className="text-sm font-semibold text-slate-900">{item.url}</p>
             <p className="text-sm text-slate-700">{item.summary}</p>
             <p className="text-xs text-slate-600">Biases: {item.biases.join(' · ')}</p>
+            <div className="mt-2 flex justify-end">
+              <Link
+                to="/hermes/forum"
+                search={{ sourceAnalysisId: item.urlHash, title: item.summary }}
+                className="text-xs font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400"
+              >
+                Discuss in Forum →
+              </Link>
+            </div>
           </div>
         ))}
       </div>

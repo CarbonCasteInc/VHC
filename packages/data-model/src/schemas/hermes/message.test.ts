@@ -12,6 +12,7 @@ describe('HermesMessageSchema', () => {
       timestamp: Date.now(),
       content: 'ciphertext',
       type: 'text',
+      senderDevicePub: 'device-epub',
       signature: 'signed-payload',
       deviceId: 'device-1'
     });
@@ -30,6 +31,7 @@ describe('HermesMessageSchema', () => {
         timestamp: Date.now(),
         content: 'ciphertext',
         type: 'video',
+        senderDevicePub: 'device-epub',
         signature: 'signed-payload'
       })
     ).toThrow();
@@ -45,6 +47,7 @@ describe('HermesMessageSchema', () => {
       timestamp: Date.now(),
       content: 'ciphertext',
       type: 'text',
+      senderDevicePub: 'device-epub',
       signature: 'signed-payload'
     });
     expect(result.success).toBe(false);

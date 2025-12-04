@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { ChannelList } from './ChannelList';
 import { MessageThread } from './MessageThread';
@@ -14,7 +14,7 @@ interface Props {
 export const ChatLayout: React.FC<Props> = ({ activeChannelId }) => {
   const router = useRouter();
   const { identity } = useIdentity();
-  const { channels, messages, statuses, sendMessage, getOrCreateChannel } = useChatStore();
+  const { channels, messages, statuses, sendMessage, getOrCreateChannel, subscribeToChannel } = useChatStore();
   const currentUser = identity?.session?.nullifier ?? null;
 
   const channelList = useMemo(() => Array.from(channels.values()), [channels]);
@@ -34,6 +34,14 @@ export const ChatLayout: React.FC<Props> = ({ activeChannelId }) => {
       await getOrCreateChannel(peerIdentity);
     }
   };
+
+  useEffect(() => {
+    if (!activeChannel?.id) return;
+    const unsubscribe = subscribeToChannel(activeChannel.id);
+    return () => {
+      unsubscribe?.();
+    };
+  }, [activeChannel?.id, subscribeToChannel]);
 
   return (
     <IdentityGate>

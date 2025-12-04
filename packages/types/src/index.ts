@@ -107,6 +107,7 @@ export interface HermesMessage {
   timestamp: number;
   content: string;
   type: HermesMessageType;
+  senderDevicePub: string;
   signature: string;
   deviceId?: string;
 }

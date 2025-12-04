@@ -152,3 +152,4 @@ export * from './hermesAdapters';
 export * from './hermesCrypto';
 export * from './forumAdapters';
 export type { ChainWithGet } from './chain';
+export { default as SEA } from 'gun/sea';

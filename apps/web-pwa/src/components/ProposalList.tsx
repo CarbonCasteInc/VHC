@@ -2,7 +2,7 @@ import React, { useEffect, useMemo } from 'react';
 import useGovernance, { MIN_TRUST_TO_VOTE } from '../hooks/useGovernance';
 import ProposalCard from './ProposalCard';
 import { useIdentity } from '../hooks/useIdentity';
-import { useXpLedger } from '../hooks/useXpLedger';
+import { useXpLedger } from '../store/xpLedger';
 
 export const ProposalList: React.FC = () => {
   const { identity } = useIdentity();

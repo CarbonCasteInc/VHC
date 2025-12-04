@@ -12,6 +12,7 @@ export const HermesMessageSchema = z.object({
   timestamp: z.number().int().nonnegative(),
   content: z.string().min(1),
   type: z.enum(['text', 'image', 'file']),
+  senderDevicePub: z.string().min(1),
   signature: z.string().min(1),
   deviceId: z.string().min(1).optional()
 });

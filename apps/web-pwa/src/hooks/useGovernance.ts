@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { create } from 'zustand';
 import { CURATED_PROJECTS } from '@vh/data-model';
 import { isE2EMode } from '../store';
-import { useXpLedger } from './useXpLedger';
+import { useXpLedger } from '../store/xpLedger';
 
 export interface Proposal {
   id: string;

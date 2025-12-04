@@ -11,24 +11,32 @@ const memoryStorage = () => {
   };
 };
 
+const resetLedger = (activeNullifier: string | null = null) => {
+  useXpLedger.setState((state) => ({
+    ...state,
+    socialXP: 0,
+    civicXP: 0,
+    projectXP: 0,
+    tracks: { civic: 0, social: 0, project: 0 },
+    totalXP: 0,
+    lastUpdated: 0,
+    activeNullifier: activeNullifier ?? state.activeNullifier ?? null,
+    dailySocialXP: { date: '2024-01-01', amount: 0 },
+    dailyCivicXP: { date: '2024-01-01', amount: 0 },
+    weeklyProjectXP: { weekStart: '2023-12-31', amount: 0 },
+    firstContacts: new Set(),
+    qualityBonuses: new Map(),
+    sustainedAwards: new Map(),
+    projectWeekly: new Map()
+  }));
+};
+
 describe('xpLedger', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
     (globalThis as any).localStorage = memoryStorage();
-    useXpLedger.setState((state) => ({
-      ...state,
-      socialXP: 0,
-      civicXP: 0,
-      projectXP: 0,
-      dailySocialXP: { date: '2024-01-01', amount: 0 },
-      dailyCivicXP: { date: '2024-01-01', amount: 0 },
-      weeklyProjectXP: { weekStart: '2023-12-31', amount: 0 },
-      firstContacts: new Set(),
-      qualityBonuses: new Map(),
-      sustainedAwards: new Map(),
-      projectWeekly: new Map()
-    }));
+    resetLedger();
   });
 
   afterEach(() => {
@@ -96,6 +104,8 @@ describe('xpLedger', () => {
     useXpLedger.setState((state) => ({
       ...state,
       socialXP: 5,
+      tracks: { ...state.tracks, social: 5 },
+      totalXP: 5,
       dailySocialXP: { date: '2023-12-31', amount: 5 }
     }));
     const ledger = useXpLedger.getState();
@@ -108,6 +118,8 @@ describe('xpLedger', () => {
     useXpLedger.setState((state) => ({
       ...state,
       projectXP: 5,
+      tracks: { ...state.tracks, project: 5 },
+      totalXP: 5,
       weeklyProjectXP: { weekStart: '2023-12-24', amount: 5 }
     }));
     const ledger = useXpLedger.getState();
@@ -115,5 +127,49 @@ describe('xpLedger', () => {
     expect(useXpLedger.getState().weeklyProjectXP.weekStart).toBe('2023-12-31');
     expect(useXpLedger.getState().weeklyProjectXP.amount).toBe(1);
     expect(useXpLedger.getState().projectXP).toBe(6);
+  });
+
+  it('adds XP and recomputes totals', () => {
+    useXpLedger.getState().setActiveNullifier('nullifier-1');
+    useXpLedger.getState().addXp('civic', 5);
+    useXpLedger.getState().addXp('project', 3);
+    const state = useXpLedger.getState();
+    expect(state.tracks.civic).toBe(5);
+    expect(state.tracks.project).toBe(3);
+    expect(state.totalXP).toBe(8);
+    const persisted = JSON.parse(localStorage.getItem('vh_xp_ledger:nullifier-1') ?? '{}');
+    expect(persisted.totalXP).toBe(8);
+  });
+
+  it('calculates RVU with scaled trust score', () => {
+    useXpLedger.getState().setActiveNullifier('rvu-nullifier');
+    useXpLedger.getState().addXp('civic', 10);
+    const rvu = useXpLedger.getState().calculateRvu(0.75);
+    expect(rvu).toBeCloseTo(7.5);
+  });
+
+  it('clamps trustScore when above 1 or below 0', () => {
+    useXpLedger.getState().addXp('civic', 4);
+    expect(useXpLedger.getState().calculateRvu(5)).toBeCloseTo(4);
+    expect(useXpLedger.getState().calculateRvu(-2)).toBeCloseTo(0);
+  });
+
+  it('claims daily boost only when trustScore is high enough', () => {
+    const none = useXpLedger.getState().claimDailyBoost(0.4);
+    expect(none).toBe(0);
+    const boosted = useXpLedger.getState().claimDailyBoost(0.6);
+    expect(boosted).toBe(10);
+    expect(useXpLedger.getState().totalXP).toBeGreaterThan(0);
+  });
+
+  it('switches ledgers when nullifier changes', () => {
+    useXpLedger.getState().setActiveNullifier('nullifier-1');
+    useXpLedger.getState().addXp('project', 4);
+    useXpLedger.getState().setActiveNullifier('nullifier-2');
+    expect(useXpLedger.getState().totalXP).toBe(0);
+    useXpLedger.getState().addXp('project', 2);
+    expect(JSON.parse(localStorage.getItem('vh_xp_ledger:nullifier-2') ?? '{}').totalXP).toBe(2);
+    useXpLedger.getState().setActiveNullifier('nullifier-1');
+    expect(useXpLedger.getState().tracks.project).toBe(4);
   });
 });

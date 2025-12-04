@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { deriveChannelId } from '@vh/data-model';
 import type { HermesChannel, HermesChannelType, HermesMessage, HermesMessageType, HermesPayload } from '@vh/types';
 import {
+  SEA,
   deriveSharedSecret,
   encryptMessagePayload,
   getHermesChatChain,
@@ -30,6 +31,7 @@ export interface ChatState {
 interface IdentityRecord {
   session: { nullifier: string; trustScore: number };
   attestation?: { deviceKey?: string };
+  devicePair?: { pub: string; priv: string; epub: string; epriv: string };
 }
 
 interface ChatDeps {
@@ -66,6 +68,22 @@ function ensureClient(resolveClient: () => VennClient | null): VennClient {
   return client;
 }
 
+function subscribeToChain(chain: any, set: (updater: (state: ChatState) => ChatState) => void) {
+  const mapped = typeof chain.map === 'function' ? chain.map() : null;
+  const target = mapped && typeof mapped.on === 'function' ? mapped : chain;
+  if (!target || typeof target.on !== 'function') return () => {};
+  const handler = (data?: HermesMessage, key?: string) => {
+    const message = data ?? (key ? (data as any)[key] : undefined);
+    if (!message || typeof message !== 'object') return;
+    set((state) => upsertMessage(state, message as HermesMessage, 'sent'));
+  };
+  target.on(handler);
+  const off = target.off ?? chain.off;
+  return () => {
+    off?.(handler);
+  };
+}
+
 function createHermesChannel(channelId: string, participants: string[], now: number): HermesChannel {
   return {
     id: channelId,
@@ -76,7 +94,7 @@ function createHermesChannel(channelId: string, participants: string[], now: num
   };
 }
 
-function upsertMessage(state: ChatState, message: HermesMessage): ChatState {
+function upsertMessage(state: ChatState, message: HermesMessage, defaultStatus: MessageStatus = 'pending'): ChatState {
   const nextMessages = new Map(state.messages);
   const channelMessages = nextMessages.get(message.channelId) ?? [];
   if (!channelMessages.some((m) => m.id === message.id)) {
@@ -88,10 +106,15 @@ function upsertMessage(state: ChatState, message: HermesMessage): ChatState {
   const existingChannel = nextChannels.get(message.channelId);
   if (existingChannel) {
     nextChannels.set(message.channelId, { ...existingChannel, lastMessageAt: message.timestamp });
+  } else {
+    nextChannels.set(
+      message.channelId,
+      createHermesChannel(message.channelId, [message.sender, message.recipient].sort(), message.timestamp)
+    );
   }
   const nextStatuses = new Map(state.statuses);
   if (!nextStatuses.has(message.id)) {
-    nextStatuses.set(message.id, 'pending');
+    nextStatuses.set(message.id, defaultStatus);
   }
   return { ...state, messages: nextMessages, statuses: nextStatuses, channels: nextChannels };
 }
@@ -113,13 +136,16 @@ function createRealChatStore(deps?: Partial<ChatDeps>) {
       typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
   };
   const resolved = { ...defaults, ...deps };
+  let hydrationStarted = false;
+  let hydrateFromGun: () => void = () => {};
 
-  return create<ChatState>((set, get) => ({
+  const store = create<ChatState>((set, get) => ({
     channels: new Map(),
     messages: new Map(),
     statuses: new Map(),
     messageStats: new Map(),
     async getOrCreateChannel(peerIdentityKey: string): Promise<HermesChannel> {
+      hydrateFromGun();
       const identity = ensureIdentity();
       const participants = [identity.session.nullifier, peerIdentityKey];
       const channelId = await resolved.deriveChannelId(participants);
@@ -132,26 +158,34 @@ function createRealChatStore(deps?: Partial<ChatDeps>) {
       return channel;
     },
     async sendMessage(recipientIdentityKey, plaintext, type) {
+      hydrateFromGun();
       const identity = ensureIdentity();
       const client = ensureClient(resolved.resolveClient);
+      const devicePair = identity.devicePair;
+      if (!devicePair?.epub || !devicePair?.epriv) {
+        throw new Error('Device keypair not available');
+      }
       const sender = identity.session.nullifier;
       const channelId = await resolved.deriveChannelId([sender, recipientIdentityKey]);
       await get().getOrCreateChannel(recipientIdentityKey);
       const messageId = resolved.randomId();
-      const deviceKey = identity.attestation?.deviceKey ?? sender;
-      const secret = await resolved.deriveSharedSecret(recipientIdentityKey, { epub: deviceKey, epriv: deviceKey });
+      const timestamp = resolved.now();
+      const secret = await resolved.deriveSharedSecret(recipientIdentityKey, { epub: devicePair.epub, epriv: devicePair.epriv });
       const ciphertext = await resolved.encryptMessagePayload(plaintext, secret);
+      const messageHash = `${messageId}:${timestamp}:${ciphertext}`;
+      const signature = await SEA.sign(messageHash, devicePair);
       const message: HermesMessage = {
         id: messageId,
         schemaVersion: 'hermes-message-v0',
         channelId,
         sender,
         recipient: recipientIdentityKey,
-        timestamp: resolved.now(),
+        timestamp,
         content: ciphertext,
         type,
-        signature: 'unsigned',
-        deviceId: deviceKey
+        signature,
+        senderDevicePub: devicePair.epub,
+        deviceId: devicePair.pub
       };
       set((state) => upsertMessage(state, message));
 
@@ -215,25 +249,31 @@ function createRealChatStore(deps?: Partial<ChatDeps>) {
       }
     },
     subscribeToChannel(channelId) {
+      hydrateFromGun();
       const identity = ensureIdentity();
       const client = resolved.resolveClient();
       if (!client) return () => {};
       const chain = getHermesChatChain(client, identity.session.nullifier, channelId) as any;
-      const map = typeof chain.map === 'function' ? chain.map() : null;
-      const target = map && typeof map.on === 'function' ? map : chain;
-      if (!target || typeof target.on !== 'function') return () => {};
-      const handler = (data?: HermesMessage, key?: string) => {
-        const message = data ?? (key ? (data as any)[key] : undefined);
-        if (!message || typeof message !== 'object') return;
-        set((state) => upsertMessage(state, message as HermesMessage));
-      };
-      target.on(handler);
-      const off = target.off ?? chain.off;
-      return () => {
-        off?.(handler);
-      };
+      return subscribeToChain(chain, set);
     }
   }));
+
+  hydrateFromGun = () => {
+    if (hydrationStarted) return;
+    const identity = loadIdentity();
+    if (!identity?.session?.nullifier) return;
+    const client = resolved.resolveClient();
+    if (!client) return;
+    hydrationStarted = true;
+    const myKey = identity.session.nullifier;
+    console.info('[vh:chat] hydrating inbox/outbox', myKey);
+    subscribeToChain(getHermesInboxChain(client, myKey) as any, store.setState);
+    subscribeToChain(getHermesOutboxChain(client, myKey) as any, store.setState);
+  };
+
+  void hydrateFromGun();
+
+  return store;
 }
 
 export function createMockChatStore() {
@@ -257,7 +297,9 @@ export function createMockChatStore() {
         timestamp: Date.now(),
         content: JSON.stringify(plaintext),
         type,
-        signature: 'unsigned'
+        signature: 'mock-signature',
+        senderDevicePub: 'mock-epub',
+        deviceId: 'mock-device'
       };
       set((state) => upsertMessage(state, message));
       set((state) => updateStatus(state, message.id, 'sent'));

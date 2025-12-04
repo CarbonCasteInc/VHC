@@ -1,8 +1,29 @@
 # Sprint 3 Manual Test Checklist
 
-**Date:** December 3, 2025  
+**Date:** December 4, 2025  
 **Sprint:** 3 - The Agora (HERMES Messaging + Forum)  
-**Dev Server:** http://localhost:2048
+**Dev Server:** http://localhost:2048  
+**Status:** ⚠️ **BLOCKED** — Implementation gaps prevent successful testing
+
+---
+
+## ⚠️ BLOCKING IMPLEMENTATION GAPS
+
+> **This checklist cannot be fully executed until the following gaps are addressed.**
+> See `docs/03-sprint-3-the-agora.md` for detailed outstanding work items.
+
+| Section | Blocking Gap | Sprint Doc Reference |
+|---------|--------------|---------------------|
+| **2. Messaging** | No hydration on init — messages lost on reload | §2.4.1 |
+| **2. Messaging** | Invalid encryption keys — decryption fails | §2.4.2 |
+| **2. Messaging** | `subscribeToChannel` never called — no live updates | §2.4.1 |
+| **3. Forum** | No hydration on init — threads lost on reload | §3.4.1 |
+| **3. Forum** | VENN CTA dedup fails — `threads` map always empty | §3.4.2 |
+| **3. Forum (3.2)** | Cannot create low-trust identity — `createIdentity` throws | §3.4.4 |
+| **4. VENN Integration** | Thread lookup fails — forum store not hydrated | §3.4.2 |
+| **5. XP** | Two conflicting stores — UI never shows earned XP | §4.7.1 |
+| **6. Edge Cases** | Validation/error UI missing in forms | §2.4.3, §3.4.3 |
+| **7. Multi-Device** | No outbox subscription — cross-device sync broken | §2.4.4 |
 
 ---
 
@@ -51,6 +72,12 @@
 ---
 
 ## Part 2: HERMES Messaging
+
+> ⚠️ **BLOCKED:** Messaging tests 2.6-2.9 will fail due to:
+> - No hydration on init (messages lost on reload)
+> - Invalid encryption keys (`deviceKey` falls back to nullifier string, not SEA keypair)
+> - `subscribeToChannel` exists but is never called (no live message updates)
+> - Message decryption in `MessageBubble` uses same invalid key pattern
 
 ### 2.1 Access Messaging
 - [ ] Click "HERMES" in navigation
@@ -107,6 +134,11 @@
 ---
 
 ## Part 3: HERMES Forum
+
+> ⚠️ **BLOCKED:** Forum tests 3.2, 3.11 will fail due to:
+> - No hydration on init (threads/comments lost on reload)
+> - Cannot create low-trust identity to test TrustGate (3.2) — `createIdentity` throws error
+> - Multi-user visibility (3.11) requires reload after other user posts, and even then data won't hydrate
 
 ### 3.1 Access Forum
 - [ ] Click "Forum" tab in HERMES
@@ -180,6 +212,10 @@
 
 ## Part 4: VENN Integration
 
+> ⚠️ **BLOCKED:** VENN → Forum CTA will not find existing threads:
+> - `AnalysisView.tsx` has lookup logic, but `forumStore.threads` is always empty on reload
+> - Will always create duplicate threads instead of navigating to existing
+
 ### 4.1 Analysis to Forum
 - [ ] Navigate to VENN (home page)
 - [ ] Run an analysis (click headline or "Analyze" button)
@@ -191,6 +227,12 @@
 ---
 
 ## Part 5: XP Verification
+
+> ⚠️ **BLOCKED:** XP tests will show 0 earned XP:
+> - Two conflicting `useXpLedger` stores exist
+> - Messaging/Forum stores write to `store/xpLedger.ts` (with `applyMessagingXP`, `applyForumXP`)
+> - WalletPanel reads from `hooks/useXpLedger.ts` (different Zustand store)
+> - UI will never reflect XP earned from messaging or forum actions
 
 ### 5.1 Check XP Dashboard
 - [ ] Navigate to User dashboard
@@ -220,6 +262,11 @@
 
 ## Part 6: Edge Cases & Error Handling
 
+> ⚠️ **BLOCKED:** Error handling tests will fail:
+> - `ScanContact` accepts any string — no identity key validation (6.2)
+> - `NewThreadForm` has no error state — Zod validation errors silently swallowed (6.3, 6.4)
+> - Message timeout stays `pending` forever instead of showing `failed` (6.1)
+
 ### 6.1 Network Disconnect
 - [ ] Open DevTools → Network → Offline
 - [ ] Try to send a message
@@ -245,6 +292,10 @@
 ---
 
 ## Part 7: Multi-Device Sync (If Applicable)
+
+> ⚠️ **BLOCKED:** Multi-device sync will fail:
+> - No outbox subscription — messages sent from other devices won't appear
+> - Device linking flow exists but doesn't propagate outbox history
 
 ### 7.1 Device Linking
 - [ ] On primary device, locate "Link Device" option

@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 
+import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnalysisFeed } from './AnalysisFeed';
@@ -16,6 +17,14 @@ vi.mock('../store', () => ({
 
 vi.mock('../hooks/useIdentity', () => ({
   useIdentity: (...args: unknown[]) => mockUseIdentity(...args)
+}));
+
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ to, children, ...rest }: any) => (
+    <a href={typeof to === 'string' ? to : '#'} {...rest}>
+      {children}
+    </a>
+  )
 }));
 
 function createFakeGunChain() {

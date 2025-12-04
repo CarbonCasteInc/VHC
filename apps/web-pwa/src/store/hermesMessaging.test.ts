@@ -34,6 +34,8 @@ const mockChatMap = {
   })
 };
 mockChatLeaf.map = vi.fn(() => mockChatMap);
+const signMock = vi.fn(async () => 'signed');
+const devicePair = { pub: 'device-pub', priv: 'device-priv', epub: 'device-epub', epriv: 'device-epriv' };
 
 vi.mock('@vh/data-model', async (orig) => {
   const actual = await orig();
@@ -47,6 +49,9 @@ vi.mock('@vh/gun-client', async (orig) => {
   const actual = await orig();
   return {
     ...actual,
+    SEA: {
+      sign: (...args: unknown[]) => signMock(...(args as []))
+    },
     deriveSharedSecret: vi.fn(async () => 'secret'),
     encryptMessagePayload: vi.fn(async () => 'ciphertext'),
     getHermesInboxChain: vi.fn(() => mockInbox),
@@ -67,6 +72,8 @@ const memoryStorage = () => {
 
 beforeEach(() => {
   (globalThis as any).localStorage = memoryStorage();
+  signMock.mockClear();
+  signMock.mockResolvedValue('signed');
   inboxWrites.length = 0;
   outboxWrites.length = 0;
   chatWrites.length = 0;
@@ -88,6 +95,8 @@ beforeEach(() => {
     socialXP: 0,
     civicXP: 0,
     projectXP: 0,
+    tracks: { civic: 0, social: 0, project: 0 },
+    totalXP: 0,
     dailySocialXP: { ...state.dailySocialXP, amount: 0 },
     dailyCivicXP: { ...state.dailyCivicXP, amount: 0 },
     weeklyProjectXP: { ...state.weeklyProjectXP, amount: 0 },
@@ -106,14 +115,11 @@ describe('hermesMessaging store', () => {
   const setIdentity = (nullifier: string, trustScore = 1) =>
     (globalThis as any).localStorage.setItem(
       'vh_identity',
-      JSON.stringify({ session: { nullifier, trustScore }, attestation: { deviceKey: nullifier } })
+      JSON.stringify({ session: { nullifier, trustScore }, attestation: { deviceKey: nullifier }, devicePair })
     );
 
   it('sendMessage writes encrypted payload to inbox/outbox/chat', async () => {
-    (globalThis as any).localStorage.setItem(
-      'vh_identity',
-      JSON.stringify({ session: { nullifier: 'alice', trustScore: 1 }, attestation: { deviceKey: 'dev' } })
-    );
+    setIdentity('alice');
     const store = createRealChatStore({
       resolveClient: () => ({ } as any),
       randomId: () => 'msg-1',
@@ -129,16 +135,17 @@ describe('hermesMessaging store', () => {
       expect(call.value.__encrypted).toBe(true);
       expect(call.value.content).toBe('ciphertext');
       expect(call.value.type).toBe('text');
+      expect(call.value.senderDevicePub).toBe(devicePair.epub);
+      expect(call.value.deviceId).toBe(devicePair.pub);
+      expect(call.value.signature).toBe('signed');
     });
+    expect(signMock).toHaveBeenCalledWith('msg-1:1234:ciphertext', devicePair);
     expect(store.getState().statuses.get('msg-1')).toBe('sent');
     expect(useXpLedger.getState().socialXP).toBeGreaterThan(0);
   });
 
   it('deduplicates messages by id when subscribed', async () => {
-    (globalThis as any).localStorage.setItem(
-      'vh_identity',
-      JSON.stringify({ session: { nullifier: 'alice', trustScore: 1 } })
-    );
+    setIdentity('alice');
     const store = createRealChatStore({
       resolveClient: () => ({ } as any),
       randomId: () => 'msg-1',
@@ -155,7 +162,8 @@ describe('hermesMessaging store', () => {
       timestamp: 1,
       content: 'ciphertext',
       type: 'text',
-      signature: 's'
+      signature: 's',
+      senderDevicePub: 'sender-epub'
     };
     chatHandlers.forEach((cb) => cb(message));
     chatHandlers.forEach((cb) => cb(message));
@@ -251,7 +259,18 @@ describe('hermesMessaging store', () => {
     expect(chainWithoutMap.on).toHaveBeenCalled();
     expect(typeof unsub).toBe('function');
     const handler = chatHandlers[0];
-    handler?.({ id: 'm1', channelId: 'channel-123', schemaVersion: 'hermes-message-v0', sender: 'alice', recipient: 'bob', timestamp: 1, content: 'c', type: 'text', signature: 's' });
+    handler?.({
+      id: 'm1',
+      channelId: 'channel-123',
+      schemaVersion: 'hermes-message-v0',
+      sender: 'alice',
+      recipient: 'bob',
+      timestamp: 1,
+      content: 'c',
+      type: 'text',
+      signature: 's',
+      senderDevicePub: 'sender-epub'
+    });
     expect(store.getState().messages.get('channel-123')?.[0].id).toBe('m1');
     unsub();
   });

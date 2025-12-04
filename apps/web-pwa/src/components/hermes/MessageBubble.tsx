@@ -17,15 +17,20 @@ export const MessageBubble: React.FC<Props> = ({ message, isMine, status }) => {
     let cancelled = false;
     const run = async () => {
       try {
-        const viewerKey = identity?.attestation?.deviceKey ?? identity?.session?.nullifier;
-        if (!viewerKey) {
-          setPlaintext(null);
+        const devicePair = identity?.devicePair;
+        if (!devicePair?.epub || !devicePair?.epriv) {
+          setPlaintext('[No device key]');
           return;
         }
-        const secret = await deriveSharedSecret(message.sender, { epub: viewerKey, epriv: viewerKey });
+        const senderPub = message.senderDevicePub;
+        if (!senderPub) {
+          setPlaintext('[Missing sender key]');
+          return;
+        }
+        const secret = await deriveSharedSecret(senderPub, { epub: devicePair.epub, epriv: devicePair.epriv });
         const payload = await decryptMessagePayload(message.content, secret);
         if (!cancelled) {
-          setPlaintext(payload.text ?? '[unenclosed]');
+          setPlaintext(payload.text ?? '[empty]');
         }
       } catch {
         if (!cancelled) setPlaintext('[Unable to decrypt]');

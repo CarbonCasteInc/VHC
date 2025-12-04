@@ -2,7 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Button } from '@vh/ui';
 import { useWallet } from '../hooks/useWallet';
 import { useIdentity } from '../hooks/useIdentity';
-import { useXpLedger } from '../hooks/useXpLedger';
+import { useXpLedger } from '../store/xpLedger';
 
 function shortAddress(address: string | null) {
   if (!address) return 'Wallet not connected';

@@ -67,7 +67,6 @@ export default defineConfig({
         'apps/web-pwa/src/hooks/useIdentity.ts',
         'apps/web-pwa/src/hooks/useRegion.ts',
         'apps/web-pwa/src/hooks/useGovernance.ts',
-        'apps/web-pwa/src/hooks/useXpLedger.ts',
         'apps/web-pwa/src/hooks/useFeedStore.ts',
         'apps/web-pwa/src/hooks/useSentimentState.ts',
 

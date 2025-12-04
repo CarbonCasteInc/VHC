@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AttestationPayload } from '@vh/types';
-import { createSession } from '@vh/gun-client';
+import { SEA, createSession } from '@vh/gun-client';
 
 const IDENTITY_KEY = 'vh_identity';
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
@@ -24,6 +24,7 @@ export interface IdentityRecord {
   };
   linkedDevices?: string[];
   pendingLinkCode?: string;
+  devicePair?: { pub: string; priv: string; epub: string; epriv: string };
 }
 
 function loadIdentity(): IdentityRecord | null {
@@ -63,6 +64,7 @@ export function useIdentity() {
       const attestation = buildAttestation();
 
       let session: { token: string; trustScore: number; nullifier: string };
+      const devicePair = await SEA.pair();
 
       if (E2E_MODE) {
         // Use unique nullifier per identity so multi-user tests work
@@ -103,6 +105,12 @@ export function useIdentity() {
           trustScore: session.trustScore,
           scaledTrustScore,
           nullifier: session.nullifier
+        },
+        devicePair: {
+          pub: devicePair.pub,
+          priv: devicePair.priv,
+          epub: devicePair.epub,
+          epriv: devicePair.epriv
         }
       };
       persistIdentity(record);

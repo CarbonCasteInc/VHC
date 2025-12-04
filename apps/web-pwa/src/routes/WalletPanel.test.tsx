@@ -27,7 +27,7 @@ vi.mock('../hooks/useIdentity', () => ({
   useIdentity: () => identityMock
 }));
 
-vi.mock('../hooks/useXpLedger', () => ({
+vi.mock('../store/xpLedger', () => ({
   useXpLedger: (() => {
     const useXpLedgerMock = () => xpState;
     (useXpLedgerMock as any).getState = () => xpState;
