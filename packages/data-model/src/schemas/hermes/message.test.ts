@@ -60,10 +60,13 @@ describe('HermesChannelSchema', () => {
       id: 'channel-1',
       schemaVersion: 'hermes-channel-v0',
       participants: ['alice-nullifier', 'bob-nullifier'],
+      participantEpubs: { 'alice-nullifier': 'epub-a', 'bob-nullifier': 'epub-b' },
+      participantDevicePubs: { 'alice-nullifier': 'device-a' },
       lastMessageAt: Date.now(),
       type: 'dm'
     });
     expect(channel.participants.length).toBe(2);
+    expect(channel.participantDevicePubs?.['alice-nullifier']).toBe('device-a');
   });
 
   it('rejects duplicate participants', () => {
@@ -71,6 +74,7 @@ describe('HermesChannelSchema', () => {
       id: 'channel-1',
       schemaVersion: 'hermes-channel-v0',
       participants: ['alice-nullifier', 'alice-nullifier'],
+      participantEpubs: { 'alice-nullifier': 'epub-a' },
       lastMessageAt: Date.now(),
       type: 'dm'
     });

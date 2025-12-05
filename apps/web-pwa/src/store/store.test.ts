@@ -5,16 +5,21 @@ import * as storeModule from './index';
 
 const mockWrite = vi.fn();
 const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), ready: true };
+const mockPublishDirectory = vi.fn();
+const mockGunAuth = vi.fn((_pair?: any, cb?: (ack?: any) => void) => cb?.({}));
+const mockGunUser = { is: null as any, auth: mockGunAuth };
 
 vi.mock('@vh/gun-client', () => ({
   createClient: vi.fn(() => ({
     hydrationBarrier: mockHydration,
-    config: { peers: ['http://localhost:9780/gun'] },
+    config: { peers: ['http://localhost:7777/gun'] },
     user: { write: mockWrite },
     chat: { read: vi.fn(), write: vi.fn() },
     outbox: { read: vi.fn(), write: vi.fn() },
-    shutdown: vi.fn()
-  }))
+    shutdown: vi.fn(),
+    gun: { user: () => mockGunUser }
+  })),
+  publishToDirectory: (...args: unknown[]) => mockPublishDirectory(...(args as []))
 }));
 
 class MemoryStorage {
@@ -37,6 +42,9 @@ beforeEach(() => {
   (globalThis as any).localStorage = new MemoryStorage();
   mockWrite.mockReset();
   mockHydration.prepare.mockClear();
+  mockPublishDirectory.mockReset();
+  mockGunAuth.mockClear();
+  mockGunUser.is = null;
   (createClient as unknown as vi.Mock).mockClear();
   useAppStore.setState({
     client: null,
@@ -80,6 +88,40 @@ describe('useAppStore', () => {
     await useAppStore.getState().init();
     expect(useAppStore.getState().profile).toBeNull();
     expect(useAppStore.getState().identityStatus).toBe('idle');
+  });
+
+  it('authenticates gun user and publishes directory when identity exists', async () => {
+    (globalThis as any).localStorage.setItem(
+      'vh_identity',
+      JSON.stringify({
+        session: { nullifier: 'n1', trustScore: 1 },
+        devicePair: { pub: 'device-pub', priv: 'priv', epub: 'epub', epriv: 'epriv' }
+      })
+    );
+    await useAppStore.getState().init();
+    expect(mockGunAuth).toHaveBeenCalled();
+    expect(mockPublishDirectory).toHaveBeenCalledWith(expect.anything(), {
+      schemaVersion: 'hermes-directory-v0',
+      nullifier: 'n1',
+      devicePub: 'device-pub',
+      epub: 'epub',
+      registeredAt: expect.any(Number),
+      lastSeenAt: expect.any(Number)
+    });
+  });
+
+  it('continues init when auth fails', async () => {
+    mockGunAuth.mockImplementationOnce((_pair?: any, cb?: (ack?: { err?: string }) => void) => cb?.({ err: 'nope' }));
+    (globalThis as any).localStorage.setItem(
+      'vh_identity',
+      JSON.stringify({
+        session: { nullifier: 'n2', trustScore: 1 },
+        devicePair: { pub: 'device-pub', priv: 'priv', epub: 'epub', epriv: 'epriv' }
+      })
+    );
+    await useAppStore.getState().init();
+    expect(useAppStore.getState().client).toBeTruthy();
+    expect(mockPublishDirectory).not.toHaveBeenCalled();
   });
 
   it('createIdentity falls back when randomUUID is missing and surfaces write errors', async () => {

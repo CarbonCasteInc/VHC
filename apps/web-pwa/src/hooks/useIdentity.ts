@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { AttestationPayload } from '@vh/types';
 import { SEA, createSession } from '@vh/gun-client';
+import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../store';
 
 const IDENTITY_KEY = 'vh_identity';
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
@@ -114,6 +115,15 @@ export function useIdentity() {
         }
       };
       persistIdentity(record);
+      const client = useAppStore.getState().client;
+      if (client && record.devicePair) {
+        try {
+          await authenticateGunUser(client, record.devicePair);
+          await publishDirectoryEntry(client, record);
+        } catch (err) {
+          console.warn('[vh:identity] Directory publish failed:', err);
+        }
+      }
       emitIdentityChanged(record);
       setIdentity(record);
       setStatus('ready');

@@ -1,8 +1,10 @@
 # HERMES Forum Spec (v0)
 
-**Version:** 0.1
-**Status:** Canonical for Sprint 3
+**Version:** 0.2
+**Status:** Implementation In-Progress (Dec 5, 2025)
 **Context:** Public, threaded civic discourse for TRINITY OS.
+
+> **ERRATA (Dec 5, 2025):** v0.2 adds hydration, real-time subscriptions, vote persistence, deduplication, and index usage requirements based on messaging implementation learnings.
 
 ---
 
@@ -134,6 +136,13 @@ function computeThreadScore(thread: Thread, now: number): number {
 *   Updating a vote overwrites the previous one; canonical `upvotes` / `downvotes` reflect the latest state.
 *   Vote state per user: `{ targetId: 'up' | 'down' | null }`. Null = no vote / retracted.
 
+**Vote State Persistence (CRITICAL):**
+*   Vote state MUST be persisted to prevent double-voting after page refresh.
+*   **v0 (localStorage):** Store per-identity: `vh_forum_votes:<nullifier>` → `Record<targetId, 'up' | 'down' | null>`
+*   **v1+ (Gun authenticated):** `~<devicePub>/forum/votes/<targetId>` for cross-device sync.
+*   On app init, load vote state from localStorage before allowing any vote actions.
+*   On vote change, immediately persist to localStorage.
+
 **XP Weighting (Optional v0, Derived View Only):**
 *   XP-weighted voting is a **derived view only** in v0.
 *   Canonical stored fields remain raw `upvotes` / `downvotes`.
@@ -181,11 +190,81 @@ interface ModerationEvent {
     *   Threads: `vh/forum/threads/<threadId>`
     *   Comments: `vh/forum/threads/<threadId>/comments/<commentId>`
 *   **Indexing:**
-    *   `vh/forum/indexes/date` — Threads sorted by timestamp.
+    *   `vh/forum/indexes/date/<threadId>` — Thread timestamp for date-sorted discovery.
     *   `vh/forum/indexes/tags/<tag>/<threadId>` — Threads indexed by tag.
-*   **Integrity:** Client validates the author's signature before rendering. Gating by trustScore is enforced at action time (creating threads/comments/votes) on the local device, not re-validated for remote content.
+*   **Integrity:** Client validates schemas before rendering. Gating by trustScore is enforced at action time (creating threads/comments/votes) on the local device, not re-validated for remote content.
 
 **Gun Access Rule:** All Gun operations must be performed via `@vh/gun-client`, respecting the Hydration Barrier. No direct `Gun()` calls in app code.
+
+### 5.1 Real-Time Sync & Hydration
+
+**Hydration on Init:**
+```typescript
+function hydrateFromGun(client: VennClient, store: ForumStore) {
+  const threadsChain = client.gun.get('vh').get('forum').get('threads');
+  
+  threadsChain.map().on((data, key) => {
+    // Skip Gun metadata nodes
+    if (!data || typeof data !== 'object' || data._ !== undefined) return;
+    
+    // Validate schema before ingestion
+    const result = HermesThreadSchema.safeParse(data);
+    if (result.success && !isDuplicate(result.data.id)) {
+      store.setState(s => addThread(s, result.data));
+    }
+  });
+}
+```
+
+**Subscription Requirements:**
+1. On app init: Subscribe to `vh/forum/threads` via `.map().on()` for new thread discovery.
+2. On thread view: Subscribe to `vh/forum/threads/<threadId>/comments` for live comments.
+3. Unsubscribe on unmount to prevent memory leaks.
+
+**Index Writes (On Thread Creation):**
+```typescript
+// After writing thread to vh/forum/threads/<threadId>
+getForumDateIndexChain(client).get(thread.id).put({ timestamp: thread.timestamp });
+thread.tags.forEach(tag => {
+  getForumTagIndexChain(client, tag.toLowerCase()).get(thread.id).put(true);
+});
+```
+
+### 5.2 Deduplication
+
+Gun may fire `.on()` callbacks multiple times for the same thread/comment. Use TTL-based tracking:
+
+```typescript
+const seenThreads = new Map<string, number>(); // id → timestamp
+const SEEN_TTL_MS = 60_000; // 1 minute
+const SEEN_CLEANUP_THRESHOLD = 100;
+
+function isDuplicate(id: string): boolean {
+  const now = Date.now();
+  const lastSeen = seenThreads.get(id);
+  if (lastSeen && (now - lastSeen) < SEEN_TTL_MS) {
+    return true; // Skip duplicate
+  }
+  seenThreads.set(id, now);
+  
+  // Cleanup old entries
+  if (seenThreads.size > SEEN_CLEANUP_THRESHOLD) {
+    for (const [key, ts] of seenThreads) {
+      if (now - ts > SEEN_TTL_MS) seenThreads.delete(key);
+    }
+  }
+  return false;
+}
+```
+
+### 5.3 Local Persistence
+
+**Vote State:** `vh_forum_votes:<nullifier>` — See §4.2 Vote State Persistence.
+
+**Schema Validation:** All data read from Gun must be validated with Zod schemas before ingestion:
+- `HermesThreadSchema.safeParse(data)`
+- `HermesCommentSchema.safeParse(data)`
+- Reject invalid data silently (log warning in debug mode).
 
 ---
 
@@ -204,17 +283,40 @@ interface ModerationEvent {
 
 ## 7. Implementation Checklist
 
-- [ ] Implement `Thread` and `Comment` schemas in `packages/data-model/src/schemas/hermes/forum.ts`.
-- [ ] Implement `computeThreadScore` helper with documented λ value.
-- [ ] Implement Gun storage adapters for threads, comments, and indexes.
-- [ ] Implement `useForumStore` in `apps/web-pwa/src/store/hermesForum.ts`.
-- [ ] Implement UI components: `ForumFeed`, `ThreadView`, `CommentNode`, `CounterpointPanel`.
-- [ ] Implement trust gating in UI (disable write/vote when `trustScore < 0.5`).
-- [ ] Implement Markdown sanitization for content rendering.
-- [ ] Implement sorting (Hot/New/Top) and auto-collapse for low-score content.
-- [ ] Implement one-vote-per-user semantics with vote state tracking.
-- [ ] Implement content size limits (title ≤200, content ≤10,000).
-- [ ] Implement VENN integration ("Discuss in Forum" CTA).
-- [ ] Write unit tests for schemas and `computeThreadScore`.
-- [ ] Write integration tests for trust gating and vote idempotency.
-- [ ] Write E2E tests for forum flows.
+**Core (Complete):**
+- [x] Implement `Thread` and `Comment` schemas in `packages/data-model/src/schemas/hermes/forum.ts`
+- [x] Implement `computeThreadScore` helper with documented λ value
+- [x] Implement Gun storage adapters for threads, comments, and indexes
+- [x] Implement `useForumStore` in `apps/web-pwa/src/store/hermesForum.ts`
+- [x] Implement UI components: `ForumFeed`, `ThreadView`, `CommentNode`, `CounterpointPanel`
+- [x] Implement trust gating in UI (disable write/vote when `trustScore < 0.5`)
+- [x] Implement Markdown sanitization for content rendering
+- [x] Implement sorting (Hot/New/Top) and auto-collapse for low-score content
+- [x] Implement one-vote-per-user semantics (in-memory)
+- [x] Implement content size limits (title ≤200, content ≤10,000)
+- [x] Implement VENN integration ("Discuss in Forum" CTA)
+- [x] Write unit tests for schemas and `computeThreadScore`
+- [x] Write integration tests for trust gating and vote idempotency
+- [x] Write E2E tests for forum flows
+
+**Hydration & Sync (Phase 4 — Pending):**
+- [ ] Implement `hydrateFromGun()` subscribing to `vh/forum/threads` via `.map().on()`
+- [ ] Add schema validation (safeParse) and Gun metadata filtering on hydration
+- [ ] Implement comment subscriptions per active thread view
+- [ ] Implement deduplication with TTL-based seen tracking (mirrors messaging pattern)
+- [ ] Unsubscribe on component unmount to prevent leaks
+
+**Vote Persistence (Phase 4 — CRITICAL):**
+- [ ] Persist vote state to localStorage: `vh_forum_votes:<nullifier>`
+- [ ] Load vote state on app/store init
+- [ ] Persist immediately on vote change
+- [ ] Block voting until vote state is loaded (prevent race conditions)
+
+**Index Usage (Phase 4 — Medium):**
+- [ ] Write to `getForumDateIndexChain` on thread creation
+- [ ] Write to `getForumTagIndexChain` for each tag on thread creation
+- [ ] Consider seeding hydration from date index for efficiency
+
+**CTA Dedup (Phase 4 — Medium):**
+- [ ] Ensure "Discuss in Forum" checks for existing thread by `sourceAnalysisId` before creating
+- [ ] Navigate to existing thread if found

@@ -40,16 +40,19 @@ VENN-HERMES is a decentralized, multi-user application with E2E encrypted messag
 
 ```typescript
 // Example: Test that message paths are correct
+// Note: Inbox uses devicePub (SEA pub key), not nullifier
 test('getHermesInboxChain writes to correct path', async () => {
   const gun = Gun({ file: false, radix: false });
   const client = createClient({ gun });
   
-  const chain = getHermesInboxChain(client, 'alice-nullifier');
+  // devicePub is the recipient's SEA public key (ECDSA)
+  const aliceDevicePub = 'iMbH2gPcDcxR...'; // truncated for example
+  const chain = getHermesInboxChain(client, aliceDevicePub);
   await chain.get('msg-1').put({ __encrypted: true, content: '...' });
   
-  // Verify path exists
+  // Verify path: vh/hermes/inbox/<devicePub>/<msgId>
   const data = await new Promise(resolve => {
-    gun.get('~alice-nullifier').get('hermes').get('inbox').get('msg-1').once(resolve);
+    gun.get('vh').get('hermes').get('inbox').get(aliceDevicePub).get('msg-1').once(resolve);
   });
   expect(data.__encrypted).toBe(true);
 });

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { HermesMessage } from '@vh/types';
+import type { HermesChannel, HermesMessage } from '@vh/types';
 import { decryptMessagePayload, deriveSharedSecret } from '@vh/gun-client';
 import { useIdentity } from '../../hooks/useIdentity';
 
@@ -7,9 +7,10 @@ interface Props {
   message: HermesMessage;
   isMine: boolean;
   status?: 'pending' | 'failed' | 'sent';
+  channel?: HermesChannel;
 }
 
-export const MessageBubble: React.FC<Props> = ({ message, isMine, status }) => {
+export const MessageBubble: React.FC<Props> = ({ message, isMine, status, channel }) => {
   const { identity } = useIdentity();
   const [plaintext, setPlaintext] = useState<string | null>(null);
 
@@ -22,17 +23,37 @@ export const MessageBubble: React.FC<Props> = ({ message, isMine, status }) => {
           setPlaintext('[No device key]');
           return;
         }
-        const senderPub = message.senderDevicePub;
-        if (!senderPub) {
-          setPlaintext('[Missing sender key]');
-          return;
+
+        // ECDH requires the OTHER party's epub to derive the shared secret
+        // - For messages I received: use sender's epub (from message.senderDevicePub)
+        // - For messages I sent: use recipient's epub (from channel.participantEpubs)
+        let peerEpub: string | undefined;
+
+        if (isMine) {
+          // I sent this message - need recipient's epub to decrypt
+          const recipientNullifier = message.recipient;
+          peerEpub = channel?.participantEpubs?.[recipientNullifier];
+          if (!peerEpub) {
+            console.warn('[vh:decrypt] Missing recipient epub for own message', recipientNullifier);
+            setPlaintext('[Missing recipient key]');
+            return;
+          }
+        } else {
+          // I received this message - use sender's epub
+          peerEpub = message.senderDevicePub;
+          if (!peerEpub) {
+            setPlaintext('[Missing sender key]');
+            return;
+          }
         }
-        const secret = await deriveSharedSecret(senderPub, { epub: devicePair.epub, epriv: devicePair.epriv });
+
+        const secret = await deriveSharedSecret(peerEpub, { epub: devicePair.epub, epriv: devicePair.epriv });
         const payload = await decryptMessagePayload(message.content, secret);
         if (!cancelled) {
           setPlaintext(payload.text ?? '[empty]');
         }
-      } catch {
+      } catch (err) {
+        console.warn('[vh:decrypt] Decryption failed', err);
         if (!cancelled) setPlaintext('[Unable to decrypt]');
       }
     };
@@ -40,7 +61,7 @@ export const MessageBubble: React.FC<Props> = ({ message, isMine, status }) => {
     return () => {
       cancelled = true;
     };
-  }, [message, identity]);
+  }, [message, identity, isMine, channel]);
 
   return (
     <div className={`flex ${isMine ? 'justify-end' : 'justify-start'} text-sm`} data-testid={`message-${message.id}`}>

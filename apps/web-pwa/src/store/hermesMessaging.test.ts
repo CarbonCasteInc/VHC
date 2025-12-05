@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getHermesChatChain } from '@vh/gun-client';
+import { getHermesChatChain, getHermesInboxChain, getHermesOutboxChain } from '@vh/gun-client';
 import { createRealChatStore } from './hermesMessaging';
 import { useXpLedger } from './xpLedger';
 
@@ -36,6 +36,7 @@ const mockChatMap = {
 mockChatLeaf.map = vi.fn(() => mockChatMap);
 const signMock = vi.fn(async () => 'signed');
 const devicePair = { pub: 'device-pub', priv: 'device-priv', epub: 'device-epub', epriv: 'device-epriv' };
+const lookupMock = vi.fn();
 
 vi.mock('@vh/data-model', async (orig) => {
   const actual = await orig();
@@ -56,7 +57,8 @@ vi.mock('@vh/gun-client', async (orig) => {
     encryptMessagePayload: vi.fn(async () => 'ciphertext'),
     getHermesInboxChain: vi.fn(() => mockInbox),
     getHermesOutboxChain: vi.fn(() => mockOutbox),
-    getHermesChatChain: vi.fn(() => mockChatLeaf)
+    getHermesChatChain: vi.fn(() => mockChatLeaf),
+    lookupByNullifier: (...args: unknown[]) => lookupMock(...(args as []))
   };
 });
 
@@ -74,6 +76,15 @@ beforeEach(() => {
   (globalThis as any).localStorage = memoryStorage();
   signMock.mockClear();
   signMock.mockResolvedValue('signed');
+  lookupMock.mockReset();
+  lookupMock.mockResolvedValue({
+    schemaVersion: 'hermes-directory-v0',
+    nullifier: 'bob',
+    devicePub: 'bob-device',
+    epub: 'epub-bob',
+    registeredAt: 1,
+    lastSeenAt: 1
+  });
   inboxWrites.length = 0;
   outboxWrites.length = 0;
   chatWrites.length = 0;
@@ -84,6 +95,9 @@ beforeEach(() => {
   mockChatLeaf.map.mockClear();
   mockChatMap.on.mockClear();
   mockChatMap.off.mockClear();
+  (getHermesInboxChain as any).mockClear?.();
+  (getHermesOutboxChain as any).mockClear?.();
+  (getHermesChatChain as any).mockClear?.();
   mockInbox.get.mockImplementation((key: string) => makeLeaf('inbox', key));
   mockOutbox.get.mockImplementation((key: string) => makeLeaf('outbox', key));
   mockChatLeaf.get.mockImplementation((key: string) => makeLeaf('chat', key));
@@ -126,11 +140,13 @@ describe('hermesMessaging store', () => {
       now: () => 1234
     });
 
+    await store.getState().getOrCreateChannel('bob', 'epub-bob');
     await store.getState().sendMessage('bob', { text: 'hello' }, 'text');
 
     expect(inboxWrites).toHaveLength(1);
     expect(outboxWrites).toHaveLength(1);
     expect(chatWrites).toHaveLength(1);
+    expect(lookupMock).toHaveBeenCalled();
     [inboxWrites[0], outboxWrites[0], chatWrites[0]].forEach((call) => {
       expect(call.value.__encrypted).toBe(true);
       expect(call.value.content).toBe('ciphertext');
@@ -142,6 +158,33 @@ describe('hermesMessaging store', () => {
     expect(signMock).toHaveBeenCalledWith('msg-1:1234:ciphertext', devicePair);
     expect(store.getState().statuses.get('msg-1')).toBe('sent');
     expect(useXpLedger.getState().socialXP).toBeGreaterThan(0);
+    expect(store.getState().channels.get('channel-123')?.participantDevicePubs?.bob).toBe('bob-device');
+  });
+
+  it('throws when recipient epub missing on channel', async () => {
+    setIdentity('alice');
+    lookupMock.mockResolvedValueOnce({
+      schemaVersion: 'hermes-directory-v0',
+      nullifier: 'bob',
+      devicePub: 'bob-device',
+      registeredAt: 1,
+      lastSeenAt: 1
+    } as any);
+    const store = createRealChatStore({ resolveClient: () => ({} as any), randomId: () => 'msg-2', now: () => 10 });
+    await store.getState().getOrCreateChannel('bob');
+    await expect(store.getState().sendMessage('bob', { text: 'hi' }, 'text')).rejects.toThrow(
+      /Recipient encryption key not available/
+    );
+  });
+
+  it('throws when directory has no device pub', async () => {
+    setIdentity('alice');
+    lookupMock.mockResolvedValueOnce(null);
+    const store = createRealChatStore({ resolveClient: () => ({} as any), randomId: () => 'msg-3', now: () => 10 });
+    await store.getState().getOrCreateChannel('bob', 'epub-bob');
+    await expect(store.getState().sendMessage('bob', { text: 'hi' }, 'text')).rejects.toThrow(
+      /Recipient not found in directory/
+    );
   });
 
   it('deduplicates messages by id when subscribed', async () => {
@@ -163,7 +206,8 @@ describe('hermesMessaging store', () => {
       content: 'ciphertext',
       type: 'text',
       signature: 's',
-      senderDevicePub: 'sender-epub'
+      senderDevicePub: 'sender-epub',
+      deviceId: 'sender-device'
     };
     chatHandlers.forEach((cb) => cb(message));
     chatHandlers.forEach((cb) => cb(message));
@@ -171,6 +215,25 @@ describe('hermesMessaging store', () => {
     const channelMessages = store.getState().messages.get('channel-123') ?? [];
     expect(channelMessages).toHaveLength(1);
     expect(channelMessages[0].id).toBe('msg-dup');
+    expect(store.getState().channels.get('channel-123')?.participantEpubs?.alice).toBe('sender-epub');
+    expect(store.getState().channels.get('channel-123')?.participantDevicePubs?.alice).toBe('sender-device');
+  });
+
+  it('hydrates inbox and outbox using device pub', () => {
+    setIdentity('alice');
+    createRealChatStore({ resolveClient: () => ({} as any) });
+    expect((getHermesInboxChain as any).mock.calls[0][1]).toBe(devicePair.pub);
+    expect((getHermesOutboxChain as any).mock.calls[0][0]).toEqual({});
+  });
+
+  it('persists channels and contacts to storage', async () => {
+    setIdentity('alice');
+    const store = createRealChatStore({ resolveClient: () => ({} as any), randomId: () => 'msg-chan', now: () => 10 });
+    await store.getState().getOrCreateChannel('bob', 'epub-bob', 'device-bob');
+    const channels = (globalThis as any).localStorage.getItem('vh_channels:alice');
+    const contacts = (globalThis as any).localStorage.getItem('vh_contacts:alice');
+    expect(channels).toContain('channel-123');
+    expect(contacts).toContain('device-bob');
   });
 
   it('leaves status pending when a write times out', async () => {
@@ -185,6 +248,7 @@ describe('hermesMessaging store', () => {
     mockInbox.get.mockImplementation(() => timeoutLeaf);
     const store = createRealChatStore({ resolveClient: () => ({} as any), randomId: () => 'msg-timeout', now: () => 10 });
 
+    await store.getState().getOrCreateChannel('bob', 'epub-bob');
     const sending = store.getState().sendMessage('bob', { text: 'hi' }, 'text');
     await vi.runAllTimersAsync();
     await sending;
@@ -201,6 +265,7 @@ describe('hermesMessaging store', () => {
     mockOutbox.get.mockImplementation(() => errorLeaf);
     const store = createRealChatStore({ resolveClient: () => ({} as any), randomId: () => 'msg-fail', now: () => 10 });
 
+    await store.getState().getOrCreateChannel('bob', 'epub-bob');
     await expect(store.getState().sendMessage('bob', { text: 'hi' }, 'text')).rejects.toThrow('boom');
     expect(store.getState().statuses.get('msg-fail')).toBe('failed');
   });
@@ -210,6 +275,7 @@ describe('hermesMessaging store', () => {
     useXpLedger.setState((state) => ({ ...state, firstContacts: new Set(['bob']), socialXP: 0 }));
     const store = createRealChatStore({ resolveClient: () => ({} as any), randomId: () => 'msg-first', now: () => 10 });
 
+    await store.getState().getOrCreateChannel('bob', 'epub-bob');
     await store.getState().sendMessage('bob', { text: 'hi' }, 'text');
 
     expect(useXpLedger.getState().socialXP).toBe(0);
@@ -225,6 +291,7 @@ describe('hermesMessaging store', () => {
       messageStats: new Map(state.messageStats).set('channel-123', { mine: 2, total: 5, awarded: false })
     }));
 
+    await store.getState().getOrCreateChannel('bob', 'epub-bob');
     await store.getState().sendMessage('bob', { text: 'hi' }, 'text');
 
     expect(spy).toHaveBeenCalledWith({ type: 'sustained_conversation', channelId: 'channel-123' });
@@ -269,7 +336,8 @@ describe('hermesMessaging store', () => {
       content: 'c',
       type: 'text',
       signature: 's',
-      senderDevicePub: 'sender-epub'
+      senderDevicePub: 'sender-epub',
+      deviceId: 'sender-device'
     });
     expect(store.getState().messages.get('channel-123')?.[0].id).toBe('m1');
     unsub();

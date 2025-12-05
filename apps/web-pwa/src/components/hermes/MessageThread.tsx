@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import type { HermesMessage } from '@vh/types';
+import type { HermesChannel, HermesMessage } from '@vh/types';
 import { MessageBubble } from './MessageBubble';
 
 interface Props {
@@ -7,9 +7,10 @@ interface Props {
   messages: Map<string, HermesMessage[]>;
   currentUser: string | null;
   statuses: Map<string, 'pending' | 'failed' | 'sent'>;
+  channel?: HermesChannel;
 }
 
-export const MessageThread: React.FC<Props> = ({ channelId, messages, currentUser, statuses }) => {
+export const MessageThread: React.FC<Props> = ({ channelId, messages, currentUser, statuses, channel }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const list = (channelId && messages.get(channelId)) || [];
 
@@ -29,6 +30,7 @@ export const MessageThread: React.FC<Props> = ({ channelId, messages, currentUse
           message={message}
           isMine={message.sender === currentUser}
           status={statuses.get(message.id)}
+          channel={channel}
         />
       ))}
     </div>

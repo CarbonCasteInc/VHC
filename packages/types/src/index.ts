@@ -112,10 +112,22 @@ export interface HermesMessage {
   deviceId?: string;
 }
 
+export interface DirectoryEntry {
+  schemaVersion: 'hermes-directory-v0';
+  nullifier: string;
+  devicePub: string;
+  epub: string;
+  displayName?: string;
+  registeredAt: number;
+  lastSeenAt: number;
+}
+
 export interface HermesChannel {
   id: string;
   schemaVersion: 'hermes-channel-v0';
   participants: string[];
+  participantEpubs?: Record<string, string>;
+  participantDevicePubs?: Record<string, string>;
   lastMessageAt: number;
   type: HermesChannelType;
 }

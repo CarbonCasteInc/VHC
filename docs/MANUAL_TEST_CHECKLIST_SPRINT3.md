@@ -1,29 +1,76 @@
 # Sprint 3 Manual Test Checklist
 
-**Date:** December 4, 2025  
+**Date:** December 5, 2025  
 **Sprint:** 3 - The Agora (HERMES Messaging + Forum)  
-**Dev Server:** http://localhost:2048  
-**Status:** ⚠️ **BLOCKED** — Implementation gaps prevent successful testing
+**Dev Server:** http://localhost:2048
+**Status:** ✅ **MESSAGING COMPLETE** — All messaging tests passed (Dec 5, 2025)
 
 ---
 
-## ⚠️ BLOCKING IMPLEMENTATION GAPS
+## ✅ RESOLVED GAPS (Phase 1 - Dec 4, 2025)
 
-> **This checklist cannot be fully executed until the following gaps are addressed.**
+| Section | Gap | Resolution |
+|---------|-----|------------|
+| **2. Messaging** | No hydration on init — messages lost on reload | ✅ `hydrateFromGun()` implemented |
+| **2. Messaging** | Invalid encryption keys — decryption fails | ✅ Real SEA `devicePair` in identity |
+| **2. Messaging** | `subscribeToChannel` never called — no live updates | ✅ Wired in `ChatLayout` useEffect |
+| **5. XP** | Two conflicting stores — UI never shows earned XP | ✅ Unified into `store/xpLedger.ts` |
+| **7. Multi-Device** | No outbox subscription — cross-device sync broken | ✅ Subscribed in hydration |
+
+## ✅ RESOLVED GAPS (Phase 2 - Dec 5, 2025)
+
+| Section | Gap | Resolution |
+|---------|-----|------------|
+| **2. Messaging** | Gun path uses nullifier | ✅ Now uses `vh/hermes/inbox/${devicePub}` + authenticated user paths |
+| **2. Messaging** | No directory service | ✅ `directoryAdapters.ts` — `lookupByNullifier`, `publishToDirectory` |
+| **2. Messaging** | No Gun authentication | ✅ `authenticateGunUser()` on init, publishes to directory |
+| **2. Messaging** | Chain wrapper missing `.on()` | ✅ Added `on`, `off`, `map` passthrough in `createGuardedChain` |
+| **2. Messaging** | E2E test truncated contact | ✅ Added `contact-data` testid with full JSON |
+| **2. Messaging** | Own messages won't decrypt | ✅ Fixed ECDH to use recipient's epub for own messages |
+
+> **Manual Test Result (Dec 5, 2025):** ✅ Messages send and appear in recipient's browser across two incognito windows.
+
+---
+
+## ✅ RESOLVED GAPS (Phase 3 - Dec 5, 2025)
+
+> **All messaging UX issues resolved. Manual tests passed.**
+
+| Section | Gap | Resolution |
+|---------|-----|------------|
+| **2. Messaging** | Gun callback deduplication | ✅ TTL-based `seenMessages` Map with 60s expiry |
+| **2. Messaging** | Channel persistence | ✅ `vh_channels:${nullifier}` localStorage + Gun hydration |
+| **2. Messaging** | Contact persistence | ✅ `vh_contacts:${nullifier}` localStorage |
+| **2. Messaging** | Debug logging | ✅ `vh_debug_chat` localStorage toggle |
+
+**Manual Test Results (Dec 5, 2025):**
+- ✅ Messages appear in both browsers (no "[Unable to decrypt]")
+- ✅ No "1K+ records/sec" warning (deduplication working)
+- ✅ Channel list shows conversation after refresh
+- ✅ Can click into channel and see message history
+- ✅ Don't need to re-add contact's identity key
+- ✅ Messages deliver after page refresh
+
+**Remaining (LOW Priority):**
+| Section | Gap | Impact |
+|---------|-----|--------|
+| **2. Messaging** | Timeout stays `pending` | Misleading status after write timeout |
+| **2. Messaging** | ChannelList shows ciphertext | Poor UX — should show decrypted preview |
+
+---
+
+## ⚠️ REMAINING GAPS (Phase 4 — Forum)
+
+> **Forum tests (Part 3) cannot be executed until the following gaps are addressed.**
 > See `docs/03-sprint-3-the-agora.md` for detailed outstanding work items.
 
 | Section | Blocking Gap | Sprint Doc Reference |
 |---------|--------------|---------------------|
-| **2. Messaging** | No hydration on init — messages lost on reload | §2.4.1 |
-| **2. Messaging** | Invalid encryption keys — decryption fails | §2.4.2 |
-| **2. Messaging** | `subscribeToChannel` never called — no live updates | §2.4.1 |
 | **3. Forum** | No hydration on init — threads lost on reload | §3.4.1 |
 | **3. Forum** | VENN CTA dedup fails — `threads` map always empty | §3.4.2 |
 | **3. Forum (3.2)** | Cannot create low-trust identity — `createIdentity` throws | §3.4.4 |
 | **4. VENN Integration** | Thread lookup fails — forum store not hydrated | §3.4.2 |
-| **5. XP** | Two conflicting stores — UI never shows earned XP | §4.7.1 |
 | **6. Edge Cases** | Validation/error UI missing in forms | §2.4.3, §3.4.3 |
-| **7. Multi-Device** | No outbox subscription — cross-device sync broken | §2.4.4 |
 
 ---
 
@@ -38,7 +85,7 @@
 | Service | URL | Status |
 |---------|-----|--------|
 | PWA Dev Server | http://localhost:2048 | [ ] Running |
-| Gun Relay | ws://localhost:9780 | [ ] Running |
+| Gun Relay | ws://localhost:7777 | [ ] Running |
 | Anvil RPC | http://localhost:8545 | [ ] Running |
 | MinIO Console | http://localhost:9001 | [ ] Running |
 | Traefik Dashboard | http://localhost:8081 | [ ] Running |
@@ -73,11 +120,27 @@
 
 ## Part 2: HERMES Messaging
 
-> ⚠️ **BLOCKED:** Messaging tests 2.6-2.9 will fail due to:
-> - No hydration on init (messages lost on reload)
-> - Invalid encryption keys (`deviceKey` falls back to nullifier string, not SEA keypair)
-> - `subscribeToChannel` exists but is never called (no live message updates)
-> - Message decryption in `MessageBubble` uses same invalid key pattern
+> ❌ **BLOCKED (Phase 2 Required):**
+> 
+> **Completed:**
+> - ✅ Hydration implemented — messages persist across reload
+> - ✅ Real SEA keypair generated for sender `devicePair`
+> - ✅ `subscribeToChannel` wired in `ChatLayout` with cleanup
+> - ✅ Message signing with `id:timestamp:ciphertext` hash
+> - ✅ Contact exchange shares `{ nullifier, epub }` JSON
+> 
+> **BLOCKING ISSUES:**
+> 1. ❌ **Gun path architecture** — Paths use `~${nullifier}/...` but nullifiers aren't valid Gun SEA pubkeys
+> 2. ❌ **No directory service** — Can't look up recipient's `devicePub` for message delivery
+> 3. ❌ **No Gun authentication** — Need `gun.user().auth(devicePair)` on init
+> 
+> **Error:** `Unverified data` + `JWK "x" member 37 bytes but should be 32`
+> 
+> **Fix:** See `docs/03-sprint-3-the-agora.md` §2.4.0 for 16-task implementation plan including:
+> - Directory service (§2.4.0.1-2)
+> - Gun authentication (§2.4.0.5)
+> - New path structure (§2.4.0.3-4)
+> - Updated send/receive flow (§2.4.0.10-12)
 
 ### 2.1 Access Messaging
 - [ ] Click "HERMES" in navigation
@@ -228,11 +291,11 @@
 
 ## Part 5: XP Verification
 
-> ⚠️ **BLOCKED:** XP tests will show 0 earned XP:
-> - Two conflicting `useXpLedger` stores exist
-> - Messaging/Forum stores write to `store/xpLedger.ts` (with `applyMessagingXP`, `applyForumXP`)
-> - WalletPanel reads from `hooks/useXpLedger.ts` (different Zustand store)
-> - UI will never reflect XP earned from messaging or forum actions
+> ✅ **READY FOR TESTING (Phase 1 Complete):**
+> - XP ledger unified into single `store/xpLedger.ts`
+> - `hooks/useXpLedger.ts` deleted
+> - WalletPanel, useGovernance, and all stores now use the unified ledger
+> - XP earned from messaging/forum should now appear in UI
 
 ### 5.1 Check XP Dashboard
 - [ ] Navigate to User dashboard
@@ -293,9 +356,11 @@
 
 ## Part 7: Multi-Device Sync (If Applicable)
 
-> ⚠️ **BLOCKED:** Multi-device sync will fail:
-> - No outbox subscription — messages sent from other devices won't appear
-> - Device linking flow exists but doesn't propagate outbox history
+> ✅ **PARTIALLY READY:**
+> - Outbox subscription implemented — messages sent from other devices should sync
+> - Device linking flow exists
+> 
+> ⚠️ **Note:** Cross-device sync depends on Gun relay being online and identity propagation
 
 ### 7.1 Device Linking
 - [ ] On primary device, locate "Link Device" option

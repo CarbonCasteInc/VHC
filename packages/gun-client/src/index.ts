@@ -8,7 +8,7 @@ import { HydrationBarrier, createHydrationBarrier } from './sync/barrier';
 import type { Namespace, VennClient, VennClientConfig } from './types';
 import { TopologyGuard } from './topology';
 
-const DEFAULT_PEERS = ['http://localhost:9780/gun'];
+const DEFAULT_PEERS = ['http://localhost:7777/gun'];
 
 function normalizePeers(peers?: string[]): string[] {
   const list = peers !== undefined ? peers : DEFAULT_PEERS;
@@ -151,5 +151,6 @@ export { createSession } from './auth';
 export * from './hermesAdapters';
 export * from './hermesCrypto';
 export * from './forumAdapters';
+export * from './directoryAdapters';
 export type { ChainWithGet } from './chain';
 export { default as SEA } from 'gun/sea';

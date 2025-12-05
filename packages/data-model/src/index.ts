@@ -9,3 +9,4 @@ export type XpTrack = import('zod').infer<typeof import('./schemas').XpTrackSche
 export * from './curated-projects';
 export * from './schemas/hermes/message';
 export * from './schemas/hermes/forum';
+export * from './schemas/hermes/directory';

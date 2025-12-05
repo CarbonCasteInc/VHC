@@ -28,7 +28,7 @@ describe('TopologyGuard', () => {
   it('allows hermes inbox writes when encrypted flag is present', () => {
     const guard = new TopologyGuard();
     expect(() =>
-      guard.validateWrite('~alice-nullifier/hermes/inbox/msg-123', { __encrypted: true, ciphertext: 'x' })
+      guard.validateWrite('vh/hermes/inbox/device-123/msg-123', { __encrypted: true, ciphertext: 'x' })
     ).not.toThrow();
   });
 
@@ -39,9 +39,23 @@ describe('TopologyGuard', () => {
     ).not.toThrow();
   });
 
+  it('allows directory entries that contain nullifier', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('vh/directory/alice', {
+        schemaVersion: 'hermes-directory-v0',
+        nullifier: 'alice',
+        devicePub: 'pub',
+        epub: 'epub',
+        registeredAt: 1,
+        lastSeenAt: 1
+      })
+    ).not.toThrow();
+  });
+
   it('rejects invalid hermes prefixes and raw user paths', () => {
     const guard = new TopologyGuard();
-    expect(() => guard.validateWrite('vh/hermes/inbox', {})).toThrow();
+    expect(() => guard.validateWrite('vh/hermes/inbox/device-123', {})).toThrow();
     expect(() => guard.validateWrite('~user/raw/data', {})).toThrow();
   });
 });

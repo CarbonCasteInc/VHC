@@ -14,5 +14,6 @@ describe('data-model index exports', () => {
     expect(index.HermesThreadSchema).toBeDefined();
     expect(index.HermesCommentSchema).toBeDefined();
     expect(index.ModerationEventSchema).toBeDefined();
+    expect(index.DirectoryEntrySchema).toBeDefined();
   });
 });

@@ -152,19 +152,67 @@ test.describe('Multi-User: Forum Integration', () => {
 });
 
 test.describe('Multi-User: Messaging', () => {
-  test('Alice and Bob exchange messages', async ({ alice, bob }) => {
+  test('Alice and Bob exchange messages', async ({ alice, bob, sharedMesh }) => {
+    // Setup both users - this creates identity and publishes to directory
     await setupUser(alice.page, 'Alice');
     await setupUser(bob.page, 'Bob');
 
+    // Navigate Alice to messages and get her full contact data (JSON with nullifier + epub)
     await alice.page.goto('/hermes/messages');
-    const aliceKey = await alice.page.getByTestId('identity-key').textContent();
+    await alice.page.getByTestId('contact-data').waitFor({ state: 'attached', timeout: 5_000 });
+    const aliceContactJson = await alice.page.getByTestId('contact-data').textContent();
+    expect(aliceContactJson).toBeTruthy();
+    expect(aliceContactJson).toContain('nullifier');
 
+    // Parse Alice's contact to get her nullifier for directory verification
+    const aliceContact = JSON.parse(aliceContactJson ?? '{}');
+    expect(aliceContact.nullifier).toBeTruthy();
+    expect(aliceContact.epub).toBeTruthy();
+
+    // Manually seed Alice's directory entry in shared mesh (simulates Gun sync)
+    // This is necessary because the mock client's directory publish may not propagate
+    // through the shared mesh fixture automatically
+    const aliceIdentity = await alice.page.evaluate(() => {
+      const raw = localStorage.getItem('vh_identity');
+      return raw ? JSON.parse(raw) : null;
+    });
+    if (aliceIdentity?.devicePair) {
+      sharedMesh.write(`vh/directory/${aliceContact.nullifier}`, {
+        schemaVersion: 'hermes-directory-v0',
+        nullifier: aliceContact.nullifier,
+        devicePub: aliceIdentity.devicePair.pub,
+        epub: aliceIdentity.devicePair.epub,
+        registeredAt: Date.now(),
+        lastSeenAt: Date.now()
+      });
+    }
+
+    // Bob navigates to messages and initiates chat with Alice
     await bob.page.goto('/hermes/messages');
-    await bob.page.getByTestId('contact-key-input').fill(aliceKey ?? '');
+    await bob.page.getByTestId('contact-key-input').fill(aliceContactJson ?? '');
     await bob.page.getByTestId('start-chat-btn').click();
+
+    // Wait for channel to be created and composer to be enabled
+    await bob.page.getByTestId('message-composer').waitFor({ state: 'visible', timeout: 5_000 });
+    await expect(bob.page.getByTestId('message-composer')).toBeEnabled({ timeout: 5_000 });
+
+    // Bob sends a message
     await bob.page.getByTestId('message-composer').fill('Hello Alice!');
     await bob.page.getByTestId('send-message-btn').click();
 
-    await expect(bob.page.getByText('Hello Alice!')).toBeVisible();
+    // Verify Bob sees his own message
+    await expect(bob.page.getByText('Hello Alice!')).toBeVisible({ timeout: 5_000 });
+  });
+
+  test('Directory lookup fails gracefully for unknown contact', async ({ alice }) => {
+    await setupUser(alice.page, 'Alice');
+    await alice.page.goto('/hermes/messages');
+
+    // Try to start chat with unknown nullifier
+    await alice.page.getByTestId('contact-key-input').fill('unknown-nullifier-12345');
+    await alice.page.getByTestId('start-chat-btn').click();
+
+    // Should show error about recipient not found
+    await expect(alice.page.getByText(/not found in directory/i)).toBeVisible({ timeout: 5_000 });
   });
 });

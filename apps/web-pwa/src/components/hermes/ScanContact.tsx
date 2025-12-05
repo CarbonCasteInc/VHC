@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@vh/ui';
 import { useChatStore } from '../../store/hermesMessaging';
 import { useRouter } from '@tanstack/react-router';
+import { lookupByNullifier } from '@vh/gun-client';
+import { useAppStore } from '../../store';
 
 async function tryBarcodeScan(video: HTMLVideoElement): Promise<string | null> {
   if (typeof (window as any).BarcodeDetector === 'undefined') return null;
@@ -25,14 +27,52 @@ async function tryBarcodeScan(video: HTMLVideoElement): Promise<string | null> {
 export const ScanContact: React.FC = () => {
   const router = useRouter();
   const { getOrCreateChannel } = useChatStore();
+  const client = useAppStore((state) => state.client);
   const [manual, setManual] = useState('');
   const [scanning, setScanning] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const navigateToChannel = async (identityKey: string) => {
-    const channel = await getOrCreateChannel(identityKey);
-    router.navigate({ to: '/hermes/messages/$channelId', params: { channelId: channel.id } });
+  const parseContactData = (input: string): { nullifier: string; epub?: string } => {
+    try {
+      const parsed = JSON.parse(input);
+      if (parsed && typeof parsed.nullifier === 'string') {
+        return { nullifier: parsed.nullifier, epub: typeof parsed.epub === 'string' ? parsed.epub : undefined };
+      }
+    } catch {
+      /* legacy string input */
+    }
+    return { nullifier: input };
+  };
+
+  const navigateToChannel = async (input: string) => {
+    setError(null);
+    const { nullifier, epub } = parseContactData(input);
+    let resolvedEpub = epub;
+    let devicePub: string | undefined;
+    if (client) {
+      try {
+        const entry = await lookupByNullifier(client, nullifier);
+        if (entry) {
+          devicePub = entry.devicePub;
+          if (!resolvedEpub && entry.epub) {
+            resolvedEpub = entry.epub;
+          }
+        }
+      } catch (err) {
+        console.warn('[vh:contact] Directory lookup failed', err);
+      }
+    }
+    if (!devicePub) {
+      setError('Recipient not found in directory. They may not have registered yet.');
+      return;
+    }
+    try {
+      const channel = await getOrCreateChannel(nullifier, resolvedEpub, devicePub);
+      router.navigate({ to: '/hermes/messages/$channelId', params: { channelId: channel.id } });
+    } catch (err) {
+      setError((err as Error).message);
+    }
   };
 
   const startScan = async () => {

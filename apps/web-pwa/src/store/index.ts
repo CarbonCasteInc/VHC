@@ -1,11 +1,18 @@
 import { create } from 'zustand';
-import { createClient, type VennClient } from '@vh/gun-client';
-import type { Profile } from '@vh/data-model';
+import { createClient, publishToDirectory, type VennClient } from '@vh/gun-client';
+import type { DirectoryEntry, Profile } from '@vh/data-model';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
+const IDENTITY_STORAGE_KEY = 'vh_identity';
 
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
+
+type DevicePair = { pub: string; priv: string; epub: string; epriv: string };
+type IdentityRecord = {
+  session: { token?: string; trustScore: number; nullifier: string };
+  devicePair?: DevicePair;
+};
 
 interface AppState {
   client: VennClient | null;
@@ -22,6 +29,15 @@ function loadProfile(): Profile | null {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
     return raw ? (JSON.parse(raw) as Profile) : null;
+  } catch {
+    return null;
+  }
+}
+
+function loadIdentityRecord(): IdentityRecord | null {
+  try {
+    const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as IdentityRecord) : null;
   } catch {
     return null;
   }
@@ -64,7 +80,7 @@ function resolveGunPeers(): string[] {
     }
   }
   // Default to Tailscale-accessible relay; fallback to localhost if needed.
-  return ['http://100.75.18.26:7777/gun', 'http://localhost:9780/gun'];
+  return ['http://100.75.18.26:7777/gun', 'http://localhost:7777/gun'];
 }
 
 /**
@@ -128,7 +144,50 @@ const sharedMeshOps = {
   }
 };
 
+export async function authenticateGunUser(client: VennClient, devicePair: DevicePair): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const user = client.gun.user();
+    if ((user as any).is) {
+      console.info('[vh:gun] Already authenticated');
+      resolve();
+      return;
+    }
+    user.auth(devicePair as any, (ack: any) => {
+      if (ack?.err) {
+        console.error('[vh:gun] Auth failed:', ack.err);
+        reject(new Error(ack.err));
+      } else {
+        console.info('[vh:gun] Authenticated as', devicePair.pub.slice(0, 12) + '...');
+        resolve();
+      }
+    });
+  });
+}
+
+export async function publishDirectoryEntry(client: VennClient, identity: IdentityRecord): Promise<void> {
+  if (!identity.devicePair) {
+    throw new Error('Device keypair missing');
+  }
+  const entry: DirectoryEntry = {
+    schemaVersion: 'hermes-directory-v0',
+    nullifier: identity.session.nullifier,
+    devicePub: identity.devicePair.pub,
+    epub: identity.devicePair.epub,
+    registeredAt: Date.now(),
+    lastSeenAt: Date.now()
+  };
+  await publishToDirectory(client, entry);
+  console.info('[vh:directory] Published entry for', identity.session.nullifier.slice(0, 20) + '...');
+}
+
 function createMockClient(): VennClient {
+  const mockUserChain = {
+    is: { pub: 'mock-pub' },
+    auth: (_pair?: any, cb?: (ack?: { err?: string }) => void) => {
+      cb?.({});
+      return Promise.resolve({} as any);
+    }
+  };
   const mesh = {
     get(scope: string) {
       return {
@@ -179,10 +238,10 @@ function createMockClient(): VennClient {
       read: async () => null,
       close: async () => { }
     } as any,
-    gun: {} as any,
+    gun: { user: () => mockUserChain, get: mesh.get.bind(mesh) } as any,
     topologyGuard: { validateWrite: () => {} } as any,
     user: {
-      is: null,
+      is: mockUserChain.is,
       create: async () => ({ pub: 'mock-pub', priv: 'mock-priv', epub: '', epriv: '' }),
       auth: async () => ({ pub: 'mock-pub', priv: 'mock-priv', epub: '', epriv: '' }),
       leave: async () => { }
@@ -230,6 +289,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.info('[vh:web-pwa] using Gun peers', client.config.peers);
       await client.hydrationBarrier.prepare();
       const profile = loadProfile();
+      const identity = loadIdentityRecord();
+      if (identity?.devicePair) {
+        try {
+          await authenticateGunUser(client, identity.devicePair);
+          await publishDirectoryEntry(client, identity);
+        } catch (err) {
+          console.warn('[vh:gun] Auth/directory publish failed, continuing anyway:', err);
+        }
+      }
       set({
         client,
         profile,

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from '@tanstack/react-router';
 import { ChannelList } from './ChannelList';
 import { MessageThread } from './MessageThread';
@@ -16,6 +16,7 @@ export const ChatLayout: React.FC<Props> = ({ activeChannelId }) => {
   const { identity } = useIdentity();
   const { channels, messages, statuses, sendMessage, getOrCreateChannel, subscribeToChannel } = useChatStore();
   const currentUser = identity?.session?.nullifier ?? null;
+  const [error, setError] = useState<string | null>(null);
 
   const channelList = useMemo(() => Array.from(channels.values()), [channels]);
   const activeChannel =
@@ -29,9 +30,17 @@ export const ChatLayout: React.FC<Props> = ({ activeChannelId }) => {
 
   const handleSend = async (text: string) => {
     if (!peerIdentity) throw new Error('Peer identity missing');
-    await sendMessage(peerIdentity, { text }, 'text');
-    if (activeChannel) {
-      await getOrCreateChannel(peerIdentity);
+    setError(null);
+    try {
+      await sendMessage(peerIdentity, { text }, 'text');
+      if (activeChannel) {
+        await getOrCreateChannel(peerIdentity);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to send message';
+      console.warn('[vh:chat] failed to send', err);
+      setError(message);
+      throw err;
     }
   };
 
@@ -67,11 +76,13 @@ export const ChatLayout: React.FC<Props> = ({ activeChannelId }) => {
                 {peerIdentity ? `Chat with ${peerIdentity}` : 'Select a channel'}
               </span>
             </div>
+            {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
             <MessageThread
               channelId={activeChannel?.id}
               messages={messages}
               currentUser={currentUser}
               statuses={statuses}
+              channel={activeChannel ?? undefined}
             />
           </div>
           <Composer onSend={handleSend} disabled={!peerIdentity} />

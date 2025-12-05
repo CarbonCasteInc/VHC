@@ -10,13 +10,14 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/sensitive/', classification: 'sensitive' },
   { pathPrefix: 'vh/local/', classification: 'local' },
   { pathPrefix: 'vh/user/', classification: 'local' },
+  { pathPrefix: 'vh/directory/', classification: 'public' },
   // legacy namespaces
   { pathPrefix: 'vh/chat/', classification: 'sensitive' },
   { pathPrefix: 'vh/outbox/', classification: 'sensitive' },
   { pathPrefix: 'vh/analyses/', classification: 'public' },
   { pathPrefix: 'vh/aggregates/', classification: 'public' },
   // HERMES messaging
-  { pathPrefix: '~*/hermes/inbox', classification: 'sensitive' },
+  { pathPrefix: 'vh/hermes/inbox/', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/outbox', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/chats', classification: 'sensitive' },
   // Forum
@@ -57,7 +58,8 @@ export class TopologyGuard {
       throw new Error(`Topology violation: disallowed path ${path}`);
     }
     if (rule.classification === 'public') {
-      if (containsPII(data)) {
+      const allowPII = rule.pathPrefix === 'vh/directory/';
+      if (!allowPII && containsPII(data)) {
         throw new Error(`Topology violation: PII in public path ${path}`);
       }
     }

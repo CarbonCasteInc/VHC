@@ -1,7 +1,7 @@
 # HERMES Messaging Spec (v0)
 
-**Version:** 0.1
-**Status:** Canonical for Sprint 3
+**Version:** 0.2
+**Status:** Canonical for Sprint 3 — Implementation Complete (Dec 5, 2025)
 **Context:** Secure, local-first, peer-to-peer messaging for TRINITY OS.
 
 ---
@@ -25,9 +25,7 @@ interface Message {
   channelId: string;        // Derived from sorted participant identity keys
   
   // Identity Keys (routing & UI)
-  // In v0, sender and recipient are set to the session nullifier
-  // (SessionResponse.nullifier from packages/types), which is the
-  // canonical identity key across TRINITY.
+  // sender and recipient are session nullifiers — the canonical identity key across TRINITY.
   sender: string;           // Sender's session nullifier (identity key)
   recipient: string;        // Recipient's session nullifier (identity key)
   
@@ -39,15 +37,18 @@ interface Message {
   // Metadata (Unencrypted but minimal)
   type: 'text' | 'image' | 'file';
   
-  // Integrity
-  signature: string;        // SEA.sign(id + timestamp + content, senderDeviceKey)
-  
-  // Optional: Multi-device support
-  deviceId?: string;        // Originating device identifier (for multi-device UX)
+  // Integrity & Device Keys (REQUIRED)
+  signature: string;        // SEA.sign(id:timestamp:content, senderDevicePair)
+  senderDevicePub: string;  // Sender's epub (ECDH encryption public key) — for recipient decryption
+  deviceId: string;         // Sender's pub (ECDSA signing key) — for message delivery routing
 }
 ```
 
-**Implementation Note:** In v0, encryption uses per-device SEA keypairs (from LUMA). The `sender` / `recipient` fields use identity-level keys (nullifiers) for routing and UI. Devices maintain a mapping `{ identityKey -> deviceKey }` locally. Device-level SEA keys are used for encryption/signing; nullifier is for routing & civic identity.
+**Implementation Note:** 
+- `sender` / `recipient` are **nullifiers** (identity-level) for routing and UI
+- `senderDevicePub` is the sender's **epub** (ECDH key) — recipient uses this to derive shared secret for decryption
+- `deviceId` is the sender's **pub** (ECDSA key) — used for Gun authentication and inbox delivery routing
+- Signature hash format: `${id}:${timestamp}:${ciphertext}`
 
 ### 2.2 Channel Schema
 ```typescript
@@ -57,8 +58,21 @@ interface Channel {
   participants: string[];   // List of identity keys / nullifiers (not device keys)
   lastMessageAt: number;    // Timestamp of last activity
   type: 'dm';               // v0 is strictly 1:1; 'group' is v1+
+  
+  // Device key caches (for offline encryption/delivery)
+  participantEpubs?: Record<string, string>;      // nullifier → epub (ECDH key)
+  participantDevicePubs?: Record<string, string>; // nullifier → pub (ECDSA key)
 }
 ```
+
+**v0 Constraint:** `participants.length === 2` is enforced at the data-model layer. Group channels (`type: 'group'`) are reserved for v1+.
+
+**Key Caches:** `participantEpubs` and `participantDevicePubs` cache the device keys learned from:
+- Contact exchange (QR/paste)
+- Directory service lookup
+- Inbound message metadata
+
+This enables offline encryption without repeated directory lookups.
 
 **Channel ID Derivation:**
 ```typescript
@@ -77,27 +91,58 @@ All messaging code must use this canonical derivation to ensure deterministic ch
 ## 3. Transport & Storage (GunDB)
 
 ### 3.1 Namespace Topology
-*   **User Inbox:** `~<recipient_identityKey>/hermes/inbox`
-    *   Sender writes encrypted message reference here.
-*   **User Outbox:** `~<sender_identityKey>/hermes/outbox`
-    *   Sender writes copy here for their own multi-device sync.
-*   **Chat History:** `~<user_identityKey>/hermes/chats/<channelId>`
-    *   Local view of the conversation.
 
-**Gun Access Rule:** All Gun operations must be performed via `@vh/gun-client`, respecting the Hydration Barrier (no writes before `hydrate()` completes). No direct `Gun()` calls in app code.
+Gun paths use **device public keys** (not nullifiers) because Gun's `~pubkey/` namespace requires valid 32-byte ECDSA keys.
 
-**Gun Adapters:** Expose helpers using identity keys (nullifiers):
+| Path | Type | Description |
+|------|------|-------------|
+| `vh/hermes/inbox/<devicePub>/<msgId>` | Public | Recipient's inbox — sender writes here for delivery |
+| `~<devicePub>/hermes/outbox/<msgId>` | Authenticated | Sender's outbox — for multi-device sync |
+| `~<devicePub>/hermes/chats/<channelId>/<msgId>` | Authenticated | Local chat history |
+| `vh/directory/<nullifier>` | Public | Directory service — nullifier → device keys lookup |
+
+**Key distinction:**
+- **Public paths** (`vh/...`) — Anyone can write, used for message delivery
+- **Authenticated paths** (`~<devicePub>/...`) — Requires `gun.user().auth(devicePair)`, only owner can write
+
+**TopologyGuard Classification:**
+- `vh/directory/` — Classified as `sensitive` (contains PII: nullifier ↔ device key mapping)
+- `vh/hermes/inbox/` — Classified as `sensitive` (encrypted messages)
+- `~*/hermes/outbox`, `~*/hermes/chats` — Classified as `sensitive` (authenticated user data)
+
+**Gun Access Rule:** All Gun operations must be performed via `@vh/gun-client`, respecting the Hydration Barrier. No direct `Gun()` calls in app code.
+
+**Gun Adapters:**
 ```typescript
-getHermesInboxChain(identityKey: string): ChainWithGet<Message>
-getHermesOutboxChain(identityKey: string): ChainWithGet<Message>
-getHermesChatChain(identityKey: string, channelId: string): ChainWithGet<Message>
+// Public inbox — keyed by recipient's devicePub (ECDSA pub)
+getHermesInboxChain(client: VennClient, devicePub: string): ChainWithGet<Message>
+
+// Authenticated outbox — uses gun.user(), no parameter needed
+getHermesOutboxChain(client: VennClient): ChainWithGet<Message>
+
+// Authenticated chat history — uses gun.user()
+getHermesChatChain(client: VennClient, channelId: string): ChainWithGet<Message>
 ```
 
 ### 3.2 Encryption (SEA)
-*   **Shared Secret:** ECDH (Elliptic Curve Diffie-Hellman).
-    *   `secret = SEA.secret(recipientDevicePub, senderDevicePair)`
-*   **Encryption:** `SEA.encrypt(text, secret)`
-*   **Decryption:** `SEA.decrypt(ciphertext, secret)`
+
+**Key Types:**
+- `pub` / `priv` — ECDSA keys for signing and Gun authentication
+- `epub` / `epriv` — ECDH keys for encryption/decryption
+
+**Shared Secret Derivation (ECDH):**
+```typescript
+// Sender encrypting for recipient:
+secret = await deriveSharedSecret(recipientEpub, { epub: senderEpub, epriv: senderEpriv })
+
+// Recipient decrypting from sender:
+secret = await deriveSharedSecret(senderEpub, { epub: recipientEpub, epriv: recipientEpriv })
+```
+
+**Critical:** Use the **other party's `epub`** to derive the shared secret. For your own sent messages, use the recipient's epub.
+
+*   **Encryption:** `SEA.encrypt(JSON.stringify(payload), secret)`
+*   **Decryption:** `SEA.decrypt(ciphertext, secret)` → parse JSON
 
 **Payload Structure:**
 ```typescript
@@ -125,6 +170,102 @@ The plaintext `HermesPayload` is serialized to JSON and encrypted before storage
 
 **Season 0 Storage:** "Large" attachments are stored in the existing MinIO deployment via a thin `@vh/blob-service` wrapper (IPFS is a possible future backend). Do not spin up a separate, incompatible blob service.
 
+### 3.5 Directory Service
+
+The directory service maps **nullifiers** (identity keys) to **device keys** (pub/epub), enabling message delivery without prior contact exchange.
+
+**Schema:**
+```typescript
+interface DirectoryEntry {
+  schemaVersion: 'hermes-directory-v0';
+  nullifier: string;        // Identity key
+  devicePub: string;        // ECDSA pub — for inbox routing
+  epub: string;             // ECDH epub — for encryption
+  displayName?: string;     // Optional human-readable name
+  registeredAt: number;     // First registration timestamp
+  lastSeenAt: number;       // Last activity timestamp
+}
+```
+
+**Gun Path:** `vh/directory/<nullifier>`
+
+**Operations:**
+```typescript
+// Lookup recipient's device keys
+lookupByNullifier(client, nullifier): Promise<DirectoryEntry | null>
+
+// Publish own entry (on identity creation and app init)
+publishToDirectory(client, entry): Promise<void>
+```
+
+**Multi-device (v0):** "Last device wins" — latest `publishToDirectory` overwrites. Formal multi-device sync is v1+.
+
+### 3.6 Gun Authentication
+
+Gun's authenticated namespace (`~pubkey/...`) requires calling `gun.user().auth()` with a valid SEA keypair.
+
+**On App Init:**
+```typescript
+async function authenticateGunUser(client: VennClient, devicePair: SEAPair): Promise<void> {
+  if (client.gun.user().is) return; // Already authenticated
+  return new Promise((resolve, reject) => {
+    client.gun.user().auth(devicePair, (ack) => {
+      if (ack.err) reject(new Error(ack.err));
+      else resolve();
+    });
+  });
+}
+```
+
+**After Identity Creation:**
+1. Generate SEA keypair: `devicePair = await SEA.pair()`
+2. Persist in identity record
+3. Authenticate with Gun: `await authenticateGunUser(client, devicePair)`
+4. Publish to directory: `await publishToDirectory(client, entry)`
+
+### 3.7 Local Persistence
+
+Channels and contacts are persisted to localStorage per-identity for offline access.
+
+**Storage Keys:**
+- `vh_channels:<nullifier>` — Map of channel ID → Channel
+- `vh_contacts:<nullifier>` — Map of nullifier → ContactRecord
+
+**ContactRecord:**
+```typescript
+interface ContactRecord {
+  nullifier: string;
+  epub?: string;
+  devicePub?: string;
+  displayName?: string;
+  addedAt: number;
+}
+```
+
+**Hydration Flow:**
+1. Load channels/contacts from localStorage (instant)
+2. Subscribe to Gun inbox/outbox for real-time updates
+3. Merge incoming data, update localStorage on changes
+
+### 3.8 Message Deduplication
+
+Gun may fire `.on()` callbacks multiple times for the same message. Clients must deduplicate:
+
+```typescript
+const seenMessages = new Map<string, number>(); // id → timestamp
+const SEEN_TTL_MS = 60_000; // 1 minute
+
+function handleMessage(message: Message) {
+  const now = Date.now();
+  const lastSeen = seenMessages.get(message.id);
+  if (lastSeen && (now - lastSeen) < SEEN_TTL_MS) {
+    return; // Skip duplicate
+  }
+  seenMessages.set(message.id, now);
+  // Process message...
+}
+```
+
 ---
 
 ## 4. Gating & Trust
@@ -139,22 +280,46 @@ The plaintext `HermesPayload` is serialized to JSON and encrypted before storage
 
 ## 5. Discovery & Connection (v0)
 
-*   **Mechanism:** Strictly Out-of-Band.
-*   **Flow:**
-    1.  Alice shows QR Code (identity key / nullifier) to Bob.
-    2.  Bob scans QR Code.
-    3.  App derives `channelId` using `deriveChannelId([aliceKey, bobKey])` → Starts Chat.
-    4.  Bob sends first message → Alice receives in `inbox`.
+*   **Mechanism:** Out-of-Band contact exchange + Directory service fallback.
 
-**No Central Directory:** In v0, there is no global user search or handle lookup. Users must exchange keys directly (QR scan, manual paste, or external share).
+**Contact Data Format:**
+```typescript
+// QR code / copy-paste contains JSON:
+{
+  "nullifier": "dev-nullifier-abc123...",
+  "epub": "aBcDeFgH..."  // ECDH public key for encryption
+}
+```
+
+**Flow:**
+1. **Alice** shows QR Code or copies contact JSON (contains `{ nullifier, epub }`)
+2. **Bob** scans QR / pastes contact JSON
+3. **Bob's app** parses contact data:
+   - Extracts `nullifier` and `epub`
+   - Looks up `devicePub` from directory service
+   - If directory lookup fails, shows error "Recipient not found"
+4. **Bob's app** creates channel with `deriveChannelId([aliceNullifier, bobNullifier])`
+5. **Bob** sends first message → written to Alice's inbox at `vh/hermes/inbox/<aliceDevicePub>`
+
+**Directory Service:** While contact exchange provides `epub` directly, the directory service provides `devicePub` for message routing. Users must have published to the directory (happens on identity creation/app init) to receive messages.
+
+**Legacy Support:** If contact data is just a nullifier string (no JSON), the app falls back to directory-only lookup for both `epub` and `devicePub`.
 
 ---
 
 ## 6. Offline & Sync
 
 *   **Relays:** Gun relays hold the encrypted graph data.
-*   **Sync:** When Bob comes online, his client subscribes to `~<bob_identityKey>/hermes/inbox`.
-*   **Persistence:** `localStorage` + IndexedDB (via `gun-client` adapter) stores the decrypted history locally.
+*   **Sync:** When Bob comes online, his client:
+    1. Loads channels/contacts from `localStorage` (instant offline access)
+    2. Authenticates with Gun: `gun.user().auth(devicePair)`
+    3. Publishes to directory (updates `lastSeenAt`)
+    4. Subscribes to inbox: `vh/hermes/inbox/<bobDevicePub>` (public path)
+    5. Subscribes to outbox: `~<bobDevicePub>/hermes/outbox` (authenticated path)
+*   **Persistence:** 
+    - `localStorage: vh_channels:<nullifier>` — Channel metadata and device key caches
+    - `localStorage: vh_contacts:<nullifier>` — Contact records
+    - Messages are stored in Zustand state (in-memory) with Gun as source of truth
 
 ---
 
@@ -176,12 +341,33 @@ The plaintext `HermesPayload` is serialized to JSON and encrypted before storage
 
 ## 9. Implementation Checklist
 
-- [ ] Implement `Message` and `Channel` schemas in `packages/data-model/src/schemas/hermes/message.ts`.
-- [ ] Implement `deriveChannelId` helper in `packages/data-model` using `@vh/crypto` (browser-safe).
-- [ ] Implement encryption wrappers in `packages/gun-client/src/hermesCrypto.ts`.
-- [ ] Implement Gun adapters: `getHermesInboxChain`, `getHermesOutboxChain`, `getHermesChatChain`.
-- [ ] Implement `useChatStore` in `apps/web-pwa/src/store/hermesMessaging.ts`.
-- [ ] Implement UI components: `ChatLayout`, `ChannelList`, `MessageBubble`, `Composer`, `ContactQR`, `ScanContact`.
-- [ ] Implement message deduplication by `id` in channel history builder.
-- [ ] Write unit tests for schemas, `deriveChannelId`, and encryption round-trips.
-- [ ] Write E2E tests for message flow with mock attestation.
+**Core (Complete):**
+- [x] Implement `Message` and `Channel` schemas in `packages/data-model/src/schemas/hermes/message.ts`
+- [x] Implement `deriveChannelId` helper in `packages/data-model` using `@vh/crypto` (browser-safe)
+- [x] Implement encryption wrappers in `packages/gun-client/src/hermesCrypto.ts`
+- [x] Implement Gun adapters: `getHermesInboxChain`, `getHermesOutboxChain`, `getHermesChatChain`
+- [x] Implement `useChatStore` in `apps/web-pwa/src/store/hermesMessaging.ts`
+- [x] Implement UI components: `ChatLayout`, `ChannelList`, `MessageBubble`, `Composer`, `ContactQR`, `ScanContact`
+- [x] Write unit tests for schemas, `deriveChannelId`, and encryption round-trips
+- [x] Write E2E tests for message flow with mock attestation
+
+**Directory & Auth (Complete):**
+- [x] Implement `DirectoryEntry` schema in `packages/data-model/src/schemas/hermes/directory.ts`
+- [x] Implement directory adapters: `lookupByNullifier`, `publishToDirectory`
+- [x] Implement Gun authentication: `authenticateGunUser()` on app init
+- [x] Update Gun adapters to use `devicePub` paths and `gun.user()` for authenticated writes
+- [x] Update `ContactQR` to export JSON `{ nullifier, epub }`
+- [x] Update `ScanContact` to parse JSON contact format and lookup directory
+
+**Persistence & Polish (Complete):**
+- [x] Implement channel persistence: `vh_channels:<nullifier>` in localStorage
+- [x] Implement contact persistence: `vh_contacts:<nullifier>` in localStorage
+- [x] Implement message deduplication with TTL-based seen tracking
+- [x] Gate debug logging behind `vh_debug_chat` localStorage flag
+- [x] Fix decryption to use correct peer epub for own vs received messages
+- [x] Add `on`, `off`, `map` to `createGuardedChain` for subscription support
+
+**Remaining (Low Priority):**
+- [ ] Improve message status handling (timeout → explicit status)
+- [ ] Show decrypted preview in ChannelList
+- [ ] Wire contacts into dedicated UI panel

@@ -22,6 +22,8 @@ export const HermesChannelSchema = z
     id: z.string().min(1),
     schemaVersion: z.literal('hermes-channel-v0'),
     participants: z.array(participantSchema).length(2),
+    participantEpubs: z.record(z.string(), z.string()).optional(),
+    participantDevicePubs: z.record(z.string(), z.string()).optional(),
     lastMessageAt: z.number().int().nonnegative(),
     type: z.literal('dm')
   })
@@ -48,4 +50,22 @@ export type HermesChannel = z.infer<typeof HermesChannelSchema>;
 export async function deriveChannelId(participants: string[]): Promise<string> {
   const sorted = [...participants].sort();
   return sha256(sorted.join('|'));
+}
+
+export function createHermesChannel(
+  id: string,
+  participants: string[],
+  lastMessageAt: number,
+  participantEpubs?: Record<string, string>,
+  participantDevicePubs?: Record<string, string>
+): HermesChannel {
+  return {
+    id,
+    schemaVersion: 'hermes-channel-v0',
+    participants,
+    participantEpubs,
+    participantDevicePubs,
+    lastMessageAt,
+    type: 'dm'
+  };
 }
