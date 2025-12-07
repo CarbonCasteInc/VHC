@@ -70,15 +70,13 @@ test.describe('Multi-User: Isolated Contexts', () => {
     await setupUser(alice.page, 'Alice');
     await setupUser(bob.page, 'Bob');
     
-    // Both navigate to HERMES
+    // Both navigate to HERMES (forum loads directly)
     await alice.page.goto('/hermes');
     await bob.page.goto('/hermes');
     
-    // Verify both see the HERMES UI
-    await expect(alice.page.getByText('Messages')).toBeVisible({ timeout: 5_000 });
-    await expect(bob.page.getByText('Messages')).toBeVisible({ timeout: 5_000 });
-    await expect(alice.page.getByText('Forum')).toBeVisible();
-    await expect(bob.page.getByText('Forum')).toBeVisible();
+    // Verify both see the Forum UI (forum loads directly at /hermes)
+    await expect(alice.page.getByTestId('new-thread-btn')).toBeVisible({ timeout: 5_000 });
+    await expect(bob.page.getByTestId('new-thread-btn')).toBeVisible({ timeout: 5_000 });
   });
   
 });
@@ -126,14 +124,15 @@ test.describe('Multi-User: Forum Integration', () => {
     await setupUser(alice.page, 'Alice');
     await setupUser(bob.page, 'Bob');
 
-    await alice.page.goto('/hermes/forum');
+    // Forum now loads directly at /hermes
+    await alice.page.goto('/hermes');
     await alice.page.getByTestId('new-thread-btn').click();
     await alice.page.getByTestId('thread-title').fill('Test Thread from Alice');
     await alice.page.getByTestId('thread-content').fill('This is a test post for Sprint 3 E2E verification.');
     await alice.page.getByTestId('submit-thread-btn').click();
     await expect(alice.page.getByText('Test Thread from Alice')).toBeVisible();
 
-    await bob.page.goto('/hermes/forum');
+    await bob.page.goto('/hermes');
     await expect(bob.page.getByText('Test Thread from Alice')).toBeVisible({ timeout: 10_000 });
   });
 
@@ -147,7 +146,8 @@ test.describe('Multi-User: Forum Integration', () => {
       parsed.session.scaledTrustScore = 1000;
       localStorage.setItem('vh_identity', JSON.stringify(parsed));
     });
-    await alice.page.goto('/hermes/forum');
+    // Forum now loads directly at /hermes
+    await alice.page.goto('/hermes');
     await alice.page.getByTestId('new-thread-btn').click();
     await expect(alice.page.getByTestId('trust-gate-msg')).toBeVisible();
   });
@@ -161,8 +161,10 @@ test.describe('Multi-User: Messaging', () => {
 
     // Navigate Alice to messages and get her full contact data (JSON with nullifier + epub)
     await alice.page.goto('/hermes/messages');
-    await alice.page.getByTestId('contact-data').waitFor({ state: 'attached', timeout: 5_000 });
-    const aliceContactJson = await alice.page.getByTestId('contact-data').textContent();
+    // IDChip requires clicking "Show QR" to reveal the contact data
+    await alice.page.getByText('Show QR').click();
+    await alice.page.getByTestId('idchip-data').waitFor({ state: 'attached', timeout: 5_000 });
+    const aliceContactJson = await alice.page.getByTestId('idchip-data').textContent();
     expect(aliceContactJson).toBeTruthy();
     expect(aliceContactJson).toContain('nullifier');
 
