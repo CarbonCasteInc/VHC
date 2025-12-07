@@ -2,7 +2,7 @@
 
 **Context:** `System_Architecture.md` v0.2.0 (Sprint 3: The "Agora" - Communication)
 **Goal:** Implement the "Agora" – the civic dialogue layer. This consists of **HERMES Messaging** (secure, private communication) and **HERMES Forum** (threaded civic discourse).
-**Status:** 🚧 **FORUM IN PROGRESS** — Comment persistence pending (Dec 6, 2025)
+**Status:** ✅ **COMPLETE** — All core functionality verified (Dec 6, 2025)
 
 > ✅ **HERMES Messaging — READY FOR PRODUCTION** (Dec 5, 2025)
 >
@@ -31,9 +31,9 @@
 > - ✅ **Thread persistence verified** — Threads survive page refresh ✅
 > - ✅ **Cross-user sync verified** — Threads appear across browser instances ✅
 >
-> **IN PROGRESS (Phase 4.3 — Comment Persistence):**
-> - ❌ **Comments not persisting** — Need to investigate comment write/hydration flow
-> - See §3.4.9 for investigation plan
+> **Resolved (Phase 4.3 — Comment Persistence):**
+> - ✅ **Comment persistence verified** — Comments survive page refresh ✅
+> - ✅ **Cross-user comment sync verified** — Comments appear across browser instances ✅
 
 ---
 
@@ -1170,40 +1170,19 @@ const result = HermesThreadSchema.safeParse(parsedData);
 
 ---
 
-#### 3.4.9 Comment Persistence — IN PROGRESS 🚧
+#### 3.4.9 Comment Persistence — ✅ COMPLETE
 
-> **Status:** 🚧 IN PROGRESS — Comments not persisting across page refresh
-> **Identified:** Dec 6, 2025
+> **Status:** ✅ COMPLETE (Dec 6, 2025)
+> **Verified:** Comments persist across page refresh and sync across browsers
 
-**Symptom:**
+**Implementation (Applied same patterns as threads):**
 
-- Thread creation and hydration work correctly ✅
-- Comments can be created (UI updates)
-- Comments do NOT persist after page refresh
-- Comments do NOT sync across browser instances
-
-**Investigation Plan:**
-
-1. Check if comments are being written to Gun (`getForumCommentsChain`)
-2. Check if comment hydration subscription is active
-3. Verify Gun path: `vh/forum/threads/${threadId}/comments/${commentId}`
-4. Check for similar issues as threads (undefined values, arrays, metadata filtering)
-
-**Likely Causes (to investigate):**
-
-- Comment write may not be using `stripUndefined()`
-- Comment hydration may not be triggered/subscribed
-- Comment path may not be allowed by TopologyGuard
-- Comment schema may have optional fields leaving `undefined`
-
-**Implementation Checklist:**
-
-- [ ] Verify `createComment()` uses `stripUndefined()` before Gun write
-- [ ] Verify `loadComments()` subscribes to correct Gun path
-- [ ] Add debug logging to comment write/hydration flow
-- [ ] Fix any metadata filtering issues (similar to thread fix)
-- [ ] Test comment persistence after page refresh
-- [ ] Test comment sync across browser instances
+- [x] `createComment()` uses `stripUndefined()` before Gun write
+- [x] `loadComments()` subscribes to `vh/forum/threads/${threadId}/comments`
+- [x] Gun metadata filtering — Strip `_` property, check required fields first
+- [x] Deduplication — Split `isCommentSeen()` / `markCommentSeen()` pattern
+- [x] Test comment persistence after page refresh ✅
+- [x] Test comment sync across browser instances ✅
 
 ---
 
@@ -1531,9 +1510,9 @@ Project XP rides on Forum structures and tags.
 
 ## 8. Sprint 3 Status Summary
 
-**Status:** 🚧 In Progress (Dec 4, 2025)
-**Automated Tests:** ✅ Passing
-**Manual Testing:** ⚠️ Functional with known issues (see §8.3 Phase 3)
+**Status:** ✅ Complete (Dec 6, 2025)
+**Automated Tests:** ✅ Passing (242+ unit, 10 E2E, 100% coverage)
+**Manual Testing:** ✅ All core flows verified
 
 ### 8.1 Test Results (Dec 5, 2025)
 | Suite | Tests | Status |
@@ -1620,10 +1599,11 @@ Project XP rides on Forum structures and tags.
 | Forum | Gun metadata filtering | ✅ Check required fields first, strip `_` before parse | §3.4.8 |
 | Forum | Lazy hydration | ✅ Retry on first user action if client not ready | §3.4.8 |
 
-**IN PROGRESS (Phase 4.3 - Comment Persistence):**
-| Area | Gap | Impact | Priority | Section |
-|------|-----|--------|----------|---------|
-| Forum | **Comment persistence** | Comments lost on refresh | **CRITICAL** | §3.4.9 |
+**Resolved (Phase 4.3 - Comment Persistence):**
+| Area | Gap | Status | Section |
+|------|-----|--------|---------|
+| Forum | Comment persistence | ✅ Comments survive refresh | §3.4.9 |
+| Forum | Comment cross-user sync | ✅ Comments appear across browsers | §3.4.9 |
 
 **Pending (Phase 4.4 - After Comments):**
 | Area | Gap | Impact | Priority | Section |
@@ -1675,24 +1655,25 @@ Project XP rides on Forum structures and tags.
 - ✅ Thread hydration works after page refresh ✅
 - ✅ Cross-user sync verified — Threads appear across browser instances ✅
 
-**Phase 4.3 - Comment Persistence (CURRENT FOCUS):**
-1. **Investigate comment write flow** — Is `createComment()` writing to Gun correctly? — **CRITICAL**
-2. **Investigate comment hydration** — Is `loadComments()` subscribing to correct path? — **CRITICAL**
-3. **Apply same fixes as threads** — `stripUndefined()`, metadata filtering, lazy hydration — **CRITICAL**
-4. Manual test comment creation + persistence — **CRITICAL**
+**~~Phase 4.3 - Comment Persistence:~~** ✅ COMPLETE (Dec 6, 2025)
+- ✅ Comment write/hydration flow verified
+- ✅ Comment persistence after refresh verified
+- ✅ Cross-browser comment sync verified
 
-**Phase 4.4 - Remaining Forum Polish (After Comments):**
-5. **CTA dedup** — Fix "Discuss in Forum" lookup (§3.4.3) — **MEDIUM**
-6. Trust gate testing (§3.4.5) — **LOW**
-7. Error handling UI (§3.4.4) — **LOW**
+**Phase 4.4 - Remaining Forum Polish (OPTIONAL):**
+1. **CTA dedup** — Fix "Discuss in Forum" lookup (§3.4.3) — **MEDIUM**
+2. Trust gate testing (§3.4.5) — **LOW**
+3. Error handling UI (§3.4.4) — **LOW**
 
-**Phase 5 - Polish (LOW PRIORITY):**
-8. Improve message status handling (timeout → explicit status)
-9. Decrypt channel preview in ChannelList
-10. Wire contacts into UI (contact list panel)
+**Phase 5 - Polish (OPTIONAL - LOW PRIORITY):**
+4. Improve message status handling (timeout → explicit status)
+5. Decrypt channel preview in ChannelList
+6. Wire contacts into UI (contact list panel)
 
-**Verification:**
-11. Run full test suite (`pnpm test`) — Currently: 242+ unit + 10 E2E passing ✅
-12. Execute manual test checklist (`docs/MANUAL_TEST_CHECKLIST_SPRINT3.md`) — Messaging: ✅ PASSED
-13. Upon successful Forum testing (threads + comments), mark Sprint 3 as ✅ Complete
-14. Proceed to `docs/04-sprint-4-the-bridge.md`
+**✅ SPRINT 3 CORE COMPLETE — Ready for Sprint 4:**
+- All tests passing: 242+ unit + 10 E2E ✅
+- Manual test checklist complete ✅
+- Messaging: ✅ PASSED
+- Forum Threads: ✅ PASSED
+- Forum Comments: ✅ PASSED
+- **Proceed to `docs/04-sprint-4-the-bridge.md`**
