@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommentComposer } from './CommentComposer';
@@ -27,6 +27,10 @@ vi.mock('./SlideToPost', () => ({
 }));
 
 describe('CommentComposer', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
   afterEach(() => cleanup());
 
   it('disables slide-to-post until content exists, then posts', async () => {

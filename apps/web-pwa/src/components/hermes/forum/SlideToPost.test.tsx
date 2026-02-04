@@ -46,6 +46,22 @@ describe('SlideToPost', () => {
     expect(nextValue).toBeLessThanOrEqual(30);
   });
 
+  it('calls onCommit with the latest value on release', () => {
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+    render(<SlideToPost value={50} onChange={onChange} onCommit={onCommit} />);
+
+    const track = screen.getByTestId('slide-to-post');
+    Object.defineProperty(track, 'getBoundingClientRect', {
+      value: () => ({ left: 0, width: 384 })
+    });
+
+    fireEvent.mouseDown(track, { clientX: 50 }); // ~13%
+    fireEvent.mouseUp(document);
+
+    expect(onCommit).toHaveBeenCalledWith(onChange.mock.calls[0][0]);
+  });
+
   it('calls onChange with a right-side value when clicked on right', () => {
     const onChange = vi.fn();
     render(<SlideToPost value={50} onChange={onChange} />);
@@ -74,6 +90,20 @@ describe('SlideToPost', () => {
 
     expect(onChange).toHaveBeenCalledWith(40);
     expect(onChange).toHaveBeenCalledWith(60);
+  });
+
+  it('commits on Enter when enabled', () => {
+    const onChange = vi.fn();
+    const onCommit = vi.fn();
+    render(<SlideToPost value={50} onChange={onChange} onCommit={onCommit} />);
+
+    const track = screen.getByTestId('slide-to-post');
+    track.focus();
+
+    fireEvent.keyDown(track, { key: 'ArrowRight' });
+    fireEvent.keyDown(track, { key: 'Enter' });
+
+    expect(onCommit).toHaveBeenCalledWith(60);
   });
 
   it('updates label based on value prop', () => {

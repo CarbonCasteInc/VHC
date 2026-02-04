@@ -3,6 +3,7 @@ import { Button } from '@vh/ui';
 import { useWallet } from '../hooks/useWallet';
 import { useIdentity } from '../hooks/useIdentity';
 import { useXpLedger } from '../store/xpLedger';
+import { useForumPreferences } from '../hooks/useForumPreferences';
 
 function shortAddress(address: string | null) {
   if (!address) return 'Wallet not connected';
@@ -40,6 +41,7 @@ export const WalletPanel: React.FC = () => {
   } = useWallet();
   const { identity } = useIdentity();
   const { tracks, totalXP } = useXpLedger();
+  const { slideToPostEnabled, setSlideToPostEnabled } = useForumPreferences();
   const [localNextClaimAt, setLocalNextClaimAt] = useState<number>(0);
   const [localBalanceDelta, setLocalBalanceDelta] = useState<bigint>(0n);
 
@@ -74,6 +76,8 @@ export const WalletPanel: React.FC = () => {
     if (!claimStatus) return '-';
     return (claimStatus.trustScore / 100).toFixed(1);
   }, [identity, claimStatus]);
+  const slideToPostActive = slideToPostEnabled === true;
+  const slideToPostLabel = slideToPostEnabled === null ? 'Off (default)' : slideToPostActive ? 'On' : 'Off';
 
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-card p-5 shadow-sm shadow-slate-900/5 dark:border-slate-700">
@@ -136,6 +140,32 @@ export const WalletPanel: React.FC = () => {
             <p className="text-xs text-slate-500">Total</p>
             <p className="font-semibold text-slate-900" data-testid="xp-total">{totalXP}</p>
           </div>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-slate-100 bg-card-muted px-3 py-3 dark:border-slate-700/70">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-wide text-slate-500">Forum Preferences</p>
+            <p className="text-sm font-semibold text-slate-900">Slide to Post</p>
+            <p className="text-xs text-slate-500">
+              Release the slider to submit comments faster. Current: {slideToPostLabel}.
+            </p>
+          </div>
+          <button
+            type="button"
+            className={[
+              'h-8 rounded-full border px-4 text-xs font-semibold transition',
+              slideToPostActive
+                ? 'border-emerald-600 bg-emerald-600 text-white'
+                : 'border-slate-200 bg-white text-slate-700'
+            ].join(' ')}
+            onClick={() => setSlideToPostEnabled(!slideToPostActive)}
+            aria-pressed={slideToPostActive}
+            data-testid="slide-to-post-toggle"
+          >
+            {slideToPostActive ? 'On' : 'Off'}
+          </button>
         </div>
       </div>
 

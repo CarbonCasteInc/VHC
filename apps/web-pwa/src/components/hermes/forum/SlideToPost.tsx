@@ -3,18 +3,24 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 interface Props {
   value: number;
   onChange: (value: number) => void;
+  onCommit?: (value: number) => void;
   disabled?: boolean;
 }
 
-export const SlideToPost: React.FC<Props> = ({ value, onChange, disabled = false }) => {
+export const SlideToPost: React.FC<Props> = ({ value, onChange, onCommit, disabled = false }) => {
   const trackRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const cleanupMouseListenersRef = useRef<null | (() => void)>(null);
   const disabledRef = useRef(disabled);
+  const lastValueRef = useRef(value);
 
   useEffect(() => {
     disabledRef.current = disabled;
   }, [disabled]);
+
+  useEffect(() => {
+    lastValueRef.current = value;
+  }, [value]);
 
   const prefersReducedMotion = useMemo(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
@@ -51,18 +57,27 @@ export const SlideToPost: React.FC<Props> = ({ value, onChange, disabled = false
     cleanupMouseListenersRef.current = null;
   }, []);
 
+  const setValue = useCallback(
+    (next: number) => {
+      lastValueRef.current = next;
+      onChange(next);
+    },
+    [onChange]
+  );
+
   const startMouseDrag = useCallback(
     (clientX: number) => {
       if (disabledRef.current) return;
       setIsDragging(true);
       
       const next = getPositionFromClientX(clientX);
-      onChange(next);
+      setValue(next);
 
       const onMouseMove = (e: MouseEvent) => {
-        onChange(getPositionFromClientX(e.clientX));
+        setValue(getPositionFromClientX(e.clientX));
       };
       const onMouseUp = () => {
+        onCommit?.(lastValueRef.current);
         endDrag();
       };
 
@@ -73,7 +88,7 @@ export const SlideToPost: React.FC<Props> = ({ value, onChange, disabled = false
         document.removeEventListener('mouseup', onMouseUp);
       };
     },
-    [endDrag, getPositionFromClientX, onChange]
+    [endDrag, getPositionFromClientX, onCommit, setValue]
   );
 
   useEffect(() => {
@@ -90,16 +105,17 @@ export const SlideToPost: React.FC<Props> = ({ value, onChange, disabled = false
   const onTouchStart = (e: React.TouchEvent) => {
     if (disabled) return;
     setIsDragging(true);
-    onChange(getPositionFromClientX(e.touches[0].clientX));
+    setValue(getPositionFromClientX(e.touches[0].clientX));
   };
 
   const onTouchMove = (e: React.TouchEvent) => {
     if (!isDragging) return;
-    onChange(getPositionFromClientX(e.touches[0].clientX));
+    setValue(getPositionFromClientX(e.touches[0].clientX));
   };
 
   const onTouchEnd = () => {
     if (!isDragging) return;
+    onCommit?.(lastValueRef.current);
     endDrag();
   };
 
@@ -108,12 +124,17 @@ export const SlideToPost: React.FC<Props> = ({ value, onChange, disabled = false
 
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
-      onChange(Math.max(0, value - 10));
+      setValue(Math.max(0, value - 10));
       return;
     }
     if (e.key === 'ArrowRight') {
       e.preventDefault();
-      onChange(Math.min(100, value + 10));
+      setValue(Math.min(100, value + 10));
+      return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onCommit?.(lastValueRef.current);
       return;
     }
   };
