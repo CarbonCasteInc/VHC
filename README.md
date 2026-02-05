@@ -3,6 +3,7 @@
 This monorepo contains the Guardian Node stack, client applications, shared packages, and infrastructure for the TRINITY Bio-Economic OS. See `System_Architecture.md` (root) for the single source of truth.
 
 Smoke: agent loop verified 2026-02-05
+Smoke v2: agent loop verified 2026-02-05
 
 ## Quickstart (Guardian Node)
 
