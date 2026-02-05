@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { getIdentityStorage } from './identityStorage';
 
 type Track = 'civic' | 'social' | 'project';
 type MessagingXPEvent =
@@ -92,8 +93,9 @@ function storageKey(nullifier: string | null) {
   return nullifier ? `${STORAGE_KEY}:${nullifier}` : STORAGE_KEY;
 }
 function readIdentityNullifier(): string | null {
+  const storage = getIdentityStorage();
   try {
-    const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+    const raw = storage.getItem(IDENTITY_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as { session?: { nullifier?: string } };
     return parsed?.session?.nullifier ?? null;

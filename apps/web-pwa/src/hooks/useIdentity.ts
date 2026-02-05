@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AttestationPayload } from '@vh/types';
 import { SEA, createSession } from '@vh/gun-client';
 import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../store';
+import { getIdentityStorage } from '../store/identityStorage';
 import { getHandleError, isValidHandle } from '../utils/handle';
 
 const IDENTITY_KEY = 'vh_identity';
@@ -31,8 +32,9 @@ export interface IdentityRecord {
 }
 
 function loadIdentity(): IdentityRecord | null {
+  const storage = getIdentityStorage();
   try {
-    const raw = localStorage.getItem(IDENTITY_KEY);
+    const raw = storage.getItem(IDENTITY_KEY);
     if (!raw) return null;
     return JSON.parse(raw) as IdentityRecord;
   } catch {
@@ -41,7 +43,8 @@ function loadIdentity(): IdentityRecord | null {
 }
 
 function persistIdentity(record: IdentityRecord) {
-  localStorage.setItem(IDENTITY_KEY, JSON.stringify(record));
+  const storage = getIdentityStorage();
+  storage.setItem(IDENTITY_KEY, JSON.stringify(record));
 }
 
 function emitIdentityChanged(record: IdentityRecord) {

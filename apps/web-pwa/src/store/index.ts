@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { createClient, publishToDirectory, type VennClient } from '@vh/gun-client';
 import type { DirectoryEntry, Profile } from '@vh/data-model';
+import { getIdentityStorage } from './identityStorage';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
@@ -35,8 +36,9 @@ function loadProfile(): Profile | null {
 }
 
 function loadIdentityRecord(): IdentityRecord | null {
+  const storage = getIdentityStorage();
   try {
-    const raw = localStorage.getItem(IDENTITY_STORAGE_KEY);
+    const raw = storage.getItem(IDENTITY_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as IdentityRecord) : null;
   } catch {
     return null;
