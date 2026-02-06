@@ -52,6 +52,11 @@ export default defineConfig({
         // Presentational; exercised by 9 passing E2E tests. RTL planned for Sprint 4.
         'apps/web-pwa/src/components/**/*.tsx',
 
+        // --- DevColorPanel (dev-only UI) ---
+        // Data config array and React hook for color dev panel; exercised manually.
+        'apps/web-pwa/src/components/colorConfigs.ts',
+        'apps/web-pwa/src/components/useColorPanel.ts',
+
         // --- Mock Store Implementations ---
         // E2E-only mocks.
         'apps/web-pwa/src/store/**/*.mock.ts',
@@ -102,6 +107,10 @@ export default defineConfig({
         'packages/ai-engine/src/worker.ts',
         'packages/ai-engine/src/cache.ts',
         'packages/ai-engine/src/prompts.ts',
+
+        // --- Type-Only Files ---
+        // Pure TypeScript interfaces with no runtime code; compile to empty JS.
+        'packages/types/src/**/*.ts',
 
         // --- Re-export Index Files ---
         'packages/*/src/index.ts'
