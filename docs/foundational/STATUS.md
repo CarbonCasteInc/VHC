@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33)
+## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
@@ -41,13 +41,14 @@
 - ✅ **Issue #27** — Fixed fresh-checkout typecheck: workspace `exports.types` point at `src/`, data-model uses `bundler` moduleResolution, gun-client stale references removed (PR #30, `4d19026c`).
 - ✅ **Issue #33** — Restored 100% coverage gate: added `colorUtils.test.ts` (15 tests for hex↔HSL, parseColor, buildColor), excluded type-only files and dev-only hooks from instrumentation (PR #35, merged 2026-02-06).
 - ✅ **Issue #6** — SSR-hardened localStorage access: created `safeStorage.ts` utility with SSR-safe `safeGetItem`/`safeSetItem`/`safeRemoveItem`, applied to xpLedger and profile stores (PR #38, merged 2026-02-06).
+- ✅ **Issue #4** — SMOKE: agent loop end-to-end smoke test — validated full ritual (spec → impl → QA → maint → merge) with a docs-only PR (PR #41, merged 2026-02-06).
+- ✅ **Issue #40** — Migrated all remaining bare `localStorage` calls to `safeStorage` utility (13 files), added ESLint `no-restricted-globals` rule to prevent regressions (PR #42, merged 2026-02-06).
 
 ---
 
 ## Active Follow-ups
 
-- **Issue #4** — SMOKE: agent loop end-to-end (open).
-- **Issue #40** — migrate remaining bare localStorage calls to safeStorage utility (open).
+None — all tracked issues resolved. Next work: Sprint 4 planning.
 
 ---
 
@@ -426,6 +427,8 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 | Branches | 100% (418/418) |
 | Functions | 100% (117/117) |
 | Lines | 100% (1336/1336) |
+
+> Note: Coverage totals may vary slightly as files are added/modified. Gate enforces 100% on all metrics.
 
 ✅ **Coverage gate (100% threshold) passes.**
 
