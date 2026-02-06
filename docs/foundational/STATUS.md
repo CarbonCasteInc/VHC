@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #11, #12, #15, #18, #19, #22, #23, #24, #27, #33)
+## Recently Completed (Issues #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
@@ -40,12 +40,12 @@
 - ✅ **Issue #24** — Added `apps/web-pwa/tsconfig.test.json` for test-file typechecking.
 - ✅ **Issue #27** — Fixed fresh-checkout typecheck: workspace `exports.types` point at `src/`, data-model uses `bundler` moduleResolution, gun-client stale references removed (PR #30, `4d19026c`).
 - ✅ **Issue #33** — Restored 100% coverage gate: added `colorUtils.test.ts` (15 tests for hex↔HSL, parseColor, buildColor), excluded type-only files and dev-only hooks from instrumentation (PR #35, merged 2026-02-06).
+- ✅ **Issue #6** — SSR-hardened localStorage access: created `safeStorage.ts` utility with SSR-safe `safeGetItem`/`safeSetItem`/`safeRemoveItem`, applied to xpLedger and profile stores (PR #38, merged 2026-02-06).
 
 ---
 
 ## Active Follow-ups
 
-- **Issue #6** — harden xpLedger/profile localStorage for SSR (open).
 - **Issue #4** — SMOKE: agent loop end-to-end (open).
 
 ---
@@ -415,18 +415,18 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 66 test files, 411 tests (unit + component + integration).
+**Repo-wide (Vitest `pnpm test:quick`):** 67 test files, 416 tests (unit + component + integration).
 
 **Coverage (`pnpm test:coverage`, last validated 2026-02-06):**
 
 | Metric | Value |
 |--------|-------|
-| Statements | 100% (1307/1307) |
-| Branches | 100% (404/404) |
-| Functions | 100% (113/113) |
-| Lines | 100% (1307/1307) |
+| Statements | 100% (1336/1336) |
+| Branches | 100% (418/418) |
+| Functions | 100% (117/117) |
+| Lines | 100% (1336/1336) |
 
-✅ **Coverage gate (100% threshold) passes.** Restored in PR #35 (#33).
+✅ **Coverage gate (100% threshold) passes.**
 
 ---
 
