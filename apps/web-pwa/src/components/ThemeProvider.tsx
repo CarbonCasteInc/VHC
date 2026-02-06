@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { safeGetItem, safeRemoveItem, safeSetItem } from '../utils/safeStorage';
 
 type Theme = 'light' | 'dark' | 'system';
 type ResolvedTheme = 'light' | 'dark';
@@ -13,8 +14,7 @@ const ThemeContext = createContext<ThemeContextValue | undefined>(undefined);
 const STORAGE_KEY = 'vh_theme_pref';
 
 function getStoredTheme(): Theme {
-  if (typeof localStorage === 'undefined') return 'system';
-  const stored = localStorage.getItem(STORAGE_KEY) as Theme | null;
+  const stored = safeGetItem(STORAGE_KEY) as Theme | null;
   return stored ?? 'system';
 }
 
@@ -37,9 +37,9 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     root.classList.remove('light', 'dark');
     root.classList.add(resolved);
     if (theme !== 'system') {
-      localStorage.setItem(STORAGE_KEY, theme);
+      safeSetItem(STORAGE_KEY, theme);
     } else {
-      localStorage.removeItem(STORAGE_KEY);
+      safeRemoveItem(STORAGE_KEY);
     }
   }, [resolved, theme]);
 

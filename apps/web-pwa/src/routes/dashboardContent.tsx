@@ -5,6 +5,7 @@ import { useAppStore } from '../store';
 import { useIdentity } from '../hooks/useIdentity';
 import { getHandleError } from '../utils/handle';
 import { HandleEditor } from '../components/HandleEditor';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 
 const WalletPanel = lazy(() => import('./WalletPanel').then((mod) => ({ default: mod.WalletPanel })));
 const AnalysisFeed = lazy(() => import('./AnalysisFeed').then((mod) => ({ default: mod.AnalysisFeed })));
@@ -59,7 +60,7 @@ export const DashboardContent: React.FC = () => {
 
   const [history, setHistory] = useState<AnalysisResult[]>(() => {
     try {
-      const raw = localStorage.getItem('vh_analysis_history');
+      const raw = safeGetItem('vh_analysis_history');
       return raw ? (JSON.parse(raw) as AnalysisResult[]) : [];
     } catch {
       return [];
@@ -70,7 +71,7 @@ export const DashboardContent: React.FC = () => {
     if (result) {
       setHistory((prev) => {
         const next = [result, ...prev].slice(0, 5);
-        localStorage.setItem('vh_analysis_history', JSON.stringify(next));
+        safeSetItem('vh_analysis_history', JSON.stringify(next));
         return next;
       });
     }

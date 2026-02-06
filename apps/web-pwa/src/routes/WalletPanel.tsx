@@ -4,6 +4,7 @@ import { useWallet } from '../hooks/useWallet';
 import { useIdentity } from '../hooks/useIdentity';
 import { useXpLedger } from '../store/xpLedger';
 import { useForumPreferences } from '../hooks/useForumPreferences';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 
 function shortAddress(address: string | null) {
   if (!address) return 'Wallet not connected';
@@ -47,7 +48,7 @@ export const WalletPanel: React.FC = () => {
 
   // Persist local cooldown per device to avoid accidental spam
   useEffect(() => {
-    const stored = localStorage.getItem('vh_local_boost_next');
+    const stored = safeGetItem('vh_local_boost_next');
     if (stored) {
       const ts = Number(stored);
       if (!Number.isNaN(ts)) {
@@ -58,7 +59,7 @@ export const WalletPanel: React.FC = () => {
 
   useEffect(() => {
     if (localNextClaimAt) {
-      localStorage.setItem('vh_local_boost_next', String(localNextClaimAt));
+      safeSetItem('vh_local_boost_next', String(localNextClaimAt));
     }
   }, [localNextClaimAt]);
 

@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-globals */
 /**
  * SSR-safe localStorage wrapper.
  * Returns null / no-ops when localStorage is unavailable (server-side rendering).

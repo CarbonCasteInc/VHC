@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { COLOR_CONFIGS, STORAGE_KEY, categories } from './colorConfigs';
 import { type ColorConfig } from './colorUtils';
+import { safeGetItem, safeRemoveItem, safeSetItem } from '../utils/safeStorage';
 
 type ColorValues = { light: string; dark: string };
 type GroupedConfigs = Array<{ key: string; title: string; items: ColorConfig[] }>;
@@ -53,7 +54,7 @@ export function useColorPanel(): UseColorPanelResult {
 
   useEffect(() => {
     const defaults = getDefaults();
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = safeGetItem(STORAGE_KEY);
     if (stored) {
       try {
         // Merge stored values with defaults (so new variables get defaults)
@@ -248,14 +249,14 @@ export function useColorPanel(): UseColorPanelResult {
           dark: config?.defaultDark ?? '',
         };
       const updated = { ...prev, [cssVar]: { ...current, [mode]: value } };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      safeSetItem(STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
   };
 
   const resetColors = () => {
     initDefaults();
-    localStorage.removeItem(STORAGE_KEY);
+    safeRemoveItem(STORAGE_KEY);
   };
 
   const exportCSS = () => {

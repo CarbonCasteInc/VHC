@@ -6,6 +6,7 @@ import { getOrGenerate, type CanonicalAnalysis } from '../../../../packages/ai-e
 import type { VennClient } from '@vh/gun-client';
 import { useAppStore } from '../store';
 import { useIdentity } from '../hooks/useIdentity';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 
 const FEED_KEY = 'vh_canonical_analyses';
 
@@ -16,12 +17,12 @@ interface FeedStore {
 
 function loadFeed(): FeedStore {
   try {
-    const raw = localStorage.getItem(FEED_KEY);
+    const raw = safeGetItem(FEED_KEY);
     const data = raw ? (JSON.parse(raw) as CanonicalAnalysis[]) : [];
     return {
       data,
       save(items: CanonicalAnalysis[]) {
-        localStorage.setItem(FEED_KEY, JSON.stringify(items));
+        safeSetItem(FEED_KEY, JSON.stringify(items));
       }
     };
   } catch {

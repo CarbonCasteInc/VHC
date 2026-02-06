@@ -4,6 +4,7 @@ import type { VennClient } from '@vh/gun-client';
 import type { ChatState, ContactRecord, ChatIdentity, MessageStatus } from './types';
 import { SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD } from './types';
 import { getFullIdentity } from '../identityProvider';
+import { safeGetItem } from '../../utils/safeStorage';
 
 export function ensureIdentity(): ChatIdentity {
   const record = getFullIdentity<ChatIdentity>();
@@ -31,7 +32,7 @@ export function isValidInboundMessage(message: HermesMessage): boolean {
 
 export function isChatDebug(): boolean {
   try {
-    return localStorage.getItem('vh_debug_chat') === 'true';
+    return safeGetItem('vh_debug_chat') === 'true';
   } catch {
     return false;
   }

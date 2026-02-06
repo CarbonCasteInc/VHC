@@ -126,11 +126,7 @@ function persist(state: LedgerData) {
     sustainedAwards: Object.fromEntries(state.sustainedAwards.entries()),
     projectWeekly: Object.fromEntries(state.projectWeekly.entries())
   };
-  try {
-    safeSetItem(storageKey(state.activeNullifier), JSON.stringify(payload));
-  } catch {
-    /* ignore */
-  }
+  safeSetItem(storageKey(state.activeNullifier), JSON.stringify(payload));
 }
 function clampRvu(value: number): number {
   if (Number.isNaN(value)) return 0;

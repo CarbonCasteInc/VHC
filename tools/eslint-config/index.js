@@ -59,6 +59,28 @@ module.exports = [
     }
   },
   {
+    files: ['apps/web-pwa/src/**/*.{ts,tsx,js,jsx}'],
+    ignores: [
+      'apps/web-pwa/src/**/*.test.ts',
+      'apps/web-pwa/src/**/*.test.tsx',
+      'apps/web-pwa/src/hooks/useGovernance.ts'
+    ],
+    languageOptions: {
+      ecmaVersion: 2022,
+      sourceType: 'module'
+    },
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        {
+          name: 'localStorage',
+          message:
+            'Use safeGetItem/safeSetItem/safeRemoveItem from src/utils/safeStorage instead of direct localStorage access.'
+        }
+      ]
+    }
+  },
+  {
     files: codeGlobs,
     ignores: ['packages/gun-client/**/*'],
     languageOptions: {

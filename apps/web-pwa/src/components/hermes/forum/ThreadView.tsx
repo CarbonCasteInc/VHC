@@ -8,6 +8,7 @@ import { CommunityReactionSummary } from '../CommunityReactionSummary';
 import { EngagementIcons } from '../../EngagementIcons';
 import { useSentimentState } from '../../../hooks/useSentimentState';
 import { useViewTracking } from '../../../hooks/useViewTracking';
+import { safeGetItem, safeSetItem } from '../../../utils/safeStorage';
 import type { HermesComment } from '@vh/types';
 
 interface Props {
@@ -59,7 +60,7 @@ export const ThreadView: React.FC<Props> = ({ threadId }) => {
   const [showCallout, setShowCallout] = useState(() => {
     if (typeof window === 'undefined') return false;
     try {
-      return !window.localStorage.getItem(CALLOUT_KEY);
+      return !safeGetItem(CALLOUT_KEY);
     } catch {
       return false;
     }
@@ -78,7 +79,7 @@ export const ThreadView: React.FC<Props> = ({ threadId }) => {
 
   const dismissCallout = () => {
     try {
-      window.localStorage.setItem(CALLOUT_KEY, 'true');
+      safeSetItem(CALLOUT_KEY, 'true');
     } catch {
       // ignore
     }

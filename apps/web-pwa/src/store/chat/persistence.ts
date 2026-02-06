@@ -2,6 +2,7 @@ import type { HermesChannel } from '@vh/types';
 import type { ChatIdentity, ContactRecord, ChatState } from './types';
 import { CHANNELS_KEY_PREFIX, CONTACTS_KEY_PREFIX } from './types';
 import { getFullIdentity } from '../identityProvider';
+import { safeGetItem, safeSetItem } from '../../utils/safeStorage';
 
 /**
  * Load identity for chat operations from the in-memory identity provider.
@@ -32,7 +33,7 @@ function contactsKey(nullifier: string): string {
 export function loadChannelsFromStorage(nullifier: string | null): Map<string, HermesChannel> {
   if (!nullifier) return new Map();
   try {
-    const raw = localStorage.getItem(channelsKey(nullifier));
+    const raw = safeGetItem(channelsKey(nullifier));
     if (!raw) return new Map();
     const parsed = JSON.parse(raw) as Record<string, HermesChannel>;
     return new Map(Object.entries(parsed));
@@ -45,7 +46,7 @@ export function persistChannels(nullifier: string | null, channels: Map<string, 
   if (!nullifier) return;
   try {
     const serialized = JSON.stringify(Object.fromEntries(channels));
-    localStorage.setItem(channelsKey(nullifier), serialized);
+    safeSetItem(channelsKey(nullifier), serialized);
   } catch {
     /* ignore */
   }
@@ -54,7 +55,7 @@ export function persistChannels(nullifier: string | null, channels: Map<string, 
 export function loadContactsFromStorage(nullifier: string | null): Map<string, ContactRecord> {
   if (!nullifier) return new Map();
   try {
-    const raw = localStorage.getItem(contactsKey(nullifier));
+    const raw = safeGetItem(contactsKey(nullifier));
     if (!raw) return new Map();
     const parsed = JSON.parse(raw) as Record<string, ContactRecord>;
     return new Map(Object.entries(parsed));
@@ -67,7 +68,7 @@ export function persistContacts(nullifier: string | null, contacts: Map<string, 
   if (!nullifier) return;
   try {
     const serialized = JSON.stringify(Object.fromEntries(contacts));
-    localStorage.setItem(contactsKey(nullifier), serialized);
+    safeSetItem(contactsKey(nullifier), serialized);
   } catch {
     /* ignore */
   }

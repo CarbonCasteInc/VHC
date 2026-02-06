@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 
 export interface Perspective {
   id: string;
@@ -88,7 +89,7 @@ const seedItems: FeedItem[] = [
 
 function loadCached(): { items: FeedItem[]; page: number } {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = safeGetItem(STORAGE_KEY);
     if (!raw) return { items: seedItems, page: 1 };
     const parsed = JSON.parse(raw) as FeedItem[];
     if (parsed.length === 0) return { items: seedItems, page: 1 };
@@ -113,7 +114,7 @@ function loadCached(): { items: FeedItem[]; page: number } {
 
 function persist(items: FeedItem[]) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    safeSetItem(STORAGE_KEY, JSON.stringify(items));
   } catch {
     /* ignore */
   }

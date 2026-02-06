@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { SentimentSignal, ConstituencyProof } from '@vh/types';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 
 type Agreement = -1 | 0 | 1;
 
@@ -29,7 +30,7 @@ const EYE_KEY = 'vh_eye_weights_v1';
 
 function loadMap(key: string): Record<string, number> {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = safeGetItem(key);
     return raw ? (JSON.parse(raw) as Record<string, number>) : {};
   } catch {
     return {};
@@ -38,7 +39,7 @@ function loadMap(key: string): Record<string, number> {
 
 function persistMap(key: string, value: Record<string, number>) {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    safeSetItem(key, JSON.stringify(value));
   } catch {
     /* ignore */
   }

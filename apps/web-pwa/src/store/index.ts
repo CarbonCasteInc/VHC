@@ -90,7 +90,7 @@ const sharedMeshOps = {
       // Fallback to localStorage
       const key = '__VH_MESH_STORE__';
       try {
-        const store = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, unknown>;
+        const store = JSON.parse(safeGetItem(key) || '{}') as Record<string, unknown>;
         const parts = path.split('/');
         let current: Record<string, unknown> = store;
         for (let i = 0; i < parts.length - 1; i++) {
@@ -105,7 +105,7 @@ const sharedMeshOps = {
         const leaf = parts[parts.length - 1];
         if (!leaf) return;
         current[leaf] = value;
-        localStorage.setItem(key, JSON.stringify(store));
+        safeSetItem(key, JSON.stringify(store));
       } catch {
         /* ignore */
       }
@@ -119,7 +119,7 @@ const sharedMeshOps = {
       // Fallback to localStorage
       const key = '__VH_MESH_STORE__';
       try {
-        const store = JSON.parse(localStorage.getItem(key) || '{}');
+        const store = JSON.parse(safeGetItem(key) || '{}');
         const parts = path.split('/');
         let current = store;
         for (const part of parts) {
