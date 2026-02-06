@@ -15,7 +15,7 @@ Establish a safe foundation for agentic participation, unify the Topics model, a
 ## Phase 0 — Safety & Integrity Baseline (P0)
 
 ### 0.1 Identity Storage Hardening
-- [ ] Move identity from localStorage → encrypted IndexedDB (WebCrypto)
+- [x] Identity persistence migrated from localStorage to encrypted IndexedDB vault (`vh-vault` / `vault`) (PR #10, commit `813558c`)
 - [ ] Add CSP + secure storage policy
 
 ### 0.2 Delegation Types + OBO Assertions

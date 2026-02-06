@@ -1,6 +1,6 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-02  
+**Last Updated:** 2026-02-06  
 **Version:** 0.2.0 (Sprint 3.5 Complete)  
 **Assessment:** Pre-production prototype
 
@@ -20,6 +20,22 @@
 | **HERMES Forum** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Docs** | ⚪ Planned (Sprint 5) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | ⚪ Planned/Redesign (Sprint 5) | ❌ No |
+
+---
+
+## Recently Merged (PR #10, commit `813558c`)
+
+- ✅ Identity persistence migrated to encrypted IndexedDB vault (`vh-vault` database, `vault` object store) with a per-device master key.
+- ✅ Legacy `vh_identity` path is migration-only (read once, then deleted); migration clobber guard prevents stale local data from overwriting an existing vault identity.
+- ✅ Identity hydration bridge hardened: `vh:identity-published` is signal-only (no identity payload), eliminating DOM event data leakage.
+- ✅ Master-key race hardening landed via atomic IndexedDB `add` semantics for key initialization.
+
+---
+
+## Active Follow-ups
+
+- **Issue #11** — add a repo-level `typecheck` script (open).
+- **Issue #12** — defensive-copy hardening + test harness docs follow-up (open).
 
 ---
 
@@ -63,7 +79,6 @@ The following tasks are required to align the codebase with the updated specs (a
 |------|----------------|-----------------|
 | Define `FamiliarRecord`, `DelegationGrant`, `OnBehalfOfAssertion` types | `spec-identity-trust-constituency.md` §6 | `packages/types/src/index.ts`, `packages/data-model/` |
 | Implement tiered scopes (Suggest/Act/High-Impact) with Tier 3 human-approval | `spec-identity-trust-constituency.md` §6 | New: `apps/web-pwa/src/hooks/useFamiliar.ts` |
-| Move identity from localStorage to encrypted IndexedDB | `spec-data-topology-privacy-v0.md` | `apps/web-pwa/src/hooks/useIdentity.ts` |
 | Implement delegation grant creation/revocation | `spec-identity-trust-constituency.md` §6 | New: familiar management UI + store |
 
 ### P0 — Participation Governors (Anti-Swarm Budgets)
@@ -132,7 +147,7 @@ The following tasks are required to align the codebase with the updated specs (a
 | BioKey hardware | ✅ Specified | ❌ Not implemented | No hardware integration |
 | Trust score calculation | ✅ Specified | ⚠️ Stub logic | `main.rs:105-116` — token length/prefix checks |
 | Nullifier derivation | ✅ Specified | ⚠️ Device-bound | `main.rs:162` — SHA256(device_key + salt) |
-| Identity storage | Secure | ⚠️ localStorage | `useIdentity.ts:43` — XSS-vulnerable |
+| Identity storage | Secure | ✅ Encrypted vault (`vh-vault`/`vault`) + in-memory identity provider | `apps/web-pwa/src/hooks/useIdentity.ts` + `packages/identity-vault/src/*` |
 | Sybil resistance | ✅ Specified | ❌ Not implemented | No uniqueness checking |
 | Social recovery | ✅ Specified | ❌ Not implemented | No Lazarus Protocol code |
 | Multi-device linking | ✅ Specified | ⚠️ Local-only stub | `useIdentity.ts:174+` (local record updates only) |
@@ -350,7 +365,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 | Whitepaper Claim | Current Reality |
 |------------------|-----------------|
-| "Hardware Root of Trust" (LUMA) | localStorage, no TEE integration |
+| "Hardware Root of Trust" (LUMA) | Encrypted vault + in-memory provider are in place, but no TEE integration yet |
 | "VIO liveness detection" (LUMA) | Not implemented |
 | "Holographic vectors" (LUMA) | Not implemented |
 | "Mathematically private" (LUMA) | Device-bound nullifier, not human-bound |
@@ -368,7 +383,6 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 | Risk | Severity | Status | Evidence |
 |------|----------|--------|----------|
-| Identity in localStorage | 🔴 High | Open | `useIdentity.ts:43` |
 | No sybil defense | 🔴 High | Open | `main.rs:162` (device-only nullifier) |
 | Trust scores spoofable | 🔴 High | Open | `main.rs:105-116` |
 | AI analysis mocked | 🟡 Medium | Open | `worker.ts:6-23` |
@@ -376,6 +390,10 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ### Mitigations in Place
 
+- ✅ **Resolved (PR #10):** identity is no longer persisted in localStorage; encrypted IndexedDB vault is authoritative, with migration-only legacy key handling.
+- ✅ **Resolved (PR #10):** identity publish event leak removed (`vh:identity-published` carries no identity payload).
+- ✅ **Resolved (PR #10):** master-key initialization race hardened via atomic IndexedDB `add` flow.
+- ✅ **Resolved (PR #10):** migration clobber guard prevents stale legacy identity from overwriting existing vault state.
 - ✅ Topology guard prevents unauthorized Gun writes
 - ✅ Encryption required for sensitive mesh paths
 - ✅ XP ledger is local-only (no off-device leak)
@@ -386,7 +404,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide:** 60 test files (unit + component + integration). See `rg --files -g "*.test.ts" -g "*.test.tsx"`.
+**Repo-wide (Vitest `pnpm test:quick`):** 64 test files, 390 tests (unit + component + integration). Coverage: **100%** statements / branches / functions / lines.
 
 ---
 
@@ -409,7 +427,6 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 |---------|----------|------------|-----|
 | AI engine mocked | 🔴 High | Sprint 2 | Wire WebLLM or consented remote API |
 | Testnet undeployed | 🟡 Medium | Sprint 1 | Run `deploy-testnet.ts` to Sepolia |
-| Identity in localStorage | 🔴 High | N/A (security) | Move to encrypted IndexedDB |
 | Attestation is stub | 🟡 Medium | Sprint 1 | Label as DEV ONLY or implement real validation |
 | No sybil defense | 🔴 High | N/A (LUMA gap) | Research pragmatic uniqueness checking |
 
@@ -422,7 +439,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ### Phase 2: Security Hardening (30 days)
 
-- [ ] Move identity from localStorage to encrypted IndexedDB
+- [x] Move identity persistence from localStorage to encrypted IndexedDB vault (`vh-vault`/`vault`) — completed in PR #10 (`813558c`), including DOM event leak removal, master-key race hardening, and migration clobber guard.
 - [ ] Implement first-N quorum canonicalization (supersession for poisoned analyses)
 - [ ] Add cohort thresholds for any aggregate display (N≥20)
 

@@ -1,10 +1,23 @@
-00-monorepo-structure.md:
+# Monorepo Structure — Target Architecture Specification
 
-# Monorepo Structure Specification
+**Status:** Target architecture (aspirational; not a 1:1 snapshot of today’s repository tree)
 
 **Source of Truth:** `System_Architecture.md` Section 4 & 5
 
-This document defines the strict directory structure, dependency rules, infrastructure seams, and code organization standards for the VENN/HERMES monorepo.
+This document defines the desired end-state directory structure, dependency rules, infrastructure seams, and code organization standards for the VENN/HERMES monorepo.
+
+## Current vs Target (as of 2026-02-06)
+
+Use this section to avoid spec drift confusion:
+
+| Area | Current (implemented now) | Target (this specification) |
+|------|----------------------------|-----------------------------|
+| Apps | `apps/web-pwa` is the only active app workspace | Add `apps/mobile` (Capacitor) and `apps/desktop` (Tauri) shells alongside web |
+| Packages | Core packages exist (`types`, `crypto`, `crdt`, `data-model`, `gun-client`, `ai-engine`, `contracts`, `e2e`, `ui`) plus `identity-vault` and `zk-circuits` | Preserve strict package boundaries while expanding toward full architecture |
+| Services | Limited service set (`attestation-verifier`, `bridge-stub`) | Full relay/turn/object-store/aggregation/certificate service mesh |
+| Infra & tooling | `infra/docker`, `infra/relay`, and `tools/*` are present; some CLI/infrastructure pieces remain partial | Full `infra` + CLI orchestration model described below |
+
+When this file and the current repo tree differ, treat this document as the **target plan**. For present-state truth, rely on `STATUS.md` and the checked-in filesystem.
 
 ## 1. Workspace Layout
 
