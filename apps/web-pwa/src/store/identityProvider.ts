@@ -58,7 +58,8 @@ export function getPublishedIdentity(): PublicIdentitySnapshot | null {
  * require private fields (e.g. chat encryption keys).
  */
 export function getFullIdentity<T = Record<string, unknown>>(): T | null {
-  return fullRecord as T | null;
+  if (!fullRecord) return null;
+  return structuredClone(fullRecord) as T;
 }
 
 /** Clear published identity (for tests or sign-out). */

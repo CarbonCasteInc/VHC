@@ -79,6 +79,22 @@ describe('identityProvider', () => {
     expect(getPublishedIdentity()!.session.nullifier).toBe('original');
   });
 
+  it('getFullIdentity returns a defensive copy — mutations do not affect the singleton', () => {
+    const record = {
+      session: { nullifier: 'original', trustScore: 0.9, scaledTrustScore: 9000 },
+      devicePair: { pub: 'pub', priv: 'priv', epub: 'epub', epriv: 'epriv' },
+    };
+    publishIdentity(record);
+
+    const full1 = getFullIdentity<typeof record>()!;
+    full1.session.nullifier = 'mutated';
+    full1.devicePair.priv = 'hacked';
+
+    const full2 = getFullIdentity<typeof record>()!;
+    expect(full2.session.nullifier).toBe('original');
+    expect(full2.devicePair.priv).toBe('priv');
+  });
+
   it('sets __vh_identity_published flag on globalThis', () => {
     expect((globalThis as any).__vh_identity_published).toBeFalsy();
     publishIdentity({

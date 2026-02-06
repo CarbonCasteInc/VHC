@@ -24,6 +24,22 @@ async function createSaveIdentityHarness(config: HarnessConfig): Promise<{
   saveIdentity: (identity: Identity) => Promise<void>;
   state: HarnessState;
 }> {
+  /**
+   * Test harness for exercising master-key race conditions in saveIdentity.
+   *
+   * Strategy: We use vi.doMock to replace the vault's DB, crypto, and env
+   * modules with fakes that simulate IndexedDB request/response behavior
+   * via queueMicrotask. This lets us control:
+   *
+   * - Whether a master key already exists in the store (masterReads)
+   * - How many keys are generated (generatedKeys)
+   * - Whether IDB add() succeeds, hits ConstraintError (another tab won
+   *   the race), or fails with a different error (addOutcomes)
+   *
+   * The harness tracks which CryptoKeys were used for encryption and what
+   * vault records were written, so tests can assert that concurrent
+   * saveIdentity calls converge on the same winning master key.
+   */
   vi.resetModules();
 
   const state: HarnessState = {
