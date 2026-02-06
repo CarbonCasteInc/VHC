@@ -9,6 +9,7 @@ import {
   migrateLegacyLocalStorage,
 } from '@vh/identity-vault';
 import type { Identity } from '@vh/identity-vault';
+import { publishIdentity } from '../store/identityProvider';
 
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
 const DEV_MODE = (import.meta as any).env?.DEV === true || (import.meta as any).env?.MODE === 'development';
@@ -51,24 +52,11 @@ async function loadIdentityFromVault(): Promise<IdentityRecord | null> {
   return raw as IdentityRecord | null;
 }
 
-const LEGACY_IDENTITY_KEY = 'vh_identity';
-
-/** Best-effort sync to localStorage for downstream consumers. */
-function syncToLocalStorage(record: IdentityRecord): void {
-  try {
-    if (typeof globalThis.localStorage !== 'undefined') {
-      globalThis.localStorage.setItem(LEGACY_IDENTITY_KEY, JSON.stringify(record));
-    }
-  } catch {
-    // localStorage may be unavailable (SSR, quota exceeded)
-  }
-}
-
 async function persistIdentity(record: IdentityRecord): Promise<void> {
   await vaultSave(record as Identity);
-  // Dual-write to localStorage so downstream consumers (forum store, etc.)
-  // that still read localStorage continue to work during the migration period.
-  syncToLocalStorage(record);
+  // Publish public identity snapshot for downstream consumers (forum store).
+  // No secrets are exposed — only nullifier + trust scores.
+  publishIdentity(record);
 }
 
 function emitIdentityChanged(record: IdentityRecord) {
@@ -104,10 +92,8 @@ export function useIdentity() {
       if (loaded) {
         setIdentity(loaded);
         setStatus('ready');
-        // Sync to localStorage so downstream consumers (forum store, etc.)
-        // can read it synchronously. The migration may have deleted the
-        // localStorage copy, so we re-establish it here.
-        syncToLocalStorage(loaded);
+        // Publish public snapshot for downstream consumers (forum store).
+        publishIdentity(loaded);
       } else {
         setStatus('anonymous');
       }
