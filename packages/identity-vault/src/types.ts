@@ -1,12 +1,8 @@
 /**
- * Minimum identity shape. Extra fields MUST survive round-trip.
+ * Opaque vault blob — the vault encrypts any JSON-serializable object.
+ * Shape validation is the consumer's responsibility.
  */
-export interface Identity {
-  displayName: string;
-  pub: string;
-  priv: string;
-  [extra: string]: unknown;
-}
+export type Identity = Record<string, unknown>;
 
 /**
  * Record stored in IndexedDB "vault" object store.
@@ -38,15 +34,11 @@ export const VAULT_VERSION = 1;
 /** Legacy localStorage key consumed during migration. */
 export const LEGACY_STORAGE_KEY = 'vh_identity';
 
-/** Runtime shape check for Identity objects. */
+/**
+ * Runtime shape check for vault-stored objects.
+ * Accepts any non-null, non-array object — the vault encrypts opaque blobs;
+ * detailed shape validation belongs to the consumer.
+ */
 export function isValidIdentity(value: unknown): value is Identity {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const obj = value as Record<string, unknown>;
-  return (
-    typeof obj.displayName === 'string' &&
-    typeof obj.pub === 'string' &&
-    typeof obj.priv === 'string'
-  );
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
