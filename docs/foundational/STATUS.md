@@ -23,12 +23,13 @@
 
 ---
 
-## Recently Completed (Issues #11, #12, #15, #18, #22, #23, #24, #27)
+## Recently Completed (Issues #11, #12, #15, #18, #19, #22, #23, #24, #27)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
 - ✅ **Issue #15** — Extended typecheck coverage to remaining packages.
 - ✅ **Issue #18** — Fixed ~100 web-pwa typecheck errors.
+- ✅ **Issue #19** — Fixed contracts and e2e typecheck errors: added typecheck scripts for both packages (PR #32, merged 2026-02-06).
 - ✅ **Issue #22** — Split `DevColorPanel.tsx` into 5 focused files in `apps/web-pwa/src/components/`:
   - `DevColorPanel.tsx`
   - `ColorControl.tsx`
@@ -43,9 +44,9 @@
 
 ## Active Follow-ups
 
-- **Issue #19** — fix contracts and e2e typecheck errors (open).
 - **Issue #6** — harden xpLedger/profile localStorage for SSR (open).
 - **Issue #4** — SMOKE: agent loop end-to-end (open).
+- **Issue #33** — coverage drift: DevColorPanel split files + types package at 0% (see below).
 
 ---
 
@@ -414,7 +415,25 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 64 test files, 390 tests (unit + component + integration). Coverage: **100%** statements / branches / functions / lines.
+**Repo-wide (Vitest `pnpm test:quick`):** 65 test files, 396 tests (unit + component + integration).
+
+**Coverage (`pnpm test:coverage`, last validated 2026-02-06):**
+
+| Metric | Value |
+|--------|-------|
+| Statements | 76.14% (1245/1635) |
+| Branches | 99.73% (383/384) |
+| Functions | 99.11% (112/113) |
+| Lines | 76.14% (1245/1635) |
+
+**⚠️ Coverage gate (100% threshold) currently fails.** The gap is caused by:
+- `apps/web-pwa/src/components/colorConfigs.ts` — 0% lines (split from DevColorPanel, #22)
+- `apps/web-pwa/src/components/colorUtils.ts` — 0% lines (split from DevColorPanel, #22)
+- `apps/web-pwa/src/components/useColorPanel.ts` — 0% lines/branches/functions (split from DevColorPanel, #22)
+- `packages/types/src/attestation.ts` — 0% (type-only, no runtime code to test)
+- `packages/types/src/identity.ts` — 0% (type-only, no runtime code to test)
+
+Tracked by **Issue #33** (coverage drift from DevColorPanel split + types package).
 
 ---
 
@@ -482,8 +501,8 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ### Architecture & Vision
 - `System_Architecture.md` — Target architecture (partially implemented)
-- `docs/LUMA_BriefWhitePaper.md` — Identity vision (mostly aspirational)
-- `docs/GWC_BriefWhitePaper.md` — Economics vision (contracts implemented, undeployed)
+- `docs/foundational/LUMA_BriefWhitePaper.md` — Identity vision (mostly aspirational)
+- `docs/foundational/GWC_BriefWhitePaper.md` — Economics vision (contracts implemented, undeployed)
 - `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails (enforced)
 
 ### Canonical Specs
