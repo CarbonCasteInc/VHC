@@ -8,15 +8,15 @@
   "exports": {
     ".": {
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./src/index.ts"
     },
     "./primitives": {
       "import": "./dist/primitives.js",
-      "types": "./dist/primitives.d.ts"
+      "types": "./src/primitives.ts"
     },
     "./provider": {
       "import": "./dist/provider.js",
-      "types": "./dist/provider.d.ts"
+      "types": "./src/provider.ts"
     }
   },
   "scripts": {
