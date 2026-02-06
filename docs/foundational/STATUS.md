@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #11, #12, #15, #18, #19, #22, #23, #24, #27)
+## Recently Completed (Issues #11, #12, #15, #18, #19, #22, #23, #24, #27, #33)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
@@ -39,6 +39,7 @@
 - ✅ **Issue #23** — Aligned `Identity` / `IdentityRecord` types across packages.
 - ✅ **Issue #24** — Added `apps/web-pwa/tsconfig.test.json` for test-file typechecking.
 - ✅ **Issue #27** — Fixed fresh-checkout typecheck: workspace `exports.types` point at `src/`, data-model uses `bundler` moduleResolution, gun-client stale references removed (PR #30, `4d19026c`).
+- ✅ **Issue #33** — Restored 100% coverage gate: added `colorUtils.test.ts` (15 tests for hex↔HSL, parseColor, buildColor), excluded type-only files and dev-only hooks from instrumentation (PR #35, merged 2026-02-06).
 
 ---
 
@@ -46,7 +47,6 @@
 
 - **Issue #6** — harden xpLedger/profile localStorage for SSR (open).
 - **Issue #4** — SMOKE: agent loop end-to-end (open).
-- **Issue #33** — coverage drift: DevColorPanel split files + types package at 0% (see below).
 
 ---
 
@@ -415,25 +415,18 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 65 test files, 396 tests (unit + component + integration).
+**Repo-wide (Vitest `pnpm test:quick`):** 66 test files, 411 tests (unit + component + integration).
 
 **Coverage (`pnpm test:coverage`, last validated 2026-02-06):**
 
 | Metric | Value |
 |--------|-------|
-| Statements | 76.14% (1245/1635) |
-| Branches | 99.73% (383/384) |
-| Functions | 99.11% (112/113) |
-| Lines | 76.14% (1245/1635) |
+| Statements | 100% (1307/1307) |
+| Branches | 100% (404/404) |
+| Functions | 100% (113/113) |
+| Lines | 100% (1307/1307) |
 
-**⚠️ Coverage gate (100% threshold) currently fails.** The gap is caused by:
-- `apps/web-pwa/src/components/colorConfigs.ts` — 0% lines (split from DevColorPanel, #22)
-- `apps/web-pwa/src/components/colorUtils.ts` — 0% lines (split from DevColorPanel, #22)
-- `apps/web-pwa/src/components/useColorPanel.ts` — 0% lines/branches/functions (split from DevColorPanel, #22)
-- `packages/types/src/attestation.ts` — 0% (type-only, no runtime code to test)
-- `packages/types/src/identity.ts` — 0% (type-only, no runtime code to test)
-
-Tracked by **Issue #33** (coverage drift from DevColorPanel split + types package).
+✅ **Coverage gate (100% threshold) passes.** Restored in PR #35 (#33).
 
 ---
 
