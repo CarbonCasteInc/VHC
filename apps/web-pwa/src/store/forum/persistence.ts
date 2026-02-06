@@ -1,15 +1,12 @@
 import type { IdentityRecord } from './types';
-import { IDENTITY_STORAGE_KEY, VOTES_KEY_PREFIX } from './types';
-import { getIdentityStorage } from '../identityStorage';
+import { VOTES_KEY_PREFIX } from './types';
+import { getPublishedIdentity } from '../identityProvider';
 
 export function loadIdentity(): IdentityRecord | null {
-  const storage = getIdentityStorage();
-  try {
-    const raw = storage.getItem(IDENTITY_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as IdentityRecord) : null;
-  } catch {
-    return null;
-  }
+  const snapshot = getPublishedIdentity();
+  if (!snapshot) return null;
+  // Return shape compatible with IdentityRecord (only public fields populated).
+  return { session: snapshot.session } as IdentityRecord;
 }
 
 export function loadVotesFromStorage(nullifier: string): Map<string, 'up' | 'down' | null> {

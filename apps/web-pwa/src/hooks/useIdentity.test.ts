@@ -110,10 +110,8 @@ describe('useIdentity', () => {
     expect(result.current.identity?.handle).toBe('legacy_user');
     expect(result.current.identity?.session.nullifier).toBe('legacy-null');
 
-    // Legacy key is re-synced after hydration (dual-write for downstream compat)
-    const lsAfterMigration = localStorage.getItem(LEGACY_STORAGE_KEY);
-    expect(lsAfterMigration).not.toBeNull();
-    expect(JSON.parse(lsAfterMigration!).handle).toBe('legacy_user');
+    // Legacy key must be cleared after migration (no longer dual-written)
+    expect(localStorage.getItem(LEGACY_STORAGE_KEY)).toBeNull();
 
     // Vault must have the identity
     const fromVault = await vaultLoad();
@@ -141,16 +139,22 @@ describe('useIdentity', () => {
     expect(result.current.identity?.session.scaledTrustScore).toBe(7510);
     expect(result.current.identity?.devicePair?.epub).toBe('epub');
 
-    // AC3: dual-write — localStorage gets a copy for downstream consumers
-    // (forum store, etc.) during the migration period.
-    const lsRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
-    expect(lsRaw).not.toBeNull();
-    const lsParsed = JSON.parse(lsRaw!);
-    expect(lsParsed.session.nullifier).toBe('stable-nullifier');
+    // AC3: must NOT be in localStorage (no secrets in plaintext storage)
+    expect(localStorage.getItem(LEGACY_STORAGE_KEY)).toBeNull();
 
     // Must be in vault
     const fromVault = await vaultLoad();
     expect((fromVault as any)?.session.nullifier).toBe('stable-nullifier');
+
+    // Identity provider must have public snapshot (no secrets)
+    const { getPublishedIdentity } = await import('../store/identityProvider');
+    const snapshot = getPublishedIdentity();
+    expect(snapshot).not.toBeNull();
+    expect(snapshot!.session.nullifier).toBe('stable-nullifier');
+    expect(snapshot!.session.trustScore).toBe(0.751);
+    // Provider must NOT contain private keys
+    expect((snapshot as any).devicePair).toBeUndefined();
+    expect((snapshot as any).session.token).toBeUndefined();
   });
 
   it('clamps scaled trust score to 10000 when verifier reports >1', async () => {

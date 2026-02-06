@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createForumStore, stripUndefined } from './hermesForum';
 import { useXpLedger } from './xpLedger';
+import { publishIdentity, clearPublishedIdentity } from './identityProvider';
 
 const {
   threadWrites,
@@ -103,6 +104,7 @@ const createHydrationClient = () => {
 
 beforeEach(() => {
   (globalThis as any).localStorage = memoryStorage();
+  clearPublishedIdentity();
   threadWrites.length = 0;
   commentWrites.length = 0;
   dateIndexWrites.length = 0;
@@ -117,10 +119,7 @@ beforeEach(() => {
 
 describe('hermesForum store (comments & hydration)', () => {
   const setIdentity = (nullifier: string, trustScore = 1) =>
-    (globalThis as any).localStorage.setItem(
-      'vh_identity',
-      JSON.stringify({ session: { nullifier, trustScore } })
-    );
+    publishIdentity({ session: { nullifier, trustScore, scaledTrustScore: Math.round(trustScore * 10000) } });
 
   it('createComment marks substantive comments', async () => {
     setIdentity('commenter');

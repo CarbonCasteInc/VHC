@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createForumStore } from './hermesForum';
 import { useXpLedger } from './xpLedger';
+import { publishIdentity, clearPublishedIdentity } from './identityProvider';
 
 const {
   threadWrites,
@@ -103,6 +104,7 @@ const createHydrationClient = () => {
 
 beforeEach(() => {
   (globalThis as any).localStorage = memoryStorage();
+  clearPublishedIdentity();
   threadWrites.length = 0;
   commentWrites.length = 0;
   dateIndexWrites.length = 0;
@@ -117,16 +119,10 @@ beforeEach(() => {
 
 describe('hermesForum store', () => {
   const setIdentity = (nullifier: string, trustScore = 1) =>
-    (globalThis as any).localStorage.setItem(
-      'vh_identity',
-      JSON.stringify({ session: { nullifier, trustScore } })
-    );
+    publishIdentity({ session: { nullifier, trustScore, scaledTrustScore: Math.round(trustScore * 10000) } });
 
   it('rejects thread creation when trustScore is low', async () => {
-    (globalThis as any).localStorage.setItem(
-      'vh_identity',
-      JSON.stringify({ session: { nullifier: 'low', trustScore: 0.2 } })
-    );
+    publishIdentity({ session: { nullifier: 'low', trustScore: 0.2, scaledTrustScore: 2000 } });
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-1', now: () => 1 });
     await expect(store.getState().createThread('title', 'content', [])).rejects.toThrow(
       'Insufficient trustScore for forum actions'
@@ -149,10 +145,7 @@ describe('hermesForum store', () => {
   });
 
   it('vote is idempotent per target', async () => {
-    (globalThis as any).localStorage.setItem(
-      'vh_identity',
-      JSON.stringify({ session: { nullifier: 'alice', trustScore: 1 } })
-    );
+    publishIdentity({ session: { nullifier: 'alice', trustScore: 1, scaledTrustScore: 10000 } });
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-1', now: () => 1 });
     const thread = await store.getState().createThread('title', 'content', ['tag']);
     expect(threadWrites).toHaveLength(1);
@@ -164,10 +157,7 @@ describe('hermesForum store', () => {
   });
 
   it('applies quality bonus when threshold crossed', async () => {
-    (globalThis as any).localStorage.setItem(
-      'vh_identity',
-      JSON.stringify({ session: { nullifier: 'author', trustScore: 1 } })
-    );
+    publishIdentity({ session: { nullifier: 'author', trustScore: 1, scaledTrustScore: 10000 } });
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-2', now: () => 1 });
     const thread = await store.getState().createThread('title', 'content', ['tag']);
     // simulate that author is same user

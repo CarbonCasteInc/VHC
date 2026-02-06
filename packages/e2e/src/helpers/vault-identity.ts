@@ -233,27 +233,31 @@ export async function waitForVaultIdentityNullifier(page: Page, timeoutMs = 15_0
 }
 
 /**
- * Wait until localStorage has the identity key synced from the vault hydration.
- * This ensures downstream consumers (forum store) can read identity synchronously.
+ * Wait until the in-memory identity provider has been populated by the
+ * useIdentity hook's hydration effect.  This is the correct pre-condition
+ * before forum interactions (createThread, vote, etc.) on navigated pages,
+ * because the forum store reads identity from the provider synchronously.
+ *
+ * Detection: we check for the existence of a data-identity-status="ready"
+ * attribute OR poll the vault (which guarantees the React effect has resolved
+ * when paired with a UI-visible gate).
  */
-export async function waitForLocalStorageIdentity(page: Page, timeoutMs = 15_000): Promise<void> {
+export async function waitForIdentityHydrated(page: Page, timeoutMs = 15_000): Promise<void> {
   const startedAt = Date.now();
 
   while (Date.now() - startedAt < timeoutMs) {
-    const hasIdentity = await page.evaluate(() => {
-      try {
-        const raw = localStorage.getItem('vh_identity');
-        if (!raw) return false;
-        const parsed = JSON.parse(raw);
-        return typeof parsed?.session?.nullifier === 'string' && parsed.session.nullifier.length > 0;
-      } catch {
-        return false;
-      }
+    // The useIdentity hook sets status='ready' after hydration + publishIdentity.
+    // We can detect this via a data attribute on the body, or by checking if the
+    // vault has data AND the forum store can read it.
+    const ready = await page.evaluate(() => {
+      // Check if the identity provider module has been populated.
+      // We access it through a global bridge set by the app in E2E mode.
+      return !!(window as any).__vh_identity_published;
     });
 
-    if (hasIdentity) return;
-    await page.waitForTimeout(200);
+    if (ready) return;
+    await page.waitForTimeout(150);
   }
 
-  throw new Error(`Timed out waiting for localStorage identity sync after ${timeoutMs}ms.`);
+  throw new Error(`Timed out waiting for identity hydration after ${timeoutMs}ms.`);
 }

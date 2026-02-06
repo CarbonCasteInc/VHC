@@ -19,7 +19,7 @@ import { test, expect } from '../fixtures/multi-user';
 import {
   readVaultIdentity,
   waitForVaultIdentityNullifier,
-  waitForLocalStorageIdentity,
+  waitForIdentityHydrated,
   writeVaultIdentity,
 } from '../helpers/vault-identity';
 
@@ -128,9 +128,9 @@ test.describe('Multi-User: Forum Integration', () => {
 
     // Forum now loads directly at /hermes
     await alice.page.goto('/hermes');
-    // Wait for identity hydration to sync to localStorage so the forum
-    // store's ensureIdentity() can read it synchronously.
-    await waitForLocalStorageIdentity(alice.page);
+    // Wait for identity hydration so the forum store's ensureIdentity()
+    // can read from the in-memory provider.
+    await waitForIdentityHydrated(alice.page);
     await alice.page.getByTestId('new-thread-btn').click();
     await alice.page.getByTestId('thread-title').fill('Test Thread from Alice');
     await alice.page.getByTestId('thread-content').fill('This is a test post for Sprint 3 E2E verification.');
