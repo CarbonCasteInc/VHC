@@ -13,7 +13,7 @@ This spec defines where data lives (device, mesh, chain, cloud), what is public 
 | Sentiment (v0)    | `localStorage: vh_civic_scores_v1` (per item:perspective)        | –                                              | –                                                | –            | Sensitive |
 | Proposals (v0 UI) | React state only                                                 | –                                              | QF `Project` (recipient/amounts, no metadata)    | –            | Public    |
 | Wallet balances   | React state (`balance`, `claimStatus`)                           | –                                              | `RVU.balanceOf`, `UBE.getClaimStatus`, tx log    | –            | Sensitive |
-| IdentityRecord    | `localStorage: vh_identity` (attestation, trustScore, nullifier) | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
+| IdentityRecord    | IndexedDB `vh-vault` (`vault` store, encrypted with per-device master key) + in-memory provider runtime | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
 | RegionProof       | Local-only (per `spec-identity-trust-constituency.md`)           | – (no v0 usage)                                | –                                                | –            | Sensitive |
 | XP Ledger         | `localStorage: vh_xp_ledger` (per nullifier XP tracks)           | – (or encrypted outbox to Guardian node)       | –                                                | –            | Sensitive |
 | Messages (future) | TBD                                                              | `vh/chat/*`, `vh/outbox/*` (guarded; see below)| –                                                | Attachments  | Sensitive |
@@ -31,6 +31,9 @@ Rules:
 - Only Public objects may be stored plaintext under `vh/*` in the mesh.
 - Sensitive objects either stay on-device or travel via encrypted channels (user-scoped Gun space, outbox to Guardian Nodes).
 - `district_hash` and `nullifier` never appear together in any public structure; no identity/constituency data in CanonicalAnalysis.
+- Runtime identity access is in-memory: `getPublishedIdentity()` returns a public snapshot (`nullifier`, `trustScore`, `scaledTrustScore`), and `getFullIdentity()` is reserved for same-process consumers that need private key material.
+- Legacy key `vh_identity` is migration-only input (read once, then deleted); it is not an active persistence mechanism.
+- `vh:identity-published` is a hydration signal `CustomEvent` and MUST NOT carry identity payload data.
 - XP ledger (per nullifier) is sensitive; only safe aggregates with cohort thresholds may be exposed.
 - Public mesh objects MUST NOT include delegation grants, familiar IDs, or agent logs in plaintext.
 - If exported to a Guardian/aggregator, delegation data MUST be encrypted and still obey the existing `{district_hash, nullifier}` separation rules.

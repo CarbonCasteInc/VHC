@@ -287,7 +287,7 @@ In Season 0, main objects:
 | Sentiment (v0)    | `localStorage: vh_civic_scores_v1` (per item:perspective)        | –                                              | –                                                | –            | Sensitive |
 | Proposals (v0 UI) | React state only                                                 | –                                              | QF `Project` (recipient/amounts, no metadata)    | –            | Public    |
 | Wallet balances   | React state (`balance`, `claimStatus`)                           | –                                              | `RVU.balanceOf`, `UBE.getClaimStatus`, tx log    | –            | Sensitive |
-| IdentityRecord    | `localStorage: vh_identity` (attestation, trustScore, nullifier) | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
+| IdentityRecord    | IndexedDB `vh-vault` (`vault` store, encrypted with per-device master key) + in-memory provider runtime | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
 | RegionProof       | Local-only (per `spec-identity-trust-constituency.md`)           | – (no v0 usage)                                | –                                                | –            | Sensitive |
 | XP Ledger         | `localStorage: vh_xp_ledger` (per nullifier XP tracks)           | – (or encrypted outbox to Guardian node)       | –                                                | –            | Sensitive |
 | Messages (future) | TBD                                                              | `vh/chat/*`, `vh/outbox/*` (guarded; see below)| –                                                | Attachments  | Sensitive |
@@ -297,6 +297,9 @@ Rules:
 * Only **public** objects may be stored in plaintext under `vh/*` in the mesh.
 * **Sensitive** objects must either remain on-device only, or be sent via encrypted user-scoped channels (e.g., Gun SEA / outbox) to trusted aggregators.
 * CanonicalAnalysis is public content and never includes nullifiers, district hashes, or wallet addresses.
+* Runtime identity reads use the in-memory identity provider: `getPublishedIdentity()` exposes only a public snapshot (`nullifier`, `trustScore`, `scaledTrustScore`), while `getFullIdentity()` is for same-process consumers that require private fields.
+* Legacy key `vh_identity` is migration-only input (read once, then deleted) and is **not** an active persistence layer.
+* `vh:identity-published` is a hydration signal `CustomEvent` with no identity payload.
 
 See `docs/spec-data-topology-privacy-v0.md` for the canonical Season 0 topology and invariants.
 

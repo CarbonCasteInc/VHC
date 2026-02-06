@@ -125,11 +125,12 @@ This is the **Civic Dignity Loop**: identity → news → analysis → stance �
   - `RegionProof` → `ConstituencyProof { district_hash, nullifier, merkle_root }`.
 
 - **Client:**
-  - `useIdentity` calls the attestation-verifier and stores an `IdentityRecord` in `localStorage: vh_identity` with:
-    - `session.token`,
-    - `session.trustScore`,
-    - `session.scaledTrustScore`,
-    - `session.nullifier` (UniquenessNullifier).
+  - `useIdentity` calls the attestation-verifier and persists `IdentityRecord` in the encrypted IndexedDB vault (`vh-vault` database, `vault` object store) protected by a per-device master key.
+  - Runtime identity access is in-memory via identity provider APIs:
+    - `getPublishedIdentity()` returns the public session snapshot (`nullifier`, `trustScore`, `scaledTrustScore`).
+    - `getFullIdentity()` returns the full same-process record for consumers that require private fields (for example, chat encryption helpers).
+  - Legacy key `vh_identity` is migration-only input (read once, then deleted), not active persistence.
+  - `vh:identity-published` is emitted only as a hydration signal and carries no identity payload.
 
 - **Roles:**
   - **Guest:** no trustScore/nullifier in state; can read but does not move canonical metrics or earn XP.
