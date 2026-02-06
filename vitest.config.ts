@@ -109,8 +109,11 @@ export default defineConfig({
         'packages/ai-engine/src/prompts.ts',
 
         // --- Type-Only Files ---
-        // Pure TypeScript interfaces with no runtime code; compile to empty JS.
-        'packages/types/src/**/*.ts',
+        // Pure TypeScript interfaces/types with no runtime statements.
+        // Note: index.ts in this package has Zod schemas + decodeRegionProof()
+        // but is already excluded via the packages/*/src/index.ts rule below.
+        'packages/types/src/attestation.ts',
+        'packages/types/src/identity.ts',
 
         // --- Re-export Index Files ---
         'packages/*/src/index.ts'
