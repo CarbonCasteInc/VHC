@@ -1,7 +1,6 @@
 import type { HermesComment, HermesThread } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 
-export const IDENTITY_STORAGE_KEY = 'vh_identity';
 export const VOTES_KEY_PREFIX = 'vh_forum_votes:';
 export const TRUST_THRESHOLD = 0.5;
 export const SEEN_TTL_MS = 60_000;

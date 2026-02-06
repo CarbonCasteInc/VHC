@@ -52,11 +52,47 @@ async function loadIdentityFromVault(): Promise<IdentityRecord | null> {
   return raw as IdentityRecord | null;
 }
 
+const LEGACY_IDENTITY_KEY = 'vh_identity';
+
+/**
+ * Write a REDACTED identity snapshot to localStorage for downstream
+ * consumers (chat store, etc.) that still read it synchronously.
+ *
+ * SECURITY: only public fields are written — no private keys, no tokens.
+ * Private keys (priv, epriv) and session tokens are structurally excluded.
+ */
+function syncRedactedToLocalStorage(record: IdentityRecord): void {
+  try {
+    if (typeof globalThis.localStorage === 'undefined') return;
+    const redacted: Record<string, unknown> = {
+      id: record.id,
+      createdAt: record.createdAt,
+      handle: record.handle,
+      session: {
+        nullifier: record.session.nullifier,
+        trustScore: record.session.trustScore,
+        scaledTrustScore: record.session.scaledTrustScore,
+      },
+    };
+    if (record.devicePair) {
+      // Only public keys — priv and epriv are NEVER written.
+      redacted.devicePair = {
+        pub: record.devicePair.pub,
+        epub: record.devicePair.epub,
+      };
+    }
+    globalThis.localStorage.setItem(LEGACY_IDENTITY_KEY, JSON.stringify(redacted));
+  } catch {
+    // Best-effort — localStorage may be unavailable
+  }
+}
+
 async function persistIdentity(record: IdentityRecord): Promise<void> {
   await vaultSave(record as Identity);
   // Publish public identity snapshot for downstream consumers (forum store).
-  // No secrets are exposed — only nullifier + trust scores.
   publishIdentity(record);
+  // Write redacted snapshot to localStorage for chat store compat.
+  syncRedactedToLocalStorage(record);
 }
 
 function emitIdentityChanged(record: IdentityRecord) {
@@ -94,6 +130,8 @@ export function useIdentity() {
         setStatus('ready');
         // Publish public snapshot for downstream consumers (forum store).
         publishIdentity(loaded);
+        // Sync redacted copy to localStorage for chat store.
+        syncRedactedToLocalStorage(loaded);
       } else {
         setStatus('anonymous');
       }

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { getIdentityStorage } from './identityStorage';
+import { getPublishedIdentity } from './identityProvider';
 
 type Track = 'civic' | 'social' | 'project';
 type MessagingXPEvent =
@@ -62,7 +62,6 @@ export interface XpLedgerState extends LedgerData {
   setActiveNullifier(nullifier: string | null): void;
 }
 const STORAGE_KEY = 'vh_xp_ledger';
-const IDENTITY_STORAGE_KEY = 'vh_identity';
 const DAILY_SOCIAL_CAP = 5,
   DAILY_CIVIC_CAP = 6,
   DAILY_FIRST_CONTACT_CAP = 3,
@@ -93,15 +92,7 @@ function storageKey(nullifier: string | null) {
   return nullifier ? `${STORAGE_KEY}:${nullifier}` : STORAGE_KEY;
 }
 function readIdentityNullifier(): string | null {
-  const storage = getIdentityStorage();
-  try {
-    const raw = storage.getItem(IDENTITY_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { session?: { nullifier?: string } };
-    return parsed?.session?.nullifier ?? null;
-  } catch {
-    return null;
-  }
+  return getPublishedIdentity()?.session?.nullifier ?? null;
 }
 function loadLedgerForNullifier(targetNullifier: string | null): SerializedLedger | null {
   try {

@@ -3,6 +3,13 @@ import type { IdentityRecord, ContactRecord, ChatState } from './types';
 import { IDENTITY_STORAGE_KEY, CHANNELS_KEY_PREFIX, CONTACTS_KEY_PREFIX } from './types';
 import { getIdentityStorage } from '../identityStorage';
 
+/**
+ * Load identity for chat operations.
+ *
+ * Reads from localStorage where the redacted identity snapshot is stored
+ * (public fields only — no private keys). Operations needing private keys
+ * must load the full identity from the vault asynchronously (P01C).
+ */
 export function loadIdentity(): IdentityRecord | null {
   const storage = getIdentityStorage();
   try {

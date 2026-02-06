@@ -242,11 +242,14 @@ export async function waitForVaultIdentityNullifier(page: Page, timeoutMs = 15_0
  * configurations where the global write is optimized away.
  */
 export async function waitForIdentityHydrated(page: Page, timeoutMs = 15_000): Promise<void> {
+  const startedAt = Date.now();
+  const flagTimeout = Math.min(timeoutMs, 5_000);
+
   try {
     await page.waitForFunction(
       () => !!(window as any).__vh_identity_published,
       undefined,
-      { timeout: Math.min(timeoutMs, 5_000) },
+      { timeout: flagTimeout },
     );
     return;
   } catch {
@@ -254,9 +257,10 @@ export async function waitForIdentityHydrated(page: Page, timeoutMs = 15_000): P
   }
 
   // Fallback: confirm vault has identity, then let React effects settle.
-  await waitForVaultIdentityNullifier(page, timeoutMs);
-  // Two evaluate round-trips drain the microtask + macrotask queues,
-  // ensuring the React useEffect chain (which calls publishIdentity)
-  // has resolved.
+  const elapsed = Date.now() - startedAt;
+  const remaining = Math.max(timeoutMs - elapsed, 1_000);
+  await waitForVaultIdentityNullifier(page, remaining);
+  // A short delay drains the microtask + macrotask queues, ensuring
+  // the React useEffect chain (which calls publishIdentity) has resolved.
   await page.evaluate(() => new Promise((r) => setTimeout(r, 100)));
 }

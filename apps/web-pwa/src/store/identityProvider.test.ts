@@ -47,6 +47,15 @@ describe('identityProvider', () => {
     expect(getPublishedIdentity()).toBeNull();
   });
 
+  it('returns a defensive copy — mutations do not affect the singleton', () => {
+    publishIdentity({
+      session: { nullifier: 'original', trustScore: 0.9, scaledTrustScore: 9000 },
+    });
+    const snapshot = getPublishedIdentity()!;
+    snapshot.session.nullifier = 'mutated';
+    expect(getPublishedIdentity()!.session.nullifier).toBe('original');
+  });
+
   it('sets __vh_identity_published flag on globalThis', () => {
     expect((globalThis as any).__vh_identity_published).toBeFalsy();
     publishIdentity({

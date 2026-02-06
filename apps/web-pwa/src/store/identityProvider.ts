@@ -43,9 +43,10 @@ export function publishIdentity(identity: {
   }
 }
 
-/** Read the most recently published identity snapshot. */
+/** Read the most recently published identity snapshot (defensive copy). */
 export function getPublishedIdentity(): PublicIdentitySnapshot | null {
-  return current;
+  if (!current) return null;
+  return { session: { ...current.session } };
 }
 
 /** Clear published identity (for tests or sign-out). */

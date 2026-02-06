@@ -110,8 +110,15 @@ describe('useIdentity', () => {
     expect(result.current.identity?.handle).toBe('legacy_user');
     expect(result.current.identity?.session.nullifier).toBe('legacy-null');
 
-    // Legacy key must be cleared after migration (no longer dual-written)
-    expect(localStorage.getItem(LEGACY_STORAGE_KEY)).toBeNull();
+    // Legacy key has redacted copy (re-synced after hydration)
+    const lsAfterMigration = localStorage.getItem(LEGACY_STORAGE_KEY);
+    expect(lsAfterMigration).not.toBeNull();
+    const lsParsed = JSON.parse(lsAfterMigration!);
+    expect(lsParsed.handle).toBe('legacy_user');
+    // Must NOT contain private keys
+    expect(lsParsed.devicePair?.priv).toBeUndefined();
+    expect(lsParsed.devicePair?.epriv).toBeUndefined();
+    expect(lsParsed.session?.token).toBeUndefined();
 
     // Vault must have the identity
     const fromVault = await vaultLoad();
@@ -139,8 +146,18 @@ describe('useIdentity', () => {
     expect(result.current.identity?.session.scaledTrustScore).toBe(7510);
     expect(result.current.identity?.devicePair?.epub).toBe('epub');
 
-    // AC3: must NOT be in localStorage (no secrets in plaintext storage)
-    expect(localStorage.getItem(LEGACY_STORAGE_KEY)).toBeNull();
+    // AC3: localStorage has redacted snapshot (no secrets)
+    const lsRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    expect(lsRaw).not.toBeNull();
+    const lsParsed = JSON.parse(lsRaw!);
+    expect(lsParsed.session.nullifier).toBe('stable-nullifier');
+    // Public keys present
+    expect(lsParsed.devicePair?.pub).toBe('pub');
+    expect(lsParsed.devicePair?.epub).toBe('epub');
+    // Private keys MUST NOT be present
+    expect(lsParsed.devicePair?.priv).toBeUndefined();
+    expect(lsParsed.devicePair?.epriv).toBeUndefined();
+    expect(lsParsed.session.token).toBeUndefined();
 
     // Must be in vault
     const fromVault = await vaultLoad();
