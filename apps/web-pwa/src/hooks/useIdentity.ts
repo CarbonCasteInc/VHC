@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AttestationPayload } from '@vh/types';
+import type { AttestationPayload, IdentityRecord } from '@vh/types';
 import { SEA, createSession } from '@vh/gun-client';
 import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../store';
 import { getHandleError, isValidHandle } from '../utils/handle';
-import {
-  loadIdentity as vaultLoad,
-  saveIdentity as vaultSave,
-  migrateLegacyLocalStorage,
-} from '@vh/identity-vault';
-import type { Identity } from '@vh/identity-vault';
+import { migrateLegacyLocalStorage } from '@vh/identity-vault';
 import { publishIdentity } from '../store/identityProvider';
+import { loadIdentityRecord, saveIdentityRecord } from '../utils/vaultTyped';
 
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
 const DEV_MODE = (import.meta as any).env?.DEV === true || (import.meta as any).env?.MODE === 'development';
@@ -18,22 +14,6 @@ const ATTESTATION_URL =
 const VERIFIER_TIMEOUT_MS = Number((import.meta as any).env?.VITE_ATTESTATION_TIMEOUT_MS) || 2000;
 
 export type IdentityStatus = 'hydrating' | 'anonymous' | 'creating' | 'ready' | 'error';
-
-export interface IdentityRecord {
-  id: string;
-  createdAt: number;
-  attestation: AttestationPayload;
-  handle?: string;
-  session: {
-    token: string;
-    trustScore: number;
-    scaledTrustScore: number;
-    nullifier: string;
-  };
-  linkedDevices?: string[];
-  pendingLinkCode?: string;
-  devicePair?: { pub: string; priv: string; epub: string; epriv: string };
-}
 
 /** Module-level migration guard — runs at most once. */
 let migrationPromise: Promise<void> | null = null;
@@ -47,12 +27,11 @@ async function ensureMigrated(): Promise<void> {
 
 async function loadIdentityFromVault(): Promise<IdentityRecord | null> {
   await ensureMigrated();
-  const raw = await vaultLoad();
-  return raw as IdentityRecord | null;
+  return loadIdentityRecord();
 }
 
 async function persistIdentity(record: IdentityRecord): Promise<void> {
-  await vaultSave(record as unknown as Identity);
+  await saveIdentityRecord(record);
   // Publish identity for downstream consumers.
   publishIdentity(record);
 }

@@ -1,5 +1,5 @@
 import type { HermesChannel } from '@vh/types';
-import type { IdentityRecord, ContactRecord, ChatState } from './types';
+import type { ChatIdentity, ContactRecord, ChatState } from './types';
 import { CHANNELS_KEY_PREFIX, CONTACTS_KEY_PREFIX } from './types';
 import { getFullIdentity } from '../identityProvider';
 
@@ -9,8 +9,8 @@ import { getFullIdentity } from '../identityProvider';
  * This returns the full record when available (including device keypairs),
  * without writing secrets to localStorage.
  */
-export function loadIdentity(): IdentityRecord | null {
-  const record = getFullIdentity<IdentityRecord>();
+export function loadIdentity(): ChatIdentity | null {
+  const record = getFullIdentity<ChatIdentity>();
   if (!record || !record.session?.nullifier) {
     return null;
   }

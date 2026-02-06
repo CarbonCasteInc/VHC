@@ -71,13 +71,13 @@ describe('useIdentity', () => {
 
   it('hydrates identity from vault on mount', async () => {
     // Pre-seed the vault
-    const seeded = {
+    const seeded: Identity = {
       id: 'test-id',
       createdAt: 1000,
       attestation: { platform: 'web', integrityToken: 'tok', deviceKey: 'dk', nonce: 'n' },
       session: { token: 't', trustScore: 0.9, scaledTrustScore: 9000, nullifier: 'null1' },
       handle: 'alice'
-    } as unknown as Identity;
+    };
     await vaultSave(seeded);
 
     const useIdentity = await loadHook();

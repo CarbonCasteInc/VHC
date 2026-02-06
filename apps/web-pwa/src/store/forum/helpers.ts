@@ -1,10 +1,10 @@
 import type { HermesComment, HermesThread } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
-import type { ForumState, IdentityRecord } from './types';
+import type { ForumState, ForumIdentity } from './types';
 import { TRUST_THRESHOLD, SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD } from './types';
 import { loadIdentity } from './persistence';
 
-export function ensureIdentity(): IdentityRecord {
+export function ensureIdentity(): ForumIdentity {
   const record = loadIdentity();
   if (!record?.session?.nullifier) {
     throw new Error('Identity not ready');

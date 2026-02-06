@@ -1,12 +1,12 @@
-import type { IdentityRecord } from './types';
+import type { ForumIdentity } from './types';
 import { VOTES_KEY_PREFIX } from './types';
 import { getPublishedIdentity } from '../identityProvider';
 
-export function loadIdentity(): IdentityRecord | null {
+export function loadIdentity(): ForumIdentity | null {
   const snapshot = getPublishedIdentity();
   if (!snapshot) return null;
-  // Return shape compatible with IdentityRecord (only public fields populated).
-  return { session: snapshot.session } as IdentityRecord;
+  // Public snapshot omits session.token by design; forum never uses it.
+  return { session: snapshot.session } as ForumIdentity;
 }
 
 export function loadVotesFromStorage(nullifier: string): Map<string, 'up' | 'down' | null> {

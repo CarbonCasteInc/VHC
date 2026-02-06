@@ -88,6 +88,8 @@ export const SentimentSignalSchema = z.object({
   emitted_at: z.number().int().nonnegative()
 });
 
+export type { IdentityRecord, DevicePair } from './identity';
+
 export type HermesMessageType = 'text' | 'image' | 'file';
 export type HermesChannelType = 'dm';
 export type HermesAttachmentType = 'image' | 'file';

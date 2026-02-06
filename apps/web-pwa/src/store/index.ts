@@ -1,20 +1,13 @@
 import { create } from 'zustand';
 import { createClient, publishToDirectory, type VennClient } from '@vh/gun-client';
 import type { DirectoryEntry, Profile } from '@vh/data-model';
-import {
-  loadIdentity as vaultLoadIdentity,
-  migrateLegacyLocalStorage,
-} from '@vh/identity-vault';
+import type { DevicePair, IdentityRecord } from '@vh/types';
+import { migrateLegacyLocalStorage } from '@vh/identity-vault';
+import { loadIdentityRecord } from '../utils/vaultTyped';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
-
-type DevicePair = { pub: string; priv: string; epub: string; epriv: string };
-type IdentityRecord = {
-  session: { token?: string; trustScore: number; nullifier: string };
-  devicePair?: DevicePair;
-};
 
 interface AppState {
   client: VennClient | null;
@@ -292,7 +285,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const profile = loadProfile();
       // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
       await migrateLegacyLocalStorage();
-      const identity = await vaultLoadIdentity() as IdentityRecord | null;
+      const identity = await loadIdentityRecord();
       if (identity?.devicePair) {
         try {
           await authenticateGunUser(client, identity.devicePair);

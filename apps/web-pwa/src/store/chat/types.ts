@@ -1,4 +1,11 @@
-import type { HermesChannel, HermesMessage, HermesMessageType, HermesPayload, DirectoryEntry } from '@vh/types';
+import type {
+  HermesChannel,
+  HermesMessage,
+  HermesMessageType,
+  HermesPayload,
+  DirectoryEntry,
+  IdentityRecord,
+} from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 
 export const CHANNELS_KEY_PREFIX = 'vh_channels:';
@@ -19,12 +26,7 @@ export interface ChatState {
   getOrCreateChannel(peerIdentityKey: string, peerEpub?: string, peerDevicePub?: string, peerHandle?: string): Promise<HermesChannel>;
 }
 
-export interface IdentityRecord {
-  session: { nullifier: string; trustScore: number };
-  attestation?: { deviceKey?: string };
-  devicePair?: { pub: string; priv: string; epub: string; epriv: string };
-  handle?: string;
-}
+export type ChatIdentity = Pick<IdentityRecord, 'session' | 'attestation' | 'devicePair' | 'handle'>;
 
 export interface ContactRecord {
   nullifier: string;

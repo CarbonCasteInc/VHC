@@ -1,12 +1,12 @@
 import { createHermesChannel } from '@vh/data-model';
 import type { HermesMessage } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
-import type { ChatState, ContactRecord, IdentityRecord, MessageStatus } from './types';
+import type { ChatState, ContactRecord, ChatIdentity, MessageStatus } from './types';
 import { SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD } from './types';
 import { getFullIdentity } from '../identityProvider';
 
-export function ensureIdentity(): IdentityRecord {
-  const record = getFullIdentity<IdentityRecord>();
+export function ensureIdentity(): ChatIdentity {
+  const record = getFullIdentity<ChatIdentity>();
   if (!record || !record.session?.nullifier) {
     throw new Error('Identity not ready');
   }

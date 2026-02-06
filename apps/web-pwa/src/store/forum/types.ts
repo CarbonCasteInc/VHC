@@ -1,4 +1,4 @@
-import type { HermesComment, HermesThread } from '@vh/types';
+import type { HermesComment, HermesThread, IdentityRecord } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 
 export const VOTES_KEY_PREFIX = 'vh_forum_votes:';
@@ -27,9 +27,7 @@ export interface ForumState {
   getCounterComments(threadId: string): HermesComment[];
 }
 
-export interface IdentityRecord {
-  session: { nullifier: string; trustScore: number };
-}
+export type ForumIdentity = Pick<IdentityRecord, 'session'>;
 
 export interface ForumDeps {
   resolveClient: () => VennClient | null;
