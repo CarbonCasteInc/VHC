@@ -9,6 +9,26 @@ const mockPublishDirectory = vi.fn();
 const mockGunAuth = vi.fn((_pair?: any, cb?: (ack?: any) => void) => cb?.({}));
 const mockGunUser = { is: null as any, auth: mockGunAuth };
 
+/** Vault mock: stores identity in-memory for store tests (no IndexedDB needed). */
+let vaultStore: unknown = null;
+vi.mock('@vh/identity-vault', () => ({
+  loadIdentity: vi.fn(async () => vaultStore),
+  saveIdentity: vi.fn(async (id: unknown) => { vaultStore = id; }),
+  clearIdentity: vi.fn(async () => { vaultStore = null; }),
+  migrateLegacyLocalStorage: vi.fn(async () => {
+    // Simulate migration: read from localStorage, store in vault, clear localStorage
+    try {
+      const raw = (globalThis as any).localStorage?.getItem('vh_identity');
+      if (!raw) return 'noop';
+      const parsed = JSON.parse(raw);
+      vaultStore = parsed;
+      (globalThis as any).localStorage?.removeItem('vh_identity');
+      return 'migrated';
+    } catch { return 'noop'; }
+  }),
+  LEGACY_STORAGE_KEY: 'vh_identity',
+}));
+
 vi.mock('@vh/gun-client', () => ({
   createClient: vi.fn(() => ({
     hydrationBarrier: mockHydration,
@@ -40,6 +60,7 @@ class MemoryStorage {
 
 beforeEach(() => {
   (globalThis as any).localStorage = new MemoryStorage();
+  vaultStore = null;
   mockWrite.mockReset();
   mockHydration.prepare.mockClear();
   mockPublishDirectory.mockReset();

@@ -11,6 +11,7 @@ const TEST_IDENTITY: Identity = {
   displayName: 'Alice Nakamoto',
   pub: 'pk_abc123_public_key_data',
   priv: 'sk_secret_private_key_data',
+  session: { nullifier: 'test-null', trustScore: 0.9 },
   customField: 42,
 };
 
@@ -143,8 +144,8 @@ describe('T-5: Migration invalid', () => {
     expect(result).toBe('invalid');
   });
 
-  it('returns "invalid" for JSON that is not a valid identity', async () => {
-    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify({ foo: 'bar' }));
+  it('returns "invalid" for JSON that is not an object (string)', async () => {
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify('just a string'));
     const result = await migrateLegacyLocalStorage();
     expect(result).toBe('invalid');
   });
@@ -283,16 +284,16 @@ describe('Error branches', () => {
     expect(loaded).toBeNull();
   });
 
-  it('loadIdentity returns null when decrypted data is valid JSON but invalid Identity shape', async () => {
+  it('loadIdentity returns null when decrypted data is valid JSON but not an object', async () => {
     await saveIdentity(TEST_IDENTITY);
 
     const db = await openVaultDb();
     const key = await idbGet<CryptoKey>(db, KEYS_STORE, MASTER_KEY);
     expect(key).toBeDefined();
 
-    // Encrypt valid JSON that is NOT a valid Identity (missing required fields)
+    // Encrypt valid JSON that is NOT an object (array)
     const { encrypt } = await import('./crypto');
-    const badShape = new TextEncoder().encode(JSON.stringify({ foo: 'bar', num: 42 }));
+    const badShape = new TextEncoder().encode(JSON.stringify([1, 2, 3]));
     const { iv, ciphertext } = await encrypt(key!, badShape);
     await idbPut(db, VAULT_STORE, IDENTITY_KEY, { version: VAULT_VERSION, iv, ciphertext });
     db.close();
@@ -355,6 +356,12 @@ describe('Error branches', () => {
 
   it('migrateLegacyLocalStorage returns "invalid" for null JSON', async () => {
     localStorage.setItem(LEGACY_STORAGE_KEY, 'null');
+    const result = await migrateLegacyLocalStorage();
+    expect(result).toBe('invalid');
+  });
+
+  it('migrateLegacyLocalStorage returns "invalid" for array JSON', async () => {
+    localStorage.setItem(LEGACY_STORAGE_KEY, '[1,2,3]');
     const result = await migrateLegacyLocalStorage();
     expect(result).toBe('invalid');
   });

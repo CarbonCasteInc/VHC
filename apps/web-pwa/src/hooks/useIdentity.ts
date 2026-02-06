@@ -1,19 +1,23 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttestationPayload } from '@vh/types';
 import { SEA, createSession } from '@vh/gun-client';
 import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../store';
-import { getIdentityStorage } from '../store/identityStorage';
 import { getHandleError, isValidHandle } from '../utils/handle';
+import {
+  loadIdentity as vaultLoad,
+  saveIdentity as vaultSave,
+  migrateLegacyLocalStorage,
+} from '@vh/identity-vault';
+import type { Identity } from '@vh/identity-vault';
 
-const IDENTITY_KEY = 'vh_identity';
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
 const DEV_MODE = (import.meta as any).env?.DEV === true || (import.meta as any).env?.MODE === 'development';
 const ATTESTATION_URL =
   (import.meta as any).env?.VITE_ATTESTATION_URL ?? 'http://localhost:3000/verify';
 const VERIFIER_TIMEOUT_MS = Number((import.meta as any).env?.VITE_ATTESTATION_TIMEOUT_MS) || 2000;
-const IDENTITY_CHANGED_EVENT = 'vh_identity_changed';
+export const IDENTITY_CHANGED_EVENT = 'vh_identity_changed';
 
-export type IdentityStatus = 'anonymous' | 'creating' | 'ready' | 'error';
+export type IdentityStatus = 'hydrating' | 'anonymous' | 'creating' | 'ready' | 'error';
 
 export interface IdentityRecord {
   id: string;
@@ -31,20 +35,24 @@ export interface IdentityRecord {
   devicePair?: { pub: string; priv: string; epub: string; epriv: string };
 }
 
-function loadIdentity(): IdentityRecord | null {
-  const storage = getIdentityStorage();
-  try {
-    const raw = storage.getItem(IDENTITY_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as IdentityRecord;
-  } catch {
-    return null;
+/** Module-level migration guard — runs at most once. */
+let migrationPromise: Promise<void> | null = null;
+
+async function ensureMigrated(): Promise<void> {
+  if (!migrationPromise) {
+    migrationPromise = migrateLegacyLocalStorage().then(() => undefined);
   }
+  return migrationPromise;
 }
 
-function persistIdentity(record: IdentityRecord) {
-  const storage = getIdentityStorage();
-  storage.setItem(IDENTITY_KEY, JSON.stringify(record));
+async function loadIdentityFromVault(): Promise<IdentityRecord | null> {
+  await ensureMigrated();
+  const raw = await vaultLoad();
+  return raw as IdentityRecord | null;
+}
+
+async function persistIdentity(record: IdentityRecord): Promise<void> {
+  await vaultSave(record as Identity);
 }
 
 function emitIdentityChanged(record: IdentityRecord) {
@@ -60,9 +68,33 @@ function randomToken(): string {
 }
 
 export function useIdentity() {
-  const [identity, setIdentity] = useState<IdentityRecord | null>(() => loadIdentity());
-  const [status, setStatus] = useState<IdentityStatus>(identity ? 'ready' : 'anonymous');
+  const [identity, setIdentity] = useState<IdentityRecord | null>(null);
+  const [status, setStatus] = useState<IdentityStatus>('hydrating');
   const [error, setError] = useState<string | undefined>();
+  const hydratedRef = useRef(false);
+  const handleRef = useRef<string | undefined>(undefined);
+
+  // Keep handleRef in sync for stable createIdentity
+  useEffect(() => {
+    handleRef.current = identity?.handle;
+  }, [identity?.handle]);
+
+  // Hydrate from vault on mount
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+
+    loadIdentityFromVault().then((loaded) => {
+      if (loaded) {
+        setIdentity(loaded);
+        setStatus('ready');
+      } else {
+        setStatus('anonymous');
+      }
+    }).catch(() => {
+      setStatus('anonymous');
+    });
+  }, []);
 
   const createIdentity = useCallback(async (handle?: string) => {
     try {
@@ -80,7 +112,6 @@ export function useIdentity() {
       const devicePair = await SEA.pair();
 
       if (E2E_MODE) {
-        // Use unique nullifier per identity so multi-user tests work
         session = { token: `mock-session-${randomToken()}`, trustScore: 1, nullifier: `mock-nullifier-${randomToken()}` };
       } else {
         try {
@@ -109,7 +140,7 @@ export function useIdentity() {
 
       const scaledTrustScore = clampScaledTrustScore(Math.round(session.trustScore * 10000));
 
-      const fallbackHandle = identity?.handle ?? `user_${randomToken().slice(0, 6)}`;
+      const fallbackHandle = handleRef.current ?? `user_${randomToken().slice(0, 6)}`;
       const record: IdentityRecord = {
         id: randomToken(),
         createdAt: Date.now(),
@@ -128,7 +159,7 @@ export function useIdentity() {
         },
         handle: trimmedHandle ?? fallbackHandle
       };
-      persistIdentity(record);
+      await persistIdentity(record);
       const client = useAppStore.getState().client;
       if (client && record.devicePair) {
         try {
@@ -146,33 +177,14 @@ export function useIdentity() {
       setStatus('error');
       setError((err as Error).message);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- handleRef is stable
   }, []);
 
   useEffect(() => {
-    if (!identity && E2E_MODE) {
+    if (status === 'anonymous' && E2E_MODE) {
       void createIdentity();
     }
-  }, [identity, createIdentity]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const handleIdentityChanged = () => {
-      const next = loadIdentity();
-      setIdentity(next);
-      setStatus(next ? 'ready' : 'anonymous');
-    };
-    const handleStorage = (e: StorageEvent) => {
-      if (e.key === IDENTITY_KEY) {
-        handleIdentityChanged();
-      }
-    };
-    window.addEventListener(IDENTITY_CHANGED_EVENT, handleIdentityChanged);
-    window.addEventListener('storage', handleStorage);
-    return () => {
-      window.removeEventListener(IDENTITY_CHANGED_EVENT, handleIdentityChanged);
-      window.removeEventListener('storage', handleStorage);
-    };
-  }, []);
+  }, [status, createIdentity]);
 
   const linkDevice = useCallback(async () => {
     if (!identity) {
@@ -183,7 +195,7 @@ export function useIdentity() {
       ...identity,
       linkedDevices: [...(identity.linkedDevices ?? []), newDevice]
     };
-    persistIdentity(updated);
+    await persistIdentity(updated);
     emitIdentityChanged(updated);
     setIdentity(updated);
     return newDevice;
@@ -195,7 +207,7 @@ export function useIdentity() {
     }
     const code = `link-${randomToken()}`;
     const updated: IdentityRecord = { ...identity, pendingLinkCode: code };
-    persistIdentity(updated);
+    await persistIdentity(updated);
     emitIdentityChanged(updated);
     setIdentity(updated);
     return code;
@@ -211,7 +223,7 @@ export function useIdentity() {
       }
       const linked = [...(identity.linkedDevices ?? []), `linked-${randomToken()}`];
       const updated: IdentityRecord = { ...identity, linkedDevices: linked, pendingLinkCode: undefined };
-      persistIdentity(updated);
+      await persistIdentity(updated);
       emitIdentityChanged(updated);
       setIdentity(updated);
       return linked;
@@ -227,7 +239,7 @@ export function useIdentity() {
       }
       if (!identity) throw new Error('Identity not ready');
       const updated: IdentityRecord = { ...identity, handle: nextHandle.trim() };
-      persistIdentity(updated);
+      await persistIdentity(updated);
       emitIdentityChanged(updated);
       setIdentity(updated);
       return updated;
@@ -271,4 +283,9 @@ function clampScaledTrustScore(value: number): number {
   if (value < 0) return 0;
   if (value > 10000) return 10000;
   return value;
+}
+
+/** Reset migration guard — for testing only. */
+export function _resetMigrationForTest(): void {
+  migrationPromise = null;
 }

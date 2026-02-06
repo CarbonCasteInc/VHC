@@ -1,12 +1,13 @@
 import { create } from 'zustand';
 import { createClient, publishToDirectory, type VennClient } from '@vh/gun-client';
 import type { DirectoryEntry, Profile } from '@vh/data-model';
-import { getIdentityStorage } from './identityStorage';
+import {
+  loadIdentity as vaultLoadIdentity,
+  migrateLegacyLocalStorage,
+} from '@vh/identity-vault';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
-const IDENTITY_STORAGE_KEY = 'vh_identity';
-
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
 
 type DevicePair = { pub: string; priv: string; epub: string; epriv: string };
@@ -30,16 +31,6 @@ function loadProfile(): Profile | null {
   try {
     const raw = localStorage.getItem(PROFILE_KEY);
     return raw ? (JSON.parse(raw) as Profile) : null;
-  } catch {
-    return null;
-  }
-}
-
-function loadIdentityRecord(): IdentityRecord | null {
-  const storage = getIdentityStorage();
-  try {
-    const raw = storage.getItem(IDENTITY_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as IdentityRecord) : null;
   } catch {
     return null;
   }
@@ -291,7 +282,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       console.info('[vh:web-pwa] using Gun peers', client.config.peers);
       await client.hydrationBarrier.prepare();
       const profile = loadProfile();
-      const identity = loadIdentityRecord();
+      // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
+      await migrateLegacyLocalStorage();
+      const identity = await vaultLoadIdentity() as IdentityRecord | null;
       if (identity?.devicePair) {
         try {
           await authenticateGunUser(client, identity.devicePair);
