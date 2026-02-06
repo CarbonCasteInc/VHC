@@ -231,3 +231,29 @@ export async function waitForVaultIdentityNullifier(page: Page, timeoutMs = 15_0
 
   throw new Error(`Timed out waiting for vault identity nullifier after ${timeoutMs}ms.`);
 }
+
+/**
+ * Wait until localStorage has the identity key synced from the vault hydration.
+ * This ensures downstream consumers (forum store) can read identity synchronously.
+ */
+export async function waitForLocalStorageIdentity(page: Page, timeoutMs = 15_000): Promise<void> {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const hasIdentity = await page.evaluate(() => {
+      try {
+        const raw = localStorage.getItem('vh_identity');
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        return typeof parsed?.session?.nullifier === 'string' && parsed.session.nullifier.length > 0;
+      } catch {
+        return false;
+      }
+    });
+
+    if (hasIdentity) return;
+    await page.waitForTimeout(200);
+  }
+
+  throw new Error(`Timed out waiting for localStorage identity sync after ${timeoutMs}ms.`);
+}

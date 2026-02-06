@@ -53,17 +53,22 @@ async function loadIdentityFromVault(): Promise<IdentityRecord | null> {
 
 const LEGACY_IDENTITY_KEY = 'vh_identity';
 
-async function persistIdentity(record: IdentityRecord): Promise<void> {
-  await vaultSave(record as Identity);
-  // Dual-write to localStorage so downstream consumers (forum store, etc.)
-  // that still read localStorage continue to work during the migration period.
+/** Best-effort sync to localStorage for downstream consumers. */
+function syncToLocalStorage(record: IdentityRecord): void {
   try {
     if (typeof globalThis.localStorage !== 'undefined') {
       globalThis.localStorage.setItem(LEGACY_IDENTITY_KEY, JSON.stringify(record));
     }
   } catch {
-    // Best-effort — localStorage may be unavailable (SSR, quota exceeded)
+    // localStorage may be unavailable (SSR, quota exceeded)
   }
+}
+
+async function persistIdentity(record: IdentityRecord): Promise<void> {
+  await vaultSave(record as Identity);
+  // Dual-write to localStorage so downstream consumers (forum store, etc.)
+  // that still read localStorage continue to work during the migration period.
+  syncToLocalStorage(record);
 }
 
 function emitIdentityChanged(record: IdentityRecord) {
@@ -99,6 +104,10 @@ export function useIdentity() {
       if (loaded) {
         setIdentity(loaded);
         setStatus('ready');
+        // Sync to localStorage so downstream consumers (forum store, etc.)
+        // can read it synchronously. The migration may have deleted the
+        // localStorage copy, so we re-establish it here.
+        syncToLocalStorage(loaded);
       } else {
         setStatus('anonymous');
       }

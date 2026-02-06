@@ -110,8 +110,10 @@ describe('useIdentity', () => {
     expect(result.current.identity?.handle).toBe('legacy_user');
     expect(result.current.identity?.session.nullifier).toBe('legacy-null');
 
-    // Legacy key must be cleared
-    expect(localStorage.getItem(LEGACY_STORAGE_KEY)).toBeNull();
+    // Legacy key is re-synced after hydration (dual-write for downstream compat)
+    const lsAfterMigration = localStorage.getItem(LEGACY_STORAGE_KEY);
+    expect(lsAfterMigration).not.toBeNull();
+    expect(JSON.parse(lsAfterMigration!).handle).toBe('legacy_user');
 
     // Vault must have the identity
     const fromVault = await vaultLoad();
