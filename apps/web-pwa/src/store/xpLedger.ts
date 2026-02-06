@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { getPublishedIdentity } from './identityProvider';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 
 type Track = 'civic' | 'social' | 'project';
 type MessagingXPEvent =
@@ -96,10 +97,10 @@ function readIdentityNullifier(): string | null {
 }
 function loadLedgerForNullifier(targetNullifier: string | null): SerializedLedger | null {
   try {
-    const raw = localStorage.getItem(storageKey(targetNullifier));
+    const raw = safeGetItem(storageKey(targetNullifier));
     if (raw) return JSON.parse(raw) as SerializedLedger;
     if (targetNullifier) {
-      const legacy = localStorage.getItem(STORAGE_KEY);
+      const legacy = safeGetItem(STORAGE_KEY);
       if (legacy) return JSON.parse(legacy) as SerializedLedger;
     }
   } catch {
@@ -126,7 +127,7 @@ function persist(state: LedgerData) {
     projectWeekly: Object.fromEntries(state.projectWeekly.entries())
   };
   try {
-    localStorage.setItem(storageKey(state.activeNullifier), JSON.stringify(payload));
+    safeSetItem(storageKey(state.activeNullifier), JSON.stringify(payload));
   } catch {
     /* ignore */
   }

@@ -3,6 +3,7 @@ import { createClient, publishToDirectory, type VennClient } from '@vh/gun-clien
 import type { DirectoryEntry, Profile } from '@vh/data-model';
 import type { DevicePair, IdentityRecord } from '@vh/types';
 import { migrateLegacyLocalStorage } from '@vh/identity-vault';
+import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
 
 const PROFILE_KEY = 'vh_profile';
@@ -22,7 +23,7 @@ interface AppState {
 
 function loadProfile(): Profile | null {
   try {
-    const raw = localStorage.getItem(PROFILE_KEY);
+    const raw = safeGetItem(PROFILE_KEY);
     return raw ? (JSON.parse(raw) as Profile) : null;
   } catch {
     return null;
@@ -30,7 +31,7 @@ function loadProfile(): Profile | null {
 }
 
 function persistProfile(profile: Profile) {
-  localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+  safeSetItem(PROFILE_KEY, JSON.stringify(profile));
 }
 
 function randomId(): string {
