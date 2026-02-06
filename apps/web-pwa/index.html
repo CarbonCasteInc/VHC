@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <script>
-      // Expose E2E flag so the app can stub all network access during tests.
-      window.__VH_E2E_OVERRIDE__ = '%VITE_E2E_MODE%' === 'true';
-    </script>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss: http://100.75.18.26:7777; img-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'"
+    />
+    <script src="/e2e-init.js"></script>
     <title>TRINITY Web PWA</title>
   </head>
   <body class="bg-zinc-50 text-zinc-900">
