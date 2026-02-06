@@ -93,10 +93,8 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
           resolve();
         });
       });
-      getForumDateIndexChain(client).get(withScore.id).put({ timestamp: String(withScore.timestamp) });
-      tags.forEach((tag) =>
-        getForumTagIndexChain(client, tag.toLowerCase()).get(withScore.id).put({ indexed: '1' })
-      );
+      (getForumDateIndexChain(client).get(withScore.id) as any).put({ timestamp: withScore.timestamp });
+      tags.forEach((tag) => (getForumTagIndexChain(client, tag.toLowerCase()).get(withScore.id) as any).put(true));
       set((state) => addThread(state, withScore));
       const tagsLower = tags.map((t) => t.toLowerCase());
       if (tagsLower.some((t) => t.includes('project') || t.includes('proposal'))) {
