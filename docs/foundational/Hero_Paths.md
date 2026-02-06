@@ -11,12 +11,12 @@ This document captures two end-to-end “hero paths” for Season 0:
 Each path is described from the user’s point of view and then mapped to concrete types, contracts, and tests across LUMA (identity), VENN (application), and GWC (economics). These loops must remain consistent with:
 
 - `System_Architecture.md`
-- `docs/spec-identity-trust-constituency.md`
-- `docs/spec-civic-sentiment.md`
-- `docs/spec-rvu-economics-v0.md`
-- `docs/canonical-analysis-v1.md`
-- `docs/AI_ENGINE_CONTRACT.md`
-- `docs/spec-data-topology-privacy-v0.md`
+- `docs/specs/spec-identity-trust-constituency.md`
+- `docs/specs/docs/specs/spec-civic-sentiment.md`
+- `docs/specs/spec-rvu-economics-v0.md`
+- `docs/specs/canonical-analysis-v1.md`
+- `docs/foundational/AI_ENGINE_CONTRACT.md`
+- `docs/specs/docs/specs/spec-data-topology-privacy-v0.md`
 
 ---
 
@@ -145,7 +145,7 @@ This is the **Civic Dignity Loop**: identity → news → analysis → stance �
 #### 1.2.2 Feed → Canonical Analysis (VENN + AI Engine)
 
 - **Data model:**
-  - `CanonicalAnalysisV1` from `docs/canonical-analysis-v1.md`:
+  - `CanonicalAnalysisV1` from `docs/specs/canonical-analysis-v1.md`:
     - `url`, `urlHash`,
     - `summary`,
     - `bias_claim_quote`, `justify_bias_claim`, `biases`, `counterpoints`,
@@ -161,7 +161,7 @@ This is the **Civic Dignity Loop**: identity → news → analysis → stance �
     - Output is canonicalized into `CanonicalAnalysisV1` and validated by `CanonicalAnalysisSchema`.
 
 - **Storage & topology:**
-  - Per `spec-data-topology-privacy-v0.md`:
+  - Per `docs/specs/spec-data-topology-privacy-v0.md`:
     - CanonicalAnalyses are **public**:
       - Stored on-device: `localStorage: vh_canonical_analyses` and IndexedDB `vh-ai-cache/analyses`.
       - Optionally replicated plaintext to mesh: `vh/analyses/<urlHash>`.
@@ -206,7 +206,7 @@ This is the **Civic Dignity Loop**: identity → news → analysis → stance �
 #### 1.2.3 Sentiment, Eye & Lightbulb (VENN + Sentiment Spec)
 
 - **Types & schemas:**
-  - `SentimentSignal` and `AggregateSentiment` from `spec-civic-sentiment.md`.
+  - `SentimentSignal` and `AggregateSentiment` from `docs/specs/spec-civic-sentiment.md`.
   - Event-level:
 
     ```ts
@@ -257,7 +257,7 @@ This is the **Civic Dignity Loop**: identity → news → analysis → stance �
 
 - **Civic Decay function:**
 
-  From `spec-civic-sentiment.md`:
+  From `docs/specs/spec-civic-sentiment.md`:
 
   ```ts
   // One step toward 2.0
@@ -285,7 +285,7 @@ Invariants:
 	•	disagree = count of agreement = -1,
 	•	Neutral (0) is excluded from counts.
 	•	Privacy & topology:
-	•	Per spec-data-topology-privacy-v0.md:
+	•	Per docs/specs/spec-data-topology-privacy-v0.md:
 	•	Event-level SentimentSignal is sensitive:
 	•	Lives on-device and/or is sent encrypted to a Guardian Node.
 	•	Never stored plaintext in the public mesh.
@@ -424,7 +424,7 @@ interface ProposalExtension {
 	•	Seeds example proposal-threads and maintains support aggregates locally.
 	•	In future, will persist proposal extensions + support events via mesh or local storage.
 	•	Topology & privacy:
-	•	Per spec-data-topology-privacy-v0.md:
+	•	Per docs/specs/spec-data-topology-privacy-v0.md:
 	•	Proposal threads are public objects and may be stored in mesh.
 	•	Raw per-user support events may be sensitive depending on identity/constituency linkage:
 	•	Publicly: only aggregate support counts and voice credits per proposal.

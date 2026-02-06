@@ -65,8 +65,8 @@ TRINITY is a **Parallel Institution**: A self-sovereign Operating System for Ide
       * **Suggest:** summaries, drafts, triage (low risk).
       * **Act:** post/comment/thread ops — trust gated + rate limited.
       * **High-impact:** votes/funding/civic action — explicit human approval + higher trust threshold.
-      * **Defaults:** See `docs/spec-identity-trust-constituency.md` §6 (scopes/tiers) and `docs/spec-xp-ledger-v0.md` §4 (budget caps).
-      * **Execution plan:** See `docs/04-sprint-agentic-foundation.md`.
+      * **Defaults:** See `docs/specs/spec-identity-trust-constituency.md` §6 (scopes/tiers) and `docs/specs/spec-xp-ledger-v0.md` §4 (budget caps).
+      * **Execution plan:** See `docs/sprints/04-sprint-agentic-foundation.md`.
 
 -----
 
@@ -123,7 +123,7 @@ We unify identity across LUMA, GWC, and VENN-HERMES using three primitives:
 - `DelegationGrant` = scoped, expiring authority.
 - `OnBehalfOfAssertion` = attached to any agent action.
 
-Invariants: same human → same nullifier across all layers; scaled trustScore = `Math.round(trustScore * 10000)`. See `docs/spec-identity-trust-constituency.md` for the canonical contract.
+Invariants: same human → same nullifier across all layers; scaled trustScore = `Math.round(trustScore * 10000)`. See `docs/specs/spec-identity-trust-constituency.md` for the canonical contract.
 
 ### 4.2 GWC: The Holographic Oracle
 
@@ -150,7 +150,7 @@ Season 0 runs RVU as a standard ERC-20 with `MINTER_ROLE` / `BURNER_ROLE` and no
 Instrumentation focuses on:
 * `RVU.totalSupply()`.
 * `RVU.balanceOf(QuadraticFunding)`.
-* Aggregate distribution counters (e.g., `UBE.totalDistributed`, `Faucet.totalDripped`, `QuadraticFunding.distributedMatching`) to monitor inflation and governance flow. See `docs/spec-rvu-economics-v0.md` for the canonical Season 0 economic contract.
+* Aggregate distribution counters (e.g., `UBE.totalDistributed`, `Faucet.totalDripped`, `QuadraticFunding.distributedMatching`) to monitor inflation and governance flow. See `docs/specs/spec-rvu-economics-v0.md` for the canonical Season 0 economic contract.
 
 #### 4.2.2 XP Ledger v0 (Participation Weight)
 
@@ -167,7 +167,7 @@ XP is a per-nullifier, non-transferable, monotonic ledger that prototypes the fu
 * **Invariants:** per-nullifier, non-transferable, monotonic (no negative XP), tracks are stable even if emission coefficients change over time.
 * **Privacy:** XP ledger is sensitive (per-nullifier); stored on-device, optionally encrypted to a trusted node; only safe aggregates (e.g., district averages with cohort thresholds) may leave the device. Never publish `{district_hash, nullifier, XP}` together.
 
-See `docs/spec-xp-ledger-v0.md` for the canonical Season 0 XP ledger contract. For HERMES Messaging/Forum/Project emission rules (amounts, caps, windows), see `docs/03-sprint-3-the-agora.md` §3.4.
+See `docs/specs/spec-xp-ledger-v0.md` for the canonical Season 0 XP ledger contract. For HERMES Messaging/Forum/Project emission rules (amounts, caps, windows), see `docs/sprints/03-sprint-3-the-agora.md` §3.4.
 
 ### 4.3 VENN: The Canonical Bias Engine
 
@@ -176,7 +176,7 @@ See `docs/spec-xp-ledger-v0.md` for the canonical Season 0 XP ledger contract. F
     1.  **Lookup:** User opens URL. App queries Mesh for hash of URL.
     2.  **Scenario A (Exists):** User downloads shared Analysis. WebLLM (Local) audits it. If valid, User votes.
     3.  **Scenario B (New):** **WebLLM (Local)** generates Analysis. User signs and publishes it as the **Canonical Record**.
-* **Canonical Record:** For each `urlHash`, at most one `CanonicalAnalysis` (schemaVersion `canonical-analysis-v1`) is stored and reused. Civic signals (votes, decay, messaging threads) key off the canonical `urlHash` and immutable timestamp. v1 is first-to-file; v2 will shift to quorum synthesis (first N candidate analyses → synthesis + divergence). See `docs/canonical-analysis-v1.md`.
+* **Canonical Record:** For each `urlHash`, at most one `CanonicalAnalysis` (schemaVersion `canonical-analysis-v1`) is stored and reused. Civic signals (votes, decay, messaging threads) key off the canonical `urlHash` and immutable timestamp. v1 is first-to-file; v2 will shift to quorum synthesis (first N candidate analyses → synthesis + divergence). See `docs/specs/canonical-analysis-v1.md`.
   * **Immutability:** CanonicalAnalysis objects are append-only in v1. Corrections or disputes are modeled as separate signals or future schema versions; they are not edited in place.
   * **Civic Decay (Asymptotic):**
           * Formula: $E_{new} = E_{current} + 0.3 * (2.0 - E_{current})$.
@@ -247,7 +247,7 @@ Article analyses are generated via a fixed 5-step pipeline:
      * Optional `warnings`.
    * `CanonicalAnalysisSchema.parse(...)` enforces the contract before persistence in the mesh.
 
-This pipeline is independent of model choice; swapping remote/local engines only changes the engine implementation/policy, not the canonical analysis contract. See `docs/AI_ENGINE_CONTRACT.md` for the detailed AI engine contract.
+This pipeline is independent of model choice; swapping remote/local engines only changes the engine implementation/policy, not the canonical analysis contract. See `docs/foundational/AI_ENGINE_CONTRACT.md` for the detailed AI engine contract.
 
 #### 4.3.3 Participation Governors (Anti-Swarm)
 
@@ -301,7 +301,7 @@ Rules:
 * Legacy key `vh_identity` is migration-only input (read once, then deleted) and is **not** an active persistence layer.
 * `vh:identity-published` is a hydration signal `CustomEvent` with no identity payload.
 
-See `docs/spec-data-topology-privacy-v0.md` for the canonical Season 0 topology and invariants.
+See `docs/specs/docs/specs/spec-data-topology-privacy-v0.md` for the canonical Season 0 topology and invariants.
 
 ## 5. Unified Development Roadmap
 
@@ -442,7 +442,7 @@ Invariants:
 * `AggregateSentiment` is a deterministic function of the stream of SentimentSignal events.
 * `constituency_proof` MUST be derived from a valid RegionProof: `district_hash = publicSignals[0]`, `nullifier = publicSignals[1]` (same UniquenessNullifier as identity), `merkle_root = publicSignals[2]`.
 
-See `docs/spec-civic-sentiment.md` for the normative contract across client, mesh, and chain.
+See `docs/specs/docs/specs/spec-civic-sentiment.md` for the normative contract across client, mesh, and chain.
 
 -----
 
@@ -491,11 +491,11 @@ Summaries and bias tables MUST NOT introduce information absent from the source 
 * Canonical analysis is keyed by `urlHash`.
 * The first successfully validated analysis for a `urlHash` is reused; later writes cannot overwrite it in v1.
 * Corrections/disagreements are separate signals (votes, sentiment, replies), not mutations of the canonical object.
-* Future versions (e.g., `canonical-analysis-v2`) will introduce quorum synthesis and explicit amendment/supersession; v1 treats the record as append-only. See `docs/canonical-analysis-v2.md`.
+* Future versions (e.g., `canonical-analysis-v2`) will introduce quorum synthesis and explicit amendment/supersession; v1 treats the record as append-only. See `docs/specs/canonical-analysis-v2.md`.
 
 URLs are normalized upstream; the canonical schema enforces `url` as a valid URL (Zod `.url()`), and hashing always uses the normalized form.
 
-See `docs/canonical-analysis-v1.md` for the precise wire-format contract and validation rules.
+See `docs/specs/canonical-analysis-v1.md` for the precise wire-format contract and validation rules.
 
 -----
 
@@ -516,7 +516,7 @@ Mirrors UBE’s trust- and time-gated pattern for dev/onboarding/early tester bo
 
 Implements attested participant registration, project registration, quadratic aggregation, matching pool logic, and withdrawals. In Season 0 the contract is exercised by curators/testers with dev accounts; the public governance UI runs off-chain (seeded proposals, local-only votes/voice credits) and does not expose on-chain QF rounds yet.
 
-See `docs/spec-rvu-economics-v0.md` for detailed Season 0 economic semantics.
+See `docs/specs/spec-rvu-economics-v0.md` for detailed Season 0 economic semantics.
 
 ## 7. Risk Register
 
@@ -528,11 +528,11 @@ See `docs/spec-rvu-economics-v0.md` for detailed Season 0 economic semantics.
 | **R-04** | Legislative Blocking | L3 | **Civic Facilitation:** User-initiated contact via reports + native channels; no automated form submission by default. |
 | **R-05** | Device Loss | L1 | **Recovery:** Multi-device linking & Social Recovery. |
 | **R-06** | Malicious Analysis | L3 | **Distributed Moderation:** Local AI audits & community override votes. |
-| **R-07** | Civic Signal Drift (types/math diverge between client, mesh, and chain) | L1/L3 | **Canonical Contract:** Enforce single spec (`spec-civic-sentiment.md`), shared types in `packages/types`, and Zod schemas in `packages/data-model`. CI blocks on schema mismatch. |
+| **R-07** | Civic Signal Drift (types/math diverge between client, mesh, and chain) | L1/L3 | **Canonical Contract:** Enforce single spec (`docs/specs/spec-civic-sentiment.md`), shared types in `packages/types`, and Zod schemas in `packages/data-model`. CI blocks on schema mismatch. |
 | **R-08** | Identity/Trust Drift | L1/L2/L3 | **Canonical Contract:** Enforce single spec (`spec-identity-trust-constituency.md`), shared types (`TrustScore`, `UniquenessNullifier`, `ConstituencyProof`), and bridge logic. CI blocks on schema mismatch. |
 | **R-09** | AI Contract Drift | L3 | **Canonical Contract:** Enforce `AI_ENGINE_CONTRACT.md`, `canonical-analysis-v1` schema, and worker/schema tests on prompt/parse/validation. |
-| **R-10** | Constituency De-anonymization | L1/L3 | **Aggregation Only:** Keep `SentimentSignal` local/encrypted; publish only per-district aggregates with cohort thresholds; no `district_hash` on-chain; see `spec-data-topology-privacy-v0.md`. |
-| **R-11** | Mesh Metadata Leakage | L1/L3 | **Mesh Hygiene:** Only public objects in plaintext `vh/*`; sensitive data via encrypted outbox; audit Gun paths; feature-flag chat/outbox until E2EE; see `spec-data-topology-privacy-v0.md`. |
+| **R-10** | Constituency De-anonymization | L1/L3 | **Aggregation Only:** Keep `SentimentSignal` local/encrypted; publish only per-district aggregates with cohort thresholds; no `district_hash` on-chain; see `docs/specs/spec-data-topology-privacy-v0.md`. |
+| **R-11** | Mesh Metadata Leakage | L1/L3 | **Mesh Hygiene:** Only public objects in plaintext `vh/*`; sensitive data via encrypted outbox; audit Gun paths; feature-flag chat/outbox until E2EE; see `docs/specs/spec-data-topology-privacy-v0.md`. |
 
 -----
 

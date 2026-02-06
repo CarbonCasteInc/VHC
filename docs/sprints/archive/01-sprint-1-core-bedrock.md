@@ -3,7 +3,7 @@
 # Sprint 1: Core Bedrock - Implementation Checklist
 
 **Context:** `System_Architecture.md` v0.0.1 (Sprint 1: The "Data Dividend" & Civic Beta)
-**Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/canonical-analysis-v1.md`.
+**Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/specs/canonical-analysis-v1.md`.
 **Goal:** Connect the PWA to the Attestation Service, deploy Contracts to Testnet, and enable the "First-to-File" Canonical Analysis protocol.
 **Status:** Archived
 
@@ -74,7 +74,7 @@
 ## Phase 3: VENN (Application & Nervous System)
 
 ### 3.1 Canonical Analysis Protocol
-*Note:* CanonicalAnalysis shape is now governed by `docs/canonical-analysis-v1.md`; this section captures the historical first implementation.
+*Note:* CanonicalAnalysis shape is now governed by `docs/specs/canonical-analysis-v1.md`; this section captures the historical first implementation.
 - [x] **Schema:** Define `CanonicalAnalysis` with:
       - `topic_id` (urlHash)
       - `analysis_id` (canonical analysis hash)
@@ -84,8 +84,8 @@
 ### 3.2 Civic Decay Logic
 - [x] **Storage:** Persist decay state locally to ensure idempotent application across sessions.
 
-Note: Civic Decay logic implemented in Sprint 1 is a prototype. The canonical Civic Decay semantics (including 0–2 Lightbulb bounds and SentimentSignal emission) are defined in `System_Architecture.md` §6.2 and `spec-civic-sentiment.md`, and fully enforced in Sprint 2.
-*Note:* The Sprint 1 analysis pipeline is a prototype. The canonical AI engine contract (prompt, JSON wrapper, schema validation, and hallucination guardrails) is defined in `docs/AI_ENGINE_CONTRACT.md` and `docs/canonical-analysis-v1.md` and fully enforced in Sprint 2. Season 1 data placement (analyses, sentiment) is proto; Season 0 topology/privacy rules (public CanonicalAnalyses, local-only sentiment, no constituency in mesh) are defined in `spec-data-topology-privacy-v0.md` and enforced starting in Sprint 2.
+Note: Civic Decay logic implemented in Sprint 1 is a prototype. The canonical Civic Decay semantics (including 0–2 Lightbulb bounds and SentimentSignal emission) are defined in `System_Architecture.md` §6.2 and `docs/specs/spec-civic-sentiment.md`, and fully enforced in Sprint 2.
+*Note:* The Sprint 1 analysis pipeline is a prototype. The canonical AI engine contract (prompt, JSON wrapper, schema validation, and hallucination guardrails) is defined in `docs/foundational/AI_ENGINE_CONTRACT.md` and `docs/specs/canonical-analysis-v1.md` and fully enforced in Sprint 2. Season 1 data placement (analyses, sentiment) is proto; Season 0 topology/privacy rules (public CanonicalAnalyses, local-only sentiment, no constituency in mesh) are defined in `docs/specs/spec-data-topology-privacy-v0.md` and enforced starting in Sprint 2.
 
 ### 3.3 UI Polish & Integration
 - [x] **Feed:** Create a "Topics stream" (formerly News Feed) showing recent Canonical Analyses.

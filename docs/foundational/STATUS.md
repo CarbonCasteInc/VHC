@@ -48,8 +48,8 @@
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | ⚪ Not Started | Safety baseline + unified topics + analysis robustness (`docs/04-sprint-agentic-foundation.md`) |
-| **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/05-sprint-the-bridge.md`) |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | ⚪ Not Started | Safety baseline + unified topics + analysis robustness (`docs/sprints/04-sprint-agentic-foundation.md`) |
+| **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
 
@@ -61,7 +61,7 @@
 | Sprint 1 Core Bedrock | Contracts deployed to Sepolia/Base with verified sources | Deploy script exists; only localhost deployments committed | `packages/contracts/scripts/deploy-testnet.ts` + `packages/contracts/deployments/localhost.json` |
 | AI_ENGINE_CONTRACT + Sprint 2 | Remote/local engines + policy routing (remote-first etc.) | EngineRouter exists, but worker uses mock local-only engine; no RemoteApiEngine/LocalMlEngine | `packages/ai-engine/src/engines.ts` + `packages/ai-engine/src/worker.ts` |
 | Hero_Paths / Sentiment Spec | Constituency proofs + district aggregates | SentimentSignal emission requires constituency proof; no RegionProof generation or aggregates | `apps/web-pwa/src/hooks/useSentimentState.ts:76-100` |
-| Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/05-sprint-the-bridge.md` |
+| Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/sprints/05-sprint-the-bridge.md` |
 | Agentic Familiars (Delegation) | Delegation grants + OBO assertions | Not implemented | No familiar runtime or delegation types in app state |
 | Participation Governors | Action/analysis budgets per principal | Not implemented | No per-nullifier budget counters |
 | Unified Topics Model | Headlines ↔ threads share `topicId` + proposal threads | Not implemented | Thread schema lacks `topicId`/`proposal` extension |
@@ -212,7 +212,7 @@ packages/contracts/deployments/
 
 **Attestor Bridge:**
 - Implementation: ⚠️ Stub only (`services/bridge-stub/index.ts` logs payload, no on-chain writes)
-- Spec: `docs/spec-attestor-bridge-v0.md`
+- Spec: `docs/specs/spec-attestor-bridge-v0.md`
 - Purpose: SessionResponse (trustScore, nullifier) → on-chain registration (UBE, Faucet, QF)
 
 **Frontend Governance (Season 0):**
@@ -285,7 +285,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 - Planned (v2): Quorum synthesis — first N analyses compared + synthesized
 - v2 will add challenge/supersession path; v1 records remain immutable
 - Defaults (v2): N=5, timeout=24h, challenge=7d
-- See `docs/canonical-analysis-v2.md` for quorum synthesis contract
+- See `docs/specs/canonical-analysis-v2.md` for quorum synthesis contract
 
 **v2 Implementation Gaps:**
 
@@ -357,7 +357,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 | Legacy automation stub | ⚠️ Stub only | `services/bridge-stub/index.ts:1` |
 
 **Planned Redesign:** Facilitation model (PDF reports + contact directory + native intents), not automated form submission.  
-**Spec:** `docs/spec-civic-action-kit-v0.md` (canonical)
+**Spec:** `docs/specs/spec-civic-action-kit-v0.md` (canonical)
 
 ---
 
@@ -474,30 +474,30 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 - `System_Architecture.md` — Target architecture (partially implemented)
 - `docs/LUMA_BriefWhitePaper.md` — Identity vision (mostly aspirational)
 - `docs/GWC_BriefWhitePaper.md` — Economics vision (contracts implemented, undeployed)
-- `docs/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails (enforced)
+- `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails (enforced)
 
 ### Canonical Specs
-- `docs/canonical-analysis-v1.md` — Analysis schema contract (implemented)
-- `docs/canonical-analysis-v2.md` — Quorum synthesis contract (planned)
-- `docs/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract (pipeline implemented, engine mocked)
-- `docs/spec-civic-sentiment.md` — Eye/Lightbulb/Sentiment spec (implemented locally)
-- `docs/spec-xp-ledger-v0.md` — XP ledger spec (fully implemented)
-- `docs/spec-identity-trust-constituency.md` — Identity contract (partially implemented)
-- `docs/spec-rvu-economics-v0.md` — RVU/UBE/QF economics (contracts ready, undeployed)
-- `docs/spec-data-topology-privacy-v0.md` — Data placement rules (implemented)
-- `docs/spec-hermes-messaging-v0.md` — Messaging spec (implemented)
-- `docs/spec-hermes-forum-v0.md` — Forum spec (implemented)
+- `docs/specs/canonical-analysis-v1.md` — Analysis schema contract (implemented)
+- `docs/specs/canonical-analysis-v2.md` — Quorum synthesis contract (planned)
+- `docs/foundational/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract (pipeline implemented, engine mocked)
+- `docs/specs/docs/specs/spec-civic-sentiment.md` — Eye/Lightbulb/Sentiment spec (implemented locally)
+- `docs/specs/spec-xp-ledger-v0.md` — XP ledger spec (fully implemented)
+- `docs/specs/spec-identity-trust-constituency.md` — Identity contract (partially implemented)
+- `docs/specs/spec-rvu-economics-v0.md` — RVU/UBE/QF economics (contracts ready, undeployed)
+- `docs/specs/docs/specs/spec-data-topology-privacy-v0.md` — Data placement rules (implemented)
+- `docs/specs/spec-hermes-messaging-v0.md` — Messaging spec (implemented)
+- `docs/specs/spec-hermes-forum-v0.md` — Forum spec (implemented)
 
 ### Sprint Documentation
-- `docs/archive/00-sprint-0-foundation.md` — ✅ Complete
-- `docs/archive/01-sprint-1-core-bedrock.md` — ⚠️ 90% (testnet gap)
-- `docs/02-sprint-2-advanced-features.md` — ⚠️ 85% (AI engine gap)
-- `docs/03-sprint-3-the-agora.md` — ✅ Complete
-- `docs/03.5-sprint-3.5-ui-refinement.md` — ✅ Complete
-- `docs/04-sprint-agentic-foundation.md` — ⚪ Planning (not started)
-- `docs/05-sprint-the-bridge.md` — ⚪ Planning (not started)
+- `docs/sprints/archive/00-sprint-0-foundation.md` — ✅ Complete
+- `docs/sprints/archive/01-sprint-1-core-bedrock.md` — ⚠️ 90% (testnet gap)
+- `docs/sprints/02-sprint-2-advanced-features.md` — ⚠️ 85% (AI engine gap)
+- `docs/sprints/03-sprint-3-the-agora.md` — ✅ Complete
+- `docs/sprints/03.5-sprint-3.5-ui-refinement.md` — ✅ Complete
+- `docs/sprints/04-sprint-agentic-foundation.md` — ⚪ Planning (not started)
+- `docs/sprints/05-sprint-the-bridge.md` — ⚪ Planning (not started)
 
 ### Developer Resources
 - `CONTRIBUTING.md` — Engineering standards (enforced)
 - `docs/Hero_Paths.md` — Canonical user journeys
-- `docs/MANUAL_TEST_CHECKLIST_SPRINT3.md` — Manual testing guide
+- `docs/sprints/MANUAL_TEST_CHECKLIST_SPRINT3.md` — Manual testing guide

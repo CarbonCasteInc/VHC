@@ -1,6 +1,6 @@
 # TRINITY / VENN-HERMES Monorepo
 
-This monorepo contains the Guardian Node stack, client applications, shared packages, and infrastructure for the TRINITY Bio-Economic OS. See `System_Architecture.md` (root) for the single source of truth.
+This monorepo contains the Guardian Node stack, client applications, shared packages, and infrastructure for the TRINITY Bio-Economic OS. See `docs/foundational/System_Architecture.md` for the single source of truth.
 
 Smoke: agent loop verified 2026-02-05
 Smoke v2: agent loop verified 2026-02-05
@@ -35,9 +35,10 @@ Services exposed (default localhost):
 - Clear stale SW/cache in your browser if the UI looks blank after switching hosts.
 
 ## Documentation
-- System architecture: `System_Architecture.md`
-- Sprint 0 checklist: `docs/00-sprint-0-foundation.md`
-- Architecture lock: `docs/ARCHITECTURE_LOCK.md`
+- Documentation index: `docs/README.md`
+- System architecture: `docs/foundational/System_Architecture.md`
+- Sprint 0 checklist: `docs/sprints/archive/00-sprint-0-foundation.md`
+- Architecture lock: `docs/foundational/ARCHITECTURE_LOCK.md`
 
 ## Contributing
 See `CONTRIBUTING.md` for guardrails (200% coverage, 350 LOC cap) and workflow expectations.

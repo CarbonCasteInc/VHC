@@ -171,7 +171,7 @@ const canonical: CanonicalAnalysisV1 = {
 - v1 is intentionally simple and vulnerable to first-to-file poisoning.
 - v2 will collect the first N candidate analyses and synthesize a canonical record from their agreement and divergence.
 - v2 will add a challenge/supersession path and keep v1 records immutable.
-- See `docs/canonical-analysis-v2.md` for the quorum synthesis contract.
+- See `docs/specs/canonical-analysis-v2.md` for the quorum synthesis contract.
 
 ## 4.2 Generation & Submission Policy (Agent-Aware)
 

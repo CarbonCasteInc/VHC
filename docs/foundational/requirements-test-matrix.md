@@ -1,6 +1,6 @@
 # Requirements → Tests Matrix (Sprint 2 Hardening)
 
-Status: draft helper to keep coverage aligned with `ARCHITECTURE_LOCK.md`, `System_Architecture.md`, and `02-sprint-2-advanced-features.md`.
+Status: draft helper to keep coverage aligned with `docs/foundational/ARCHITECTURE_LOCK.md`, `docs/foundational/System_Architecture.md`, and `docs/sprints/02-sprint-2-advanced-features.md`.
 
 ## Civic Sentiment
 - Event-level signal (SentimentSignal shape, weight ∈ [0, 2]): `packages/data-model/src/schemas.test.ts`

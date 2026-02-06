@@ -34,7 +34,7 @@ Where `γ` (concavity) and `α` (pool fraction) are policy variables. Changing c
 
 ## 3. Emission (Season 0 Candidates)
 
-**Canonical Emission Policy:** See `docs/03-sprint-3-the-agora.md` §3.4 for the definitive Season 0 emission rules for Messaging, Forum, and Project XP. The section below provides a high-level summary.
+**Canonical Emission Policy:** See `docs/sprints/03-sprint-3-the-agora.md` §3.4 for the definitive Season 0 emission rules for Messaging, Forum, and Project XP. The section below provides a high-level summary.
 
 **Summary by Track:**
 
@@ -84,18 +84,18 @@ Elevation of a thread to a proposal consumes the `governance_votes/day` budget (
   - Optional encrypted replication to a Guardian node / trusted aggregator.
   - Never publish `{ district_hash, nullifier, XP }` together.
 - Public exposure:
-  - Only safe aggregates (e.g., district-level averages) with cohort thresholds (see `spec-data-topology-privacy-v0.md`).
+  - Only safe aggregates (e.g., district-level averages) with cohort thresholds (see `docs/specs/spec-data-topology-privacy-v0.md`).
 - No on-chain storage in Season 0.
 
 ## 6. Integration Map
 
 - `useIdentity`: provides `nullifier` as the XP key.
 - `useXpLedger` (Season 0): maintains `XpLedger` locally; applies emission rules on qualified events.
-- `useChatStore` / `useForumStore`: emit XP events to `useXpLedger` on qualifying actions (see `docs/03-sprint-3-the-agora.md` §3.4.6 for wiring details).
+- `useChatStore` / `useForumStore`: emit XP events to `useXpLedger` on qualifying actions (see `docs/sprints/03-sprint-3-the-agora.md` §3.4.6 for wiring details).
 - Dashboards: may show totalXP and track breakdowns per user (local), and safe aggregates (district averages) when cohort rules are met.
 - Future GWC: can read XP (or recompute from event history) to seed participation weights for RVU/GWU distributions.
 
-**Cross-Reference:** The canonical Season 0 emission policy for HERMES Messaging, HERMES Forum, and Project XP is defined in `docs/03-sprint-3-the-agora.md` §3.4. That section specifies exact amounts, caps, windows, and quality thresholds.
+**Cross-Reference:** The canonical Season 0 emission policy for HERMES Messaging, HERMES Forum, and Project XP is defined in `docs/sprints/03-sprint-3-the-agora.md` §3.4. That section specifies exact amounts, caps, windows, and quality thresholds.
 
 ## 7. Test Invariants
 

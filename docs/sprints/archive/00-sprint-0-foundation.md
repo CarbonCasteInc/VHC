@@ -3,7 +3,7 @@
 # Sprint 0: The Foundation - Implementation Checklist
 
 **Context:** `System_Architecture.md` v0.0.1 (Single Source of Truth)
-**Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/canonical-analysis-v1.md`.
+**Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/specs/canonical-analysis-v1.md`.
 **Goal:** Establish the Monorepo, Hardware Roots of Trust, security posture, and basic mesh connectivity required for Milestone A readiness.
 **Status:** Archived
 
@@ -12,10 +12,10 @@
 - [x] Local-First data plan documented (CRDT conflict policy, offline queues, hydration barrier).
 - [x] AI-driven development guardrails codified (LOC caps, module boundaries, 200% coverage).
 - [x] Vite + React + Node 20 + pnpm confirmed as the canonical toolchain.
-- [x] Identity, trustScore, and constituency contracts are documented in `/docs/spec-identity-trust-constituency.md` and referenced from `System_Architecture.md`.
-- [x] Season 0 RVU/UBE/Faucet/QF economics are documented in `/docs/spec-rvu-economics-v0.md` and referenced from `System_Architecture.md`.
-- [x] AI analysis contract (prompt → JSON → validation → CanonicalAnalysis) is documented in `/docs/AI_ENGINE_CONTRACT.md` and referenced from `System_Architecture.md` and `docs/canonical-analysis-v1.md`.
-- [x] Data topology & privacy rules (public vs sensitive, mesh vs device vs chain) are documented in `/docs/spec-data-topology-privacy-v0.md` and referenced from `System_Architecture.md`.
+- [x] Identity, trustScore, and constituency contracts are documented in `/docs/specs/spec-identity-trust-constituency.md` and referenced from `System_Architecture.md`.
+- [x] Season 0 RVU/UBE/Faucet/QF economics are documented in `/docs/specs/spec-rvu-economics-v0.md` and referenced from `System_Architecture.md`.
+- [x] AI analysis contract (prompt → JSON → validation → CanonicalAnalysis) is documented in `/docs/foundational/AI_ENGINE_CONTRACT.md` and referenced from `System_Architecture.md` and `docs/specs/canonical-analysis-v1.md`.
+- [x] Data topology & privacy rules (public vs sensitive, mesh vs device vs chain) are documented in `/docs/specs/docs/specs/spec-data-topology-privacy-v0.md` and referenced from `System_Architecture.md`.
 
 ---
 
@@ -25,7 +25,7 @@
 - [x] Publish `System_Architecture.md` to `/docs` and reference it from `README`.
 - [x] Add `ARCHITECTURE_LOCK.md` summarizing Zero-Trust, Local-First, and Local-Only storage guarantees.
 - [x] Capture risk register (Lamport overflow, TURN cost, AI drift) in `docs/risks.md`.
-- [x] Civic engagement & sentiment contracts documented in `/docs/spec-civic-sentiment.md` and referenced from `System_Architecture.md`.
+- [x] Civic engagement & sentiment contracts documented in `/docs/specs/docs/specs/spec-civic-sentiment.md` and referenced from `System_Architecture.md`.
 
 ### 0.2 Quality Gates & Tooling Alignment
 - [x] Configure `.nvmrc` → Node 20 LTS and `.npmrc` → `strict-peer-dependencies=false`.
@@ -70,7 +70,7 @@
 ## Phase 2: Core Packages & Identity (The Bedrock)
 
 ### 2.1 Core Libraries
-- [x] **Types:** Create `packages/types` (Zod schemas & TS Interfaces), including shared civic data contracts (SentimentSignal, AggregateSentiment, Eye read semantics) as defined in `System_Architecture.md` and `docs/spec-civic-sentiment.md`.
+- [x] **Types:** Create `packages/types` (Zod schemas & TS Interfaces), including shared civic data contracts (SentimentSignal, AggregateSentiment, Eye read semantics) as defined in `System_Architecture.md` and `docs/specs/docs/specs/spec-civic-sentiment.md`.
 - [x] **Crypto:** Create `packages/crypto` (E2EE primitives, wrappers for `window.crypto.subtle`).
 - [x] **CRDT:** Create `packages/crdt` (Lamport, LWW, Vector Clocks).
 - [x] **Data:** Create `packages/data-model` (High-level Entities: Msg, Post).

@@ -82,10 +82,10 @@
 ## 2. Phase 1: HERMES Messaging (The Nervous System)
 
 **Objective:** Enable secure, peer-to-peer, end-to-end encrypted messaging between verified identities.
-**Canonical Reference:** `docs/spec-hermes-messaging-v0.md`
+**Canonical Reference:** `docs/specs/spec-hermes-messaging-v0.md`
 
 ### 2.1 Data Model & Schema (`packages/data-model`)
-- [x] **Schema Definition:** Implement `Message` and `Channel` exactly as defined in `docs/spec-hermes-messaging-v0.md` §2 in `packages/data-model/src/schemas/hermes/message.ts`:
+- [x] **Schema Definition:** Implement `Message` and `Channel` exactly as defined in `docs/specs/spec-hermes-messaging-v0.md` §2 in `packages/data-model/src/schemas/hermes/message.ts`:
     - `Message`: includes `id`, `channelId`, `sender`, `recipient`, `timestamp`, `type`, encrypted `content`, and `signature`.
     - `sender` / `recipient` are set to the session nullifier (`SessionResponse.nullifier`), the canonical identity key across TRINITY.
     - `Channel`: includes `id` (deterministic hash of sorted participant keys), `participants`, `lastMessageAt`, `type: 'dm'`.
@@ -791,11 +791,11 @@ vh/directory/${nullifier}/devices/${devicePub}
 ## 3. Phase 2: HERMES Forum (The Agora)
 
 **Objective:** A threaded conversation platform combining Reddit-style threads with VENN's bias/counterpoint tables.
-**Canonical Reference:** `docs/spec-hermes-forum-v0.md`
+**Canonical Reference:** `docs/specs/spec-hermes-forum-v0.md`
 
 ### 3.1 Data Model (`packages/data-model`)
 
-- [x] **Schema Definition:** Implement `Thread` and `Comment` exactly as defined in `docs/spec-hermes-forum-v0.md` §2 in `packages/data-model/src/schemas/hermes/forum.ts`:
+- [x] **Schema Definition:** Implement `Thread` and `Comment` exactly as defined in `docs/specs/spec-hermes-forum-v0.md` §2 in `packages/data-model/src/schemas/hermes/forum.ts`:
     - `Thread`: has `score = (upvotes - downvotes) * decayFactor`.
     - `Comment`: uses `type: 'reply' | 'counterpoint'` and optional `targetId` for counterpoints.
     - Add `schemaVersion: 'hermes-thread-v0' | 'hermes-comment-v0'`.
@@ -1014,7 +1014,7 @@ thread.tags.forEach(tag => {
 | `apps/web-pwa/src/store/hermesForum.ts` | ✅ Hydration, subscriptions, dedup, vote persistence |
 | `apps/web-pwa/src/store/hermesForum.test.ts` | ✅ Tests for persistence and hydration |
 | `packages/gun-client/src/forumAdapters.ts` | ✅ Already has `.map()` support |
-| `docs/spec-hermes-forum-v0.md` | ✅ Updated to v0.2 with sync/persistence sections |
+| `docs/specs/spec-hermes-forum-v0.md` | ✅ Updated to v0.2 with sync/persistence sections |
 
 ---
 
@@ -1676,4 +1676,4 @@ Project XP rides on Forum structures and tags.
 - Messaging: ✅ PASSED
 - Forum Threads: ✅ PASSED
 - Forum Comments: ✅ PASSED
-- **Proceed to `docs/04-sprint-agentic-foundation.md`**
+- **Proceed to `docs/sprints/04-sprint-agentic-foundation.md`**

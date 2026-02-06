@@ -65,7 +65,7 @@
 - [x] **Civic Decay Algorithm:**
     - **Formula:** `next = current + (2.0 - current) * 0.3`.
     - **Tests:** Verify asymptotic ceiling (never > 2.0) and monotonic growth.
-    - **Scope:** Applied to the user's per-topic Lightbulb weight. Each qualifying interaction = one decay step (engagement only per `spec-civic-sentiment.md` §4; reads update Eye separately).
+    - **Scope:** Applied to the user's per-topic Lightbulb weight. Each qualifying interaction = one decay step (engagement only per `docs/specs/spec-civic-sentiment.md` §4; reads update Eye separately).
 - [x] **Local State:** Persist `topic_interaction_state` (current score) in Gun/IDB.
 - [x] **Optimization:** Integrate `q4f16_1` (or optimal) weights.
     - **Validation:** Worker entry < 20KB, Lazy Chunk < 10MB.
@@ -196,7 +196,7 @@
   - [x] Tests: invalid generator payload fails; engine metadata preserved.
 
 ### 2.5 Canonical Analysis Hard Contract (VENN Engine)
-- [x] **Schema Lock:** `canonical-analysis-v1` Zod schema implemented in `packages/data-model` and exported as the single `CanonicalAnalysis` type (used by ai-engine, storage, and UI); spec anchored in `docs/canonical-analysis-v1.md`.
+- [x] **Schema Lock:** `canonical-analysis-v1` Zod schema implemented in `packages/data-model` and exported as the single `CanonicalAnalysis` type (used by ai-engine, storage, and UI); spec anchored in `docs/specs/canonical-analysis-v1.md`.
 - [x] **AI Engine Alignment:**
     - [x] `AnalysisResult` in `packages/ai-engine/src/prompts.ts` matches the contract:
         - `summary`
@@ -225,7 +225,7 @@
 - [x] **Deterministic JSON:**
     - [x] Stable field set/ordering; snapshot example payload stored in tests.
 - [x] **Docs Wiring:**
-    - [x] `System_Architecture.md` §6.3 and `docs/canonical-analysis-v1.md` are referenced in code comments or README where the schema is consumed.
+    - [x] `System_Architecture.md` §6.3 and `docs/specs/canonical-analysis-v1.md` are referenced in code comments or README where the schema is consumed.
 
 ## Phase 2.6 Identity, Trust & Constituency Unification
 
@@ -273,7 +273,7 @@
 **Goal:** Make data placement explicit and enforce public vs sensitive object rules across device, mesh, and chain.
 
 - [x] **Topology Spec:**
-  - [x] Add `docs/spec-data-topology-privacy-v0.md` capturing object locations (device, mesh, chain, cloud).
+  - [x] Add `docs/specs/docs/specs/spec-data-topology-privacy-v0.md` capturing object locations (device, mesh, chain, cloud).
   - [x] Ensure `System_Architecture.md` §4.5 mirrors this table.
 
 - [x] **Mesh Policy:**
@@ -299,7 +299,7 @@
 **Goal:** Treat XP as the prototype GWC participation ledger (per nullifier, monotonic, partitioned tracks) and wire Season 0 emissions.
 
 - [x] **Spec & Types:**
-  - [x] Add `docs/spec-xp-ledger-v0.md` and mirror types in `packages/types` (`XpLedger`, `XpTrack`, `TotalXpFunction`).
+  - [x] Add `docs/specs/spec-xp-ledger-v0.md` and mirror types in `packages/types` (`XpLedger`, `XpTrack`, `TotalXpFunction`).
   - [x] `totalXP` computed via a deterministic function over tracks (e.g., weighted sum).
 
 - [x] **Storage & Privacy:**
@@ -342,6 +342,6 @@
 ## Exit Criteria for Sprint 2
 - [x] **CI Green:** All gates (Unit, Build, E2E, Bundle, Lighthouse) passing.
 - [x] **Governance Live:** Users can submit/vote (Attestation Enforced).
-- [x] **Topics Stream Polished:** UX is smooth, AI is fast (≤ 2s), Decay is visible, Eye/Lightbulb behave according to `spec-civic-sentiment.md`, and SentimentSignal events are emitted and validated locally.
+- [x] **Topics Stream Polished:** UX is smooth, AI is fast (≤ 2s), Decay is visible, Eye/Lightbulb behave according to `docs/specs/spec-civic-sentiment.md`, and SentimentSignal events are emitted and validated locally.
 - [x] **Canonical Contract Locked:** `canonical-analysis-v1` defined, validated, and used end-to-end (LLM → worker → storage → UI) with tests green.
 - [x] **Docs:** `manual_test_plan.md` updated for Governance flows.

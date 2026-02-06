@@ -54,7 +54,7 @@ This spec is the single contract for identity, trustScore, and constituency acro
   - `district_hash` and `nullifier` together are **sensitive**; this pair MUST NOT appear in public mesh documents or on-chain storage.
   - `district_hash` MAY appear inside encrypted outbox payloads (e.g., SentimentSignal → Guardian Node) or in aggregated per-district stats (without nullifiers) that are published to reps or dashboards.
   - On-chain contracts never store `district_hash`; governance/economics are region-agnostic at the contract level.
-  - See `spec-data-topology-privacy-v0.md` for placement rules.
+  - See `docs/specs/spec-data-topology-privacy-v0.md` for placement rules.
 
 ## 5. Multi-Device & Recovery Semantics
 

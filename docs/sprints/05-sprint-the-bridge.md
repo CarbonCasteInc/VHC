@@ -57,7 +57,7 @@
 ## 2. Phase 1: HERMES Docs (Collaborative Editor)
 
 **Objective:** Enable secure, real-time collaborative document editing (Google Docs style) over P2P infrastructure.
-**Canonical Reference:** `docs/spec-hermes-docs-v0.md` (to be created)
+**Canonical Reference:** `docs/specs/spec-hermes-docs-v0.md` (to be created)
 
 ### 2.1 Data Model & Schema (`packages/data-model`)
 
@@ -331,7 +331,7 @@ interface DocsState {
 ## 3. Phase 2: Civic Action Kit (Facilitation)
 
 **Objective:** Enable users to generate verified civic reports and contact their representatives via user-initiated channels (email/phone/share/export). No automated form submission by default.
-**Canonical Reference:** `docs/spec-civic-action-kit-v0.md`
+**Canonical Reference:** `docs/specs/spec-civic-action-kit-v0.md`
 
 ### 3.1 Data Model & Schema (`packages/data-model`)
 
@@ -681,8 +681,8 @@ interface BridgeState {
 | `apps/web-pwa/src/store/hermesDocs.ts` | Docs store |
 | `apps/web-pwa/src/store/hermesBridge.ts` | Bridge store |
 | `apps/web-pwa/src/bridge/reportGenerator.ts` | Local report generator |
-| `docs/spec-hermes-docs-v0.md` | Docs specification |
-| `docs/spec-civic-action-kit-v0.md` | Civic Action Kit specification |
+| `docs/specs/spec-hermes-docs-v0.md` | Docs specification |
+| `docs/specs/spec-civic-action-kit-v0.md` | Civic Action Kit specification |
 
 ### 8.3 Prerequisites from Sprint 3
 

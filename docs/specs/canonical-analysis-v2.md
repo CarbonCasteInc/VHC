@@ -2,7 +2,7 @@
 
 **Status:** Planned (Direction Locked)  
 **Owner:** VENN Engine / Data Model  
-**Reference:** `System_Architecture.md` §6.3, `docs/canonical-analysis-v1.md`
+**Reference:** `System_Architecture.md` §6.3, `docs/specs/canonical-analysis-v1.md`
 
 ## 1. Goals
 
@@ -20,7 +20,7 @@
 
 ## 3. Type Definition
 
-> `AnalysisResult` is the same contract as v1 (see `docs/canonical-analysis-v1.md`).
+> `AnalysisResult` is the same contract as v1 (see `docs/specs/canonical-analysis-v1.md`).
 
 ```typescript
 export interface CandidateAnalysis {

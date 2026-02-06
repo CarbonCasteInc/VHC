@@ -276,7 +276,7 @@ function computeThreadScore(thread: Thread, now: number): number {
 ### 4.3 Moderation
 *   **Default:** Community driven. Low score auto-collapses content in the UI.
 *   **Admin Keys:** Hard-coded set of keys (Governance Council) can forcibly hide/remove illegal content (Child Safety, etc.).
-*   **Civic Decay:** Old threads/votes lose weight over time (see `spec-civic-sentiment.md`).
+*   **Civic Decay:** Old threads/votes lose weight over time (see `docs/specs/spec-civic-sentiment.md`).
 *   **Moderation Events:**
     *   Moderator hide/remove actions must be represented as separate signed records (`ModerationEvent`).
     *   Validated against a hard-coded set of moderator keys in the client.

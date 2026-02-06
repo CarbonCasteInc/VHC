@@ -59,8 +59,8 @@ Create a precise, engine-agnostic pipeline: prompt → engine → JSON → valid
 - Build `CanonicalAnalysisV1` from validated `AnalysisResult` plus:
   - `engine` provenance `{ id, kind, modelName }`.
   - `warnings`.
-- Validate with `CanonicalAnalysisSchema` (see `docs/canonical-analysis-v1.md`); persist via mesh/First-to-File logic (v1).
-- Planned v2 will shift canonicalization to quorum synthesis (see `docs/canonical-analysis-v2.md`).
+- Validate with `CanonicalAnalysisSchema` (see `docs/specs/canonical-analysis-v1.md`); persist via mesh/First-to-File logic (v1).
+- Planned v2 will shift canonicalization to quorum synthesis (see `docs/specs/canonical-analysis-v2.md`).
 
 ## 7. Failure Modes & Logging
 

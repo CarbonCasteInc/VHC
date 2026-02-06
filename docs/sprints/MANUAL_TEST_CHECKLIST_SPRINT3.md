@@ -145,7 +145,7 @@
 > 
 > **Error:** `Unverified data` + `JWK "x" member 37 bytes but should be 32`
 > 
-> **Fix:** See `docs/03-sprint-3-the-agora.md` §2.4.0 for 16-task implementation plan including:
+> **Fix:** See `docs/sprints/03-sprint-3-the-agora.md` §2.4.0 for 16-task implementation plan including:
 > - Directory service (§2.4.0.1-2)
 > - Gun authentication (§2.4.0.5)
 > - New path structure (§2.4.0.3-4)

@@ -151,4 +151,4 @@ Public-facing and mesh-replicated data must use **AggregateSentiment** and simil
 - No raw `RegionProof` or `ConstituencyProof`.
 - `district_hash` appears only in per-district aggregates, never joined with individual identifiers.
 
-On-chain contracts (UBE, Faucet, QF) remain region-agnostic; they do not consume `district_hash` or per-user sentiment. See `spec-data-topology-privacy-v0.md` for placement rules.
+On-chain contracts (UBE, Faucet, QF) remain region-agnostic; they do not consume `district_hash` or per-user sentiment. See `docs/specs/spec-data-topology-privacy-v0.md` for placement rules.
