@@ -47,6 +47,7 @@
 ## Active Follow-ups
 
 - **Issue #4** — SMOKE: agent loop end-to-end (open).
+- **Issue #40** — migrate remaining bare localStorage calls to safeStorage utility (open).
 
 ---
 
