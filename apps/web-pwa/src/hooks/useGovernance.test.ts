@@ -165,6 +165,83 @@ describe('useGovernance', () => {
     }
   });
 
+  describe('storage guard hardening (#87)', () => {
+    const assertSeedProposalCounts = (
+      proposals: Array<{ id: string; votesFor: number; votesAgainst: number }>
+    ) => {
+      expect(proposals.find((p) => p.id === 'proposal-1')).toMatchObject({ votesFor: 12, votesAgainst: 3 });
+      expect(proposals.find((p) => p.id === 'proposal-2')).toMatchObject({ votesFor: 8, votesAgainst: 1 });
+    };
+
+    it('T-1: readStoreMap rejects array in vote map key', () => {
+      localStorage.setItem('vh_governance_votes', '[1,2,3]');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections).toEqual({});
+      assertSeedProposalCounts(result.current.proposals);
+    });
+
+    it('T-2: readStoreMap rejects empty array', () => {
+      localStorage.setItem('vh_governance_votes', '[]');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections).toEqual({});
+      assertSeedProposalCounts(result.current.proposals);
+    });
+
+    it('T-3: readStoreMap rejects nested array of objects', () => {
+      localStorage.setItem('vh_governance_votes', '[{"proposal-1":{"amount":1,"direction":"for"}}]');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections).toEqual({});
+      assertSeedProposalCounts(result.current.proposals);
+    });
+
+    it('T-4: readFromStorage rejects array in per-voter key', () => {
+      localStorage.setItem('vh_governance_votes:v1', '[{"amount":1,"direction":"for"}]');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections).toEqual({});
+    });
+
+    it('T-5: valid object still accepted (regression)', () => {
+      localStorage.setItem('vh_governance_votes', '{"v1":{"proposal-1":{"amount":2,"direction":"for"}}}');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections['proposal-1']).toBe('for');
+      expect(result.current.proposals.find((p) => p.id === 'proposal-1')?.votesFor).toBe(14);
+    });
+
+    it('T-6: null parsed value returns {}', () => {
+      localStorage.setItem('vh_governance_votes', 'null');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections).toEqual({});
+    });
+
+    it('T-7: primitive number returns {}', () => {
+      localStorage.setItem('vh_governance_votes', '42');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections).toEqual({});
+    });
+
+    it('T-8: primitive string returns {}', () => {
+      localStorage.setItem('vh_governance_votes', '"hello"');
+
+      const { result } = renderHook(() => useGovernance('v1', 0.95));
+
+      expect(result.current.votedDirections).toEqual({});
+    });
+  });
+
   describe('governance vote budget enforcement', () => {
     let originalGetState: typeof useXpLedger.getState;
 

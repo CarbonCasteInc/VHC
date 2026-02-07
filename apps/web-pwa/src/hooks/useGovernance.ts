@@ -66,7 +66,7 @@ function readFromStorage(storage: Storage | undefined, key: string): StoredVotes
     const raw = storage.getItem(key);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as StoredVotes;
-    if (parsed && typeof parsed === 'object') return parsed;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
     return {};
   } catch {
     console.warn('[vh:governance] Storage read failed for key', key);
@@ -80,7 +80,7 @@ function readStoreMap(storage: Storage | undefined): Record<string, StoredVotes>
     const raw = storage.getItem(VOTE_STORAGE_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as Record<string, StoredVotes>;
-    if (parsed && typeof parsed === 'object') return parsed;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
     return {};
   } catch {
     console.warn('[vh:governance] Storage map read failed');
