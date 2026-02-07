@@ -23,8 +23,9 @@
 
 ---
 
-## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50, #53, #56, #59, #63, #66, #69, #70, #71, #72, #73, #77, #80, #87, #90)
+## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #50, #53, #56, #59, #63, #66, #69, #70, #71, #72, #73, #77, #80, #87, #90)
 
+- ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
 - ✅ **Issue #15** — Extended typecheck coverage to remaining packages.
@@ -43,6 +44,7 @@
 - ✅ **Issue #6** — SSR-hardened localStorage access: created `safeStorage.ts` utility with SSR-safe `safeGetItem`/`safeSetItem`/`safeRemoveItem`, applied to xpLedger and profile stores (PR #38, merged 2026-02-06).
 - ✅ **Issue #4** — SMOKE: agent loop end-to-end smoke test — validated full ritual (spec → impl → QA → maint → merge) with a docs-only PR (PR #41, merged 2026-02-06).
 - ✅ **Issue #40** — Migrated all remaining bare `localStorage` calls to `safeStorage` utility (13 files), added ESLint `no-restricted-globals` rule to prevent regressions (PR #42, merged 2026-02-06).
+- ✅ **Issue #44** — CSP meta tag + secure storage policy enforcement: added restrictive `<meta>` CSP to `index.html`, extracted inline E2E script to `public/e2e-init.js`, created `docs/specs/secure-storage-policy.md` (3-tier model: Vault/safeStorage/Ephemeral), added CSP test + storage audit test. All existing tests pass, 100% coverage maintained (PR #45, merged 2026-02-07).
 - ✅ **Issue #46** — Added canonical delegation/familiar type foundations: `FamiliarRecord`, `DelegationGrant`, `OnBehalfOfAssertion` interfaces + Zod schemas, `DelegationTier`/`DelegationScope` types, `TIER_SCOPES` constant (PR #48, merged 2026-02-07).
 - ✅ **Issue #50** — Added participation governor type foundations: `BudgetActionKey` (8-key string literal union), `BudgetLimit`/`DailyUsage`/`NullifierBudget` interfaces + Zod schemas, `BUDGET_ACTION_KEYS` runtime tuple, `SEASON_0_BUDGET_DEFAULTS` constant. Full test suite with 100% coverage (PR #51, merged 2026-02-07).
 - ✅ **Issue #53** — Added participation governor runtime utilities: `initializeNullifierBudget`, `rolloverBudgetIfNeeded`, `canConsumeBudget`, `consumeBudget` pure functions + `BudgetCheckResult` interface. 52 tests, 100% coverage (PR #54, merged 2026-02-07).
@@ -64,7 +66,14 @@
 
 ## Active Follow-ups
 
-None — all tracked issues resolved. Next work: remaining budget enforcement slices (moderation, civic_actions, shares).
+| Issue | Title | Priority |
+|-------|-------|----------|
+| #98 | consumeAction called on null analysis result from getOrGenerate | Should |
+| #68 | TOCTOU hardening across budget enforcement call sites | Should |
+| #61 | Cleanup: remove redundant setActiveNullifier in ProposalList.tsx useEffect | Nit |
+| #47 | CSP header hardening & documentation (Shoulds from #44) | Should |
+
+Next work: remaining budget enforcement slices (moderation, civic_actions, shares) and above follow-ups.
 
 ---
 
@@ -77,7 +86,7 @@ None — all tracked issues resolved. Next work: remaining budget enforcement sl
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote & analyses enforcement wiring landed; unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); remaining budget enforcement (moderation/civic_actions/shares) pending |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote & analyses enforcement wiring landed; budget denial UX hardened (#69); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); remaining budget enforcement (moderation/civic_actions/shares) + follow-ups (#98 consume-on-null, #68 TOCTOU) pending |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---

@@ -435,7 +435,7 @@ function serializeThreadForGun(thread: HermesThread): Record<string, unknown> {
   };
 }
 
-/** Parse thread from Gun storage (handles stringified arrays) */
+/** Parse thread from Gun storage (handles stringified arrays + proposal guard) */
 function parseThreadFromGun(data: Record<string, unknown>): Record<string, unknown> {
   let tags = data.tags;
   if (typeof tags === 'string') {
@@ -446,7 +446,16 @@ function parseThreadFromGun(data: Record<string, unknown>): Record<string, unkno
       tags = [];
     }
   }
-  return { ...data, tags };
+  // Destructure proposal out before spreading to prevent array-valued
+  // proposals from leaking through (Gun can store arrays as objects).
+  // Triple guard: truthy + object + not-array (PR #92, Issue #90).
+  const { proposal: rawProposal, ...rest } = data;
+  const result: Record<string, unknown> = { ...rest, tags };
+  if (rawProposal && typeof rawProposal === 'object' && !Array.isArray(rawProposal)) {
+    const { _: _meta, ...cleanProposal } = rawProposal as Record<string, unknown>;
+    result.proposal = cleanProposal;
+  }
+  return result;
 }
 
 // Usage in createThread:
