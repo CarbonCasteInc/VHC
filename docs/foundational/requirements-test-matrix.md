@@ -19,7 +19,7 @@ Status: draft helper to keep coverage aligned with `docs/foundational/ARCHITECTU
 - Prompt/parse/guardrails pipeline: `packages/ai-engine/src/analysis.test.ts`, `worker.test.ts`, `prompts.test.ts`
 
 ## XP / Economics / Governance
-- XP ledger math: `apps/web-pwa/src/hooks/useXpLedger.test.ts`
+- XP ledger math: `apps/web-pwa/src/store/xpLedger.test.ts`
 - UBE/Wallet display & gating: `apps/web-pwa/src/routes/WalletPanel.test.tsx`, `apps/web-pwa/src/hooks/useWallet.test.ts`
 - Governance local voting + curated mapping log: `apps/web-pwa/src/hooks/useGovernance.test.ts`
 

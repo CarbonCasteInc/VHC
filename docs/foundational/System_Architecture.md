@@ -1,8 +1,12 @@
-# BIO-EC OS: Source of Truth
+# BIO-EC OS: Target Architecture
 
 **Codename:** TRINITY (VENN/HERMES x LUMA x GWC)
-**Version:** 0.2.0 (Sprint 2 Baseline)
+**Version:** 0.2.1 (Sprint 4 — Agentic Foundation)
 **Status:** APPROVED FOR EXECUTION
+
+> ⚠️ **This document describes the target architecture, not current implementation.**
+> For actual implementation status, see `STATUS.md`. For gaps between this document
+> and code reality, see the "Docs vs. Code Alignment" section in `STATUS.md`.
 
 -----
 

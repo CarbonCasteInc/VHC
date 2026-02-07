@@ -16,7 +16,7 @@ VENN-HERMES is a decentralized, multi-user application with E2E encrypted messag
   - Issue #15: extended typecheck coverage across remaining packages.
   - Issue #18: resolved web-pwa typecheck error backlog.
   - Issue #24: added `apps/web-pwa/tsconfig.test.json` for test-file typechecking (`pnpm --filter @vh/web-pwa typecheck:test`).
-- Active follow-up: Issue #27 (fresh-checkout `pnpm typecheck` currently requires prior build artifacts).
+- ~~Issue #27~~ resolved: fresh-checkout `pnpm typecheck` works without prior build artifacts (PR #30, merged 2026-02-06).
 
 ---
 

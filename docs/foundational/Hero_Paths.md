@@ -62,7 +62,7 @@ Each path is described from the user’s point of view and then mapped to concre
 
    - **Reanalysis cadence (discrete refresh, not continuous churn):**
      - During the **first N opens** (default: 5), each analysis re‑reads the original article/post and **critiques/refines** the prior summary + Frame/Reframe table with the express intent of maximum accuracy. Each candidate is distributed on the mesh.
-     - Every **N verified comments** thereafter (default: 50, min 8 unique verified principals), the Topic is re-analyzed using:
+     - Every **N verified comments** thereafter (default: 10, min 3 unique verified principals), the Topic is re-analyzed using:
        - the original article/topic context, plus
        - a digest of the newest discussion.
      - Debounce: at most one refresh per 30 minutes; daily cap: 4 per topic.
