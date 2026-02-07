@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #50, #53, #56, #59, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98)
+## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #50, #53, #56, #59, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106)
 
 - ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
@@ -55,6 +55,7 @@
 - ✅ **Issue #69** — Budget denial UX hardening: `useSentimentState.setAgreement` now returns `{ denied: true, reason }` and logs `console.warn` on budget denial (was silent void return). `AnalysisFeed.runAnalysis` resolves with `analysis: null` on denial (was `{} as CanonicalAnalysis` type-unsafe cast). `handleSubmit` guards null analysis. Reason fallback uses `||` for empty-string edge case. `createBudgetDeniedResult` helper exported. 10 new tests, 721 total, 100% coverage maintained (PR #96, merged 2026-02-07).
 - ✅ **Issue #98** — Gated `consumeAction('analyses/day')` on non-null analysis result. Prevents phantom budget debit when `getOrGenerate` returns null analysis. 1 LOC fix + 1 test assertion correction. 721 tests, 100% coverage maintained (PR #102, merged 2026-02-07).
 - ✅ **Issue #68** — TOCTOU budget hardening: added synchronous `useRef` guard in AnalysisFeed to prevent concurrent double-submit race, plus TOCTOU documentation comments at forum `consumeAction` call sites. 3 new concurrency tests (TC-1/TC-2/TC-3). 724 tests, 100% coverage maintained (PR #104, merged 2026-02-07).
+- ✅ **Issue #106** — Wired `shares/day` budget enforcement into AnalysisFeed: share button with `navigator.share` + clipboard fallback, check-before/consume-after pattern via `canPerformAction`/`consumeAction`. Season 0 limit: 10 shares/day per nullifier. Last dormant Season 0 budget key — all 8 budget keys now fully wired. 10 new tests, 734 tests total, 100% coverage maintained (PR #107, SHA `6306df5`, merged 2026-02-07).
 - ✅ **Issue #70** — Hardened budget localStorage validation: added `validateBudgetOrNull` using `NullifierBudgetSchema.safeParse` at the restore boundary, wrapped `ensureBudget` with try/catch fallback to `initializeNullifierBudget`. 22 new tests, 623 total, 100% coverage maintained (PR #75, merged 2026-02-07).
 - ✅ **Issue #71** — Hardened `useGovernance.ts` branch coverage from 72% to 100%: added 26 focused tests covering early-return paths (no active identity, missing nullifier, empty proposals, duplicate vote dedup), governance vote budget enforcement (limit hit, budget consumed on success), proposal hydration edge cases (empty/populated stores, multiple proposals), and `initGovernance` sequencing. Minor source fix: early-return when `proposals` is empty in `hydrateProposals`. Removed stale `useGovernance.ts` from coverage exclusion in `vitest.config.ts`. 685 tests total, 100% coverage maintained (PR #86, merged 2026-02-07).
 - ✅ **Issue #72** — Budget test scaffolding dedup + code comments cleanup: deduped `today()`/`todayISO()` between `xpLedger.ts` and `xpLedgerBudget.ts`, extracted shared `createBudgetMock()` test helper in `test-utils/budgetMock.ts`, added intentionality comments for budget call sites in `useSentimentState.ts`, restored inline Map type docs in `xpLedger.ts`, exported `ANALYSIS_FEED_STORAGE_KEY` constant for test use. 6 files changed, net −16 lines. 711 tests, 100% coverage maintained (PR #94, merged 2026-02-07).
@@ -73,7 +74,7 @@
 | #61 | Cleanup: remove redundant setActiveNullifier in ProposalList.tsx useEffect | Nit |
 | #47 | CSP header hardening & documentation (Shoulds from #44) | Should |
 
-Next work: remaining budget enforcement slices (moderation, civic_actions, shares) and above follow-ups (#61, #47).
+Next work: remaining budget enforcement slices (moderation, civic_actions) and above follow-ups (#61, #47). All Season 0 budget keys are now wired (`shares/day` was the last one, completed in #106).
 
 ---
 
@@ -86,7 +87,7 @@ Next work: remaining budget enforcement slices (moderation, civic_actions, share
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote & analyses enforcement wiring landed; budget denial UX hardened (#69); consume-on-null fix (#98); TOCTOU budget hardening (#68); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); remaining budget enforcement (moderation/civic_actions/shares) pending; only out-of-scope follow-ups remain (#47 CSP, #61 ProposalList) |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote, analyses & shares enforcement wiring landed; all 8 Season 0 budget keys now wired (#106 completed shares/day, the last one); budget denial UX hardened (#69); consume-on-null fix (#98); TOCTOU budget hardening (#68); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); remaining budget enforcement (moderation/civic_actions) pending; only out-of-scope follow-ups remain (#47 CSP, #61 ProposalList) |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
@@ -101,7 +102,7 @@ Next work: remaining budget enforcement slices (moderation, civic_actions, share
 | Hero_Paths / Sentiment Spec | Constituency proofs + district aggregates | SentimentSignal emission requires constituency proof; no RegionProof generation or aggregates | `apps/web-pwa/src/hooks/useSentimentState.ts:76-100` |
 | Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/sprints/05-sprint-the-bridge.md` |
 | Agentic Familiars (Delegation) | Delegation grants + OBO assertions | 🟡 Types + Zod schemas defined; runtime not implemented | `packages/types/src/delegation.ts` (PR #48); no familiar runtime yet |
-| Participation Governors | Action/analysis budgets per principal | 🟡 Types + defaults + runtime utils defined; forum (posts/comments), governance votes, sentiment votes & analyses enforcement wired | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64) + `AnalysisFeed.tsx` (PR #67); remaining store/flow integration (moderation, civic_actions, shares) pending |
+| Participation Governors | Action/analysis budgets per principal | 🟡 Types + defaults + runtime utils defined; forum (posts/comments), governance votes, sentiment votes, analyses & shares enforcement wired — all 8 Season 0 budget keys active | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64) + `AnalysisFeed.tsx` (PRs #67, #107); remaining store/flow integration (moderation, civic_actions) pending |
 | Unified Topics Model | Headlines ↔ threads share `topicId` + proposal threads | ✅ Schema, derivation, and Feed↔Forum integration done | `packages/data-model/src/schemas/hermes/forum.ts` + `apps/web-pwa/src/store/forum/helpers.ts` (PR #78) + `AnalysisFeed.tsx`/`ForumFeed.tsx`/`NewThreadForm.tsx` (PR #81) |
 | Topic Reanalysis Epochs | Frame/Reframe table updates after N posts via reanalysis | Not implemented | No reanalysis loop or digest types in app state |
 
@@ -131,7 +132,8 @@ The following tasks are required to align the codebase with the updated specs (a
 | ✅ ~~Enforce budgets: sentiment_votes/day=200~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `useSentimentState.setAgreement` with check-before/consume-after pattern (PR #64) |
 | ✅ ~~Enforce budgets: governance_votes/day=20~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `useGovernanceStore.submitVote` with check-before/consume-after pattern (PR #60) |
 | ✅ ~~Enforce budgets: analyses/day=25 (max 5/topic)~~ | `canonical-analysis-v1.md` §4.2 | Done — enforced in `AnalysisFeed.tsx` with check-before/consume-after pattern, per-topic sub-cap via `topicId` (PR #67) |
-| Enforce budgets: moderation/day=10, civic_actions/day=3, shares/day=10 | `spec-xp-ledger-v0.md` §4 | Various stores |
+| ✅ ~~Enforce budgets: shares/day=10~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `AnalysisFeed.tsx` with share button + `navigator.share`/clipboard fallback, check-before/consume-after pattern (PR #107) |
+| Enforce budgets: moderation/day=10, civic_actions/day=3 | `spec-xp-ledger-v0.md` §4 | Various stores |
 
 ### P0 — Unified Topics Model
 
@@ -216,7 +218,7 @@ fn verify_web(payload, mock_mode) -> f32 {
 |---------|----------------|----------|
 | Delegation grants / OBO assertions | 🟡 Types + schemas defined | `packages/types/src/delegation.ts` (PR #48) |
 | Familiar runtime modes (suggest/act/high-impact) | ❌ Not implemented | No familiar orchestration layer |
-| Action/compute budgets per nullifier | 🟡 Types + runtime utils defined; forum, governance, sentiment & analyses enforcement wired | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64) + `AnalysisFeed.tsx` (PR #67); posts/day, comments/day, governance_votes/day, sentiment_votes/day & analyses/day enforced; remaining action types (moderation, civic_actions, shares) pending |
+| Action/compute budgets per nullifier | 🟡 Types + runtime utils defined; forum, governance, sentiment, analyses & shares enforcement wired — all 8 Season 0 budget keys now active | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64) + `AnalysisFeed.tsx` (PRs #67, #107); posts/day, comments/day, governance_votes/day, sentiment_votes/day, analyses/day & shares/day enforced; remaining action types (moderation, civic_actions) pending |
 
 **Invariant:** Familiars inherit the principal’s trust gate and budgets; they never add influence.
 
@@ -443,7 +445,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 724 tests (unit + component + integration).
+**Repo-wide (Vitest `pnpm test:quick`):** 734 tests (unit + component + integration).
 
 **Coverage (`pnpm test:coverage`, last validated 2026-02-07):**
 
