@@ -277,54 +277,60 @@ describe('xpLedger', () => {
     expect(useXpLedger.getState().budget?.nullifier).toBe('legacy');
   });
 
-  it('restore handles corrupted budget object without crashing', () => {
-    localStorage.setItem(
-      'vh_xp_ledger:n1',
-      JSON.stringify(makeSerializedLedger({ nullifier: 42, limits: 'bad' }))
-    );
+  describe('corrupted budget restore', () => {
+    beforeEach(() => {
+      vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
 
-    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
-    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
-    expect(useXpLedger.getState().budget?.date).toBe('2024-01-01');
-    expect(useXpLedger.getState().budget?.usage).toEqual([]);
-  });
+    it('restore handles corrupted budget object without crashing', () => {
+      localStorage.setItem(
+        'vh_xp_ledger:n1',
+        JSON.stringify(makeSerializedLedger({ nullifier: 42, limits: 'bad' }))
+      );
 
-  it('restore handles budget: null in localStorage', () => {
-    localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger(null)));
+      expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+      expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+      expect(useXpLedger.getState().budget?.date).toBe('2024-01-01');
+      expect(useXpLedger.getState().budget?.usage).toEqual([]);
+    });
 
-    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
-    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
-  });
+    it('restore handles budget: null in localStorage', () => {
+      localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger(null)));
 
-  it('restore handles budget: string in localStorage', () => {
-    localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger('garbage')));
+      expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+      expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+    });
 
-    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
-    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
-  });
+    it('restore handles budget: string in localStorage', () => {
+      localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger('garbage')));
 
-  it('restore handles budget: array in localStorage', () => {
-    localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger([1, 2, 3])));
+      expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+      expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+    });
 
-    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
-    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
-  });
+    it('restore handles budget: array in localStorage', () => {
+      localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger([1, 2, 3])));
 
-  it('restore handles budget with wrong-typed fields in localStorage', () => {
-    localStorage.setItem(
-      'vh_xp_ledger:n1',
-      JSON.stringify(
-        makeSerializedLedger({
-          nullifier: 'n1',
-          limits: 'not-array',
-          usage: 42,
-          date: true
-        })
-      )
-    );
+      expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+      expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+    });
 
-    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
-    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+    it('restore handles budget with wrong-typed fields in localStorage', () => {
+      localStorage.setItem(
+        'vh_xp_ledger:n1',
+        JSON.stringify(
+          makeSerializedLedger({
+            nullifier: 'n1',
+            limits: 'not-array',
+            usage: 42,
+            date: true
+          })
+        )
+      );
+
+      expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+      expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+    });
   });
 
   it('valid budget round-trips through persist → restore unchanged', () => {
@@ -342,6 +348,7 @@ describe('xpLedger', () => {
   });
 
   it('after fallback recovery, canPerformAction works normally', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     localStorage.setItem('vh_xp_ledger:recover', JSON.stringify(makeSerializedLedger('bad')));
 
     useXpLedger.getState().setActiveNullifier('recover');
@@ -350,6 +357,7 @@ describe('xpLedger', () => {
   });
 
   it('after fallback recovery, consumeAction works normally', () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
     localStorage.setItem('vh_xp_ledger:recover', JSON.stringify(makeSerializedLedger('bad')));
 
     useXpLedger.getState().setActiveNullifier('recover');

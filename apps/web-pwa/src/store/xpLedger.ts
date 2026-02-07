@@ -184,7 +184,7 @@ function restore(targetNullifier: string | null): LedgerData {
   const civicXP = stored.civicXP ?? 0;
   const socialXP = stored.socialXP ?? 0;
   const projectXP = stored.projectXP ?? 0;
-  const budget = validateBudgetOrNull(stored.budget, targetNullifier ?? 'unknown');
+  const budget = validateBudgetOrNull(stored.budget, targetNullifier ?? '<legacy>');
   return withDerived({
     socialXP,
     civicXP,
