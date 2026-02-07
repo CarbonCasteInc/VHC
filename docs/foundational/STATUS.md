@@ -1,7 +1,7 @@
 # TRINITY Implementation Status
 
 **Last Updated:** 2026-02-07  
-**Version:** 0.2.0 (Sprint 3.5 Complete)  
+**Version:** 0.2.1 (Sprint 4 — Type Foundations)  
 **Assessment:** Pre-production prototype
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**  
@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46)
+## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
@@ -44,6 +44,7 @@
 - ✅ **Issue #4** — SMOKE: agent loop end-to-end smoke test — validated full ritual (spec → impl → QA → maint → merge) with a docs-only PR (PR #41, merged 2026-02-06).
 - ✅ **Issue #40** — Migrated all remaining bare `localStorage` calls to `safeStorage` utility (13 files), added ESLint `no-restricted-globals` rule to prevent regressions (PR #42, merged 2026-02-06).
 - ✅ **Issue #46** — Added canonical delegation/familiar type foundations: `FamiliarRecord`, `DelegationGrant`, `OnBehalfOfAssertion` interfaces + Zod schemas, `DelegationTier`/`DelegationScope` types, `TIER_SCOPES` constant (PR #48, merged 2026-02-07).
+- ✅ **Issue #50** — Added participation governor type foundations: `BudgetActionKey` (8-key string literal union), `BudgetLimit`/`DailyUsage`/`NullifierBudget` interfaces + Zod schemas, `BUDGET_ACTION_KEYS` runtime tuple, `SEASON_0_BUDGET_DEFAULTS` constant. Full test suite with 100% coverage (PR #51, merged 2026-02-07).
 
 ---
 
@@ -62,7 +63,7 @@ None — all tracked issues resolved. Next work: Sprint 4 planning.
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types landed; runtime delegation + governors + unified topics pending |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation + participation governor types landed; runtime enforcement + unified topics pending |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
@@ -77,7 +78,7 @@ None — all tracked issues resolved. Next work: Sprint 4 planning.
 | Hero_Paths / Sentiment Spec | Constituency proofs + district aggregates | SentimentSignal emission requires constituency proof; no RegionProof generation or aggregates | `apps/web-pwa/src/hooks/useSentimentState.ts:76-100` |
 | Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/sprints/05-sprint-the-bridge.md` |
 | Agentic Familiars (Delegation) | Delegation grants + OBO assertions | 🟡 Types + Zod schemas defined; runtime not implemented | `packages/types/src/delegation.ts` (PR #48); no familiar runtime yet |
-| Participation Governors | Action/analysis budgets per principal | Not implemented | No per-nullifier budget counters |
+| Participation Governors | Action/analysis budgets per principal | 🟡 Types + defaults defined; runtime enforcement not implemented | `packages/types/src/budget.ts` (PR #51); no runtime `canPerformAction` checks yet |
 | Unified Topics Model | Headlines ↔ threads share `topicId` + proposal threads | Not implemented | Thread schema lacks `topicId`/`proposal` extension |
 | Topic Reanalysis Epochs | Frame/Reframe table updates after N posts via reanalysis | Not implemented | No reanalysis loop or digest types in app state |
 
@@ -99,6 +100,7 @@ The following tasks are required to align the codebase with the updated specs (a
 
 | Task | Spec Reference | Files to Modify |
 |------|----------------|-----------------|
+| ✅ ~~Define `BudgetActionKey`, `BudgetLimit`, `DailyUsage`, `NullifierBudget` types + Zod schemas, `SEASON_0_BUDGET_DEFAULTS`~~ | `spec-xp-ledger-v0.md` §4 | Done — `packages/types/src/budget.ts` (PR #51) |
 | Add budget counter interface to XP ledger | `spec-xp-ledger-v0.md` §4 | `apps/web-pwa/src/store/xpLedger.ts` |
 | Implement `canPerformAction(type)` budget check | `spec-xp-ledger-v0.md` §4 | `apps/web-pwa/src/store/xpLedger.ts` |
 | Enforce budgets: posts/day=20, comments/day=50 | `spec-xp-ledger-v0.md` §4 | `apps/web-pwa/src/store/forum/index.ts` |
@@ -189,7 +191,7 @@ fn verify_web(payload, mock_mode) -> f32 {
 |---------|----------------|----------|
 | Delegation grants / OBO assertions | 🟡 Types + schemas defined | `packages/types/src/delegation.ts` (PR #48) |
 | Familiar runtime modes (suggest/act/high-impact) | ❌ Not implemented | No familiar orchestration layer |
-| Action/compute budgets per nullifier | ❌ Not implemented | No per-nullifier budget counters |
+| Action/compute budgets per nullifier | 🟡 Types + defaults defined | `packages/types/src/budget.ts` (PR #51); runtime enforcement pending |
 
 **Invariant:** Familiars inherit the principal’s trust gate and budgets; they never add influence.
 
@@ -311,7 +313,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 | Critique/refine prior analyses | `canonical-analysis-v2.md` §4.1 | ❌ Missing |
 | Synthesis engine (divergence table) | `canonical-analysis-v2.md` §4.2 | ❌ Missing |
 | Comment-driven re-synthesis | `canonical-analysis-v2.md` §4.3 | ❌ Missing |
-| Per-principal analysis budget (25/day, 5/topic) | `spec-xp-ledger-v0.md` §4 | ❌ Missing |
+| Per-principal analysis budget (25/day, 5/topic) | `spec-xp-ledger-v0.md` §4 | 🟡 Types defined (`BudgetLimit` w/ `perTopicCap`); enforcement missing |
 
 ---
 
