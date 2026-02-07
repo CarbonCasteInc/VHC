@@ -16,7 +16,7 @@ interface SentimentStore {
     analysisId: string;
     desired: Agreement;
     constituency_proof?: ConstituencyProof;
-  }) => void;
+  }) => { denied: true; reason: string } | void;
   recordRead: (topicId: string) => number;
   /** Generic engagement tracker (for forum votes/comments) - increments lightbulb weight with decay */
   recordEngagement: (topicId: string) => number;
@@ -78,14 +78,18 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
   setAgreement({ topicId, pointId, analysisId, desired, constituency_proof }) {
     if (!constituency_proof) {
       console.warn('[vh:sentiment] Missing constituency proof; SentimentSignal not emitted');
-      return;
+      return { denied: true, reason: 'Missing constituency proof' };
     }
 
     // intentional: must activate nullifier before checking its budget
     useXpLedger.getState().setActiveNullifier(constituency_proof.nullifier);
     // no per-topic sub-cap for sentiment votes
     const budgetCheck = useXpLedger.getState().canPerformAction('sentiment_votes/day', 1);
-    if (!budgetCheck.allowed) return;
+    if (!budgetCheck.allowed) {
+      const reason = budgetCheck.reason || 'Daily limit reached for sentiment_votes/day';
+      console.warn('[vh:sentiment] Budget denied:', reason);
+      return { denied: true, reason };
+    }
 
     const key = `${topicId}:${pointId}`;
     set((state) => {

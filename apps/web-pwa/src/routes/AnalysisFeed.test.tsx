@@ -1,9 +1,8 @@
 /* @vitest-environment jsdom */
 
-import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnalysisFeed, ANALYSIS_FEED_STORAGE_KEY } from './AnalysisFeed';
+import { AnalysisFeed, ANALYSIS_FEED_STORAGE_KEY, createBudgetDeniedResult } from './AnalysisFeed';
 import '@testing-library/jest-dom/vitest';
 import { hashUrl } from '../../../../packages/ai-engine/src/analysis';
 import * as AnalysisModule from '../../../../packages/ai-engine/src/analysis';
@@ -254,6 +253,24 @@ describe('AnalysisFeed', () => {
     await waitFor(() => expect(screen.getByText(/Analysis ready for https:\/\/synced.com/)).toBeInTheDocument());
   });
 
+  it('shows Analysis unavailable when analysis result is null without notice', async () => {
+    const targetUrl = 'https://null-analysis.com';
+    const { chain } = createFakeGunChain();
+    mockUseAppStore.mockReturnValue({ client: { mesh: { get: chain.get.bind(chain) } } });
+    mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-null-analysis' } } });
+    const getOrGenerateSpy = vi.spyOn(AnalysisModule, 'getOrGenerate').mockResolvedValue({ analysis: null as any, reused: false });
+
+    try {
+      render(<AnalysisFeed />);
+      submitUrl(targetUrl);
+
+      await waitFor(() => expect(screen.getByText('Analysis unavailable')).toBeInTheDocument());
+      expect(mockConsumeAction).toHaveBeenCalledWith('analyses/day', 1, hashUrl(targetUrl));
+    } finally {
+      getOrGenerateSpy.mockRestore();
+    }
+  });
+
   it('shows validation error on empty input', async () => {
     render(<AnalysisFeed />);
     fireEvent.click(screen.getByText('Analyze'));
@@ -332,9 +349,12 @@ describe('AnalysisFeed', () => {
         .mockResolvedValue({ analysis: {} as any, reused: false });
 
       try {
+        const result = createBudgetDeniedResult(reason);
+        expect(result.analysis).toBeNull();
+        expect(result.notice).toContain(reason);
+
         render(<AnalysisFeed />);
         submitUrl(targetUrl);
-
         await waitFor(() => expect(screen.getByText(reason)).toBeInTheDocument());
 
         expect(mockSetActiveNullifier).toHaveBeenCalledWith('nul-abc');
@@ -347,12 +367,17 @@ describe('AnalysisFeed', () => {
     });
 
     it('T3: denied path does not consume budget', async () => {
+      const targetUrl = 'https://denied-no-consume.com';
       const reason = 'Daily limit reached';
       mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-denied' } } });
       mockCanPerformAction.mockReturnValue({ allowed: false, reason });
 
+      const result = createBudgetDeniedResult(reason);
+      expect(result.analysis).toBeNull();
+      expect(result.notice).toContain(reason);
+
       render(<AnalysisFeed />);
-      submitUrl('https://denied-no-consume.com');
+      submitUrl(targetUrl);
 
       await waitFor(() => expect(screen.getByText(reason)).toBeInTheDocument());
       expect(mockConsumeAction).not.toHaveBeenCalled();
@@ -421,14 +446,101 @@ describe('AnalysisFeed', () => {
     });
 
     it('T8: per-topic cap denial displays per-topic reason', async () => {
+      const targetUrl = 'https://topic-cap.com';
       const reason = 'Per-topic cap of 5 reached for analyses/day on topic abc123';
       mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-topic-cap' } } });
       mockCanPerformAction.mockReturnValue({ allowed: false, reason });
 
+      const result = createBudgetDeniedResult(reason);
+      expect(result.analysis).toBeNull();
+      expect(result.notice).toContain(reason);
+
       render(<AnalysisFeed />);
-      submitUrl('https://topic-cap.com');
+      submitUrl(targetUrl);
 
       await waitFor(() => expect(screen.getByText(reason)).toBeInTheDocument());
+    });
+
+    it('T9a: denied path emits console.warn', async () => {
+      const reason = 'Budget exhausted for analyses';
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-warn' } } });
+      mockCanPerformAction.mockReturnValue({ allowed: false, reason });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        render(<AnalysisFeed />);
+        submitUrl('https://warn-test.com');
+
+        await waitFor(() => {
+          expect(screen.getByText(reason)).toBeInTheDocument();
+          expect(warnSpy).toHaveBeenCalledWith('[vh:analysis] Budget denied:', reason);
+        });
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('T9b: denied path preserves URL in input', async () => {
+      const targetUrl = 'https://preserved-url.com';
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-preserve' } } });
+      mockCanPerformAction.mockReturnValue({ allowed: false, reason: 'Denied' });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        render(<AnalysisFeed />);
+        const input = screen.getByTestId('analysis-url-input') as HTMLInputElement;
+        fireEvent.change(input, { target: { value: targetUrl } });
+        fireEvent.click(screen.getByText('Analyze'));
+
+        await waitFor(() => {
+          expect(screen.getByText('Denied')).toBeInTheDocument();
+          expect(input.value).toBe(targetUrl);
+        });
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('T9c: denied path with no reason uses fallback', async () => {
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-no-reason' } } });
+      mockCanPerformAction.mockReturnValue({ allowed: false });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        render(<AnalysisFeed />);
+        submitUrl('https://no-reason.com');
+
+        await waitFor(() => {
+          expect(screen.getByText('Daily limit reached for analyses/day')).toBeInTheDocument();
+          expect(warnSpy).toHaveBeenCalledWith('[vh:analysis] Budget denied:', 'Daily limit reached for analyses/day');
+        });
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('T9d: denied path with empty string reason uses fallback', async () => {
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-empty' } } });
+      mockCanPerformAction.mockReturnValue({ allowed: false, reason: '' });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        render(<AnalysisFeed />);
+        submitUrl('https://empty-reason.com');
+
+        await waitFor(() => {
+          expect(screen.getByText('Daily limit reached for analyses/day')).toBeInTheDocument();
+          expect(warnSpy).toHaveBeenCalledWith('[vh:analysis] Budget denied:', 'Daily limit reached for analyses/day');
+        });
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('T9e: createBudgetDeniedResult returns typed null analysis', () => {
+      const result = createBudgetDeniedResult('test reason');
+      expect(result.analysis).toBeNull();
+      expect(result.notice).toBe('test reason');
     });
 
     it('T9: generation error does not consume budget', async () => {

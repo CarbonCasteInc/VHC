@@ -16,6 +16,10 @@ interface FeedStore {
   save: (items: CanonicalAnalysis[]) => void;
 }
 
+export function createBudgetDeniedResult(reason: string): { analysis: null; notice: string } {
+  return { analysis: null, notice: reason };
+}
+
 function loadFeed(): FeedStore {
   try {
     const raw = safeGetItem(ANALYSIS_FEED_STORAGE_KEY);
@@ -83,9 +87,9 @@ export const AnalysisFeed: React.FC = () => {
   );
 
   const runAnalysis = useCallback(
-    async (targetUrl: string): Promise<{ analysis: CanonicalAnalysis; notice?: string }> => {
+    async (targetUrl: string): Promise<{ analysis: CanonicalAnalysis | null; notice?: string }> => {
       setBusy(true);
-      return new Promise<{ analysis: CanonicalAnalysis; notice?: string }>((resolve, reject) => {
+      return new Promise<{ analysis: CanonicalAnalysis | null; notice?: string }>((resolve, reject) => {
         const generate = async (): Promise<AnalysisResult> =>
           new Promise((res) =>
             setTimeout(
@@ -143,10 +147,11 @@ export const AnalysisFeed: React.FC = () => {
           xpLedger.setActiveNullifier(nullifier);
           const budgetCheck = xpLedger.canPerformAction('analyses/day', 1, topicId);
           if (!budgetCheck.allowed) {
-            const reason = budgetCheck.reason ?? 'Daily limit reached for analyses/day';
+            const reason = budgetCheck.reason || 'Daily limit reached for analyses/day';
+            console.warn('[vh:analysis] Budget denied:', reason);
             setMessage(reason);
             setBusy(false);
-            resolve({ analysis: {} as CanonicalAnalysis, notice: reason });
+            resolve(createBudgetDeniedResult(reason));
             return;
           }
         }
@@ -191,8 +196,12 @@ export const AnalysisFeed: React.FC = () => {
     }
     try {
       const { analysis, notice } = await runAnalysis(targetUrl);
-      setMessage(notice ?? `Analysis ready for ${analysis.url}`);
-      setUrl('');
+      if (analysis) {
+        setMessage(notice ?? `Analysis ready for ${analysis.url}`);
+        setUrl('');
+      } else {
+        setMessage(notice ?? 'Analysis unavailable');
+      }
     } catch (err) {
       setMessage((err as Error).message);
       setBusy(false);

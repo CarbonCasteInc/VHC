@@ -149,17 +149,82 @@ describe('useSentimentState', () => {
 
   it('denied path does not mutate state or consume budget', () => {
     mockCanPerformAction.mockReturnValue({ allowed: false, reason: 'Budget exhausted' });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const before = useSentimentState.getState();
-    useSentimentState
+    try {
+      const before = useSentimentState.getState();
+      const result = useSentimentState
+        .getState()
+        .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('denied') });
+      const after = useSentimentState.getState();
+
+      expect(after.agreements).toBe(before.agreements);
+      expect(after.lightbulb).toBe(before.lightbulb);
+      expect(after.signals).toBe(before.signals);
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Budget exhausted');
+      expect(result).toEqual({ denied: true, reason: 'Budget exhausted' });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('denied path with no reason uses fallback', () => {
+    mockCanPerformAction.mockReturnValue({ allowed: false });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = useSentimentState
+        .getState()
+        .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('no-reason') });
+
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Daily limit reached for sentiment_votes/day');
+      expect(result).toEqual({ denied: true, reason: 'Daily limit reached for sentiment_votes/day' });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('denied path with empty string reason uses fallback', () => {
+    mockCanPerformAction.mockReturnValue({ allowed: false, reason: '' });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = useSentimentState
+        .getState()
+        .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('empty') });
+
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Daily limit reached for sentiment_votes/day');
+      expect(result).toEqual({ denied: true, reason: 'Daily limit reached for sentiment_votes/day' });
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('missing proof returns denial object', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const result = useSentimentState.getState().setAgreement({
+        topicId: TOPIC,
+        pointId: POINT,
+        analysisId: ANALYSIS,
+        desired: 1
+      });
+
+      expect(result).toEqual({ denied: true, reason: 'Missing constituency proof' });
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Missing constituency proof; SentimentSignal not emitted');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('allowed path returns void (undefined)', () => {
+    const result = useSentimentState
       .getState()
-      .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('denied') });
-    const after = useSentimentState.getState();
+      .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('ok') });
 
-    expect(after.agreements).toBe(before.agreements);
-    expect(after.lightbulb).toBe(before.lightbulb);
-    expect(after.signals).toBe(before.signals);
-    expect(mockConsumeAction).not.toHaveBeenCalled();
+    expect(result).toBeUndefined();
   });
 
   it('allows 200 sentiment votes and denies the 201st', () => {
@@ -280,15 +345,21 @@ describe('useSentimentState', () => {
   it('denied call does not emit SentimentSignal', () => {
     mockCanPerformAction.mockReturnValue({ allowed: false, reason: 'Budget exhausted' });
     const beforeCount = useSentimentState.getState().signals.length;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    useSentimentState.getState().setAgreement({
-      topicId: TOPIC,
-      pointId: POINT,
-      analysisId: ANALYSIS,
-      desired: 1,
-      constituency_proof: proofFor('signal-denied')
-    });
+    try {
+      useSentimentState.getState().setAgreement({
+        topicId: TOPIC,
+        pointId: POINT,
+        analysisId: ANALYSIS,
+        desired: 1,
+        constituency_proof: proofFor('signal-denied')
+      });
 
-    expect(useSentimentState.getState().signals).toHaveLength(beforeCount);
+      expect(useSentimentState.getState().signals).toHaveLength(beforeCount);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Budget exhausted');
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });
