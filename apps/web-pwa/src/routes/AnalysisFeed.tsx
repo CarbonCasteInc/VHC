@@ -9,7 +9,7 @@ import { useIdentity } from '../hooks/useIdentity';
 import { useXpLedger } from '../store/xpLedger';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 
-const FEED_KEY = 'vh_canonical_analyses';
+export const ANALYSIS_FEED_STORAGE_KEY = 'vh_canonical_analyses';
 
 interface FeedStore {
   data: CanonicalAnalysis[];
@@ -18,12 +18,12 @@ interface FeedStore {
 
 function loadFeed(): FeedStore {
   try {
-    const raw = safeGetItem(FEED_KEY);
+    const raw = safeGetItem(ANALYSIS_FEED_STORAGE_KEY);
     const data = raw ? (JSON.parse(raw) as CanonicalAnalysis[]) : [];
     return {
       data,
       save(items: CanonicalAnalysis[]) {
-        safeSetItem(FEED_KEY, JSON.stringify(items));
+        safeSetItem(ANALYSIS_FEED_STORAGE_KEY, JSON.stringify(items));
       }
     };
   } catch {

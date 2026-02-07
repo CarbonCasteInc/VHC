@@ -3,19 +3,23 @@
 import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AnalysisFeed } from './AnalysisFeed';
+import { AnalysisFeed, ANALYSIS_FEED_STORAGE_KEY } from './AnalysisFeed';
 import '@testing-library/jest-dom/vitest';
 import { hashUrl } from '../../../../packages/ai-engine/src/analysis';
 import * as AnalysisModule from '../../../../packages/ai-engine/src/analysis';
-import { useXpLedger } from '../store/xpLedger';
+import { createBudgetMock } from '../test-utils/budgetMock';
 
 const mockUseAppStore = vi.fn();
 const mockUseIdentity = vi.fn();
 
-const originalGetXpLedgerState = useXpLedger.getState;
 const mockSetActiveNullifier = vi.fn();
 const mockCanPerformAction = vi.fn();
 const mockConsumeAction = vi.fn();
+const budgetMock = createBudgetMock({
+  setActiveNullifier: mockSetActiveNullifier,
+  canPerformAction: mockCanPerformAction,
+  consumeAction: mockConsumeAction
+});
 
 vi.mock('../store', () => ({
   useAppStore: (...args: unknown[]) => mockUseAppStore(...args)
@@ -78,20 +82,13 @@ describe('AnalysisFeed', () => {
     mockConsumeAction.mockReset();
     mockCanPerformAction.mockReturnValue({ allowed: true });
 
-    useXpLedger.getState =
-      () =>
-        ({
-          ...originalGetXpLedgerState(),
-          setActiveNullifier: mockSetActiveNullifier,
-          canPerformAction: mockCanPerformAction,
-          consumeAction: mockConsumeAction
-        } as any);
+    budgetMock.install();
   });
 
   afterEach(() => {
     cleanup();
     localStorage.clear();
-    useXpLedger.getState = originalGetXpLedgerState;
+    budgetMock.restore();
   });
 
   it('generates a local analysis and caches by url hash', async () => {
@@ -100,7 +97,7 @@ describe('AnalysisFeed', () => {
     fireEvent.click(screen.getByText('Analyze'));
 
     await waitFor(() => expect(screen.getByText(/stored locally only/i)).toBeInTheDocument());
-    expect(JSON.parse(localStorage.getItem('vh_canonical_analyses') ?? '[]')).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem(ANALYSIS_FEED_STORAGE_KEY) ?? '[]')).toHaveLength(1);
 
     fireEvent.change(screen.getByTestId('analysis-url-input'), { target: { value: 'https://example.com' } });
     fireEvent.click(screen.getByText('Analyze'));
@@ -108,7 +105,7 @@ describe('AnalysisFeed', () => {
     await waitFor(() =>
       expect(screen.getByText(/Analysis already exists/)).toBeInTheDocument()
     );
-    expect(JSON.parse(localStorage.getItem('vh_canonical_analyses') ?? '[]')).toHaveLength(1);
+    expect(JSON.parse(localStorage.getItem(ANALYSIS_FEED_STORAGE_KEY) ?? '[]')).toHaveLength(1);
   });
 
   it('hydrates feed from existing local storage entries', () => {
@@ -126,7 +123,7 @@ describe('AnalysisFeed', () => {
         timestamp: Date.now()
       }
     ];
-    localStorage.setItem('vh_canonical_analyses', JSON.stringify(existing));
+    localStorage.setItem(ANALYSIS_FEED_STORAGE_KEY, JSON.stringify(existing));
     render(<AnalysisFeed />);
     expect(screen.getByText('cached summary')).toBeInTheDocument();
   });
@@ -147,7 +144,7 @@ describe('AnalysisFeed', () => {
         timestamp: Date.now()
       }
     ];
-    localStorage.setItem('vh_canonical_analyses', JSON.stringify(existing));
+    localStorage.setItem(ANALYSIS_FEED_STORAGE_KEY, JSON.stringify(existing));
 
     render(<AnalysisFeed />);
 
@@ -375,7 +372,7 @@ describe('AnalysisFeed', () => {
         confidence: 0.9,
         timestamp: Date.now()
       };
-      localStorage.setItem('vh_canonical_analyses', JSON.stringify([existing]));
+      localStorage.setItem(ANALYSIS_FEED_STORAGE_KEY, JSON.stringify([existing]));
       mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-abc' } } });
 
       render(<AnalysisFeed />);

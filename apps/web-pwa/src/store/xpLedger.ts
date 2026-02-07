@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { BudgetActionKey, BudgetCheckResult, NullifierBudget } from '@vh/types';
 import { getPublishedIdentity } from './identityProvider';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
-import { checkBudget, consumeFromBudget, ensureBudget, validateBudgetOrNull } from './xpLedgerBudget';
+import { checkBudget, consumeFromBudget, ensureBudget, todayISO, validateBudgetOrNull } from './xpLedgerBudget';
 
 type Track = 'civic' | 'social' | 'project';
 type MessagingXPEvent =
@@ -54,8 +54,8 @@ interface LedgerData {
   weeklyProjectXP: WeeklyBucket;
   firstContacts: Set<string>;
   qualityBonuses: Map<string, Set<number>>;
-  sustainedAwards: Map<string, string>;
-  projectWeekly: Map<string, number>;
+  sustainedAwards: Map<string, string>; // channelId -> weekStart
+  projectWeekly: Map<string, number>; // threadId -> count for week
 }
 export interface XpLedgerState extends LedgerData {
   applyMessagingXP(event: MessagingXPEvent): void;
@@ -71,9 +71,6 @@ export interface XpLedgerState extends LedgerData {
 const STORAGE_KEY = 'vh_xp_ledger';
 const DAILY_SOCIAL_CAP = 5, DAILY_CIVIC_CAP = 6, DAILY_FIRST_CONTACT_CAP = 3, DAILY_THREAD_CAP = 3,
   DAILY_COMMENT_CAP = 5, WEEKLY_PROJECT_CAP = 10, DAILY_BOOST_RVU = 10;
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 function weekStart(): string {
   const now = new Date();
   const day = now.getUTCDay();
@@ -160,7 +157,7 @@ function withDerived(data: LedgerData, touch = false): LedgerData {
 }
 function restore(targetNullifier: string | null): LedgerData {
   const stored = loadLedgerForNullifier(targetNullifier);
-  const todayId = today();
+  const todayId = todayISO();
   const weekId = weekStart();
   if (!stored) {
     return withDerived({
@@ -217,7 +214,7 @@ export const useXpLedger = create<XpLedgerState>((set, get) => ({
   applyMessagingXP(event) {
     const state = get();
     let socialXP = state.socialXP;
-    let dailySocial = resetIfStale(state.dailySocialXP, today());
+    let dailySocial = resetIfStale(state.dailySocialXP, todayISO());
     const firstContacts = new Set(state.firstContacts);
     const sustainedAwards = new Map(state.sustainedAwards);
     if (event.type === 'first_contact') {
@@ -246,7 +243,7 @@ export const useXpLedger = create<XpLedgerState>((set, get) => ({
   applyForumXP(event) {
     const state = get();
     let civicXP = state.civicXP;
-    let dailyCivic = resetIfStale(state.dailyCivicXP, today());
+    let dailyCivic = resetIfStale(state.dailyCivicXP, todayISO());
     const qualityBonuses = new Map(state.qualityBonuses);
     const grant = (amount: number, cap: number) => {
       const remaining = Math.max(0, cap - dailyCivic.amount);
@@ -284,6 +281,7 @@ export const useXpLedger = create<XpLedgerState>((set, get) => ({
       const grant = Math.min(2, remaining);
       projectXP += grant;
       weeklyProject = { ...weeklyProject, amount: weeklyProject.amount + grant };
+      // also give civic participation bonus
       civicXP += 1;
     }
     if (event.type === 'project_update') {

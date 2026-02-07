@@ -81,7 +81,9 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
       return;
     }
 
+    // intentional: must activate nullifier before checking its budget
     useXpLedger.getState().setActiveNullifier(constituency_proof.nullifier);
+    // no per-topic sub-cap for sentiment votes
     const budgetCheck = useXpLedger.getState().canPerformAction('sentiment_votes/day', 1);
     if (!budgetCheck.allowed) return;
 

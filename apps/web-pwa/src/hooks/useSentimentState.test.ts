@@ -2,16 +2,20 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSentimentState } from './useSentimentState';
-import { useXpLedger } from '../store/xpLedger';
+import { createBudgetMock } from '../test-utils/budgetMock';
 
 const TOPIC = 't1';
 const POINT = 'p1';
 const ANALYSIS = 'a1';
 
-const originalGetXpLedgerState = useXpLedger.getState;
 const mockSetActiveNullifier = vi.fn();
 const mockCanPerformAction = vi.fn();
 const mockConsumeAction = vi.fn();
+const budgetMock = createBudgetMock({
+  setActiveNullifier: mockSetActiveNullifier,
+  canPerformAction: mockCanPerformAction,
+  consumeAction: mockConsumeAction
+});
 let activeNullifier: string | null = null;
 
 function proofFor(nullifier = 'n') {
@@ -32,14 +36,7 @@ describe('useSentimentState', () => {
     });
     mockCanPerformAction.mockReturnValue({ allowed: true });
 
-    useXpLedger.getState =
-      () =>
-        ({
-          ...originalGetXpLedgerState(),
-          setActiveNullifier: mockSetActiveNullifier,
-          canPerformAction: mockCanPerformAction,
-          consumeAction: mockConsumeAction
-        } as any);
+    budgetMock.install();
 
     useSentimentState.setState({
       agreements: {},
@@ -56,7 +53,7 @@ describe('useSentimentState', () => {
   });
 
   afterEach(() => {
-    useXpLedger.getState = originalGetXpLedgerState;
+    budgetMock.restore();
   });
 
   it('cycles agreement and emits signals', () => {
