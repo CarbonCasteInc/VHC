@@ -50,9 +50,10 @@ export function parseThreadFromGun(data: Record<string, unknown>): Record<string
       tags = [];
     }
   }
-  const result: Record<string, unknown> = { ...data, tags };
-  if (data.proposal && typeof data.proposal === 'object') {
-    const { _: _meta, ...cleanProposal } = data.proposal as Record<string, unknown>;
+  const { proposal: rawProposal, ...rest } = data;
+  const result: Record<string, unknown> = { ...rest, tags };
+  if (rawProposal && typeof rawProposal === 'object' && !Array.isArray(rawProposal)) {
+    const { _: _meta, ...cleanProposal } = rawProposal as Record<string, unknown>;
     result.proposal = cleanProposal;
   }
   return result;
