@@ -125,12 +125,14 @@ describe('Feed ↔ Forum integration', () => {
     useXpLedger.getState().setActiveNullifier(nullifier);
 
     // Stub budget + XP methods on the singleton so createThread doesn't throw
-    // when consumeAction/applyProjectXP check for active nullifier state.
+    // when canPerformAction/consumeAction/applyProjectXP check for active nullifier state.
     const realGetState = useXpLedger.getState;
     vi.spyOn(useXpLedger, 'getState').mockImplementation(() => ({
       ...realGetState(),
+      canPerformAction: () => ({ allowed: true }),
       consumeAction: () => {},
       applyProjectXP: () => {},
+      applyForumXP: () => {},
     }));
 
     const forumStore = createForumStore({
