@@ -215,6 +215,56 @@ export const AnalysisFeed: React.FC = () => {
     }
   };
 
+  const handleShare = useCallback(
+    async (item: CanonicalAnalysis) => {
+      const shareText = `${item.summary}\n${item.url}`;
+      const topicId = item.urlHash;
+
+      // Budget check (only when identity is present)
+      const nullifier = identity?.session?.nullifier;
+      if (nullifier) {
+        const xpLedger = useXpLedger.getState();
+        xpLedger.setActiveNullifier(nullifier);
+        const budgetCheck = xpLedger.canPerformAction('shares/day', 1, topicId);
+        if (!budgetCheck.allowed) {
+          const reason = budgetCheck.reason || 'Daily share limit reached';
+          setMessage(reason);
+          return;
+        }
+      }
+
+      // Attempt share
+      try {
+        if (navigator.share) {
+          await navigator.share({
+            title: item.summary,
+            text: item.summary,
+            url: item.url,
+          });
+          if (nullifier) {
+            useXpLedger.getState().consumeAction('shares/day', 1, topicId);
+          }
+          setMessage('Shared!');
+        } else if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(shareText);
+          if (nullifier) {
+            useXpLedger.getState().consumeAction('shares/day', 1, topicId);
+          }
+          setMessage('Link copied!');
+        } else {
+          setMessage('Unable to share');
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          // User cancelled share sheet — silent no-op
+          return;
+        }
+        setMessage((err as Error).message || 'Share failed');
+      }
+    },
+    [identity]
+  );
+
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-card p-5 shadow-sm shadow-slate-900/5 dark:border-slate-700 space-y-3">
       <div className="flex items-center justify-between">
@@ -246,7 +296,15 @@ export const AnalysisFeed: React.FC = () => {
             <p className="text-sm font-semibold text-slate-900">{item.url}</p>
             <p className="text-sm text-slate-700">{item.summary}</p>
             <p className="text-xs text-slate-600">Biases: {item.biases.join(' · ')}</p>
-            <div className="mt-2 flex justify-end">
+            <div className="mt-2 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => handleShare(item)}
+                data-testid={`share-${item.urlHash}`}
+                className="text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              >
+                Share
+              </button>
               <Link
                 to="/hermes"
                 search={{ sourceAnalysisId: item.urlHash, title: item.summary, sourceUrl: item.url }}

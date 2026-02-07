@@ -645,4 +645,254 @@ describe('AnalysisFeed', () => {
       }
     });
   });
+
+  describe('shares/day budget enforcement', () => {
+    const shareItem = {
+      url: 'https://share-test.com/article',
+      urlHash: hashUrl('https://share-test.com/article'),
+      summary: 'Test article summary',
+      biases: ['b'],
+      counterpoints: ['c'],
+      sentimentScore: 0,
+      bias_claim_quote: [],
+      justify_bias_claim: [],
+      confidence: 0.9,
+      timestamp: Date.now(),
+    };
+
+    let originalShare: unknown;
+    let originalClipboard: unknown;
+
+    const hydrateFeedWithShareItem = () => {
+      localStorage.setItem(ANALYSIS_FEED_STORAGE_KEY, JSON.stringify([shareItem]));
+    };
+
+    const clickShare = () => {
+      fireEvent.click(screen.getByTestId(`share-${shareItem.urlHash}`));
+    };
+
+    beforeEach(() => {
+      originalShare = (navigator as any).share;
+      originalClipboard = (navigator as any).clipboard;
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-share' } } });
+    });
+
+    afterEach(() => {
+      if (originalShare === undefined) {
+        delete (navigator as any).share;
+      } else {
+        Object.defineProperty(navigator, 'share', {
+          value: originalShare,
+          writable: true,
+          configurable: true,
+        });
+      }
+
+      if (originalClipboard === undefined) {
+        delete (navigator as any).clipboard;
+      } else {
+        Object.defineProperty(navigator, 'clipboard', {
+          value: originalClipboard,
+          writable: true,
+          configurable: true,
+        });
+      }
+    });
+
+    it('TS-1: Web Share succeeds — consumes budget', async () => {
+      const mockShare = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => {
+        expect(mockShare).toHaveBeenCalledWith({
+          title: shareItem.summary,
+          text: shareItem.summary,
+          url: shareItem.url,
+        });
+        expect(screen.getByText('Shared!')).toBeInTheDocument();
+      });
+      expect(mockSetActiveNullifier).toHaveBeenCalledWith('nul-share');
+      expect(mockCanPerformAction).toHaveBeenCalledWith('shares/day', 1, shareItem.urlHash);
+      expect(mockConsumeAction).toHaveBeenCalledWith('shares/day', 1, shareItem.urlHash);
+    });
+
+    it('TS-2: Clipboard fallback — consumes budget', async () => {
+      const mockWriteText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'share', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: mockWriteText },
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => {
+        expect(mockWriteText).toHaveBeenCalledWith(`${shareItem.summary}\n${shareItem.url}`);
+        expect(screen.getByText('Link copied!')).toBeInTheDocument();
+      });
+      expect(mockCanPerformAction).toHaveBeenCalledWith('shares/day', 1, shareItem.urlHash);
+      expect(mockConsumeAction).toHaveBeenCalledWith('shares/day', 1, shareItem.urlHash);
+    });
+
+    it('TS-3: Budget denied — blocks share', async () => {
+      const denialReason = 'Daily share limit reached';
+      const mockShare = vi.fn().mockResolvedValue(undefined);
+      mockCanPerformAction.mockReturnValue({ allowed: false, reason: denialReason });
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => expect(screen.getByText(denialReason)).toBeInTheDocument());
+      expect(mockCanPerformAction).toHaveBeenCalledWith('shares/day', 1, shareItem.urlHash);
+      expect(mockShare).not.toHaveBeenCalled();
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+    });
+
+    it('TS-4: User cancels share sheet — no consume', async () => {
+      const mockShare = vi.fn().mockRejectedValue(new DOMException('', 'AbortError'));
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => expect(mockShare).toHaveBeenCalledTimes(1));
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+      expect(screen.queryByText('Shared!')).not.toBeInTheDocument();
+      expect(screen.queryByText('Unable to share')).not.toBeInTheDocument();
+    });
+
+    it('TS-5: Share throws non-abort error — no consume', async () => {
+      const mockShare = vi.fn().mockRejectedValue(new Error('Share failed'));
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => expect(screen.getByText('Share failed')).toBeInTheDocument());
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+    });
+
+    it('TS-6: No identity — share works, budget skipped', async () => {
+      const mockShare = vi.fn().mockResolvedValue(undefined);
+      mockUseIdentity.mockReturnValue({ identity: null });
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => {
+        expect(mockShare).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Shared!')).toBeInTheDocument();
+      });
+      expect(mockSetActiveNullifier).not.toHaveBeenCalled();
+      expect(mockCanPerformAction).not.toHaveBeenCalled();
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+    });
+
+    it('TS-7: Neither share nor clipboard available', async () => {
+      Object.defineProperty(navigator, 'share', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'clipboard', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => expect(screen.getByText('Unable to share')).toBeInTheDocument());
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+    });
+
+    it('TS-8: Clipboard fallback throws — no consume', async () => {
+      const mockWriteText = vi.fn().mockRejectedValue(new Error('Clipboard blocked'));
+      Object.defineProperty(navigator, 'share', {
+        value: undefined,
+        writable: true,
+        configurable: true,
+      });
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText: mockWriteText },
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => expect(screen.getByText('Clipboard blocked')).toBeInTheDocument());
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+    });
+
+    it('TS-9: Identity with falsy nullifier — budget skipped', async () => {
+      const mockShare = vi.fn().mockResolvedValue(undefined);
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: null } } });
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => {
+        expect(mockShare).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Shared!')).toBeInTheDocument();
+      });
+      expect(mockSetActiveNullifier).not.toHaveBeenCalled();
+      expect(mockCanPerformAction).not.toHaveBeenCalled();
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+    });
+
+    it('TS-10: Share button renders with correct test-id', () => {
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+
+      expect(screen.getByTestId(`share-${shareItem.urlHash}`)).toBeInTheDocument();
+    });
+  });
 });
