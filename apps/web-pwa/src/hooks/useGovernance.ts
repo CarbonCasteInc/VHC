@@ -208,6 +208,14 @@ export const useGovernanceStore = create<GovernanceStore>((set, get) => ({
       throw new Error('Trust score below voting threshold');
     }
 
+    // Budget enforcement: check governance vote budget before mutation
+    useXpLedger.getState().setActiveNullifier(voterId);
+    const budgetCheck = useXpLedger.getState().canPerformAction('governance_votes/day', 1);
+    if (!budgetCheck.allowed) {
+      set({ error: budgetCheck.reason ?? 'Governance vote budget exhausted' });
+      throw new Error(budgetCheck.reason ?? 'Governance vote budget exhausted');
+    }
+
     const currentVotes = get().getVotesForVoter(voterId);
     const prevVote = currentVotes[proposalId];
 
@@ -229,9 +237,11 @@ export const useGovernanceStore = create<GovernanceStore>((set, get) => ({
     }));
 
     if (!prevVote) {
-      useXpLedger.getState().setActiveNullifier(voterId);
       useXpLedger.getState().addXp('project', 5);
     }
+
+    // Consume budget after successful vote
+    useXpLedger.getState().consumeAction('governance_votes/day', 1);
 
     if (prevVote) {
       if (prevVote.direction !== direction) return 'switched';
