@@ -70,4 +70,18 @@ describe('ForumFeed', () => {
       sourceUrl: 'https://example.com/headline'
     });
   });
+
+  it('forwards undefined sourceUrl when prop is absent', () => {
+    render(<ForumFeed sourceAnalysisId="analysis-hash" defaultTitle="title" />);
+
+    fireEvent.click(screen.getByTestId('new-thread-btn'));
+
+    expect(screen.getByTestId('new-thread-form-mock')).toHaveAttribute(
+      'data-source-url',
+      ''
+    );
+
+    const lastProps = newThreadFormPropsMock.mock.calls.at(-1)?.[0];
+    expect(lastProps.sourceUrl).toBeUndefined();
+  });
 });

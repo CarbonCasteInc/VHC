@@ -60,4 +60,16 @@ describe('NewThreadForm', () => {
     await waitFor(() => expect(createThreadMock).toHaveBeenCalledTimes(1));
     expect(createThreadMock).toHaveBeenCalledWith('Title', 'Content', [], 'analysis-hash-2', undefined);
   });
+
+  it('calls createThread with opts undefined when sourceUrl is empty string', async () => {
+    render(<NewThreadForm sourceAnalysisId="analysis-hash-3" sourceUrl="" />);
+
+    fireEvent.change(screen.getByTestId('thread-title'), { target: { value: 'Title' } });
+    fireEvent.change(screen.getByTestId('thread-content'), { target: { value: 'Content' } });
+
+    fireEvent.click(screen.getByTestId('submit-thread-btn'));
+
+    await waitFor(() => expect(createThreadMock).toHaveBeenCalledTimes(1));
+    expect(createThreadMock).toHaveBeenCalledWith('Title', 'Content', [], 'analysis-hash-3', undefined);
+  });
 });
