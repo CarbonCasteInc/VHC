@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { SentimentSignal, ConstituencyProof } from '@vh/types';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
+import { useXpLedger } from '../store/xpLedger';
 
 type Agreement = -1 | 0 | 1;
 
@@ -79,6 +80,11 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
       console.warn('[vh:sentiment] Missing constituency proof; SentimentSignal not emitted');
       return;
     }
+
+    useXpLedger.getState().setActiveNullifier(constituency_proof.nullifier);
+    const budgetCheck = useXpLedger.getState().canPerformAction('sentiment_votes/day', 1);
+    if (!budgetCheck.allowed) return;
+
     const key = `${topicId}:${pointId}`;
     set((state) => {
       const currentAgreement = state.agreements[key] ?? 0;
@@ -111,6 +117,8 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
         signals: nextSignals
       };
     });
+
+    useXpLedger.getState().consumeAction('sentiment_votes/day', 1);
   },
   recordRead(topicId) {
     const current = get().eye[topicId] ?? 0;
