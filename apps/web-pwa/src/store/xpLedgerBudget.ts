@@ -3,6 +3,7 @@ import {
   rolloverBudgetIfNeeded,
   canConsumeBudget,
   consumeBudget,
+  NullifierBudgetSchema,
   type BudgetCheckResult
 } from '@vh/types';
 import type { BudgetActionKey, NullifierBudget } from '@vh/types';
@@ -10,6 +11,21 @@ import type { BudgetActionKey, NullifierBudget } from '@vh/types';
 /** Get today as YYYY-MM-DD (UTC) */
 export function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Validate a budget value from localStorage.
+ * Returns parsed budget when valid, else null.
+ */
+export function validateBudgetOrNull(raw: unknown, nullifier: string): NullifierBudget | null {
+  if (raw == null) return null;
+  const result = NullifierBudgetSchema.safeParse(raw);
+  if (result.success) return result.data;
+  console.warn(
+    `[vh:budget] Corrupted budget for ${nullifier}, reinitializing`,
+    result.error.issues
+  );
+  return null;
 }
 
 /**
@@ -21,7 +37,15 @@ export function ensureBudget(current: NullifierBudget | null, nullifier: string)
   if (!current) {
     return initializeNullifierBudget(nullifier, date);
   }
-  return rolloverBudgetIfNeeded(current, date);
+  try {
+    return rolloverBudgetIfNeeded(current, date);
+  } catch (err) {
+    console.warn(
+      `[vh:budget] ensureBudget failed for ${nullifier}, reinitializing`,
+      err
+    );
+    return initializeNullifierBudget(nullifier, date);
+  }
 }
 
 /**
