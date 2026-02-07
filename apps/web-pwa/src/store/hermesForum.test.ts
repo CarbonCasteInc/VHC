@@ -3,6 +3,7 @@ import type { HermesThread } from '@vh/types';
 import { createForumStore } from './hermesForum';
 import { useXpLedger } from './xpLedger';
 import { publishIdentity, clearPublishedIdentity } from './identityProvider';
+import { useSentimentState } from '../hooks/useSentimentState';
 
 const {
   threadWrites,
@@ -106,6 +107,7 @@ const createHydrationClient = () => {
 beforeEach(() => {
   (globalThis as any).localStorage = memoryStorage();
   clearPublishedIdentity();
+  useXpLedger.getState().setActiveNullifier(null);
   threadWrites.length = 0;
   commentWrites.length = 0;
   dateIndexWrites.length = 0;
@@ -119,8 +121,10 @@ beforeEach(() => {
 });
 
 describe('hermesForum store', () => {
-  const setIdentity = (nullifier: string, trustScore = 1) =>
+  const setIdentity = (nullifier: string, trustScore = 1) => {
     publishIdentity({ session: { nullifier, trustScore, scaledTrustScore: Math.round(trustScore * 10000) } });
+    useXpLedger.getState().setActiveNullifier(nullifier);
+  };
 
   it('rejects thread creation when trustScore is low', async () => {
     publishIdentity({ session: { nullifier: 'low', trustScore: 0.2, scaledTrustScore: 2000 } });
@@ -146,7 +150,7 @@ describe('hermesForum store', () => {
   });
 
   it('vote is idempotent per target', async () => {
-    publishIdentity({ session: { nullifier: 'alice', trustScore: 1, scaledTrustScore: 10000 } });
+    setIdentity('alice');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-1', now: () => 1 });
     const thread = await store.getState().createThread('title', 'content', ['tag']);
     expect(threadWrites).toHaveLength(1);
@@ -158,7 +162,7 @@ describe('hermesForum store', () => {
   });
 
   it('applies quality bonus when threshold crossed', async () => {
-    publishIdentity({ session: { nullifier: 'author', trustScore: 1, scaledTrustScore: 10000 } });
+    setIdentity('author');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-2', now: () => 1 });
     const thread = await store.getState().createThread('title', 'content', ['tag']);
     // simulate that author is same user
@@ -293,5 +297,246 @@ describe('hermesForum store', () => {
         { tag: 'meta', id: 'thread-index', value: true }
       ])
     );
+  });
+
+  it('createThread succeeds and consumes posts/day budget', async () => {
+    setIdentity('budget-thread-ok');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-budget-ok', now: () => 5 });
+
+    await store.getState().createThread('title', 'content', ['tag']);
+
+    expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'posts/day')?.count).toBe(1);
+  });
+
+  it('createThread denied at posts/day limit throws and does not write to Gun', async () => {
+    setIdentity('budget-thread-limit');
+    for (let i = 0; i < 20; i += 1) {
+      useXpLedger.getState().consumeAction('posts/day');
+    }
+    threadChain.put.mockClear();
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-budget-limit', now: () => 5 });
+
+    await expect(store.getState().createThread('title', 'content', ['tag'])).rejects.toThrow(
+      'Budget denied: Daily limit of 20 reached for posts/day'
+    );
+    expect(threadChain.put).not.toHaveBeenCalled();
+  });
+
+  it('createThread denied does not mutate forum state', async () => {
+    setIdentity('budget-thread-state');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-budget-state', now: () => 5 });
+    const before = Array.from(store.getState().threads.entries());
+    const mockedLedger = {
+      ...useXpLedger.getState(),
+      canPerformAction: vi.fn(() => ({ allowed: false, reason: 'Daily limit of 20 reached for posts/day' })),
+      consumeAction: vi.fn(),
+      applyForumXP: vi.fn(),
+      applyProjectXP: vi.fn()
+    };
+    const getStateSpy = vi.spyOn(useXpLedger, 'getState').mockReturnValue(mockedLedger as any);
+
+    try {
+      await expect(store.getState().createThread('title', 'content', ['tag'])).rejects.toThrow(
+        'Budget denied: Daily limit of 20 reached for posts/day'
+      );
+      expect(Array.from(store.getState().threads.entries())).toEqual(before);
+    } finally {
+      getStateSpy.mockRestore();
+    }
+  });
+
+  it('createThread denied does not award XP', async () => {
+    setIdentity('budget-thread-xp');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-budget-xp', now: () => 5 });
+    const mockedLedger = {
+      ...useXpLedger.getState(),
+      canPerformAction: vi.fn(() => ({ allowed: false, reason: 'Daily limit of 20 reached for posts/day' })),
+      consumeAction: vi.fn(),
+      applyForumXP: vi.fn(),
+      applyProjectXP: vi.fn()
+    };
+    const getStateSpy = vi.spyOn(useXpLedger, 'getState').mockReturnValue(mockedLedger as any);
+
+    try {
+      await expect(store.getState().createThread('title', 'content', ['tag'])).rejects.toThrow(
+        'Budget denied: Daily limit of 20 reached for posts/day'
+      );
+      expect(mockedLedger.applyForumXP).not.toHaveBeenCalled();
+      expect(mockedLedger.applyProjectXP).not.toHaveBeenCalled();
+    } finally {
+      getStateSpy.mockRestore();
+    }
+  });
+
+  it('createThread denied does not write index entries', async () => {
+    setIdentity('budget-thread-index');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-budget-index', now: () => 5 });
+    const mockedLedger = {
+      ...useXpLedger.getState(),
+      canPerformAction: vi.fn(() => ({ allowed: false, reason: 'Daily limit of 20 reached for posts/day' })),
+      consumeAction: vi.fn(),
+      applyForumXP: vi.fn(),
+      applyProjectXP: vi.fn()
+    };
+    const getStateSpy = vi.spyOn(useXpLedger, 'getState').mockReturnValue(mockedLedger as any);
+
+    try {
+      await expect(store.getState().createThread('title', 'content', ['News', 'Meta'])).rejects.toThrow(
+        'Budget denied: Daily limit of 20 reached for posts/day'
+      );
+      expect(dateIndexWrites).toEqual([]);
+      expect(tagIndexWrites).toEqual([]);
+    } finally {
+      getStateSpy.mockRestore();
+    }
+  });
+
+  it('createComment succeeds and consumes comments/day budget', async () => {
+    setIdentity('budget-comment-ok');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-budget-ok', now: () => 5 });
+
+    await store.getState().createComment('thread-1', 'hello', 'reply');
+
+    expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'comments/day')?.count).toBe(1);
+  });
+
+  it('createComment denied at comments/day limit throws and does not write to Gun', async () => {
+    setIdentity('budget-comment-limit');
+    for (let i = 0; i < 50; i += 1) {
+      useXpLedger.getState().consumeAction('comments/day');
+    }
+    commentsChain.put.mockClear();
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-budget-limit', now: () => 5 });
+
+    await expect(store.getState().createComment('thread-1', 'hello', 'reply')).rejects.toThrow(
+      'Budget denied: Daily limit of 50 reached for comments/day'
+    );
+    expect(commentsChain.put).not.toHaveBeenCalled();
+  });
+
+  it('createComment denied does not mutate forum state', async () => {
+    setIdentity('budget-comment-state');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-budget-state', now: () => 5 });
+    store.setState((state) => ({
+      ...state,
+      comments: new Map(state.comments).set('thread-1', [])
+    }));
+    const before = Array.from(store.getState().comments.entries());
+    const mockedLedger = {
+      ...useXpLedger.getState(),
+      canPerformAction: vi.fn(() => ({ allowed: false, reason: 'Daily limit of 50 reached for comments/day' })),
+      consumeAction: vi.fn(),
+      applyForumXP: vi.fn(),
+      applyProjectXP: vi.fn()
+    };
+    const getStateSpy = vi.spyOn(useXpLedger, 'getState').mockReturnValue(mockedLedger as any);
+
+    try {
+      await expect(store.getState().createComment('thread-1', 'hello', 'reply')).rejects.toThrow(
+        'Budget denied: Daily limit of 50 reached for comments/day'
+      );
+      expect(Array.from(store.getState().comments.entries())).toEqual(before);
+    } finally {
+      getStateSpy.mockRestore();
+    }
+  });
+
+  it('createComment denied does not award XP or record engagement', async () => {
+    setIdentity('budget-comment-side-effects');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-budget-side-effects', now: () => 5 });
+    const sentimentState = useSentimentState.getState();
+    const engagementSpy = vi.spyOn(sentimentState, 'recordEngagement').mockImplementation(() => 0);
+    const mockedLedger = {
+      ...useXpLedger.getState(),
+      canPerformAction: vi.fn(() => ({ allowed: false, reason: 'Daily limit of 50 reached for comments/day' })),
+      consumeAction: vi.fn(),
+      applyForumXP: vi.fn(),
+      applyProjectXP: vi.fn()
+    };
+    const getStateSpy = vi.spyOn(useXpLedger, 'getState').mockReturnValue(mockedLedger as any);
+
+    try {
+      await expect(store.getState().createComment('thread-1', 'hello', 'reply')).rejects.toThrow(
+        'Budget denied: Daily limit of 50 reached for comments/day'
+      );
+      expect(mockedLedger.applyForumXP).not.toHaveBeenCalled();
+      expect(engagementSpy).not.toHaveBeenCalled();
+    } finally {
+      getStateSpy.mockRestore();
+      engagementSpy.mockRestore();
+    }
+  });
+
+  it('createThread with Gun write failure does not consume budget', async () => {
+    setIdentity('budget-thread-gun-failure');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-budget-gun-failure', now: () => 5 });
+    const before = useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'posts/day')?.count ?? 0;
+    threadChain.put.mockImplementationOnce((_value: any, cb?: (ack?: { err?: string }) => void) => {
+      cb?.({ err: 'fail' });
+    });
+
+    await expect(store.getState().createThread('title', 'content', ['tag'])).rejects.toThrow('fail');
+
+    const after = useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'posts/day')?.count ?? 0;
+    expect(after).toBe(before);
+  });
+
+  it('createComment with Gun write failure does not consume budget', async () => {
+    setIdentity('budget-comment-gun-failure');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-budget-gun-failure', now: () => 5 });
+    const before = useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'comments/day')?.count ?? 0;
+    commentsChain.put.mockImplementationOnce((_value: any, cb?: (ack?: { err?: string }) => void) => {
+      cb?.({ err: 'fail' });
+    });
+
+    await expect(store.getState().createComment('thread-1', 'hello', 'reply')).rejects.toThrow('fail');
+
+    const after = useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'comments/day')?.count ?? 0;
+    expect(after).toBe(before);
+  });
+
+  it('budget enforcement works across multiple threads', async () => {
+    setIdentity('budget-multi-thread');
+    let i = 0;
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => `thread-multi-${++i}`,
+      now: () => 5
+    });
+
+    for (let n = 0; n < 20; n += 1) {
+      await store.getState().createThread('title', 'content', ['tag']);
+    }
+
+    await expect(store.getState().createThread('title', 'content', ['tag'])).rejects.toThrow(
+      'Budget denied: Daily limit of 20 reached for posts/day'
+    );
+  });
+
+  it('budget resets on date rollover for forum operations', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2024-01-01T00:00:00Z'));
+      setIdentity('budget-rollover');
+      let i = 0;
+      const store = createForumStore({
+        resolveClient: () => ({} as any),
+        randomId: () => `thread-rollover-${++i}`,
+        now: () => Date.now()
+      });
+
+      for (let n = 0; n < 20; n += 1) {
+        await store.getState().createThread('title', 'content', ['tag']);
+      }
+      await expect(store.getState().createThread('title', 'content', ['tag'])).rejects.toThrow(
+        'Budget denied: Daily limit of 20 reached for posts/day'
+      );
+
+      vi.setSystemTime(new Date('2024-01-02T00:00:00Z'));
+      await expect(store.getState().createThread('title', 'content', ['tag'])).resolves.toBeDefined();
+      expect(useXpLedger.getState().budget?.date).toBe('2024-01-02');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

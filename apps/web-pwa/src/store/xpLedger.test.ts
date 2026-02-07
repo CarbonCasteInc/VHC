@@ -21,6 +21,7 @@ const resetLedger = (activeNullifier: string | null = null) => {
     totalXP: 0,
     lastUpdated: 0,
     activeNullifier: activeNullifier ?? state.activeNullifier ?? null,
+    budget: null,
     dailySocialXP: { date: '2024-01-01', amount: 0 },
     dailyCivicXP: { date: '2024-01-01', amount: 0 },
     weeklyProjectXP: { weekStart: '2023-12-31', amount: 0 },
@@ -160,6 +161,126 @@ describe('xpLedger', () => {
     const boosted = useXpLedger.getState().claimDailyBoost(0.6);
     expect(boosted).toBe(10);
     expect(useXpLedger.getState().totalXP).toBeGreaterThan(0);
+  });
+
+  it('setActiveNullifier initializes budget for non-null nullifier', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    const budget = useXpLedger.getState().budget;
+    expect(budget).not.toBeNull();
+    expect(budget?.nullifier).toBe('n1');
+    expect(budget?.date).toBe('2024-01-01');
+  });
+
+  it('setActiveNullifier(null) sets budget to null', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    useXpLedger.getState().setActiveNullifier(null);
+    expect(useXpLedger.getState().budget).toBeNull();
+  });
+
+  it('canPerformAction returns allowed when under limit', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    expect(useXpLedger.getState().canPerformAction('posts/day')).toEqual({ allowed: true });
+  });
+
+  it('canPerformAction returns denied at posts/day limit', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    for (let i = 0; i < 20; i += 1) {
+      useXpLedger.getState().consumeAction('posts/day');
+    }
+    expect(useXpLedger.getState().canPerformAction('posts/day')).toEqual({
+      allowed: false,
+      reason: 'Daily limit of 20 reached for posts/day'
+    });
+  });
+
+  it('canPerformAction returns denied for null nullifier', () => {
+    useXpLedger.getState().setActiveNullifier(null);
+    expect(useXpLedger.getState().canPerformAction('posts/day')).toEqual({
+      allowed: false,
+      reason: 'No active nullifier'
+    });
+  });
+
+  it('canPerformAction triggers date rollover', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    useXpLedger.getState().consumeAction('posts/day');
+    vi.setSystemTime(new Date('2024-01-02T00:00:00Z'));
+    const result = useXpLedger.getState().canPerformAction('posts/day');
+    expect(result.allowed).toBe(true);
+    expect(useXpLedger.getState().budget?.date).toBe('2024-01-02');
+    expect(useXpLedger.getState().budget?.usage).toEqual([]);
+  });
+
+  it('consumeAction increments budget usage and persists', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    useXpLedger.getState().consumeAction('posts/day');
+    expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'posts/day')?.count).toBe(1);
+    const persisted = JSON.parse(localStorage.getItem('vh_xp_ledger:n1') ?? '{}');
+    expect(persisted.budget.usage[0].count).toBe(1);
+  });
+
+  it('consumeAction throws on denied with exact message', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    for (let i = 0; i < 20; i += 1) {
+      useXpLedger.getState().consumeAction('posts/day');
+    }
+    expect(() => useXpLedger.getState().consumeAction('posts/day')).toThrow('Daily limit of 20 reached for posts/day');
+  });
+
+  it('consumeAction throws for null nullifier', () => {
+    useXpLedger.getState().setActiveNullifier(null);
+    expect(() => useXpLedger.getState().consumeAction('posts/day')).toThrow('Budget denied: No active nullifier');
+  });
+
+  it('budget persists across nullifier switches', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    for (let i = 0; i < 5; i += 1) {
+      useXpLedger.getState().consumeAction('posts/day');
+    }
+    useXpLedger.getState().setActiveNullifier('n2');
+    useXpLedger.getState().setActiveNullifier('n1');
+    expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'posts/day')?.count).toBe(5);
+  });
+
+  it('pre-budget localStorage data restores gracefully', () => {
+    localStorage.setItem(
+      'vh_xp_ledger:legacy',
+      JSON.stringify({
+        socialXP: 0,
+        civicXP: 0,
+        projectXP: 0,
+        dailySocialXP: { date: '2024-01-01', amount: 0 },
+        dailyCivicXP: { date: '2024-01-01', amount: 0 },
+        weeklyProjectXP: { weekStart: '2023-12-31', amount: 0 },
+        firstContacts: [],
+        qualityBonuses: {},
+        sustainedAwards: {},
+        projectWeekly: {}
+      })
+    );
+    expect(() => useXpLedger.getState().setActiveNullifier('legacy')).not.toThrow();
+    expect(useXpLedger.getState().budget?.nullifier).toBe('legacy');
+  });
+
+  it('corrupted budget in localStorage is handled gracefully', () => {
+    localStorage.setItem(
+      'vh_xp_ledger:bad',
+      JSON.stringify({
+        socialXP: 0,
+        civicXP: 0,
+        projectXP: 0,
+        dailySocialXP: { date: '2024-01-01', amount: 0 },
+        dailyCivicXP: { date: '2024-01-01', amount: 0 },
+        weeklyProjectXP: { weekStart: '2023-12-31', amount: 0 },
+        firstContacts: [],
+        qualityBonuses: {},
+        sustainedAwards: {},
+        projectWeekly: {},
+        budget: 'garbage'
+      })
+    );
+    expect(() => useXpLedger.getState().setActiveNullifier('bad')).not.toThrow();
+    expect(useXpLedger.getState().budget?.nullifier).toBe('bad');
   });
 
   it('switches ledgers when nullifier changes', () => {

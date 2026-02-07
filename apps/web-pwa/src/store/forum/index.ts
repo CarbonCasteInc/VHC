@@ -58,6 +58,10 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     async createThread(title, content, tags, sourceAnalysisId) {
       triggerHydration();
       const identity = ensureIdentity();
+      const budgetCheck = useXpLedger.getState().canPerformAction('posts/day');
+      if (!budgetCheck.allowed) {
+        throw new Error(`Budget denied: ${budgetCheck.reason}`);
+      }
       const client = ensureClient(deps.resolveClient);
       const threadData: Record<string, unknown> = {
         id: deps.randomId(),
@@ -93,6 +97,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
           resolve();
         });
       });
+      useXpLedger.getState().consumeAction('posts/day');
       (getForumDateIndexChain(client).get(withScore.id) as any).put({ timestamp: withScore.timestamp });
       tags.forEach((tag) => (getForumTagIndexChain(client, tag.toLowerCase()).get(withScore.id) as any).put(true));
       set((state) => addThread(state, withScore));
@@ -107,6 +112,10 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     async createComment(threadId, content, stanceInput, parentId, targetId) {
       triggerHydration();
       const identity = ensureIdentity();
+      const budgetCheck = useXpLedger.getState().canPerformAction('comments/day');
+      if (!budgetCheck.allowed) {
+        throw new Error(`Budget denied: ${budgetCheck.reason}`);
+      }
       const client = ensureClient(deps.resolveClient);
       const stance: Exclude<CommentStanceInput, 'reply' | 'counterpoint'> =
         stanceInput === 'counterpoint' ? 'counter' : stanceInput === 'reply' ? 'concur' : stanceInput;
@@ -147,6 +156,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
             resolve();
           });
       });
+      useXpLedger.getState().consumeAction('comments/day');
       set((state) => addComment(state, withLegacyType));
       const isSubstantive = content.length >= 280;
       useXpLedger.getState().applyForumXP({

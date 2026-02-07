@@ -1,6 +1,8 @@
 import { create } from 'zustand';
+import type { BudgetActionKey, BudgetCheckResult, NullifierBudget } from '@vh/types';
 import { getPublishedIdentity } from './identityProvider';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
+import { checkBudget, consumeFromBudget, ensureBudget } from './xpLedgerBudget';
 
 type Track = 'civic' | 'social' | 'project';
 type MessagingXPEvent =
@@ -36,6 +38,7 @@ interface SerializedLedger {
   qualityBonuses: Record<string, number[]>;
   sustainedAwards: Record<string, string>;
   projectWeekly: Record<string, number>;
+  budget?: NullifierBudget | null;
 }
 interface LedgerData {
   socialXP: number;
@@ -45,13 +48,14 @@ interface LedgerData {
   totalXP: number;
   lastUpdated: number;
   activeNullifier: string | null;
+  budget: NullifierBudget | null;
   dailySocialXP: Bucket;
   dailyCivicXP: Bucket;
   weeklyProjectXP: WeeklyBucket;
   firstContacts: Set<string>;
   qualityBonuses: Map<string, Set<number>>;
-  sustainedAwards: Map<string, string>; // channelId -> weekStart
-  projectWeekly: Map<string, number>; // threadId -> count for week
+  sustainedAwards: Map<string, string>;
+  projectWeekly: Map<string, number>;
 }
 export interface XpLedgerState extends LedgerData {
   applyMessagingXP(event: MessagingXPEvent): void;
@@ -61,15 +65,12 @@ export interface XpLedgerState extends LedgerData {
   calculateRvu(trustScore: number): number;
   claimDailyBoost(trustScore: number): number;
   setActiveNullifier(nullifier: string | null): void;
+  canPerformAction(action: BudgetActionKey, amount?: number, topicId?: string): BudgetCheckResult;
+  consumeAction(action: BudgetActionKey, amount?: number, topicId?: string): void;
 }
 const STORAGE_KEY = 'vh_xp_ledger';
-const DAILY_SOCIAL_CAP = 5,
-  DAILY_CIVIC_CAP = 6,
-  DAILY_FIRST_CONTACT_CAP = 3,
-  DAILY_THREAD_CAP = 3,
-  DAILY_COMMENT_CAP = 5,
-  WEEKLY_PROJECT_CAP = 10,
-  DAILY_BOOST_RVU = 10;
+const DAILY_SOCIAL_CAP = 5, DAILY_CIVIC_CAP = 6, DAILY_FIRST_CONTACT_CAP = 3, DAILY_THREAD_CAP = 3,
+  DAILY_COMMENT_CAP = 5, WEEKLY_PROJECT_CAP = 10, DAILY_BOOST_RVU = 10;
 function today(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -124,7 +125,8 @@ function persist(state: LedgerData) {
       Array.from(state.qualityBonuses.entries()).map(([key, set]) => [key, Array.from(set.values())])
     ),
     sustainedAwards: Object.fromEntries(state.sustainedAwards.entries()),
-    projectWeekly: Object.fromEntries(state.projectWeekly.entries())
+    projectWeekly: Object.fromEntries(state.projectWeekly.entries()),
+    budget: state.budget
   };
   safeSetItem(storageKey(state.activeNullifier), JSON.stringify(payload));
 }
@@ -144,7 +146,7 @@ function deriveTotals(civicXP: number, socialXP: number, projectXP: number) {
   return { tracks, totalXP };
 }
 function toLedgerData(state: XpLedgerState): LedgerData {
-  const { applyMessagingXP, applyForumXP, applyProjectXP, addXp, calculateRvu, claimDailyBoost, setActiveNullifier, ...rest } = state;
+  const { applyMessagingXP, applyForumXP, applyProjectXP, addXp, calculateRvu, claimDailyBoost, setActiveNullifier, canPerformAction, consumeAction, ...rest } = state;
   return rest;
 }
 function withDerived(data: LedgerData, touch = false): LedgerData {
@@ -169,6 +171,7 @@ function restore(targetNullifier: string | null): LedgerData {
       totalXP: 0,
       lastUpdated: 0,
       activeNullifier: targetNullifier,
+      budget: null,
       dailySocialXP: { date: todayId, amount: 0 },
       dailyCivicXP: { date: todayId, amount: 0 },
       weeklyProjectXP: { weekStart: weekId, amount: 0 },
@@ -181,6 +184,9 @@ function restore(targetNullifier: string | null): LedgerData {
   const civicXP = stored.civicXP ?? 0;
   const socialXP = stored.socialXP ?? 0;
   const projectXP = stored.projectXP ?? 0;
+  const budget = stored.budget && typeof stored.budget === 'object' && !Array.isArray(stored.budget)
+    ? (stored.budget as NullifierBudget)
+    : null;
   return withDerived({
     socialXP,
     civicXP,
@@ -189,6 +195,7 @@ function restore(targetNullifier: string | null): LedgerData {
     totalXP: stored.totalXP ?? civicXP + socialXP + projectXP,
     lastUpdated: stored.lastUpdated ?? 0,
     activeNullifier: targetNullifier,
+    budget,
     dailySocialXP: stored.dailySocialXP ?? { date: todayId, amount: 0 },
     dailyCivicXP: stored.dailyCivicXP ?? { date: todayId, amount: 0 },
     weeklyProjectXP: stored.weeklyProjectXP ?? { weekStart: weekId, amount: 0 },
@@ -249,13 +256,8 @@ export const useXpLedger = create<XpLedgerState>((set, get) => ({
       civicXP += award;
       dailyCivic = { ...dailyCivic, amount: dailyCivic.amount + award };
     };
-    if (event.type === 'thread_created') {
-      grant(2, DAILY_THREAD_CAP);
-    }
-    if (event.type === 'comment_created') {
-      const amount = event.isSubstantive ? 2 : 1;
-      grant(amount, DAILY_COMMENT_CAP);
-    }
+    if (event.type === 'thread_created') grant(2, DAILY_THREAD_CAP);
+    if (event.type === 'comment_created') grant(event.isSubstantive ? 2 : 1, DAILY_COMMENT_CAP);
     if (event.type === 'quality_bonus') {
       const existing = qualityBonuses.get(event.contentId) ?? new Set<number>();
       if (existing.has(event.threshold)) return;
@@ -284,7 +286,6 @@ export const useXpLedger = create<XpLedgerState>((set, get) => ({
       const grant = Math.min(2, remaining);
       projectXP += grant;
       weeklyProject = { ...weeklyProject, amount: weeklyProject.amount + grant };
-      // also give civic participation bonus
       civicXP += 1;
     }
     if (event.type === 'project_update') {
@@ -298,10 +299,7 @@ export const useXpLedger = create<XpLedgerState>((set, get) => ({
     }
     if (event.type === 'collaborator_bonus') {
       const remaining = Math.max(0, WEEKLY_PROJECT_CAP - weeklyProject.amount);
-      if (remaining > 0) {
-        projectXP += 1;
-        weeklyProject = { ...weeklyProject, amount: weeklyProject.amount + 1 };
-      }
+      if (remaining > 0) { projectXP += 1; weeklyProject = { ...weeklyProject, amount: weeklyProject.amount + 1 }; }
     }
     set((s) => buildNext(s, { projectXP, civicXP, weeklyProjectXP: weeklyProject, projectWeekly }, true));
   },
@@ -329,10 +327,24 @@ export const useXpLedger = create<XpLedgerState>((set, get) => ({
   },
   setActiveNullifier(nullifier) {
     const ledger = restore(nullifier);
+    const budget = nullifier ? ensureBudget(ledger.budget ?? null, nullifier) : null;
     set((state) => {
-      const next = { ...ledger, activeNullifier: nullifier };
+      const next = { ...ledger, activeNullifier: nullifier, budget };
       persist(next);
       return { ...state, ...next };
     });
+  },
+  canPerformAction(action, amount, topicId) {
+    const { activeNullifier, budget } = get();
+    if (!activeNullifier) return { allowed: false, reason: 'No active nullifier' };
+    const { result, budget: rolledBudget } = checkBudget(budget, activeNullifier, action, amount, topicId);
+    if (rolledBudget !== budget) set((s) => buildNext(s, { budget: rolledBudget }));
+    return result;
+  },
+  consumeAction(action, amount, topicId) {
+    const { activeNullifier, budget } = get();
+    if (!activeNullifier) throw new Error('Budget denied: No active nullifier');
+    const nextBudget = consumeFromBudget(budget, activeNullifier, action, amount, topicId);
+    set((s) => buildNext(s, { budget: nextBudget }));
   }
 }));

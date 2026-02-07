@@ -105,6 +105,7 @@ const createHydrationClient = () => {
 beforeEach(() => {
   (globalThis as any).localStorage = memoryStorage();
   clearPublishedIdentity();
+  useXpLedger.getState().setActiveNullifier(null);
   threadWrites.length = 0;
   commentWrites.length = 0;
   dateIndexWrites.length = 0;
@@ -118,8 +119,10 @@ beforeEach(() => {
 });
 
 describe('hermesForum store (comments & hydration)', () => {
-  const setIdentity = (nullifier: string, trustScore = 1) =>
+  const setIdentity = (nullifier: string, trustScore = 1) => {
     publishIdentity({ session: { nullifier, trustScore, scaledTrustScore: Math.round(trustScore * 10000) } });
+    useXpLedger.getState().setActiveNullifier(nullifier);
+  };
 
   it('createComment marks substantive comments', async () => {
     setIdentity('commenter');
