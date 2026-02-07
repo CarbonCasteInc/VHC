@@ -170,6 +170,7 @@ describe('Feed ↔ Forum integration', () => {
     fireEvent.click(screen.getByTestId('submit-thread-btn'));
 
     await waitFor(() => expect(createThreadBridge).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(forumStore.getState().threads.has('thread-feed-forum')).toBe(true));
 
     const createdThread = forumStore.getState().threads.get('thread-feed-forum');
     expect(createdThread).toBeDefined();
