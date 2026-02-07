@@ -45,7 +45,7 @@
 - ✅ **Issue #4** — SMOKE: agent loop end-to-end smoke test — validated full ritual (spec → impl → QA → maint → merge) with a docs-only PR (PR #41, merged 2026-02-06).
 - ✅ **Issue #40** — Migrated all remaining bare `localStorage` calls to `safeStorage` utility (13 files), added ESLint `no-restricted-globals` rule to prevent regressions (PR #42, merged 2026-02-06).
 - ✅ **Issue #44** — CSP meta tag + secure storage policy enforcement: added restrictive `<meta>` CSP to `index.html`, extracted inline E2E script to `public/e2e-init.js`, created `docs/specs/secure-storage-policy.md` (3-tier model: Vault/safeStorage/Ephemeral), added CSP test + storage audit test. All existing tests pass, 100% coverage maintained (PR #45, merged 2026-02-07).
-- ✅ **Issue #47** — CSP header hardening documentation: created `docs/foundational/CSP_HEADER_MIGRATION.md` (current posture, meta-tag limitations with W3C/MDN sources, 3-phase migration playbook with Report-Only, Permissions-Policy guidance, decision log), added CSP guardrail to `ARCHITECTURE_LOCK.md` §2.4, added inline HTML comment in `index.html` pointing to migration doc. Docs-only, no runtime changes. All gates green, 100% coverage maintained.
+- ✅ **Issue #47** — CSP header hardening documentation: created `docs/foundational/CSP_HEADER_MIGRATION.md` (current posture, meta-tag limitations with W3C/MDN sources, 3-phase migration playbook with Report-Only, Permissions-Policy guidance, decision log), added CSP guardrail to `ARCHITECTURE_LOCK.md` §2.4, added inline HTML comment in `index.html` pointing to migration doc. Docs-only, no runtime changes. All gates green, 100% coverage maintained (PR #111, SHA `a4e3fd8`, merged 2026-02-07). Follow-up: #112 (doc coherence tweaks from maint review).
 - ✅ **Issue #46** — Added canonical delegation/familiar type foundations: `FamiliarRecord`, `DelegationGrant`, `OnBehalfOfAssertion` interfaces + Zod schemas, `DelegationTier`/`DelegationScope` types, `TIER_SCOPES` constant (PR #48, merged 2026-02-07).
 - ✅ **Issue #50** — Added participation governor type foundations: `BudgetActionKey` (8-key string literal union), `BudgetLimit`/`DailyUsage`/`NullifierBudget` interfaces + Zod schemas, `BUDGET_ACTION_KEYS` runtime tuple, `SEASON_0_BUDGET_DEFAULTS` constant. Full test suite with 100% coverage (PR #51, merged 2026-02-07).
 - ✅ **Issue #53** — Added participation governor runtime utilities: `initializeNullifierBudget`, `rolloverBudgetIfNeeded`, `canConsumeBudget`, `consumeBudget` pure functions + `BudgetCheckResult` interface. 52 tests, 100% coverage (PR #54, merged 2026-02-07).
@@ -73,9 +73,9 @@
 
 | Issue | Title | Priority |
 |-------|-------|----------|
-| _None_ | — | — |
+| #112 | Doc coherence tweaks from maint review (follow-up from #47) | Nit |
 
-Next work: remaining budget enforcement slices (moderation, civic_actions). All Season 0 budget keys are now wired (`shares/day` was the last one, completed in #106), and CSP documentation follow-up (#47) is complete.
+Next work: remaining budget enforcement slices (moderation, civic_actions). All Season 0 budget keys are now wired (`shares/day` was the last one, completed in #106), and CSP documentation follow-up (#47) is complete. Minor doc coherence tweaks tracked in #112.
 
 ---
 
