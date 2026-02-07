@@ -44,6 +44,14 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
     - **Initial Load**: Critical-path bundles must be < **1 MiB gzip**.
     - **Lazy AI/WASM Assets**: Allowed up to **10 MiB gzip** if **lazy-loaded** and **cached by the Service Worker** to avoid re-downloads. Initial route render must not block on these assets.
 
+### 2.4 Content Security Policy (CSP)
+- **Enforcement Required**: All HTML entry points must include a Content-Security-Policy. Currently delivered via `<meta>` tag; will migrate to HTTP header when server/CDN control is available.
+- **No Inline Scripts**: `script-src` must never include `'unsafe-inline'` or `'unsafe-eval'`. All scripts must be first-party (`'self'`).
+- **Object Embedding Blocked**: `object-src 'none'` is mandatory.
+- **Style Exception**: `'unsafe-inline'` is permitted for `style-src` only because CSS-in-JS / Tailwind runtime requires it. When build tooling supports style hashes or nonces, remove this exception.
+- **Meta-Tag Limitations Accepted**: The current meta-tag CSP cannot enforce `frame-ancestors`, `report-to`, or `sandbox`. These limitations are documented in `docs/foundational/CSP_HEADER_MIGRATION.md` and accepted until HTTP header delivery is available.
+- **Migration Path**: See `docs/foundational/CSP_HEADER_MIGRATION.md` for the phased migration plan.
+
 ## 3. Local Dev Networking Guardrails
 - **Gun peers must be reachable without SSH gymnastics**:
   - Default `VITE_GUN_PEERS` points to the Tailscale-accessible relay (`http://100.75.18.26:7777/gun`) with a localhost fallback.
