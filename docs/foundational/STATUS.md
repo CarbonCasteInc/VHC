@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50, #53, #56, #59)
+## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50, #53, #56, #59, #63)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
@@ -48,6 +48,7 @@
 - ✅ **Issue #53** — Added participation governor runtime utilities: `initializeNullifierBudget`, `rolloverBudgetIfNeeded`, `canConsumeBudget`, `consumeBudget` pure functions + `BudgetCheckResult` interface. 52 tests, 100% coverage (PR #54, merged 2026-02-07).
 - ✅ **Issue #56** — Wired participation governor budget enforcement into forum store: budget state persisted per-nullifier in XP ledger, `canPerformAction`/`consumeAction` methods exposed, `posts/day` (20) and `comments/day` (50) enforced in `createThread`/`createComment` with check-before/consume-after pattern. New `xpLedgerBudget.ts` bridge file (59 LOC). 582 tests, 100% coverage (PR #57, merged 2026-02-07).
 - ✅ **Issue #59** — Wired `governance_votes/day` budget enforcement into `useGovernanceStore.submitVote`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, `setActiveNullifier` called unconditionally for all votes. 5 new tests, 587 total, 100% coverage maintained (PR #60, merged 2026-02-07).
+- ✅ **Issue #63** — Wired `sentiment_votes/day` budget enforcement into `useSentimentState.setAgreement`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, `setActiveNullifier` called before budget check. Season 0 limit: 200 sentiment votes/day per nullifier. 100% coverage maintained (PR #64, merged 2026-02-07).
 
 ---
 
@@ -66,7 +67,7 @@ None — all tracked issues resolved. Next work: Sprint 4 planning.
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum & governance vote enforcement wiring landed; remaining budget enforcement (sentiment/analysis/moderation/civic/shares) + unified topics pending |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote & sentiment vote enforcement wiring landed; remaining budget enforcement (analyses/moderation/civic_actions/shares) + unified topics pending |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
@@ -81,7 +82,7 @@ None — all tracked issues resolved. Next work: Sprint 4 planning.
 | Hero_Paths / Sentiment Spec | Constituency proofs + district aggregates | SentimentSignal emission requires constituency proof; no RegionProof generation or aggregates | `apps/web-pwa/src/hooks/useSentimentState.ts:76-100` |
 | Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/sprints/05-sprint-the-bridge.md` |
 | Agentic Familiars (Delegation) | Delegation grants + OBO assertions | 🟡 Types + Zod schemas defined; runtime not implemented | `packages/types/src/delegation.ts` (PR #48); no familiar runtime yet |
-| Participation Governors | Action/analysis budgets per principal | 🟡 Types + defaults + runtime utils defined; forum (posts/comments) & governance votes enforcement wired | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60); remaining store/flow integration pending |
+| Participation Governors | Action/analysis budgets per principal | 🟡 Types + defaults + runtime utils defined; forum (posts/comments), governance votes & sentiment votes enforcement wired | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64); remaining store/flow integration (analyses, moderation, civic_actions, shares) pending |
 | Unified Topics Model | Headlines ↔ threads share `topicId` + proposal threads | Not implemented | Thread schema lacks `topicId`/`proposal` extension |
 | Topic Reanalysis Epochs | Frame/Reframe table updates after N posts via reanalysis | Not implemented | No reanalysis loop or digest types in app state |
 
@@ -108,7 +109,7 @@ The following tasks are required to align the codebase with the updated specs (a
 | ✅ ~~Wire budget enforcement into XP ledger store~~ | `spec-xp-ledger-v0.md` §4 | Done — `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) |
 | ✅ ~~Implement `canPerformAction(type)` budget check in stores~~ | `spec-xp-ledger-v0.md` §4 | Done — `canPerformAction`/`consumeAction` exposed via `xpLedgerBudget.ts` (PR #57) |
 | ✅ ~~Enforce budgets: posts/day=20, comments/day=50~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `createThread`/`createComment` with check-before/consume-after pattern (PR #57) |
-| Enforce budgets: sentiment_votes/day=200 | `spec-xp-ledger-v0.md` §4 | `useSentimentState.ts` |
+| ✅ ~~Enforce budgets: sentiment_votes/day=200~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `useSentimentState.setAgreement` with check-before/consume-after pattern (PR #64) |
 | ✅ ~~Enforce budgets: governance_votes/day=20~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `useGovernanceStore.submitVote` with check-before/consume-after pattern (PR #60) |
 | Enforce budgets: analyses/day=25 (max 5/topic) | `canonical-analysis-v1.md` §4.2 | `packages/ai-engine/src/analysis.ts` |
 | Enforce budgets: moderation/day=10, civic_actions/day=3, shares/day=10 | `spec-xp-ledger-v0.md` §4 | Various stores |
@@ -196,7 +197,7 @@ fn verify_web(payload, mock_mode) -> f32 {
 |---------|----------------|----------|
 | Delegation grants / OBO assertions | 🟡 Types + schemas defined | `packages/types/src/delegation.ts` (PR #48) |
 | Familiar runtime modes (suggest/act/high-impact) | ❌ Not implemented | No familiar orchestration layer |
-| Action/compute budgets per nullifier | 🟡 Types + runtime utils defined; forum & governance enforcement wired | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60); posts/day, comments/day & governance_votes/day enforced; remaining action types pending |
+| Action/compute budgets per nullifier | 🟡 Types + runtime utils defined; forum, governance & sentiment enforcement wired | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64); posts/day, comments/day, governance_votes/day & sentiment_votes/day enforced; remaining action types (analyses, moderation, civic_actions, shares) pending |
 
 **Invariant:** Familiars inherit the principal’s trust gate and budgets; they never add influence.
 
