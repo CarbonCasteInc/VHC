@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #50, #53, #56, #59, #63, #66, #69, #70, #71, #72, #73, #77, #80, #87, #90)
+## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #50, #53, #56, #59, #63, #66, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98)
 
 - ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
@@ -53,6 +53,7 @@
 - ✅ **Issue #63** — Wired `sentiment_votes/day` budget enforcement into `useSentimentState.setAgreement`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, `setActiveNullifier` called before budget check. Season 0 limit: 200 sentiment votes/day per nullifier. 100% coverage maintained (PR #64, merged 2026-02-07).
 - ✅ **Issue #66** — Wired `analyses/day` budget enforcement into `AnalysisFeed.tsx`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, budget checked before `getOrGenerate`, consumed only when result is fresh (not reused) and nullifier is present. Season 0 limits: 25 analyses/day per nullifier, max 5/topic. 9 new test cases, 604 total, 100% coverage maintained (PR #67, merged 2026-02-07).
 - ✅ **Issue #69** — Budget denial UX hardening: `useSentimentState.setAgreement` now returns `{ denied: true, reason }` and logs `console.warn` on budget denial (was silent void return). `AnalysisFeed.runAnalysis` resolves with `analysis: null` on denial (was `{} as CanonicalAnalysis` type-unsafe cast). `handleSubmit` guards null analysis. Reason fallback uses `||` for empty-string edge case. `createBudgetDeniedResult` helper exported. 10 new tests, 721 total, 100% coverage maintained (PR #96, merged 2026-02-07).
+- ✅ **Issue #98** — Gated `consumeAction('analyses/day')` on non-null analysis result. Prevents phantom budget debit when `getOrGenerate` returns null analysis. 1 LOC fix + 1 test assertion correction. 721 tests, 100% coverage maintained (PR #102, merged 2026-02-07).
 - ✅ **Issue #70** — Hardened budget localStorage validation: added `validateBudgetOrNull` using `NullifierBudgetSchema.safeParse` at the restore boundary, wrapped `ensureBudget` with try/catch fallback to `initializeNullifierBudget`. 22 new tests, 623 total, 100% coverage maintained (PR #75, merged 2026-02-07).
 - ✅ **Issue #71** — Hardened `useGovernance.ts` branch coverage from 72% to 100%: added 26 focused tests covering early-return paths (no active identity, missing nullifier, empty proposals, duplicate vote dedup), governance vote budget enforcement (limit hit, budget consumed on success), proposal hydration edge cases (empty/populated stores, multiple proposals), and `initGovernance` sequencing. Minor source fix: early-return when `proposals` is empty in `hydrateProposals`. Removed stale `useGovernance.ts` from coverage exclusion in `vitest.config.ts`. 685 tests total, 100% coverage maintained (PR #86, merged 2026-02-07).
 - ✅ **Issue #72** — Budget test scaffolding dedup + code comments cleanup: deduped `today()`/`todayISO()` between `xpLedger.ts` and `xpLedgerBudget.ts`, extracted shared `createBudgetMock()` test helper in `test-utils/budgetMock.ts`, added intentionality comments for budget call sites in `useSentimentState.ts`, restored inline Map type docs in `xpLedger.ts`, exported `ANALYSIS_FEED_STORAGE_KEY` constant for test use. 6 files changed, net −16 lines. 711 tests, 100% coverage maintained (PR #94, merged 2026-02-07).
@@ -68,12 +69,11 @@
 
 | Issue | Title | Priority |
 |-------|-------|----------|
-| #98 | consumeAction called on null analysis result from getOrGenerate | Should |
 | #68 | TOCTOU hardening across budget enforcement call sites | Should |
 | #61 | Cleanup: remove redundant setActiveNullifier in ProposalList.tsx useEffect | Nit |
 | #47 | CSP header hardening & documentation (Shoulds from #44) | Should |
 
-Next work: remaining budget enforcement slices (moderation, civic_actions, shares) and above follow-ups.
+Next work: remaining budget enforcement slices (moderation, civic_actions, shares) and above follow-ups (#68, #61, #47).
 
 ---
 
@@ -86,7 +86,7 @@ Next work: remaining budget enforcement slices (moderation, civic_actions, share
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote & analyses enforcement wiring landed; budget denial UX hardened (#69); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); remaining budget enforcement (moderation/civic_actions/shares) + follow-ups (#98 consume-on-null, #68 TOCTOU) pending |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote & analyses enforcement wiring landed; budget denial UX hardened (#69); consume-on-null fix (#98); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); remaining budget enforcement (moderation/civic_actions/shares) + follow-ups (#68 TOCTOU) pending |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
