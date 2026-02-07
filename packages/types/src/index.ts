@@ -205,3 +205,17 @@ export function decodeRegionProof(tuple: RegionProofTuple): ConstituencyProof {
   const [district_hash, nullifier, merkle_root] = tuple;
   return { district_hash, nullifier, merkle_root };
 }
+
+// Participation governor types & schemas
+export {
+  type BudgetActionKey,
+  type BudgetLimit,
+  type DailyUsage,
+  type NullifierBudget,
+  BudgetActionKeySchema,
+  BudgetLimitSchema,
+  DailyUsageSchema,
+  NullifierBudgetSchema,
+  BUDGET_ACTION_KEYS,
+  SEASON_0_BUDGET_DEFAULTS,
+} from './budget';
