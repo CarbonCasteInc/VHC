@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50, #53, #56, #59, #63, #66, #70)
+## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50, #53, #56, #59, #63, #66, #70, #77)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
@@ -51,6 +51,7 @@
 - ✅ **Issue #63** — Wired `sentiment_votes/day` budget enforcement into `useSentimentState.setAgreement`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, `setActiveNullifier` called before budget check. Season 0 limit: 200 sentiment votes/day per nullifier. 100% coverage maintained (PR #64, merged 2026-02-07).
 - ✅ **Issue #66** — Wired `analyses/day` budget enforcement into `AnalysisFeed.tsx`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, budget checked before `getOrGenerate`, consumed only when result is fresh (not reused) and nullifier is present. Season 0 limits: 25 analyses/day per nullifier, max 5/topic. 9 new test cases, 604 total, 100% coverage maintained (PR #67, merged 2026-02-07).
 - ✅ **Issue #70** — Hardened budget localStorage validation: added `validateBudgetOrNull` using `NullifierBudgetSchema.safeParse` at the restore boundary, wrapped `ensureBudget` with try/catch fallback to `initializeNullifierBudget`. 22 new tests, 623 total, 100% coverage maintained (PR #75, merged 2026-02-07).
+- ✅ **Issue #77** — Unified Topics Model: added `topicId`, `sourceUrl`, `urlHash`, `isHeadline` to Thread schema, `ProposalExtensionSchema` with proposal extension on threads, `via` field on comments, topic derivation utilities (`sha256Hex`, `deriveTopicId`, `deriveUrlTopicId`) using Web Crypto API, wired derivation into `createThread`, added `via` param to `createComment`. 652 tests, 100% coverage maintained (PR #78, merged 2026-02-07).
 
 ---
 
@@ -69,7 +70,7 @@ None — all tracked issues resolved. Next work: remaining budget enforcement sl
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote & analyses enforcement wiring landed; remaining budget enforcement (moderation/civic_actions/shares) + unified topics pending |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote & analyses enforcement wiring landed; unified topics schema + derivation landed (PR #78); remaining budget enforcement (moderation/civic_actions/shares) + Feed↔Forum UI integration pending |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
@@ -85,7 +86,7 @@ None — all tracked issues resolved. Next work: remaining budget enforcement sl
 | Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/sprints/05-sprint-the-bridge.md` |
 | Agentic Familiars (Delegation) | Delegation grants + OBO assertions | 🟡 Types + Zod schemas defined; runtime not implemented | `packages/types/src/delegation.ts` (PR #48); no familiar runtime yet |
 | Participation Governors | Action/analysis budgets per principal | 🟡 Types + defaults + runtime utils defined; forum (posts/comments), governance votes, sentiment votes & analyses enforcement wired | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64) + `AnalysisFeed.tsx` (PR #67); remaining store/flow integration (moderation, civic_actions, shares) pending |
-| Unified Topics Model | Headlines ↔ threads share `topicId` + proposal threads | Not implemented | Thread schema lacks `topicId`/`proposal` extension |
+| Unified Topics Model | Headlines ↔ threads share `topicId` + proposal threads | 🟡 Schema + derivation done; Feed↔Forum UI integration pending | `packages/data-model/src/schemas/hermes/forum.ts` + `apps/web-pwa/src/store/forum/helpers.ts` (PR #78) |
 | Topic Reanalysis Epochs | Frame/Reframe table updates after N posts via reanalysis | Not implemented | No reanalysis loop or digest types in app state |
 
 ---
@@ -120,11 +121,11 @@ The following tasks are required to align the codebase with the updated specs (a
 
 | Task | Spec Reference | Files to Modify |
 |------|----------------|-----------------|
-| Add `topicId`, `sourceUrl`, `urlHash`, `isHeadline` to Thread schema | `spec-hermes-forum-v0.md` §2.1 | `packages/data-model/src/schemas/hermes/forum.ts` |
-| Add `THREAD_TOPIC_PREFIX = "thread:"` constant | `spec-hermes-forum-v0.md` §2.1.1 | `packages/data-model/src/schemas/hermes/forum.ts` |
-| Implement `topicId` derivation (sha256 for threads, urlHash for URLs) | `spec-hermes-forum-v0.md` §2.1.1 | `apps/web-pwa/src/store/forum/helpers.ts` |
-| Add `via?: 'human' \| 'familiar'` to Comment schema | `spec-hermes-forum-v0.md` §2.2 | `packages/data-model/src/schemas/hermes/forum.ts` |
-| Add `proposal?: ProposalExtension` to Thread schema | `spec-hermes-forum-v0.md` §2.1 | `packages/data-model/src/schemas/hermes/forum.ts` |
+| ✅ ~~Add `topicId`, `sourceUrl`, `urlHash`, `isHeadline` to Thread schema~~ | `spec-hermes-forum-v0.md` §2.1 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
+| ✅ ~~Add `THREAD_TOPIC_PREFIX = "thread:"` constant~~ | `spec-hermes-forum-v0.md` §2.1.1 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
+| ✅ ~~Implement `topicId` derivation (sha256 for threads, urlHash for URLs)~~ | `spec-hermes-forum-v0.md` §2.1.1 | Done — `apps/web-pwa/src/store/forum/helpers.ts` (PR #78) |
+| ✅ ~~Add `via?: 'human' \| 'familiar'` to Comment schema~~ | `spec-hermes-forum-v0.md` §2.2 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
+| ✅ ~~Add `proposal?: ProposalExtension` to Thread schema~~ | `spec-hermes-forum-v0.md` §2.1 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
 | Unify Feed ↔ Forum: headlines and threads share topicId | `spec-hermes-forum-v0.md` §2.1.1 | `AnalysisFeed.tsx`, forum stores |
 
 ### P1 — Canonical Analysis v2 (Quorum Synthesis)
@@ -343,7 +344,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 #### Forum
 
-**Status:** 🟢 **Implemented** (core features); 🟡 **Unified Topics pending**
+**Status:** 🟢 **Implemented** (core features); 🟡 **Unified Topics schema + derivation landed, Feed↔Forum UI integration pending**
 
 | Feature | Implementation | Evidence |
 |---------|----------------|----------|
@@ -352,11 +353,11 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 | Voting | ✅ Complete | `VoteControl.tsx` |
 | Gun sync | ✅ Real integration | `forumAdapters.ts` |
 | XP integration | ✅ Complete | thread/comment/quality XP |
-| `topicId` field | ❌ Missing | Thread schema lacks unified topic key |
-| `via` field on Comment | ❌ Missing | No familiar provenance tracking |
-| Unified Feed ↔ Forum | ❌ Missing | Uses `sourceAnalysisId`, not shared `topicId` |
+| `topicId` field | ✅ Schema + derivation done | `topicId`, `sourceUrl`, `urlHash`, `isHeadline` on Thread; derivation wired into `createThread` (PR #78) |
+| `via` field on Comment | ✅ Schema done | `via?: 'human' \| 'familiar'` on Comment; wired into `createComment` (PR #78) |
+| Unified Feed ↔ Forum | 🟡 Schema done, UI pending | Schema supports shared `topicId`; `AnalysisFeed.tsx` still uses `sourceAnalysisId` |
 
-**Gap:** Spec requires shared `topicId` (urlHash for URLs, sha256 for native threads).
+**Gap:** Schema + derivation landed (PR #78); Feed↔Forum UI integration still pending (headlines and threads need to share `topicId` in the view layer).
 
 #### Docs (Collaborative)
 
@@ -428,7 +429,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 623 tests (unit + component + integration).
+**Repo-wide (Vitest `pnpm test:quick`):** 652 tests (unit + component + integration).
 
 **Coverage (`pnpm test:coverage`, last validated 2026-02-07):**
 
