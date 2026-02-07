@@ -461,6 +461,92 @@ describe('AnalysisFeed', () => {
       await waitFor(() => expect(screen.getByText(reason)).toBeInTheDocument());
     });
 
+    it('TC-1: concurrent double-submit — second call is blocked by ref guard', async () => {
+      const targetUrl = 'https://double.com';
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-conc' } } });
+      let resolveGenerate!: (value: any) => void;
+      const getOrGenerateSpy = vi
+        .spyOn(AnalysisModule, 'getOrGenerate')
+        .mockImplementation(() => new Promise((resolve) => { resolveGenerate = resolve; }));
+
+      try {
+        render(<AnalysisFeed />);
+        const input = screen.getByTestId('analysis-url-input') as HTMLInputElement;
+        fireEvent.change(input, { target: { value: targetUrl } });
+
+        const form = input.closest('form');
+        if (!form) throw new Error('form not found');
+        fireEvent.submit(form);
+        fireEvent.submit(form);
+
+        resolveGenerate({
+          analysis: {
+            url: targetUrl,
+            urlHash: hashUrl(targetUrl),
+            summary: 's',
+            biases: ['b'],
+            counterpoints: ['c'],
+            sentimentScore: 0,
+            bias_claim_quote: [],
+            justify_bias_claim: [],
+            confidence: 0.5,
+            timestamp: Date.now()
+          },
+          reused: false
+        });
+
+        await waitFor(() => expect(screen.queryByText('Analyzing…')).not.toBeInTheDocument());
+        expect(getOrGenerateSpy).toHaveBeenCalledTimes(1);
+        expect(mockCanPerformAction).toHaveBeenCalledTimes(1);
+        expect(mockConsumeAction).toHaveBeenCalledTimes(1);
+      } finally {
+        getOrGenerateSpy.mockRestore();
+      }
+    });
+
+    it('TC-2: ref guard resets after error — next submit succeeds', async () => {
+      const targetUrl = 'https://error-then-ok.com';
+      const getOrGenerateSpy = vi.spyOn(AnalysisModule, 'getOrGenerate').mockRejectedValueOnce(new Error('gen error'));
+
+      try {
+        render(<AnalysisFeed />);
+        submitUrl(targetUrl);
+
+        await waitFor(() => expect(screen.getByText('gen error')).toBeInTheDocument());
+
+        getOrGenerateSpy.mockRestore();
+
+        submitUrl(targetUrl);
+        await waitFor(() => expect(screen.getByText(/stored locally only|Analysis already exists/)).toBeInTheDocument());
+      } finally {
+        getOrGenerateSpy.mockRestore();
+      }
+    });
+
+    it('TC-3: ref guard resets after budget denial — next submit proceeds', async () => {
+      const targetUrl = 'https://deny-then-ok.com';
+      mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-deny-reset' } } });
+      mockCanPerformAction.mockReturnValue({ allowed: false, reason: 'Budget exhausted' });
+      const getOrGenerateSpy = vi.spyOn(AnalysisModule, 'getOrGenerate');
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        render(<AnalysisFeed />);
+        submitUrl(targetUrl);
+
+        await waitFor(() => expect(screen.getByText('Budget exhausted')).toBeInTheDocument());
+
+        mockCanPerformAction.mockReturnValue({ allowed: true });
+        submitUrl(targetUrl);
+
+        await waitFor(() => expect(screen.getByText(/stored locally only|Analysis already exists/)).toBeInTheDocument());
+        expect(getOrGenerateSpy).toHaveBeenCalledTimes(1);
+      } finally {
+        warnSpy.mockRestore();
+        getOrGenerateSpy.mockRestore();
+      }
+    });
+
     it('T9a: denied path emits console.warn', async () => {
       const reason = 'Budget exhausted for analyses';
       mockUseIdentity.mockReturnValue({ identity: { did: 'did:example', session: { nullifier: 'nul-warn' } } });

@@ -111,6 +111,10 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
           resolve();
         });
       });
+      // TOCTOU: consumeAction runs after async Gun write. Concurrent createThread calls
+      // at budget limit-1 can both pass canPerformAction, both persist to Gun, then the
+      // second consume throws. The orphaned Gun record is a known local-first tradeoff.
+      // Fix: optimistic consume before Gun write + rollback on failure. See issue #68.
       useXpLedger.getState().consumeAction('posts/day');
       (getForumDateIndexChain(client).get(withScore.id) as any).put({ timestamp: withScore.timestamp });
       tags.forEach((tag) => (getForumTagIndexChain(client, tag.toLowerCase()).get(withScore.id) as any).put(true));
@@ -171,6 +175,10 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
             resolve();
           });
       });
+      // TOCTOU: consumeAction runs after async Gun write. Concurrent createComment calls
+      // at budget limit-1 can both pass canPerformAction, both persist to Gun, then the
+      // second consume throws. The orphaned Gun record is a known local-first tradeoff.
+      // Fix: optimistic consume before Gun write + rollback on failure. See issue #68.
       useXpLedger.getState().consumeAction('comments/day');
       set((state) => addComment(state, withLegacyType));
       const isSubstantive = content.length >= 280;

@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Button } from '@vh/ui';
 import type { AnalysisResult } from '../../../../packages/ai-engine/src/prompts';
@@ -75,6 +75,7 @@ export const AnalysisFeed: React.FC = () => {
   const [feed, setFeed] = useState<CanonicalAnalysis[]>(() => loadFeed().data);
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const isRunningRef = useRef(false);
   const { client } = useAppStore();
   const { identity } = useIdentity();
 
@@ -88,6 +89,8 @@ export const AnalysisFeed: React.FC = () => {
 
   const runAnalysis = useCallback(
     async (targetUrl: string): Promise<{ analysis: CanonicalAnalysis | null; notice?: string }> => {
+      if (isRunningRef.current) return { analysis: null };
+      isRunningRef.current = true;
       setBusy(true);
       return new Promise<{ analysis: CanonicalAnalysis | null; notice?: string }>((resolve, reject) => {
         const generate = async (): Promise<AnalysisResult> =>
@@ -150,6 +153,7 @@ export const AnalysisFeed: React.FC = () => {
             const reason = budgetCheck.reason || 'Daily limit reached for analyses/day';
             console.warn('[vh:analysis] Budget denied:', reason);
             setMessage(reason);
+            isRunningRef.current = false;
             setBusy(false);
             resolve(createBudgetDeniedResult(reason));
             return;
@@ -180,7 +184,10 @@ export const AnalysisFeed: React.FC = () => {
             resolve({ analysis: result.analysis, notice });
           })
           .catch((error) => reject(error))
-          .finally(() => setBusy(false));
+          .finally(() => {
+            isRunningRef.current = false;
+            setBusy(false);
+          });
       });
     },
     [feed, gunStore, identity, store]
