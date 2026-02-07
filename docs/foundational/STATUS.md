@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50, #53, #56, #59, #63, #66, #70, #71, #77, #80, #87)
+## Recently Completed (Issues #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #46, #50, #53, #56, #59, #63, #66, #70, #71, #77, #80, #87, #90)
 
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
 - ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
@@ -53,6 +53,7 @@
 - ✅ **Issue #70** — Hardened budget localStorage validation: added `validateBudgetOrNull` using `NullifierBudgetSchema.safeParse` at the restore boundary, wrapped `ensureBudget` with try/catch fallback to `initializeNullifierBudget`. 22 new tests, 623 total, 100% coverage maintained (PR #75, merged 2026-02-07).
 - ✅ **Issue #71** — Hardened `useGovernance.ts` branch coverage from 72% to 100%: added 26 focused tests covering early-return paths (no active identity, missing nullifier, empty proposals, duplicate vote dedup), governance vote budget enforcement (limit hit, budget consumed on success), proposal hydration edge cases (empty/populated stores, multiple proposals), and `initGovernance` sequencing. Minor source fix: early-return when `proposals` is empty in `hydrateProposals`. Removed stale `useGovernance.ts` from coverage exclusion in `vitest.config.ts`. 685 tests total, 100% coverage maintained (PR #86, merged 2026-02-07).
 - ✅ **Issue #77** — Unified Topics Model: added `topicId`, `sourceUrl`, `urlHash`, `isHeadline` to Thread schema, `ProposalExtensionSchema` with proposal extension on threads, `via` field on comments, topic derivation utilities (`sha256Hex`, `deriveTopicId`, `deriveUrlTopicId`) using Web Crypto API, wired derivation into `createThread`, added `via` param to `createComment`. 652 tests, 100% coverage maintained (PR #78, merged 2026-02-07).
+- ✅ **Issue #90** — Forum Proposal Guard Hardening: used Approach C (destructure `proposal` out before spreading) in `parseThreadFromGun` to prevent array-valued proposals from leaking through. Added `!Array.isArray` triple-guard. 18 new tests in new `helpers.test.ts` covering tags parsing, proposal guard (arrays/objects/null/primitives/`_` stripping), and field pass-through. 711 tests total, 100% coverage maintained (PR #92, merged 2026-02-07).
 - ✅ **Issue #87** — Governance Storage Guard Hardening: added `&& !Array.isArray(parsed)` to `readFromStorage` and `readStoreMap` type guards in `useGovernance.ts`, preventing JSON arrays from passing the `typeof === 'object'` check. 8 new tests (array rejection, valid object regression, null/primitive handling). 693 tests total, 100% coverage maintained (PR #89, merged 2026-02-07). Follow-up #90 filed for `forum/helpers.ts` proposal guard audit.
 - ✅ **Issue #80** — Feed↔Forum UI Integration: wired `sourceUrl` from AnalysisFeed through route/ForumFeed/NewThreadForm to `createThread` opts. Analysis-feed-created threads now carry `topicId`, `sourceUrl`, `urlHash`, `isHeadline: true`. 659 tests, 100% coverage maintained (PR #81, merged 2026-02-07).
 
@@ -430,7 +431,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 693 tests (unit + component + integration).
+**Repo-wide (Vitest `pnpm test:quick`):** 711 tests (unit + component + integration).
 
 **Coverage (`pnpm test:coverage`, last validated 2026-02-07):**
 
