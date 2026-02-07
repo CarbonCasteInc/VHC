@@ -48,7 +48,7 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
 - **Enforcement Required**: All HTML entry points must include a Content-Security-Policy. Currently delivered via `<meta>` tag; will migrate to HTTP header when server/CDN control is available.
 - **No Inline Scripts**: `script-src` must never include `'unsafe-inline'` or `'unsafe-eval'`. All scripts must be first-party (`'self'`).
 - **Object Embedding Blocked**: `object-src 'none'` is mandatory.
-- **Style Exception**: `'unsafe-inline'` is permitted for `style-src` only because CSS-in-JS / Tailwind runtime requires it. When build tooling supports style hashes or nonces, remove this exception.
+- **Style Exception**: `'unsafe-inline'` is permitted for `style-src` only because Tailwind utility-class injection and framework-generated inline styles require it. When build tooling supports style hashes or nonces, remove this exception.
 - **Meta-Tag Limitations Accepted**: The current meta-tag CSP cannot enforce `frame-ancestors`, `report-to`, or `sandbox`. These limitations are documented in `docs/foundational/CSP_HEADER_MIGRATION.md` and accepted until HTTP header delivery is available.
 - **Migration Path**: See `docs/foundational/CSP_HEADER_MIGRATION.md` for the phased migration plan.
 

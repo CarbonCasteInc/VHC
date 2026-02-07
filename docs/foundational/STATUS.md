@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106)
+## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106, #112)
 
 - ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
@@ -66,16 +66,15 @@
 - ✅ **Issue #90** — Forum Proposal Guard Hardening: used Approach C (destructure `proposal` out before spreading) in `parseThreadFromGun` to prevent array-valued proposals from leaking through. Added `!Array.isArray` triple-guard. 18 new tests in new `helpers.test.ts` covering tags parsing, proposal guard (arrays/objects/null/primitives/`_` stripping), and field pass-through. 711 tests total, 100% coverage maintained (PR #92, merged 2026-02-07).
 - ✅ **Issue #87** — Governance Storage Guard Hardening: added `&& !Array.isArray(parsed)` to `readFromStorage` and `readStoreMap` type guards in `useGovernance.ts`, preventing JSON arrays from passing the `typeof === 'object'` check. 8 new tests (array rejection, valid object regression, null/primitive handling). 693 tests total, 100% coverage maintained (PR #89, merged 2026-02-07). Follow-up #90 filed for `forum/helpers.ts` proposal guard audit.
 - ✅ **Issue #80** — Feed↔Forum UI Integration: wired `sourceUrl` from AnalysisFeed through route/ForumFeed/NewThreadForm to `createThread` opts. Analysis-feed-created threads now carry `topicId`, `sourceUrl`, `urlHash`, `isHeadline: true`. 659 tests, 100% coverage maintained (PR #81, merged 2026-02-07).
+- ✅ **Issue #112** — CSP doc coherence pass: reconciled `report-uri` deprecation wording with fallback recommendation in `CSP_HEADER_MIGRATION.md`, tightened `style-src 'unsafe-inline'` rationale in `ARCHITECTURE_LOCK.md` (CSS-in-JS → Tailwind utility-class injection), annotated multi-line header example, added `connect-src` forward-reference for Gun relay peers. Docs-only, no runtime changes.
 
 ---
 
 ## Active Follow-ups
 
-| Issue | Title | Priority |
-|-------|-------|----------|
-| #112 | Doc coherence tweaks from maint review (follow-up from #47) | Nit |
+No active follow-ups.
 
-Next work: remaining budget enforcement slices (moderation, civic_actions). All Season 0 budget keys are now wired (`shares/day` was the last one, completed in #106), and CSP documentation follow-up (#47) is complete. Minor doc coherence tweaks tracked in #112.
+Next work: remaining budget enforcement slices (moderation, civic_actions). All Season 0 budget keys are now wired (`shares/day` was the last one, completed in #106), and CSP documentation follow-up (#47) is complete, including doc coherence pass (#112).
 
 ---
 

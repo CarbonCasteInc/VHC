@@ -13,8 +13,8 @@ This guide documents TRINITY’s current Content Security Policy (CSP) posture, 
 |---|---|---|
 | `default-src` | `'self'` | Fallback for all fetch directives |
 | `script-src` | `'self'` | Only first-party scripts |
-| `style-src` | `'self' 'unsafe-inline'` | First-party styles + inline styles required by current CSS-in-JS / Tailwind runtime |
-| `connect-src` | `'self'` | Restrict fetch/XHR/WebSocket origins |
+| `style-src` | `'self' 'unsafe-inline'` | First-party styles + inline styles required by Tailwind utility-class injection and framework-generated inline styles |
+| `connect-src` | `'self'` | Restrict fetch/XHR/WebSocket origins (Gun relay peers will require explicit allowlisting — see §4 Phase 2 step 4) |
 | `img-src` | `'self' data: blob:` | Allow self-hosted images, data URIs, and blob URLs |
 | `worker-src` | `'self' blob:` | Restrict worker/service-worker script origins |
 | `object-src` | `'none'` | Block plugin/object embedding |
@@ -28,7 +28,7 @@ This guide documents TRINITY’s current Content Security Policy (CSP) posture, 
 Per **W3C CSP Level 3 §4.1** (`<meta>` delivery restrictions), CSP delivered through an HTML meta element cannot include:
 
 - `frame-ancestors` (no clickjacking protection via meta-delivered CSP)
-- `report-uri` (deprecated) / `report-to` (no violation-reporting endpoint wiring via meta delivery)
+- `report-uri` (deprecated by CSP Level 3, but still recommended as a compatibility fallback — see §4 Phase 2 step 3 and §6) / `report-to` (no violation-reporting endpoint wiring via meta delivery)
 - `sandbox`
 
 Source: https://www.w3.org/TR/CSP3/#meta-element
@@ -84,6 +84,8 @@ Nonce/hash note:
 4. Consider `require-trusted-types-for 'script'` as a DOM XSS hardening layer.
 
 ### Target header example (Phase 2)
+
+> **Note:** The header value below is formatted across multiple lines for readability. In production, deliver the entire value as a single HTTP header line (line breaks are not valid in header values).
 
 ```http
 Content-Security-Policy:
