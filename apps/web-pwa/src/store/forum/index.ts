@@ -1,6 +1,8 @@
 import { create, type StoreApi } from 'zustand';
 import {
   computeThreadScore,
+  deriveTopicId,
+  deriveUrlTopicId,
   HermesCommentSchema,
   HermesCommentWriteSchema,
   HermesThreadSchema,
@@ -55,7 +57,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     threads: new Map(),
     comments: new Map(),
     userVotes: initialVotes,
-    async createThread(title, content, tags, sourceAnalysisId) {
+    async createThread(title, content, tags, sourceAnalysisId, opts) {
       triggerHydration();
       const identity = ensureIdentity();
       const budgetCheck = useXpLedger.getState().canPerformAction('posts/day');
@@ -63,8 +65,9 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         throw new Error(`Budget denied: ${budgetCheck.reason}`);
       }
       const client = ensureClient(deps.resolveClient);
+      const threadId = deps.randomId();
       const threadData: Record<string, unknown> = {
-        id: deps.randomId(),
+        id: threadId,
         schemaVersion: 'hermes-thread-v0',
         title,
         content,
@@ -76,6 +79,17 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         score: 0
       };
       if (sourceAnalysisId) threadData.sourceAnalysisId = sourceAnalysisId;
+      if (opts?.sourceUrl) {
+        const hash = await deriveUrlTopicId(opts.sourceUrl);
+        threadData.sourceUrl = opts.sourceUrl;
+        threadData.urlHash = hash;
+        threadData.topicId = hash;
+      } else {
+        threadData.topicId = await deriveTopicId(threadId);
+      }
+      if (opts?.isHeadline) {
+        threadData.isHeadline = true;
+      }
       const thread: HermesThread = HermesThreadSchema.parse(threadData);
       const withScore = { ...thread, score: computeThreadScore(thread, deps.now()) };
       const threadForGun = serializeThreadForGun(withScore);
@@ -109,7 +123,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       }
       return withScore;
     },
-    async createComment(threadId, content, stanceInput, parentId, targetId) {
+    async createComment(threadId, content, stanceInput, parentId, targetId, via) {
       triggerHydration();
       const identity = ensureIdentity();
       const budgetCheck = useXpLedger.getState().canPerformAction('comments/day');
@@ -132,6 +146,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         timestamp: deps.now(),
         stance,
         targetId: targetId ?? undefined,
+        via: via ?? undefined,
         upvotes: 0,
         downvotes: 0
       });

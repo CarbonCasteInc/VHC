@@ -146,6 +146,17 @@ export interface HermesChannel {
   type: HermesChannelType;
 }
 
+export interface ProposalExtension {
+  fundingRequest: string;
+  recipient: string;
+  status: 'draft' | 'active' | 'elevated' | 'funded' | 'closed';
+  qfProjectId?: string;
+  sourceTopicId?: string;
+  attestationProof?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface HermesThread {
   id: string;
   schemaVersion: 'hermes-thread-v0';
@@ -155,6 +166,11 @@ export interface HermesThread {
   timestamp: number;
   tags: string[];
   sourceAnalysisId?: string;
+  topicId?: string;
+  sourceUrl?: string;
+  urlHash?: string;
+  isHeadline?: boolean;
+  proposal?: ProposalExtension;
   upvotes: number;
   downvotes: number;
   score: number;
@@ -169,6 +185,7 @@ interface BaseHermesCommentCommon {
   timestamp: number;
   upvotes: number;
   downvotes: number;
+  via?: 'human' | 'familiar';
 }
 
 export type HermesCommentV0 = BaseHermesCommentCommon & {

@@ -49,7 +49,12 @@ export function parseThreadFromGun(data: Record<string, unknown>): Record<string
       tags = [];
     }
   }
-  return { ...data, tags };
+  const result: Record<string, unknown> = { ...data, tags };
+  if (data.proposal && typeof data.proposal === 'object') {
+    const { _: _meta, ...cleanProposal } = data.proposal as Record<string, unknown>;
+    result.proposal = cleanProposal;
+  }
+  return result;
 }
 
 // Deduplication tracking

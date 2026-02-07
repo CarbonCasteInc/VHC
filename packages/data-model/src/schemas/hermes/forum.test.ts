@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
+  computeThreadScore,
+  deriveTopicId,
+  deriveUrlTopicId,
   HermesCommentSchema,
+  HermesCommentSchemaV0,
+  HermesCommentSchemaV1,
   HermesCommentWriteSchema,
   HermesThreadSchema,
   ModerationEventSchema,
   migrateCommentToV1,
-  computeThreadScore
+  ProposalExtensionSchema,
+  sha256Hex,
+  THREAD_TOPIC_PREFIX
 } from './forum';
 
 const now = Date.now();
@@ -21,6 +28,14 @@ const baseThread = {
   upvotes: 10,
   downvotes: 2,
   score: 0
+};
+
+const baseProposal = {
+  fundingRequest: '1000 RVU',
+  recipient: '0xabc123',
+  status: 'draft' as const,
+  createdAt: now - 1_000,
+  updatedAt: now
 };
 
 const baseCommentV0 = {
@@ -50,9 +65,83 @@ const baseCommentV1 = {
 };
 
 describe('HermesThreadSchema', () => {
-  it('accepts a valid thread', () => {
+  it('accepts existing thread without new fields (backward compat)', () => {
     const parsed = HermesThreadSchema.parse(baseThread);
     expect(parsed.title).toBe('A civic conversation');
+    expect(parsed.topicId).toBeUndefined();
+  });
+
+  it('accepts thread with topicId', () => {
+    const parsed = HermesThreadSchema.parse({ ...baseThread, topicId: 'topic-1' });
+    expect(parsed.topicId).toBe('topic-1');
+  });
+
+  it('accepts thread with sourceUrl', () => {
+    const parsed = HermesThreadSchema.parse({ ...baseThread, sourceUrl: 'https://example.com/article' });
+    expect(parsed.sourceUrl).toBe('https://example.com/article');
+  });
+
+  it('rejects thread with invalid sourceUrl', () => {
+    const result = HermesThreadSchema.safeParse({ ...baseThread, sourceUrl: 'not-a-url' });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts thread with urlHash', () => {
+    const parsed = HermesThreadSchema.parse({ ...baseThread, urlHash: 'abc123' });
+    expect(parsed.urlHash).toBe('abc123');
+  });
+
+  it('accepts thread with isHeadline true and false', () => {
+    const headline = HermesThreadSchema.parse({ ...baseThread, isHeadline: true });
+    const nonHeadline = HermesThreadSchema.parse({ ...baseThread, isHeadline: false });
+    expect(headline.isHeadline).toBe(true);
+    expect(nonHeadline.isHeadline).toBe(false);
+  });
+
+  it('accepts thread with proposal extension', () => {
+    const parsed = HermesThreadSchema.parse({ ...baseThread, proposal: baseProposal });
+    expect(parsed.proposal?.status).toBe('draft');
+  });
+
+  it('rejects thread with invalid proposal extension', () => {
+    const result = HermesThreadSchema.safeParse({
+      ...baseThread,
+      proposal: {
+        recipient: '0xabc123',
+        status: 'draft',
+        createdAt: now,
+        updatedAt: now
+      }
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts thread with all new optional fields populated', () => {
+    const parsed = HermesThreadSchema.parse({
+      ...baseThread,
+      topicId: 'topic-1',
+      sourceUrl: 'https://example.com/article',
+      urlHash: 'hash-1',
+      isHeadline: true,
+      proposal: {
+        ...baseProposal,
+        qfProjectId: 'qf-1',
+        sourceTopicId: 'topic-parent',
+        attestationProof: 'proof-1'
+      }
+    });
+    expect(parsed).toMatchObject({
+      topicId: 'topic-1',
+      sourceUrl: 'https://example.com/article',
+      urlHash: 'hash-1',
+      isHeadline: true,
+      proposal: {
+        ...baseProposal,
+        qfProjectId: 'qf-1',
+        sourceTopicId: 'topic-parent',
+        attestationProof: 'proof-1'
+      }
+    });
   });
 
   it('rejects title over 200 chars', () => {
@@ -70,6 +159,44 @@ describe('HermesThreadSchema', () => {
         content: 'b'.repeat(10_001)
       })
     ).toThrow();
+  });
+});
+
+describe('ProposalExtensionSchema', () => {
+  it('accepts valid proposal with required fields', () => {
+    const parsed = ProposalExtensionSchema.parse(baseProposal);
+    expect(parsed.status).toBe('draft');
+  });
+
+  it('accepts optional proposal fields', () => {
+    const parsed = ProposalExtensionSchema.parse({
+      ...baseProposal,
+      qfProjectId: 'qf-123',
+      sourceTopicId: 'topic-parent',
+      attestationProof: 'proof-123'
+    });
+    expect(parsed.qfProjectId).toBe('qf-123');
+    expect(parsed.sourceTopicId).toBe('topic-parent');
+    expect(parsed.attestationProof).toBe('proof-123');
+  });
+
+  it('rejects missing required fields', () => {
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, fundingRequest: undefined }).success).toBe(false);
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, recipient: undefined }).success).toBe(false);
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, status: undefined }).success).toBe(false);
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, createdAt: undefined }).success).toBe(false);
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, updatedAt: undefined }).success).toBe(false);
+  });
+
+  it('rejects invalid status values', () => {
+    const result = ProposalExtensionSchema.safeParse({ ...baseProposal, status: 'pending' });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects empty optional fields when present', () => {
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, qfProjectId: '' }).success).toBe(false);
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, sourceTopicId: '' }).success).toBe(false);
+    expect(ProposalExtensionSchema.safeParse({ ...baseProposal, attestationProof: '' }).success).toBe(false);
   });
 });
 
@@ -230,6 +357,83 @@ describe('HermesCommentWriteSchema', () => {
     const parsed = HermesCommentWriteSchema.parse({ ...baseCommentV1, stance: 'discuss' as const });
     expect(parsed.stance).toBe('discuss');
     expect((parsed as any).type).toBeUndefined();
+  });
+});
+
+describe('comment via field', () => {
+  it('accepts v0 comments with and without via', () => {
+    expect(HermesCommentSchemaV0.safeParse(baseCommentV0).success).toBe(true);
+    expect(HermesCommentSchemaV0.safeParse({ ...baseCommentV0, via: 'human' }).success).toBe(true);
+    expect(HermesCommentSchemaV0.safeParse({ ...baseCommentV0, via: 'familiar' }).success).toBe(true);
+  });
+
+  it('accepts v1 comments with and without via', () => {
+    expect(HermesCommentSchemaV1.safeParse(baseCommentV1).success).toBe(true);
+    expect(HermesCommentSchemaV1.safeParse({ ...baseCommentV1, via: 'human' }).success).toBe(true);
+    expect(HermesCommentSchemaV1.safeParse({ ...baseCommentV1, via: 'familiar' }).success).toBe(true);
+  });
+
+  it('accepts write schema payloads with and without via', () => {
+    expect(HermesCommentWriteSchema.safeParse(baseCommentV1).success).toBe(true);
+    expect(HermesCommentWriteSchema.safeParse({ ...baseCommentV1, via: 'human' }).success).toBe(true);
+  });
+
+  it('rejects invalid via values', () => {
+    expect(HermesCommentSchemaV1.safeParse({ ...baseCommentV1, via: 'bot' }).success).toBe(false);
+    expect(HermesCommentWriteSchema.safeParse({ ...baseCommentV1, via: 'bot' }).success).toBe(false);
+  });
+});
+
+describe('topic derivation', () => {
+  it('exports THREAD_TOPIC_PREFIX', () => {
+    expect(THREAD_TOPIC_PREFIX).toBe('thread:');
+  });
+
+  it('sha256Hex matches known vectors', async () => {
+    await expect(sha256Hex('')).resolves.toBe(
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    );
+    await expect(sha256Hex('hello')).resolves.toBe(
+      '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
+    );
+  });
+
+  it('sha256Hex is deterministic', async () => {
+    const first = await sha256Hex('deterministic-input');
+    const second = await sha256Hex('deterministic-input');
+    expect(first).toBe(second);
+  });
+
+  it('deriveTopicId is deterministic and uses prefixed input', async () => {
+    const first = await deriveTopicId('thread-123');
+    const second = await deriveTopicId('thread-123');
+    const expected = await sha256Hex('thread:thread-123');
+    expect(first).toBe(second);
+    expect(first).toBe(expected);
+  });
+
+  it('deriveTopicId returns distinct values for different ids', async () => {
+    const one = await deriveTopicId('abc');
+    const two = await deriveTopicId('def');
+    expect(one).not.toBe(two);
+  });
+
+  it('deriveUrlTopicId is deterministic and distinct from deriveTopicId path', async () => {
+    const url = 'https://example.com/path?a=1';
+    const first = await deriveUrlTopicId(url);
+    const second = await deriveUrlTopicId(url);
+    const expected = await sha256Hex(url);
+    const threadDerived = await deriveTopicId(url);
+    expect(first).toBe(second);
+    expect(first).toBe(expected);
+    expect(first).not.toBe(threadDerived);
+  });
+
+  it('deriveUrlTopicId handles unicode URLs', async () => {
+    const unicodeUrl = 'https://example.com/naïve?emoji=🙂';
+    const hash = await deriveUrlTopicId(unicodeUrl);
+    expect(hash).toHaveLength(64);
+    expect(hash).toMatch(/^[0-9a-f]+$/);
   });
 });
 
