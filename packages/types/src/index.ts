@@ -219,3 +219,12 @@ export {
   BUDGET_ACTION_KEYS,
   SEASON_0_BUDGET_DEFAULTS,
 } from './budget';
+
+// Participation governor runtime utilities
+export {
+  type BudgetCheckResult,
+  initializeNullifierBudget,
+  rolloverBudgetIfNeeded,
+  canConsumeBudget,
+  consumeBudget,
+} from './budget-utils';
