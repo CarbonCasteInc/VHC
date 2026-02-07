@@ -1,6 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initializeNullifierBudget, consumeBudget } from '@vh/types';
-import { todayISO, ensureBudget, checkBudget, consumeFromBudget } from './xpLedgerBudget';
+import { initializeNullifierBudget, consumeBudget, type NullifierBudget } from '@vh/types';
+import {
+  todayISO,
+  validateBudgetOrNull,
+  ensureBudget,
+  checkBudget,
+  consumeFromBudget
+} from './xpLedgerBudget';
 
 describe('xpLedgerBudget', () => {
   beforeEach(() => {
@@ -9,14 +15,95 @@ describe('xpLedgerBudget', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
+
+  const expectInvalidBudgetWarning = (raw: unknown) => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(validateBudgetOrNull(raw, 'n1')).toBeNull();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:budget] Corrupted budget for n1, reinitializing',
+      expect.any(Array)
+    );
+  };
 
   it('todayISO returns YYYY-MM-DD format', () => {
     expect(todayISO()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
-  it('ensureBudget initializes when current is null', () => {
+  it('validateBudgetOrNull returns null for null input', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(validateBudgetOrNull(null, 'n1')).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('validateBudgetOrNull returns null for undefined input', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(validateBudgetOrNull(undefined, 'n1')).toBeNull();
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('validateBudgetOrNull returns null for string input', () => {
+    expectInvalidBudgetWarning('bad');
+  });
+
+  it('validateBudgetOrNull returns null for number input', () => {
+    expectInvalidBudgetWarning(42);
+  });
+
+  it('validateBudgetOrNull returns null for array input', () => {
+    expectInvalidBudgetWarning([1, 2, 3]);
+  });
+
+  it('validateBudgetOrNull returns null for malformed object (wrong types)', () => {
+    expectInvalidBudgetWarning({ nullifier: 42, limits: 'bad' });
+  });
+
+  it('validateBudgetOrNull returns null for object missing required fields', () => {
+    expectInvalidBudgetWarning({ nullifier: 'n1' });
+  });
+
+  it('validateBudgetOrNull returns null for limits with wrong element types', () => {
+    const validBudget = initializeNullifierBudget('n1', '2024-01-01');
+    expectInvalidBudgetWarning({ ...validBudget, limits: [{ actionKey: 123 }] });
+  });
+
+  it('validateBudgetOrNull returns parsed budget for valid input', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const validBudget = initializeNullifierBudget('n1', '2024-01-01');
+    expect(validateBudgetOrNull(validBudget, 'n1')).toEqual(validBudget);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('validateBudgetOrNull strips unknown fields on valid input', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const validBudget = initializeNullifierBudget('n1', '2024-01-01');
+    const parsed = validateBudgetOrNull({ ...validBudget, extra: 'foo' }, 'n1');
+    expect(parsed).toEqual(validBudget);
+    expect(parsed && 'extra' in parsed).toBe(false);
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('ensureBudget catches rollover exception and returns fresh budget', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const throwingBudget = {} as NullifierBudget;
+    Object.defineProperty(throwingBudget, 'date', {
+      get() {
+        throw new Error('boom');
+      }
+    });
+
+    const budget = ensureBudget(throwingBudget, 'n1');
+
+    expect(budget).toEqual(initializeNullifierBudget('n1', '2024-01-01'));
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:budget] ensureBudget failed for n1, reinitializing',
+      expect.any(Error)
+    );
+  });
+
+  it('ensureBudget returns fresh budget when current is null', () => {
     const budget = ensureBudget(null, 'n1');
     expect(budget.nullifier).toBe('n1');
     expect(budget.date).toBe('2024-01-01');
@@ -31,7 +118,7 @@ describe('xpLedgerBudget', () => {
     expect(rolled.usage).toEqual([]);
   });
 
-  it('ensureBudget returns same-day budget unchanged', () => {
+  it('ensureBudget passes through valid budget with same-day date', () => {
     const todayBudget = initializeNullifierBudget('n1', '2024-01-01');
     const used = consumeFromBudget(todayBudget, 'n1', 'posts/day');
     const ensured = ensureBudget(used, 'n1');

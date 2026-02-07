@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { initializeNullifierBudget } from '@vh/types';
 import { useXpLedger } from './xpLedger';
 
 const memoryStorage = () => {
@@ -31,6 +32,20 @@ const resetLedger = (activeNullifier: string | null = null) => {
     projectWeekly: new Map()
   }));
 };
+
+const makeSerializedLedger = (budget: unknown) => ({
+  socialXP: 0,
+  civicXP: 0,
+  projectXP: 0,
+  dailySocialXP: { date: '2024-01-01', amount: 0 },
+  dailyCivicXP: { date: '2024-01-01', amount: 0 },
+  weeklyProjectXP: { weekStart: '2023-12-31', amount: 0 },
+  firstContacts: [],
+  qualityBonuses: {},
+  sustainedAwards: {},
+  projectWeekly: {},
+  budget
+});
 
 describe('xpLedger', () => {
   beforeEach(() => {
@@ -262,25 +277,96 @@ describe('xpLedger', () => {
     expect(useXpLedger.getState().budget?.nullifier).toBe('legacy');
   });
 
-  it('corrupted budget in localStorage is handled gracefully', () => {
+  it('restore handles corrupted budget object without crashing', () => {
     localStorage.setItem(
-      'vh_xp_ledger:bad',
-      JSON.stringify({
-        socialXP: 0,
-        civicXP: 0,
-        projectXP: 0,
-        dailySocialXP: { date: '2024-01-01', amount: 0 },
-        dailyCivicXP: { date: '2024-01-01', amount: 0 },
-        weeklyProjectXP: { weekStart: '2023-12-31', amount: 0 },
-        firstContacts: [],
-        qualityBonuses: {},
-        sustainedAwards: {},
-        projectWeekly: {},
-        budget: 'garbage'
-      })
+      'vh_xp_ledger:n1',
+      JSON.stringify(makeSerializedLedger({ nullifier: 42, limits: 'bad' }))
     );
-    expect(() => useXpLedger.getState().setActiveNullifier('bad')).not.toThrow();
-    expect(useXpLedger.getState().budget?.nullifier).toBe('bad');
+
+    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+    expect(useXpLedger.getState().budget?.date).toBe('2024-01-01');
+    expect(useXpLedger.getState().budget?.usage).toEqual([]);
+  });
+
+  it('restore handles budget: null in localStorage', () => {
+    localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger(null)));
+
+    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+  });
+
+  it('restore handles budget: string in localStorage', () => {
+    localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger('garbage')));
+
+    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+  });
+
+  it('restore handles budget: array in localStorage', () => {
+    localStorage.setItem('vh_xp_ledger:n1', JSON.stringify(makeSerializedLedger([1, 2, 3])));
+
+    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+  });
+
+  it('restore handles budget with wrong-typed fields in localStorage', () => {
+    localStorage.setItem(
+      'vh_xp_ledger:n1',
+      JSON.stringify(
+        makeSerializedLedger({
+          nullifier: 'n1',
+          limits: 'not-array',
+          usage: 42,
+          date: true
+        })
+      )
+    );
+
+    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+    expect(useXpLedger.getState().budget?.nullifier).toBe('n1');
+  });
+
+  it('valid budget round-trips through persist → restore unchanged', () => {
+    useXpLedger.getState().setActiveNullifier('n1');
+    useXpLedger.getState().consumeAction('posts/day');
+    useXpLedger.getState().consumeAction('analyses/day', 1, 'topic-1');
+
+    const expectedBudget = useXpLedger.getState().budget;
+    expect(expectedBudget).not.toBeNull();
+
+    useXpLedger.getState().setActiveNullifier('n2');
+    useXpLedger.getState().setActiveNullifier('n1');
+
+    expect(useXpLedger.getState().budget).toEqual(expectedBudget);
+  });
+
+  it('after fallback recovery, canPerformAction works normally', () => {
+    localStorage.setItem('vh_xp_ledger:recover', JSON.stringify(makeSerializedLedger('bad')));
+
+    useXpLedger.getState().setActiveNullifier('recover');
+
+    expect(useXpLedger.getState().canPerformAction('posts/day')).toEqual({ allowed: true });
+  });
+
+  it('after fallback recovery, consumeAction works normally', () => {
+    localStorage.setItem('vh_xp_ledger:recover', JSON.stringify(makeSerializedLedger('bad')));
+
+    useXpLedger.getState().setActiveNullifier('recover');
+    expect(() => useXpLedger.getState().consumeAction('posts/day')).not.toThrow();
+    expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'posts/day')?.count).toBe(1);
+  });
+
+  it('budget with extra unknown fields restores without error', () => {
+    const validBudget = initializeNullifierBudget('n1', '2024-01-01');
+    localStorage.setItem(
+      'vh_xp_ledger:n1',
+      JSON.stringify(makeSerializedLedger({ ...validBudget, unknownField: 'extra' }))
+    );
+
+    expect(() => useXpLedger.getState().setActiveNullifier('n1')).not.toThrow();
+    expect(useXpLedger.getState().budget).toEqual(validBudget);
+    expect(useXpLedger.getState().budget && 'unknownField' in useXpLedger.getState().budget).toBe(false);
   });
 
   it('switches ledgers when nullifier changes', () => {

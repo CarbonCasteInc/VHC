@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { BudgetActionKey, BudgetCheckResult, NullifierBudget } from '@vh/types';
 import { getPublishedIdentity } from './identityProvider';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
-import { checkBudget, consumeFromBudget, ensureBudget } from './xpLedgerBudget';
+import { checkBudget, consumeFromBudget, ensureBudget, validateBudgetOrNull } from './xpLedgerBudget';
 
 type Track = 'civic' | 'social' | 'project';
 type MessagingXPEvent =
@@ -184,9 +184,7 @@ function restore(targetNullifier: string | null): LedgerData {
   const civicXP = stored.civicXP ?? 0;
   const socialXP = stored.socialXP ?? 0;
   const projectXP = stored.projectXP ?? 0;
-  const budget = stored.budget && typeof stored.budget === 'object' && !Array.isArray(stored.budget)
-    ? (stored.budget as NullifierBudget)
-    : null;
+  const budget = validateBudgetOrNull(stored.budget, targetNullifier ?? 'unknown');
   return withDerived({
     socialXP,
     civicXP,
