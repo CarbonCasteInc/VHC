@@ -85,6 +85,23 @@ export const SentimentSignalSchema = z.object({
 
 export type { IdentityRecord, DevicePair } from './identity';
 
+export type {
+  FamiliarRecord,
+  DelegationGrant,
+  OnBehalfOfAssertion,
+  DelegationTier,
+  DelegationScope
+} from './delegation';
+
+export {
+  FamiliarRecordSchema,
+  DelegationGrantSchema,
+  OnBehalfOfAssertionSchema,
+  DelegationTierSchema,
+  DelegationScopeSchema,
+  TIER_SCOPES
+} from './delegation';
+
 export type HermesMessageType = 'text' | 'image' | 'file';
 export type HermesChannelType = 'dm';
 export type HermesAttachmentType = 'image' | 'file';
