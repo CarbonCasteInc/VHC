@@ -3,6 +3,21 @@ import { z } from 'zod';
 const TITLE_LIMIT = 200;
 const CONTENT_LIMIT = 10_000;
 
+export const THREAD_TOPIC_PREFIX = 'thread:';
+
+export const ProposalExtensionSchema = z.object({
+  fundingRequest: z.string().min(1),
+  recipient: z.string().min(1),
+  status: z.enum(['draft', 'active', 'elevated', 'funded', 'closed']),
+  qfProjectId: z.string().min(1).optional(),
+  sourceTopicId: z.string().min(1).optional(),
+  attestationProof: z.string().min(1).optional(),
+  createdAt: z.number().int().nonnegative(),
+  updatedAt: z.number().int().nonnegative()
+});
+
+export type ProposalExtension = z.infer<typeof ProposalExtensionSchema>;
+
 export const HermesThreadSchema = z.object({
   id: z.string().min(1),
   schemaVersion: z.literal('hermes-thread-v0'),
@@ -12,6 +27,11 @@ export const HermesThreadSchema = z.object({
   timestamp: z.number().int().nonnegative(),
   tags: z.array(z.string().min(1)),
   sourceAnalysisId: z.string().min(1).optional(),
+  topicId: z.string().min(1).optional(),
+  sourceUrl: z.string().url().optional(),
+  urlHash: z.string().min(1).optional(),
+  isHeadline: z.boolean().optional(),
+  proposal: ProposalExtensionSchema.optional(),
   upvotes: z.number().int().nonnegative(),
   downvotes: z.number().int().nonnegative(),
   score: z.number()
@@ -25,6 +45,7 @@ const BaseCommentFields = {
   timestamp: z.number().int().nonnegative(),
   upvotes: z.number().int().nonnegative(),
   downvotes: z.number().int().nonnegative(),
+  via: z.enum(['human', 'familiar']).optional(),
   id: z.string().min(1)
 } as const satisfies Record<string, z.ZodTypeAny>;
 
@@ -109,6 +130,21 @@ export type HermesCommentV0 = z.infer<typeof HermesCommentSchemaV0>;
 export type HermesCommentV1 = z.infer<typeof HermesCommentSchemaV1>;
 export type HermesComment = HermesCommentV1;
 export type ModerationEvent = z.infer<typeof ModerationEventSchema>;
+
+export async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = new Uint8Array(hashBuffer);
+  return Array.from(hashArray, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function deriveTopicId(threadId: string): Promise<string> {
+  return sha256Hex(THREAD_TOPIC_PREFIX + threadId);
+}
+
+export async function deriveUrlTopicId(url: string): Promise<string> {
+  return sha256Hex(url);
+}
 
 export function migrateCommentToV1(comment: HermesCommentV0 | HermesCommentV1): HermesCommentV1 {
   if (comment.schemaVersion === 'hermes-comment-v1') {

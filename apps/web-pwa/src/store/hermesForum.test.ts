@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { deriveTopicId, deriveUrlTopicId } from '@vh/data-model';
 import type { HermesThread } from '@vh/types';
 import { createForumStore } from './hermesForum';
 import { useXpLedger } from './xpLedger';
@@ -147,6 +148,52 @@ describe('hermesForum store', () => {
     expect(forumSpy).not.toHaveBeenCalled();
     projectSpy.mockRestore();
     forumSpy.mockRestore();
+  });
+
+  it('createThread with sourceUrl sets sourceUrl, urlHash, and topicId from URL', async () => {
+    setIdentity('url-thread');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-url', now: () => 1 });
+    const sourceUrl = 'https://example.com/story';
+
+    const thread = await store
+      .getState()
+      .createThread('title', 'content', ['news'], undefined, { sourceUrl });
+
+    const expectedHash = await deriveUrlTopicId(sourceUrl);
+    expect(thread.sourceUrl).toBe(sourceUrl);
+    expect(thread.urlHash).toBe(expectedHash);
+    expect(thread.topicId).toBe(expectedHash);
+    expect(threadWrites[0]).toMatchObject({
+      id: 'thread-url',
+      sourceUrl,
+      urlHash: expectedHash,
+      topicId: expectedHash
+    });
+  });
+
+  it('createThread without sourceUrl sets topicId from thread id', async () => {
+    setIdentity('native-thread');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-native', now: () => 1 });
+
+    const thread = await store.getState().createThread('title', 'content', ['tag']);
+
+    const expectedTopicId = await deriveTopicId('thread-native');
+    expect(thread.topicId).toBe(expectedTopicId);
+    expect(thread.sourceUrl).toBeUndefined();
+    expect(thread.urlHash).toBeUndefined();
+    expect(threadWrites[0]).toMatchObject({ id: 'thread-native', topicId: expectedTopicId });
+  });
+
+  it('createThread with isHeadline sets headline flag', async () => {
+    setIdentity('headline-thread');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-headline', now: () => 1 });
+
+    const thread = await store
+      .getState()
+      .createThread('title', 'content', ['tag'], undefined, { isHeadline: true });
+
+    expect(thread.isHeadline).toBe(true);
+    expect(threadWrites[0]).toMatchObject({ id: 'thread-headline', isHeadline: true });
   });
 
   it('vote is idempotent per target', async () => {

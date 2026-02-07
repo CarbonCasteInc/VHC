@@ -162,6 +162,25 @@ describe('hermesForum store (comments & hydration)', () => {
     forumSpy.mockRestore();
   });
 
+  it('createComment passes through via field', async () => {
+    setIdentity('commenter');
+    const ledgerState = useXpLedger.getState();
+    const forumSpy = vi.spyOn(ledgerState, 'applyForumXP').mockImplementation(() => {});
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => 'comment-via',
+      now: () => 1
+    });
+
+    const comment = await store
+      .getState()
+      .createComment('thread-1', 'via test', 'reply', undefined, undefined, 'familiar');
+
+    expect(comment.via).toBe('familiar');
+    expect(commentWrites[0].via).toBe('familiar');
+    forumSpy.mockRestore();
+  });
+
   it('filters comments by stance via selectors', async () => {
     setIdentity('selector');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'sel', now: () => 1 });
@@ -307,6 +326,45 @@ describe('hermesForum store (comments & hydration)', () => {
     emitThread(hydrated, hydrated.id);
 
     expect(store.getState().threads.get(hydrated.id)).toEqual(hydrated);
+  });
+
+  it('hydrates proposal without nested gun metadata', async () => {
+    setIdentity('hydrator');
+    const { client, emitThread } = createHydrationClient();
+    const store = createForumStore({ resolveClient: () => client, randomId: () => 'thread-hydrate-proposal', now: () => 1 });
+    const hydrated = {
+      id: 'hydrated-thread-proposal',
+      schemaVersion: 'hermes-thread-v0',
+      title: 'hello',
+      content: 'world',
+      author: 'hydrator',
+      timestamp: 1,
+      tags: [],
+      topicId: 'topic-proposal',
+      proposal: {
+        fundingRequest: '100',
+        recipient: '0xabc',
+        status: 'draft',
+        createdAt: 1,
+        updatedAt: 1,
+        _: { '#': 'gun-meta' }
+      },
+      upvotes: 0,
+      downvotes: 0,
+      score: 0
+    };
+
+    emitThread(hydrated, hydrated.id);
+
+    const thread = store.getState().threads.get(hydrated.id);
+    expect(thread?.proposal).toMatchObject({
+      fundingRequest: '100',
+      recipient: '0xabc',
+      status: 'draft',
+      createdAt: 1,
+      updatedAt: 1
+    });
+    expect((thread?.proposal as any)?._).toBeUndefined();
   });
 
   it('deduplicates repeated thread callbacks', async () => {

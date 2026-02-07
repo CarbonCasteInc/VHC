@@ -10,13 +10,20 @@ export interface ForumState {
   threads: Map<string, HermesThread>;
   comments: Map<string, HermesComment[]>;
   userVotes: Map<string, 'up' | 'down' | null>;
-  createThread(title: string, content: string, tags: string[], sourceAnalysisId?: string): Promise<HermesThread>;
+  createThread(
+    title: string,
+    content: string,
+    tags: string[],
+    sourceAnalysisId?: string,
+    opts?: { sourceUrl?: string; isHeadline?: boolean }
+  ): Promise<HermesThread>;
   createComment(
     threadId: string,
     content: string,
     stance: CommentStanceInput,
     parentId?: string,
-    targetId?: string
+    targetId?: string,
+    via?: 'human' | 'familiar'
   ): Promise<HermesComment>;
   vote(targetId: string, direction: 'up' | 'down' | null): Promise<void>;
   loadThreads(sort: 'hot' | 'new' | 'top'): Promise<HermesThread[]>;
