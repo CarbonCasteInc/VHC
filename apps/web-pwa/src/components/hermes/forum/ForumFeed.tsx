@@ -7,9 +7,10 @@ import { TrustGate } from './TrustGate';
 interface ForumFeedProps {
   sourceAnalysisId?: string;
   defaultTitle?: string;
+  sourceUrl?: string;
 }
 
-export const ForumFeed: React.FC<ForumFeedProps> = ({ sourceAnalysisId, defaultTitle }) => {
+export const ForumFeed: React.FC<ForumFeedProps> = ({ sourceAnalysisId, defaultTitle, sourceUrl }) => {
   const { threads, userVotes, vote, loadThreads } = useForumStore();
   const [sort, setSort] = useState<'hot' | 'new' | 'top'>('hot');
   const [showNewThread, setShowNewThread] = useState(false);
@@ -56,6 +57,7 @@ export const ForumFeed: React.FC<ForumFeedProps> = ({ sourceAnalysisId, defaultT
           <NewThreadForm
             sourceAnalysisId={sourceAnalysisId}
             defaultTitle={defaultTitle}
+            sourceUrl={sourceUrl}
             onSuccess={() => setShowNewThread(false)}
           />
         </TrustGate>

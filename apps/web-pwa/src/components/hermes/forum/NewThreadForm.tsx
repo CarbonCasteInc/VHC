@@ -4,10 +4,11 @@ import { useForumStore } from '../../../store/hermesForum';
 interface Props {
   sourceAnalysisId?: string;
   defaultTitle?: string;
+  sourceUrl?: string;
   onSuccess?: () => void;
 }
 
-export const NewThreadForm: React.FC<Props> = ({ sourceAnalysisId, defaultTitle, onSuccess }) => {
+export const NewThreadForm: React.FC<Props> = ({ sourceAnalysisId, defaultTitle, sourceUrl, onSuccess }) => {
   const { createThread } = useForumStore();
   const [title, setTitle] = useState(defaultTitle ?? '');
   const [content, setContent] = useState('');
@@ -18,7 +19,9 @@ export const NewThreadForm: React.FC<Props> = ({ sourceAnalysisId, defaultTitle,
     if (!title.trim() || !content.trim() || busy) return;
     setBusy(true);
     try {
-      await createThread(title.trim(), content.trim(), tags.split(',').map((t) => t.trim()).filter(Boolean), sourceAnalysisId);
+      const parsedTags = tags.split(',').map((t) => t.trim()).filter(Boolean);
+      const opts = sourceUrl ? { sourceUrl, isHeadline: true as const } : undefined;
+      await createThread(title.trim(), content.trim(), parsedTags, sourceAnalysisId, opts);
       setTitle('');
       setContent('');
       setTags('');

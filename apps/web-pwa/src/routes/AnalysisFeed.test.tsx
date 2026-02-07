@@ -26,11 +26,21 @@ vi.mock('../hooks/useIdentity', () => ({
 }));
 
 vi.mock('@tanstack/react-router', () => ({
-  Link: ({ to, children, ...rest }: any) => (
-    <a href={typeof to === 'string' ? to : '#'} {...rest}>
-      {children}
-    </a>
-  )
+  Link: ({ to, search, children, ...rest }: any) => {
+    const pathname = typeof to === 'string' ? to : '#';
+    const params = new URLSearchParams();
+    Object.entries(search ?? {}).forEach(([key, value]) => {
+      if (value !== undefined) {
+        params.set(key, String(value));
+      }
+    });
+    const href = params.toString() ? `${pathname}?${params.toString()}` : pathname;
+    return (
+      <a href={href} {...rest}>
+        {children}
+      </a>
+    );
+  }
 }));
 
 function createFakeGunChain() {
@@ -119,6 +129,35 @@ describe('AnalysisFeed', () => {
     localStorage.setItem('vh_canonical_analyses', JSON.stringify(existing));
     render(<AnalysisFeed />);
     expect(screen.getByText('cached summary')).toBeInTheDocument();
+  });
+
+  it('includes sourceUrl in the Discuss in Forum link search params', () => {
+    const sourceUrl = 'https://source.example/story';
+    const existing = [
+      {
+        url: sourceUrl,
+        urlHash: hashUrl(sourceUrl),
+        summary: 'summary title',
+        biases: ['b'],
+        counterpoints: ['c'],
+        sentimentScore: 0,
+        bias_claim_quote: [],
+        justify_bias_claim: [],
+        confidence: 0.9,
+        timestamp: Date.now()
+      }
+    ];
+    localStorage.setItem('vh_canonical_analyses', JSON.stringify(existing));
+
+    render(<AnalysisFeed />);
+
+    const link = screen.getByRole('link', { name: /discuss in forum/i });
+    const url = new URL(link.getAttribute('href') ?? '', 'https://venn.local');
+
+    expect(url.pathname).toBe('/hermes');
+    expect(url.searchParams.get('sourceAnalysisId')).toBe(existing[0].urlHash);
+    expect(url.searchParams.get('title')).toBe(existing[0].summary);
+    expect(url.searchParams.get('sourceUrl')).toBe(sourceUrl);
   });
 
   it('falls back gracefully when localStorage is unavailable', async () => {

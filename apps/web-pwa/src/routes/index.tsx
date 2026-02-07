@@ -135,7 +135,7 @@ const HermesShell: React.FC = () => {
 // /hermes shows the forum feed directly
 const HermesIndexPage: React.FC = () => {
   const { location } = useRouterState();
-  const search = location.search as { sourceAnalysisId?: string; title?: string };
+  const search = location.search as { sourceAnalysisId?: string; title?: string; sourceUrl?: string };
   return (
     <div className="space-y-4">
       <div
@@ -153,7 +153,7 @@ const HermesIndexPage: React.FC = () => {
         >
           Forum Threads
         </p>
-        <ForumFeed sourceAnalysisId={search?.sourceAnalysisId} defaultTitle={search?.title} />
+        <ForumFeed sourceAnalysisId={search?.sourceAnalysisId} defaultTitle={search?.title} sourceUrl={search?.sourceUrl} />
       </div>
     </div>
   );
