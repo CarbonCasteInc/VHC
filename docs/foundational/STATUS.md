@@ -302,7 +302,7 @@ packages/contracts/deployments/
 - ✅ **Default engine is now truthful** — `createDefaultEngine()` returns `LocalMlEngine` in non-E2E mode, `createMockEngine()` only when `isE2EMode()` (#129)
 - ⚠️ **Remote API engine not wired** — no `RemoteApiEngine` implementation
 
-**Current AI Architecture (pipeline exercised, engine mocked):**
+**Current AI Architecture (pipeline exercised, default engine truthful in non-E2E):**
 ```typescript
 // packages/ai-engine/src/pipeline.ts — full pipeline, main-thread-safe
 export function createAnalysisPipeline(engine?: JsonCompletionEngine) {
