@@ -1,8 +1,8 @@
 # HERMES Docs Spec (v0)
 
-**Version:** 0.1
-**Status:** Draft — Sprint 5 Planning
-**Context:** Secure, collaborative document editing for TRINITY OS.
+**Version:** 0.2
+**Status:** Draft — Sprint 5 Planning (V2-first alignment)
+**Context:** Secure collaborative editing plus Reply-to-Article publish flow for TRINITY Season 0.
 
 ---
 
@@ -12,7 +12,7 @@
 2.  **Real-Time Collaboration:** Multiple users can edit simultaneously with CRDT-based conflict resolution.
 3.  **Local-First:** Documents live on the user's device. The mesh provides sync and encrypted backup.
 4.  **Access Control:** Owners control who can view/edit via explicit sharing (no public discovery).
-5.  **Document Types:** Different types serve different civic purposes (drafts, proposals, reports, letters).
+5.  **Document Types:** Different types serve different civic purposes (drafts, proposals, reports, letters, articles).
 
 ---
 
@@ -27,12 +27,12 @@ interface HermesDocument {
   
   // Metadata
   title: string;                  // ≤ 200 chars
-  type: 'draft' | 'proposal' | 'report' | 'letter';
+  type: 'draft' | 'proposal' | 'report' | 'letter' | 'article';
   
   // Ownership & Access
   owner: string;                  // Creator's nullifier (identity key)
   collaborators: string[];        // Nullifiers with edit access
-  viewers: string[];              // Nullifiers with read-only access (optional)
+  viewers?: string[];             // Nullifiers with read-only access
   
   // Content (encrypted)
   encryptedContent: string;       // SEA.encrypt(Yjs state, documentKey)
@@ -42,11 +42,18 @@ interface HermesDocument {
   lastModifiedAt: number;         // Updated on each edit
   lastModifiedBy: string;         // Nullifier of last editor
   
-  // Elevation (optional)
-  sourceThreadId?: string;        // If created from Forum thread
-  elevatedToThreadId?: string;    // If published to Forum
-  elevatedToProposalThreadId?: string; // If elevated to proposal-thread
-  elevatedToActionId?: string;    // If used for Civic Action Kit action
+  // Publish linkage (V2-first)
+  sourceTopicId?: string;         // TopicId for source topic
+  sourceSynthesisId?: string;     // accepted synthesis_id at draft/publish time
+  sourceEpoch?: number;
+  sourceThreadId?: string;        // If created from forum context
+  publishedArticleId?: string;    // If published as topic/article object
+  publishedAt?: number;
+
+  // Legacy aliases (read compatibility)
+  elevatedToThreadId?: string;
+  elevatedToProposalThreadId?: string;
+  elevatedToActionId?: string;
 }
 ```
 
@@ -105,6 +112,29 @@ interface DocumentKeyShare {
 | `proposal` | Elevatable to QF / governance | 0.5 | `projectXP` |
 | `report` | Civic analysis summary | 0.5 | `civicXP` |
 | `letter` | Civic Action Kit draft | 0.7 | `civicXP` |
+| `article` | Publishable longform topic contribution | 0.5 | `projectXP` |
+
+`letter` keeps a higher threshold because its primary purpose is representative-forwarding preparation.
+
+### 2.6 Reply-to-Article publish linkage
+
+```typescript
+interface DocPublishLink {
+  docId: string;
+  topicId: string;
+  synthesisId?: string;
+  epoch?: number;
+  threadId?: string;
+  articleId: string;
+  publishedAt: number;
+}
+```
+
+Rules:
+
+- Reply overflow conversion creates a draft with `type: 'article'`.
+- Publishing writes public article payload to `vh/topics/<topicId>/articles/<articleId>`.
+- New publish flows should reference V2 synthesis via `sourceSynthesisId` + `sourceEpoch` when available.
 
 ---
 
@@ -141,7 +171,7 @@ interface DocumentKeyShare {
                       │
 ┌─────────────────────▼───────────────────────────────────┐
 │                    GunDB                                 │
-│         vh/docs/<docId>/ops/<opId>                       │
+│      ~<devicePub>/docs/<docId>/ops/<opId> (encrypted)    │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -336,10 +366,16 @@ async function decryptDocContent(
 
 | Path | Type | Description |
 |------|------|-------------|
-| `vh/docs/<docId>` | Public | Document metadata (encrypted content) |
-| `vh/docs/<docId>/ops/<opId>` | Public | CRDT operations (encrypted) |
+| `~<devicePub>/docs/<docId>` | Auth | Document metadata + encrypted content |
+| `~<devicePub>/docs/<docId>/ops/<opId>` | Auth | Encrypted CRDT operations |
+| `vh/topics/<topicId>/articles/<articleId>` | Public | Published article object (token/identity free) |
 | `~<devicePub>/hermes/docs` | Auth | User's document list |
 | `~<devicePub>/hermes/docKeys/<docId>` | Auth | Received document keys |
+
+Rule:
+
+- Draft docs and draft ops must not be written under public `vh/*` namespaces.
+- Public docs artifacts are publish outputs (for example topic articles), not private draft state.
 
 ### 5.2 Document Metadata Storage
 
@@ -457,6 +493,7 @@ function canDelete(doc: HermesDocument, nullifier: string): boolean {
 | Create document | ≥ 0.5 |
 | Edit document | ≥ 0.5 |
 | View shared document | ≥ 0.5 |
+| Publish `article` type | ≥ 0.5 |
 | Create `letter` type | ≥ 0.7 |
 
 ---
@@ -466,7 +503,7 @@ function canDelete(doc: HermesDocument, nullifier: string): boolean {
 ### 7.1 Document List View
 
 - Grid/list view of user's documents
-- Filter by type (draft, proposal, report, letter)
+- Filter by type (draft, proposal, report, letter, article)
 - Sort by: Last Modified, Created, Title
 - Quick actions: Open, Share, Delete
 
@@ -549,6 +586,7 @@ function persistDocumentKey(nullifier: string, docId: string, key: string): void
 | `proposal` | +1 `projectXP` | 3/day |
 | `report` | +1 `civicXP` | 3/day |
 | `letter` | +1 `civicXP` | 3/day |
+| `article` | +1 `projectXP` | 3/day |
 
 ### 9.2 Collaboration XP
 
@@ -601,6 +639,8 @@ function persistDocumentKey(nullifier: string, docId: string, key: string): void
 - [ ] Implement `DocumentList` component
 - [ ] Implement `DocumentEditor` component
 - [ ] Implement `ShareModal` component
+- [ ] Implement reply-overflow `Convert to Article` draft handoff
+- [ ] Implement publish-to-topic route (`vh/topics/<topicId>/articles/<articleId>`)
 - [ ] Add accessibility tests
 
 ### 10.7 XP Integration

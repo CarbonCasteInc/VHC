@@ -1,726 +1,620 @@
-# Sprint 5: The Agora - Action (Implementation Plan)
+# Sprint 5: Docs + Civic Action Kit (Implementation Plan)
 
-**Context:** `System_Architecture.md` v0.2.0 (Sprint 5: The "Agora" - Action)
-**Goal:** Implement the "Action" layer of the Agora. This consists of **HERMES Docs** (secure collaborative editing) and the **Civic Action Kit** (facilitation of verified constituent outreach).
-**Status:** [ ] Planning
-**Predecessor:** Sprint 4 (Agentic Foundation) — ⚪ Planning
+Status: Planning  
+Predecessor: Sprint 4 foundations (delegation, budgets, V2 synthesis path)  
+Context: Deliver longform publishing and civic facilitation loops for Season 0.
 
-> **Sprint 3 Learnings Applied:**
-> - Gun write sanitization (`stripUndefined`, array serialization)
-> - Lazy hydration with per-store tracking
-> - TTL-based deduplication for Gun callbacks
-> - localStorage persistence patterns for user state
-> - E2E mock infrastructure with SharedMeshStore
+This sprint implements the "action layer" across HERMES and AGORA:
 
----
+1. HERMES Docs (private-first collaborative drafting)
+2. Reply-to-Article conversion from forum replies
+3. Nomination and elevation artifact generation
+4. Civic Action Kit forwarding (user-initiated only)
 
-## 1. Guiding Constraints & Quality Gates
+`CanonicalAnalysisV1` is legacy compatibility only. Sprint 5 is V2-first (`TopicId`, `TopicSynthesisV2`, `synthesis_id`, `StoryBundle`).
 
-### 1.1 Non-Negotiables (Engineering Discipline)
-- [ ] **LOC Cap:** Hard limit of **350 lines** per file (tests/types exempt).
-- [ ] **Coverage:** **100%** Line/Branch coverage for new/modified modules.
-- [ ] **Browser-Safe:** No `node:*` imports in client code (except in Electron/Tauri main process).
-- [ ] **Security:** E2EE (End-to-End Encryption) for all private documents.
-- [ ] **Privacy:** No metadata leakage; "First-to-File" principles apply to public civic data.
+## 1. Guiding Constraints and Quality Gates
 
-### 1.2 True Offline Mode (E2E Compatibility)
-- [ ] **True Offline Mode:** Docs and Bridge flows must run with `VITE_E2E_MODE=true` using full mocks (no WebSocket, no real Gun relay), per `ARCHITECTURE_LOCK.md`.
+### 1.1 Non-negotiables
 
-### 1.3 Gun Isolation & Topology
-- [ ] **Gun Isolation:** All access to Gun goes through `@vh/gun-client`. No direct `gun` imports in `apps/*`.
-- [ ] **TopologyGuard Update:** Extend allowed prefixes to include:
-    - `vh/docs/<docId>` — Document metadata (public or encrypted)
-    - `vh/docs/<docId>/ops` — CRDT operations (encrypted)
-    - `vh/bridge/reports/<reportId>` — Public report metadata (no PII)
-    - `vh/bridge/actions/<actionId>` — Action metadata (no PII)
+- [ ] LOC hard cap: 350 lines per file (tests/types exempt)
+- [ ] Coverage: 100% line/branch for modified modules
+- [ ] Browser-safe client code (no node-only APIs in `apps/*`)
+- [ ] Privacy contract: no plaintext secrets in public mesh paths
+- [ ] No default automated legislative form submission
 
-### 1.4 Identity & Trust Gating
-- [ ] **Trust Gating (Docs):** Creating and editing shared documents requires `TrustScore >= 0.5`.
-- [ ] **Trust Gating (Bridge):** Sending legislative actions requires:
-    - `TrustScore >= 0.7` (higher threshold for civic actions)
-    - Valid `RegionProof` (constituency verification)
-- [ ] **Session Requirement:** Both features require an active session and identity (nullifier).
+### 1.2 Offline and E2E mode
 
-### 1.5 XP & Privacy
-- [ ] **XP & Privacy:** Any XP accrual from Docs/Bridge must write only to the on-device XP ledger (`civicXP` / `projectXP`), never emitting `{district_hash, nullifier, XP}` off-device.
+- [ ] All Docs and Bridge flows must run in `VITE_E2E_MODE=true`
+- [ ] E2E path uses mock mesh + mock identity with deterministic fixtures
+- [ ] Hydration must tolerate delayed Gun client readiness and retry lazily
+- [ ] Offline draft/edit/export flows must function before network reconnect
 
-### 1.6 HERMES vs AGORA Naming
-- [ ] **Navigation Model:**
-    - **HERMES** = Communications layer: Messaging (DMs) + Forum + Docs
-    - **AGORA** = Governance & civic action: Civic Action Kit, voting, QF
-- [ ] **Routing:**
-    - HERMES tab → `/hermes` → surfaces Messaging, Forum, and Docs
-    - AGORA tab → `/agora` → surfaces Civic Action Kit, Proposals, Voting
+### 1.3 Gun isolation and topology
 
----
+- [ ] App code accesses Gun only via `@vh/gun-client`
+- [ ] Extend TopologyGuard allow-list with Sprint 5 paths:
+  - `~*/docs/<docId>`
+  - `~*/docs/<docId>/ops/<opId>`
+  - `~*/hermes/docs/*`
+  - `vh/topics/<topicId>/articles/<articleId>`
+  - `vh/forum/nominations/<nominationId>`
+  - `vh/forum/elevation/<topicId>`
+  - `vh/bridge/stats/<repId>`
+- [ ] Sensitive paths stay user-scoped or vault-only:
+  - `~<devicePub>/docs/*` (encrypted)
+  - `~<devicePub>/hermes/docs/*` (encrypted)
+  - `~<devicePub>/hermes/bridge/*` (non-PII metadata only)
 
-## 2. Phase 1: HERMES Docs (Collaborative Editor)
+### 1.4 Trust and constituency gates
 
-**Objective:** Enable secure, real-time collaborative document editing (Google Docs style) over P2P infrastructure.
-**Canonical Reference:** `docs/specs/spec-hermes-docs-v0.md` (to be created)
+Season 0 defaults from SoT:
 
-### 2.1 Data Model & Schema (`packages/data-model`)
+- Human/verified interactions: `trustScore >= 0.5`
+- QF and higher-impact actions: `trustScore >= 0.7`
+- Budgets/day per principal: `posts=20`, `comments=50`, `sentiment_votes=200`, `governance_votes=20`, `analyses=25 (max 5/topic)`, `shares=10`, `moderation=10`, `civic_actions=3`
 
-#### 2.1.1 Document Schema
+Sprint 5 enforcement:
 
-**New File:** `packages/data-model/src/schemas/hermes/document.ts`
+- [ ] Docs create/edit/publish requires verified session (`>= 0.5`)
+- [ ] Elevation finalize requires explicit human approval
+- [ ] Civic forwarding/send requires `>= 0.7` + valid `ConstituencyProof`
+- [ ] Familiars inherit principal budgets; no independent influence lane
 
-```typescript
-import { z } from 'zod';
+### 1.5 XP and privacy invariants
 
-export const HermesDocumentSchema = z.object({
-  schemaVersion: z.literal('hermes-document-v0'),
-  id: z.string().min(1),
-  title: z.string().min(1).max(200),
-  owner: z.string().min(1),               // nullifier of creator
-  collaborators: z.array(z.string()),     // nullifiers with edit access
-  viewers: z.array(z.string()).optional(), // nullifiers with read-only access
-  encryptedContent: z.string(),           // Yjs state encoded + encrypted
-  createdAt: z.number(),
-  lastModifiedAt: z.number(),
-  lastModifiedBy: z.string(),             // nullifier of last editor
-  type: z.enum(['draft', 'proposal', 'report', 'letter'])
-});
+- [ ] XP updates stay local-first (`civicXP`, `projectXP`)
+- [ ] Never emit `{district_hash, nullifier, XP}` together off-device
+- [ ] Public counters must remain aggregate-only and anonymous
 
-export type HermesDocument = z.infer<typeof HermesDocumentSchema>;
+## 2. Phase 1: HERMES Docs Core
 
-export const DocumentOperationSchema = z.object({
-  schemaVersion: z.literal('hermes-doc-op-v0'),
-  id: z.string().min(1),
-  docId: z.string().min(1),
-  encryptedDelta: z.string(),             // Yjs update encoded + encrypted
-  author: z.string().min(1),              // nullifier
-  timestamp: z.number(),
-  vectorClock: z.record(z.string(), z.number()) // For ordering
-});
+Objective: secure, collaborative, private-first docs with publish-to-topic and publish-to-article flows.
 
-export type DocumentOperation = z.infer<typeof DocumentOperationSchema>;
+Canonical references:
+
+- `docs/specs/spec-hermes-docs-v0.md`
+- `docs/specs/spec-data-topology-privacy-v0.md`
+- `docs/specs/spec-hermes-forum-v0.md`
+
+### 2.1 Data model and schemas (`packages/data-model`)
+
+#### 2.1.1 Document schema
+
+```ts
+interface HermesDocument {
+  schemaVersion: 'hermes-document-v0';
+  id: string;
+  title: string; // <= 200
+  owner: string; // principal nullifier
+  collaborators: string[]; // edit access
+  viewers?: string[]; // read-only access
+  encryptedContent: string; // encrypted Yjs state
+  createdAt: number;
+  lastModifiedAt: number;
+  lastModifiedBy: string;
+  type: 'draft' | 'proposal' | 'report' | 'letter' | 'article';
+
+  // publish metadata
+  sourceTopicId?: string;
+  publishedArticleId?: string;
+  publishedAt?: number;
+}
+
+interface DocumentOperation {
+  schemaVersion: 'hermes-doc-op-v0';
+  id: string;
+  docId: string;
+  encryptedDelta: string;
+  author: string;
+  timestamp: number;
+  vectorClock: Record<string, number>;
+}
 ```
 
-- [ ] Create `packages/data-model/src/schemas/hermes/document.ts`
-- [ ] Export from `packages/data-model/src/index.ts`
-- [ ] Add types to `packages/types/src/index.ts`
-- [ ] Add unit tests for schema validation
+Tasks:
 
-#### 2.1.2 Access Control Model
+- [ ] Add document and op schemas/types
+- [ ] Export types from shared packages
+- [ ] Add validation tests (happy + reject malformed)
 
-```typescript
-// Access levels
+#### 2.1.2 Access control model
+
+```ts
 type DocAccessLevel = 'owner' | 'editor' | 'viewer';
 
-// Permission check
 function canEdit(doc: HermesDocument, nullifier: string): boolean {
   return doc.owner === nullifier || doc.collaborators.includes(nullifier);
 }
 
 function canView(doc: HermesDocument, nullifier: string): boolean {
-  return canEdit(doc, nullifier) || (doc.viewers?.includes(nullifier) ?? false);
+  return canEdit(doc, nullifier) || Boolean(doc.viewers?.includes(nullifier));
 }
 ```
 
-- [ ] Implement `canEdit`, `canView` helpers in `packages/data-model`
-- [ ] Add tests for permission logic
+Tasks:
 
-### 2.2 CRDT Implementation (`packages/crdt`)
+- [ ] Implement access helpers and tests
+- [ ] Enforce checks in store methods and publish flow
 
-#### 2.2.1 Yjs Integration
+### 2.2 CRDT implementation (`packages/crdt`)
 
-**Decision:** Use Yjs for text CRDT (battle-tested, widely adopted) rather than custom Gun-based CRDT.
+#### 2.2.1 Yjs integration
 
-**Architecture:**
-```
-┌─────────────────────────────────────────────────────────┐
-│                    TipTap Editor                         │
-│                    (Rich Text UI)                        │
-└─────────────────────┬───────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────┐
-│                    Yjs Document                          │
-│              (CRDT State Machine)                        │
-└─────────────────────┬───────────────────────────────────┘
-                      │
-┌─────────────────────▼───────────────────────────────────┐
-│               Gun Sync Provider                          │
-│         (Encrypted ops via @vh/gun-client)               │
-└─────────────────────────────────────────────────────────┘
-```
+Decision: use Yjs as the text CRDT, synced through encrypted Gun ops.
 
-**New File:** `packages/crdt/src/yjs-gun-provider.ts`
+```ts
+class GunYjsProvider {
+  constructor(
+    private ydoc: Y.Doc,
+    private docId: string,
+    private encryptionKey: string,
+  ) {}
 
-```typescript
-import * as Y from 'yjs';
-import { encryptDocOp, decryptDocOp } from '@vh/gun-client';
-
-export class GunYjsProvider {
-  private ydoc: Y.Doc;
-  private docId: string;
-  private encryptionKey: string;
-  
-  constructor(ydoc: Y.Doc, docId: string, encryptionKey: string) {
-    this.ydoc = ydoc;
-    this.docId = docId;
-    this.encryptionKey = encryptionKey;
-    
-    // Listen for local updates
-    this.ydoc.on('update', (update: Uint8Array, origin: any) => {
-      if (origin !== 'gun') {
-        this.broadcastUpdate(update);
-      }
-    });
+  async broadcastUpdate(update: Uint8Array): Promise<void> {
+    // encrypt and write to ~<devicePub>/docs/<docId>/ops/<opId>
   }
-  
-  private async broadcastUpdate(update: Uint8Array) {
-    const encrypted = await encryptDocOp(update, this.encryptionKey);
-    // Write to Gun: vh/docs/<docId>/ops/<timestamp>
-  }
-  
-  public applyRemoteUpdate(encryptedUpdate: string) {
-    const update = decryptDocOp(encryptedUpdate, this.encryptionKey);
-    Y.applyUpdate(this.ydoc, update, 'gun');
+
+  applyRemoteUpdate(encryptedUpdate: string): void {
+    // decrypt and apply via Y.applyUpdate(..., 'gun')
   }
 }
 ```
 
-- [ ] Add `yjs` dependency to `packages/crdt`
-- [ ] Implement `GunYjsProvider` for Gun ↔ Yjs sync
-- [ ] Add encryption wrapper for Yjs updates
-- [ ] Add tests for CRDT merge scenarios
+Tasks:
 
-#### 2.2.2 Encryption for Collaboration
+- [ ] Add Yjs provider adapter
+- [ ] Encrypt/decrypt update path
+- [ ] Add merge-conflict tests and reconnect tests
 
-**Document Key Derivation:**
+#### 2.2.2 Collaboration key derivation
 
-```typescript
-// Each document has a unique symmetric key
-// Shared with collaborators via their epub (ECDH)
-async function deriveDocumentKey(
-  docId: string, 
-  ownerDevicePair: SEA.Pair
-): Promise<string> {
-  // Deterministic key from docId + owner secret
-  return await SEA.work(docId, ownerDevicePair);
+```ts
+async function deriveDocumentKey(docId: string, ownerPair: SEA.Pair): Promise<string> {
+  return SEA.work(docId, ownerPair);
 }
 
-// Share key with collaborator
 async function shareDocumentKey(
   documentKey: string,
   collaboratorEpub: string,
-  ownerDevicePair: SEA.Pair
+  ownerPair: SEA.Pair,
 ): Promise<string> {
-  const sharedSecret = await SEA.secret(collaboratorEpub, ownerDevicePair);
-  return await SEA.encrypt(documentKey, sharedSecret);
+  const secret = await SEA.secret(collaboratorEpub, ownerPair);
+  return SEA.encrypt(documentKey, secret);
 }
 ```
 
-- [ ] Implement `deriveDocumentKey` in `packages/gun-client/src/docsCrypto.ts`
-- [ ] Implement `shareDocumentKey` and `receiveDocumentKey`
-- [ ] Add tests for key sharing flow
+Tasks:
 
-### 2.3 Gun Adapters (`packages/gun-client`)
+- [ ] Implement key derive/share/receive helpers
+- [ ] Test collaborator onboarding and revoked access handling
 
-**New File:** `packages/gun-client/src/docsAdapters.ts`
+### 2.3 Gun adapters (`packages/gun-client`)
 
-```typescript
-import type { VennClient } from './types';
-import { createGuardedChain } from './chain';
+```ts
+function getDocsChain(client: VennClient, docId: string) {
+  return createGuardedChain(client.gun.user().get('docs').get(docId), `~*/docs/${docId}`);
+}
 
-// Document metadata
-export function getDocsChain(client: VennClient, docId: string) {
+function getDocsOpsChain(client: VennClient, docId: string) {
   return createGuardedChain(
-    client.gun.get('vh').get('docs').get(docId),
-    `vh/docs/${docId}`
+    client.gun.user().get('docs').get(docId).get('ops'),
+    `~*/docs/${docId}/ops`,
   );
 }
 
-// Document operations (CRDT updates)
-export function getDocsOpsChain(client: VennClient, docId: string) {
-  return createGuardedChain(
-    client.gun.get('vh').get('docs').get(docId).get('ops'),
-    `vh/docs/${docId}/ops`
-  );
-}
-
-// User's document list (authenticated)
-export function getUserDocsChain(client: VennClient) {
+function getUserDocsChain(client: VennClient) {
   return client.gun.user().get('hermes').get('docs');
 }
-
-// Shared keys for collaborators
-export function getDocKeysChain(client: VennClient, docId: string) {
-  return client.gun.user().get('hermes').get('docKeys').get(docId);
-}
 ```
 
-- [ ] Create `packages/gun-client/src/docsAdapters.ts`
-- [ ] Export from `packages/gun-client/src/index.ts`
-- [ ] Update TopologyGuard with docs paths
+Tasks:
+
+- [ ] Add docs adapters and exports
 - [ ] Add adapter tests
+- [ ] Verify TopologyGuard blocks non-allowlisted writes
 
-### 2.4 Docs Store (`apps/web-pwa/src/store/hermesDocs.ts`)
+### 2.4 Docs store (`apps/web-pwa/src/store/hermesDocs.ts`)
 
-```typescript
+```ts
 interface DocsState {
   documents: Map<string, HermesDocument>;
   activeDocId: string | null;
-  
-  // Actions
-  createDocument(title: string, type: DocumentType): Promise<HermesDocument>;
+
+  createDocument(title: string, type: HermesDocument['type']): Promise<HermesDocument>;
   openDocument(docId: string): Promise<void>;
   shareDocument(docId: string, collaboratorNullifier: string): Promise<void>;
   updateDocument(docId: string, update: Uint8Array): Promise<void>;
-  deleteDocument(docId: string): Promise<void>;
+  publishDocumentAsArticle(docId: string, topicId: string): Promise<string>;
   loadUserDocuments(): Promise<HermesDocument[]>;
 }
 ```
 
-**Implementation Tasks:**
-- [ ] Implement `useDocsStore` (Zustand)
-- [ ] Add hydration from Gun on init
-- [ ] Add TTL-based deduplication for ops (mirror Forum pattern)
-- [ ] Add localStorage persistence for document list
-- [ ] Implement E2E mock store (`createMockDocsStore`)
-- [ ] Add unit tests for store actions
+Implementation tasks:
 
-### 2.5 UI Implementation (`apps/web-pwa`)
+- [ ] Implement store actions and hydration
+- [ ] Deduplicate repeated Gun callbacks (TTL seen map)
+- [ ] Local persistence of list/index for fast restore
+- [ ] E2E mock store parity (`createMockDocsStore`)
 
-#### 2.5.1 Components
+### 2.5 UI implementation (`apps/web-pwa`)
 
-- [ ] `DocsLayout`: Split view (Document List / Editor)
-- [ ] `DocumentList`: List of user's documents with type icons
-- [ ] `DocumentEditor`: TipTap-based rich text editor
-- [ ] `CollaboratorPanel`: Show/manage document collaborators
-- [ ] `ShareModal`: Add collaborators by nullifier or QR scan
-- [ ] `DocumentHeader`: Title, last modified, collaborator avatars
+Components:
 
-#### 2.5.2 Editor Features
+- [ ] `DocsLayout`
+- [ ] `DocumentList`
+- [ ] `DocumentEditor`
+- [ ] `CollaboratorPanel`
+- [ ] `ShareModal`
+- [ ] `DocumentHeader`
 
-- [ ] **Rich Text:** Bold, Italic, Underline, Strikethrough
-- [ ] **Structure:** Headings (H1-H3), Lists (bullet/numbered), Blockquotes
-- [ ] **Tables:** Basic table support
-- [ ] **Links:** Inline hyperlinks
-- [ ] **Live Cursors:** Show collaborator positions (ephemeral, not persisted)
-- [ ] **Presence:** Show who's currently viewing/editing
+Features:
 
-#### 2.5.3 Document Types
+- [ ] Rich text basics (bold, italic, headings, lists, links)
+- [ ] Presence indicators (ephemeral, non-persistent)
+- [ ] Type-aware templates (`proposal`, `report`, `letter`, `article`)
+- [ ] Publish action emits article entry under topic
 
-| Type | Purpose | XP Category |
-|------|---------|-------------|
-| `draft` | Personal notes, WIP | None |
-| `proposal` | Elevatable to QF | `projectXP` |
-| `report` | Civic analysis summary | `civicXP` |
-| `letter` | Bridge letter draft | `civicXP` |
+### 2.6 Quality gates for Phase 1
 
-- [ ] Implement document type selection in create flow
-- [ ] Add type-specific templates
-- [ ] Wire XP based on document type and actions
+- [ ] E2EE verified for doc content and deltas
+- [ ] No doc secrets in `vh/*` public paths
+- [ ] Multi-user merge behavior deterministic in tests
+- [ ] Offline edit + reconnect replay passes
 
-### 2.6 Outstanding Tasks (Docs)
+## 3. Phase 2: Reply-to-Article Conversion
 
-| Task | Priority | Estimate |
-|------|----------|----------|
-| Yjs integration + Gun provider | HIGH | 3d |
-| Document encryption layer | HIGH | 2d |
-| TipTap editor setup | HIGH | 2d |
-| Collaborator key sharing | HIGH | 2d |
-| E2E mock store | MEDIUM | 1d |
-| Live cursors | MEDIUM | 1d |
-| Document templates | LOW | 0.5d |
+Objective: enforce short-reply contract while giving a longform path through Docs.
 
----
+### 3.1 UX contract
 
-## 3. Phase 2: Civic Action Kit (Facilitation)
+- [ ] Reply composer hard cap: 240 chars
+- [ ] Overflow path: show `Convert to Article` CTA
+- [ ] Conversion opens docs editor seeded with reply text
+- [ ] Draft keeps `sourceTopicId`, `sourceThreadId`, and author provenance
+- [ ] Publish inserts article card into topic + forum surfaces
 
-**Objective:** Enable users to generate verified civic reports and contact their representatives via user-initiated channels (email/phone/share/export). No automated form submission by default.
-**Canonical Reference:** `docs/specs/spec-civic-action-kit-v0.md`
+### 3.2 Data contract
 
-### 3.1 Data Model & Schema (`packages/data-model`)
+```ts
+type ForumPostType = 'reply' | 'article';
 
-#### 3.1.1 Civic Action Schema
-
-**New File:** `packages/data-model/src/schemas/hermes/bridge.ts`
-
-```typescript
-import { z } from 'zod';
-
-export const RepresentativeSchema = z.object({
-  id: z.string().min(1),
-  name: z.string().min(1),
-  title: z.string(),                      // "Senator", "Representative"
-  state: z.string().length(2),            // "CA", "NY"
-  district: z.string().optional(),        // For House reps
-  party: z.string().optional(),
-  contactUrl: z.string().url().optional(),// Official contact page (manual use)
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  website: z.string().url().optional()
-});
-
-export type Representative = z.infer<typeof RepresentativeSchema>;
-
-export const LegislativeActionSchema = z.object({
-  schemaVersion: z.literal('hermes-action-v0'),
-  id: z.string().min(1),
-  author: z.string().min(1),              // nullifier
-  representativeId: z.string().min(1),
-  reportId: z.string().min(1),            // Local report reference
-  deliveryMethod: z.enum(['email', 'phone', 'share', 'export', 'manual']),
-  constituencyProof: z.object({
-    district_hash: z.string(),
-    nullifier: z.string(),
-    merkle_root: z.string()
-  }),
-  createdAt: z.number(),
-  status: z.enum(['draft', 'ready', 'shared', 'sent', 'failed']),
-  sourceDocId: z.string().optional(),     // If drafted in HERMES Docs
-  sourceThreadId: z.string().optional()   // If linked from Forum thread
-});
-
-export type LegislativeAction = z.infer<typeof LegislativeActionSchema>;
-
-export const DeliveryReceiptSchema = z.object({
-  schemaVersion: z.literal('hermes-receipt-v0'),
-  id: z.string().min(1),
-  actionId: z.string().min(1),
-  status: z.enum(['pending', 'success', 'failed']),
-  timestamp: z.number(),
-  deliveryMethod: z.enum(['email', 'phone', 'share', 'export', 'manual']),
-  errorMessage: z.string().optional()
-});
-
-export type DeliveryReceipt = z.infer<typeof DeliveryReceiptSchema>;
-```
-
-- [ ] Create `packages/data-model/src/schemas/hermes/bridge.ts`
-- [ ] Export schemas and types
-- [ ] Add unit tests for schema validation
-
-#### 3.1.2 Representative Database
-
-```typescript
-// Static database of representatives (updated periodically)
-// Stored in: apps/web-pwa/src/data/representatives.json
-interface RepresentativeDB {
-  version: string;
-  lastUpdated: number;
-  representatives: Representative[];
-}
-
-// Lookup by region proof
-function findRepresentatives(
-  regionProof: ConstituencyProof
-): Representative[] {
-  // Match district_hash to representatives
+interface ForumPost {
+  id: string;
+  schemaVersion: 'hermes-post-v0';
+  threadId: string;
+  parentId: string | null;
+  topicId: string;
+  author: string;
+  via?: 'human' | 'familiar';
+  type: ForumPostType;
+  content: string; // reply <= 240
+  articleRefId?: string; // required for article
+  timestamp: number;
+  upvotes: number;
+  downvotes: number;
 }
 ```
 
-- [ ] Create `apps/web-pwa/src/data/representatives.json` with sample data
-- [ ] Implement `findRepresentatives` lookup
-- [ ] Add script to update representative data from public APIs
+Tasks:
 
-### 3.2 Report Generator + Native Intents
+- [ ] Enforce cap at UI + schema boundary
+- [ ] Add conversion route and docs handoff payload
+- [ ] Preserve thread/topic context on publish
+- [ ] Add tests for overflow and conversion path
 
-#### 3.2.1 Architecture
+### 3.3 Storage paths
 
+- Reply posts: `vh/forum/threads/<threadId>/posts/<postId>`
+- Published articles: `vh/topics/<topicId>/articles/<articleId>`
+- Doc source links: user-scoped metadata + article public reference
+
+## 4. Phase 3: Nomination and Elevation Artifacts
+
+Objective: move high-salience stories/topics/articles into actionable civic packets.
+
+### 4.1 Nomination policy and events
+
+```ts
+interface NominationPolicy {
+  minUniqueVerifiedNominators: number;
+  minTopicEngagement: number;
+  minArticleSupport?: number;
+  coolDownMs: number;
+}
+
+interface NominationEvent {
+  id: string;
+  topicId: string;
+  sourceType: 'news' | 'topic' | 'article';
+  sourceId: string;
+  nominatorNullifier: string;
+  createdAt: number;
+}
 ```
-┌─────────────────────────────────────────────────────────┐
-│                     PWA (Web)                            │
-│  ┌─────────────────────────────────────────────────┐    │
-│  │              Action Center UI                    │    │
-│  │   (Draft → Report → Share/Send)                  │    │
-│  └───────────────────────┬─────────────────────────┘    │
-└──────────────────────────┼──────────────────────────────┘
-                           │ Native intents
-                           ▼
-┌─────────────────────────────────────────────────────────┐
-│  Email / Phone / Share Sheet / Download (User-Initiated)│
-│  - mailto: / tel: / share / export PDF                  │
-└─────────────────────────────────────────────────────────┘
+
+Tasks:
+
+- [ ] Implement nomination writes + dedupe by policy window
+- [ ] Enforce verified participation and rate caps
+- [ ] Persist elevation state under `vh/forum/elevation/<topicId>`
+
+### 4.2 Artifact generation contract
+
+```ts
+interface ElevationArtifacts {
+  briefDocId: string;
+  proposalScaffoldId: string;
+  talkingPointsId: string;
+  generatedAt: number;
+  sourceTopicId: string;
+  sourceSynthesisId: string;
+}
 ```
 
-#### 3.2.2 Report Generation (`apps/web-pwa`)
+Tasks:
 
-- [ ] Generate PDF report from Doc/Forum thread (local-only).
-- [ ] Export/share via native intents (`mailto:`, `tel:`, share sheet, download).
-- [ ] Always show contact info for manual use.
+- [ ] Generate artifacts from current `{topicId, epoch, synthesisId}`
+- [ ] Store local authoritative payloads; publish metadata-only projections
+- [ ] Expose edit + review flow before forwarding
 
-### 3.3 Gun Adapters (`packages/gun-client`)
+### 4.3 Human approval boundary
 
-**New File:** `packages/gun-client/src/bridgeAdapters.ts`
+- [ ] Familiar can draft and suggest nominations
+- [ ] Familiar cannot finalize elevation without explicit user approval
+- [ ] Approvals logged with on-behalf assertions and timestamps
 
-```typescript
-// User's actions (authenticated)
-export function getUserActionsChain(client: VennClient) {
+## 5. Phase 4: Civic Action Kit Facilitation
+
+Objective: user-initiated representative outreach with local receipts and privacy-safe public aggregates.
+
+Canonical reference: `docs/specs/spec-civic-action-kit-v0.md`
+
+### 5.1 Data model and schema (`packages/data-model`)
+
+```ts
+interface Representative {
+  id: string;
+  name: string;
+  title: string;
+  office: 'senate' | 'house' | 'state' | 'local';
+  country: string;
+  state?: string;
+  district?: string;
+  districtHash: string;
+  contactMethod: 'email' | 'phone' | 'both' | 'manual';
+  contactUrl?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+  socialHandles?: Record<string, string>;
+  lastVerified: number;
+}
+
+type DeliveryIntent = 'email' | 'phone' | 'share' | 'export' | 'manual';
+
+interface CivicAction {
+  id: string;
+  schemaVersion: 'hermes-action-v1';
+  author: string;
+  sourceTopicId: string;
+  sourceSynthesisId: string;
+  sourceArtifactId: string;
+  representativeId: string;
+  intent: DeliveryIntent;
+  constituencyProof: ConstituencyProof;
+  status: 'draft' | 'ready' | 'completed' | 'failed';
+  createdAt: number;
+  sentAt?: number;
+  attempts: number;
+  lastError?: string;
+}
+
+interface DeliveryReceipt {
+  id: string;
+  schemaVersion: 'hermes-receipt-v1';
+  actionId: string;
+  representativeId: string;
+  intent: DeliveryIntent;
+  status: 'success' | 'failed' | 'user-cancelled';
+  timestamp: number;
+  userAttested: boolean;
+  errorCode?: string;
+}
+```
+
+Tasks:
+
+- [ ] Add schemas and shared types
+- [ ] Add validation tests including malformed proof and status transitions
+
+### 5.2 Representative directory
+
+- [ ] Create/update `representatives.json` with versioning metadata
+- [ ] Maintain indexes: `byState`, `byDistrictHash`
+- [ ] Lookup by `district_hash` from constituency proof
+- [ ] Add update script and validation gate in CI
+
+### 5.3 Native intent and report generation
+
+Required handlers:
+
+- [ ] `mailto:`
+- [ ] `tel:`
+- [ ] OS share sheet
+- [ ] local export (PDF/markdown)
+- [ ] manual contact-page fallback
+
+Report pipeline tasks:
+
+- [ ] Build packet from `BriefDoc`, `ProposalScaffold`, `TalkingPoints`
+- [ ] Render local PDF
+- [ ] Persist local metadata pointer
+- [ ] Create local receipt on success/failure/cancel
+
+### 5.4 Gun adapters (`packages/gun-client`)
+
+```ts
+function getUserActionsChain(client: VennClient) {
   return client.gun.user().get('hermes').get('bridge').get('actions');
 }
 
-// User's receipts (authenticated)
-export function getUserReceiptsChain(client: VennClient) {
+function getUserReceiptsChain(client: VennClient) {
   return client.gun.user().get('hermes').get('bridge').get('receipts');
 }
 
-// Aggregate action count per representative (public, anonymous)
-export function getRepActionCountChain(client: VennClient, repId: string) {
-  return client.gun.get('vh').get('bridge').get('stats').get(repId);
+function getRepActionCountChain(client: VennClient, repId: string) {
+  return createGuardedChain(client.gun.get('vh').get('bridge').get('stats').get(repId), `vh/bridge/stats/${repId}`);
 }
 ```
 
-- [ ] Create `packages/gun-client/src/bridgeAdapters.ts`
-- [ ] Export from index
-- [ ] Add adapter tests
+Tasks:
 
-### 3.4 Bridge Store (`apps/web-pwa/src/store/hermesBridge.ts`)
+- [ ] Add adapters and tests
+- [ ] Enforce strip-PII + strip-undefined before writes
+- [ ] Ensure only aggregate stats land in public path
 
-```typescript
-interface BridgeState {
-  actions: Map<string, LegislativeAction>;
-  receipts: Map<string, DeliveryReceipt>;
-  // Actions
-  createAction(data: Omit<LegislativeAction, 'id' | 'status'>): Promise<LegislativeAction>;
-  markShared(actionId: string, method: LegislativeAction['deliveryMethod']): Promise<DeliveryReceipt>;
-  loadUserActions(): Promise<LegislativeAction[]>;
-  loadUserReceipts(): Promise<DeliveryReceipt[]>;
-  
-  // Lookup
-  findRepresentatives(regionProof: ConstituencyProof): Representative[];
-}
-```
+### 5.5 Bridge store and UI (`apps/web-pwa`)
 
-- [ ] Implement `useBridgeStore` (Zustand)
-- [ ] Add localStorage persistence
-- [ ] Implement E2E mock store
-- [ ] Add unit tests
+Store:
 
-### 3.5 UI Implementation (`apps/web-pwa`)
+- [ ] `createAction`
+- [ ] `markReceipt`
+- [ ] `loadActions`
+- [ ] `loadReceipts`
+- [ ] `findRepresentatives`
 
-#### 3.5.1 Components
+UI components:
 
-- [ ] `BridgeLayout`: Main action center view
-- [ ] `RepresentativeSelector`: Find reps by region
-- [ ] `ActionComposer`: Draft letter with templates
-- [ ] `ActionHistory`: Sent letters with receipts
-- [ ] `ReceiptViewer`: View delivery metadata
+- [ ] `BridgeLayout`
+- [ ] `RepresentativeSelector`
+- [ ] `ActionComposer`
+- [ ] `ActionHistory`
+- [ ] `ReceiptViewer`
 
-#### 3.5.2 User Flows
+Core user flow:
 
-**Flow 1: Write to Representative**
-1. User opens Bridge → sees their representatives (from RegionProof)
-2. Selects representative
-3. Chooses topic + stance (or starts from Forum thread)
-4. Drafts letter (or uses template)
-5. Reviews and generates report
-6. Chooses delivery method (email/phone/share/export/manual)
-7. Sees confirmation with delivery metadata
+1. Select representative by district
+2. Review/edit generated artifacts
+3. Pick delivery intent
+4. Complete user-initiated send/share/export
+5. Persist local receipt and update aggregate counter
 
-**Flow 2: Elevate Forum Thread**
-1. Popular Forum thread (net score ≥ 10) shows "Send to Rep" button
-2. One-click generates draft letter from thread content
-3. User reviews and sends
+## 6. Phase 5: Safety and Governance Glue
 
-- [ ] Implement representative lookup by region
-- [ ] Build letter composer with templates
-- [ ] Add thread-to-letter elevation flow
-- [ ] Build receipt viewer
+### 6.1 Budget enforcement
 
-### 3.6 Outstanding Tasks (Bridge)
+- [ ] Enforce `civic_actions/day = 3` at action boundary
+- [ ] Enforce `shares/day = 10` for share/export path
+- [ ] Enforce familiar inheritance of principal budgets
 
-| Task | Priority | Estimate |
-|------|----------|----------|
-| Schema definitions | HIGH | 0.5d |
-| Representative database | HIGH | 1d |
-| Bridge store | HIGH | 1d |
-| PDF report generation | HIGH | 2d |
-| Native intents wiring | HIGH | 1d |
-| E2E mock store | MEDIUM | 0.5d |
-| Thread-to-letter flow | MEDIUM | 1d |
-| Representative data updates | LOW | 1d |
+### 6.2 Privacy controls
 
----
+- [ ] Public paths never include OAuth tokens, private keys, PII
+- [ ] Public paths never include `{district_hash, nullifier}` pair
+- [ ] Action/receipt records in user-scoped mesh omit personal profile fields
 
-## 4. XP Hooks (Docs & Bridge)
+### 6.3 Legacy boundary
 
-### 4.1 Docs XP (`projectXP` / `civicXP`)
+- [ ] No new writes keyed by legacy `analysis_id`
+- [ ] Use `{topic_id, synthesis_id, epoch}` for new Sprint 5 integrations
+- [ ] Keep compatibility adapters read-only where necessary
 
-**A. Document Creation**
-- **Event:** User creates a document with type `proposal` or `report`
-- **Reward:** +1 `projectXP` (proposal) or +1 `civicXP` (report)
-- **Constraints:** Max 3 document creation XP per day
+## 7. XP Hooks (Docs, Elevation, Bridge)
 
-**B. Collaborative Contribution**
-- **Event:** User contributes substantive edits (≥100 chars added) to another user's document
-- **Reward:** +1 `civicXP`
-- **Constraints:** Max 1 per document per day
+### 7.1 Docs XP
 
-**C. Document Elevation**
-- **Event:** Document is elevated to a Forum thread or QF proposal
-- **Reward:** +2 `projectXP` to owner
+- [ ] Proposal/report doc creation rewards with daily cap
+- [ ] Collaborative contribution rewards (substantive edit threshold)
+- [ ] Article publish reward (bounded by budget)
 
-### 4.2 Bridge XP (`civicXP`)
+### 7.2 Bridge XP
 
-**A. Letter Sent**
-- **Event:** User successfully sends a letter to a representative
-- **Reward:** +3 `civicXP`
-- **Constraints:**
-    - Requires valid RegionProof (must be constituent)
-    - Max 1 per representative per 7-day window
-    - Max +9 `civicXP` per week from Bridge
+- [ ] Receipt-marked send rewards (`civicXP`) with weekly cap
+- [ ] Rep-specific cooldown to reduce spam loops
+- [ ] Elevation-to-forward action bonus (bounded)
 
-**B. Thread Elevation**
-- **Event:** User elevates a Forum thread to a legislative action
-- **Reward:** +1 `civicXP` (on top of send bonus)
+### 7.3 Invariants
 
-### 4.3 Implementation
+- [ ] XP is local-first and per principal nullifier
+- [ ] No XP export that can deanonymize a participant
 
-- [ ] Add `applyDocsXP(event: DocsXPEvent)` to `store/xpLedger.ts`
-- [ ] Add `applyBridgeXP(event: BridgeXPEvent)` to `store/xpLedger.ts`
-- [ ] Wire XP calls in `hermesDocs.ts` and `hermesBridge.ts`
-- [ ] Add unit tests for XP emission rules
+## 8. Verification and Hardening
 
----
+### 8.1 Automated tests
 
-## 5. Phase 3: Verification & Hardening
+Unit tests:
 
-### 5.1 Automated Tests
+- [ ] Docs schemas and permission helpers
+- [ ] Bridge schemas and intent validation
+- [ ] Strip/sanitize helpers for Gun writes
+- [ ] Budget and trust gate checks
 
-#### 5.1.1 Unit Tests (100% Coverage)
-- [ ] `Document` and `DocumentOperation` Zod schemas
-- [ ] `LegislativeAction` and `DeliveryReceipt` schemas
-- [ ] CRDT merge logic (Yjs + Gun provider)
-- [ ] Document encryption/decryption round-trips
-- [ ] Bridge delivery method validation
+Integration tests:
 
-#### 5.1.2 Integration Tests (Vitest)
-- [ ] `useDocsStore` creates and shares documents
-- [ ] Collaborator can decrypt shared document
-- [ ] `useBridgeStore` stores and tracks actions
-- [ ] Trust gating for both Docs and Bridge
+- [ ] Docs store create/share/edit/publish
+- [ ] Forum reply-to-article conversion
+- [ ] Elevation thresholds and artifact generation
+- [ ] Bridge send/receipt flows
 
-#### 5.1.3 E2E Tests (`VITE_E2E_MODE=true`)
+E2E tests (`VITE_E2E_MODE=true`):
 
-**Docs E2E:**
-- [ ] Alice creates document, shares with Bob
-- [ ] Both edit simultaneously (mock CRDT sync)
-- [ ] Verify merged content
+- [ ] Two-user collaborative docs merge
+- [ ] Reply overflow to article conversion
+- [ ] Nomination threshold crossing and artifact creation
+- [ ] Representative forwarding with receipt and counter update
+- [ ] Offline draft/edit then reconnect sync
 
-**Bridge E2E:**
-- [ ] User drafts letter to mock representative
-- [ ] Generates report and selects delivery method
-- [ ] Mock share intent returns success receipt
-- [ ] Receipt displays delivery metadata
+### 8.2 Manual verification
 
-### 5.2 Manual Verification Plan
+- [ ] Inspect Gun payloads for secrecy invariants
+- [ ] Confirm no public PII leakage
+- [ ] Verify trust gate UX explains blocked actions
+- [ ] Verify familiar high-impact approval prompts
 
-#### 5.2.1 Docs Manual Tests
-- [ ] Create document of each type
-- [ ] Share with another user (two browsers)
-- [ ] Edit simultaneously, verify merge
-- [ ] Offline edit, reconnect, verify sync
-- [ ] Verify encryption (inspect Gun payload)
-
-#### 5.2.2 Bridge Manual Tests
-- [ ] Find representatives by region
-- [ ] Draft letter using template
-- [ ] Generate report (PDF)
-- [ ] Verify delivery via email/phone/share/export
-
----
-
-## 6. Risks & Mitigations
+## 9. Risks and Mitigations
 
 | Risk | Mitigation |
 |------|------------|
-| CRDT complexity | Use Yjs (battle-tested) over custom implementation |
-| Document encryption key sharing | Leverage existing SEA patterns from messaging |
-| Contact data drift | Versioned representative DB + update script |
-| User privacy on export | Local-only reports; user-initiated sharing |
-| Abuse of Bridge for spam | Rate limits, high trust threshold (0.7), RegionProof required |
+| CRDT merge edge cases | Use Yjs provider with deterministic replay tests |
+| Doc key-share mistakes | Explicit key-share protocol + negative tests |
+| Rep data drift | Versioned directory + update script + schema validation |
+| Spam through civic forwarding | trust >= 0.7, constituency proof, strict budgets |
+| Privacy leak in public counters | aggregate-only schema + static path checks |
+| Familiar overreach | scoped grants + human approval for high-impact actions |
 
----
+## 10. Dependencies and Deliverables
 
-## 7. Dependencies & Deliverables
+### 10.1 Dependencies
 
-### 7.1 New Package Dependencies
-- `yjs` — CRDT implementation for collaborative editing
-- `@tiptap/react` — Rich text editor framework
-- `@tiptap/extension-*` — TipTap extensions (collaboration, placeholder, etc.)
-- `pdf-lib` (or equivalent) — Local report generation (TBD)
+- `yjs`
+- `@tiptap/react` (+ required extensions)
+- PDF generation lib (`pdf-lib` or equivalent)
 
-### 7.2 Deliverables
-- [ ] Secure collaborative document editing with E2EE
-- [ ] Real-time collaboration with live cursors
-- [ ] Civic Action Kit (reports + contact directory + native intents)
-- [ ] Delivery receipts with method metadata
-- [ ] Full test coverage (unit, integration, E2E)
-- [ ] Updated specs (`spec-hermes-docs-v0.md`, `spec-civic-action-kit-v0.md`)
+### 10.2 Deliverables
 
----
+- [ ] Docs: encrypted collaborative drafts and publish flow
+- [ ] Reply-to-Article path with 240-char enforcement
+- [ ] Nomination/elevation pipeline with artifact generation
+- [ ] Civic Action Kit with native intents + receipts
+- [ ] Budget/trust/privacy enforcement
+- [ ] Full test coverage for touched modules
 
-## 8. Sprint 5 Status Summary
+## 11. Sprint 5 Summary and Next Steps
 
-**Status:** [ ] Planning
-**Predecessor:** Sprint 3 — ✅ COMPLETE (Dec 6, 2025)  
-**Dependency:** Sprint 4 (Agentic Foundation) Phase 0–1 — ⛔ Required before Sprint 5 execution
-
-### 8.1 Phase Breakdown
+Phase breakdown:
 
 | Phase | Scope | Estimate | Status |
 |-------|-------|----------|--------|
-| 1 | HERMES Docs | ~2 weeks | [ ] Not Started |
-| 2 | Civic Action Kit | ~2 weeks | [ ] Not Started |
-| 3 | Verification | ~1 week | [ ] Not Started |
+| 1 | HERMES Docs core | ~2 weeks | [ ] Not started |
+| 2 | Reply-to-Article | ~0.5 week | [ ] Not started |
+| 3 | Nomination + elevation artifacts | ~1 week | [ ] Not started |
+| 4 | Civic Action Kit | ~1.5 weeks | [ ] Not started |
+| 5 | Hardening and verification | ~1 week | [ ] Not started |
 
-### 8.2 Key Files to Create
+Immediate next steps:
 
-| File | Description |
-|------|-------------|
-| `packages/data-model/src/schemas/hermes/document.ts` | Document & Operation schemas |
-| `packages/data-model/src/schemas/hermes/bridge.ts` | Action & Receipt schemas |
-| `packages/crdt/src/yjs-gun-provider.ts` | Gun sync provider for Yjs |
-| `packages/gun-client/src/docsAdapters.ts` | Gun adapters for docs |
-| `packages/gun-client/src/docsCrypto.ts` | Document encryption helpers |
-| `packages/gun-client/src/bridgeAdapters.ts` | Gun adapters for bridge |
-| `apps/web-pwa/src/store/hermesDocs.ts` | Docs store |
-| `apps/web-pwa/src/store/hermesBridge.ts` | Bridge store |
-| `apps/web-pwa/src/bridge/reportGenerator.ts` | Local report generator |
-| `docs/specs/spec-hermes-docs-v0.md` | Docs specification |
-| `docs/specs/spec-civic-action-kit-v0.md` | Civic Action Kit specification |
-
-### 8.3 Prerequisites from Sprint 3
-
-All met:
-- [x] Gun authentication (`authenticateGunUser`)
-- [x] Directory service (nullifier → devicePub)
-- [x] E2EE messaging patterns (SEA encryption)
-- [x] Forum for thread elevation
-- [x] XP ledger infrastructure
-- [x] E2E mock infrastructure (SharedMeshStore)
-- [x] Gun write sanitization patterns
-
-### 8.4 Next Steps
-
-1. **Create spec documents** (`spec-hermes-docs-v0.md`, `spec-civic-action-kit-v0.md`)
-2. **Implement schemas** (document, bridge)
-3. **Build Yjs + Gun provider** (CRDT layer)
-4. **Build TipTap editor** (UI)
-5. **Build report generator + native intents**
-6. **Wire E2E mocks and tests**
-7. **Manual verification**
-
----
-
-## 9. Appendix: Representative Contact Example
-
-```json
-{
-  "id": "ca-sen-feinstein",
-  "name": "Dianne Feinstein",
-  "title": "Senator",
-  "state": "CA",
-  "party": "D",
-  "contactUrl": "https://www.feinstein.senate.gov/public/index.cfm/e-mail-me",
-  "email": "senator@example.gov",
-  "phone": "+1-202-555-0100",
-  "website": "https://www.feinstein.senate.gov"
-}
-```
-
-This contact record powers the Civic Action Kit without automated form submission.
+1. Finalize specs (`spec-hermes-docs-v0.md`, `spec-hermes-forum-v0.md`, `spec-civic-action-kit-v0.md`)
+2. Implement schemas and adapters
+3. Wire UI flows and trust/budget boundaries
+4. Complete E2E + manual privacy verification

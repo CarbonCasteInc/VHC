@@ -1,260 +1,262 @@
 # Civic Action Kit Spec (v0)
 
-**Version:** 0.1
-**Status:** Draft — Sprint 5 Planning
-**Context:** Facilitation of verified constituent outreach (reports + contact channels) for TRINITY OS.
+Version: 0.3  
+Status: Canonical for Season 0 facilitation model  
+Context: Verified, user-initiated civic outreach from elevated topic artifacts.
 
-> **"We enable constituents to speak through user-initiated channels. No default automation."**
-> — System Architecture Prime Directive #5 (updated)
-
----
+Core boundary: the Civic Action Kit facilitates civic contact. It does not submit legislative forms automatically by default.
 
 ## 1. Core Principles
 
-1.  **Civic Facilitation:** We provide reports + contact channels; the user initiates delivery.
-2.  **Verified Voice:** Actions require constituency proof (RegionProof) — you can only contact YOUR representatives.
-3.  **Privacy-Preserving:** Nullifiers and ZK proofs prevent de-anonymization while proving residency.
-4.  **Local-Only PII:** Personal details remain on-device; no nullifier + PII linkage in shared records.
-5.  **Clear Consent:** Delivery is explicit (email/phone/share/export) and user-visible.
-
----
+1. Facilitation over automation.
+2. Verified voice with constituency-aware routing.
+3. Local-first handling of sensitive profile and receipt data.
+4. Public sharing restricted to aggregate counters and safe metadata.
+5. Familiars can draft suggestions but high-impact forwarding requires human approval.
 
 ## 2. Data Model
 
-### 2.1 Representative Schema
+### 2.1 Elevation artifact contract
 
-```typescript
-interface Representative {
-  id: string;                     // Canonical ID (e.g., "us-sen-ca-feinstein")
-  
-  // Identity
-  name: string;                   // "Dianne Feinstein"
-  title: string;                  // "Senator" | "Representative" | "Councilmember"
-  party: string;                  // "D" | "R" | "I" | etc.
-  
-  // Jurisdiction
-  country: string;                // "US"
-  state: string;                  // "CA" (2-letter code)
-  district?: string;              // "12" (for House reps, null for Senators)
-  districtHash: string;           // SHA256 hash for matching RegionProof
-  
-  // Contact
-  contactUrl?: string;            // Official contact page (manual use)
-  contactMethod: 'email' | 'phone' | 'both' | 'manual';
-  email?: string;                 // Direct email if available
-  phone?: string;                 // Direct office phone if available
-  website?: string;
-  
-  // Metadata
-  photoUrl?: string;
-  website?: string;
-  socialHandles?: Record<string, string>;
-  lastVerified: number;           // When contact data was last verified
+Elevation can auto-draft a civic packet from a qualified topic/article.
+
+```ts
+interface ElevationArtifacts {
+  briefDocId: string; // communication brief
+  proposalScaffoldId: string; // project framing and request
+  talkingPointsId: string; // call/email bullets
+  generatedAt: number;
+  sourceTopicId: string;
+  sourceSynthesisId: string;
+  sourceEpoch: number;
 }
 ```
 
-### 2.2 Legislative Action Schema
+Generation triggers are policy-driven and must be deterministic for the same threshold inputs.
 
-```typescript
-interface LegislativeAction {
-  id: string;                     // UUID
-  schemaVersion: 'hermes-action-v0';
-  
-  // Author
-  author: string;                 // Nullifier (identity key)
-  
-  // Target
-  representativeId: string;       // Representative.id
-  
-  // Content
-  topic: string;                  // Topic category (≤ 100 chars)
+### 2.2 Representative schema
+
+```ts
+interface Representative {
+  id: string; // canonical ID (e.g. us-house-ca-11)
+
+  // identity
+  name: string;
+  title: string; // Senator, Representative, Councilmember, etc.
+  party?: string;
+
+  // jurisdiction
+  office: 'senate' | 'house' | 'state' | 'local';
+  country: string; // ISO country code
+  state?: string; // two-letter in US contexts
+  district?: string; // omitted for offices without district granularity
+  districtHash: string; // hashed for proof matching
+
+  // contact
+  contactMethod: 'email' | 'phone' | 'both' | 'manual';
+  contactUrl?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
+
+  // metadata
+  photoUrl?: string;
+  socialHandles?: Record<string, string>;
+  lastVerified: number;
+}
+```
+
+### 2.3 Civic action schema
+
+```ts
+type DeliveryIntent = 'email' | 'phone' | 'share' | 'export' | 'manual';
+
+interface CivicAction {
+  id: string;
+  schemaVersion: 'hermes-action-v1';
+
+  // author
+  author: string; // principal nullifier
+
+  // source
+  sourceTopicId: string;
+  sourceSynthesisId: string;
+  sourceEpoch: number;
+  sourceArtifactId: string;
+  sourceDocId?: string;
+  sourceThreadId?: string;
+
+  // target
+  representativeId: string;
+
+  // letter/content
+  topic: string; // <= 100
   stance: 'support' | 'oppose' | 'inform';
-  subject: string;                // Email subject (≤ 200 chars)
-  body: string;                   // Letter body (50-5000 chars)
-  reportId: string;               // Local report reference (PDF)
-  deliveryMethod: 'email' | 'phone' | 'share' | 'export' | 'manual';
-  
-  // Verification
+  subject: string; // <= 200
+  body: string; // 50..5000
+  intent: DeliveryIntent;
+
+  // verification
   constituencyProof: ConstituencyProof;
-  
-  // State
-  status: 'draft' | 'ready' | 'shared' | 'sent' | 'failed';
-  
-  // Source (optional)
-  sourceDocId?: string;           // If drafted in HERMES Docs
-  sourceThreadId?: string;        // If linked from Forum thread
-  
-  // Timestamps
+
+  // state
+  status: 'draft' | 'ready' | 'completed' | 'failed';
   createdAt: number;
   sentAt?: number;
-  
-  // Errors (local-only)
+
+  // retries / diagnostics
+  attempts: number;
   lastError?: string;
+  lastErrorCode?: string;
 }
 
 interface ConstituencyProof {
-  district_hash: string;          // From RegionProof public signals
-  nullifier: string;              // Same as author nullifier
-  merkle_root: string;            // From RegionProof public signals
+  district_hash: string;
+  nullifier: string;
+  merkle_root: string;
 }
 ```
 
-### 2.3 Delivery Receipt Schema
+### 2.4 Delivery receipt schema
 
-```typescript
+```ts
 interface DeliveryReceipt {
-  id: string;                     // UUID
-  schemaVersion: 'hermes-receipt-v0';
-  
-  // Reference
-  actionId: string;               // Parent action ID
-  
-  // Result
-  status: 'pending' | 'success' | 'failed';
+  id: string;
+  schemaVersion: 'hermes-receipt-v1';
+
+  actionId: string;
+  representativeId: string;
+
+  status: 'success' | 'failed' | 'user-cancelled';
   timestamp: number;
-  deliveryMethod: 'email' | 'phone' | 'share' | 'export' | 'manual';
-  
-  // Debug (for failures)
+  intent: DeliveryIntent;
+
+  userAttested: boolean;
+
   errorMessage?: string;
-  errorCode?: string;             // e.g., 'SEND_FAILED'
-  
-  // Retry metadata (local-only)
+  errorCode?: string;
+
   retryCount: number;
   previousReceiptId?: string;
 }
 ```
 
-### 2.4 Content Size Limits
+### 2.5 Content limits and quotas
 
-- `topic`: ≤ 100 characters
-- `subject`: ≤ 200 characters
-- `body`: 50-5000 characters (min enforced for substantive content)
-- Max actions per user per day: 5
-- Max actions per representative per user per week: 1
+- `topic <= 100`
+- `subject <= 200`
+- `body = 50..5000`
+- `civic_actions/day = 3` per principal nullifier
+- one representative-forward action per rep per rolling week (recommended default)
 
----
+## 3. Representative Directory
 
-## 3. Representative Database
+### 3.1 Database structure
 
-### 3.1 Database Structure
+```ts
+interface RepresentativeDirectory {
+  version: string;
+  lastUpdated: number;
+  updateSource: string;
 
-```typescript
-interface RepresentativeDatabase {
-  version: string;                // Semantic version
-  lastUpdated: number;            // Unix timestamp
-  updateSource: string;           // URL of source data
-  
   representatives: Representative[];
-  
-  // Indexes for quick lookup
-  byState: Record<string, string[]>;      // state → rep IDs
-  byDistrict: Record<string, string[]>;   // districtHash → rep IDs
+
+  // indexes
+  byState: Record<string, string[]>;
+  byDistrictHash: Record<string, string[]>;
 }
 ```
 
-### 3.2 Matching Representatives to Users
+### 3.2 Matching representatives to users
 
-```typescript
+```ts
 function findRepresentatives(
-  regionProof: ConstituencyProof,
-  database: RepresentativeDatabase
+  proof: ConstituencyProof,
+  directory: RepresentativeDirectory,
 ): Representative[] {
-  const districtHash = regionProof.district_hash;
-  
-  // Find reps matching this district
-  const repIds = database.byDistrict[districtHash] ?? [];
-  
-  return repIds
-    .map(id => database.representatives.find(r => r.id === id))
+  const ids = directory.byDistrictHash[proof.district_hash] ?? [];
+
+  return ids
+    .map((id) => directory.representatives.find((rep) => rep.id === id))
     .filter(Boolean) as Representative[];
 }
 ```
 
-### 3.3 Database Updates
+### 3.3 Directory update process
 
-The representative database is:
-- Bundled with the app (`apps/web-pwa/src/data/representatives.json`)
-- Updated via CI pipeline from public data sources
-- Versioned for cache invalidation
+Directory requirements:
 
-```typescript
-// Check for updates
-async function checkForDatabaseUpdate(): Promise<boolean> {
-  const current = getLocalDatabase();
-  const remote = await fetchRemoteVersion();
-  return remote.version > current.version;
+- Bundled snapshot for offline startup
+- Versioned update source
+- Schema validation before replacing local cache
+
+```ts
+async function checkForDirectoryUpdate(localVersion: string): Promise<boolean> {
+  const remote = await fetchDirectoryManifest();
+  return remote.version > localVersion;
 }
 
-// Apply update
-async function updateDatabase(): Promise<void> {
-  const newDb = await fetchRemoteDatabase();
-  validateDatabase(newDb); // Schema validation
-  saveLocalDatabase(newDb);
+async function updateDirectory(): Promise<void> {
+  const next = await fetchDirectoryPayload();
+  validateRepresentativeDirectory(next);
+  saveDirectory(next);
 }
 ```
-
----
 
 ## 4. Delivery Flow (Facilitation)
 
-### 4.1 Architecture Overview
+### 4.1 Architecture overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         PWA (Web)                                │
-│  ┌─────────────────────────────────────────────────────────┐    │
-│  │                Civic Action Kit UI                       │    │
-│  │   • Draft letter                                         │    │
-│  │   • Generate report (PDF)                                │    │
-│  │   • Open email/phone/share/export                        │    │
-│  │   • Mark as sent                                         │    │
-│  └───────────────────────┬─────────────────────────────────┘    │
-└──────────────────────────┼──────────────────────────────────────┘
-                           │ Native intents / OS share sheet
-┌──────────────────────────▼──────────────────────────────────────┐
-│                     User Devices & Apps                          │
-│  • Email client (mailto)                                         │
-│  • Phone app (tel)                                               │
-│  • Share target (copy/export/PDF)                                │
-│  • Official contact page (manual use)                            │
-└─────────────────────────────────────────────────────────────────┘
+```text
+PWA Action Center
+  -> draft/edit packet from elevation artifacts
+  -> generate local report bundle (PDF + metadata)
+  -> open user-selected delivery intent
+  -> write local receipt
+  -> update aggregate counters (public, anonymous)
 ```
 
-### 4.2 Report Generation
+### 4.2 Report generation pipeline
 
-```typescript
+```ts
+interface ReportPayload {
+  actionId: string;
+  representative: Representative;
+  topic: string;
+  stance: 'support' | 'oppose' | 'inform';
+  body: string;
+  artifactRefs: ElevationArtifacts;
+  generatedAt: number;
+}
+
 interface ReportResult {
   reportId: string;
   filePath: string;
   format: 'pdf';
 }
 
-async function generateReport(
-  action: LegislativeAction,
-  representative: Representative
-): Promise<ReportResult> {
-  // 1. Compose report content (letter + metadata)
-  const payload = buildReportPayload(action, representative);
-
-  // 2. Render to PDF (local-only)
+async function generateReport(payload: ReportPayload): Promise<ReportResult> {
   const filePath = await renderPdf(payload);
-
-  // 3. Persist report metadata (local)
-  const reportId = await saveLocalReport(filePath, action.id);
-
+  const reportId = await saveLocalReport(filePath, payload.actionId);
   return { reportId, filePath, format: 'pdf' };
 }
 ```
 
-### 4.3 User-Initiated Delivery
+Report content should include:
 
-```typescript
-type DeliveryIntent = 'email' | 'phone' | 'share' | 'export' | 'manual';
+- Brief summary
+- Proposal scaffold excerpt
+- Talking points
+- Representative metadata
+- Timestamp and provenance references (`topicId`, `synthesisId`, `epoch`)
 
+### 4.3 User-initiated delivery channels
+
+```ts
 async function openDeliveryChannel(
-  action: LegislativeAction,
+  action: CivicAction,
   rep: Representative,
-  intent: DeliveryIntent
+  intent: DeliveryIntent,
 ): Promise<void> {
   switch (intent) {
     case 'email':
@@ -262,255 +264,206 @@ async function openDeliveryChannel(
     case 'phone':
       return openTel(rep.phone);
     case 'share':
-      return openShareSheet(action.reportId);
+      return openShareSheet(action.id);
     case 'export':
-      return exportReportFile(action.reportId);
+      return exportReportFile(action.id);
     case 'manual':
       return openContactPage(rep.contactUrl);
   }
 }
 ```
 
-### 4.4 Delivery Receipts (User-Attested)
+Rules:
 
-- Receipts record user-initiated delivery, not automated submission.
-- We store a local receipt when the OS share flow returns success or the user marks the action as sent.
-- No screenshots, no form automation evidence.
+- No hidden sends
+- No default automation against legislative forms
+- Always expose manual contact fallback
 
----
+### 4.4 Delivery receipts (user-attested)
 
-## 5. Storage (GunDB)
+Receipt semantics:
 
-### 5.1 Namespace Topology
+- Success/failure/cancel are all valid terminal outcomes
+- Receipt records user action intent and result, not third-party portal proof
+- Retries create chained receipts via `previousReceiptId`
+
+## 5. Storage Topology and Privacy
+
+### 5.1 Namespace topology
 
 | Path | Type | Description |
 |------|------|-------------|
-| `~<devicePub>/hermes/bridge/actions/<actionId>` | Auth | User's actions (non-PII metadata only) |
-| `~<devicePub>/hermes/bridge/receipts/<receiptId>` | Auth | User's delivery receipts (non-PII) |
-| `vh/bridge/stats/<repId>` | Public | Aggregate action counts (anonymous) |
+| `~<devicePub>/hermes/bridge/actions/<actionId>` | Auth | User actions (non-PII metadata only) |
+| `~<devicePub>/hermes/bridge/receipts/<receiptId>` | Auth | User receipts (non-PII metadata only) |
+| `~<devicePub>/hermes/bridge/reports/<reportId>` | Auth | Report pointers/checksums (not profile data) |
+| `vh/bridge/stats/<repId>` | Public | Anonymous aggregate action counts |
 
-### 5.2 Action Storage
+### 5.2 Action and receipt writes
 
-```typescript
-// Save action to Gun
-async function saveAction(
-  client: VennClient,
-  action: LegislativeAction
-): Promise<void> {
-  const cleanAction = stripUndefined(stripPII(action));
-  
-  await new Promise<void>((resolve, reject) => {
-    getUserActionsChain(client)
-      .get(action.id)
-      .put(cleanAction, (ack) => {
-        if (ack?.err) reject(new Error(ack.err));
-        else resolve();
-      });
-  });
+```ts
+async function saveAction(client: VennClient, action: CivicAction): Promise<void> {
+  const clean = stripUndefined(stripPII(action));
+  await putWithAck(getUserActionsChain(client).get(action.id), clean);
 }
 
-// Save receipt
-async function saveReceipt(
-  client: VennClient,
-  receipt: DeliveryReceipt
-): Promise<void> {
-  const cleanReceipt = stripUndefined(stripPII(receipt));
-  
-  await new Promise<void>((resolve, reject) => {
-    getUserReceiptsChain(client)
-      .get(receipt.id)
-      .put(cleanReceipt, (ack) => {
-        if (ack?.err) reject(new Error(ack.err));
-        else resolve();
-      });
-  });
+async function saveReceipt(client: VennClient, receipt: DeliveryReceipt): Promise<void> {
+  const clean = stripUndefined(stripPII(receipt));
+  await putWithAck(getUserReceiptsChain(client).get(receipt.id), clean);
 }
 ```
 
-### 5.3 Aggregate Statistics
+Required write filters:
 
-```typescript
-// Increment action count for representative (anonymous)
-async function incrementRepStats(
-  client: VennClient,
-  repId: string
-): Promise<void> {
-  const statsChain = getRepActionCountChain(client, repId);
-  
-  // Use Gun's built-in counter pattern
-  statsChain.get('count').put(/* increment */);
-  statsChain.get('lastActivity').put(Date.now());
+- Remove local profile/address fields
+- Remove nullifier-profile linkage fields
+- Reject writes containing OAuth tokens or secrets
+
+### 5.3 Aggregate stats updates
+
+```ts
+async function incrementRepStats(client: VennClient, repId: string): Promise<void> {
+  const stats = getRepActionCountChain(client, repId);
+  stats.get('count').put(/* increment */);
+  stats.get('lastActivity').put(Date.now());
 }
 ```
 
----
+Public stats may include:
+
+- Total action count
+- Last activity timestamp
+- Optional rolling-window counters
+
+Public stats must not include:
+
+- Nullifiers
+- District hash
+- Personal contact/profile fields
 
 ## 6. Local Persistence
 
-### 6.1 Storage Keys
+### 6.1 Storage keys
 
 | Key | Content |
 |-----|---------|
-| `vh_bridge_actions:<nullifier>` | Array of action IDs |
-| `vh_bridge_receipts:<nullifier>` | Map of actionId → receiptId |
-| `vh_bridge_reports:<nullifier>` | Map of reportId → local file path |
+| `vh_bridge_actions:<nullifier>` | Action IDs / local state index |
+| `vh_bridge_receipts:<nullifier>` | Action-to-receipt mappings |
+| `vh_bridge_reports:<nullifier>` | Report file pointers/checksums |
 | `vh_bridge_profile:<nullifier>` | Encrypted user profile data |
 
-### 6.2 User Profile Persistence (Local-Only)
+### 6.2 Profile handling (local-only)
 
-```typescript
-// Save user profile for future actions (local-only, encrypted)
+```ts
 async function saveUserProfile(nullifier: string, profile: UserProfile): Promise<void> {
   const encrypted = await encryptLocal(profile);
   await indexedDbSet(`vh_bridge_profile:${nullifier}`, encrypted);
 }
 
-// Load saved profile
 async function loadUserProfile(nullifier: string): Promise<UserProfile | null> {
   const encrypted = await indexedDbGet(`vh_bridge_profile:${nullifier}`);
   return encrypted ? decryptLocal(encrypted) : null;
 }
 ```
 
----
+Profile data never belongs in public `vh/*` namespaces.
 
-## 7. Trust & Verification
+## 7. Trust and Verification
 
-### 7.1 Trust Requirements
+### 7.1 Trust requirements
 
 | Action | Required Trust Score | Additional Requirements |
-|--------|---------------------|------------------------|
-| View representatives | 0.5 | Valid RegionProof |
-| Draft action | 0.5 | Valid RegionProof |
-| Generate report | 0.7 | Valid RegionProof |
-| Mark as sent | 0.7 | Valid RegionProof |
+|--------|----------------------|------------------------|
+| View rep list | >= 0.5 | Valid constituency proof |
+| Draft action | >= 0.5 | Valid constituency proof |
+| Generate report | >= 0.7 | Valid constituency proof |
+| Forward/send and receipt finalization | >= 0.7 | Valid constituency proof + budget availability |
 
-### 7.2 Constituency Verification
+### 7.2 Constituency proof verification
 
-```typescript
+```ts
+interface VerificationResult {
+  valid: boolean;
+  error?: 'nullifier_mismatch' | 'district_mismatch' | 'stale_proof';
+}
+
 function verifyConstituencyProof(
-  action: LegislativeAction,
-  representative: Representative
+  action: CivicAction,
+  representative: Representative,
 ): VerificationResult {
-  const { constituencyProof } = action;
-  
-  // 1. Verify nullifier matches author
-  if (constituencyProof.nullifier !== action.author) {
+  const proof = action.constituencyProof;
+
+  if (proof.nullifier !== action.author) {
     return { valid: false, error: 'nullifier_mismatch' };
   }
-  
-  // 2. Verify district hash matches representative
-  if (constituencyProof.district_hash !== representative.districtHash) {
+
+  if (proof.district_hash !== representative.districtHash) {
     return { valid: false, error: 'district_mismatch' };
   }
-  
-  // 3. Verify merkle root is recent (within 30 days)
-  // This requires checking against a trusted merkle root list
-  if (!isRecentMerkleRoot(constituencyProof.merkle_root)) {
+
+  if (!isRecentMerkleRoot(proof.merkle_root)) {
     return { valid: false, error: 'stale_proof' };
   }
-  
+
   return { valid: true };
 }
 ```
 
----
+### 7.3 Familiar boundary for bridge actions
 
-## 8. UI & UX
+- Familiar can prefill packet and suggest delivery method.
+- Familiar cannot finalize forwarding without explicit human approval.
+- High-impact approval events must be logged with `onBehalfOf` metadata.
 
-### 8.1 Action Center Layout
+## 8. UI and UX Contract
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  AGORA > Civic Action Kit                                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Your Representatives (based on verified residency)             │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ 👤 Sen. Dianne Feinstein (D-CA)     [Write Letter]       │   │
-│  │ 👤 Sen. Alex Padilla (D-CA)         [Write Letter]       │   │
-│  │ 👤 Rep. Nancy Pelosi (D-CA-11)      [Write Letter]       │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  Recent Actions                                                  │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ ✅ Climate Action Report to Sen. Feinstein (Dec 5)       │   │
-│  │ 📝 Infrastructure Report to Rep. Pelosi (Draft)          │   │
-│  │ 📨 Tax Policy Report to Sen. Padilla (Sent)              │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+### 8.1 Action Center layout
 
-### 8.2 Letter Composer
+Core sections:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Write to Sen. Dianne Feinstein                          [Back] │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Topic: [ Climate Change          ▼]                            │
-│                                                                  │
-│  Your Stance: ◉ Support  ○ Oppose  ○ Inform                    │
-│                                                                  │
-│  Subject:                                                        │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ Support the Climate Action Now Act                        │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│                                                                  │
-│  Your Message:                                                   │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │ Dear Senator Feinstein,                                   │   │
-│  │                                                           │   │
-│  │ As your constituent in San Francisco, I urge you to...    │   │
-│  │                                                           │   │
-│  └──────────────────────────────────────────────────────────┘   │
-│  Characters: 247 / 5000                                         │
-│                                                                  │
-│  📋 Use Template   📄 Import from Doc   🔗 Link Forum Thread    │
-│                                                                  │
-│  ─────────────────────────────────────────────────────────────  │
-│                                                                  │
-│  Your Information (saved locally)                               │
-│  Name: [John Doe        ]  Email: [john@example.com   ]         │
-│  Address: [123 Main St  ]  City: [San Francisco]                │
-│  State: [CA]  Zip: [94102]  Phone: [(415) 555-0123]            │
-│                                                                  │
-│  ─────────────────────────────────────────────────────────────  │
-│                                                                  │
-│  [Save Draft]                          [Generate Report (PDF)]  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+- Representative list for verified district
+- Artifact packet preview/editor
+- Delivery method controls
+- Action history and receipts
 
-### 8.3 Receipt Viewer
+### 8.2 Representative card contract
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Delivery Receipt                                        [Close] │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ✅ Marked as Sent (User-Initiated)                              │
-│                                                                  │
-│  To: Sen. Dianne Feinstein                                      │
-│  Subject: Support the Climate Action Now Act                    │
-│  Sent: December 5, 2025 at 2:34 PM                              │
-│                                                                  │
-│  ─────────────────────────────────────────────────────────────  │
-│                                                                  │
-│  Delivery Method: Email                                          │
-│  Report: climate-action-report.pdf                               │
-│                                                                  │
-│  [Open Report]                          [Change Delivery Method] │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
-```
+Representative card should include:
 
-### 8.4 Templates
+- name/title/party/office
+- district or jurisdiction
+- available channels (email/phone/manual)
+- `lastVerified` timestamp
 
-Pre-built templates for common topics:
+### 8.3 Action composer contract
 
-```typescript
+Composer fields:
+
+- topic
+- stance
+- subject
+- body
+- packet sources (`BriefDoc`, `ProposalScaffold`, `TalkingPoints`)
+- intent selection
+
+Behavior:
+
+- enforce size limits
+- show validation errors before enabling send
+- show trust/budget gating reasons inline
+
+### 8.4 Delivery status and receipt viewer
+
+Receipt view should display:
+
+- target representative
+- intent used
+- timestamp
+- status
+- retry history
+
+### 8.5 Template support
+
+```ts
 interface LetterTemplate {
   id: string;
   topic: string;
@@ -519,147 +472,123 @@ interface LetterTemplate {
   body: string;
   tags: string[];
 }
-
-const TEMPLATES: LetterTemplate[] = [
-  {
-    id: 'climate-support',
-    topic: 'Climate Change',
-    stance: 'support',
-    subject: 'Support Climate Action Legislation',
-    body: `Dear [REPRESENTATIVE],
-
-As your constituent in [CITY], I am writing to urge your support for climate action legislation. [PERSONALIZE]
-
-Climate change affects our community through [IMPACTS]. I believe we must act now to protect our future.
-
-Thank you for your service and consideration.
-
-Sincerely,
-[NAME]`,
-    tags: ['climate', 'environment']
-  },
-  // ... more templates
-];
 ```
 
----
+Templates are local aids; users must explicitly review before forwarding.
 
 ## 9. XP Integration
 
-### 9.1 Civic Action XP (`civicXP`)
+### 9.1 Civic action XP policy
+
+Suggested default emissions:
 
 | Action | XP Reward | Cap |
 |--------|-----------|-----|
-| First letter to a representative | +3 `civicXP` | 1 per rep per week |
-| Subsequent letters | +1 `civicXP` | 1 per rep per week |
-| Elevate Forum thread to letter | +1 `civicXP` | 5 per week |
+| First successful rep-forward in rolling window | +3 civicXP | 1 per rep/week |
+| Subsequent successful forwards | +1 civicXP | bounded by weekly cap |
+| Thread/article elevated to action packet | +1 civicXP | bounded by weekly cap |
 
-### 9.2 XP Emission
+### 9.2 XP emission function
 
-```typescript
+```ts
 function applyBridgeXP(event: BridgeXPEvent): void {
   const ledger = useXpLedger.getState();
-  
+
   switch (event.type) {
-    case 'letter_sent':
-      const isFirst = !ledger.hasContactedRep(event.repId);
-      const amount = isFirst ? 3 : 1;
-      
-      if (ledger.canAddBridgeXP(amount)) {
-        ledger.addCivicXP(amount);
-        ledger.markRepContacted(event.repId);
+    case 'action_completed':
+      if (ledger.canAddBridgeXP(event.amount)) {
+        ledger.addCivicXP(event.amount);
       }
       break;
-      
-    case 'thread_elevated':
+
+    case 'elevation_forwarded':
       if (ledger.canAddElevationXP()) {
         ledger.addCivicXP(1);
-        ledger.markElevation(event.threadId);
       }
       break;
   }
 }
 ```
 
----
+XP invariants:
+
+- per principal nullifier
+- local-first and privacy-safe
+- no public per-user XP replication
 
 ## 10. Implementation Checklist
 
-### 10.1 Data Model
-- [ ] Create `RepresentativeSchema` in `packages/data-model`
-- [ ] Create `LegislativeActionSchema` in `packages/data-model`
-- [ ] Create `DeliveryReceiptSchema` in `packages/data-model`
-- [ ] Export types to `packages/types`
-- [ ] Add schema validation tests
+### 10.1 Data model
 
-### 10.2 Representative Database
-- [ ] Create `apps/web-pwa/src/data/representatives.json`
-- [ ] Implement `findRepresentatives` lookup
-- [ ] Add database update mechanism
-- [ ] Add sample representatives for testing
+- [ ] `RepresentativeSchema`
+- [ ] `CivicActionSchema`
+- [ ] `DeliveryReceiptSchema`
+- [ ] `ElevationArtifacts` contract export
+- [ ] schema validation tests
 
-### 10.3 Gun Adapters
-- [ ] Create `packages/gun-client/src/bridgeAdapters.ts`
-- [ ] Implement action/receipt storage (non-PII)
-- [ ] Implement aggregate stats
-- [ ] Add adapter tests
+### 10.2 Directory
+
+- [ ] Representative directory file and validation
+- [ ] lookup by `district_hash`
+- [ ] versioned update script
+
+### 10.3 Gun adapters
+
+- [ ] user action/receipt chains
+- [ ] aggregate stats chain
+- [ ] strip/sanitize helpers on write path
 
 ### 10.4 Store
-- [ ] Implement `useBridgeStore` in `apps/web-pwa`
-- [ ] Add hydration from Gun
-- [ ] Add encrypted IndexedDB persistence
-- [ ] Implement E2E mock store
-- [ ] Add store tests
 
-### 10.5 Report & Delivery
-- [ ] Implement PDF report generator
-- [ ] Add native intent integrations (mailto/tel/share/export)
-- [ ] Implement delivery receipt creation (user-attested)
-- [ ] Add contact directory UI + manual contact page open
-- [ ] Add report storage + retrieval
+- [ ] `useBridgeStore` actions, hydration, persistence
+- [ ] encrypted profile persistence
+- [ ] E2E mock bridge store parity
+
+### 10.5 Report and delivery
+
+- [ ] local PDF report generation
+- [ ] mailto/tel/share/export/manual adapters
+- [ ] receipt creation for success/failure/cancel
 
 ### 10.6 UI
-- [ ] Implement `BridgeLayout` component
-- [ ] Implement `RepresentativeSelector` component
-- [ ] Implement `ActionComposer` component
-- [ ] Implement `ReceiptViewer` component
-- [ ] Add letter templates
-- [ ] Add accessibility tests
 
-### 10.7 XP Integration
-- [ ] Add `applyBridgeXP` to XP ledger
-- [ ] Wire XP calls in store actions
-- [ ] Add XP emission tests
+- [ ] `BridgeLayout`
+- [ ] `RepresentativeSelector`
+- [ ] `ActionComposer`
+- [ ] `ActionHistory`
+- [ ] `ReceiptViewer`
 
----
+### 10.7 Trust, budgets, and XP
 
-## 11. Security Considerations
+- [ ] enforce trust thresholds at action boundaries
+- [ ] enforce `civic_actions/day` budget
+- [ ] wire XP emissions with caps
 
-### 11.1 Threat Model
+## 11. Test Requirements
+
+1. Directory lookup correctness by district hash.
+2. Constituency proof verification and failure modes.
+3. Native intent dispatch per channel.
+4. Receipt lifecycle across success/failure/cancel/retry.
+5. Privacy checks for local-only profile and public aggregate-only stats.
+6. Trust and budget gate enforcement.
+7. Elevation artifact references (`topicId`, `synthesisId`, `epoch`) integrity.
+
+## 12. Security and Privacy Considerations
+
+### 12.1 Threats and mitigations
 
 | Threat | Mitigation |
 |--------|------------|
-| Spam/abuse | Rate limits, high trust threshold (0.7), constituency verification |
-| Impersonation | Signature verification, constituency proof |
-| Data export leakage | Explicit user action for share/export, local-only storage |
-| Contact data drift | Scheduled data updates, versioned DB |
-| PII exposure | Encrypted local profile storage, never sync PII |
+| Spam forwarding | trust >= 0.7 + constituency proof + daily budgets |
+| Representative impersonation | verified directory source + signature checks where available |
+| PII leakage | local encryption + strip-PII write filters |
+| Data drift | versioned directory updates and schema validation |
+| Silent automation | explicit user action requirement + manual fallback visibility |
 
-### 11.2 Privacy Invariants
+### 12.2 Privacy invariants
 
-- User's personal info (address, phone) NEVER leaves the device except when the user initiates a send
-- Constituency proof reveals district hash, NOT exact address
-- Aggregate stats are anonymous (no nullifiers)
-- Reports are local-only unless explicitly shared
-
----
-
-## 12. Future Enhancements (v1+)
-
-- **Mail clients:** Deep-link support for multiple mail apps
-- **Batch sending:** Send to multiple representatives at once
-- **Campaign support:** Pre-drafted campaigns users can join
-- **Response tracking:** Detect and log representative responses
-- **Impact dashboard:** Show aggregate community impact
-- **International support:** Support for non-US legislators
-- **Local assist (optional):** User-visible helper for contact-page navigation (no default automation)
+- Personal profile data never leaves device except direct user-initiated channel handoff.
+- Public counters contain no nullifiers or district hashes.
+- Actions and receipts synced to authenticated mesh paths must omit profile PII.
+- Reports remain local unless explicitly shared/exported.

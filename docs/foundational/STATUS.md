@@ -23,6 +23,27 @@
 
 ---
 
+## Product Direction Deltas (A-G)
+
+This section tracks direction-level truth from the V2-first Ship Snapshot against current implementation.
+
+| Direction Delta | Target (Ship Snapshot) | Current Implementation |
+|---|---|---|
+| A. V2-first synthesis | `TopicSynthesisV2` (quorum + epochs + divergence) is canonical | Not implemented end-to-end yet; v1 canonical analysis pipeline still carries runtime load |
+| B. 3-surface feed | Feed mixes `News`, `Topics`, and `Linked-Social Notifications` | Topics + news/thread blend exists; linked-social notifications not implemented |
+| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | Proposal-thread primitives exist; auto-drafted elevation artifacts and forwarding flow are not implemented |
+| D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | Forum sorting is implemented; reply-to-article conversion path is not yet implemented |
+| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | Planned only (Sprint 5), no runtime implementation |
+| F. GWC thesis channel | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | Eye/Lightbulb primitives and sentiment flow partially implemented; district aggregate pipeline incomplete |
+| G. Provider switching | Default local WebLLM; remote providers opt-in with cost/privacy clarity | Local default path is wired; provider consent UI and multi-provider switching are not implemented |
+
+Direction boundary:
+
+- `CanonicalAnalysisV1` is legacy compatibility only.
+- New north-star epics are: story clustering, Topic Synthesis V2 epochs/quorum, linked-social notifications, Docs publishing flow, and Civic Action Kit facilitation.
+
+---
+
 ## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106, #112, #115, #120, #126, #129, #133)
 
 - ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
@@ -79,7 +100,14 @@
 
 No active follow-ups.
 
-Next work: planned backlog slices for remaining budget enforcement (moderation, civic_actions). No active issue is currently filed for these items. Budget model defines 8 Season 0 keys; 6 are currently enforced in runtime flows (`shares/day` was the last newly enforced key in #106), with 2 backlog integrations remaining.
+Next work (direction-aligned):
+
+- Implement News Aggregator ingestion and StoryBundle clustering.
+- Implement Topic Synthesis V2 quorum/epoch pipeline and re-synthesis triggers.
+- Add linked-social OAuth + notification cards (vault-only token storage).
+- Ship reply (240 chars) to Docs-backed article conversion flow.
+- Implement elevation artifacts (BriefDoc, ProposalScaffold, TalkingPoints, local Receipt).
+- Add representative directory, native forwarding intents, and receipt tracking.
 
 ---
 
@@ -151,25 +179,25 @@ The following tasks are required to align the codebase with the updated specs (a
 | ✅ ~~Add `proposal?: ProposalExtension` to Thread schema~~ | `spec-hermes-forum-v0.md` §2.1 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
 | ✅ ~~Unify Feed ↔ Forum: headlines and threads share topicId~~ | `spec-hermes-forum-v0.md` §2.1.1 | Done — `AnalysisFeed.tsx`, `ForumFeed.tsx`, `NewThreadForm.tsx`, forum stores (PR #81) |
 
-### P1 — Canonical Analysis v2 (Quorum Synthesis)
+### P1 — Topic Synthesis V2 (Quorum + Epochs)
 
 | Task | Spec Reference | Files to Modify |
 |------|----------------|-----------------|
-| Define `CandidateAnalysis`, `QuorumMeta`, `CanonicalAnalysisV2` types | `canonical-analysis-v2.md` §3 | `packages/data-model/src/schemas.ts` |
-| Implement candidate gathering (N=5, timeout=24h) | `canonical-analysis-v2.md` §4.1 | `packages/ai-engine/src/analysis.ts` |
-| Add verified-only candidate submission gate | `canonical-analysis-v2.md` §4.1 | `packages/ai-engine/src/analysis.ts` |
-| Implement critique/refine mandate (candidates compare to prior analyses) | `canonical-analysis-v2.md` §4.1 | `packages/ai-engine/src/prompts.ts` |
-| Implement synthesis engine (candidates → synthesis + divergence) | `canonical-analysis-v2.md` §4.2 | New: `packages/ai-engine/src/synthesis.ts` |
+| Define `CandidateSynthesis`, `QuorumMeta`, `TopicSynthesisV2` types | `topic-synthesis-v2.md` §4 | `packages/data-model/src/schemas.ts` |
+| Implement candidate gathering (N=5, timeout=24h) | `topic-synthesis-v2.md` §4.1 | `packages/ai-engine/src/analysis.ts` |
+| Add verified-only candidate submission gate | `topic-synthesis-v2.md` §4.1 | `packages/ai-engine/src/analysis.ts` |
+| Implement critique/refine mandate (candidates compare to prior analyses) | `topic-synthesis-v2.md` §4.1 | `packages/ai-engine/src/prompts.ts` |
+| Implement synthesis engine (candidates → synthesis + divergence) | `topic-synthesis-v2.md` §4.2 | New: `packages/ai-engine/src/synthesis.ts` |
 | ✅ ~~Wire real AI engine (WebLLM) to replace mock default~~ | `AI_ENGINE_CONTRACT.md` | Done — `createDefaultEngine()` returns `LocalMlEngine` in non-E2E mode (#129); remote engine consent flow still pending |
 
 ### P1 — Comment-Driven Re-Synthesis
 
 | Task | Spec Reference | Files to Modify |
 |------|----------------|-----------------|
-| Track verified comment count per topic since last synthesis | `canonical-analysis-v2.md` §4.3 | `apps/web-pwa/src/store/forum/index.ts` |
-| Track unique verified principals per topic | `canonical-analysis-v2.md` §4.3 | `apps/web-pwa/src/store/forum/index.ts` |
-| Implement re-synthesis trigger (N=10 comments, 3 unique principals) | `canonical-analysis-v2.md` §4.3 | New: re-synthesis hook or store action |
-| Implement debounce (30 min) and daily cap (4/topic) | `canonical-analysis-v2.md` §4.3 | Re-synthesis store |
+| Track verified comment count per topic since last synthesis | `topic-synthesis-v2.md` §4.3 | `apps/web-pwa/src/store/forum/index.ts` |
+| Track unique verified principals per topic | `topic-synthesis-v2.md` §4.3 | `apps/web-pwa/src/store/forum/index.ts` |
+| Implement re-synthesis trigger (N=10 comments, 3 unique principals) | `topic-synthesis-v2.md` §4.3 | New: re-synthesis hook or store action |
+| Implement debounce (30 min) and daily cap (4/topic) | `topic-synthesis-v2.md` §4.3 | Re-synthesis store |
 | Generate topic digest for re-analysis input | `Hero_Paths.md` | New: digest builder |
 
 ### P2 — Agentic Guardrails
@@ -348,21 +376,21 @@ const runPipeline = createAnalysisPipeline(createDefaultEngine());
 **First-to-File Limitations (v1 → v2 Direction):**
 - Current (v1): First analysis is immutable, vulnerable to poisoning
 - Risk: Single attacker can publish misleading canonical analysis
-- Planned (v2): Quorum synthesis — first N analyses compared + synthesized
+- Planned (v2): Quorum synthesis - first N candidates compared + synthesized
 - v2 will add challenge/supersession path; v1 records remain immutable
-- Defaults (v2): N=5, timeout=24h, challenge=7d
-- See `docs/specs/canonical-analysis-v2.md` for quorum synthesis contract
+- Defaults (v2): N=5, timeout=24h, debounce=30m, daily cap=4/topic
+- See `docs/specs/topic-synthesis-v2.md` for quorum synthesis contract
 
 **v2 Implementation Gaps:**
 
 | Feature | Spec | Status |
 |---------|------|--------|
-| `CandidateAnalysis` type | `canonical-analysis-v2.md` §3 | ❌ Missing |
-| Candidate gathering (N=5, timeout=24h) | `canonical-analysis-v2.md` §4.1 | ❌ Missing |
-| Verified-only candidate submission | `canonical-analysis-v2.md` §4.1 | ❌ Missing |
-| Critique/refine prior analyses | `canonical-analysis-v2.md` §4.1 | ❌ Missing |
-| Synthesis engine (divergence table) | `canonical-analysis-v2.md` §4.2 | ❌ Missing |
-| Comment-driven re-synthesis | `canonical-analysis-v2.md` §4.3 | ❌ Missing |
+| `CandidateSynthesis` type | `topic-synthesis-v2.md` §4 | ❌ Missing |
+| Candidate gathering (N=5, timeout=24h) | `topic-synthesis-v2.md` §4.1 | ❌ Missing |
+| Verified-only candidate submission | `topic-synthesis-v2.md` §4.1 | ❌ Missing |
+| Critique/refine prior analyses | `topic-synthesis-v2.md` §4.1 | ❌ Missing |
+| Synthesis engine (divergence table) | `topic-synthesis-v2.md` §4.2 | ❌ Missing |
+| Comment-driven re-synthesis | `topic-synthesis-v2.md` §4.3 | ❌ Missing |
 | Per-principal analysis budget (25/day, 5/topic) | `spec-xp-ledger-v0.md` §4 | ✅ Types + runtime utils defined; enforcement wired in `AnalysisFeed.tsx` via check-before/consume-after pattern (PR #67) |
 
 ---
@@ -554,8 +582,8 @@ const runPipeline = createAnalysisPipeline(createDefaultEngine());
 - `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails (enforced)
 
 ### Canonical Specs
-- `docs/specs/canonical-analysis-v1.md` — Analysis schema contract (implemented)
-- `docs/specs/canonical-analysis-v2.md` — Quorum synthesis contract (planned)
+- `docs/specs/canonical-analysis-v1.md` — Legacy analysis schema (compatibility only)
+- `docs/specs/topic-synthesis-v2.md` — Quorum synthesis contract (planned)
 - `docs/foundational/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract (pipeline exercised end-to-end via `createAnalysisPipeline`; default engine is `LocalMlEngine` (WebLLM) in non-E2E mode, mock in E2E/test — #129)
 - `docs/specs/spec-civic-sentiment.md` — Eye/Lightbulb/Sentiment spec (implemented locally)
 - `docs/specs/spec-xp-ledger-v0.md` — XP ledger spec (fully implemented)

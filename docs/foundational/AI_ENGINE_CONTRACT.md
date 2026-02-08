@@ -1,86 +1,148 @@
-# AI Engine & Analysis Contract
+# AI Engine and Topic Synthesis Contract
 
-Version: 0.1  
-Status: Canonical for Sprints 2–3  
+Version: 0.2
+Status: Canonical for Season 0 (V2-first)
 Implementation note (2026-02-08): Default runtime path uses `LocalMlEngine` in non-E2E mode; mock engine is E2E/test-only. Remote fallback is opt-in and policy-gated (`local-first` when enabled).
 
-Defines the contract between raw article text, AI engines (remote/local), JSON responses, validation/guardrails, and `CanonicalAnalysisV1` objects.
+Defines the engine-routing and safety contract for Topic Synthesis V2 generation from StoryBundle/TopicDigest inputs.
 
 ## 1. Purpose
 
-Create a precise, engine-agnostic pipeline: prompt → engine → JSON → validation/guardrails → canonical analysis. Swapping engines must not change the canonical contract.
+Keep model choice interchangeable while preserving one stable contract:
 
-## 2. Prompt Contract
+`inputs -> prompt -> engine router -> parser -> validation -> topic-synthesis-v2`
 
-`buildPrompt(articleText: string) -> string` (in `packages/ai-engine/src/prompts.ts`):
-- Inlines GOALS/GUIDELINES for summary + bias detection (see Sprint 2 §2.2).
-- Specifies output wrapper:
-  - `step_by_step: string[]`
-  - `final_refined: AnalysisResult`
-- Surrounds the article with `ARTICLE_START` / `ARTICLE_END`.
+Swapping providers must not change schema shape, privacy boundaries, or deterministic acceptance rules.
 
-## 3. Engine Interface & Policy
+## 2. Inputs
 
-- `JsonCompletionEngine`: `{ name, kind: 'remote' | 'local', modelName?, generate(prompt) }`.
-- `EnginePolicy`: `remote-first`, `local-first`, `remote-only`, `local-only`, `shadow`.
-- `EngineRouter.generate(prompt)`: runs per policy and returns `{ text, engine }` (engine name of the successful candidate).
-- Runtime policy: default remains `local-only`. When a user explicitly enables remote fallback (and a remote endpoint is configured), pipeline policy becomes `local-first` (on-device first, remote fallback). `remote-*` remains opt-in only.
+Supported synthesis inputs:
 
-## 4. JSON Schema & Parsing
+- `StoryBundle` (clustered multi-source reporting)
+- `TopicDigest` (rolling discussion digest)
+- `TopicSeed` (user-origin topic seed)
 
-- Expected wrapper (new engines MUST support):
-```jsonc
-{
-  "step_by_step": ["..."],
-  "final_refined": {
-    "summary": "...",
-    "bias_claim_quote": ["..."],
-    "justify_bias_claim": ["..."],
-    "biases": ["..."],
-    "counterpoints": ["..."],
-    "sentimentScore": 0.0,
-    "confidence": 0.0
-  }
+Single-URL article input can be used only for legacy compatibility flow.
+
+## 3. Provider registry
+
+### 3.1 Provider IDs
+
+Allowed provider IDs:
+
+- `local-webllm` (default local path)
+- `local-device-model`
+- `openai`
+- `google`
+- `anthropic`
+- `xai`
+
+Each run records:
+
+- `providerId`
+- `modelId`
+- `policyMode` (`local-only`, `remote-only`, `local-first`, `remote-first`, `shadow`)
+- `kind` (`local` or `remote`)
+
+### 3.2 Cost/privacy labels
+
+Each provider option must expose label metadata in settings UI:
+
+```ts
+interface ProviderLabel {
+  providerId: string;
+  costTier: 'free' | 'low' | 'medium' | 'high' | 'variable';
+  privacyBoundary: 'on-device' | 'remote-processor';
+  reliabilityTier: 'experimental' | 'standard' | 'best-effort';
 }
 ```
-- Back-compat: bare `AnalysisResult` accepted but discouraged.
-- `AnalysisResultSchema` mirrors `canonical-analysis-v1`.
-- `parseAnalysisResponse(raw)` supports wrapped + bare; errors: `NO_JSON_OBJECT_FOUND`, `JSON_PARSE_ERROR`, `SCHEMA_VALIDATION_ERROR`.
 
-## 5. Hallucination Guardrails
+## 4. Consent and switching contract
 
-- `validateAnalysisAgainstSource(articleText, analysis)`:
-  - `bias_claim_quote` entries must appear in the article.
-  - Simple time/date sanity checks (e.g., years).
-- Emits `warnings[]`; non-fatal.
+Remote inference is opt-in only.
 
-## 6. Canonicalization
+Required UX sequence before first remote run:
 
-- Build `CanonicalAnalysisV1` from validated `AnalysisResult` plus:
-  - `engine` provenance `{ id, kind, modelName }`.
-  - `warnings`.
-- Validate with `CanonicalAnalysisSchema` (see `docs/specs/canonical-analysis-v1.md`); persist via mesh/First-to-File logic (v1).
-- Planned v2 will shift canonicalization to quorum synthesis (see `docs/specs/canonical-analysis-v2.md`).
+1. User selects provider/model.
+2. UI displays cost tier and privacy boundary.
+3. User grants explicit consent.
+4. Consent is persisted locally and revocable from settings.
 
-## 7. Failure Modes & Logging
+Policy rules:
 
-- Engine failure → fallback per `EnginePolicy`.
-- Parse failure → `AnalysisParseError` surfaced to worker caller.
-- Guardrail warnings attached (non-fatal).
-- Shadow mode: log/compare primary vs shadow outputs for evaluation.
+- Default policy is `local-only`.
+- Remote policies cannot be activated without consent record.
+- If consent is revoked, router falls back to local policy immediately.
 
-## 8. Familiar Runtime Appendix
+## 5. Engine interface
 
-- Familiars may act as **job runners** for analysis generation, but outputs MUST flow through the same prompt → JSON → validation pipeline.
-- Free-form tool use in the analysis path is forbidden unless explicitly scoped by a `DelegationGrant` and logged locally.
-- Remote engine use requires explicit user opt-in; default remains `local-only`.
+```ts
+interface JsonCompletionEngine {
+  id: string;
+  kind: 'local' | 'remote';
+  modelName: string;
+  completeJson(prompt: string): Promise<string>;
+}
 
-## 9. Test Matrix
+type EnginePolicy =
+  | 'local-only'
+  | 'remote-only'
+  | 'local-first'
+  | 'remote-first'
+  | 'shadow';
+```
 
-- Prompt tests: required keys present; article enclosed.
-- EngineRouter tests: policy behaviors, fallbacks.
-- Schema tests: valid/invalid payloads; wrapper + bare.
-- Validation tests: quote/year mismatches generate warnings.
-- Worker integration: end-to-end success, parse error paths, caching.
+## 6. Prompt and parse contract
 
-Note: `CanonicalAnalysis` objects are public analyses; engine outputs MUST NOT include identity or constituency data. When a remote fallback produces the final result, provenance MUST carry `engine.kind: 'remote'`.
+Prompt builder must include:
+
+- synthesis objective (facts + frames + warnings)
+- source provenance hints
+- strict JSON output schema instructions
+
+Parser must enforce:
+
+- valid JSON object extraction
+- schema validation against synthesis candidate/result schema
+- warning emission for source mismatch or temporal inconsistencies
+
+## 7. Telemetry and logging constraints
+
+Telemetry is metadata-only.
+
+Allowed fields:
+
+- provider/model IDs
+- policy mode
+- timing/cost counters
+- warning/error codes
+- object IDs (`topic_id`, `epoch`, `synthesis_id`)
+
+Forbidden in logs/telemetry:
+
+- source plaintext
+- raw article/report text
+- OAuth tokens
+- identity/constituency fields (`nullifier`, `district_hash`, proofs)
+
+Retention and export:
+
+- local diagnostics can retain extended logs with user consent
+- remote telemetry endpoints must receive redacted metadata only
+
+## 8. Failure and fallback behavior
+
+- engine failure: fallback according to policy
+- parse failure: surface typed error and do not publish synthesis
+- validation warning: attach warning, continue if schema-valid
+- quorum timeout: emit timeout reason and continue deterministic selection using collected candidates
+
+## 9. Security boundaries
+
+- Provider credentials and linked-social tokens are vault-only.
+- Prompt payloads for remote engines must not include identity fields.
+- Familiars can trigger jobs only on-behalf-of a principal and consume the principal budgets.
+
+## 10. Legacy note
+
+`CanonicalAnalysisV1` pipeline remains compatibility-only. New implementation must target `topic-synthesis-v2` generation paths.

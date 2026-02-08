@@ -67,13 +67,13 @@ We explicitly separate the economy into two lanes to prevent AI dominance:
 
 Human Lane: Requires Hardware Attestation. Can mint AU.
 
-Agent Lane: Can only spend RVU to buy Compute. Cannot mint AU. This ensures that the upside of the AI economy flows to human participants.
+Agent Lane: Includes familiars and other delegated agents. They can only act within the principal human's budgets/trust gates, can spend RVU to buy Compute, and cannot mint AU. This ensures that the upside of the AI economy flows to human participants.
 
 3.3 Civic Sentiment Channel
 
 GWC is not just a wallet and a marketplace; it is wired into a continuous stream of civic sentiment.
 
-At the application layer (VENN), each verified human can read canonical analyses (Eye: decayed read interest) and take stances on specific claims (Lightbulb: decayed engagement weight for the topic). Each human is represented by a stable, pseudonymous nullifier derived from LUMA; trustScores from hardware attestation gate which economic and governance actions they may take (e.g., UBE claims, QF votes). These micro-decisions are converted into typed Civic Sentiment Signals for claims and decayed read metrics for topics:
+At the application layer (VENN), each verified human can read Topic Synthesis V2 outputs for clustered stories/topics (Eye: decayed read interest) and take stances on specific claims (Lightbulb: decayed engagement weight for the topic). Each human is represented by a stable, pseudonymous nullifier derived from LUMA; trustScores from hardware attestation gate which economic and governance actions they may take (e.g., UBE claims, QF votes). These micro-decisions are converted into typed civic signals for claims and decayed read metrics for topics:
 
 - Per-claim stance (agree / neutral / disagree).
 - Per-topic engagement weight (bounded, anti-spam).

@@ -4,6 +4,10 @@
 **Goal:** Implement the "Agora" – the civic dialogue layer. This consists of **HERMES Messaging** (secure, private communication) and **HERMES Forum** (threaded civic discourse).
 **Status:** ✅ **COMPLETE** — All core functionality verified (Dec 6, 2025)
 
+> Historical note (2026-02-08): This sprint doc captures Sprint 3 execution and incident history.
+> For current canonical contracts, use `docs/specs/topic-synthesis-v2.md`, `docs/specs/spec-hermes-forum-v0.md`, and `docs/foundational/System_Architecture.md`.
+> Legacy `sourceAnalysisId` references in this file are historical context.
+
 > ✅ **HERMES Messaging — READY FOR PRODUCTION** (Dec 5, 2025)
 >
 > All unit tests (242+), E2E tests (10), and manual tests passing.
@@ -62,8 +66,8 @@
     - Ensure Gun adapters for HERMES and Forum go through the guarded namespaces, not via raw mesh.
 
 ### 1.4 Identity & Trust Gating
-- [x] **Trust Gating (Forum):** Creating threads/comments and voting in HERMES Forum requires `TrustScore >= 0.5` on the current session, aligned with `System_Architecture.md` §4.1.5 and `spec-hermes-forum-v0.md`.
-- [x] **Session Requirement (Messaging):** HERMES Messaging requires an active session and identity (nullifier). Messaging adds no additional trustScore threshold beyond the session gate defined in `System_Architecture.md` §4.1.5.
+- [x] **Trust Gating (Forum):** Creating threads/comments and voting in HERMES Forum requires `TrustScore >= 0.5` on the current session, aligned with the identity/trust model in `docs/foundational/System_Architecture.md` and `docs/specs/spec-hermes-forum-v0.md`.
+- [x] **Session Requirement (Messaging):** HERMES Messaging requires an active session and identity (nullifier). Messaging adds no additional trustScore threshold beyond the global identity/session gate defined in `docs/foundational/System_Architecture.md`.
 
 ### 1.5 XP & Privacy
 - [x] **XP & Privacy:** Any XP accrual from Messaging/Forum must write only to the on-device XP ledger (`civicXP` / `socialXP` in `spec-xp-ledger-v0.md`), never emitting `{district_hash, nullifier, XP}` off-device.
