@@ -21,10 +21,10 @@ Create a precise, engine-agnostic pipeline: prompt → engine → JSON → valid
 
 ## 3. Engine Interface & Policy
 
-- `JsonCompletionEngine`: `{ id, kind: 'remote' | 'local', modelName, completeJson(prompt) }`.
+- `JsonCompletionEngine`: `{ name, kind: 'remote' | 'local', modelName?, generate(prompt) }`.
 - `EnginePolicy`: `remote-first`, `local-first`, `remote-only`, `local-only`, `shadow`.
-- `EngineRouter.run(articleText)`: generates prompt, selects engine per policy, returns `{ raw, engine }`.
-- Migration: Season 0 prod = `local-only` by default; `remote-*` requires explicit user opt-in. `local-first` / `shadow` are roadmap targets.
+- `EngineRouter.generate(prompt)`: runs per policy and returns `{ text, engine }` (engine name of the successful candidate).
+- Runtime policy: default remains `local-only`. When a user explicitly enables remote fallback (and a remote endpoint is configured), pipeline policy becomes `local-first` (on-device first, remote fallback). `remote-*` remains opt-in only.
 
 ## 4. JSON Schema & Parsing
 
@@ -83,4 +83,4 @@ Create a precise, engine-agnostic pipeline: prompt → engine → JSON → valid
 - Validation tests: quote/year mismatches generate warnings.
 - Worker integration: end-to-end success, parse error paths, caching.
 
-Note: `CanonicalAnalysis` objects are public analyses; engine outputs MUST NOT include identity or constituency data.
+Note: `CanonicalAnalysis` objects are public analyses; engine outputs MUST NOT include identity or constituency data. When a remote fallback produces the final result, provenance MUST carry `engine.kind: 'remote'`.

@@ -1,13 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createAnalysisPipeline } from './pipeline';
 import { AnalysisParseError } from './schema';
-import type { JsonCompletionEngine } from './engines';
+import { createMockEngine, type JsonCompletionEngine } from './engines';
+
+const { mockCreateDefaultEngine } = vi.hoisted(() => ({
+  mockCreateDefaultEngine: vi.fn()
+}));
 
 vi.mock('./engines', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./engines')>();
   return {
     ...actual,
-    createDefaultEngine: () => actual.createMockEngine()
+    createDefaultEngine: () => mockCreateDefaultEngine()
   };
 });
 
@@ -24,6 +28,25 @@ function validWrappedResult(summary = 'Source summary') {
     }
   });
 }
+
+function makeEngine(
+  name: string,
+  kind: 'local' | 'remote',
+  generate: JsonCompletionEngine['generate'],
+  modelName?: string
+): JsonCompletionEngine {
+  return {
+    name,
+    kind,
+    modelName,
+    generate
+  };
+}
+
+beforeEach(() => {
+  mockCreateDefaultEngine.mockReset();
+  mockCreateDefaultEngine.mockImplementation(() => createMockEngine());
+});
 
 describe('createAnalysisPipeline', () => {
   it('runs prompt -> engine -> parse -> validation success path', async () => {
@@ -137,5 +160,111 @@ describe('createAnalysisPipeline', () => {
       modelName: 'mock-local-v1'
     });
     expect(result.analysis.sentimentScore).toBeTypeOf('number');
+    expect(mockCreateDefaultEngine).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses local-first policy with remote fallback when configured', async () => {
+    const localEngine = makeEngine(
+      'local-webllm',
+      'local',
+      vi.fn().mockRejectedValue(new Error('local engine failed')),
+      'local-model'
+    );
+    const remoteEngine = makeEngine(
+      'remote-api',
+      'remote',
+      vi.fn().mockResolvedValue(validWrappedResult('Article text for router.')),
+      'remote-model'
+    );
+
+    mockCreateDefaultEngine.mockReturnValue(localEngine);
+
+    const pipeline = createAnalysisPipeline({
+      policy: 'local-first',
+      remoteEngine
+    });
+
+    const result = await pipeline('Article text for router.');
+
+    expect(localEngine.generate).toHaveBeenCalledTimes(1);
+    expect(remoteEngine.generate).toHaveBeenCalledTimes(1);
+    expect(result.engine).toEqual({
+      id: 'remote-api',
+      kind: 'remote',
+      modelName: 'remote-model'
+    });
+  });
+
+  it('local-first without remote engine behaves as local-only', async () => {
+    const localEngine = makeEngine(
+      'local-webllm',
+      'local',
+      vi.fn().mockResolvedValue(validWrappedResult('Local only article text.')),
+      'local-model'
+    );
+
+    mockCreateDefaultEngine.mockReturnValue(localEngine);
+
+    const pipeline = createAnalysisPipeline({ policy: 'local-first' });
+    const result = await pipeline('Local only article text.');
+
+    expect(localEngine.generate).toHaveBeenCalledTimes(1);
+    expect(result.engine).toEqual({
+      id: 'local-webllm',
+      kind: 'local',
+      modelName: 'local-model'
+    });
+  });
+
+  it('local-only policy ignores provided remote engine', async () => {
+    const localEngine = makeEngine(
+      'local-webllm',
+      'local',
+      vi.fn().mockResolvedValue(validWrappedResult('Policy local-only text.')),
+      'local-model'
+    );
+    const remoteEngine = makeEngine(
+      'remote-api',
+      'remote',
+      vi.fn().mockResolvedValue(validWrappedResult('Remote should not run.')),
+      'remote-model'
+    );
+
+    mockCreateDefaultEngine.mockReturnValue(localEngine);
+
+    const pipeline = createAnalysisPipeline({
+      policy: 'local-only',
+      remoteEngine
+    });
+
+    const result = await pipeline('Policy local-only text.');
+
+    expect(localEngine.generate).toHaveBeenCalledTimes(1);
+    expect(remoteEngine.generate).not.toHaveBeenCalled();
+    expect(result.engine).toEqual({
+      id: 'local-webllm',
+      kind: 'local',
+      modelName: 'local-model'
+    });
+  });
+
+  it('keeps backward compatibility when passed a bare JsonCompletionEngine', async () => {
+    const bareEngine = makeEngine(
+      'legacy-engine',
+      'local',
+      vi.fn().mockResolvedValue(validWrappedResult('Legacy path text.')),
+      'legacy-model'
+    );
+
+    const pipeline = createAnalysisPipeline(bareEngine);
+    const result = await pipeline('Legacy path text.');
+
+    expect(mockCreateDefaultEngine).not.toHaveBeenCalled();
+    expect(bareEngine.generate).toHaveBeenCalledTimes(1);
+    expect(result.engine).toEqual({
+      id: 'legacy-engine',
+      kind: 'local',
+      modelName: 'legacy-model'
+    });
   });
 });

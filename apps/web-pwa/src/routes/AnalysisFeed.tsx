@@ -1,5 +1,4 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
 import { Button } from '@vh/ui';
 import {
   getOrGenerate,
@@ -7,8 +6,12 @@ import {
   type CanonicalAnalysis,
   type GenerateResult
 } from '../../../../packages/ai-engine/src/analysis';
+import { createRemoteEngine } from '../../../../packages/ai-engine/src/engines';
 import { createAnalysisPipeline } from '../../../../packages/ai-engine/src/pipeline';
 import type { VennClient } from '@vh/gun-client';
+import { AnalysisFeedCard } from '../components/AnalysisFeedCard';
+import { EngineSettings } from '../components/EngineSettings';
+import { useRemoteEngineOptIn } from '../hooks/useRemoteEngineOptIn';
 import { useAppStore } from '../store';
 import { useIdentity } from '../hooks/useIdentity';
 import { useXpLedger } from '../store/xpLedger';
@@ -84,10 +87,20 @@ export const AnalysisFeed: React.FC = () => {
   const isSharingRef = useRef(false);
   const { client } = useAppStore();
   const { identity } = useIdentity();
+  const { optedIn } = useRemoteEngineOptIn();
 
   const store = useMemo(() => loadFeed(), []);
   const gunStore = useMemo(() => createGunStore(client), [client]);
-  const pipeline = useMemo(() => createAnalysisPipeline(), []);
+  const pipeline = useMemo(() => {
+    if (optedIn) {
+      const remoteEngine = createRemoteEngine();
+      if (remoteEngine) {
+        return createAnalysisPipeline({ policy: 'local-first', remoteEngine });
+      }
+    }
+
+    return createAnalysisPipeline();
+  }, [optedIn]);
 
   const sortedFeed = useMemo(
     () => [...feed].sort((a, b) => b.timestamp - a.timestamp).slice(0, 10),
@@ -279,7 +292,7 @@ export const AnalysisFeed: React.FC = () => {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-sm font-semibold tracking-[0.08em] text-slate-900 uppercase">Canonical Analysis</p>
-          <p className="text-xs text-slate-600 dark:text-slate-300">Local-first · WebLLM · First-to-File</p>
+          <p className="text-xs text-slate-600 dark:text-slate-300">On-device by default · WebLLM · First-to-File</p>
         </div>
         {message && <span className="text-xs text-slate-700 dark:text-slate-200">{message}</span>}
       </div>
@@ -297,32 +310,12 @@ export const AnalysisFeed: React.FC = () => {
         </Button>
       </form>
 
+      <EngineSettings />
+
       <div className="grid gap-3">
         {sortedFeed.length === 0 && <p className="text-sm text-slate-600">No analyses yet.</p>}
         {sortedFeed.map((item) => (
-          <div key={item.urlHash} className="rounded-xl border border-slate-100 bg-card-muted p-3 space-y-1 dark:border-slate-700/70">
-            <p className="text-xs uppercase tracking-wide text-slate-500">{new Date(item.timestamp).toLocaleString()}</p>
-            <p className="text-sm font-semibold text-slate-900">{item.url}</p>
-            <p className="text-sm text-slate-700">{item.summary}</p>
-            <p className="text-xs text-slate-600">Biases: {item.biases.join(' · ')}</p>
-            <div className="mt-2 flex justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => handleShare(item)}
-                data-testid={`share-${item.urlHash}`}
-                className="text-xs font-medium text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-              >
-                Share
-              </button>
-              <Link
-                to="/hermes"
-                search={{ sourceAnalysisId: item.urlHash, title: item.summary, sourceUrl: item.url }}
-                className="text-xs font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400"
-              >
-                Discuss in Forum →
-              </Link>
-            </div>
-          </div>
+          <AnalysisFeedCard key={item.urlHash} item={item} onShare={handleShare} />
         ))}
       </div>
     </div>

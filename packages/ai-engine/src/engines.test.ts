@@ -1,11 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const { MockLocalMlEngine } = vi.hoisted(() => ({
+const { MockLocalMlEngine, MockRemoteApiEngine } = vi.hoisted(() => ({
   MockLocalMlEngine: vi.fn(function MockLocalMlEngine(this: any) {
     this.name = 'local-webllm';
     this.kind = 'local';
     this.modelName = 'Llama-3.1-8B-Instruct-q4f16_1-MLC';
     this.generate = vi.fn().mockResolvedValue('mock-local-response');
+  }),
+  MockRemoteApiEngine: vi.fn(function MockRemoteApiEngine(this: any, options: any) {
+    this.name = 'remote-api';
+    this.kind = 'remote';
+    this.modelName = options?.modelName ?? 'remote-api-v1';
+    this.options = options;
+    this.generate = vi.fn().mockResolvedValue('mock-remote-response');
   })
 }));
 
@@ -13,9 +20,14 @@ vi.mock('./localMlEngine', () => ({
   LocalMlEngine: MockLocalMlEngine
 }));
 
+vi.mock('./remoteApiEngine', () => ({
+  RemoteApiEngine: MockRemoteApiEngine
+}));
+
 import {
   createDefaultEngine,
   createMockEngine,
+  createRemoteEngine,
   isE2EMode,
   EngineRouter,
   EngineUnavailableError,
@@ -34,6 +46,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   MockLocalMlEngine.mockClear();
+  MockRemoteApiEngine.mockClear();
 });
 
 describe('EngineUnavailableError', () => {
@@ -98,6 +111,53 @@ describe('createDefaultEngine', () => {
     expect(engine.name).toBe('mock-local-engine');
     expect(engine.kind).toBe('local');
     expect(MockLocalMlEngine).not.toHaveBeenCalled();
+  });
+});
+
+describe('createRemoteEngine', () => {
+  it('returns RemoteApiEngine when URL is configured', () => {
+    vi.stubEnv('VITE_E2E_MODE', 'false');
+    vi.stubEnv('VITE_REMOTE_ENGINE_URL', 'https://remote.example/v1');
+
+    const engine = createRemoteEngine();
+
+    expect(engine?.name).toBe('remote-api');
+    expect(engine?.kind).toBe('remote');
+    expect(MockRemoteApiEngine).toHaveBeenCalledWith({
+      endpointUrl: 'https://remote.example/v1'
+    });
+  });
+
+  it('passes API key when provided', () => {
+    vi.stubEnv('VITE_E2E_MODE', 'false');
+    vi.stubEnv('VITE_REMOTE_ENGINE_URL', 'https://remote.example/v1');
+    vi.stubEnv('VITE_REMOTE_ENGINE_API_KEY', 'api-key-123');
+
+    createRemoteEngine();
+
+    expect(MockRemoteApiEngine).toHaveBeenCalledWith({
+      endpointUrl: 'https://remote.example/v1',
+      apiKey: 'api-key-123'
+    });
+  });
+
+  it('returns undefined when URL is missing or empty', () => {
+    vi.stubEnv('VITE_E2E_MODE', 'false');
+
+    expect(createRemoteEngine()).toBeUndefined();
+    expect(MockRemoteApiEngine).not.toHaveBeenCalled();
+
+    vi.stubEnv('VITE_REMOTE_ENGINE_URL', '   ');
+    expect(createRemoteEngine()).toBeUndefined();
+    expect(MockRemoteApiEngine).not.toHaveBeenCalled();
+  });
+
+  it('returns undefined in e2e mode even when URL is configured', () => {
+    vi.stubEnv('VITE_E2E_MODE', 'true');
+    vi.stubEnv('VITE_REMOTE_ENGINE_URL', 'https://remote.example/v1');
+
+    expect(createRemoteEngine()).toBeUndefined();
+    expect(MockRemoteApiEngine).not.toHaveBeenCalled();
   });
 });
 

@@ -1,4 +1,5 @@
 import { LocalMlEngine } from './localMlEngine';
+import { RemoteApiEngine } from './remoteApiEngine';
 
 export type { JsonCompletionEngine, EnginePolicy } from './engineTypes';
 export { EngineUnavailableError } from './engineTypes';
@@ -77,10 +78,16 @@ export function createMockEngine(): JsonCompletionEngine {
   };
 }
 
+function readEnvVar(name: string): string | undefined {
+  const viteValue = (import.meta as any).env?.[name];
+  const nodeValue = typeof process !== 'undefined' ? process.env?.[name] : undefined;
+  const value = viteValue ?? nodeValue;
+  return typeof value === 'string' ? value : undefined;
+}
+
 export function isE2EMode(): boolean {
-  const viteE2EMode = (import.meta as any).env?.VITE_E2E_MODE;
-  const nodeE2EMode = typeof process !== 'undefined' ? process.env?.VITE_E2E_MODE : undefined;
-  return viteE2EMode === 'true' || nodeE2EMode === 'true';
+  const viteE2EMode = readEnvVar('VITE_E2E_MODE');
+  return viteE2EMode === 'true';
 }
 
 /**
@@ -93,4 +100,22 @@ export function createDefaultEngine(): JsonCompletionEngine {
     return createMockEngine();
   }
   return new LocalMlEngine();
+}
+
+export function createRemoteEngine(): JsonCompletionEngine | undefined {
+  if (isE2EMode()) {
+    return undefined;
+  }
+
+  const endpointUrl = readEnvVar('VITE_REMOTE_ENGINE_URL')?.trim() ?? '';
+  if (!endpointUrl) {
+    return undefined;
+  }
+
+  const apiKey = readEnvVar('VITE_REMOTE_ENGINE_API_KEY')?.trim();
+
+  return new RemoteApiEngine({
+    endpointUrl,
+    ...(apiKey ? { apiKey } : {})
+  });
 }
