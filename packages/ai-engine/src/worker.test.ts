@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WorkerResponse } from './worker';
 
 const posts: any[] = [];
 (globalThis as any).self = globalThis;
@@ -91,6 +92,27 @@ describe('worker', () => {
         warnings: []
       }
     });
+  });
+
+  it('WorkerResponse success payload is strongly typed (no any)', () => {
+    // Type-level assertion: if WorkerResponse used `any`, this would not catch mismatches
+    const success: Extract<WorkerResponse, { type: 'SUCCESS' }> = {
+      type: 'SUCCESS',
+      payload: {
+        analysis: {
+          summary: 's',
+          bias_claim_quote: [],
+          justify_bias_claim: [],
+          biases: [],
+          counterpoints: [],
+          sentimentScore: 0
+        },
+        engine: 'test-engine',
+        warnings: ['w1']
+      }
+    };
+    expect(success.payload.analysis.summary).toBe('s');
+    expect(success.payload.warnings).toEqual(['w1']);
   });
 
   it('handles ANALYZE failures from pipeline', async () => {

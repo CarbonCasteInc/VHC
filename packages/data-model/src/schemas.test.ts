@@ -102,6 +102,47 @@ describe('data-model schemas', () => {
       timestamp: 123
     });
     expect(valid.urlHash).toBe('abc');
+    expect(valid.engine).toBeUndefined();
+    expect(valid.warnings).toBeUndefined();
+  });
+
+  it('accepts optional engine and warnings in canonical analysis', () => {
+    const withMeta = CanonicalAnalysisSchema.parse({
+      schemaVersion: 'canonical-analysis-v1',
+      url: 'https://example.com',
+      urlHash: 'abc',
+      summary: 'test',
+      bias_claim_quote: ['quote'],
+      justify_bias_claim: ['justification'],
+      biases: ['bias'],
+      counterpoints: ['counter'],
+      sentimentScore: 0.5,
+      timestamp: 123,
+      engine: { id: 'mock-local-engine', kind: 'local', modelName: 'mock-local-v1' },
+      warnings: ['hallucinated year 2099']
+    });
+    expect(withMeta.engine?.id).toBe('mock-local-engine');
+    expect(withMeta.engine?.kind).toBe('local');
+    expect(withMeta.engine?.modelName).toBe('mock-local-v1');
+    expect(withMeta.warnings).toEqual(['hallucinated year 2099']);
+  });
+
+  it('rejects invalid engine kind in canonical analysis', () => {
+    expect(() =>
+      CanonicalAnalysisSchema.parse({
+        schemaVersion: 'canonical-analysis-v1',
+        url: 'https://example.com',
+        urlHash: 'abc',
+        summary: 'test',
+        bias_claim_quote: ['q'],
+        justify_bias_claim: ['j'],
+        biases: ['b'],
+        counterpoints: ['c'],
+        sentimentScore: 0,
+        timestamp: 0,
+        engine: { id: 'e', kind: 'invalid', modelName: 'm' }
+      })
+    ).toThrow();
 
     expect(() =>
       CanonicalAnalysisSchema.parse({

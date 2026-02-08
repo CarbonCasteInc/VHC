@@ -1,5 +1,6 @@
 import { createDefaultEngine } from './engines';
 import { createAnalysisPipeline } from './pipeline';
+import type { AnalysisResult } from './schema';
 
 const runPipeline = createAnalysisPipeline(createDefaultEngine());
 
@@ -7,7 +8,7 @@ export type WorkerMessage =
   | { type: 'ANALYZE'; payload: { articleText: string; urlHash: string } };
 
 export type WorkerResponse =
-  | { type: 'SUCCESS'; payload: { analysis: any; engine: string; warnings: any[] } }
+  | { type: 'SUCCESS'; payload: { analysis: AnalysisResult; engine: string; warnings: string[] } }
   | { type: 'ERROR'; payload: { message: string } };
 
 self.onmessage = async (e: MessageEvent) => {
