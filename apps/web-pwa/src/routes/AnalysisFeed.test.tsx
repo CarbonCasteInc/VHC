@@ -70,6 +70,16 @@ function submitUrl(targetUrl: string) {
   fireEvent.click(screen.getByText('Analyze'));
 }
 
+function createDeferred<T = void>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('AnalysisFeed', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -125,6 +135,18 @@ describe('AnalysisFeed', () => {
     localStorage.setItem(ANALYSIS_FEED_STORAGE_KEY, JSON.stringify(existing));
     render(<AnalysisFeed />);
     expect(screen.getByText('cached summary')).toBeInTheDocument();
+  });
+
+  it('falls back when persisted feed JSON is malformed', async () => {
+    localStorage.setItem(ANALYSIS_FEED_STORAGE_KEY, '{invalid-json');
+
+    render(<AnalysisFeed />);
+    expect(screen.getByText('No analyses yet.')).toBeInTheDocument();
+
+    submitUrl('https://malformed-json.com');
+    await waitFor(() => expect(screen.getByText(/stored locally only/i)).toBeInTheDocument());
+
+    expect(localStorage.getItem(ANALYSIS_FEED_STORAGE_KEY)).toBe('{invalid-json');
   });
 
   it('includes sourceUrl in the Discuss in Forum link search params', () => {
@@ -769,8 +791,28 @@ describe('AnalysisFeed', () => {
       expect(mockConsumeAction).not.toHaveBeenCalled();
     });
 
+    it('TS-3b: Budget denied without reason uses fallback', async () => {
+      const mockShare = vi.fn().mockResolvedValue(undefined);
+      mockCanPerformAction.mockReturnValue({ allowed: false });
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+      clickShare();
+
+      await waitFor(() => expect(screen.getByText('Daily share limit reached')).toBeInTheDocument());
+      expect(mockShare).not.toHaveBeenCalled();
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+    });
+
     it('TS-4: User cancels share sheet — no consume', async () => {
-      const mockShare = vi.fn().mockRejectedValue(new DOMException('', 'AbortError'));
+      const abortError = new Error('User cancelled');
+      abortError.name = 'AbortError';
+      const mockShare = vi.fn().mockRejectedValue(abortError);
       Object.defineProperty(navigator, 'share', {
         value: mockShare,
         writable: true,
@@ -787,8 +829,9 @@ describe('AnalysisFeed', () => {
       expect(screen.queryByText('Unable to share')).not.toBeInTheDocument();
     });
 
-    it('TS-5: Share throws non-abort error — no consume', async () => {
-      const mockShare = vi.fn().mockRejectedValue(new Error('Share failed'));
+    it('TS-rapid: rapid double-click share — only one share call, at most one consume', async () => {
+      const deferred = createDeferred();
+      const mockShare = vi.fn().mockReturnValue(deferred.promise);
       Object.defineProperty(navigator, 'share', {
         value: mockShare,
         writable: true,
@@ -797,10 +840,144 @@ describe('AnalysisFeed', () => {
 
       hydrateFeedWithShareItem();
       render(<AnalysisFeed />);
+
+      clickShare();
       clickShare();
 
-      await waitFor(() => expect(screen.getByText('Share failed')).toBeInTheDocument());
+      expect(mockShare).toHaveBeenCalledTimes(1);
+      expect(mockCanPerformAction).toHaveBeenCalledTimes(1);
+
+      deferred.resolve(undefined);
+
+      await waitFor(() => expect(screen.getByText('Shared!')).toBeInTheDocument());
+      expect(mockConsumeAction).toHaveBeenCalledTimes(1);
+    });
+
+    it('TS-guard-reset-error: guard resets after share error — next share proceeds', async () => {
+      const mockShare = vi.fn()
+        .mockRejectedValueOnce(new Error('network down'))
+        .mockResolvedValueOnce(undefined);
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        hydrateFeedWithShareItem();
+        render(<AnalysisFeed />);
+
+        clickShare();
+        await waitFor(() => expect(screen.getByText('Unable to share')).toBeInTheDocument());
+        expect(warnSpy).toHaveBeenCalledWith('[vh:share]', expect.any(Error));
+        expect(mockConsumeAction).not.toHaveBeenCalled();
+
+        clickShare();
+        await waitFor(() => expect(screen.getByText('Shared!')).toBeInTheDocument());
+        expect(mockShare).toHaveBeenCalledTimes(2);
+        expect(mockConsumeAction).toHaveBeenCalledTimes(1);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('TS-guard-reset-deny: guard resets after budget denied — next share proceeds', async () => {
+      const mockShare = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      mockCanPerformAction.mockReturnValueOnce({ allowed: false, reason: 'Limit reached' });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+
+      clickShare();
+      await waitFor(() => expect(screen.getByText('Limit reached')).toBeInTheDocument());
+      expect(mockShare).not.toHaveBeenCalled();
       expect(mockConsumeAction).not.toHaveBeenCalled();
+
+      clickShare();
+      await waitFor(() => expect(screen.getByText('Shared!')).toBeInTheDocument());
+      expect(mockShare).toHaveBeenCalledTimes(1);
+      expect(mockConsumeAction).toHaveBeenCalledTimes(1);
+    });
+
+    it('TS-guard-reset-cancel: guard resets after AbortError — next share proceeds', async () => {
+      const abortError = new Error('User cancelled');
+      abortError.name = 'AbortError';
+      const mockShare = vi.fn()
+        .mockRejectedValueOnce(abortError)
+        .mockResolvedValueOnce(undefined);
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+
+      hydrateFeedWithShareItem();
+      render(<AnalysisFeed />);
+
+      clickShare();
+      await waitFor(() => expect(mockShare).toHaveBeenCalledTimes(1));
+      expect(screen.queryByText('Unable to share')).not.toBeInTheDocument();
+      expect(screen.queryByText('Shared!')).not.toBeInTheDocument();
+      expect(mockConsumeAction).not.toHaveBeenCalled();
+
+      clickShare();
+      await waitFor(() => expect(screen.getByText('Shared!')).toBeInTheDocument());
+      expect(mockShare).toHaveBeenCalledTimes(2);
+      expect(mockConsumeAction).toHaveBeenCalledTimes(1);
+    });
+
+    it('TS-error-ux: share error shows generic message, raw error to console.warn', async () => {
+      const rawError = new Error('NotAllowedError: Write permission denied');
+      const mockShare = vi.fn().mockRejectedValue(rawError);
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        hydrateFeedWithShareItem();
+        render(<AnalysisFeed />);
+        clickShare();
+
+        await waitFor(() => {
+          expect(screen.getByText('Unable to share')).toBeInTheDocument();
+          expect(screen.queryByText(/NotAllowedError/)).not.toBeInTheDocument();
+        });
+        expect(warnSpy).toHaveBeenCalledWith('[vh:share]', rawError);
+      } finally {
+        warnSpy.mockRestore();
+      }
+    });
+
+    it('TS-5: Share throws non-abort error — no consume', async () => {
+      const mockShare = vi.fn().mockRejectedValue(new Error('Share failed'));
+      Object.defineProperty(navigator, 'share', {
+        value: mockShare,
+        writable: true,
+        configurable: true,
+      });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      try {
+        hydrateFeedWithShareItem();
+        render(<AnalysisFeed />);
+        clickShare();
+
+        await waitFor(() => expect(screen.getByText('Unable to share')).toBeInTheDocument());
+        expect(warnSpy).toHaveBeenCalledWith('[vh:share]', expect.any(Error));
+        expect(mockConsumeAction).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     it('TS-6: No identity — share works, budget skipped', async () => {
@@ -857,13 +1034,19 @@ describe('AnalysisFeed', () => {
         writable: true,
         configurable: true,
       });
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-      hydrateFeedWithShareItem();
-      render(<AnalysisFeed />);
-      clickShare();
+      try {
+        hydrateFeedWithShareItem();
+        render(<AnalysisFeed />);
+        clickShare();
 
-      await waitFor(() => expect(screen.getByText('Clipboard blocked')).toBeInTheDocument());
-      expect(mockConsumeAction).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.getByText('Unable to share')).toBeInTheDocument());
+        expect(warnSpy).toHaveBeenCalledWith('[vh:share]', expect.any(Error));
+        expect(mockConsumeAction).not.toHaveBeenCalled();
+      } finally {
+        warnSpy.mockRestore();
+      }
     });
 
     it('TS-9: Identity with falsy nullifier — budget skipped', async () => {

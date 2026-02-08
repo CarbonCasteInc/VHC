@@ -76,6 +76,7 @@ export const AnalysisFeed: React.FC = () => {
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const isRunningRef = useRef(false);
+  const isSharingRef = useRef(false);
   const { client } = useAppStore();
   const { identity } = useIdentity();
 
@@ -217,6 +218,9 @@ export const AnalysisFeed: React.FC = () => {
 
   const handleShare = useCallback(
     async (item: CanonicalAnalysis) => {
+      if (isSharingRef.current) return;
+      isSharingRef.current = true;
+
       const shareText = `${item.summary}\n${item.url}`;
       const topicId = item.urlHash;
 
@@ -229,6 +233,7 @@ export const AnalysisFeed: React.FC = () => {
         if (!budgetCheck.allowed) {
           const reason = budgetCheck.reason || 'Daily share limit reached';
           setMessage(reason);
+          isSharingRef.current = false;
           return;
         }
       }
@@ -253,13 +258,18 @@ export const AnalysisFeed: React.FC = () => {
           setMessage('Link copied!');
         } else {
           setMessage('Unable to share');
+          isSharingRef.current = false;
+          return;
         }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === 'AbortError') {
           // User cancelled share sheet — silent no-op
           return;
         }
-        setMessage((err as Error).message || 'Share failed');
+        console.warn('[vh:share]', err);
+        setMessage('Unable to share');
+      } finally {
+        isSharingRef.current = false;
       }
     },
     [identity]
