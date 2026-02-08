@@ -8,6 +8,8 @@ import {
   type GenerateResult
 } from '../../../../packages/ai-engine/src/analysis';
 import { createAnalysisPipeline } from '../../../../packages/ai-engine/src/pipeline';
+import { isE2EMode } from '../../../../packages/ai-engine/src/engines';
+import { LocalMlEngine } from '../../../../packages/ai-engine/src/localMlEngine';
 import type { VennClient } from '@vh/gun-client';
 import { useAppStore } from '../store';
 import { useIdentity } from '../hooks/useIdentity';
@@ -87,7 +89,10 @@ export const AnalysisFeed: React.FC = () => {
 
   const store = useMemo(() => loadFeed(), []);
   const gunStore = useMemo(() => createGunStore(client), [client]);
-  const pipeline = useMemo(() => createAnalysisPipeline(), []);
+  const pipeline = useMemo(() => {
+    const engine = isE2EMode() ? undefined : new LocalMlEngine();
+    return createAnalysisPipeline(engine);
+  }, []);
 
   const sortedFeed = useMemo(
     () => [...feed].sort((a, b) => b.timestamp - a.timestamp).slice(0, 10),

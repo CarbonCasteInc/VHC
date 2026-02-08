@@ -69,7 +69,7 @@ export class EngineRouter {
   }
 }
 
-export function createDefaultEngine(): JsonCompletionEngine {
+export function createMockEngine(): JsonCompletionEngine {
   return {
     name: 'mock-local-engine',
     modelName: 'mock-local-v1',
@@ -88,4 +88,18 @@ export function createDefaultEngine(): JsonCompletionEngine {
       });
     }
   };
+}
+
+export function isE2EMode(): boolean {
+  return (import.meta as any).env?.VITE_E2E_MODE === 'true' || false;
+}
+
+/**
+ * Returns the default engine for the current runtime context.
+ * In E2E/test mode: returns mock engine.
+ * In browser: returns mock engine (callers should use createAnalysisPipeline
+ * with an explicit LocalMlEngine for real inference).
+ */
+export function createDefaultEngine(): JsonCompletionEngine {
+  return createMockEngine();
 }

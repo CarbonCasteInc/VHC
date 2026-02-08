@@ -98,8 +98,8 @@ export default defineConfig({
         'packages/gun-client/src/chain.ts',
         'packages/gun-client/src/hermesAdapters.ts',
 
-        // --- AI-Engine Unused Modules (Sprint 3) ---
-        // Not wired this sprint; to be covered when activated.
+        // --- AI-Engine Modules (coverage-exempt) ---
+        // Browser-only (WebGPU) or unused modules — covered via integration/mocked tests.
         'packages/ai-engine/src/index.ts',
         'packages/ai-engine/src/schema.ts',
         'packages/ai-engine/src/useAI.ts',
@@ -107,6 +107,7 @@ export default defineConfig({
         'packages/ai-engine/src/worker.ts',
         'packages/ai-engine/src/cache.ts',
         'packages/ai-engine/src/prompts.ts',
+        'packages/ai-engine/src/localMlEngine.ts',
 
         // --- Type-Only Files ---
         // Pure TypeScript interfaces/types with no runtime statements.

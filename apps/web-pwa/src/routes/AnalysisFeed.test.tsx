@@ -28,6 +28,32 @@ vi.mock('../hooks/useIdentity', () => ({
   useIdentity: (...args: unknown[]) => mockUseIdentity(...args)
 }));
 
+vi.mock('../../../../packages/ai-engine/src/engines', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../packages/ai-engine/src/engines')>();
+  return { ...actual, isE2EMode: () => true };
+});
+
+vi.mock('../../../../packages/ai-engine/src/localMlEngine', () => ({
+  LocalMlEngine: class MockLocalMlEngine {
+    readonly name = 'mock-local-engine';
+    readonly kind = 'local' as const;
+    readonly modelName = 'mock-local-v1';
+    async generate() {
+      return JSON.stringify({
+        final_refined: {
+          summary: 'Mock summary',
+          bias_claim_quote: ['quote'],
+          justify_bias_claim: ['justification'],
+          biases: ['bias'],
+          counterpoints: ['counter'],
+          sentimentScore: 0.5,
+          confidence: 0.9
+        }
+      });
+    }
+  }
+}));
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, search, children, ...rest }: any) => {
     const pathname = typeof to === 'string' ? to : '#';

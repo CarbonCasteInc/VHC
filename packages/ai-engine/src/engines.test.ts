@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   createDefaultEngine,
+  createMockEngine,
+  isE2EMode,
   EngineRouter,
   EngineUnavailableError,
   type JsonCompletionEngine
@@ -24,9 +26,9 @@ describe('EngineUnavailableError', () => {
   });
 });
 
-describe('createDefaultEngine', () => {
+describe('createMockEngine', () => {
   it('returns a local mock engine that emits valid analysis JSON with sentimentScore', async () => {
-    const engine = createDefaultEngine();
+    const engine = createMockEngine();
 
     expect(engine.kind).toBe('local');
     expect(engine.name).toBe('mock-local-engine');
@@ -38,6 +40,21 @@ describe('createDefaultEngine', () => {
 
     expect(parsed.final_refined.summary).toBe('Mock summary');
     expect(parsed.final_refined.sentimentScore).toBeTypeOf('number');
+  });
+});
+
+describe('isE2EMode', () => {
+  it('returns false by default in test environment', () => {
+    expect(isE2EMode()).toBe(false);
+  });
+});
+
+describe('createDefaultEngine', () => {
+  it('returns a mock engine (default behavior)', async () => {
+    const engine = createDefaultEngine();
+    expect(engine.kind).toBe('local');
+    const output = await engine.generate('test');
+    expect(output).toContain('Mock summary');
   });
 });
 
