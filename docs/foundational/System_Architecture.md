@@ -85,7 +85,7 @@ The system functions as a Monorepo with polyglot micro-services.
   * **State/Sync:**
       * *Transient:* Zustand.
       * *Durable:* `@venn-hermes/gun-client` (Strictly isolated GUN wrapper).
-  * **Edge AI:** **WebLLM (WASM)** running local inference (Llama-3-8B-Quantized or similar).
+  * **Edge AI:** **WebLLM (WASM)** running local inference (Llama-3-8B-Quantized or similar) is the target architecture; current implementation status is tracked in `STATUS.md` (mock engine remains active today).
   * **Automation:** Optional local tooling for user-initiated assist (no default automation).
 
 ### 3.2 Server-Side (The Untrusted Cloud)
@@ -308,6 +308,8 @@ Rules:
 See `docs/specs/spec-data-topology-privacy-v0.md` for the canonical Season 0 topology and invariants.
 
 ## 5. Unified Development Roadmap
+
+This roadmap is the target planning sequence. For actual delivery status and drift notes, use `docs/foundational/STATUS.md`.
 
 ### Sprint 0: The Foundation (Weeks 1–6) [COMPLETE]
 

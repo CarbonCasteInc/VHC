@@ -17,6 +17,10 @@ This document is the normative contract for engagement and sentiment across clie
 - `district_hash` – hash of a region code (e.g., US-CA-12), used for constituency aggregation.
 - `ConstituencyProof` – `{ district_hash, nullifier, merkle_root }` derived from RegionProof public signals.
 
+**Field naming convention (v0):**
+- Wire/event payloads use `snake_case` fields (`topic_id`, `analysis_id`, `point_id`, `constituency_proof`, `district_hash`) for compatibility with existing stored data and schemas.
+- Application-local variables/hooks may use `camelCase` (`topicId`, `analysisId`, `pointId`) and map to wire fields at emission boundaries.
+
 ## 2. Event-Level Contract: SentimentSignal
 
 ```ts

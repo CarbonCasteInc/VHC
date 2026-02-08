@@ -8,7 +8,7 @@ This spec is the single contract for identity, trustScore, and constituency acro
 ## 1. Domain Concepts
 
 - `TrustScore` (0..1 float); `ScaledTrustScore` (int 0..10000, `scaled = Math.round(trustScore * 10000)`).
-- `UniquenessNullifier` (string off-chain; `bytes32` on-chain) — stable per-human key.
+- `UniquenessNullifier` (string off-chain; `bytes32` on-chain) — target is stable per-human key.
 - Region code (private, e.g., `US-CA-12`) vs `district_hash` (hashed public form).
 - `RegionProof` public signals: `[district_hash, nullifier, merkle_root]`.
 - `ConstituencyProof`: `{ district_hash, nullifier, merkle_root }` decoded from RegionProof.
@@ -18,6 +18,7 @@ This spec is the single contract for identity, trustScore, and constituency acro
 - `AttestationPayload` (hardware attestation input).
 - `VerificationResult` → `trustScore: number` in `[0,1]`.
 - `derive_nullifier(device_key: string) -> string` (deterministic, collision-resistant enough for scale; v0 reference: `sha256(device_key)`).
+- **v0 implementation note:** nullifier derivation is currently device-bound. Per-human binding remains the target state and depends on higher-assurance attestation + multi-device linking/recovery hardening.
 - `SessionResponse`:
   - `token` = per-session string.
   - `trustScore` = float `[0,1]`.
