@@ -1,4 +1,4 @@
-import { EngineUnavailableError, type JsonCompletionEngine } from './engines';
+import { EngineUnavailableError, type JsonCompletionEngine } from './engineTypes';
 
 const DEFAULT_MODEL_ID = 'Llama-3.1-8B-Instruct-q4f16_1-MLC';
 

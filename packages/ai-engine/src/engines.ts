@@ -1,25 +1,10 @@
 import { LocalMlEngine } from './localMlEngine';
 
-export interface JsonCompletionEngine {
-  name: string;
-  kind: 'local' | 'remote';
-  modelName?: string;
-  generate(prompt: string): Promise<string>;
-}
+export type { JsonCompletionEngine, EnginePolicy } from './engineTypes';
+export { EngineUnavailableError } from './engineTypes';
 
-export type EnginePolicy =
-  | 'remote-first'
-  | 'local-first'
-  | 'remote-only'
-  | 'local-only'
-  | 'shadow';
-
-export class EngineUnavailableError extends Error {
-  constructor(public readonly policy: EnginePolicy) {
-    super(`No engine available for policy: ${policy}`);
-    this.name = 'EngineUnavailableError';
-  }
-}
+import type { JsonCompletionEngine, EnginePolicy } from './engineTypes';
+import { EngineUnavailableError } from './engineTypes';
 
 function hasEngine(engine?: JsonCompletionEngine): engine is JsonCompletionEngine {
   return Boolean(engine);
