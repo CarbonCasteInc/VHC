@@ -1,6 +1,6 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-07  
+**Last Updated:** 2026-02-08  
 **Version:** 0.2.1 (Sprint 4 — Agentic Foundation & Stabilization)  
 **Assessment:** Pre-production prototype
 
@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106, #112)
+## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106, #112, #115)
 
 - ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
@@ -67,6 +67,7 @@
 - ✅ **Issue #87** — Governance Storage Guard Hardening: added `&& !Array.isArray(parsed)` to `readFromStorage` and `readStoreMap` type guards in `useGovernance.ts`, preventing JSON arrays from passing the `typeof === 'object'` check. 8 new tests (array rejection, valid object regression, null/primitive handling). 693 tests total, 100% coverage maintained (PR #89, merged 2026-02-07). Follow-up #90 filed for `forum/helpers.ts` proposal guard audit.
 - ✅ **Issue #80** — Feed↔Forum UI Integration: wired `sourceUrl` from AnalysisFeed through route/ForumFeed/NewThreadForm to `createThread` opts. Analysis-feed-created threads now carry `topicId`, `sourceUrl`, `urlHash`, `isHeadline: true`. 659 tests, 100% coverage maintained (PR #81, merged 2026-02-07).
 - ✅ **Issue #112** — CSP doc coherence pass: reconciled `report-uri` deprecation wording with fallback recommendation in `CSP_HEADER_MIGRATION.md`, tightened `style-src 'unsafe-inline'` rationale in `ARCHITECTURE_LOCK.md` (CSS-in-JS → Tailwind utility-class injection), annotated multi-line header example, added `connect-src` forward-reference for Gun relay peers. Docs-only, no runtime changes.
+- ✅ **Issue #115** — TOCTOU hardening for `shares/day` in AnalysisFeed share flow: added synchronous guard to prevent concurrent double-consume race in share budget enforcement, mirroring the pattern established in #68 for analysis requests. 7 new tests, 751 tests total, 100% coverage maintained (PR #116, SHA `662b7fa`, merged 2026-02-08).
 
 ---
 
@@ -87,7 +88,7 @@ Next work: remaining budget enforcement slices (moderation, civic_actions). All 
 | **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote, analyses & shares enforcement wiring landed; all 8 Season 0 budget keys now wired (#106 completed shares/day, the last one); budget denial UX hardened (#69); consume-on-null fix (#98); TOCTOU budget hardening (#68); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); ProposalList cleanup landed (#61); CSP documentation follow-up landed (#47); remaining budget enforcement (moderation/civic_actions) pending |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote, analyses & shares enforcement wiring landed; all 8 Season 0 budget keys now wired (#106 completed shares/day, the last one); budget denial UX hardened (#69); consume-on-null fix (#98); TOCTOU budget hardening (#68, #115); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); ProposalList cleanup landed (#61); CSP documentation follow-up landed (#47); remaining budget enforcement (moderation/civic_actions) pending |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
@@ -445,9 +446,9 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 744 tests (unit + component + integration).
+**Repo-wide (Vitest `pnpm test:quick`):** 751 tests (unit + component + integration).
 
-**Coverage (`pnpm test:coverage`, last validated 2026-02-07):**
+**Coverage (`pnpm test:coverage`, last validated 2026-02-08):**
 
 | Metric | Value |
 |--------|-------|
