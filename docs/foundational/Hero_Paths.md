@@ -262,56 +262,50 @@ This is the **Civic Dignity Loop**: identity → news → analysis → stance �
   ```ts
   // One step toward 2.0
   next = current + 0.3 * (2.0 - current);
+  ```
 
 Invariants:
-	•	Monotonic,
-	•	Bounded in [0,2],
-	•	One qualifying interaction = one step.
-	•	Metrics semantics:
-	•	Eye (Read Interest):
-	•	Per-user-per-topic eye_weight updated on read/expand.
-	•	Aggregate Eye:
-	•	Deterministic function of all eye_weight values (sum).
-	•	Optional secondary metric: count of users with eye_weight > 0.
-	•	Lightbulb (Engagement):
-	•	Per-user-per-topic lightbulb_weight updated on each stance change / engagement.
-	•	SentimentSignal.weight = current lightbulb_weight for that topic.
-	•	Aggregate Lightbulb:
-	•	Deterministic aggregate of per-user lightbulb_weight (sum/avg).
-	•	Per-point sentiment:
-	•	agreement changes update local state per (topic_id, point_id).
-	•	Aggregate point_stats[point_id] count only committed votes:
-	•	agree = count of agreement = +1,
-	•	disagree = count of agreement = -1,
-	•	Neutral (0) is excluded from counts.
-	•	Privacy & topology:
-	•	Per docs/specs/spec-data-topology-privacy-v0.md:
-	•	Event-level SentimentSignal is sensitive:
-	•	Lives on-device and/or is sent encrypted to a Guardian Node.
-	•	Never stored plaintext in the public mesh.
-	•	Mesh / public:
-	•	Only AggregateSentiment and other aggregates appear.
-	•	No {district_hash, nullifier} pairs in any public structure.
+  - Monotonic
+  - Bounded in [0,2]
+  - One qualifying interaction = one step
 
-1.2.4 XP & Daily Boost (GWC)
-	•	Contracts:
-	•	RVU.sol, UBE.sol, Faucet.sol, QuadraticFunding.sol per spec-rvu-economics-v0.md.
-	•	UBE parameters (Season 0):
-	•	minTrustScore = 5000 (0.5),
-	•	claimInterval = 1 day,
-	•	dripAmount ~25 RVU.
-	•	UX decision (Season 0):
-	•	UBE is surfaced in the app as a Daily Boost, not as a DeFi income product.
-	•	Behind the scenes:
-	•	Successful UBE.claim() can:
-	•	Mint testnet RVU to the user’s wallet, and/or
-	•	Increment a per-nullifier civic XP ledger.
-	•	Faucet remains dev/onboarding-only and is not part of the visible dignity loop.
-	•	UI:
-	•	useWallet + WalletPanel:
-	•	For advanced users/testers, shows RVU balance and raw UBE claim status.
-	•	Control panel:
-	•	Shows “Daily Boost” status and XP growth.
+  Metrics semantics:
+  - Eye (Read Interest):
+    - Per-user-per-topic `eye_weight` updated on read/expand.
+    - Aggregate Eye is a deterministic function of all `eye_weight` values (sum).
+    - Optional secondary metric: count of users with `eye_weight > 0`.
+  - Lightbulb (Engagement):
+    - Per-user-per-topic `lightbulb_weight` updated on each stance change / engagement.
+    - `SentimentSignal.weight = current lightbulb_weight` for that topic.
+    - Aggregate Lightbulb is a deterministic aggregate of per-user `lightbulb_weight` (sum/avg).
+  - Per-point sentiment:
+    - `agreement` changes update local state per `(topic_id, point_id)`.
+    - Aggregate `point_stats[point_id]` count only committed votes:
+      - `agree` = count of `agreement = +1`
+      - `disagree` = count of `agreement = -1`
+      - Neutral (`0`) is excluded from counts.
+  - Privacy & topology:
+    - Per `docs/specs/spec-data-topology-privacy-v0.md`, event-level `SentimentSignal` is sensitive.
+    - It lives on-device and/or is sent encrypted to a Guardian Node.
+    - It is never stored plaintext in the public mesh.
+    - Mesh/public surfaces expose only `AggregateSentiment` and other aggregates.
+    - No `{district_hash, nullifier}` pairs in any public structure.
+
+#### 1.2.4 XP & Daily Boost (GWC)
+  - Contracts:
+    - `RVU.sol`, `UBE.sol`, `Faucet.sol`, `QuadraticFunding.sol` per `spec-rvu-economics-v0.md`.
+  - UBE parameters (Season 0):
+    - `minTrustScore = 5000` (`0.5`)
+    - `claimInterval = 1 day`
+    - `dripAmount ~25 RVU`
+  - UX decision (Season 0):
+    - UBE is surfaced in the app as a Daily Boost, not as a DeFi income product.
+  - Behind the scenes:
+    - Successful `UBE.claim()` can mint testnet RVU to the user wallet and/or increment a per-nullifier civic XP ledger.
+    - Faucet remains dev/onboarding-only and is not part of the visible dignity loop.
+  - UI:
+    - `useWallet` + `WalletPanel` show RVU balance and raw UBE claim status for advanced users/testers.
+    - Control panel shows Daily Boost status and XP growth.
 
 ⸻
 

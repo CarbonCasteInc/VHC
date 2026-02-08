@@ -493,6 +493,9 @@ const result = HermesThreadSchema.safeParse(parsedData);
 
 ## 7. Implementation Checklist
 
+> This checklist is a historical implementation log for this spec.  
+> For current implementation truth and drift notes, use `docs/foundational/STATUS.md`.
+
 **Core (Complete):**
 - [x] Implement `Thread` and `Comment` schemas in `packages/data-model/src/schemas/hermes/forum.ts`
 - [x] Implement `computeThreadScore` helper with documented λ value
@@ -546,7 +549,7 @@ const result = HermesThreadSchema.safeParse(parsedData);
 - [x] Verify thread hydration works after page refresh ✅
 - [x] Verify cross-user sync — Threads appear across browser instances ✅
 
-**Comment Persistence (Phase 4.3 — IN PROGRESS 🚧):**
+**Comment Persistence (Phase 4.3 — Historical Checklist):**
 - [ ] Verify `createComment()` writes to Gun correctly (`getForumCommentsChain`)
 - [ ] Verify `loadComments()` subscribes to correct Gun path
 - [ ] Apply Gun metadata filtering (same as thread fix)
