@@ -3,6 +3,14 @@ import { createAnalysisPipeline } from './pipeline';
 import { AnalysisParseError } from './schema';
 import type { JsonCompletionEngine } from './engines';
 
+vi.mock('./engines', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./engines')>();
+  return {
+    ...actual,
+    createDefaultEngine: () => actual.createMockEngine()
+  };
+});
+
 function validWrappedResult(summary = 'Source summary') {
   return JSON.stringify({
     final_refined: {

@@ -1,4 +1,18 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const { MockLocalMlEngine } = vi.hoisted(() => ({
+  MockLocalMlEngine: vi.fn(function MockLocalMlEngine(this: any) {
+    this.name = 'local-webllm';
+    this.kind = 'local';
+    this.modelName = 'Llama-3.1-8B-Instruct-q4f16_1-MLC';
+    this.generate = vi.fn().mockResolvedValue('mock-local-response');
+  })
+}));
+
+vi.mock('./localMlEngine', () => ({
+  LocalMlEngine: MockLocalMlEngine
+}));
+
 import {
   createDefaultEngine,
   createMockEngine,
@@ -15,6 +29,12 @@ function makeEngine(
 ): JsonCompletionEngine {
   return { name, kind, generate };
 }
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  MockLocalMlEngine.mockClear();
+});
 
 describe('EngineUnavailableError', () => {
   it('sets policy, name, and message', () => {
@@ -47,14 +67,37 @@ describe('isE2EMode', () => {
   it('returns false by default in test environment', () => {
     expect(isE2EMode()).toBe(false);
   });
+
+  it('returns true when VITE_E2E_MODE is true', () => {
+    vi.stubEnv('VITE_E2E_MODE', 'true');
+    expect(isE2EMode()).toBe(true);
+  });
+
+  it('returns false when process is unavailable', () => {
+    vi.stubGlobal('process', undefined);
+    expect(isE2EMode()).toBe(false);
+  });
 });
 
 describe('createDefaultEngine', () => {
-  it('returns a mock engine (default behavior)', async () => {
+  it('returns LocalMlEngine when e2e mode is disabled', () => {
+    vi.stubEnv('VITE_E2E_MODE', 'false');
+
     const engine = createDefaultEngine();
+
+    expect(engine.name).toBe('local-webllm');
     expect(engine.kind).toBe('local');
-    const output = await engine.generate('test');
-    expect(output).toContain('Mock summary');
+    expect(MockLocalMlEngine).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns mock engine when e2e mode is enabled', () => {
+    vi.stubEnv('VITE_E2E_MODE', 'true');
+
+    const engine = createDefaultEngine();
+
+    expect(engine.name).toBe('mock-local-engine');
+    expect(engine.kind).toBe('local');
+    expect(MockLocalMlEngine).not.toHaveBeenCalled();
   });
 });
 
