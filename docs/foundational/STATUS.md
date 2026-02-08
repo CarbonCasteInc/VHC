@@ -15,7 +15,7 @@
 |-------|--------|------------------|
 | **LUMA (Identity)** | 🔴 Stubbed | ❌ No |
 | **GWC (Economics)** | 🟡 Contracts ready, undeployed | ⚠️ Partial |
-| **VENN (Analysis)** | 🟡 Pipeline exists, AI mocked | ❌ No |
+| **VENN (Analysis)** | 🟡 Pipeline exercised end-to-end, engine still mock | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Forum** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Docs** | ⚪ Planned (Sprint 5) | ❌ No |
@@ -23,7 +23,7 @@
 
 ---
 
-## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106, #112, #115)
+## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106, #112, #115, #120)
 
 - ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
 - ✅ **Issue #11** — Added root `pnpm typecheck` script.
@@ -68,6 +68,7 @@
 - ✅ **Issue #80** — Feed↔Forum UI Integration: wired `sourceUrl` from AnalysisFeed through route/ForumFeed/NewThreadForm to `createThread` opts. Analysis-feed-created threads now carry `topicId`, `sourceUrl`, `urlHash`, `isHeadline: true`. 659 tests, 100% coverage maintained (PR #81, merged 2026-02-07).
 - ✅ **Issue #112** — CSP doc coherence pass: reconciled `report-uri` deprecation wording with fallback recommendation in `CSP_HEADER_MIGRATION.md`, tightened `style-src 'unsafe-inline'` rationale in `ARCHITECTURE_LOCK.md` (CSS-in-JS → Tailwind utility-class injection), annotated multi-line header example, added `connect-src` forward-reference for Gun relay peers. Docs-only, no runtime changes.
 - ✅ **Issue #115** — TOCTOU hardening for `shares/day` in AnalysisFeed share flow: added synchronous guard to prevent concurrent double-consume race in share budget enforcement, mirroring the pattern established in #68 for analysis requests. 7 new tests, 751 tests total, 100% coverage maintained (PR #116, SHA `662b7fa`, merged 2026-02-08).
+- ✅ **Issue #120** — VENN De-Mock: routed analysis generation through `ai-engine` pipeline end-to-end. Removed inline mock generator from `AnalysisFeed.tsx`; UI now calls `createAnalysisPipeline()` (new `pipeline.ts`) which exercises the full `buildPrompt → EngineRouter → parse → validate` chain. Mock engine moved from `worker.ts` inline to `createDefaultEngine()` in `engines.ts` (engine-layer default, not UI-level bypass). `CanonicalAnalysis` type aligned with v1 contract: added `schemaVersion: 'canonical-analysis-v1'`, `engine?`, `warnings?` fields. `EngineUnavailableError` typed error added, EngineRouter fallback logic improved for all policy modes. 10 new tests, 761 tests total, 100% coverage maintained (PR #121, SHA `b5c922d`, merged 2026-02-08).
 
 ---
 
@@ -85,10 +86,10 @@ Next work: planned backlog slices for remaining budget enforcement (moderation, 
 |--------|------------|---------------|----------|
 | **Sprint 0** (Foundation) | ✅ Archived | ✅ Complete | None — monorepo, CLI, CI, core packages done |
 | **Sprint 1** (Core Bedrock) | ✅ Archived | ⚠️ 90% Complete | Testnet deployment never done (localhost only); attestation is stub |
-| **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 85% Complete | AI engine mocked; no WebLLM/remote; Engine router exists but unused |
+| **Sprint 2** (Civic Nervous System) | ✅ Complete | ⚠️ 90% Complete | Pipeline exercised end-to-end via `createAnalysisPipeline`; EngineRouter active; engine implementation still mock (`createDefaultEngine`); no WebLLM/remote wired |
 | **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote, analyses & shares enforcement wiring landed; budget model defines 8 keys and 6 are currently enforced in runtime flows (`shares/day` added in #106); budget denial UX hardened (#69); consume-on-null fix (#98); TOCTOU budget hardening (#68, #115); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); ProposalList cleanup landed (#61); CSP documentation follow-up landed (#47); remaining budget enforcement (moderation/civic_actions) is backlog-scoped (no active issue currently filed) |
+| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote, analyses & shares enforcement wiring landed; budget model defines 8 keys and 6 are currently enforced in runtime flows (`shares/day` added in #106); budget denial UX hardened (#69); consume-on-null fix (#98); TOCTOU budget hardening (#68, #115); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); ProposalList cleanup landed (#61); CSP documentation follow-up landed (#47); VENN pipeline de-mocked — analysis generation now routes through `ai-engine` pipeline end-to-end, mock moved to engine-layer default (#120); remaining budget enforcement (moderation/civic_actions) is backlog-scoped (no active issue currently filed) |
 | **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
 
 ---
@@ -99,7 +100,7 @@ Next work: planned backlog slices for remaining budget enforcement (moderation, 
 |------------|----------------|--------------------|----------|
 | Sprint 1 Core Bedrock | Attestation verifier validates Apple/Google chains | Stub logic (token prefix/length); no real chain validation | `services/attestation-verifier/src/main.rs:105-136` |
 | Sprint 1 Core Bedrock | Contracts deployed to Sepolia/Base with verified sources | Deploy script exists; only localhost deployments committed | `packages/contracts/scripts/deploy-testnet.ts` + `packages/contracts/deployments/localhost.json` |
-| AI_ENGINE_CONTRACT + Sprint 2 | Remote/local engines + policy routing (remote-first etc.) | EngineRouter exists, but worker uses mock local-only engine; no RemoteApiEngine/LocalMlEngine | `packages/ai-engine/src/engines.ts` + `packages/ai-engine/src/worker.ts` |
+| AI_ENGINE_CONTRACT + Sprint 2 | Remote/local engines + policy routing (remote-first etc.) | Pipeline exercised end-to-end: worker uses `createAnalysisPipeline` → `EngineRouter` → `createDefaultEngine` (mock). EngineRouter active with fallback logic for all policy modes. Only real engine implementations (WebLLM/Remote) remain unwired | `packages/ai-engine/src/pipeline.ts` + `packages/ai-engine/src/engines.ts` + `packages/ai-engine/src/worker.ts` |
 | Hero_Paths / Sentiment Spec | Constituency proofs + district aggregates | SentimentSignal emission requires constituency proof; no RegionProof generation or aggregates | `apps/web-pwa/src/hooks/useSentimentState.ts:76-100` |
 | Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/sprints/05-sprint-the-bridge.md` |
 | Agentic Familiars (Delegation) | Delegation grants + OBO assertions | 🟡 Types + Zod schemas defined; runtime not implemented | `packages/types/src/delegation.ts` (PR #48); no familiar runtime yet |
@@ -156,7 +157,7 @@ The following tasks are required to align the codebase with the updated specs (a
 | Add verified-only candidate submission gate | `canonical-analysis-v2.md` §4.1 | `packages/ai-engine/src/analysis.ts` |
 | Implement critique/refine mandate (candidates compare to prior analyses) | `canonical-analysis-v2.md` §4.1 | `packages/ai-engine/src/prompts.ts` |
 | Implement synthesis engine (candidates → synthesis + divergence) | `canonical-analysis-v2.md` §4.2 | New: `packages/ai-engine/src/synthesis.ts` |
-| Wire real AI engine (WebLLM or consented remote) | `AI_ENGINE_CONTRACT.md` | `packages/ai-engine/src/worker.ts` |
+| Wire real AI engine (WebLLM or consented remote) to replace `createDefaultEngine()` | `AI_ENGINE_CONTRACT.md` | `packages/ai-engine/src/engines.ts` (supply real engine to `createAnalysisPipeline()`) |
 
 ### P1 — Comment-Driven Re-Synthesis
 
@@ -271,7 +272,7 @@ packages/contracts/deployments/
 
 ### VENN (Canonical Analysis Layer)
 
-**Status:** 🟡 **Pipeline Exists, AI Mocked**
+**Status:** 🟡 **Pipeline Exercised End-to-End, Engine Still Mock**
 
 | Feature | Implementation | Evidence |
 |---------|----------------|----------|
@@ -279,38 +280,53 @@ packages/contracts/deployments/
 | Response parser | ✅ Implemented | `schema.ts` — `parseAnalysisResponse()` handles wrapped + bare JSON |
 | Schema validation | ✅ Implemented | `schema.ts` — `AnalysisResultSchema` + `CanonicalAnalysisSchema` (Zod) |
 | Hallucination guardrails | ✅ Implemented | `validation.ts` — `validateAnalysisAgainstSource()` |
-| First-to-file lookup | ✅ Implemented | `analysis.ts:30-48` — `getOrGenerate()` |
-| Engine router | ✅ Implemented | `engines.ts` — `EngineRouter` supports all policy modes |
+| First-to-file lookup | ✅ Implemented | `analysis.ts` — `getOrGenerate()` with v1 contract compliance |
+| Analysis pipeline | ✅ Implemented | `pipeline.ts` — `createAnalysisPipeline()`: buildPrompt → EngineRouter → parse → validate |
+| Engine router | ✅ Exercised | `engines.ts` — `EngineRouter` active with fallback logic for all policy modes |
 | AI engine (WebLLM) | ❌ Not integrated | Interface exists, no `LocalMlEngine` wired |
 | AI engine (Remote) | ❌ Not wired | Interface exists, no `RemoteApiEngine` wired |
-| Mock engine | ⚠️ Active | `worker.ts:6-23` — hardcoded mock response |
+| Mock engine | ⚠️ Engine-layer default | `engines.ts` — `createDefaultEngine()` (mock response at engine layer, not UI bypass) |
 
 **Sprint 2 AI Engine Contract Status:**
 - ✅ `AI_ENGINE_CONTRACT.md` spec written
 - ✅ `EnginePolicy` types defined (`remote-first`, `local-first`, etc.)
-- ✅ `EngineRouter` class implemented with fallback logic
-- ✅ Tests cover policy behaviors and fallbacks
-- ❌ **No real engine is wired** — `worker.ts` uses `mockEngine` with `'local-only'` policy
+- ✅ `EngineRouter` class implemented with fallback logic for all policy modes
+- ✅ `EngineUnavailableError` typed error for exhausted fallback chains
+- ✅ `createAnalysisPipeline()` exercises full pipeline: buildPrompt → EngineRouter → parse → validate
+- ✅ Worker uses `createAnalysisPipeline(createDefaultEngine())` — pipeline is real, engine is mock
+- ✅ `CanonicalAnalysis` aligned with v1 contract: `schemaVersion`, `engine?`, `warnings?`
+- ✅ Tests cover policy behaviors, fallbacks, and pipeline end-to-end
+- ⚠️ **Engine implementation is still mock** — `createDefaultEngine()` returns hardcoded response; no WebLLM or remote API wired
 
-**Current AI Output (mocked):**
+**Current AI Architecture (pipeline exercised, engine mocked):**
 ```typescript
-// packages/ai-engine/src/worker.ts:6-23
-const mockEngine = {
-  name: 'mock-engine',
-  kind: 'local' as const,
-  generate: async () => JSON.stringify({
-    final_refined: {
-      summary: 'Mock summary',
-      bias_claim_quote: ['quote'],
-      justify_bias_claim: ['justification'],
-      biases: ['bias'],
-      counterpoints: ['counter'],
-      sentimentScore: 0.5,
-      confidence: 0.9
+// packages/ai-engine/src/pipeline.ts — full pipeline, main-thread-safe
+export function createAnalysisPipeline(engine?: JsonCompletionEngine) {
+  const activeEngine = engine ?? createDefaultEngine();
+  const router = createRouter(activeEngine); // EngineRouter with policy
+  return async (articleText: string): Promise<PipelineResult> => {
+    const prompt = buildPrompt(articleText);           // 1. prompt construction
+    const { text } = await router.generate(prompt);    // 2. EngineRouter → engine
+    const analysis = parseAnalysisResponse(text);      // 3. JSON parsing
+    const warnings = validateAnalysisAgainstSource(articleText, analysis); // 4. validation
+    return { analysis, engine: toEngineMetadata(activeEngine), warnings };
+  };
+}
+
+// packages/ai-engine/src/engines.ts — mock at engine layer (not UI bypass)
+export function createDefaultEngine(): JsonCompletionEngine {
+  return {
+    name: 'mock-local-engine',
+    modelName: 'mock-local-v1',
+    kind: 'local',
+    async generate() {
+      return JSON.stringify({ final_refined: { summary: 'Mock summary', ... } });
     }
-  })
-};
-const router = new EngineRouter(mockEngine, undefined, 'local-only');
+  };
+}
+
+// packages/ai-engine/src/worker.ts — worker wires pipeline + default engine
+const runPipeline = createAnalysisPipeline(createDefaultEngine());
 ```
 
 **Civic Signals:**
@@ -412,7 +428,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 | "Holographic vectors" (LUMA) | Not implemented |
 | "Mathematically private" (LUMA) | Device-bound nullifier, not human-bound |
 | "BMR compliance" (GWC) | No compliance implementation |
-| "Local AI inference" (VENN) | Mock engine, no WebLLM |
+| "Local AI inference" (VENN) | Pipeline exercised end-to-end; engine still mock (`createDefaultEngine`), no WebLLM |
 | "Sovereign Delivery" (HERMES) | Redesigning as facilitation (Civic Action Kit) |
 
 **⚠️ Whitepapers describe target architecture, not current implementation.**
@@ -427,7 +443,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 |------|----------|--------|----------|
 | No sybil defense | 🔴 High | Open | `main.rs:162` (device-only nullifier) |
 | Trust scores spoofable | 🔴 High | Open | `main.rs:105-116` |
-| AI analysis mocked | 🟡 Medium | Open | `worker.ts:6-23` |
+| AI engine implementation mocked | 🟡 Medium | Open | `engines.ts` — `createDefaultEngine()` (pipeline exercised, engine returns hardcoded response) |
 | First-to-file poisoning | 🟡 Medium | Open | `analysis.ts:30-48` (no supersession) |
 
 ### Mitigations in Place
@@ -446,7 +462,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 ## Test Coverage
 
-**Repo-wide (Vitest `pnpm test:quick`):** 751 tests (unit + component + integration).
+**Repo-wide (Vitest `pnpm test:quick`):** 761 tests (unit + component + integration).
 
 **Coverage (`pnpm test:coverage`, last validated 2026-02-08):**
 
@@ -480,7 +496,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 
 | Blocker | Severity | Sprint Gap | Fix |
 |---------|----------|------------|-----|
-| AI engine mocked | 🔴 High | Sprint 2 | Wire WebLLM or consented remote API |
+| AI engine implementation mocked | 🟡 Medium | Sprint 2 | Pipeline exercised end-to-end (#120); wire real engine (WebLLM or consented remote API) to replace `createDefaultEngine()` |
 | Testnet undeployed | 🟡 Medium | Sprint 1 | Run `deploy-testnet.ts` to Sepolia |
 | Attestation is stub | 🟡 Medium | Sprint 1 | Label as DEV ONLY or implement real validation |
 | No sybil defense | 🔴 High | N/A (LUMA gap) | Research pragmatic uniqueness checking |
@@ -488,7 +504,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 ### Phase 1: Complete Sprint Gaps (Immediate)
 
 - [ ] **Deploy contracts to Sepolia** — Run existing `deploy-testnet.ts`, commit artifact
-- [ ] **Integrate real AI engine** — Wire WebLLM (local) or add consent flow for remote API
+- [ ] **Integrate real AI engine** — Pipeline is exercised end-to-end (#120); wire WebLLM (local) or consented remote API to replace `createDefaultEngine()`
 - [ ] **Label attestation as DEV ONLY** — Prevent false security assumptions
 - [ ] **Add beta warnings to UI** — Prominent disclaimers on analyses/governance
 
@@ -534,7 +550,7 @@ const router = new EngineRouter(mockEngine, undefined, 'local-only');
 ### Canonical Specs
 - `docs/specs/canonical-analysis-v1.md` — Analysis schema contract (implemented)
 - `docs/specs/canonical-analysis-v2.md` — Quorum synthesis contract (planned)
-- `docs/foundational/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract (pipeline implemented, engine mocked)
+- `docs/foundational/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract (pipeline exercised end-to-end via `createAnalysisPipeline`, engine implementation mocked via `createDefaultEngine`)
 - `docs/specs/spec-civic-sentiment.md` — Eye/Lightbulb/Sentiment spec (implemented locally)
 - `docs/specs/spec-xp-ledger-v0.md` — XP ledger spec (fully implemented)
 - `docs/specs/spec-identity-trust-constituency.md` — Identity contract (partially implemented)
