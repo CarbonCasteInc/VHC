@@ -2,7 +2,7 @@
 
 Version: 0.1  
 Status: Canonical for Sprints 2–3  
-Implementation note (2026-02-02): Worker currently uses a mock engine; real engine wiring is pending and defaults to `local-only`.
+Implementation note (2026-02-08): Default runtime path uses `LocalMlEngine` in non-E2E mode; mock engine is E2E/test-only. Remote fallback is opt-in and policy-gated (`local-first` when enabled).
 
 Defines the contract between raw article text, AI engines (remote/local), JSON responses, validation/guardrails, and `CanonicalAnalysisV1` objects.
 
