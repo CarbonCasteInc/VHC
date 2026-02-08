@@ -56,6 +56,12 @@ export const CanonicalAnalysisSchema = z.object({
   ).optional(),
   sentimentScore: z.number().min(-1).max(1),
   confidence: z.number().min(0).max(1).optional(),
+  engine: z.object({
+    id: z.string(),
+    kind: z.union([z.literal('remote'), z.literal('local')]),
+    modelName: z.string()
+  }).optional(),
+  warnings: z.array(z.string()).optional(),
   timestamp: z.number().int().nonnegative()
 });
 
