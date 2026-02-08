@@ -1,203 +1,48 @@
-# canonical-analysis-v1 Contract
+# canonical-analysis-v1 (DEPRECATED)
 
-**Status:** Locked for Sprints 2–3  
-**Owner:** VENN Engine / Data Model  
-**Reference:** `System_Architecture.md` §6.3
+Status: Deprecated, legacy compatibility only
+Owner: VENN Engine / Data Model
+Effective date: 2026-02-08
 
-## 1. Type definition
+`canonical-analysis-v1` remains supported only to read existing URL-keyed records.
+It is not the canonical build target for Season 0.
 
-```typescript
-import { z } from 'zod';
+Canonical target is now `topic-synthesis-v2` in `docs/specs/topic-synthesis-v2.md`.
 
-export type BiasEntry = {
-  bias: string;        // Debate-style claim capturing article’s slant
-  quote: string;       // Direct quote from the article supporting the claim
-  explanation: string; // Why this quote evidences the bias (short, academic)
-  counterpoint: string;// Direct rebuttal / alternative framing
-};
+## 1. Deprecation policy
 
-export interface AnalysisResult {
+1. New product features must not depend on first-to-file URL analysis.
+2. New sentiment/discussion identifiers must use `{topic_id, epoch, synthesis_id}`.
+3. V1 objects may be read and mapped into TopicId for migration.
+4. No new public write paths should be introduced for v1 objects.
+
+## 2. Legacy shape (read-only compatibility)
+
+```ts
+interface CanonicalAnalysisV1 {
+  schemaVersion: 'canonical-analysis-v1';
+  url: string;
+  urlHash: string;
   summary: string;
   bias_claim_quote: string[];
   justify_bias_claim: string[];
   biases: string[];
   counterpoints: string[];
-  sentimentScore: number; // [-1, 1]
-  confidence?: number;    // [0, 1]
   perspectives?: Array<{ frame: string; reframe: string }>;
-}
-
-export const AnalysisResultSchema = z
-  .object({
-    summary: z.string().min(1),
-    bias_claim_quote: z.array(z.string()),
-    justify_bias_claim: z.array(z.string()),
-    biases: z.array(z.string()),
-    counterpoints: z.array(z.string()),
-    sentimentScore: z.number().gte(-1).lte(1),
-    confidence: z.number().gte(0).lte(1).optional(),
-    perspectives: z
-      .array(z.object({ frame: z.string(), reframe: z.string() }))
-      .optional()
-  })
-  .strict()
-  .refine(
-    (val) =>
-      val.bias_claim_quote.length === val.justify_bias_claim.length &&
-      val.justify_bias_claim.length === val.biases.length &&
-      val.biases.length === val.counterpoints.length,
-    { message: 'bias arrays must be equal length' }
-  );
-
-export interface CanonicalAnalysisV1 {
-  schemaVersion: 'canonical-analysis-v1';
-  url: string;
-  urlHash: string; // Stable hash of normalized URL
-  summary: string; // 4–6 sentence neutral summary
-  bias_claim_quote: string[];
-  justify_bias_claim: string[];
-  biases: string[];
-  counterpoints: string[];
-  perspectives?: Array<{ frame: string; reframe: string }>;
-  sentimentScore: number; // [-1, 1]
-  confidence?: number;    // [0, 1]
-  // Optional metadata about how this analysis was generated
+  sentimentScore: number;
+  confidence?: number;
   engine?: {
-    id: string;                    // 'remote-gateway', 'local-mlc', etc.
+    id: string;
     kind: 'remote' | 'local';
     modelName: string;
   };
-
-  warnings?: string[];             // e.g., unmatched quotes, date inconsistencies
-
-  timestamp: number;      // ms since epoch (first write)
-}
-
-export const CanonicalAnalysisSchema = z
-  .object({
-    schemaVersion: z.literal('canonical-analysis-v1'),
-    url: z.string().url(),
-    urlHash: z.string().min(1),
-    summary: z.string().min(1),
-    bias_claim_quote: z.array(z.string()),
-    justify_bias_claim: z.array(z.string()),
-    biases: z.array(z.string()),
-    counterpoints: z.array(z.string()),
-    perspectives: z.array(z.object({ frame: z.string(), reframe: z.string() })).optional(),
-    sentimentScore: z.number().gte(-1).lte(1),
-    confidence: z.number().gte(0).lte(1).optional(),
-    engine: z
-      .object({
-        id: z.string(),
-        kind: z.union([z.literal('remote'), z.literal('local')]),
-        modelName: z.string()
-      })
-      .optional(),
-    warnings: z.array(z.string()).optional(),
-    timestamp: z.number().int().nonnegative()
-  })
-  .strict()
-  .refine(
-    (val) =>
-      val.bias_claim_quote.length === val.justify_bias_claim.length &&
-      val.justify_bias_claim.length === val.biases.length &&
-      val.biases.length === val.counterpoints.length,
-    { message: 'bias arrays must be equal length' }
-  );
-```
-
-## 2. LLM contract
-
-- Model returns a single JSON object shaped as:
-
-```json
-{
-  "step_by_step": ["..."],
-  "final_refined": {
-    "summary": "...",
-    "bias_claim_quote": ["..."],
-    "justify_bias_claim": ["..."],
-    "biases": ["..."],
-    "counterpoints": ["..."],
-    "sentimentScore": 0.0,
-    "confidence": 0.0
-  }
+  warnings?: string[];
+  timestamp: number;
 }
 ```
 
-- The wrapper is mandatory for new engines; back-compat: a bare `AnalysisResult` at top level is accepted but discouraged.
-- `step_by_step` is free-form chain-of-thought used for debugging; `final_refined` MUST satisfy `AnalysisResultSchema`.
-- All engines (remote or local) receive prompts generated by `buildPrompt(articleText)` in `packages/ai-engine/src/prompts.ts`, which inlines GOALS/GUIDELINES, specifies the JSON wrapper, and surrounds the article with `ARTICLE_START` / `ARTICLE_END`.
+## 3. Migration guidance
 
-- Worker behavior:
-  - Parses `rawContent` to extract the outermost JSON object.
-  - If `{ step_by_step, final_refined }` is present, it treats `final_refined` as `AnalysisResult`.
-  - Back-compat: if the top-level JSON already matches `AnalysisResult`, use it directly.
-  - Validate the model payload with `AnalysisResultSchema` (not `CanonicalAnalysisSchema`).
-  - `getOrGenerate(url, store, generate)` computes `urlHash`, calls `generate(url) → AnalysisResult`, builds:
-
-```typescript
-const canonical: CanonicalAnalysisV1 = {
-  schemaVersion: 'canonical-analysis-v1',
-  url,
-  urlHash,
-  timestamp: Date.now(),
-  ...analysisResult
-};
-```
-
-  - Validate with `CanonicalAnalysisSchema.parse(canonical)` before persisting.
-
-## 3. Invariants
-
-- Equal-length bias arrays (enforced via `refine`).
-- Fact-only summaries/biases: no entities, dates, locations, or quantities absent from the source article.
-- Deterministic JSON shape: stable field names; no extra keys.
-- `schemaVersion` is required and immutable once stored.
-- Hallucination guardrails:
-  - Each `bias_claim_quote` should appear in the source article text.
-  - Obvious temporal inconsistencies (e.g., years in summary absent from article) should be flagged.
-  - Guardrail outputs populate `warnings` and are non-fatal; consumers may choose how to surface them.
-
-## 4. First-to-file semantics
-
-- `getOrGenerate(url, store, generate)` checks `store` by `urlHash`.
-- If found: return `{ reused: true, analysis }`.
-- If missing: call `generate()`, validate, persist, return `{ reused: false, analysis }`.
-- v1 forbids overwriting existing canonical records. Amendments are future schema versions or separate signals.
-
-### 4.1 Planned v2: Quorum Synthesis (Direction Shift)
-
-- v1 is intentionally simple and vulnerable to first-to-file poisoning.
-- v2 will collect the first N candidate analyses and synthesize a canonical record from their agreement and divergence.
-- v2 will add a challenge/supersession path and keep v1 records immutable.
-- See `docs/specs/canonical-analysis-v2.md` for the quorum synthesis contract.
-
-## 4.2 Generation & Submission Policy (Agent-Aware)
-
-- Candidate analyses MAY be generated by familiars (local) or remote engines.
-- Canonical write access is gated by:
-  - a verified human session (principal nullifier),
-  - trustScore gate,
-  - per-principal analysis budget,
-  - per-topic throttles.
-- Default budget: `analyses/day = 25` with `max 5 per topic`.
-- Validation requirements remain unchanged: prompt → JSON → strict schema → warnings on mismatch.
-- Coarse provenance uses existing `engine` metadata (`id`, `kind`, `modelName`) only; no agent IDs are recorded in public objects.
-
-## 5. Testing requirements
-
-- Zod schema unit tests (valid payload passes; mismatched array lengths fail).
-- Worker contract tests: wrapped vs raw responses; validation + caching path.
-- Fact-only checks: reject summaries/biases that introduce unseen named entities.
-- Fuzz tests: truncating article text must not yield longer/more specific summaries than the available text.
-- Snapshot example payload to ensure deterministic JSON shape.
-
-## 6. Privacy & Replication
-
-CanonicalAnalysisV1 objects represent **public analyses of public articles**:
-
-- Stored locally (feed + cache) and MAY be replicated in plaintext to the mesh under `vh/analyses/<urlHash>`.
-- MUST NOT include identity fields (nullifier, wallet, email, etc.) or constituency fields (`district_hash`, `RegionProof`, etc.).
-
-Authorship and reward mapping, if needed, MUST be maintained in separate, privacy-preserving structures (e.g., encrypted mappings keyed by nullifier) and are out of scope for this schema.
+- Existing records may be projected into topic cards for backward compatibility.
+- Migration should derive a `TopicId` and create v2 synthesis epochs as soon as eligible inputs are available.
+- V1 and V2 can coexist during migration windows, but V2 must own canonical routing and UI.

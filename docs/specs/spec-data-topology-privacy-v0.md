@@ -1,79 +1,84 @@
-# Data Topology & Privacy – Season 0 Spec
+# Data Topology and Privacy - Season 0 Spec
 
-Version: 0.1  
-Status: Canonical for Sprints 2–3
+Version: 0.2
+Status: Canonical (V2-first)
 
-This spec defines where data lives (device, mesh, chain, cloud), what is public vs sensitive, and the rules for handling civic/identity/constituency data in Season 0.
+Defines data placement, mesh path conventions, and privacy constraints for Season 0.
 
-## 1. Object Inventory & Locations
+## 1. Placement matrix
 
-| Object            | On Device                                                        | Mesh / Gun                                     | On-chain                                        | Cloud / MinIO | Class      |
-|-------------------|------------------------------------------------------------------|------------------------------------------------|--------------------------------------------------|--------------|-----------|
-| CanonicalAnalysis | `localStorage: vh_canonical_analyses`, IndexedDB `vh-ai-cache`   | `vh/analyses/<urlHash> = CanonicalAnalysis`    | –                                                | –            | Public    |
-| Sentiment (v0)    | `localStorage: vh_civic_scores_v1` (per item:perspective)        | –                                              | –                                                | –            | Sensitive |
-| Proposals (v0 UI) | React state only                                                 | –                                              | QF `Project` (recipient/amounts, no metadata)    | –            | Public    |
-| Wallet balances   | React state (`balance`, `claimStatus`)                           | –                                              | `RVU.balanceOf`, `UBE.getClaimStatus`, tx log    | –            | Sensitive |
-| IdentityRecord    | IndexedDB `vh-vault` (`vault` store, encrypted with per-device master key) + in-memory provider runtime | `user.devices.<deviceKey> = { linkedAt }`      | `nullifier` + scaled trustScore in UBE/QF/Faucet | –            | Sensitive |
-| RegionProof       | Local-only (per `spec-identity-trust-constituency.md`)           | – (no v0 usage)                                | –                                                | –            | Sensitive |
-| XP Ledger         | `localStorage: vh_xp_ledger` (per nullifier XP tracks)           | – (or encrypted outbox to Guardian node)       | –                                                | –            | Sensitive |
-| Messages (future) | TBD                                                              | `vh/chat/*`, `vh/outbox/*` (guarded; see below)| –                                                | Attachments  | Sensitive |
-| FamiliarRecord    | Local-only (encrypted)                                           | –                                              | –                                                | –            | Sensitive |
-| DelegationGrant   | Local-only (encrypted)                                           | – (optional encrypted backup only)             | –                                                | –            | Sensitive |
-| AgentActionLog    | Local-only                                                       | – (optional encrypted outbox)                  | –                                                | –            | Sensitive |
-| DraftArtifacts    | Local-only until publish                                         | –                                              | –                                                | –            | Sensitive |
+| Object class | On-device (authoritative) | Mesh public | Mesh encrypted | Chain | Cloud | Class |
+|---|---|---|---|---|---|---|
+| StoryBundle | local cache/index | `vh/news/stories/<storyId>` | optional | optional hash anchor | optional blob | Public |
+| TopicDigest | local cache/index | `vh/topics/<topicId>/digests/<digestId>` | optional | - | - | Public-derived |
+| TopicSynthesisV2 | local cache/index | `vh/topics/<topicId>/epochs/<epoch>/synthesis` | - | optional hash anchor | - | Public |
+| Topic latest pointer | local cache/index | `vh/topics/<topicId>/latest` | - | - | - | Public |
+| SentimentSignal event | local state | forbidden | `~<devicePub>/outbox/sentiment/<eventId>` | - | - | Sensitive |
+| AggregateSentiment | local cache | `vh/aggregates/topics/<topicId>/epochs/<epoch>` | - | optional aggregate anchor | - | Public |
+| Linked-social OAuth tokens | vault (encrypted) | forbidden | optional encrypted backup | - | - | Secret |
+| Linked-social notification objects | vault + local cache | sanitized card projection only | optional encrypted backup | - | - | Sensitive |
+| Docs drafts | vault/E2EE stores | forbidden | `~<devicePub>/docs/<docId>` encrypted | - | encrypted attachments | Sensitive |
+| Published articles | local cache | `vh/topics/<topicId>/articles/<articleId>` | - | optional hash anchor | media blobs | Public |
+| Elevation artifacts (BriefDoc/ProposalScaffold/TalkingPoints) | local authoritative | metadata only | encrypted artifact payload | - | optional export blob | Sensitive/Public-mixed |
+| Civic forwarding receipts | local authoritative | aggregate counters only | optional encrypted backup | - | - | Sensitive |
+| Representative directory data | local cache | `vh/civic/reps/<jurisdictionVersion>` | - | - | signed source snapshot | Public |
 
-## 2. Classification & Rules
+## 2. Canonical path conventions (V2)
 
-- **Public-by-design:** CanonicalAnalysis, AggregateSentiment (per topic, per district), QF project totals/funding amounts.
-- **Sensitive:** IdentityRecord (attestation, nullifier), RegionProof/ConstituencyProof, per-user SentimentSignals, messages & social graph, wallet↔nullifier mappings.
+Allowed public V2 namespaces:
 
-Rules:
-- Only Public objects may be stored plaintext under `vh/*` in the mesh.
-- Sensitive objects either stay on-device or travel via encrypted channels (user-scoped Gun space, outbox to Guardian Nodes).
-- `district_hash` and `nullifier` never appear together in any public structure; no identity/constituency data in CanonicalAnalysis.
-- Runtime identity access is in-memory: `getPublishedIdentity()` returns a public snapshot (`nullifier`, `trustScore`, `scaledTrustScore`), and `getFullIdentity()` is reserved for same-process consumers that need private key material.
-- Legacy key `vh_identity` is migration-only input (read once, then deleted); it is not an active persistence mechanism.
-- `vh:identity-published` is a hydration signal `CustomEvent` and MUST NOT carry identity payload data.
-- XP ledger (per nullifier) is sensitive; only safe aggregates with cohort thresholds may be exposed.
-- Public mesh objects MUST NOT include delegation grants, familiar IDs, or agent logs in plaintext.
-- If exported to a Guardian/aggregator, delegation data MUST be encrypted and still obey the existing `{district_hash, nullifier}` separation rules.
+- `vh/news/stories/*`
+- `vh/topics/*/digests/*`
+- `vh/topics/*/epochs/*`
+- `vh/topics/*/articles/*`
+- `vh/aggregates/topics/*`
+- `vh/discovery/*`
+- `vh/civic/reps/*`
 
-## 3. Sentiment & Constituency Flow
+Disallowed in public namespaces:
 
-- Event-level `SentimentSignal` (sensitive):
-  - Lives on-device.
-  - May be sent encrypted to a Guardian Node/regional aggregator.
-  - Never stored plaintext on the public mesh.
+- OAuth tokens
+- API keys and provider secrets
+- raw identity artifacts (`nullifier`, private keys)
+- raw constituency proofs
+- per-user sentiment events
+- local receipt payloads containing personal contact details
 
-- Aggregates (public):
-  - Guardian Nodes aggregate per `(district_hash, topic_id, point_id)`:
-    - counts (agree/disagree/neutral),
-    - aggregated weight (sum or avg).
-  - Only these aggregates (no nullifiers) are exposed to dashboards/reps.
+## 3. Sensitive data rules
 
-- On-chain:
-  - Governance/economic contracts (UBE, QF, Faucet) are region-agnostic and never see `district_hash`.
+1. Vault-only:
+   - OAuth tokens
+   - provider credentials
+   - personal profile/contact data
+   - identity key material
+2. Event-level sentiment is never plaintext on public mesh.
+3. No public object may contain both `district_hash` and a person-level identifier.
+4. Docs draft content is encrypted at rest and in transit outside device boundaries.
 
-## 4. Gun Mesh Policy
+## 4. Linked-social storage rules
 
-- Allowed plaintext namespaces:
-  - `vh/analyses/<urlHash>` → CanonicalAnalysis.
-  - Aggregate sentiment namespaces without per-user IDs (e.g., `vh/aggregates/<topicId>`).
-- Disallowed plaintext:
-  - `vh/signals/*` with per-user SentimentSignal.
-  - `vh/users/<nullifier>/*` with identity-mapped data.
-- `chat` / `outbox`:
-  - Season 0: no production use until E2EE is implemented.
-  - Dev-only writes must be behind feature flags.
+- OAuth tokens: vault-only, per provider.
+- Notification objects: stored locally with platform metadata and minimal projection fields.
+- Public feed cards may include non-sensitive preview fields only.
+- Token refresh and revocation state are local security objects and never public.
 
-## 5. Aggregation Safety
+## 5. Civic action and receipts
 
-- Minimum cohort size: do not publish per-district stats until at least `N` distinct nullifiers for `(district_hash, topic)` (e.g., N=20).
-- Rounding/binning: public dashboards show rounded percentages/bins for small samples.
-- No cross-linkage: UI never exposes per-user sentiment history joined with district info.
+- Forwarding artifacts are generated locally.
+- Native-intent actions (mailto/tel/share/export) produce local receipts.
+- Public side may expose anonymous aggregate counters only (for example, actions per rep).
 
-## 6. Test Invariants
+## 6. Guardian/aggregator boundaries
 
-- Static checks: no Gun write paths of the form `vh/users/<nullifier>/...` in production code; no public types combining `{ district_hash, nullifier }`.
-- Runtime tests: ensure CanonicalAnalysis stored in mesh has no identity/constituency fields; sentiment UI updates change local stores/aggregated mock outputs only.
-- Docs/impl alignment: topology table spot-checked each major release.
+If encrypted outbox is used:
+
+- payloads must be encrypted per recipient
+- decrypted aggregate outputs must strip person-level identifiers
+- dashboards may expose district-level aggregates only after cohort threshold checks
+
+## 7. Test and lint invariants
+
+1. Static lint: forbid public writes with sensitive keys (`token`, `nullifier`, `district_hash`+identifier pairs).
+2. Runtime tests: ensure public synthesis/news/discovery objects pass redaction checks.
+3. Contract tests: verify vault-only classes cannot resolve to `vh/*` public paths.
+4. Cohort threshold tests: block publication for undersized district cohorts.

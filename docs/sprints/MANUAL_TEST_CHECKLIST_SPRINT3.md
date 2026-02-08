@@ -5,6 +5,9 @@
 **Dev Server:** http://localhost:2048
 **Status:** ✅ **SPRINT 3 COMPLETE** — All core functionality verified (Dec 6, 2025)
 
+> Historical note (2026-02-08): This checklist is a Sprint 3 verification artifact.
+> For current canonical V2 contracts and default parameters, use `docs/specs/` plus `docs/foundational/System_Architecture.md`.
+
 ---
 
 ## ✅ RESOLVED GAPS (Phase 1 - Dec 4, 2025)
@@ -456,4 +459,3 @@ tail -f /tmp/vh-pwa-dev.log
 # Run E2E tests (for comparison)
 pnpm test --filter @vh/e2e
 ```
-

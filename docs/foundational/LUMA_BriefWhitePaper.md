@@ -39,7 +39,7 @@ We assume our adversaries are state-level actors with unlimited compute and phys
 
 2.5 Delegated Agents (Familiars) — Inheritance Rule (Note)
 
-Agents (“familiars”) are delegated sub‑processes of a verified human. They **inherit** the principal’s trust gate and never multiply influence. All agent actions must resolve to a human principal nullifier and are scoped, expiring, and revocable.
+Agents (“familiars”) are delegated sub‑processes of a verified human. They **inherit** the principal’s trust gate and daily participation budgets, never multiply influence, and never create a new influence lane. All agent actions must resolve to a human principal nullifier and are scoped, expiring, and revocable.
 
 3. Technical Architecture: The "Physics of Trust"
 

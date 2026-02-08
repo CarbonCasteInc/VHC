@@ -6,6 +6,10 @@
 **Goal:** Harden the system for Mainnet, implement full Governance flows, and optimize AI performance within a polished UX.
 **Status:** [ ] In Progress
 
+> Historical note (2026-02-08): This sprint doc captures Sprint 2 execution history.
+> Season 0 forward direction is V2-first (`topic-synthesis-v2`, StoryBundle, TopicDigest, and 3-surface feed).
+> `canonical-analysis-v1` references in this file are legacy context, not current north-star build targets.
+
 ### Guiding Constraints & Quality Gates
 - [ ] **Non-Negotiables:**
     - [ ] **LOC Cap:** Hard limit of **350 lines** per file (tests/types exempt).
@@ -225,7 +229,7 @@
 - [x] **Deterministic JSON:**
     - [x] Stable field set/ordering; snapshot example payload stored in tests.
 - [x] **Docs Wiring:**
-    - [x] `System_Architecture.md` §6.3 and `docs/specs/canonical-analysis-v1.md` are referenced in code comments or README where the schema is consumed.
+    - [x] `docs/foundational/System_Architecture.md` and `docs/specs/canonical-analysis-v1.md` are referenced in code comments or README where the schema is consumed.
 
 ## Phase 2.6 Identity, Trust & Constituency Unification
 

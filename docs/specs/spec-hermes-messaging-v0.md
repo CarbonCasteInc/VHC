@@ -289,7 +289,7 @@ function handleMessage(message: Message) {
 ### 4.1 Session Gating
 
 *   **Requirement:** Messaging requires a valid LUMA session (identity + attestation).
-*   **No Additional Threshold:** HERMES Messaging does not introduce any additional trustScore threshold beyond whatever the session gate uses (per `System_Architecture.md` §4.1.5).
+*   **No Additional Threshold:** HERMES Messaging does not introduce any additional trustScore threshold beyond whatever the global identity/session gate uses (see `docs/foundational/System_Architecture.md` identity and trust model).
 *   **UI Enforcement:** If `useIdentity()` returns no active session, the Messaging UI shows a "Create identity to start messaging" gate.
 
 ---
