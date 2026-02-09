@@ -15,5 +15,10 @@ describe('data-model index exports', () => {
     expect(index.HermesCommentSchema).toBeDefined();
     expect(index.ModerationEventSchema).toBeDefined();
     expect(index.DirectoryEntrySchema).toBeDefined();
+    expect(index.StoryBundleSchema).toBeDefined();
+    expect(index.CandidateSynthesisSchema).toBeDefined();
+    expect(index.SocialNotificationSchema).toBeDefined();
+    expect(index.NominationEventSchema).toBeDefined();
+    expect(index.FeedItemSchema).toBeDefined();
   });
 });

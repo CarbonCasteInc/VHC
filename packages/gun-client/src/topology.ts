@@ -16,10 +16,27 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/outbox/', classification: 'sensitive' },
   { pathPrefix: 'vh/analyses/', classification: 'public' },
   { pathPrefix: 'vh/aggregates/', classification: 'public' },
+  // Wave 0 contract registrations
+  { pathPrefix: 'vh/news/stories/*', classification: 'public' },
+  { pathPrefix: 'vh/news/index/latest/*', classification: 'public' },
+  { pathPrefix: 'vh/topics/*/epochs/*/candidates/*', classification: 'public' },
+  { pathPrefix: 'vh/topics/*/epochs/*/synthesis', classification: 'public' },
+  { pathPrefix: 'vh/topics/*/latest', classification: 'public' },
+  { pathPrefix: 'vh/topics/*/digests/*', classification: 'public' },
+  { pathPrefix: 'vh/topics/*/articles/*', classification: 'public' },
+  { pathPrefix: 'vh/discovery/items/*', classification: 'public' },
+  { pathPrefix: 'vh/discovery/index/*', classification: 'public' },
+  { pathPrefix: 'vh/social/cards/*', classification: 'public' },
+  { pathPrefix: 'vh/forum/nominations/*', classification: 'public' },
+  { pathPrefix: 'vh/forum/elevation/*', classification: 'public' },
+  { pathPrefix: 'vh/civic/reps/*', classification: 'public' },
   // HERMES messaging
   { pathPrefix: 'vh/hermes/inbox/', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/outbox', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/chats', classification: 'sensitive' },
+  { pathPrefix: '~*/docs/*', classification: 'sensitive' },
+  { pathPrefix: '~*/hermes/docs/*', classification: 'sensitive' },
+  { pathPrefix: '~*/hermes/bridge/*', classification: 'sensitive' },
   // Forum
   { pathPrefix: 'vh/forum/threads/', classification: 'public' },
   { pathPrefix: 'vh/forum/indexes/', classification: 'public' }
