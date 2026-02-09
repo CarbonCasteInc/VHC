@@ -7,7 +7,7 @@
       "packages/ai-engine/src/epochScheduler.ts",
       "packages/ai-engine/src/quorum.ts",
       "packages/ai-engine/src/topicSynthesisPipeline.ts",
-      "packages/data-model/src/schemas/hermes/synthesis.ts",
+      "packages/data-model/src/schemas/hermes/synthesis*.ts",
       "packages/gun-client/src/synthesisAdapters.ts",
       "apps/web-pwa/src/store/synthesis/**",
       "apps/web-pwa/src/hooks/useSynthesis.ts",
@@ -18,7 +18,7 @@
     "branchPrefix": "team-b/",
     "paths": [
       "services/news-aggregator/**",
-      "packages/data-model/src/schemas/hermes/storyBundle.ts",
+      "packages/data-model/src/schemas/hermes/storyBundle*.ts",
       "packages/gun-client/src/newsAdapters.ts",
       "apps/web-pwa/src/store/news/**"
     ]
