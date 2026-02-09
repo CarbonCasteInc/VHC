@@ -7,7 +7,7 @@
       "packages/ai-engine/src/epochScheduler.ts",
       "packages/ai-engine/src/quorum.ts",
       "packages/ai-engine/src/topicSynthesisPipeline.ts",
-      "packages/data-model/src/schemas/hermes/synthesis.ts",
+      "packages/data-model/src/schemas/hermes/synthesis*.ts",
       "packages/gun-client/src/synthesisAdapters.ts",
       "apps/web-pwa/src/store/synthesis/**",
       "apps/web-pwa/src/hooks/useSynthesis.ts",
@@ -18,7 +18,7 @@
     "branchPrefix": "team-b/",
     "paths": [
       "services/news-aggregator/**",
-      "packages/data-model/src/schemas/hermes/storyBundle.ts",
+      "packages/data-model/src/schemas/hermes/storyBundle*.ts",
       "packages/gun-client/src/newsAdapters.ts",
       "apps/web-pwa/src/store/news/**"
     ]
@@ -26,7 +26,7 @@
   "team-c": {
     "branchPrefix": "team-c/",
     "paths": [
-      "packages/data-model/src/schemas/hermes/discovery.ts",
+      "packages/data-model/src/schemas/hermes/discovery*.ts",
       "apps/web-pwa/src/store/discovery/**",
       "apps/web-pwa/src/hooks/useDiscoveryFeed.ts",
       "apps/web-pwa/src/components/feed/**"
@@ -36,6 +36,7 @@
     "branchPrefix": "team-d/",
     "paths": [
       "packages/types/src/delegation*.ts",
+      "packages/types/src/index.ts",
       "apps/web-pwa/src/store/delegation/**",
       "apps/web-pwa/src/hooks/useFamiliar.ts",
       "apps/web-pwa/src/components/hermes/FamiliarControlPanel.tsx"

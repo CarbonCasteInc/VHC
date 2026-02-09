@@ -41,7 +41,10 @@ function globToRegExp(glob) {
   const normalized = glob.endsWith('/') ? `${glob}**` : glob;
   const withSentinel = normalized.replace(/\*\*/g, '__DOUBLE_STAR__');
   const escaped = escapeRegex(withSentinel);
-  const wildcardExpanded = escaped.replace(/__DOUBLE_STAR__/g, '.*').replace(/\*/g, '[^/]*');
+  // Replace single-star BEFORE expanding double-star sentinel,
+  // so the `*` inside the expanded `.*` is not clobbered.
+  const singleExpanded = escaped.replace(/\*/g, '[^/]*');
+  const wildcardExpanded = singleExpanded.replace(/__DOUBLE_STAR__/g, '.*');
   return new RegExp(`^${wildcardExpanded}$`);
 }
 
