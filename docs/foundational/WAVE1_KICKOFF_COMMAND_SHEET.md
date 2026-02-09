@@ -1,0 +1,174 @@
+# Wave 1 Kickoff Command Sheet
+
+Companion to:
+- `docs/foundational/V2_Sprint_Staffing_Plan.md`
+- `docs/foundational/V2_Sprint_Staffing_Roles.md`
+
+Use this for day-0 Wave 1 launch, canary validation, and integration cadence.
+
+## 0) One-time bootstrap (per worktree / agent)
+
+```bash
+pnpm install --frozen-lockfile
+pnpm hooks:install
+
+branch="$(git rev-parse --abbrev-ref HEAD)"
+[[ "$branch" =~ ^(team-[a-e]/.+|coord/.+|integration/wave-[0-9]+|main)$ ]] \
+  || { echo "Invalid branch: $branch"; exit 1; }
+```
+
+## 1) Coordinator: verify integration branch + protections
+
+```bash
+# Ensure integration branch exists on remote
+
+git fetch origin
+if ! git ls-remote --exit-code --heads origin integration/wave-1 >/dev/null; then
+  git checkout main
+  git pull --ff-only origin main
+  git checkout -b integration/wave-1
+  git push -u origin integration/wave-1
+fi
+
+# Inspect branch protection + required checks (GitHub)
+REPO="$(gh repo view --json nameWithOwner -q .nameWithOwner)"
+gh api "repos/$REPO/branches/integration/wave-1/protection" \
+  --jq '{enforce_admins: .enforce_admins.enabled, required: [.required_status_checks.checks[].context]}'
+```
+
+Expected required checks include:
+- `Ownership Scope`
+- `Quality Guard`
+- `Test & Build`
+- `E2E Tests`
+- `Bundle Size`
+
+## 2) Chief canary slice (recommended: Team A A-1)
+
+```bash
+# Start canary branch
+
+git fetch origin
+git checkout -b team-a/A-1-schemas origin/main
+
+# Implement smallest contract-safe slice, then run local gates
+pnpm typecheck
+pnpm lint
+pnpm test:quick
+pnpm test:coverage
+
+# Local ownership gate (same logic as CI)
+node tools/scripts/check-ownership-scope.mjs
+
+# Push and open PR to integration branch
+git push -u origin team-a/A-1-schemas
+gh pr create \
+  --base integration/wave-1 \
+  --head team-a/A-1-schemas \
+  --title "A-1: add synthesis schema contracts" \
+  --body-file .github/pull_request_template.md
+```
+
+## 3) Chief merge gate for each PR
+
+Run before merge approval:
+
+```bash
+# Check CI statuses on PR
+PR=<number>
+gh pr checks "$PR"
+
+# Confirm target branch and head naming
+gh pr view "$PR" --json baseRefName,headRefName,mergeStateStatus,isDraft \
+  --jq '{base: .baseRefName, head: .headRefName, merge: .mergeStateStatus, draft: .isDraft}'
+```
+
+Must all be true:
+- PR base is `integration/wave-1`
+- Head uses `team-a/*`..`team-e/*` or approved `coord/*`
+- All required checks are green
+- No ownership-scope violations
+- Team ordering respected: D/E -> B -> A -> C (for dependent integration steps)
+
+## 4) QA-Integration 48h checkpoint loop
+
+```bash
+# Pull latest integration branch
+git fetch origin
+git checkout integration/wave-1
+git pull --ff-only origin integration/wave-1
+
+# Snapshot merged PRs for readiness matrix
+gh pr list --base integration/wave-1 --state merged --limit 200 \
+  --json number,title,headRefName,mergedAt > /tmp/w1-merged-prs.json
+
+# Core checkpoint suite
+pnpm typecheck
+pnpm lint
+pnpm test:quick
+pnpm test:e2e
+pnpm bundle:check
+
+# Topology/privacy baseline (public vs sensitive path constraints)
+pnpm test:quick -- packages/gun-client/src/topology.test.ts
+```
+
+Record checkpoint report:
+
+```bash
+mkdir -p docs/reports
+cat > "docs/reports/w1-qa-integ-checkpoint-$(date +%Y%m%d-%H%M).md" <<'REPORT'
+- Checkpoint: [n]
+- integration/wave-1 HEAD: [sha]
+- Readiness matrix state: [landed PRs]
+- Cross-team tests run: [list]
+- Privacy/topology lint: [pass/fail]
+- Feature flag validation: [pass/fail per state]
+- Blocking issues: [none/list]
+- Recommendation: [proceed/hold]
+REPORT
+```
+
+## 5) Final Wave 1 integration pass -> main
+
+```bash
+# Verify integration branch healthy
+git fetch origin
+git checkout integration/wave-1
+git pull --ff-only origin integration/wave-1
+
+pnpm typecheck
+pnpm lint
+pnpm test:quick
+pnpm test:e2e
+pnpm bundle:check
+
+# Confirm no open PRs still targeting integration branch
+gh pr list --base integration/wave-1 --state open
+```
+
+If green, coordinator merges `integration/wave-1` to `main` via PR.
+
+```bash
+gh pr create \
+  --base main \
+  --head integration/wave-1 \
+  --title "Wave 1 integration -> main" \
+  --body "Wave 1 integration pass complete; all required checks green."
+```
+
+## 6) Fast triage commands
+
+```bash
+# Why did Ownership Scope fail?
+gh run list --branch "$(git rev-parse --abbrev-ref HEAD)" --workflow CI --limit 5
+gh run view <run-id> --log | rg "Ownership Scope|FAIL|out-of-scope"
+
+# Local reproduction
+node tools/scripts/check-ownership-scope.mjs
+
+# Emergency local bypass (never for normal flow)
+SKIP_OWNERSHIP_SCOPE=1 git push
+```
+
+Use bypass only with explicit coordinator approval and follow-up remediation.
