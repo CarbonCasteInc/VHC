@@ -3,7 +3,7 @@
 Companion to `docs/foundational/V2_Sprint_Staffing_Plan.md`.
 Defines behavioral contracts for every agent role in the Wave 1 cluster.
 
-Last updated: 2026-02-08
+Last updated: 2026-02-09
 
 ---
 
@@ -30,6 +30,19 @@ These are non-negotiable for every agent regardless of role.
 - Install local enforcement in every agent worktree: run `pnpm hooks:install` once to activate `.githooks/pre-push`.
 - PRs must use the repository PR template checklist (`.github/pull_request_template.md`) and complete branch/ownership items.
 
+### Spawn preflight (all agents)
+
+Run these before accepting a task in a new worktree:
+
+1. `pnpm install --frozen-lockfile`
+2. `pnpm hooks:install`
+3. Verify branch prefix:
+   - `branch="$(git rev-parse --abbrev-ref HEAD)"`
+   - `[[ "$branch" =~ ^(team-[a-e]/.+|coord/.+|integration/wave-[0-9]+|main)$ ]] || (echo "Invalid branch prefix: $branch" && exit 1)`
+4. Confirm target branch is correct for role:
+   - Wave 1 teams: PR target is `integration/wave-1`
+   - Wave 0 coordinator: PR target is `main`
+
 ### Feature flags
 
 - V2 code paths must be guarded by the appropriate flag:
@@ -51,6 +64,54 @@ All PRs require these CI status checks to pass:
 ### Mock factory obligation
 
 Any new Zustand store must export a `createMock*Store()` factory for E2E mode. This enables downstream consumers (especially Team C) to work with mock data before real implementations land.
+
+---
+
+## Agent Spawn Context Contract
+
+Each AGENTS.md must include a deterministic context-loading block so agents start with the same contract baseline.
+
+### Tier 0 (universal for every agent)
+
+Load on every spawn:
+
+- `docs/foundational/TRINITY_Season0_SoT.md`
+- `docs/foundational/V2_Sprint_Staffing_Roles.md` (Shared Guardrails + role-specific section only)
+- The agent's own AGENTS.md role contract
+
+### Tier 1 (role baseline)
+
+- Per-team agents (`w1[a-e]-chief`, per-team Impl, per-team QA, per-team Maint):
+  - Team section from `docs/foundational/V2_Sprint_Staffing_Plan.md`
+  - `docs/foundational/ARCHITECTURE_LOCK.md`
+  - Team-owned canonical specs referenced by that team section
+- Cross-wave agents:
+  - `w1-spec`: `docs/foundational/ARCHITECTURE_LOCK.md` + all Wave 1 canonical specs listed in Docs section below
+  - `w1-qa-integ`: `docs/foundational/ARCHITECTURE_LOCK.md` + full `docs/foundational/V2_Sprint_Staffing_Plan.md` + `docs/foundational/STATUS.md`
+  - `w1-docs`: `docs/foundational/ARCHITECTURE_LOCK.md` + `docs/foundational/STATUS.md` + `docs/foundational/System_Architecture.md` + canonical specs
+  - `w0-chief`: `docs/foundational/ARCHITECTURE_LOCK.md` + Wave 0/Coordinator sections of `docs/foundational/V2_Sprint_Staffing_Plan.md`
+
+### Tier 2 (situational context)
+
+Load only when the task requires it:
+
+- Full `docs/foundational/V2_Sprint_Staffing_Plan.md` for chiefs and integration disputes
+- Additional cross-team specs only when reviewing a cross-team contract change
+- `docs/foundational/STATUS.md` for implementation agents only when debugging a specific historical behavior
+
+### Standing-agent context refresh
+
+If a standing agent nears context limits mid-wave:
+
+1. Write handoff summary to `docs/reports/<agent-id>-handoff-<n>.md` with completed PRs, current branch/sha, open risks, and next actions.
+2. Respawn agent with Tier 0 + Tier 1 + latest handoff summary.
+3. Re-emit spawn acknowledgment before resuming work.
+
+### Scope note for AGENTS.md rollout
+
+- Minimum required rollout: all per-team Impl and per-team QA agent files (not cross-wave agents).
+- Recommended rollout: also apply to per-team Chief and per-team Maint files for consistent preflight behavior.
+- Cross-wave agent files (`w1-spec`, `w1-qa-integ`, `w1-docs`) use their role-specific Tier 1 baseline above.
 
 ---
 
@@ -611,4 +672,5 @@ Coordinator (human)
 
 ## Revision History
 
+- 2026-02-09: Added deterministic spawn preflight commands, tiered context-loading contract (Tier 0/1/2), cross-wave baseline context requirements, standing-agent handoff protocol, and AGENTS.md rollout scope notes for per-team vs cross-wave agents.
 - 2026-02-08: Initial version. Adapted from existing agent contracts for Wave 1 multi-team context. Incorporates ownership scope enforcement, feature flag discipline, branch naming contract, integration merge ordering, rollback protocol, spec trigger rule, specialist fallback, drift SLA, and QA-Integration readiness matrix.
