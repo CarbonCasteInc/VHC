@@ -6,6 +6,12 @@ Companion to:
 
 Use this for day-0 Wave 1 launch, canary validation, and integration cadence.
 
+## Branch model (important)
+
+- `agent/*` is a parked context branch only.
+- `team-a/*`..`team-e/*` and `coord/*` are execution branches.
+- Coding, push, and PR are execution-branch activities only.
+
 ## 0) One-time bootstrap (per worktree / agent)
 
 ```bash
@@ -13,8 +19,24 @@ pnpm install --frozen-lockfile
 pnpm hooks:install
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
-[[ "$branch" =~ ^(team-[a-e]/.+|coord/.+|integration/wave-[0-9]+|main)$ ]] \
-  || { echo "Invalid branch: $branch"; exit 1; }
+if [[ "$branch" =~ ^agent/.+ ]]; then
+  echo "Parked branch detected: $branch"
+  echo "Switch to execution branch before task work (see section 0.5)."
+else
+  [[ "$branch" =~ ^(team-[a-e]/.+|coord/.+|integration/wave-[0-9]+|main)$ ]] \
+    || { echo "Invalid branch: $branch"; exit 1; }
+fi
+```
+
+## 0.5) Task-start branch transition (parked -> execution)
+
+```bash
+# Example for Team A; substitute team letter and ticket slug.
+git fetch origin
+git switch -c team-a/<ticket>-<slug> origin/integration/wave-1
+
+# Re-check ownership scope locally before first push
+node tools/scripts/check-ownership-scope.mjs
 ```
 
 ## 1) Coordinator: verify integration branch + protections

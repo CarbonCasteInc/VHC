@@ -24,7 +24,10 @@ These are non-negotiable for every agent regardless of role.
 ### Branch and ownership
 
 - All Wave 1 PRs target `integration/wave-1`, not `main`.
-- Branch naming is mandatory: `team-a/*` through `team-e/*`, or `coord/*` for coordinator-approved cross-team work.
+- Branch lifecycle has two states:
+  - Parked context branches: `agent/*` allowed for idle context only (no feature coding, no push, no PR).
+  - Execution branches: `team-a/*` through `team-e/*`, or `coord/*` for coordinator-approved cross-team work.
+- Only execution branches are valid for active implementation, push, and PR.
 - File ownership is enforced by the `Ownership Scope` CI gate reading `.github/ownership-map.json`.
 - Before pushing, verify your changes are within your team's owned paths. CI will reject out-of-scope files.
 - Install local enforcement in every agent worktree: run `pnpm hooks:install` once to activate `.githooks/pre-push`.
@@ -36,10 +39,16 @@ Run these before accepting a task in a new worktree:
 
 1. `pnpm install --frozen-lockfile`
 2. `pnpm hooks:install`
-3. Verify branch prefix:
+3. Detect branch state:
+   - `branch="$(git rev-parse --abbrev-ref HEAD)"`
+   - `if [[ "$branch" =~ ^agent/.+ ]]; then echo "Parked branch ($branch). Create/switch to execution branch before task work."; fi`
+4. If parked branch was detected, create execution branch:
+   - `git fetch origin`
+   - `git switch -c team-<a|b|c|d|e>/<ticket>-<slug> origin/integration/wave-1`
+5. Validate working branch prefix:
    - `branch="$(git rev-parse --abbrev-ref HEAD)"`
    - `[[ "$branch" =~ ^(team-[a-e]/.+|coord/.+|integration/wave-[0-9]+|main)$ ]] || (echo "Invalid branch prefix: $branch" && exit 1)`
-4. Confirm target branch is correct for role:
+6. Confirm target branch is correct for role:
    - Wave 1 teams: PR target is `integration/wave-1`
    - Wave 0 coordinator: PR target is `main`
 
@@ -672,5 +681,6 @@ Coordinator (human)
 
 ## Revision History
 
+- 2026-02-09: Clarified branch lifecycle policy: `agent/*` is parked-context-only, while `team-*`/`coord/*` are execution branches required for coding, push, and PR. Added explicit parked->execution task-start transition in preflight.
 - 2026-02-09: Added deterministic spawn preflight commands, tiered context-loading contract (Tier 0/1/2), cross-wave baseline context requirements, standing-agent handoff protocol, and AGENTS.md rollout scope notes for per-team vs cross-wave agents.
 - 2026-02-08: Initial version. Adapted from existing agent contracts for Wave 1 multi-team context. Incorporates ownership scope enforcement, feature flag discipline, branch naming contract, integration merge ordering, rollback protocol, spec trigger rule, specialist fallback, drift SLA, and QA-Integration readiness matrix.
