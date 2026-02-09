@@ -2,11 +2,28 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'integration/wave-*' ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, 'integration/wave-*' ]
 
 jobs:
+  ownership-scope:
+    name: Ownership Scope
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check ownership scope
+        run: node tools/scripts/check-ownership-scope.mjs
+
   quality:
     name: Quality Guard
     runs-on: ubuntu-latest

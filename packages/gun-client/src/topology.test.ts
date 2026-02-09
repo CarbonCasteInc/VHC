@@ -39,6 +39,20 @@ describe('TopologyGuard', () => {
     ).not.toThrow();
   });
 
+  it('allows wave-0 public discovery and story namespaces', () => {
+    const guard = new TopologyGuard();
+    expect(() => guard.validateWrite('vh/discovery/items/item-1', { id: 'item-1', score: 1 })).not.toThrow();
+    expect(() => guard.validateWrite('vh/news/stories/story-1', { story_id: 'story-1', title: 'Headline' })).not.toThrow();
+  });
+
+  it('requires encryption for wave-0 sensitive document namespaces', () => {
+    const guard = new TopologyGuard();
+    expect(() => guard.validateWrite('~alice/docs/draft-1', { title: 'draft' })).toThrow();
+    expect(() =>
+      guard.validateWrite('~alice/docs/draft-1', { __encrypted: true, ciphertext: 'abc123' })
+    ).not.toThrow();
+  });
+
   it('allows directory entries that contain nullifier', () => {
     const guard = new TopologyGuard();
     expect(() =>
