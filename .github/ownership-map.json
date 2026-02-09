@@ -26,7 +26,7 @@
   "team-c": {
     "branchPrefix": "team-c/",
     "paths": [
-      "packages/data-model/src/schemas/hermes/discovery.ts",
+      "packages/data-model/src/schemas/hermes/discovery*.ts",
       "apps/web-pwa/src/store/discovery/**",
       "apps/web-pwa/src/hooks/useDiscoveryFeed.ts",
       "apps/web-pwa/src/components/feed/**"
