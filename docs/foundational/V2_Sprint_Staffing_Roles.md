@@ -98,7 +98,7 @@ Load on every spawn:
   - `w1-spec`: `docs/foundational/ARCHITECTURE_LOCK.md` + all Wave 1 canonical specs listed in Docs section below
   - `w1-qa-integ`: `docs/foundational/ARCHITECTURE_LOCK.md` + full `docs/foundational/V2_Sprint_Staffing_Plan.md` + `docs/foundational/STATUS.md`
   - `w1-docs`: `docs/foundational/ARCHITECTURE_LOCK.md` + `docs/foundational/STATUS.md` + `docs/foundational/System_Architecture.md` + canonical specs
-  - `w0-chief`: `docs/foundational/ARCHITECTURE_LOCK.md` + Wave 0/Coordinator sections of `docs/foundational/V2_Sprint_Staffing_Plan.md`
+  - `Coordinator`: `docs/foundational/ARCHITECTURE_LOCK.md` + Wave 0/Coordinator sections of `docs/foundational/V2_Sprint_Staffing_Plan.md`
 
 ### Tier 2 (situational context)
 
@@ -128,9 +128,9 @@ If a standing agent nears context limits mid-wave:
 
 ### Identity
 
-Agent IDs: `w0-chief`, `w1a-chief`, `w1b-chief`, `w1c-chief`, `w1d-chief-impl`
+Agent IDs: `Coordinator`, `w1a-chief`, `w1b-chief`, `w1c-chief`, `w1d-chief-impl`
 
-`w0-chief` is Wave 0 only and operates on `main` during contract lockdown. Wave 1 chiefs operate on `integration/wave-1`.
+`Coordinator` is Wave 0 only and operates on `main` during contract lockdown. Wave 1 chiefs operate on `integration/wave-1`.
 
 ### Role
 
@@ -183,7 +183,7 @@ If a merged PR breaks CI on `integration/wave-1` and the team cannot fix within 
 
 #### Phase -1: Preflight sync and baseline
 
-1. Fetch and fast-forward the active target branch (`main` for `w0-chief` in Wave 0; `integration/wave-1` for Wave 1 chiefs).
+1. Fetch and fast-forward the active target branch (`main` for `Coordinator` in Wave 0; `integration/wave-1` for Wave 1 chiefs).
 2. Record baseline SHA.
 3. Verify no conflicting open PRs touching the same files.
 4. Confirm in-scope and out-of-scope issue IDs before coding.

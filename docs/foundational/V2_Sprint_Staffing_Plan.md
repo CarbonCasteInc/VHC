@@ -672,7 +672,7 @@ Wave 2 runs **3 concurrent workstreams** after Wave 1 exits green.
 
 | Agent ID | Role | Model | Standing? | Reports to |
 | --- | --- | --- | --- | --- |
-| `w0-chief` | Wave 0 Chief | `opus-4.6` | Duration of Wave 0 | Coordinator |
+| `Coordinator` | Wave 0 Coordinator | `opus-4.6` | Duration of Wave 0 | Coordinator |
 
 ### Wave 1 Team A agents (Topic Synthesis V2)
 
@@ -730,7 +730,7 @@ Wave 2 runs **3 concurrent workstreams** after Wave 1 exits green.
 
 ```
 Coordinator (human)
-├── w0-chief (Wave 0 only)
+├── Coordinator (Wave 0 only)
 ├── w1-spec (cross-team, standing)
 ├── w1-qa-integ (cross-team, standing)
 ├── w1-docs (cross-team, standing)
@@ -758,7 +758,7 @@ Coordinator (human)
 
 | Category | Count | Model |
 | --- | --- | --- |
-| Standing chiefs (pure) | 4 (w0, A, B, C) | `opus-4.6` |
+| Standing chiefs (pure) | 4 (Coordinator, A, B, C) | `opus-4.6` |
 | Standing chief+impl (hybrid) | 1 (D) | `codex-5.3-extra-high` |
 | Standing impl (pure) | 5 (A x2, B x1, C x2) | `codex-5.3-extra-high` |
 | Standing QA (per-team) | 4 (A/B/C/D) | `codex-5.3-extra-high` |
@@ -766,7 +766,7 @@ Coordinator (human)
 | Per-PR maint | 4 (A/B/C/D) | `opus-4.6` |
 | Per-issue sidecar | 2 (E impl + qa) | `codex-5.3-extra-high` |
 | **Total agent slots** | **23** | |
-| Standing simultaneously (Wave 1) | **16** (excl. w0-chief which ends after Wave 0; excl. per-PR maint and per-issue sidecar agents) | |
+| Standing simultaneously (Wave 1) | **16** (excl. Coordinator which ends after Wave 0; excl. per-PR maint and per-issue sidecar agents) | |
 
 ### Role behavior reference
 
