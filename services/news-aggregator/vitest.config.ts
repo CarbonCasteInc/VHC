@@ -4,6 +4,9 @@ import { resolve } from 'path';
 export default defineConfig({
   resolve: {
     alias: {
+      '@vh/crypto': resolve(__dirname, '../../packages/crypto/src/index.ts'),
+      '@vh/crypto/primitives': resolve(__dirname, '../../packages/crypto/src/primitives.ts'),
+      '@vh/crypto/provider': resolve(__dirname, '../../packages/crypto/src/provider.ts'),
       '@vh/data-model': resolve(__dirname, '../../packages/data-model/src/index.ts'),
     },
   },
