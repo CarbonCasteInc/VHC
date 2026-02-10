@@ -3,6 +3,9 @@ import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { FilterChips } from './FilterChips';
 import { SortControls } from './SortControls';
+import { NewsCard } from './NewsCard';
+import { TopicCard } from './TopicCard';
+import { SocialNotificationCard } from './SocialNotificationCard';
 
 export interface FeedShellProps {
   /** Discovery feed hook result (injected for testability). */
@@ -88,7 +91,7 @@ const FeedContent: React.FC<FeedContentProps> = ({ feed, loading, error }) => {
   );
 };
 
-// ---- Placeholder item row (C-4 will replace with real cards) ----
+// ---- Feed item renderer ----
 
 interface FeedItemRowProps {
   readonly item: FeedItem;
@@ -96,14 +99,34 @@ interface FeedItemRowProps {
 
 const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
   return (
-    <li
-      data-testid={`feed-item-${item.topic_id}`}
-      className="rounded border border-slate-200 p-3"
-    >
-      <span className="text-sm font-medium">{item.title}</span>
-      <span className="ml-2 text-xs text-slate-400">{item.kind}</span>
+    <li data-testid={`feed-item-${item.topic_id}`}>
+      <FeedItemCard item={item} />
     </li>
   );
+};
+
+interface FeedItemCardProps {
+  readonly item: FeedItem;
+}
+
+const FeedItemCard: React.FC<FeedItemCardProps> = ({ item }) => {
+  switch (item.kind) {
+    case 'NEWS_STORY':
+      return <NewsCard item={item} />;
+    case 'USER_TOPIC':
+      return <TopicCard item={item} />;
+    case 'SOCIAL_NOTIFICATION':
+      return <SocialNotificationCard item={item} />;
+    default:
+      return (
+        <article
+          data-testid={`feed-item-unknown-${item.topic_id}`}
+          className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+        >
+          Unsupported feed item kind.
+        </article>
+      );
+  }
 };
 
 export default FeedShell;
