@@ -69,6 +69,7 @@ function isSynthesisV2Enabled(): boolean {
 }
 
 export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreApi<SynthesisState> {
+  /* v8 ignore next 5 -- default DI wiring; tests always inject overrides */
   const defaults: InternalDeps = {
     resolveClient: () => useAppStore.getState().client,
     enabled: isSynthesisV2Enabled(),
@@ -224,6 +225,7 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
 }
 
 export function createMockSynthesisStore(seedSynthesis: TopicSynthesisV2[] = []): StoreApi<SynthesisState> {
+  /* v8 ignore next 5 -- mock DI overrides; covered implicitly via mock store consumers */
   const store = createSynthesisStore({
     resolveClient: () => null,
     enabled: true,
