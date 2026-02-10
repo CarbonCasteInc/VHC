@@ -1,58 +1,61 @@
 {
-  "team-a": {
-    "branchPrefix": "team-a/",
-    "paths": [
-      "packages/ai-engine/src/synthesis*.ts",
-      "packages/ai-engine/src/candidateGatherer*.ts",
-      "packages/ai-engine/src/epochScheduler*.ts",
-      "packages/ai-engine/src/quorum*.ts",
-      "packages/ai-engine/src/topicSynthesisPipeline*.ts",
-      "packages/data-model/src/schemas/hermes/synthesis*.ts",
-      "packages/gun-client/src/synthesisAdapters*.ts",
-      "apps/web-pwa/src/store/synthesis/**",
-      "apps/web-pwa/src/hooks/useSynthesis*.ts",
-      "apps/web-pwa/src/components/synthesis/**"
-    ]
-  },
-  "team-b": {
-    "branchPrefix": "team-b/",
-    "paths": [
-      "services/news-aggregator/**",
-      "packages/data-model/src/schemas/hermes/storyBundle*.ts",
-      "packages/gun-client/src/newsAdapters*.ts",
-      "apps/web-pwa/src/store/news/**"
-    ]
-  },
-  "team-c": {
-    "branchPrefix": "team-c/",
-    "paths": [
-      "packages/data-model/src/schemas/hermes/discovery*.ts",
-      "apps/web-pwa/src/store/discovery/**",
-      "apps/web-pwa/src/hooks/useDiscoveryFeed*.ts",
-      "apps/web-pwa/src/components/feed/**"
-    ]
-  },
-  "team-d": {
-    "branchPrefix": "team-d/",
-    "paths": [
-      "packages/types/src/delegation*.ts",
-      "packages/types/src/index*.ts",
-      "apps/web-pwa/src/store/delegation/**",
-      "apps/web-pwa/src/store/xpLedgerBudget*.ts",
-      "apps/web-pwa/src/hooks/useFamiliar*.ts",
-      "apps/web-pwa/src/components/hermes/FamiliarControlPanel*.tsx",
-      "apps/web-pwa/src/components/hermes/CommunityReactionSummary*.tsx",
-      "apps/web-pwa/src/components/hermes/forum/VoteControl*.tsx",
-      ".github/ownership-map.json"
-    ]
-  },
-  "team-e": {
-    "branchPrefix": "team-e/",
-    "paths": [
-      "services/attestation-verifier/**",
-      "services/bridge-stub/**",
-      "packages/contracts/scripts/**",
-      "packages/contracts/deployments/**"
-    ]
-  }
+    "team-a": {
+        "branchPrefix": "team-a/",
+        "paths": [
+            "packages/ai-engine/src/synthesis*.ts",
+            "packages/ai-engine/src/candidateGatherer*.ts",
+            "packages/ai-engine/src/epochScheduler*.ts",
+            "packages/ai-engine/src/quorum*.ts",
+            "packages/ai-engine/src/topicSynthesisPipeline*.ts",
+            "packages/data-model/src/schemas/hermes/synthesis*.ts",
+            "packages/gun-client/src/synthesisAdapters*.ts",
+            "apps/web-pwa/src/store/synthesis/**",
+            "apps/web-pwa/src/hooks/useSynthesis*.ts",
+            "apps/web-pwa/src/components/synthesis/**"
+        ]
+    },
+    "team-b": {
+        "branchPrefix": "team-b/",
+        "paths": [
+            "services/news-aggregator/**",
+            "packages/data-model/src/schemas/hermes/storyBundle*.ts",
+            "packages/gun-client/src/newsAdapters*.ts",
+            "apps/web-pwa/src/store/news/**"
+        ]
+    },
+    "team-c": {
+        "branchPrefix": "team-c/",
+        "paths": [
+            "packages/data-model/src/schemas/hermes/discovery*.ts",
+            "apps/web-pwa/src/store/discovery/**",
+            "apps/web-pwa/src/hooks/useDiscoveryFeed*.ts",
+            "apps/web-pwa/src/components/feed/**",
+            "apps/web-pwa/src/hooks/useFeedStore*.ts",
+            "apps/web-pwa/src/components/FeedList*.tsx",
+            ".github/ownership-map.json"
+        ]
+    },
+    "team-d": {
+        "branchPrefix": "team-d/",
+        "paths": [
+            "packages/types/src/delegation*.ts",
+            "packages/types/src/index*.ts",
+            "apps/web-pwa/src/store/delegation/**",
+            "apps/web-pwa/src/store/xpLedgerBudget*.ts",
+            "apps/web-pwa/src/hooks/useFamiliar*.ts",
+            "apps/web-pwa/src/components/hermes/FamiliarControlPanel*.tsx",
+            "apps/web-pwa/src/components/hermes/CommunityReactionSummary*.tsx",
+            "apps/web-pwa/src/components/hermes/forum/VoteControl*.tsx",
+            ".github/ownership-map.json"
+        ]
+    },
+    "team-e": {
+        "branchPrefix": "team-e/",
+        "paths": [
+            "services/attestation-verifier/**",
+            "services/bridge-stub/**",
+            "packages/contracts/scripts/**",
+            "packages/contracts/deployments/**"
+        ]
+    }
 }

@@ -1,8 +1,17 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import { useFeedStore } from '../hooks/useFeedStore';
+import { useDiscoveryFeed } from '../hooks/useDiscoveryFeed';
+import FeedShell from './feed/FeedShell';
 import HeadlineCard from './HeadlineCard';
 
-export const FeedList: React.FC = () => {
+function isFeedV2Enabled(): boolean {
+  return (
+    (import.meta as unknown as { env?: { VITE_FEED_V2_ENABLED?: string } })
+      .env?.VITE_FEED_V2_ENABLED === 'true'
+  );
+}
+
+const LegacyFeedList: React.FC = () => {
   const { items, hydrate, loadMore, hasMore, loading } = useFeedStore();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -37,6 +46,15 @@ export const FeedList: React.FC = () => {
       ))}
     </div>
   );
+};
+
+const DiscoveryFeedList: React.FC = () => {
+  const feedResult = useDiscoveryFeed();
+  return <FeedShell feedResult={feedResult} />;
+};
+
+export const FeedList: React.FC = () => {
+  return isFeedV2Enabled() ? <DiscoveryFeedList /> : <LegacyFeedList />;
 };
 
 export default FeedList;
