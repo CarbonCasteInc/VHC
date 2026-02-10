@@ -3,9 +3,11 @@ import type {
   DelegationCheckResult,
   DelegationGrant,
   DelegationScope,
+  DelegationTier,
   FamiliarRecord,
   OnBehalfOfAssertion
 } from '@vh/types';
+import { TIER_SCOPES } from '@vh/types';
 import {
   useDelegationStore,
   type DelegationGrantStatus,
@@ -23,6 +25,15 @@ export interface CreateFamiliarGrantInput {
   signature?: string;
 }
 
+export interface CreateTierGrantInput {
+  grantId?: string;
+  familiarId: string;
+  tier: DelegationTier;
+  issuedAt?: number;
+  expiresAt: number;
+  signature?: string;
+}
+
 export interface UseFamiliarResult {
   principalNullifier: string | null;
   activePrincipal: string | null;
@@ -31,6 +42,7 @@ export interface UseFamiliarResult {
   registerFamiliar: (input: RegisterFamiliarInput) => FamiliarRecord;
   revokeFamiliar: (familiarId: string, revokedAt?: number) => void;
   createGrant: (input: CreateFamiliarGrantInput) => DelegationGrant;
+  createTierGrant: (input: CreateTierGrantInput) => DelegationGrant;
   revokeGrant: (grantId: string, revokedAt?: number) => void;
   canPerform: (input: EvaluateDelegationInput) => DelegationCheckResult;
   createAssertion: (grantId: string, issuedAt?: number, signature?: string) => OnBehalfOfAssertion;
@@ -134,6 +146,14 @@ export function useFamiliar(principalOverride?: string | null): UseFamiliarResul
     [activePrincipal, issueGrant, principalNullifier, principalOverride]
   );
 
+  const createTierGrant = useCallback(
+    (input: CreateTierGrantInput) => createGrant({
+      ...input,
+      scopes: [...TIER_SCOPES[input.tier]]
+    }),
+    [createGrant]
+  );
+
   const createAssertion = useCallback(
     (grantId: string, issuedAt = Date.now(), signature?: string): OnBehalfOfAssertion => {
       if (!grantId) {
@@ -164,6 +184,7 @@ export function useFamiliar(principalOverride?: string | null): UseFamiliarResul
     registerFamiliar,
     revokeFamiliar,
     createGrant,
+    createTierGrant,
     revokeGrant: revokeGrantById,
     canPerform: canFamiliarPerform,
     createAssertion,
