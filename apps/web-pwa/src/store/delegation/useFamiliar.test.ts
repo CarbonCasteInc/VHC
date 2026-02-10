@@ -142,6 +142,49 @@ describe('useFamiliar', () => {
     });
   });
 
+  it('creates tier grants using canonical tier scopes', () => {
+    publishPrincipal('principal-1');
+    const { result } = renderHook(() => useFamiliar());
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent('vh:identity-published'));
+      result.current.registerFamiliar({
+        id: 'fam-suggest',
+        label: 'Suggest Familiar',
+        createdAt: BASE_TIME,
+        capabilityPreset: 'suggest'
+      });
+      result.current.registerFamiliar({
+        id: 'fam-high',
+        label: 'High Familiar',
+        createdAt: BASE_TIME + 1,
+        capabilityPreset: 'high-impact'
+      });
+    });
+
+    act(() => {
+      const suggestGrant = result.current.createTierGrant({
+        grantId: 'tier-suggest',
+        familiarId: 'fam-suggest',
+        tier: 'suggest',
+        issuedAt: BASE_TIME + 2,
+        expiresAt: BASE_TIME + 10,
+        signature: 'sig-suggest'
+      });
+      expect(suggestGrant.scopes).toEqual(['draft', 'triage']);
+
+      const highImpactGrant = result.current.createTierGrant({
+        grantId: 'tier-high',
+        familiarId: 'fam-high',
+        tier: 'high-impact',
+        issuedAt: BASE_TIME + 3,
+        expiresAt: BASE_TIME + 20,
+        signature: 'sig-high'
+      });
+      expect(highImpactGrant.scopes).toEqual(['moderate', 'vote', 'fund', 'civic_action']);
+    });
+  });
+
   it('throws when creating grant without an active principal', () => {
     const { result } = renderHook(() => useFamiliar(null));
 
