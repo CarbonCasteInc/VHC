@@ -208,7 +208,7 @@ jobs:
 
       - name: Build PWA
         if: needs.change-detection.outputs.run-bundle == 'true'
-        run: pnpm build
+        run: pnpm --filter @vh/web-pwa build
 
       - name: Check Bundle Size (≤ 1 MiB gz)
         if: needs.change-detection.outputs.run-bundle == 'true'
@@ -249,7 +249,7 @@ jobs:
 
       - name: Build PWA
         if: needs.change-detection.outputs.run-lighthouse == 'true'
-        run: pnpm build
+        run: pnpm --filter @vh/web-pwa build
 
       - name: Run Lighthouse (static dist)
         if: needs.change-detection.outputs.run-lighthouse == 'true'
