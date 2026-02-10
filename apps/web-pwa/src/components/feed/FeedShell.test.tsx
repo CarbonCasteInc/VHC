@@ -134,14 +134,25 @@ describe('FeedShell', () => {
     expect(screen.getByTestId('feed-item-item-2')).toBeInTheDocument();
   });
 
-  it('renders item title and kind', () => {
+  it('routes each feed kind to the matching card component', () => {
     const items = [
-      makeFeedItem({ topic_id: 'x', title: 'Hot news', kind: 'NEWS_STORY' }),
+      makeFeedItem({ topic_id: 'news', title: 'Hot news', kind: 'NEWS_STORY' }),
+      makeFeedItem({ topic_id: 'topic', title: 'Community topic', kind: 'USER_TOPIC' }),
+      makeFeedItem({
+        topic_id: 'social',
+        title: 'Linked social mention',
+        kind: 'SOCIAL_NOTIFICATION',
+      }),
     ];
+
     render(<FeedShell feedResult={makeFeedResult({ feed: items })} />);
-    const row = screen.getByTestId('feed-item-x');
-    expect(within(row).getByText('Hot news')).toBeInTheDocument();
-    expect(within(row).getByText('NEWS_STORY')).toBeInTheDocument();
+
+    expect(screen.getByTestId('news-card-news')).toBeInTheDocument();
+    expect(screen.getByTestId('topic-card-topic')).toBeInTheDocument();
+    expect(screen.getByTestId('social-card-social')).toBeInTheDocument();
+
+    const socialRow = screen.getByTestId('feed-item-social');
+    expect(within(socialRow).getByText('Linked social mention')).toBeInTheDocument();
   });
 
   // ---- Filter and sort interaction ----
