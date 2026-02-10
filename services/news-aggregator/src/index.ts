@@ -41,3 +41,8 @@ export {
   normalizeAndDedup,
 } from './normalize';
 export type { NormalizedFeedItem } from './normalize';
+
+export { toStoryBundleSource, computeProvenanceHash } from './provenance';
+
+export { clusterItems, extractWords } from './cluster';
+export type { ClusterOptions } from './cluster';
