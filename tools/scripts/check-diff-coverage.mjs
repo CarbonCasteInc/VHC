@@ -45,6 +45,8 @@ function changedFilesSince(mergeBase) {
   return raw ? raw.split('\n').map((line) => line.trim()).filter(Boolean) : [];
 }
 
+// Keep this deny-list intentionally small and shrinking over time.
+// Any new exclusion should require explicit coordinator approval.
 const COVERAGE_EXCLUDES = [
   /^apps\/web-pwa\/src\/main\.tsx$/,
   /^apps\/web-pwa\/src\/App\.tsx$/,

@@ -10,7 +10,7 @@
 
 **integration/wave-1 HEAD (post S1)**: `6a252d943dd2`  
 **Open PRs after first-slice**: 0  
-**Branch protection**: 5 required checks (Ownership Scope, Quality Guard, Test & Build, E2E Tests, Bundle Size), `enforce_admins=true` (enabled during this slice). Lighthouse ran as an additional CI job.
+**Branch protection**: 5 required checks (Ownership Scope, Quality Guard, Test & Build, E2E Tests, Bundle Size), `enforce_admins=true` (enabled during this slice). Lighthouse is path-conditional (required for `apps/web-pwa/**`, informational otherwise).
 
 ---
 
