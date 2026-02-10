@@ -56,8 +56,18 @@ function resolveHeadRef() {
   return headRef;
 }
 
+function inferBaseRef(headRef) {
+  // Wave-1 team branches and coord branches target integration/wave-1.
+  // Everything else targets main.
+  if (/^team-[a-e]\//.test(headRef) || headRef.startsWith('coord/')) {
+    return 'integration/wave-1';
+  }
+  return 'main';
+}
+
 function resolveMergeBase() {
-  const baseRef = process.env.GITHUB_BASE_REF || 'main';
+  const headRef = process.env.GITHUB_HEAD_REF || run('git rev-parse --abbrev-ref HEAD');
+  const baseRef = process.env.GITHUB_BASE_REF || inferBaseRef(headRef);
   if (!/^[A-Za-z0-9._/-]+$/.test(baseRef)) {
     fail(`invalid base ref: ${baseRef}`);
   }
