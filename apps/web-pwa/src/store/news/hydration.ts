@@ -7,7 +7,7 @@ import {
   type VennClient
 } from '@vh/gun-client';
 import type { StoreApi } from 'zustand';
-import type { NewsState } from './index';
+import type { NewsState } from './types';
 
 const hydratedStores = new WeakSet<StoreApi<NewsState>>();
 
