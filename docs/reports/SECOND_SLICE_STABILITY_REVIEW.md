@@ -50,21 +50,22 @@ All 1,228 tests pass. Zero test failures on HEAD.
 
 ## 4. CI Reliability Summary
 
-**Total CI runs since launch**: 50  
-**Successful**: 43 (86%)  
-**Failed**: 6 (12%)  
-**In-progress**: 1 (2%)  
+**Total CI runs since launch (window: 09 18:00 – 10 02:00 UTC)**: 52  
+**Successful**: 45 (86.5%)  
+**Failed**: 7 (13.5%)  
+**In-progress**: 0 (0%)  
 **Cancelled**: 0  
 
 ### Failure Breakdown
 
 | Run | Branch | Failed Check | Root Cause |
 |-----|--------|-------------|------------|
+| 21836424746 | team-e/E-1 | Ownership Scope | Glob `**` converter bug in ownership matcher (pre-fix #149) |
 | 21836511934 | team-c/C-1 | Ownership Scope | Glob `**` patterns didn't match nested paths (pre-fix #149) |
-| 21836529129 | integration/wave-1 | Test & Build | Transient — push-triggered run on base before team code landed |
-| 21836607359 | coord/fix-ownership-glob | Bundle Size | Coord fix PR iteration (expected during development) |
+| 21836529129 | integration/wave-1 | Test & Build | Hardhat `HH501` compiler download timeout (`Headers Timeout Error`) |
+| 21836607359 | coord/fix-ownership-glob | Bundle Size | Hardhat `HH502` compiler list download timeout (`Headers Timeout Error`) |
 | 21836697335 | team-a/A-1 | Ownership Scope | Same glob bug as above (pre-fix #149) |
-| 21836809098 | team-d/D-1 | Ownership Scope | Same glob bug + transient Hardhat download failure |
+| 21836809098 | team-d/D-1 | Ownership Scope | Same glob bug as above (pre-fix #149) |
 | 21847066895 | team-a/A-2 | Ownership Scope | Ownership-map didn't cover new A-2 test file globs (pre-fix #157) |
 
 **Flakes**: 0 genuine flakes. All failures had deterministic root causes.  
@@ -76,7 +77,7 @@ All 1,228 tests pass. Zero test failures on HEAD.
 
 ### Incident 1: Glob `**` pattern matching (first-slice)
 - **Impact**: Teams A, C, D all failed Ownership Scope on first push
-- **Root cause**: CI script used `minimatch` without `{dot: true, matchBase: true}` — `**` patterns didn't recurse into nested directories
+- **Root cause**: CI script uses a custom `globToRegExp` converter. Sentinel replacement for `**` was clobbered by subsequent single-star replacement, breaking recursive wildcard behavior.
 - **Fix**: PR #149 (`1e0b26da`) — merged 09 21:03 UTC
 - **Time to fix**: ~2.5 hours from launch
 
@@ -123,6 +124,10 @@ Teams creating new directories/files had to wait for coord PRs to widen ownershi
 
 ### F5: Agent sleep/poll unreliability (LOW)
 Long `sleep` commands in exec sessions are unreliable — killed by process management before completing. Required repeated poll/kill/re-check cycles.
+
+### F6: 10-minute session budget caused first-attempt drop-offs (MEDIUM)
+In first-slice kickoff, teams A, C, and D timed out before finishing the full ritual (push + PR + QA handoff), forcing coordinator re-dispatch.  
+**Cost**: Added orchestration churn and delayed PR opening despite code being mostly ready.
 
 ---
 
@@ -172,6 +177,20 @@ Long `sleep` commands in exec sessions are unreliable — killed by process mana
 - Set `--auto` merge on all PRs at creation time
 - Do not cancel CI jobs manually — trust job-level timeouts
 - Coordinator reviews PR content while CI runs (parallel, not serial)
+
+---
+
+## 10. Evidence Appendix
+
+| Run | URL | First Failing Line | Fix PR/SHA |
+|-----|-----|--------------------|------------|
+| 21836424746 | https://github.com/HumblePiCCI/VHC/actions/runs/21836424746 | `Ownership Scope: FAIL - branch "team-e/E-1-attestor-truth-labels"...` | #149 / `1e0b26daf600` |
+| 21836511934 | https://github.com/HumblePiCCI/VHC/actions/runs/21836511934 | `Ownership Scope: FAIL - branch "team-c/C-1-discovery-schemas"...` | #149 / `1e0b26daf600` |
+| 21836529129 | https://github.com/HumblePiCCI/VHC/actions/runs/21836529129 | `Error HH501: Couldn't download compiler version...` | Infra transient (no code fix) |
+| 21836607359 | https://github.com/HumblePiCCI/VHC/actions/runs/21836607359 | `Error HH502: Couldn't download compiler version list...` | Infra transient (no code fix) |
+| 21836697335 | https://github.com/HumblePiCCI/VHC/actions/runs/21836697335 | `Ownership Scope: FAIL - branch "team-a/A-1-synthesis-schemas"...` | #149 / `1e0b26daf600` |
+| 21836809098 | https://github.com/HumblePiCCI/VHC/actions/runs/21836809098 | `Ownership Scope: FAIL - branch "team-d/D-1-delegation-utils"...` | #149 / `1e0b26daf600` |
+| 21847066895 | https://github.com/HumblePiCCI/VHC/actions/runs/21847066895 | `Ownership Scope: FAIL - branch "team-a/A-2-candidate-quorum"...` | #157 / `c9edf302788f` |
 
 ---
 

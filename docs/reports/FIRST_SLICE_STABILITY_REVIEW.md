@@ -10,7 +10,7 @@
 
 **integration/wave-1 HEAD (post S1)**: `6a252d943dd2`  
 **Open PRs after first-slice**: 0  
-**Branch protection**: 5 required checks (Ownership Scope, Quality Guard, Test & Build, E2E Tests, Bundle Size + Lighthouse), `enforce_admins=true` (enabled during this slice)
+**Branch protection**: 5 required checks (Ownership Scope, Quality Guard, Test & Build, E2E Tests, Bundle Size), `enforce_admins=true` (enabled during this slice). Lighthouse ran as an additional CI job.
 
 ---
 
@@ -58,10 +58,10 @@ All 1,068 tests pass. Zero test failures on HEAD.
 |-----|--------|-------------|------------|
 | 21836424746 | team-e/E-1 | Ownership Scope | Glob `**` patterns didn't recurse into nested paths |
 | 21836511934 | team-c/C-1 | Ownership Scope | Same glob bug |
-| 21836529129 | integration/wave-1 | Test & Build | Push-triggered run on base before team code landed (transient build state) |
-| 21836607359 | coord/fix-ownership-glob | Bundle Size | Coord fix PR iteration (expected during development) |
+| 21836529129 | integration/wave-1 | Test & Build | Hardhat `HH501` compiler download timeout on GitHub runner (`Headers Timeout Error`) |
+| 21836607359 | coord/fix-ownership-glob | Bundle Size | Hardhat `HH502` compiler version-list download timeout on GitHub runner |
 | 21836697335 | team-a/A-1 | Ownership Scope | Same glob bug |
-| 21836809098 | team-d/D-1 | Ownership Scope | Same glob bug + transient Hardhat NPM download failure on first attempt |
+| 21836809098 | team-d/D-1 | Ownership Scope | Same glob bug (Hardhat timeout observed separately on re-run path) |
 
 ### Per-Branch CI Runs
 
@@ -83,7 +83,7 @@ All 1,068 tests pass. Zero test failures on HEAD.
 ### Incident 1: Glob `**` pattern matching failure (systemic)
 - **Detected**: 09 ~18:30 UTC (within 30 minutes of launch)
 - **Impact**: All 4 team PRs (E-1, C-1, A-1, D-1) failed Ownership Scope on first CI run
-- **Root cause**: `check-ownership-scope.mjs` used `minimatch` without `{dot: true, matchBase: true}` options. The `**` glob in ownership-map patterns did not recurse into nested directories.
+- **Root cause**: `check-ownership-scope.mjs` used a custom `globToRegExp` converter. The initial implementation replaced `**` with a sentinel and then replaced `*`, which clobbered the expanded wildcard (`.*`) and broke recursive matching.
 - **Fix**: PR #149 (`1e0b26da`) — merged 09 21:03:30 UTC
 - **Time to detect**: ~12 minutes
 - **Time to fix**: ~2h 33m from launch (included diagnosis, fix, test, review)
@@ -144,6 +144,10 @@ Branch protection was configured but `enforce_admins` was off during initial lau
 Without merge queue, PRs had to be merged manually in sequence, with rebase between each merge when branch protection requires up-to-date status.  
 **Cost**: Manual coordination overhead. Partially offset by quick E→D→A merge cadence (~4 min between each).
 
+### F6: 10-minute agent session budget caused re-dispatch churn (MEDIUM)
+Teams A, C, and D all hit the 10-minute session limit before completing push/PR creation in their first attempt, requiring coordinator re-dispatch.  
+**Cost**: Additional dispatch overhead, delayed PR availability, and extra coordinator polling loops.
+
 ---
 
 ## 8. Top 5 Stability/Process Improvements (Ranked by Impact)
@@ -154,8 +158,8 @@ Without merge queue, PRs had to be merged manually in sequence, with rebase betw
 **Impact**: Would have saved ~3 hours of blocked merge capability and eliminated 4 of 6 CI failures.
 
 ### 2. Ownership-map glob patterns should use directory-level wildcards (HIGH)
-**Problem**: The ownership map used file-level paths that broke when the glob engine didn't recurse properly.  
-**Fix**: Use `packages/ai-engine/src/**` style patterns (already fixed in #149), and validate glob matching in CI unit tests.  
+**Problem**: The ownership map used path patterns that were valid in intent, but a converter bug in `globToRegExp` broke recursive wildcard behavior.  
+**Fix**: Keep broad wildcard patterns and add direct tests for the converter logic to prevent `**` regression.  
 **Impact**: Prevents recurrence of the systemic failure mode.
 
 ### 3. Agent guardrails: prevent cross-boundary file edits (MEDIUM)
@@ -194,6 +198,19 @@ Without merge queue, PRs had to be merged manually in sequence, with rebase betw
 **First-slice failure rate pre-fix**: 100% (all team PRs failed)  
 **First-slice failure rate post-fix**: 0% (all team PRs passed on first attempt)  
 **Lesson**: The CI infrastructure itself was the single point of failure, not the team code.
+
+---
+
+## 10. Evidence Appendix
+
+| Run | URL | First Failing Line | Fix PR/SHA |
+|-----|-----|--------------------|------------|
+| 21836424746 | https://github.com/HumblePiCCI/VHC/actions/runs/21836424746 | `Ownership Scope: FAIL - branch "team-e/E-1-attestor-truth-labels"...` | #149 / `1e0b26daf600` |
+| 21836511934 | https://github.com/HumblePiCCI/VHC/actions/runs/21836511934 | `Ownership Scope: FAIL - branch "team-c/C-1-discovery-schemas"...` | #149 / `1e0b26daf600` |
+| 21836529129 | https://github.com/HumblePiCCI/VHC/actions/runs/21836529129 | `Error HH501: Couldn't download compiler version...` | Infra transient (no code fix) |
+| 21836607359 | https://github.com/HumblePiCCI/VHC/actions/runs/21836607359 | `Error HH502: Couldn't download compiler version list...` | Infra transient (no code fix) |
+| 21836697335 | https://github.com/HumblePiCCI/VHC/actions/runs/21836697335 | `Ownership Scope: FAIL - branch "team-a/A-1-synthesis-schemas"...` | #149 / `1e0b26daf600` |
+| 21836809098 | https://github.com/HumblePiCCI/VHC/actions/runs/21836809098 | `Ownership Scope: FAIL - branch "team-d/D-1-delegation-utils"...` | #149 / `1e0b26daf600` |
 
 ---
 

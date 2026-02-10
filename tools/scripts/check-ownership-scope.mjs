@@ -57,9 +57,9 @@ function resolveHeadRef() {
 }
 
 function inferBaseRef(headRef) {
-  // Wave-1 team branches and coord branches target integration/wave-1.
-  // Everything else targets main.
-  if (/^team-[a-e]\//.test(headRef) || headRef.startsWith('coord/')) {
+  // Wave-1 team branches target integration/wave-1 by default.
+  // Coordinator or other branches default to main unless GITHUB_BASE_REF is set.
+  if (/^team-[a-e]\//.test(headRef)) {
     return 'integration/wave-1';
   }
   return 'main';
