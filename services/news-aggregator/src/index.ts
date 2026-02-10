@@ -3,10 +3,8 @@
  * StoryBundle publication service.
  *
  * This module re-exports the canonical StoryBundle schemas from
- * @vh/data-model for downstream convenience.
- *
- * Implementation will be filled in slices B-2 (ingest/normalize)
- * and B-3 (cluster/provenance).
+ * @vh/data-model for downstream convenience, plus ingest and
+ * normalization modules (B-2).
  */
 export {
   FeedSourceSchema,
@@ -24,3 +22,22 @@ export type {
   StoryBundleSource,
   ClusterFeatures,
 } from '@vh/data-model';
+
+export {
+  ingestFeed,
+  ingestFeeds,
+  parseFeedXml,
+  extractTags,
+  stripTags,
+  parseDate,
+} from './ingest';
+export type { FetchFn, IngestResult } from './ingest';
+
+export {
+  canonicalizeUrl,
+  urlHash,
+  normalizeItem,
+  dedup,
+  normalizeAndDedup,
+} from './normalize';
+export type { NormalizedFeedItem } from './normalize';
