@@ -6,7 +6,7 @@
 - [ ] This PR stays within one coherent slice.
 
 ## Active Wave Branch/Ownership Contract
-- [ ] Branch name uses allowed prefix: `team-a/*`, `team-b/*`, `team-c/*`, `team-d/*`, `team-e/*`, or `coord/*`.
+- [ ] Branch name uses allowed prefix: `team-a/*`, `team-b/*`, `team-c/*`, `team-d/*`, `team-e/*`, `w2a/*`, `w2b/*`, `w2g/*`, or `coord/*`.
 - [ ] If using `coord/*`, coordinator rationale is included below.
 - [ ] Changed files are within owned paths per `.github/ownership-map.json`.
 - [ ] `Ownership Scope` check is expected to pass for this branch.

@@ -1,6 +1,7 @@
 {
     "team-a": {
         "branchPrefix": "team-a/",
+        "_note": "apps/web-pwa/src/store/synthesis/** transferred to w2a for Wave 2; team-a retains ai-engine + data-model ownership",
         "paths": [
             "packages/ai-engine/src/synthesis*.ts",
             "packages/ai-engine/src/candidateGatherer*.ts",
@@ -9,7 +10,6 @@
             "packages/ai-engine/src/topicSynthesisPipeline*.ts",
             "packages/data-model/src/schemas/hermes/synthesis*.ts",
             "packages/gun-client/src/synthesisAdapters*.ts",
-            "apps/web-pwa/src/store/synthesis/**",
             "apps/web-pwa/src/hooks/useSynthesis*.ts",
             "apps/web-pwa/src/components/synthesis/**"
         ]
@@ -60,6 +60,7 @@
     },
     "w2a": {
         "branchPrefix": "w2a/",
+        "_note": "apps/web-pwa/src/store/synthesis/** ownership transferred from team-a to w2a for Wave 2 execution",
         "paths": [
             "packages/ai-engine/src/commentTracker*.ts",
             "packages/ai-engine/src/digestBuilder*.ts",
