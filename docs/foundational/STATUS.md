@@ -1,10 +1,10 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-08  
-**Version:** 0.2.1 (Sprint 4 — Agentic Foundation & Stabilization)  
-**Assessment:** Pre-production prototype
+**Last Updated:** 2026-02-11
+**Version:** 0.3.0 (Wave 1 Complete — V2 Feature Implementation)
+**Assessment:** Pre-production prototype, Wave 1 landed
 
-> ⚠️ **This document reflects actual implementation status, not target architecture.**  
+> ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
 
 ---
@@ -14,199 +14,124 @@
 | Layer | Status | Production-Ready |
 |-------|--------|------------------|
 | **LUMA (Identity)** | 🔴 Stubbed | ❌ No |
-| **GWC (Economics)** | 🟡 Contracts ready, undeployed | ⚠️ Partial |
-| **VENN (Analysis)** | 🟡 Pipeline end-to-end, LocalMlEngine wired (WebGPU) | ❌ No |
+| **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
+| **VENN (Analysis)** | 🟡 Pipeline end-to-end, synthesis types + quorum + epochs landed | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Forum** | 🟢 Implemented | ⚠️ Partial |
-| **HERMES Docs** | ⚪ Planned (Sprint 5) | ❌ No |
-| **HERMES Bridge (Civic Action Kit)** | ⚪ Planned/Redesign (Sprint 5) | ❌ No |
+| **HERMES Docs** | ⚪ Planned | ❌ No |
+| **HERMES Bridge (Civic Action Kit)** | 🟡 Wired (attestor + facilitation stubs) | ❌ No |
+| **News Aggregator** | 🟢 Implemented (ingest/normalize/cluster/provenance) | ⚠️ Partial |
+| **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) | ⚠️ Partial |
+| **Delegation Runtime** | 🟡 Store + hooks + control panel landed | ⚠️ Partial |
+
+---
+
+## Wave 1 Landed Capabilities (2026-02-11)
+
+Wave 1 delivered the following V2-track features, all merged to `main` via PR #176:
+
+### Team A — Synthesis Pipeline
+- `CandidateSynthesis`, `QuorumMeta`, `TopicSynthesisV2` types + Zod schemas (`synthesisTypes.ts`)
+- Candidate gatherer with N-of-M collection, timeout, verified-only gate (`candidateGatherer.ts`)
+- Quorum evaluation with divergence scoring and merge logic (`quorum.ts`)
+- Epoch scheduler with debounce, daily cap, comment-driven re-synthesis triggers (`epochScheduler.ts`)
+- Synthesis store (Zustand) with hydration from Gun adapters (`store/synthesis/`)
+- Gun synthesis adapters with topic-keyed read/write and signature verification (`synthesisAdapters.ts`)
+- Data-model synthesis schemas (`schemas/hermes/synthesis.ts`)
+
+### Team B — News Aggregator + Store
+- News aggregator service: RSS/Atom ingest, HTML normalize, TF-IDF story clustering, provenance tracking (`services/news-aggregator/`)
+- StoryBundle schemas with Zod validation (`schemas/hermes/storyBundle.ts`)
+- News store (Zustand) with hydration pipeline (`store/news/`)
+- Gun news adapters with story-keyed sync (`newsAdapters.ts`)
+- Data-model discovery schemas (`schemas/hermes/discovery.ts`)
+
+### Team C — Discovery Feed
+- Feed shell with filter chips, sort controls, hotness ranker (`components/feed/`)
+- Three card types: TopicCard, NewsCard, SocialNotificationCard
+- HotnessRanker: time-decay + engagement scoring for feed ordering
+- Discovery store with ranking integration (`store/discovery/`)
+- `useDiscoveryFeed` hook with feature-flag gating (`VITE_FEED_V2_ENABLED`)
+- `useSynthesis` hook with feature-flag gating (`VITE_TOPIC_SYNTHESIS_V2_ENABLED`)
+- Feed↔Forum integration: analysis-created threads carry `topicId`/`sourceUrl`/`isHeadline`
+
+### Team D — Delegation Runtime + Familiar Control Panel
+- Delegation store (Zustand): grant creation/revocation, tier-scoped permissions, persistence (`store/delegation/`)
+- `useFamiliar` hook with budget-aware action dispatch
+- `FamiliarControlPanel` component: grant management, tier selection, activity log
+- Delegation utility functions: scope validation, tier comparison, grant filtering (`delegation-utils.ts`)
+- Notification schema for social notifications (`schemas/hermes/notification.ts`)
+- Elevation schema for proposal elevation artifacts (`schemas/hermes/elevation.ts`)
+
+### Team E — Bridge/Attestor Wiring
+- Attestation verifier hardened: real Apple/Android token validation paths, structured error responses, rate limiting (`main.rs`)
+- Bridge stub expanded: facilitation endpoints, receipt storage, PDF report stubs, contact directory (`bridge-stub/`)
+- Deployment artifact validation tooling (`validate-deployment-artifact.ts`)
+- Sepolia deployment landed (`deployments/sepolia.json`)
+
+### Infrastructure (Wave 1)
+- Ownership scope checker for PR team-boundary enforcement (`check-ownership-scope.mjs`)
+- Diff-aware coverage gate for PRs (`check-diff-coverage.mjs`)
+- Git pre-push hook for local gate enforcement (`.githooks/pre-push`)
+- PR template with ownership/scope/testing checklist (`.github/pull_request_template.md`)
+- CI expanded: Ownership Scope, Change Detection, Lighthouse jobs added
+- Feature-flag env declarations (`env.d.ts`)
 
 ---
 
 ## Product Direction Deltas (A-G)
 
-This section tracks direction-level truth from the V2-first Ship Snapshot against current implementation.
-
 | Direction Delta | Target (Ship Snapshot) | Current Implementation |
 |---|---|---|
-| A. V2-first synthesis | `TopicSynthesisV2` (quorum + epochs + divergence) is canonical | Not implemented end-to-end yet; v1 canonical analysis pipeline still carries runtime load |
-| B. 3-surface feed | Feed mixes `News`, `Topics`, and `Linked-Social Notifications` | Topics + news/thread blend exists; linked-social notifications not implemented |
-| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | Proposal-thread primitives exist; auto-drafted elevation artifacts and forwarding flow are not implemented |
-| D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | Forum sorting is implemented; reply-to-article conversion path is not yet implemented |
-| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | Planned only (Sprint 5), no runtime implementation |
+| A. V2-first synthesis | `TopicSynthesisV2` (quorum + epochs + divergence) is canonical | ✅ Types, candidate gatherer, quorum engine, epoch scheduler, store, and Gun adapters all landed (Wave 1); runtime wiring to UI pending |
+| B. 3-surface feed | Feed mixes `News`, `Topics`, and `Linked-Social Notifications` | ✅ Discovery feed shell with all three card types landed; linked-social OAuth not yet implemented |
+| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema defined; auto-drafted artifacts and forwarding flow not yet implemented |
+| D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | Forum sorting implemented; reply-to-article conversion path not yet implemented |
+| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | Planned only, no runtime implementation |
 | F. GWC thesis channel | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | Eye/Lightbulb primitives and sentiment flow partially implemented; district aggregate pipeline incomplete |
-| G. Provider switching | Default local WebLLM; remote providers opt-in with cost/privacy clarity | Local default path is wired; provider consent UI and multi-provider switching are not implemented |
-
-Direction boundary:
-
-- `CanonicalAnalysisV1` is legacy compatibility only.
-- New north-star epics are: story clustering, Topic Synthesis V2 epochs/quorum, linked-social notifications, Docs publishing flow, and Civic Action Kit facilitation.
+| G. Provider switching | Default local WebLLM; remote providers opt-in with cost/privacy clarity | ✅ Local default path wired (`LocalMlEngine`); remote engine opt-in wired with `local-first` policy (#133); provider consent UI in place |
 
 ---
 
-## Recently Completed (Issues #3, #4, #6, #11, #12, #15, #18, #19, #22, #23, #24, #27, #33, #40, #44, #46, #47, #50, #53, #56, #59, #61, #63, #66, #68, #69, #70, #71, #72, #73, #77, #80, #87, #90, #98, #106, #112, #115, #120, #126, #129, #133)
+## Test & Coverage Truth
 
-- ✅ **Issue #3** — Chief token smoke test: validated agent loop smoke test infrastructure.
-- ✅ **Issue #11** — Added root `pnpm typecheck` script.
-- ✅ **Issue #12** — Landed defensive-copy semantics for `getFullIdentity()` plus race test harness coverage.
-- ✅ **Issue #15** — Extended typecheck coverage to remaining packages.
-- ✅ **Issue #18** — Fixed ~100 web-pwa typecheck errors.
-- ✅ **Issue #19** — Fixed contracts and e2e typecheck errors: added typecheck scripts for both packages (PR #32, merged 2026-02-06).
-- ✅ **Issue #22** — Split `DevColorPanel.tsx` into 5 focused files in `apps/web-pwa/src/components/`:
-  - `DevColorPanel.tsx`
-  - `ColorControl.tsx`
-  - `colorConfigs.ts`
-  - `colorUtils.ts`
-  - `useColorPanel.ts`
-- ✅ **Issue #23** — Aligned `Identity` / `IdentityRecord` types across packages.
-- ✅ **Issue #24** — Added `apps/web-pwa/tsconfig.test.json` for test-file typechecking.
-- ✅ **Issue #27** — Fixed fresh-checkout typecheck: workspace `exports.types` point at `src/`, data-model uses `bundler` moduleResolution, gun-client stale references removed (PR #30, `4d19026c`).
-- ✅ **Issue #33** — Restored 100% coverage gate: added `colorUtils.test.ts` (15 tests for hex↔HSL, parseColor, buildColor), excluded type-only files and dev-only hooks from instrumentation (PR #35, merged 2026-02-06).
-- ✅ **Issue #6** — SSR-hardened localStorage access: created `safeStorage.ts` utility with SSR-safe `safeGetItem`/`safeSetItem`/`safeRemoveItem`, applied to xpLedger and profile stores (PR #38, merged 2026-02-06).
-- ✅ **Issue #4** — SMOKE: agent loop end-to-end smoke test — validated full ritual (spec → impl → QA → maint → merge) with a docs-only PR (PR #41, merged 2026-02-06).
-- ✅ **Issue #40** — Migrated all remaining bare `localStorage` calls to `safeStorage` utility (13 files), added ESLint `no-restricted-globals` rule to prevent regressions (PR #42, merged 2026-02-06).
-- ✅ **Issue #44** — CSP meta tag + secure storage policy enforcement: added restrictive `<meta>` CSP to `index.html`, extracted inline E2E script to `public/e2e-init.js`, created `docs/specs/secure-storage-policy.md` (3-tier model: Vault/safeStorage/Ephemeral), added CSP test + storage audit test. All existing tests pass, 100% coverage maintained (PR #45, merged 2026-02-07).
-- ✅ **Issue #47** — CSP header hardening documentation: created `docs/foundational/CSP_HEADER_MIGRATION.md` (current posture, meta-tag limitations with W3C/MDN sources, 3-phase migration playbook with Report-Only, Permissions-Policy guidance, decision log), added CSP guardrail to `ARCHITECTURE_LOCK.md` §2.4, added inline HTML comment in `index.html` pointing to migration doc. Docs-only, no runtime changes. All gates green, 100% coverage maintained (PR #111, SHA `a4e3fd8`, merged 2026-02-07). Follow-up: #112 (doc coherence tweaks from maint review).
-- ✅ **Issue #46** — Added canonical delegation/familiar type foundations: `FamiliarRecord`, `DelegationGrant`, `OnBehalfOfAssertion` interfaces + Zod schemas, `DelegationTier`/`DelegationScope` types, `TIER_SCOPES` constant (PR #48, merged 2026-02-07).
-- ✅ **Issue #50** — Added participation governor type foundations: `BudgetActionKey` (8-key string literal union), `BudgetLimit`/`DailyUsage`/`NullifierBudget` interfaces + Zod schemas, `BUDGET_ACTION_KEYS` runtime tuple, `SEASON_0_BUDGET_DEFAULTS` constant. Full test suite with 100% coverage (PR #51, merged 2026-02-07).
-- ✅ **Issue #53** — Added participation governor runtime utilities: `initializeNullifierBudget`, `rolloverBudgetIfNeeded`, `canConsumeBudget`, `consumeBudget` pure functions + `BudgetCheckResult` interface. 52 tests, 100% coverage (PR #54, merged 2026-02-07).
-- ✅ **Issue #56** — Wired participation governor budget enforcement into forum store: budget state persisted per-nullifier in XP ledger, `canPerformAction`/`consumeAction` methods exposed, `posts/day` (20) and `comments/day` (50) enforced in `createThread`/`createComment` with check-before/consume-after pattern. New `xpLedgerBudget.ts` bridge file (59 LOC). 582 tests, 100% coverage (PR #57, merged 2026-02-07).
-- ✅ **Issue #59** — Wired `governance_votes/day` budget enforcement into `useGovernanceStore.submitVote`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, `setActiveNullifier` called unconditionally for all votes. 5 new tests, 587 total, 100% coverage maintained (PR #60, merged 2026-02-07).
-- ✅ **Issue #63** — Wired `sentiment_votes/day` budget enforcement into `useSentimentState.setAgreement`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, `setActiveNullifier` called before budget check. Season 0 limit: 200 sentiment votes/day per nullifier. 100% coverage maintained (PR #64, merged 2026-02-07).
-- ✅ **Issue #66** — Wired `analyses/day` budget enforcement into `AnalysisFeed.tsx`: check-before/consume-after pattern via `canPerformAction`/`consumeAction`, budget checked before `getOrGenerate`, consumed only when result is fresh (not reused) and nullifier is present. Season 0 limits: 25 analyses/day per nullifier, max 5/topic. 9 new test cases, 604 total, 100% coverage maintained (PR #67, merged 2026-02-07).
-- ✅ **Issue #69** — Budget denial UX hardening: `useSentimentState.setAgreement` now returns `{ denied: true, reason }` and logs `console.warn` on budget denial (was silent void return). `AnalysisFeed.runAnalysis` resolves with `analysis: null` on denial (was `{} as CanonicalAnalysis` type-unsafe cast). `handleSubmit` guards null analysis. Reason fallback uses `||` for empty-string edge case. `createBudgetDeniedResult` helper exported. 10 new tests, 721 total, 100% coverage maintained (PR #96, merged 2026-02-07).
-- ✅ **Issue #98** — Gated `consumeAction('analyses/day')` on non-null analysis result. Prevents phantom budget debit when `getOrGenerate` returns null analysis. 1 LOC fix + 1 test assertion correction. 721 tests, 100% coverage maintained (PR #102, merged 2026-02-07).
-- ✅ **Issue #68** — TOCTOU budget hardening: added synchronous `useRef` guard in AnalysisFeed to prevent concurrent double-submit race, plus TOCTOU documentation comments at forum `consumeAction` call sites. 3 new concurrency tests (TC-1/TC-2/TC-3). 724 tests, 100% coverage maintained (PR #104, merged 2026-02-07).
-- ✅ **Issue #106** — Wired `shares/day` budget enforcement into AnalysisFeed: share button with `navigator.share` + clipboard fallback, check-before/consume-after pattern via `canPerformAction`/`consumeAction`. Season 0 limit: 10 shares/day per nullifier. Last dormant key in currently enforced UI flows; budget model defines 8 keys total, with `moderation/day` and `civic_actions/day` remaining backlog integrations. 10 new tests, 734 tests total, 100% coverage maintained (PR #107, SHA `6306df5`, merged 2026-02-07).
-- ✅ **Issue #61** — Cleanup: removed redundant eager `setActiveNullifier` useEffect from `ProposalList.tsx` (−4 lines, dead `useXpLedger` import removed). Added comprehensive regression test suite for ProposalList (1→11 tests). 744 tests total, 100% coverage maintained (PR #109, SHA `99001fd`, merged 2026-02-07).
-- ✅ **Issue #70** — Hardened budget localStorage validation: added `validateBudgetOrNull` using `NullifierBudgetSchema.safeParse` at the restore boundary, wrapped `ensureBudget` with try/catch fallback to `initializeNullifierBudget`. 22 new tests, 623 total, 100% coverage maintained (PR #75, merged 2026-02-07).
-- ✅ **Issue #71** — Hardened `useGovernance.ts` branch coverage from 72% to 100%: added 26 focused tests covering early-return paths (no active identity, missing nullifier, empty proposals, duplicate vote dedup), governance vote budget enforcement (limit hit, budget consumed on success), proposal hydration edge cases (empty/populated stores, multiple proposals), and `initGovernance` sequencing. Minor source fix: early-return when `proposals` is empty in `hydrateProposals`. Removed stale `useGovernance.ts` from coverage exclusion in `vitest.config.ts`. 685 tests total, 100% coverage maintained (PR #86, merged 2026-02-07).
-- ✅ **Issue #72** — Budget test scaffolding dedup + code comments cleanup: deduped `today()`/`todayISO()` between `xpLedger.ts` and `xpLedgerBudget.ts`, extracted shared `createBudgetMock()` test helper in `test-utils/budgetMock.ts`, added intentionality comments for budget call sites in `useSentimentState.ts`, restored inline Map type docs in `xpLedger.ts`, exported `ANALYSIS_FEED_STORAGE_KEY` constant for test use. 6 files changed, net −16 lines. 711 tests, 100% coverage maintained (PR #94, merged 2026-02-07).
-- ✅ **Issue #73** — Closed as already addressed: the imprecise spec language ("same pattern as `useGovernance.submitVote`") referenced in the issue was never committed to spec docs; all STATUS.md entries correctly describe the "check-before/consume-after" pattern. No changes needed.
-- ✅ **Issue #77** — Unified Topics Model: added `topicId`, `sourceUrl`, `urlHash`, `isHeadline` to Thread schema, `ProposalExtensionSchema` with proposal extension on threads, `via` field on comments, topic derivation utilities (`sha256Hex`, `deriveTopicId`, `deriveUrlTopicId`) using Web Crypto API, wired derivation into `createThread`, added `via` param to `createComment`. 652 tests, 100% coverage maintained (PR #78, merged 2026-02-07).
-- ✅ **Issue #90** — Forum Proposal Guard Hardening: used Approach C (destructure `proposal` out before spreading) in `parseThreadFromGun` to prevent array-valued proposals from leaking through. Added `!Array.isArray` triple-guard. 18 new tests in new `helpers.test.ts` covering tags parsing, proposal guard (arrays/objects/null/primitives/`_` stripping), and field pass-through. 711 tests total, 100% coverage maintained (PR #92, merged 2026-02-07).
-- ✅ **Issue #87** — Governance Storage Guard Hardening: added `&& !Array.isArray(parsed)` to `readFromStorage` and `readStoreMap` type guards in `useGovernance.ts`, preventing JSON arrays from passing the `typeof === 'object'` check. 8 new tests (array rejection, valid object regression, null/primitive handling). 693 tests total, 100% coverage maintained (PR #89, merged 2026-02-07). Follow-up #90 filed for `forum/helpers.ts` proposal guard audit.
-- ✅ **Issue #80** — Feed↔Forum UI Integration: wired `sourceUrl` from AnalysisFeed through route/ForumFeed/NewThreadForm to `createThread` opts. Analysis-feed-created threads now carry `topicId`, `sourceUrl`, `urlHash`, `isHeadline: true`. 659 tests, 100% coverage maintained (PR #81, merged 2026-02-07).
-- ✅ **Issue #112** — CSP doc coherence pass: reconciled `report-uri` deprecation wording with fallback recommendation in `CSP_HEADER_MIGRATION.md`, tightened `style-src 'unsafe-inline'` rationale in `ARCHITECTURE_LOCK.md` (CSS-in-JS → Tailwind utility-class injection), annotated multi-line header example, added `connect-src` forward-reference for Gun relay peers. Docs-only, no runtime changes.
-- ✅ **Issue #115** — TOCTOU hardening for `shares/day` in AnalysisFeed share flow: added synchronous guard to prevent concurrent double-consume race in share budget enforcement, mirroring the pattern established in #68 for analysis requests. 7 new tests, 751 tests total, 100% coverage maintained (PR #116, SHA `662b7fa`, merged 2026-02-08).
-- ✅ **Issue #120** — VENN De-Mock: routed analysis generation through `ai-engine` pipeline end-to-end. Removed inline mock generator from `AnalysisFeed.tsx`; UI now calls `createAnalysisPipeline()` (new `pipeline.ts`) which exercises the full `buildPrompt → EngineRouter → parse → validate` chain. Mock engine moved from `worker.ts` inline to `createDefaultEngine()` in `engines.ts` (engine-layer default, not UI-level bypass). `CanonicalAnalysis` type aligned with v1 contract: added `schemaVersion: 'canonical-analysis-v1'`, `engine?`, `warnings?` fields. `EngineUnavailableError` typed error added, EngineRouter fallback logic improved for all policy modes. 10 new tests, 761 tests total, 100% coverage maintained (PR #121, SHA `b5c922d`, merged 2026-02-08).
-- ✅ **Issue #126** — WebLLM LocalMlEngine: added `LocalMlEngine` class with lazy WebGPU initialization and `EngineUnavailableError` safe failure path. Wired AnalysisFeed to use `LocalMlEngine` when not in E2E mode (explicit opt-in for real inference). Refactored `createDefaultEngine()` → extracted `createMockEngine()` + `isE2EMode()` helper. `createDefaultEngine()` remains mock for safe fallback; consumers explicitly opt into `LocalMlEngine`. 7 new localMlEngine tests + updated engine/AnalysisFeed tests. `localMlEngine.ts` coverage-exempt (browser-only WebGPU boundary). 773 tests total, 100% coverage maintained (PR #127, SHA `35229c7`, merged 2026-02-08).
-- ✅ **Issue #129** — Engine Default Truth-Alignment: made `createDefaultEngine()` truthful — returns `LocalMlEngine` in non-E2E mode, `createMockEngine()` in E2E/test mode. Simplified `AnalysisFeed.tsx` to use `createAnalysisPipeline()` without manual engine construction. Extracted shared types (`JsonCompletionEngine`, `EnginePolicy`, `EngineUnavailableError`) into `engineTypes.ts` to break `engines.ts` ↔ `localMlEngine.ts` circular dependency. `isE2EMode()` now checks both `import.meta.env` and `process.env` for dual Vite/Node context. 776 tests total, 100% coverage maintained (PR #130, SHA `52c3cdc`, merged 2026-02-08).
-- ✅ **Issue #133** — Remote Engine Opt-In + Router Policy Wiring: added `RemoteApiEngine` class with timeout, error handling, and security-hardened request payload (prompt-only, no identity data). Extended `createAnalysisPipeline()` to accept `PipelineConfig` with dual-engine `EngineRouter` support (`local-first` policy with remote fallback). Added `useRemoteEngineOptIn` hook (persisted via `safeStorage`, default `false`). Added `<EngineSettings />` toggle with consent language (hidden when `VITE_REMOTE_ENGINE_URL` empty). Extracted `<AnalysisFeedCard />` to keep `AnalysisFeed.tsx` under 350 LOC. `createRemoteEngine()` returns `undefined` in E2E mode. Defensive guard on pipeline engine lookup. 808 tests total, 100% coverage maintained (PR #134, SHA `e017624`, merged 2026-02-08).
+**Gate verification date:** 2026-02-11 (Run C, full re-verification)
+**Branch verified:** `integration/wave-1` at `925fd34` → merged to `main` at `cd22dd0`
 
----
+| Gate | Result | Detail |
+|------|--------|--------|
+| `pnpm typecheck` | ✅ PASS | 16 of 17 workspace projects |
+| `pnpm lint` | ✅ PASS | 16 of 17 workspace projects |
+| `pnpm test:quick` | ✅ PASS | 110 test files, 1390 tests |
+| `pnpm deps:check` | ✅ PASS | No circular dependencies |
+| `pnpm test:e2e` | ✅ PASS | 10 E2E tests passed |
+| `pnpm bundle:check` | ✅ PASS | 180.61 KiB gzipped (< 1 MiB limit) |
+| `pnpm test:coverage` | ✅ PASS | 100% all metrics |
+| Feature-flag variants | ✅ PASS | Both ON/OFF pass all 1390 tests |
 
-## Active Follow-ups
+**Coverage (verified):**
 
-No active follow-ups.
-
-Next work (direction-aligned):
-
-- Implement News Aggregator ingestion and StoryBundle clustering.
-- Implement Topic Synthesis V2 quorum/epoch pipeline and re-synthesis triggers.
-- Add linked-social OAuth + notification cards (vault-only token storage).
-- Ship reply (240 chars) to Docs-backed article conversion flow.
-- Implement elevation artifacts (BriefDoc, ProposalScaffold, TalkingPoints, local Receipt).
-- Add representative directory, native forwarding intents, and receipt tracking.
+| Metric | Value |
+|--------|-------|
+| Statements | 100% (4531/4531) |
+| Branches | 100% (1492/1492) |
+| Functions | 100% (388/388) |
+| Lines | 100% (4531/4531) |
 
 ---
 
 ## Sprint Completion Status
 
-| Sprint | Doc Status | Actual Status | Key Gaps |
-|--------|------------|---------------|----------|
-| **Sprint 0** (Foundation) | ✅ Archived | ✅ Complete | None — monorepo, CLI, CI, core packages done |
-| **Sprint 1** (Core Bedrock) | ✅ Archived | ⚠️ 90% Complete | Testnet deployment never done (localhost only); attestation is stub |
-| **Sprint 2** (Civic Nervous System) | ✅ Complete | ✅ Complete | Pipeline exercised end-to-end; `createDefaultEngine()` returns `LocalMlEngine` (WebLLM) in non-E2E mode (#129); `RemoteApiEngine` wired with `local-first` opt-in policy (#133); EngineRouter dual-engine fallback active |
-| **Sprint 3** (Communication) | ✅ Complete | ✅ Complete | Messaging E2EE working; Forum working; XP integrated |
-| **Sprint 3.5** (UI Refinement) | ✅ Complete | ✅ Complete | Stance-based threading; design unification |
-| **Sprint 4** (Agentic Foundation) | ⚪ Planning | 🟡 In Progress | Delegation types + participation governor types, runtime utils, forum, governance vote, sentiment vote, analyses & shares enforcement wiring landed; budget model defines 8 keys and 6 are currently enforced in runtime flows (`shares/day` added in #106); budget denial UX hardened (#69); consume-on-null fix (#98); TOCTOU budget hardening (#68, #115); unified topics fully landed (schema + derivation + Feed↔Forum integration, PRs #78/#81); ProposalList cleanup landed (#61); CSP documentation follow-up landed (#47); VENN pipeline de-mocked — analysis generation now routes through `ai-engine` pipeline end-to-end (#120); default engine truthful (#129); remote engine opt-in with `local-first` policy wired (#133); remaining budget enforcement (moderation/civic_actions) is backlog-scoped (no active issue currently filed) |
-| **Sprint 5** (Bridge + Docs) | ⚪ Planning | ⚪ Not Started | Docs updated for Civic Action Kit (facilitation model); no code yet (`docs/sprints/05-sprint-the-bridge.md`) |
-
----
-
-## Docs vs. Code Alignment (Key Deltas)
-
-| Doc / Spec | Intended State | Current Code State | Evidence |
-|------------|----------------|--------------------|----------|
-| Sprint 1 Core Bedrock | Attestation verifier validates Apple/Google chains | Stub logic (token prefix/length); no real chain validation | `services/attestation-verifier/src/main.rs:105-136` |
-| Sprint 1 Core Bedrock | Contracts deployed to Sepolia/Base with verified sources | Deploy script exists; only localhost deployments committed | `packages/contracts/scripts/deploy-testnet.ts` + `packages/contracts/deployments/localhost.json` |
-| AI_ENGINE_CONTRACT + Sprint 2 | Remote/local engines + policy routing (remote-first etc.) | ✅ Pipeline exercised end-to-end with dual-engine support. `createDefaultEngine()` returns `LocalMlEngine` (WebLLM) in non-E2E (#129). `RemoteApiEngine` wired via `local-first` opt-in (#133). EngineRouter active with fallback for all policy modes | `packages/ai-engine/src/pipeline.ts` + `packages/ai-engine/src/engines.ts` + `packages/ai-engine/src/engineTypes.ts` + `packages/ai-engine/src/remoteApiEngine.ts` |
-| Hero_Paths / Sentiment Spec | Constituency proofs + district aggregates | SentimentSignal emission requires constituency proof; no RegionProof generation or aggregates | `apps/web-pwa/src/hooks/useSentimentState.ts:76-100` |
-| Sprint 5 Bridge Plan | Civic Action Kit facilitation (reports + native intents) | Bridge is stubbed; facilitation features not implemented | `services/bridge-stub/index.ts` + `docs/sprints/05-sprint-the-bridge.md` |
-| Agentic Familiars (Delegation) | Delegation grants + OBO assertions | 🟡 Types + Zod schemas defined; runtime not implemented | `packages/types/src/delegation.ts` (PR #48); no familiar runtime yet |
-| Participation Governors | Action/analysis budgets per principal | 🟡 Types + defaults + runtime utils defined; forum (posts/comments), governance votes, sentiment votes, analyses & shares enforcement wired — 8 keys defined, 6 currently enforced in runtime flows | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64) + `AnalysisFeed.tsx` (PRs #67, #107); remaining store/flow integration (moderation, civic_actions) is backlog-scoped (no active issue currently filed) |
-| Unified Topics Model | Headlines ↔ threads share `topicId` + proposal threads | ✅ Schema, derivation, and Feed↔Forum integration done | `packages/data-model/src/schemas/hermes/forum.ts` + `apps/web-pwa/src/store/forum/helpers.ts` (PR #78) + `AnalysisFeed.tsx`/`ForumFeed.tsx`/`NewThreadForm.tsx` (PR #81) |
-| Topic Reanalysis Epochs | Frame/Reframe table updates after N posts via reanalysis | Not implemented | No reanalysis loop or digest types in app state |
-
----
-
-## Outstanding Work (Post-Refactor TODOs)
-
-The following tasks are required to align the codebase with the updated specs (agentic familiars, unified topics, participation governors).
-
-### P0 — Identity & Delegation
-
-| Task | Spec Reference | Files to Modify |
-|------|----------------|-----------------|
-| ✅ ~~Define `FamiliarRecord`, `DelegationGrant`, `OnBehalfOfAssertion` types~~ | `spec-identity-trust-constituency.md` §6 | Done — `packages/types/src/delegation.ts` (PR #48) |
-| Implement tiered scopes (Suggest/Act/High-Impact) with Tier 3 human-approval | `spec-identity-trust-constituency.md` §6 | New: `apps/web-pwa/src/hooks/useFamiliar.ts` |
-| Implement delegation grant creation/revocation | `spec-identity-trust-constituency.md` §6 | New: familiar management UI + store |
-
-### P0 — Participation Governors (Anti-Swarm Budgets)
-
-| Task | Spec Reference | Files to Modify |
-|------|----------------|-----------------|
-| ✅ ~~Define `BudgetActionKey`, `BudgetLimit`, `DailyUsage`, `NullifierBudget` types + Zod schemas, `SEASON_0_BUDGET_DEFAULTS`~~ | `spec-xp-ledger-v0.md` §4 | Done — `packages/types/src/budget.ts` (PR #51) |
-| ✅ ~~Implement runtime utilities: `initializeNullifierBudget`, `rolloverBudgetIfNeeded`, `canConsumeBudget`, `consumeBudget`, `BudgetCheckResult`~~ | `spec-xp-ledger-v0.md` §4 | Done — `packages/types/src/budget-utils.ts` (PR #54) |
-| ✅ ~~Wire budget enforcement into XP ledger store~~ | `spec-xp-ledger-v0.md` §4 | Done — `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) |
-| ✅ ~~Implement `canPerformAction(type)` budget check in stores~~ | `spec-xp-ledger-v0.md` §4 | Done — `canPerformAction`/`consumeAction` exposed via `xpLedgerBudget.ts` (PR #57) |
-| ✅ ~~Enforce budgets: posts/day=20, comments/day=50~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `createThread`/`createComment` with check-before/consume-after pattern (PR #57) |
-| ✅ ~~Enforce budgets: sentiment_votes/day=200~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `useSentimentState.setAgreement` with check-before/consume-after pattern (PR #64) |
-| ✅ ~~Enforce budgets: governance_votes/day=20~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `useGovernanceStore.submitVote` with check-before/consume-after pattern (PR #60) |
-| ✅ ~~Enforce budgets: analyses/day=25 (max 5/topic)~~ | `canonical-analysis-v1.md` §4.2 | Done — enforced in `AnalysisFeed.tsx` with check-before/consume-after pattern, per-topic sub-cap via `topicId` (PR #67) |
-| ✅ ~~Enforce budgets: shares/day=10~~ | `spec-xp-ledger-v0.md` §4 | Done — enforced in `AnalysisFeed.tsx` with share button + `navigator.share`/clipboard fallback, check-before/consume-after pattern (PR #107) |
-| Enforce budgets: moderation/day=10, civic_actions/day=3 *(backlog; no active issue currently filed)* | `spec-xp-ledger-v0.md` §4 | Various stores |
-
-### P0 — Unified Topics Model
-
-| Task | Spec Reference | Files to Modify |
-|------|----------------|-----------------|
-| ✅ ~~Add `topicId`, `sourceUrl`, `urlHash`, `isHeadline` to Thread schema~~ | `spec-hermes-forum-v0.md` §2.1 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
-| ✅ ~~Add `THREAD_TOPIC_PREFIX = "thread:"` constant~~ | `spec-hermes-forum-v0.md` §2.1.1 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
-| ✅ ~~Implement `topicId` derivation (sha256 for threads, urlHash for URLs)~~ | `spec-hermes-forum-v0.md` §2.1.1 | Done — `apps/web-pwa/src/store/forum/helpers.ts` (PR #78) |
-| ✅ ~~Add `via?: 'human' \| 'familiar'` to Comment schema~~ | `spec-hermes-forum-v0.md` §2.2 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
-| ✅ ~~Add `proposal?: ProposalExtension` to Thread schema~~ | `spec-hermes-forum-v0.md` §2.1 | Done — `packages/data-model/src/schemas/hermes/forum.ts` (PR #78) |
-| ✅ ~~Unify Feed ↔ Forum: headlines and threads share topicId~~ | `spec-hermes-forum-v0.md` §2.1.1 | Done — `AnalysisFeed.tsx`, `ForumFeed.tsx`, `NewThreadForm.tsx`, forum stores (PR #81) |
-
-### P1 — Topic Synthesis V2 (Quorum + Epochs)
-
-| Task | Spec Reference | Files to Modify |
-|------|----------------|-----------------|
-| Define `CandidateSynthesis`, `QuorumMeta`, `TopicSynthesisV2` types | `topic-synthesis-v2.md` §4 | `packages/data-model/src/schemas.ts` |
-| Implement candidate gathering (N=5, timeout=24h) | `topic-synthesis-v2.md` §4.1 | `packages/ai-engine/src/analysis.ts` |
-| Add verified-only candidate submission gate | `topic-synthesis-v2.md` §4.1 | `packages/ai-engine/src/analysis.ts` |
-| Implement critique/refine mandate (candidates compare to prior analyses) | `topic-synthesis-v2.md` §4.1 | `packages/ai-engine/src/prompts.ts` |
-| Implement synthesis engine (candidates → synthesis + divergence) | `topic-synthesis-v2.md` §4.2 | New: `packages/ai-engine/src/synthesis.ts` |
-| ✅ ~~Wire real AI engine (WebLLM) to replace mock default~~ | `AI_ENGINE_CONTRACT.md` | Done — `createDefaultEngine()` returns `LocalMlEngine` in non-E2E mode (#129); remote engine consent flow still pending |
-
-### P1 — Comment-Driven Re-Synthesis
-
-| Task | Spec Reference | Files to Modify |
-|------|----------------|-----------------|
-| Track verified comment count per topic since last synthesis | `topic-synthesis-v2.md` §4.3 | `apps/web-pwa/src/store/forum/index.ts` |
-| Track unique verified principals per topic | `topic-synthesis-v2.md` §4.3 | `apps/web-pwa/src/store/forum/index.ts` |
-| Implement re-synthesis trigger (N=10 comments, 3 unique principals) | `topic-synthesis-v2.md` §4.3 | New: re-synthesis hook or store action |
-| Implement debounce (30 min) and daily cap (4/topic) | `topic-synthesis-v2.md` §4.3 | Re-synthesis store |
-| Generate topic digest for re-analysis input | `Hero_Paths.md` | New: digest builder |
-
-### P2 — Agentic Guardrails
-
-| Task | Spec Reference | Files to Modify |
-|------|----------------|-----------------|
-| Implement deny-by-default tool access for familiars | `ARCHITECTURE_LOCK.md` §1.1 | Familiar runtime |
-| Add E2E mock for familiar orchestration (`VITE_E2E_MODE`) | `ARCHITECTURE_LOCK.md` §2.2 | Vite config, mock stores |
-| Implement prompt injection defenses (treat content as hostile) | `ARCHITECTURE_LOCK.md` §1.1 | Familiar runtime |
+| Sprint | Status | Key Outcomes |
+|--------|--------|-------------|
+| **Sprint 0** (Foundation) | ✅ Complete | Monorepo, CLI, CI, core packages |
+| **Sprint 1** (Core Bedrock) | ⚠️ 90% | Encrypted vault, identity types, contracts; testnet deployment landed (Sepolia); attestation hardened but not production-grade |
+| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, `LocalMlEngine` (WebLLM) default, `RemoteApiEngine` opt-in, EngineRouter dual-engine fallback |
+| **Sprint 3** (Communication) | ✅ Complete | E2EE messaging, forum with stance-threading, XP integration |
+| **Sprint 3.5** (UI Refinement) | ✅ Complete | Stance-based threading, design unification |
+| **Sprint 4** (Agentic Foundation) | ✅ Complete | Delegation types + store + control panel; participation governors (8 keys, 6 enforced); unified topics; budget denial UX; TOCTOU hardening |
+| **Wave 1** (V2 Features) | ✅ Complete | Synthesis pipeline/store, news aggregator/store, discovery feed/cards, delegation runtime + familiar panel, bridge/attestor wiring |
+| **Sprint 5** (Bridge + Docs) | ⚪ Planning | Civic Action Kit facilitation model, collaborative docs |
 
 ---
 
@@ -216,28 +141,14 @@ The following tasks are required to align the codebase with the updated specs (a
 
 **Status:** 🔴 **Stubbed** — Development placeholder only
 
-| Feature | Whitepaper | Implementation | Evidence |
-|---------|------------|----------------|----------|
-| Hardware TEE binding | ✅ Specified | ❌ Not implemented | No Secure Enclave/StrongBox code |
-| VIO liveness detection | ✅ Specified | ❌ Not implemented | No sensor fusion code |
-| BioKey hardware | ✅ Specified | ❌ Not implemented | No hardware integration |
-| Trust score calculation | ✅ Specified | ⚠️ Stub logic | `main.rs:105-116` — token length/prefix checks |
-| Nullifier derivation | ✅ Specified | ⚠️ Device-bound | `main.rs:162` — SHA256(device_key + salt) |
-| Identity storage | Secure | ✅ Encrypted vault (`vh-vault`/`vault`) + in-memory identity provider | `apps/web-pwa/src/hooks/useIdentity.ts` + `packages/identity-vault/src/*` |
-| Sybil resistance | ✅ Specified | ❌ Not implemented | No uniqueness checking |
-| Social recovery | ✅ Specified | ❌ Not implemented | No Lazarus Protocol code |
-| Multi-device linking | ✅ Specified | ⚠️ Local-only stub | `useIdentity.ts:174+` (local record updates only) |
-
-**Current Trust Score Logic:**
-```rust
-// services/attestation-verifier/src/main.rs:105-116
-fn verify_web(payload, mock_mode) -> f32 {
-    if mock_mode || token == "test-token" { return 1.0; }
-    if token.len() > 8 { 0.8 } else { 0.0 }
-}
-// iOS: 1.0 if starts with "apple-", else 0.5
-// Android: 1.0 if starts with "google-", else 0.5
-```
+| Feature | Implementation | Evidence |
+|---------|----------------|----------|
+| Hardware TEE binding | ❌ Not implemented | No Secure Enclave/StrongBox code |
+| VIO liveness detection | ❌ Not implemented | No sensor fusion code |
+| Trust score calculation | ⚠️ Hardened stub | `main.rs` — structured validation, rate limiting; no real chain validation |
+| Nullifier derivation | ⚠️ Device-bound | SHA256(device_key + salt) |
+| Identity storage | ✅ Encrypted vault | `identity-vault` package (IndexedDB) |
+| Sybil resistance | ❌ Not implemented | No uniqueness checking |
 
 **⚠️ WARNING:** Current identity layer provides no real sybil defense. Do not use for production governance or economics.
 
@@ -245,271 +156,146 @@ fn verify_web(payload, mock_mode) -> f32 {
 
 ### Agentic Familiars (Delegation)
 
-**Status:** 🟡 **Types Defined** — Runtime not implemented
+**Status:** 🟡 **Store + Hooks + UI Landed** — Full runtime orchestration pending
 
 | Feature | Implementation | Evidence |
 |---------|----------------|----------|
-| Delegation grants / OBO assertions | 🟡 Types + schemas defined | `packages/types/src/delegation.ts` (PR #48) |
-| Familiar runtime modes (suggest/act/high-impact) | ❌ Not implemented | No familiar orchestration layer |
-| Action/compute budgets per nullifier | 🟡 Types + runtime utils defined; forum, governance, sentiment, analyses & shares enforcement wired — 8 keys defined, 6 currently enforced in runtime flows | `packages/types/src/budget.ts` (PR #51) + `packages/types/src/budget-utils.ts` (PR #54) + `apps/web-pwa/src/store/xpLedgerBudget.ts` (PR #57) + `useGovernanceStore.submitVote` (PR #60) + `useSentimentState.setAgreement` (PR #64) + `AnalysisFeed.tsx` (PRs #67, #107); posts/day, comments/day, governance_votes/day, sentiment_votes/day, analyses/day & shares/day enforced; remaining action types (moderation, civic_actions) pending |
-
-**Invariant:** Familiars inherit the principal’s trust gate and budgets; they never add influence.
+| Delegation store (grants/revocation) | ✅ Landed | `store/delegation/index.ts` |
+| Persistence (safeStorage) | ✅ Landed | `store/delegation/persistence.ts` |
+| `useFamiliar` hook | ✅ Landed | `store/delegation/useFamiliar.test.ts` |
+| FamiliarControlPanel UI | ✅ Landed | `components/hermes/FamiliarControlPanel.tsx` |
+| Delegation utility functions | ✅ Landed | `packages/types/src/delegation-utils.ts` |
+| Budget enforcement (6/8 keys) | ✅ Wired | posts, comments, governance/sentiment votes, analyses, shares |
+| Full familiar orchestration | ❌ Not implemented | No autonomous agent loop |
 
 ---
 
 ### GWC (Economics Layer)
 
-**Status:** 🟡 **Contracts Implemented, Undeployed to Public Testnet**
+**Status:** 🟡 **Contracts Implemented, Sepolia Deployed**
 
 | Feature | Contract | Tests | Deployed |
 |---------|----------|-------|----------|
-| RVU Token (ERC-20) | ✅ `RVU.sol` | ✅ | ⚠️ Localhost only |
+| RVU Token (ERC-20) | ✅ `RVU.sol` | ✅ | ⚠️ Localhost + Sepolia |
 | UBE Distribution | ✅ `UBE.sol` | ✅ | ❌ Not deployed |
 | Quadratic Funding | ✅ `QuadraticFunding.sol` | ✅ | ❌ Not deployed |
-| Median Oracle | ✅ `MedianOracle.sol` | ✅ | ⚠️ Localhost only |
+| Median Oracle | ✅ `MedianOracle.sol` | ✅ | ⚠️ Localhost + Sepolia |
 | Faucet | ✅ `Faucet.sol` | ✅ | ❌ Not deployed |
 
 **Deployment Artifacts:**
-```
-packages/contracts/deployments/
-└── localhost.json  ← Only deployment (RVU + MedianOracle)
-```
-- `deployments/localhost.json` — ✅ Exists (deployed 2025-11-21)
-- `deployments/sepolia.json` — ❌ Not committed
-- `deploy-testnet.ts` — ✅ Script exists (supports Sepolia, Base Sepolia)
-
-**Sprint 1 Gap:** Testnet deployment was listed as a goal but never completed. Script exists, artifact does not.
-
-**XP Ledger:**
-- Implementation: ✅ Complete (`store/xpLedger.ts`)
-- Tests: ✅ Comprehensive (caps, tracks, per-nullifier isolation)
-- Storage: localStorage `vh_xp_ledger` (per-nullifier)
-- Integration: ✅ Wired to Messaging (socialXP), Forum (civicXP), Governance (projectXP)
-
-**Attestor Bridge:**
-- Implementation: ⚠️ Stub only (`services/bridge-stub/index.ts` logs payload, no on-chain writes)
-- Spec: `docs/specs/spec-attestor-bridge-v0.md`
-- Purpose: SessionResponse (trustScore, nullifier) → on-chain registration (UBE, Faucet, QF)
-
-**Frontend Governance (Season 0):**
-- Proposals: ✅ Seeded locally (`seedProposals`) — legacy Proposal objects; migration to proposal-threads pending
-- Legacy ProposalSchema: ⚠️ Deprecated — do not build new features against it; use thread `proposal` extension
-- Voting: ✅ Local-only (localStorage `vh_governance_votes`) — to be wired to proposal-threads
-- On-chain QF: ❌ Not exposed to public users (curators/dev accounts only)
-
-**⚠️ WARNING:** Do not enable UBE claiming until identity layer provides sybil resistance.
+- `deployments/localhost.json` — ✅ (deployed 2025-11-21)
+- `deployments/sepolia.json` — ✅ (landed Wave 1)
 
 ---
 
 ### VENN (Canonical Analysis Layer)
 
-**Status:** 🟡 **Pipeline Exercised End-to-End, Default Engine Truthful (WebLLM)**
+**Status:** 🟡 **Pipeline End-to-End, V2 Synthesis Types Landed**
 
 | Feature | Implementation | Evidence |
 |---------|----------------|----------|
-| Prompt builder | ✅ Implemented | `prompts.ts` — `buildPrompt(articleText)` with GOALS/GUIDELINES |
-| Response parser | ✅ Implemented | `schema.ts` — `parseAnalysisResponse()` handles wrapped + bare JSON |
-| Schema validation | ✅ Implemented | `schema.ts` — `AnalysisResultSchema` + `CanonicalAnalysisSchema` (Zod) |
-| Hallucination guardrails | ✅ Implemented | `validation.ts` — `validateAnalysisAgainstSource()` |
-| First-to-file lookup | ✅ Implemented | `analysis.ts` — `getOrGenerate()` with v1 contract compliance |
-| Analysis pipeline | ✅ Implemented | `pipeline.ts` — `createAnalysisPipeline()`: buildPrompt → EngineRouter → parse → validate |
-| Engine router | ✅ Exercised | `engines.ts` — `EngineRouter` active with fallback logic for all policy modes |
-| AI engine (WebLLM) | ✅ Wired (non-E2E) | `localMlEngine.ts` — `LocalMlEngine` class with lazy WebGPU init; wired into AnalysisFeed when `!isE2EMode()` (#126) |
-| AI engine (Remote) | ✅ Wired (opt-in) | `remoteApiEngine.ts` — `RemoteApiEngine` class with timeout + security-hardened payload; available via `local-first` policy when user opts in (#133) |
-| Mock engine | ⚠️ E2E/test only | `engines.ts` — `createMockEngine()` returned by `createDefaultEngine()` only when `isE2EMode()` is true; non-E2E callers get `LocalMlEngine` by default (#129) |
-
-**Sprint 2 AI Engine Contract Status:**
-- ✅ `AI_ENGINE_CONTRACT.md` spec written
-- ✅ `EnginePolicy` types defined (`remote-first`, `local-first`, etc.)
-- ✅ `EngineRouter` class implemented with fallback logic for all policy modes
-- ✅ `EngineUnavailableError` typed error for exhausted fallback chains
-- ✅ `createAnalysisPipeline()` exercises full pipeline: buildPrompt → EngineRouter → parse → validate
-- ✅ Worker uses `createAnalysisPipeline(createDefaultEngine())` — pipeline and engine are both real in non-E2E mode (#129)
-- ✅ `CanonicalAnalysis` aligned with v1 contract: `schemaVersion`, `engine?`, `warnings?`
-- ✅ Tests cover policy behaviors, fallbacks, and pipeline end-to-end
-- ✅ `LocalMlEngine` class wired — lazy WebGPU init, `EngineUnavailableError` safe failure, used by AnalysisFeed in non-E2E mode (#126)
-- ✅ **Default engine is now truthful** — `createDefaultEngine()` returns `LocalMlEngine` in non-E2E mode, `createMockEngine()` only when `isE2EMode()` (#129)
-- ✅ **Remote API engine wired** — `RemoteApiEngine` available via `local-first` policy with explicit user opt-in (#133); `createRemoteEngine()` helper reads `VITE_REMOTE_ENGINE_URL` env
-
-**Current AI Architecture (pipeline exercised, default engine truthful in non-E2E):**
-```typescript
-// packages/ai-engine/src/pipeline.ts — full pipeline, main-thread-safe
-export function createAnalysisPipeline(engine?: JsonCompletionEngine) {
-  const activeEngine = engine ?? createDefaultEngine();
-  const router = createRouter(activeEngine); // EngineRouter with policy
-  return async (articleText: string): Promise<PipelineResult> => {
-    const prompt = buildPrompt(articleText);           // 1. prompt construction
-    const { text } = await router.generate(prompt);    // 2. EngineRouter → engine
-    const analysis = parseAnalysisResponse(text);      // 3. JSON parsing
-    const warnings = validateAnalysisAgainstSource(articleText, analysis); // 4. validation
-    return { analysis, engine: toEngineMetadata(activeEngine), warnings };
-  };
-}
-
-// packages/ai-engine/src/engines.ts — default engine is truthful (#129)
-export function createDefaultEngine(): JsonCompletionEngine {
-  if (isE2EMode()) return createMockEngine();  // E2E/test → mock
-  return new LocalMlEngine();                   // production → real WebLLM
-}
-
-// packages/ai-engine/src/pipeline.ts — dual-engine support (#133)
-export function createAnalysisPipeline(
-  engineOrConfig?: JsonCompletionEngine | PipelineConfig  // backward compat
-): (articleText: string) => Promise<PipelineResult>;
-// PipelineConfig: { policy?: EnginePolicy; remoteEngine?: JsonCompletionEngine }
-// local-first + remoteEngine → EngineRouter tries local, falls back to remote
-
-// packages/ai-engine/src/worker.ts — worker wires pipeline + default engine
-const runPipeline = createAnalysisPipeline(createDefaultEngine());
-```
-
-**Civic Signals:**
-- Eye (read tracking): ✅ Implemented, local-only
-- Lightbulb (engagement): ✅ Implemented, local-only
-- Sentiment (agreement): ✅ Implemented, local-only
-- Mesh aggregation: ❌ Not implemented
-
-**Constituency Proofs:**
-- SentimentSignal emission requires `constituency_proof` and currently short-circuits without it.
-- No RegionProof generation or district aggregation is implemented.
-
-**First-to-File Limitations (v1 → v2 Direction):**
-- Current (v1): First analysis is immutable, vulnerable to poisoning
-- Risk: Single attacker can publish misleading canonical analysis
-- Planned (v2): Quorum synthesis - first N candidates compared + synthesized
-- v2 will add challenge/supersession path; v1 records remain immutable
-- Defaults (v2): N=5, timeout=24h, debounce=30m, daily cap=4/topic
-- See `docs/specs/topic-synthesis-v2.md` for quorum synthesis contract
-
-**v2 Implementation Gaps:**
-
-| Feature | Spec | Status |
-|---------|------|--------|
-| `CandidateSynthesis` type | `topic-synthesis-v2.md` §4 | ❌ Missing |
-| Candidate gathering (N=5, timeout=24h) | `topic-synthesis-v2.md` §4.1 | ❌ Missing |
-| Verified-only candidate submission | `topic-synthesis-v2.md` §4.1 | ❌ Missing |
-| Critique/refine prior analyses | `topic-synthesis-v2.md` §4.1 | ❌ Missing |
-| Synthesis engine (divergence table) | `topic-synthesis-v2.md` §4.2 | ❌ Missing |
-| Comment-driven re-synthesis | `topic-synthesis-v2.md` §4.3 | ❌ Missing |
-| Per-principal analysis budget (25/day, 5/topic) | `spec-xp-ledger-v0.md` §4 | ✅ Types + runtime utils defined; enforcement wired in `AnalysisFeed.tsx` via check-before/consume-after pattern (PR #67) |
+| Analysis pipeline (v1) | ✅ End-to-end | `pipeline.ts` — buildPrompt → EngineRouter → parse → validate |
+| `LocalMlEngine` (WebLLM) | ✅ Default in non-E2E | `localMlEngine.ts` |
+| `RemoteApiEngine` (opt-in) | ✅ Wired | `remoteApiEngine.ts` with `local-first` policy |
+| Synthesis types (v2) | ✅ Landed | `synthesisTypes.ts` — `CandidateSynthesis`, `QuorumMeta`, `TopicSynthesisV2` |
+| Candidate gatherer | ✅ Landed | `candidateGatherer.ts` — N-of-M, timeout, verified-only gate |
+| Quorum engine | ✅ Landed | `quorum.ts` — divergence scoring, merge |
+| Epoch scheduler | ✅ Landed | `epochScheduler.ts` — debounce, daily cap, re-synthesis triggers |
+| Synthesis store | ✅ Landed | `store/synthesis/` — Zustand + hydration |
+| Gun synthesis adapters | ✅ Landed | `synthesisAdapters.ts` — topic-keyed read/write |
+| Runtime wiring (v2 → UI) | ❌ Pending | Synthesis pipeline not yet connected to discovery feed |
 
 ---
 
 ### HERMES (Communication Layer)
 
-#### Messaging
+#### Messaging — 🟢 Implemented
 
-**Status:** 🟢 **Implemented**
+| Feature | Status |
+|---------|--------|
+| E2EE encryption (SEA) | ✅ |
+| Gun sync | ✅ |
+| Topology guard | ✅ |
+| XP integration | ✅ |
 
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| E2EE encryption | ✅ SEA shared secret | `hermesCrypto.ts:4` |
-| Gun sync | ✅ Real integration | `hermesAdapters.ts` |
-| Topology guard | ✅ Enforced | `topology.ts:55` |
-| XP integration | ✅ Complete | `xpLedger.ts` |
-| Trust gating | ⚠️ Forum-only | Forum checks trustScore ≥ 0.5; chat does not |
+#### Forum — 🟢 Implemented + Unified Topics
 
-**Dependencies:** Messaging assumes a valid identity/session; current attestation is stubbed (see LUMA).
+| Feature | Status |
+|---------|--------|
+| Threaded comments (stance-based) | ✅ |
+| `topicId`/`sourceUrl`/`urlHash`/`isHeadline` | ✅ |
+| Feed↔Forum integration | ✅ |
+| `via` field (human/familiar) | ✅ |
+| Proposal extension on threads | ✅ |
 
-#### Forum
+#### Bridge (Civic Action Kit) — 🟡 Wired
 
-**Status:** 🟢 **Implemented** (core features); ✅ **Unified Topics fully landed (schema + derivation + Feed↔Forum integration)**
+| Feature | Status |
+|---------|--------|
+| Attestation verifier (hardened) | ✅ Structured validation, rate limiting |
+| Facilitation endpoints (stubs) | ✅ Landed |
+| Receipt storage | ✅ Stub landed |
+| PDF report generation | ❌ Not implemented |
+| Native intents | ❌ Not implemented |
 
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| Threaded comments | ✅ Complete | `CommentStream.tsx` |
-| Stance-based threading | ✅ Complete | concur/counter/discuss |
-| Voting | ✅ Complete | `VoteControl.tsx` |
-| Gun sync | ✅ Real integration | `forumAdapters.ts` |
-| XP integration | ✅ Complete | thread/comment/quality XP |
-| `topicId` field | ✅ Schema + derivation done | `topicId`, `sourceUrl`, `urlHash`, `isHeadline` on Thread; derivation wired into `createThread` (PR #78) |
-| `via` field on Comment | ✅ Schema done | `via?: 'human' \| 'familiar'` on Comment; wired into `createComment` (PR #78) |
-| Unified Feed ↔ Forum | ✅ Integration wired | `sourceUrl` flows from AnalysisFeed through route/ForumFeed/NewThreadForm to `createThread`; threads carry `topicId`, `sourceUrl`, `urlHash`, `isHeadline` (PR #81) |
+#### Docs (Collaborative) — ⚪ Planned
 
-#### Docs (Collaborative)
-
-**Status:** ⚪ **Planned**
-
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| Doc schema | ❌ Not implemented | — |
-| CRDT provider | ❌ Not implemented | — |
-| Docs store | ❌ Not implemented | — |
-
-#### Bridge (Civic Action Kit)
-
-**Status:** ⚪ **Planned/Stub** — Redesign in progress toward facilitation model
-
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| Report generator (PDF) | ❌ Not implemented | — |
-| Native intents (email/phone/share) | ❌ Not implemented | — |
-| Contact directory | ❌ Not implemented | — |
-| Receipt storage | ❌ Not implemented | — |
-| Legacy automation stub | ⚠️ Stub only | `services/bridge-stub/index.ts:1` |
-
-**Planned Redesign:** Facilitation model (PDF reports + contact directory + native intents), not automated form submission.  
-**Spec:** `docs/specs/spec-civic-action-kit-v0.md` (canonical)
+No implementation.
 
 ---
 
-## Known Gaps vs. Whitepapers
+### News Aggregator
 
-| Whitepaper Claim | Current Reality |
-|------------------|-----------------|
-| "Hardware Root of Trust" (LUMA) | Encrypted vault + in-memory provider are in place, but no TEE integration yet |
-| "VIO liveness detection" (LUMA) | Not implemented |
-| "Holographic vectors" (LUMA) | Not implemented |
-| "Mathematically private" (LUMA) | Device-bound nullifier, not human-bound |
-| "BMR compliance" (GWC) | No compliance implementation |
-| "Local AI inference" (VENN) | ✅ Local: `LocalMlEngine` (WebLLM) default (#126, #129). Remote: `RemoteApiEngine` opt-in with `local-first` policy (#133). Both engines wired through `EngineRouter` |
-| "Sovereign Delivery" (HERMES) | Redesigning as facilitation (Civic Action Kit) |
+**Status:** 🟢 **Implemented** (new in Wave 1)
 
-**⚠️ Whitepapers describe target architecture, not current implementation.**
+| Feature | Implementation | Evidence |
+|---------|----------------|----------|
+| RSS/Atom ingest | ✅ | `services/news-aggregator/src/ingest.ts` |
+| HTML normalization | ✅ | `normalize.ts` |
+| TF-IDF story clustering | ✅ | `cluster.ts` |
+| Provenance tracking | ✅ | `provenance.ts` |
+| News store (Zustand) | ✅ | `store/news/` |
+| Gun news adapters | ✅ | `newsAdapters.ts` |
+| StoryBundle schemas | ✅ | `schemas/hermes/storyBundle.ts` |
+
+---
+
+### Discovery Feed
+
+**Status:** 🟢 **Implemented** (new in Wave 1)
+
+| Feature | Implementation | Evidence |
+|---------|----------------|----------|
+| Feed shell + filter chips | ✅ | `components/feed/FeedShell.tsx` |
+| Sort controls | ✅ | `SortControls.tsx` |
+| Hotness ranker (time-decay + engagement) | ✅ | `HotnessRanker.ts` |
+| TopicCard / NewsCard / SocialNotificationCard | ✅ | `components/feed/` |
+| Discovery store + ranking | ✅ | `store/discovery/` |
+| `useDiscoveryFeed` hook | ✅ | Feature-flag gated (`VITE_FEED_V2_ENABLED`) |
+| `useSynthesis` hook | ✅ | Feature-flag gated (`VITE_TOPIC_SYNTHESIS_V2_ENABLED`) |
 
 ---
 
 ## Security Considerations
 
-### Current Risks (Code-Verified)
+### Current Risks
 
-| Risk | Severity | Status | Evidence |
-|------|----------|--------|----------|
-| No sybil defense | 🔴 High | Open | `main.rs:162` (device-only nullifier) |
-| Trust scores spoofable | 🔴 High | Open | `main.rs:105-116` |
-| AI engine default truthful (WebLLM) | 🟢 Resolved | Closed | `engines.ts` — `createDefaultEngine()` returns `LocalMlEngine` in non-E2E mode (#129); mock only in E2E/test |
-| First-to-file poisoning | 🟡 Medium | Open | `analysis.ts:30-48` (no supersession) |
+| Risk | Severity | Status |
+|------|----------|--------|
+| No sybil defense | 🔴 High | Open |
+| Trust scores spoofable | 🔴 High | Open (hardened stubs, not production) |
+| First-to-file poisoning (v1) | 🟡 Medium | Open (v2 quorum types landed, runtime pending) |
 
 ### Mitigations in Place
 
-- ✅ **Resolved (PR #10):** identity is no longer persisted in localStorage; encrypted IndexedDB vault is authoritative, with migration-only legacy key handling.
-- ✅ **Resolved (PR #10):** identity publish event leak removed (`vh:identity-published` carries no identity payload).
-- ✅ **Resolved (PR #10):** master-key initialization race hardened via atomic IndexedDB `add` flow.
-- ✅ **Resolved (PR #10):** migration clobber guard prevents stale legacy identity from overwriting existing vault state.
+- ✅ Identity stored in encrypted IndexedDB vault (not localStorage)
 - ✅ Topology guard prevents unauthorized Gun writes
 - ✅ Encryption required for sensitive mesh paths
-- ✅ XP ledger is local-only (no off-device leak)
-- ✅ Civic signals stay local, only aggregates planned for mesh
-- ⚠️ Constituency proofs are required for SentimentSignal emission; currently missing in app state
-
----
-
-## Test Coverage
-
-**Repo-wide (Vitest `pnpm test:quick`):** 808 tests (unit + component + integration).
-
-**Coverage (`pnpm test:coverage`, last validated 2026-02-08):**
-
-| Metric | Value |
-|--------|-------|
-| Statements | 100% |
-| Branches | 100% |
-| Functions | 100% |
-| Lines | 100% |
-
-> Note: Coverage totals vary as files are added/modified. Gate enforces 100% on all metrics. Exact counts available from CI.
-
-✅ **Coverage gate (100% threshold) passes.**
+- ✅ XP ledger is local-only
+- ✅ Participation governors enforce rate limits (6/8 budget keys active)
+- ✅ TOCTOU hardening on concurrent budget operations
+- ✅ Attestation verifier has structured validation and rate limiting
+- ✅ AI engine default is truthful (`LocalMlEngine` in non-E2E)
 
 ---
 
@@ -518,91 +304,61 @@ const runPipeline = createAnalysisPipeline(createDefaultEngine());
 | Environment | Status | Artifacts |
 |-------------|--------|-----------|
 | Localhost (Anvil) | ✅ Working | `deployments/localhost.json` |
-| Sepolia Testnet | ❌ Not deployed | Script exists: `deploy-testnet.ts` |
+| Sepolia Testnet | ✅ Deployed | `deployments/sepolia.json` |
 | Base Sepolia | ❌ Not deployed | Script exists |
 | Mainnet | ❌ Not planned | — |
 
 ---
 
-## Roadmap to Production-Ready
+## Feature Flags (Wave 1)
 
-### Immediate Blockers (Must Fix)
+| Flag | Purpose | Default |
+|------|---------|---------|
+| `VITE_FEED_V2_ENABLED` | Gates discovery feed v2 UI | `false` |
+| `VITE_TOPIC_SYNTHESIS_V2_ENABLED` | Gates synthesis v2 hooks | `false` |
+| `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine opt-in | empty (disabled) |
 
-| Blocker | Severity | Sprint Gap | Fix |
-|---------|----------|------------|-----|
-| ~~AI engine implementation mocked~~ | ~~🟡 Medium~~ | ~~Sprint 2~~ | ✅ Resolved — `createDefaultEngine()` returns `LocalMlEngine` (WebLLM) in non-E2E mode (#129); remote engine not yet wired |
-| Testnet undeployed | 🟡 Medium | Sprint 1 | Run `deploy-testnet.ts` to Sepolia |
-| Attestation is stub | 🟡 Medium | Sprint 1 | Label as DEV ONLY or implement real validation |
-| No sybil defense | 🔴 High | N/A (LUMA gap) | Research pragmatic uniqueness checking |
-
-### Phase 1: Complete Sprint Gaps (Immediate)
-
-- [ ] **Deploy contracts to Sepolia** — Run existing `deploy-testnet.ts`, commit artifact
-- [x] **Integrate real AI engine** — `createDefaultEngine()` returns `LocalMlEngine` (WebLLM) in non-E2E mode (#126, #129); remote engine consent flow still pending
-- [ ] **Label attestation as DEV ONLY** — Prevent false security assumptions
-- [ ] **Add beta warnings to UI** — Prominent disclaimers on analyses/governance
-
-### Phase 2: Security Hardening (30 days)
-
-- [x] Move identity persistence from localStorage to encrypted IndexedDB vault (`vh-vault`/`vault`) — completed in PR #10 (`813558c`), including DOM event leak removal, master-key race hardening, and migration clobber guard.
-- [ ] Implement first-N quorum canonicalization (supersession for poisoned analyses)
-- [ ] Add cohort thresholds for any aggregate display (N≥20)
-
-### Phase 3: Bridge Redesign (Sprint 5)
-
-- [ ] Redesign as facilitation model (PDF reports + contact directory + native intents)
-- [ ] Remove automation language from documentation
-- [ ] Legal review before any form automation
-- [ ] Add representative contact database (public data)
-
-### Phase 4: Identity Strengthening (90 days)
-
-- [ ] Research pragmatic sybil defense (federated attestation, social vouching)
-- [ ] Implement basic uniqueness checking (even if centralized initially)
-- [ ] Design hardware attestation integration path (Secure Enclave, StrongBox)
+All Wave 1 features are flag-gated. Tests pass in both ON and OFF configurations.
 
 ---
 
-## How to Interpret This Document
+## Next Work (Wave 2 Direction)
 
-- **🟢 Implemented** — Feature works and is tested
-- **🟡 Partial** — Feature exists but has significant gaps
-- **🔴 Stubbed** — Placeholder code only, not functional
-- **⚪ Planned** — Design exists, no implementation
-- **❌ Not implemented** — No code exists
+- Wire synthesis pipeline runtime to discovery feed UI (v2 end-to-end)
+- Feature-flag retirement (Wave 1 flags → permanent on)
+- Implement linked-social OAuth + notification cards
+- Ship reply-to-article conversion flow (240 chars → Docs)
+- Implement elevation artifacts (BriefDoc, ProposalScaffold, TalkingPoints)
+- Add representative directory + native forwarding intents
+- Enforce remaining budget keys (moderation/day, civic_actions/day)
 
 ---
 
 ## References
 
-### Architecture & Vision
-- `System_Architecture.md` — Target architecture (partially implemented)
-- `docs/foundational/LUMA_BriefWhitePaper.md` — Identity vision (mostly aspirational)
-- `docs/foundational/GWC_BriefWhitePaper.md` — Economics vision (contracts implemented, undeployed)
-- `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails (enforced)
+### Wave 1 Artifacts
+- `docs/reports/WAVE1_INTEGRATION_READINESS.md` — Integration gate report
+- `docs/reports/PHASE_MAPPING_ADDENDUM.md` — Salvage protocol phase mapping
+- `docs/reports/FIRST_SLICE_STABILITY_REVIEW.md` — First slice stability review
+- `docs/reports/SECOND_SLICE_STABILITY_REVIEW.md` — Second slice stability review
+- `docs/foundational/WAVE1_STABILITY_DECISION_RECORD.md` — Stability decision record
+- `docs/foundational/V2_Sprint_Staffing_Plan.md` — Wave 1 staffing plan
+- `docs/foundational/WAVE1_KICKOFF_COMMAND_SHEET.md` — Wave 1 kickoff commands
 
-### Canonical Specs
-- `docs/specs/canonical-analysis-v1.md` — Legacy analysis schema (compatibility only)
-- `docs/specs/topic-synthesis-v2.md` — Quorum synthesis contract (planned)
-- `docs/foundational/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract (pipeline exercised end-to-end via `createAnalysisPipeline`; default engine is `LocalMlEngine` (WebLLM) in non-E2E mode, mock in E2E/test — #129)
-- `docs/specs/spec-civic-sentiment.md` — Eye/Lightbulb/Sentiment spec (implemented locally)
+### Architecture & Specs
+- `System_Architecture.md` — Target architecture
+- `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails
+- `docs/foundational/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract
+- `docs/specs/topic-synthesis-v2.md` — Quorum synthesis contract
+- `docs/specs/spec-civic-action-kit-v0.md` — Civic Action Kit spec
 - `docs/specs/spec-xp-ledger-v0.md` — XP ledger spec (fully implemented)
-- `docs/specs/spec-identity-trust-constituency.md` — Identity contract (partially implemented)
-- `docs/specs/spec-rvu-economics-v0.md` — RVU/UBE/QF economics (contracts ready, undeployed)
-- `docs/specs/spec-data-topology-privacy-v0.md` — Data placement rules (implemented)
-- `docs/specs/spec-hermes-messaging-v0.md` — Messaging spec (implemented)
-- `docs/specs/spec-hermes-forum-v0.md` — Forum spec (implemented)
+- `docs/specs/spec-hermes-forum-v0.md` — Forum spec (implemented + unified topics)
 
 ### Sprint Documentation
 - `docs/sprints/archive/00-sprint-0-foundation.md` — ✅ Complete
-- `docs/sprints/archive/01-sprint-1-core-bedrock.md` — ⚠️ 90% (testnet gap)
-- `docs/sprints/02-sprint-2-advanced-features.md` — ⚠️ 85% (AI engine gap)
+- `docs/sprints/archive/01-sprint-1-core-bedrock.md` — ⚠️ 90% (attestation gap)
+- `docs/sprints/02-sprint-2-advanced-features.md` — ✅ Complete
 - `docs/sprints/03-sprint-3-the-agora.md` — ✅ Complete
 - `docs/sprints/03.5-sprint-3.5-ui-refinement.md` — ✅ Complete
-- `docs/sprints/04-sprint-agentic-foundation.md` — 🟡 In Progress (delegation types landed)
-- `docs/sprints/05-sprint-the-bridge.md` — ⚪ Planning (not started)
-
-### Developer Resources
-- `CONTRIBUTING.md` — Engineering standards (enforced)
-- `docs/foundational/Hero_Paths.md` — Canonical user journeys
-- `docs/sprints/MANUAL_TEST_CHECKLIST_SPRINT3.md` — Manual testing guide
+- `docs/sprints/04-sprint-agentic-foundation.md` — ✅ Complete
+- `docs/sprints/05-sprint-the-bridge.md` — ⚪ Planning
