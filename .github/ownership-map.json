@@ -61,6 +61,7 @@
     "w2a": {
         "branchPrefix": "w2a/",
         "paths": [
+            "packages/ai-engine/src/commentTracker*.ts",
             "packages/ai-engine/src/digestBuilder*.ts",
             "apps/web-pwa/src/store/synthesis/**",
             "apps/web-pwa/src/store/forum/**"
@@ -70,7 +71,11 @@
         "branchPrefix": "w2b/",
         "paths": [
             "packages/crdt/**",
+            "packages/data-model/src/schemas/hermes/docs*.ts",
+            "packages/data-model/src/schemas/hermes/forum*.ts",
+            "packages/data-model/src/index*.ts",
             "packages/gun-client/src/docsAdapters*.ts",
+            "packages/gun-client/src/index*.ts",
             "apps/web-pwa/src/store/hermesDocs*.ts",
             "apps/web-pwa/src/components/hermes/forum/CommentComposer*.tsx",
             "apps/web-pwa/src/components/docs/**"
