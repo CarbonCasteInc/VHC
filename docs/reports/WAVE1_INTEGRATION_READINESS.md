@@ -3,7 +3,7 @@
 - Checkpoint: final
 - Date (UTC): 2026-02-11
 - Branch: `integration/wave-1`
-- Integration HEAD: `68917b0acb7ef68cbacb101b5107d799778a7701`
+- Integration HEAD (start of final pass): `2e7e9dea7a104f9d41c7362fa88028ce388a3c7b`
 
 ## Scope
 Final integration-to-main readiness pass for Wave 1, including:
