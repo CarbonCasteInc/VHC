@@ -2,8 +2,28 @@ import { z } from 'zod';
 
 // ── Shared primitives ──────────────────────────────────────────────
 
-const SocialPlatform = z.enum(['bluesky', 'mastodon', 'nostr']);
-const NotificationType = z.enum(['mention', 'reply', 'repost', 'follow']);
+/**
+ * Canonical platform set from spec-linked-socials-v0.md §2.
+ * The 'other' variant is a catch-all for platforms not yet listed.
+ */
+const SocialProviderId = z.enum([
+  'x',
+  'reddit',
+  'youtube',
+  'tiktok',
+  'instagram',
+  'other',
+]);
+
+const NotificationType = z.enum([
+  'mention',
+  'reply',
+  'repost',
+  'quote',
+  'message',
+  'other',
+]);
+
 const PositiveTimestamp = z.number().int().nonnegative();
 
 // ── Social Notification ────────────────────────────────────────────
@@ -13,7 +33,7 @@ export const SocialNotificationSchema = z
     id: z.string().min(1),
     schemaVersion: z.literal('hermes-notification-v0'),
     accountId: z.string().min(1),
-    platform: SocialPlatform,
+    providerId: SocialProviderId,
     type: NotificationType,
     message: z.string().min(1),
     url: z.string().url().optional(),
@@ -28,11 +48,11 @@ export const LinkedSocialAccountSchema = z
   .object({
     id: z.string().min(1),
     schemaVersion: z.literal('hermes-linked-social-v0'),
-    platform: SocialPlatform,
-    handle: z.string().min(1),
-    verified: z.boolean().optional(),
+    providerId: SocialProviderId,
+    accountId: z.string().min(1),
+    displayName: z.string().optional(),
     connectedAt: PositiveTimestamp,
-    lastSyncAt: PositiveTimestamp.optional(),
+    status: z.enum(['connected', 'revoked', 'expired']).default('connected'),
   })
   .strict();
 

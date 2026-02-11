@@ -24,7 +24,7 @@ This delta captures what changed for Wave 2 and why, based on concrete Wave 1 in
 
 - ACTIVE_INTEGRATION_BRANCH=integration/wave-2
 - ACTIVE_WAVE_LABEL=wave-2
-- EXECUTION_BRANCH_PREFIXES=team-a/*,team-b/*,team-c/*,team-d/*,team-e/*,coord/*
+- EXECUTION_BRANCH_PREFIXES=team-a/*,team-b/*,team-c/*,team-d/*,team-e/*,w2a/*,w2b/*,w2g/*,coord/*
 - PARKED_BRANCH_PREFIX=agent/*
 
 All references in this sheet to "integration branch" mean $ACTIVE_INTEGRATION_BRANCH.
