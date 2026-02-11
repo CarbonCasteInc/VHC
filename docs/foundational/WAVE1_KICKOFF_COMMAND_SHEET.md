@@ -1,5 +1,7 @@
 # Wave 1 Kickoff Command Sheet
 
+Historical status: frozen for Wave 1 closeout. Do not reuse for Wave 2+ dispatch. Use `docs/foundational/WAVE2_KICKOFF_COMMAND_SHEET.md` for active execution.
+
 Companion to:
 - `docs/foundational/V2_Sprint_Staffing_Plan.md`
 - `docs/foundational/V2_Sprint_Staffing_Roles.md`

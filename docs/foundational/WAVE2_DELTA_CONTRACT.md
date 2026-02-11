@@ -76,6 +76,14 @@ Rationale: Wave 1 merge-to-main exposed branch-protection and Ownership Scope mi
 Policy: one subagent spawn per phase; no spawn may include instructions for subsequent phases; next phase starts only after prior phase artifact is verified.
 Rationale: Wave 1 multi-phase batching hit context limits and produced partial/no-output runs.
 
+11. CE dual-review is mandatory for Director-bound prompts.
+Policy: all execution prompts from Coordinator to Director must pass through `ce-codex` and `ce-opus` review using the fixed-schema CE Review Pass protocol before dispatch; direct prompts to Director without CE review are allowed only for break/fix emergencies with explicit logged rationale.
+Rationale: Wave 1 manual relay of dual-review was effective but added latency and risked dropped context; formalizing it as an agent loop removes relay friction.
+
+12. Wave-end documentation audit is required before next-wave dispatch.
+Policy: before declaring wave closeout or dispatching the next wave, run a formal doc audit (`ce-opus` for contract/policy coherence, `ce-codex` for execution fidelity) producing `docs/reports/WAVE<n>_DOC_AUDIT.md` with findings, drift matrix, fix list, and pass/fail status; no dispatch until `DOC_AUDIT_PASS`.
+Rationale: Wave 1 closeout revealed stale STATUS entries, missing doc artifacts on main, and branch-protection drift. A formal audit gate prevents recurrence.
+
 ---
 
 ## Exception Handling
