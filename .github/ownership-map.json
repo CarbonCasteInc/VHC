@@ -61,6 +61,7 @@
     "w2a": {
         "branchPrefix": "w2a/",
         "paths": [
+            "packages/ai-engine/src/commentTracker*.ts",
             "packages/ai-engine/src/digestBuilder*.ts",
             "apps/web-pwa/src/store/synthesis/**",
             "apps/web-pwa/src/store/forum/**"
