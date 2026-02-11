@@ -1,26 +1,42 @@
 import { z } from 'zod';
 
-// Wave 0 contract stub. Wave 2 will tighten schema details.
+// ── Shared primitives ──────────────────────────────────────────────
+
+const SocialPlatform = z.enum(['bluesky', 'mastodon', 'nostr']);
+const NotificationType = z.enum(['mention', 'reply', 'repost', 'follow']);
+const PositiveTimestamp = z.number().int().nonnegative();
+
+// ── Social Notification ────────────────────────────────────────────
+
 export const SocialNotificationSchema = z
   .object({
     id: z.string().min(1),
+    schemaVersion: z.literal('hermes-notification-v0'),
     accountId: z.string().min(1),
-    platform: z.string().min(1),
+    platform: SocialPlatform,
+    type: NotificationType,
     message: z.string().min(1),
     url: z.string().url().optional(),
-    createdAt: z.number().int().nonnegative()
+    read: z.boolean().default(false),
+    createdAt: PositiveTimestamp,
   })
-  .passthrough();
+  .strict();
 
-// Wave 0 contract stub. Wave 2 will tighten schema details.
+// ── Linked Social Account ──────────────────────────────────────────
+
 export const LinkedSocialAccountSchema = z
   .object({
     id: z.string().min(1),
-    platform: z.string().min(1),
+    schemaVersion: z.literal('hermes-linked-social-v0'),
+    platform: SocialPlatform,
     handle: z.string().min(1),
-    connectedAt: z.number().int().nonnegative()
+    verified: z.boolean().optional(),
+    connectedAt: PositiveTimestamp,
+    lastSyncAt: PositiveTimestamp.optional(),
   })
-  .passthrough();
+  .strict();
+
+// ── Exported types ─────────────────────────────────────────────────
 
 export type SocialNotification = z.infer<typeof SocialNotificationSchema>;
 export type LinkedSocialAccount = z.infer<typeof LinkedSocialAccountSchema>;
