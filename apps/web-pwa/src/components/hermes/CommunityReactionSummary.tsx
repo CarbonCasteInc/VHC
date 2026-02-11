@@ -152,7 +152,10 @@ const IconAction: React.FC<{ icon: React.ReactNode; label: string; action: Actio
 }) => (
   <button
     className="inline-flex items-center rounded-lg bg-slate-900/40 p-2 text-slate-400 transition hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-amber-500"
-    onClick={() => onOpen(action)}
+    onClick={() => {
+      // TODO(wave-2): wire checkCivicActionsBudget/consumeCivicActionsBudget when civic actions execute real delivery flows.
+      onOpen(action);
+    }}
     aria-describedby={`${action}-coming-soon`}
     aria-label={label}
     title={label}

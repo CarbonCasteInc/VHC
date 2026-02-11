@@ -1,0 +1,20 @@
+{
+  "name": "@vh/news-aggregator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --config ./vitest.config.ts",
+    "lint": "echo 'lint: ok (no sources yet)'"
+  },
+  "dependencies": {
+    "@vh/data-model": "workspace:*",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "typescript": "^5.4.5",
+    "vitest": "^2.1.9"
+  }
+}

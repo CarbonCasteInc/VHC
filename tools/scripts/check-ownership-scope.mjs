@@ -41,7 +41,10 @@ function globToRegExp(glob) {
   const normalized = glob.endsWith('/') ? `${glob}**` : glob;
   const withSentinel = normalized.replace(/\*\*/g, '__DOUBLE_STAR__');
   const escaped = escapeRegex(withSentinel);
-  const wildcardExpanded = escaped.replace(/__DOUBLE_STAR__/g, '.*').replace(/\*/g, '[^/]*');
+  // Replace single-star BEFORE expanding double-star sentinel,
+  // so the `*` inside the expanded `.*` is not clobbered.
+  const singleExpanded = escaped.replace(/\*/g, '[^/]*');
+  const wildcardExpanded = singleExpanded.replace(/__DOUBLE_STAR__/g, '.*');
   return new RegExp(`^${wildcardExpanded}$`);
 }
 
@@ -53,8 +56,18 @@ function resolveHeadRef() {
   return headRef;
 }
 
+function inferBaseRef(headRef) {
+  // Wave-1 team branches target integration/wave-1 by default.
+  // Coordinator or other branches default to main unless GITHUB_BASE_REF is set.
+  if (/^team-[a-e]\//.test(headRef)) {
+    return 'integration/wave-1';
+  }
+  return 'main';
+}
+
 function resolveMergeBase() {
-  const baseRef = process.env.GITHUB_BASE_REF || 'main';
+  const headRef = process.env.GITHUB_HEAD_REF || run('git rev-parse --abbrev-ref HEAD');
+  const baseRef = process.env.GITHUB_BASE_REF || inferBaseRef(headRef);
   if (!/^[A-Za-z0-9._/-]+$/.test(baseRef)) {
     fail(`invalid base ref: ${baseRef}`);
   }

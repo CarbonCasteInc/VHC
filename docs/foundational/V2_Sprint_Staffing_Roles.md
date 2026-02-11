@@ -70,6 +70,18 @@ All PRs require these CI status checks to pass:
 - `Bundle Size` (less than 1 MiB gzip)
 - `Ownership Scope` (file changes within team-owned paths)
 
+### CI job management
+
+- Do not manually cancel CI jobs. Each job has an explicit `timeout-minutes` configured in the workflow.
+- Manual cancellation is permitted only with deterministic proof of a code-level failure, not wall-clock intuition. If uncertain, wait for timeout.
+- Lighthouse is required for PRs touching `apps/web-pwa/**` and informational/skipped for other changes.
+
+### Merge queue
+
+- `integration/wave-1` uses GitHub merge queue. PRs should be set to auto-merge (`gh pr merge --merge --auto`) after chief gate validation.
+- The merge queue batches PRs, tests the merged result, and merges atomically. Do not manually rebase PRs just to make them "up to date."
+- Queue may reorder independent PRs; dependency ordering (D/E -> B -> A -> C) is enforced by dispatch/enqueue timing.
+
 ### Mock factory obligation
 
 Any new Zustand store must export a `createMock*Store()` factory for E2E mode. This enables downstream consumers (especially Team C) to work with mock data before real implementations land.
@@ -227,12 +239,14 @@ If a merged PR breaks CI on `integration/wave-1` and the team cannot fix within 
 
 #### Phase 4: Merge
 
-1. Merge only if all are true:
+1. Confirm all are true before approving auto-merge:
    - QA green from fresh checkout
    - Maint has zero Must findings
    - All CI status checks pass (including Ownership Scope)
-   - Merge ordering is respected
-2. After merge, sync `integration/wave-1` and confirm landed SHA.
+   - Merge ordering is respected (no enqueued PR depends on an unmerged upstream)
+2. PR should be set to auto-merge (`gh pr merge --merge --auto`). If not, set it now.
+3. Do not manually cancel CI jobs while merge queue processes the PR. Trust job-level timeouts.
+4. After merge queue lands the PR, confirm merged SHA in completion report.
 
 #### Phase 5: Closeout
 
@@ -386,7 +400,11 @@ Make the smallest correct change, prove it with tests, and keep files small.
    - `pnpm lint`
    - `pnpm test:quick`
    - `pnpm test:coverage`
-8. Push branch with exact commit SHA and report to Chief.
+8. **Mid-task checkpoint** (required before push):
+   - Emit progress report to Chief: files changed, test count, gate results, elapsed time.
+   - If elapsed time exceeds 60% of session budget, push branch immediately and report to Chief. Chief can dispatch a follow-up session for PR creation.
+   - Do not attempt push + PR creation + CI polling in the same session if budget is tight.
+9. Push branch with exact commit SHA and report to Chief.
 
 ### Report format
 
@@ -401,6 +419,8 @@ Make the smallest correct change, prove it with tests, and keep files small.
 - Feature flags used: [list or "none"]
 - Risks/unknowns: [list]
 - What QA should focus on: [guidance]
+- Mid-task checkpoint emitted: [yes/no, with timing]
+- Session budget consumed: [minutes used / budget]
 ```
 
 ---
@@ -455,6 +475,7 @@ If it is not tested and stable, it is not shipped.
 - Flakes found/fixed: [list]
 - Feature flag states tested: [list]
 - Merge recommendation: [go/no-go with rationale]
+- CI job durations observed: [list any that approached timeout]
 ```
 
 ---
@@ -498,6 +519,8 @@ Example matrix entries:
 4. Run privacy lint (no sensitive fields in public mesh paths).
 5. Run feature flag validation (both flag states).
 6. Report results to Coordinator and affected team Chiefs.
+7. Monitor CI job health: if a job exceeds its documented timeout, investigate after it is killed. Do not preemptively cancel.
+8. Generate checkpoint report via `tools/scripts/generate-stability-report.mjs` (when available). Output to `docs/reports/STABILITY_<slice>_<timestamp>.md`. Until automation is ready, use manual template from `docs/reports/STABILITY_REPORT_SCHEMA.md`.
 
 ### Final integration pass duties
 
@@ -561,6 +584,8 @@ Review against diff `origin/integration/wave-1...<branch>`. Check for:
 - Mock factory presence for new stores
 - Security posture (zero-trust inputs, no secrets)
 - Architecture coherence with existing patterns
+- Merge queue compliance (PR has auto-merge set, no manual rebase workarounds)
+- CI job management compliance (no manual cancellation without deterministic justification)
 
 ### Specialist fallback
 

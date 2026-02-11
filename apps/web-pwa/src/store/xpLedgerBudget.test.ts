@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { initializeNullifierBudget, consumeBudget, type NullifierBudget } from '@vh/types';
+import { initializeNullifierBudget, consumeBudget, type NullifierBudget, type BudgetActionKey } from '@vh/types';
 import {
   todayISO,
   validateBudgetOrNull,
   ensureBudget,
   checkBudget,
-  consumeFromBudget
+  consumeFromBudget,
+  checkModerationBudget,
+  consumeModerationBudget,
+  checkCivicActionsBudget,
+  consumeCivicActionsBudget
 } from './xpLedgerBudget';
 
 describe('xpLedgerBudget', () => {
@@ -165,5 +169,66 @@ describe('xpLedgerBudget', () => {
   it('consumeFromBudget initializes budget when null then consumes', () => {
     const next = consumeFromBudget(null, 'n1', 'posts/day');
     expect(next.usage.find((entry) => entry.actionKey === 'posts/day')?.count).toBe(1);
+  });
+
+  it('legacy six budget keys still pass through generic guard entrypoints', () => {
+    const legacyKeys: BudgetActionKey[] = [
+      'posts/day',
+      'comments/day',
+      'sentiment_votes/day',
+      'governance_votes/day',
+      'analyses/day',
+      'shares/day'
+    ];
+    const budget = initializeNullifierBudget('n1', '2024-01-01');
+
+    for (const key of legacyKeys) {
+      const checked = checkBudget(budget, 'n1', key);
+      expect(checked.result).toEqual({ allowed: true });
+    }
+  });
+
+  it('checkModerationBudget returns denied when at moderation/day limit', () => {
+    let budget = initializeNullifierBudget('n1', '2024-01-01');
+    for (let i = 0; i < 10; i += 1) {
+      budget = consumeModerationBudget(budget, 'n1');
+    }
+    const checked = checkModerationBudget(budget, 'n1');
+    expect(checked.result).toEqual({
+      allowed: false,
+      reason: 'Daily limit of 10 reached for moderation/day'
+    });
+  });
+
+  it('consumeModerationBudget throws when denied', () => {
+    let budget = initializeNullifierBudget('n1', '2024-01-01');
+    for (let i = 0; i < 10; i += 1) {
+      budget = consumeModerationBudget(budget, 'n1');
+    }
+    expect(() => consumeModerationBudget(budget, 'n1')).toThrow(
+      'Daily limit of 10 reached for moderation/day'
+    );
+  });
+
+  it('checkCivicActionsBudget returns denied when at civic_actions/day limit', () => {
+    let budget = initializeNullifierBudget('n1', '2024-01-01');
+    for (let i = 0; i < 3; i += 1) {
+      budget = consumeCivicActionsBudget(budget, 'n1');
+    }
+    const checked = checkCivicActionsBudget(budget, 'n1');
+    expect(checked.result).toEqual({
+      allowed: false,
+      reason: 'Daily limit of 3 reached for civic_actions/day'
+    });
+  });
+
+  it('consumeCivicActionsBudget throws when denied', () => {
+    let budget = initializeNullifierBudget('n1', '2024-01-01');
+    for (let i = 0; i < 3; i += 1) {
+      budget = consumeCivicActionsBudget(budget, 'n1');
+    }
+    expect(() => consumeCivicActionsBudget(budget, 'n1')).toThrow(
+      'Daily limit of 3 reached for civic_actions/day'
+    );
   });
 });

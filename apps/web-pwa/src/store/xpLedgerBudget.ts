@@ -81,3 +81,47 @@ export function consumeFromBudget(
   const budget = ensureBudget(current, nullifier);
   return consumeBudget(budget, action, amount, topicId);
 }
+
+/**
+ * Reusable moderation/day budget guard entrypoint.
+ */
+export function checkModerationBudget(
+  current: NullifierBudget | null,
+  nullifier: string,
+  amount = 1
+): { result: BudgetCheckResult; budget: NullifierBudget } {
+  return checkBudget(current, nullifier, 'moderation/day', amount);
+}
+
+/**
+ * Reusable moderation/day budget consume entrypoint.
+ */
+export function consumeModerationBudget(
+  current: NullifierBudget | null,
+  nullifier: string,
+  amount = 1
+): NullifierBudget {
+  return consumeFromBudget(current, nullifier, 'moderation/day', amount);
+}
+
+/**
+ * Reusable civic_actions/day budget guard entrypoint.
+ */
+export function checkCivicActionsBudget(
+  current: NullifierBudget | null,
+  nullifier: string,
+  amount = 1
+): { result: BudgetCheckResult; budget: NullifierBudget } {
+  return checkBudget(current, nullifier, 'civic_actions/day', amount);
+}
+
+/**
+ * Reusable civic_actions/day budget consume entrypoint.
+ */
+export function consumeCivicActionsBudget(
+  current: NullifierBudget | null,
+  nullifier: string,
+  amount = 1
+): NullifierBudget {
+  return consumeFromBudget(current, nullifier, 'civic_actions/day', amount);
+}

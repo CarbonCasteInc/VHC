@@ -102,6 +102,17 @@ export {
   TIER_SCOPES
 } from './delegation';
 
+export {
+  type CreateGrantOptions,
+  type DelegationCheckResult,
+  type CanPerformDelegatedOptions,
+  DEFAULT_MAX_GRANT_LIFETIME_MS,
+  createGrant,
+  revokeGrant,
+  canPerformDelegated,
+  isHighImpact
+} from './delegation-utils';
+
 export type HermesMessageType = 'text' | 'image' | 'file';
 export type HermesChannelType = 'dm';
 export type HermesAttachmentType = 'image' | 'file';

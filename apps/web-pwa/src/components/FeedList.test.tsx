@@ -2,7 +2,7 @@
 
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import FeedList from './FeedList';
 import { useFeedStore } from '../hooks/useFeedStore';
 
@@ -12,7 +12,12 @@ vi.mock('react-virtualized-auto-sizer', () => ({
 
 describe('FeedList', () => {
   beforeEach(() => {
+    vi.stubEnv('VITE_FEED_V2_ENABLED', 'false');
     useFeedStore.setState({ items: [], page: 0, hasMore: true, loading: false });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it('renders items from the store', async () => {

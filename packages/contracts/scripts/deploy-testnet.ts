@@ -5,8 +5,12 @@ import { ethers, network, run } from 'hardhat';
 const SUPPORTED_NETWORKS = new Set(['sepolia', 'baseSepolia']);
 const DAY_IN_SECONDS = 24 * 60 * 60;
 
+/** When DRY_RUN=true, run against hardhat network and write artifact for the target network. */
+const DRY_RUN = process.env.DRY_RUN === 'true';
+const DRY_RUN_TARGET = process.env.DRY_RUN_TARGET || 'sepolia';
+
 async function verify(address: string, constructorArguments: unknown[]) {
-  if (network.name === 'hardhat' || network.name === 'localhost') {
+  if (DRY_RUN || network.name === 'hardhat' || network.name === 'localhost') {
     return;
   }
   try {
@@ -18,17 +22,28 @@ async function verify(address: string, constructorArguments: unknown[]) {
 }
 
 async function main() {
-  if (!SUPPORTED_NETWORKS.has(network.name)) {
-    throw new Error(`deploy-testnet supports only Sepolia/Base Sepolia. Received: ${network.name}`);
+  const isHardhatNetwork = network.name === 'hardhat' || network.name === 'localhost';
+
+  if (DRY_RUN && !isHardhatNetwork) {
+    throw new Error('DRY_RUN requires hardhat or localhost network');
   }
 
-  if (!process.env.TESTNET_PRIVATE_KEY) {
-    throw new Error('TESTNET_PRIVATE_KEY is required for testnet deployment');
+  if (!DRY_RUN) {
+    if (!SUPPORTED_NETWORKS.has(network.name)) {
+      throw new Error(`deploy-testnet supports only Sepolia/Base Sepolia. Received: ${network.name}`);
+    }
+
+    if (!process.env.TESTNET_PRIVATE_KEY) {
+      throw new Error('TESTNET_PRIVATE_KEY is required for testnet deployment');
+    }
   }
 
   if (process.env.MAINNET_PRIVATE_KEY) {
     console.warn('MAINNET_PRIVATE_KEY is ignored. Only TESTNET_PRIVATE_KEY is used for this script.');
   }
+
+  const targetNetwork = DRY_RUN ? DRY_RUN_TARGET : network.name;
+  console.log(`Mode: ${DRY_RUN ? 'DRY_RUN' : 'LIVE'} | Target: ${targetNetwork}`);
 
   const [deployer] = await ethers.getSigners();
   console.log(`Deploying to ${network.name} with ${deployer.address}`);
@@ -83,11 +98,18 @@ async function main() {
 
   const deploymentsDir = path.resolve(__dirname, '../deployments');
   mkdirSync(deploymentsDir, { recursive: true });
-  const filePath = path.join(deploymentsDir, `${network.name}.json`);
+  const filePath = path.join(deploymentsDir, `${targetNetwork}.json`);
+
+  const chainId = DRY_RUN
+    ? (targetNetwork === 'sepolia' ? 11155111 : 84532)
+    : Number((await ethers.provider.getNetwork()).chainId);
+
   const output = {
-    network: network.name,
+    network: targetNetwork,
+    chainId,
     deployedAt: new Date().toISOString(),
     deployer: deployer.address,
+    dryRun: DRY_RUN || undefined,
     contracts: {
       RVU: rvuAddress,
       MedianOracle: oracleAddress,

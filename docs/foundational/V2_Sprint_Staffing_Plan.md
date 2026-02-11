@@ -566,17 +566,22 @@ graph LR
   2. B merges before A integration steps that consume StoryBundle data.
   3. A merges before C final wiring steps that render V2 synthesis.
   4. C final wiring merges last.
+- **Merge queue** is enabled on `integration/wave-1`. PRs enter the queue via `gh pr merge --merge --auto` after chief validation gates pass. The queue tests the merged result of queued PRs and merges atomically, eliminating serial rebase cascades.
+- Queue may reorder independent PRs; dependency safety is enforced by dispatch/enqueue timing (do not enqueue dependent PRs early).
 - `integration/wave-1` is rebased/merged from `main` daily to minimize long-branch drift.
 - Rolling integration checkpoints every 48h (not only end-of-wave) with partial cross-team smoke.
+- **CI job management**: Do not manually cancel CI jobs. Each job has explicit `timeout-minutes`. Manual cancellation is permitted only with deterministic proof of a code-level failure, not wall-clock intuition.
 - Rollback protocol:
   - If a merged PR breaks CI on `integration/wave-1` and cannot be fixed within 24h, revert it from `integration/wave-1`.
   - Team fixes on feature branch and re-merges only after green.
   - Coordinator records revert reason and re-entry checklist.
 - After all teams are green, run a **3-day integration pass**: cross-team E2E tests, manual smoke, privacy lint. Then merge `integration/wave-1` -> `main`.
 
+**Operating decisions**: See `docs/foundational/WAVE1_STABILITY_DECISION_RECORD.md` for the full D1-D8 decision set governing CI configuration, coverage enforcement, agent runtime budgets, and reporting standards.
+
 **Integration pass gate** (must pass before merge to main):
 
-- Full CI pipeline green (quality, tests, E2E, bundle, lighthouse)
+- Full CI pipeline green (quality, tests, E2E, bundle). Lighthouse is required for PRs touching `apps/web-pwa/**`; informational otherwise.
 - Cross-team integration tests:
   - StoryBundle -> SynthesisV2 pipeline (A+B)
   - Feed renders news cards from real StoryBundle data (B+C)

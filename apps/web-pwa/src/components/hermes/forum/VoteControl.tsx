@@ -29,6 +29,7 @@ export const VoteControl: React.FC<{ commentId: string; score: number }> = ({ co
           }`}
           onClick={(e) => {
             e.stopPropagation();
+            // TODO(wave-2): wire checkModerationBudget/consumeModerationBudget when this surface adds explicit hide/remove moderation actions.
             void vote(commentId, current === 'down' ? null : 'down');
           }}
           aria-label="Downvote"

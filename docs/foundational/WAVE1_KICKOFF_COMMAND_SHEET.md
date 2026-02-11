@@ -71,7 +71,7 @@ Expected required checks include:
 # Start canary branch
 
 git fetch origin
-git checkout -b team-a/A-1-schemas origin/main
+git checkout -b team-a/A-1-schemas origin/integration/wave-1
 
 # Implement smallest contract-safe slice, then run local gates
 pnpm typecheck
@@ -88,20 +88,29 @@ cp .github/pull_request_template.md /tmp/w1-pr-body.md
 
 # Push and open PR to integration branch
 git push -u origin team-a/A-1-schemas
-gh pr create \
+PR_URL=$(gh pr create \
   --base integration/wave-1 \
   --head team-a/A-1-schemas \
   --title "A-1: add synthesis schema contracts" \
-  --body-file /tmp/w1-pr-body.md
+  --body-file /tmp/w1-pr-body.md)
+PR_NUM=$(echo "$PR_URL" | sed -E 's#.*/pull/([0-9]+).*#\1#')
+
+# Set auto-merge via merge queue
+gh pr merge "$PR_NUM" --merge --auto
 ```
 
 ## 3) Chief merge gate for each PR
 
-Run before merge approval:
+With merge queue enabled, PRs should already have auto-merge set at creation time. Chief validates before the PR enters the queue:
 
 ```bash
-# Check CI statuses on PR
 PR=<number>
+
+# Verify auto-merge is set
+gh pr view "$PR" --json autoMergeRequest \
+  --jq '.autoMergeRequest // "NOT SET — run: gh pr merge $PR --merge --auto"'
+
+# Check CI statuses
 gh pr checks "$PR"
 
 # Confirm target branch and head naming
@@ -112,9 +121,12 @@ gh pr view "$PR" --json baseRefName,headRefName,mergeStateStatus,isDraft \
 Must all be true:
 - PR base is `integration/wave-1`
 - Head uses `team-a/*`..`team-e/*` or approved `coord/*`
-- All required checks are green
+- Auto-merge is set
+- All required checks are green (or will be -- merge queue waits for them)
 - No ownership-scope violations
-- Team ordering respected: D/E -> B -> A -> C (for dependent integration steps)
+- Dependency ordering respected: do not enqueue a PR that depends on an unmerged upstream PR
+
+Do not manually cancel CI jobs. Each job has `timeout-minutes` configured. If a job appears slow, wait for the timeout. Manual cancellation is permitted only with deterministic proof of a code-level failure.
 
 ## 4) QA-Integration 48h checkpoint loop
 
@@ -142,6 +154,10 @@ pnpm test:quick -- packages/gun-client/src/topology.test.ts
 # Feature-flag validation sweep (run once V2 stores/UI are landed in readiness matrix)
 VITE_FEED_V2_ENABLED=false VITE_TOPIC_SYNTHESIS_V2_ENABLED=false pnpm test:e2e
 VITE_FEED_V2_ENABLED=true VITE_TOPIC_SYNTHESIS_V2_ENABLED=true pnpm test:e2e
+
+# Generate stability report (when automation script is available)
+# node tools/scripts/generate-stability-report.mjs > "docs/reports/STABILITY_slice$(date +%Y%m%d-%H%M).md"
+# Until then, use manual template from docs/reports/STABILITY_REPORT_SCHEMA.md
 ```
 
 Record checkpoint report:

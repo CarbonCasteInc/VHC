@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useFeedStore } from './useFeedStore';
 
 describe('useFeedStore', () => {
+  beforeEach(() => {
+    vi.stubEnv('VITE_FEED_V2_ENABLED', 'false');
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('hydrates from seeds when no cache', () => {
     useFeedStore.getState().hydrate();
     expect(useFeedStore.getState().items.length).toBeGreaterThan(0);
