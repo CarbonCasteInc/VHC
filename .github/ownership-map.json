@@ -64,6 +64,7 @@
         "paths": [
             "packages/ai-engine/src/commentTracker*.ts",
             "packages/ai-engine/src/digestBuilder*.ts",
+            "packages/ai-engine/src/resynthesisWiring*.ts",
             "apps/web-pwa/src/store/synthesis/**",
             "apps/web-pwa/src/store/forum/**"
         ]
