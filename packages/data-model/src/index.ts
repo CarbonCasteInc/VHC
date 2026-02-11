@@ -15,3 +15,4 @@ export * from './schemas/hermes/synthesis';
 export * from './schemas/hermes/notification';
 export * from './schemas/hermes/elevation';
 export * from './schemas/hermes/discovery';
+export * from './schemas/hermes/docs';
