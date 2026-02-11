@@ -737,7 +737,7 @@ Wave 2 runs **3 concurrent workstreams** after Wave 1 exits green.
 
 ```
 Coordinator (human)
-├── Coordinator (Wave 0 only)
+├── Coordinator (persistent, orchestration)
 ├── ce-codex (CE technical review, persistent)
 ├── ce-opus (CE governance review, persistent)
 ├── w1-spec (cross-team, standing)
@@ -767,7 +767,8 @@ Coordinator (human)
 
 | Category | Count | Model |
 | --- | --- | --- |
-| Standing chiefs (pure) | 4 (Coordinator, A, B, C) | `opus-4.6` |
+| Standing coordinator (orchestration) | 1 (Coordinator) | `opus-4.6` |
+| Standing chiefs (pure) | 3 (A, B, C) | `opus-4.6` |
 | Standing chief+impl (hybrid) | 1 (D) | `codex-5.3-extra-high` |
 | Standing impl (pure) | 5 (A x2, B x1, C x2) | `codex-5.3-extra-high` |
 | Standing QA (per-team) | 4 (A/B/C/D) | `codex-5.3-extra-high` |
@@ -776,7 +777,7 @@ Coordinator (human)
 | Per-PR maint | 4 (A/B/C/D) | `opus-4.6` |
 | Per-issue sidecar | 2 (E impl + qa) | `codex-5.3-extra-high` |
 | **Total agent slots** | **25** | |
-| Standing simultaneously (Wave 2) | **18** (excl. Coordinator which ends after Wave 0; excl. per-PR maint and per-issue sidecar agents) | |
+| Standing simultaneously (Wave 2) | **19** (excl. per-PR maint and per-issue sidecar agents) | |
 
 ### Role behavior reference
 
