@@ -12,7 +12,7 @@ Use this for Wave 2 launch, per-slice dispatch, and integration cadence.
 
 - `ACTIVE_INTEGRATION_BRANCH=integration/wave-2`
 - `ACTIVE_WAVE_LABEL=wave-2`
-- `EXECUTION_BRANCH_PREFIXES=team-a/*,team-b/*,team-c/*,team-d/*,team-e/*,coord/*`
+- `EXECUTION_BRANCH_PREFIXES=team-a/*,team-b/*,team-c/*,team-d/*,team-e/*,w2a/*,w2b/*,w2g/*,coord/*`
 - `PARKED_BRANCH_PREFIX=agent/*`
 
 All references below to "integration branch" mean `ACTIVE_INTEGRATION_BRANCH`.
@@ -28,7 +28,7 @@ if [[ "$branch" =~ ^agent/.+ ]]; then
   echo "Parked branch detected: $branch"
   echo "Switch to execution branch before task work."
 else
-  [[ "$branch" =~ ^(team-[a-e]/.+|coord/.+|integration/wave-[0-9]+|main)$ ]] \
+  [[ "$branch" =~ ^(team-[a-e]/.+|w2[abg]/.+|coord/.+|integration/wave-[0-9]+|main)$ ]] \
     || { echo "Invalid branch: $branch"; exit 1; }
 fi
 ```

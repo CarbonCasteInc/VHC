@@ -36,6 +36,6 @@ Owner: Coordinator (with CE review inputs from `ce-codex` and `ce-opus`)
 
 ## Status
 
-- Result: `DOC_AUDIT_PASS_PENDING_MERGE`
-- Condition to flip to `DOC_AUDIT_PASS`: merge of this audit sweep PR to `integration/wave-2`.
-- Dispatch rule: no new wave dispatch until `DOC_AUDIT_PASS` is recorded on merged branch (except break/fix emergency with logged rationale).
+- Result: `DOC_AUDIT_PASS`
+- Flipped from `DOC_AUDIT_PASS_PENDING_MERGE` on 2026-02-11 after confirming audit sweep PRs #184, #185, #186 merged to `integration/wave-2`.
+- Dispatch rule: Wave 2 dispatch may proceed.

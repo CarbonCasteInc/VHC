@@ -57,5 +57,34 @@
             "packages/contracts/scripts/**",
             "packages/contracts/deployments/**"
         ]
+    },
+    "w2a": {
+        "branchPrefix": "w2a/",
+        "paths": [
+            "packages/ai-engine/src/digestBuilder*.ts",
+            "apps/web-pwa/src/store/synthesis/**",
+            "apps/web-pwa/src/store/forum/**"
+        ]
+    },
+    "w2b": {
+        "branchPrefix": "w2b/",
+        "paths": [
+            "packages/crdt/**",
+            "packages/gun-client/src/docsAdapters*.ts",
+            "apps/web-pwa/src/store/hermesDocs*.ts",
+            "apps/web-pwa/src/components/hermes/forum/CommentComposer*.tsx",
+            "apps/web-pwa/src/components/docs/**"
+        ]
+    },
+    "w2g": {
+        "branchPrefix": "w2g/",
+        "paths": [
+            "packages/data-model/src/schemas/hermes/elevation*.ts",
+            "packages/data-model/src/schemas/hermes/notification*.ts",
+            "packages/gun-client/src/bridgeAdapters*.ts",
+            "apps/web-pwa/src/store/bridge/**",
+            "apps/web-pwa/src/components/bridge/**",
+            "apps/web-pwa/src/store/linkedSocial/**"
+        ]
     }
 }
