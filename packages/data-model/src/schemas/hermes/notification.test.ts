@@ -12,7 +12,7 @@ const validNotification = {
   id: 'notif-1',
   schemaVersion: 'hermes-notification-v0' as const,
   accountId: 'acct-abc',
-  platform: 'bluesky' as const,
+  providerId: 'x' as const,
   type: 'mention' as const,
   message: 'You were mentioned in a thread',
   createdAt: now,
@@ -21,8 +21,8 @@ const validNotification = {
 const validAccount = {
   id: 'link-1',
   schemaVersion: 'hermes-linked-social-v0' as const,
-  platform: 'mastodon' as const,
-  handle: '@user@instance.social',
+  providerId: 'reddit' as const,
+  accountId: 'acct-def',
   connectedAt: now,
 };
 
@@ -34,7 +34,7 @@ describe('SocialNotificationSchema', () => {
       const parsed = SocialNotificationSchema.parse(validNotification);
       expect(parsed.id).toBe('notif-1');
       expect(parsed.schemaVersion).toBe('hermes-notification-v0');
-      expect(parsed.platform).toBe('bluesky');
+      expect(parsed.providerId).toBe('x');
       expect(parsed.type).toBe('mention');
       expect(parsed.read).toBe(false); // default
     });
@@ -42,34 +42,42 @@ describe('SocialNotificationSchema', () => {
     it('accepts notification with all optional fields', () => {
       const parsed = SocialNotificationSchema.parse({
         ...validNotification,
-        url: 'https://bsky.app/profile/user/post/123',
+        url: 'https://x.com/user/status/123',
         read: true,
       });
-      expect(parsed.url).toBe('https://bsky.app/profile/user/post/123');
+      expect(parsed.url).toBe('https://x.com/user/status/123');
       expect(parsed.read).toBe(true);
     });
 
-    it.each(['bluesky', 'mastodon', 'nostr'] as const)(
-      'accepts platform "%s"',
-      (platform) => {
-        const parsed = SocialNotificationSchema.parse({
-          ...validNotification,
-          platform,
-        });
-        expect(parsed.platform).toBe(platform);
-      },
-    );
+    it.each([
+      'x',
+      'reddit',
+      'youtube',
+      'tiktok',
+      'instagram',
+      'other',
+    ] as const)('accepts providerId "%s"', (providerId) => {
+      const parsed = SocialNotificationSchema.parse({
+        ...validNotification,
+        providerId,
+      });
+      expect(parsed.providerId).toBe(providerId);
+    });
 
-    it.each(['mention', 'reply', 'repost', 'follow'] as const)(
-      'accepts type "%s"',
-      (type) => {
-        const parsed = SocialNotificationSchema.parse({
-          ...validNotification,
-          type,
-        });
-        expect(parsed.type).toBe(type);
-      },
-    );
+    it.each([
+      'mention',
+      'reply',
+      'repost',
+      'quote',
+      'message',
+      'other',
+    ] as const)('accepts type "%s"', (type) => {
+      const parsed = SocialNotificationSchema.parse({
+        ...validNotification,
+        type,
+      });
+      expect(parsed.type).toBe(type);
+    });
 
     it('defaults read to false when omitted', () => {
       const parsed = SocialNotificationSchema.parse(validNotification);
@@ -100,7 +108,7 @@ describe('SocialNotificationSchema', () => {
       'id',
       'schemaVersion',
       'accountId',
-      'platform',
+      'providerId',
       'type',
       'message',
       'createdAt',
@@ -131,10 +139,10 @@ describe('SocialNotificationSchema', () => {
   });
 
   describe('enum validation', () => {
-    it('rejects invalid platform', () => {
+    it('rejects invalid providerId', () => {
       const result = SocialNotificationSchema.safeParse({
         ...validNotification,
-        platform: 'twitter',
+        providerId: 'twitter',
       });
       expect(result.success).toBe(false);
     });
@@ -231,28 +239,44 @@ describe('LinkedSocialAccountSchema', () => {
       const parsed = LinkedSocialAccountSchema.parse(validAccount);
       expect(parsed.id).toBe('link-1');
       expect(parsed.schemaVersion).toBe('hermes-linked-social-v0');
-      expect(parsed.platform).toBe('mastodon');
-      expect(parsed.handle).toBe('@user@instance.social');
+      expect(parsed.providerId).toBe('reddit');
+      expect(parsed.accountId).toBe('acct-def');
+      expect(parsed.status).toBe('connected'); // default
     });
 
     it('accepts account with all optional fields', () => {
       const parsed = LinkedSocialAccountSchema.parse({
         ...validAccount,
-        verified: true,
-        lastSyncAt: now - 60_000,
+        displayName: 'u/testuser',
+        status: 'revoked',
       });
-      expect(parsed.verified).toBe(true);
-      expect(parsed.lastSyncAt).toBe(now - 60_000);
+      expect(parsed.displayName).toBe('u/testuser');
+      expect(parsed.status).toBe('revoked');
     });
 
-    it.each(['bluesky', 'mastodon', 'nostr'] as const)(
-      'accepts platform "%s"',
-      (platform) => {
+    it.each([
+      'x',
+      'reddit',
+      'youtube',
+      'tiktok',
+      'instagram',
+      'other',
+    ] as const)('accepts providerId "%s"', (providerId) => {
+      const parsed = LinkedSocialAccountSchema.parse({
+        ...validAccount,
+        providerId,
+      });
+      expect(parsed.providerId).toBe(providerId);
+    });
+
+    it.each(['connected', 'revoked', 'expired'] as const)(
+      'accepts status "%s"',
+      (status) => {
         const parsed = LinkedSocialAccountSchema.parse({
           ...validAccount,
-          platform,
+          status,
         });
-        expect(parsed.platform).toBe(platform);
+        expect(parsed.status).toBe(status);
       },
     );
 
@@ -264,12 +288,9 @@ describe('LinkedSocialAccountSchema', () => {
       expect(parsed.connectedAt).toBe(0);
     });
 
-    it('accepts verified as false', () => {
-      const parsed = LinkedSocialAccountSchema.parse({
-        ...validAccount,
-        verified: false,
-      });
-      expect(parsed.verified).toBe(false);
+    it('defaults status to connected when omitted', () => {
+      const parsed = LinkedSocialAccountSchema.parse(validAccount);
+      expect(parsed.status).toBe('connected');
     });
   });
 
@@ -287,8 +308,8 @@ describe('LinkedSocialAccountSchema', () => {
     it.each([
       'id',
       'schemaVersion',
-      'platform',
-      'handle',
+      'providerId',
+      'accountId',
       'connectedAt',
     ] as const)('rejects missing "%s"', (field) => {
       const input = { ...validAccount };
@@ -309,10 +330,18 @@ describe('LinkedSocialAccountSchema', () => {
   });
 
   describe('enum validation', () => {
-    it('rejects invalid platform', () => {
+    it('rejects invalid providerId', () => {
       const result = LinkedSocialAccountSchema.safeParse({
         ...validAccount,
-        platform: 'facebook',
+        providerId: 'facebook',
+      });
+      expect(result.success).toBe(false);
+    });
+
+    it('rejects invalid status', () => {
+      const result = LinkedSocialAccountSchema.safeParse({
+        ...validAccount,
+        status: 'deleted',
       });
       expect(result.success).toBe(false);
     });
@@ -327,10 +356,10 @@ describe('LinkedSocialAccountSchema', () => {
       expect(result.success).toBe(false);
     });
 
-    it('rejects empty handle', () => {
+    it('rejects empty accountId', () => {
       const result = LinkedSocialAccountSchema.safeParse({
         ...validAccount,
-        handle: '',
+        accountId: '',
       });
       expect(result.success).toBe(false);
     });
@@ -351,27 +380,12 @@ describe('LinkedSocialAccountSchema', () => {
       expect(result.success).toBe(false);
     });
 
-    it('rejects non-integer lastSyncAt', () => {
+    it('rejects non-boolean verified (not a valid field)', () => {
       const result = LinkedSocialAccountSchema.safeParse({
         ...validAccount,
-        lastSyncAt: 99.9,
+        verified: true,
       });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects negative lastSyncAt', () => {
-      const result = LinkedSocialAccountSchema.safeParse({
-        ...validAccount,
-        lastSyncAt: -100,
-      });
-      expect(result.success).toBe(false);
-    });
-
-    it('rejects non-boolean verified', () => {
-      const result = LinkedSocialAccountSchema.safeParse({
-        ...validAccount,
-        verified: 'yes',
-      });
+      // strict mode rejects unknown fields
       expect(result.success).toBe(false);
     });
   });
