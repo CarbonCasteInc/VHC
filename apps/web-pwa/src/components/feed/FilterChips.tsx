@@ -10,6 +10,7 @@ const CHIP_LABELS: Record<FilterChip, string> = {
   NEWS: 'News',
   TOPICS: 'Topics',
   SOCIAL: 'Social',
+  ARTICLES: 'Articles',
 };
 
 export interface FilterChipsProps {

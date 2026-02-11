@@ -33,6 +33,7 @@ export interface DocsState {
   publishArticle: (docId: string) => void;
   getDraft: (docId: string) => HermesDocument | undefined;
   listDrafts: () => HermesDocument[];
+  listPublished: () => HermesDocument[];
 }
 
 export interface DocsDeps {
@@ -145,6 +146,10 @@ export function createDocsStore(overrides?: Partial<DocsDeps>, forceEnabled?: bo
 
     listDrafts(): HermesDocument[] {
       return Array.from(get().documents.values()).filter((d) => d.publishedAt == null);
+    },
+
+    listPublished(): HermesDocument[] {
+      return Array.from(get().documents.values()).filter((d) => d.publishedAt != null);
     },
   }));
 }

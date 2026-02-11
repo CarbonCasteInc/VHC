@@ -137,6 +137,43 @@ describe('hermesDocs store – publishArticle', () => {
   });
 });
 
+describe('hermesDocs store – listPublished', () => {
+  it('returns only published documents', () => {
+    const store = makeStore();
+    const doc1 = store.getState().createDraft('draft1');
+    const doc2 = store.getState().createDraft('draft2');
+    store.getState().publishArticle(doc1!.id);
+    const published = store.getState().listPublished();
+    expect(published).toHaveLength(1);
+    expect(published[0].id).toBe(doc1!.id);
+  });
+
+  it('returns empty when no documents are published', () => {
+    const store = makeStore();
+    store.getState().createDraft('a');
+    store.getState().createDraft('b');
+    expect(store.getState().listPublished()).toHaveLength(0);
+  });
+
+  it('returns all published documents', () => {
+    const store = makeStore();
+    const doc1 = store.getState().createDraft('a');
+    const doc2 = store.getState().createDraft('b');
+    const doc3 = store.getState().createDraft('c');
+    store.getState().publishArticle(doc1!.id);
+    store.getState().publishArticle(doc3!.id);
+    const published = store.getState().listPublished();
+    expect(published).toHaveLength(2);
+    expect(published.map((d) => d.id)).toContain(doc1!.id);
+    expect(published.map((d) => d.id)).toContain(doc3!.id);
+  });
+
+  it('returns empty array when store is empty', () => {
+    const store = makeStore();
+    expect(store.getState().listPublished()).toHaveLength(0);
+  });
+});
+
 describe('hermesDocs store – getDraft / listDrafts', () => {
   it('getDraft returns undefined for missing id', () => {
     const store = makeStore();

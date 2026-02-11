@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ArticleEditor, ArticleViewer } from './index';
+import { ArticleEditor, ArticleViewer, ArticleFeedCard } from './index';
 
 describe('docs barrel export', () => {
   it('exports ArticleEditor', () => {
@@ -8,5 +8,9 @@ describe('docs barrel export', () => {
 
   it('exports ArticleViewer', () => {
     expect(ArticleViewer).toBeDefined();
+  });
+
+  it('exports ArticleFeedCard', () => {
+    expect(ArticleFeedCard).toBeDefined();
   });
 });
