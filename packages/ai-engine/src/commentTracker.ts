@@ -1,145 +1,157 @@
 /**
- * Per-topic verified comment activity tracking for synthesis V2.
+ * CommentTracker — pure threshold tracker for comment-driven re-synthesis.
  *
- * Pure computation — no I/O. Tracks verified comments and unique principals
- * per topic since the last synthesis epoch.
+ * Tracks verified comment counts and unique verified principals per topic
+ * since the last epoch commit. Exposes `shouldTriggerResynthesis()` for
+ * threshold-only checks. Does NOT enforce debounce or daily caps — those
+ * are epochScheduler's responsibility.
+ *
+ * Privacy: principal identifiers are hashed before storage — no raw
+ * principal IDs are retained.
  *
  * @module commentTracker
  */
 
 import { z } from 'zod';
-import {
-  type SynthesisPipelineConfig,
-  SynthesisPipelineConfigSchema,
-} from './synthesisTypes';
 
-const TopicIdSchema = z.string().min(1);
-const PrincipalIdSchema = z.string().min(1);
+// ── Schemas ────────────────────────────────────────────────────────
 
-const UniquePrincipalsInputSchema = z.preprocess(
-  (value) => (value instanceof Set ? [...value] : value),
-  z.array(PrincipalIdSchema),
-);
-
-// ── Types + schemas ───────────────────────────────────────────────
-
-export interface CommentActivityEntry {
-  readonly verified_comment_count: number;
-  readonly unique_principals: ReadonlySet<string>;
-}
-
-export const CommentActivityEntrySchema = z
-  .object({
-    verified_comment_count: z.number().int().nonnegative(),
-    unique_principals: UniquePrincipalsInputSchema,
-  })
-  .transform(
-    (entry): CommentActivityEntry => ({
-      verified_comment_count: entry.verified_comment_count,
-      unique_principals: new Set(entry.unique_principals),
-    }),
-  );
-
-const TopicEntriesInputSchema = z.preprocess(
-  (value) => (value instanceof Map ? [...value.entries()] : value),
-  z.array(z.tuple([TopicIdSchema, CommentActivityEntrySchema])),
-);
-
-export interface CommentTrackerState {
-  readonly topics: ReadonlyMap<string, CommentActivityEntry>;
-}
-
-export const CommentTrackerStateSchema = z
-  .object({
-    topics: TopicEntriesInputSchema,
-  })
-  .transform(
-    (state): CommentTrackerState => ({
-      topics: new Map(state.topics),
-    }),
-  );
-
-export const CommentActivitySinceSchema = z.object({
-  verified_comment_count: z.number().int().nonnegative(),
-  unique_principal_count: z.number().int().nonnegative(),
+export const CommentEventSchema = z.object({
+  comment_id: z.string().min(1),
+  topic_id: z.string().min(1),
+  /** Hashed principal identifier (caller must hash before passing). */
+  principal_hash: z.string().min(1),
+  verified: z.boolean(),
+  /** Event kind: 'add' for new/edit-verified, 'retract' for delete/unverify. */
+  kind: z.enum(['add', 'retract']),
+  timestamp: z.number().int().nonnegative(),
 });
 
-export type CommentActivitySince = z.infer<typeof CommentActivitySinceSchema>;
+export type CommentEvent = z.infer<typeof CommentEventSchema>;
 
-// ── Pure operations ───────────────────────────────────────────────
+export const CommentTrackerConfigSchema = z.object({
+  resynthesis_comment_threshold: z.number().int().positive().default(10),
+  resynthesis_unique_principal_min: z.number().int().positive().default(3),
+});
 
-/** Record one verified comment for a topic+principal. */
-export function recordComment(
-  state: CommentTrackerState,
-  topicId: string,
-  principalId: string,
-): CommentTrackerState {
-  const parsedState = CommentTrackerStateSchema.parse(state);
-  const parsedTopicId = TopicIdSchema.parse(topicId);
-  const parsedPrincipalId = PrincipalIdSchema.parse(principalId);
+export type CommentTrackerConfig = z.infer<typeof CommentTrackerConfigSchema>;
 
-  const previousEntry = parsedState.topics.get(parsedTopicId);
-  const nextPrincipals = new Set(previousEntry?.unique_principals ?? []);
-  nextPrincipals.add(parsedPrincipalId);
+// ── Internal per-topic state ───────────────────────────────────────
 
-  const nextEntry: CommentActivityEntry = {
-    verified_comment_count: (previousEntry?.verified_comment_count ?? 0) + 1,
-    unique_principals: nextPrincipals,
-  };
-
-  const nextTopics = new Map(parsedState.topics);
-  nextTopics.set(parsedTopicId, nextEntry);
-
-  return { topics: nextTopics };
+interface TopicState {
+  /** Set of comment IDs currently counted (verified, not retracted). */
+  commentIds: Set<string>;
+  /** Map of principal_hash → count of active (non-retracted) comments. */
+  principalCounts: Map<string, number>;
 }
 
-/** Get verified comment + unique principal activity for a topic. */
-export function getActivitySince(
-  state: CommentTrackerState,
-  topicId: string,
-): CommentActivitySince {
-  const parsedState = CommentTrackerStateSchema.parse(state);
-  const parsedTopicId = TopicIdSchema.parse(topicId);
+// ── CommentTracker class ───────────────────────────────────────────
 
-  const entry = parsedState.topics.get(parsedTopicId);
-  return {
-    verified_comment_count: entry?.verified_comment_count ?? 0,
-    unique_principal_count: entry?.unique_principals.size ?? 0,
-  };
-}
+export class CommentTracker {
+  private readonly topics = new Map<string, TopicState>();
+  private readonly config: CommentTrackerConfig;
 
-/** Reset per-topic activity after an epoch trigger. */
-export function resetForEpoch(
-  state: CommentTrackerState,
-  topicId: string,
-): CommentTrackerState {
-  const parsedState = CommentTrackerStateSchema.parse(state);
-  const parsedTopicId = TopicIdSchema.parse(topicId);
+  constructor(configOverrides?: Partial<CommentTrackerConfig>) {
+    this.config = CommentTrackerConfigSchema.parse(configOverrides ?? {});
+  }
 
-  const nextTopics = new Map(parsedState.topics);
-  nextTopics.delete(parsedTopicId);
+  /**
+   * Process a comment event. Idempotent — duplicate `add` events for the
+   * same comment_id are ignored; duplicate `retract` events are no-ops.
+   */
+  onComment(event: CommentEvent): void {
+    const parsed = CommentEventSchema.parse(event);
 
-  return { topics: nextTopics };
-}
+    if (!parsed.verified && parsed.kind === 'add') {
+      return; // Only verified comments count
+    }
 
-/**
- * Check whether topic activity meets re-synthesis thresholds.
- *
- * Defaults come from SynthesisPipelineConfigSchema:
- * - verified comments >= 10
- * - unique principals >= 3
- */
-export function meetsResynthesisThreshold(
-  activity: CommentActivitySince,
-  configOverrides?: Partial<SynthesisPipelineConfig>,
-): boolean {
-  const parsedActivity = CommentActivitySinceSchema.parse(activity);
-  const config = SynthesisPipelineConfigSchema.parse(configOverrides ?? {});
+    const state = this.getOrCreateTopicState(parsed.topic_id);
 
-  return (
-    parsedActivity.verified_comment_count >=
-      config.resynthesis_comment_threshold &&
-    parsedActivity.unique_principal_count >=
-      config.resynthesis_unique_principal_min
-  );
+    if (parsed.kind === 'add') {
+      this.handleAdd(state, parsed);
+    } else {
+      this.handleRetract(state, parsed);
+    }
+  }
+
+  /**
+   * Threshold-only check: ≥ threshold verified comments AND
+   * ≥ min unique verified principals since last epoch.
+   */
+  shouldTriggerResynthesis(topicId: string): boolean {
+    const state = this.topics.get(topicId);
+    if (!state) return false;
+
+    const commentCount = state.commentIds.size;
+    const uniquePrincipals = this.countUniquePrincipals(state);
+
+    return (
+      commentCount >= this.config.resynthesis_comment_threshold &&
+      uniquePrincipals >= this.config.resynthesis_unique_principal_min
+    );
+  }
+
+  /** Current verified comment count for a topic since last epoch. */
+  getCommentCount(topicId: string): number {
+    return this.topics.get(topicId)?.commentIds.size ?? 0;
+  }
+
+  /** Current unique verified principal count for a topic since last epoch. */
+  getUniquePrincipalCount(topicId: string): number {
+    const state = this.topics.get(topicId);
+    if (!state) return 0;
+    return this.countUniquePrincipals(state);
+  }
+
+  /** Reset counters for a topic after successful epoch commit. */
+  acknowledgeEpoch(topicId: string): void {
+    this.topics.delete(topicId);
+  }
+
+  // ── Private helpers ────────────────────────────────────────────
+
+  private getOrCreateTopicState(topicId: string): TopicState {
+    let state = this.topics.get(topicId);
+    if (!state) {
+      state = { commentIds: new Set(), principalCounts: new Map() };
+      this.topics.set(topicId, state);
+    }
+    return state;
+  }
+
+  private handleAdd(state: TopicState, event: CommentEvent): void {
+    if (state.commentIds.has(event.comment_id)) {
+      return; // Idempotent: already counted
+    }
+    state.commentIds.add(event.comment_id);
+    const current = state.principalCounts.get(event.principal_hash) ?? 0;
+    state.principalCounts.set(event.principal_hash, current + 1);
+  }
+
+  private handleRetract(state: TopicState, event: CommentEvent): void {
+    if (!state.commentIds.has(event.comment_id)) {
+      return; // Not tracked — retract is a no-op
+    }
+    state.commentIds.delete(event.comment_id);
+
+    // We need to know which principal originally added this comment.
+    // Since retract events carry the principal_hash, decrement that principal.
+    /* v8 ignore next -- defensive ?? 0: principalCounts is always set by handleAdd */
+    const current = state.principalCounts.get(event.principal_hash) ?? 0;
+    if (current <= 1) {
+      state.principalCounts.delete(event.principal_hash);
+    } else {
+      state.principalCounts.set(event.principal_hash, current - 1);
+    }
+  }
+
+  private countUniquePrincipals(state: TopicState): number {
+    // Count principals with at least one active comment
+    let count = 0;
+    for (const n of state.principalCounts.values()) {
+      if (n > 0) count++;
+    }
+    return count;
+  }
 }
