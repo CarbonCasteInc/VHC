@@ -6,7 +6,7 @@ Companion to:
 
 Status: Binding for Wave 2 execution.
 
-Last updated: 2026-02-11
+Last updated: 2026-02-12
 
 ---
 
@@ -91,6 +91,17 @@ Policy: enforce context thresholds as hard guardrails:
 - Per-PR agents (maint, per-issue QA/sidecars): exempt by design.
 Rationale: Wave 1 had multiple high-context failures and timeout/no-output runs that were operational, not technical, defects.
 Enforcement split: CE gate enforces thresholds for Coordinator/CE agents only. Chiefs are responsible for monitoring their standing impl agents' context usage and rotating before the 80% threshold.
+
+14. Repo migration parity is a dispatch gate.
+Policy: before any wave dispatch following a repo transfer/migration, verify:
+  a. All agent worktrees have `origin` remote pointing to the canonical org/repo path.
+  b. `gh repo view` and `gh api` resolve correctly from agent worktrees.
+  c. Branch protection on `ACTIVE_INTEGRATION_BRANCH` is confirmed via API on the new repo.
+  d. CI triggers are confirmed post-transfer (evidence: at least one green push/PR run).
+  e. No hardcoded old-org/repo strings remain in active scripts or CI workflows.
+  f. Historical references in archived docs/reports are exempt (annotated, not rewritten).
+Rationale: The HumblePiCCI → CarbonCasteInc transfer exposed stale remote URLs and hardcoded repo paths that could cause push failures, CI misrouting, or gh CLI errors.
+Gate status: `HOLDING_FOR_REPO_MIGRATION` until all sub-checks pass.
 
 ---
 

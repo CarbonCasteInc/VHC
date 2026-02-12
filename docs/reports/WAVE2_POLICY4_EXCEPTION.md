@@ -1,8 +1,8 @@
 # Wave 2 Policy 4 Exception Record
 
-**Date:** 2026-02-11
+**Date:** 2026-02-11 (filed) → 2026-02-12 (resolved)
 **Policy:** WAVE2_DELTA_CONTRACT.md §4 — "Merge queue is mandatory"
-**Status:** POLICY4_EXCEPTION__SERIALIZED_FLOW
+**Status:** ~~POLICY4_EXCEPTION__SERIALIZED_FLOW~~ → **RESOLVED — MERGE_QUEUE_ENABLED**
 
 ---
 
@@ -10,14 +10,20 @@
 
 GitHub merge queue feature is **not available** on this repository.
 
+### Pre-transfer (historical)
 - **Owner:** HumblePiCCI (personal user account, GitHub Free plan)
 - **Repo:** HumblePiCCI/VHC (public)
-- **API evidence:**
-  - `requiresMergeQueue` field does not exist on `BranchProtectionRule` type
-  - `UpdateBranchProtectionRuleInput` does not accept `requiresMergeQueue` argument
-  - Rulesets API rejects `merge_queue` rule type (HTTP 422)
-  - `mergeQueue` GraphQL query returns `null` for `integration/wave-2`
 - **Root cause:** Merge queue requires GitHub Teams, Enterprise, or Organization-level plan
+
+### Post-transfer (2026-02-12 re-verification)
+- **Owner:** CarbonCasteInc (Organization)
+- **Repo:** CarbonCasteInc/VHC
+- **API evidence:**
+  - `mergeQueue` GraphQL query returns `null` for both `main` and `integration/wave-2`
+  - Org plan field returns `null` (likely free-tier org or plan not exposed via API)
+  - Rulesets API shows one active ruleset (`main`) with no `merge_queue` rule type
+  - Branch protection on `integration/wave-2` is `protected: true` (via branches API)
+- **Root cause:** Organization exists but merge queue is still not enabled (requires org-level plan upgrade or explicit admin enablement)
 
 ## Branch Protection in Place (Fallback Controls)
 
@@ -58,7 +64,21 @@ Since GitHub merge queue is unavailable, Wave 2 adopts serialized merge flow:
 
 ---
 
-## Resolution
+## Resolution (2026-02-12)
 
-Merge freeze on `integration/wave-2` is **lifted** under serialized fallback mode.
-Wave 2 execution proceeds with POLICY4_EXCEPTION__SERIALIZED_FLOW.
+### Original (2026-02-11)
+Merge freeze on `integration/wave-2` was lifted under serialized fallback mode.
+
+### Updated (2026-02-12) — EXCEPTION RETIRED
+Repo transferred to `CarbonCasteInc` (Organization). After PAT rotation with
+`administration:write` scope, merge queue was enabled via rulesets API:
+
+- **Ruleset ID:** 12741087
+- **Name:** `integration-wave-2`
+- **Enforcement:** active
+- **Merge queue config:** `MERGE` method, `ALLGREEN` grouping, 30min check timeout
+- **Required checks:** Ownership Scope, Quality Guard, Test & Build, E2E Tests, Bundle Size
+- **GraphQL confirmation:** `mergeQueue.id = MQ_kwDORJTS8c4AAk_h`, `checkResponseTimeout = 1800`
+
+Serialized fallback mode is **retired**. Policy 4 is now enforced as originally intended.
+PRs to `integration/wave-2` must use `gh pr merge --merge --auto` which will route through merge queue.
