@@ -5,7 +5,7 @@ Defines behavioral contracts for every agent role in the Wave 1 cluster.
 
 Last updated: 2026-02-11
 
-Wave 2 execution override: for all wave-specific references in this file, follow `docs/foundational/WAVE2_DELTA_CONTRACT.md`. Where this document says `integration/wave-1`, read `integration/wave-2` during Wave 2 operations.
+Wave 2 execution override: for all wave-specific references in this file, follow `docs/foundational/WAVE2_DELTA_CONTRACT.md`. Where this document says `integration/wave-1`, read the value of `ACTIVE_INTEGRATION_BRANCH` from `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`.
 
 ---
 
@@ -676,7 +676,7 @@ After each team PR merges to `integration/wave-1`:
 ```
 Coordinator (human)
 │
-├── ce-codex + ce-opus ←── dual-review all Director-bound execution prompts
+├── ce-codex + ce-opus ←── dual-review all Coordinator-bound execution prompts
 │    (fixed-schema passes, 2-round cap, escalate to CEO if unresolved)
 │    See: docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md
 │
@@ -708,7 +708,7 @@ Coordinator (human)
     Chief ──► completion report
 ```
 
-All execution prompts from Coordinator to Director must pass through the CE dual-review loop before dispatch. Direct Coordinator-to-Director prompts without CE review are allowed only for break/fix emergencies with logged rationale. See `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` for protocol details.
+All execution prompts must pass through the CE dual-review loop before Coordinator dispatches to team agents. Direct dispatch without CE review is allowed only for break/fix emergencies with logged rationale. See `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` for protocol details.
 
 ---
 

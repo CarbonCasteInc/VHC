@@ -1,6 +1,6 @@
 # Spec: Issue #120 — VENN De-Mock (Contract-True)
 
-**Issue:** https://github.com/HumblePiCCI/VHC/issues/120
+**Issue:** https://github.com/CarbonCasteInc/VHC/issues/120
 **Baseline SHA:** `c423429`
 **Author:** Chief (spec phase)
 **Date:** 2026-02-08

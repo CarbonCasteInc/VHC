@@ -790,7 +790,7 @@ Coordinator (human)
 | **QA-Integration** | Cross-team smoke at 48h cadence, privacy lint, integration E2E, feature flag validation. Maintains readiness matrix of landed dependencies. | One per wave, not per-team. Owns integration pass gate. |
 | **Maint** | Code quality, LOC compliance, integration review, refactoring suggestions | Per-PR (spun up for reviews). Does not need standing context. |
 | **Docs** | Spec drift detection, doc updates if contracts change during implementation | One per wave, standing across teams. Not per-team. |
-| **CE-Review** | Dual-model review of Director-bound execution prompts. `ce-codex` focuses on technical correctness; `ce-opus` focuses on contract/policy coherence. Uses fixed-schema outputs with 2-round convergence cap. | Persistent cross-wave companion layer. See `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md`. |
+| **CE-Review** | Dual-model review of Coordinator-bound execution prompts. `ce-codex` focuses on technical correctness; `ce-opus` focuses on contract/policy coherence. Uses fixed-schema outputs with 2-round convergence cap. | Persistent cross-wave companion layer. See `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md`. |
 
 ### Spec agent trigger rule
 
