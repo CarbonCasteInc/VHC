@@ -10,12 +10,16 @@ Use this for Wave 2 launch, per-slice dispatch, and integration cadence.
 
 ## Wave 2 Runtime Constants
 
+Source of truth: `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
+
+Current values (for quick reference):
+
 - `ACTIVE_INTEGRATION_BRANCH=integration/wave-2`
 - `ACTIVE_WAVE_LABEL=wave-2`
 - `EXECUTION_BRANCH_PREFIXES=team-a/*,team-b/*,team-c/*,team-d/*,team-e/*,w2a/*,w2b/*,w2g/*,coord/*`
 - `PARKED_BRANCH_PREFIX=agent/*`
 
-All references below to "integration branch" mean `ACTIVE_INTEGRATION_BRANCH`.
+All references below to "integration branch" mean `ACTIVE_INTEGRATION_BRANCH` from the constants file.
 
 ## 0) One-time bootstrap (per worktree / agent)
 
@@ -52,17 +56,17 @@ Expected required checks on integration branch:
 - `E2E Tests`
 - `Bundle Size`
 
-## 2) CE dual-review gate (mandatory before Director dispatch)
+## 2) CE dual-review gate (mandatory before execution dispatch)
 
-1. Coordinator prepares packet (latest Director report + branch/PR/check state + explicit decision question).
+1. Coordinator prepares packet (latest execution report + branch/PR/check state + explicit decision question).
 2. Send packet to both `ce-codex` and `ce-opus`.
 3. Each returns fixed-schema `CE Review Pass`.
 4. Reconcile per `CE_DUAL_REVIEW_CONTRACTS.md` section 5:
-   - both `AGREED` -> dispatch one prompt to Director
+   - both `AGREED` -> Coordinator dispatches execution prompt
    - one `NEEDS_PARTNER_REVIEW` -> one additional round
    - unresolved after round 2 -> CEO escalation packet
 
-Direct Coordinator-to-Director prompts without CE review are allowed only for break/fix emergencies with logged rationale.
+Direct dispatch without CE review is allowed only for break/fix emergencies with logged rationale.
 
 ## 3) Team execution branch start + PR creation
 

@@ -324,7 +324,7 @@ All Wave 1 features are flag-gated. Tests pass in both ON and OFF configurations
 
 ## Next Work (Wave 2 Direction)
 
-- Run Wave 2 via CE dual-review gate (`ce-codex` + `ce-opus`) for all Director-bound execution prompts.
+- Run Wave 2 via CE dual-review gate (`ce-codex` + `ce-opus`) for all Coordinator-bound execution prompts.
 - Wire synthesis pipeline runtime to discovery feed UI (v2 end-to-end)
 - Feature-flag retirement (Wave 1 flags → permanent on)
 - Implement linked-social OAuth + notification cards

@@ -6,6 +6,7 @@ Companion to:
 - `docs/foundational/WAVE2_DELTA_CONTRACT.md`
 
 Status: Binding for Wave 2+ review orchestration.
+Wave runtime constants: `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
 
 Last updated: 2026-02-12
 
@@ -25,7 +26,7 @@ These two agents are review/planning authorities only. They do not execute imple
 
 ### Decision ownership
 
-- Director/Coordinator executes.
+- Coordinator executes.
 - CEO (human) is final policy authority.
 - CE agents review, challenge, and synthesize prompt-ready decisions.
 
@@ -40,7 +41,7 @@ HIGH finding. This check is recorded in the CE Review Pass output under a new
 ### Required input packet
 
 Every CE pass must start from a packet containing:
-- Director report (latest)
+- Coordinator report (latest)
 - current branch/PR/check status
 - current context usage snapshot for Coordinator and both CE sessions
 - relevant source docs/specs for the decision
@@ -92,7 +93,7 @@ block replaces the original for reconciliation purposes.
 ### Session context thresholds (mandatory)
 
 - Warning: >=70% context usage
-- Mandatory rotate before new Director-bound dispatch: >=80%
+- Mandatory rotate before new Coordinator-bound dispatch: >=80%
 - Freeze new work (handoff-only): >=90%
 
 These thresholds are enforced by CE gate for Coordinator and CE agents only.
@@ -131,11 +132,11 @@ Prevent avoidable execution failures by turning ambiguous plans into technically
 - May challenge any plan/recommendation with evidence.
 - Must provide concrete implementation implications, not abstract concerns.
 - Does not merge PRs or change policy directly.
-- Does not replace Director; it informs Director prompts.
+- Does not replace Coordinator; it informs Coordinator execution prompts.
 
 ### Workflow
 
-1. Validate Director claims against verifiable evidence (checks, branches, SHAs, files).
+1. Validate Coordinator claims against verifiable evidence (checks, branches, SHAs, files).
 2. Identify technical failure modes and ordering hazards.
 3. Draft prompt text optimized for execution clarity.
 4. Submit fixed-schema CE pass.
@@ -197,7 +198,7 @@ Keep execution aligned with canonical contracts and prevent procedural drift bet
 2. If either pass marks `rotation_required=yes` or status is `HOLDING_FOR_ROTATION`:
    rotate the flagged agent and rerun CE. No CEO approval is required for rotation-triggered reruns.
 3. If both statuses are `AGREED` and both passes have `rotation_required=no`:
-   Coordinator dispatches the final prompt to Director immediately. No CEO wait is required.
+   Coordinator dispatches the final execution prompt immediately. No CEO wait is required.
 4. If any pass has status `ESCALATE_TO_CEO`:
    Coordinator relays the escalation packet and waits for explicit CEO response before proceeding.
 5. If one is `NEEDS_PARTNER_REVIEW`, run one additional pass (max 2 rounds per agent).
@@ -236,15 +237,15 @@ No free-form debate transcripts in final handoff.
 
 ---
 
-## 7) Director Handoff Contract
+## 7) Coordinator Handoff Contract
 
-When CE agents agree, Director receives:
+When CE agents agree, Coordinator receives:
 - one final execution prompt,
 - explicit stop conditions,
 - required artifacts and status line,
 - escalation criteria.
 
-Director response must include:
+Coordinator response must include:
 - evidence-backed status,
 - produced artifacts,
 - blockers,

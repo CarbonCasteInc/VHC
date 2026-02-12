@@ -17,19 +17,14 @@ This delta captures what changed for Wave 2 and why, based on concrete Wave 1 in
 
 ---
 
-## Wave 2 Kickoff Header (Use at top of Wave 2 kickoff sheet)
+## Wave Runtime Constants (Source of Truth)
 
-```md
-## Wave 2 Runtime Constants
+All wave-specific values are defined in `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`. Contracts, runbooks, and scripts should reference that file rather than hardcoding wave strings. For quick reference in human-readable context:
 
-- ACTIVE_INTEGRATION_BRANCH=integration/wave-2
-- ACTIVE_WAVE_LABEL=wave-2
-- EXECUTION_BRANCH_PREFIXES=team-a/*,team-b/*,team-c/*,team-d/*,team-e/*,w2a/*,w2b/*,w2g/*,coord/*
-- PARKED_BRANCH_PREFIX=agent/*
-
-All references in this sheet to "integration branch" mean $ACTIVE_INTEGRATION_BRANCH.
-Do not hardcode wave-specific branch names outside this header.
-```
+- `ACTIVE_INTEGRATION_BRANCH`: see constants file
+- `ACTIVE_WAVE_LABEL`: see constants file
+- `EXECUTION_BRANCH_PREFIXES`: see constants file
+- Active policy docs, kickoff sheet, CE contracts: see constants file
 
 ---
 
@@ -72,12 +67,12 @@ Rationale: Wave 1 demonstrated both are necessary: fast PR feedback and full bas
 Policy: protect `main` and `integration/wave-2`; `Ownership Scope` is required on integration branch and non-required on `main` unless checker logic is wave-head aware for `integration/wave-* -> main`.
 Rationale: Wave 1 merge-to-main exposed branch-protection and Ownership Scope mismatch.
 
-10. Director phases are isolated by spawn.
+10. Coordinator phases are isolated by spawn.
 Policy: one subagent spawn per phase; no spawn may include instructions for subsequent phases; next phase starts only after prior phase artifact is verified.
 Rationale: Wave 1 multi-phase batching hit context limits and produced partial/no-output runs.
 
-11. CE dual-review is mandatory for Director-bound prompts.
-Policy: all execution prompts from Coordinator to Director must pass through `ce-codex` and `ce-opus` review using the fixed-schema CE Review Pass protocol before dispatch; direct prompts to Director without CE review are allowed only for break/fix emergencies with explicit logged rationale.
+11. CE dual-review is mandatory for Coordinator-bound execution prompts.
+Policy: all execution prompts must pass through `ce-codex` and `ce-opus` review using the fixed-schema CE Review Pass protocol before Coordinator dispatches to team agents; direct dispatch without CE review is allowed only for break/fix emergencies with explicit logged rationale.
 Rationale: Wave 1 manual relay of dual-review was effective but added latency and risked dropped context; formalizing it as an agent loop removes relay friction.
 
 12. Wave-end documentation audit is required before next-wave dispatch.
@@ -86,7 +81,7 @@ Rationale: Wave 1 closeout revealed stale STATUS entries, missing doc artifacts 
 
 13. Session-context rotation guard is mandatory for standing agents.
 Policy: enforce context thresholds as hard guardrails:
-- Coordinator and CE agents: warning at >=70% context, mandatory rotation at >=80% before any new Director-bound prompt/dispatch, freeze new work at >=90% (handoff-only until respawn).
+- Coordinator and CE agents: warning at >=70% context, mandatory rotation at >=80% before any new execution dispatch, freeze new work at >=90% (handoff-only until respawn).
 - Standing impl/chief agents: same thresholds apply, but monitoring and enforcement are owned by the team Chief.
 - Per-PR agents (maint, per-issue QA/sidecars): exempt by design.
 Rationale: Wave 1 had multiple high-context failures and timeout/no-output runs that were operational, not technical, defects.
@@ -103,6 +98,16 @@ Policy: before any wave dispatch following a repo transfer/migration, verify:
 Rationale: The HumblePiCCI → CarbonCasteInc transfer exposed stale remote URLs and hardcoded repo paths that could cause push failures, CI misrouting, or gh CLI errors.
 Gate status: `HOLDING_FOR_REPO_MIGRATION` until all sub-checks pass.
 
+15. Periodic integration-to-main sync is mandatory.
+Policy: after each workstream milestone (e.g., W2-Alpha complete, W2-Beta Stage 1 complete, W2-Gamma complete), open a sync PR from `ACTIVE_INTEGRATION_BRANCH` to `main`. If file/LOC drift exceeds 100 files or 10,000 net lines before a milestone boundary, open a sync PR immediately regardless of milestone status.
+Rationale: Wave 1 closeout was trivial (no drift). Wave 2 accumulated 55+ file divergence before first sync was discussed. Large wave-end merges are risky and reviewable. Periodic sync keeps them small.
+Required evidence per sync: PR number, merge SHA, file count, line delta, CI green confirmation.
+
+16. Ownership preflight simulation is a dispatch gate.
+Policy: before dispatching any workstream slice, run `tools/scripts/check-ownership-preflight.mjs` with the planned touched paths for that slice's team. If any path is unmapped, dispatch is blocked until the ownership map is updated.
+Rationale: Wave 1 and Wave 2 both had repeated ownership-scope CI failures from unmapped paths, requiring extra coord PRs mid-execution.
+Gate status: `HOLDING_FOR_OWNERSHIP_PREFLIGHT` until simulation passes.
+
 ---
 
 ## Exception Handling
@@ -112,3 +117,5 @@ Any exception requires explicit Coordinator approval recorded in PR description 
 - blast radius,
 - rollback plan,
 - and follow-up owner.
+
+All exceptions must be recorded in `docs/foundational/WAVE_EXCEPTION_LEDGER.md` with full lifecycle fields (opened, closed, evidence).
