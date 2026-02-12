@@ -1,0 +1,20 @@
+{
+  "schema_version": "1.0.0",
+  "active_wave": "wave-2",
+  "active_integration_branch": "integration/wave-2",
+  "active_wave_label": "wave-2",
+  "execution_branch_prefixes": [
+    "team-a/*",
+    "team-b/*",
+    "team-c/*",
+    "team-d/*",
+    "team-e/*",
+    "w2a/*",
+    "w2b/*",
+    "w2g/*",
+    "coord/*"
+  ],
+  "parked_branch_prefix": "agent/*",
+  "active_delta_contract": "docs/foundational/WAVE2_DELTA_CONTRACT.md",
+  "active_kickoff_sheet": "docs/foundational/WAVE2_KICKOFF_COMMAND_SHEET.md"
+}
