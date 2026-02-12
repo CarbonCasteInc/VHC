@@ -36,7 +36,7 @@ Before populating findings, every CE pass must verify the recommendation aligns 
 `docs/foundational/TRINITY_Season0_SoT.md` priorities A–G. If the recommendation
 conflicts with or is silent on a relevant priority, the CE pass must flag it as a
 HIGH finding. This check is recorded in the CE Review Pass output under a new
-`### SoT Alignment` section immediately after `### Findings`.
+`### SoT Alignment` section immediately before `### Findings` (as shown in the schema below).
 
 ### Required input packet
 
