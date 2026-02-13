@@ -13,6 +13,8 @@ interface ImportMetaEnv {
   readonly VITE_TOPIC_SYNTHESIS_V2_ENABLED?: 'true' | 'false';
   readonly VITE_ELEVATION_ENABLED?: 'true' | 'false';
   readonly VITE_LINKED_SOCIAL_ENABLED?: 'true' | 'false';
+  readonly VITE_HERMES_DOCS_ENABLED?: 'true' | 'false';
+  readonly VITE_DOCS_COLLAB_ENABLED?: 'true' | 'false';
 }
 
 interface ImportMeta {

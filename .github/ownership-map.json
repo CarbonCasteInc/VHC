@@ -1,105 +1,106 @@
 {
-    "team-a": {
-        "branchPrefix": "team-a/",
-        "_note": "apps/web-pwa/src/store/synthesis/** transferred to w2a for Wave 2; team-a retains ai-engine + data-model ownership",
-        "paths": [
-            "packages/ai-engine/src/synthesis*.ts",
-            "packages/ai-engine/src/candidateGatherer*.ts",
-            "packages/ai-engine/src/epochScheduler*.ts",
-            "packages/ai-engine/src/quorum*.ts",
-            "packages/ai-engine/src/topicSynthesisPipeline*.ts",
-            "packages/data-model/src/schemas/hermes/synthesis*.ts",
-            "packages/gun-client/src/synthesisAdapters*.ts",
-            "apps/web-pwa/src/hooks/useSynthesis*.ts",
-            "apps/web-pwa/src/components/synthesis/**"
-        ]
-    },
-    "team-b": {
-        "branchPrefix": "team-b/",
-        "paths": [
-            "services/news-aggregator/**",
-            "packages/data-model/src/schemas/hermes/storyBundle*.ts",
-            "packages/gun-client/src/newsAdapters*.ts",
-            "apps/web-pwa/src/store/news/**"
-        ]
-    },
-    "team-c": {
-        "branchPrefix": "team-c/",
-        "paths": [
-            "packages/data-model/src/schemas/hermes/discovery*.ts",
-            "apps/web-pwa/src/store/discovery/**",
-            "apps/web-pwa/src/hooks/useDiscoveryFeed*.ts",
-            "apps/web-pwa/src/components/feed/**",
-            "apps/web-pwa/src/hooks/useFeedStore*.ts",
-            "apps/web-pwa/src/components/FeedList*.tsx",
-            ".github/ownership-map.json"
-        ]
-    },
-    "team-d": {
-        "branchPrefix": "team-d/",
-        "paths": [
-            "packages/types/src/delegation*.ts",
-            "packages/types/src/index*.ts",
-            "apps/web-pwa/src/store/delegation/**",
-            "apps/web-pwa/src/store/xpLedgerBudget*.ts",
-            "apps/web-pwa/src/hooks/useFamiliar*.ts",
-            "apps/web-pwa/src/components/hermes/FamiliarControlPanel*.tsx",
-            "apps/web-pwa/src/components/hermes/CommunityReactionSummary*.tsx",
-            "apps/web-pwa/src/components/hermes/forum/VoteControl*.tsx",
-            ".github/ownership-map.json"
-        ]
-    },
-    "team-e": {
-        "branchPrefix": "team-e/",
-        "paths": [
-            "services/attestation-verifier/**",
-            "services/bridge-stub/**",
-            "packages/contracts/scripts/**",
-            "packages/contracts/deployments/**"
-        ]
-    },
-    "w2a": {
-        "branchPrefix": "w2a/",
-        "_note": "apps/web-pwa/src/store/synthesis/** ownership transferred from team-a to w2a for Wave 2 execution",
-        "paths": [
-            "packages/ai-engine/src/commentTracker*.ts",
-            "packages/ai-engine/src/digestBuilder*.ts",
-            "packages/ai-engine/src/resynthesisWiring*.ts",
-            "apps/web-pwa/src/store/synthesis/**",
-            "apps/web-pwa/src/store/forum/**"
-        ]
-    },
-    "w2b": {
-        "branchPrefix": "w2b/",
-        "_note_stage2": "packages/crdt/** and docsKeyManagement added for Stage 2 CRDT/Yjs collab hardening per coordinator pre-approval (Policy 3). packages/gun-client/src/topology*.ts shared-file access for docKeys path rule. pnpm-lock.yaml allowed for yjs+y-protocols dependency additions.",
-        "paths": [
-            "packages/data-model/src/schemas/hermes/docs*.ts",
-            "packages/data-model/src/index*.ts",
-            "packages/gun-client/src/docsAdapters*.ts",
-            "packages/gun-client/src/docsKeyManagement*.ts",
-            "packages/gun-client/src/topology*.ts",
-            "packages/gun-client/src/index*.ts",
-            "packages/crdt/src/**",
-            "packages/crdt/package.json",
-            "packages/crdt/tsconfig.json",
-            "pnpm-lock.yaml",
-            "apps/web-pwa/src/store/hermesDocs*.ts",
-            "apps/web-pwa/src/components/hermes/forum/CommentComposer*.tsx",
-            "apps/web-pwa/src/components/docs/**"
-        ]
-    },
-    "w2g": {
-        "branchPrefix": "w2g/",
-        "_note_shared": "apps/web-pwa/src/env.d.ts added per coordinator shared-file pre-approval (Policy 3) for VITE_ELEVATION_ENABLED typing. apps/web-pwa/src/components/feed/** added per coordinator shared-file pre-approval (Policy 3) for Phase 3 feed integration wiring — shared with team-c.",
-        "paths": [
-            "packages/data-model/src/schemas/hermes/elevation*.ts",
-            "packages/data-model/src/schemas/hermes/notification*.ts",
-            "packages/gun-client/src/bridgeAdapters*.ts",
-            "apps/web-pwa/src/store/bridge/**",
-            "apps/web-pwa/src/components/bridge/**",
-            "apps/web-pwa/src/store/linkedSocial/**",
-            "apps/web-pwa/src/components/feed/**",
-            "apps/web-pwa/src/env.d.ts"
-        ]
-    }
+  "team-a": {
+    "branchPrefix": "team-a/",
+    "_note": "apps/web-pwa/src/store/synthesis/** transferred to w2a for Wave 2; team-a retains ai-engine + data-model ownership",
+    "paths": [
+      "packages/ai-engine/src/synthesis*.ts",
+      "packages/ai-engine/src/candidateGatherer*.ts",
+      "packages/ai-engine/src/epochScheduler*.ts",
+      "packages/ai-engine/src/quorum*.ts",
+      "packages/ai-engine/src/topicSynthesisPipeline*.ts",
+      "packages/data-model/src/schemas/hermes/synthesis*.ts",
+      "packages/gun-client/src/synthesisAdapters*.ts",
+      "apps/web-pwa/src/hooks/useSynthesis*.ts",
+      "apps/web-pwa/src/components/synthesis/**"
+    ]
+  },
+  "team-b": {
+    "branchPrefix": "team-b/",
+    "paths": [
+      "services/news-aggregator/**",
+      "packages/data-model/src/schemas/hermes/storyBundle*.ts",
+      "packages/gun-client/src/newsAdapters*.ts",
+      "apps/web-pwa/src/store/news/**"
+    ]
+  },
+  "team-c": {
+    "branchPrefix": "team-c/",
+    "paths": [
+      "packages/data-model/src/schemas/hermes/discovery*.ts",
+      "apps/web-pwa/src/store/discovery/**",
+      "apps/web-pwa/src/hooks/useDiscoveryFeed*.ts",
+      "apps/web-pwa/src/components/feed/**",
+      "apps/web-pwa/src/hooks/useFeedStore*.ts",
+      "apps/web-pwa/src/components/FeedList*.tsx",
+      ".github/ownership-map.json"
+    ]
+  },
+  "team-d": {
+    "branchPrefix": "team-d/",
+    "paths": [
+      "packages/types/src/delegation*.ts",
+      "packages/types/src/index*.ts",
+      "apps/web-pwa/src/store/delegation/**",
+      "apps/web-pwa/src/store/xpLedgerBudget*.ts",
+      "apps/web-pwa/src/hooks/useFamiliar*.ts",
+      "apps/web-pwa/src/components/hermes/FamiliarControlPanel*.tsx",
+      "apps/web-pwa/src/components/hermes/CommunityReactionSummary*.tsx",
+      "apps/web-pwa/src/components/hermes/forum/VoteControl*.tsx",
+      ".github/ownership-map.json"
+    ]
+  },
+  "team-e": {
+    "branchPrefix": "team-e/",
+    "paths": [
+      "services/attestation-verifier/**",
+      "services/bridge-stub/**",
+      "packages/contracts/scripts/**",
+      "packages/contracts/deployments/**"
+    ]
+  },
+  "w2a": {
+    "branchPrefix": "w2a/",
+    "_note": "apps/web-pwa/src/store/synthesis/** ownership transferred from team-a to w2a for Wave 2 execution",
+    "paths": [
+      "packages/ai-engine/src/commentTracker*.ts",
+      "packages/ai-engine/src/digestBuilder*.ts",
+      "packages/ai-engine/src/resynthesisWiring*.ts",
+      "apps/web-pwa/src/store/synthesis/**",
+      "apps/web-pwa/src/store/forum/**"
+    ]
+  },
+  "w2b": {
+    "branchPrefix": "w2b/",
+    "_note_stage2": "packages/crdt/** and docsKeyManagement added for Stage 2 CRDT/Yjs collab hardening per coordinator pre-approval (Policy 3). packages/gun-client/src/topology*.ts shared-file access for docKeys path rule. pnpm-lock.yaml allowed for yjs+y-protocols dependency additions. apps/web-pwa/package.json allowed for TipTap/Yjs UI dependency additions (CE-reviewed, PR 3/3 prereq).",
+    "paths": [
+      "packages/data-model/src/schemas/hermes/docs*.ts",
+      "packages/data-model/src/index*.ts",
+      "packages/gun-client/src/docsAdapters*.ts",
+      "packages/gun-client/src/docsKeyManagement*.ts",
+      "packages/gun-client/src/topology*.ts",
+      "packages/gun-client/src/index*.ts",
+      "packages/crdt/src/**",
+      "packages/crdt/package.json",
+      "packages/crdt/tsconfig.json",
+      "pnpm-lock.yaml",
+      "apps/web-pwa/src/store/hermesDocs*.ts",
+      "apps/web-pwa/src/components/hermes/forum/CommentComposer*.tsx",
+      "apps/web-pwa/src/components/docs/**",
+      "apps/web-pwa/package.json"
+    ]
+  },
+  "w2g": {
+    "branchPrefix": "w2g/",
+    "_note_shared": "apps/web-pwa/src/env.d.ts added per coordinator shared-file pre-approval (Policy 3) for VITE_ELEVATION_ENABLED typing. apps/web-pwa/src/components/feed/** added per coordinator shared-file pre-approval (Policy 3) for Phase 3 feed integration wiring \u2014 shared with team-c.",
+    "paths": [
+      "packages/data-model/src/schemas/hermes/elevation*.ts",
+      "packages/data-model/src/schemas/hermes/notification*.ts",
+      "packages/gun-client/src/bridgeAdapters*.ts",
+      "apps/web-pwa/src/store/bridge/**",
+      "apps/web-pwa/src/components/bridge/**",
+      "apps/web-pwa/src/store/linkedSocial/**",
+      "apps/web-pwa/src/components/feed/**",
+      "apps/web-pwa/src/env.d.ts"
+    ]
+  }
 }
