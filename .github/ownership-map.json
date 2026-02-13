@@ -83,7 +83,7 @@
     },
     "w2g": {
         "branchPrefix": "w2g/",
-        "_note_shared": "apps/web-pwa/src/env.d.ts added per coordinator shared-file pre-approval (Policy 3) for VITE_ELEVATION_ENABLED typing",
+        "_note_shared": "apps/web-pwa/src/env.d.ts added per coordinator shared-file pre-approval (Policy 3) for VITE_ELEVATION_ENABLED typing. apps/web-pwa/src/components/feed/** added per coordinator shared-file pre-approval (Policy 3) for Phase 3 feed integration wiring — shared with team-c.",
         "paths": [
             "packages/data-model/src/schemas/hermes/elevation*.ts",
             "packages/data-model/src/schemas/hermes/notification*.ts",
@@ -91,6 +91,7 @@
             "apps/web-pwa/src/store/bridge/**",
             "apps/web-pwa/src/components/bridge/**",
             "apps/web-pwa/src/store/linkedSocial/**",
+            "apps/web-pwa/src/components/feed/**",
             "apps/web-pwa/src/env.d.ts"
         ]
     }
