@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ArticleEditor, ArticleViewer, ArticleFeedCard } from './index';
+import { ArticleEditor, ArticleViewer, ArticleFeedCard, PresenceBar, ShareModal } from './index';
 
 describe('docs barrel export', () => {
   it('exports ArticleEditor', () => {
@@ -12,5 +12,13 @@ describe('docs barrel export', () => {
 
   it('exports ArticleFeedCard', () => {
     expect(ArticleFeedCard).toBeDefined();
+  });
+
+  it('exports PresenceBar', () => {
+    expect(PresenceBar).toBeDefined();
+  });
+
+  it('exports ShareModal', () => {
+    expect(ShareModal).toBeDefined();
   });
 });

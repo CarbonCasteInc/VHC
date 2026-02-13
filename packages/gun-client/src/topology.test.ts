@@ -72,4 +72,23 @@ describe('TopologyGuard', () => {
     expect(() => guard.validateWrite('vh/hermes/inbox/device-123', {})).toThrow();
     expect(() => guard.validateWrite('~user/raw/data', {})).toThrow();
   });
+
+  it('allows encrypted writes to hermes docKeys path (sensitive)', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('~alice/hermes/docKeys/doc-1', {
+        __encrypted: true,
+        encryptedKey: 'abc123'
+      })
+    ).not.toThrow();
+  });
+
+  it('rejects unencrypted writes to hermes docKeys path', () => {
+    const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('~alice/hermes/docKeys/doc-1', {
+        encryptedKey: 'abc123'
+      })
+    ).toThrow(/sensitive write without encryption flag/);
+  });
 });
