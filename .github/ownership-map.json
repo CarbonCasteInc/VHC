@@ -71,7 +71,7 @@
     },
     "w2b": {
         "branchPrefix": "w2b/",
-        "_note_stage2": "packages/crdt/** and docsKeyManagement added for Stage 2 CRDT/Yjs collab hardening per coordinator pre-approval (Policy 3). packages/gun-client/src/topology*.ts shared-file access for docKeys path rule.",
+        "_note_stage2": "packages/crdt/** and docsKeyManagement added for Stage 2 CRDT/Yjs collab hardening per coordinator pre-approval (Policy 3). packages/gun-client/src/topology*.ts shared-file access for docKeys path rule. pnpm-lock.yaml allowed for yjs+y-protocols dependency additions.",
         "paths": [
             "packages/data-model/src/schemas/hermes/docs*.ts",
             "packages/data-model/src/index*.ts",
@@ -81,6 +81,8 @@
             "packages/gun-client/src/index*.ts",
             "packages/crdt/src/**",
             "packages/crdt/package.json",
+            "packages/crdt/tsconfig.json",
+            "pnpm-lock.yaml",
             "apps/web-pwa/src/store/hermesDocs*.ts",
             "apps/web-pwa/src/components/hermes/forum/CommentComposer*.tsx",
             "apps/web-pwa/src/components/docs/**"
