@@ -153,6 +153,7 @@ export * from './hermesCrypto';
 export * from './forumAdapters';
 export * from './directoryAdapters';
 export * from './docsAdapters';
+export * from './docsKeyManagement';
 export * from './synthesisAdapters';
 export * from './newsAdapters';
 export type { ChainWithGet } from './chain';
