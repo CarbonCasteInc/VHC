@@ -1,7 +1,7 @@
 # HERMES Docs Spec (v0)
 
-**Version:** 0.2
-**Status:** Draft — Sprint 5 Planning (V2-first alignment)
+**Version:** 0.3
+**Status:** Canonical for Season 0 (promoted from Draft on 2026-02-13 after Wave 2 Beta Stage 2 implementation)
 **Context:** Secure collaborative editing plus Reply-to-Article publish flow for TRINITY Season 0.
 
 ---

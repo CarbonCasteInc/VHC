@@ -1,8 +1,9 @@
 # Linked Socials Spec (v0)
 
-Version: 0.1
+Version: 0.2
 Status: Canonical for Season 0
 Context: Optional linked-social account connection and notification cards.
+Updated: 2026-02-13 — added `id` and `schemaVersion` fields to `LinkedSocialAccount` (implementation superset reconciliation).
 
 ## 1. Scope
 
@@ -14,6 +15,8 @@ Provide optional linked-social notifications in the unified feed while keeping O
 type SocialProviderId = 'x' | 'reddit' | 'youtube' | 'tiktok' | 'instagram' | 'other';
 
 interface LinkedSocialAccount {
+  id: string;                // unique identifier for this linked account record
+  schemaVersion: 'linked-social-v0';
   providerId: SocialProviderId;
   accountId: string;
   displayName?: string;

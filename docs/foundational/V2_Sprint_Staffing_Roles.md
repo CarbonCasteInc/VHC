@@ -1,7 +1,7 @@
 # V2-First Agent Role Contracts
 
 Companion to `docs/foundational/V2_Sprint_Staffing_Plan.md`.
-Defines behavioral contracts for every agent role in the Wave 1 cluster.
+Defines behavioral contracts for every agent role in the Wave 1-2 agent cluster.
 
 Last updated: 2026-02-11
 
