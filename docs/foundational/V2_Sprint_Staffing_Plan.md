@@ -635,11 +635,13 @@ Wave 2 runs **3 concurrent workstreams** after Wave 1 exits green.
 
 **Scope**: Nomination thresholds, elevation artifact generation (BriefDoc/ProposalScaffold/TalkingPoints), representative directory, native intents, local receipts. Also: linked-social OAuth substrate and notification ingestion.
 
+> **Wave 2 Completion Note (2026-02-13):** Phases 1-3 completed in Wave 2. Phase 4 (receipt-in-feed) and remaining SoT F scope (rep directory + native intents) deferred to Wave 3 by CEO decision. See `docs/foundational/WAVE3_CARRYOVER.md`.
+
 **Execution order inside stream**:
 
-1. Linked-social substrate first (vault token model + notification ingest + sanitization tests).
-2. Elevation artifacts + Civic Action Kit flow second (consumes `civic_actions/day` budget guards).
-3. Feed integration wiring last (real social cards and action receipts in unified feed).
+1. Linked-social substrate first (vault token model + notification ingest + sanitization tests). ✅ Wave 2 Phase 1
+2. Elevation artifacts + Civic Action Kit flow second (consumes `civic_actions/day` budget guards). ✅ Wave 2 Phase 2
+3. Feed integration wiring last (real social cards and action receipts in unified feed). ✅ Wave 2 Phase 3 (social cards); ❌ Phase 4 (action receipts) → Wave 3
 
 **Key files**:
 

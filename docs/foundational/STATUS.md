@@ -1,8 +1,8 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-11
-**Version:** 0.3.0 (Wave 1 Complete — V2 Feature Implementation)
-**Assessment:** Pre-production prototype, Wave 1 landed
+**Last Updated:** 2026-02-13
+**Version:** 0.4.0 (Wave 2 Complete — Collaborative Docs, Re-synthesis, Elevation, Linked-Social)
+**Assessment:** Pre-production prototype, Wave 2 landed
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -15,67 +15,104 @@
 |-------|--------|------------------|
 | **LUMA (Identity)** | 🔴 Stubbed | ❌ No |
 | **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
-| **VENN (Analysis)** | 🟡 Pipeline end-to-end, synthesis types + quorum + epochs landed | ❌ No |
+| **VENN (Analysis)** | 🟡 Pipeline end-to-end, V2 synthesis + re-synthesis triggers landed | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
-| **HERMES Forum** | 🟢 Implemented | ⚠️ Partial |
-| **HERMES Docs** | ⚪ Planned | ❌ No |
-| **HERMES Bridge (Civic Action Kit)** | 🟡 Wired (attestor + facilitation stubs) | ❌ No |
+| **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
+| **HERMES Docs** | 🟡 Foundation complete (store, editor, collab modules) — runtime wiring pending | ❌ No |
+| **HERMES Bridge (Civic Action Kit)** | 🟡 Elevation artifacts + budget gates landed | ❌ No |
 | **News Aggregator** | 🟢 Implemented (ingest/normalize/cluster/provenance) | ⚠️ Partial |
 | **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) | ⚠️ Partial |
-| **Delegation Runtime** | 🟡 Store + hooks + control panel landed | ⚠️ Partial |
+| **Delegation Runtime** | 🟡 Store + hooks + control panel + 6/8 budget keys | ⚠️ Partial |
+| **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
 
 ---
 
-## Wave 1 Landed Capabilities (2026-02-11)
+## Wave 2 Landed Capabilities (2026-02-13)
 
-Wave 1 delivered the following V2-track features, all merged to `main` via PR #176:
+Wave 2 delivered the following features across 3 workstreams and 36 PRs to `integration/wave-2`, merged to `main` via Policy 15 sync PRs (#218, #221).
 
-### Team A — Synthesis Pipeline
-- `CandidateSynthesis`, `QuorumMeta`, `TopicSynthesisV2` types + Zod schemas (`synthesisTypes.ts`)
-- Candidate gatherer with N-of-M collection, timeout, verified-only gate (`candidateGatherer.ts`)
-- Quorum evaluation with divergence scoring and merge logic (`quorum.ts`)
-- Epoch scheduler with debounce, daily cap, comment-driven re-synthesis triggers (`epochScheduler.ts`)
-- Synthesis store (Zustand) with hydration from Gun adapters (`store/synthesis/`)
-- Gun synthesis adapters with topic-keyed read/write and signature verification (`synthesisAdapters.ts`)
-- Data-model synthesis schemas (`schemas/hermes/synthesis.ts`)
+### W2-Alpha — Comment-Driven Re-synthesis (PRs #192, #197, #199, #202)
+- `CommentTracker` module: per-topic verified comment counting with epoch-aware state (`commentTracker.ts`)
+- `DigestBuilder`: rolling `TopicDigestInput` construction from comment activity (`digestBuilder.ts` — W2A-2)
+- Re-synthesis trigger wiring: comment count threshold → epoch scheduler trigger, forum comment integration (`resynthesisWiring.ts`)
+- Full test coverage on all touched modules
 
-### Team B — News Aggregator + Store
-- News aggregator service: RSS/Atom ingest, HTML normalize, TF-IDF story clustering, provenance tracking (`services/news-aggregator/`)
-- StoryBundle schemas with Zod validation (`schemas/hermes/storyBundle.ts`)
-- News store (Zustand) with hydration pipeline (`store/news/`)
-- Gun news adapters with story-keyed sync (`newsAdapters.ts`)
-- Data-model discovery schemas (`schemas/hermes/discovery.ts`)
+### W2-Beta Stage 1 — Reply-to-Article + Docs MVP (PRs #190, #198, #201)
+- `ForumPost` and `HermesDocs` Zod schemas + `docsAdapters` for Gun mesh sync
+- 240-character reply cap enforcement in `CommentComposer`
+- "Convert to Article" CTA when reply exceeds cap
+- `hermesDocs` Zustand store with CRUD, flag-gated via `VITE_HERMES_DOCS_ENABLED`
+- `ArticleEditor` (draft/edit) and `ArticleViewer` (read) components
+- `ArticleFeedCard` integrated into discovery feed under `ARTICLE` feed kind
 
-### Team C — Discovery Feed
-- Feed shell with filter chips, sort controls, hotness ranker (`components/feed/`)
-- Three card types: TopicCard, NewsCard, SocialNotificationCard
-- HotnessRanker: time-decay + engagement scoring for feed ordering
-- Discovery store with ranking integration (`store/discovery/`)
-- `useDiscoveryFeed` hook with feature-flag gating (`VITE_FEED_V2_ENABLED`)
-- `useSynthesis` hook with feature-flag gating (`VITE_TOPIC_SYNTHESIS_V2_ENABLED`)
-- Feed↔Forum integration: analysis-created threads carry `topicId`/`sourceUrl`/`isHeadline`
+### W2-Beta Stage 2 — Collaborative Docs Foundation (PRs #214, #217, #219, #220)
+- `@vh/crdt` package: Yjs provider, `AwarenessAdapter`, dedup module for CRDT sync
+- Document key management: `deriveDocumentKey`, `shareDocumentKey`, `receiveDocumentKey`, `encryptDocContent`, `decryptDocContent` (`docsKeyManagement.ts`)
+- `CollabEditor` component: TipTap + Yjs binding, lazy-loaded (229 LOC)
+- `PresenceBar` component: collaborator cursor/presence indicators via AwarenessAdapter (66 LOC)
+- `ShareModal` component: collaborator add/remove, role selection, trust threshold checks (261 LOC)
+- `hermesDocsCollab` store: collab runtime state, auto-save (5s encrypted), offline pending indicator
+- `hermesDocsAccess` store: pure access control functions (`getAccessLevel`, `canEdit`, `canView`, `canShare`, `canDelete`)
+- Document key localStorage persistence (`vh_docs_keys:<nullifier>`)
+- Feature flags: `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED` gate collab runtime
+- E2E bypass: `VITE_E2E_MODE=true` → `MockGunYjsProvider` (no Yjs/Gun init)
+- 204 new tests, 100% line+branch coverage on all touched modules
 
-### Team D — Delegation Runtime + Familiar Control Panel
-- Delegation store (Zustand): grant creation/revocation, tier-scoped permissions, persistence (`store/delegation/`)
-- `useFamiliar` hook with budget-aware action dispatch
-- `FamiliarControlPanel` component: grant management, tier selection, activity log
-- Delegation utility functions: scope validation, tier comparison, grant filtering (`delegation-utils.ts`)
-- Notification schema for social notifications (`schemas/hermes/notification.ts`)
-- Elevation schema for proposal elevation artifacts (`schemas/hermes/elevation.ts`)
+> **Note:** Stage 2 is foundation-only. `CollabEditor` is built and tested but NOT wired into the active `ArticleEditor` path. Runtime wiring is Wave 3 scope (see `WAVE3_CARRYOVER.md`).
 
-### Team E — Bridge/Attestor Wiring
-- Attestation verifier hardened: real Apple/Android token validation paths, structured error responses, rate limiting (`main.rs`)
-- Bridge stub expanded: facilitation endpoints, receipt storage, PDF report stubs, contact directory (`bridge-stub/`)
-- Deployment artifact validation tooling (`validate-deployment-artifact.ts`)
-- Sepolia deployment landed (`deployments/sepolia.json`)
+### W2-Gamma Phase 1 — Linked-Social Substrate (PR #207)
+- Schema convergence: `LinkedSocialAccount` and `SocialNotification` with strict Zod validation
+- Vault token substrate: `OAuthTokenRecord` with vault-only storage enforcement
+- Notification ingestion pipeline with sanitization
 
-### Infrastructure (Wave 1)
-- Ownership scope checker for PR team-boundary enforcement (`check-ownership-scope.mjs`)
-- Diff-aware coverage gate for PRs (`check-diff-coverage.mjs`)
-- Git pre-push hook for local gate enforcement (`.githooks/pre-push`)
-- PR template with ownership/scope/testing checklist (`.github/pull_request_template.md`)
-- CI expanded: Ownership Scope, Change Detection, Lighthouse jobs added
-- Feature-flag env declarations (`env.d.ts`)
+### W2-Gamma Phase 2 — Elevation Artifacts + Budget Gates (PR #209)
+- Elevation schema tightening with Zod validation
+- Artifact generators: `BriefDoc`, `ProposalScaffold`, `TalkingPoints`
+- `civic_actions/day` budget gate enforcement (budget key #7 of 8 now active)
+- Trust threshold checks for elevation nominations
+
+### W2-Gamma Phase 3 — Social Feed Wiring (PR #211)
+- `SocialNotificationCard` real-data rendering (replaces mock)
+- `socialFeedAdapter`: notification → feed item mapping with dismiss/seen state
+- Feed integration: social notifications in `Social` surface and `All` feed
+
+### Wave 2 Governance Infrastructure (20 coord/* PRs)
+- CE dual-review contracts codified and enforced for all execution dispatches
+- Ownership map expanded for all 3 workstreams (glob patterns per Policy 2)
+- Wave 2 delta contract: 16 binding policies defined and enforced
+- Policy 4 exception documented (serialized merge fallback)
+- Policy 14 repo migration parity verified post-transfer
+- Policy 15 periodic sync enforced (PRs #218, #221)
+- Context rotation guard enforced (Policy 13)
+
+---
+
+## Wave 2 Deferred Items (CEO Decision 2026-02-13)
+
+The following items were explicitly deferred to Wave 3 by CEO decision:
+
+| Item | Reason | Carryover Doc |
+|------|--------|---------------|
+| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needs spec work; additive to landed foundation | `WAVE3_CARRYOVER.md` |
+| SoT F: Rep directory + native intents | CAK foundation landed; full delivery pipeline is Wave 3 priority | `WAVE3_CARRYOVER.md` |
+| CollabEditor runtime wiring | Foundation built and tested; wiring into ArticleEditor path deferred | `WAVE3_CARRYOVER.md` |
+
+---
+
+## Feature Flags
+
+| Flag | Purpose | Default | Wave |
+|------|---------|---------|------|
+| `VITE_FEED_V2_ENABLED` | Gates discovery feed v2 UI | `false` | 1 |
+| `VITE_TOPIC_SYNTHESIS_V2_ENABLED` | Gates synthesis v2 hooks | `false` | 1 |
+| `VITE_HERMES_DOCS_ENABLED` | Gates HERMES Docs store + article editor | `false` | 2 |
+| `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |
+| `VITE_LINKED_SOCIAL_ENABLED` | Gates linked-social notification pipeline | `false` | 2 |
+| `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
+| `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
+| `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine opt-in | empty | 1 |
+
+All Wave 2 features are flag-gated. Default false. Legacy behavior preserved when flags are off.
 
 ---
 
@@ -83,40 +120,31 @@ Wave 1 delivered the following V2-track features, all merged to `main` via PR #1
 
 | Direction Delta | Target (Ship Snapshot) | Current Implementation |
 |---|---|---|
-| A. V2-first synthesis | `TopicSynthesisV2` (quorum + epochs + divergence) is canonical | ✅ Types, candidate gatherer, quorum engine, epoch scheduler, store, and Gun adapters all landed (Wave 1); runtime wiring to UI pending |
-| B. 3-surface feed | Feed mixes `News`, `Topics`, and `Linked-Social Notifications` | ✅ Discovery feed shell with all three card types landed; linked-social OAuth not yet implemented |
-| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema defined; auto-drafted artifacts and forwarding flow not yet implemented |
-| D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | Forum sorting implemented; reply-to-article conversion path not yet implemented |
-| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | Planned only, no runtime implementation |
-| F. GWC thesis channel | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | Eye/Lightbulb primitives and sentiment flow partially implemented; district aggregate pipeline incomplete |
-| G. Provider switching | Default local WebLLM; remote providers opt-in with cost/privacy clarity | ✅ Local default path wired (`LocalMlEngine`); remote engine opt-in wired with `local-first` policy (#133); provider consent UI in place |
+| A. V2-first synthesis | `TopicSynthesisV2` (quorum + epochs + divergence) is canonical | ✅ Types, candidate gatherer, quorum engine, epoch scheduler, store, Gun adapters (Wave 1) + re-synthesis triggers, comment tracking, digest builder (Wave 2 Alpha) |
+| B. 3-surface feed | Feed mixes `News`, `Topics`, and `Linked-Social Notifications` | ✅ Discovery feed shell with all three card types + real social notification wiring (Wave 1 + Wave 2 Gamma P3) |
+| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema + artifact generators + budget gates landed (Wave 2 Gamma P2); receipt-in-feed deferred to Wave 3 |
+| D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | ✅ Forum sorting + 240-char reply cap + Convert-to-Article CTA + ArticleFeedCard (Wave 2 Beta S1) |
+| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟡 Full foundation: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control (Wave 2 Beta S2); runtime wiring into ArticleEditor deferred to Wave 3 |
+| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
+| G. Provider switching + consent | Default local WebLLM; remote providers opt-in with cost/privacy clarity | ✅ Local default path wired; remote engine opt-in with local-first policy; provider consent UI in place |
 
 ---
 
 ## Test & Coverage Truth
 
-**Gate verification date:** 2026-02-11 (Run C, full re-verification)
-**Branch verified:** `integration/wave-1` at `925fd34` → merged to `main` at `cd22dd0`
+**Gate verification date:** 2026-02-13
+**Branch verified:** `integration/wave-2` at `6b8a444` → merged to `main` at `d85fe51`
 
 | Gate | Result | Detail |
 |------|--------|--------|
-| `pnpm typecheck` | ✅ PASS | 16 of 17 workspace projects |
-| `pnpm lint` | ✅ PASS | 16 of 17 workspace projects |
-| `pnpm test:quick` | ✅ PASS | 110 test files, 1390 tests |
-| `pnpm deps:check` | ✅ PASS | No circular dependencies |
-| `pnpm test:e2e` | ✅ PASS | 10 E2E tests passed |
-| `pnpm bundle:check` | ✅ PASS | 180.61 KiB gzipped (< 1 MiB limit) |
-| `pnpm test:coverage` | ✅ PASS | 100% all metrics |
-| Feature-flag variants | ✅ PASS | Both ON/OFF pass all 1390 tests |
+| `pnpm typecheck` | ✅ PASS | All workspace projects |
+| `pnpm lint` | ✅ PASS | All workspace projects |
+| `pnpm test` | ✅ PASS | 142 test files, 2162 tests |
+| `pnpm test:e2e` | ✅ PASS | E2E tests passed |
+| `pnpm bundle:check` | ✅ PASS | Under 1 MiB limit |
+| Feature-flag variants | ✅ PASS | All ON/OFF combinations pass |
 
-**Coverage (verified):**
-
-| Metric | Value |
-|--------|-------|
-| Statements | 100% (4531/4531) |
-| Branches | 100% (1492/1492) |
-| Functions | 100% (388/388) |
-| Lines | 100% (4531/4531) |
+**Coverage:** 100% line, branch, function, statement on all touched Wave 2 modules (diff-aware per-PR gate + global at closeout).
 
 ---
 
@@ -125,13 +153,13 @@ Wave 1 delivered the following V2-track features, all merged to `main` via PR #1
 | Sprint | Status | Key Outcomes |
 |--------|--------|-------------|
 | **Sprint 0** (Foundation) | ✅ Complete | Monorepo, CLI, CI, core packages |
-| **Sprint 1** (Core Bedrock) | ⚠️ 90% | Encrypted vault, identity types, contracts; testnet deployment landed (Sepolia); attestation hardened but not production-grade |
-| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, `LocalMlEngine` (WebLLM) default, `RemoteApiEngine` opt-in, EngineRouter dual-engine fallback |
+| **Sprint 1** (Core Bedrock) | ⚠️ 90% | Encrypted vault, identity types, contracts; Sepolia deployed; attestation hardened but not production-grade |
+| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, LocalMlEngine default, RemoteApiEngine opt-in |
 | **Sprint 3** (Communication) | ✅ Complete | E2EE messaging, forum with stance-threading, XP integration |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | Stance-based threading, design unification |
-| **Sprint 4** (Agentic Foundation) | ✅ Complete | Delegation types + store + control panel; participation governors (8 keys, 6 enforced); unified topics; budget denial UX; TOCTOU hardening |
-| **Wave 1** (V2 Features) | ✅ Complete | Synthesis pipeline/store, news aggregator/store, discovery feed/cards, delegation runtime + familiar panel, bridge/attestor wiring |
-| **Sprint 5** (Bridge + Docs) | ⚪ Planning | Civic Action Kit facilitation model, collaborative docs |
+| **Sprint 4** (Agentic Foundation) | ✅ Complete | Delegation types + store + control panel; participation governors; budget denial UX |
+| **Wave 1** (V2 Features) | ✅ Complete | Synthesis pipeline/store, news aggregator/store, discovery feed/cards, delegation runtime, bridge/attestor wiring |
+| **Wave 2** (Integration Features) | ✅ Complete | Re-synthesis triggers, collaborative docs foundation, elevation artifacts, linked-social substrate, social feed wiring |
 
 ---
 
@@ -165,7 +193,7 @@ Wave 1 delivered the following V2-track features, all merged to `main` via PR #1
 | `useFamiliar` hook | ✅ Landed | `store/delegation/useFamiliar.test.ts` |
 | FamiliarControlPanel UI | ✅ Landed | `components/hermes/FamiliarControlPanel.tsx` |
 | Delegation utility functions | ✅ Landed | `packages/types/src/delegation-utils.ts` |
-| Budget enforcement (6/8 keys) | ✅ Wired | posts, comments, governance/sentiment votes, analyses, shares |
+| Budget enforcement (7/8 keys) | ✅ Wired | posts, comments, governance/sentiment votes, analyses, shares, civic_actions |
 | Full familiar orchestration | ❌ Not implemented | No autonomous agent loop |
 
 ---
@@ -182,28 +210,26 @@ Wave 1 delivered the following V2-track features, all merged to `main` via PR #1
 | Median Oracle | ✅ `MedianOracle.sol` | ✅ | ⚠️ Localhost + Sepolia |
 | Faucet | ✅ `Faucet.sol` | ✅ | ❌ Not deployed |
 
-**Deployment Artifacts:**
-- `deployments/localhost.json` — ✅ (deployed 2025-11-21)
-- `deployments/sepolia.json` — ✅ (landed Wave 1)
-
 ---
 
 ### VENN (Canonical Analysis Layer)
 
-**Status:** 🟡 **Pipeline End-to-End, V2 Synthesis Types Landed**
+**Status:** 🟡 **Pipeline End-to-End, V2 Synthesis + Re-synthesis Landed**
 
 | Feature | Implementation | Evidence |
 |---------|----------------|----------|
-| Analysis pipeline (v1) | ✅ End-to-end | `pipeline.ts` — buildPrompt → EngineRouter → parse → validate |
+| Analysis pipeline (v1) | ✅ End-to-end | `pipeline.ts` |
 | `LocalMlEngine` (WebLLM) | ✅ Default in non-E2E | `localMlEngine.ts` |
-| `RemoteApiEngine` (opt-in) | ✅ Wired | `remoteApiEngine.ts` with `local-first` policy |
-| Synthesis types (v2) | ✅ Landed | `synthesisTypes.ts` — `CandidateSynthesis`, `QuorumMeta`, `TopicSynthesisV2` |
-| Candidate gatherer | ✅ Landed | `candidateGatherer.ts` — N-of-M, timeout, verified-only gate |
-| Quorum engine | ✅ Landed | `quorum.ts` — divergence scoring, merge |
-| Epoch scheduler | ✅ Landed | `epochScheduler.ts` — debounce, daily cap, re-synthesis triggers |
-| Synthesis store | ✅ Landed | `store/synthesis/` — Zustand + hydration |
-| Gun synthesis adapters | ✅ Landed | `synthesisAdapters.ts` — topic-keyed read/write |
-| Runtime wiring (v2 → UI) | ❌ Pending | Synthesis pipeline not yet connected to discovery feed |
+| `RemoteApiEngine` (opt-in) | ✅ Wired | `remoteApiEngine.ts` |
+| Synthesis types (v2) | ✅ Landed | `synthesisTypes.ts` |
+| Candidate gatherer | ✅ Landed | `candidateGatherer.ts` |
+| Quorum engine | ✅ Landed | `quorum.ts` |
+| Epoch scheduler | ✅ Landed | `epochScheduler.ts` |
+| Synthesis store | ✅ Landed | `store/synthesis/` |
+| Gun synthesis adapters | ✅ Landed | `synthesisAdapters.ts` |
+| Comment tracker (W2) | ✅ Landed | `commentTracker.ts` |
+| Digest builder (W2) | ✅ Landed | `digestBuilder.ts` |
+| Re-synthesis triggers (W2) | ✅ Landed | `resynthesisWiring.ts` |
 
 ---
 
@@ -218,61 +244,87 @@ Wave 1 delivered the following V2-track features, all merged to `main` via PR #1
 | Topology guard | ✅ |
 | XP integration | ✅ |
 
-#### Forum — 🟢 Implemented + Unified Topics
+#### Forum — 🟢 Implemented + Reply Cap + Article CTA
 
 | Feature | Status |
 |---------|--------|
 | Threaded comments (stance-based) | ✅ |
+| 240-char reply cap enforcement | ✅ (Wave 2) |
+| Convert-to-Article CTA | ✅ (Wave 2) |
 | `topicId`/`sourceUrl`/`urlHash`/`isHeadline` | ✅ |
 | Feed↔Forum integration | ✅ |
-| `via` field (human/familiar) | ✅ |
 | Proposal extension on threads | ✅ |
 
-#### Bridge (Civic Action Kit) — 🟡 Wired
+#### Docs — 🟡 Foundation Complete, Runtime Wiring Pending
 
 | Feature | Status |
 |---------|--------|
-| Attestation verifier (hardened) | ✅ Structured validation, rate limiting |
-| Facilitation endpoints (stubs) | ✅ Landed |
-| Receipt storage | ✅ Stub landed |
-| PDF report generation | ❌ Not implemented |
-| Native intents | ❌ Not implemented |
+| hermesDocs store (CRUD) | ✅ (Wave 2 S1) |
+| ArticleEditor + ArticleViewer | ✅ (Wave 2 S1) |
+| ArticleFeedCard in discovery feed | ✅ (Wave 2 S1) |
+| CRDT/Yjs provider + dedup | ✅ (Wave 2 S2) |
+| Document key management (E2EE) | ✅ (Wave 2 S2) |
+| CollabEditor (TipTap + Yjs) | ✅ Foundation (Wave 2 S2) |
+| PresenceBar (awareness) | ✅ Foundation (Wave 2 S2) |
+| ShareModal (access control) | ✅ Foundation (Wave 2 S2) |
+| hermesDocsCollab store | ✅ Foundation (Wave 2 S2) |
+| hermesDocsAccess functions | ✅ Foundation (Wave 2 S2) |
+| CollabEditor wired into ArticleEditor | ❌ Wave 3 |
 
-#### Docs (Collaborative) — ⚪ Planned
+#### Bridge (Civic Action Kit) — 🟡 Elevation Landed
 
-No implementation.
+| Feature | Status |
+|---------|--------|
+| Attestation verifier (hardened) | ✅ |
+| Elevation artifact generators | ✅ (Wave 2) |
+| civic_actions/day budget gate | ✅ (Wave 2) |
+| Trust threshold for nominations | ✅ (Wave 2) |
+| Receipt-in-feed | ❌ Wave 3 |
+| Representative directory | ❌ Wave 3 |
+| Native intents | ❌ Wave 3 |
+
+#### Linked-Social — 🟡 Substrate + Feed Cards Landed
+
+| Feature | Status |
+|---------|--------|
+| LinkedSocialAccount schema | ✅ (Wave 2) |
+| SocialNotification schema | ✅ (Wave 2) |
+| Vault token substrate | ✅ (Wave 2) |
+| Notification ingestion | ✅ (Wave 2) |
+| SocialNotificationCard (real data) | ✅ (Wave 2) |
+| socialFeedAdapter | ✅ (Wave 2) |
+| OAuth connection flow | ❌ Not implemented |
 
 ---
 
 ### News Aggregator
 
-**Status:** 🟢 **Implemented** (new in Wave 1)
+**Status:** 🟢 **Implemented** (Wave 1)
 
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| RSS/Atom ingest | ✅ | `services/news-aggregator/src/ingest.ts` |
-| HTML normalization | ✅ | `normalize.ts` |
-| TF-IDF story clustering | ✅ | `cluster.ts` |
-| Provenance tracking | ✅ | `provenance.ts` |
-| News store (Zustand) | ✅ | `store/news/` |
-| Gun news adapters | ✅ | `newsAdapters.ts` |
-| StoryBundle schemas | ✅ | `schemas/hermes/storyBundle.ts` |
+| Feature | Implementation |
+|---------|----------------|
+| RSS/Atom ingest | ✅ `ingest.ts` |
+| HTML normalization | ✅ `normalize.ts` |
+| TF-IDF story clustering | ✅ `cluster.ts` |
+| Provenance tracking | ✅ `provenance.ts` |
+| News store (Zustand) | ✅ `store/news/` |
+| Gun news adapters | ✅ `newsAdapters.ts` |
 
 ---
 
 ### Discovery Feed
 
-**Status:** 🟢 **Implemented** (new in Wave 1)
+**Status:** 🟢 **Implemented** (Wave 1 + Wave 2 extensions)
 
-| Feature | Implementation | Evidence |
-|---------|----------------|----------|
-| Feed shell + filter chips | ✅ | `components/feed/FeedShell.tsx` |
-| Sort controls | ✅ | `SortControls.tsx` |
-| Hotness ranker (time-decay + engagement) | ✅ | `HotnessRanker.ts` |
-| TopicCard / NewsCard / SocialNotificationCard | ✅ | `components/feed/` |
-| Discovery store + ranking | ✅ | `store/discovery/` |
-| `useDiscoveryFeed` hook | ✅ | Feature-flag gated (`VITE_FEED_V2_ENABLED`) |
-| `useSynthesis` hook | ✅ | Feature-flag gated (`VITE_TOPIC_SYNTHESIS_V2_ENABLED`) |
+| Feature | Implementation |
+|---------|----------------|
+| Feed shell + filter chips | ✅ `FeedShell.tsx` |
+| Sort controls | ✅ `SortControls.tsx` |
+| Hotness ranker | ✅ `HotnessRanker.ts` |
+| TopicCard / NewsCard | ✅ Wave 1 |
+| SocialNotificationCard (real data) | ✅ Wave 2 |
+| ArticleFeedCard | ✅ Wave 2 |
+| Discovery store + ranking | ✅ `store/discovery/` |
 
 ---
 
@@ -284,18 +336,20 @@ No implementation.
 |------|----------|--------|
 | No sybil defense | 🔴 High | Open |
 | Trust scores spoofable | 🔴 High | Open (hardened stubs, not production) |
-| First-to-file poisoning (v1) | 🟡 Medium | Open (v2 quorum types landed, runtime pending) |
+| First-to-file poisoning (v1) | 🟡 Medium | Open (v2 quorum landed, runtime pending) |
 
 ### Mitigations in Place
 
-- ✅ Identity stored in encrypted IndexedDB vault (not localStorage)
+- ✅ Identity stored in encrypted IndexedDB vault
 - ✅ Topology guard prevents unauthorized Gun writes
 - ✅ Encryption required for sensitive mesh paths
 - ✅ XP ledger is local-only
-- ✅ Participation governors enforce rate limits (6/8 budget keys active)
+- ✅ Participation governors enforce rate limits (7/8 budget keys active)
 - ✅ TOCTOU hardening on concurrent budget operations
 - ✅ Attestation verifier has structured validation and rate limiting
-- ✅ AI engine default is truthful (`LocalMlEngine` in non-E2E)
+- ✅ AI engine default is truthful (LocalMlEngine in non-E2E)
+- ✅ Document keys derived per-document, never stored on mesh (Wave 2)
+- ✅ OAuth tokens vault-only, never on public paths (Wave 2)
 
 ---
 
@@ -310,66 +364,36 @@ No implementation.
 
 ---
 
-## Feature Flags (Wave 1)
+## Next Work (Wave 3 Direction)
 
-| Flag | Purpose | Default |
-|------|---------|---------|
-| `VITE_FEED_V2_ENABLED` | Gates discovery feed v2 UI | `false` |
-| `VITE_TOPIC_SYNTHESIS_V2_ENABLED` | Gates synthesis v2 hooks | `false` |
-| `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine opt-in | empty (disabled) |
+See `docs/foundational/WAVE3_CARRYOVER.md` for detailed carryover items.
 
-All Wave 1 features are flag-gated. Tests pass in both ON and OFF configurations.
-
----
-
-## Next Work (Wave 2 Direction)
-
-- Run Wave 2 via CE dual-review gate (`ce-codex` + `ce-opus`) for all Coordinator-bound execution prompts.
-- Wire synthesis pipeline runtime to discovery feed UI (v2 end-to-end)
-- Feature-flag retirement (Wave 1 flags → permanent on)
-- Implement linked-social OAuth + notification cards
-- Ship reply-to-article conversion flow (240 chars → Docs)
-- Implement elevation artifacts (BriefDoc, ProposalScaffold, TalkingPoints)
-- Add representative directory + native forwarding intents
-- Enforce remaining budget keys (moderation/day, civic_actions/day)
+Priority order (CEO directive):
+1. **CAK completion** — receipt-in-feed (DeliveryReceipt schema), representative directory, native intents
+2. **CollabEditor runtime wiring** — connect CollabEditor into ArticleEditor active path
+3. **Feature-flag retirement** — promote Wave 1+2 flags to permanent-on after integration sign-off
+4. **Remaining budget key** — `moderation/day` enforcement (key 8/8)
+5. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
 
 ---
 
 ## References
 
+### Wave 2 Artifacts
+- `docs/reports/WAVE2_DOC_AUDIT.md` — Wave-end documentation audit
+- `docs/foundational/WAVE3_CARRYOVER.md` — Deferred items and Wave 3 entry points
+- `docs/foundational/WAVE2_DELTA_CONTRACT.md` — 16 binding policies
+- `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` — CE dual-review protocol
+
 ### Wave 1 Artifacts
 - `docs/reports/WAVE1_INTEGRATION_READINESS.md` — Integration gate report
-- `docs/reports/PHASE_MAPPING_ADDENDUM.md` — Salvage protocol phase mapping
-- `docs/reports/FIRST_SLICE_STABILITY_REVIEW.md` — First slice stability review
-- `docs/reports/SECOND_SLICE_STABILITY_REVIEW.md` — Second slice stability review
-- `docs/foundational/WAVE1_STABILITY_DECISION_RECORD.md` — Stability decision record
-
-### Wave 2 Control Docs
-- `docs/foundational/WAVE2_DELTA_CONTRACT.md` — Binding wave-2 process/policy deltas
-- `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` — CE dual-review protocol and escalation flow
-- `docs/foundational/WAVE2_KICKOFF_COMMAND_SHEET.md` — Wave 2 kickoff and execution runbook
-- `docs/reports/WAVE2_DOC_AUDIT.md` — Wave transition document-audit artifact
-
-### Staffing & Operations
-- `docs/foundational/V2_Sprint_Staffing_Plan.md` — Wave staffing baseline (Wave 1 historical + Wave 2 active)
-- `docs/foundational/V2_Sprint_Staffing_Roles.md` — Agent role contracts (with Wave 2 delta override)
-- `docs/foundational/WAVE1_KICKOFF_COMMAND_SHEET.md` — Wave 1 kickoff commands
-- `docs/foundational/WAVE2_KICKOFF_COMMAND_SHEET.md` — Wave 2 kickoff commands
+- `docs/foundational/WAVE1_STABILITY_DECISION_RECORD.md` — Stability decisions
 
 ### Architecture & Specs
 - `System_Architecture.md` — Target architecture
 - `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails
-- `docs/foundational/AI_ENGINE_CONTRACT.md` — AI engine pipeline contract
-- `docs/specs/topic-synthesis-v2.md` — Quorum synthesis contract
+- `docs/specs/spec-hermes-docs-v0.md` — HERMES Docs spec (Canonical for Season 0)
+- `docs/specs/spec-hermes-forum-v0.md` — Forum spec
+- `docs/specs/spec-linked-socials-v0.md` — Linked-social spec
 - `docs/specs/spec-civic-action-kit-v0.md` — Civic Action Kit spec
-- `docs/specs/spec-xp-ledger-v0.md` — XP ledger spec (fully implemented)
-- `docs/specs/spec-hermes-forum-v0.md` — Forum spec (implemented + unified topics)
-
-### Sprint Documentation
-- `docs/sprints/archive/00-sprint-0-foundation.md` — ✅ Complete
-- `docs/sprints/archive/01-sprint-1-core-bedrock.md` — ⚠️ 90% (attestation gap)
-- `docs/sprints/02-sprint-2-advanced-features.md` — ✅ Complete
-- `docs/sprints/03-sprint-3-the-agora.md` — ✅ Complete
-- `docs/sprints/03.5-sprint-3.5-ui-refinement.md` — ✅ Complete
-- `docs/sprints/04-sprint-agentic-foundation.md` — ✅ Complete
-- `docs/sprints/05-sprint-the-bridge.md` — ⚪ Planning
+- `docs/specs/topic-synthesis-v2.md` — Synthesis V2 spec
