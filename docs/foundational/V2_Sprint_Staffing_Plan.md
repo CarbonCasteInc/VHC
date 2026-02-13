@@ -727,6 +727,8 @@ Wave 2 runs **3 concurrent workstreams** after Wave 1 exits green.
 
 | Agent ID | Role | Model | Standing? | Reports to |
 | --- | --- | --- | --- | --- |
+| `ce-codex` | CE Technical Review | `codex-5.3-extra-high` | Persistent (cross-wave) | Coordinator |
+| `ce-opus` | CE Governance Review | `opus-4.6` | Persistent (cross-wave) | Coordinator |
 | `w1-spec` | Spec (cross-team) | `opus-4.6` | Full wave | Coordinator |
 | `w1-qa-integ` | QA-Integration | `opus-4.6` | Full wave | Coordinator |
 | `w1-docs` | Docs | `opus-4.6` | Full wave | Coordinator |
@@ -735,7 +737,9 @@ Wave 2 runs **3 concurrent workstreams** after Wave 1 exits green.
 
 ```
 Coordinator (human)
-├── Coordinator (Wave 0 only)
+├── Coordinator (persistent, orchestration)
+├── ce-codex (CE technical review, persistent)
+├── ce-opus (CE governance review, persistent)
 ├── w1-spec (cross-team, standing)
 ├── w1-qa-integ (cross-team, standing)
 ├── w1-docs (cross-team, standing)
@@ -763,15 +767,17 @@ Coordinator (human)
 
 | Category | Count | Model |
 | --- | --- | --- |
-| Standing chiefs (pure) | 4 (Coordinator, A, B, C) | `opus-4.6` |
+| Standing coordinator (orchestration) | 1 (Coordinator) | `opus-4.6` |
+| Standing chiefs (pure) | 3 (A, B, C) | `opus-4.6` |
 | Standing chief+impl (hybrid) | 1 (D) | `codex-5.3-extra-high` |
 | Standing impl (pure) | 5 (A x2, B x1, C x2) | `codex-5.3-extra-high` |
 | Standing QA (per-team) | 4 (A/B/C/D) | `codex-5.3-extra-high` |
 | Standing cross-wave | 3 (spec, qa-integ, docs) | `opus-4.6` |
+| CE review (persistent) | 2 (ce-codex, ce-opus) | mixed (`codex-5.3-extra-high` + `opus-4.6`) |
 | Per-PR maint | 4 (A/B/C/D) | `opus-4.6` |
 | Per-issue sidecar | 2 (E impl + qa) | `codex-5.3-extra-high` |
-| **Total agent slots** | **23** | |
-| Standing simultaneously (Wave 1) | **16** (excl. Coordinator which ends after Wave 0; excl. per-PR maint and per-issue sidecar agents) | |
+| **Total agent slots** | **25** | |
+| Standing simultaneously (Wave 2) | **19** (excl. per-PR maint and per-issue sidecar agents) | |
 
 ### Role behavior reference
 
@@ -784,6 +790,7 @@ Coordinator (human)
 | **QA-Integration** | Cross-team smoke at 48h cadence, privacy lint, integration E2E, feature flag validation. Maintains readiness matrix of landed dependencies. | One per wave, not per-team. Owns integration pass gate. |
 | **Maint** | Code quality, LOC compliance, integration review, refactoring suggestions | Per-PR (spun up for reviews). Does not need standing context. |
 | **Docs** | Spec drift detection, doc updates if contracts change during implementation | One per wave, standing across teams. Not per-team. |
+| **CE-Review** | Dual-model review of Coordinator-bound execution prompts. `ce-codex` focuses on technical correctness; `ce-opus` focuses on contract/policy coherence. Uses fixed-schema outputs with 2-round convergence cap. | Persistent cross-wave companion layer. See `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md`. |
 
 ### Spec agent trigger rule
 

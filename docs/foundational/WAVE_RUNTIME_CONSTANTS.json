@@ -1,0 +1,25 @@
+{
+  "_description": "Single source of truth for wave runtime constants. All contracts, runbooks, and scripts should reference this file instead of hardcoding wave-specific strings.",
+  "_updated": "2026-02-12",
+  "ACTIVE_WAVE_LABEL": "wave-2",
+  "ACTIVE_INTEGRATION_BRANCH": "integration/wave-2",
+  "EXECUTION_BRANCH_PREFIXES": [
+    "team-a/*",
+    "team-b/*",
+    "team-c/*",
+    "team-d/*",
+    "team-e/*",
+    "w2a/*",
+    "w2b/*",
+    "w2g/*",
+    "coord/*"
+  ],
+  "PARKED_BRANCH_PREFIX": "agent/*",
+  "ACTIVE_DELTA_CONTRACT": "docs/foundational/WAVE2_DELTA_CONTRACT.md",
+  "ACTIVE_KICKOFF_COMMAND_SHEET": "docs/foundational/WAVE2_KICKOFF_COMMAND_SHEET.md",
+  "ACTIVE_CE_CONTRACTS": "docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md",
+  "ACTIVE_STAFFING_ROLES": "docs/foundational/V2_Sprint_Staffing_Roles.md",
+  "ACTIVE_STAFFING_PLAN": "docs/foundational/V2_Sprint_Staffing_Plan.md",
+  "ACTIVE_SOT": "docs/foundational/TRINITY_Season0_SoT.md",
+  "EXCEPTION_LEDGER": "docs/foundational/WAVE_EXCEPTION_LEDGER.md"
+}

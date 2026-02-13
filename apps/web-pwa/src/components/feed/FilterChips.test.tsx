@@ -9,12 +9,13 @@ import type { FilterChip } from '@vh/data-model';
 describe('FilterChips', () => {
   afterEach(() => cleanup());
 
-  it('renders all four filter chips', () => {
+  it('renders all five filter chips', () => {
     render(<FilterChips active="ALL" onSelect={vi.fn()} />);
     expect(screen.getByTestId('filter-chip-ALL')).toBeInTheDocument();
     expect(screen.getByTestId('filter-chip-NEWS')).toBeInTheDocument();
     expect(screen.getByTestId('filter-chip-TOPICS')).toBeInTheDocument();
     expect(screen.getByTestId('filter-chip-SOCIAL')).toBeInTheDocument();
+    expect(screen.getByTestId('filter-chip-ARTICLES')).toBeInTheDocument();
   });
 
   it('displays correct labels', () => {
@@ -23,6 +24,7 @@ describe('FilterChips', () => {
     expect(screen.getByText('News')).toBeInTheDocument();
     expect(screen.getByText('Topics')).toBeInTheDocument();
     expect(screen.getByText('Social')).toBeInTheDocument();
+    expect(screen.getByText('Articles')).toBeInTheDocument();
   });
 
   it('marks the active chip with aria-pressed=true', () => {
@@ -40,6 +42,10 @@ describe('FilterChips', () => {
       'false',
     );
     expect(screen.getByTestId('filter-chip-SOCIAL')).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(screen.getByTestId('filter-chip-ARTICLES')).toHaveAttribute(
       'aria-pressed',
       'false',
     );
@@ -67,7 +73,10 @@ describe('FilterChips', () => {
     fireEvent.click(screen.getByTestId('filter-chip-ALL'));
     expect(onSelect).toHaveBeenCalledWith('ALL');
 
-    expect(onSelect).toHaveBeenCalledTimes(3);
+    fireEvent.click(screen.getByTestId('filter-chip-ARTICLES'));
+    expect(onSelect).toHaveBeenCalledWith('ARTICLES');
+
+    expect(onSelect).toHaveBeenCalledTimes(4);
   });
 
   it('applies active styling to the selected chip', () => {
@@ -91,14 +100,15 @@ describe('FilterChips', () => {
     expect(group).toHaveAttribute('aria-label', 'Feed filter');
   });
 
-  it('renders chips in spec order: ALL, NEWS, TOPICS, SOCIAL', () => {
+  it('renders chips in spec order: ALL, NEWS, TOPICS, SOCIAL, ARTICLES', () => {
     render(<FilterChips active="ALL" onSelect={vi.fn()} />);
     const group = screen.getByTestId('filter-chips');
     const buttons = group.querySelectorAll('button');
-    expect(buttons).toHaveLength(4);
+    expect(buttons).toHaveLength(5);
     expect(buttons[0]).toHaveAttribute('data-testid', 'filter-chip-ALL');
     expect(buttons[1]).toHaveAttribute('data-testid', 'filter-chip-NEWS');
     expect(buttons[2]).toHaveAttribute('data-testid', 'filter-chip-TOPICS');
     expect(buttons[3]).toHaveAttribute('data-testid', 'filter-chip-SOCIAL');
+    expect(buttons[4]).toHaveAttribute('data-testid', 'filter-chip-ARTICLES');
   });
 });

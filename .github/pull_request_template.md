@@ -5,15 +5,15 @@
 - [ ] No unrelated file changes in this PR.
 - [ ] This PR stays within one coherent slice.
 
-## Wave 1 Branch/Ownership Contract
-- [ ] Branch name uses allowed prefix: `team-a/*`, `team-b/*`, `team-c/*`, `team-d/*`, `team-e/*`, or `coord/*`.
+## Active Wave Branch/Ownership Contract
+- [ ] Branch name uses allowed prefix: `team-a/*`, `team-b/*`, `team-c/*`, `team-d/*`, `team-e/*`, `w2a/*`, `w2b/*`, `w2g/*`, or `coord/*`.
 - [ ] If using `coord/*`, coordinator rationale is included below.
 - [ ] Changed files are within owned paths per `.github/ownership-map.json`.
 - [ ] `Ownership Scope` check is expected to pass for this branch.
 
 ## Target Branch
-- [ ] Wave 1 implementation PR targets `integration/wave-1` (not `main`).
-- [ ] If this PR targets `main`, explain why it is not a Wave 1 implementation slice.
+- [ ] Implementation PR targets the active integration branch (`integration/wave-2` for Wave 2), not `main`.
+- [ ] If this PR targets `main`, explain why it is not an implementation slice for the active wave.
 
 ## Feature Flags (if applicable)
 - [ ] New V2 behavior is guarded by required flags:

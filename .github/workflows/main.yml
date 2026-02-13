@@ -5,6 +5,8 @@ on:
     branches: [ main, 'integration/wave-*' ]
   pull_request:
     branches: [ main, 'integration/wave-*' ]
+  merge_group:
+    branches: [ main, 'integration/wave-*' ]
 
 jobs:
   ownership-scope:

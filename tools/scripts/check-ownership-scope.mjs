@@ -57,10 +57,10 @@ function resolveHeadRef() {
 }
 
 function inferBaseRef(headRef) {
-  // Wave-1 team branches target integration/wave-1 by default.
+  // Wave 2 stream branches and Wave 1 team branches target the active integration branch.
   // Coordinator or other branches default to main unless GITHUB_BASE_REF is set.
-  if (/^team-[a-e]\//.test(headRef)) {
-    return 'integration/wave-1';
+  if (/^(team-[a-e]|w2[abg])\//.test(headRef)) {
+    return process.env.ACTIVE_INTEGRATION_BRANCH || 'integration/wave-2';
   }
   return 'main';
 }

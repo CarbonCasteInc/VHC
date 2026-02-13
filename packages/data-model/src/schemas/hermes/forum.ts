@@ -131,6 +131,55 @@ export type HermesCommentV1 = z.infer<typeof HermesCommentSchemaV1>;
 export type HermesComment = HermesCommentV1;
 export type ModerationEvent = z.infer<typeof ModerationEventSchema>;
 
+// -- Forum Post schema (§2.4 — reply vs article post type) --
+
+const POST_TYPE = z.enum(['reply', 'article']);
+
+const REPLY_CONTENT_LIMIT = 240;
+
+export const ForumPostSchema = z
+  .object({
+    id: z.string().min(1),
+    schemaVersion: z.literal('hermes-post-v0'),
+    threadId: z.string().min(1),
+    parentId: z.string().min(1).nullable(),
+    topicId: z.string().min(1),
+    author: z.string().min(1),
+    via: z.enum(['human', 'familiar']).optional(),
+    type: POST_TYPE,
+    content: z.string().min(1).max(CONTENT_LIMIT),
+    timestamp: z.number().int().nonnegative(),
+    upvotes: z.number().int().nonnegative(),
+    downvotes: z.number().int().nonnegative(),
+    articleRefId: z.string().min(1).optional()
+  })
+  .superRefine((value, ctx) => {
+    if (value.type === 'reply' && value.content.length > REPLY_CONTENT_LIMIT) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['content'],
+        message: `Reply content must not exceed ${REPLY_CONTENT_LIMIT} characters`
+      });
+    }
+    if (value.type === 'article' && !value.articleRefId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['articleRefId'],
+        message: 'articleRefId is required for article posts'
+      });
+    }
+    if (value.type === 'reply' && value.articleRefId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['articleRefId'],
+        message: 'articleRefId must be omitted for reply posts'
+      });
+    }
+  });
+
+export type ForumPost = z.infer<typeof ForumPostSchema>;
+export const REPLY_CONTENT_MAX = REPLY_CONTENT_LIMIT;
+
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);

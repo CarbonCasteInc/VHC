@@ -22,7 +22,7 @@ cross-team integration checks (A+B, B+C, A+C, D+E, full-stack), feature-flag val
 
 ## Phase 2 — #164 Remediation
 
-**Artifact:** PR [#175](https://github.com/HumblePiCCI/VHC/pull/175)
+**Artifact:** PR [#175](https://github.com/CarbonCasteInc/VHC/pull/175)
 **Branch:** `coord/w1-qa-164-readiness` → merged into `integration/wave-1`
 **Merge commit:** `bab6475139c99de06866bfd6923421fc7f361ab0`
 **Merged at:** 2026-02-11T01:37:29Z
@@ -69,7 +69,7 @@ E2E Tests, Bundle Size, Lighthouse).
 
 ### Merge
 
-**PR:** [#176](https://github.com/HumblePiCCI/VHC/pull/176) (`integration/wave-1` → `main`)
+**PR:** [#176](https://github.com/CarbonCasteInc/VHC/pull/176) (`integration/wave-1` → `main`)
 **Merge commit:** `cd22dd0ac49fd5c6ce7621f314651cdc6c84c8e5`
 **Result:** `main` and `integration/wave-1` are code-identical post-merge.
 

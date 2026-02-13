@@ -324,6 +324,7 @@ All Wave 1 features are flag-gated. Tests pass in both ON and OFF configurations
 
 ## Next Work (Wave 2 Direction)
 
+- Run Wave 2 via CE dual-review gate (`ce-codex` + `ce-opus`) for all Coordinator-bound execution prompts.
 - Wire synthesis pipeline runtime to discovery feed UI (v2 end-to-end)
 - Feature-flag retirement (Wave 1 flags → permanent on)
 - Implement linked-social OAuth + notification cards
@@ -342,8 +343,18 @@ All Wave 1 features are flag-gated. Tests pass in both ON and OFF configurations
 - `docs/reports/FIRST_SLICE_STABILITY_REVIEW.md` — First slice stability review
 - `docs/reports/SECOND_SLICE_STABILITY_REVIEW.md` — Second slice stability review
 - `docs/foundational/WAVE1_STABILITY_DECISION_RECORD.md` — Stability decision record
-- `docs/foundational/V2_Sprint_Staffing_Plan.md` — Wave 1 staffing plan
+
+### Wave 2 Control Docs
+- `docs/foundational/WAVE2_DELTA_CONTRACT.md` — Binding wave-2 process/policy deltas
+- `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` — CE dual-review protocol and escalation flow
+- `docs/foundational/WAVE2_KICKOFF_COMMAND_SHEET.md` — Wave 2 kickoff and execution runbook
+- `docs/reports/WAVE2_DOC_AUDIT.md` — Wave transition document-audit artifact
+
+### Staffing & Operations
+- `docs/foundational/V2_Sprint_Staffing_Plan.md` — Wave staffing baseline (Wave 1 historical + Wave 2 active)
+- `docs/foundational/V2_Sprint_Staffing_Roles.md` — Agent role contracts (with Wave 2 delta override)
 - `docs/foundational/WAVE1_KICKOFF_COMMAND_SHEET.md` — Wave 1 kickoff commands
+- `docs/foundational/WAVE2_KICKOFF_COMMAND_SHEET.md` — Wave 2 kickoff commands
 
 ### Architecture & Specs
 - `System_Architecture.md` — Target architecture

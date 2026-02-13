@@ -3,6 +3,7 @@ import {
   computeThreadScore,
   deriveTopicId,
   deriveUrlTopicId,
+  ForumPostSchema,
   HermesCommentSchema,
   HermesCommentSchemaV0,
   HermesCommentSchemaV1,
@@ -11,6 +12,7 @@ import {
   ModerationEventSchema,
   migrateCommentToV1,
   ProposalExtensionSchema,
+  REPLY_CONTENT_MAX,
   sha256Hex,
   THREAD_TOPIC_PREFIX
 } from './forum';
@@ -490,5 +492,162 @@ describe('ModerationEventSchema', () => {
       signature: 'signed-moderation'
     });
     expect(result.success).toBe(false);
+  });
+});
+
+// -- ForumPostSchema (§2.4) --
+
+const baseReplyPost = {
+  id: 'post-1',
+  schemaVersion: 'hermes-post-v0' as const,
+  threadId: 'thread-1',
+  parentId: null,
+  topicId: 'topic-1',
+  author: 'alice-nullifier',
+  type: 'reply' as const,
+  content: 'A short reply',
+  timestamp: now,
+  upvotes: 0,
+  downvotes: 0
+};
+
+const baseArticlePost = {
+  ...baseReplyPost,
+  id: 'post-2',
+  type: 'article' as const,
+  content: 'Full longform article content that can be much longer than a reply...',
+  articleRefId: 'doc-article-1'
+};
+
+describe('ForumPostSchema', () => {
+  it('exports REPLY_CONTENT_MAX constant', () => {
+    expect(REPLY_CONTENT_MAX).toBe(240);
+  });
+
+  it('accepts a valid reply post', () => {
+    const parsed = ForumPostSchema.parse(baseReplyPost);
+    expect(parsed.type).toBe('reply');
+    expect(parsed.articleRefId).toBeUndefined();
+  });
+
+  it('accepts a valid article post', () => {
+    const parsed = ForumPostSchema.parse(baseArticlePost);
+    expect(parsed.type).toBe('article');
+    expect(parsed.articleRefId).toBe('doc-article-1');
+  });
+
+  it('accepts reply with via field', () => {
+    const parsed = ForumPostSchema.parse({ ...baseReplyPost, via: 'human' });
+    expect(parsed.via).toBe('human');
+  });
+
+  it('accepts reply with familiar via', () => {
+    const parsed = ForumPostSchema.parse({ ...baseReplyPost, via: 'familiar' });
+    expect(parsed.via).toBe('familiar');
+  });
+
+  it('rejects invalid via value', () => {
+    expect(
+      ForumPostSchema.safeParse({ ...baseReplyPost, via: 'bot' }).success
+    ).toBe(false);
+  });
+
+  it('accepts reply at exactly 240 chars', () => {
+    const result = ForumPostSchema.safeParse({
+      ...baseReplyPost,
+      content: 'a'.repeat(240)
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects reply exceeding 240 chars', () => {
+    const result = ForumPostSchema.safeParse({
+      ...baseReplyPost,
+      content: 'a'.repeat(241)
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const contentIssue = result.error.issues.find((i) => i.path.includes('content'));
+      expect(contentIssue?.message).toContain('240');
+    }
+  });
+
+  it('allows article content beyond 240 chars', () => {
+    const result = ForumPostSchema.safeParse({
+      ...baseArticlePost,
+      content: 'a'.repeat(5000)
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('rejects article without articleRefId', () => {
+    const { articleRefId: _ref, ...noRef } = baseArticlePost;
+    const result = ForumPostSchema.safeParse(noRef);
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const refIssue = result.error.issues.find((i) => i.path.includes('articleRefId'));
+      expect(refIssue?.message).toContain('articleRefId is required');
+    }
+  });
+
+  it('rejects reply with articleRefId', () => {
+    const result = ForumPostSchema.safeParse({
+      ...baseReplyPost,
+      articleRefId: 'should-not-be-here'
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const refIssue = result.error.issues.find((i) => i.path.includes('articleRefId'));
+      expect(refIssue?.message).toContain('articleRefId must be omitted');
+    }
+  });
+
+  it('accepts non-null parentId', () => {
+    const parsed = ForumPostSchema.parse({ ...baseReplyPost, parentId: 'post-parent' });
+    expect(parsed.parentId).toBe('post-parent');
+  });
+
+  it('rejects missing required fields', () => {
+    const { topicId: _t, ...noTopic } = baseReplyPost;
+    expect(ForumPostSchema.safeParse(noTopic).success).toBe(false);
+
+    const { threadId: _th, ...noThread } = baseReplyPost;
+    expect(ForumPostSchema.safeParse(noThread).success).toBe(false);
+
+    const { author: _a, ...noAuthor } = baseReplyPost;
+    expect(ForumPostSchema.safeParse(noAuthor).success).toBe(false);
+  });
+
+  it('rejects empty content', () => {
+    expect(
+      ForumPostSchema.safeParse({ ...baseReplyPost, content: '' }).success
+    ).toBe(false);
+  });
+
+  it('rejects invalid type', () => {
+    expect(
+      ForumPostSchema.safeParse({ ...baseReplyPost, type: 'comment' }).success
+    ).toBe(false);
+  });
+
+  it('rejects invalid schemaVersion', () => {
+    expect(
+      ForumPostSchema.safeParse({ ...baseReplyPost, schemaVersion: 'hermes-post-v1' }).success
+    ).toBe(false);
+  });
+
+  it('rejects negative timestamps', () => {
+    expect(
+      ForumPostSchema.safeParse({ ...baseReplyPost, timestamp: -1 }).success
+    ).toBe(false);
+  });
+
+  it('rejects negative vote counts', () => {
+    expect(
+      ForumPostSchema.safeParse({ ...baseReplyPost, upvotes: -1 }).success
+    ).toBe(false);
+    expect(
+      ForumPostSchema.safeParse({ ...baseReplyPost, downvotes: -1 }).success
+    ).toBe(false);
   });
 });

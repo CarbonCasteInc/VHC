@@ -6,6 +6,7 @@ import { SortControls } from './SortControls';
 import { NewsCard } from './NewsCard';
 import { TopicCard } from './TopicCard';
 import { SocialNotificationCard } from './SocialNotificationCard';
+import { ArticleFeedCard } from '../docs/ArticleFeedCard';
 
 export interface FeedShellProps {
   /** Discovery feed hook result (injected for testability). */
@@ -117,6 +118,8 @@ const FeedItemCard: React.FC<FeedItemCardProps> = ({ item }) => {
       return <TopicCard item={item} />;
     case 'SOCIAL_NOTIFICATION':
       return <SocialNotificationCard item={item} />;
+    case 'ARTICLE':
+      return <ArticleFeedCard item={item} />;
     default:
       return (
         <article

@@ -33,6 +33,7 @@ import { createMockForumStore } from './mockStore';
 export type { ForumState } from './types';
 export { stripUndefined } from './helpers';
 export { createMockForumStore } from './mockStore';
+export { createCommentCountTracker, type CommentCountTracker, type TopicCommentSnapshot } from './commentCounts';
 
 export function createForumStore(overrides?: Partial<ForumDeps>) {
   const defaults: ForumDeps = {

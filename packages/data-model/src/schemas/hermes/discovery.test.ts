@@ -276,6 +276,10 @@ describe('FILTER_TO_KINDS', () => {
     expect(FILTER_TO_KINDS.SOCIAL).toEqual(['SOCIAL_NOTIFICATION']);
   });
 
+  it('ARTICLES maps to ARTICLE only', () => {
+    expect(FILTER_TO_KINDS.ARTICLES).toEqual(['ARTICLE']);
+  });
+
   it('covers all filter chips', () => {
     for (const chip of FILTER_CHIPS) {
       expect(FILTER_TO_KINDS[chip]).toBeDefined();

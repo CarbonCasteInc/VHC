@@ -155,6 +155,21 @@ describe('FeedShell', () => {
     expect(within(socialRow).getByText('Linked social mention')).toBeInTheDocument();
   });
 
+  it('routes ARTICLE kind to ArticleFeedCard', () => {
+    const items = [
+      makeFeedItem({
+        topic_id: 'article-1',
+        title: 'My Published Article',
+        kind: 'ARTICLE',
+      }),
+    ];
+
+    render(<FeedShell feedResult={makeFeedResult({ feed: items })} />);
+
+    expect(screen.getByTestId('article-card-article-1')).toBeInTheDocument();
+    expect(screen.getByText('My Published Article')).toBeInTheDocument();
+  });
+
   // ---- Filter and sort interaction ----
 
   it('passes active filter to FilterChips', () => {

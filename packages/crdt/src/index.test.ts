@@ -6,4 +6,22 @@ describe('crdt index exports', () => {
     expect(index.LamportClock).toBeDefined();
     expect(index.LwwRegister).toBeDefined();
   });
+
+  it('exposes dedup functions', () => {
+    expect(index.isOperationSeen).toBeDefined();
+    expect(index.markOperationSeen).toBeDefined();
+    expect(index.resetSeenOperations).toBeDefined();
+  });
+
+  it('exposes AwarenessAdapter', () => {
+    expect(index.AwarenessAdapter).toBeDefined();
+  });
+
+  it('exposes GunYjsProvider', () => {
+    expect(index.GunYjsProvider).toBeDefined();
+  });
+
+  it('exposes MockGunYjsProvider', () => {
+    expect(index.MockGunYjsProvider).toBeDefined();
+  });
 });

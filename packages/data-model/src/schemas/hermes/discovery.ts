@@ -16,6 +16,7 @@ export const FEED_KINDS = [
   'NEWS_STORY',
   'USER_TOPIC',
   'SOCIAL_NOTIFICATION',
+  'ARTICLE',
 ] as const;
 
 export const FeedKindSchema = z.enum(FEED_KINDS);
@@ -30,7 +31,7 @@ export type SortMode = z.infer<typeof SortModeSchema>;
 
 // ---------- Filter chips ----------
 
-export const FILTER_CHIPS = ['ALL', 'NEWS', 'TOPICS', 'SOCIAL'] as const;
+export const FILTER_CHIPS = ['ALL', 'NEWS', 'TOPICS', 'SOCIAL', 'ARTICLES'] as const;
 export const FilterChipSchema = z.enum(FILTER_CHIPS);
 export type FilterChip = z.infer<typeof FilterChipSchema>;
 
@@ -90,4 +91,5 @@ export const FILTER_TO_KINDS: Record<FilterChip, readonly FeedKind[]> = {
   NEWS: ['NEWS_STORY'],
   TOPICS: ['USER_TOPIC'],
   SOCIAL: ['SOCIAL_NOTIFICATION'],
+  ARTICLES: ['ARTICLE'],
 };

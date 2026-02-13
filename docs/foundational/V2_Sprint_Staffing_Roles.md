@@ -3,7 +3,9 @@
 Companion to `docs/foundational/V2_Sprint_Staffing_Plan.md`.
 Defines behavioral contracts for every agent role in the Wave 1 cluster.
 
-Last updated: 2026-02-09
+Last updated: 2026-02-11
+
+Wave 2 execution override: for all wave-specific references in this file, follow `docs/foundational/WAVE2_DELTA_CONTRACT.md`. Where this document says `integration/wave-1`, read the value of `ACTIVE_INTEGRATION_BRANCH` from `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`.
 
 ---
 
@@ -674,6 +676,10 @@ After each team PR merges to `integration/wave-1`:
 ```
 Coordinator (human)
 │
+├── ce-codex + ce-opus ←── dual-review all Coordinator-bound execution prompts
+│    (fixed-schema passes, 2-round cap, escalate to CEO if unresolved)
+│    See: docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md
+│
 ├── w1-spec ←── Chiefs invoke for risky slices
 │                (mandatory for cross-module, schema, security, policy, ambiguity)
 │
@@ -695,17 +701,20 @@ Coordinator (human)
     │    └──► if security-sensitive + specialists unavailable:
     │         Maint + w1-spec + Chief fallback review
     │
-    Chief ──► merge to integration/wave-1 (if all gates pass)
+    Chief ──► merge via merge queue (if all gates pass)
     │
     Chief ──► notify w1-docs for drift check
     │
     Chief ──► completion report
 ```
 
+All execution prompts must pass through the CE dual-review loop before Coordinator dispatches to team agents. Direct dispatch without CE review is allowed only for break/fix emergencies with logged rationale. See `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` for protocol details.
+
 ---
 
 ## Revision History
 
+- 2026-02-11: Added Wave 2 delta-override banner and CE dual-review handoff gate in role interaction flow.
 - 2026-02-09: Clarified branch lifecycle policy: `agent/*` is parked-context-only, while `team-*`/`coord/*` are execution branches required for coding, push, and PR. Added explicit parked->execution task-start transition in preflight.
 - 2026-02-09: Added deterministic spawn preflight commands, tiered context-loading contract (Tier 0/1/2), cross-wave baseline context requirements, standing-agent handoff protocol, and AGENTS.md rollout scope notes for per-team vs cross-wave agents.
 - 2026-02-08: Initial version. Adapted from existing agent contracts for Wave 1 multi-team context. Incorporates ownership scope enforcement, feature flag discipline, branch naming contract, integration merge ordering, rollback protocol, spec trigger rule, specialist fallback, drift SLA, and QA-Integration readiness matrix.

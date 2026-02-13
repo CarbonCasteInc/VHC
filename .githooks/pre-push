@@ -14,10 +14,10 @@ if [[ "$branch" == "HEAD" ]]; then
 fi
 
 # Allow direct pushes only to coordination branches and team branches.
-allowed_branch_regex='^(team-a/|team-b/|team-c/|team-d/|team-e/|coord/|main$|integration/wave-)'
+allowed_branch_regex='^(team-[a-e]/|w2[abg]/|coord/|main$|integration/wave-)'
 if [[ ! "$branch" =~ $allowed_branch_regex ]]; then
   echo "[pre-push] Branch '$branch' is not allowed for agent workflow."
-  echo "[pre-push] Use one of: team-a/*, team-b/*, team-c/*, team-d/*, team-e/*, coord/*"
+  echo "[pre-push] Use one of: team-[a-e]/*, w2a/*, w2b/*, w2g/*, coord/*"
   echo "[pre-push] Set SKIP_OWNERSHIP_SCOPE=1 only for explicit emergency override."
   exit 1
 fi
