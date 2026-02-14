@@ -227,6 +227,21 @@ describe('synthesis store', () => {
     expect(state.synthesis?.synthesis_id).toBe('synth-8');
   });
 
+  it('refreshTopic handles null latest (no synthesis available)', async () => {
+    readTopicLatestSynthesisMock.mockResolvedValue(null);
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis).toBeNull();
+    expect(topic.epoch).toBeNull();
+    expect(topic.loading).toBe(false);
+    expect(topic.error).toBeNull();
+  });
+
   it('refreshTopic drops invalid latest payloads after defensive parse', async () => {
     readTopicLatestSynthesisMock.mockResolvedValue({ invalid: true } as unknown as TopicSynthesisV2);
 

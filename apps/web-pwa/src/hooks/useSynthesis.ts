@@ -38,17 +38,6 @@ const EMPTY_TOPIC_STATE: SynthesisTopicState = {
   error: null
 };
 
-const NOOP_RESULT: UseSynthesisResult = {
-  enabled: false,
-  topicId: null,
-  epoch: null,
-  synthesis: null,
-  hydrated: false,
-  loading: false,
-  error: null,
-  refresh: async () => undefined
-};
-
 const selectEnabled = (state: SynthesisState) => state.enabled;
 const selectTopics = (state: SynthesisState) => state.topics;
 const selectStartHydration = (state: SynthesisState) => state.startHydration;
@@ -78,10 +67,6 @@ export function useSynthesis(topicId?: string | null): UseSynthesisResult {
     }
     await refreshTopic(normalizedTopicId);
   }, [enabled, normalizedTopicId, refreshTopic]);
-
-  if (!enabled) {
-    return NOOP_RESULT;
-  }
 
   return {
     enabled,
