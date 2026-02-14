@@ -1,4 +1,5 @@
 import type { AttestationPayload } from './attestation';
+import type { SessionResponse } from './session';
 
 /** SEA keypair for GunDB device authentication and encryption. */
 export interface DevicePair {
@@ -12,18 +13,14 @@ export interface DevicePair {
  * Canonical identity record stored encrypted in the vault.
  *
  * Runtime shape validation is the consumer's responsibility.
+ * The session field uses the canonical SessionResponse type.
  */
 export interface IdentityRecord {
   id: string;
   createdAt: number;
   attestation: AttestationPayload;
   handle?: string;
-  session: {
-    token: string;
-    trustScore: number;
-    scaledTrustScore: number;
-    nullifier: string;
-  };
+  session: SessionResponse;
   linkedDevices?: string[];
   pendingLinkCode?: string;
   devicePair?: DevicePair;

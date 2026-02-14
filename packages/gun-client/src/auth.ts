@@ -25,9 +25,13 @@ export async function createSession(
     throw new Error('Security Error: Low Trust Device');
   }
 
+  const nowMs = Date.now();
   return {
     token: data.token,
     trustScore: data.trustScore,
-    nullifier: data.nullifier
+    scaledTrustScore: data.scaledTrustScore ?? Math.round(data.trustScore * 10000),
+    nullifier: data.nullifier,
+    createdAt: data.createdAt ?? nowMs,
+    expiresAt: data.expiresAt ?? 0,
   };
 }

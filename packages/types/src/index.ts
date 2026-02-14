@@ -8,11 +8,16 @@ export interface VerificationResult {
   issuedAt: number;
 }
 
-export interface SessionResponse {
-  token: string;
-  trustScore: number;
-  nullifier: string;
-}
+export type { SessionResponse } from './session';
+export { SessionResponseSchema } from './session';
+
+export {
+  isSessionExpired,
+  isSessionNearExpiry,
+  migrateSessionFields,
+  NEAR_EXPIRY_WINDOW_MS,
+  DEFAULT_SESSION_TTL_MS,
+} from './session-lifecycle';
 
 export interface RegionProof {
   proof: string;
@@ -31,12 +36,6 @@ export const VerificationResultSchema = z.object({
   success: z.boolean(),
   trustScore: z.number().min(0).max(1),
   issuedAt: z.number().int().nonnegative()
-});
-
-export const SessionResponseSchema = z.object({
-  token: z.string().min(1),
-  trustScore: z.number().min(0).max(1),
-  nullifier: z.string().min(1)
 });
 
 export const RegionProofSchema = z.object({
