@@ -156,5 +156,6 @@ export * from './docsAdapters';
 export * from './docsKeyManagement';
 export * from './synthesisAdapters';
 export * from './newsAdapters';
+export * from './bridgeAdapters';
 export type { ChainWithGet } from './chain';
 export { default as SEA } from 'gun/sea';

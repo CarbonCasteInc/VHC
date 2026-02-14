@@ -13,3 +13,12 @@ export {
   type BudgetPreflightResult,
   type NominationResult,
 } from './nominationFlow';
+
+export {
+  getDirectory,
+  loadDirectory,
+  isNewerVersion,
+  findRepresentatives,
+  findRepresentativesByState,
+  _resetDirectoryForTesting,
+} from './representativeDirectory';
