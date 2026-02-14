@@ -29,7 +29,11 @@ export const VoteControl: React.FC<{ commentId: string; score: number }> = ({ co
           }`}
           onClick={(e) => {
             e.stopPropagation();
-            // TODO(wave-2): wire checkModerationBudget/consumeModerationBudget when this surface adds explicit hide/remove moderation actions.
+            // W3-Budget assessment (2026-02-14): moderation/day budget primitives exist
+            // (checkModerationBudget/consumeModerationBudget in xpLedgerBudget.ts) but
+            // VoteControl has no hide/remove moderation surface yet — only up/down votes.
+            // Wire budget enforcement when explicit moderation actions are added.
+            // See: docs/foundational/WAVE3_BUDGET_BOUNDARY_ASSESSMENT.md
             void vote(commentId, current === 'down' ? null : 'down');
           }}
           aria-label="Downvote"

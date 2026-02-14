@@ -153,7 +153,11 @@ const IconAction: React.FC<{ icon: React.ReactNode; label: string; action: Actio
   <button
     className="inline-flex items-center rounded-lg bg-slate-900/40 p-2 text-slate-400 transition hover:text-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-amber-500"
     onClick={() => {
-      // TODO(wave-2): wire checkCivicActionsBudget/consumeCivicActionsBudget when civic actions execute real delivery flows.
+      // W3-Budget assessment (2026-02-14): civic_actions/day budget is now wired in
+      // ActionComposer (W3-CAK Phase 3, PR #236). This IconAction surface triggers
+      // ComingSoonModal — no real delivery flow exists here yet.
+      // Wire budget enforcement when this surface executes real civic action delivery.
+      // See: docs/foundational/WAVE3_BUDGET_BOUNDARY_ASSESSMENT.md
       onOpen(action);
     }}
     aria-describedby={`${action}-coming-soon`}
