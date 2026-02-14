@@ -8,4 +8,6 @@ export { PresenceBar } from './PresenceBar';
 export type { PresenceBarProps } from './PresenceBar';
 export { ShareModal } from './ShareModal';
 export type { ShareModalProps, AccessRole, Collaborator } from './ShareModal';
+export { useEditorMode, resolveMode, resolveE2E } from './useEditorMode';
+export type { EditorMode, EditorModeResult, CollabPropsResolved } from './useEditorMode';
 // CollabEditor is lazy-loaded via React.lazy() — not barrel-exported
