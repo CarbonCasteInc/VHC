@@ -90,6 +90,39 @@ describe('useInView', () => {
     expect(screen.getByTestId('target').getAttribute('data-visible')).toBe('false');
   });
 
+  it('does not re-observe after latch (early return branch)', () => {
+    const { rerender } = render(<TestComponent />);
+
+    // Trigger intersection → latch to true
+    act(() => {
+      capturedCallback(
+        [{ isIntersecting: true } as IntersectionObserverEntry],
+        {} as IntersectionObserver,
+      );
+    });
+
+    const observeCallsBefore = mockObserve.mock.calls.length;
+
+    // Force re-render; effect should early-return since hasBeenVisible is true
+    rerender(<TestComponent />);
+
+    // No new observer.observe calls after re-render
+    expect(mockObserve.mock.calls.length).toBe(observeCallsBefore);
+  });
+
+  it('does nothing when ref has no element attached', () => {
+    // Component that uses the hook but doesn't attach ref to DOM
+    function NoRefComponent() {
+      const [, hasBeenVisible] = useInView<HTMLDivElement>();
+      return <div data-testid="no-ref" data-visible={String(hasBeenVisible)} />;
+    }
+
+    render(<NoRefComponent />);
+    // Observer should not be created since ref.current is null
+    expect(mockObserve).not.toHaveBeenCalled();
+    expect(screen.getByTestId('no-ref').getAttribute('data-visible')).toBe('false');
+  });
+
   it('falls back to visible when IntersectionObserver is unavailable', () => {
     vi.stubGlobal('IntersectionObserver', undefined);
     render(<TestComponent />);
