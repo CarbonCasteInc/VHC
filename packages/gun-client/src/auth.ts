@@ -1,4 +1,5 @@
 import type { AttestationPayload, SessionResponse } from '@vh/types';
+import { TRUST_MINIMUM } from '@vh/data-model';
 
 export interface Session extends SessionResponse {}
 
@@ -20,7 +21,7 @@ export async function createSession(
   }
 
   const data = (await res.json()) as SessionResponse;
-  if (typeof data.trustScore !== 'number' || data.trustScore < 0.5) {
+  if (typeof data.trustScore !== 'number' || data.trustScore < TRUST_MINIMUM) {
     throw new Error('Security Error: Low Trust Device');
   }
 
