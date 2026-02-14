@@ -1,6 +1,6 @@
 {
   "_description": "Single source of truth for wave runtime constants. All contracts, runbooks, and scripts should reference this file instead of hardcoding wave-specific strings.",
-  "_updated": "2026-02-13",
+  "_updated": "2026-02-14",
   "ACTIVE_WAVE_LABEL": "wave-3",
   "ACTIVE_INTEGRATION_BRANCH": "integration/wave-3",
   "EXECUTION_BRANCH_PREFIXES": [

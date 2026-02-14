@@ -1,8 +1,8 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-13
-**Version:** 0.4.0 (Wave 2 Complete — Collaborative Docs, Re-synthesis, Elevation, Linked-Social)
-**Assessment:** Pre-production prototype, Wave 2 landed
+**Last Updated:** 2026-02-14
+**Version:** 0.5.0 (Wave 3 In-Progress — CAK, Collab Wiring, Flag Retirement, Budget Close-out, Synth Feed Wiring)
+**Assessment:** Pre-production prototype, Wave 3 active on integration/wave-3
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -15,14 +15,14 @@
 |-------|--------|------------------|
 | **LUMA (Identity)** | 🔴 Stubbed | ❌ No |
 | **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
-| **VENN (Analysis)** | 🟡 Pipeline end-to-end, V2 synthesis + re-synthesis triggers landed | ❌ No |
+| **VENN (Analysis)** | 🟡 Pipeline end-to-end, V2 synthesis + re-synthesis + feed-enriched TopicCard | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
-| **HERMES Docs** | 🟡 Foundation complete (store, editor, collab modules) — runtime wiring pending | ❌ No |
-| **HERMES Bridge (Civic Action Kit)** | 🟡 Elevation artifacts + budget gates landed | ❌ No |
+| **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
+| **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, receipt-in-feed | ❌ No |
 | **News Aggregator** | 🟢 Implemented (ingest/normalize/cluster/provenance) | ⚠️ Partial |
-| **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) | ⚠️ Partial |
-| **Delegation Runtime** | 🟡 Store + hooks + control panel + 6/8 budget keys | ⚠️ Partial |
+| **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) + synthesis-enriched TopicCard | ⚠️ Partial |
+| **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
 
 ---
