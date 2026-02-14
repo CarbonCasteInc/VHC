@@ -16,3 +16,6 @@ export * from './schemas/hermes/notification';
 export * from './schemas/hermes/elevation';
 export * from './schemas/hermes/discovery';
 export * from './schemas/hermes/docs';
+export * from './schemas/hermes/bridgeAction';
+export * from './schemas/hermes/bridgeReceipt';
+export * from './schemas/hermes/bridgeRepresentative';

@@ -102,5 +102,40 @@
       "apps/web-pwa/src/components/feed/**",
       "apps/web-pwa/src/env.d.ts"
     ]
+  },
+  "w3b": {
+    "branchPrefix": "w3b/",
+    "paths": [
+      "packages/data-model/src/schemas/hermes/docs*.ts",
+      "packages/data-model/src/index*.ts",
+      "packages/gun-client/src/docsAdapters*.ts",
+      "packages/gun-client/src/docsKeyManagement*.ts",
+      "packages/gun-client/src/topology*.ts",
+      "packages/gun-client/src/index*.ts",
+      "packages/crdt/src/**",
+      "packages/crdt/package.json",
+      "packages/crdt/tsconfig.json",
+      "pnpm-lock.yaml",
+      "apps/web-pwa/src/store/hermesDocs*.ts",
+      "apps/web-pwa/src/components/hermes/forum/CommentComposer*.tsx",
+      "apps/web-pwa/src/components/docs/**",
+      "apps/web-pwa/package.json"
+    ]
+  },
+  "w3c": {
+    "branchPrefix": "w3c/",
+    "paths": [
+      "packages/data-model/src/schemas/hermes/elevation*.ts",
+      "packages/data-model/src/schemas/hermes/notification*.ts",
+      "packages/gun-client/src/bridgeAdapters*.ts",
+      "apps/web-pwa/src/store/bridge/**",
+      "apps/web-pwa/src/components/bridge/**",
+      "apps/web-pwa/src/store/linkedSocial/**",
+      "apps/web-pwa/src/components/feed/**",
+      "apps/web-pwa/src/env.d.ts",
+      "packages/data-model/src/schemas/hermes/bridge*.ts",
+      "packages/data-model/src/index*.ts",
+      "packages/gun-client/src/index*.ts"
+    ]
   }
 }

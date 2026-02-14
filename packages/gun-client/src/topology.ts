@@ -30,6 +30,7 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/forum/nominations/*', classification: 'public' },
   { pathPrefix: 'vh/forum/elevation/*', classification: 'public' },
   { pathPrefix: 'vh/civic/reps/*', classification: 'public' },
+  { pathPrefix: 'vh/bridge/stats/*', classification: 'public' },
   // HERMES messaging
   { pathPrefix: 'vh/hermes/inbox/', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/outbox', classification: 'sensitive' },
