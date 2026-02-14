@@ -1,8 +1,8 @@
 # TRINITY Implementation Status
 
 **Last Updated:** 2026-02-14
-**Version:** 0.6.0 (Wave 3 Complete — CAK, Collab, Flags, Budget, Synth, LUMA Spec | Wave 4 starting)
-**Assessment:** Pre-production prototype, Wave 4 active on integration/wave-4 (LUMA implementation)
+**Version:** 0.7.0 (Wave 4 Complete — LUMA Trust Constants, Session Lifecycle, Constituency Proof Verification)
+**Assessment:** Pre-production prototype, Wave 4 complete on integration/wave-4 (LUMA identity hardening). Pending 3-day integration pass before merge to main.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -13,7 +13,7 @@
 
 | Layer | Status | Production-Ready |
 |-------|--------|------------------|
-| **LUMA (Identity)** | 🔴 Stubbed | ❌ No |
+| **LUMA (Identity)** | 🟡 Hardened (trust constants, session lifecycle, constituency proof — flag-gated) | ❌ No |
 | **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
 | **VENN (Analysis)** | 🟡 Pipeline end-to-end, V2 synthesis + re-synthesis + feed-enriched TopicCard | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
@@ -167,18 +167,22 @@ All Wave 2 features are flag-gated. Default false. Legacy behavior preserved whe
 
 ### LUMA (Identity Layer)
 
-**Status:** 🔴 **Stubbed** — Development placeholder only
+**Status:** 🟡 **Hardened (Flag-Gated)** — Trust constants, session lifecycle, constituency proof verification
 
 | Feature | Implementation | Evidence |
 |---------|----------------|----------|
-| Hardware TEE binding | ❌ Not implemented | No Secure Enclave/StrongBox code |
-| VIO liveness detection | ❌ Not implemented | No sensor fusion code |
+| Trust constants | ✅ Centralized | `packages/data-model/src/constants/trust.ts` — TRUST_MINIMUM (0.5), TRUST_ELEVATED (0.7) |
+| Session lifecycle | ✅ Feature-flagged | `packages/types/src/session-lifecycle.ts` — expiry, near-expiry, migration (`VITE_SESSION_LIFECYCLE_ENABLED`) |
+| Constituency proof verification | ✅ Feature-flagged | `packages/types/src/constituency-verification.ts` — nullifier/district/freshness checks (`VITE_CONSTITUENCY_PROOF_REAL`) |
+| Session revocation | ✅ Active (no flag) | `useIdentity.ts` — `revokeSession()` clears identity + proof state |
+| Hardware TEE binding | ❌ Not implemented | No Secure Enclave/StrongBox code (Season 0 deferred §9.2) |
+| VIO liveness detection | ❌ Not implemented | No sensor fusion code (Season 0 deferred §9.2) |
 | Trust score calculation | ⚠️ Hardened stub | `main.rs` — structured validation, rate limiting; no real chain validation |
 | Nullifier derivation | ⚠️ Device-bound | SHA256(device_key + salt) |
 | Identity storage | ✅ Encrypted vault | `identity-vault` package (IndexedDB) |
-| Sybil resistance | ❌ Not implemented | No uniqueness checking |
+| Sybil resistance | ❌ Not implemented | No uniqueness checking (Season 0 deferred §9.2) |
 
-**⚠️ WARNING:** Current identity layer provides no real sybil defense. Do not use for production governance or economics.
+**⚠️ WARNING:** Current identity layer provides hardened stubs with feature-gated enforcement. Both flags default to `false`. Real sybil defense requires TEE + VIO (post-Season 0).
 
 ---
 
