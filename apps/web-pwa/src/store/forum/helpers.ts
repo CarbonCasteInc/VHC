@@ -1,7 +1,8 @@
 import type { HermesComment, HermesThread } from '@vh/types';
+import { isSessionExpired } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 import type { ForumState, ForumIdentity } from './types';
-import { TRUST_THRESHOLD, SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD } from './types';
+import { TRUST_THRESHOLD, SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD, isLifecycleEnabled } from './types';
 import { loadIdentity } from './persistence';
 
 export function ensureIdentity(): ForumIdentity {
@@ -11,6 +12,10 @@ export function ensureIdentity(): ForumIdentity {
   }
   if (record.session.trustScore < TRUST_THRESHOLD) {
     throw new Error('Insufficient trustScore for forum actions');
+  }
+  // Session freshness check (spec §2.1.4): block expired sessions at action boundary
+  if (isLifecycleEnabled() && isSessionExpired(record.session)) {
+    throw new Error('Session expired — please re-attest to continue');
   }
   return record;
 }

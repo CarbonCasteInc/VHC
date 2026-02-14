@@ -1,20 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IdentityRecord } from '@vh/types';
+import { isSessionExpired, isSessionNearExpiry, migrateSessionFields, DEFAULT_SESSION_TTL_MS } from '@vh/types';
 import { TRUST_MINIMUM } from '@vh/data-model';
 import { SEA, createSession } from '@vh/gun-client';
 import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../store';
 import { getHandleError, isValidHandle } from '../utils/handle';
-import { migrateLegacyLocalStorage } from '@vh/identity-vault';
-import { publishIdentity } from '../store/identityProvider';
+import { migrateLegacyLocalStorage, clearIdentity as vaultClear } from '@vh/identity-vault';
+import { publishIdentity, clearPublishedIdentity } from '../store/identityProvider';
 import { loadIdentityRecord, saveIdentityRecord } from '../utils/vaultTyped';
 
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
 const DEV_MODE = (import.meta as any).env?.DEV === true || (import.meta as any).env?.MODE === 'development';
+const LIFECYCLE_ENABLED = (import.meta as any).env?.VITE_SESSION_LIFECYCLE_ENABLED === 'true';
 const ATTESTATION_URL =
   (import.meta as any).env?.VITE_ATTESTATION_URL ?? 'http://localhost:3000/verify';
 const VERIFIER_TIMEOUT_MS = Number((import.meta as any).env?.VITE_ATTESTATION_TIMEOUT_MS) || 2000;
 
-export type IdentityStatus = 'hydrating' | 'anonymous' | 'creating' | 'ready' | 'error';
+export type IdentityStatus = 'hydrating' | 'anonymous' | 'creating' | 'ready' | 'expired' | 'error';
+
+/** Result of a session expiry check at an action boundary. */
+export type SessionExpiryCheck =
+  | { valid: true; warning?: 'near-expiry' }
+  | { valid: false; reason: 'expired' };
 
 /** Module-level migration guard — runs at most once. */
 let migrationPromise: Promise<void> | null = null;
@@ -63,10 +70,22 @@ export function useIdentity() {
 
     loadIdentityFromVault().then((loaded) => {
       if (loaded) {
-        setIdentity(loaded);
+        // Migrate legacy sessions missing createdAt/expiresAt
+        const migratedSession = migrateSessionFields(loaded.session);
+        const migrated = migratedSession !== loaded.session
+          ? { ...loaded, session: migratedSession }
+          : loaded;
+
+        // Check expiry when lifecycle feature flag is enabled
+        if (LIFECYCLE_ENABLED && isSessionExpired(migrated.session)) {
+          setIdentity(migrated);
+          setStatus('expired');
+          return;
+        }
+
+        setIdentity(migrated);
         setStatus('ready');
-        // Publish identity for downstream consumers.
-        publishIdentity(loaded);
+        publishIdentity(migrated);
       } else {
         setStatus('anonymous');
       }
@@ -118,17 +137,21 @@ export function useIdentity() {
       }
 
       const scaledTrustScore = clampScaledTrustScore(Math.round(session.trustScore * 10000));
+      const nowMs = Date.now();
+      const sessionExpiresAt = LIFECYCLE_ENABLED ? nowMs + DEFAULT_SESSION_TTL_MS : 0;
 
       const fallbackHandle = handleRef.current ?? `user_${randomToken().slice(0, 6)}`;
       const record: IdentityRecord = {
         id: randomToken(),
-        createdAt: Date.now(),
+        createdAt: nowMs,
         attestation,
         session: {
           token: session.token,
           trustScore: session.trustScore,
           scaledTrustScore,
-          nullifier: session.nullifier
+          nullifier: session.nullifier,
+          createdAt: nowMs,
+          expiresAt: sessionExpiresAt,
         },
         devicePair: {
           pub: devicePair.pub,
@@ -221,6 +244,41 @@ export function useIdentity() {
     [identity]
   );
 
+  /**
+   * Revoke the current session (spec §2.1.3).
+   *
+   * Always available regardless of feature flag — this is a user-initiated
+   * security action. Clears session, vault, published identity, and
+   * delegation grants. Preserves nullifier derivation material.
+   */
+  const revokeSession = useCallback(async () => {
+    setIdentity(null);
+    setStatus('anonymous');
+    setError(undefined);
+    clearPublishedIdentity();
+    await vaultClear().catch(() => {});
+  }, []);
+
+  /**
+   * Check session validity at action boundaries (spec §2.1.4).
+   *
+   * Returns { valid: true } when lifecycle is disabled or session is fresh.
+   * Consumers should call this before trust-gated actions.
+   */
+  const checkSessionExpiry = useCallback((): SessionExpiryCheck => {
+    if (!LIFECYCLE_ENABLED || E2E_MODE || !identity?.session) {
+      return { valid: true };
+    }
+    if (isSessionExpired(identity.session)) {
+      setStatus('expired');
+      return { valid: false, reason: 'expired' };
+    }
+    if (isSessionNearExpiry(identity.session)) {
+      return { valid: true, warning: 'near-expiry' };
+    }
+    return { valid: true };
+  }, [identity]);
+
   return {
     identity,
     status,
@@ -230,6 +288,8 @@ export function useIdentity() {
     startLinkSession,
     completeLinkSession,
     updateHandle,
+    revokeSession,
+    checkSessionExpiry,
     validateHandle: isValidHandle
   };
 }

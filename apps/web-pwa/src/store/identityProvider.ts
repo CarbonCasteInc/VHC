@@ -15,6 +15,7 @@ export interface PublicIdentitySnapshot {
     nullifier: string;
     trustScore: number;
     scaledTrustScore: number;
+    expiresAt: number;
   };
 }
 
@@ -29,7 +30,7 @@ let fullRecord: Record<string, unknown> | null = null;
  * - current: public-only snapshot for untrusted downstream consumers
  */
 export function publishIdentity<T extends {
-  session: { nullifier: string; trustScore: number; scaledTrustScore: number };
+  session: { nullifier: string; trustScore: number; scaledTrustScore: number; expiresAt: number };
 }>(identity: T): void {
   fullRecord = identity as unknown as Record<string, unknown>;
   current = {
@@ -37,6 +38,7 @@ export function publishIdentity<T extends {
       nullifier: identity.session.nullifier,
       trustScore: identity.session.trustScore,
       scaledTrustScore: identity.session.scaledTrustScore,
+      expiresAt: identity.session.expiresAt,
     },
   };
   // E2E bridge: signal that identity is hydrated so Playwright can await it.

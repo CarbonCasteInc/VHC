@@ -44,13 +44,27 @@ describe('types schemas', () => {
   });
 
   it('validates session response', () => {
-    const resp: SessionResponse = { token: 't', trustScore: 0.8, nullifier: 'n' };
+    const resp: SessionResponse = {
+      token: 't', trustScore: 0.8, scaledTrustScore: 8000,
+      nullifier: 'n', createdAt: 1000, expiresAt: 2000,
+    };
+    expect(() => SessionResponseSchema.parse(resp)).not.toThrow();
+  });
+
+  it('validates session response with zero expiresAt (transitional)', () => {
+    const resp: SessionResponse = {
+      token: 't', trustScore: 0.5, scaledTrustScore: 5000,
+      nullifier: 'n', createdAt: 1000, expiresAt: 0,
+    };
     expect(() => SessionResponseSchema.parse(resp)).not.toThrow();
   });
 
   it('rejects session response with low trust type', () => {
     expect(() =>
-      SessionResponseSchema.parse({ token: '', trustScore: -1, nullifier: '' })
+      SessionResponseSchema.parse({
+        token: '', trustScore: -1, scaledTrustScore: 0,
+        nullifier: '', createdAt: 0, expiresAt: 0,
+      })
     ).toThrow();
   });
 

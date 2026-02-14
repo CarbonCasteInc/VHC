@@ -22,7 +22,7 @@ describe('identityProvider', () => {
 
   it('publishes and retrieves identity snapshot', () => {
     publishIdentity({
-      session: { nullifier: 'test-null', trustScore: 0.9, scaledTrustScore: 9000 },
+      session: { nullifier: 'test-null', trustScore: 0.9, scaledTrustScore: 9000, expiresAt: 0 },
     });
     const snapshot = getPublishedIdentity();
     expect(snapshot).not.toBeNull();
@@ -33,7 +33,7 @@ describe('identityProvider', () => {
 
   it('returns full record (including private keys) via getFullIdentity', () => {
     const record = {
-      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000 },
+      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000, expiresAt: 0 },
       devicePair: { pub: 'pub', priv: 'priv', epub: 'epub', epriv: 'epriv' },
       attestation: { token: 'secret-token' },
     };
@@ -47,7 +47,7 @@ describe('identityProvider', () => {
 
   it('does not leak extra fields from input', () => {
     const input = {
-      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000 },
+      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000, expiresAt: 0 },
       devicePair: { pub: 'pub', priv: 'SECRET', epub: 'epub', epriv: 'SECRET2' },
       someOtherField: 'should not appear',
     } as any;
@@ -60,7 +60,7 @@ describe('identityProvider', () => {
 
   it('clears identity', () => {
     publishIdentity({
-      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000 },
+      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000, expiresAt: 0 },
       devicePair: { pub: 'pub', priv: 'priv', epub: 'epub', epriv: 'epriv' },
     });
     expect(getPublishedIdentity()).not.toBeNull();
@@ -72,7 +72,7 @@ describe('identityProvider', () => {
 
   it('returns a defensive copy — mutations do not affect the singleton', () => {
     publishIdentity({
-      session: { nullifier: 'original', trustScore: 0.9, scaledTrustScore: 9000 },
+      session: { nullifier: 'original', trustScore: 0.9, scaledTrustScore: 9000, expiresAt: 0 },
     });
     const snapshot = getPublishedIdentity()!;
     snapshot.session.nullifier = 'mutated';
@@ -81,7 +81,7 @@ describe('identityProvider', () => {
 
   it('getFullIdentity returns a defensive copy — mutations do not affect the singleton', () => {
     const record = {
-      session: { nullifier: 'original', trustScore: 0.9, scaledTrustScore: 9000 },
+      session: { nullifier: 'original', trustScore: 0.9, scaledTrustScore: 9000, expiresAt: 0 },
       devicePair: { pub: 'pub', priv: 'priv', epub: 'epub', epriv: 'epriv' },
     };
     publishIdentity(record);
@@ -98,7 +98,7 @@ describe('identityProvider', () => {
   it('sets __vh_identity_published flag on globalThis', () => {
     expect((globalThis as any).__vh_identity_published).toBeFalsy();
     publishIdentity({
-      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000 },
+      session: { nullifier: 'n', trustScore: 1, scaledTrustScore: 10000, expiresAt: 0 },
     });
     expect((globalThis as any).__vh_identity_published).toBe(true);
     clearPublishedIdentity();
@@ -114,7 +114,7 @@ describe('identityProvider', () => {
     vi.stubGlobal('window', fakeWindow);
 
     publishIdentity({
-      session: { nullifier: 'window-null', trustScore: 0.8, scaledTrustScore: 8000 },
+      session: { nullifier: 'window-null', trustScore: 0.8, scaledTrustScore: 8000, expiresAt: 0 },
     });
 
     expect((fakeWindow as any).__vh_identity_published).toBe(true);

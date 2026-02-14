@@ -7,6 +7,15 @@ export const TRUST_THRESHOLD = TRUST_MINIMUM;
 export const SEEN_TTL_MS = 60_000;
 export const SEEN_CLEANUP_THRESHOLD = 100;
 
+/** Feature flag check for session lifecycle enforcement. */
+export function isLifecycleEnabled(): boolean {
+  try {
+    return (import.meta as any).env?.VITE_SESSION_LIFECYCLE_ENABLED === 'true';
+  } catch {
+    return false;
+  }
+}
+
 export interface ForumState {
   threads: Map<string, HermesThread>;
   comments: Map<string, HermesComment[]>;
@@ -36,7 +45,7 @@ export interface ForumState {
 }
 
 export type ForumIdentity = {
-  session: Pick<IdentityRecord['session'], 'nullifier' | 'trustScore' | 'scaledTrustScore'>;
+  session: Pick<IdentityRecord['session'], 'nullifier' | 'trustScore' | 'scaledTrustScore' | 'expiresAt'>;
 };
 
 export interface ForumDeps {
