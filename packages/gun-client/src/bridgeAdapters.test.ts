@@ -4,9 +4,12 @@ import {
   stripUndefined,
   getUserActionsChain,
   getUserReceiptsChain,
+  getUserReportsChain,
   getRepStatsChain,
   saveAction,
   saveReceipt,
+  saveReport,
+  loadReport,
   incrementRepStats,
 } from './bridgeAdapters';
 import type { CivicAction, DeliveryReceipt } from '@vh/data-model';
@@ -247,5 +250,67 @@ describe('incrementRepStats', () => {
     chain.put = vi.fn((_val: any, cb: any) => cb({ err: 'stats write failed' }));
     const client = { gun: { get: () => chain } } as any;
     await expect(incrementRepStats(client, 'rep-1')).rejects.toThrow('stats write failed');
+  });
+});
+
+/* ── getUserReportsChain ─────────────────────────────────────── */
+
+describe('getUserReportsChain', () => {
+  it('navigates user graph to reports', () => {
+    const { client, chain } = mockClient();
+    getUserReportsChain(client, 'rpt-1');
+    expect(chain.get).toHaveBeenCalledWith('hermes');
+    expect(chain.get).toHaveBeenCalledWith('bridge');
+    expect(chain.get).toHaveBeenCalledWith('reports');
+    expect(chain.get).toHaveBeenCalledWith('rpt-1');
+  });
+});
+
+/* ── saveReport ──────────────────────────────────────────────── */
+
+describe('saveReport', () => {
+  it('saves a report pointer via put', async () => {
+    const { client, chain } = mockClient();
+    await saveReport(client, 'rpt-1', {
+      checksum: 'abc123',
+      actionId: 'action-1',
+      generatedAt: 1_700_000_000_000,
+    });
+    expect(chain.put).toHaveBeenCalled();
+  });
+
+  it('propagates Gun put errors', async () => {
+    const chain = mockChain();
+    chain.put = vi.fn((_val: any, cb: any) => cb({ err: 'report write failed' }));
+    const client = { gun: { user: () => chain, get: () => chain } } as any;
+    await expect(
+      saveReport(client, 'rpt-1', { checksum: 'x', actionId: 'a', generatedAt: 0 }),
+    ).rejects.toThrow('report write failed');
+  });
+});
+
+/* ── loadReport ──────────────────────────────────────────────── */
+
+describe('loadReport', () => {
+  it('returns report data when available', async () => {
+    const data = { reportId: 'rpt-1', checksum: 'abc', actionId: 'a-1', generatedAt: 100 };
+    const chain = mockChain(data);
+    const client = { gun: { user: () => chain } } as any;
+    const result = await loadReport(client, 'rpt-1');
+    expect(result).toEqual(data);
+  });
+
+  it('returns null when no data', async () => {
+    const chain = mockChain(null);
+    const client = { gun: { user: () => chain } } as any;
+    const result = await loadReport(client, 'rpt-1');
+    expect(result).toBeNull();
+  });
+
+  it('returns null for invalid data shape', async () => {
+    const chain = mockChain({ bad: true });
+    const client = { gun: { user: () => chain } } as any;
+    const result = await loadReport(client, 'rpt-1');
+    expect(result).toBeNull();
   });
 });

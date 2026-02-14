@@ -131,6 +131,50 @@ export async function saveReceipt(
   });
 }
 
+/* ── Report operations ──────────────────────────────────────── */
+
+export function getUserReportsChain(client: VennClient, reportId: string) {
+  return (client.gun.user() as any).get('hermes').get('bridge').get('reports').get(reportId);
+}
+
+/**
+ * Save a report pointer/checksum to the authenticated user graph.
+ * Spec: spec-civic-action-kit-v0.md §5.1 (reports topology)
+ */
+export async function saveReport(
+  client: VennClient,
+  reportId: string,
+  pointer: { checksum: string; actionId: string; generatedAt: number },
+): Promise<void> {
+  const clean = stripUndefined({ reportId, ...pointer } as Record<string, unknown>);
+  const chain = getUserReportsChain(client, reportId);
+  return new Promise<void>((resolve, reject) => {
+    chain.put(clean, ((ack: { err?: string } | undefined) => {
+      if (ack?.err) reject(new Error(ack.err));
+      else resolve();
+    }) as any);
+  });
+}
+
+/**
+ * Load a report pointer from the authenticated user graph.
+ */
+export async function loadReport(
+  client: VennClient,
+  reportId: string,
+): Promise<{ reportId: string; checksum: string; actionId: string; generatedAt: number } | null> {
+  const chain = getUserReportsChain(client, reportId);
+  return new Promise((resolve) => {
+    chain.once((data: any) => {
+      if (data && typeof data === 'object' && typeof data.checksum === 'string') {
+        resolve(data as { reportId: string; checksum: string; actionId: string; generatedAt: number });
+      } else {
+        resolve(null);
+      }
+    });
+  });
+}
+
 /**
  * Increment anonymous aggregate stats for a representative.
  * Public path: vh/bridge/stats/<repId>
