@@ -66,11 +66,11 @@ export interface SentimentSignal {
 
 export type RegionProofTuple = [string, string, string]; // [district_hash, nullifier, merkle_root]
 
-export interface ConstituencyProof {
-  district_hash: string;
-  nullifier: string;
-  merkle_root: string;
-}
+import type { ConstituencyProof as _ConstituencyProof } from './constituency-proof';
+// Re-export the extracted type (avoids circular dep with constituency-verification.ts)
+export type { ConstituencyProof } from './constituency-proof';
+// Local alias for use within this file
+type ConstituencyProof = _ConstituencyProof;
 
 export const ConstituencyProofSchema = z.object({
   district_hash: z.string().min(1),

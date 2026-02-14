@@ -1,6 +1,6 @@
 // Spec: spec-identity-trust-constituency.md v0.2 §4.2
 
-import type { ConstituencyProof } from './index';
+import type { ConstituencyProof } from './constituency-proof';
 
 export type ProofVerificationError =
   | 'nullifier_mismatch'
