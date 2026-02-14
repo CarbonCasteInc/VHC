@@ -1,8 +1,8 @@
 # TRINITY Implementation Status
 
 **Last Updated:** 2026-02-14
-**Version:** 0.5.0 (Wave 3 In-Progress — CAK, Collab Wiring, Flag Retirement, Budget Close-out, Synth Feed Wiring)
-**Assessment:** Pre-production prototype, Wave 3 active on integration/wave-3
+**Version:** 0.6.0 (Wave 3 Complete — CAK, Collab, Flags, Budget, Synth, LUMA Spec | Wave 4 starting)
+**Assessment:** Pre-production prototype, Wave 4 active on integration/wave-4 (LUMA implementation)
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.

@@ -137,5 +137,17 @@
       "packages/data-model/src/index*.ts",
       "packages/gun-client/src/index*.ts"
     ]
+  },
+  "w4l": {
+    "source": [
+      "packages/data-model/src/constants/**",
+      "apps/web-pwa/src/hooks/useIdentity*",
+      "apps/web-pwa/src/store/bridge/constituencyProof*"
+    ],
+    "test": [
+      "packages/data-model/src/constants/**/*.test.*",
+      "apps/web-pwa/src/hooks/useIdentity*.test.*",
+      "apps/web-pwa/src/store/bridge/constituencyProof*.test.*"
+    ]
   }
 }

@@ -1,18 +1,15 @@
 {
   "_description": "Single source of truth for wave runtime constants. All contracts, runbooks, and scripts should reference this file instead of hardcoding wave-specific strings.",
   "_updated": "2026-02-14",
-  "ACTIVE_WAVE_LABEL": "wave-3",
-  "ACTIVE_INTEGRATION_BRANCH": "integration/wave-3",
+  "ACTIVE_WAVE_LABEL": "wave-4",
+  "ACTIVE_INTEGRATION_BRANCH": "integration/wave-4",
   "EXECUTION_BRANCH_PREFIXES": [
-    "w3c/*",
-    "w3b/*",
-    "w3f/*",
-    "w3l/*",
+    "w4l/*",
     "coord/*"
   ],
   "PARKED_BRANCH_PREFIX": "agent/*",
-  "ACTIVE_DELTA_CONTRACT": "docs/foundational/WAVE3_DELTA_CONTRACT.md",
-  "ACTIVE_KICKOFF_COMMAND_SHEET": "docs/foundational/WAVE3_KICKOFF_COMMAND_SHEET.md",
+  "ACTIVE_DELTA_CONTRACT": "docs/foundational/WAVE4_DELTA_CONTRACT.md",
+  "ACTIVE_KICKOFF_COMMAND_SHEET": "docs/foundational/WAVE4_KICKOFF_COMMAND_SHEET.md",
   "ACTIVE_CE_CONTRACTS": "docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md",
   "ACTIVE_STAFFING_ROLES": "docs/foundational/V2_Sprint_Staffing_Roles.md",
   "ACTIVE_STAFFING_PLAN": "docs/foundational/V2_Sprint_Staffing_Plan.md",
