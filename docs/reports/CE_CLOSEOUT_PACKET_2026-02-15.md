@@ -27,7 +27,7 @@
 ## Evaluation Scope (same 3 areas as baseline)
 
 ### 1) RSS accumulator + news analyzer/generator path
-**Modules on main@c538f71:**
+**Modules on main@de322f8:**
 - `services/news-aggregator/src/orchestrator.ts` — `orchestrateNewsPipeline()` calls ingest→normalize→cluster
 - `packages/ai-engine/src/newsOrchestrator.ts` — Pipeline config validation + orchestration
 - `packages/ai-engine/src/newsIngest.ts` — RSS feed ingestion
@@ -51,7 +51,7 @@
 **Known gap:** Duplicate news modules exist in both `packages/ai-engine/src/` and `services/news-aggregator/src/` — dedup cleanup PR pending.
 
 ### 2) Comment → article flow
-**Modules on main@c538f71:**
+**Modules on main@de322f8:**
 - `apps/web-pwa/src/components/hermes/ThreadView.tsx` — Wired to `CommentComposerWithArticle` + synthesis panel
 - `apps/web-pwa/src/components/hermes/CommentComposerWithArticle.tsx` — docs-enabled guard (`onConvertToArticle={docsEnabled ? handler : undefined}`)
 - `apps/web-pwa/src/components/hermes/FeedShell.tsx` — `Link` navigation to `/hermes/$threadId`
@@ -62,7 +62,7 @@
 - `FeedList.test.tsx` — Feed rendering tests
 
 ### 3) Synthesized feed/topics/forum structure
-**Modules on main@c538f71:**
+**Modules on main@de322f8:**
 - `apps/web-pwa/src/components/hermes/TopicCard.tsx` — Imports `useSynthesis`, renders `SynthesisSummary`
 - `apps/web-pwa/src/components/hermes/SynthesisSummary.tsx` — Facts, frames, divergence indicator
 - `packages/ai-engine/src/topicSynthesisPipeline.ts` — Topic synthesis pipeline (PR #270)
@@ -78,7 +78,7 @@
 Given all remediation PRs merged and CI green:
 1. Are the 3 original CE HIGH findings (news runtime, model propagation, auth contract) adequately closed?
 2. Are there any NEW HIGH-severity gaps introduced by the remediation PRs?
-3. Is the codebase at `c538f71` suitable for internal invite-only testnet evaluation?
+3. Is the codebase at `de322f8` suitable for internal invite-only testnet evaluation?
 
 ## Decision Rule (from baseline)
 - HIGH functional/architecture gap → HOLD

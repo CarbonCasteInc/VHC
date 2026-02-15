@@ -4,7 +4,7 @@
 **Main HEAD:** `de322f8` (updated from `c538f71` — PR #265 merged post-verdict)
 **CE Protocol:** ce-opus Pass 1 (substantial analysis extracted from thinking before timeout) + ce-codex (timed out during verification). Coordinator performed independent verification of all findings.
 
-> **Amendment note:** PR #265 (`coord/ce-hold-w1c-store-publishback`) merged after initial verdict, closing the hermesDocs publish-back store-layer gap. Main advanced from `c538f71` → `995c5c9` (PR #271 CE docs) → `de322f8` (PR #265 publish-back).
+> **Amendment note:** PR #265 (`coord/ce-hold-w1c-store-publishback`) merged after initial verdict, closing the hermesDocs publish-back store-layer gap. PR #270 (`coord/fix-synth-wiring/producer-pipeline`, SHA `a4a7194`→`45eb2ca`) merged synthesis producer pipeline (CE HOLD lane B: CE-B1/B2/B3 all closed). Main advanced from `c538f71` → `995c5c9` (PR #271 CE docs) → `de322f8` (PR #265 publish-back).
 
 ---
 
@@ -78,7 +78,7 @@ For internal invite-only testnet to proceed safely:
 
 ## Scope Statement
 
-**Verified:** All 3 evaluation areas (news pipeline, comment→article, synthesis feed) against actual source files on `c538f71`. Import/export chains, test existence, feature flag gating, route wiring, bootstrap initialization.
+**Verified:** All 3 evaluation areas (news pipeline, comment→article, synthesis feed) against actual source files on `de322f8` (initial review at `c538f71`, re-verified post-remediation PRs #265–#270). Import/export chains, test existence, feature flag gating, route wiring, bootstrap initialization.
 
 **Inferred:** CI health (based on all 7 checks green on merged PRs). Test coverage quality (based on 100% thresholds passing).
 
