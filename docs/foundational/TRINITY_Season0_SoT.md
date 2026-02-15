@@ -159,7 +159,7 @@
     - **HERMES Forum** 🟢 — threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)  
     - **HERMES Docs** ⚪ — planned (Sprint 5)  
     - **Bridge / Civic Action Kit** ⚪ — planned/redesign (Sprint 5)  
-    - **LUMA** 🔴 — attestation + uniqueness mostly stubbed (do not treat as real sybil defense yet)  
+    - **LUMA** 🟡 — Wave 4 hardened: trust constants consolidated, session lifecycle (expiry/revocation), constituency proof verification (flag-gated). TEE/VIO/sybil still stubbed (Season 0 §9.2 deferred)  
     - **GWC contracts** 🟡 — contracts implemented; public testnet deploy incomplete; Season 0 UX should remain XP‑first
 
   - **Legacy / migration (explicitly non‑blocking but must be tracked)** 🟡

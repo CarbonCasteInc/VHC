@@ -111,8 +111,10 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
 | `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
 | `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine opt-in | empty | 1 |
+| `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
+| `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
 
-All Wave 2 features are flag-gated. Default false. Legacy behavior preserved when flags are off.
+All features through Wave 4 are flag-gated. Default false. Legacy behavior preserved when flags are off.
 
 ---
 
@@ -132,19 +134,20 @@ All Wave 2 features are flag-gated. Default false. Legacy behavior preserved whe
 
 ## Test & Coverage Truth
 
-**Gate verification date:** 2026-02-13
-**Branch verified:** `integration/wave-2` at `6b8a444` → merged to `main` at `d85fe51`
+**Gate verification date:** 2026-02-14
+**Branch verified:** `integration/wave-4` at `99c4b4b`
 
 | Gate | Result | Detail |
 |------|--------|--------|
 | `pnpm typecheck` | ✅ PASS | All workspace projects |
 | `pnpm lint` | ✅ PASS | All workspace projects |
-| `pnpm test` | ✅ PASS | 142 test files, 2162 tests |
-| `pnpm test:e2e` | ✅ PASS | E2E tests passed |
+| `pnpm test` | ✅ PASS | 2558+ tests (47 new in Wave 4) |
+| `pnpm test:e2e` | ✅ PASS | E2E tests passed (CI run 22024258084) |
 | `pnpm bundle:check` | ✅ PASS | Under 1 MiB limit |
+| `pnpm deps:check` | ✅ PASS | Zero circular dependencies |
 | Feature-flag variants | ✅ PASS | All ON/OFF combinations pass |
 
-**Coverage:** 100% line, branch, function, statement on all touched Wave 2 modules (diff-aware per-PR gate + global at closeout).
+**Coverage:** 100% line+branch on all new Wave 4 modules (diff-aware per-PR gate). `constituencyProof.ts` catch branch at ~90% (acceptable — `import.meta.env` error path).
 
 ---
 
@@ -160,6 +163,8 @@ All Wave 2 features are flag-gated. Default false. Legacy behavior preserved whe
 | **Sprint 4** (Agentic Foundation) | ✅ Complete | Delegation types + store + control panel; participation governors; budget denial UX |
 | **Wave 1** (V2 Features) | ✅ Complete | Synthesis pipeline/store, news aggregator/store, discovery feed/cards, delegation runtime, bridge/attestor wiring |
 | **Wave 2** (Integration Features) | ✅ Complete | Re-synthesis triggers, collaborative docs foundation, elevation artifacts, linked-social substrate, social feed wiring |
+| **Wave 3** (CAK + Collab + LUMA Spec) | ✅ Complete | CAK Phase 3 UI, collab editor wiring, feature flags, budget boundary, synthesis feed, LUMA identity spec v0.2 (13 PRs: #229–#242) |
+| **Wave 4** (LUMA Identity Hardening) | ✅ Complete | Trust constants consolidation, session lifecycle, constituency proof verification — all flag-gated (8 PRs: #243–#250) |
 
 ---
 
@@ -368,20 +373,31 @@ All Wave 2 features are flag-gated. Default false. Legacy behavior preserved whe
 
 ---
 
-## Next Work (Wave 3 Direction)
+## Next Work (Post-Wave 4)
 
-See `docs/foundational/WAVE3_CARRYOVER.md` for detailed carryover items.
+Wave 4 complete. Integration → main merge pending CEO sign-off.
 
-Priority order (CEO directive):
-1. **CAK completion** — receipt-in-feed (DeliveryReceipt schema), representative directory, native intents
-2. **CollabEditor runtime wiring** — connect CollabEditor into ArticleEditor active path
-3. **Feature-flag retirement** — promote Wave 1+2 flags to permanent-on after integration sign-off
-4. **Remaining budget key** — `moderation/day` enforcement (key 8/8)
-5. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
+Remaining from Wave 3 carryover (see `docs/foundational/WAVE3_CARRYOVER.md`):
+1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after integration sign-off
+2. **Remaining budget key** — `moderation/day` enforcement (key 8/8)
+3. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
+
+Post-Season 0 (deferred per spec §9.2):
+- TEE/VIO hardware binding
+- Real sybil resistance
+- BioKey, DBA, ZK-SNARK proofs
+- Gold/Platinum trust tiers
 
 ---
 
 ## References
+
+### Wave 4 Artifacts
+- `docs/reports/WAVE4_DOC_AUDIT.md` — Wave 4 closeout documentation audit
+- `docs/foundational/WAVE4_DELTA_CONTRACT.md` — 4 amendments (A5–A8)
+- `docs/foundational/WAVE4_KICKOFF_COMMAND_SHEET.md` — Execution plan
+- `docs/specs/spec-identity-trust-constituency.md` v0.2 — Architectural contract
+- `docs/specs/spec-luma-season0-trust-v0.md` v0.1 — Season 0 enforcement spec
 
 ### Wave 2 Artifacts
 - `docs/reports/WAVE2_DOC_AUDIT.md` — Wave-end documentation audit

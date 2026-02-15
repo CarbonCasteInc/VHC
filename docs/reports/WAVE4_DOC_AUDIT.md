@@ -83,8 +83,8 @@ All dispatches CE-reviewed per policy 11.
 | `WAVE_RUNTIME_CONSTANTS.json` | ✅ Current | wave-4, integration/wave-4, w4l/*/coord/* |
 | `WAVE4_DELTA_CONTRACT.md` | ✅ Current | All 4 amendments (A5–A8) honored |
 | `WAVE4_KICKOFF_COMMAND_SHEET.md` | ✅ Current | Phase plan matches execution |
-| `STATUS.md` | ⚠️ Needs update | LUMA still shows "Stubbed" — updated in this PR |
-| `TRINITY_Season0_SoT.md` | ⚠️ Needs update | Implementation status stale — updated in this PR |
+| `STATUS.md` | ✅ Updated | LUMA section, feature flags table, sprint completion, next work, test coverage (CE fix PR) |
+| `TRINITY_Season0_SoT.md` | ✅ Updated | LUMA status updated from 🔴 to 🟡 (CE fix PR) |
 | `spec-identity-trust-constituency.md` | ✅ Current | v0.2 canonical |
 | `spec-luma-season0-trust-v0.md` | ✅ Current | v0.1 canonical |
 | `.github/ownership-map.json` | ✅ Current | w4l branchPrefix + globs (PR #248) |
@@ -95,8 +95,12 @@ All dispatches CE-reviewed per policy 11.
 |---|----------|---------|-----|
 | F1 | HIGH | Circular dependency: `index.ts` ↔ `constituency-verification.ts` | Extracted `ConstituencyProof` to `constituency-proof.ts` (PR #249) |
 | F2 | HIGH | Missing `branchPrefix` for `w4l` in ownership map | Added in PR #248 |
-| F3 | MEDIUM | STATUS.md LUMA section still "Stubbed" | Updated in this PR |
-| F4 | MEDIUM | SoT implementation status stale | Updated in this PR |
+| F3 | MEDIUM | STATUS.md LUMA section still "Stubbed" | Updated PR #250 + CE fix PR |
+| F4 | MEDIUM | SoT implementation status stale | Updated in CE fix PR (was missed in PR #250) |
+| F5-CE | MEDIUM | Feature flags table missing Wave 4 entries | Updated in CE fix PR |
+| F6-CE | MEDIUM | Sprint completion table missing Wave 3/4 | Updated in CE fix PR |
+| F7-CE | MEDIUM | "Next Work" section stale (Wave 3) | Updated in CE fix PR |
+| F8-CE | MEDIUM | Test & Coverage Truth stale (Wave 2 data) | Updated in CE fix PR |
 | F5 | LOW | `constituencyProof.ts` catch branch at 90% coverage | Acceptable — `import.meta.env` error path |
 
 ## Conclusion
