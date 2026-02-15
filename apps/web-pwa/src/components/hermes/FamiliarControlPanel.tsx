@@ -29,6 +29,7 @@ export function FamiliarControlPanel({ principalOverride, now }: FamiliarControl
   const activeNullifier = useXpLedger((state) => state.activeNullifier);
   const setActiveNullifier = useXpLedger((state) => state.setActiveNullifier);
   const canPerformAction = useXpLedger((state) => state.canPerformAction);
+  const consumeAction = useXpLedger((state) => state.consumeAction);
 
   useEffect(() => {
     if (activeNullifier !== principalNullifier) {
@@ -45,10 +46,7 @@ export function FamiliarControlPanel({ principalOverride, now }: FamiliarControl
   const [notice, setNotice] = useState<string | null>(null);
   const [pendingHighImpactRequest, setPendingHighImpactRequest] = useState<PendingHighImpactRequest | null>(null);
 
-  const activeFamiliars = useMemo(
-    () => familiars.filter((familiar) => familiar.revokedAt === undefined),
-    [familiars]
-  );
+  const activeFamiliars = useMemo(() => familiars.filter((familiar) => familiar.revokedAt === undefined), [familiars]);
   const currentTime = nowFn();
   const activeGrants = grants.filter((grant) => getGrantStatus(grant.grantId, currentTime) === 'active');
 
@@ -59,7 +57,6 @@ export function FamiliarControlPanel({ principalOverride, now }: FamiliarControl
       }
       return;
     }
-
     const selectedStillActive = activeFamiliars.some((familiar) => familiar.id === selectedFamiliarId);
     if (!selectedStillActive) {
       setSelectedFamiliarId(activeFamiliars[0]!.id);
@@ -80,14 +77,16 @@ export function FamiliarControlPanel({ principalOverride, now }: FamiliarControl
     return Math.round(minutes * MINUTE_MS);
   };
 
-  const issueGrantForTier = (tier: DelegationTier, request: PendingHighImpactRequest) => {
+  const issueGrantForTier = (tier: DelegationTier, request: PendingHighImpactRequest, shouldNotify = true) => {
     const grant = createTierGrant({
       familiarId: request.familiarId,
       tier,
       issuedAt: request.issuedAt,
       expiresAt: request.expiresAt
     });
-    setNotice(`Grant ${grant.grantId} created (${tier}).`);
+    if (shouldNotify) {
+      setNotice(`Grant ${grant.grantId} created (${tier}).`);
+    }
     return grant;
   };
 
@@ -96,7 +95,6 @@ export function FamiliarControlPanel({ principalOverride, now }: FamiliarControl
     if (!moderation.allowed) {
       return moderation.reason ?? 'moderation/day budget denied';
     }
-
     const civic = canPerformAction('civic_actions/day');
     if (!civic.allowed) {
       return civic.reason ?? 'civic_actions/day budget denied';
@@ -128,12 +126,10 @@ export function FamiliarControlPanel({ principalOverride, now }: FamiliarControl
       setError('Select a familiar before creating a grant.');
       return;
     }
-
     const durationMs = parseDurationMs();
     if (durationMs === null) {
       return;
     }
-
     const issuedAt = nowFn();
     const request: PendingHighImpactRequest = {
       familiarId: selectedFamiliarId,
@@ -160,11 +156,19 @@ export function FamiliarControlPanel({ principalOverride, now }: FamiliarControl
 
   const handleConfirmHighImpactGrant = () => {
     clearMessages();
+    const denialReason = evaluateHighImpactBudgets();
+    if (denialReason) {
+      setError(`High-impact grant denied: ${denialReason}`);
+      return;
+    }
     try {
-      issueGrantForTier('high-impact', pendingHighImpactRequest!);
+      const grant = issueGrantForTier('high-impact', pendingHighImpactRequest!, false);
+      consumeAction('moderation/day');
+      setNotice(`Grant ${grant.grantId} created (high-impact).`);
       setPendingHighImpactRequest(null);
     } catch (issueError) {
-      setError(String((issueError as Error).message));
+      const message = String((issueError as Error).message);
+      setError(message.includes('moderation/day') ? `High-impact grant denied: ${message}` : message);
     }
   };
 
