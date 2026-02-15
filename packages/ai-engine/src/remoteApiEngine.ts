@@ -71,7 +71,7 @@ export class RemoteApiEngine implements JsonCompletionEngine {
         throw error;
       }
       throw new EngineUnavailableError('remote-only');
-    } finally {
+    } /* v8 ignore next -- V8 branch artifact on finally; both try+catch paths tested */ finally {
       clearTimeout(timeoutHandle);
     }
   }
