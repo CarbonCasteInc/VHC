@@ -112,10 +112,7 @@ export function createRemoteEngine(): JsonCompletionEngine | undefined {
     return undefined;
   }
 
-  const apiKey = readEnvVar('VITE_REMOTE_ENGINE_API_KEY')?.trim();
-
   return new RemoteApiEngine({
-    endpointUrl,
-    ...(apiKey ? { apiKey } : {})
+    endpointUrl
   });
 }

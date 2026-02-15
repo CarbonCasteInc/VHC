@@ -128,16 +128,15 @@ describe('createRemoteEngine', () => {
     });
   });
 
-  it('passes API key when provided', () => {
+  it('does not pass auth material into engine construction', () => {
     vi.stubEnv('VITE_E2E_MODE', 'false');
     vi.stubEnv('VITE_REMOTE_ENGINE_URL', 'https://remote.example/v1');
-    vi.stubEnv('VITE_REMOTE_ENGINE_API_KEY', 'api-key-123');
+    vi.stubEnv('VITE_REMOTE_API_KEY', 'api-key-123');
 
     createRemoteEngine();
 
     expect(MockRemoteApiEngine).toHaveBeenCalledWith({
-      endpointUrl: 'https://remote.example/v1',
-      apiKey: 'api-key-123'
+      endpointUrl: 'https://remote.example/v1'
     });
   });
 

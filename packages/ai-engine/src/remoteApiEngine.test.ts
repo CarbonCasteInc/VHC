@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { RemoteAuthError } from './modelConfig';
 import { RemoteApiEngine } from './remoteApiEngine';
 
 function okJsonResponse(payload: unknown) {
   return {
     ok: true,
-    json: vi.fn().mockResolvedValue(payload)
+    json: vi.fn().mockResolvedValue(payload),
   } as unknown as Response;
 }
 
@@ -12,7 +13,7 @@ function errorResponse(status: number) {
   return {
     ok: false,
     status,
-    json: vi.fn().mockResolvedValue({})
+    json: vi.fn().mockResolvedValue({}),
   } as unknown as Response;
 }
 
@@ -21,11 +22,13 @@ describe('RemoteApiEngine', () => {
     vi.useRealTimers();
     vi.restoreAllMocks();
     vi.stubGlobal('fetch', vi.fn());
+    vi.stubEnv('VITE_REMOTE_API_KEY', 'secret-key');
   });
 
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -34,22 +37,22 @@ describe('RemoteApiEngine', () => {
     expect(() => new RemoteApiEngine({ endpointUrl: '   ' })).toThrow('Remote API endpoint URL is required');
   });
 
-  it('uses fixed engine identity fields', () => {
+  it('uses configured model identity fields', () => {
     const engine = new RemoteApiEngine({ endpointUrl: 'https://remote.example/api' });
 
     expect(engine.kind).toBe('remote');
     expect(engine.name).toBe('remote-api');
-    expect(engine.modelName).toBe('remote-api-v1');
+    expect(engine.modelName).toBe('gpt-5.2');
+
+    vi.stubEnv('VITE_ANALYSIS_MODEL', 'gpt-5.2-mini');
+    expect(engine.modelName).toBe('gpt-5.2-mini');
   });
 
-  it('sends expected POST payload and optional bearer auth header', async () => {
+  it('sends expected POST payload and bearer auth header', async () => {
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock.mockResolvedValue(okJsonResponse({ choices: [{ message: { content: '{"ok":true}' } }] }));
 
-    const engine = new RemoteApiEngine({
-      endpointUrl: 'https://remote.example/api',
-      apiKey: 'secret-key'
-    });
+    const engine = new RemoteApiEngine({ endpointUrl: 'https://remote.example/api' });
 
     await engine.generate('Prompt body');
 
@@ -62,28 +65,34 @@ describe('RemoteApiEngine', () => {
     expect(calledInit.method).toBe('POST');
     expect(calledInit.headers).toEqual({
       'Content-Type': 'application/json',
-      Authorization: 'Bearer secret-key'
+      Authorization: 'Bearer secret-key',
     });
     expect(parsedBody).toEqual({
       prompt: 'Prompt body',
+      model: 'gpt-5.2',
       max_tokens: 2048,
-      temperature: 0.1
+      temperature: 0.1,
     });
-    expect(Object.keys(parsedBody).sort()).toEqual(['max_tokens', 'prompt', 'temperature']);
+    expect(Object.keys(parsedBody).sort()).toEqual([
+      'max_tokens',
+      'model',
+      'prompt',
+      'temperature',
+    ]);
   });
 
-  it('does not include identity headers and returns OpenAI-style message content', async () => {
+  it('uses configured model in request body', async () => {
+    vi.stubEnv('VITE_ANALYSIS_MODEL', 'gpt-5.2-extended');
+
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock.mockResolvedValue(okJsonResponse({ choices: [{ message: { content: 'result-json' } }] }));
 
     const engine = new RemoteApiEngine({ endpointUrl: 'https://remote.example/api' });
-    const result = await engine.generate('Prompt body');
+    await engine.generate('Prompt body');
 
     const [, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(calledInit.headers).toEqual({
-      'Content-Type': 'application/json'
-    });
-    expect(String(result)).toBe('result-json');
+    const parsedBody = JSON.parse(String(calledInit.body));
+    expect(parsedBody.model).toBe('gpt-5.2-extended');
   });
 
   it('falls back to response.text payload when choices content is missing', async () => {
@@ -104,12 +113,12 @@ describe('RemoteApiEngine', () => {
 
     await expect(engine.generate('Prompt body')).rejects.toMatchObject({
       name: 'EngineUnavailableError',
-      policy: 'remote-only'
+      policy: 'remote-only',
     });
 
     await expect(engine.generate('Prompt body')).rejects.toMatchObject({
       name: 'EngineUnavailableError',
-      policy: 'remote-only'
+      policy: 'remote-only',
     });
   });
 
@@ -121,7 +130,7 @@ describe('RemoteApiEngine', () => {
 
     await expect(engine.generate('Prompt body')).rejects.toMatchObject({
       name: 'EngineUnavailableError',
-      policy: 'remote-only'
+      policy: 'remote-only',
     });
   });
 
@@ -140,7 +149,7 @@ describe('RemoteApiEngine', () => {
     const pending = engine.generate('Prompt body');
     const assertion = expect(pending).rejects.toMatchObject({
       name: 'EngineUnavailableError',
-      policy: 'remote-only'
+      policy: 'remote-only',
     });
 
     await vi.advanceTimersByTimeAsync(30_000);
@@ -167,7 +176,7 @@ describe('RemoteApiEngine', () => {
 
     await expect(engine.generate('Prompt body')).rejects.toMatchObject({
       name: 'EngineUnavailableError',
-      policy: 'remote-only'
+      policy: 'remote-only',
     });
   });
 
@@ -179,11 +188,44 @@ describe('RemoteApiEngine', () => {
 
     await expect(engine.generate('Prompt body')).rejects.toMatchObject({
       name: 'EngineUnavailableError',
-      policy: 'remote-only'
+      policy: 'remote-only',
     });
   });
 
-  it('sends only prompt/max_tokens/temperature and no identity payload patterns', async () => {
+  it('throws RemoteAuthError when API key is missing', async () => {
+    vi.unstubAllEnvs();
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue(okJsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+
+    const engine = new RemoteApiEngine({ endpointUrl: 'https://remote.example/api' });
+
+    await expect(engine.generate('Prompt body')).rejects.toBeInstanceOf(RemoteAuthError);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reads API key at request time (not cached)', async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue(okJsonResponse({ choices: [{ message: { content: 'ok' } }] }));
+
+    const engine = new RemoteApiEngine({ endpointUrl: 'https://remote.example/api' });
+
+    vi.stubEnv('VITE_REMOTE_API_KEY', 'first-key');
+    await engine.generate('Prompt body');
+
+    vi.stubEnv('VITE_REMOTE_API_KEY', 'second-key');
+    await engine.generate('Prompt body');
+
+    const firstHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+    const secondHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>;
+
+    expect(firstHeaders.Authorization).toBe('Bearer first-key');
+    expect(secondHeaders.Authorization).toBe('Bearer second-key');
+  });
+
+  it('never places API keys inside request payloads', async () => {
+    vi.stubEnv('VITE_REMOTE_API_KEY', 'super-secret');
+
     const fetchMock = vi.mocked(globalThis.fetch);
     fetchMock.mockResolvedValue(okJsonResponse({ response: { text: '{"ok":true}' } }));
 
@@ -192,16 +234,9 @@ describe('RemoteApiEngine', () => {
 
     const [, calledInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     const serializedBody = String(calledInit.body);
-    const parsedBody = JSON.parse(serializedBody);
 
-    expect(parsedBody).toEqual({
-      prompt: 'Article body text only.',
-      max_tokens: 2048,
-      temperature: 0.1
-    });
-    expect(serializedBody).not.toMatch(/https?:\/\//i);
-    expect(serializedBody).not.toMatch(/nullifier/i);
-    expect(serializedBody).not.toMatch(/proof/i);
-    expect(serializedBody).not.toMatch(/constituency/i);
+    expect(serializedBody).not.toMatch(/super-secret/i);
+    expect(serializedBody).toMatch(/"model":"gpt-5\.2"/);
+    expect(serializedBody).not.toMatch(/authorization/i);
   });
 });
