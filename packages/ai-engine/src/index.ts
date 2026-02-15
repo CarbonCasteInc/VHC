@@ -15,3 +15,9 @@ export * from './newsNormalize';
 export * from './newsCluster';
 export * from './newsOrchestrator';
 export * from './modelConfig';
+export { startNewsRuntime, isNewsRuntimeEnabled } from './newsRuntime';
+export type {
+  NewsRuntimeConfig,
+  NewsRuntimeHandle,
+  NewsRuntimeSynthesisCandidate,
+} from './newsRuntime';

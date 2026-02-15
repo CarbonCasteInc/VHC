@@ -8,7 +8,6 @@ import {
 } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
-
 const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
   'identity',
   'identity_id',
@@ -27,7 +26,6 @@ const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
   'wallet',
   'address'
 ]);
-
 function topicEpochCandidatesPath(topicId: string, epoch: string): string {
   return `vh/topics/${topicId}/epochs/${epoch}/candidates/`;
 }
@@ -348,3 +346,5 @@ export async function writeTopicDigest(client: VennClient, digest: unknown): Pro
   );
   return sanitized;
 }
+
+export { readNewsStory as readStoryBundle, writeNewsBundle as writeStoryBundle } from './newsAdapters';

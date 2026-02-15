@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CandidateSynthesis, TopicDigest, TopicSynthesisV2 } from '@vh/data-model';
+import type { CandidateSynthesis, StoryBundle, TopicDigest, TopicSynthesisV2 } from '@vh/data-model';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import { HydrationBarrier } from './sync/barrier';
@@ -7,11 +7,13 @@ import {
   getTopicEpochCandidateChain,
   getTopicEpochCandidatesChain,
   hasForbiddenSynthesisPayloadFields,
+  readStoryBundle,
   readTopicDigest,
   readTopicEpochCandidate,
   readTopicEpochCandidates,
   readTopicEpochSynthesis,
   readTopicLatestSynthesis,
+  writeStoryBundle,
   writeTopicDigest,
   writeTopicEpochCandidate,
   writeTopicEpochSynthesis,
@@ -152,6 +154,33 @@ const DIGEST: TopicDigest = {
   key_claims: ['claim-1'],
   salient_counterclaims: ['counter-1'],
   representative_quotes: ['quote-1']
+};
+
+const STORY: StoryBundle = {
+  schemaVersion: 'story-bundle-v0',
+  story_id: 'story-1',
+  topic_id: 'topic-1',
+  headline: 'Headline',
+  summary_hint: 'Summary',
+  cluster_window_start: 1700000000000,
+  cluster_window_end: 1700000001000,
+  sources: [
+    {
+      source_id: 'src-1',
+      publisher: 'Publisher',
+      url: 'https://example.com/story-1',
+      url_hash: 'abc123',
+      published_at: 1700000000000,
+      title: 'Headline'
+    }
+  ],
+  cluster_features: {
+    entity_keys: ['topic'],
+    time_bucket: '2026-02-15T14',
+    semantic_signature: 'deadbeef'
+  },
+  provenance_hash: 'provhash',
+  created_at: 1700000002000
 };
 
 describe('synthesisAdapters', () => {
@@ -350,6 +379,37 @@ describe('synthesisAdapters', () => {
 
     mesh.setRead('topics/topic-1/digests/digest-1', { ...DIGEST, district_hash: 'forbidden' });
     await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+  });
+
+  it('writes and reads StoryBundle payloads through synthesis adapters', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-1', { _: { '#': 'meta' }, ...STORY });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const written = await writeStoryBundle(client, STORY);
+    expect(written).toEqual(STORY);
+    expect(mesh.writes).toEqual([
+      { path: 'news/stories/story-1', value: STORY },
+      { path: 'news/index/latest/story-1', value: STORY.created_at }
+    ]);
+
+    await expect(readStoryBundle(client, 'story-1')).resolves.toEqual(STORY);
+  });
+
+  it('blocks auth/token fields in StoryBundle and synthesis payloads', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const storyWithToken = { ...STORY, nested: { auth_token: 'secret' } };
+    expect(hasForbiddenSynthesisPayloadFields(storyWithToken)).toBe(true);
+
+    await expect(writeStoryBundle(client, storyWithToken)).rejects.toThrow('forbidden identity/token fields');
+    await expect(writeTopicEpochSynthesis(client, { ...SYNTHESIS, bearer_token: 'secret' })).rejects.toThrow(
+      'forbidden identity/token fields'
+    );
   });
 
   it('validates required identifiers and forbidden fields', async () => {
