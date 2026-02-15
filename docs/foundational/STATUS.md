@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-02-14
 **Version:** 0.7.0 (Wave 4 Complete — LUMA Trust Constants, Session Lifecycle, Constituency Proof Verification)
-**Assessment:** Pre-production prototype, Wave 4 complete on integration/wave-4 (LUMA identity hardening). Pending 3-day integration pass before merge to main.
+**Assessment:** Pre-production prototype, Wave 4 complete and merged to main (LUMA identity hardening). All integration branches merged.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -134,20 +134,20 @@ All features through Wave 4 are flag-gated. Default false. Legacy behavior prese
 
 ## Test & Coverage Truth
 
-**Gate verification date:** 2026-02-14
-**Branch verified:** `integration/wave-4` at `99c4b4b`
+**Gate verification date:** 2026-02-15
+**Branch verified:** `main` at `31fce88` (Wave 4 merged via PR #253)
 
 | Gate | Result | Detail |
 |------|--------|--------|
 | `pnpm typecheck` | ✅ PASS | All workspace projects |
 | `pnpm lint` | ✅ PASS | All workspace projects |
-| `pnpm test` | ✅ PASS | 2558+ tests (47 new in Wave 4) |
+| `pnpm test` | ✅ PASS | 2557+ tests (49 new in Wave 4, including coverage gap fixes) |
 | `pnpm test:e2e` | ✅ PASS | E2E tests passed (CI run 22024258084) |
 | `pnpm bundle:check` | ✅ PASS | Under 1 MiB limit |
 | `pnpm deps:check` | ✅ PASS | Zero circular dependencies |
 | Feature-flag variants | ✅ PASS | All ON/OFF combinations pass |
 
-**Coverage:** 100% line+branch on all new Wave 4 modules (diff-aware per-PR gate). `constituencyProof.ts` catch branch at ~90% (acceptable — `import.meta.env` error path).
+**Coverage:** 100% line+branch on all Wave 4 modules (diff-aware gate, 483/483 branches on merge PR #253).
 
 ---
 
@@ -375,10 +375,10 @@ All features through Wave 4 are flag-gated. Default false. Legacy behavior prese
 
 ## Next Work (Post-Wave 4)
 
-Wave 4 complete. Integration → main merge pending CEO sign-off.
+Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integration branches (`integration/wave-3`, `integration/wave-4`) are ancestors of `main`.
 
 Remaining from Wave 3 carryover (see `docs/foundational/WAVE3_CARRYOVER.md`):
-1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after integration sign-off
+1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after stability verification
 2. **Remaining budget key** — `moderation/day` enforcement (key 8/8)
 3. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
 
