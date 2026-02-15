@@ -1,22 +1,78 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createDocsStore, createMockHermesDocsStore, defaultRandomId, type DocsState } from './hermesDocs';
+import { DocPublishLinkSchema } from '@vh/data-model';
+import {
+  createDocsStore,
+  createMockHermesDocsStore,
+  defaultRandomId,
+  type DocsDeps,
+  type DocsState,
+} from './hermesDocs';
+import { useDiscoveryStore } from './discovery';
+import { useAppStore } from './index';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
 let counter = 0;
-const fakeDeps = {
+const fakeDeps: Partial<DocsDeps> = {
   now: () => 1_700_000_000_000 + counter++,
   randomId: () => `id-${counter++}`,
   owner: () => 'test-owner',
+  publishBack: () => {},
 };
 
 function makeStore(enabled = true): UseBoundStore<StoreApi<DocsState>> {
   counter = 0;
   return createDocsStore(fakeDeps, enabled);
 }
+
+function createRuntimeClientRecorder() {
+  const writes = new Map<string, unknown>();
+
+  const makeNode = (segments: string[]): any => ({
+    get(key: string) {
+      return makeNode([...segments, key]);
+    },
+    once(callback: (value: unknown) => void) {
+      callback(undefined);
+    },
+    put(value: unknown, callback?: (ack?: { err?: string }) => void) {
+      writes.set(segments.join('/'), value);
+      callback?.({});
+      return Promise.resolve();
+    },
+  });
+
+  const client = {
+    mesh: {
+      get(scope: string) {
+        return makeNode(['vh', scope]);
+      },
+    },
+    hydrationBarrier: {
+      ready: true,
+      prepare: vi.fn().mockResolvedValue(undefined),
+    },
+    topologyGuard: {
+      validateWrite: vi.fn(),
+    },
+  } as any;
+
+  return { client, writes };
+}
+
+beforeEach(() => {
+  counter = 0;
+  useDiscoveryStore.getState().reset();
+  useAppStore.setState({ client: null });
+});
+
+afterEach(() => {
+  useDiscoveryStore.getState().reset();
+  useAppStore.setState({ client: null });
+});
 
 // ── Schema validation ─────────────────────────────────────────────────
 
@@ -117,6 +173,119 @@ describe('hermesDocs store – publishArticle', () => {
     const published = store.getState().getDraft(doc!.id);
     expect(published!.publishedAt).toBeGreaterThan(0);
     expect(published!.publishedArticleId).toBeTruthy();
+  });
+
+  it('wires full DocPublishLink contract and publish-back payloads', () => {
+    const publishBack = vi.fn();
+    const store = createDocsStore({
+      ...fakeDeps,
+      publishBack,
+    }, true);
+    const doc = store.getState().createDraft('contract body', {
+      sourceTopicId: 'topic-1',
+      sourceSynthesisId: 'synth-1',
+      sourceEpoch: 7,
+      sourceThreadId: 'thread-1',
+    });
+    store.getState().saveDraft(doc!.id, { title: 'Linked Article' });
+
+    store.getState().publishArticle(doc!.id);
+
+    expect(publishBack).toHaveBeenCalledTimes(1);
+    const artifacts = publishBack.mock.calls[0][0];
+    const link = DocPublishLinkSchema.parse(artifacts.link);
+
+    expect(link).toMatchObject({
+      docId: doc!.id,
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 7,
+      threadId: 'thread-1',
+    });
+    expect(artifacts.forumThread).toBeUndefined();
+    expect(artifacts.forumPost).toMatchObject({
+      schemaVersion: 'hermes-post-v0',
+      threadId: 'thread-1',
+      topicId: 'topic-1',
+      type: 'article',
+      articleRefId: link.articleId,
+    });
+    expect(artifacts.discoveryItem).toMatchObject({
+      topic_id: link.articleId,
+      kind: 'ARTICLE',
+      title: 'Linked Article',
+      created_at: link.publishedAt,
+    });
+
+    const published = store.getState().getDraft(doc!.id)!;
+    expect(published.sourceTopicId).toBe(link.topicId);
+    expect(published.sourceSynthesisId).toBe(link.synthesisId);
+    expect(published.sourceEpoch).toBe(link.epoch);
+    expect(published.sourceThreadId).toBe(link.threadId);
+    expect(published.publishedArticleId).toBe(link.articleId);
+    expect(published.publishedAt).toBe(link.publishedAt);
+  });
+
+  it('creates a deterministic forum thread payload when sourceThreadId is absent', () => {
+    const publishBack = vi.fn();
+    const store = createDocsStore({
+      ...fakeDeps,
+      publishBack,
+    }, true);
+    const doc = store.getState().createDraft('deterministic');
+
+    store.getState().publishArticle(doc!.id);
+
+    const artifacts = publishBack.mock.calls[0][0];
+    const expectedThreadId = `article-thread-${doc!.id}`;
+    expect(artifacts.link.threadId).toBe(expectedThreadId);
+    expect(artifacts.forumThread?.id).toBe(expectedThreadId);
+    expect(artifacts.forumPost.threadId).toBe(expectedThreadId);
+  });
+
+  it('writes forum publish payloads and discovery ARTICLE item on default runtime path', async () => {
+    const { client, writes } = createRuntimeClientRecorder();
+    useAppStore.setState({ client });
+    expect(useAppStore.getState().client).toBe(client);
+
+    let idCounter = 0;
+    const store = createDocsStore({
+      now: () => 1_700_000_000_000,
+      randomId: () => `runtime-${++idCounter}`,
+      owner: () => 'runtime-owner',
+    }, true);
+
+    const doc = store.getState().createDraft('runtime payload');
+    store.getState().saveDraft(doc!.id, { title: 'Runtime Linked Article' });
+    store.getState().publishArticle(doc!.id);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const published = store.getState().getDraft(doc!.id)!;
+    const expectedThreadId = `article-thread-${doc!.id}`;
+    const expectedPostPath = `vh/forum/threads/${expectedThreadId}/posts/post-${published.publishedArticleId}`;
+
+    expect(writes.get(`vh/forum/threads/${expectedThreadId}`)).toEqual(
+      expect.objectContaining({
+        id: expectedThreadId,
+        schemaVersion: 'hermes-thread-v0',
+      }),
+    );
+    expect(writes.get(expectedPostPath)).toEqual(
+      expect.objectContaining({
+        schemaVersion: 'hermes-post-v0',
+        threadId: expectedThreadId,
+        type: 'article',
+        articleRefId: published.publishedArticleId,
+      }),
+    );
+    expect(useDiscoveryStore.getState().items).toContainEqual(
+      expect.objectContaining({
+        topic_id: published.publishedArticleId,
+        kind: 'ARTICLE',
+        title: 'Runtime Linked Article',
+      }),
+    );
   });
 
   it('does not double-publish', () => {
@@ -296,6 +465,23 @@ describe('createMockHermesDocsStore', () => {
 
     store.getState().publishArticle(doc!.id);
     expect(store.getState().getDraft(doc!.id)!.publishedAt).toBeGreaterThan(0);
+  });
+
+  it('publishArticle catches publishBack errors gracefully', () => {
+    const publishBack = vi.fn(() => {
+      throw new Error('runtime write failed');
+    });
+    const store = createMockHermesDocsStore({ publishBack });
+    store.getState().createDraft('text');
+    const docs = Array.from(store.getState().documents.values());
+    const docId = docs[0].id;
+
+    // Should not throw — error is caught internally
+    expect(() => store.getState().publishArticle(docId)).not.toThrow();
+    expect(publishBack).toHaveBeenCalledTimes(1);
+    // doc is now published despite publishBack error (state updated before publishBack call)
+    const published = store.getState().documents.get(docId);
+    expect(published!.publishedAt).not.toBeNull();
   });
 
   it('exports correctly', () => {
