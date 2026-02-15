@@ -1,9 +1,9 @@
 # Beta Readiness Matrix — Internal Testnet Launch
 
-**Generated:** 2026-02-15T10:46Z (rev 2: 10:51Z branch correction + G8.2 update)  
+**Generated:** 2026-02-15T10:46Z (rev 3: 10:53Z — G8 CAK update + G9 doc integrity gate)  
 **Branch assessed:** `origin/main` at `09285c9`  
 **Author:** Lane D (Docs agent — subagent)  
-**Status:** INITIAL (G1–G5 assessed; G6–G7 PENDING; G8.2 escalated)
+**Status:** G1–G5 assessed; G6–G7 PENDING; G8.2+G8.4 escalated; G9 added
 
 ---
 
@@ -18,11 +18,12 @@
 | G5: Security Posture | **FAIL** | 2/3 | 1/3 | — |
 | G6: Invite/Cohort Controls | **PENDING** | — | — | 3/3 |
 | G7: AI Harness | **PENDING** | — | — | 2/2 |
-| G8: Runtime Wiring | **PENDING + ESCALATION** | — | — | 2/3 + 1 SoT conflict |
+| G8: Runtime Wiring | **PENDING + ⚠️ ESCALATION** | — | — | 2/4 + 2 SoT conflicts |
+| G9: Documentation Integrity | **⚠️ ESCALATION** | — | — | See below |
 
 **Totals (G1–G5 only):** PASS 10 / FAIL 6 / BLOCKED 0  
-**Overall verdict:** ❌ NOT READY — 6 gate criteria fail across G1, G3, G5  
-**Critical blockers:** Missing trust.ts consolidation, session lifecycle module, constituency proof module, session revocation, incomplete feature flag documentation, hardcoded dev secret in storage adapter.
+**Overall verdict:** ❌ NOT READY — 6 gate criteria fail across G1, G3, G5 + systemic SoT conflict  
+**Critical blockers:** Missing trust.ts consolidation, session lifecycle module, constituency proof module, session revocation, incomplete feature flag documentation, hardcoded dev secret in storage adapter, **cross-lane SoT integrity conflict (G9)**.
 
 ---
 
@@ -436,13 +437,14 @@ Latest `main` HEAD: `09285c9` (Merge PR #257 — CSP/LHCI fix). PR #257 merged i
 
 ---
 
-## G8: Runtime Wiring — PARTIAL (1 escalation)
+## G8: Runtime Wiring — PARTIAL (2 escalations)
 
 | Sub-gate | Status | Notes |
 |----------|--------|-------|
 | G8.1 Synthesis v2 → feed E2E | **BLOCKED** | Lane A1 deliverable — STATUS.md confirms "Runtime wiring (v2 → UI) ❌ Pending" |
 | G8.2 CollabEditor → ArticleEditor | **⚠️ ESCALATION — SoT conflict** | See detailed analysis below |
 | G8.3 Budget 8/8 | **BLOCKED** | Lane A2 deliverable — NOTE: code review shows 8/8 enforced (see G2.1), but Lane A2 may have additional integration requirements |
+| G8.4 CAK: receipt-in-feed, rep directory, native intents | **⚠️ ESCALATION — SoT conflict** | See detailed analysis below |
 
 ### G8.2 Escalation: CollabEditor SoT Integrity Conflict
 
@@ -481,7 +483,123 @@ Latest `main` HEAD: `09285c9` (Merge PR #257 — CSP/LHCI fix). PR #257 merged i
 
 **Recommendation:** Coordinator should verify which commit Lane A3 is assessing. If Lane A3 is on an older branch, this is a worktree sync issue, not a SoT integrity issue. The code exists on `main`.
 
-**Action:** Await Lane A sub-lanes; then verify E2E wiring and update this matrix. G8.2 escalated to coordinator for SoT conflict resolution.
+**Action:** Await coordinator SoT conflict resolution for G8.2.
+
+### G8.4 Escalation: CAK (Receipt-in-Feed, Rep Directory, Native Intents) SoT Conflict
+
+**Lane A4 reported:** "ALL THREE items (receipt-in-feed, rep directory, native intents) have zero runtime code on main. The `store/bridge/` directory, `ACTION_RECEIPT` feed kind, bridge adapters don't exist."
+
+**Lane D (Docs) independent verification contradicts this.** All three subsystems **exist and are substantial** on `origin/main` at `09285c9`:
+
+#### store/bridge/ — 22 files, ~2,500 LOC
+
+| File | LOC | Content |
+|------|-----|---------|
+| `store/bridge/receiptManager.ts` | 82 | Receipt creation, chaining, retry (spec §4.4) |
+| `store/bridge/receiptManager.test.ts` | 141 | Receipt chain + outcome tests |
+| `store/bridge/representativeDirectory.ts` | 80 | Directory scaffold, Zod validation, constituency matching (spec §3.1–3.3) |
+| `store/bridge/representativeDirectory.test.ts` | 154 | Directory load/find/version tests |
+| `store/bridge/intentAdapters.ts` | 110 | Delivery channels: email, phone, share, export, manual (spec §4.3) |
+| `store/bridge/intentAdapters.test.ts` | 189 | Intent dispatch + E2E guard tests |
+| `store/bridge/useBridgeStore.ts` | 185 | Zustand bridge store (actions, receipts, reps) |
+| `store/bridge/useBridgeStore.test.ts` | 222 | Store CRUD + persistence tests |
+| `store/bridge/bridgeStorage.ts` | 160 | Bridge persistence layer |
+| `store/bridge/bridgeStorage.test.ts` | 84 | Storage tests |
+| `store/bridge/constituencyProof.ts` | 24 | Constituency proof utilities |
+| `store/bridge/constituencyProof.test.ts` | 60 | Proof tests |
+| `store/bridge/elevationArtifacts.ts` | 88 | BriefDoc/ProposalScaffold generation |
+| `store/bridge/elevationArtifacts.test.ts` | 97 | Elevation artifact tests |
+| `store/bridge/nominationFlow.ts` | 97 | Nomination threshold flow |
+| `store/bridge/nominationFlow.test.ts` | 166 | Nomination tests |
+| `store/bridge/reportGenerator.ts` | 98 | PDF/HTML civic report generation |
+| `store/bridge/reportGenerator.test.ts` | 126 | Report generation tests |
+| `store/bridge/bridgeXP.ts` | 95 | Bridge XP awards |
+| `store/bridge/bridgeXP.test.ts` | 116 | XP award tests |
+| `store/bridge/index.ts` | 92 | Re-exports |
+| `store/bridge/index.test.ts` | 25 | Import validation |
+
+#### ACTION_RECEIPT in Feed
+
+| File | Line | Evidence |
+|------|------|---------|
+| `packages/data-model/src/schemas/hermes/discovery.ts` | 20 | `'ACTION_RECEIPT'` in DiscoveryItemKind enum |
+| `apps/web-pwa/src/hooks/useFeedStore.ts` | 38, 46 | Description + label for ACTION_RECEIPT |
+| `apps/web-pwa/src/components/feed/FeedShell.tsx` | 124 | Switch case routing ACTION_RECEIPT → ReceiptFeedCard |
+| `apps/web-pwa/src/components/feed/ReceiptFeedCard.tsx` | 59 LOC | Feed card for civic action receipts |
+| `apps/web-pwa/src/components/feed/ReceiptFeedCard.test.tsx` | 86 LOC | Card render tests |
+| `apps/web-pwa/src/components/feed/FeedShell.test.tsx` | 173 | Routes ACTION_RECEIPT to ReceiptFeedCard |
+
+#### Bridge Adapters
+
+| File | LOC | Evidence |
+|------|-----|---------|
+| `packages/gun-client/src/bridgeAdapters.ts` | 200 | Gun bridge adapters — civic action + receipt persistence |
+| `packages/gun-client/src/bridgeAdapters.test.ts` | 316 | Adapter tests |
+
+**Total CAK runtime code:** ~4,500 LOC across 26+ files with tests.
+
+**Possible explanation:** Same as G8.2 — Lane A4 is likely working on a stale worktree/branch that doesn't have the Wave 3 PRs (#229–#242) merged.
+
+**Action:** Await coordinator SoT conflict resolution for G8.4.
+
+---
+
+## G9: Documentation Integrity — ⚠️ ESCALATION (NEW)
+
+This gate was added in response to cross-lane SoT conflict reports. It assesses whether documentation matches codebase reality.
+
+### Systemic Finding: Cross-Lane Phantom Code Claims
+
+Two independent lanes (A3 and A4) reported that significant code subsystems "do not exist" on `main`, while Lane D's independent verification confirms the code is present. This creates a **systemic SoT integrity concern**.
+
+| Lane | Claim | Lane D Verification | Files Found | LOC |
+|------|-------|---------------------|-------------|-----|
+| A3 | "ENTIRE CollabEditor stack does NOT exist" | ❌ **Contradicted** — code exists | 18 files | 3,146 |
+| A4 | "store/bridge/, ACTION_RECEIPT, bridge adapters don't exist" | ❌ **Contradicted** — code exists | 26+ files | ~4,500 |
+
+### Root Cause Hypothesis
+
+The most likely explanation is a **worktree synchronization issue**:
+
+1. The codebase has 4+ waves of merged work. Waves 2–3 added CollabEditor (PR #220, #230) and CAK Phase 3 (PRs #229–#242).
+2. If Lane A3/A4 agents are operating on worktrees checked out at an older commit (pre-Wave 3), they would correctly observe that these files don't exist *on their branch*.
+3. However, on `origin/main` at HEAD (`09285c9`), all files are present.
+
+### Verification Methodology
+
+Lane D verification was performed using:
+- `find` commands against the working tree (which is at `origin/main` `09285c9`)
+- `wc -l` for line counts
+- `cat` for full file content review
+- `grep` for cross-reference verification
+
+All evidence is reproducible by running the same commands on any checkout of `main` at `09285c9`.
+
+### STATUS.md Accuracy Assessment
+
+| STATUS.md Claim | Code Reality on `main` at `09285c9` | Accurate? |
+|-----------------|-------------------------------------|-----------|
+| "HERMES Docs: 🟢 Foundation + CollabEditor wired" | CollabEditor.tsx (229 LOC), wired into ArticleEditor via lazy-load | ✅ Accurate |
+| "Bridge (CAK): 🟡 Wired" | store/bridge/ (22 files, ~2,500 LOC), bridgeAdapters (516 LOC), ReceiptFeedCard wired | ✅ Accurate |
+| "Budget enforcement (6/8 keys)" | 8/8 keys enforced at runtime | ❌ **Stale** — should be 8/8 |
+| "LUMA: 🔴 Stubbed" | Confirmed stubbed — no trust.ts, no session-lifecycle, no constituency proof | ✅ Accurate |
+| Feature Flags: "3 flags" | 13 VITE_ vars, 4+ behavioral flags | ❌ **Incomplete** |
+
+### Verdict
+
+**STATUS.md is largely accurate for code existence claims.** The "phantom code" reports from Lanes A3/A4 are most likely caused by stale worktrees, not documentation fabrication.
+
+**However, STATUS.md has staleness issues:**
+- Budget enforcement count is stale (6/8 → 8/8)
+- Feature flag table is incomplete (3/13+ vars)
+
+### Recommended Actions
+
+1. **Immediate:** Coordinator verifies which commit/branch Lanes A3 and A4 are operating on
+2. **Immediate:** All lane agents run `git log --oneline -1 origin/main` to confirm HEAD
+3. **If worktree mismatch confirmed:** Rebase/reset lane worktrees to `origin/main` at `09285c9`
+4. **If code genuinely missing on some agents' view:** Investigate potential shallow clone or sparse checkout issues
+5. **Regardless:** Update STATUS.md budget count (6/8 → 8/8) and expand feature flag table
 
 ---
 
@@ -497,6 +615,8 @@ Latest `main` HEAD: `09285c9` (Merge PR #257 — CSP/LHCI fix). PR #257 merged i
 | B6 | `VITE_HERMES_DOCS_ENABLED` untested | MEDIUM | G3.3 | Add ON/OFF test coverage for hermes docs flag |
 | B7 | Hardcoded `DEV_ROOT_SECRET` in storage adapter | HIGH | G5.1 | Replace with per-identity derived key or user-provided passphrase |
 | B8 | STATUS.md says "6/8 budget keys" — actually 8/8 | LOW | — | Update STATUS.md to reflect current 8/8 enforcement |
+| B9 | **Cross-lane SoT conflict: Lanes A3/A4 report code ENOENT, Lane D finds code present** | **CRITICAL** | G8, G9 | Coordinator must verify lane worktree HEADs match `origin/main` at `09285c9` |
+| B10 | STATUS.md feature flag table incomplete (3/13+) | MEDIUM | G3, G9 | Expand flag table to cover all VITE_ variables |
 
 ---
 
