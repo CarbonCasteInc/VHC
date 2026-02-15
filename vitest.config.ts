@@ -75,6 +75,7 @@ export default defineConfig({
         // --- Store Index Bootstrap ---
         // Client hydration/bootstrap; validated via E2E.
         'apps/web-pwa/src/store/index.ts',
+        'apps/web-pwa/src/store/invite/index.ts',
 
         // --- Utility Wrappers ---
         // Thin wrapper around markdown/rendering; XSS guarded in E2E.
