@@ -1,9 +1,9 @@
 # Beta Readiness Matrix — Internal Testnet Launch
 
-**Generated:** 2026-02-15T10:46Z  
+**Generated:** 2026-02-15T10:46Z (rev 2: 10:51Z branch correction + G8.2 update)  
 **Branch assessed:** `origin/main` at `09285c9`  
 **Author:** Lane D (Docs agent — subagent)  
-**Status:** INITIAL (G1–G5 assessed; G6–G8 PENDING dependent lanes)
+**Status:** INITIAL (G1–G5 assessed; G6–G7 PENDING; G8.2 escalated)
 
 ---
 
@@ -18,7 +18,7 @@
 | G5: Security Posture | **FAIL** | 2/3 | 1/3 | — |
 | G6: Invite/Cohort Controls | **PENDING** | — | — | 3/3 |
 | G7: AI Harness | **PENDING** | — | — | 2/2 |
-| G8: Runtime Wiring | **PENDING** | — | — | 3/3 |
+| G8: Runtime Wiring | **PENDING + ESCALATION** | — | — | 2/3 + 1 SoT conflict |
 
 **Totals (G1–G5 only):** PASS 10 / FAIL 6 / BLOCKED 0  
 **Overall verdict:** ❌ NOT READY — 6 gate criteria fail across G1, G3, G5  
@@ -436,15 +436,52 @@ Latest `main` HEAD: `09285c9` (Merge PR #257 — CSP/LHCI fix). PR #257 merged i
 
 ---
 
-## G8: Runtime Wiring — PENDING
+## G8: Runtime Wiring — PARTIAL (1 escalation)
 
 | Sub-gate | Status | Notes |
 |----------|--------|-------|
 | G8.1 Synthesis v2 → feed E2E | **BLOCKED** | Lane A1 deliverable — STATUS.md confirms "Runtime wiring (v2 → UI) ❌ Pending" |
-| G8.2 CollabEditor → ArticleEditor | **BLOCKED** | Lane A3 deliverable — not yet assessed |
+| G8.2 CollabEditor → ArticleEditor | **⚠️ ESCALATION — SoT conflict** | See detailed analysis below |
 | G8.3 Budget 8/8 | **BLOCKED** | Lane A2 deliverable — NOTE: code review shows 8/8 enforced (see G2.1), but Lane A2 may have additional integration requirements |
 
-**Action:** Await Lane A sub-lanes; then verify E2E wiring and update this matrix.
+### G8.2 Escalation: CollabEditor SoT Integrity Conflict
+
+**Lane A3 reported:** "The ENTIRE CollabEditor stack does NOT exist in the codebase."
+
+**Lane D (Docs) independent verification contradicts this.** The CollabEditor stack **exists and is substantial** on `origin/main` at `09285c9`:
+
+| File | LOC | Content |
+|------|-----|---------|
+| `apps/web-pwa/src/components/docs/CollabEditor.tsx` | 229 | Full TipTap + Yjs binding, awareness, auto-save |
+| `apps/web-pwa/src/components/docs/CollabEditor.test.tsx` | 128 | 5 test cases (render, awareness, defaults) |
+| `apps/web-pwa/src/components/docs/ArticleEditor.tsx` | 275 | Dual-mode shell: textarea (flags off) / CollabEditor (flags on), lazy-loads CollabEditor |
+| `apps/web-pwa/src/components/docs/ArticleEditor.test.tsx` | 288 | Tests for both modes |
+| `apps/web-pwa/src/components/docs/useEditorMode.ts` | 101 | Mode-selection hook (dual flag gate: `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED`) |
+| `apps/web-pwa/src/components/docs/useEditorMode.test.ts` | 181 | Flag combination tests |
+| `apps/web-pwa/src/components/docs/PresenceBar.tsx` | 66 | Collaborator presence display |
+| `apps/web-pwa/src/components/docs/PresenceBar.test.tsx` | 71 | Presence bar tests |
+| `apps/web-pwa/src/components/docs/ShareModal.tsx` | 262 | Share/access control modal |
+| `apps/web-pwa/src/components/docs/ShareModal.test.tsx` | 200 | Share modal tests |
+| `apps/web-pwa/src/store/hermesDocsCollab.ts` | 222 | Collab store (auto-save timer, key management) |
+| `apps/web-pwa/src/store/hermesDocsCollab.test.ts` | 306 | Collab store tests |
+| `packages/crdt/src/gunYjsProvider.ts` | 187 | GunDB ↔ Yjs sync provider |
+| `packages/crdt/src/gunYjsProvider.test.ts` | 365 | Provider tests |
+| `packages/crdt/src/awareness.ts` | 77 | Awareness adapter |
+| `packages/crdt/src/awareness.test.ts` | 117 | Awareness tests |
+| `packages/crdt/src/mockProvider.ts` | 31 | E2E mock provider |
+| `packages/crdt/src/mockProvider.test.ts` | 40 | Mock provider tests |
+| **Total** | **3,146** | **18 files across 3 packages** |
+
+**Wiring evidence:** `ArticleEditor.tsx` (line 23) lazy-loads `CollabEditor` via `React.lazy()`. `useEditorMode.ts` dual-gates on `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED`. STATUS.md line 21 confirms "CollabEditor wired into ArticleEditor (flag-gated)." Wave 3 Doc Audit (`WAVE3_DOC_AUDIT.md:20`) confirms PR #230 merged the wiring.
+
+**Possible explanations for Lane A3 discrepancy:**
+1. Lane A3 may be working on a different worktree or stale branch that doesn't have PR #230 changes
+2. Lane A3 may be looking for files with different names/paths than what exists
+3. Lane A3's worktree may not be at `origin/main` HEAD (`09285c9`)
+
+**Recommendation:** Coordinator should verify which commit Lane A3 is assessing. If Lane A3 is on an older branch, this is a worktree sync issue, not a SoT integrity issue. The code exists on `main`.
+
+**Action:** Await Lane A sub-lanes; then verify E2E wiring and update this matrix. G8.2 escalated to coordinator for SoT conflict resolution.
 
 ---
 
