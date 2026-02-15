@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from '@tanstack/react-router';
 import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { FilterChips } from './FilterChips';
@@ -102,7 +103,14 @@ interface FeedItemRowProps {
 const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
   return (
     <li data-testid={`feed-item-${item.topic_id}`}>
-      <FeedItemCard item={item} />
+      <Link
+        to="/hermes/$threadId"
+        params={{ threadId: item.topic_id }}
+        className="block no-underline"
+        data-testid={`feed-link-${item.topic_id}`}
+      >
+        <FeedItemCard item={item} />
+      </Link>
     </li>
   );
 };

@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useForumStore } from '../../../store/hermesForum';
-import { CommentComposer } from './CommentComposer';
+import { CommentComposerWithArticle } from './CommentComposerWithArticle';
 import { TrustGate } from './TrustGate';
 import { renderMarkdown } from '../../../utils/markdown';
 import { CommentStream } from '../CommentStream';
 import { CommunityReactionSummary } from '../CommunityReactionSummary';
 import { EngagementIcons } from '../../EngagementIcons';
 import { useSentimentState } from '../../../hooks/useSentimentState';
+import { useSynthesis } from '../../../hooks/useSynthesis';
 import { useViewTracking } from '../../../hooks/useViewTracking';
+import { SynthesisSummary } from '../../feed/SynthesisSummary';
 import { safeGetItem, safeSetItem } from '../../../utils/safeStorage';
 import type { HermesComment } from '@vh/types';
 
@@ -66,6 +68,7 @@ export const ThreadView: React.FC<Props> = ({ threadId }) => {
     }
   });
   useViewTracking(threadId, true);
+  const { synthesis, loading: synthesisLoading } = useSynthesis(threadId);
 
   // Check for reduced motion preference
   const prefersReducedMotion = useMemo(() => {
@@ -92,6 +95,26 @@ export const ThreadView: React.FC<Props> = ({ threadId }) => {
 
   return (
     <div className="space-y-4">
+      {/* Synthesis lens — "one object, two lenses" per SoT */}
+      {synthesis && (
+        <div
+          className="rounded-2xl p-5 shadow-sm"
+          style={{
+            backgroundColor: 'var(--thread-surface)',
+            borderColor: 'var(--section-container-border)',
+            borderWidth: '1px',
+            borderStyle: 'solid',
+          }}
+          data-testid="thread-synthesis-panel"
+        >
+          <SynthesisSummary synthesis={synthesis} />
+        </div>
+      )}
+      {synthesisLoading && !synthesis && (
+        <p className="text-xs text-slate-400" data-testid="thread-synthesis-loading">
+          Loading synthesis…
+        </p>
+      )}
       {/* Single unified thread card with zoom-in animation */}
       <div
         className="rounded-2xl p-5 shadow-sm space-y-4"
@@ -181,9 +204,10 @@ export const ThreadView: React.FC<Props> = ({ threadId }) => {
           {showRootComposer && (
             <div className="mt-3">
               <TrustGate>
-                <CommentComposer
+                <CommentComposerWithArticle
                   threadId={threadId}
                   onSubmit={async () => setShowRootComposer(false)}
+                  sourceContext={{ sourceThreadId: threadId }}
                 />
               </TrustGate>
             </div>

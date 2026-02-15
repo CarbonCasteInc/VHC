@@ -1,9 +1,21 @@
 /* @vitest-environment jsdom */
 
+import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import FeedList from './FeedList';
+
+// Mock @tanstack/react-router Link to avoid needing full router context
+vi.mock('@tanstack/react-router', () => ({
+  Link: React.forwardRef<HTMLAnchorElement, any>(
+    ({ children, to, params, ...rest }, ref) => (
+      <a ref={ref} href={typeof to === 'string' ? to : '#'} {...rest}>
+        {children}
+      </a>
+    ),
+  ),
+}));
 
 vi.mock('../hooks/useDiscoveryFeed', () => ({
   useDiscoveryFeed: vi.fn(() => ({

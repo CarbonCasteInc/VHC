@@ -3,9 +3,21 @@
 import { render, screen, cleanup, within, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { describe, expect, it, afterEach, vi } from 'vitest';
+import React from 'react';
 import { FeedShell } from './FeedShell';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import type { FeedItem } from '@vh/data-model';
+
+// Mock @tanstack/react-router Link to avoid needing full router context
+vi.mock('@tanstack/react-router', () => ({
+  Link: React.forwardRef<HTMLAnchorElement, any>(
+    ({ children, to, params, ...rest }, ref) => (
+      <a ref={ref} href={typeof to === 'string' ? to : '#'} {...rest}>
+        {children}
+      </a>
+    ),
+  ),
+}));
 
 // ---- Helpers ----
 
