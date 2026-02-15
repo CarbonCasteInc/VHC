@@ -1,8 +1,16 @@
-import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
+import type {
+  FeedItem,
+  SocialNotification,
+  StoryBundle,
+  TopicSynthesisV2,
+} from '@vh/data-model';
 import { FeedItemSchema } from '@vh/data-model';
 import type { StoreApi } from 'zustand';
 
-type BridgeFlag = 'VITE_NEWS_BRIDGE_ENABLED' | 'VITE_SYNTHESIS_BRIDGE_ENABLED';
+type BridgeFlag =
+  | 'VITE_NEWS_BRIDGE_ENABLED'
+  | 'VITE_SYNTHESIS_BRIDGE_ENABLED'
+  | 'VITE_LINKED_SOCIAL_ENABLED';
 
 interface NewsBridgeState {
   stories: ReadonlyArray<StoryBundle>;
@@ -20,6 +28,17 @@ interface DiscoveryBridgeState {
   mergeItems: (items: FeedItem[]) => void;
 }
 
+interface SocialFeedAdapterApi {
+  getSocialFeedItems: () => ReadonlyArray<FeedItem>;
+  notificationToFeedItem: (notification: SocialNotification) => FeedItem;
+}
+
+interface SocialAccountStoreApi {
+  setNotificationIngestedHandler: ((
+    handler: ((notification: SocialNotification) => void) | null,
+  ) => void);
+}
+
 type NewsStoreApi = Pick<StoreApi<NewsBridgeState>, 'getState' | 'subscribe'>;
 type SynthesisStoreApi = Pick<StoreApi<SynthesisBridgeState>, 'getState' | 'subscribe'>;
 type DiscoveryStoreApi = Pick<StoreApi<DiscoveryBridgeState>, 'getState'>;
@@ -28,17 +47,23 @@ interface BridgeStores {
   newsStore: NewsStoreApi;
   synthesisStore: SynthesisStoreApi;
   discoveryStore: DiscoveryStoreApi;
+  socialFeedAdapter: SocialFeedAdapterApi;
+  socialAccountStore: SocialAccountStoreApi;
 }
 
 const NEWS_STORE_MODULE = './' + 'news';
 const SYNTHESIS_STORE_MODULE = './' + 'synthesis';
 const DISCOVERY_STORE_MODULE = './' + 'discovery';
+const LINKED_SOCIAL_FEED_MODULE = './linkedSocial/socialFeedAdapter';
+const LINKED_SOCIAL_ACCOUNT_MODULE = './linkedSocial/accountStore';
 
 let bridgeStoresPromise: Promise<BridgeStores> | null = null;
 let newsBridgeActive = false;
 let synthesisBridgeActive = false;
+let socialBridgeActive = false;
 let newsUnsubscribe: (() => void) | null = null;
 let synthesisUnsubscribe: (() => void) | null = null;
+let clearSocialBridgeHandler: (() => void) | null = null;
 
 function toTimestamp(value: number): number {
   if (!Number.isFinite(value) || value < 0) {
@@ -79,16 +104,32 @@ function readBridgeFlag(flag: BridgeFlag): boolean {
 async function resolveBridgeStores(): Promise<BridgeStores> {
   if (!bridgeStoresPromise) {
     bridgeStoresPromise = (async () => {
-      const [newsModule, synthesisModule, discoveryModule] = await Promise.all([
+      const [
+        newsModule,
+        synthesisModule,
+        discoveryModule,
+        socialFeedModule,
+        socialAccountModule,
+      ] = await Promise.all([
         import(/* @vite-ignore */ NEWS_STORE_MODULE),
         import(/* @vite-ignore */ SYNTHESIS_STORE_MODULE),
         import(/* @vite-ignore */ DISCOVERY_STORE_MODULE),
+        import(/* @vite-ignore */ LINKED_SOCIAL_FEED_MODULE),
+        import(/* @vite-ignore */ LINKED_SOCIAL_ACCOUNT_MODULE),
       ]);
 
       return {
         newsStore: newsModule.useNewsStore as NewsStoreApi,
         synthesisStore: synthesisModule.useSynthesisStore as SynthesisStoreApi,
         discoveryStore: discoveryModule.useDiscoveryStore as DiscoveryStoreApi,
+        socialFeedAdapter: {
+          getSocialFeedItems: socialFeedModule.getSocialFeedItems as SocialFeedAdapterApi['getSocialFeedItems'],
+          notificationToFeedItem: socialFeedModule.notificationToFeedItem as SocialFeedAdapterApi['notificationToFeedItem'],
+        },
+        socialAccountStore: {
+          setNotificationIngestedHandler:
+            socialAccountModule.setNotificationIngestedHandler as SocialAccountStoreApi['setNotificationIngestedHandler'],
+        },
       };
     })();
   }
@@ -207,16 +248,51 @@ export async function startSynthesisBridge(): Promise<void> {
 }
 
 /**
+ * Start the linked-social notification → discovery bridge.
+ * Performs initial sync and registers an ingest callback for new notifications.
+ */
+export async function startSocialBridge(): Promise<void> {
+  if (socialBridgeActive) {
+    return;
+  }
+
+  const {
+    discoveryStore,
+    socialFeedAdapter,
+    socialAccountStore,
+  } = await resolveBridgeStores();
+  socialBridgeActive = true;
+
+  const currentItems = socialFeedAdapter.getSocialFeedItems();
+  if (currentItems.length > 0) {
+    mergeIntoDiscovery(currentItems, discoveryStore);
+  }
+
+  socialAccountStore.setNotificationIngestedHandler((notification) => {
+    mergeIntoDiscovery([
+      socialFeedAdapter.notificationToFeedItem(notification),
+    ], discoveryStore);
+  });
+
+  clearSocialBridgeHandler = () => {
+    socialAccountStore.setNotificationIngestedHandler(null);
+  };
+}
+
+/**
  * Stop all feed bridges.
  */
 export function stopBridges(): void {
   newsUnsubscribe?.();
   synthesisUnsubscribe?.();
+  clearSocialBridgeHandler?.();
 
   newsBridgeActive = false;
   synthesisBridgeActive = false;
+  socialBridgeActive = false;
   newsUnsubscribe = null;
   synthesisUnsubscribe = null;
+  clearSocialBridgeHandler = null;
 }
 
 /**
@@ -231,5 +307,10 @@ export async function bootstrapFeedBridges(): Promise<void> {
   if (readBridgeFlag('VITE_SYNTHESIS_BRIDGE_ENABLED')) {
     await startSynthesisBridge();
     console.info('[vh:feed-bridge] Synthesis bridge started');
+  }
+
+  if (readBridgeFlag('VITE_LINKED_SOCIAL_ENABLED')) {
+    await startSocialBridge();
+    console.info('[vh:feed-bridge] Social bridge started');
   }
 }

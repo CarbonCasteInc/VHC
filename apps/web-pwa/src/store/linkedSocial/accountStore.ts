@@ -44,6 +44,17 @@ function isLinkedSocialEnabled(): boolean {
 const accounts = new Map<string, LinkedSocialAccount>();
 const notifications = new Map<string, SocialNotification>();
 
+export type OnNotificationIngestedFn = (notification: SocialNotification) => void;
+
+let _onNotificationIngested: OnNotificationIngestedFn | null = null;
+
+/** Register or clear the linked-social notification ingest bridge handler. */
+export function setNotificationIngestedHandler(
+  handler: OnNotificationIngestedFn | null,
+): void {
+  _onNotificationIngested = handler;
+}
+
 // ── Account lifecycle ──────────────────────────────────────────────
 
 /**
@@ -121,6 +132,7 @@ export function ingestNotification(
   if (!parsed.success) return null;
 
   notifications.set(parsed.data.id, parsed.data);
+  _onNotificationIngested?.(parsed.data);
   return parsed.data;
 }
 
@@ -272,4 +284,5 @@ export function toSanitizedCard(
 export function _resetStoreForTesting(): void {
   accounts.clear();
   notifications.clear();
+  _onNotificationIngested = null;
 }

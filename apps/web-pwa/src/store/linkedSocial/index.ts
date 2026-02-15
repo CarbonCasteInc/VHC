@@ -14,6 +14,7 @@ export {
   getAllAccounts,
   getAccountsByProvider,
   ingestNotification,
+  setNotificationIngestedHandler,
   getNotification,
   getAllNotifications,
   getNotificationsByAccount,

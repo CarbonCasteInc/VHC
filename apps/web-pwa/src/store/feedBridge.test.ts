@@ -8,8 +8,14 @@ import { useNewsStore } from './news';
 import { useSynthesisStore } from './synthesis';
 import { useDiscoveryStore } from './discovery';
 import {
+  _resetStoreForTesting as resetLinkedSocialStore,
+  ingestNotification,
+} from './linkedSocial/accountStore';
+import { createMockNotification } from './linkedSocial/mockFactories';
+import {
   bootstrapFeedBridges,
   startNewsBridge,
+  startSocialBridge,
   startSynthesisBridge,
   stopBridges,
   storyBundleToFeedItem,
@@ -85,6 +91,7 @@ function resetStores(): void {
   useNewsStore.getState().reset();
   useSynthesisStore.getState().reset();
   useDiscoveryStore.getState().reset();
+  resetLinkedSocialStore();
 }
 
 beforeEach(() => {
@@ -296,10 +303,55 @@ describe('startSynthesisBridge', () => {
   });
 });
 
+describe('startSocialBridge', () => {
+  it('initial social feed items are merged into discovery on startup', async () => {
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'true');
+
+    const seeded = ingestNotification(createMockNotification({
+      id: 'social-seeded',
+      topic_id: 'topic-social-seeded',
+      title: 'Seeded before bridge start',
+      createdAt: 5,
+    }));
+    expect(seeded).not.toBeNull();
+    expect(useDiscoveryStore.getState().items).toEqual([]);
+
+    await startSocialBridge();
+
+    const discoveryItems = useDiscoveryStore.getState().items;
+    expect(discoveryItems).toHaveLength(1);
+    expect(discoveryItems[0]?.kind).toBe('SOCIAL_NOTIFICATION');
+    expect(discoveryItems[0]?.topic_id).toBe('topic-social-seeded');
+    expect(discoveryItems[0]?.title).toBe('Seeded before bridge start');
+  });
+
+  it('ingested notifications flow to discovery as SOCIAL_NOTIFICATION items', async () => {
+    await startSocialBridge();
+    await startSocialBridge(); // idempotent guard
+
+    const notif = createMockNotification({
+      id: 'social-1',
+      topic_id: 'topic-social-1',
+      title: 'Mentioned on X',
+      createdAt: 10,
+    });
+
+    const ingested = ingestNotification(notif);
+    expect(ingested).not.toBeNull();
+
+    const discoveryItems = useDiscoveryStore.getState().items;
+    expect(discoveryItems).toHaveLength(1);
+    expect(discoveryItems[0]?.kind).toBe('SOCIAL_NOTIFICATION');
+    expect(discoveryItems[0]?.topic_id).toBe('topic-social-1');
+    expect(discoveryItems[0]?.title).toBe('Mentioned on X');
+  });
+});
+
 describe('stopBridges', () => {
   it('cleanup prevents further propagation', async () => {
     await startNewsBridge();
     await startSynthesisBridge();
+    await startSocialBridge();
 
     stopBridges();
 
@@ -310,6 +362,10 @@ describe('stopBridges', () => {
       'topic-after-stop',
       makeSynthesis({ topic_id: 'topic-after-stop' }),
     );
+    ingestNotification(createMockNotification({
+      id: 'social-after-stop',
+      topic_id: 'topic-social-after-stop',
+    }));
 
     expect(useDiscoveryStore.getState().items).toEqual([]);
   });
@@ -321,6 +377,7 @@ describe('bootstrapFeedBridges', () => {
 
     vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'true');
     vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
 
     useNewsStore.getState().setStories([
       makeStoryBundle({ story_id: 'story-news-only', topic_id: 'topic-news-only' }),
@@ -341,6 +398,7 @@ describe('bootstrapFeedBridges', () => {
 
     vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'false');
     vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'true');
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
 
     useNewsStore.getState().setStories([
       makeStoryBundle({ story_id: 'story-news-2', topic_id: 'topic-news-2' }),
@@ -355,11 +413,26 @@ describe('bootstrapFeedBridges', () => {
     expect(useDiscoveryStore.getState().items).toHaveLength(1);
     expect(useDiscoveryStore.getState().items[0]?.kind).toBe('USER_TOPIC');
     expect(infoSpy).toHaveBeenCalledWith('[vh:feed-bridge] Synthesis bridge started');
+
+    stopBridges();
+    resetStores();
+
+    vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'true');
+
+    await bootstrapFeedBridges();
+    ingestNotification(createMockNotification({ topic_id: 'topic-social-flagged' }));
+
+    expect(useDiscoveryStore.getState().items).toHaveLength(1);
+    expect(useDiscoveryStore.getState().items[0]?.kind).toBe('SOCIAL_NOTIFICATION');
+    expect(infoSpy).toHaveBeenCalledWith('[vh:feed-bridge] Social bridge started');
   });
 
   it('does not start bridges when flags are absent/false', async () => {
     vi.stubEnv('VITE_NEWS_BRIDGE_ENABLED', 'false');
     vi.stubEnv('VITE_SYNTHESIS_BRIDGE_ENABLED', 'false');
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
 
     useNewsStore.getState().setStories([
       makeStoryBundle({ story_id: 'false-story', topic_id: 'false-topic' }),
@@ -378,6 +451,7 @@ describe('bootstrapFeedBridges', () => {
       'false-topic-2',
       makeSynthesis({ topic_id: 'false-topic-2' }),
     );
+    ingestNotification(createMockNotification({ topic_id: 'topic-social-false' }));
 
     expect(useDiscoveryStore.getState().items).toEqual([]);
 
@@ -395,6 +469,7 @@ describe('bootstrapFeedBridges', () => {
       'absent-topic',
       makeSynthesis({ topic_id: 'absent-topic' }),
     );
+    ingestNotification(createMockNotification({ topic_id: 'topic-social-absent' }));
 
     await bootstrapFeedBridges();
 

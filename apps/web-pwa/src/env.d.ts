@@ -11,6 +11,10 @@ interface ImportMetaEnv {
   readonly VITE_RVU_ADDRESS?: string;
   readonly VITE_ELEVATION_ENABLED?: 'true' | 'false';
   readonly VITE_LINKED_SOCIAL_ENABLED?: 'true' | 'false';
+  readonly VITE_NEWS_RUNTIME_ENABLED?: 'true' | 'false';
+  readonly VITE_NEWS_FEED_SOURCES?: string;
+  readonly VITE_NEWS_TOPIC_MAPPING?: string;
+  readonly VITE_NEWS_POLL_INTERVAL_MS?: string;
   readonly VITE_NEWS_BRIDGE_ENABLED?: 'true' | 'false';
   readonly VITE_SYNTHESIS_BRIDGE_ENABLED?: 'true' | 'false';
   readonly VITE_HERMES_DOCS_ENABLED?: 'true' | 'false';
