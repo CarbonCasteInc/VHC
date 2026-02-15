@@ -304,6 +304,27 @@ describe('startSynthesisBridge', () => {
 });
 
 describe('startSocialBridge', () => {
+  it('initial social feed items are merged into discovery on startup', async () => {
+    vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'true');
+
+    const seeded = ingestNotification(createMockNotification({
+      id: 'social-seeded',
+      topic_id: 'topic-social-seeded',
+      title: 'Seeded before bridge start',
+      createdAt: 5,
+    }));
+    expect(seeded).not.toBeNull();
+    expect(useDiscoveryStore.getState().items).toEqual([]);
+
+    await startSocialBridge();
+
+    const discoveryItems = useDiscoveryStore.getState().items;
+    expect(discoveryItems).toHaveLength(1);
+    expect(discoveryItems[0]?.kind).toBe('SOCIAL_NOTIFICATION');
+    expect(discoveryItems[0]?.topic_id).toBe('topic-social-seeded');
+    expect(discoveryItems[0]?.title).toBe('Seeded before bridge start');
+  });
+
   it('ingested notifications flow to discovery as SOCIAL_NOTIFICATION items', async () => {
     await startSocialBridge();
     await startSocialBridge(); // idempotent guard

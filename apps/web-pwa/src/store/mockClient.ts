@@ -91,6 +91,9 @@ export function createMockClient(): VennClient {
             put(value: any, cb?: (ack?: { err?: string }) => void) {
               sharedMeshOps.write(path, value).then(() => cb?.());
             },
+            list() {
+              return sharedMeshOps.list(path);
+            },
             get(subKey: string) {
               const subPath = `${path}/${subKey}`;
               return {
