@@ -1,7 +1,7 @@
 # CE Closeout Packet — Beta Readiness Sprint Final Review
 
-**Prepared:** 2026-02-15 16:00 UTC
-**Main HEAD:** `c538f71` (post all 5 remediation PRs)
+**Prepared:** 2026-02-15 16:00 UTC (amended 18:15 UTC)
+**Main HEAD:** `de322f8` (post all remediation PRs including #265 publish-back)
 **Trigger:** CEO directive for GO/HOLD verdict with residual-risk list
 **Baseline:** `docs/reports/CE_PACKET_POST_LANEC_2026-02-15.md`
 

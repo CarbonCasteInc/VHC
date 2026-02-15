@@ -1,8 +1,10 @@
 # CE Closeout Verdict — Beta Readiness Sprint
 
-**Date:** 2026-02-15 ~16:15 UTC
-**Main HEAD:** `c538f71`
+**Date:** 2026-02-15 ~16:15 UTC (amended 18:15 UTC)
+**Main HEAD:** `de322f8` (updated from `c538f71` — PR #265 merged post-verdict)
 **CE Protocol:** ce-opus Pass 1 (substantial analysis extracted from thinking before timeout) + ce-codex (timed out during verification). Coordinator performed independent verification of all findings.
+
+> **Amendment note:** PR #265 (`coord/ce-hold-w1c-store-publishback`) merged after initial verdict, closing the hermesDocs publish-back store-layer gap. Main advanced from `c538f71` → `995c5c9` (PR #271 CE docs) → `de322f8` (PR #265 publish-back).
 
 ---
 
@@ -17,6 +19,7 @@ The codebase is suitable for internal invite-only testnet evaluation with the co
 | ID | Severity | Area | Finding | Evidence | Recommended Fix |
 |----|----------|------|---------|----------|----------------|
 | F1 | **HIGH** | Invite Gating | `isInviteOnlyEnabled()` exists but no `InviteGate` component wraps routes. No route-level enforcement of invite-only mode. | `grep -rn 'InviteGate\|isInviteOnlyEnabled' apps/web-pwa/src/routes/` returns empty | Create `InviteGate.tsx` wrapper component, wire into router layout |
+| ~~F1b~~ | ~~HIGH~~ | ~~Publish-back~~ | ~~hermesDocs `publishArticle()` doesn't push to forum feed~~ | ~~CLOSED by PR #265 (`ec26e10`)~~ | ~~Merged at `de322f8`~~ |
 | F2 | **MEDIUM** | Synthesis Pipeline | `TopicSynthesisPipeline` class defined but never instantiated. `setSynthesisBridgeHandler()` exported but never called. Producer path is disconnected. | `grep -rn 'setSynthesisBridgeHandler(' | grep -v test | grep -v export` returns empty | Wire handler registration in app init (behind `VITE_TOPIC_SYNTHESIS_V2_ENABLED` flag) |
 | F3 | **MEDIUM** | News Runtime | `startNewsRuntime()` exported but never called in app bootstrap. Feature flag `VITE_NEWS_RUNTIME_ENABLED` not in env config. | Only references: export in `index.ts` and definition in `newsRuntime.ts` | Add bootstrap call behind feature flag; add flag to `env.d.ts` |
 | F4 | **LOW** | Module Duplication | News modules exist in both `packages/ai-engine/src/news*.ts` AND `services/news-aggregator/src/`. Potential divergence risk. | Both locations have orchestrator, ingest, normalize, cluster modules | Consolidate to single location; one barrel re-exports |
