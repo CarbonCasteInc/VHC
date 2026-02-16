@@ -6,7 +6,7 @@ import {
   readNewsLatestIndex,
   readNewsStory
 } from '@vh/gun-client';
-import { useAppStore } from '../index';
+import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateNewsStore } from './hydration';
 import type { NewsState, NewsDeps } from './types';
 
@@ -159,7 +159,7 @@ async function mirrorStoriesIntoDiscovery(stories: StoryBundle[]): Promise<void>
 
 export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsState> {
   const defaults: NewsDeps = {
-    resolveClient: () => useAppStore.getState().client
+    resolveClient: resolveClientFromAppStore
   };
   const deps: NewsDeps = {
     ...defaults,

@@ -11,6 +11,7 @@ import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
 import { ensureNewsRuntimeStarted } from './newsRuntimeBootstrap';
 import { createMockClient } from './mockClient';
+import { setClientResolver } from './clientResolver';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
@@ -243,3 +244,5 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   }
 }));
+
+setClientResolver(() => useAppStore.getState().client);
