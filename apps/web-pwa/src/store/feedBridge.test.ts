@@ -201,6 +201,19 @@ describe('synthesisToFeedItem', () => {
 });
 
 describe('startNewsBridge', () => {
+  it('boots news hydration and refresh on startup', async () => {
+    const newsState = useNewsStore.getState();
+    const startHydrationSpy = vi.spyOn(newsState, 'startHydration');
+    const refreshLatestSpy = vi
+      .spyOn(newsState, 'refreshLatest')
+      .mockResolvedValue(undefined);
+
+    await startNewsBridge();
+
+    expect(startHydrationSpy).toHaveBeenCalledTimes(1);
+    expect(refreshLatestSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('initial sync pushes existing stories to discovery store', async () => {
     const valid = makeStoryBundle({ story_id: 'story-valid', topic_id: 'topic-valid' });
     const invalid = makeStoryBundle({
@@ -208,6 +221,9 @@ describe('startNewsBridge', () => {
       topic_id: 'topic-invalid',
       headline: '',
     }) as StoryBundle;
+
+    const newsState = useNewsStore.getState();
+    vi.spyOn(newsState, 'refreshLatest').mockResolvedValue(undefined);
 
     useNewsStore.setState({ stories: [valid, invalid] as StoryBundle[] });
 
@@ -241,27 +257,31 @@ describe('startNewsBridge', () => {
     expect(topics).toEqual(['topic-1', 'topic-2']);
   });
 
-  it("duplicate stories don't create duplicate FeedItems (discovery dedupes by topic_id)", async () => {
+  it('preserves multiple story headlines even when topic_id is shared', async () => {
     await startNewsBridge();
 
     const first = makeStoryBundle({
       story_id: 'story-a',
       topic_id: 'topic-dup',
       headline: 'first headline',
+      created_at: 100,
     });
     const second = makeStoryBundle({
       story_id: 'story-b',
       topic_id: 'topic-dup',
       headline: 'second headline',
+      created_at: 200,
     });
 
     useNewsStore.getState().setStories([first]);
     useNewsStore.getState().setStories([first, second]);
 
     const discoveryItems = useDiscoveryStore.getState().items;
-    expect(discoveryItems).toHaveLength(1);
-    expect(discoveryItems[0]?.topic_id).toBe('topic-dup');
-    expect(discoveryItems[0]?.title).toBe('second headline');
+    expect(discoveryItems).toHaveLength(2);
+    expect(discoveryItems.map((item) => item.title).sort()).toEqual([
+      'first headline',
+      'second headline',
+    ]);
   });
 });
 

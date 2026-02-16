@@ -158,6 +158,24 @@ describe('hydrateNewsStore', () => {
     expect(state.upsertLatestIndex).toHaveBeenCalledTimes(1);
   });
 
+  it('hydrates stories from encoded story-bundle payloads', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    const s = story({ story_id: 'encoded-1', created_at: 444 });
+    storyChain.emit({ __story_bundle_json: JSON.stringify(s), story_id: s.story_id }, s.story_id);
+
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: s.story_id }));
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith(s.story_id, 444);
+  });
+
   it('ignores invalid story payloads', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();

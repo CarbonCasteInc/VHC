@@ -10,6 +10,7 @@ import type { StoreApi } from 'zustand';
 import type { NewsState } from './types';
 
 const hydratedStores = new WeakSet<StoreApi<NewsState>>();
+const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
 
 function parseLatestTimestamp(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
@@ -31,17 +32,31 @@ function parseLatestTimestamp(value: unknown): number | null {
   return null;
 }
 
+function decodeStoryPayload(payload: Record<string, unknown>): unknown {
+  const encoded = payload[STORY_BUNDLE_JSON_KEY];
+  if (typeof encoded !== 'string') {
+    return payload;
+  }
+
+  try {
+    return JSON.parse(encoded);
+  } catch {
+    return null;
+  }
+}
+
 function parseStory(data: unknown): StoryBundle | null {
   if (!data || typeof data !== 'object') {
     return null;
   }
 
   const { _, ...clean } = data as Record<string, unknown> & { _?: unknown };
-  if (hasForbiddenNewsPayloadFields(clean)) {
+  const decoded = decodeStoryPayload(clean);
+  if (hasForbiddenNewsPayloadFields(decoded)) {
     return null;
   }
 
-  const parsed = StoryBundleSchema.safeParse(clean);
+  const parsed = StoryBundleSchema.safeParse(decoded);
   return parsed.success ? parsed.data : null;
 }
 

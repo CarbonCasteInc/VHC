@@ -28,12 +28,30 @@ const INITIAL_STATE: Pick<
 
 // ---- Helpers ----
 
-/** Deduplicate items by topic_id, keeping the latest version. */
-function dedupeByTopicId(items: FeedItem[]): FeedItem[] {
+/**
+ * Deduplicate discovery items while preserving distinct NEWS_STORY headlines.
+ *
+ * - NEWS_STORY identity: kind + topic_id + created_at + normalized title
+ *   (multiple clustered stories can share topic_id but must remain visible)
+ * - Other kinds: kind + topic_id
+ */
+function dedupeFeedItems(items: FeedItem[]): FeedItem[] {
   const map = new Map<string, FeedItem>();
+
   for (const item of items) {
-    map.set(item.topic_id, item);
+    const key =
+      item.kind === 'NEWS_STORY'
+        ? [
+            item.kind,
+            item.topic_id,
+            Math.max(0, Math.floor(item.created_at)),
+            item.title.trim().toLowerCase(),
+          ].join('|')
+        : [item.kind, item.topic_id].join('|');
+
+    map.set(key, item);
   }
+
   return Array.from(map.values());
 }
 
@@ -64,13 +82,13 @@ export function createDiscoveryStore(
 
     setItems(items: FeedItem[]) {
       const validated = parseItems(items);
-      set({ items: dedupeByTopicId(validated), error: null });
+      set({ items: dedupeFeedItems(validated), error: null });
     },
 
     mergeItems(items: FeedItem[]) {
       const validated = parseItems(items);
       const merged = [...get().items, ...validated];
-      set({ items: dedupeByTopicId(merged), error: null });
+      set({ items: dedupeFeedItems(merged), error: null });
     },
 
     setFilter(filter: FilterChip) {

@@ -70,7 +70,7 @@ describe('createDiscoveryStore', () => {
       expect(store.getState().items).toHaveLength(2);
     });
 
-    it('deduplicates items by topic_id (last wins)', () => {
+    it('deduplicates NEWS_STORY items with identical story identity (last wins)', () => {
       const items = [
         makeFeedItem({ topic_id: 'dup', eye: 1 }),
         makeFeedItem({ topic_id: 'dup', eye: 99 }),
@@ -79,6 +79,16 @@ describe('createDiscoveryStore', () => {
       const result = store.getState().items;
       expect(result).toHaveLength(1);
       expect(result[0].eye).toBe(99);
+    });
+
+    it('preserves distinct NEWS_STORY headlines under the same topic_id', () => {
+      const items = [
+        makeFeedItem({ topic_id: 'topic-world', title: 'Headline A', created_at: NOW - HOUR_MS }),
+        makeFeedItem({ topic_id: 'topic-world', title: 'Headline B', created_at: NOW }),
+      ];
+
+      store.getState().setItems(items);
+      expect(store.getState().items).toHaveLength(2);
     });
 
     it('silently drops invalid items', () => {
@@ -113,12 +123,24 @@ describe('createDiscoveryStore', () => {
       expect(store.getState().items).toHaveLength(2);
     });
 
-    it('deduplicates on merge (new overwrites old)', () => {
+    it('deduplicates on merge for identical NEWS_STORY identity (new overwrites old)', () => {
       store.getState().setItems([makeFeedItem({ topic_id: 'x', eye: 1 })]);
       store.getState().mergeItems([makeFeedItem({ topic_id: 'x', eye: 99 })]);
       const result = store.getState().items;
       expect(result).toHaveLength(1);
       expect(result[0].eye).toBe(99);
+    });
+
+    it('merge preserves multiple NEWS_STORY headlines sharing topic_id', () => {
+      store.getState().setItems([
+        makeFeedItem({ topic_id: 'topic-tech', title: 'Initial headline', created_at: NOW - HOUR_MS }),
+      ]);
+
+      store.getState().mergeItems([
+        makeFeedItem({ topic_id: 'topic-tech', title: 'Fresh headline', created_at: NOW }),
+      ]);
+
+      expect(store.getState().items).toHaveLength(2);
     });
 
     it('silently drops invalid items on merge', () => {

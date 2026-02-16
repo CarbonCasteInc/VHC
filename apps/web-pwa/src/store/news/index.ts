@@ -1,5 +1,5 @@
 import { create, type StoreApi } from 'zustand';
-import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
+import { StoryBundleSchema, type FeedItem, type StoryBundle } from '@vh/data-model';
 import {
   hasForbiddenNewsPayloadFields,
   readLatestStoryIds,
@@ -75,6 +75,29 @@ function buildSeedIndex(stories: StoryBundle[]): Record<string, number> {
     index[story.story_id] = story.created_at;
   }
   return index;
+}
+
+function storyToDiscoveryItem(story: StoryBundle): FeedItem {
+  return {
+    topic_id: story.topic_id,
+    kind: 'NEWS_STORY',
+    title: story.headline,
+    created_at: Math.max(0, Math.floor(story.created_at)),
+    latest_activity_at: Math.max(0, Math.floor(story.cluster_window_end)),
+    hotness: 0,
+    eye: 0,
+    lightbulb: Math.max(0, Math.floor(story.sources.length)),
+    comments: 0,
+  };
+}
+
+async function mirrorStoriesIntoDiscovery(stories: StoryBundle[]): Promise<void> {
+  try {
+    const { useDiscoveryStore } = await import('../discovery');
+    useDiscoveryStore.getState().mergeItems(stories.map(storyToDiscoveryItem));
+  } catch (error) {
+    console.warn('[vh:news] failed to mirror stories into discovery store', error);
+  }
 }
 
 export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsState> {
@@ -169,6 +192,8 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           loading: false,
           error: null
         });
+
+        void mirrorStoriesIntoDiscovery(validStories);
       } catch (error: unknown) {
         set({
           loading: false,
