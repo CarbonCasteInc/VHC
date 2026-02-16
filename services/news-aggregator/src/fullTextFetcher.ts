@@ -52,40 +52,42 @@ function makeIneligible(
 export async function fetchFullText(url: string): Promise<ArticleContent> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  const finish = (result: ArticleContent): ArticleContent => {
+    clearTimeout(timeout);
+    return result;
+  };
 
   try {
     const response = await fetch(url, { signal: controller.signal });
 
     if (response.status === 402 || response.status === 403) {
-      return makeIneligible('paywall');
+      return finish(makeIneligible('paywall'));
     }
 
     if (!response.ok) {
-      return makeIneligible('fetch-error');
+      return finish(makeIneligible('fetch-error'));
     }
 
     const html = await response.text();
     const text = stripHtml(html);
 
     if (text.length < MIN_CHAR_COUNT) {
-      return makeIneligible('empty');
+      return finish(makeIneligible('empty'));
     }
 
     const wordCount = countWords(text);
     if (wordCount < MIN_WORD_COUNT) {
-      return makeIneligible('truncated');
+      return finish(makeIneligible('truncated'));
     }
 
-    return {
+    return finish({
       fullText: text,
       wordCount,
       extractionMethod: 'raw-html',
       fetchedAt: Date.now(),
       eligible: true,
-    };
+    });
   } catch (error: unknown) {
-    return makeIneligible('fetch-error');
-  } finally {
-    clearTimeout(timeout);
+    return finish(makeIneligible('fetch-error'));
   }
 }

@@ -97,6 +97,22 @@ describe('fetchFullText', () => {
     expect(result.exclusionReason).toBe('fetch-error');
   });
 
+  it('returns fetch-error when response text reading fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        status: 200,
+        ok: true,
+        text: () => Promise.reject(new Error('read failed')),
+      } satisfies Pick<Response, 'status' | 'ok' | 'text'>),
+    );
+
+    const result = await fetchFullText('https://example.com/read-fail');
+
+    expect(result.eligible).toBe(false);
+    expect(result.exclusionReason).toBe('fetch-error');
+  });
+
   it('returns empty for body under 100 chars after strip', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<div>tiny body</div>', { status: 200 })));
 
