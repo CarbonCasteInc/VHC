@@ -3,6 +3,7 @@ import { useStore } from 'zustand';
 import type { FeedItem, StoryBundle } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
+import { SourceBadgeRow } from './SourceBadgeRow';
 
 export interface NewsCardProps {
   /** Discovery feed item; expected kind: NEWS_STORY. */
@@ -139,6 +140,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
           >
             {item.title}
           </button>
+
+          {story && story.sources.length > 0 && (
+            <SourceBadgeRow
+              sources={story.sources.map((s) => ({
+                source_id: s.source_id,
+                publisher: s.publisher,
+              }))}
+            />
+          )}
 
           <p className="mt-1 text-xs text-slate-500">
             Created {createdAt} • Updated {latestActivity}
