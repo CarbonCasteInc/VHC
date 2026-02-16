@@ -31,6 +31,46 @@ describe('newsTypes', () => {
     expect(RawFeedItemSchema.safeParse({}).success).toBe(false);
   });
 
+  it('accepts optional perspectiveTag, iconKey, and displayName on FeedSource', () => {
+    const withExtras = FeedSourceSchema.safeParse({
+      id: 'src-2',
+      name: 'Extended Source',
+      rssUrl: 'https://example.com/feed.xml',
+      perspectiveTag: 'conservative',
+      iconKey: 'fox',
+      displayName: 'Fox News',
+      enabled: true,
+    });
+    expect(withExtras.success).toBe(true);
+    if (withExtras.success) {
+      expect(withExtras.data.perspectiveTag).toBe('conservative');
+      expect(withExtras.data.iconKey).toBe('fox');
+      expect(withExtras.data.displayName).toBe('Fox News');
+    }
+  });
+
+  it('rejects empty perspectiveTag and iconKey strings', () => {
+    expect(
+      FeedSourceSchema.safeParse({
+        id: 'src-3',
+        name: 'Bad',
+        rssUrl: 'https://example.com/feed.xml',
+        perspectiveTag: '',
+        enabled: true,
+      }).success,
+    ).toBe(false);
+
+    expect(
+      FeedSourceSchema.safeParse({
+        id: 'src-4',
+        name: 'Bad',
+        rssUrl: 'https://example.com/feed.xml',
+        iconKey: '',
+        enabled: true,
+      }).success,
+    ).toBe(false);
+  });
+
   it('validates normalized item and story bundle schemas', () => {
     expect(
       NormalizedItemSchema.safeParse({

@@ -10,6 +10,11 @@ export const FeedSourceSchema = z
     name: z.string().min(1),
     rssUrl: z.string().url(),
     trustTier: z.enum(['primary', 'secondary']).optional(),
+    // perspectiveTag is governance-managed metadata, not a political judgment.
+    // Validated against an external lookup; not constrained to a fixed enum.
+    perspectiveTag: z.string().min(1).optional(),
+    iconKey: z.string().min(1).optional(),
+    displayName: z.string().min(1).optional(),
     enabled: z.boolean(),
   })
   .strict();

@@ -1,5 +1,6 @@
 import {
   FeedSourceSchema,
+  STARTER_FEED_SOURCES,
   TopicMappingSchema,
   isNewsRuntimeEnabled,
   startNewsRuntime,
@@ -27,7 +28,7 @@ function readEnvVar(name: string): string | undefined {
 
 function parseFeedSources(raw: string | undefined): FeedSource[] {
   if (!raw) {
-    return [];
+    return [...STARTER_FEED_SOURCES];
   }
 
   try {

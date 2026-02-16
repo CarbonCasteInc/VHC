@@ -11,6 +11,7 @@ export * from './commentTracker';
 export * from './topicSynthesisPipeline';
 export * from './newsTypes';
 export * from './bundlePrompts';
+export * from './feedRegistry';
 export * from './newsIngest';
 export * from './newsNormalize';
 export * from './newsCluster';
