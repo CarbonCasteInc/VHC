@@ -214,6 +214,20 @@ describe('startNewsBridge', () => {
     expect(refreshLatestSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('logs refresh failures during bootstrap and continues', async () => {
+    const warning = new Error('refresh failed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const newsState = useNewsStore.getState();
+    vi.spyOn(newsState, 'refreshLatest').mockRejectedValue(warning);
+
+    await expect(startNewsBridge()).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:feed-bridge] refreshLatest failed during bootstrap:',
+      warning,
+    );
+  });
+
   it('initial sync pushes existing stories to discovery store', async () => {
     const valid = makeStoryBundle({ story_id: 'story-valid', topic_id: 'topic-valid' });
     const invalid = makeStoryBundle({
@@ -364,6 +378,27 @@ describe('startSocialBridge', () => {
     expect(discoveryItems[0]?.kind).toBe('SOCIAL_NOTIFICATION');
     expect(discoveryItems[0]?.topic_id).toBe('topic-social-1');
     expect(discoveryItems[0]?.title).toBe('Mentioned on X');
+  });
+
+  it('surfaces dependency-load errors and clears cached social deps promise', async () => {
+    stopBridges();
+    vi.resetModules();
+
+    const dependencyError = new Error('social deps unavailable');
+    vi.doMock('./linkedSocial/socialFeedAdapter', () => ({
+      get getSocialFeedItems() {
+        throw dependencyError;
+      },
+      notificationToFeedItem: vi.fn(),
+    }));
+
+    try {
+      const bridgeModule = await import('./feedBridge');
+      await expect(bridgeModule.startSocialBridge()).rejects.toThrow('social deps unavailable');
+    } finally {
+      vi.doUnmock('./linkedSocial/socialFeedAdapter');
+      vi.resetModules();
+    }
   });
 });
 

@@ -210,6 +210,20 @@ describe('newsAdapters', () => {
     expect(story).toEqual(STORY);
   });
 
+  it('readNewsStory returns null for malformed encoded bundle payloads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-bad-json', {
+      __story_bundle_json: '{bad-json',
+      story_id: 'story-bad-json',
+      created_at: STORY.created_at
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsStory(client, 'story-bad-json')).resolves.toBeNull();
+  });
+
   it('readNewsStory returns null for missing, invalid, or forbidden payloads', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/stories/missing', undefined);

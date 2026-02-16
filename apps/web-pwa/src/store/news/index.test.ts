@@ -215,6 +215,41 @@ describe('news store', () => {
     expect(store.getState().error).toBeNull();
   });
 
+  it('refreshLatest warns when discovery mirroring fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const client = { id: 'client-mirror' };
+    const s1 = story({ story_id: 'mirror-story', created_at: 10 });
+    readNewsLatestIndexMock.mockResolvedValue({ [s1.story_id]: s1.created_at });
+    readLatestStoryIdsMock.mockResolvedValue([s1.story_id]);
+    readNewsStoryMock.mockResolvedValue(s1);
+
+    const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+
+    const originalMergeItems = useDiscoveryStore.getState().mergeItems;
+    useDiscoveryStore.setState({
+      mergeItems: (() => {
+        throw new Error('mirror unavailable');
+      }) as typeof originalMergeItems,
+    });
+
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(1);
+
+    for (let attempt = 0; attempt < 10 && warnSpy.mock.calls.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news] failed to mirror stories into discovery store',
+      expect.any(Error),
+    );
+
+    useDiscoveryStore.setState({ mergeItems: originalMergeItems });
+  });
+
   it('refreshLatest captures thrown errors', async () => {
     readNewsLatestIndexMock.mockRejectedValue(new Error('boom'));
 
