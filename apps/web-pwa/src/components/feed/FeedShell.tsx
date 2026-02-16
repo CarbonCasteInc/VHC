@@ -87,8 +87,11 @@ const FeedContent: React.FC<FeedContentProps> = ({ feed, loading, error }) => {
 
   return (
     <ul data-testid="feed-list" className="space-y-3">
-      {feed.map((item) => (
-        <FeedItemRow key={item.topic_id} item={item} />
+      {feed.map((item, index) => (
+        <FeedItemRow
+          key={[item.kind, item.topic_id, item.title, item.created_at, index].join('|')}
+          item={item}
+        />
       ))}
     </ul>
   );
@@ -101,6 +104,15 @@ interface FeedItemRowProps {
 }
 
 const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
+  // NEWS_STORY cards own their click interaction (headline flip in-place).
+  if (item.kind === 'NEWS_STORY') {
+    return (
+      <li data-testid={`feed-item-${item.topic_id}`}>
+        <FeedItemCard item={item} />
+      </li>
+    );
+  }
+
   return (
     <li data-testid={`feed-item-${item.topic_id}`}>
       <Link

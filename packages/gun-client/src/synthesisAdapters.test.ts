@@ -390,10 +390,22 @@ describe('synthesisAdapters', () => {
 
     const written = await writeStoryBundle(client, STORY);
     expect(written).toEqual(STORY);
-    expect(mesh.writes).toEqual([
-      { path: 'news/stories/story-1', value: STORY },
-      { path: 'news/index/latest/story-1', value: STORY.created_at }
-    ]);
+
+    expect(mesh.writes).toHaveLength(2);
+    expect(mesh.writes[0]?.path).toBe('news/stories/story-1');
+    expect(mesh.writes[1]).toEqual({
+      path: 'news/index/latest/story-1',
+      value: STORY.created_at
+    });
+
+    const encodedStoryWrite = mesh.writes[0]?.value as Record<string, unknown>;
+    expect(encodedStoryWrite).toMatchObject({
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+      schemaVersion: STORY.schemaVersion
+    });
+    expect(typeof encodedStoryWrite.__story_bundle_json).toBe('string');
+    expect(JSON.parse(String(encodedStoryWrite.__story_bundle_json))).toEqual(STORY);
 
     await expect(readStoryBundle(client, 'story-1')).resolves.toEqual(STORY);
   });

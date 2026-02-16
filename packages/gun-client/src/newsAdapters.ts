@@ -25,6 +25,8 @@ const FORBIDDEN_NEWS_KEYS = new Set<string>([
   'address'
 ]);
 
+const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -148,8 +150,34 @@ function stripGunMetadata(data: unknown): unknown {
   return rest;
 }
 
+function encodeStoryBundleForGun(story: StoryBundle): Record<string, unknown> {
+  return {
+    [STORY_BUNDLE_JSON_KEY]: JSON.stringify(story),
+    story_id: story.story_id,
+    created_at: story.created_at,
+    schemaVersion: story.schemaVersion
+  };
+}
+
+function decodeStoryBundlePayload(payload: unknown): unknown {
+  if (!isRecord(payload)) {
+    return payload;
+  }
+
+  const encoded = payload[STORY_BUNDLE_JSON_KEY];
+  if (typeof encoded !== 'string') {
+    return payload;
+  }
+
+  try {
+    return JSON.parse(encoded);
+  } catch {
+    return null;
+  }
+}
+
 function parseStoryBundle(data: unknown): StoryBundle | null {
-  const payload = stripGunMetadata(data);
+  const payload = decodeStoryBundlePayload(stripGunMetadata(data));
   if (hasForbiddenNewsPayloadFields(payload)) {
     return null;
   }
@@ -202,7 +230,11 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
  */
 export async function writeNewsStory(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = sanitizeStoryBundle(story);
-  await putWithAck(getNewsStoryChain(client, sanitized.story_id), sanitized);
+  const encoded = encodeStoryBundleForGun(sanitized);
+  await putWithAck(
+    getNewsStoryChain(client, sanitized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
+    encoded
+  );
   return sanitized;
 }
 

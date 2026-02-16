@@ -148,7 +148,16 @@ describe('newsAdapters', () => {
 
     expect(result).toEqual(STORY);
     expect(mesh.writes).toHaveLength(1);
-    expect(mesh.writes[0]).toEqual({ path: 'news/stories/story-123', value: STORY });
+    expect(mesh.writes[0].path).toBe('news/stories/story-123');
+    expect(mesh.writes[0].value).toMatchObject({
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+      schemaVersion: STORY.schemaVersion
+    });
+    expect(typeof (mesh.writes[0].value as Record<string, unknown>).__story_bundle_json).toBe('string');
+    expect(
+      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
+    ).toEqual(STORY);
   });
 
   it('writeNewsStory rejects forbidden identity/token payloads', async () => {
@@ -185,6 +194,34 @@ describe('newsAdapters', () => {
 
     const story = await readNewsStory(client, 'story-123');
     expect(story).toEqual(STORY);
+  });
+
+  it('readNewsStory parses encoded bundle payloads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-encoded', {
+      __story_bundle_json: JSON.stringify(STORY),
+      story_id: STORY.story_id,
+      created_at: STORY.created_at
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const story = await readNewsStory(client, 'story-encoded');
+    expect(story).toEqual(STORY);
+  });
+
+  it('readNewsStory returns null for malformed encoded bundle payloads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-bad-json', {
+      __story_bundle_json: '{bad-json',
+      story_id: 'story-bad-json',
+      created_at: STORY.created_at
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsStory(client, 'story-bad-json')).resolves.toBeNull();
   });
 
   it('readNewsStory returns null for missing, invalid, or forbidden payloads', async () => {
@@ -259,10 +296,17 @@ describe('newsAdapters', () => {
     const result = await writeNewsBundle(client, STORY);
 
     expect(result.story_id).toBe('story-123');
-    expect(mesh.writes).toEqual([
-      { path: 'news/stories/story-123', value: STORY },
-      { path: 'news/index/latest/story-123', value: STORY.created_at }
-    ]);
+    expect(mesh.writes).toHaveLength(2);
+    expect(mesh.writes[0].path).toBe('news/stories/story-123');
+    expect(mesh.writes[0].value).toMatchObject({
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+      schemaVersion: STORY.schemaVersion
+    });
+    expect(
+      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
+    ).toEqual(STORY);
+    expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.created_at });
   });
 
   it('readLatestStoryIds sorts newest-first, then by id; respects limit', async () => {

@@ -201,6 +201,33 @@ describe('synthesisToFeedItem', () => {
 });
 
 describe('startNewsBridge', () => {
+  it('boots news hydration and refresh on startup', async () => {
+    const newsState = useNewsStore.getState();
+    const startHydrationSpy = vi.spyOn(newsState, 'startHydration');
+    const refreshLatestSpy = vi
+      .spyOn(newsState, 'refreshLatest')
+      .mockResolvedValue(undefined);
+
+    await startNewsBridge();
+
+    expect(startHydrationSpy).toHaveBeenCalledTimes(1);
+    expect(refreshLatestSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs refresh failures during bootstrap and continues', async () => {
+    const warning = new Error('refresh failed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const newsState = useNewsStore.getState();
+    vi.spyOn(newsState, 'refreshLatest').mockRejectedValue(warning);
+
+    await expect(startNewsBridge()).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:feed-bridge] refreshLatest failed during bootstrap:',
+      warning,
+    );
+  });
+
   it('initial sync pushes existing stories to discovery store', async () => {
     const valid = makeStoryBundle({ story_id: 'story-valid', topic_id: 'topic-valid' });
     const invalid = makeStoryBundle({
@@ -208,6 +235,9 @@ describe('startNewsBridge', () => {
       topic_id: 'topic-invalid',
       headline: '',
     }) as StoryBundle;
+
+    const newsState = useNewsStore.getState();
+    vi.spyOn(newsState, 'refreshLatest').mockResolvedValue(undefined);
 
     useNewsStore.setState({ stories: [valid, invalid] as StoryBundle[] });
 
@@ -241,27 +271,31 @@ describe('startNewsBridge', () => {
     expect(topics).toEqual(['topic-1', 'topic-2']);
   });
 
-  it("duplicate stories don't create duplicate FeedItems (discovery dedupes by topic_id)", async () => {
+  it('preserves multiple story headlines even when topic_id is shared', async () => {
     await startNewsBridge();
 
     const first = makeStoryBundle({
       story_id: 'story-a',
       topic_id: 'topic-dup',
       headline: 'first headline',
+      created_at: 100,
     });
     const second = makeStoryBundle({
       story_id: 'story-b',
       topic_id: 'topic-dup',
       headline: 'second headline',
+      created_at: 200,
     });
 
     useNewsStore.getState().setStories([first]);
     useNewsStore.getState().setStories([first, second]);
 
     const discoveryItems = useDiscoveryStore.getState().items;
-    expect(discoveryItems).toHaveLength(1);
-    expect(discoveryItems[0]?.topic_id).toBe('topic-dup');
-    expect(discoveryItems[0]?.title).toBe('second headline');
+    expect(discoveryItems).toHaveLength(2);
+    expect(discoveryItems.map((item) => item.title).sort()).toEqual([
+      'first headline',
+      'second headline',
+    ]);
   });
 });
 
@@ -344,6 +378,27 @@ describe('startSocialBridge', () => {
     expect(discoveryItems[0]?.kind).toBe('SOCIAL_NOTIFICATION');
     expect(discoveryItems[0]?.topic_id).toBe('topic-social-1');
     expect(discoveryItems[0]?.title).toBe('Mentioned on X');
+  });
+
+  it('surfaces dependency-load errors and clears cached social deps promise', async () => {
+    stopBridges();
+    vi.resetModules();
+
+    const dependencyError = new Error('social deps unavailable');
+    vi.doMock('./linkedSocial/socialFeedAdapter', () => ({
+      get getSocialFeedItems() {
+        throw dependencyError;
+      },
+      notificationToFeedItem: vi.fn(),
+    }));
+
+    try {
+      const bridgeModule = await import('./feedBridge');
+      await expect(bridgeModule.startSocialBridge()).rejects.toThrow('social deps unavailable');
+    } finally {
+      vi.doUnmock('./linkedSocial/socialFeedAdapter');
+      vi.resetModules();
+    }
   });
 });
 

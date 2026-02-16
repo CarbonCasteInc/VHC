@@ -6,7 +6,21 @@ export default defineConfig({
   plugins: [react()],
   server: {
     host: true,
-    port: 2048
+    port: 2048,
+    strictPort: true,
+    allowedHosts: [
+      '100.75.18.26',
+      'ccibootstrap.tail6cc9b5.ts.net',
+      '.tail6cc9b5.ts.net'
+    ],
+    proxy: {
+      '/gun': {
+        target: 'http://127.0.0.1:7777',
+        changeOrigin: true,
+        ws: true,
+        secure: false
+      }
+    }
   },
   define: {
     'process.env': {},

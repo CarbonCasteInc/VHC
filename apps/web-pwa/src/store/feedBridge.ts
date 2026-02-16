@@ -14,6 +14,8 @@ type BridgeFlag =
 
 interface NewsBridgeState {
   stories: ReadonlyArray<StoryBundle>;
+  startHydration: () => void;
+  refreshLatest: (limit?: number) => Promise<void>;
 }
 
 interface SynthesisTopicBridgeState {
@@ -47,6 +49,9 @@ interface BridgeStores {
   newsStore: NewsStoreApi;
   synthesisStore: SynthesisStoreApi;
   discoveryStore: DiscoveryStoreApi;
+}
+
+interface SocialBridgeDependencies {
   socialFeedAdapter: SocialFeedAdapterApi;
   socialAccountStore: SocialAccountStoreApi;
 }
@@ -58,6 +63,7 @@ const LINKED_SOCIAL_FEED_MODULE = './linkedSocial/socialFeedAdapter';
 const LINKED_SOCIAL_ACCOUNT_MODULE = './linkedSocial/accountStore';
 
 let bridgeStoresPromise: Promise<BridgeStores> | null = null;
+let socialBridgeDepsPromise: Promise<SocialBridgeDependencies> | null = null;
 let newsBridgeActive = false;
 let synthesisBridgeActive = false;
 let socialBridgeActive = false;
@@ -108,20 +114,35 @@ async function resolveBridgeStores(): Promise<BridgeStores> {
         newsModule,
         synthesisModule,
         discoveryModule,
-        socialFeedModule,
-        socialAccountModule,
       ] = await Promise.all([
         import(/* @vite-ignore */ NEWS_STORE_MODULE),
         import(/* @vite-ignore */ SYNTHESIS_STORE_MODULE),
         import(/* @vite-ignore */ DISCOVERY_STORE_MODULE),
-        import(/* @vite-ignore */ LINKED_SOCIAL_FEED_MODULE),
-        import(/* @vite-ignore */ LINKED_SOCIAL_ACCOUNT_MODULE),
       ]);
 
       return {
         newsStore: newsModule.useNewsStore as NewsStoreApi,
         synthesisStore: synthesisModule.useSynthesisStore as SynthesisStoreApi,
         discoveryStore: discoveryModule.useDiscoveryStore as DiscoveryStoreApi,
+      };
+    })().catch((error) => {
+      bridgeStoresPromise = null;
+      throw error;
+    });
+  }
+
+  return bridgeStoresPromise;
+}
+
+async function resolveSocialBridgeDependencies(): Promise<SocialBridgeDependencies> {
+  if (!socialBridgeDepsPromise) {
+    socialBridgeDepsPromise = (async () => {
+      const [socialFeedModule, socialAccountModule] = await Promise.all([
+        import(/* @vite-ignore */ LINKED_SOCIAL_FEED_MODULE),
+        import(/* @vite-ignore */ LINKED_SOCIAL_ACCOUNT_MODULE),
+      ]);
+
+      return {
         socialFeedAdapter: {
           getSocialFeedItems: socialFeedModule.getSocialFeedItems as SocialFeedAdapterApi['getSocialFeedItems'],
           notificationToFeedItem: socialFeedModule.notificationToFeedItem as SocialFeedAdapterApi['notificationToFeedItem'],
@@ -131,10 +152,13 @@ async function resolveBridgeStores(): Promise<BridgeStores> {
             socialAccountModule.setNotificationIngestedHandler as SocialAccountStoreApi['setNotificationIngestedHandler'],
         },
       };
-    })();
+    })().catch((error) => {
+      socialBridgeDepsPromise = null;
+      throw error;
+    });
   }
 
-  return bridgeStoresPromise;
+  return socialBridgeDepsPromise;
 }
 
 /**
@@ -182,6 +206,14 @@ export async function startNewsBridge(): Promise<void> {
 
   const { newsStore, discoveryStore } = await resolveBridgeStores();
   newsBridgeActive = true;
+
+  const newsState = newsStore.getState();
+  newsState.startHydration();
+  try {
+    await newsState.refreshLatest();
+  } catch (error) {
+    console.warn('[vh:feed-bridge] refreshLatest failed during bootstrap:', error);
+  }
 
   const currentStories = newsStore.getState().stories;
   if (currentStories.length > 0) {
@@ -256,11 +288,11 @@ export async function startSocialBridge(): Promise<void> {
     return;
   }
 
+  const { discoveryStore } = await resolveBridgeStores();
   const {
-    discoveryStore,
     socialFeedAdapter,
     socialAccountStore,
-  } = await resolveBridgeStores();
+  } = await resolveSocialBridgeDependencies();
   socialBridgeActive = true;
 
   const currentItems = socialFeedAdapter.getSocialFeedItems();
