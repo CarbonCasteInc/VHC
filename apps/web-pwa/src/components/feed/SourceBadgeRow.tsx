@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { SourceBadge } from './SourceBadge';
 
 export interface SourceBadgeRowProps {
@@ -6,6 +6,7 @@ export interface SourceBadgeRowProps {
   readonly sources: ReadonlyArray<{
     source_id: string;
     publisher: string;
+    url: string;
   }>;
   /** Maximum badges before overflow indicator. Default: 5. */
   readonly maxVisible?: number;
@@ -19,24 +20,40 @@ export const SourceBadgeRow: React.FC<SourceBadgeRowProps> = ({
   sources,
   maxVisible = 5,
 }) => {
-  if (sources.length === 0) {
+  const uniqueSources = useMemo(() => {
+    const seen = new Set<string>();
+    const deduped: Array<{ source_id: string; publisher: string; url: string }> = [];
+
+    for (const source of sources) {
+      if (seen.has(source.source_id)) {
+        continue;
+      }
+      seen.add(source.source_id);
+      deduped.push(source);
+    }
+
+    return deduped;
+  }, [sources]);
+
+  if (uniqueSources.length === 0) {
     return null;
   }
 
-  const visible = sources.slice(0, maxVisible);
-  const overflow = sources.length - maxVisible;
+  const visible = uniqueSources.slice(0, maxVisible);
+  const overflow = uniqueSources.length - maxVisible;
 
   return (
     <div
       className="mt-1 flex flex-wrap items-center gap-1"
       data-testid="source-badge-row"
-      aria-label={`${sources.length} source${sources.length === 1 ? '' : 's'}`}
+      aria-label={`${uniqueSources.length} source${uniqueSources.length === 1 ? '' : 's'}`}
     >
       {visible.map((source) => (
         <SourceBadge
           key={source.source_id}
           sourceId={source.source_id}
           publisher={source.publisher}
+          url={source.url}
         />
       ))}
       {overflow > 0 && (

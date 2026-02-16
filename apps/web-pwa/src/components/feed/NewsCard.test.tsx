@@ -2,11 +2,20 @@
 
 import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { describe, expect, it, afterEach, beforeEach } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { NewsCard } from './NewsCard';
+import { synthesizeStoryFromAnalysisPipeline } from './newsCardAnalysis';
+
+vi.mock('./newsCardAnalysis', () => ({
+  synthesizeStoryFromAnalysisPipeline: vi.fn(),
+}));
+
+const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
+  synthesizeStoryFromAnalysisPipeline,
+);
 
 const NOW = 1_700_000_000_000;
 
@@ -95,6 +104,17 @@ describe('NewsCard', () => {
   beforeEach(() => {
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    mockSynthesizeStoryFromAnalysisPipeline.mockReset();
+    mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValue({
+      summary: 'Pipeline synthesis summary from analyzed sources.',
+      frames: [
+        {
+          frame: 'Local Paper: Transit spending must accelerate now.',
+          reframe: 'Funding constraints justify phased implementation.',
+        },
+      ],
+      analyses: [],
+    });
   });
 
   afterEach(() => {
@@ -111,6 +131,16 @@ describe('NewsCard', () => {
     expect(
       screen.getByText('City council votes on transit plan'),
     ).toBeInTheDocument();
+  });
+
+  it('renders source badges as links to original articles', () => {
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByTestId('source-badge-src-1')).toHaveAttribute(
+      'href',
+      'https://example.com/news-1',
+    );
   });
 
   it('renders created/updated timestamps as ISO strings', () => {
@@ -152,7 +182,7 @@ describe('NewsCard', () => {
     );
   });
 
-  it('flips on headline click and shows summary + frame/reframe table', () => {
+  it('flips on headline click and shows pipeline summary + frame/reframe table', async () => {
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore
       .getState()
@@ -163,19 +193,30 @@ describe('NewsCard', () => {
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
     expect(screen.getByTestId('news-card-back-news-1')).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent(
-      'Transit vote split council members along budget priorities.',
-    );
+
+    expect(
+      await screen.findByText('Pipeline synthesis summary from analyzed sources.'),
+    ).toBeInTheDocument();
 
     expect(screen.getByTestId('news-card-frame-table-news-1')).toBeInTheDocument();
-    expect(screen.getByText('Public investment is overdue')).toBeInTheDocument();
-    expect(screen.getByText('Budget risk should slow rollout')).toBeInTheDocument();
+    expect(
+      screen.getByText('Local Paper: Transit spending must accelerate now.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('Funding constraints justify phased implementation.'),
+    ).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('news-card-back-button-news-1'));
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
   });
 
-  it('shows empty frame/reframe state when synthesis has no frames', () => {
+  it('shows empty frame/reframe state when neither pipeline nor synthesis has rows', async () => {
+    mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValueOnce({
+      summary: 'Pipeline summary only.',
+      frames: [],
+      analyses: [],
+    });
+
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore
       .getState()
@@ -184,8 +225,30 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
-    expect(screen.getByTestId('news-card-frame-empty-news-1')).toHaveTextContent(
-      'No frame/reframe pairs yet for this topic.',
+    expect(
+      await screen.findByTestId('news-card-frame-empty-news-1'),
+    ).toHaveTextContent('No frame/reframe pairs yet for this topic.');
+  });
+
+  it('falls back to synthesis summary + frames when pipeline analysis fails', async () => {
+    mockSynthesizeStoryFromAnalysisPipeline.mockRejectedValueOnce(
+      new Error('analysis unavailable'),
     );
+
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore
+      .getState()
+      .setTopicSynthesis('news-1', makeSynthesis());
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(
+      await screen.findByText('Council approved a phased transit expansion plan.'),
+    ).toBeInTheDocument();
+    expect(screen.getByText('Public investment is overdue')).toBeInTheDocument();
+    expect(
+      screen.getByTestId('news-card-analysis-error-news-1'),
+    ).toHaveTextContent('analysis unavailable');
   });
 });

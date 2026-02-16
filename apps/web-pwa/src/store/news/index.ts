@@ -6,7 +6,7 @@ import {
   readNewsLatestIndex,
   readNewsStory
 } from '@vh/gun-client';
-import { useAppStore } from '../index';
+import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateNewsStore } from './hydration';
 import type { NewsState, NewsDeps } from './types';
 
@@ -19,6 +19,63 @@ const INITIAL_STATE: Pick<NewsState, 'stories' | 'latestIndex' | 'hydrated' | 'l
   loading: false,
   error: null
 };
+
+function readConfiguredFeedSourceIds(): Set<string> | null {
+  const nodeValue =
+    typeof process !== 'undefined'
+      ? process.env?.VITE_NEWS_FEED_SOURCES
+      : undefined;
+  const viteValue = (import.meta as unknown as { env?: { VITE_NEWS_FEED_SOURCES?: string } }).env
+    ?.VITE_NEWS_FEED_SOURCES;
+  const raw = nodeValue ?? viteValue;
+
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+
+    const sourceIds = new Set<string>();
+    for (const entry of parsed) {
+      if (!entry || typeof entry !== 'object') {
+        continue;
+      }
+
+      const sourceId = (entry as { id?: unknown }).id;
+      if (typeof sourceId === 'string' && sourceId.trim()) {
+        sourceIds.add(sourceId.trim());
+      }
+    }
+
+    return sourceIds.size > 0 ? sourceIds : null;
+  } catch {
+    return null;
+  }
+}
+
+const CONFIGURED_FEED_SOURCE_IDS = readConfiguredFeedSourceIds();
+
+function isStoryFromConfiguredSources(story: StoryBundle): boolean {
+  if (!CONFIGURED_FEED_SOURCE_IDS) {
+    return true;
+  }
+
+  return story.sources.every((source) =>
+    CONFIGURED_FEED_SOURCE_IDS.has(source.source_id),
+  );
+}
+
+function filterStoriesToConfiguredSources(stories: StoryBundle[]): StoryBundle[] {
+  if (!CONFIGURED_FEED_SOURCE_IDS) {
+    return stories;
+  }
+
+  return stories.filter(isStoryFromConfiguredSources);
+}
 
 function parseStory(story: unknown): StoryBundle | null {
   if (hasForbiddenNewsPayloadFields(story)) {
@@ -102,7 +159,7 @@ async function mirrorStoriesIntoDiscovery(stories: StoryBundle[]): Promise<void>
 
 export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsState> {
   const defaults: NewsDeps = {
-    resolveClient: () => useAppStore.getState().client
+    resolveClient: resolveClientFromAppStore
   };
   const deps: NewsDeps = {
     ...defaults,
@@ -122,7 +179,9 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
     ...INITIAL_STATE,
 
     setStories(stories: StoryBundle[]) {
-      const validated = dedupeStories(parseStories(stories));
+      const validated = filterStoriesToConfiguredSources(
+        dedupeStories(parseStories(stories)),
+      );
       set((state) => ({
         stories: sortStories(validated, state.latestIndex),
         error: null
@@ -131,7 +190,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
 
     upsertStory(story: StoryBundle) {
       const validated = parseStory(story);
-      if (!validated) {
+      if (!validated || !isStoryFromConfiguredSources(validated)) {
         return;
       }
       set((state) => {
@@ -185,15 +244,16 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         const storyIds = await readLatestStoryIds(client, limit);
         const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
         const validStories = dedupeStories(parseStories(stories));
+        const filteredStories = filterStoriesToConfiguredSources(validStories);
 
         set({
           latestIndex,
-          stories: sortStories(validStories, latestIndex),
+          stories: sortStories(filteredStories, latestIndex),
           loading: false,
           error: null
         });
 
-        void mirrorStoriesIntoDiscovery(validStories);
+        void mirrorStoriesIntoDiscovery(filteredStories);
       } catch (error: unknown) {
         set({
           loading: false,

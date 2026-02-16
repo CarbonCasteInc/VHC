@@ -5,6 +5,8 @@ export interface SourceBadgeProps {
   readonly sourceId: string;
   /** Publisher display name. */
   readonly publisher: string;
+  /** Canonical source article URL. */
+  readonly url: string;
   /** Optional icon key for future icon lookup. */
   readonly iconKey?: string;
 }
@@ -46,13 +48,17 @@ function publisherInitial(publisher: string): string {
 export const SourceBadge: React.FC<SourceBadgeProps> = ({
   sourceId,
   publisher,
+  url,
 }) => {
   const colorClass = badgeColor(sourceId);
   const initial = publisherInitial(publisher);
 
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${colorClass}`}
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${colorClass} underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
       aria-label={`Source: ${publisher}`}
       data-testid={`source-badge-${sourceId}`}
     >
@@ -60,7 +66,7 @@ export const SourceBadge: React.FC<SourceBadgeProps> = ({
         {initial}
       </span>
       <span className="max-w-[6rem] truncate">{publisher}</span>
-    </span>
+    </a>
   );
 };
 

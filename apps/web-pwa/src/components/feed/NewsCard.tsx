@@ -1,9 +1,10 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StoryBundle } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { SourceBadgeRow } from './SourceBadgeRow';
+import { synthesizeStoryFromAnalysisPipeline } from './newsCardAnalysis';
 
 export interface NewsCardProps {
   /** Discovery feed item; expected kind: NEWS_STORY. */
@@ -75,6 +76,13 @@ function resolveStoryBundle(
  */
 export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const [flipped, setFlipped] = useState(false);
+  const [analysisSummary, setAnalysisSummary] = useState<string | null>(null);
+  const [analysisFrames, setAnalysisFrames] = useState<
+    ReadonlyArray<{ frame: string; reframe: string }>
+  >([]);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const activeAnalysisRun = useRef(0);
 
   const stories = useStore(useNewsStore, (state) => state.stories);
   const startSynthesisHydration = useStore(
@@ -95,6 +103,13 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     [stories, item],
   );
 
+  useEffect(() => {
+    setAnalysisSummary(null);
+    setAnalysisFrames([]);
+    setAnalysisLoading(false);
+    setAnalysisError(null);
+  }, [story?.story_id, story?.provenance_hash, item.topic_id]);
+
   const synthesis = synthesisTopicState?.synthesis ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
@@ -103,16 +118,59 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const createdAt = formatIsoTimestamp(item.created_at);
 
   const summary =
-    story?.summary_hint?.trim() ||
+    (analysisLoading && !analysisSummary
+      ? 'Analyzing source articles via analysis pipeline…'
+      : null) ||
+    analysisSummary?.trim() ||
     synthesis?.facts_summary?.trim() ||
+    story?.summary_hint?.trim() ||
     'Summary pending synthesis.';
 
-  const frameRows = synthesis?.frames ?? [];
+  const frameRows =
+    analysisLoading && analysisFrames.length === 0
+      ? []
+      : analysisFrames.length > 0
+        ? analysisFrames
+        : (synthesis?.frames ?? []);
 
   const openBack = () => {
     setFlipped(true);
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
+
+    if (!story) {
+      return;
+    }
+
+    const runId = activeAnalysisRun.current + 1;
+    activeAnalysisRun.current = runId;
+
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+
+    void synthesizeStoryFromAnalysisPipeline(story)
+      .then((result) => {
+        if (activeAnalysisRun.current !== runId) {
+          return;
+        }
+        setAnalysisSummary(result.summary);
+        setAnalysisFrames(result.frames);
+      })
+      .catch((error: unknown) => {
+        if (activeAnalysisRun.current !== runId) {
+          return;
+        }
+        setAnalysisError(
+          error instanceof Error
+            ? error.message
+            : 'Analysis pipeline unavailable; using synthesis fallback.',
+        );
+      })
+      .finally(() => {
+        if (activeAnalysisRun.current === runId) {
+          setAnalysisLoading(false);
+        }
+      });
   };
 
   return (
@@ -146,6 +204,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               sources={story.sources.map((s) => ({
                 source_id: s.source_id,
                 publisher: s.publisher,
+                url: s.url,
               }))}
             />
           )}
@@ -188,6 +247,24 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               Frame / Reframe
             </h4>
 
+            {analysisLoading && (
+              <p
+                className="mt-2 text-xs text-slate-500"
+                data-testid={`news-card-analysis-loading-${item.topic_id}`}
+              >
+                Analyzing up to 3 sources via analysis pipeline…
+              </p>
+            )}
+
+            {analysisError && !analysisLoading && (
+              <p
+                className="mt-2 text-xs text-amber-700"
+                data-testid={`news-card-analysis-error-${item.topic_id}`}
+              >
+                {analysisError}
+              </p>
+            )}
+
             {synthesisLoading && (
               <p
                 className="mt-2 text-xs text-slate-500"
@@ -197,7 +274,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               </p>
             )}
 
-            {synthesisError && !synthesisLoading && (
+            {synthesisError && !synthesisLoading && !analysisSummary && (
               <p
                 className="mt-2 text-xs text-amber-700"
                 data-testid={`news-card-synthesis-error-${item.topic_id}`}

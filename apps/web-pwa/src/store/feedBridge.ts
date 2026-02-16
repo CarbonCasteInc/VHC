@@ -56,12 +56,6 @@ interface SocialBridgeDependencies {
   socialAccountStore: SocialAccountStoreApi;
 }
 
-const NEWS_STORE_MODULE = './' + 'news';
-const SYNTHESIS_STORE_MODULE = './' + 'synthesis';
-const DISCOVERY_STORE_MODULE = './' + 'discovery';
-const LINKED_SOCIAL_FEED_MODULE = './linkedSocial/socialFeedAdapter';
-const LINKED_SOCIAL_ACCOUNT_MODULE = './linkedSocial/accountStore';
-
 let bridgeStoresPromise: Promise<BridgeStores> | null = null;
 let socialBridgeDepsPromise: Promise<SocialBridgeDependencies> | null = null;
 let newsBridgeActive = false;
@@ -110,14 +104,19 @@ function readBridgeFlag(flag: BridgeFlag): boolean {
 async function resolveBridgeStores(): Promise<BridgeStores> {
   if (!bridgeStoresPromise) {
     bridgeStoresPromise = (async () => {
+      /**
+       * Keep these as standard Vite-resolved dynamic imports (no @vite-ignore):
+       * this preserves module identity (same singleton stores) across HMR and
+       * static imports elsewhere in the app.
+       */
       const [
         newsModule,
         synthesisModule,
         discoveryModule,
       ] = await Promise.all([
-        import(/* @vite-ignore */ NEWS_STORE_MODULE),
-        import(/* @vite-ignore */ SYNTHESIS_STORE_MODULE),
-        import(/* @vite-ignore */ DISCOVERY_STORE_MODULE),
+        import('./news'),
+        import('./synthesis'),
+        import('./discovery'),
       ]);
 
       return {
@@ -138,8 +137,8 @@ async function resolveSocialBridgeDependencies(): Promise<SocialBridgeDependenci
   if (!socialBridgeDepsPromise) {
     socialBridgeDepsPromise = (async () => {
       const [socialFeedModule, socialAccountModule] = await Promise.all([
-        import(/* @vite-ignore */ LINKED_SOCIAL_FEED_MODULE),
-        import(/* @vite-ignore */ LINKED_SOCIAL_ACCOUNT_MODULE),
+        import('./linkedSocial/socialFeedAdapter'),
+        import('./linkedSocial/accountStore'),
       ]);
 
       return {
