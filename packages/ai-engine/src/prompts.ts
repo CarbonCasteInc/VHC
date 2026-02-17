@@ -3,15 +3,8 @@
  * The prior-pass template is applied only when user reviews flag the initial analysis as inaccurate.
  */
 
-export interface AnalysisResult {
-  summary: string;
-  bias_claim_quote: string[];
-  justify_bias_claim: string[];
-  biases: string[];
-  counterpoints: string[];
-  confidence?: number;
-  perspectives?: Array<{ frame: string; reframe: string }>;
-}
+import type { AnalysisResult } from './schema';
+export type { AnalysisResult } from './schema';
 
 // ------------------------------------------------------------------------------
 // COMMON TEXT / SHARED PROMPTS (ported from Python)

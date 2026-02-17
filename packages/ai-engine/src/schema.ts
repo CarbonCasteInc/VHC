@@ -6,8 +6,13 @@ export const AnalysisResultSchema = z.object({
     justify_bias_claim: z.array(z.string()),
     biases: z.array(z.string()),
     counterpoints: z.array(z.string()),
-    sentimentScore: z.number(),
-    confidence: z.number().optional()
+    confidence: z.number().optional(),
+    perspectives: z.array(z.object({
+      frame: z.string(),
+      reframe: z.string(),
+    })).optional(),
+    provider_id: z.string().optional(),
+    model_id: z.string().optional(),
 });
 
 export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;

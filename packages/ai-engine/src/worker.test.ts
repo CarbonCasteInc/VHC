@@ -51,7 +51,6 @@ describe('worker', () => {
         justify_bias_claim: ['justification'],
         biases: ['bias'],
         counterpoints: ['counter'],
-        sentimentScore: 0.5,
         confidence: 0.9
       },
       engine: {
@@ -85,7 +84,6 @@ describe('worker', () => {
           justify_bias_claim: ['justification'],
           biases: ['bias'],
           counterpoints: ['counter'],
-          sentimentScore: 0.5,
           confidence: 0.9
         },
         engine: 'mock-local-engine',
@@ -104,8 +102,7 @@ describe('worker', () => {
           bias_claim_quote: [],
           justify_bias_claim: [],
           biases: [],
-          counterpoints: [],
-          sentimentScore: 0
+          counterpoints: []
         },
         engine: 'test-engine',
         warnings: ['w1']

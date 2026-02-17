@@ -60,7 +60,7 @@ describe('EngineUnavailableError', () => {
 });
 
 describe('createMockEngine', () => {
-  it('returns a local mock engine that emits valid analysis JSON with sentimentScore', async () => {
+  it('returns a local mock engine that emits valid analysis JSON', async () => {
     const engine = createMockEngine();
 
     expect(engine.kind).toBe('local');
@@ -68,11 +68,12 @@ describe('createMockEngine', () => {
 
     const output = await engine.generate('prompt');
     const parsed = JSON.parse(output) as {
-      final_refined: { sentimentScore: number; summary: string };
+      final_refined: { summary: string; confidence: number; sentimentScore?: number };
     };
 
     expect(parsed.final_refined.summary).toBe('Mock summary');
-    expect(parsed.final_refined.sentimentScore).toBeTypeOf('number');
+    expect(parsed.final_refined.confidence).toBeTypeOf('number');
+    expect(parsed.final_refined.sentimentScore).toBeUndefined();
   });
 });
 

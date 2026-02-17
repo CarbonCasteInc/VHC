@@ -74,6 +74,18 @@ describe('data-model schemas', () => {
     ).toThrow();
   });
 
+  it('defaults analysis sentiment score to 0 when omitted', () => {
+    const result = AnalysisSchema.parse({
+      canonicalId: 'abc',
+      summary: 'test',
+      biases: ['x'],
+      counterpoints: ['y'],
+      timestamp: Date.now()
+    });
+
+    expect(result.sentimentScore).toBe(0);
+  });
+
   it('validates aggregate sentiment', () => {
     const valid = AggregateSentimentSchema.parse({
       topic_id: 'abc',
@@ -125,6 +137,22 @@ describe('data-model schemas', () => {
     expect(withMeta.engine?.kind).toBe('local');
     expect(withMeta.engine?.modelName).toBe('mock-local-v1');
     expect(withMeta.warnings).toEqual(['hallucinated year 2099']);
+  });
+
+  it('defaults canonical analysis sentiment score to 0 when omitted', () => {
+    const parsed = CanonicalAnalysisSchema.parse({
+      schemaVersion: 'canonical-analysis-v1',
+      url: 'https://example.com',
+      urlHash: 'abc',
+      summary: 'test',
+      bias_claim_quote: ['quote'],
+      justify_bias_claim: ['justification'],
+      biases: ['bias'],
+      counterpoints: ['counter'],
+      timestamp: 123
+    });
+
+    expect(parsed.sentimentScore).toBe(0);
   });
 
   it('rejects invalid engine kind in canonical analysis', () => {
