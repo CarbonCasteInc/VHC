@@ -2,6 +2,7 @@ import React from 'react';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 import { AnalysisLoadingState } from './AnalysisLoadingState';
 import { BiasTable } from './BiasTable';
+import { RemovalIndicator } from './RemovalIndicator';
 
 export interface NewsCardBackProps {
   readonly topicId: string;
@@ -109,6 +110,12 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
         <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
           Frame / Reframe
         </h4>
+
+        {analysisFeedbackStatus === 'error' && (
+          <div className="mt-2" data-testid={`news-card-analysis-error-${topicId}`}>
+            <RemovalIndicator reason="extraction-failed-permanently" />
+          </div>
+        )}
 
         {synthesisLoading && (
           <p

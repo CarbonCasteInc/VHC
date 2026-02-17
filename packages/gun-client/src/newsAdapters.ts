@@ -102,6 +102,10 @@ function latestIndexPath(): string {
   return 'vh/news/index/latest/';
 }
 
+function removalPath(urlHash: string): string {
+  return `vh/news/removed/${urlHash}/`;
+}
+
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
     chain.once((data) => {
@@ -283,6 +287,50 @@ export async function writeNewsBundle(client: VennClient, story: unknown): Promi
   const sanitized = await writeNewsStory(client, story);
   await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.created_at);
   return sanitized;
+}
+
+// ---- Removal ledger adapters ----
+
+export interface RemovalEntry {
+  readonly urlHash: string;
+  readonly canonicalUrl: string;
+  readonly removedAt: number;
+  readonly reason: string;
+  readonly removedBy: string | null;
+  readonly note: string | null;
+}
+
+export function parseRemovalEntry(value: unknown): RemovalEntry | null {
+  const raw = stripGunMetadata(value);
+  if (!isRecord(raw)) return null;
+  const { urlHash, canonicalUrl, removedAt, reason, removedBy, note } = raw as Record<string, unknown>;
+  if (typeof urlHash !== 'string' || typeof canonicalUrl !== 'string') return null;
+  if (typeof removedAt !== 'number' || !Number.isFinite(removedAt)) return null;
+  if (typeof reason !== 'string') return null;
+  return {
+    urlHash, canonicalUrl, removedAt, reason,
+    removedBy: typeof removedBy === 'string' ? removedBy : null,
+    note: typeof note === 'string' ? note : null,
+  };
+}
+
+/**
+ * Chain for `vh/news/removed/<urlHash>`.
+ */
+export function getNewsRemovalChain(client: VennClient, urlHash: string): ChainWithGet<RemovalEntry> {
+  const chain = client.mesh
+    .get('news')
+    .get('removed')
+    .get(urlHash) as unknown as ChainWithGet<RemovalEntry>;
+  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, removalPath(urlHash));
+}
+
+/**
+ * Read and validate a RemovalEntry from mesh.
+ */
+export async function readNewsRemoval(client: VennClient, urlHash: string): Promise<RemovalEntry | null> {
+  const raw = await readOnce(getNewsRemovalChain(client, urlHash));
+  return parseRemovalEntry(raw);
 }
 
 /**
