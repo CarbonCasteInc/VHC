@@ -19,6 +19,21 @@ vi.mock('@tanstack/react-router', () => ({
   ),
 }));
 
+// Mock useStoryRemoval so NewsCardWithRemoval doesn't need a real Gun client
+const mockUseStoryRemoval = vi.fn().mockReturnValue({
+  isRemoved: false,
+  removalReason: null,
+  removalEntry: null,
+});
+vi.mock('./useStoryRemoval', () => ({
+  useStoryRemoval: (...args: unknown[]) => mockUseStoryRemoval(...args),
+}));
+
+// Mock newsCardAnalysis to prevent import side effects
+vi.mock('./newsCardAnalysis', () => ({
+  synthesizeStoryFromAnalysisPipeline: vi.fn(),
+}));
+
 // ---- Helpers ----
 
 const NOW = 1_700_000_000_000;
@@ -244,5 +259,39 @@ describe('FeedShell', () => {
     render(<FeedShell feedResult={makeFeedResult({ feed: items })} />);
     const list = screen.getByTestId('feed-list');
     expect(list.querySelectorAll('li')).toHaveLength(3);
+  });
+
+  // ---- Removal filtering ----
+
+  it('shows removal indicator instead of news card when story is removed', () => {
+    mockUseStoryRemoval.mockReturnValue({
+      isRemoved: true,
+      removalReason: 'extraction-failed-permanently',
+      removalEntry: null,
+    });
+
+    const items = [
+      makeFeedItem({ topic_id: 'removed-1', kind: 'NEWS_STORY', title: 'Removed story' }),
+    ];
+    render(<FeedShell feedResult={makeFeedResult({ feed: items })} />);
+
+    expect(screen.getByTestId('removal-indicator')).toBeInTheDocument();
+    expect(screen.queryByTestId('news-card-removed-1')).not.toBeInTheDocument();
+  });
+
+  it('renders news card normally when feature flag is off (not removed)', () => {
+    mockUseStoryRemoval.mockReturnValue({
+      isRemoved: false,
+      removalReason: null,
+      removalEntry: null,
+    });
+
+    const items = [
+      makeFeedItem({ topic_id: 'visible-1', kind: 'NEWS_STORY', title: 'Visible story' }),
+    ];
+    render(<FeedShell feedResult={makeFeedResult({ feed: items })} />);
+
+    expect(screen.getByTestId('news-card-visible-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('removal-indicator')).not.toBeInTheDocument();
   });
 });

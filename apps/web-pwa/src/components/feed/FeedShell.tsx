@@ -4,7 +4,7 @@ import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { FilterChips } from './FilterChips';
 import { SortControls } from './SortControls';
-import { NewsCard } from './NewsCard';
+import { NewsCardWithRemoval } from './NewsCardWithRemoval';
 import { TopicCard } from './TopicCard';
 import { SocialNotificationCard } from './SocialNotificationCard';
 import { ArticleFeedCard } from '../docs/ArticleFeedCard';
@@ -134,7 +134,7 @@ interface FeedItemCardProps {
 const FeedItemCard: React.FC<FeedItemCardProps> = ({ item }) => {
   switch (item.kind) {
     case 'NEWS_STORY':
-      return <NewsCard item={item} />;
+      return <NewsCardWithRemoval item={item} />;
     case 'USER_TOPIC':
       return <TopicCard item={item} />;
     case 'SOCIAL_NOTIFICATION':

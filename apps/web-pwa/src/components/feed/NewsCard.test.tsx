@@ -289,6 +289,19 @@ describe('NewsCard', () => {
     expect(await screen.findByText('analysis unavailable')).toBeInTheDocument();
     expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
   });
+  it('shows removal indicator on analysis error alongside retry action', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    mockSynthesizeStoryFromAnalysisPipeline.mockRejectedValueOnce(
+      new Error('extraction failed'),
+    );
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByText('extraction failed')).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-analysis-error-news-1')).toBeInTheDocument();
+    expect(screen.getByTestId('removal-indicator')).toBeInTheDocument();
+    expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
+  });
   it('renders BiasTable when VITE_VH_BIAS_TABLE_V2 is enabled', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');

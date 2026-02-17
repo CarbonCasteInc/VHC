@@ -45,6 +45,24 @@ describe('TopologyGuard', () => {
     expect(() => guard.validateWrite('vh/news/stories/story-1', { story_id: 'story-1', title: 'Headline' })).not.toThrow();
   });
 
+  it('allows news removal entries (public, no PII)', () => {
+    const guard = new TopologyGuard();
+    expect(() => guard.validateWrite('vh/news/removed/abc123', {
+      urlHash: 'abc123',
+      canonicalUrl: 'https://example.com',
+      removedAt: 1700000000000,
+      reason: 'extraction-failed-permanently',
+    })).not.toThrow();
+  });
+
+  it('blocks PII in news removal entries', () => {
+    const guard = new TopologyGuard();
+    expect(() => guard.validateWrite('vh/news/removed/abc123', {
+      urlHash: 'abc123',
+      email: 'user@example.com',
+    })).toThrow();
+  });
+
   it('requires encryption for wave-0 sensitive document namespaces', () => {
     const guard = new TopologyGuard();
     expect(() => guard.validateWrite('~alice/docs/draft-1', { title: 'draft' })).toThrow();
