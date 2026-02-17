@@ -13,6 +13,8 @@ export interface NewsCardSourceAnalysis {
   readonly summary: string;
   readonly biases: ReadonlyArray<string>;
   readonly counterpoints: ReadonlyArray<string>;
+  readonly biasClaimQuotes: ReadonlyArray<string>;
+  readonly justifyBiasClaims: ReadonlyArray<string>;
   readonly provider_id?: string;
   readonly model_id?: string;
 }
@@ -40,70 +42,31 @@ function toStoryCacheKey(story: StoryBundle): string {
   return `${story.story_id}:${story.provenance_hash}`;
 }
 
-interface ArticleTextProxyResponse {
-  readonly url: string;
-  readonly text: string;
-  readonly title?: string;
-}
-
-function readArticleTextResponse(value: unknown): ArticleTextProxyResponse | null {
-  if (!value || typeof value !== 'object') {
-    return null;
-  }
-
-  const candidate = value as {
-    url?: unknown;
-    text?: unknown;
-    title?: unknown;
-  };
-
-  if (typeof candidate.url !== 'string' || typeof candidate.text !== 'string') {
-    return null;
-  }
-
-  const text = candidate.text.trim();
-  if (text.length === 0) {
-    return null;
-  }
-
-  return {
-    url: candidate.url,
-    text,
-    title: typeof candidate.title === 'string' ? candidate.title : undefined,
-  };
+function readArticleTextResponse(
+  value: unknown,
+): { url: string; text: string } | null {
+  if (!value || typeof value !== 'object') return null;
+  const c = value as { url?: unknown; text?: unknown };
+  if (typeof c.url !== 'string' || typeof c.text !== 'string') return null;
+  const text = c.text.trim();
+  return text.length > 0 ? { url: c.url, text } : null;
 }
 
 async function fetchArticleTextViaProxy(url: string): Promise<string> {
   const trimmedUrl = url.trim();
-  if (!trimmedUrl) {
-    throw new Error('Article URL is required');
-  }
-
+  if (!trimmedUrl) throw new Error('Article URL is required');
   let pending = articleTextCache.get(trimmedUrl);
   if (!pending) {
     pending = (async () => {
-      const response = await fetch(`/article-text?url=${encodeURIComponent(trimmedUrl)}`);
-      if (!response.ok) {
-        throw new Error(`article-text proxy returned ${response.status}`);
-      }
-
-      const payload = readArticleTextResponse(await response.json());
-      if (!payload) {
-        throw new Error('Invalid article-text payload');
-      }
-
+      const res = await fetch(`/article-text?url=${encodeURIComponent(trimmedUrl)}`);
+      if (!res.ok) throw new Error(`article-text proxy returned ${res.status}`);
+      const payload = readArticleTextResponse(await res.json());
+      if (!payload) throw new Error('Invalid article-text payload');
       return payload.text;
     })();
-
     articleTextCache.set(trimmedUrl, pending);
   }
-
-  try {
-    return await pending;
-  } catch (error) {
-    articleTextCache.delete(trimmedUrl);
-    throw error;
-  }
+  try { return await pending; } catch (e) { articleTextCache.delete(trimmedUrl); throw e; }
 }
 
 function getArticleTextFetcher(
@@ -113,42 +76,28 @@ function getArticleTextFetcher(
 }
 
 function isRelayEnabled(): boolean {
-  try {
-    return (import.meta as any).env?.VITE_VH_ANALYSIS_PIPELINE === 'true';
-  } catch {
-    return false;
-  }
+  try { return (import.meta as any).env?.VITE_VH_ANALYSIS_PIPELINE === 'true'; } catch { return false; }
 }
 
-async function runAnalysisViaRelay(articleText: string): Promise<Pick<PipelineResult, 'analysis'>> {
-  const response = await fetch('/api/analyze', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ articleText }),
+async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, 'analysis'>> {
+  const r = await fetch('/api/analyze', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ articleText: text }),
   });
-
-  if (!response.ok) {
-    throw new Error(`Analysis relay error: ${response.status}`);
-  }
-
-  const { analysis } = await response.json();
+  if (!r.ok) throw new Error(`Analysis relay error: ${r.status}`);
+  const { analysis } = await r.json();
   return { analysis };
 }
 
 function getRunAnalysis(): (articleText: string) => Promise<Pick<PipelineResult, 'analysis'>> {
-  if (isRelayEnabled()) {
-    return runAnalysisViaRelay;
-  }
-
+  if (isRelayEnabled()) return runAnalysisViaRelay;
   if (!cachedRunAnalysis) {
-    const remoteEngine = createRemoteEngine();
-    const pipeline = remoteEngine
-      ? createAnalysisPipeline({ policy: 'local-first', remoteEngine })
+    const remote = createRemoteEngine();
+    const pipeline = remote
+      ? createAnalysisPipeline({ policy: 'local-first', remoteEngine: remote })
       : createAnalysisPipeline();
-
-    cachedRunAnalysis = async (articleText: string) => pipeline(articleText);
+    cachedRunAnalysis = async (text: string) => pipeline(text);
   }
-
   return cachedRunAnalysis;
 }
 
@@ -164,14 +113,10 @@ function firstSentence(value: string): string {
 
 function selectSourcesForAnalysis(story: StoryBundle): StoryBundle['sources'] {
   const deduped = new Map<string, StoryBundle['sources'][number]>();
-
-  for (const source of story.sources) {
-    const key = `${source.source_id}|${source.url_hash}`;
-    if (!deduped.has(key)) {
-      deduped.set(key, source);
-    }
+  for (const s of story.sources) {
+    const k = `${s.source_id}|${s.url_hash}`;
+    if (!deduped.has(k)) deduped.set(k, s);
   }
-
   return Array.from(deduped.values()).slice(0, MAX_SOURCE_ANALYSES);
 }
 
@@ -211,12 +156,9 @@ function buildAnalysisInput(
 }
 
 function normalizeOptionalString(value: unknown): string | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const normalized = value.trim();
-  return normalized.length > 0 ? normalized : undefined;
+  if (typeof value !== 'string') return undefined;
+  const n = value.trim();
+  return n.length > 0 ? n : undefined;
 }
 
 function toSourceAnalysis(
@@ -230,6 +172,8 @@ function toSourceAnalysis(
     summary: analysis.summary.trim(),
     biases: analysis.biases,
     counterpoints: analysis.counterpoints,
+    biasClaimQuotes: analysis.bias_claim_quote,
+    justifyBiasClaims: analysis.justify_bias_claim,
     provider_id:
       normalizeOptionalString(analysis.provider_id) ??
       normalizeOptionalString(analysis.provider?.provider_id),
@@ -243,44 +187,25 @@ function toFrameRows(
   analyses: ReadonlyArray<NewsCardSourceAnalysis>,
 ): ReadonlyArray<{ frame: string; reframe: string }> {
   const rows: Array<{ frame: string; reframe: string }> = [];
-
-  for (const sourceAnalysis of analyses) {
-    const rowCount = Math.max(
-      sourceAnalysis.biases.length,
-      sourceAnalysis.counterpoints.length,
-    );
-
-    for (let index = 0; index < rowCount; index++) {
-      const bias = sourceAnalysis.biases[index]?.trim() || 'No clear bias detected';
-      const counterpoint = sourceAnalysis.counterpoints[index]?.trim() || 'N/A';
-
-      rows.push({
-        frame: `${sourceAnalysis.publisher}: ${bias}`,
-        reframe: counterpoint,
-      });
+  for (const sa of analyses) {
+    const count = Math.max(sa.biases.length, sa.counterpoints.length);
+    for (let i = 0; i < count; i++) {
+      const bias = sa.biases[i]?.trim() || 'No clear bias detected';
+      const cp = sa.counterpoints[i]?.trim() || 'N/A';
+      rows.push({ frame: `${sa.publisher}: ${bias}`, reframe: cp });
     }
   }
-
   return rows.slice(0, MAX_FRAME_ROWS);
 }
 
-function synthesizeSummary(
-  analyses: ReadonlyArray<NewsCardSourceAnalysis>,
-): string {
-  const highlights = analyses
-    .map((sourceAnalysis) => {
-      const sentence = firstSentence(sourceAnalysis.summary);
-      return sentence
-        ? `${sourceAnalysis.publisher}: ${sentence}`
-        : `${sourceAnalysis.publisher}: Summary unavailable.`;
+function synthesizeSummary(analyses: ReadonlyArray<NewsCardSourceAnalysis>): string {
+  const hl = analyses
+    .map((sa) => {
+      const s = firstSentence(sa.summary);
+      return s ? `${sa.publisher}: ${s}` : `${sa.publisher}: Summary unavailable.`;
     })
-    .filter((line) => line.trim().length > 0);
-
-  if (highlights.length === 0) {
-    return 'Summary pending synthesis.';
-  }
-
-  return highlights.join(' ');
+    .filter((l) => l.trim().length > 0);
+  return hl.length === 0 ? 'Summary pending synthesis.' : hl.join(' ');
 }
 
 async function runSynthesis(
@@ -379,4 +304,5 @@ export const newsCardAnalysisInternal = {
   selectSourcesForAnalysis,
   synthesizeSummary,
   toFrameRows,
+  toSourceAnalysis,
 };

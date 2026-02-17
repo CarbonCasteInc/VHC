@@ -122,6 +122,8 @@ describe('NewsCard', () => {
           summary: 'Local coverage emphasizes urgency and commuter demand.',
           biases: ['Immediate expansion framing.'],
           counterpoints: ['Budget pacing lowers fiscal risk.'],
+          biasClaimQuotes: ['We must act now.'],
+          justifyBiasClaims: ['Urgency framing without evidence.'],
           provider_id: 'openai',
           model_id: 'gpt-4o-mini',
         },
@@ -210,6 +212,8 @@ describe('NewsCard', () => {
           summary: 'Provider fallback source summary.',
           biases: [],
           counterpoints: [],
+          biasClaimQuotes: [],
+          justifyBiasClaims: [],
           provider_id: 'openai',
         },
       ],
@@ -236,6 +240,8 @@ describe('NewsCard', () => {
           summary: 'No provider metadata attached.',
           biases: [],
           counterpoints: [],
+          biasClaimQuotes: [],
+          justifyBiasClaims: [],
         },
       ],
     });
@@ -282,6 +288,28 @@ describe('NewsCard', () => {
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(await screen.findByText('analysis unavailable')).toBeInTheDocument();
     expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
+  });
+  it('renders BiasTable when VITE_VH_BIAS_TABLE_V2 is enabled', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
+    expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('1 source analyzed');
+    expect(screen.getByTestId('bias-table-provider-badge')).toHaveTextContent('Analysis by gpt-4o-mini');
+    expect(screen.queryByTestId('news-card-frame-table-news-1')).not.toBeInTheDocument();
+  });
+  it('renders legacy table when VITE_VH_BIAS_TABLE_V2 is off', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'false');
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('news-card-frame-table-news-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
   });
   it('renders synthesis loading and synthesis unavailable states when analysis is disabled', () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
