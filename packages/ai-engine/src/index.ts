@@ -1,4 +1,5 @@
 export * from './prompts';
+export * from './schema';
 export * from './useAI';
 export * from './decay';
 export * from './cache';

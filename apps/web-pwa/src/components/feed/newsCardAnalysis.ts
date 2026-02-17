@@ -105,7 +105,34 @@ function getArticleTextFetcher(
   return overrides?.fetchArticleText ?? fetchArticleTextViaProxy;
 }
 
+function isRelayEnabled(): boolean {
+  try {
+    return (import.meta as any).env?.VITE_VH_ANALYSIS_PIPELINE === 'true';
+  } catch {
+    return false;
+  }
+}
+
+async function runAnalysisViaRelay(articleText: string): Promise<Pick<PipelineResult, 'analysis'>> {
+  const response = await fetch('/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ articleText }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Analysis relay error: ${response.status}`);
+  }
+
+  const { analysis } = await response.json();
+  return { analysis };
+}
+
 function getRunAnalysis(): (articleText: string) => Promise<Pick<PipelineResult, 'analysis'>> {
+  if (isRelayEnabled()) {
+    return runAnalysisViaRelay;
+  }
+
   if (!cachedRunAnalysis) {
     const remoteEngine = createRemoteEngine();
     const pipeline = remoteEngine

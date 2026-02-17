@@ -23,7 +23,6 @@ function validWrappedResult(summary = 'Source summary') {
       justify_bias_claim: ['justification'],
       biases: ['bias'],
       counterpoints: ['counterpoint'],
-      sentimentScore: 0.5,
       confidence: 0.9
     }
   });
@@ -63,7 +62,7 @@ describe('createAnalysisPipeline', () => {
 
     expect(engine.generate).toHaveBeenCalledTimes(1);
     expect(engine.generate).toHaveBeenCalledWith(expect.stringContaining(articleText));
-    expect(result.analysis.sentimentScore).toBe(0.5);
+    expect(result.analysis.summary).toBe('A source article body about 2024 elections.');
     expect(result.engine).toEqual({
       id: 'local-engine',
       kind: 'local',
@@ -91,7 +90,6 @@ describe('createAnalysisPipeline', () => {
       generate: vi.fn().mockResolvedValue(
         JSON.stringify({
           final_refined: {
-            summary: 'Missing sentiment score',
             bias_claim_quote: ['quote'],
             justify_bias_claim: ['justification'],
             biases: ['bias'],
@@ -159,7 +157,7 @@ describe('createAnalysisPipeline', () => {
       kind: 'local',
       modelName: 'mock-local-v1'
     });
-    expect(result.analysis.sentimentScore).toBeTypeOf('number');
+    expect(result.analysis.summary).toBe('Mock summary');
     expect(mockCreateDefaultEngine).toHaveBeenCalledTimes(1);
   });
 

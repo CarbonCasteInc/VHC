@@ -49,3 +49,16 @@ export type { ClusterOptions } from './cluster';
 
 export { orchestrateNewsPipeline } from './orchestrator';
 export type { PipelineConfig, PipelineResult } from './orchestrator';
+
+export {
+  DEFAULT_MODEL,
+  MAX_TOKENS,
+  TEMPERATURE,
+  RATE_LIMIT_PER_MIN,
+  RATE_WINDOW_MS,
+  checkRateLimit,
+  resetRateLimits,
+  buildOpenAIChatRequest,
+  handleAnalyze,
+} from './analysisRelay';
+export type { AnalyzeRequest, AnalyzeResponse } from './analysisRelay';

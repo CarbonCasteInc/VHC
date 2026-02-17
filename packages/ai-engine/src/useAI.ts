@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { AnalysisResult } from './prompts';
+import type { AnalysisResult } from './schema';
 
 type Status = 'idle' | 'loading' | 'generating' | 'complete' | 'error';
 

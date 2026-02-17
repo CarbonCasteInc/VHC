@@ -29,7 +29,6 @@ function buildGenerateResult(overrides: Partial<GenerateResult> = {}): GenerateR
       summary: 'generated',
       biases: ['bias-1'],
       counterpoints: ['counter-1'],
-      sentimentScore: 0.1,
       bias_claim_quote: [],
       justify_bias_claim: [],
       confidence: 0.8
@@ -60,7 +59,6 @@ describe('analysis first-to-file', () => {
       summary: 'cached',
       biases: ['b1'],
       counterpoints: ['c1'],
-      sentimentScore: 0,
       bias_claim_quote: [],
       justify_bias_claim: [],
       confidence: 0.5,
