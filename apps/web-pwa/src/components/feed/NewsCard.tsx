@@ -4,8 +4,8 @@ import type { FeedItem, StoryBundle } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { SourceBadgeRow } from './SourceBadgeRow';
-import { AnalysisLoadingState } from './AnalysisLoadingState';
 import { useAnalysis } from './useAnalysis';
+import { NewsCardBack } from './NewsCardBack';
 
 export interface NewsCardProps {
   /** Discovery feed item; expected kind: NEWS_STORY. */
@@ -13,23 +13,17 @@ export interface NewsCardProps {
 }
 
 function formatIsoTimestamp(timestampMs: number): string {
-  if (!Number.isFinite(timestampMs) || timestampMs < 0) {
-    return 'unknown';
-  }
+  if (!Number.isFinite(timestampMs) || timestampMs < 0) return 'unknown';
   return new Date(timestampMs).toISOString();
 }
 
 function formatHotness(hotness: number): string {
-  if (!Number.isFinite(hotness)) {
-    return '0.00';
-  }
+  if (!Number.isFinite(hotness)) return '0.00';
   return hotness.toFixed(2);
 }
 
 function toSafeTimestamp(value: number): number {
-  if (!Number.isFinite(value) || value < 0) {
-    return 0;
-  }
+  if (!Number.isFinite(value) || value < 0) return 0;
   return Math.floor(value);
 }
 
@@ -39,43 +33,27 @@ function resolveStoryBundle(
 ): StoryBundle | null {
   const normalizedTitle = item.title.trim();
   const normalizedCreatedAt = toSafeTimestamp(item.created_at);
-
   const exact = stories.find(
-    (story) =>
-      story.topic_id === item.topic_id &&
-      story.headline.trim() === normalizedTitle &&
-      toSafeTimestamp(story.created_at) === normalizedCreatedAt,
+    (s) =>
+      s.topic_id === item.topic_id &&
+      s.headline.trim() === normalizedTitle &&
+      toSafeTimestamp(s.created_at) === normalizedCreatedAt,
   );
-  if (exact) {
-    return exact;
-  }
-
+  if (exact) return exact;
   const sameTopicHeadline = stories.find(
-    (story) =>
-      story.topic_id === item.topic_id &&
-      story.headline.trim() === normalizedTitle,
+    (s) => s.topic_id === item.topic_id && s.headline.trim() === normalizedTitle,
   );
-  if (sameTopicHeadline) {
-    return sameTopicHeadline;
-  }
-
-  const fallback = stories.find(
-    (story) => story.headline.trim() === normalizedTitle,
-  );
-  return fallback ?? null;
+  if (sameTopicHeadline) return sameTopicHeadline;
+  return stories.find((s) => s.headline.trim() === normalizedTitle) ?? null;
 }
 
-function resolveAnalysisProviderModel(story: ReturnType<typeof useAnalysis>['analysis']): string | null {
-  if (!story || story.analyses.length === 0) {
-    return null;
-  }
-
-  const withModel = story.analyses.find((entry) => (entry.model_id ?? '').trim().length > 0);
-  if (withModel?.model_id) {
-    return withModel.model_id;
-  }
-
-  const withProvider = story.analyses.find((entry) => (entry.provider_id ?? '').trim().length > 0);
+export function resolveAnalysisProviderModel(
+  story: ReturnType<typeof useAnalysis>['analysis'],
+): string | null {
+  if (!story || story.analyses.length === 0) return null;
+  const withModel = story.analyses.find((e) => (e.model_id ?? '').trim().length > 0);
+  if (withModel?.model_id) return withModel.model_id;
+  const withProvider = story.analyses.find((e) => (e.provider_id ?? '').trim().length > 0);
   return withProvider?.provider_id ?? null;
 }
 
@@ -89,23 +67,11 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const [flipped, setFlipped] = useState(false);
 
   const stories = useStore(useNewsStore, (state) => state.stories);
-  const startSynthesisHydration = useStore(
-    useSynthesisStore,
-    (state) => state.startHydration,
-  );
-  const refreshSynthesisTopic = useStore(
-    useSynthesisStore,
-    (state) => state.refreshTopic,
-  );
-  const synthesisTopicState = useStore(
-    useSynthesisStore,
-    (state) => state.topics[item.topic_id],
-  );
+  const startSynthesisHydration = useStore(useSynthesisStore, (s) => s.startHydration);
+  const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
+  const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
 
-  const story = useMemo(
-    () => resolveStoryBundle(stories, item),
-    [stories, item],
-  );
+  const story = useMemo(() => resolveStoryBundle(stories, item), [stories, item]);
 
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
   const {
@@ -154,7 +120,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
 
   const perSourceSummaries =
     analysisPipelineEnabled && analysisStatus === 'success' && analysis
-      ? analysis.analyses.filter((entry) => entry.summary.trim().length > 0)
+      ? analysis.analyses.filter((e) => e.summary.trim().length > 0)
       : [];
 
   const openBack = () => {
@@ -212,121 +178,20 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
           <p className="mt-3 text-xs text-blue-700">Click headline to flip →</p>
         </>
       ) : (
-        <div data-testid={`news-card-back-${item.topic_id}`} className="space-y-3">
-          <header className="flex items-center justify-between gap-2">
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
-              Synthesis Lens
-            </span>
-            <button
-              type="button"
-              className="text-xs font-medium text-violet-700 underline-offset-2 hover:underline"
-              onClick={() => setFlipped(false)}
-              data-testid={`news-card-back-button-${item.topic_id}`}
-            >
-              ← Back to headline
-            </button>
-          </header>
-
-          <h3 className="text-sm font-semibold text-slate-900">Summary</h3>
-          {analysisFeedbackStatus ? (
-            <AnalysisLoadingState
-              status={analysisFeedbackStatus}
-              error={analysisError}
-              onRetry={retryAnalysis}
-            />
-          ) : (
-            <>
-              <p className="text-sm text-slate-700" data-testid={`news-card-summary-${item.topic_id}`}>
-                {summary}
-              </p>
-
-              {analysisProvider && (
-                <p
-                  className="text-xs text-slate-500"
-                  data-testid={`news-card-analysis-provider-${item.topic_id}`}
-                >
-                  Analysis by {analysisProvider}
-                </p>
-              )}
-
-              {perSourceSummaries.length > 0 && (
-                <ul
-                  className="list-disc space-y-1 pl-5 text-xs text-slate-600"
-                  data-testid={`news-card-analysis-source-summaries-${item.topic_id}`}
-                >
-                  {perSourceSummaries.map((entry) => (
-                    <li key={`${entry.source_id}|${entry.publisher}`}>
-                      <span className="font-medium text-slate-700">{entry.publisher}:</span>{' '}
-                      {entry.summary}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </>
-          )}
-
-          <div>
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-              Frame / Reframe
-            </h4>
-
-            {synthesisLoading && (
-              <p
-                className="mt-2 text-xs text-slate-500"
-                data-testid={`news-card-synthesis-loading-${item.topic_id}`}
-              >
-                Loading synthesis…
-              </p>
-            )}
-
-            {synthesisError && !synthesisLoading && !analysis && (
-              <p
-                className="mt-2 text-xs text-amber-700"
-                data-testid={`news-card-synthesis-error-${item.topic_id}`}
-              >
-                Synthesis unavailable.
-              </p>
-            )}
-
-            <div className="mt-2 overflow-x-auto">
-              <table
-                className="min-w-full border border-slate-200 text-left text-xs"
-                data-testid={`news-card-frame-table-${item.topic_id}`}
-              >
-                <thead className="bg-slate-50 text-slate-700">
-                  <tr>
-                    <th className="border border-slate-200 px-2 py-1">Frame</th>
-                    <th className="border border-slate-200 px-2 py-1">Reframe</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {frameRows.length > 0 ? (
-                    frameRows.map((row, index) => (
-                      <tr key={`${row.frame}|${row.reframe}|${index}`}>
-                        <td className="border border-slate-200 px-2 py-1 text-slate-800">
-                          {row.frame}
-                        </td>
-                        <td className="border border-slate-200 px-2 py-1 text-slate-700">
-                          {row.reframe}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td
-                        className="border border-slate-200 px-2 py-2 text-slate-500"
-                        colSpan={2}
-                        data-testid={`news-card-frame-empty-${item.topic_id}`}
-                      >
-                        No frame/reframe pairs yet for this topic.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
+        <NewsCardBack
+          topicId={item.topic_id}
+          summary={summary}
+          frameRows={frameRows}
+          analysisProvider={analysisProvider}
+          perSourceSummaries={perSourceSummaries}
+          analysisFeedbackStatus={analysisFeedbackStatus}
+          analysisError={analysisError}
+          retryAnalysis={retryAnalysis}
+          synthesisLoading={synthesisLoading}
+          synthesisError={synthesisError}
+          analysis={analysis}
+          onFlipBack={() => setFlipped(false)}
+        />
       )}
     </article>
   );

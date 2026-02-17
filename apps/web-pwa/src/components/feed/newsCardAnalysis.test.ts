@@ -5,6 +5,7 @@ import {
   newsCardAnalysisInternal,
   synthesizeStoryFromAnalysisPipeline,
 } from './newsCardAnalysis';
+import type { AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
 
 const NOW = 1_700_000_000_000;
 
@@ -226,5 +227,43 @@ describe('newsCardAnalysis', () => {
         },
       }),
     ).rejects.toThrow('Analysis pipeline unavailable for all story sources');
+  });
+
+  it('threads biasClaimQuotes and justifyBiasClaims from analysis result', async () => {
+    const story = makeStoryBundle({
+      sources: [makeStoryBundle().sources[0]!],
+    });
+
+    const result = await synthesizeStoryFromAnalysisPipeline(story, {
+      fetchArticleText: async () => 'ARTICLE TEXT',
+      runAnalysis: async () => ({
+        analysis: makeAnalysis({
+          summary: 'Summary with claim quotes.',
+          biases: ['Bias A'],
+          counterpoints: ['Counter A'],
+        }),
+      }),
+    });
+
+    expect(result.analyses).toHaveLength(1);
+    expect(result.analyses[0]!.biasClaimQuotes).toEqual(['quote']);
+    expect(result.analyses[0]!.justifyBiasClaims).toEqual(['justification']);
+  });
+
+  it('toSourceAnalysis maps bias_claim_quote and justify_bias_claim', () => {
+    const source = makeStoryBundle().sources[0]!;
+    const analysis: AnalysisResult = {
+      summary: 'Test summary.',
+      bias_claim_quote: ['quote-1', 'quote-2'],
+      justify_bias_claim: ['just-1'],
+      biases: ['B1'],
+      counterpoints: ['C1'],
+    };
+
+    const mapped = newsCardAnalysisInternal.toSourceAnalysis(source, analysis);
+    expect(mapped.biasClaimQuotes).toEqual(['quote-1', 'quote-2']);
+    expect(mapped.justifyBiasClaims).toEqual(['just-1']);
+    expect(mapped.biases).toEqual(['B1']);
+    expect(mapped.counterpoints).toEqual(['C1']);
   });
 });
