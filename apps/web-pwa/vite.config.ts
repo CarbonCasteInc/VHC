@@ -182,8 +182,16 @@ function createArticleTextProxyPlugin(): Plugin {
   };
 }
 
+function readBooleanEnv(value: string | undefined): boolean {
+  return /^(1|true|yes|on)$/i.test((value ?? '').trim());
+}
+
+const ANALYSIS_PIPELINE_ENABLED = readBooleanEnv(process.env.VITE_VH_ANALYSIS_PIPELINE);
+const EXTRACTION_SERVICE_TARGET =
+  process.env.VITE_NEWS_EXTRACTION_SERVICE_URL?.trim() || 'http://127.0.0.1:3001';
+
 export default defineConfig({
-  plugins: [react(), createArticleTextProxyPlugin()],
+  plugins: ANALYSIS_PIPELINE_ENABLED ? [react()] : [react(), createArticleTextProxyPlugin()],
   server: {
     host: true,
     port: 2048,
@@ -200,6 +208,21 @@ export default defineConfig({
         ws: true,
         secure: false
       },
+      ...(ANALYSIS_PIPELINE_ENABLED
+        ? {
+            '/api': {
+              target: EXTRACTION_SERVICE_TARGET,
+              changeOrigin: true,
+              secure: false,
+            },
+            '/article-text': {
+              target: EXTRACTION_SERVICE_TARGET,
+              changeOrigin: true,
+              secure: false,
+              rewrite: (path: string) => path.replace(/^\/article-text/, '/api/article-text'),
+            },
+          }
+        : {}),
 
       // Same-origin RSS proxy routes (avoids browser CORS/CSP issues).
       '/rss/fox-latest': {

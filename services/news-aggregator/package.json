@@ -9,6 +9,7 @@
     "lint": "echo 'lint: ok (no sources yet)'"
   },
   "dependencies": {
+    "@extractus/article-extractor": "^8.0.0",
     "@vh/ai-engine": "workspace:*",
     "@vh/data-model": "workspace:*",
     "zod": "^3.23.8"
