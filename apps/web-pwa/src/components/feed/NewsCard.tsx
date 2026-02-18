@@ -6,6 +6,7 @@ import { useSynthesisStore } from '../../store/synthesis';
 import { SourceBadgeRow } from './SourceBadgeRow';
 import { useAnalysis } from './useAnalysis';
 import { NewsCardBack } from './NewsCardBack';
+import { FeedEngagement } from './FeedEngagement';
 
 export interface NewsCardProps {
   /** Discovery feed item; expected kind: NEWS_STORY. */
@@ -134,23 +135,40 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   return (
     <article
       data-testid={`news-card-${item.topic_id}`}
-      className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+      className="relative overflow-hidden rounded-2xl p-5 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-md"
+      style={{
+        backgroundColor: 'var(--headline-card-bg)',
+        borderColor: 'var(--headline-card-border)',
+        borderWidth: '1px',
+        borderStyle: 'solid',
+      }}
       aria-label="News story"
     >
       {!flipped ? (
         <>
           <header className="mb-2 flex items-center justify-between gap-2">
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+            <span
+              className="rounded-full px-2 py-0.5 text-xs font-semibold"
+              style={{
+                backgroundColor: 'var(--bias-table-bg)',
+                color: 'var(--headline-card-muted)',
+              }}
+            >
               News
             </span>
-            <span className="text-xs text-slate-500" data-testid={`news-card-hotness-${item.topic_id}`}>
+            <span
+              className="text-xs font-medium uppercase tracking-[0.12em]"
+              style={{ color: 'var(--headline-card-muted)' }}
+              data-testid={`news-card-hotness-${item.topic_id}`}
+            >
               Hotness {formatHotness(item.hotness)}
             </span>
           </header>
 
           <button
             type="button"
-            className="text-left text-base font-semibold text-slate-900 underline-offset-2 hover:underline"
+            className="mt-1 text-left text-lg font-semibold tracking-[0.01em] underline-offset-2 hover:underline"
+            style={{ color: 'var(--headline-card-text)' }}
             data-testid={`news-card-headline-${item.topic_id}`}
             onClick={openBack}
           >
@@ -167,17 +185,23 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
             />
           )}
 
-          <p className="mt-1 text-xs text-slate-500">
+          <p
+            className="mt-2 text-xs uppercase tracking-[0.18em]"
+            style={{ color: 'var(--headline-card-muted)' }}
+          >
             Created {createdAt} • Updated {latestActivity}
           </p>
 
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
-            <span data-testid={`news-card-eye-${item.topic_id}`}>👁️ {item.eye}</span>
-            <span data-testid={`news-card-lightbulb-${item.topic_id}`}>💡 {item.lightbulb}</span>
-            <span data-testid={`news-card-comments-${item.topic_id}`}>💬 {item.comments}</span>
-          </div>
+          <FeedEngagement
+            topicId={item.topic_id}
+            eye={item.eye}
+            lightbulb={item.lightbulb}
+            comments={item.comments}
+          />
 
-          <p className="mt-3 text-xs text-blue-700">Click headline to flip →</p>
+          <p className="mt-3 text-xs" style={{ color: 'var(--headline-card-muted)' }}>
+            Click headline to flip →
+          </p>
         </>
       ) : (
         <NewsCardBack

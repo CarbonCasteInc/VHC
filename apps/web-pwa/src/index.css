@@ -4,27 +4,143 @@
 
 :root {
   color-scheme: light dark;
+
+  /* Base surfaces */
   --card-bg: #ffffff;
   --card-muted-bg: #f8fafc;
   --surface-light: #f8fafc;
   --surface-dark: #0f172a;
+
+  /* Global page + section tokens */
+  --page-bg-venn: rgba(138, 254, 241, 0.12);
+  --page-bg-hermes: rgba(241, 214, 218, 0.35);
+  --page-bg-agora: #f1f5f9;
+
+  --section-container-bg: rgba(255, 255, 255, 0.77);
+  --section-container-border: #e2e8f0;
+  --section-title: #1e293b;
+
+  /* VENN headline cards */
+  --headline-card-bg: #cae8e8;
+  --headline-card-border: rgba(167, 243, 208, 0.59);
+  --headline-card-text: #064e3b;
+  --headline-card-muted: #059669;
+
+  /* VENN analysis + frame/reframe */
+  --analysis-surface: rgba(255, 255, 255, 0.53);
+  --analysis-label: #047857;
+  --analysis-text: #064e3b;
+  --bias-table-bg: #ecfdf5;
+  --bias-row-hover: #d1fae5;
+
+  /* Controls */
+  --btn-primary-bg: #059669;
+  --btn-primary-text: #ffffff;
+  --btn-secondary-bg: #d97706;
+  --btn-secondary-text: #ffffff;
+
+  /* Icon treatment */
+  --icon-default: #64748b;
+  --icon-engaged: #ffffff;
+  --icon-glow: rgba(255, 255, 255, 0.9);
+  --icon-shadow: rgba(0, 0, 0, 0.41);
+  --icon-shadow-x: -2px;
+  --icon-shadow-y: 2px;
+  --icon-shadow-blur: 2px;
 }
 
 .dark:root {
   color-scheme: dark;
+
   --card-bg: #1e293b;
   --card-muted-bg: #0f172a;
   --surface-light: #0f172a;
   --surface-dark: #0b1220;
+
+  --page-bg-venn: #000f14;
+  --page-bg-hermes: #19040b;
+  --page-bg-agora: #0a0f1a;
+
+  --section-container-bg: rgba(30, 41, 59, 0.5);
+  --section-container-border: rgba(71, 85, 105, 0.5);
+  --section-title: #f1f5f9;
+
+  --headline-card-bg: rgba(13, 24, 28, 0.36);
+  --headline-card-border: rgba(4, 120, 87, 0.46);
+  --headline-card-text: #ecfdf5;
+  --headline-card-muted: #a7f3d0;
+
+  --analysis-surface: rgba(13, 48, 41, 0.31);
+  --analysis-label: #99f6e4;
+  --analysis-text: #f0fdfa;
+  --bias-table-bg: rgba(6, 78, 59, 0.3);
+  --bias-row-hover: rgba(20, 184, 166, 0.2);
+
+  --btn-primary-bg: #10b981;
+  --btn-primary-text: #022c22;
+  --btn-secondary-bg: #f59e0b;
+  --btn-secondary-text: #451a03;
+
+  --icon-default: #94a3b8;
+  --icon-engaged: #ffffff;
+  --icon-glow: rgba(255, 255, 255, 0.9);
+  --icon-shadow: rgba(0, 0, 0, 0.2);
+  --icon-shadow-x: 0px;
+  --icon-shadow-y: 1px;
+  --icon-shadow-blur: 2px;
 }
 
+/* Explicit VENN scope (requested parity baseline) */
 [data-theme='venn'] {
-  --card-muted-bg: #f0fdf4;
+  --page-bg-venn: rgba(138, 254, 241, 0.12);
+  --section-container-bg: rgba(255, 255, 255, 0.77);
+  --section-container-border: #e2e8f0;
+  --section-title: #1e293b;
+
+  --headline-card-bg: #cae8e8;
+  --headline-card-border: rgba(167, 243, 208, 0.59);
+  --headline-card-text: #064e3b;
+  --headline-card-muted: #059669;
+
+  --analysis-surface: rgba(255, 255, 255, 0.53);
+  --analysis-label: #047857;
+  --analysis-text: #064e3b;
+  --bias-table-bg: #ecfdf5;
+  --bias-row-hover: #d1fae5;
+
+  --icon-default: #64748b;
+  --icon-engaged: #ffffff;
+  --icon-glow: rgba(255, 255, 255, 0.9);
+  --icon-shadow: rgba(0, 0, 0, 0.41);
+  --icon-shadow-x: -2px;
+  --icon-shadow-y: 2px;
+  --icon-shadow-blur: 2px;
 }
 
 .dark [data-theme='venn'] {
-  --card-bg: #0c1612;
-  --card-muted-bg: #060b09;
+  --page-bg-venn: #000f14;
+  --section-container-bg: rgba(30, 41, 59, 0.5);
+  --section-container-border: rgba(71, 85, 105, 0.5);
+  --section-title: #f1f5f9;
+
+  --headline-card-bg: rgba(13, 24, 28, 0.36);
+  --headline-card-border: rgba(4, 120, 87, 0.46);
+  --headline-card-text: #ecfdf5;
+  --headline-card-muted: #a7f3d0;
+
+  --analysis-surface: rgba(13, 48, 41, 0.31);
+  --analysis-label: #99f6e4;
+  --analysis-text: #f0fdfa;
+  --bias-table-bg: rgba(6, 78, 59, 0.3);
+  --bias-row-hover: rgba(20, 184, 166, 0.2);
+
+  --icon-default: #94a3b8;
+  --icon-engaged: #ffffff;
+  --icon-glow: rgba(255, 255, 255, 0.9);
+  --icon-shadow: rgba(0, 0, 0, 0.2);
+  --icon-shadow-x: 0px;
+  --icon-shadow-y: 1px;
+  --icon-shadow-blur: 2px;
 }
 
 [data-theme='hermes'] {
@@ -48,20 +164,25 @@
 body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   letter-spacing: 0.01em;
-  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.04), transparent 25%),
+  background:
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.04), transparent 25%),
     radial-gradient(circle at 80% 10%, rgba(16, 185, 129, 0.04), transparent 20%),
     var(--surface-light);
   color: #0f172a;
 }
 
 .dark body {
-  background: radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.05), transparent 22%),
+  background:
+    radial-gradient(circle at 20% 20%, rgba(59, 130, 246, 0.05), transparent 22%),
     radial-gradient(circle at 80% 10%, rgba(16, 185, 129, 0.05), transparent 18%),
     var(--surface-dark);
   color: #e2e8f0;
 }
 
-h1, h2, h3, h4 {
+h1,
+h2,
+h3,
+h4 {
   letter-spacing: 0.04em;
   font-weight: 600;
 }
