@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import FeedList from './FeedList';
@@ -35,6 +35,7 @@ vi.mock('react-virtualized-auto-sizer', () => ({
 
 describe('FeedList', () => {
   afterEach(() => {
+    cleanup();
     vi.restoreAllMocks();
   });
 
