@@ -81,6 +81,24 @@ describe('useConstituencyProof', () => {
     expect(result.current.error).toMatch(/stale_proof/i);
   });
 
+  it('hard-stops when proof source is mock-backed', () => {
+    const proof: ConstituencyProof = {
+      district_hash: 'mock-district-hash',
+      nullifier: 'null-1',
+      merkle_root: 'mock-root',
+    };
+
+    useIdentityMock.mockReturnValue({
+      identity: { session: { nullifier: 'null-1' } },
+    });
+    useRegionMock.mockReturnValue({ proof });
+
+    const { result } = renderHook(() => useConstituencyProof());
+
+    expect(result.current.proof).toBeNull();
+    expect(result.current.error).toMatch(/mock constituency proof/i);
+  });
+
   it('returns verified proof when identity and region proof align', () => {
     const proof: ConstituencyProof = {
       district_hash: 'district-1',

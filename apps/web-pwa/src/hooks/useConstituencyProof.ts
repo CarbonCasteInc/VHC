@@ -9,6 +9,10 @@ export interface ConstituencyProofState {
   readonly error: string | null;
 }
 
+function isMockProof(proof: ConstituencyProof): boolean {
+  return proof.district_hash === 'mock-district-hash' || proof.merkle_root === 'mock-root';
+}
+
 /**
  * L1 guardrail: ensure feed voting has a valid constituency proof derived from identity.
  * If identity/proof is missing or malformed, callers get a clear error and can hard-stop writes.
@@ -30,6 +34,13 @@ export function useConstituencyProof(): ConstituencyProofState {
       return {
         proof: null,
         error: 'Constituency proof unavailable for current identity',
+      };
+    }
+
+    if (isMockProof(proof)) {
+      return {
+        proof: null,
+        error: 'Mock constituency proof detected; voting requires a verified proof source',
       };
     }
 

@@ -54,12 +54,18 @@ function normalizeEpoch(epoch: number): string {
   return String(Math.floor(epoch));
 }
 
-function aggregateVotersPath(topicId: string, epoch: string): string {
-  return `vh/aggregates/topics/${topicId}/epochs/${epoch}/voters/`;
+function aggregateVotersPath(topicId: string, synthesisId: string, epoch: string): string {
+  return `vh/aggregates/topics/${topicId}/syntheses/${synthesisId}/epochs/${epoch}/voters/`;
 }
 
-function aggregateVoterPointPath(topicId: string, epoch: string, voterId: string, pointId: string): string {
-  return `vh/aggregates/topics/${topicId}/epochs/${epoch}/voters/${voterId}/${pointId}/`;
+function aggregateVoterPointPath(
+  topicId: string,
+  synthesisId: string,
+  epoch: string,
+  voterId: string,
+  pointId: string,
+): string {
+  return `vh/aggregates/topics/${topicId}/syntheses/${synthesisId}/epochs/${epoch}/voters/${voterId}/${pointId}/`;
 }
 
 function isForbiddenPublicAggregateKey(key: string): boolean {
@@ -137,14 +143,18 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
 export function getAggregateVotersChain(
   client: VennClient,
   topicId: string,
+  synthesisId: string,
   epoch: number,
 ): ChainWithGet<AggregateVoterNode> {
   const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
+  const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
   const normalizedEpoch = normalizeEpoch(epoch);
   const chain = client.mesh
     .get('aggregates')
     .get('topics')
     .get(normalizedTopicId)
+    .get('syntheses')
+    .get(normalizedSynthesisId)
     .get('epochs')
     .get(normalizedEpoch)
     .get('voters') as unknown as ChainWithGet<AggregateVoterNode>;
@@ -153,13 +163,14 @@ export function getAggregateVotersChain(
     chain,
     client.hydrationBarrier,
     client.topologyGuard,
-    aggregateVotersPath(normalizedTopicId, normalizedEpoch),
+    aggregateVotersPath(normalizedTopicId, normalizedSynthesisId, normalizedEpoch),
   );
 }
 
 export async function writeVoterNode(
   client: VennClient,
   topicId: string,
+  synthesisId: string,
   epoch: number,
   voterId: string,
   node: unknown,
@@ -167,12 +178,18 @@ export async function writeVoterNode(
   assertNoForbiddenAggregateFields(node);
   const sanitized = AggregateVoterNodeSchema.parse(node);
   const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
+  const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
   const normalizedEpoch = normalizeEpoch(epoch);
   const normalizedVoterId = normalizeRequiredId(voterId, 'voterId');
   const normalizedPointId = normalizeRequiredId(sanitized.point_id, 'point_id');
 
   await putWithAck(
-    getAggregateVotersChain(client, normalizedTopicId, Number(normalizedEpoch))
+    getAggregateVotersChain(
+      client,
+      normalizedTopicId,
+      normalizedSynthesisId,
+      Number(normalizedEpoch),
+    )
       .get(normalizedVoterId)
       .get(normalizedPointId),
     sanitized,
@@ -184,15 +201,22 @@ export async function writeVoterNode(
 export async function readAggregates(
   client: VennClient,
   topicId: string,
+  synthesisId: string,
   epoch: number,
   pointId: string,
 ): Promise<PointAggregate> {
   const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
+  const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
   const normalizedEpoch = Number(normalizeEpoch(epoch));
   const normalizedPointId = normalizeRequiredId(pointId, 'pointId');
 
   const raw = await readOnce(
-    getAggregateVotersChain(client, normalizedTopicId, normalizedEpoch) as unknown as ChainWithGet<unknown>,
+    getAggregateVotersChain(
+      client,
+      normalizedTopicId,
+      normalizedSynthesisId,
+      normalizedEpoch,
+    ) as unknown as ChainWithGet<unknown>,
   );
 
   if (!isRecord(raw)) {

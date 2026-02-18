@@ -75,7 +75,7 @@ describe('aggregateAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    const chain = getAggregateVotersChain(client, 'topic-1', 4);
+    const chain = getAggregateVotersChain(client, 'topic-1', 'synth-1', 4);
     await chain.get('voter-1').get('point-1').put({
       point_id: 'point-1',
       agreement: 1,
@@ -84,7 +84,7 @@ describe('aggregateAdapters', () => {
     });
 
     expect(guard.validateWrite).toHaveBeenCalledWith(
-      'vh/aggregates/topics/topic-1/epochs/4/voters/voter-1/point-1/',
+      'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/',
       {
         point_id: 'point-1',
         agreement: 1,
@@ -106,23 +106,23 @@ describe('aggregateAdapters', () => {
       updated_at: '2026-02-18T22:20:00.000Z',
     };
 
-    const result = await writeVoterNode(client, 'topic-1', 4, 'voter-1', node);
+    const result = await writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node);
 
     expect(result).toEqual(node);
     expect(mesh.writes[0]).toEqual({
-      path: 'aggregates/topics/topic-1/epochs/4/voters/voter-1/point-1',
+      path: 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1',
       value: node,
     });
   });
 
   it('writeVoterNode rejects sensitive fields and ack errors', async () => {
     const mesh = createFakeMesh();
-    mesh.setPutError('aggregates/topics/topic-1/epochs/4/voters/voter-1/point-1', 'boom');
+    mesh.setPutError('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1', 'boom');
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
     await expect(
-      writeVoterNode(client, 'topic-1', 4, 'voter-1', {
+      writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', {
         point_id: 'point-1',
         agreement: 1,
         weight: 1,
@@ -132,7 +132,7 @@ describe('aggregateAdapters', () => {
     ).rejects.toThrow('forbidden sensitive fields');
 
     await expect(
-      writeVoterNode(client, 'topic-1', 4, 'voter-1', {
+      writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', {
         point_id: 'point-1',
         agreement: 1,
         weight: 1,
@@ -143,7 +143,7 @@ describe('aggregateAdapters', () => {
 
   it('readAggregates fans-in voter sub-nodes and ignores neutral/invalid rows', async () => {
     const mesh = createFakeMesh();
-    mesh.setRead('aggregates/topics/topic-1/epochs/4/voters', {
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
       _: { '#': 'meta' },
       voterA: {
         pointA: {
@@ -183,7 +183,7 @@ describe('aggregateAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    await expect(readAggregates(client, 'topic-1', 4, 'pointA')).resolves.toEqual({
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
       point_id: 'pointA',
       agree: 1,
       disagree: 1,
@@ -194,11 +194,11 @@ describe('aggregateAdapters', () => {
 
   it('readAggregates returns zeroed stats when no data exists', async () => {
     const mesh = createFakeMesh();
-    mesh.setRead('aggregates/topics/topic-1/epochs/4/voters', undefined);
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    await expect(readAggregates(client, 'topic-1', 4, 'pointA')).resolves.toEqual({
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
       point_id: 'pointA',
       agree: 0,
       disagree: 0,
@@ -226,16 +226,17 @@ describe('aggregateAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    expect(() => getAggregateVotersChain(client, '   ', 1)).toThrow('topicId is required');
-    expect(() => getAggregateVotersChain(client, 'topic-1', -1)).toThrow('epoch must be a non-negative finite number');
+    expect(() => getAggregateVotersChain(client, '   ', 'synth-1', 1)).toThrow('topicId is required');
+    expect(() => getAggregateVotersChain(client, 'topic-1', '   ', 1)).toThrow('synthesisId is required');
+    expect(() => getAggregateVotersChain(client, 'topic-1', 'synth-1', -1)).toThrow('epoch must be a non-negative finite number');
   });
 
   it('internal path helpers expose voter sub-node topology', () => {
-    expect(aggregateAdapterInternal.aggregateVotersPath('topic-x', '3')).toBe(
-      'vh/aggregates/topics/topic-x/epochs/3/voters/',
+    expect(aggregateAdapterInternal.aggregateVotersPath('topic-x', 'synth-y', '3')).toBe(
+      'vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/voters/',
     );
-    expect(aggregateAdapterInternal.aggregateVoterPointPath('topic-x', '3', 'voter-y', 'point-z')).toBe(
-      'vh/aggregates/topics/topic-x/epochs/3/voters/voter-y/point-z/',
-    );
+    expect(
+      aggregateAdapterInternal.aggregateVoterPointPath('topic-x', 'synth-y', '3', 'voter-y', 'point-z'),
+    ).toBe('vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/voters/voter-y/point-z/');
   });
 });
