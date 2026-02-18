@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StoryBundle } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
@@ -7,6 +7,7 @@ import { SourceBadgeRow } from './SourceBadgeRow';
 import { useAnalysis } from './useAnalysis';
 import { NewsCardBack } from './NewsCardBack';
 import { FeedEngagement } from './FeedEngagement';
+import { useExpandedCardStore } from './expandedCardStore';
 
 export interface NewsCardProps {
   /** Discovery feed item; expected kind: NEWS_STORY. */
@@ -58,39 +59,31 @@ export function resolveAnalysisProviderModel(
   return withProvider?.provider_id ?? null;
 }
 
-/**
- * Clustered story card for discovery feed NEWS_STORY items.
- *
- * Front: headline + engagement metrics.
- * Back (on headline click): summary + frame/reframe table.
- */
 export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
-  const [flipped, setFlipped] = useState(false);
-
   const stories = useStore(useNewsStore, (state) => state.stories);
   const startSynthesisHydration = useStore(useSynthesisStore, (s) => s.startHydration);
   const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
-
+  const isExpanded = useStore(
+    useExpandedCardStore,
+    (s) => s.expandedStoryId === item.topic_id,
+  );
+  const expandCard = useStore(useExpandedCardStore, (s) => s.expand);
+  const collapseCard = useStore(useExpandedCardStore, (s) => s.collapse);
   const story = useMemo(() => resolveStoryBundle(stories, item), [stories, item]);
-
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
   const {
     analysis,
     status: analysisStatus,
     error: analysisError,
     retry: retryAnalysis,
-  } = useAnalysis(story, flipped);
-
+  } = useAnalysis(story, isExpanded);
   const synthesis = synthesisTopicState?.synthesis ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
-
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
-
   const computedAnalysisId = story ? `${story.story_id}:${story.provenance_hash}` : null;
-
   const analysisFeedbackStatus =
     analysisPipelineEnabled &&
     (analysisStatus === 'loading' ||
@@ -99,7 +92,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       analysisStatus === 'budget_exceeded')
       ? analysisStatus
       : null;
-
   const summary =
     (analysisPipelineEnabled &&
       analysisStatus === 'success' &&
@@ -107,7 +99,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     synthesis?.facts_summary?.trim() ||
     story?.summary_hint?.trim() ||
     'Summary pending synthesis.';
-
   const frameRows =
     analysisPipelineEnabled &&
     analysisStatus === 'success' &&
@@ -115,27 +106,80 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     analysis.frames.length > 0
       ? analysis.frames
       : (synthesis?.frames ?? []);
-
   const analysisProvider =
     analysisPipelineEnabled && analysisStatus === 'success'
       ? resolveAnalysisProviderModel(analysis)
       : null;
-
   const perSourceSummaries =
     analysisPipelineEnabled && analysisStatus === 'success' && analysis
       ? analysis.analyses.filter((e) => e.summary.trim().length > 0)
       : [];
+  const frontRegionId = `news-card-front-${item.topic_id}`;
+  const backRegionId = `news-card-back-region-${item.topic_id}`;
 
-  const openBack = () => {
-    setFlipped(true);
+  const openBack = useCallback(() => {
+    expandCard(item.topic_id);
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
-  };
+  }, [expandCard, item.topic_id, startSynthesisHydration, refreshSynthesisTopic]);
+
+  const collapseBack = useCallback(() => {
+    collapseCard();
+  }, [collapseCard]);
+
+  useEffect(() => {
+    if (!isExpanded) return;
+
+    const handleDocumentKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      collapseCard();
+    };
+
+    document.addEventListener('keydown', handleDocumentKeyDown);
+    return () => document.removeEventListener('keydown', handleDocumentKeyDown);
+  }, [isExpanded, collapseCard]);
+
+  useEffect(() => {
+    return () => {
+      const state = useExpandedCardStore.getState();
+      if (state.expandedStoryId !== item.topic_id) return;
+      state.collapse();
+    };
+  }, [item.topic_id]);
+
+  const handleCardKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLElement>) => {
+      if (event.currentTarget !== event.target) return;
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      event.preventDefault();
+
+      if (isExpanded) {
+        collapseCard();
+        return;
+      }
+
+      openBack();
+    },
+    [isExpanded, collapseCard, openBack],
+  );
+
+  const handleCardClick = useCallback(
+    (event: React.MouseEvent<HTMLElement>) => {
+      if (isExpanded) return;
+      const target = event.target as HTMLElement;
+      if (target.closest('a,button,input,select,textarea,label,[role="button"]')) {
+        return;
+      }
+      openBack();
+    },
+    [isExpanded, openBack],
+  );
 
   return (
     <article
       data-testid={`news-card-${item.topic_id}`}
-      className="relative overflow-hidden rounded-2xl p-5 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-md"
+      className="relative overflow-hidden rounded-2xl p-5 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
       style={{
         backgroundColor: 'var(--headline-card-bg)',
         borderColor: 'var(--headline-card-border)',
@@ -143,9 +187,14 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
         borderStyle: 'solid',
       }}
       aria-label="News story"
+      aria-expanded={isExpanded}
+      aria-controls={isExpanded ? backRegionId : frontRegionId}
+      tabIndex={0}
+      onKeyDown={handleCardKeyDown}
+      onClick={handleCardClick}
     >
-      {!flipped ? (
-        <>
+      {!isExpanded ? (
+        <section id={frontRegionId} data-testid={`news-card-front-${item.topic_id}`}>
           <header className="mb-2 flex items-center justify-between gap-2">
             <span
               className="rounded-full px-2 py-0.5 text-xs font-semibold"
@@ -202,23 +251,25 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
           <p className="mt-3 text-xs" style={{ color: 'var(--headline-card-muted)' }}>
             Click headline to flip →
           </p>
-        </>
+        </section>
       ) : (
-        <NewsCardBack
-          topicId={item.topic_id}
-          summary={summary}
-          frameRows={frameRows}
-          analysisProvider={analysisProvider}
-          perSourceSummaries={perSourceSummaries}
-          analysisFeedbackStatus={analysisFeedbackStatus}
-          analysisError={analysisError}
-          retryAnalysis={retryAnalysis}
-          synthesisLoading={synthesisLoading}
-          synthesisError={synthesisError}
-          analysis={analysis}
-          analysisId={computedAnalysisId}
-          onFlipBack={() => setFlipped(false)}
-        />
+        <section id={backRegionId}>
+          <NewsCardBack
+            topicId={item.topic_id}
+            summary={summary}
+            frameRows={frameRows}
+            analysisProvider={analysisProvider}
+            perSourceSummaries={perSourceSummaries}
+            analysisFeedbackStatus={analysisFeedbackStatus}
+            analysisError={analysisError}
+            retryAnalysis={retryAnalysis}
+            synthesisLoading={synthesisLoading}
+            synthesisError={synthesisError}
+            analysis={analysis}
+            analysisId={computedAnalysisId}
+            onFlipBack={collapseBack}
+          />
+        </section>
       )}
     </article>
   );
