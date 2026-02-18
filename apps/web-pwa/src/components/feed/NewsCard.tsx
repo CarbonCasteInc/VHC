@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StoryBundle } from '@vh/data-model';
+import { FlippableCard } from '../venn/FlippableCard';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { SourceBadgeRow } from './SourceBadgeRow';
@@ -15,20 +16,16 @@ export interface NewsCardProps {
 }
 
 function formatIsoTimestamp(timestampMs: number): string {
-  if (!Number.isFinite(timestampMs) || timestampMs < 0) return 'unknown';
-  return new Date(timestampMs).toISOString();
+  return Number.isFinite(timestampMs) && timestampMs >= 0
+    ? new Date(timestampMs).toISOString()
+    : 'unknown';
 }
-
 function formatHotness(hotness: number): string {
-  if (!Number.isFinite(hotness)) return '0.00';
-  return hotness.toFixed(2);
+  return Number.isFinite(hotness) ? hotness.toFixed(2) : '0.00';
 }
-
 function toSafeTimestamp(value: number): number {
-  if (!Number.isFinite(value) || value < 0) return 0;
-  return Math.floor(value);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
-
 function resolveStoryBundle(
   stories: ReadonlyArray<StoryBundle>,
   item: FeedItem,
@@ -64,10 +61,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const startSynthesisHydration = useStore(useSynthesisStore, (s) => s.startHydration);
   const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
-  const isExpanded = useStore(
-    useExpandedCardStore,
-    (s) => s.expandedStoryId === item.topic_id,
-  );
+  const isExpanded = useStore(useExpandedCardStore, (s) => s.expandedStoryId === item.topic_id);
   const expandCard = useStore(useExpandedCardStore, (s) => s.expand);
   const collapseCard = useStore(useExpandedCardStore, (s) => s.collapse);
   const story = useMemo(() => resolveStoryBundle(stories, item), [stories, item]);
@@ -93,9 +87,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       ? analysisStatus
       : null;
   const summary =
-    (analysisPipelineEnabled &&
-      analysisStatus === 'success' &&
-      analysis?.summary?.trim()) ||
+    (analysisPipelineEnabled && analysisStatus === 'success' && analysis?.summary?.trim()) ||
     synthesis?.facts_summary?.trim() ||
     story?.summary_hint?.trim() ||
     'Summary pending synthesis.';
@@ -121,24 +113,18 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     expandCard(item.topic_id);
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
-  }, [expandCard, item.topic_id, startSynthesisHydration, refreshSynthesisTopic]);
-
-  const collapseBack = useCallback(() => {
-    collapseCard();
-  }, [collapseCard]);
+  }, [expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
 
   useEffect(() => {
     if (!isExpanded) return;
-
     const handleDocumentKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
       collapseCard();
     };
-
     document.addEventListener('keydown', handleDocumentKeyDown);
     return () => document.removeEventListener('keydown', handleDocumentKeyDown);
-  }, [isExpanded, collapseCard]);
+  }, [collapseCard, isExpanded]);
 
   useEffect(() => {
     return () => {
@@ -153,24 +139,20 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       if (event.currentTarget !== event.target) return;
       if (event.key !== 'Enter' && event.key !== ' ') return;
       event.preventDefault();
-
       if (isExpanded) {
         collapseCard();
         return;
       }
-
       openBack();
     },
-    [isExpanded, collapseCard, openBack],
+    [collapseCard, isExpanded, openBack],
   );
 
   const handleCardClick = useCallback(
     (event: React.MouseEvent<HTMLElement>) => {
       if (isExpanded) return;
       const target = event.target as HTMLElement;
-      if (target.closest('a,button,input,select,textarea,label,[role="button"]')) {
-        return;
-      }
+      if (target.closest('a,button,input,select,textarea,label,[role="button"]')) return;
       openBack();
     },
     [isExpanded, openBack],
@@ -193,84 +175,87 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       onKeyDown={handleCardKeyDown}
       onClick={handleCardClick}
     >
-      {!isExpanded ? (
-        <section id={frontRegionId} data-testid={`news-card-front-${item.topic_id}`}>
-          <header className="mb-2 flex items-center justify-between gap-2">
-            <span
-              className="rounded-full px-2 py-0.5 text-xs font-semibold"
-              style={{
-                backgroundColor: 'var(--bias-table-bg)',
-                color: 'var(--headline-card-muted)',
-              }}
+      <FlippableCard
+        front={
+          <section id={frontRegionId} data-testid={`news-card-front-${item.topic_id}`}>
+            <header className="mb-2 flex items-center justify-between gap-2">
+              <span
+                className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                style={{
+                  backgroundColor: 'var(--bias-table-bg)',
+                  color: 'var(--headline-card-muted)',
+                }}
+              >
+                News
+              </span>
+              <span
+                className="text-xs font-medium uppercase tracking-[0.12em]"
+                style={{ color: 'var(--headline-card-muted)' }}
+                data-testid={`news-card-hotness-${item.topic_id}`}
+              >
+                Hotness {formatHotness(item.hotness)}
+              </span>
+            </header>
+            <button
+              type="button"
+              className="mt-1 text-left text-lg font-semibold tracking-[0.01em] underline-offset-2 hover:underline"
+              style={{ color: 'var(--headline-card-text)' }}
+              data-testid={`news-card-headline-${item.topic_id}`}
+              onClick={openBack}
             >
-              News
-            </span>
-            <span
-              className="text-xs font-medium uppercase tracking-[0.12em]"
+              {item.title}
+            </button>
+            {story && story.sources.length > 0 && (
+              <SourceBadgeRow
+                sources={story.sources.map((source) => ({
+                  source_id: source.source_id,
+                  publisher: source.publisher,
+                  url: source.url,
+                }))}
+              />
+            )}
+            <p
+              className="mt-2 text-xs uppercase tracking-[0.18em]"
               style={{ color: 'var(--headline-card-muted)' }}
-              data-testid={`news-card-hotness-${item.topic_id}`}
             >
-              Hotness {formatHotness(item.hotness)}
-            </span>
-          </header>
-
-          <button
-            type="button"
-            className="mt-1 text-left text-lg font-semibold tracking-[0.01em] underline-offset-2 hover:underline"
-            style={{ color: 'var(--headline-card-text)' }}
-            data-testid={`news-card-headline-${item.topic_id}`}
-            onClick={openBack}
-          >
-            {item.title}
-          </button>
-
-          {story && story.sources.length > 0 && (
-            <SourceBadgeRow
-              sources={story.sources.map((source) => ({
-                source_id: source.source_id,
-                publisher: source.publisher,
-                url: source.url,
-              }))}
+              Created {createdAt} • Updated {latestActivity}
+            </p>
+            <FeedEngagement
+              topicId={item.topic_id}
+              eye={item.eye}
+              lightbulb={item.lightbulb}
+              comments={item.comments}
             />
-          )}
-
-          <p
-            className="mt-2 text-xs uppercase tracking-[0.18em]"
-            style={{ color: 'var(--headline-card-muted)' }}
-          >
-            Created {createdAt} • Updated {latestActivity}
-          </p>
-
-          <FeedEngagement
-            topicId={item.topic_id}
-            eye={item.eye}
-            lightbulb={item.lightbulb}
-            comments={item.comments}
-          />
-
-          <p className="mt-3 text-xs" style={{ color: 'var(--headline-card-muted)' }}>
-            Click headline to flip →
-          </p>
-        </section>
-      ) : (
-        <section id={backRegionId}>
-          <NewsCardBack
-            topicId={item.topic_id}
-            summary={summary}
-            frameRows={frameRows}
-            analysisProvider={analysisProvider}
-            perSourceSummaries={perSourceSummaries}
-            analysisFeedbackStatus={analysisFeedbackStatus}
-            analysisError={analysisError}
-            retryAnalysis={retryAnalysis}
-            synthesisLoading={synthesisLoading}
-            synthesisError={synthesisError}
-            analysis={analysis}
-            analysisId={computedAnalysisId}
-            onFlipBack={collapseBack}
-          />
-        </section>
-      )}
+            <p className="mt-3 text-xs" style={{ color: 'var(--headline-card-muted)' }}>
+              Click headline to flip →
+            </p>
+          </section>
+        }
+        back={
+          <section id={backRegionId}>
+            {isExpanded ? (
+              <NewsCardBack
+                topicId={item.topic_id}
+                summary={summary}
+                frameRows={frameRows}
+                analysisProvider={analysisProvider}
+                perSourceSummaries={perSourceSummaries}
+                analysisFeedbackStatus={analysisFeedbackStatus}
+                analysisError={analysisError}
+                retryAnalysis={retryAnalysis}
+                synthesisLoading={synthesisLoading}
+                synthesisError={synthesisError}
+                analysis={analysis}
+                analysisId={computedAnalysisId}
+                onFlipBack={collapseCard}
+              />
+            ) : null}
+          </section>
+        }
+        isFlipped={isExpanded}
+        onFlip={isExpanded ? collapseCard : openBack}
+        showDefaultControls={false}
+      />
     </article>
   );
 };

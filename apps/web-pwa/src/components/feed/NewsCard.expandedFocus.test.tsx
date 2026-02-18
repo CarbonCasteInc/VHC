@@ -31,6 +31,22 @@ const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
 
 const NOW = 1_700_000_000_000;
 
+const setMatchMedia = (matches: boolean) => {
+  Object.defineProperty(window, 'matchMedia', {
+    writable: true,
+    value: vi.fn().mockImplementation((query: string) => ({
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  });
+};
+
 function makeNewsItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
     topic_id: 'news-1',
@@ -196,5 +212,44 @@ describe('NewsCard expanded focus behavior', () => {
     expect(screen.queryByTestId('news-card-back-news-1')).not.toBeInTheDocument();
     expect(screen.getByTestId('news-card-news-1')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByTestId('news-card-news-2')).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('applies rotateY flip transforms and hides default flippable controls', async () => {
+    setMatchMedia(false);
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    const frontFace = screen.getByTestId('flip-front');
+    const backFace = screen.getByTestId('flip-back');
+
+    expect(screen.queryByTestId('flip-to-forum')).not.toBeInTheDocument();
+    expect(frontFace).toHaveStyle({ transform: 'rotateY(0deg)' });
+    expect(backFace).toHaveStyle({ transform: 'rotateY(180deg)' });
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('news-card-back-news-1')).toBeInTheDocument();
+
+    expect(frontFace).toHaveStyle({ transform: 'rotateY(-180deg)' });
+    expect(backFace).toHaveStyle({ transform: 'rotateY(0deg)' });
+  });
+
+  it('uses reduced-motion instant swap without 3D transforms', async () => {
+    setMatchMedia(true);
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    const frontFace = screen.getByTestId('flip-front');
+    const backFace = screen.getByTestId('flip-back');
+
+    expect(frontFace).toHaveStyle({ transform: 'none', display: 'block', transition: 'none' });
+    expect(backFace).toHaveStyle({ transform: 'none', display: 'none', transition: 'none' });
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('news-card-back-news-1')).toBeInTheDocument();
+
+    expect(frontFace).toHaveStyle({ display: 'none' });
+    expect(backFace).toHaveStyle({ display: 'block' });
   });
 });
