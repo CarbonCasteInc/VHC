@@ -26,6 +26,12 @@ function formatHotness(hotness: number): string {
 function toSafeTimestamp(value: number): number {
   return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
+
+function toCardInstanceKey(item: FeedItem): string {
+  const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
+  return `${item.topic_id}|${toSafeTimestamp(item.created_at)}|${normalizedTitle}`;
+}
+
 function resolveStoryBundle(
   stories: ReadonlyArray<StoryBundle>,
   item: FeedItem,
@@ -61,7 +67,14 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const startSynthesisHydration = useStore(useSynthesisStore, (s) => s.startHydration);
   const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
-  const isExpanded = useStore(useExpandedCardStore, (s) => s.expandedStoryId === item.topic_id);
+  const cardInstanceKey = useMemo(
+    () => toCardInstanceKey(item),
+    [item.created_at, item.title, item.topic_id],
+  );
+  const isExpanded = useStore(
+    useExpandedCardStore,
+    (s) => s.expandedStoryId === cardInstanceKey,
+  );
   const expandCard = useStore(useExpandedCardStore, (s) => s.expand);
   const collapseCard = useStore(useExpandedCardStore, (s) => s.collapse);
   const story = useMemo(() => resolveStoryBundle(stories, item), [stories, item]);
@@ -110,10 +123,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const backRegionId = `news-card-back-region-${item.topic_id}`;
 
   const openBack = useCallback(() => {
-    expandCard(item.topic_id);
+    expandCard(cardInstanceKey);
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
-  }, [expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
+  }, [cardInstanceKey, expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
 
   useEffect(() => {
     if (!isExpanded) return;
@@ -129,10 +142,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   useEffect(() => {
     return () => {
       const state = useExpandedCardStore.getState();
-      if (state.expandedStoryId !== item.topic_id) return;
+      if (state.expandedStoryId !== cardInstanceKey) return;
       state.collapse();
     };
-  }, [item.topic_id]);
+  }, [cardInstanceKey]);
 
   const handleCardKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
