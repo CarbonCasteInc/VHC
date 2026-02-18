@@ -291,6 +291,25 @@ describe('analysisRelay config + success paths', () => {
     expect(body.model).toBe('gpt-4o');
   });
 
+  it('forwards codex-auth model override from article request to upstream', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: validAnalysisContent('Codex override test') }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        articleText: 'Topic ID: topic-codex\nBody text',
+        model: 'openai-codex/gpt-5.2-codex',
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('openai-codex/gpt-5.2-codex');
+  });
+
   it('uses default model when article request has no model field', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       okResponse({ content: validAnalysisContent('No model override') }),

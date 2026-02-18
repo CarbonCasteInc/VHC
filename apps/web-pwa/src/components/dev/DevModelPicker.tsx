@@ -17,6 +17,7 @@ function emitModelChangedEvent(model: string | null): void {
 
 const MODEL_OPTIONS = [
   { value: '', label: 'Auto / Default' },
+  { value: 'openai-codex/gpt-5.2-codex', label: 'gpt-5.2 (codex auth)' },
   { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
   { value: 'gpt-4o', label: 'gpt-4o' },
   { value: 'gpt-4-turbo', label: 'gpt-4-turbo' },
@@ -70,7 +71,8 @@ export const DevModelPicker: React.FC = () => {
 
   const toggle = useCallback(() => setExpanded((prev) => !prev), []);
 
-  const displayLabel = model || 'default';
+  const selectedOption = MODEL_OPTIONS.find((option) => option.value === model);
+  const displayLabel = model ? (selectedOption?.label ?? model) : 'default';
 
   return (
     <div
