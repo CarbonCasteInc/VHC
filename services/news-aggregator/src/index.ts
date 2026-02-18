@@ -51,11 +51,12 @@ export { orchestrateNewsPipeline } from './orchestrator';
 export type { PipelineConfig, PipelineResult } from './orchestrator';
 
 export {
-  DEFAULT_MODEL,
   MAX_TOKENS,
   TEMPERATURE,
   RATE_LIMIT_PER_MIN,
   RATE_WINDOW_MS,
+  getRelayModel,
+  resolveTokenParam,
   checkRateLimit,
   resetRateLimits,
   buildOpenAIChatRequest,

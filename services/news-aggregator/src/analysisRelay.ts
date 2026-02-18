@@ -2,11 +2,19 @@ import type { Request, Response } from 'express';
 import { AnalysisResultSchema } from '@vh/ai-engine';
 import { GOALS_AND_GUIDELINES, PRIMARY_OUTPUT_FORMAT_REQ } from '@vh/ai-engine';
 
-export const DEFAULT_MODEL = 'gpt-4o-mini';
 export const MAX_TOKENS = 3000;
 export const TEMPERATURE = 0.3;
 export const RATE_LIMIT_PER_MIN = 10;
 export const RATE_WINDOW_MS = 60_000;
+
+export function getRelayModel(): string {
+  return process.env.ANALYSIS_RELAY_MODEL || process.env.VITE_ANALYSIS_MODEL || 'gpt-4o-mini';
+}
+
+export function resolveTokenParam(model: string): 'max_completion_tokens' | 'max_tokens' {
+  if (/^(gpt-5|o1|o3)/i.test(model)) return 'max_completion_tokens';
+  return 'max_tokens';
+}
 
 // Rate limiting
 const rateLimits = new Map<string, { count: number; resetAt: number }>();
@@ -54,13 +62,16 @@ function buildSystemPrompt(): string {
 }
 
 export function buildOpenAIChatRequest(articleText: string, model?: string) {
+  const usedModel = model || getRelayModel();
+  const tokenParam = resolveTokenParam(usedModel);
+
   return {
-    model: model || DEFAULT_MODEL,
+    model: usedModel,
     messages: [
       { role: 'system' as const, content: buildSystemPrompt() },
       { role: 'user' as const, content: `Analyze this news article:\n\n${articleText}` },
     ],
-    max_tokens: MAX_TOKENS,
+    [tokenParam]: MAX_TOKENS,
     temperature: TEMPERATURE,
     response_format: { type: 'json_object' as const },
   };
@@ -88,8 +99,8 @@ export async function handleAnalyze(req: Request, res: Response): Promise<void> 
     return;
   }
 
-  const requestBody = buildOpenAIChatRequest(articleText.trim(), model);
-  const usedModel = requestBody.model;
+  const usedModel = model || getRelayModel();
+  const requestBody = buildOpenAIChatRequest(articleText.trim(), usedModel);
 
   try {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
