@@ -12,14 +12,21 @@ import {
   synthesizeStoryFromAnalysisPipeline,
   type NewsCardAnalysisSynthesis,
 } from './newsCardAnalysis';
+import * as DevModelPickerModule from '../dev/DevModelPicker';
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn(),
 }));
+vi.mock('../dev/DevModelPicker', () => ({
+  DEV_MODEL_CHANGED_EVENT: 'vh:dev-model-changed',
+  getDevModelOverride: vi.fn(),
+}));
+
 const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
   synthesizeStoryFromAnalysisPipeline,
 );
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
+const mockGetDevModelOverride = vi.mocked(DevModelPickerModule.getDevModelOverride);
 const NOW = 1_700_000_000_000;
 function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
@@ -84,6 +91,8 @@ describe('useAnalysis', () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
     mockGetCachedSynthesisForStory.mockReset();
+    mockGetDevModelOverride.mockReset();
+    mockGetDevModelOverride.mockReturnValue(null);
     mockGetCachedSynthesisForStory.mockReturnValue(null);
   });
   afterEach(() => {
@@ -128,6 +137,34 @@ describe('useAnalysis', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledWith(story);
     expect(result.current.analysis?.summary).toContain('Balanced summary');
+  });
+
+  it('re-runs analysis when the global dev model changes', async () => {
+    const story = makeStoryBundle();
+    mockSynthesizeStoryFromAnalysisPipeline
+      .mockResolvedValueOnce(makeAnalysis({ summary: 'Default model analysis.' }))
+      .mockResolvedValueOnce(makeAnalysis({ summary: 'gpt-4o analysis.' }));
+
+    const { result } = renderHook(() => useAnalysis(story, true));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+    expect(result.current.analysis?.summary).toBe('Default model analysis.');
+    expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+
+    mockGetDevModelOverride.mockReturnValue('gpt-4o');
+    act(() => {
+      window.dispatchEvent(new CustomEvent('vh:dev-model-changed'));
+    });
+
+    await waitFor(() => {
+      expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+    expect(result.current.analysis?.summary).toBe('gpt-4o analysis.');
   });
   it('returns cached result immediately on re-trigger', async () => {
     const story = makeStoryBundle();

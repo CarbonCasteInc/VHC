@@ -5,6 +5,10 @@ import {
   synthesizeStoryFromAnalysisPipeline,
   type NewsCardAnalysisSynthesis,
 } from './newsCardAnalysis';
+import {
+  DEV_MODEL_CHANGED_EVENT,
+  getDevModelOverride,
+} from '../dev/DevModelPicker';
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
 const ANALYSIS_BUDGET_KEY = 'vh_analysis_budget';
@@ -37,6 +41,11 @@ function isAnalysisPipelineEnabled(): boolean {
 
 function todayIsoDate(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function getModelScopeKey(): string {
+  const model = getDevModelOverride();
+  return model ? `model:${model}` : 'model:default';
 }
 
 function readBudgetState(): AnalysisBudgetState {
@@ -101,12 +110,12 @@ export function recordAnalysis(): void {
   });
 }
 
-function toStoryCacheKey(story: StoryBundle | null): string | null {
+function toStoryCacheKey(story: StoryBundle | null, modelScopeKey: string): string | null {
   if (!story) {
     return null;
   }
 
-  return `${story.story_id}:${story.provenance_hash}`;
+  return `${story.story_id}:${story.provenance_hash}:${modelScopeKey}`;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -122,11 +131,28 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
   const [status, setStatus] = useState<AnalysisStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
+  const [modelScopeKey, setModelScopeKey] = useState(getModelScopeKey);
 
   const pipelineEnabled = isAnalysisPipelineEnabled();
+
+  useEffect(() => {
+    const syncModelScope = () => {
+      setModelScopeKey(getModelScopeKey());
+    };
+
+    syncModelScope();
+    window.addEventListener(DEV_MODEL_CHANGED_EVENT, syncModelScope);
+    window.addEventListener('storage', syncModelScope);
+
+    return () => {
+      window.removeEventListener(DEV_MODEL_CHANGED_EVENT, syncModelScope);
+      window.removeEventListener('storage', syncModelScope);
+    };
+  }, []);
+
   const storyKey = useMemo(
-    () => toStoryCacheKey(story),
-    [story?.story_id, story?.provenance_hash],
+    () => toStoryCacheKey(story, modelScopeKey),
+    [story?.story_id, story?.provenance_hash, modelScopeKey],
   );
   const stableStory = useMemo(
     () => story,

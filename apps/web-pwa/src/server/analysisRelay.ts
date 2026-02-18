@@ -1,6 +1,6 @@
 import { buildRemoteRequest } from '../../../../packages/ai-engine/src/modelConfig';
-import { buildPrompt } from '../../../../packages/ai-engine/src/prompts';
 import { parseAnalysisResponse, type AnalysisResult } from '../../../../packages/ai-engine/src/schema';
+import { buildLegacyVhcArticlePrompt } from './legacyPrompt';
 
 const DEFAULT_ANALYSES_LIMIT = 25;
 const DEFAULT_ANALYSES_PER_TOPIC_LIMIT = 5;
@@ -250,7 +250,7 @@ export async function relayAnalysis(
   }
 
   const baseRequest = articleRequest
-    ? buildRemoteRequest(buildPrompt(articleRequest.articleText))
+    ? buildRemoteRequest(buildLegacyVhcArticlePrompt(articleRequest.articleText))
     : buildRemoteRequest(promptRequest!.prompt);
 
   const upstreamRequest = {

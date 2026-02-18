@@ -86,6 +86,11 @@ describe('newsCardAnalysis', () => {
     __resetNewsCardAnalysisCacheForTests();
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it('analyzes at most 3 sources and synthesizes summary + frame rows', async () => {
     const story = makeStoryBundle();
     const runAnalysis = async (articleText: string) => {
@@ -168,6 +173,25 @@ describe('newsCardAnalysis', () => {
         reframe: 'Existing transit authority can absorb phased changes.',
       },
     ]);
+  });
+
+  it('uses model-scoped cache key derivation', () => {
+    const story = makeStoryBundle();
+
+    const modelOverrideSpy = vi
+      .spyOn(DevModelPickerModule, 'getDevModelOverride')
+      .mockReturnValue(null);
+
+    const defaultScope = newsCardAnalysisInternal.getAnalysisModelScopeKey();
+    const defaultKey = newsCardAnalysisInternal.toStoryCacheKey(story);
+
+    modelOverrideSpy.mockReturnValue('gpt-4o');
+    const overriddenScope = newsCardAnalysisInternal.getAnalysisModelScopeKey();
+    const overriddenKey = newsCardAnalysisInternal.toStoryCacheKey(story);
+
+    expect(defaultScope).toBe('model:default');
+    expect(overriddenScope).toBe('model:gpt-4o');
+    expect(defaultKey).not.toBe(overriddenKey);
   });
 
   it('includes source/article metadata in analysis input payload', () => {

@@ -1,6 +1,19 @@
 import React, { useCallback, useEffect, useState } from 'react';
 
 const LS_KEY = 'vh_dev_model_override';
+export const DEV_MODEL_CHANGED_EVENT = 'vh:dev-model-changed';
+
+function emitModelChangedEvent(model: string | null): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(DEV_MODEL_CHANGED_EVENT, {
+      detail: { model },
+    }),
+  );
+}
 
 const MODEL_OPTIONS = [
   { value: '', label: 'Auto / Default' },
@@ -51,6 +64,8 @@ export const DevModelPicker: React.FC = () => {
     } catch {
       /* storage unavailable */
     }
+
+    emitModelChangedEvent(value || null);
   }, []);
 
   const toggle = useCallback(() => setExpanded((prev) => !prev), []);

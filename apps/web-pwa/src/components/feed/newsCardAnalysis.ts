@@ -39,8 +39,13 @@ const synthesisCache = new Map<string, Promise<NewsCardAnalysisSynthesis>>();
 const resolvedSynthesisCache = new Map<string, NewsCardAnalysisSynthesis>();
 const articleTextCache = new Map<string, Promise<string>>();
 
+function getAnalysisModelScopeKey(): string {
+  const model = getDevModelOverride();
+  return model ? `model:${model}` : 'model:default';
+}
+
 function toStoryCacheKey(story: StoryBundle): string {
-  return `${story.story_id}:${story.provenance_hash}`;
+  return `${story.story_id}:${story.provenance_hash}:${getAnalysisModelScopeKey()}`;
 }
 
 function readArticleTextResponse(
@@ -303,9 +308,11 @@ export function __resetNewsCardAnalysisCacheForTests(): void {
 export const newsCardAnalysisInternal = {
   buildAnalysisInput,
   firstSentence,
+  getAnalysisModelScopeKey,
   runAnalysisViaRelay,
   selectSourcesForAnalysis,
   synthesizeSummary,
   toFrameRows,
   toSourceAnalysis,
+  toStoryCacheKey,
 };

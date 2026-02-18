@@ -54,6 +54,18 @@ describe('DevModelPicker', () => {
     expect(screen.getByTestId('dev-model-picker-toggle')).toHaveTextContent('gpt-4o');
   });
 
+  it('dispatches a global model-change event when selection changes', () => {
+    const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
+    render(<DevModelPicker />);
+    fireEvent.click(screen.getByTestId('dev-model-picker-toggle'));
+    const select = screen.getByTestId('dev-model-picker-select');
+
+    fireEvent.change(select, { target: { value: 'gpt-4o' } });
+    expect(dispatchSpy).toHaveBeenCalled();
+    expect(dispatchSpy.mock.calls.at(-1)?.[0]).toMatchObject({ type: 'vh:dev-model-changed' });
+    dispatchSpy.mockRestore();
+  });
+
   it('"Auto/Default" clears localStorage', () => {
     localStorage.setItem('vh_dev_model_override', 'gpt-4o');
     render(<DevModelPicker />);
