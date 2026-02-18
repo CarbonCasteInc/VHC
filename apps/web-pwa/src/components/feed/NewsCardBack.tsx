@@ -25,6 +25,7 @@ export interface NewsCardBackProps {
   readonly synthesisLoading: boolean;
   readonly synthesisError: string | null;
   readonly analysis: NewsCardAnalysisSynthesis | null;
+  readonly analysisId?: string | null;
   readonly onFlipBack: () => void;
 }
 
@@ -48,9 +49,11 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   synthesisLoading,
   synthesisError,
   analysis,
+  analysisId,
   onFlipBack,
 }) => {
   const biasTableV2 = isBiasTableV2Enabled();
+  const votingEnabled = biasTableV2;
 
   return (
     <div data-testid={`news-card-back-${topicId}`} className="space-y-3">
@@ -142,6 +145,9 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               frames={frameRows}
               providerLabel={analysisProvider ?? undefined}
               loading={synthesisLoading && frameRows.length === 0}
+              topicId={topicId}
+              analysisId={analysisId ?? undefined}
+              votingEnabled={votingEnabled}
             />
           </div>
         ) : (
