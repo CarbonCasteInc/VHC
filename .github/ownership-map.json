@@ -46,6 +46,7 @@
       "apps/web-pwa/src/components/hermes/FamiliarControlPanel*.tsx",
       "apps/web-pwa/src/components/hermes/CommunityReactionSummary*.tsx",
       "apps/web-pwa/src/components/hermes/forum/VoteControl*.tsx",
+      "apps/web-pwa/src/test-utils/**",
       ".github/ownership-map.json"
     ]
   },
