@@ -256,6 +256,10 @@ describe('analysisRelay config + success paths', () => {
       kind: 'remote',
     });
     expect(result.payload.budget).toEqual({ analyses: 1, analyses_per_topic: 1 });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.prompt).toContain('You are VHC.Legacy, the canonical analysis path for article synthesis.');
   });
 
   it('uses explicit topicId for article requests when provided', async () => {
