@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { afterEach, describe, expect, it, beforeEach, vi } from 'vitest';
 import type { StoryBundle } from '@vh/data-model';
 import {
   __resetNewsCardAnalysisCacheForTests,
@@ -6,6 +6,7 @@ import {
   synthesizeStoryFromAnalysisPipeline,
 } from './newsCardAnalysis';
 import type { AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
+import * as DevModelPickerModule from '../dev/DevModelPicker';
 
 const NOW = 1_700_000_000_000;
 
@@ -265,5 +266,44 @@ describe('newsCardAnalysis', () => {
     expect(mapped.justifyBiasClaims).toEqual(['just-1']);
     expect(mapped.biases).toEqual(['B1']);
     expect(mapped.counterpoints).toEqual(['C1']);
+  });
+
+  describe('runAnalysisViaRelay model threading', () => {
+    let fetchSpy: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      fetchSpy = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({
+          analysis: makeAnalysis({ summary: 'Relay result.' }),
+        }),
+      });
+      vi.stubGlobal('fetch', fetchSpy);
+    });
+
+    afterEach(() => {
+      vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    it('includes model in request body when dev override is set', async () => {
+      vi.spyOn(DevModelPickerModule, 'getDevModelOverride').mockReturnValue('gpt-4o');
+      await newsCardAnalysisInternal.runAnalysisViaRelay('test text');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body));
+      expect(body.model).toBe('gpt-4o');
+      expect(body.articleText).toBe('test text');
+    });
+
+    it('omits model field when no dev override is set', async () => {
+      vi.spyOn(DevModelPickerModule, 'getDevModelOverride').mockReturnValue(null);
+      await newsCardAnalysisInternal.runAnalysisViaRelay('test text');
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const [, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
+      const body = JSON.parse(String(init.body));
+      expect(body).not.toHaveProperty('model');
+      expect(body.articleText).toBe('test text');
+    });
   });
 });

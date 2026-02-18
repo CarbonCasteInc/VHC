@@ -1,10 +1,14 @@
 import './e2e-init';
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import ReactDOM from 'react-dom/client';
 import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { routeTree } from './routes';
 import './index.css';
 import { ThemeProvider } from './components/ThemeProvider';
+
+const DevModelPicker = import.meta.env.DEV
+  ? lazy(() => import('./components/dev/DevModelPicker'))
+  : null;
 
 console.info('[vh:web-pwa] main.tsx executing, mounting router...');
 
@@ -23,6 +27,11 @@ if (root) {
     <React.StrictMode>
       <ThemeProvider>
         <RouterProvider router={router} />
+        {DevModelPicker && (
+          <Suspense fallback={null}>
+            <DevModelPicker />
+          </Suspense>
+        )}
       </ThemeProvider>
     </React.StrictMode>
   );

@@ -3,6 +3,7 @@ import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 import { AnalysisLoadingState } from './AnalysisLoadingState';
 import { BiasTable } from './BiasTable';
 import { RemovalIndicator } from './RemovalIndicator';
+import { getDevModelOverride } from '../dev/DevModelPicker';
 
 export interface NewsCardBackProps {
   readonly topicId: string;
@@ -90,6 +91,11 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               data-testid={`news-card-analysis-provider-${topicId}`}
             >
               Analysis by {analysisProvider}
+              {import.meta.env.DEV && getDevModelOverride() && (
+                <span className="ml-1 text-violet-600 font-semibold" data-testid={`dev-model-badge-${topicId}`}>
+                  [DEV: {getDevModelOverride()}]
+                </span>
+              )}
             </p>
           )}
 
