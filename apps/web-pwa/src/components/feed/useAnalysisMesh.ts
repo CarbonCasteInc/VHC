@@ -1,0 +1,148 @@
+import {
+  deriveAnalysisKey,
+  type StoryAnalysisArtifact,
+  type StoryBundle,
+} from '@vh/data-model';
+import { readLatestAnalysis, writeAnalysis } from '@vh/gun-client';
+import { resolveClientFromAppStore } from '../../store/clientResolver';
+import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
+
+const ANALYSIS_PIPELINE_VERSION = 'news-card-analysis-v1';
+
+function ensureNonEmpty(value: string | undefined | null, fallback: string): string {
+  const normalized = value?.trim();
+  return normalized && normalized.length > 0 ? normalized : fallback;
+}
+
+function toSynthesis(artifact: StoryAnalysisArtifact): NewsCardAnalysisSynthesis {
+  return {
+    summary: artifact.summary,
+    frames: artifact.frames.map((row) => ({
+      frame: row.frame,
+      reframe: row.reframe,
+    })),
+    analyses: artifact.analyses.map((entry) => ({
+      source_id: entry.source_id,
+      publisher: entry.publisher,
+      url: entry.url,
+      summary: entry.summary,
+      biases: entry.biases,
+      counterpoints: entry.counterpoints,
+      biasClaimQuotes: entry.biasClaimQuotes,
+      justifyBiasClaims: entry.justifyBiasClaims,
+      provider_id: entry.provider_id,
+      model_id: entry.model_id,
+    })),
+  };
+}
+
+async function toArtifact(
+  story: StoryBundle,
+  synthesis: NewsCardAnalysisSynthesis,
+  modelScopeKey: string,
+): Promise<StoryAnalysisArtifact> {
+  const analysisKey = await deriveAnalysisKey({
+    story_id: story.story_id,
+    provenance_hash: story.provenance_hash,
+    pipeline_version: ANALYSIS_PIPELINE_VERSION,
+    model_scope: modelScopeKey,
+  });
+
+  const firstProvider = synthesis.analyses.find(
+    (analysis) => analysis.provider_id?.trim() || analysis.model_id?.trim(),
+  );
+
+  return {
+    schemaVersion: 'story-analysis-v1',
+    story_id: story.story_id,
+    topic_id: story.topic_id,
+    provenance_hash: story.provenance_hash,
+    analysisKey,
+    pipeline_version: ANALYSIS_PIPELINE_VERSION,
+    model_scope: modelScopeKey,
+    summary: ensureNonEmpty(synthesis.summary, 'Summary unavailable.'),
+    frames: synthesis.frames.map((row) => ({
+      frame: ensureNonEmpty(row.frame, 'Frame unavailable.'),
+      reframe: ensureNonEmpty(row.reframe, 'Reframe unavailable.'),
+    })),
+    analyses: synthesis.analyses.map((entry) => ({
+      source_id: ensureNonEmpty(entry.source_id, story.story_id),
+      publisher: ensureNonEmpty(entry.publisher, 'Unknown publisher'),
+      url: ensureNonEmpty(entry.url, 'https://example.invalid/analysis'),
+      summary: ensureNonEmpty(entry.summary, 'Summary unavailable.'),
+      biases: entry.biases
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+      counterpoints: entry.counterpoints
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+      biasClaimQuotes: entry.biasClaimQuotes
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+      justifyBiasClaims: entry.justifyBiasClaims
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+      provider_id: entry.provider_id?.trim() || undefined,
+      model_id: entry.model_id?.trim() || undefined,
+    })),
+    provider: {
+      provider_id: ensureNonEmpty(firstProvider?.provider_id, 'unknown-provider'),
+      model: ensureNonEmpty(firstProvider?.model_id, 'unknown-model'),
+      timestamp: Date.now(),
+    },
+    created_at: new Date().toISOString(),
+  };
+}
+
+export async function readMeshAnalysis(
+  story: StoryBundle,
+  modelScopeKey: string,
+): Promise<NewsCardAnalysisSynthesis | null> {
+  const client = resolveClientFromAppStore();
+  if (!client) {
+    return null;
+  }
+
+  try {
+    const artifact = await readLatestAnalysis(client, story.story_id);
+    if (!artifact) {
+      return null;
+    }
+
+    if (artifact.provenance_hash !== story.provenance_hash) {
+      return null;
+    }
+
+    if (artifact.model_scope !== modelScopeKey) {
+      return null;
+    }
+
+    return toSynthesis(artifact);
+  } catch (error) {
+    console.warn('[vh:analysis] mesh read failed; falling back to pipeline', error);
+    return null;
+  }
+}
+
+export async function writeMeshAnalysis(
+  story: StoryBundle,
+  synthesis: NewsCardAnalysisSynthesis,
+  modelScopeKey: string,
+): Promise<void> {
+  const client = resolveClientFromAppStore();
+  if (!client) {
+    return;
+  }
+
+  try {
+    const artifact = await toArtifact(story, synthesis, modelScopeKey);
+    await writeAnalysis(client, artifact);
+  } catch (error) {
+    console.warn('[vh:analysis] mesh write failed; continuing with local analysis result', error);
+  }
+}
+
+export const analysisMeshInternal = {
+  toArtifact,
+  toSynthesis,
+};
