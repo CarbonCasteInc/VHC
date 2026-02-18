@@ -20,7 +20,7 @@ export const AnalysisSchema = z.object({
   summary: z.string().min(1),
   biases: z.array(z.string().min(1)),
   counterpoints: z.array(z.string().min(1)),
-  sentimentScore: z.number().min(-1).max(1),
+  sentimentScore: z.number().min(-1).max(1).default(0),
   timestamp: z.number().int().nonnegative()
 });
 
@@ -54,7 +54,7 @@ export const CanonicalAnalysisSchema = z.object({
       reframe: z.string()
     })
   ).optional(),
-  sentimentScore: z.number().min(-1).max(1),
+  sentimentScore: z.number().min(-1).max(1).default(0),
   confidence: z.number().min(0).max(1).optional(),
   engine: z.object({
     id: z.string(),

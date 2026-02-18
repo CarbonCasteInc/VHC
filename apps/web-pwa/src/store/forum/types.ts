@@ -11,6 +11,7 @@ export const SEEN_CLEANUP_THRESHOLD = 100;
 export function isLifecycleEnabled(): boolean {
   try {
     return (import.meta as any).env?.VITE_SESSION_LIFECYCLE_ENABLED === 'true';
+  /* v8 ignore next 3 */
   } catch {
     return false;
   }

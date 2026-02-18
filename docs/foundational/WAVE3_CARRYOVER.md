@@ -5,11 +5,14 @@
 **Decision Date:** 2026-02-13
 **Source:** Wave 2 closeout assessment
 
+> **Updated 2026-02-15:** All 5 deferred items have been implemented and merged
+> to `main` during Waves 3–4 (PRs #229–#259). Items marked ✅ LANDED below.
+
 ---
 
 ## Deferred Items
 
-### 1. W2-Gamma Phase 4: Receipt-in-Feed
+### 1. W2-Gamma Phase 4: Receipt-in-Feed — ✅ LANDED (Waves 2–3)
 
 **Original scope:** Elevation action receipts rendered as feed cards in the unified discovery feed.
 
@@ -35,7 +38,7 @@
 
 ---
 
-### 2. SoT Delta F: Representative Directory + Native Intents
+### 2. SoT Delta F: Representative Directory + Native Intents — ✅ LANDED (Waves 2–3)
 
 **Original scope:** Civic signal → value rails. Representative directory with native forwarding intents for civic action delivery.
 
@@ -60,7 +63,7 @@
 
 ---
 
-### 3. CollabEditor Runtime Wiring
+### 3. CollabEditor Runtime Wiring — ✅ LANDED (Wave 3)
 
 **Original scope:** Multi-author collaborative editing in the active article editor path.
 

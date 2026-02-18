@@ -1,8 +1,8 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-14
+**Last Updated:** 2026-02-18
 **Version:** 0.7.0 (Wave 4 Complete — LUMA Trust Constants, Session Lifecycle, Constituency Proof Verification)
-**Assessment:** Pre-production prototype, Wave 4 complete on integration/wave-4 (LUMA identity hardening). Pending 3-day integration pass before merge to main.
+**Assessment:** Pre-production prototype, Wave 4 complete and merged to main (LUMA identity hardening). All integration branches merged.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -58,7 +58,7 @@ Wave 2 delivered the following features across 3 workstreams and 36 PRs to `inte
 - E2E bypass: `VITE_E2E_MODE=true` → `MockGunYjsProvider` (no Yjs/Gun init)
 - 204 new tests, 100% line+branch coverage on all touched modules
 
-> **Note:** Stage 2 is foundation-only. `CollabEditor` is built and tested but NOT wired into the active `ArticleEditor` path. Runtime wiring is Wave 3 scope (see `WAVE3_CARRYOVER.md`).
+> **Note:** `CollabEditor` is wired into the active `ArticleEditor` path via lazy-load + `useEditorMode` hook (Wave 3). Flag-gated by `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED`.
 
 ### W2-Gamma Phase 1 — Linked-Social Substrate (PR #207)
 - Schema convergence: `LinkedSocialAccount` and `SocialNotification` with strict Zod validation
@@ -105,16 +105,26 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 |------|---------|---------|------|
 | `VITE_FEED_V2_ENABLED` | Gates discovery feed v2 UI | `false` | 1 |
 | `VITE_TOPIC_SYNTHESIS_V2_ENABLED` | Gates synthesis v2 hooks | `false` | 1 |
+| `VITE_NEWS_BRIDGE_ENABLED` | Gates news store → discovery feed bridge bootstrap | `false` | 1 |
+| `VITE_SYNTHESIS_BRIDGE_ENABLED` | Gates synthesis store → discovery feed bridge bootstrap | `false` | 1 |
+| `VITE_NEWS_RUNTIME_ENABLED` | Gates ai-engine news runtime bootstrap in app init | `false` | 1 |
+| `VITE_NEWS_FEED_SOURCES` | JSON override for runtime feed source list | empty (`[]`) | 1 |
+| `VITE_NEWS_TOPIC_MAPPING` | JSON override for runtime topic mapping | empty (defaults to `topic-news`) | 1 |
+| `VITE_NEWS_POLL_INTERVAL_MS` | Runtime polling cadence override (ms) | empty (defaults to 30m) | 1 |
+| `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
+| `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine endpoint opt-in | empty | 1 |
+| `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5.2` | 1 |
+| `VITE_REMOTE_API_KEY` | Auth key for remote analysis requests | empty | 1 |
 | `VITE_HERMES_DOCS_ENABLED` | Gates HERMES Docs store + article editor | `false` | 2 |
 | `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |
 | `VITE_LINKED_SOCIAL_ENABLED` | Gates linked-social notification pipeline | `false` | 2 |
 | `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
-| `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
-| `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine opt-in | empty | 1 |
+| `VITE_INVITE_ONLY_ENABLED` | Gates route-level invite-only mode | `true` | 2 |
 | `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
 | `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
+| `VITE_VH_BIAS_TABLE_V2` | Gates per-cell sentiment voting on BiasTable | `false` | Post-4 |
 
-All features through Wave 4 are flag-gated. Default false. Legacy behavior preserved when flags are off.
+Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean config/env values default to empty input with code-level fallbacks.
 
 ---
 
@@ -134,20 +144,20 @@ All features through Wave 4 are flag-gated. Default false. Legacy behavior prese
 
 ## Test & Coverage Truth
 
-**Gate verification date:** 2026-02-14
-**Branch verified:** `integration/wave-4` at `99c4b4b`
+**Gate verification date:** 2026-02-15
+**Branch verified:** `main` at `df0f787` (PR #276 merged, all 7 CI checks green)
 
 | Gate | Result | Detail |
 |------|--------|--------|
 | `pnpm typecheck` | ✅ PASS | All workspace projects |
 | `pnpm lint` | ✅ PASS | All workspace projects |
-| `pnpm test` | ✅ PASS | 2558+ tests (47 new in Wave 4) |
+| `pnpm test` | ✅ PASS | 2557+ tests (49 new in Wave 4, including coverage gap fixes) |
 | `pnpm test:e2e` | ✅ PASS | E2E tests passed (CI run 22024258084) |
 | `pnpm bundle:check` | ✅ PASS | Under 1 MiB limit |
 | `pnpm deps:check` | ✅ PASS | Zero circular dependencies |
 | Feature-flag variants | ✅ PASS | All ON/OFF combinations pass |
 
-**Coverage:** 100% line+branch on all new Wave 4 modules (diff-aware per-PR gate). `constituencyProof.ts` catch branch at ~90% (acceptable — `import.meta.env` error path).
+**Coverage:** 100% line+branch on all Wave 4 modules (diff-aware gate, 483/483 branches on merge PR #253).
 
 ---
 
@@ -353,7 +363,7 @@ All features through Wave 4 are flag-gated. Default false. Legacy behavior prese
 - ✅ Topology guard prevents unauthorized Gun writes
 - ✅ Encryption required for sensitive mesh paths
 - ✅ XP ledger is local-only
-- ✅ Participation governors enforce rate limits (7/8 budget keys active)
+- ✅ Participation governors enforce rate limits (8/8 budget keys active)
 - ✅ TOCTOU hardening on concurrent budget operations
 - ✅ Attestation verifier has structured validation and rate limiting
 - ✅ AI engine default is truthful (LocalMlEngine in non-E2E)
@@ -375,11 +385,17 @@ All features through Wave 4 are flag-gated. Default false. Legacy behavior prese
 
 ## Next Work (Post-Wave 4)
 
-Wave 4 complete. Integration → main merge pending CEO sign-off.
+Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integration branches (`integration/wave-3`, `integration/wave-4`) are ancestors of `main`.
+
+### Feed Parity Slices (Post-Wave 4)
+- **FE-1** (provider model): merged
+- **FE-2** (bias table): merged
+- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable, feature-flagged behind `VITE_VH_BIAS_TABLE_V2`
+- **FE-4** (removal polish): merged
 
 Remaining from Wave 3 carryover (see `docs/foundational/WAVE3_CARRYOVER.md`):
-1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after integration sign-off
-2. **Remaining budget key** — `moderation/day` enforcement (key 8/8)
+1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after stability verification
+2. ~~**Remaining budget key**~~ — `moderation/day` enforcement landed (PR #259, all 8/8 active)
 3. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
 
 Post-Season 0 (deferred per spec §9.2):

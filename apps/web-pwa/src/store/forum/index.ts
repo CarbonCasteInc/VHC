@@ -29,6 +29,7 @@ import {
 } from './helpers';
 import { hydrateFromGun } from './hydration';
 import { createMockForumStore } from './mockStore';
+import { notifySynthesisPipeline } from './synthesisBridge';
 
 export type { ForumState } from './types';
 export { stripUndefined } from './helpers';
@@ -192,6 +193,11 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       });
       // Record engagement for lightbulb icon
       useSentimentState.getState().recordEngagement(threadId);
+      // Notify synthesis pipeline (additive — no-op when flag off)
+      const thread = get().threads.get(threadId);
+      if (thread) {
+        notifySynthesisPipeline(withLegacyType, thread);
+      }
       return withLegacyType;
     },
     async vote(targetId, direction) {

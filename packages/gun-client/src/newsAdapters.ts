@@ -25,6 +25,8 @@ const FORBIDDEN_NEWS_KEYS = new Set<string>([
   'address'
 ]);
 
+const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -100,6 +102,10 @@ function latestIndexPath(): string {
   return 'vh/news/index/latest/';
 }
 
+function removalPath(urlHash: string): string {
+  return `vh/news/removed/${urlHash}/`;
+}
+
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
     chain.once((data) => {
@@ -148,8 +154,34 @@ function stripGunMetadata(data: unknown): unknown {
   return rest;
 }
 
+function encodeStoryBundleForGun(story: StoryBundle): Record<string, unknown> {
+  return {
+    [STORY_BUNDLE_JSON_KEY]: JSON.stringify(story),
+    story_id: story.story_id,
+    created_at: story.created_at,
+    schemaVersion: story.schemaVersion
+  };
+}
+
+function decodeStoryBundlePayload(payload: unknown): unknown {
+  if (!isRecord(payload)) {
+    return payload;
+  }
+
+  const encoded = payload[STORY_BUNDLE_JSON_KEY];
+  if (typeof encoded !== 'string') {
+    return payload;
+  }
+
+  try {
+    return JSON.parse(encoded);
+  } catch {
+    return null;
+  }
+}
+
 function parseStoryBundle(data: unknown): StoryBundle | null {
-  const payload = stripGunMetadata(data);
+  const payload = decodeStoryBundlePayload(stripGunMetadata(data));
   if (hasForbiddenNewsPayloadFields(payload)) {
     return null;
   }
@@ -202,7 +234,11 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
  */
 export async function writeNewsStory(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = sanitizeStoryBundle(story);
-  await putWithAck(getNewsStoryChain(client, sanitized.story_id), sanitized);
+  const encoded = encodeStoryBundleForGun(sanitized);
+  await putWithAck(
+    getNewsStoryChain(client, sanitized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
+    encoded
+  );
   return sanitized;
 }
 
@@ -251,6 +287,50 @@ export async function writeNewsBundle(client: VennClient, story: unknown): Promi
   const sanitized = await writeNewsStory(client, story);
   await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.created_at);
   return sanitized;
+}
+
+// ---- Removal ledger adapters ----
+
+export interface RemovalEntry {
+  readonly urlHash: string;
+  readonly canonicalUrl: string;
+  readonly removedAt: number;
+  readonly reason: string;
+  readonly removedBy: string | null;
+  readonly note: string | null;
+}
+
+export function parseRemovalEntry(value: unknown): RemovalEntry | null {
+  const raw = stripGunMetadata(value);
+  if (!isRecord(raw)) return null;
+  const { urlHash, canonicalUrl, removedAt, reason, removedBy, note } = raw as Record<string, unknown>;
+  if (typeof urlHash !== 'string' || typeof canonicalUrl !== 'string') return null;
+  if (typeof removedAt !== 'number' || !Number.isFinite(removedAt)) return null;
+  if (typeof reason !== 'string') return null;
+  return {
+    urlHash, canonicalUrl, removedAt, reason,
+    removedBy: typeof removedBy === 'string' ? removedBy : null,
+    note: typeof note === 'string' ? note : null,
+  };
+}
+
+/**
+ * Chain for `vh/news/removed/<urlHash>`.
+ */
+export function getNewsRemovalChain(client: VennClient, urlHash: string): ChainWithGet<RemovalEntry> {
+  const chain = client.mesh
+    .get('news')
+    .get('removed')
+    .get(urlHash) as unknown as ChainWithGet<RemovalEntry>;
+  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, removalPath(urlHash));
+}
+
+/**
+ * Read and validate a RemovalEntry from mesh.
+ */
+export async function readNewsRemoval(client: VennClient, urlHash: string): Promise<RemovalEntry | null> {
+  const raw = await readOnce(getNewsRemovalChain(client, urlHash));
+  return parseRemovalEntry(raw);
 }
 
 /**

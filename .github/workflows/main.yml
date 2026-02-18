@@ -255,4 +255,4 @@ jobs:
 
       - name: Run Lighthouse (static dist)
         if: needs.change-detection.outputs.run-lighthouse == 'true'
-        run: npx lhci autorun --collect.staticDistDir=apps/web-pwa/dist --upload.target=filesystem --upload.outputDir=./lhci-report
+        run: npx @lhci/cli autorun --collect.staticDistDir=apps/web-pwa/dist --upload.target=filesystem --upload.outputDir=./lhci-report

@@ -108,6 +108,151 @@ describe('news store', () => {
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['safe']);
   });
 
+  it('setStories does not filter when feed source config is invalid JSON', async () => {
+    vi.stubEnv('VITE_NEWS_FEED_SOURCES', '{invalid-json');
+
+    try {
+      vi.resetModules();
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => null });
+
+      const baseSource = story().sources[0];
+      store.getState().setStories([
+        story({
+          story_id: 's-one',
+          sources: [{ ...baseSource, source_id: 'source-one', url_hash: '11aa22bb' }]
+        }),
+        story({
+          story_id: 's-two',
+          sources: [{ ...baseSource, source_id: 'source-two', url_hash: '33cc44dd' }]
+        })
+      ]);
+
+      expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s-one', 's-two']);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('supports env resolution when process is unavailable', async () => {
+    const originalProcess = globalThis.process;
+    vi.stubGlobal('process', undefined);
+
+    try {
+      vi.resetModules();
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => null });
+
+      store.getState().setStories([story({ story_id: 'no-process' })]);
+      expect(store.getState().stories.map((s) => s.story_id)).toEqual(['no-process']);
+    } finally {
+      vi.stubGlobal('process', originalProcess);
+    }
+  });
+
+  it('ignores non-array feed source config payloads', async () => {
+    vi.stubEnv('VITE_NEWS_FEED_SOURCES', JSON.stringify({ id: 'source-allowed' }));
+
+    try {
+      vi.resetModules();
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => null });
+
+      const baseSource = story().sources[0];
+      store.getState().setStories([
+        story({
+          story_id: 'object-config-1',
+          sources: [{ ...baseSource, source_id: 'source-one', url_hash: 'aa11aa11' }]
+        }),
+        story({
+          story_id: 'object-config-2',
+          sources: [{ ...baseSource, source_id: 'source-two', url_hash: 'bb22bb22' }]
+        })
+      ]);
+
+      expect(store.getState().stories.map((s) => s.story_id)).toEqual([
+        'object-config-1',
+        'object-config-2'
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('ignores feed source config arrays with no valid source ids', async () => {
+    vi.stubEnv('VITE_NEWS_FEED_SOURCES', JSON.stringify([{ id: '   ' }, { id: 42 }, {}]));
+
+    try {
+      vi.resetModules();
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => null });
+
+      const baseSource = story().sources[0];
+      store.getState().setStories([
+        story({
+          story_id: 'empty-config-1',
+          sources: [{ ...baseSource, source_id: 'source-one', url_hash: 'cc33cc33' }]
+        }),
+        story({
+          story_id: 'empty-config-2',
+          sources: [{ ...baseSource, source_id: 'source-two', url_hash: 'dd44dd44' }]
+        })
+      ]);
+
+      expect(store.getState().stories.map((s) => s.story_id)).toEqual([
+        'empty-config-1',
+        'empty-config-2'
+      ]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('filters stories to configured feed source ids', async () => {
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([null, 'skip-me', { id: 'source-allowed' }])
+    );
+
+    try {
+      vi.resetModules();
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => null });
+
+      const baseSource = story().sources[0];
+      const allowed = story({
+        story_id: 'allowed',
+        sources: [{ ...baseSource, source_id: 'source-allowed', url_hash: '55ee66ff' }]
+      });
+      const blocked = story({
+        story_id: 'blocked',
+        sources: [{ ...baseSource, source_id: 'source-blocked', url_hash: '778899aa' }]
+      });
+      const mixed = story({
+        story_id: 'mixed',
+        sources: [
+          { ...baseSource, source_id: 'source-allowed', url_hash: 'bb11cc22' },
+          {
+            ...baseSource,
+            source_id: 'source-blocked',
+            url: 'https://example.com/blocked',
+            url_hash: 'dd33ee44',
+            published_at: 99,
+            title: 'Blocked source'
+          }
+        ]
+      });
+
+      store.getState().setStories([allowed, blocked, mixed]);
+      expect(store.getState().stories.map((s) => s.story_id)).toEqual(['allowed']);
+
+      store.getState().upsertStory(blocked);
+      expect(store.getState().stories.map((s) => s.story_id)).toEqual(['allowed']);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it('setLatestIndex sanitizes values and re-sorts stories', async () => {
     const { createNewsStore } = await import('./index');
     const store = createNewsStore({ resolveClient: () => null });
@@ -213,6 +358,41 @@ describe('news store', () => {
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s1', 's2']);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
+  });
+
+  it('refreshLatest warns when discovery mirroring fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    const client = { id: 'client-mirror' };
+    const s1 = story({ story_id: 'mirror-story', created_at: 10 });
+    readNewsLatestIndexMock.mockResolvedValue({ [s1.story_id]: s1.created_at });
+    readLatestStoryIdsMock.mockResolvedValue([s1.story_id]);
+    readNewsStoryMock.mockResolvedValue(s1);
+
+    const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+
+    const originalMergeItems = useDiscoveryStore.getState().mergeItems;
+    useDiscoveryStore.setState({
+      mergeItems: (() => {
+        throw new Error('mirror unavailable');
+      }) as typeof originalMergeItems,
+    });
+
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(1);
+
+    for (let attempt = 0; attempt < 10 && warnSpy.mock.calls.length === 0; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news] failed to mirror stories into discovery store',
+      expect.any(Error),
+    );
+
+    useDiscoveryStore.setState({ mergeItems: originalMergeItems });
   });
 
   it('refreshLatest captures thrown errors', async () => {

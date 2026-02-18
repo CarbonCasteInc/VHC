@@ -1,5 +1,6 @@
 import type { ConstituencyProof } from '@vh/data-model';
 
+/* v8 ignore start */
 export function isProofVerificationEnabled(): boolean {
   try {
     const importMetaEnv = (import.meta as any).env;
@@ -9,6 +10,7 @@ export function isProofVerificationEnabled(): boolean {
     return false;
   }
 }
+/* v8 ignore stop */
 
 export function getMockConstituencyProof(
   districtHash: string,

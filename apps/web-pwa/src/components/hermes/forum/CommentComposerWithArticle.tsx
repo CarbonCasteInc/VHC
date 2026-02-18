@@ -8,7 +8,7 @@
 import React, { useCallback, useState } from 'react';
 import { CommentComposer } from './CommentComposer';
 import { ArticleEditor } from '../../docs/ArticleEditor';
-import type { SourceContext } from '../../../store/hermesDocs';
+import { useDocsStore, type SourceContext } from '../../../store/hermesDocs';
 
 export interface CommentComposerWithArticleProps {
   threadId: string;
@@ -24,6 +24,7 @@ export const CommentComposerWithArticle: React.FC<
 > = ({ threadId, parentId, isThreadCreation, onSubmit, sourceContext }) => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [draftContent, setDraftContent] = useState('');
+  const docsEnabled = useDocsStore((s) => s.enabled);
 
   const handleConvertToArticle = useCallback(
     (text: string) => {
@@ -76,7 +77,7 @@ export const CommentComposerWithArticle: React.FC<
       parentId={parentId}
       isThreadCreation={isThreadCreation}
       onSubmit={onSubmit}
-      onConvertToArticle={handleConvertToArticle}
+      onConvertToArticle={docsEnabled ? handleConvertToArticle : undefined}
     />
   );
 };

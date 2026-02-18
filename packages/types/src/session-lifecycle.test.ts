@@ -71,6 +71,16 @@ describe('isSessionNearExpiry', () => {
   it('returns false when expiresAt is missing (backward compat)', () => {
     expect(isSessionNearExpiry({} as any, 500)).toBe(false);
   });
+
+  it('uses Date.now() when now is not provided', () => {
+    const expiresAt = Date.now() + 1000; // 1s in the future, well within default 24h window
+    expect(isSessionNearExpiry({ expiresAt })).toBe(true);
+  });
+
+  it('returns false for non-near-expiry when now is not provided', () => {
+    const expiresAt = Date.now() + NEAR_EXPIRY_WINDOW_MS + 60_000; // beyond window
+    expect(isSessionNearExpiry({ expiresAt })).toBe(false);
+  });
 });
 
 describe('migrateSessionFields', () => {

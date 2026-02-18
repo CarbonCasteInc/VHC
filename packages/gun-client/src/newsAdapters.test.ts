@@ -6,9 +6,12 @@ import { HydrationBarrier } from './sync/barrier';
 import {
   getNewsStoryChain,
   getNewsStoriesChain,
+  getNewsRemovalChain,
   hasForbiddenNewsPayloadFields,
+  parseRemovalEntry,
   readLatestStoryIds,
   readNewsLatestIndex,
+  readNewsRemoval,
   readNewsStory,
   writeNewsBundle,
   writeNewsLatestIndexEntry,
@@ -148,7 +151,16 @@ describe('newsAdapters', () => {
 
     expect(result).toEqual(STORY);
     expect(mesh.writes).toHaveLength(1);
-    expect(mesh.writes[0]).toEqual({ path: 'news/stories/story-123', value: STORY });
+    expect(mesh.writes[0].path).toBe('news/stories/story-123');
+    expect(mesh.writes[0].value).toMatchObject({
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+      schemaVersion: STORY.schemaVersion
+    });
+    expect(typeof (mesh.writes[0].value as Record<string, unknown>).__story_bundle_json).toBe('string');
+    expect(
+      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
+    ).toEqual(STORY);
   });
 
   it('writeNewsStory rejects forbidden identity/token payloads', async () => {
@@ -185,6 +197,34 @@ describe('newsAdapters', () => {
 
     const story = await readNewsStory(client, 'story-123');
     expect(story).toEqual(STORY);
+  });
+
+  it('readNewsStory parses encoded bundle payloads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-encoded', {
+      __story_bundle_json: JSON.stringify(STORY),
+      story_id: STORY.story_id,
+      created_at: STORY.created_at
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const story = await readNewsStory(client, 'story-encoded');
+    expect(story).toEqual(STORY);
+  });
+
+  it('readNewsStory returns null for malformed encoded bundle payloads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-bad-json', {
+      __story_bundle_json: '{bad-json',
+      story_id: 'story-bad-json',
+      created_at: STORY.created_at
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsStory(client, 'story-bad-json')).resolves.toBeNull();
   });
 
   it('readNewsStory returns null for missing, invalid, or forbidden payloads', async () => {
@@ -259,10 +299,17 @@ describe('newsAdapters', () => {
     const result = await writeNewsBundle(client, STORY);
 
     expect(result.story_id).toBe('story-123');
-    expect(mesh.writes).toEqual([
-      { path: 'news/stories/story-123', value: STORY },
-      { path: 'news/index/latest/story-123', value: STORY.created_at }
-    ]);
+    expect(mesh.writes).toHaveLength(2);
+    expect(mesh.writes[0].path).toBe('news/stories/story-123');
+    expect(mesh.writes[0].value).toMatchObject({
+      story_id: STORY.story_id,
+      created_at: STORY.created_at,
+      schemaVersion: STORY.schemaVersion
+    });
+    expect(
+      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
+    ).toEqual(STORY);
+    expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.created_at });
   });
 
   it('readLatestStoryIds sorts newest-first, then by id; respects limit', async () => {
@@ -279,5 +326,87 @@ describe('newsAdapters', () => {
     await expect(readLatestStoryIds(client, 2)).resolves.toEqual(['story-a', 'story-z']);
     await expect(readLatestStoryIds(client, 0)).resolves.toEqual([]);
     await expect(readLatestStoryIds(client, Number.NaN)).resolves.toEqual([]);
+  });
+
+  // ---- Removal ledger adapters ----
+
+  it('getNewsRemovalChain builds correct path and guards writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const chain = getNewsRemovalChain(client, 'abc123');
+    await chain.put({ urlHash: 'abc123' } as any);
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/news/removed/abc123/',
+      { urlHash: 'abc123' }
+    );
+  });
+
+  it('parseRemovalEntry parses valid entries', () => {
+    const entry = {
+      urlHash: 'h1',
+      canonicalUrl: 'https://example.com',
+      removedAt: 1_700_000_000_000,
+      reason: 'extraction-failed-permanently',
+      removedBy: 'system',
+      note: 'retry exhausted',
+    };
+    expect(parseRemovalEntry(entry)).toEqual(entry);
+  });
+
+  it('parseRemovalEntry strips Gun metadata', () => {
+    const entry = {
+      _: { '#': 'gun-meta' },
+      urlHash: 'h1',
+      canonicalUrl: 'https://example.com',
+      removedAt: 1_700_000_000_000,
+      reason: 'test',
+    };
+    const result = parseRemovalEntry(entry);
+    expect(result).not.toBeNull();
+    expect(result!.urlHash).toBe('h1');
+    expect(result!.removedBy).toBeNull();
+    expect(result!.note).toBeNull();
+  });
+
+  it('parseRemovalEntry returns null for invalid data', () => {
+    expect(parseRemovalEntry(null)).toBeNull();
+    expect(parseRemovalEntry(undefined)).toBeNull();
+    expect(parseRemovalEntry(42)).toBeNull();
+    expect(parseRemovalEntry('string')).toBeNull();
+    expect(parseRemovalEntry({ urlHash: 123 })).toBeNull();
+    expect(parseRemovalEntry({ urlHash: 'h', canonicalUrl: 'u' })).toBeNull();
+    expect(parseRemovalEntry({
+      urlHash: 'h', canonicalUrl: 'u', removedAt: NaN, reason: 'r'
+    })).toBeNull();
+    expect(parseRemovalEntry({
+      urlHash: 'h', canonicalUrl: 'u', removedAt: 1, reason: 123
+    })).toBeNull();
+  });
+
+  it('readNewsRemoval reads and parses from mesh', async () => {
+    const mesh = createFakeMesh();
+    const entry = {
+      urlHash: 'h1',
+      canonicalUrl: 'https://example.com',
+      removedAt: 1_700_000_000_000,
+      reason: 'extraction-failed-permanently',
+    };
+    mesh.setRead('news/removed/h1', entry);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const result = await readNewsRemoval(client, 'h1');
+    expect(result).toEqual({ ...entry, removedBy: null, note: null });
+  });
+
+  it('readNewsRemoval returns null for missing entry', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsRemoval(client, 'nonexistent')).resolves.toBeNull();
   });
 });

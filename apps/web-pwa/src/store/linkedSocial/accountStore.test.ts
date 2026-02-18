@@ -9,12 +9,13 @@
  * - Round-trip parse/write/read
  */
 
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import type { LinkedSocialAccount } from '@vh/data-model';
 import {
   connectAccount,
   disconnectAccount,
   ingestNotification,
+  setNotificationIngestedHandler,
   getNotification,
   getAllNotifications,
   getNotificationsByAccount,
@@ -74,6 +75,27 @@ describe('notification ingestion', () => {
     expect(result).not.toBeNull();
     expect(result!.id).toBe('n1');
     expect(result!.topic_id).toBe('t1');
+  });
+
+  it('emits ingested notifications through bridge handler', () => {
+    const handler = vi.fn();
+    setNotificationIngestedHandler(handler);
+
+    const notif = createMockNotification({ id: 'bridge-n1' });
+    const result = ingestNotification(notif);
+
+    expect(result).not.toBeNull();
+    expect(handler).toHaveBeenCalledWith(result);
+  });
+
+  it('does not emit for invalid notifications', () => {
+    const handler = vi.fn();
+    setNotificationIngestedHandler(handler);
+
+    const result = ingestNotification({ id: 'bad' });
+
+    expect(result).toBeNull();
+    expect(handler).not.toHaveBeenCalled();
   });
 
   it('retrieves ingested notification by id', () => {

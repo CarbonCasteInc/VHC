@@ -70,7 +70,6 @@ export function createMockEngine(): JsonCompletionEngine {
           justify_bias_claim: ['justification'],
           biases: ['bias'],
           counterpoints: ['counter'],
-          sentimentScore: 0.5,
           confidence: 0.9
         }
       });
@@ -102,6 +101,7 @@ export function createDefaultEngine(): JsonCompletionEngine {
   return new LocalMlEngine();
 }
 
+/** @deprecated Use server-side relay (/api/analyze) instead. Will be removed in future release. */
 export function createRemoteEngine(): JsonCompletionEngine | undefined {
   if (isE2EMode()) {
     return undefined;
@@ -112,10 +112,11 @@ export function createRemoteEngine(): JsonCompletionEngine | undefined {
     return undefined;
   }
 
-  const apiKey = readEnvVar('VITE_REMOTE_ENGINE_API_KEY')?.trim();
+  if (/^https?:\/\//i.test(endpointUrl)) {
+    console.warn('[vh:ai-engine] Direct remote engine URLs are deprecated. Prefer server relay endpoint /api/analyze.');
+  }
 
   return new RemoteApiEngine({
-    endpointUrl,
-    ...(apiKey ? { apiKey } : {})
+    endpointUrl
   });
 }

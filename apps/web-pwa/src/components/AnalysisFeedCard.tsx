@@ -8,6 +8,10 @@ interface AnalysisFeedCardProps {
 }
 
 export const AnalysisFeedCard: React.FC<AnalysisFeedCardProps> = ({ item, onShare }) => {
+  const providerLabel = item.engine
+    ? `${item.engine.id} · ${item.engine.modelName}`
+    : null;
+
   return (
     <div
       className="rounded-xl border border-slate-100 bg-card-muted p-3 space-y-1 dark:border-slate-700/70"
@@ -16,6 +20,11 @@ export const AnalysisFeedCard: React.FC<AnalysisFeedCardProps> = ({ item, onShar
       <p className="text-sm font-semibold text-slate-900">{item.url}</p>
       <p className="text-sm text-slate-700">{item.summary}</p>
       <p className="text-xs text-slate-600">Biases: {item.biases.join(' · ')}</p>
+      {providerLabel && (
+        <p className="text-xs text-slate-500" data-testid={`analysis-provider-${item.urlHash}`}>
+          Provider: {providerLabel}
+        </p>
+      )}
       <div className="mt-2 flex justify-end gap-3">
         <button
           type="button"

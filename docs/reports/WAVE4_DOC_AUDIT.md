@@ -113,9 +113,9 @@ All dispatches CE-reviewed per policy 11.
 |------|--------|
 | All required checks green | ⏳ Pending final CI run on HEAD `d763189` |
 | Readiness matrix complete | ✅ All 3 phases + infra fixes merged |
-| 3-day integration pass | ⏳ Not started (Wave 4 landed same day) |
+| 3-day integration pass | ✅ Waived by CEO (night directive 2026-02-15) |
 | Feature-flag validation (both states) | ✅ Verified default-false, env-clean |
 | Doc audit status | ✅ DOC_AUDIT_PASS |
 | Open blockers | None |
 
-**Recommendation:** HOLD for 3-day integration pass per AGENTS.md policy. All implementation gates are green.
+**Recommendation:** ~~HOLD for 3-day integration pass per AGENTS.md policy.~~ MERGED to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). CEO authorized merge (night directive). All CI checks green (run `22027671502`).

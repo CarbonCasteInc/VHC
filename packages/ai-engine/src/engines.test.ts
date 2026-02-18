@@ -45,6 +45,7 @@ function makeEngine(
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   MockLocalMlEngine.mockClear();
   MockRemoteApiEngine.mockClear();
 });
@@ -60,7 +61,7 @@ describe('EngineUnavailableError', () => {
 });
 
 describe('createMockEngine', () => {
-  it('returns a local mock engine that emits valid analysis JSON with sentimentScore', async () => {
+  it('returns a local mock engine that emits valid analysis JSON', async () => {
     const engine = createMockEngine();
 
     expect(engine.kind).toBe('local');
@@ -68,11 +69,12 @@ describe('createMockEngine', () => {
 
     const output = await engine.generate('prompt');
     const parsed = JSON.parse(output) as {
-      final_refined: { sentimentScore: number; summary: string };
+      final_refined: { summary: string; confidence: number; sentimentScore?: number };
     };
 
     expect(parsed.final_refined.summary).toBe('Mock summary');
-    expect(parsed.final_refined.sentimentScore).toBeTypeOf('number');
+    expect(parsed.final_refined.confidence).toBeTypeOf('number');
+    expect(parsed.final_refined.sentimentScore).toBeUndefined();
   });
 });
 
@@ -116,6 +118,7 @@ describe('createDefaultEngine', () => {
 
 describe('createRemoteEngine', () => {
   it('returns RemoteApiEngine when URL is configured', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.stubEnv('VITE_E2E_MODE', 'false');
     vi.stubEnv('VITE_REMOTE_ENGINE_URL', 'https://remote.example/v1');
 
@@ -126,18 +129,31 @@ describe('createRemoteEngine', () => {
     expect(MockRemoteApiEngine).toHaveBeenCalledWith({
       endpointUrl: 'https://remote.example/v1'
     });
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:ai-engine] Direct remote engine URLs are deprecated. Prefer server relay endpoint /api/analyze.'
+    );
   });
 
-  it('passes API key when provided', () => {
+  it('does not warn for same-origin relay endpoints', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('VITE_E2E_MODE', 'false');
+    vi.stubEnv('VITE_REMOTE_ENGINE_URL', '/api/analyze');
+
+    createRemoteEngine();
+
+    expect(MockRemoteApiEngine).toHaveBeenCalledWith({ endpointUrl: '/api/analyze' });
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it('does not pass auth material into engine construction', () => {
     vi.stubEnv('VITE_E2E_MODE', 'false');
     vi.stubEnv('VITE_REMOTE_ENGINE_URL', 'https://remote.example/v1');
-    vi.stubEnv('VITE_REMOTE_ENGINE_API_KEY', 'api-key-123');
+    vi.stubEnv('VITE_REMOTE_API_KEY', 'api-key-123');
 
     createRemoteEngine();
 
     expect(MockRemoteApiEngine).toHaveBeenCalledWith({
-      endpointUrl: 'https://remote.example/v1',
-      apiKey: 'api-key-123'
+      endpointUrl: 'https://remote.example/v1'
     });
   });
 

@@ -61,6 +61,18 @@ describe('data-model schemas', () => {
     ).toThrow();
   });
 
+  it('backfills analysis sentimentScore to 0 when omitted', () => {
+    const parsed = AnalysisSchema.parse({
+      canonicalId: 'abc',
+      summary: 'test',
+      biases: ['x'],
+      counterpoints: ['y'],
+      timestamp: Date.now()
+    });
+
+    expect(parsed.sentimentScore).toBe(0);
+  });
+
   it('rejects analysis with out-of-range sentiment score', () => {
     expect(() =>
       AnalysisSchema.parse({
@@ -72,6 +84,18 @@ describe('data-model schemas', () => {
         timestamp: Date.now()
       })
     ).toThrow();
+  });
+
+  it('defaults analysis sentiment score to 0 when omitted', () => {
+    const result = AnalysisSchema.parse({
+      canonicalId: 'abc',
+      summary: 'test',
+      biases: ['x'],
+      counterpoints: ['y'],
+      timestamp: Date.now()
+    });
+
+    expect(result.sentimentScore).toBe(0);
   });
 
   it('validates aggregate sentiment', () => {
@@ -98,10 +122,10 @@ describe('data-model schemas', () => {
       justify_bias_claim: ['justification'],
       biases: ['bias'],
       counterpoints: ['counter'],
-      sentimentScore: 0.5,
       timestamp: 123
     });
     expect(valid.urlHash).toBe('abc');
+    expect(valid.sentimentScore).toBe(0);
     expect(valid.engine).toBeUndefined();
     expect(valid.warnings).toBeUndefined();
   });
@@ -125,6 +149,22 @@ describe('data-model schemas', () => {
     expect(withMeta.engine?.kind).toBe('local');
     expect(withMeta.engine?.modelName).toBe('mock-local-v1');
     expect(withMeta.warnings).toEqual(['hallucinated year 2099']);
+  });
+
+  it('defaults canonical analysis sentiment score to 0 when omitted', () => {
+    const parsed = CanonicalAnalysisSchema.parse({
+      schemaVersion: 'canonical-analysis-v1',
+      url: 'https://example.com',
+      urlHash: 'abc',
+      summary: 'test',
+      bias_claim_quote: ['quote'],
+      justify_bias_claim: ['justification'],
+      biases: ['bias'],
+      counterpoints: ['counter'],
+      timestamp: 123
+    });
+
+    expect(parsed.sentimentScore).toBe(0);
   });
 
   it('rejects invalid engine kind in canonical analysis', () => {

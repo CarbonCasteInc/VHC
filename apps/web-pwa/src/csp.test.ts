@@ -60,9 +60,13 @@ describe('index.html content security policy', () => {
 
     expect(directivesWithUnsafeInline).toEqual(['style-src']);
 
-    expect(connectSrc).toBe("'self'");
-    expect(connectSrc).not.toContain('ws:');
+    expect(connectSrc).toContain("'self'");
+    expect(connectSrc).toContain('http://localhost:7777');
+    expect(connectSrc).toContain('ws://localhost:7777');
+    expect(connectSrc).toContain('http://100.75.18.26:7777');
+    expect(connectSrc).toContain('ws://100.75.18.26:7777');
+    expect(connectSrc).not.toContain('*');
+    expect(connectSrc).not.toContain('https:');
     expect(connectSrc).not.toContain('wss:');
-    expect(connectSrc).not.toContain('100.75.18.26');
   });
 });

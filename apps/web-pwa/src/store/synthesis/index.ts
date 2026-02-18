@@ -5,7 +5,7 @@ import {
   readTopicLatestSynthesis,
   type VennClient
 } from '@vh/gun-client';
-import { useAppStore } from '../index';
+import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateSynthesisStore } from './hydration';
 import type { SynthesisState, SynthesisDeps, SynthesisTopicState } from './types';
 
@@ -64,7 +64,7 @@ function upsertTopicState(
 export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreApi<SynthesisState> {
   /* v8 ignore next 5 -- default DI wiring; tests always inject overrides */
   const defaults: InternalDeps = {
-    resolveClient: () => useAppStore.getState().client,
+    resolveClient: resolveClientFromAppStore,
     enabled: true,
     hydrateTopic: hydrateSynthesisStore,
     readLatest: readTopicLatestSynthesis

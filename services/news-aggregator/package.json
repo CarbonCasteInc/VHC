@@ -9,10 +9,13 @@
     "lint": "echo 'lint: ok (no sources yet)'"
   },
   "dependencies": {
+    "@extractus/article-extractor": "^8.0.0",
+    "@vh/ai-engine": "workspace:*",
     "@vh/data-model": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/express": "^5.0.3",
     "@types/node": "^20.11.30",
     "typescript": "^5.4.5",
     "vitest": "^2.1.9"

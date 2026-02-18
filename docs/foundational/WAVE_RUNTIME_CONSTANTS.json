@@ -1,10 +1,10 @@
 {
   "_description": "Single source of truth for wave runtime constants. All contracts, runbooks, and scripts should reference this file instead of hardcoding wave-specific strings.",
-  "_updated": "2026-02-14",
-  "ACTIVE_WAVE_LABEL": "wave-4",
-  "ACTIVE_INTEGRATION_BRANCH": "integration/wave-4",
+  "_updated": "2026-02-15",
+  "_note": "Wave 4 merged to main (PR #253, 31fce88). No active wave. Constants retained for reference until Wave 5 kickoff.",
+  "ACTIVE_WAVE_LABEL": "post-wave-4",
+  "ACTIVE_INTEGRATION_BRANCH": null,
   "EXECUTION_BRANCH_PREFIXES": [
-    "w4l/*",
     "coord/*"
   ],
   "PARKED_BRANCH_PREFIX": "agent/*",

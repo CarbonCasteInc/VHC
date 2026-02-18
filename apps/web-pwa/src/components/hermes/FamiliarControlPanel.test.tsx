@@ -105,6 +105,9 @@ describe('FamiliarControlPanel', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByTestId('active-grants-list')).toBeInTheDocument();
     expect(screen.getByText(/moderate, vote, fund, civic_action/)).toBeInTheDocument();
+    expect(
+      useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'moderation/day')?.count
+    ).toBe(1);
   });
 
   it('denies high-impact grant creation when budget guards are exhausted', () => {
@@ -129,6 +132,41 @@ describe('FamiliarControlPanel', () => {
     expect(screen.getByTestId('familiar-control-error')).toHaveTextContent(
       'High-impact grant denied: Daily limit of 10 reached for moderation/day'
     );
+  });
+
+  it('re-checks moderation/day budget at confirm time (TOCTOU guard)', () => {
+    act(() => {
+      const ledger = useXpLedger.getState();
+      ledger.setActiveNullifier('principal-1');
+      for (let index = 0; index < 9; index += 1) {
+        ledger.consumeAction('moderation/day');
+      }
+    });
+
+    renderPanel();
+
+    fireEvent.change(screen.getByTestId('familiar-label-input'), { target: { value: 'Moderator' } });
+    fireEvent.change(screen.getByTestId('familiar-tier-select'), { target: { value: 'high-impact' } });
+    fireEvent.click(screen.getByTestId('register-familiar-button'));
+
+    fireEvent.change(screen.getByTestId('grant-tier-select'), { target: { value: 'high-impact' } });
+    fireEvent.click(screen.getByTestId('create-grant-button'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+
+    act(() => {
+      useXpLedger.getState().consumeAction('moderation/day');
+    });
+
+    fireEvent.click(screen.getByTestId('confirm-high-impact-button'));
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByTestId('familiar-control-error')).toHaveTextContent(
+      'High-impact grant denied: Daily limit of 10 reached for moderation/day'
+    );
+    expect(screen.getByTestId('empty-active-grants')).toBeInTheDocument();
+    expect(
+      useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'moderation/day')?.count
+    ).toBe(10);
   });
 
   it('uses fallback civic budget denial reason when guard omits details', () => {

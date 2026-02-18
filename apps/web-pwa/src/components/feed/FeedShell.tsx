@@ -1,9 +1,10 @@
 import React from 'react';
+import { Link } from '@tanstack/react-router';
 import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { FilterChips } from './FilterChips';
 import { SortControls } from './SortControls';
-import { NewsCard } from './NewsCard';
+import { NewsCardWithRemoval } from './NewsCardWithRemoval';
 import { TopicCard } from './TopicCard';
 import { SocialNotificationCard } from './SocialNotificationCard';
 import { ArticleFeedCard } from '../docs/ArticleFeedCard';
@@ -86,8 +87,11 @@ const FeedContent: React.FC<FeedContentProps> = ({ feed, loading, error }) => {
 
   return (
     <ul data-testid="feed-list" className="space-y-3">
-      {feed.map((item) => (
-        <FeedItemRow key={item.topic_id} item={item} />
+      {feed.map((item, index) => (
+        <FeedItemRow
+          key={[item.kind, item.topic_id, item.title, item.created_at, index].join('|')}
+          item={item}
+        />
       ))}
     </ul>
   );
@@ -100,9 +104,25 @@ interface FeedItemRowProps {
 }
 
 const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
+  // NEWS_STORY cards own their click interaction (headline flip in-place).
+  if (item.kind === 'NEWS_STORY') {
+    return (
+      <li data-testid={`feed-item-${item.topic_id}`}>
+        <FeedItemCard item={item} />
+      </li>
+    );
+  }
+
   return (
     <li data-testid={`feed-item-${item.topic_id}`}>
-      <FeedItemCard item={item} />
+      <Link
+        to="/hermes/$threadId"
+        params={{ threadId: item.topic_id }}
+        className="block no-underline"
+        data-testid={`feed-link-${item.topic_id}`}
+      >
+        <FeedItemCard item={item} />
+      </Link>
     </li>
   );
 };
@@ -114,7 +134,7 @@ interface FeedItemCardProps {
 const FeedItemCard: React.FC<FeedItemCardProps> = ({ item }) => {
   switch (item.kind) {
     case 'NEWS_STORY':
-      return <NewsCard item={item} />;
+      return <NewsCardWithRemoval item={item} />;
     case 'USER_TOPIC':
       return <TopicCard item={item} />;
     case 'SOCIAL_NOTIFICATION':

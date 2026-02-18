@@ -46,3 +46,79 @@ export { toStoryBundleSource, computeProvenanceHash } from './provenance';
 
 export { clusterItems, extractWords } from './cluster';
 export type { ClusterOptions } from './cluster';
+
+export { orchestrateNewsPipeline } from './orchestrator';
+export type { PipelineConfig, PipelineResult } from './orchestrator';
+
+export {
+  MAX_TOKENS,
+  TEMPERATURE,
+  RATE_LIMIT_PER_MIN,
+  RATE_WINDOW_MS,
+  getRelayModel,
+  resolveTokenParam,
+  checkRateLimit,
+  resetRateLimits,
+  buildOpenAIChatRequest,
+  handleAnalyze,
+} from './analysisRelay';
+export type { AnalyzeRequest, AnalyzeResponse } from './analysisRelay';
+
+export {
+  ArticleTextService,
+  ArticleTextServiceError,
+  FETCH_TIMEOUT_MS,
+  MAX_ATTEMPTS,
+  MIN_CHAR_COUNT,
+  MIN_WORD_COUNT,
+  MIN_SENTENCE_COUNT,
+  MIN_QUALITY_SCORE,
+} from './articleTextService';
+export type {
+  ArticleTextResult,
+  ArticleTextQuality,
+  ArticleTextServiceErrorCode,
+  ArticleTextServiceOptions,
+} from './articleTextService';
+
+export {
+  ArticleTextCache,
+  FAILURE_TTL_MS,
+  SUCCESS_TTL_MS,
+} from './articleTextCache';
+export type {
+  ArticleTextCacheEntry,
+  ArticleTextCacheHit,
+  CachedArticleText,
+  CachedExtractionFailure,
+} from './articleTextCache';
+
+export {
+  SourceLifecycleTracker,
+  RETRY_BASE_BACKOFF_MS,
+  RETRY_MAX_BACKOFF_MS,
+} from './sourceLifecycle';
+export type { SourceLifecycleState, SourceStatus } from './sourceLifecycle';
+
+export {
+  InMemoryRemovalLedgerStore,
+  RemovalLedger,
+  removalLedgerPath,
+} from './removalLedger';
+export type {
+  RemovalLedgerEntry,
+  RemovalLedgerOptions,
+  RemovalLedgerStore,
+} from './removalLedger';
+
+export {
+  STARTER_FEED_URLS,
+  STARTER_SOURCE_DOMAINS,
+  getStarterSourceDomainAllowlist,
+  isSourceDomainAllowed,
+} from './sourceRegistry';
+
+export {
+  createArticleTextServer,
+  startArticleTextServer,
+} from './server';

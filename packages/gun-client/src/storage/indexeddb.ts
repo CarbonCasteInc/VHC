@@ -5,8 +5,22 @@ import type { HydrationBarrier } from '../sync/barrier';
 
 const DB_NAME = 'vh_encrypted_graph';
 const STORE_NAME = 'vh_graph_nodes';
-const DEV_ROOT_SECRET = 'vh-dev-root-secret';
-const DEV_ROOT_SALT = 'vh-dev-root-salt';
+
+/**
+ * Root encryption secret and salt sourced from environment variables.
+ * Falls back to dev defaults ONLY when no env var is set.
+ *
+ * Production deployments MUST set VITE_IDB_ROOT_SECRET and VITE_IDB_ROOT_SALT.
+ * The dev defaults are intentionally weak and unsuitable for real user data.
+ */
+const ROOT_SECRET: string =
+  (import.meta as any).env?.VITE_IDB_ROOT_SECRET
+    ?? (typeof process !== 'undefined' ? process.env.VITE_IDB_ROOT_SECRET : undefined)
+    ?? 'vh-dev-root-secret';
+const ROOT_SALT: string =
+  (import.meta as any).env?.VITE_IDB_ROOT_SALT
+    ?? (typeof process !== 'undefined' ? process.env.VITE_IDB_ROOT_SALT : undefined)
+    ?? 'vh-dev-root-salt';
 const textDecoder = new TextDecoder();
 
 type NodePayload = {
@@ -34,7 +48,7 @@ export class EncryptedIndexedDBAdapter {
         }
       }
     });
-    this.#rootKeyPromise = deriveKey(DEV_ROOT_SECRET, DEV_ROOT_SALT);
+    this.#rootKeyPromise = deriveKey(ROOT_SECRET, ROOT_SALT);
   }
 
   async hydrate(): Promise<void> {
@@ -86,4 +100,9 @@ export class EncryptedIndexedDBAdapter {
   }
 }
 
-export { DB_NAME as ENCRYPTED_DB_NAME, STORE_NAME as ENCRYPTED_STORE_NAME };
+export {
+  DB_NAME as ENCRYPTED_DB_NAME,
+  STORE_NAME as ENCRYPTED_STORE_NAME,
+  ROOT_SECRET as _ROOT_SECRET_FOR_TESTING,
+  ROOT_SALT as _ROOT_SALT_FOR_TESTING,
+};
