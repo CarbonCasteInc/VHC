@@ -27,6 +27,18 @@
 
 ---
 
+## Finishing-Touch Sprint Closeout (2026-02-18)
+
+All three finishing-touch lanes have landed on `main`:
+
+- **#298** `coord/finishing-l2-model-picker` — merged at `2026-02-18T11:23:59Z`
+- **#299** `coord/finishing-l1-relay-compat` — merged at `2026-02-18T11:30:23Z` (`a5713e3`)
+- **#300** `team-d/l3-dev-invite-vote-persistence` — merged at `2026-02-18T11:49:59Z` (`5dbcc747061ebe2e7c937cab06683d2c830899b1`)
+
+Closeout evidence from lane reports confirms: clean worktree ritual, `<=350 LOC` per touched source file, and full changed-file coverage for the finishing-touch slices.
+
+---
+
 ## Wave 2 Landed Capabilities (2026-02-13)
 
 Wave 2 delivered the following features across 3 workstreams and 36 PRs to `integration/wave-2`, merged to `main` via Policy 15 sync PRs (#218, #221).
