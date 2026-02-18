@@ -13,6 +13,11 @@ import {
   persistVotes,
 } from '../store/forum/persistence';
 
+// ── Shared types ───────────────────────────────────────────────────
+
+/** Vote direction used across persistence and test-account modules. */
+export type VoteDirection = 'up' | 'down' | null;
+
 // ── Account fixtures ───────────────────────────────────────────────
 
 export interface TestAccount {
@@ -74,7 +79,7 @@ export function getActiveTestAccount(): TestAccount | null {
  */
 export function switchTestAccount(
   accountId: string,
-): Map<string, 'up' | 'down' | null> {
+): Map<string, VoteDirection> {
   const account = ALL_TEST_ACCOUNTS.find((a) => a.id === accountId);
   if (!account) {
     throw new Error(`Unknown test account: ${accountId}`);
@@ -89,7 +94,7 @@ export function switchTestAccount(
  * @throws if no account is active
  */
 export function persistActiveAccountVotes(
-  votes: Map<string, 'up' | 'down' | null>,
+  votes: Map<string, VoteDirection>,
 ): void {
   if (!_activeAccount) {
     throw new Error('No active test account — call switchTestAccount first');
@@ -105,7 +110,7 @@ export function _resetTestAccountsForTesting(): void {
 // ── Aggregate helpers ──────────────────────────────────────────────
 
 /** Direction-to-delta for aggregate counting. */
-function voteDelta(direction: 'up' | 'down' | null): { up: number; down: number } {
+function voteDelta(direction: VoteDirection): { up: number; down: number } {
   if (direction === 'up') return { up: 1, down: 0 };
   if (direction === 'down') return { up: 0, down: 1 };
   return { up: 0, down: 0 };

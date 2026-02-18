@@ -15,7 +15,9 @@ import {
   getActiveTestAccount,
   persistActiveAccountVotes,
   switchTestAccount,
+  type VoteDirection,
 } from './testAccounts';
+import { DEV_INVITE_CODES } from './devInvite';
 import { persistVotes, loadVotesFromStorage } from '../store/forum/persistence';
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -396,6 +398,71 @@ describe('testAccounts', () => {
       expect(agg[2]).toEqual({
         targetId: 'proposal-3', upvotes: 1, downvotes: 1, score: 0,
       });
+    });
+  });
+
+  // ── QA-2: Edge-case coverage for aggregate ───────────────────
+
+  describe('aggregateVotesAcrossAccounts edge cases (QA-2)', () => {
+    it('returns empty array when targetIds is empty', () => {
+      const result = aggregateVotesAcrossAccounts(ALL_TEST_ACCOUNTS, []);
+      expect(result).toEqual([]);
+    });
+
+    it('returns all-zero tallies when accounts array is empty', () => {
+      const result = aggregateVotesAcrossAccounts([], ['t1', 't2']);
+      expect(result).toEqual([
+        { targetId: 't1', upvotes: 0, downvotes: 0, score: 0 },
+        { targetId: 't2', upvotes: 0, downvotes: 0, score: 0 },
+      ]);
+    });
+
+    it('returns empty array when both inputs are empty', () => {
+      const result = aggregateVotesAcrossAccounts([], []);
+      expect(result).toEqual([]);
+    });
+  });
+
+  // ── QA-3: Cross-module invite→account binding ────────────────
+
+  describe('invite code → test account binding (QA-3)', () => {
+    const INVITE_ACCOUNT_MAP: Record<string, string> = {
+      'BLDT-SUPER-ADMIN': 'bldt-super',
+      'LISA-VOTER-TEST': 'lisa-voter',
+      'LARRY-VOTER-TEST': 'larry-voter',
+    };
+
+    it('each account-specific invite code maps to a valid test account', () => {
+      for (const [code, accountId] of Object.entries(INVITE_ACCOUNT_MAP)) {
+        expect(DEV_INVITE_CODES.has(code)).toBe(true);
+        // switchTestAccount must not throw for the mapped account id
+        const votes = switchTestAccount(accountId);
+        expect(votes).toBeInstanceOf(Map);
+        _resetTestAccountsForTesting();
+      }
+    });
+
+    it('all 3 persona accounts have corresponding invite codes', () => {
+      for (const account of ALL_TEST_ACCOUNTS) {
+        const hasCode = Object.values(INVITE_ACCOUNT_MAP).includes(account.id);
+        expect(hasCode).toBe(true);
+      }
+    });
+  });
+
+  // ── QA-1: VoteDirection type alias ───────────────────────────
+
+  describe('VoteDirection type alias (QA-1)', () => {
+    it('accepts all valid vote directions', () => {
+      const directions: VoteDirection[] = ['up', 'down', null];
+      expect(directions).toHaveLength(3);
+      // Type-level check: ensure the alias works at runtime
+      const voteMap = new Map<string, VoteDirection>([
+        ['t1', 'up'],
+        ['t2', 'down'],
+        ['t3', null],
+      ]);
+      expect(voteMap.size).toBe(3);
     });
   });
 });
