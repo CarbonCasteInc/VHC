@@ -12,7 +12,7 @@ import {
 
 const ANALYSIS_TIMEOUT_MS = 30_000;
 const ANALYSIS_BUDGET_KEY = 'vh_analysis_budget';
-const ANALYSIS_BUDGET_LIMIT = 20;
+const DEFAULT_ANALYSIS_BUDGET_LIMIT = 20;
 const RETRY_NOOP = (): void => {};
 
 interface AnalysisBudgetState {
@@ -46,6 +46,21 @@ function todayIsoDate(): string {
 function getModelScopeKey(): string {
   const model = getDevModelOverride();
   return model ? `model:${model}` : 'model:default';
+}
+
+function getAnalysisBudgetLimit(): number {
+  const rawLimit = import.meta.env.VITE_VH_ANALYSIS_DAILY_LIMIT;
+
+  if (!rawLimit || rawLimit.trim().length === 0) {
+    return DEFAULT_ANALYSIS_BUDGET_LIMIT;
+  }
+
+  const parsed = Number(rawLimit);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_ANALYSIS_BUDGET_LIMIT;
+  }
+
+  return Math.max(0, Math.floor(parsed));
 }
 
 function readBudgetState(): AnalysisBudgetState {
@@ -99,10 +114,20 @@ function writeBudgetState(next: AnalysisBudgetState): void {
 }
 
 export function canAnalyze(): boolean {
-  return readBudgetState().count < ANALYSIS_BUDGET_LIMIT;
+  const budgetLimit = getAnalysisBudgetLimit();
+  if (budgetLimit === 0) {
+    return true;
+  }
+
+  return readBudgetState().count < budgetLimit;
 }
 
 export function recordAnalysis(): void {
+  const budgetLimit = getAnalysisBudgetLimit();
+  if (budgetLimit === 0) {
+    return;
+  }
+
   const current = readBudgetState();
   writeBudgetState({
     date: current.date,
