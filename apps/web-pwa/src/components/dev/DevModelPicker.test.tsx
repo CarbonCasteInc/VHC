@@ -54,6 +54,17 @@ describe('DevModelPicker', () => {
     expect(screen.getByTestId('dev-model-picker-toggle')).toHaveTextContent('gpt-4o');
   });
 
+  it('supports gpt-5.2 codex-auth model selection', () => {
+    render(<DevModelPicker />);
+    fireEvent.click(screen.getByTestId('dev-model-picker-toggle'));
+    const select = screen.getByTestId('dev-model-picker-select');
+
+    fireEvent.change(select, { target: { value: 'openai-codex/gpt-5.2-codex' } });
+
+    expect(localStorage.getItem('vh_dev_model_override')).toBe('openai-codex/gpt-5.2-codex');
+    expect(screen.getByTestId('dev-model-picker-toggle')).toHaveTextContent('gpt-5.2 (codex auth)');
+  });
+
   it('dispatches a global model-change event when selection changes', () => {
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
     render(<DevModelPicker />);
