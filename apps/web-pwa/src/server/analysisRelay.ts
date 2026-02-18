@@ -14,6 +14,7 @@ type AnalysisProvider = {
 
 interface RelayArticleRequest {
   articleText: string;
+  model?: string;
   topicId?: string;
 }
 
@@ -82,8 +83,12 @@ function parseArticleRequest(rawBody: unknown): RelayArticleRequest | null {
   if (!isObject(rawBody)) return null;
   const articleText = asNonEmptyString(rawBody.articleText);
   if (!articleText) return null;
+  const model = asNonEmptyString(rawBody.model);
   const topicId = asNonEmptyString(rawBody.topicId);
-  return topicId ? { articleText, topicId } : { articleText };
+  const result: RelayArticleRequest = { articleText };
+  if (model) result.model = model;
+  if (topicId) result.topicId = topicId;
+  return result;
 }
 
 function parsePromptRequest(rawBody: unknown): RelayPromptRequest | null {
@@ -258,6 +263,7 @@ export async function relayAnalysis(
         }
       : {}),
     ...(config.modelOverride ? { model: config.modelOverride } : {}),
+    ...(articleRequest?.model ? { model: articleRequest.model } : {}),
   };
 
   try {

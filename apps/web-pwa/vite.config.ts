@@ -4,7 +4,7 @@ import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { relayAnalysis } from './src/server/analysisRelay';
+import { relayAnalysis, resolveAnalysisRelayConfig } from './src/server/analysisRelay';
 
 const ARTICLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const ARTICLE_TEXT_MAX_CHARS = 24_000;
@@ -209,6 +209,11 @@ function createAnalysisRelayPlugin(): Plugin {
   return {
     name: 'vh-analysis-relay',
     configureServer(server) {
+      server.middlewares.use('/api/analyze/config', (req, res) => {
+        if ((req.method ?? 'GET').toUpperCase() !== 'GET') { sendJson(res, 405, { error: 'Method not allowed' }); return; }
+        const c = resolveAnalysisRelayConfig(process.env as Record<string, string | undefined>);
+        sendJson(res, 200, { configured: !!c, model: c?.modelOverride ?? 'default', provider_id: c?.providerId ?? 'not-configured', upstream_url: c ? '[configured]' : 'not-configured', analyses_limit: c?.analysesLimit ?? 0, analyses_per_topic_limit: c?.analysesPerTopicLimit ?? 0 });
+      });
       server.middlewares.use('/api/analyze', async (req, res) => {
         if ((req.method ?? 'GET').toUpperCase() !== 'POST') {
           sendJson(res, 405, { error: 'Method not allowed' });

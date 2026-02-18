@@ -2,6 +2,7 @@ import type { StoryBundle } from '@vh/data-model';
 import { createRemoteEngine } from '../../../../../packages/ai-engine/src/engines';
 import { createAnalysisPipeline, type PipelineResult } from '../../../../../packages/ai-engine/src/pipeline';
 import type { AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
+import { getDevModelOverride } from '../dev/DevModelPicker';
 
 const MAX_SOURCE_ANALYSES = 3;
 const MAX_FRAME_ROWS = 12;
@@ -80,9 +81,10 @@ function isRelayEnabled(): boolean {
 }
 
 async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, 'analysis'>> {
+  const devModel = getDevModelOverride();
   const r = await fetch('/api/analyze', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ articleText: text }),
+    body: JSON.stringify({ articleText: text, ...(devModel ? { model: devModel } : {}) }),
   });
   if (!r.ok) throw new Error(`Analysis relay error: ${r.status}`);
   const { analysis } = await r.json();
@@ -301,6 +303,7 @@ export function __resetNewsCardAnalysisCacheForTests(): void {
 export const newsCardAnalysisInternal = {
   buildAnalysisInput,
   firstSentence,
+  runAnalysisViaRelay,
   selectSourcesForAnalysis,
   synthesizeSummary,
   toFrameRows,

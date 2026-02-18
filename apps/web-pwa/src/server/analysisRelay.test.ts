@@ -270,4 +270,53 @@ describe('analysisRelay config + success paths', () => {
     expect(result.status).toBe(200);
     expect(result.payload.budget).toEqual({ analyses: 1, analyses_per_topic: 1 });
   });
+
+  it('forwards client model override from article request to upstream', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: validAnalysisContent('Model override test') }),
+    );
+
+    const result = await relayAnalysis(
+      { articleText: 'Topic ID: topic-model\nBody text', model: 'gpt-4o' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('gpt-4o');
+  });
+
+  it('uses default model when article request has no model field', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: validAnalysisContent('No model override') }),
+    );
+
+    await relayAnalysis(
+      { articleText: 'Topic ID: topic-default\nBody text' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('gpt-5.2');
+  });
+
+  it('client article model overrides config modelOverride (dev-only relay)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: validAnalysisContent('Client wins') }),
+    );
+
+    await relayAnalysis(
+      { articleText: 'Body text', model: 'claude-3-haiku' },
+      {
+        env: { ...BASE_ENV, ANALYSIS_RELAY_MODEL: 'server-locked-model' },
+        fetchImpl: fetchMock,
+      },
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('claude-3-haiku');
+  });
 });
