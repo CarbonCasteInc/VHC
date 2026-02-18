@@ -1,6 +1,6 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-15
+**Last Updated:** 2026-02-18
 **Version:** 0.7.0 (Wave 4 Complete — LUMA Trust Constants, Session Lifecycle, Constituency Proof Verification)
 **Assessment:** Pre-production prototype, Wave 4 complete and merged to main (LUMA identity hardening). All integration branches merged.
 
@@ -122,6 +122,7 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_INVITE_ONLY_ENABLED` | Gates route-level invite-only mode | `true` | 2 |
 | `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
 | `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
+| `VITE_VH_BIAS_TABLE_V2` | Gates per-cell sentiment voting on BiasTable | `false` | Post-4 |
 
 Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean config/env values default to empty input with code-level fallbacks.
 
@@ -385,6 +386,12 @@ Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean conf
 ## Next Work (Post-Wave 4)
 
 Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integration branches (`integration/wave-3`, `integration/wave-4`) are ancestors of `main`.
+
+### Feed Parity Slices (Post-Wave 4)
+- **FE-1** (provider model): merged
+- **FE-2** (bias table): merged
+- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable, feature-flagged behind `VITE_VH_BIAS_TABLE_V2`
+- **FE-4** (removal polish): merged
 
 Remaining from Wave 3 carryover (see `docs/foundational/WAVE3_CARRYOVER.md`):
 1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after stability verification

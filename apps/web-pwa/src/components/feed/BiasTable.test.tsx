@@ -1,9 +1,15 @@
 /* @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
 import { BiasTable } from './BiasTable';
+
+vi.mock('../../store/identityProvider', () => ({
+  getPublishedIdentity: vi.fn().mockReturnValue(null),
+  publishIdentity: vi.fn(),
+  clearPublishedIdentity: vi.fn(),
+}));
 
 function makeAnalysis(overrides: Partial<NewsCardSourceAnalysis> = {}): NewsCardSourceAnalysis {
   return {
@@ -27,6 +33,7 @@ const FRAMES = [
 ];
 
 describe('BiasTable', () => {
+  beforeEach(() => vi.clearAllMocks());
   afterEach(() => cleanup());
 
   it('renders frame and reframe columns with data', () => {
@@ -127,5 +134,93 @@ describe('BiasTable', () => {
     expect(screen.getByTestId('bias-table')).toBeInTheDocument();
     expect(screen.getByText('Reuters: Urgency framing')).toBeInTheDocument();
     expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('0 sources analyzed');
+  });
+
+  it('votingEnabled=true renders CellVoteControls in each cell', () => {
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId="topic-1"
+        analysisId="story-1:prov-1"
+        votingEnabled
+      />,
+    );
+    expect(screen.getByTestId('cell-vote-frame:0')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-reframe:0')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-frame:1')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-reframe:1')).toBeInTheDocument();
+  });
+
+  it('votingEnabled=false renders no vote controls', () => {
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId="topic-1"
+        analysisId="story-1:prov-1"
+        votingEnabled={false}
+      />,
+    );
+    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('cell-vote-reframe:0')).not.toBeInTheDocument();
+  });
+
+  it('no vote controls when votingEnabled but missing topicId', () => {
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        analysisId="story-1:prov-1"
+        votingEnabled
+      />,
+    );
+    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
+  });
+
+  it('no vote controls when votingEnabled but missing analysisId', () => {
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId="topic-1"
+        votingEnabled
+      />,
+    );
+    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
+  });
+
+  it('point IDs are stable: frame:0, frame:1, reframe:0, reframe:1', () => {
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId="topic-1"
+        analysisId="story-1:prov-1"
+        votingEnabled
+      />,
+    );
+    expect(screen.getByTestId('cell-vote-agree-frame:0')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-agree-frame:1')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-agree-reframe:0')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-agree-reframe:1')).toBeInTheDocument();
+  });
+
+  it('frame and reframe voting controls are independent', () => {
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId="topic-1"
+        analysisId="story-1:prov-1"
+        votingEnabled
+      />,
+    );
+    // Both frame and reframe in same row have separate data-testids
+    const frameVote = screen.getByTestId('cell-vote-frame:0');
+    const reframeVote = screen.getByTestId('cell-vote-reframe:0');
+    expect(frameVote).not.toBe(reframeVote);
+    // They are in different td cells
+    expect(frameVote.closest('td')).not.toBe(reframeVote.closest('td'));
   });
 });

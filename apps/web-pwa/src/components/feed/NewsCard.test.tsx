@@ -14,6 +14,11 @@ vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn(),
 }));
+vi.mock('../../store/identityProvider', () => ({
+  getPublishedIdentity: vi.fn().mockReturnValue(null),
+  publishIdentity: vi.fn(),
+  clearPublishedIdentity: vi.fn(),
+}));
 const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
   synthesizeStoryFromAnalysisPipeline,
 );
@@ -342,5 +347,27 @@ describe('NewsCard', () => {
     expect(screen.getByTestId('news-card-synthesis-error-news-1')).toHaveTextContent(
       'Synthesis unavailable.',
     );
+  });
+  it('threads analysisId from story through to BiasTable voting controls', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
+    // Voting controls appear because both analysisId and topicId are threaded
+    expect(screen.getByTestId('cell-vote-frame:0')).toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-reframe:0')).toBeInTheDocument();
+  });
+  it('VITE_VH_BIAS_TABLE_V2 off hides voting controls even with analysis', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'false');
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('news-card-frame-table-news-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
   });
 });

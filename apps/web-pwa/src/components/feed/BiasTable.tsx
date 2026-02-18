@@ -1,11 +1,15 @@
 import React, { useCallback, useState } from 'react';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
+import { CellVoteControls } from './CellVoteControls';
 
 export interface BiasTableProps {
   readonly analyses: ReadonlyArray<NewsCardSourceAnalysis>;
   readonly frames: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly providerLabel?: string;
   readonly loading?: boolean;
+  readonly topicId?: string;
+  readonly analysisId?: string;
+  readonly votingEnabled?: boolean;
 }
 
 function SkeletonRows(): React.ReactElement {
@@ -30,16 +34,28 @@ interface ExpandableRowProps {
   readonly reframe: string;
   readonly analysis: NewsCardSourceAnalysis | undefined;
   readonly rowIndex: number;
+  readonly topicId?: string;
+  readonly analysisId?: string;
+  readonly votingEnabled?: boolean;
 }
 
-function ExpandableRow({ frame, reframe, analysis, rowIndex }: ExpandableRowProps): React.ReactElement {
+function ExpandableRow({
+  frame,
+  reframe,
+  analysis,
+  rowIndex,
+  topicId,
+  analysisId,
+  votingEnabled,
+}: ExpandableRowProps): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
-
   const toggle = useCallback(() => setExpanded((v) => !v), []);
 
   const hasDetail =
     (analysis?.biasClaimQuotes?.length ?? 0) > 0 ||
     (analysis?.justifyBiasClaims?.length ?? 0) > 0;
+
+  const showVoting = !!(votingEnabled && topicId && analysisId);
 
   return (
     <>
@@ -51,9 +67,23 @@ function ExpandableRow({ frame, reframe, analysis, rowIndex }: ExpandableRowProp
       >
         <td className="border border-slate-200 px-2 py-1 text-slate-800">
           {frame}
+          {showVoting && (
+            <CellVoteControls
+              topicId={topicId!}
+              pointId={`frame:${rowIndex}`}
+              analysisId={analysisId!}
+            />
+          )}
         </td>
         <td className="border border-slate-200 px-2 py-1 text-slate-700">
           {reframe}
+          {showVoting && (
+            <CellVoteControls
+              topicId={topicId!}
+              pointId={`reframe:${rowIndex}`}
+              analysisId={analysisId!}
+            />
+          )}
         </td>
       </tr>
       {expanded && hasDetail && (
@@ -115,6 +145,9 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   frames,
   providerLabel,
   loading = false,
+  topicId,
+  analysisId,
+  votingEnabled = false,
 }) => {
   const rowAnalysisMap = buildRowAnalysisMap(frames, analyses);
 
@@ -170,6 +203,9 @@ export const BiasTable: React.FC<BiasTableProps> = ({
                   reframe={row.reframe}
                   analysis={rowAnalysisMap.get(index)}
                   rowIndex={index}
+                  topicId={topicId}
+                  analysisId={analysisId}
+                  votingEnabled={votingEnabled}
                 />
               ))
             ) : (
