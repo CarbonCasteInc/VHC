@@ -1,16 +1,22 @@
 import { useIdentity } from './useIdentity';
 import type { ConstituencyProof } from '@vh/types';
 import { useMemo } from 'react';
-import { getMockConstituencyProof } from '../store/bridge/constituencyProof';
+import { isProofVerificationEnabled } from '../store/bridge/constituencyProof';
+import { getTransitionalConstituencyProof } from '../store/bridge/transitionalConstituencyProof';
 
-const MOCK_DISTRICT_HASH = 'mock-district-hash';
-
+// TRANSITIONAL: Remove when Phase 1 real proof-provider ships (see FPD RFC Phase 1/S1)
 export function useRegion(): { proof: ConstituencyProof | null } {
   const { identity } = useIdentity();
 
   const proof = useMemo(() => {
-    if (!identity?.session?.nullifier) return null;
-    return getMockConstituencyProof(MOCK_DISTRICT_HASH, identity.session.nullifier);
+    const nullifier = identity?.session?.nullifier;
+    if (!nullifier) return null;
+
+    if (isProofVerificationEnabled()) {
+      return null;
+    }
+
+    return getTransitionalConstituencyProof(nullifier);
   }, [identity?.session?.nullifier]);
 
   return { proof };

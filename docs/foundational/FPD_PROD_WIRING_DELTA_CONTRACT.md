@@ -36,6 +36,15 @@ Close the gap between currently merged FPD L1-L4 behavior and production-safe en
 - Transitional code must be marked `TRANSITIONAL` and tracked with removal criteria.
 - Transitional path must be removed before final production completion gate.
 
+### P2.1 — Transitional Shim Tracking
+
+| File | Added | Removal Trigger |
+|------|-------|-----------------|
+| `apps/web-pwa/src/store/bridge/transitionalConstituencyProof.ts` | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) |
+| `apps/web-pwa/src/hooks/useRegion.ts` (transitional branch) | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) |
+
+Removal criteria: All transitional code is removed in Phase 5 (WS7) after production proof provider is validated and legacy paths are sunset.
+
 ### P3 — Identity-root migration safety
 - S2 point-identity root transition must preserve legacy analysisKey-based derivation during S4 dual-write window.
 - No hard cut that orphans existing user vote state.
