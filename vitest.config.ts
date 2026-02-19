@@ -87,7 +87,6 @@ export default defineConfig({
 
         // --- React Hooks (stateful wiring validated via E2E) ---
         'apps/web-pwa/src/hooks/useIdentity.ts',
-        'apps/web-pwa/src/hooks/useRegion.ts',
         'apps/web-pwa/src/hooks/useFeedStore.ts',
         'apps/web-pwa/src/hooks/useSentimentState.ts',
 
