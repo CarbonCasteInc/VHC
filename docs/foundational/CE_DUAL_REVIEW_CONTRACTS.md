@@ -5,18 +5,18 @@ Companion to:
 - `docs/foundational/V2_Sprint_Staffing_Plan.md`
 - `docs/foundational/WAVE2_DELTA_CONTRACT.md`
 
-Status: Binding for Wave 2+ review orchestration.
-Wave runtime constants: `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
+Status: Binding for active review orchestration (including FPD production wiring).
+Wave/runtime constants: `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
 
-Last updated: 2026-02-12
+Last updated: 2026-02-19
 
 ---
 
 ## 1) Purpose
 
 Formalize the dual-model review pattern already used during Wave 1:
-- `ce-codex` (Codex 5.3) and
-- `ce-opus` (Opus 4.6)
+- `codex` (Codex 5.3) and
+- `opus` (Opus 4.6)
 
 These two agents are review/planning authorities only. They do not execute implementation slices.
 
@@ -108,11 +108,11 @@ Escalate immediately (skip extra rounds) when:
 
 ---
 
-## 3) Contract: `ce-codex`
+## 3) Contract: `codex`
 
 ### Identity
 
-- Agent ID: `ce-codex`
+- Agent ID: `codex`
 - Model: Codex 5.3
 
 ### Role
@@ -140,7 +140,7 @@ Prevent avoidable execution failures by turning ambiguous plans into technically
 2. Identify technical failure modes and ordering hazards.
 3. Draft prompt text optimized for execution clarity.
 4. Submit fixed-schema CE pass.
-5. Reconcile with `ce-opus` pass.
+5. Reconcile with `opus` pass.
 
 ### Report format requirements
 
@@ -150,11 +150,11 @@ Prevent avoidable execution failures by turning ambiguous plans into technically
 
 ---
 
-## 4) Contract: `ce-opus`
+## 4) Contract: `opus`
 
 ### Identity
 
-- Agent ID: `ce-opus`
+- Agent ID: `opus`
 - Model: Opus 4.6
 
 ### Role
@@ -182,7 +182,7 @@ Keep execution aligned with canonical contracts and prevent procedural drift bet
 2. Identify missing policy hooks, accountability gaps, or sequencing errors.
 3. Draft contract-safe prompt text.
 4. Submit fixed-schema CE pass.
-5. Reconcile with `ce-codex` pass.
+5. Reconcile with `codex` pass.
 
 ### Report format requirements
 
@@ -194,7 +194,7 @@ Keep execution aligned with canonical contracts and prevent procedural drift bet
 
 ## 5) Reconciliation Rules
 
-1. `ce-codex` and `ce-opus` each publish pass output using the fixed schema.
+1. `codex` and `opus` each publish pass output using the fixed schema.
 2. If either pass marks `rotation_required=yes` or status is `HOLDING_FOR_ROTATION`:
    rotate the flagged agent and rerun CE. No CEO approval is required for rotation-triggered reruns.
 3. If both statuses are `AGREED` and both passes have `rotation_required=no`:

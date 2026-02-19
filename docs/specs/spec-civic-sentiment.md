@@ -120,3 +120,20 @@ District dashboards must remain aggregate-only:
 3. Toggle semantics tests (`+/-` and neutral reset).
 4. Aggregate projection determinism tests by `(topic_id, synthesis_id, epoch)`.
 5. Privacy tests: ensure district dashboard payloads are aggregate-only.
+
+## 9. FPD production-wiring clarifications (2026-02-19)
+
+These clarifications are binding for the active production-wiring program.
+
+1. **Unified vote admission policy (required):** Feed and AnalysisView MUST enforce identical admission rules (verified proof, valid synthesis context, budget checks). No bypass write path is allowed.
+2. **Canonical point identity migration (required):** If point identity root changes, implementations MUST use dual-write + backfill + compatibility-read during migration window.
+3. **Legacy sunset (required):** Compatibility read paths must have explicit sunset criteria (time + release-count) and telemetry to prove safe removal.
+4. **Aggregate visibility (required):** UI sentiment counters MUST read mesh aggregates (with resilience controls), not local-write-only projections.
+5. **Telemetry (required):** Vote attempts, denials by reason, projection retries/failures, and migration mapping outcomes must be observable.
+
+## 10. Migration safety requirements
+
+1. Migration must be idempotent.
+2. Migration must emit mapped/unmapped/orphaned counters.
+3. Production cutover requires explicit threshold criteria defined in dispatch/delta contracts.
+4. Rollback must preserve vote-state readability for both roots until sunset is complete.
