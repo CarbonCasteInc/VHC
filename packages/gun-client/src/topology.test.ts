@@ -43,6 +43,21 @@ describe('TopologyGuard', () => {
     const guard = new TopologyGuard();
     expect(() => guard.validateWrite('vh/discovery/items/item-1', { id: 'item-1', score: 1 })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/stories/story-1', { story_id: 'story-1', title: 'Headline' })).not.toThrow();
+    expect(() => guard.validateWrite('vh/news/stories/story-1/analysis/a1', { analysisKey: 'a1' })).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/news/stories/story-1/analysis_latest', {
+        analysisKey: 'a1',
+        created_at: '2026-02-18T22:00:00.000Z',
+      })
+    ).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/3/voters/voter-1/point-1', {
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:00:00.000Z',
+      })
+    ).not.toThrow();
   });
 
   it('allows news removal entries (public, no PII)', () => {
@@ -97,6 +112,17 @@ describe('TopologyGuard', () => {
       guard.validateWrite('~alice/hermes/docKeys/doc-1', {
         __encrypted: true,
         encryptedKey: 'abc123'
+      })
+    ).not.toThrow();
+  });
+
+  it('requires encryption for sentiment outbox path', () => {
+    const guard = new TopologyGuard();
+    expect(() => guard.validateWrite('~alice/outbox/sentiment/evt-1', { plaintext: true })).toThrow();
+    expect(() =>
+      guard.validateWrite('~alice/outbox/sentiment/evt-1', {
+        __encrypted: true,
+        ciphertext: 'abc123'
       })
     ).not.toThrow();
   });

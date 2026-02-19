@@ -1,33 +1,26 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useSentimentState } from '../../hooks/useSentimentState';
-import { getPublishedIdentity } from '../../store/identityProvider';
-import type { ConstituencyProof } from '@vh/types';
+import { useConstituencyProof } from '../../hooks/useConstituencyProof';
 
 export interface CellVoteControlsProps {
   readonly topicId: string;
   readonly pointId: string;
-  readonly analysisId: string;
+  readonly synthesisId: string;
+  readonly epoch: number;
+  readonly analysisId?: string;
   readonly disabled?: boolean;
 }
 
-function buildProof(): ConstituencyProof | null {
-  const identity = getPublishedIdentity();
-  if (!identity?.session?.nullifier) return null;
-  return {
-    district_hash: 'default-district',
-    nullifier: identity.session.nullifier,
-    merkle_root: 'default-merkle-root',
-  };
-}
-
 function countSignals(
-  signals: ReadonlyArray<{ point_id: string; agreement: number }>,
+  signals: ReadonlyArray<{ point_id: string; agreement: number; synthesis_id?: string; epoch?: number }>,
   pointId: string,
+  synthesisId: string,
+  epoch: number,
 ): { agrees: number; disagrees: number } {
   let agrees = 0;
   let disagrees = 0;
   for (const s of signals) {
-    if (s.point_id === pointId) {
+    if (s.point_id === pointId && s.synthesis_id === synthesisId && s.epoch === epoch) {
       if (s.agreement === 1) agrees += 1;
       else if (s.agreement === -1) disagrees += 1;
     }
@@ -38,17 +31,22 @@ function countSignals(
 export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   topicId,
   pointId,
+  synthesisId,
+  epoch,
   analysisId,
   disabled = false,
 }) => {
-  const currentVote = useSentimentState((s) => s.getAgreement(topicId, pointId));
+  const currentVote = useSentimentState((s) => s.getAgreement(topicId, pointId, synthesisId, epoch));
   const signals = useSentimentState((s) => s.signals);
   const setAgreement = useSentimentState((s) => s.setAgreement);
   const [denial, setDenial] = useState<string | null>(null);
+  const { proof, error: proofError } = useConstituencyProof();
 
-  const proof = useMemo(() => buildProof(), []);
   const hasProof = proof !== null;
-  const { agrees, disagrees } = useMemo(() => countSignals(signals, pointId), [signals, pointId]);
+  const { agrees, disagrees } = useMemo(
+    () => countSignals(signals, pointId, synthesisId, epoch),
+    [signals, pointId, synthesisId, epoch],
+  );
 
   const handleVote = useCallback(
     (desired: -1 | 1) => {
@@ -57,6 +55,8 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
       const result = setAgreement({
         topicId,
         pointId,
+        synthesisId,
+        epoch,
         analysisId,
         desired,
         constituency_proof: proof ?? undefined,
@@ -65,13 +65,15 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
         setDenial(result.reason);
       }
     },
-    [disabled, setAgreement, topicId, pointId, analysisId, proof],
+    [analysisId, disabled, epoch, pointId, proof, setAgreement, synthesisId, topicId],
   );
 
   const denialText = denial
-    ? denial.includes('constituency') || denial.includes('proof')
-      ? 'Sign in to make your vote count'
-      : 'Daily vote limit reached'
+    ? denial.includes('synthesis context')
+      ? 'Waiting for synthesis context'
+      : denial.includes('constituency') || denial.includes('proof')
+        ? 'Sign in to make your vote count'
+        : 'Daily vote limit reached'
     : null;
 
   return (
@@ -113,7 +115,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
           className="text-[10px] text-amber-600"
           data-testid={`cell-vote-unweighted-${pointId}`}
         >
-          Unweighted vote
+          {proofError ?? 'Voting requires verified proof'}
         </span>
       )}
       {denialText && (

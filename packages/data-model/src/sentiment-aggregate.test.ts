@@ -36,6 +36,8 @@ describe('Sentiment aggregation', () => {
     const signals: SentimentSignal[] = [
       {
         topic_id: 't1',
+        synthesis_id: 's1',
+        epoch: 1,
         analysis_id: 'a1',
         point_id: 'pA',
         agreement: 1,
@@ -45,6 +47,8 @@ describe('Sentiment aggregation', () => {
       },
       {
         topic_id: 't1',
+        synthesis_id: 's1',
+        epoch: 1,
         analysis_id: 'a1',
         point_id: 'pA',
         agreement: -1,
@@ -54,6 +58,8 @@ describe('Sentiment aggregation', () => {
       },
       {
         topic_id: 't1',
+        synthesis_id: 's1',
+        epoch: 1,
         analysis_id: 'a1',
         point_id: 'pB',
         agreement: 1,
@@ -64,6 +70,8 @@ describe('Sentiment aggregation', () => {
       // Same user toggles to neutral on pB; should remove their vote for that cell but keep prior pA vote
       {
         topic_id: 't1',
+        synthesis_id: 's1',
+        epoch: 1,
         analysis_id: 'a1',
         point_id: 'pB',
         agreement: 0,
@@ -83,6 +91,8 @@ describe('Sentiment aggregation', () => {
   it('sums large engagement across many users while keeping per-user ≤2', () => {
     const signals: SentimentSignal[] = Array.from({ length: 50 }).map((_, i) => ({
       topic_id: 't2',
+      synthesis_id: 's2',
+      epoch: 2,
       analysis_id: 'a2',
       point_id: 'p-main',
       agreement: i % 2 === 0 ? 1 : -1,

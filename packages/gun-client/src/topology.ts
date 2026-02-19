@@ -16,8 +16,11 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/outbox/', classification: 'sensitive' },
   { pathPrefix: 'vh/analyses/', classification: 'public' },
   { pathPrefix: 'vh/aggregates/', classification: 'public' },
+  { pathPrefix: 'vh/aggregates/topics/*/syntheses/*/epochs/*/voters/*', classification: 'public' },
   // Wave 0 contract registrations
   { pathPrefix: 'vh/news/stories/*', classification: 'public' },
+  { pathPrefix: 'vh/news/stories/*/analysis/*', classification: 'public' },
+  { pathPrefix: 'vh/news/stories/*/analysis_latest', classification: 'public' },
   { pathPrefix: 'vh/news/index/latest/*', classification: 'public' },
   { pathPrefix: 'vh/news/removed/*', classification: 'public' },
   { pathPrefix: 'vh/topics/*/epochs/*/candidates/*', classification: 'public' },
@@ -35,6 +38,7 @@ const DEFAULT_RULES: TopologyRule[] = [
   // HERMES messaging
   { pathPrefix: 'vh/hermes/inbox/', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/outbox', classification: 'sensitive' },
+  { pathPrefix: '~*/outbox/sentiment/*', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/chats', classification: 'sensitive' },
   { pathPrefix: '~*/docs/*', classification: 'sensitive' },
   { pathPrefix: '~*/hermes/docs/*', classification: 'sensitive' },

@@ -91,6 +91,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
   const computedAnalysisId = story ? `${story.story_id}:${story.provenance_hash}` : null;
+  const synthesisId = synthesis?.synthesis_id ?? null;
+  const synthesisEpoch = synthesis?.epoch;
   const analysisFeedbackStatus =
     analysisPipelineEnabled &&
     (analysisStatus === 'loading' ||
@@ -260,6 +262,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
                 synthesisError={synthesisError}
                 analysis={analysis}
                 analysisId={computedAnalysisId}
+                synthesisId={synthesisId}
+                epoch={synthesisEpoch}
                 onFlipBack={collapseCard}
               />
             ) : null}

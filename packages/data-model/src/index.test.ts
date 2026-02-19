@@ -17,6 +17,9 @@ describe('data-model index exports', () => {
     expect(index.DirectoryEntrySchema).toBeDefined();
     expect(index.StoryBundleSchema).toBeDefined();
     expect(index.CandidateSynthesisSchema).toBeDefined();
+    expect(index.StoryAnalysisArtifactSchema).toBeDefined();
+    expect(index.SentimentEventSchema).toBeDefined();
+    expect(index.AggregateVoterNodeSchema).toBeDefined();
     expect(index.SocialNotificationSchema).toBeDefined();
     expect(index.NominationEventSchema).toBeDefined();
     expect(index.FeedItemSchema).toBeDefined();

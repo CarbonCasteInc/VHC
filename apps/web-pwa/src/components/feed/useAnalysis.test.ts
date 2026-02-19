@@ -12,10 +12,18 @@ import {
   synthesizeStoryFromAnalysisPipeline,
   type NewsCardAnalysisSynthesis,
 } from './newsCardAnalysis';
+import {
+  readMeshAnalysis,
+  writeMeshAnalysis,
+} from './useAnalysisMesh';
 import * as DevModelPickerModule from '../dev/DevModelPicker';
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn(),
+}));
+vi.mock('./useAnalysisMesh', () => ({
+  readMeshAnalysis: vi.fn(),
+  writeMeshAnalysis: vi.fn(),
 }));
 vi.mock('../dev/DevModelPicker', () => ({
   DEV_MODEL_CHANGED_EVENT: 'vh:dev-model-changed',
@@ -26,6 +34,8 @@ const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
   synthesizeStoryFromAnalysisPipeline,
 );
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
+const mockReadMeshAnalysis = vi.mocked(readMeshAnalysis);
+const mockWriteMeshAnalysis = vi.mocked(writeMeshAnalysis);
 const mockGetDevModelOverride = vi.mocked(DevModelPickerModule.getDevModelOverride);
 const NOW = 1_700_000_000_000;
 function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
@@ -91,9 +101,13 @@ describe('useAnalysis', () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
     mockGetCachedSynthesisForStory.mockReset();
+    mockReadMeshAnalysis.mockReset();
+    mockWriteMeshAnalysis.mockReset();
     mockGetDevModelOverride.mockReset();
     mockGetDevModelOverride.mockReturnValue(null);
     mockGetCachedSynthesisForStory.mockReturnValue(null);
+    mockReadMeshAnalysis.mockResolvedValue(null);
+    mockWriteMeshAnalysis.mockResolvedValue();
   });
   afterEach(() => {
     cleanup();
@@ -180,10 +194,79 @@ describe('useAnalysis', () => {
       expect(result.current.status).toBe('success');
     });
     expect(result.current.analysis?.summary).toBe('Cached synthesis from prior run.');
+    expect(mockReadMeshAnalysis).not.toHaveBeenCalled();
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
     rerender({ enabled: false });
     rerender({ enabled: true });
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
+  });
+
+  it('reuses mesh analysis before budget gate and skips pipeline', async () => {
+    const story = makeStoryBundle();
+    const meshAnalysis = makeAnalysis({ summary: 'Reused from mesh.' });
+    mockReadMeshAnalysis.mockResolvedValueOnce(meshAnalysis);
+
+    localStorage.setItem(
+      'vh_analysis_budget',
+      JSON.stringify({ date: todayIso(), count: 20 }),
+    );
+
+    const { result } = renderHook(() => useAnalysis(story, true));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+
+    expect(result.current.analysis?.summary).toBe('Reused from mesh.');
+    expect(mockReadMeshAnalysis).toHaveBeenCalledWith(story, 'model:default');
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
+    expect(mockWriteMeshAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('publishes generated analysis to mesh after pipeline success', async () => {
+    const story = makeStoryBundle();
+    const generated = makeAnalysis({ summary: 'Generated and persisted.' });
+    mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValueOnce(generated);
+
+    const { result } = renderHook(() => useAnalysis(story, true));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+
+    expect(mockReadMeshAnalysis).toHaveBeenCalledWith(story, 'model:default');
+    expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledWith(story);
+    expect(mockWriteMeshAnalysis).toHaveBeenCalledWith(story, generated, 'model:default');
+    expect(result.current.analysis?.summary).toBe('Generated and persisted.');
+  });
+
+  it('lets user B reuse user A mesh artifact without second pipeline call', async () => {
+    const story = makeStoryBundle();
+    const generated = makeAnalysis({ summary: 'User A generated this artifact.' });
+    let meshArtifact: NewsCardAnalysisSynthesis | null = null;
+
+    mockReadMeshAnalysis.mockImplementation(async () => meshArtifact);
+    mockWriteMeshAnalysis.mockImplementation(async (_story, analysis) => {
+      meshArtifact = analysis;
+    });
+    mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValue(generated);
+
+    const userA = renderHook(() => useAnalysis(story, true));
+    await waitFor(() => {
+      expect(userA.result.current.status).toBe('success');
+    });
+    expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+    userA.unmount();
+
+    const userB = renderHook(() => useAnalysis(story, true));
+    await waitFor(() => {
+      expect(userB.result.current.status).toBe('success');
+    });
+
+    expect(userB.result.current.analysis?.summary).toBe('User A generated this artifact.');
+    expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+    expect(mockReadMeshAnalysis).toHaveBeenCalledTimes(2);
+    userB.unmount();
   });
   it('times out after 30 seconds', () => {
     vi.useFakeTimers();
@@ -229,15 +312,18 @@ describe('useAnalysis', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(2);
     expect(result.current.analysis?.summary).toBe('Recovered after retry.');
   });
-  it('blocks analysis when daily budget limit is reached', () => {
+  it('blocks analysis when daily budget limit is reached', async () => {
     const story = makeStoryBundle();
     localStorage.setItem(
       'vh_analysis_budget',
       JSON.stringify({ date: todayIso(), count: 20 }),
     );
     const { result } = renderHook(() => useAnalysis(story, true));
-    expect(result.current.status).toBe('budget_exceeded');
+    await waitFor(() => {
+      expect(result.current.status).toBe('budget_exceeded');
+    });
     expect(result.current.error).toBe('Daily analysis limit reached. Try again tomorrow.');
+    expect(mockReadMeshAnalysis).toHaveBeenCalledWith(story, 'model:default');
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
   it('cleans up pending timeout on unmount', () => {
@@ -335,6 +421,9 @@ describe('useAnalysis', () => {
     const pending = new Promise<NewsCardAnalysisSynthesis>((_resolve, reject) => {
       rejectPending = reject;
     });
+    void pending.catch(() => {
+      // consume late rejection to avoid unhandled rejection noise in timeout-path test
+    });
     mockSynthesizeStoryFromAnalysisPipeline.mockReturnValue(pending);
     const { result } = renderHook(() => useAnalysis(story, true));
     expect(result.current.status).toBe('loading');
@@ -348,5 +437,85 @@ describe('useAnalysis', () => {
     });
     expect(result.current.status).toBe('timeout');
     expect(result.current.error).toBe('Analysis timed out. The server may be busy.');
+  });
+
+  it('ignores stale success from an old request after story changes', async () => {
+    const firstStory = makeStoryBundle({ story_id: 'story-1', topic_id: 'topic-1', provenance_hash: 'prov-1' });
+    const secondStory = makeStoryBundle({ story_id: 'story-2', topic_id: 'topic-2', provenance_hash: 'prov-2' });
+    const secondAnalysis = makeAnalysis({ summary: 'Second story analysis.' });
+
+    let resolveFirst!: (value: NewsCardAnalysisSynthesis) => void;
+    const firstPending = new Promise<NewsCardAnalysisSynthesis>((resolve) => {
+      resolveFirst = resolve;
+    });
+
+    mockSynthesizeStoryFromAnalysisPipeline
+      .mockReturnValueOnce(firstPending)
+      .mockResolvedValueOnce(secondAnalysis);
+
+    const { result, rerender } = renderHook(
+      ({ story }) => useAnalysis(story, true),
+      { initialProps: { story: firstStory } },
+    );
+
+    await waitFor(() => {
+      expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({ story: secondStory });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+    expect(result.current.analysis?.summary).toBe('Second story analysis.');
+
+    await act(async () => {
+      resolveFirst(makeAnalysis({ summary: 'Stale first-story analysis.' }));
+      await Promise.resolve();
+    });
+
+    expect(result.current.analysis?.summary).toBe('Second story analysis.');
+  });
+
+  it('ignores stale failure from an old request after story changes', async () => {
+    const firstStory = makeStoryBundle({ story_id: 'story-3', topic_id: 'topic-3', provenance_hash: 'prov-3' });
+    const secondStory = makeStoryBundle({ story_id: 'story-4', topic_id: 'topic-4', provenance_hash: 'prov-4' });
+    const secondAnalysis = makeAnalysis({ summary: 'Fresh second story analysis.' });
+
+    let rejectFirst!: (reason?: unknown) => void;
+    const firstPending = new Promise<NewsCardAnalysisSynthesis>((_resolve, reject) => {
+      rejectFirst = reject;
+    });
+    void firstPending.catch(() => {
+      // consumed intentionally: stale request should be ignored by hook
+    });
+
+    mockSynthesizeStoryFromAnalysisPipeline
+      .mockReturnValueOnce(firstPending)
+      .mockResolvedValueOnce(secondAnalysis);
+
+    const { result, rerender } = renderHook(
+      ({ story }) => useAnalysis(story, true),
+      { initialProps: { story: firstStory } },
+    );
+
+    await waitFor(() => {
+      expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+    });
+
+    rerender({ story: secondStory });
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+    expect(result.current.analysis?.summary).toBe('Fresh second story analysis.');
+
+    await act(async () => {
+      rejectFirst(new Error('stale request failed'));
+      await Promise.resolve();
+    });
+
+    expect(result.current.status).toBe('success');
+    expect(result.current.analysis?.summary).toBe('Fresh second story analysis.');
   });
 });

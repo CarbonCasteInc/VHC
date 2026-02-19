@@ -56,7 +56,10 @@ export type ScaledTrustScore = number; // 0 to 10000
 
 export interface SentimentSignal {
   topic_id: string;
-  analysis_id: string;
+  synthesis_id: string;
+  epoch: number;
+  /** @deprecated compatibility field for legacy readers */
+  analysis_id?: string;
   point_id: string;
   agreement: 1 | 0 | -1;
   weight: number;
@@ -80,7 +83,9 @@ export const ConstituencyProofSchema = z.object({
 
 export const SentimentSignalSchema = z.object({
   topic_id: z.string().min(1),
-  analysis_id: z.string().min(1),
+  synthesis_id: z.string().min(1),
+  epoch: z.number().int().nonnegative(),
+  analysis_id: z.string().min(1).optional(),
   point_id: z.string().min(1),
   agreement: z.union([z.literal(1), z.literal(0), z.literal(-1)]),
   weight: z.number().min(0).max(2),

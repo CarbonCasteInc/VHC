@@ -5,6 +5,7 @@ import {
   synthesizeStoryFromAnalysisPipeline,
   type NewsCardAnalysisSynthesis,
 } from './newsCardAnalysis';
+import { readMeshAnalysis, writeMeshAnalysis } from './useAnalysisMesh';
 import {
   DEV_MODEL_CHANGED_EVENT,
   getDevModelOverride,
@@ -224,13 +225,6 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
       return;
     }
 
-    if (!canAnalyze()) {
-      setStatus('budget_exceeded');
-      setError('Daily analysis limit reached. Try again tomorrow.');
-      return;
-    }
-
-    recordAnalysis();
     setStatus('loading');
     setError(null);
 
@@ -244,17 +238,43 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
       setError('Analysis timed out. The server may be busy.');
     }, ANALYSIS_TIMEOUT_MS);
 
-    void synthesizeStoryFromAnalysisPipeline(stableStory)
-      .then((nextAnalysis) => {
-        if (activeRequestId.current !== requestId || timedOut) {
-          return;
-        }
+    void (async () => {
+      const meshAnalysis = isExplicitRetry
+        ? null
+        : await readMeshAnalysis(stableStory, modelScopeKey);
 
+      if (activeRequestId.current !== requestId || timedOut) {
+        return;
+      }
+
+      if (meshAnalysis) {
         successfulStoryKey.current = storyKey;
-        setAnalysis(nextAnalysis);
+        setAnalysis(meshAnalysis);
         setStatus('success');
         setError(null);
-      })
+        return;
+      }
+
+      if (!canAnalyze()) {
+        setStatus('budget_exceeded');
+        setError('Daily analysis limit reached. Try again tomorrow.');
+        return;
+      }
+
+      recordAnalysis();
+      const nextAnalysis = await synthesizeStoryFromAnalysisPipeline(stableStory);
+
+      if (activeRequestId.current !== requestId || timedOut) {
+        return;
+      }
+
+      successfulStoryKey.current = storyKey;
+      setAnalysis(nextAnalysis);
+      setStatus('success');
+      setError(null);
+
+      await writeMeshAnalysis(stableStory, nextAnalysis, modelScopeKey);
+    })()
       .catch((cause: unknown) => {
         if (activeRequestId.current !== requestId || timedOut) {
           return;
@@ -273,7 +293,7 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
         activeRequestId.current = requestId + 1;
       }
     };
-  }, [enabled, pipelineEnabled, retryToken, stableStory, storyKey]);
+  }, [enabled, modelScopeKey, pipelineEnabled, retryToken, stableStory, storyKey]);
 
   if (!pipelineEnabled) {
     return {

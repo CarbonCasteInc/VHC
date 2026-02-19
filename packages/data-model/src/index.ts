@@ -13,6 +13,7 @@ export * from './schemas/hermes/forum';
 export * from './schemas/hermes/directory';
 export * from './schemas/hermes/storyBundle';
 export * from './schemas/hermes/synthesis';
+export * from './schemas/hermes/sentiment';
 export * from './schemas/hermes/notification';
 export * from './schemas/hermes/elevation';
 export * from './schemas/hermes/discovery';

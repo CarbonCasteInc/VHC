@@ -356,9 +356,9 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
-    // Voting controls appear because both analysisId and topicId are threaded
-    expect(screen.getByTestId('cell-vote-frame:0')).toBeInTheDocument();
-    expect(screen.getByTestId('cell-vote-reframe:0')).toBeInTheDocument();
+    // Voting controls appear because topic + synthesis context are threaded
+    expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(2);
+    expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(2);
   });
   it('VITE_VH_BIAS_TABLE_V2 off hides voting controls even with analysis', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
@@ -368,6 +368,6 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(await screen.findByTestId('news-card-frame-table-news-1')).toBeInTheDocument();
-    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Agree with /i })).not.toBeInTheDocument();
   });
 });

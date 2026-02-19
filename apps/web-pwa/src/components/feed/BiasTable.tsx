@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
 import { CellVoteControls } from './CellVoteControls';
+import { pointMapKey, useBiasPointIds } from './useBiasPointIds';
 
 export interface BiasTableProps {
   readonly analyses: ReadonlyArray<NewsCardSourceAnalysis>;
@@ -9,6 +10,8 @@ export interface BiasTableProps {
   readonly loading?: boolean;
   readonly topicId?: string;
   readonly analysisId?: string;
+  readonly synthesisId?: string;
+  readonly epoch?: number;
   readonly votingEnabled?: boolean;
 }
 
@@ -36,6 +39,10 @@ interface ExpandableRowProps {
   readonly rowIndex: number;
   readonly topicId?: string;
   readonly analysisId?: string;
+  readonly synthesisId?: string;
+  readonly epoch?: number;
+  readonly framePointId?: string;
+  readonly reframePointId?: string;
   readonly votingEnabled?: boolean;
 }
 
@@ -46,6 +53,10 @@ function ExpandableRow({
   rowIndex,
   topicId,
   analysisId,
+  synthesisId,
+  epoch,
+  framePointId,
+  reframePointId,
   votingEnabled,
 }: ExpandableRowProps): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
@@ -55,7 +66,7 @@ function ExpandableRow({
     (analysis?.biasClaimQuotes?.length ?? 0) > 0 ||
     (analysis?.justifyBiasClaims?.length ?? 0) > 0;
 
-  const showVoting = !!(votingEnabled && topicId && analysisId);
+  const showVoting = !!(votingEnabled && topicId && synthesisId && epoch !== undefined);
 
   return (
     <>
@@ -67,21 +78,25 @@ function ExpandableRow({
       >
         <td className="border border-slate-200 px-2 py-1 text-slate-800">
           {frame}
-          {showVoting && (
+          {showVoting && framePointId && (
             <CellVoteControls
               topicId={topicId!}
-              pointId={`frame:${rowIndex}`}
-              analysisId={analysisId!}
+              pointId={framePointId}
+              synthesisId={synthesisId!}
+              epoch={epoch!}
+              analysisId={analysisId}
             />
           )}
         </td>
         <td className="border border-slate-200 px-2 py-1 text-slate-700">
           {reframe}
-          {showVoting && (
+          {showVoting && reframePointId && (
             <CellVoteControls
               topicId={topicId!}
-              pointId={`reframe:${rowIndex}`}
-              analysisId={analysisId!}
+              pointId={reframePointId}
+              synthesisId={synthesisId!}
+              epoch={epoch!}
+              analysisId={analysisId}
             />
           )}
         </td>
@@ -136,6 +151,7 @@ function buildRowAnalysisMap(
   return map;
 }
 
+// point-id derivation helpers extracted to useBiasPointIds.ts
 /**
  * Two-column bias table with expandable detail rows.
  * Feature-flagged behind VITE_VH_BIAS_TABLE_V2.
@@ -147,8 +163,19 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   loading = false,
   topicId,
   analysisId,
+  synthesisId,
+  epoch,
   votingEnabled = false,
 }) => {
+  const pointIds = useBiasPointIds({
+    frames,
+    analysisId,
+    topicId,
+    synthesisId,
+    epoch,
+    votingEnabled,
+  });
+
   const rowAnalysisMap = buildRowAnalysisMap(frames, analyses);
 
   if (!loading && analyses.length === 0 && frames.length === 0) {
@@ -205,6 +232,10 @@ export const BiasTable: React.FC<BiasTableProps> = ({
                   rowIndex={index}
                   topicId={topicId}
                   analysisId={analysisId}
+                  synthesisId={synthesisId}
+                  epoch={epoch}
+                  framePointId={pointIds[pointMapKey(index, 'frame')]}
+                  reframePointId={pointIds[pointMapKey(index, 'reframe')]}
                   votingEnabled={votingEnabled}
                 />
               ))

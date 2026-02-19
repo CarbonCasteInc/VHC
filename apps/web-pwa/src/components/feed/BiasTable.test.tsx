@@ -1,5 +1,6 @@
 /* @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { deriveAnalysisKey, derivePointId } from '@vh/data-model';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
@@ -31,6 +32,32 @@ const FRAMES = [
   { frame: 'Reuters: Urgency framing', reframe: 'Phased approach is safer' },
   { frame: 'AP News: Cost overrun risk', reframe: 'Budget controls exist' },
 ];
+
+const TOPIC_ID = 'topic-1';
+const ANALYSIS_ID = 'story-1:prov-1';
+const SYNTHESIS_ID = 'synth-1';
+const EPOCH = 7;
+
+async function deriveExpectedPointIds(): Promise<{
+  frame0: string;
+  reframe0: string;
+  frame1: string;
+  reframe1: string;
+}> {
+  const analysisKey = await deriveAnalysisKey({
+    story_id: 'story-1',
+    provenance_hash: 'prov-1',
+    pipeline_version: 'news-card-analysis-v1',
+    model_scope: 'model:default',
+  });
+
+  const frame0 = await derivePointId({ analysisKey, column: 'frame', text: FRAMES[0]!.frame });
+  const reframe0 = await derivePointId({ analysisKey, column: 'reframe', text: FRAMES[0]!.reframe });
+  const frame1 = await derivePointId({ analysisKey, column: 'frame', text: FRAMES[1]!.frame });
+  const reframe1 = await derivePointId({ analysisKey, column: 'reframe', text: FRAMES[1]!.reframe });
+
+  return { frame0, reframe0, frame1, reframe1 };
+}
 
 describe('BiasTable', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -136,91 +163,120 @@ describe('BiasTable', () => {
     expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('0 sources analyzed');
   });
 
-  it('votingEnabled=true renders CellVoteControls in each cell', () => {
+  it('votingEnabled=true renders CellVoteControls in each cell', async () => {
+    const pointIds = await deriveExpectedPointIds();
     render(
       <BiasTable
         analyses={[makeAnalysis()]}
         frames={FRAMES}
-        topicId="topic-1"
-        analysisId="story-1:prov-1"
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
         votingEnabled
       />,
     );
-    expect(screen.getByTestId('cell-vote-frame:0')).toBeInTheDocument();
-    expect(screen.getByTestId('cell-vote-reframe:0')).toBeInTheDocument();
-    expect(screen.getByTestId('cell-vote-frame:1')).toBeInTheDocument();
-    expect(screen.getByTestId('cell-vote-reframe:1')).toBeInTheDocument();
+
+    expect(await screen.findByTestId(`cell-vote-${pointIds.frame0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-${pointIds.reframe0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-${pointIds.frame1}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-${pointIds.reframe1}`)).toBeInTheDocument();
   });
 
   it('votingEnabled=false renders no vote controls', () => {
-    render(
+    const { container } = render(
       <BiasTable
         analyses={[makeAnalysis()]}
         frames={FRAMES}
-        topicId="topic-1"
-        analysisId="story-1:prov-1"
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
         votingEnabled={false}
       />,
     );
-    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('cell-vote-reframe:0')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
   });
 
   it('no vote controls when votingEnabled but missing topicId', () => {
-    render(
+    const { container } = render(
       <BiasTable
         analyses={[makeAnalysis()]}
         frames={FRAMES}
-        analysisId="story-1:prov-1"
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
         votingEnabled
       />,
     );
-    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
   });
 
-  it('no vote controls when votingEnabled but missing analysisId', () => {
-    render(
+  it('no vote controls when votingEnabled but missing synthesis context', () => {
+    const { container } = render(
       <BiasTable
         analyses={[makeAnalysis()]}
         frames={FRAMES}
-        topicId="topic-1"
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
         votingEnabled
       />,
     );
-    expect(screen.queryByTestId('cell-vote-frame:0')).not.toBeInTheDocument();
+    expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
   });
 
-  it('point IDs are stable: frame:0, frame:1, reframe:0, reframe:1', () => {
-    render(
+  it('point IDs are stable content hashes across rerender', async () => {
+    const pointIds = await deriveExpectedPointIds();
+    const { rerender } = render(
       <BiasTable
         analyses={[makeAnalysis()]}
         frames={FRAMES}
-        topicId="topic-1"
-        analysisId="story-1:prov-1"
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
         votingEnabled
       />,
     );
-    expect(screen.getByTestId('cell-vote-agree-frame:0')).toBeInTheDocument();
-    expect(screen.getByTestId('cell-vote-agree-frame:1')).toBeInTheDocument();
-    expect(screen.getByTestId('cell-vote-agree-reframe:0')).toBeInTheDocument();
-    expect(screen.getByTestId('cell-vote-agree-reframe:1')).toBeInTheDocument();
+
+    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.frame0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.frame1}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.reframe0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.reframe1}`)).toBeInTheDocument();
+
+    rerender(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
+        votingEnabled
+      />,
+    );
+
+    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.frame0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.reframe0}`)).toBeInTheDocument();
   });
 
-  it('frame and reframe voting controls are independent', () => {
+  it('frame and reframe voting controls are independent', async () => {
+    const pointIds = await deriveExpectedPointIds();
     render(
       <BiasTable
         analyses={[makeAnalysis()]}
         frames={FRAMES}
-        topicId="topic-1"
-        analysisId="story-1:prov-1"
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
         votingEnabled
       />,
     );
-    // Both frame and reframe in same row have separate data-testids
-    const frameVote = screen.getByTestId('cell-vote-frame:0');
-    const reframeVote = screen.getByTestId('cell-vote-reframe:0');
+
+    const frameVote = await screen.findByTestId(`cell-vote-${pointIds.frame0}`);
+    const reframeVote = await screen.findByTestId(`cell-vote-${pointIds.reframe0}`);
     expect(frameVote).not.toBe(reframeVote);
-    // They are in different td cells
     expect(frameVote.closest('td')).not.toBe(reframeVote.closest('td'));
   });
 });
