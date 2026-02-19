@@ -1,8 +1,8 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-18
-**Version:** 0.7.0 (Wave 4 Complete — LUMA Trust Constants, Session Lifecycle, Constituency Proof Verification)
-**Assessment:** Pre-production prototype, Wave 4 complete and merged to main (LUMA identity hardening). All integration branches merged.
+**Last Updated:** 2026-02-19
+**Version:** 0.7.1 (Post-Wave-4 + FPD Production-Wiring Program Active)
+**Assessment:** Pre-production prototype. Wave 4 closed; active work is FPD production wiring with explicit no-ship guardrails until hard gates pass.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -24,6 +24,22 @@
 | **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) + synthesis-enriched TopicCard | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
+
+---
+
+## Active Program — FPD Production Wiring (2026-02-19)
+
+Active coordination and implementation posture is governed by:
+- `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
+- `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
+- `docs/foundational/CONTEXT_BUILDING_LADDER.md`
+- `docs/plans/FPD_OUTLINE_AND_DISPATCH_2026-02-19.md`
+
+Current policy state:
+- Production rollout is blocked until all hard gates pass.
+- Transitional proof shim is allowed only in dev/staging/E2E and must be removed before final ship.
+- Point-identity migration requires dual-write/backfill with explicit sunset criteria.
+- Canary rollout requires quantitative SLO gates and validated rollback drills.
 
 ---
 

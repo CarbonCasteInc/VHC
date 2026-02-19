@@ -3,9 +3,15 @@
 Companion to `docs/foundational/V2_Sprint_Staffing_Plan.md`.
 Defines behavioral contracts for every agent role in the Wave 1-2 agent cluster.
 
-Last updated: 2026-02-11
+Last updated: 2026-02-19
 
-Wave 2 execution override: for all wave-specific references in this file, follow `docs/foundational/WAVE2_DELTA_CONTRACT.md`. Where this document says `integration/wave-1`, read the value of `ACTIVE_INTEGRATION_BRANCH` from `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`.
+Current execution override (FPD production wiring, lean cluster):
+- Runtime source of truth: `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
+- Active task packet (update this first for each new task): `docs/plans/ACTIVE_TASK_PACKET.md`
+- Shared rituals: `docs/foundational/AGENT_RITUALS.md`
+- Active context ladder: `docs/foundational/CONTEXT_BUILDING_LADDER.md`
+- Active roster: `main`, `coord`, `codex`, `opus`, `chief`, `impl`, `qa`, `docs`, `spec`
+- Historical wave-era role text below is retained for traceability; when conflicts exist, the active runtime constants + task packet + rituals take precedence.
 
 ---
 

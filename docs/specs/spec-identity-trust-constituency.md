@@ -382,7 +382,17 @@ These items work in Season 0 but are explicitly marked as transitional and MUST 
 5. **Device-bound nullifier:** Nullifier is per-device, not per-human. Target: multi-device linking with higher assurance (see §5).
 6. **Dev fallback trust score:** `0.95` fallback on attestation timeout is convenient but masks real verifier issues. Target: remove or gate behind explicit dev flag.
 
-## 10. Changelog
+## 10. Production fail-closed requirements (FPD 2026-02-19)
+
+These requirements clarify how Season 0 transitional behavior is constrained for production wiring.
+
+1. **Mock/transitional proof paths are non-production:** production builds must fail-closed if only mock/transitional proof providers are configured.
+2. **Verification is mandatory on production write paths:** any vote/signal path that emits civic-impacting writes MUST pass proof verification checks in the same admission chain.
+3. **Transitional shim scope:** transitional shims may be used only for dev/staging/E2E scaffolding and must carry explicit removal criteria.
+4. **Policy parity across surfaces:** all UI surfaces that can emit civic sentiment must use one shared admission policy to prevent split-brain trust semantics.
+5. **Operational guardrails:** release/check pipelines should include assertions that mock providers are disabled in production deployment profiles.
+
+## 11. Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
