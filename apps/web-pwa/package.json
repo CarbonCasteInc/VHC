@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "pnpm -w prebuild:guards",
     "build": "vite build",
     "preview": "vite preview --host --port 5173 --strictPort",
     "typecheck": "tsc --noEmit",

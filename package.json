@@ -6,6 +6,7 @@
     "node": ">=20.0.0 <23.0.0"
   },
   "scripts": {
+    "prebuild:guards": "pnpm --dir tools/scripts/vh exec tsx ../guards/checkProductionFlags.ts",
     "build": "pnpm -r --workspace-root=false build",
     "typecheck": "pnpm -r --workspace-root=false typecheck",
     "test": "pnpm -r --workspace-root=false test",

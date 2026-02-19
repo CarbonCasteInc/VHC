@@ -14,7 +14,11 @@ export default defineConfig({
     }
   },
   test: {
-    include: ['packages/**/src/**/*.{test,spec}.{ts,tsx,js,jsx}', 'apps/**/src/**/*.{test,spec}.{ts,tsx,js,jsx}'],
+    include: [
+      'packages/**/src/**/*.{test,spec}.{ts,tsx,js,jsx}',
+      'apps/**/src/**/*.{test,spec}.{ts,tsx,js,jsx}',
+      'tools/scripts/guards/**/*.{test,spec}.{ts,tsx,js,jsx}'
+    ],
     exclude: ['packages/e2e/**', '**/node_modules/**', '**/dist/**'],
     watch: false,
     // Note: The project requires Node 20 LTS (see .nvmrc and package.json engines)
