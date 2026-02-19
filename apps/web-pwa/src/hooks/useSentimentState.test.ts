@@ -1,6 +1,9 @@
 /* @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as GunClient from '@vh/gun-client';
+import * as DataModel from '@vh/data-model';
+import * as ClientResolver from '../store/clientResolver';
 import { useSentimentState } from './useSentimentState';
 import { createBudgetMock } from '../test-utils/budgetMock';
 
@@ -22,6 +25,12 @@ function proofFor(nullifier = 'n') {
   return { district_hash: 'd', nullifier, merkle_root: 'm' };
 }
 
+async function flushProjection(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 describe('useSentimentState', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -37,6 +46,19 @@ describe('useSentimentState', () => {
     mockCanPerformAction.mockReturnValue({ allowed: true });
 
     budgetMock.install();
+
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(null);
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-1');
+    vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
+      eventId: 'evt-1',
+      event: {} as never,
+    });
+    vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+      point_id: 'p',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(0).toISOString(),
+    });
 
     useSentimentState.setState({
       agreements: {},
@@ -54,6 +76,7 @@ describe('useSentimentState', () => {
 
   afterEach(() => {
     budgetMock.restore();
+    vi.restoreAllMocks();
   });
 
   it('cycles agreement and emits signals', () => {
@@ -393,5 +416,97 @@ describe('useSentimentState', () => {
     expect(signal?.synthesis_id).toBe(ANALYSIS);
     expect(signal?.epoch).toBe(0);
     expect(signal?.analysis_id).toBe(ANALYSIS);
+  });
+
+  it('projects accepted votes to encrypted outbox + aggregate voter nodes', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveVoterIdSpy = vi
+      .spyOn(DataModel, 'deriveAggregateVoterId')
+      .mockResolvedValue('voter-9');
+    const writeEventSpy = vi.spyOn(GunClient, 'writeSentimentEvent');
+    const writeVoterSpy = vi.spyOn(GunClient, 'writeVoterNode');
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('projected'),
+    });
+
+    await flushProjection();
+
+    expect(writeEventSpy).toHaveBeenCalledWith(
+      fakeClient,
+      expect.objectContaining({
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        point_id: POINT,
+        agreement: 1,
+      }),
+    );
+
+    expect(deriveVoterIdSpy).toHaveBeenCalledWith({
+      nullifier: 'projected',
+      topic_id: TOPIC,
+    });
+
+    expect(writeVoterSpy).toHaveBeenCalledWith(
+      fakeClient,
+      TOPIC,
+      'synth-9',
+      4,
+      'voter-9',
+      expect.objectContaining({
+        point_id: POINT,
+        agreement: 1,
+        weight: 1,
+        updated_at: expect.any(String),
+      }),
+    );
+
+    const aggregatePayload = writeVoterSpy.mock.calls.at(-1)?.[5] as Record<string, unknown>;
+    expect(aggregatePayload).not.toHaveProperty('constituency_proof');
+    expect(aggregatePayload).not.toHaveProperty('nullifier');
+  });
+
+  it('projection failures do not rollback local vote state', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'writeSentimentEvent').mockRejectedValue(new Error('outbox-write-failed'));
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-write-failed'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('projected-err'),
+    });
+
+    await flushProjection();
+
+    expect(useSentimentState.getState().getAgreement(TOPIC, POINT, 'synth-9', 4)).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:sentiment] Failed to write encrypted sentiment event:',
+      expect.any(Error),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:sentiment] Failed to project aggregate voter node:',
+      expect.any(Error),
+    );
   });
 });

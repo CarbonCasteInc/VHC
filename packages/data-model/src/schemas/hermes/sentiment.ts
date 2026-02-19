@@ -168,17 +168,19 @@ export async function deriveAggregateVoterId(params: {
 }
 
 /**
- * eventId = sha256(nullifier + topic_id + epoch + point_id)
+ * eventId = sha256(nullifier + topic_id + synthesis_id + epoch + point_id)
  */
 export async function deriveSentimentEventId(params: {
   nullifier: string;
   topic_id: string;
+  synthesis_id: string;
   epoch: number;
   point_id: string;
 }): Promise<string> {
   const payload = [
     normalizeHashToken(params.nullifier),
     normalizeHashToken(params.topic_id),
+    normalizeHashToken(params.synthesis_id),
     String(Math.max(0, Math.floor(params.epoch))),
     normalizeHashToken(params.point_id),
   ].join('|');

@@ -129,6 +129,7 @@ export async function writeSentimentEvent(
   const eventId = await deriveSentimentEventId({
     nullifier: sanitized.constituency_proof.nullifier,
     topic_id: sanitized.topic_id,
+    synthesis_id: sanitized.synthesis_id,
     epoch: sanitized.epoch,
     point_id: sanitized.point_id,
   });
