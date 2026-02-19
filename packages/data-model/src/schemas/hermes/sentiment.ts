@@ -157,6 +157,28 @@ export async function derivePointId(params: {
 }
 
 /**
+ * synthesis_point_id = sha256(topic_id + synthesis_id + epoch + column + normalized_text)
+ * Spec: spec-identity-trust-constituency.md v0.2 §8 (integration map / SentimentSignal contract)
+ */
+export async function deriveSynthesisPointId(params: {
+  topic_id: string;
+  synthesis_id: string;
+  epoch: number;
+  column: 'frame' | 'reframe';
+  text: string;
+}): Promise<string> {
+  const payload = [
+    normalizeHashToken(params.topic_id),
+    normalizeHashToken(params.synthesis_id),
+    String(Math.max(0, Math.floor(params.epoch))),
+    params.column,
+    normalizePointText(params.text),
+  ].join('|');
+
+  return sha256(payload);
+}
+
+/**
  * voterId = sha256(nullifier + topicId)
  */
 export async function deriveAggregateVoterId(params: {

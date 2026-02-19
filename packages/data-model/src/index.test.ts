@@ -19,6 +19,7 @@ describe('data-model index exports', () => {
     expect(index.CandidateSynthesisSchema).toBeDefined();
     expect(index.StoryAnalysisArtifactSchema).toBeDefined();
     expect(index.SentimentEventSchema).toBeDefined();
+    expect(index.deriveSynthesisPointId).toBeDefined();
     expect(index.AggregateVoterNodeSchema).toBeDefined();
     expect(index.SocialNotificationSchema).toBeDefined();
     expect(index.NominationEventSchema).toBeDefined();

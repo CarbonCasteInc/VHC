@@ -8,6 +8,7 @@ import {
   deriveAggregateVoterId,
   deriveAnalysisKey,
   derivePointId,
+  deriveSynthesisPointId,
   deriveSentimentEventId,
   normalizePointText,
 } from './sentiment';
@@ -197,6 +198,129 @@ describe('sentiment key derivation helpers', () => {
 
     expect(frameA).toBe(frameB);
     expect(reframe).not.toBe(frameA);
+  });
+
+  it('deriveSynthesisPointId is deterministic and normalizes topic/synthesis/text inputs', async () => {
+    const normalized = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 7,
+      column: 'frame',
+      text: 'this is a claim',
+    });
+
+    const mixedFormatting = await deriveSynthesisPointId({
+      topic_id: '  TOPIC-1  ',
+      synthesis_id: '  SYNTH-9  ',
+      epoch: 7.9,
+      column: 'frame',
+      text: '  THIS   is A    claim  ',
+    });
+
+    expect(mixedFormatting).toBe(normalized);
+  });
+
+  it('deriveSynthesisPointId clamps and floors epoch values', async () => {
+    const negativeEpoch = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: -3.4,
+      column: 'frame',
+      text: 'this is a claim',
+    });
+
+    const zeroEpoch = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 0,
+      column: 'frame',
+      text: 'this is a claim',
+    });
+
+    expect(negativeEpoch).toBe(zeroEpoch);
+
+    const flooredEpoch = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3.9,
+      column: 'frame',
+      text: 'this is a claim',
+    });
+
+    const integerEpoch = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      column: 'frame',
+      text: 'this is a claim',
+    });
+
+    expect(flooredEpoch).toBe(integerEpoch);
+  });
+
+  it('deriveSynthesisPointId differentiates identifiers and covers both columns', async () => {
+    const frame = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      column: 'frame',
+      text: 'claim text',
+    });
+
+    const reframe = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      column: 'reframe',
+      text: 'claim text',
+    });
+
+    const differentTopic = await deriveSynthesisPointId({
+      topic_id: 'topic-2',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      column: 'frame',
+      text: 'claim text',
+    });
+
+    const differentSynthesis = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-10',
+      epoch: 3,
+      column: 'frame',
+      text: 'claim text',
+    });
+
+    const differentText = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      column: 'frame',
+      text: 'different claim text',
+    });
+
+    expect(reframe).not.toBe(frame);
+    expect(differentTopic).not.toBe(frame);
+    expect(differentSynthesis).not.toBe(frame);
+    expect(differentText).not.toBe(frame);
+  });
+
+  it('deriveSynthesisPointId does not collide with legacy derivePointId for same conceptual input', async () => {
+    const legacyPointId = await derivePointId({
+      analysisKey: 'analysis-abc',
+      column: 'frame',
+      text: 'same claim',
+    });
+
+    const synthesisPointId = await deriveSynthesisPointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 2,
+      column: 'frame',
+      text: 'same claim',
+    });
+
+    expect(synthesisPointId).not.toBe(legacyPointId);
   });
 
   it('deriveAggregateVoterId and deriveSentimentEventId are deterministic', async () => {

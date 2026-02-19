@@ -42,6 +42,7 @@ Close the gap between currently merged FPD L1-L4 behavior and production-safe en
 |------|-------|-----------------|
 | `apps/web-pwa/src/store/bridge/transitionalConstituencyProof.ts` | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) |
 | `apps/web-pwa/src/hooks/useRegion.ts` (transitional branch) | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) |
+| `packages/data-model/src/schemas/hermes/sentiment.ts::derivePointId` (legacy analysis-bound point identity) | Pre-WS3 | WS4 dual-write migration complete (consumer switchover + key mapping for stored agreements and Gun mesh data) |
 
 Removal criteria: All transitional code is removed in Phase 5 (WS7) after production proof provider is validated and legacy paths are sunset.
 
@@ -60,6 +61,8 @@ This is not the final proof provider. It satisfies Hard Gate 1 within Season 0 b
 ### P3 — Identity-root migration safety
 - S2 point-identity root transition must preserve legacy analysisKey-based derivation during S4 dual-write window.
 - No hard cut that orphans existing user vote state.
+- Status (WS3): **Partially addressed** — synthesis-bound derivation contract (`deriveSynthesisPointId`) is created; consumer migration is deferred to WS4.
+- WS4 migration note: consumer switchover requires dual-read/dual-write compatibility across old+new point IDs, including key-mapping for stored agreement keys and Gun mesh `point_id` data.
 
 ### P4 — Quantitative rollout gates
 - Vote denial rate < 2% (excluding expected no-identity denials)
