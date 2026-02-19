@@ -214,16 +214,27 @@ describe('sentiment key derivation helpers', () => {
     const eventA = await deriveSentimentEventId({
       nullifier: 'user-1',
       topic_id: 'topic-9',
+      synthesis_id: 'synth-2',
       epoch: 4.9,
       point_id: 'point-7',
     });
     const eventB = await deriveSentimentEventId({
       nullifier: 'USER-1',
       topic_id: 'TOPIC-9',
+      synthesis_id: 'SYNTH-2',
       epoch: 4,
       point_id: 'POINT-7',
     });
 
     expect(eventA).toBe(eventB);
+
+    const differentSynthesis = await deriveSentimentEventId({
+      nullifier: 'USER-1',
+      topic_id: 'TOPIC-9',
+      synthesis_id: 'SYNTH-3',
+      epoch: 4,
+      point_id: 'POINT-7',
+    });
+    expect(differentSynthesis).not.toBe(eventA);
   });
 });

@@ -1,6 +1,9 @@
 import { create } from 'zustand';
 import type { SentimentSignal, ConstituencyProof } from '@vh/types';
+import { deriveAggregateVoterId } from '@vh/data-model';
+import { writeSentimentEvent, writeVoterNode } from '@vh/gun-client';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
+import { resolveClientFromAppStore } from '../store/clientResolver';
 import { useXpLedger } from '../store/xpLedger';
 import { legacyWeightForActiveCount, resolveNextAgreement, type Agreement } from '../components/feed/voteSemantics';
 
@@ -157,6 +160,55 @@ function readAgreementValue(
   return 0;
 }
 
+function asIsoTimestamp(emittedAt: number): string {
+  return new Date(emittedAt).toISOString();
+}
+
+async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
+  const client = resolveClientFromAppStore();
+  if (!client) {
+    return;
+  }
+
+  const hasSentimentTransports =
+    typeof (client as { gun?: { user?: unknown } }).gun?.user === 'function' &&
+    typeof (client as { mesh?: { get?: unknown } }).mesh?.get === 'function';
+  if (!hasSentimentTransports) {
+    return;
+  }
+
+  try {
+    await writeSentimentEvent(client, {
+      topic_id: signal.topic_id,
+      synthesis_id: signal.synthesis_id,
+      epoch: signal.epoch,
+      point_id: signal.point_id,
+      agreement: signal.agreement,
+      weight: signal.weight,
+      constituency_proof: signal.constituency_proof,
+      emitted_at: signal.emitted_at,
+    });
+  } catch (error) {
+    console.warn('[vh:sentiment] Failed to write encrypted sentiment event:', error);
+  }
+
+  try {
+    const voterId = await deriveAggregateVoterId({
+      nullifier: signal.constituency_proof.nullifier,
+      topic_id: signal.topic_id,
+    });
+
+    await writeVoterNode(client, signal.topic_id, signal.synthesis_id, signal.epoch, voterId, {
+      point_id: signal.point_id,
+      agreement: signal.agreement,
+      weight: signal.weight,
+      updated_at: asIsoTimestamp(signal.emitted_at),
+    });
+  } catch (error) {
+    console.warn('[vh:sentiment] Failed to project aggregate voter node:', error);
+  }
+}
+
 export const useSentimentState = create<SentimentStore>((set, get) => ({
   agreements: loadMap(AGREEMENTS_KEY) as Record<string, Agreement>,
   lightbulb: loadMap(LIGHTBULB_KEY),
@@ -190,6 +242,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
     const key = buildAgreementKey(topicId, normalizedSynthesisId, normalizedEpoch, pointId);
     const legacyKey = buildLegacyAgreementKey(topicId, pointId);
     const prefix = contextPrefix(topicId, normalizedSynthesisId, normalizedEpoch);
+    let emittedSignal: SentimentSignal | null = null;
 
     set((state) => {
       const currentAgreement = readAgreementValue(
@@ -223,6 +276,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
         constituency_proof,
         emitted_at: Date.now()
       };
+      emittedSignal = signal;
 
       persistMap(AGREEMENTS_KEY, nextAgreements);
       persistMap(LIGHTBULB_KEY, nextLightbulb);
@@ -237,6 +291,9 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
     });
 
     useXpLedger.getState().consumeAction('sentiment_votes/day', 1);
+    if (emittedSignal) {
+      void projectSignalToMesh(emittedSignal);
+    }
   },
   recordRead(topicId) {
     const current = get().eye[topicId] ?? 0;

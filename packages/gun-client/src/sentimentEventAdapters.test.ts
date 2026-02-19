@@ -132,6 +132,7 @@ describe('sentimentEventAdapters', () => {
     const expectedEventId = await deriveSentimentEventId({
       nullifier: EVENT.constituency_proof.nullifier,
       topic_id: EVENT.topic_id,
+      synthesis_id: EVENT.synthesis_id,
       epoch: EVENT.epoch,
       point_id: EVENT.point_id,
     });
@@ -215,6 +216,7 @@ describe('sentimentEventAdapters', () => {
     const eventId = await deriveSentimentEventId({
       nullifier: EVENT.constituency_proof.nullifier,
       topic_id: EVENT.topic_id,
+      synthesis_id: EVENT.synthesis_id,
       epoch: EVENT.epoch,
       point_id: EVENT.point_id,
     });
