@@ -23,6 +23,14 @@ vi.mock('../hooks/useSynthesisPointIds', () => ({
   perspectivePointMapKey: (perspectiveId: string, column: 'frame' | 'reframe') => `${perspectiveId}:${column}`,
 }));
 
+vi.mock('../hooks/usePointAggregate', () => ({
+  usePointAggregate: () => ({
+    aggregate: { point_id: 'p', agree: 0, disagree: 0, weight: 0, participants: 0 },
+    status: 'success',
+    error: null,
+  }),
+}));
+
 const sample: FeedItem = {
   id: 'analysis-1',
   title: 'Story',

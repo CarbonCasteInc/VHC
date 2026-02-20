@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useConstituencyProof } from '../../hooks/useConstituencyProof';
+import { usePointAggregate } from '../../hooks/usePointAggregate';
 
 export interface CellVoteControlsProps {
   readonly topicId: string;
@@ -56,6 +57,19 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     () => countSignals(signals, canonicalPointId, synthesisId, epoch, legacyPointId),
     [canonicalPointId, epoch, legacyPointId, signals, synthesisId],
   );
+  const { aggregate, status: aggregateStatus } = usePointAggregate({
+    topicId,
+    synthesisId,
+    epoch,
+    pointId: canonicalPointId,
+    enabled: !disabled,
+  });
+  const displayAgrees = aggregateStatus === 'success' && aggregate
+    ? Math.max(agrees, aggregate.agree)
+    : agrees;
+  const displayDisagrees = aggregateStatus === 'success' && aggregate
+    ? Math.max(disagrees, aggregate.disagree)
+    : disagrees;
 
   const handleVote = useCallback(
     (desired: -1 | 1) => {
@@ -102,7 +116,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
           onClick={() => handleVote(1)}
           data-testid={`cell-vote-agree-${pointId}`}
         >
-          + {agrees}
+          + {displayAgrees}
         </button>
         <button
           type="button"
@@ -117,7 +131,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
           onClick={() => handleVote(-1)}
           data-testid={`cell-vote-disagree-${pointId}`}
         >
-          - {disagrees}
+          - {displayDisagrees}
         </button>
       </div>
       {!hasProof && (

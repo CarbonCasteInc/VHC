@@ -3,7 +3,7 @@ import {
   type StoryAnalysisArtifact,
   type StoryBundle,
 } from '@vh/data-model';
-import { readLatestAnalysis, writeAnalysis } from '@vh/gun-client';
+import { readAnalysis, readLatestAnalysis, writeAnalysis } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../../store/clientResolver';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 
@@ -103,23 +103,50 @@ export async function readMeshAnalysis(
     return null;
   }
 
+  const startedAt = Date.now();
+  const emitTelemetry = (readPath: 'derived-key' | 'latest-pointer' | 'miss') => {
+    console.info('[vh:analysis:mesh]', {
+      story_id: story.story_id,
+      read_path: readPath,
+      latency_ms: Date.now() - startedAt,
+    });
+  };
+
   try {
-    const artifact = await readLatestAnalysis(client, story.story_id);
-    if (!artifact) {
+    const derivedKey = await deriveAnalysisKey({
+      story_id: story.story_id,
+      provenance_hash: story.provenance_hash,
+      pipeline_version: ANALYSIS_PIPELINE_VERSION,
+      model_scope: modelScopeKey,
+    });
+
+    const directArtifact = await readAnalysis(client, story.story_id, derivedKey);
+    if (directArtifact && directArtifact.model_scope === modelScopeKey) {
+      emitTelemetry('derived-key');
+      return toSynthesis(directArtifact);
+    }
+
+    const latestArtifact = await readLatestAnalysis(client, story.story_id);
+    if (!latestArtifact) {
+      emitTelemetry('miss');
       return null;
     }
 
-    if (artifact.provenance_hash !== story.provenance_hash) {
+    if (latestArtifact.provenance_hash !== story.provenance_hash) {
+      emitTelemetry('miss');
       return null;
     }
 
-    if (artifact.model_scope !== modelScopeKey) {
+    if (latestArtifact.model_scope !== modelScopeKey) {
+      emitTelemetry('miss');
       return null;
     }
 
-    return toSynthesis(artifact);
+    emitTelemetry('latest-pointer');
+    return toSynthesis(latestArtifact);
   } catch (error) {
-    console.warn('[vh:analysis] mesh read failed; falling back to pipeline', error);
+    emitTelemetry('miss');
+    console.warn('[vh:analysis:mesh] read failed', error);
     return null;
   }
 }
