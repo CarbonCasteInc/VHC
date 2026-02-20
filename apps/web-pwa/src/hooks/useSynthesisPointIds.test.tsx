@@ -2,7 +2,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useSynthesisPointIds } from './useSynthesisPointIds';
+import { perspectivePointMapKey, useSynthesisPointIds } from './useSynthesisPointIds';
 
 const deriveSynthesisPointIdMock = vi.hoisted(() => vi.fn());
 
@@ -30,6 +30,64 @@ describe('useSynthesisPointIds', () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('builds stable perspective map keys', () => {
+    expect(perspectivePointMapKey('perspective-1', 'frame')).toBe('perspective-1:frame');
+    expect(perspectivePointMapKey('perspective-1', 'reframe')).toBe('perspective-1:reframe');
+  });
+
+  it('returns empty map and skips derivation when disabled or context is incomplete', async () => {
+    const { rerender } = render(
+      <HookHarness
+        enabled={false}
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={0}
+        perspectives={[{ id: 'p1', frame: 'Frame A', reframe: 'Reframe A' }]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('{}');
+    });
+    expect(deriveSynthesisPointIdMock).not.toHaveBeenCalled();
+
+    rerender(
+      <HookHarness
+        topicId={undefined}
+        synthesisId="synth-1"
+        epoch={0}
+        perspectives={[{ id: 'p1', frame: 'Frame A', reframe: 'Reframe A' }]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('{}');
+    });
+    expect(deriveSynthesisPointIdMock).not.toHaveBeenCalled();
+  });
+
+  it('handles derivation failures by warning and resetting map', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    deriveSynthesisPointIdMock.mockRejectedValueOnce(new Error('derive-fail'));
+
+    render(
+      <HookHarness
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={0}
+        perspectives={[{ id: 'p1', frame: 'Frame A', reframe: 'Reframe A' }]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:analysis-view] failed to derive synthesis point IDs',
+        expect.any(Error),
+      );
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('{}');
+    });
   });
 
   it('derives deterministic synthesis point IDs for each perspective frame/reframe', async () => {
