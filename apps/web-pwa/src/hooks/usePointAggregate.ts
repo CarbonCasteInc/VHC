@@ -152,6 +152,9 @@ export function usePointAggregate({
 
           const delayMs = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!;
           await sleep(delayMs);
+          if (cancelled) {
+            break;
+          }
         }
       }
     })();

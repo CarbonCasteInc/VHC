@@ -104,7 +104,7 @@ export async function readMeshAnalysis(
   }
 
   const startedAt = Date.now();
-  const emitTelemetry = (readPath: 'derived-key' | 'latest-pointer' | 'miss') => {
+  const emitTelemetry = (readPath: 'derived-key' | 'derived-key-invalid' | 'latest-pointer' | 'miss') => {
     console.info('[vh:analysis:mesh]', {
       story_id: story.story_id,
       read_path: readPath,
@@ -121,7 +121,15 @@ export async function readMeshAnalysis(
     });
 
     const directArtifact = await readAnalysis(client, story.story_id, derivedKey);
-    if (directArtifact && directArtifact.model_scope === modelScopeKey) {
+    if (directArtifact) {
+      if (
+        directArtifact.model_scope !== modelScopeKey ||
+        directArtifact.provenance_hash !== story.provenance_hash
+      ) {
+        emitTelemetry('derived-key-invalid');
+        return null;
+      }
+
       emitTelemetry('derived-key');
       return toSynthesis(directArtifact);
     }

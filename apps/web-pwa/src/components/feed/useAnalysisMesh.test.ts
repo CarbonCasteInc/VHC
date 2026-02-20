@@ -163,71 +163,98 @@ describe('useAnalysisMesh', () => {
     );
   });
 
-  it('falls back to latest pointer when derived-key read misses or direct model scope mismatches', async () => {
+  it('falls back to latest pointer when derived-key read misses', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const story = makeStoryBundle();
 
-    mockReadAnalysis
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        schemaVersion: 'story-analysis-v1',
-        story_id: story.story_id,
-        topic_id: story.topic_id,
-        provenance_hash: story.provenance_hash,
-        analysisKey: 'derived-key',
-        pipeline_version: 'news-card-analysis-v1',
-        model_scope: 'model:other',
-        summary: 'Wrong model scope',
-        frames: [{ frame: 'f', reframe: 'r' }],
-        analyses: [],
-        provider: { provider_id: 'p', model: 'm' },
-        created_at: '2026-02-18T22:00:00.000Z',
-      } as any);
-
-    mockReadLatestAnalysis
-      .mockResolvedValueOnce({
-        schemaVersion: 'story-analysis-v1',
-        story_id: story.story_id,
-        topic_id: story.topic_id,
-        provenance_hash: story.provenance_hash,
-        analysisKey: 'latest-a',
-        pipeline_version: 'news-card-analysis-v1',
-        model_scope: 'model:default',
-        summary: 'Fallback summary A',
-        frames: [{ frame: 'frame A', reframe: 'reframe A' }],
-        analyses: [],
-        provider: { provider_id: 'p', model: 'm' },
-        created_at: '2026-02-18T22:00:00.000Z',
-      } as any)
-      .mockResolvedValueOnce({
-        schemaVersion: 'story-analysis-v1',
-        story_id: story.story_id,
-        topic_id: story.topic_id,
-        provenance_hash: story.provenance_hash,
-        analysisKey: 'latest-b',
-        pipeline_version: 'news-card-analysis-v1',
-        model_scope: 'model:default',
-        summary: 'Fallback summary B',
-        frames: [{ frame: 'frame B', reframe: 'reframe B' }],
-        analyses: [],
-        provider: { provider_id: 'p', model: 'm' },
-        created_at: '2026-02-18T22:00:00.000Z',
-      } as any);
+    mockReadAnalysis.mockResolvedValueOnce(null);
+    mockReadLatestAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: story.provenance_hash,
+      analysisKey: 'latest-a',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:default',
+      summary: 'Fallback summary A',
+      frames: [{ frame: 'frame A', reframe: 'reframe A' }],
+      analyses: [],
+      provider: { provider_id: 'p', model: 'm' },
+      created_at: '2026-02-18T22:00:00.000Z',
+    } as any);
 
     await expect(readMeshAnalysis(story, 'model:default')).resolves.toMatchObject({
       summary: 'Fallback summary A',
     });
 
-    await expect(readMeshAnalysis(story, 'model:default')).resolves.toMatchObject({
-      summary: 'Fallback summary B',
-    });
-
-    expect(mockReadLatestAnalysis).toHaveBeenCalledTimes(2);
+    expect(mockReadLatestAnalysis).toHaveBeenCalledTimes(1);
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:analysis:mesh]',
       expect.objectContaining({
         story_id: story.story_id,
         read_path: 'latest-pointer',
+      }),
+    );
+  });
+
+  it('returns null without fallback when derived-key hit fails model scope validation', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: story.provenance_hash,
+      analysisKey: 'derived-key',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:other',
+      summary: 'Wrong model scope',
+      frames: [{ frame: 'f', reframe: 'r' }],
+      analyses: [],
+      provider: { provider_id: 'p', model: 'm' },
+      created_at: '2026-02-18T22:00:00.000Z',
+    } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
+
+    expect(mockReadLatestAnalysis).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh]',
+      expect.objectContaining({
+        story_id: story.story_id,
+        read_path: 'derived-key-invalid',
+      }),
+    );
+  });
+
+  it('returns null without fallback when derived-key hit fails provenance validation', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: 'different',
+      analysisKey: 'derived-key',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:default',
+      summary: 'Wrong provenance',
+      frames: [{ frame: 'f', reframe: 'r' }],
+      analyses: [],
+      provider: { provider_id: 'p', model: 'm' },
+      created_at: '2026-02-18T22:00:00.000Z',
+    } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
+
+    expect(mockReadLatestAnalysis).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh]',
+      expect.objectContaining({
+        story_id: story.story_id,
+        read_path: 'derived-key-invalid',
       }),
     );
   });

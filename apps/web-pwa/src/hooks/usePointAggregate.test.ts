@@ -372,6 +372,28 @@ describe('usePointAggregate', () => {
     expect(warnSpy).not.toHaveBeenCalled();
   });
 
+  it('does not issue another read after unmount during backoff sleep', async () => {
+    vi.useFakeTimers();
+
+    readAggregatesMock.mockRejectedValue(new Error('retry me'));
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await Promise.resolve();
+
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+  });
+
   it('re-fetches when pointId changes', async () => {
     readAggregatesMock
       .mockResolvedValueOnce(aggregateFixture({ point_id: 'point-1' }))
