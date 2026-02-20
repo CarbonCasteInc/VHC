@@ -6,9 +6,14 @@ import { CellVoteControls } from './CellVoteControls';
 import { useSentimentState } from '../../hooks/useSentimentState';
 
 const useConstituencyProofMock = vi.hoisted(() => vi.fn());
+const usePointAggregateMock = vi.hoisted(() => vi.fn());
 
 vi.mock('../../hooks/useConstituencyProof', () => ({
   useConstituencyProof: () => useConstituencyProofMock(),
+}));
+
+vi.mock('../../hooks/usePointAggregate', () => ({
+  usePointAggregate: (params: unknown) => usePointAggregateMock(params),
 }));
 
 const BASE_PROPS = {
@@ -40,6 +45,12 @@ describe('CellVoteControls', () => {
       signals: [],
     });
     useConstituencyProofMock.mockReset();
+    usePointAggregateMock.mockReset();
+    usePointAggregateMock.mockReturnValue({
+      aggregate: null,
+      status: 'idle',
+      error: null,
+    });
     seedValidProof();
     localStorage.clear();
   });
@@ -221,5 +232,83 @@ describe('CellVoteControls', () => {
 
     expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 1');
     expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveTextContent('- 1');
+  });
+
+  it('passes canonical point context to usePointAggregate', () => {
+    render(<CellVoteControls {...BASE_PROPS} synthesisPointId="synth-point-xyz" />);
+
+    expect(usePointAggregateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 3,
+        pointId: 'synth-point-xyz',
+        enabled: true,
+      }),
+    );
+  });
+
+  it('shows max(local, mesh) aggregate counts when mesh aggregate is available', () => {
+    useSentimentState.setState({
+      signals: [
+        {
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 3,
+          point_id: 'point-abc',
+          agreement: 1,
+          weight: 1,
+          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
+          emitted_at: Date.now(),
+        },
+        {
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 3,
+          point_id: 'point-abc',
+          agreement: -1,
+          weight: 1,
+          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
+          emitted_at: Date.now(),
+        },
+        {
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 3,
+          point_id: 'point-abc',
+          agreement: -1,
+          weight: 1,
+          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
+          emitted_at: Date.now(),
+        },
+        {
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 3,
+          point_id: 'point-abc',
+          agreement: -1,
+          weight: 1,
+          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
+          emitted_at: Date.now(),
+        },
+      ] as any,
+    });
+
+    usePointAggregateMock.mockReturnValueOnce({
+      aggregate: {
+        point_id: 'point-abc',
+        agree: 4,
+        disagree: 1,
+        weight: 5,
+        participants: 5,
+      },
+      status: 'success',
+      error: null,
+    });
+
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 4');
+    expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveTextContent('- 3');
   });
 });

@@ -23,6 +23,11 @@ Close the gap between currently merged FPD L1-L4 behavior and production-safe en
 7. CI/e2e/coverage guardrails include critical proof/vote paths.
 8. Canary + rollback plan validated with quantitative thresholds.
 
+### Gate status snapshot
+
+- Hard Gate 5 (WS5): **Satisfied** — `readAggregates` is wired into Feed (`CellVoteControls`) and `AnalysisView` via `usePointAggregate` with bounded exponential backoff retry (3 retries; 500ms/1s/2s/4s envelope) and structured telemetry `[vh:aggregate:read]`.
+- Hard Gate 6 (WS5): **Satisfied** — `readMeshAnalysis` reads by `deriveAnalysisKey`-derived key first; `readLatestAnalysis` is fallback-only; structured telemetry emitted as `[vh:analysis:mesh]`.
+
 ---
 
 ## Mandatory policies

@@ -10,6 +10,7 @@ import { ThreadView } from './hermes/forum/ThreadView';
 import { EngagementIcons } from './EngagementIcons';
 import { useViewTracking } from '../hooks/useViewTracking';
 import { perspectivePointMapKey, useSynthesisPointIds } from '../hooks/useSynthesisPointIds';
+import { usePointAggregate } from '../hooks/usePointAggregate';
 
 interface AnalysisViewProps {
   item: FeedItem;
@@ -55,6 +56,18 @@ function PerspectiveRow({
   const { proof } = useRegion();
   const { identity } = useIdentity();
   const canVote = Boolean(identity);
+  const { aggregate: frameAggregate } = usePointAggregate({
+    topicId: itemId,
+    synthesisId: itemId,
+    epoch: 0,
+    pointId: synthesisFramePointId ?? framePointId,
+  });
+  const { aggregate: reframeAggregate } = usePointAggregate({
+    topicId: itemId,
+    synthesisId: itemId,
+    epoch: 0,
+    pointId: synthesisReframePointId ?? reframePointId,
+  });
 
   const handleSet = (
     legacyPointId: string,
@@ -110,6 +123,12 @@ function PerspectiveRow({
           >
             +
           </ToggleButton>
+          <span
+            className="ml-1 text-[10px] text-slate-400"
+            data-testid={`perspective-frame-aggregate-${perspective.id}`}
+          >
+            {frameAggregate?.agree ?? 0}/{frameAggregate?.disagree ?? 0}
+          </span>
         </div>
       </div>
       <div className="flex flex-col gap-2">
@@ -147,6 +166,12 @@ function PerspectiveRow({
           >
             +
           </ToggleButton>
+          <span
+            className="ml-1 text-[10px] text-slate-400"
+            data-testid={`perspective-reframe-aggregate-${perspective.id}`}
+          >
+            {reframeAggregate?.agree ?? 0}/{reframeAggregate?.disagree ?? 0}
+          </span>
         </div>
       </div>
     </div>
