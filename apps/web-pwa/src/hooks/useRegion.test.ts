@@ -5,26 +5,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConstituencyProof } from '@vh/types';
 
 const useIdentityMock = vi.hoisted(() => vi.fn());
-const isProofVerificationEnabledMock = vi.hoisted(() => vi.fn());
 const getConfiguredDistrictMock = vi.hoisted(() => vi.fn());
-const getTransitionalConstituencyProofMock = vi.hoisted(() => vi.fn());
 const getRealConstituencyProofMock = vi.hoisted(() => vi.fn());
 
 vi.mock('./useIdentity', () => ({
   useIdentity: () => useIdentityMock(),
 }));
 
-vi.mock('../store/bridge/constituencyProof', () => ({
-  isProofVerificationEnabled: () => isProofVerificationEnabledMock(),
-}));
-
 vi.mock('../store/bridge/districtConfig', () => ({
   getConfiguredDistrict: () => getConfiguredDistrictMock(),
-}));
-
-vi.mock('../store/bridge/transitionalConstituencyProof', () => ({
-  getTransitionalConstituencyProof: (...args: unknown[]) =>
-    getTransitionalConstituencyProofMock(...(args as [string])),
 }));
 
 vi.mock('../store/bridge/realConstituencyProof', () => ({
@@ -37,21 +26,10 @@ import { useRegion } from './useRegion';
 describe('useRegion', () => {
   beforeEach(() => {
     useIdentityMock.mockReset();
-    isProofVerificationEnabledMock.mockReset();
     getConfiguredDistrictMock.mockReset();
-    getTransitionalConstituencyProofMock.mockReset();
     getRealConstituencyProofMock.mockReset();
 
-    isProofVerificationEnabledMock.mockReturnValue(false);
     getConfiguredDistrictMock.mockReturnValue('season0-default-district');
-
-    getTransitionalConstituencyProofMock.mockImplementation(
-      (nullifier: string): ConstituencyProof => ({
-        district_hash: 't9n-district-a',
-        nullifier,
-        merkle_root: 't9n-root-a',
-      }),
-    );
 
     getRealConstituencyProofMock.mockImplementation(
       (nullifier: string, districtHash: string): ConstituencyProof => ({
@@ -72,11 +50,10 @@ describe('useRegion', () => {
     const { result } = renderHook(() => useRegion());
 
     expect(result.current.proof).toBeNull();
-    expect(getTransitionalConstituencyProofMock).not.toHaveBeenCalled();
     expect(getRealConstituencyProofMock).not.toHaveBeenCalled();
   });
 
-  it('uses real provider when proof verification is enabled', () => {
+  it('returns real proof when nullifier is available', () => {
     const expectedProof: ConstituencyProof = {
       district_hash: 'season0-default-district',
       nullifier: 'session-nullifier-1',
@@ -86,7 +63,6 @@ describe('useRegion', () => {
     useIdentityMock.mockReturnValue({
       identity: { session: { nullifier: 'session-nullifier-1' } },
     });
-    isProofVerificationEnabledMock.mockReturnValue(true);
     getRealConstituencyProofMock.mockReturnValue(expectedProof);
 
     const { result } = renderHook(() => useRegion());
@@ -96,28 +72,18 @@ describe('useRegion', () => {
       'session-nullifier-1',
       'season0-default-district',
     );
-    expect(getTransitionalConstituencyProofMock).not.toHaveBeenCalled();
     expect(result.current.proof).toEqual(expectedProof);
   });
 
-  it('uses transitional proof builder when proof verification is disabled', () => {
-    const expectedProof: ConstituencyProof = {
-      district_hash: 't9n-district-x',
-      nullifier: 'session-nullifier-1',
-      merkle_root: 't9n-root-x',
-    };
-
+  it('always calls getRealConstituencyProof with configured district', () => {
+    getConfiguredDistrictMock.mockReturnValue('district-xyz');
     useIdentityMock.mockReturnValue({
-      identity: { session: { nullifier: 'session-nullifier-1' } },
+      identity: { session: { nullifier: 'nullifier-abc' } },
     });
-    isProofVerificationEnabledMock.mockReturnValue(false);
-    getTransitionalConstituencyProofMock.mockReturnValue(expectedProof);
 
-    const { result } = renderHook(() => useRegion());
+    renderHook(() => useRegion());
 
-    expect(getTransitionalConstituencyProofMock).toHaveBeenCalledWith('session-nullifier-1');
-    expect(getRealConstituencyProofMock).not.toHaveBeenCalled();
-    expect(getConfiguredDistrictMock).not.toHaveBeenCalled();
-    expect(result.current.proof).toEqual(expectedProof);
+    expect(getRealConstituencyProofMock).toHaveBeenCalledWith('nullifier-abc', 'district-xyz');
+    expect(getRealConstituencyProofMock).toHaveBeenCalledTimes(1);
   });
 });

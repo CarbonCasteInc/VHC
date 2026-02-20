@@ -47,14 +47,14 @@ Close the gap between currently merged FPD L1-L4 behavior and production-safe en
 
 ### P2.1 — Transitional Shim Tracking
 
-| File | Added | Removal Trigger |
-|------|-------|-----------------|
-| `apps/web-pwa/src/store/bridge/transitionalConstituencyProof.ts` | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) |
-| `apps/web-pwa/src/hooks/useRegion.ts` (transitional branch) | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) |
-| `apps/web-pwa/src/hooks/useSentimentState.ts` (dual-write/dual-read bridge + point-id alias map) | WS4 | WS7 / Phase 5 migration-window sunset |
-| `packages/data-model/src/schemas/hermes/sentiment.ts::derivePointId` (legacy analysis-bound point identity) | Pre-WS3 | WS7 / Phase 5 after dual-compat window closes and legacy keyspace is retired |
+| File | Added | Removal Trigger | Status |
+|------|-------|-----------------|--------|
+| `apps/web-pwa/src/store/bridge/transitionalConstituencyProof.ts` | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) | **REMOVED (WS7)** |
+| `apps/web-pwa/src/hooks/useRegion.ts` (transitional branch) | WS1 (Phase 0) | Phase 1 real proof-provider ships (WS2/S1) | **REMOVED (WS7)** |
+| `apps/web-pwa/src/hooks/useSentimentState.ts` (dual-write/dual-read bridge + point-id alias map) | WS4 | WS7 / Phase 5 migration-window sunset | Pending (out of WS7 scope) |
+| `packages/data-model/src/schemas/hermes/sentiment.ts::derivePointId` (legacy analysis-bound point identity) | Pre-WS3 | WS7 / Phase 5 after dual-compat window closes and legacy keyspace is retired | Pending (out of WS7 scope) |
 
-Removal criteria: All transitional code is removed in Phase 5 (WS7) after production proof provider is validated and legacy paths are sunset.
+Removal criteria: Proof-path transitional code removed in WS7. Sentiment dual-write bridge removal pending explicit migration sunset decision.
 
 ### P2.2 — Season 0 "Real" Provider Semantics
 
