@@ -1,0 +1,55 @@
+[2026-02-21T10:10:15.809Z] === CANARY HARNESS START ===
+[2026-02-21T10:10:15.810Z] Runtime: https://ccibootstrap.tail6cc9b5.ts.net
+[2026-02-21T10:10:15.811Z] Gun relay: https://ccibootstrap.tail6cc9b5.ts.net/gun
+[2026-02-21T10:10:15.812Z] Health: http://127.0.0.1:3001/api/analysis/health?pipeline=true
+[2026-02-21T10:10:15.813Z] Baseline SHA: f7b190c9266e29aae693e0d03d6516c768a70471
+[2026-02-21T10:10:15.815Z] Run date: 2026-02-21T10:10:15Z
+[2026-02-21T10:10:15.815Z] --- Phase 0: Health Probes ---
+[2026-02-21T10:10:15.823Z] Analysis backend: OK (HTTP 200)
+[2026-02-21T10:10:15.854Z] Gun relay: OK (response: vh relay alive)
+[2026-02-21T10:10:15.856Z] === RAMP PHASES ===
+[2026-02-21T10:10:15.858Z] --- Phase: ramp-5pct ---
+[2026-02-21T10:10:15.859Z]   HTTP: 5 requests, concurrency=2
+[2026-02-21T10:10:15.999Z]   HTTP results: success=5 fail=0 denied=0 p50=7ms p95=8ms
+[2026-02-21T10:10:16.000Z]   Gun mesh writes: 5 writes, concurrency=2, timeout=3000ms
+[2026-02-21T10:10:18.685Z]   Gun results: success=5 fail=0 timeout=0 p50=240.79ms p95=244.09ms
+[2026-02-21T10:10:18.765Z]   SLO: denial=0.0% writeSuccess=100.0% p95=244.09ms → pass=true
+[2026-02-21T10:10:18.784Z] --- Phase: ramp-25pct ---
+[2026-02-21T10:10:18.785Z]   HTTP: 12 requests, concurrency=4
+[2026-02-21T10:10:18.926Z]   HTTP results: success=12 fail=0 denied=0 p50=6ms p95=7ms
+[2026-02-21T10:10:18.927Z]   Gun mesh writes: 10 writes, concurrency=3, timeout=3000ms
+[2026-02-21T10:10:21.826Z]   Gun results: success=10 fail=0 timeout=0 p50=239.81ms p95=247.95ms
+[2026-02-21T10:10:21.911Z]   SLO: denial=0.0% writeSuccess=100.0% p95=247.95ms → pass=true
+[2026-02-21T10:10:21.929Z] --- Phase: ramp-50pct ---
+[2026-02-21T10:10:21.930Z]   HTTP: 25 requests, concurrency=8
+[2026-02-21T10:10:22.102Z]   HTTP results: success=25 fail=0 denied=0 p50=6ms p95=7ms
+[2026-02-21T10:10:22.104Z]   Gun mesh writes: 20 writes, concurrency=5, timeout=3000ms
+[2026-02-21T10:10:24.975Z]   Gun results: success=20 fail=0 timeout=0 p50=235.47ms p95=240.54ms
+[2026-02-21T10:10:25.059Z]   SLO: denial=0.0% writeSuccess=100.0% p95=240.54ms → pass=true
+[2026-02-21T10:10:25.078Z] --- Phase: ramp-100pct ---
+[2026-02-21T10:10:25.079Z]   HTTP: 50 requests, concurrency=15
+[2026-02-21T10:10:25.285Z]   HTTP results: success=50 fail=0 denied=0 p50=8ms p95=9ms
+[2026-02-21T10:10:25.286Z]   Gun mesh writes: 40 writes, concurrency=8, timeout=3000ms
+[2026-02-21T10:10:28.432Z]   Gun results: success=40 fail=0 timeout=0 p50=240.16ms p95=242.18ms
+[2026-02-21T10:10:28.509Z]   SLO: denial=0.0% writeSuccess=100.0% p95=242.18ms → pass=true
+[2026-02-21T10:10:28.529Z] === BREACH SIMULATION ===
+[2026-02-21T10:10:28.530Z] Injecting high-concurrency requests with tight timeouts...
+[2026-02-21T10:10:28.532Z]   Breach HTTP: 200 requests, concurrency=100
+[2026-02-21T10:10:29.053Z]   Breach HTTP: success=200 fail=0 denied=0 p50=49ms p95=72ms
+[2026-02-21T10:10:29.054Z]   Breach Gun: 80 writes, concurrency=60, timeout=150ms
+[2026-02-21T10:10:31.321Z]   Breach Gun: success=0 fail=80 timeout=80 p50=0ms p95=0ms
+[2026-02-21T10:10:31.414Z]   Breach distinguishable from healthy: true
+[2026-02-21T10:10:31.416Z]   Breach duration: 3s
+[2026-02-21T10:10:31.417Z]   Auto-abort triggered: false
+[2026-02-21T10:10:31.419Z] === SLO EVALUATION ===
+[2026-02-21T10:10:31.470Z] SLO: denialRate<2%=true writeSuccess>98%=true p95<3s=true autoAbort=true
+[2026-02-21T10:10:31.472Z] Overall: true
+[2026-02-21T10:10:31.473Z] === WRITING ARTIFACTS ===
+Wrote /srv/trinity/worktrees/impl/docs/reports/evidence/2026-02-21-canary-rerun/canary-summary.json
+Wrote /srv/trinity/worktrees/impl/docs/reports/evidence/2026-02-21-canary-rerun/breach-sim-evidence.json
+[2026-02-21T10:10:31.498Z] === CANARY HARNESS COMPLETE ===
+[2026-02-21T10:10:31.499Z] Overall pass: true
+[2026-02-21T10:10:31.501Z] Artifacts:
+[2026-02-21T10:10:31.502Z]   - /srv/trinity/worktrees/impl/docs/reports/evidence/2026-02-21-canary-rerun/canary-run.log
+[2026-02-21T10:10:31.503Z]   - /srv/trinity/worktrees/impl/docs/reports/evidence/2026-02-21-canary-rerun/canary-summary.json
+[2026-02-21T10:10:31.505Z]   - /srv/trinity/worktrees/impl/docs/reports/evidence/2026-02-21-canary-rerun/breach-sim-evidence.json

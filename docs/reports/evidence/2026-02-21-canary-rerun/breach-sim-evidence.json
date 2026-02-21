@@ -1,0 +1,45 @@
+{
+  "description": "Breach simulation evidence \u2014 comparison of healthy vs breach metrics",
+  "runDate": "2026-02-21T10:10:15Z",
+  "healthy": {
+    "phase": "ramp-100pct",
+    "httpP95Ms": 9,
+    "meshP95Ms": 242.18,
+    "combinedP95Ms": 242.18,
+    "denialRatePct": 0.0,
+    "meshSuccess": 40,
+    "meshFail": 0,
+    "writeSuccessRatePct": 100.0
+  },
+  "breach": {
+    "httpRequests": 200,
+    "httpConcurrency": 100,
+    "gunWrites": 80,
+    "gunConcurrency": 60,
+    "gunTimeoutMs": 150,
+    "httpSuccess": 200,
+    "httpFail": 0,
+    "httpDenied": 0,
+    "httpP50Ms": 49,
+    "httpP95Ms": 72,
+    "meshSuccess": 0,
+    "meshFail": 80,
+    "meshTimeout": 80,
+    "meshP50Ms": 0,
+    "meshP95Ms": 0,
+    "denialRatePct": 0.0,
+    "combinedP95Ms": 72,
+    "durationSec": 3
+  },
+  "comparison": {
+    "distinguishable": true,
+    "breachVsHealthyP95Ratio": 0.3,
+    "breachMeshFailVsHealthy": "80 vs 0",
+    "breachDenialVsHealthy": "0.0% vs 0.0%"
+  },
+  "autoAbort": {
+    "thresholdSec": 300,
+    "actualDurationSec": 3,
+    "triggered": false
+  }
+}
