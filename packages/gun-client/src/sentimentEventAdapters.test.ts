@@ -262,6 +262,10 @@ describe('sentimentEventAdapters', () => {
     await expect(writeSentimentEvent(client, EVENT)).resolves.toEqual({
       eventId,
       event: EVENT,
+      ack: {
+        acknowledged: false,
+        timedOut: true,
+      },
     });
   }, 10000);
 
@@ -288,6 +292,10 @@ describe('sentimentEventAdapters', () => {
       await expect(writeSentimentEvent(client, EVENT)).resolves.toEqual({
         eventId,
         event: EVENT,
+        ack: {
+          acknowledged: true,
+          timedOut: false,
+        },
       });
       await vi.advanceTimersByTimeAsync(1500);
 

@@ -5,6 +5,7 @@ import {
 } from '@vh/data-model';
 import { readAnalysis, readLatestAnalysis, writeAnalysis } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../../store/clientResolver';
+import { logAnalysisMeshWrite } from '../../utils/analysisTelemetry';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 
 const ANALYSIS_PIPELINE_VERSION = 'news-card-analysis-v1';
@@ -164,16 +165,36 @@ export async function writeMeshAnalysis(
   synthesis: NewsCardAnalysisSynthesis,
   modelScopeKey: string,
 ): Promise<void> {
+  const startedAt = Date.now();
   const client = resolveClientFromAppStore();
   if (!client) {
+    logAnalysisMeshWrite({
+      source: 'news-card',
+      event: 'mesh_write_skipped',
+      story_id: story.story_id,
+      reason: 'client_unavailable',
+      latency_ms: 0,
+    });
     return;
   }
 
   try {
     const artifact = await toArtifact(story, synthesis, modelScopeKey);
     await writeAnalysis(client, artifact);
+    logAnalysisMeshWrite({
+      source: 'news-card',
+      event: 'mesh_write_success',
+      story_id: story.story_id,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+    });
   } catch (error) {
-    console.warn('[vh:analysis] mesh write failed; continuing with local analysis result', error);
+    logAnalysisMeshWrite({
+      source: 'news-card',
+      event: 'mesh_write_failed',
+      story_id: story.story_id,
+      error: error instanceof Error ? error.message : String(error),
+      latency_ms: Math.max(0, Date.now() - startedAt),
+    });
   }
 }
 

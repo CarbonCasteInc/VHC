@@ -9,6 +9,7 @@ export interface MeshWriteTelemetry {
   readonly topic_id: string;
   readonly point_id: string;
   readonly success: boolean;
+  readonly timed_out?: boolean;
   readonly latency_ms: number;
   readonly error?: string;
 }

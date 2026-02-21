@@ -12,6 +12,11 @@ export interface EncryptedSentimentEnvelope {
   readonly ciphertext: string;
 }
 
+export interface PutAckResult {
+  readonly acknowledged: boolean;
+  readonly timedOut: boolean;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
 }
@@ -98,8 +103,8 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 
 const PUT_ACK_TIMEOUT_MS = 1000;
 
-async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
+async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
+  return new Promise<PutAckResult>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
       if (settled) {
@@ -107,7 +112,10 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
       }
       settled = true;
       console.warn('[vh:gun-client] sentiment outbox put ack timed out, proceeding best-effort');
-      resolve();
+      resolve({
+        acknowledged: false,
+        timedOut: true,
+      });
     }, PUT_ACK_TIMEOUT_MS);
 
     chain.put(value, (ack?: ChainAck) => {
@@ -120,7 +128,10 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
         reject(new Error(ack.err));
         return;
       }
-      resolve();
+      resolve({
+        acknowledged: true,
+        timedOut: false,
+      });
     });
   });
 }
@@ -141,7 +152,7 @@ export function getSentimentOutboxChain(client: VennClient): ChainWithGet<Encryp
 export async function writeSentimentEvent(
   client: VennClient,
   event: unknown,
-): Promise<{ eventId: string; event: SentimentEvent }> {
+): Promise<{ eventId: string; event: SentimentEvent; ack: PutAckResult }> {
   const sanitized = SentimentEventSchema.parse(event);
   const eventId = await deriveSentimentEventId({
     nullifier: sanitized.constituency_proof.nullifier,
@@ -152,9 +163,9 @@ export async function writeSentimentEvent(
   });
 
   const envelope = await encryptSentimentEvent(client, sanitized);
-  await putWithAck(getSentimentOutboxChain(client).get(eventId), envelope);
+  const ack = await putWithAck(getSentimentOutboxChain(client).get(eventId), envelope);
 
-  return { eventId, event: sanitized };
+  return { eventId, event: sanitized, ack };
 }
 
 export async function readUserEvents(

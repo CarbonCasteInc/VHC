@@ -33,6 +33,14 @@ Close the gap between currently merged FPD L1-L4 behavior and production-safe en
 - Hard Gate 8a (WS6): **Satisfied** — telemetry (`[vh:vote:admission]`, `[vh:vote:mesh-write]`) and canary/rollback plan are documented.
 - Hard Gate 8b (WS7/WS8): **Satisfied (runtime rerun evidence captured)** — initial 2026-02-20 drill auto-aborted/rolled back, then 2026-02-21 rerun passed canary thresholds with healthy-phase non-zero mesh success and breach-sim distinction. See `docs/reports/evidence/2026-02-21-canary-rerun/EVIDENCE_BUNDLE.md` (plus legacy abort bundle at `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md`).
 
+### Post-Gate 8b mesh persistence remediation snapshot (2026-02-21)
+
+- Scope: AC1-AC5 closure for click-to-start analysis continuity, deterministic mesh persistence/reuse, multi-user shared artifact readability, and per-cell multi-user vote persistence with aggregate convergence.
+- Branch status: implemented on `coord/ce-mesh-persistence-remediation` (pending PR creation and CE dual-review on PR head).
+- Validation status: `pnpm test`, `pnpm typecheck`, and `pnpm lint` are green on remediation head.
+- Evidence bundle: `docs/reports/evidence/2026-02-21-ce-mesh-persistence/EVIDENCE_BUNDLE.md` (plus `pnpm-test.log`, `typecheck.log`, `lint.log`, `vitest-slices.log`).
+- Governance status: Phase 2 model-switch A/B remains separately gated by telemetry burn-in and CE convergence; this does not block remediation PR publication.
+
 ---
 
 ## Mandatory policies

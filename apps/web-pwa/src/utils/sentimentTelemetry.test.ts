@@ -61,4 +61,28 @@ describe('sentimentTelemetry', () => {
 
     warnSpy.mockRestore();
   });
+
+  it('logs timeout telemetry as failure with timed_out marker', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    logMeshWriteResult({
+      topic_id: 'topic-1',
+      point_id: 'point-1',
+      success: false,
+      timed_out: true,
+      latency_ms: 1000,
+      error: 'sentiment-outbox-timeout',
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith('[vh:vote:mesh-write]', {
+      topic_id: 'topic-1',
+      point_id: 'point-1',
+      success: false,
+      timed_out: true,
+      latency_ms: 1000,
+      error: 'sentiment-outbox-timeout',
+    });
+
+    warnSpy.mockRestore();
+  });
 });

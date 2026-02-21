@@ -224,6 +224,7 @@ function asIsoTimestamp(emittedAt: number): string {
 async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   const startedAt = Date.now();
   let success = true;
+  let timedOut = false;
   let errorMessage: string | undefined;
 
   const finalize = () => {
@@ -231,6 +232,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       topic_id: signal.topic_id,
       point_id: signal.point_id,
       success,
+      timed_out: timedOut,
       latency_ms: Math.max(0, Date.now() - startedAt),
       error: errorMessage,
     });
@@ -255,7 +257,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   }
 
   try {
-    await writeSentimentEvent(client, {
+    const eventWriteResult = await writeSentimentEvent(client, {
       topic_id: signal.topic_id,
       synthesis_id: signal.synthesis_id,
       epoch: signal.epoch,
@@ -265,6 +267,14 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       constituency_proof: signal.constituency_proof,
       emitted_at: signal.emitted_at,
     });
+
+    if (!eventWriteResult.ack.acknowledged) {
+      success = false;
+      timedOut = eventWriteResult.ack.timedOut;
+      errorMessage = eventWriteResult.ack.timedOut
+        ? 'sentiment-outbox-timeout'
+        : 'sentiment-outbox-not-acknowledged';
+    }
   } catch (error) {
     success = false;
     errorMessage = error instanceof Error ? error.message : String(error);
