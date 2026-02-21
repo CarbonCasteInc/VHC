@@ -29,6 +29,8 @@ This document defines compile-time flags used by the web PWA for FPD rollout.
 - **`VITE_VH_ANALYSIS_PIPELINE`**
   - **Default:** `false`
   - **Description:** Enables analysis pipeline generation/consumption paths.
+  - **Runtime dependency:** requires managed analysis backend on `:3001` (see `docs/ops/analysis-backend-3001.md`).
+  - **Health contract:** `http://127.0.0.1:3001/api/analysis/health?pipeline=true` must return 200 before pipeline-mode canary/prod checks.
   - **Production requirement:** set per release plan; leave `false` until rollout gate approval.
 
 - **`VITE_VH_ANALYSIS_DAILY_LIMIT`**

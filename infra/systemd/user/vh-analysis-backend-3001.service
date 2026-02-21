@@ -1,0 +1,19 @@
+[Unit]
+Description=VHC Analysis Backend (:3001 article-text + pipeline health contract)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Override VHC_REPO in a drop-in if your checkout lives elsewhere.
+Environment=VHC_REPO=/srv/trinity/worktrees/live-main
+Environment=HOST=127.0.0.1
+Environment=PORT=3001
+Environment=ARTICLE_TEXT_MAX_CHARS=24000
+Environment=ARTICLE_FETCH_TIMEOUT_MS=12000
+ExecStart=/usr/bin/env node ${VHC_REPO}/tools/scripts/vh-analysis-backend-3001.js
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target
