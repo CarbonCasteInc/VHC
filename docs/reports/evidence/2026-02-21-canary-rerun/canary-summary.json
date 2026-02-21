@@ -1,0 +1,208 @@
+{
+  "generatedAt": "2026-02-21T10:08:45.105Z",
+  "target": "https://ccibootstrap.tail6cc9b5.ts.net",
+  "outputDir": "/srv/trinity/worktrees/live-main/docs/reports/evidence/2026-02-21-canary-rerun",
+  "phaseResults": [
+    {
+      "phase": {
+        "name": "5%",
+        "count": 20,
+        "forceClientUnavailable": false,
+        "nullifier": "canary-nf-05"
+      },
+      "summary": {
+        "phaseName": "5%",
+        "admissionTotal": 20,
+        "effectiveAdmissionTotal": 20,
+        "deniedCount": 0,
+        "denialRatePct": 0,
+        "meshTotal": 20,
+        "meshSuccess": 20,
+        "meshSuccessRatePct": 100,
+        "latencyP95Ms": 2036,
+        "hasIdentity": true,
+        "hasClientBeforePhase": true
+      }
+    },
+    {
+      "phase": {
+        "name": "25%",
+        "count": 40,
+        "forceClientUnavailable": false,
+        "nullifier": "canary-nf-25"
+      },
+      "summary": {
+        "phaseName": "25%",
+        "admissionTotal": 40,
+        "effectiveAdmissionTotal": 40,
+        "deniedCount": 0,
+        "denialRatePct": 0,
+        "meshTotal": 40,
+        "meshSuccess": 40,
+        "meshSuccessRatePct": 100,
+        "latencyP95Ms": 2031,
+        "hasIdentity": true,
+        "hasClientBeforePhase": true
+      }
+    },
+    {
+      "phase": {
+        "name": "50%",
+        "count": 60,
+        "forceClientUnavailable": false,
+        "nullifier": "canary-nf-50"
+      },
+      "summary": {
+        "phaseName": "50%",
+        "admissionTotal": 60,
+        "effectiveAdmissionTotal": 60,
+        "deniedCount": 0,
+        "denialRatePct": 0,
+        "meshTotal": 60,
+        "meshSuccess": 60,
+        "meshSuccessRatePct": 100,
+        "latencyP95Ms": 2031,
+        "hasIdentity": true,
+        "hasClientBeforePhase": true
+      }
+    },
+    {
+      "phase": {
+        "name": "100%",
+        "count": 80,
+        "forceClientUnavailable": false,
+        "nullifier": "canary-nf-100"
+      },
+      "summary": {
+        "phaseName": "100%",
+        "admissionTotal": 80,
+        "effectiveAdmissionTotal": 80,
+        "deniedCount": 0,
+        "denialRatePct": 0,
+        "meshTotal": 80,
+        "meshSuccess": 80,
+        "meshSuccessRatePct": 100,
+        "latencyP95Ms": 2031,
+        "hasIdentity": true,
+        "hasClientBeforePhase": true
+      }
+    },
+    {
+      "phase": {
+        "name": "breach-sim",
+        "count": 40,
+        "forceClientUnavailable": true,
+        "nullifier": "canary-breach"
+      },
+      "summary": {
+        "phaseName": "breach-sim",
+        "admissionTotal": 40,
+        "effectiveAdmissionTotal": 40,
+        "deniedCount": 0,
+        "denialRatePct": 0,
+        "meshTotal": 40,
+        "meshSuccess": 0,
+        "meshSuccessRatePct": 0,
+        "latencyP95Ms": 0,
+        "hasIdentity": true,
+        "hasClientBeforePhase": true
+      }
+    }
+  ],
+  "healthySummaries": [
+    {
+      "phaseName": "5%",
+      "admissionTotal": 20,
+      "effectiveAdmissionTotal": 20,
+      "deniedCount": 0,
+      "denialRatePct": 0,
+      "meshTotal": 20,
+      "meshSuccess": 20,
+      "meshSuccessRatePct": 100,
+      "latencyP95Ms": 2036,
+      "hasIdentity": true,
+      "hasClientBeforePhase": true
+    },
+    {
+      "phaseName": "25%",
+      "admissionTotal": 40,
+      "effectiveAdmissionTotal": 40,
+      "deniedCount": 0,
+      "denialRatePct": 0,
+      "meshTotal": 40,
+      "meshSuccess": 40,
+      "meshSuccessRatePct": 100,
+      "latencyP95Ms": 2031,
+      "hasIdentity": true,
+      "hasClientBeforePhase": true
+    },
+    {
+      "phaseName": "50%",
+      "admissionTotal": 60,
+      "effectiveAdmissionTotal": 60,
+      "deniedCount": 0,
+      "denialRatePct": 0,
+      "meshTotal": 60,
+      "meshSuccess": 60,
+      "meshSuccessRatePct": 100,
+      "latencyP95Ms": 2031,
+      "hasIdentity": true,
+      "hasClientBeforePhase": true
+    },
+    {
+      "phaseName": "100%",
+      "admissionTotal": 80,
+      "effectiveAdmissionTotal": 80,
+      "deniedCount": 0,
+      "denialRatePct": 0,
+      "meshTotal": 80,
+      "meshSuccess": 80,
+      "meshSuccessRatePct": 100,
+      "latencyP95Ms": 2031,
+      "hasIdentity": true,
+      "hasClientBeforePhase": true
+    }
+  ],
+  "breachSummary": {
+    "phaseName": "breach-sim",
+    "admissionTotal": 40,
+    "effectiveAdmissionTotal": 40,
+    "deniedCount": 0,
+    "denialRatePct": 0,
+    "meshTotal": 40,
+    "meshSuccess": 0,
+    "meshSuccessRatePct": 0,
+    "latencyP95Ms": 0,
+    "hasIdentity": true,
+    "hasClientBeforePhase": true
+  },
+  "aggregate": {
+    "healthy": {
+      "denied": 0,
+      "effectiveAdmission": 200,
+      "meshSuccess": 200,
+      "meshTotal": 200,
+      "hasClientBeforePhaseAllTrue": true
+    }
+  },
+  "slo": {
+    "denialRatePct": 0,
+    "meshWriteSuccessRatePct": 100,
+    "p95LatencyMs": 2031,
+    "targets": {
+      "denialRateLtPct": 2,
+      "meshWriteSuccessGtPct": 98,
+      "p95LatencyLtMs": 3000
+    },
+    "pass": {
+      "denialRate": true,
+      "meshWriteSuccess": true,
+      "p95Latency": true
+    }
+  },
+  "acceptance": {
+    "healthyMeshSuccessNonZero": true,
+    "breachSimDistinguishable": true,
+    "autoAbortTriggered": false
+  }
+}

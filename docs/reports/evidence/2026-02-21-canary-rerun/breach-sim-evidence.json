@@ -1,0 +1,28 @@
+{
+  "generatedAt": "2026-02-21T10:08:45.105Z",
+  "target": "https://ccibootstrap.tail6cc9b5.ts.net",
+  "breachPhase": {
+    "name": "breach-sim",
+    "count": 40,
+    "forceClientUnavailable": true,
+    "nullifier": "canary-breach"
+  },
+  "breachSummary": {
+    "phaseName": "breach-sim",
+    "admissionTotal": 40,
+    "effectiveAdmissionTotal": 40,
+    "deniedCount": 0,
+    "denialRatePct": 0,
+    "meshTotal": 40,
+    "meshSuccess": 0,
+    "meshSuccessRatePct": 0,
+    "latencyP95Ms": 0,
+    "hasIdentity": true,
+    "hasClientBeforePhase": true
+  },
+  "healthyAggregateMeshSuccessRatePct": 100,
+  "healthyAggregateDenialRatePct": 0,
+  "healthyHasClientBeforePhaseAllTrue": true,
+  "distinguishableFromHealthy": true,
+  "rationale": "Breach-sim differs from healthy aggregate behavior."
+}

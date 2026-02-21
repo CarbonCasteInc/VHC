@@ -1,6 +1,6 @@
 # FPD Production Wiring Delta Contract
 
-Last updated: 2026-02-20
+Last updated: 2026-02-21
 Status: Binding for FPD production-wiring execution
 Companion dispatch: `docs/plans/FPD_OUTLINE_AND_DISPATCH_2026-02-19.md`
 
@@ -31,7 +31,7 @@ Close the gap between currently merged FPD L1-L4 behavior and production-safe en
 - Hard Gate 2 (WS6): **Satisfied** — `AnalysisView` now uses `useConstituencyProof` for vote admission parity with Feed; vote requires identity + validated proof, with reason-specific blocked UX.
 - Hard Gate 7 (WS6): **Satisfied** — critical vote-admission paths (`useSentimentState`, `CellVoteControls`, `AnalysisView`) are included in coverage gates with expanded unit tests and diff-coverage allowlisting.
 - Hard Gate 8a (WS6): **Satisfied** — telemetry (`[vh:vote:admission]`, `[vh:vote:mesh-write]`) and canary/rollback plan are documented.
-- Hard Gate 8b (WS7/WS8): **Partially satisfied** — transitional proof-path removal is complete (WS7). Runtime canary drill was executed on 2026-02-20, but auto-aborted due mesh-write SLO/evidence failure and rolled back; quantitative thresholds are not yet met. See `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md` + `docs/reports/evidence/2026-02-20-canary/`.
+- Hard Gate 8b (WS7/WS8): **Satisfied (runtime rerun evidence captured)** — initial 2026-02-20 drill auto-aborted/rolled back, then 2026-02-21 rerun passed canary thresholds with healthy-phase non-zero mesh success and breach-sim distinction. See `docs/reports/evidence/2026-02-21-canary-rerun/EVIDENCE_BUNDLE.md` (plus legacy abort bundle at `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md`).
 
 ---
 

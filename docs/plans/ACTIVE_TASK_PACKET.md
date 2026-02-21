@@ -1,19 +1,19 @@
 # ACTIVE TASK PACKET
 
-Last updated: 2026-02-20
-Status: Active (WS8b runtime canary remediation pending)
+Last updated: 2026-02-21
+Status: Gate 8b rerun executed + evidenced; awaiting Director rollout decision
 Owner: Lou + main/coord
 
 ## Task ID
 FPD-PROD-WIRING-WS8B-CANARY-DRILL
 
 ## Objective
-Execute Gate 8b runtime canary ceremony for per-cell voting and produce an evidence bundle with quantitative SLO evaluation + rollback proof.
+Execute Gate 8b runtime canary ceremony for per-cell voting and produce quantitative evidence for GO/NO-GO.
 
 ## Source of truth
 - `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
 - `docs/plans/CANARY_ROLLBACK_PLAN.md`
-- `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md`
+- `docs/reports/evidence/2026-02-21-canary-rerun/EVIDENCE_BUNDLE.md`
 
 ## Reporting contract
 Use: `state now / done / next / blockers / artifacts`
@@ -21,31 +21,42 @@ Use: `state now / done / next / blockers / artifacts`
 ## Execution packet
 
 ### state now
-- WS8 merged on `main` (`2c4166e`), CI green.
-- Runtime canary drill executed; rollout auto-aborted and rollback activated.
-- Gate 8b remains partial.
+- Main is at `f7b190c9` (includes PR #329 managed `:3001` backend + health contract).
+- Live runtime health is green: `/`, tailnet `/`, `/gun`, and pipeline health endpoint return 200.
+- Gate 8b rerun evidence exists under `docs/reports/evidence/2026-02-21-canary-rerun/`.
+- Rollout safety posture remains active (`VITE_VH_BIAS_TABLE_V2=false`) pending Director decision.
 
 ### done
-1. Ran staged synthetic canary traffic (5/25/50/100 + explicit breach simulation) and captured SLO metrics.
-2. Recorded evidence bundle under `docs/reports/evidence/2026-02-20-canary/`.
-3. Executed rollback switch (`VITE_VH_BIAS_TABLE_V2=false`) and verified health (`/`, tailnet `/`, `/gun` all 200).
-4. Published runtime drill report: `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md`.
-5. Updated Gate 8b contract line to reflect executed-but-aborted status and evidence links.
+1. Upstreamed managed analysis backend on `:3001` (service contract + installer + docs) via PR #329 (merged).
+2. Executed in-repo canary harness (`tools/scripts/canary/run-gate8b-canary.cjs`) against live target.
+3. Captured artifacts:
+   - `canary-run.log`
+   - `canary-summary.json`
+   - `breach-sim-evidence.json`
+   - `vote-reliability-report.json`
+   - `analysis-stability-window.json`
+   - `EVIDENCE_BUNDLE.md`
+4. Canary rerun met thresholds:
+   - denial rate 0.0% (<2%)
+   - mesh write success 100.0% (>98%)
+   - p95 latency 2031ms (<3000ms)
+   - healthy phases meshSuccess non-zero and breach-sim distinct.
+5. Vote reliability report now shows admitted votes with terminal mesh outcomes and explicit success/failure accounting (no silent drops in this run).
 
 ### next
-1. Fix vote→mesh projection completion behavior so every admitted vote terminates with telemetry (success/failure) in bounded time.
-2. Verify auth/session prerequisites for sentiment event + aggregate writes in canary runtime.
-3. Re-run Gate 8b canary with the same evidence format and target SLOs.
+1. CE final review pass over new evidence bundle + vote reliability report.
+2. Director GO/NO-GO decision for enabling `VITE_VH_BIAS_TABLE_V2=true`.
+3. If GO: controlled flip + post-flip watch window with same health/SLO checks.
+4. If NO-GO: keep rollback-safe flag state and open focused remediation packet.
 
 ### blockers
-- Mesh-write completion telemetry is absent in healthy canary stages (0 completion events), making mesh success and p95 latency fail/unmeasurable.
-- Without bounded completion + telemetry, Gate 8b cannot be marked satisfied.
+- No technical blocker to Gate 8b evidence closure in this rerun.
+- Governance blocker only: final Director rollout decision still required before flag enablement.
 
 ### artifacts
-- `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md`
-- `docs/reports/evidence/2026-02-20-canary/canary-metrics.json`
-- `docs/reports/evidence/2026-02-20-canary/rollback-switch.txt`
-- `docs/reports/evidence/2026-02-20-canary/supervisor-pre-canary.sh`
-- `docs/reports/evidence/2026-02-20-canary/supervisor-rollback-active.sh`
-- `docs/reports/evidence/2026-02-20-canary/runbook-commands.txt`
-- `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
+- `docs/reports/evidence/2026-02-21-canary-rerun/EVIDENCE_BUNDLE.md`
+- `docs/reports/evidence/2026-02-21-canary-rerun/canary-summary.json`
+- `docs/reports/evidence/2026-02-21-canary-rerun/vote-reliability-report.json`
+- `docs/reports/evidence/2026-02-21-canary-rerun/breach-sim-evidence.json`
+- `docs/reports/evidence/2026-02-21-canary-rerun/analysis-stability-window.json`
+- Legacy abort bundle for traceability: `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md`

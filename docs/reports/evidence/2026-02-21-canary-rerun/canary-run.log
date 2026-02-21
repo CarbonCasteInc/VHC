@@ -1,0 +1,15 @@
+2026-02-21T10:07:33.070Z canary:start {"target":"https://ccibootstrap.tail6cc9b5.ts.net","outputDir":"/srv/trinity/worktrees/live-main/docs/reports/evidence/2026-02-21-canary-rerun"}
+2026-02-21T10:07:33.622Z identity:create:start
+2026-02-21T10:07:39.093Z identity:create:done Canary53622 canary53622
+2026-02-21T10:07:39.131Z phase:5%:attempt:1:start
+2026-02-21T10:07:50.458Z phase:5%:attempt:1:ok
+2026-02-21T10:07:50.474Z phase:25%:attempt:1:start
+2026-02-21T10:08:03.197Z phase:25%:attempt:1:ok
+2026-02-21T10:08:03.214Z phase:50%:attempt:1:start
+2026-02-21T10:08:17.194Z phase:50%:attempt:1:ok
+2026-02-21T10:08:17.210Z phase:100%:attempt:1:start
+2026-02-21T10:08:32.452Z phase:100%:attempt:1:ok
+2026-02-21T10:08:32.468Z phase:breach-sim:attempt:1:start
+2026-02-21T10:08:45.104Z phase:breach-sim:attempt:1:ok
+2026-02-21T10:08:45.106Z canary:summary {"denied":0,"effectiveAdmission":200,"meshSuccess":200,"meshTotal":200,"hasClientBeforePhaseAllTrue":true} {"denialRate":true,"meshWriteSuccess":true,"p95Latency":true} {"healthyMeshSuccessNonZero":true,"breachSimDistinguishable":true,"autoAbortTriggered":false}
+2026-02-21T10:08:45.106Z canary:done
