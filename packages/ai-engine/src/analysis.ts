@@ -43,6 +43,7 @@ function normalizeUrlForHash(url: string): string {
   }
 
   const candidate = URL_WITH_SCHEME_RE.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const hadExplicitDefaultPort = /^https?:\/\/[^/?#]+:(?:80|443)(?=[/?#]|$)/i.test(candidate);
 
   try {
     const parsed = new URL(candidate);
@@ -50,7 +51,7 @@ function normalizeUrlForHash(url: string): string {
     parsed.protocol = parsed.protocol.toLowerCase();
     parsed.hostname = parsed.hostname.toLowerCase();
 
-    if ((parsed.protocol === 'https:' && parsed.port === '443') || (parsed.protocol === 'http:' && parsed.port === '80')) {
+    if (hadExplicitDefaultPort && (parsed.protocol === 'https:' || parsed.protocol === 'http:')) {
       parsed.port = '';
     }
 

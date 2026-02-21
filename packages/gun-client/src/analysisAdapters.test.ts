@@ -215,6 +215,27 @@ describe('analysisAdapters', () => {
     }
   });
 
+  it('ignores timeout callback when put already settled and timer fires late', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => undefined);
+
+    try {
+      await expect(writeAnalysis(client, ARTIFACT)).resolves.toEqual(ARTIFACT);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(warnSpy).not.toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('readAnalysis parses valid payload and strips gun metadata', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/stories/story-1/analysis/analysis-1', {

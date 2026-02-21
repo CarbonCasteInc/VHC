@@ -66,6 +66,12 @@ describe('analysis first-to-file', () => {
     expect(httpsWithPort).toBe(httpsWithoutPort);
   });
 
+  it('normalizes trailing multi-slash paths to root slash', async () => {
+    const root = await hashUrl('https://example.com/');
+    const multiSlash = await hashUrl('https://example.com////');
+    expect(multiSlash).toBe(root);
+  });
+
   it('falls back to lower-cased trimmed input when URL parsing fails', () => {
     expect(analysisInternal.normalizeUrlForHash('  %%%BAD%%%  ')).toBe('%%%bad%%%');
   });
