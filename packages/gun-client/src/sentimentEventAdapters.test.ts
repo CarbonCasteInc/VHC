@@ -297,7 +297,7 @@ describe('sentimentEventAdapters', () => {
           timedOut: false,
         },
       });
-      await vi.advanceTimersByTimeAsync(1500);
+      await vi.advanceTimersByTimeAsync(3000);
 
       expect(warnSpy).not.toHaveBeenCalled();
     } finally {
