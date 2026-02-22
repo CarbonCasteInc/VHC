@@ -21,6 +21,7 @@ function HookHarness(props: {
   synthesisId: string;
   epoch: number;
   pointId: string;
+  fallbackPointId?: string;
   enabled?: boolean;
 }) {
   const result = usePointAggregate(props);
@@ -32,6 +33,7 @@ function renderHarness(props: {
   synthesisId: string;
   epoch: number;
   pointId: string;
+  fallbackPointId?: string;
   enabled?: boolean;
 }) {
   return render(React.createElement(HookHarness, props));
@@ -516,6 +518,163 @@ describe('usePointAggregate', () => {
       'synth-1',
       0,
       'point-2',
+    );
+  });
+
+  it('tries fallback point ID when canonical exhausts retries with zeros', async () => {
+    vi.useFakeTimers();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    // 4 zero reads for canonical, then 1 non-zero for fallback
+    readAggregatesMock
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 5, disagree: 1, participants: 6, weight: 6 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    // Exhaust all retries for canonical
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    // Should have called: 4 canonical + 1 fallback
+    expect(readAggregatesMock).toHaveBeenCalledTimes(5);
+    expect(readAggregatesMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'topic-1',
+      'synth-1',
+      0,
+      'legacy-point',
+    );
+
+    expect(readHookResult()).toEqual({
+      aggregate: aggregateFixture({ agree: 5, disagree: 1, participants: 6, weight: 6 }),
+      status: 'success',
+      error: null,
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:aggregate:read]',
+      expect.objectContaining({
+        point_id: 'legacy-point',
+        fallback_used: true,
+        fallback_point_id: 'legacy-point',
+        zero_snapshot: false,
+      }),
+    );
+  });
+
+  it('emits convergence-zero diagnostic when both canonical and fallback return zeros', async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    readAggregatesMock.mockResolvedValue(
+      aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }),
+    );
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    // 4 canonical retries + 1 fallback = 5
+    expect(readAggregatesMock).toHaveBeenCalledTimes(5);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:aggregate:convergence-zero]',
+      expect.objectContaining({
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 0,
+        canonical_point_id: 'canonical-point',
+        fallback_point_id: 'legacy-point',
+        total_attempts: 5,
+      }),
+    );
+  });
+
+  it('does not use fallback when fallbackPointId equals pointId', async () => {
+    vi.useFakeTimers();
+
+    readAggregatesMock.mockResolvedValue(
+      aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }),
+    );
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'same-point',
+      fallbackPointId: 'same-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    // Only canonical retries, no fallback
+    expect(readAggregatesMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('does not use fallback when canonical returns non-zero before exhausting retries', async () => {
+    vi.useFakeTimers();
+
+    readAggregatesMock
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 2, disagree: 0, participants: 2, weight: 2 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    // Canonical succeeded on attempt 2, no fallback needed
+    expect(readAggregatesMock).toHaveBeenCalledTimes(2);
+    expect(readHookResult().aggregate).toEqual(
+      aggregateFixture({ agree: 2, disagree: 0, participants: 2, weight: 2 }),
     );
   });
 });
