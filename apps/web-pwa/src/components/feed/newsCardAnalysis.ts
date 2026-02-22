@@ -5,6 +5,7 @@ import type { AnalysisResult } from '../../../../../packages/ai-engine/src/schem
 import { getDevModelOverride } from '../dev/DevModelPicker';
 
 const MAX_SOURCE_ANALYSES = 3;
+const DEFAULT_RELAY_MAX_SOURCE_ANALYSES = 1;
 const MAX_FRAME_ROWS = 12;
 
 export interface NewsCardSourceAnalysis {
@@ -81,8 +82,28 @@ function getArticleTextFetcher(
   return overrides?.fetchArticleText ?? fetchArticleTextViaProxy;
 }
 
+function readEnvVar(name: string): string | undefined {
+  try {
+    const fromImportMeta = (import.meta as any).env?.[name];
+    if (typeof fromImportMeta === 'string') {
+      return fromImportMeta;
+    }
+  } catch {
+    // ignore import.meta env access failures
+  }
+
+  if (typeof process !== 'undefined') {
+    const fromProcess = process?.env?.[name];
+    if (typeof fromProcess === 'string') {
+      return fromProcess;
+    }
+  }
+
+  return undefined;
+}
+
 function isRelayEnabled(): boolean {
-  try { return (import.meta as any).env?.VITE_VH_ANALYSIS_PIPELINE === 'true'; } catch { return false; }
+  return readEnvVar('VITE_VH_ANALYSIS_PIPELINE') === 'true';
 }
 
 async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, 'analysis'>> {
@@ -118,13 +139,38 @@ function firstSentence(value: string): string {
   return (match?.[0] ?? normalized).trim();
 }
 
-function selectSourcesForAnalysis(story: StoryBundle): StoryBundle['sources'] {
+function parseMaxSourceAnalyses(value: unknown): number | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return Math.min(parsed, MAX_SOURCE_ANALYSES);
+}
+
+function getRuntimeMaxSourceAnalyses(): number {
+  if (!isRelayEnabled()) {
+    return MAX_SOURCE_ANALYSES;
+  }
+
+  const override = parseMaxSourceAnalyses(readEnvVar('VITE_VH_ANALYSIS_MAX_SOURCE_ANALYSES'));
+  return override ?? DEFAULT_RELAY_MAX_SOURCE_ANALYSES;
+}
+
+function selectSourcesForAnalysis(
+  story: StoryBundle,
+  maxSourceAnalyses: number = MAX_SOURCE_ANALYSES,
+): StoryBundle['sources'] {
   const deduped = new Map<string, StoryBundle['sources'][number]>();
   for (const s of story.sources) {
     const k = `${s.source_id}|${s.url_hash}`;
     if (!deduped.has(k)) deduped.set(k, s);
   }
-  return Array.from(deduped.values()).slice(0, MAX_SOURCE_ANALYSES);
+  return Array.from(deduped.values()).slice(0, Math.max(1, maxSourceAnalyses));
 }
 
 function buildAnalysisInput(
@@ -219,8 +265,9 @@ async function runSynthesis(
   story: StoryBundle,
   runAnalysis: (articleText: string) => Promise<Pick<PipelineResult, 'analysis'>>,
   fetchArticleText: (url: string) => Promise<string>,
+  maxSourceAnalyses: number,
 ): Promise<NewsCardAnalysisSynthesis> {
-  const selectedSources = selectSourcesForAnalysis(story);
+  const selectedSources = selectSourcesForAnalysis(story, maxSourceAnalyses);
   const analyzed: NewsCardSourceAnalysis[] = [];
 
   for (const source of selectedSources) {
@@ -266,9 +313,10 @@ export async function synthesizeStoryFromAnalysisPipeline(
   const fetchArticleText = getArticleTextFetcher(options);
 
   if (options?.runAnalysis) {
-    return runSynthesis(story, options.runAnalysis, fetchArticleText);
+    return runSynthesis(story, options.runAnalysis, fetchArticleText, MAX_SOURCE_ANALYSES);
   }
 
+  const maxSourceAnalyses = getRuntimeMaxSourceAnalyses();
   const cacheKey = toStoryCacheKey(story);
   const resolved = resolvedSynthesisCache.get(cacheKey);
   if (resolved) {
@@ -277,7 +325,7 @@ export async function synthesizeStoryFromAnalysisPipeline(
 
   let pending = synthesisCache.get(cacheKey);
   if (!pending) {
-    pending = runSynthesis(story, getRunAnalysis(), fetchArticleText);
+    pending = runSynthesis(story, getRunAnalysis(), fetchArticleText, maxSourceAnalyses);
     synthesisCache.set(cacheKey, pending);
   }
 
@@ -309,6 +357,7 @@ export const newsCardAnalysisInternal = {
   buildAnalysisInput,
   firstSentence,
   getAnalysisModelScopeKey,
+  getRuntimeMaxSourceAnalyses,
   runAnalysisViaRelay,
   selectSourcesForAnalysis,
   synthesizeSummary,

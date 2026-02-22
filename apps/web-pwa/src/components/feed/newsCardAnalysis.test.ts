@@ -194,6 +194,28 @@ describe('newsCardAnalysis', () => {
     expect(defaultKey).not.toBe(overriddenKey);
   });
 
+  it('limits relay runtime analysis fan-out by default and honors valid override', () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+
+    expect(newsCardAnalysisInternal.getRuntimeMaxSourceAnalyses()).toBe(1);
+
+    vi.stubEnv('VITE_VH_ANALYSIS_MAX_SOURCE_ANALYSES', '2');
+    expect(newsCardAnalysisInternal.getRuntimeMaxSourceAnalyses()).toBe(2);
+
+    vi.stubEnv('VITE_VH_ANALYSIS_MAX_SOURCE_ANALYSES', '99');
+    expect(newsCardAnalysisInternal.getRuntimeMaxSourceAnalyses()).toBe(3);
+
+    vi.stubEnv('VITE_VH_ANALYSIS_MAX_SOURCE_ANALYSES', 'not-a-number');
+    expect(newsCardAnalysisInternal.getRuntimeMaxSourceAnalyses()).toBe(1);
+  });
+
+  it('keeps full source fan-out when relay pipeline is disabled', () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
+    vi.stubEnv('VITE_VH_ANALYSIS_MAX_SOURCE_ANALYSES', '1');
+
+    expect(newsCardAnalysisInternal.getRuntimeMaxSourceAnalyses()).toBe(3);
+  });
+
   it('includes source/article metadata in analysis input payload', () => {
     const story = makeStoryBundle();
     const input = newsCardAnalysisInternal.buildAnalysisInput(
