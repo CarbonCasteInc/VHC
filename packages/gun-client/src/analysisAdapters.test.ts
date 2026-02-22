@@ -153,7 +153,7 @@ describe('analysisAdapters', () => {
     );
   });
 
-  it('writeAnalysis writes artifact and updates latest pointer', async () => {
+  it('writeAnalysis writes encoded artifact and updates latest pointer', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
@@ -162,10 +162,21 @@ describe('analysisAdapters', () => {
 
     expect(result).toEqual(ARTIFACT);
     expect(mesh.writes).toHaveLength(2);
-    expect(mesh.writes[0]).toEqual({
-      path: 'news/stories/story-1/analysis/analysis-1',
-      value: ARTIFACT,
-    });
+    expect(mesh.writes[0].path).toBe('news/stories/story-1/analysis/analysis-1');
+    expect(mesh.writes[0].value).toEqual(
+      expect.objectContaining({
+        __analysis_artifact_codec: 'analysis-artifact-json-v1',
+        story_id: ARTIFACT.story_id,
+        analysisKey: ARTIFACT.analysisKey,
+        provenance_hash: ARTIFACT.provenance_hash,
+        model_scope: ARTIFACT.model_scope,
+        created_at: ARTIFACT.created_at,
+      }),
+    );
+
+    const encoded = mesh.writes[0].value as { artifact_json: string };
+    expect(JSON.parse(encoded.artifact_json)).toEqual(ARTIFACT);
+
     expect(mesh.writes[1]).toEqual({
       path: 'news/stories/story-1/analysis_latest',
       value: {
@@ -242,6 +253,24 @@ describe('analysisAdapters', () => {
       _: { '#': 'gun-meta' },
       ...ARTIFACT,
     });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
+  });
+
+  it('readAnalysis decodes encoded JSON artifact payload', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', {
+      __analysis_artifact_codec: 'analysis-artifact-json-v1',
+      artifact_json: JSON.stringify(ARTIFACT),
+      story_id: ARTIFACT.story_id,
+      analysisKey: ARTIFACT.analysisKey,
+      provenance_hash: ARTIFACT.provenance_hash,
+      model_scope: ARTIFACT.model_scope,
+      created_at: ARTIFACT.created_at,
+    });
+
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
