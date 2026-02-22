@@ -12,12 +12,34 @@ const ANALYSIS_PIPELINE_VERSION = 'news-card-analysis-v1';
 const MESH_READ_MAX_ATTEMPTS = 3;
 const MESH_READ_RETRY_BASE_DELAY_MS = 700;
 
+function isMeshDebugEnabled(): boolean {
+  try {
+    if ((import.meta as any).env?.VITE_VH_ANALYSIS_MESH_DEBUG === 'true') {
+      return true;
+    }
+  } catch {
+    // ignore import.meta env access failures
+  }
+
+  if (typeof process !== 'undefined') {
+    return process?.env?.VITE_VH_ANALYSIS_MESH_DEBUG === 'true';
+  }
+
+  return false;
+}
+
+const MESH_DEBUG_ENABLED = isMeshDebugEnabled();
+
 function ensureNonEmpty(value: string | undefined | null, fallback: string): string {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : fallback;
 }
 
 function logMeshDebug(event: string, payload: Record<string, unknown>): void {
+  if (!MESH_DEBUG_ENABLED) {
+    return;
+  }
+
   console.info('[vh:analysis:mesh:debug]', {
     event,
     ...payload,
