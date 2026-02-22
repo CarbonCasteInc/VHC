@@ -22,6 +22,9 @@ Defines data placement, mesh path conventions, and privacy constraints for Seaso
 | Elevation artifacts (BriefDoc/ProposalScaffold/TalkingPoints) | local authoritative | metadata only | encrypted artifact payload | - | optional export blob | Sensitive/Public-mixed |
 | Civic forwarding receipts | local authoritative | aggregate counters only | optional encrypted backup | - | - | Sensitive |
 | Representative directory data | local cache | `vh/civic/reps/<jurisdictionVersion>` | - | - | signed source snapshot | Public |
+| PointAggregateSnapshotV1 | local cache | `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/points/<pointId>` | - | optional hash anchor | - | Public |
+| VoteIntentRecord | local durable queue | forbidden | optional encrypted backup | - | - | Sensitive |
+| VoteAdmissionReceipt | local state | forbidden | - | - | - | Internal |
 
 ## 2. Canonical path conventions (V2)
 
@@ -34,6 +37,7 @@ Allowed public V2 namespaces:
 - `vh/aggregates/topics/*`
 - `vh/discovery/*`
 - `vh/civic/reps/*`
+- `vh/aggregates/topics/*/syntheses/*/epochs/*/points/*` (PointAggregateSnapshotV1 delivery)
 
 Disallowed in public namespaces:
 
@@ -54,6 +58,8 @@ Disallowed in public namespaces:
 2. Event-level sentiment is never plaintext on public mesh.
 3. No public object may contain both `district_hash` and a person-level identifier.
 4. Docs draft content is encrypted at rest and in transit outside device boundaries.
+5. VoteIntentRecord objects (containing voter_id and proof_ref) are sensitive and MUST NOT appear on public mesh paths.
+6. VoteAdmissionReceipt is internal client state only.
 
 ## 4. Linked-social storage rules
 

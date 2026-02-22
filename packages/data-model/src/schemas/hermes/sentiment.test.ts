@@ -1,15 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
   AggregateVoterNodeSchema,
+  POINT_AGGREGATE_SNAPSHOT_VERSION,
+  PointAggregateSnapshotV1Schema,
   SentimentEventSchema,
   STORY_ANALYSIS_ARTIFACT_VERSION,
   StoryAnalysisArtifactSchema,
   StoryAnalysisLatestPointerSchema,
+  VoteAdmissionReceiptSchema,
+  VoteIntentRecordSchema,
   deriveAggregateVoterId,
   deriveAnalysisKey,
   derivePointId,
   deriveSynthesisPointId,
   deriveSentimentEventId,
+  deriveVoteIntentId,
   normalizePointText,
 } from './sentiment';
 
@@ -360,5 +365,198 @@ describe('sentiment key derivation helpers', () => {
       point_id: 'POINT-7',
     });
     expect(differentSynthesis).not.toBe(eventA);
+  });
+});
+
+describe('VoteAdmissionReceiptSchema', () => {
+  const validReceipt = {
+    receipt_id: 'rcpt-1',
+    accepted: true,
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 3,
+    point_id: 'point-1',
+    admitted_at: 1_700_000_000_000,
+  };
+
+  it('accepts valid receipt', () => {
+    expect(VoteAdmissionReceiptSchema.safeParse(validReceipt).success).toBe(true);
+  });
+
+  it('accepts receipt with optional reason', () => {
+    expect(
+      VoteAdmissionReceiptSchema.safeParse({ ...validReceipt, accepted: false, reason: 'budget exceeded' }).success,
+    ).toBe(true);
+  });
+
+  it('rejects missing required fields', () => {
+    const { receipt_id: _, ...rest } = validReceipt;
+    expect(VoteAdmissionReceiptSchema.safeParse(rest).success).toBe(false);
+  });
+
+  it('rejects extra fields (strict mode)', () => {
+    expect(VoteAdmissionReceiptSchema.safeParse({ ...validReceipt, extra: 'nope' }).success).toBe(false);
+  });
+});
+
+describe('VoteIntentRecordSchema', () => {
+  const validIntent = {
+    intent_id: 'intent-1',
+    voter_id: 'voter-1',
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 3,
+    point_id: 'point-1',
+    agreement: 1 as const,
+    weight: 1.5,
+    proof_ref: 'ref-abc',
+    seq: 0,
+    emitted_at: 1_700_000_000_000,
+  };
+
+  it('accepts valid intent record', () => {
+    expect(VoteIntentRecordSchema.safeParse(validIntent).success).toBe(true);
+  });
+
+  it('enforces agreement enum (-1, 0, 1)', () => {
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, agreement: -1 }).success).toBe(true);
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, agreement: 0 }).success).toBe(true);
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, agreement: 2 }).success).toBe(false);
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, agreement: 0.5 }).success).toBe(false);
+  });
+
+  it('enforces weight bounds [0, 2]', () => {
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, weight: 0 }).success).toBe(true);
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, weight: 2 }).success).toBe(true);
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, weight: -0.1 }).success).toBe(false);
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, weight: 2.1 }).success).toBe(false);
+  });
+
+  it('rejects extra fields (strict mode)', () => {
+    expect(VoteIntentRecordSchema.safeParse({ ...validIntent, extra: 'nope' }).success).toBe(false);
+  });
+});
+
+describe('PointAggregateSnapshotV1Schema', () => {
+  const validSnapshot = {
+    schema_version: POINT_AGGREGATE_SNAPSHOT_VERSION,
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 3,
+    point_id: 'point-1',
+    agree: 42,
+    disagree: 7,
+    weight: 55.3,
+    participants: 49,
+    version: 1,
+    computed_at: 1_700_000_000_000,
+    source_window: { from_seq: 0, to_seq: 100 },
+  };
+
+  it('accepts valid snapshot', () => {
+    expect(PointAggregateSnapshotV1Schema.safeParse(validSnapshot).success).toBe(true);
+  });
+
+  it('enforces schema_version literal', () => {
+    expect(
+      PointAggregateSnapshotV1Schema.safeParse({ ...validSnapshot, schema_version: 'wrong-version' }).success,
+    ).toBe(false);
+  });
+
+  it('rejects extra fields (strict mode)', () => {
+    expect(PointAggregateSnapshotV1Schema.safeParse({ ...validSnapshot, extra: 'nope' }).success).toBe(false);
+  });
+
+  it('rejects negative counts', () => {
+    expect(PointAggregateSnapshotV1Schema.safeParse({ ...validSnapshot, agree: -1 }).success).toBe(false);
+    expect(PointAggregateSnapshotV1Schema.safeParse({ ...validSnapshot, disagree: -1 }).success).toBe(false);
+    expect(PointAggregateSnapshotV1Schema.safeParse({ ...validSnapshot, participants: -1 }).success).toBe(false);
+  });
+});
+
+describe('PointAggregateSnapshotV1Schema privacy boundary', () => {
+  const validSnapshot = {
+    schema_version: POINT_AGGREGATE_SNAPSHOT_VERSION,
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 3,
+    point_id: 'point-1',
+    agree: 42,
+    disagree: 7,
+    weight: 55.3,
+    participants: 49,
+    version: 1,
+    computed_at: 1_700_000_000_000,
+    source_window: { from_seq: 0, to_seq: 100 },
+  };
+
+  const forbiddenFields = [
+    'nullifier',
+    'proof_ref',
+    'constituency_proof',
+    'voter_id',
+    'proof',
+    'district_hash',
+  ];
+
+  for (const field of forbiddenFields) {
+    it(`rejects forbidden sensitive field: ${field}`, () => {
+      expect(
+        PointAggregateSnapshotV1Schema.safeParse({ ...validSnapshot, [field]: 'should-not-appear' }).success,
+      ).toBe(false);
+    });
+  }
+});
+
+describe('deriveVoteIntentId', () => {
+  const baseParams = {
+    voter_id: 'voter-1',
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 3,
+    point_id: 'point-1',
+  };
+
+  it('is deterministic for same inputs', async () => {
+    const a = await deriveVoteIntentId(baseParams);
+    const b = await deriveVoteIntentId(baseParams);
+    expect(a).toBe(b);
+  });
+
+  it('normalizes case', async () => {
+    const a = await deriveVoteIntentId(baseParams);
+    const b = await deriveVoteIntentId({
+      ...baseParams,
+      voter_id: 'VOTER-1',
+      topic_id: 'TOPIC-1',
+      synthesis_id: 'SYNTH-1',
+      point_id: 'POINT-1',
+    });
+    expect(a).toBe(b);
+  });
+
+  it('produces different ids for different inputs', async () => {
+    const base = await deriveVoteIntentId(baseParams);
+    const diffVoter = await deriveVoteIntentId({ ...baseParams, voter_id: 'voter-2' });
+    const diffTopic = await deriveVoteIntentId({ ...baseParams, topic_id: 'topic-2' });
+    const diffSynth = await deriveVoteIntentId({ ...baseParams, synthesis_id: 'synth-2' });
+    const diffEpoch = await deriveVoteIntentId({ ...baseParams, epoch: 4 });
+    const diffPoint = await deriveVoteIntentId({ ...baseParams, point_id: 'point-2' });
+
+    expect(diffVoter).not.toBe(base);
+    expect(diffTopic).not.toBe(base);
+    expect(diffSynth).not.toBe(base);
+    expect(diffEpoch).not.toBe(base);
+    expect(diffPoint).not.toBe(base);
+  });
+
+  it('floors and clamps epoch', async () => {
+    const floored = await deriveVoteIntentId({ ...baseParams, epoch: 3.9 });
+    const integer = await deriveVoteIntentId({ ...baseParams, epoch: 3 });
+    expect(floored).toBe(integer);
+
+    const negative = await deriveVoteIntentId({ ...baseParams, epoch: -5 });
+    const zero = await deriveVoteIntentId({ ...baseParams, epoch: 0 });
+    expect(negative).toBe(zero);
   });
 });
