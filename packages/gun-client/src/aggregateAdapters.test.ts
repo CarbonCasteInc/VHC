@@ -8,6 +8,7 @@ import {
   getAggregateVotersChain,
   hasForbiddenAggregatePayloadFields,
   readAggregates,
+  readAggregateVoterNode,
   readAggregateVoterRows,
   readPointAggregateSnapshot,
   writePointAggregateSnapshot,
@@ -252,7 +253,7 @@ describe('aggregateAdapters', () => {
     ).rejects.toThrow('boom');
   });
 
-  it('writeVoterNode resolves after ack-timeout fallback when put callback never arrives', async () => {
+  it('writeVoterNode rejects when put callback never arrives (strict ack)', async () => {
     const mesh = createFakeMesh();
     mesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1');
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -265,7 +266,7 @@ describe('aggregateAdapters', () => {
       updated_at: '2026-02-18T22:20:00.000Z',
     };
 
-    await expect(writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node)).resolves.toEqual(node);
+    await expect(writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node)).rejects.toThrow('aggregate-put-ack-timeout');
   }, 10000);
 
   it('writeVoterNode ignores timeout/late ack callbacks after successful settlement', async () => {
@@ -341,6 +342,28 @@ describe('aggregateAdapters', () => {
     });
   });
 
+  it('readAggregateVoterNode reads exact voter/point path', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voterA/pointA', {
+      point_id: 'pointA',
+      agreement: 1,
+      weight: 1.5,
+      updated_at: '2026-02-18T22:20:00.000Z',
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregateVoterNode(client, 'topic-1', 'synth-1', 4, 'voterA', 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agreement: 1,
+      weight: 1.5,
+      updated_at: '2026-02-18T22:20:00.000Z',
+    });
+
+    await expect(readAggregateVoterNode(client, 'topic-1', 'synth-1', 4, 'voterA', 'pointB')).resolves.toBeNull();
+  });
+
   it('readAggregateVoterRows clamps pre-epoch updated_at timestamps to zero', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
@@ -387,7 +410,7 @@ describe('aggregateAdapters', () => {
       computed_at: 42,
       source_window: { from_seq: 1, to_seq: 42 },
     });
-    // fallback voters path intentionally has conflicting totals; snapshot should win.
+    // fallback voters path intentionally has conflicting totals; higher snapshot totals should still win.
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
       voterA: {
         pointA: {
@@ -408,6 +431,45 @@ describe('aggregateAdapters', () => {
       disagree: 4,
       weight: 10,
       participants: 10,
+    });
+  });
+
+  it('readAggregates surfaces voter rows when snapshot is stale/under-counted', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 0,
+      disagree: 0,
+      weight: 0,
+      participants: 0,
+      version: 1,
+      computed_at: 1,
+      source_window: { from_seq: 1, to_seq: 1 },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:20:00.000Z',
+        },
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agree: 1,
+      disagree: 0,
+      weight: 1,
+      participants: 1,
     });
   });
 

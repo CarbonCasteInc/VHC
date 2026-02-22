@@ -206,9 +206,11 @@ describe('voteIntentMaterializer', () => {
     expect(snapshot.source_window).toEqual({ from_seq: 45, to_seq: 50 });
   });
 
-  it('replayVoteIntentQueue returns zero work when client is unavailable', async () => {
+  it('replayVoteIntentQueue reports pending failures when client is unavailable', async () => {
+    enqueueIntent(makeIntent({ intent_id: 'pending-when-offline' }));
+
     const result = await replayVoteIntentQueue({ client: null });
-    expect(result).toEqual({ replayed: 0, failed: 0 });
+    expect(result).toEqual({ replayed: 0, failed: 1 });
   });
 
   it('replayVoteIntentQueue replaces existing voter row when incoming record wins LWW', async () => {

@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { SentimentSignal, ConstituencyProof } from '@vh/types';
 import { deriveAggregateVoterId, deriveVoteIntentId, type VoteAdmissionReceipt, type VoteIntentRecord } from '@vh/data-model';
-import { writeSentimentEvent, writeVoterNode } from '@vh/gun-client';
+import { readAggregateVoterNode, writeSentimentEvent, writeVoterNode } from '@vh/gun-client';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { resolveClientFromAppStore } from '../store/clientResolver';
 import { useXpLedger } from '../store/xpLedger';
@@ -296,6 +296,39 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       weight: signal.weight,
       updated_at: asIsoTimestamp(signal.emitted_at),
     });
+
+    try {
+      const readBackNode = await readAggregateVoterNode(
+        client,
+        signal.topic_id,
+        signal.synthesis_id,
+        signal.epoch,
+        voterId,
+        signal.point_id,
+      );
+
+      console.info('[vh:vote:voter-node-readback]', {
+        topic_id: signal.topic_id,
+        synthesis_id: signal.synthesis_id,
+        epoch: signal.epoch,
+        voter_id: voterId,
+        point_id: signal.point_id,
+        found: Boolean(readBackNode),
+        agreement: readBackNode?.agreement ?? null,
+        weight: readBackNode?.weight ?? null,
+        updated_at: readBackNode?.updated_at ?? null,
+      });
+    } catch (readBackError) {
+      console.warn('[vh:vote:voter-node-readback]', {
+        topic_id: signal.topic_id,
+        synthesis_id: signal.synthesis_id,
+        epoch: signal.epoch,
+        voter_id: voterId,
+        point_id: signal.point_id,
+        found: false,
+        error: readBackError instanceof Error ? readBackError.message : String(readBackError),
+      });
+    }
   } catch (error) {
     success = false;
     const nextErrorMessage = error instanceof Error ? error.message : String(error);
