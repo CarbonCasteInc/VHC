@@ -58,6 +58,22 @@ describe('TopologyGuard', () => {
         updated_at: '2026-02-18T22:00:00.000Z',
       })
     ).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/3/points/point-1', {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 3,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 3,
+        computed_at: 3,
+        source_window: { from_seq: 3, to_seq: 3 },
+      })
+    ).not.toThrow();
   });
 
   it('allows news removal entries (public, no PII)', () => {

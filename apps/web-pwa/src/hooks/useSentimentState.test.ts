@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as GunClient from '@vh/gun-client';
 import * as DataModel from '@vh/data-model';
 import * as ClientResolver from '../store/clientResolver';
+import * as VoteIntentMaterializer from './voteIntentMaterializer';
 import { useSentimentState } from './useSentimentState';
 import { createBudgetMock } from '../test-utils/budgetMock';
 
@@ -50,6 +51,7 @@ describe('useSentimentState', () => {
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(null);
     vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-1');
     vi.spyOn(DataModel, 'deriveVoteIntentId').mockResolvedValue('intent-default');
+    vi.spyOn(VoteIntentMaterializer, 'scheduleVoteIntentReplay').mockImplementation(() => {});
     vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
       eventId: 'evt-1',
       event: {} as never,
@@ -1233,9 +1235,29 @@ describe('useSentimentState', () => {
     expect(intent!.proof_ref).not.toContain('intent-proof');
   });
 
+  it('schedules vote-intent replay after durable enqueue', async () => {
+    const scheduleReplaySpy = vi.mocked(VoteIntentMaterializer.scheduleVoteIntentReplay);
+    scheduleReplaySpy.mockClear();
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-replay-schedule',
+      epoch: 3,
+      desired: 1,
+      constituency_proof: proofFor('intent-replay-schedule'),
+    });
+
+    await flushProjection();
+
+    expect(scheduleReplaySpy).toHaveBeenCalledTimes(1);
+  });
+
   it('logs warning when VoteIntent enqueue derivation fails', async () => {
     vi.spyOn(DataModel, 'deriveAggregateVoterId').mockRejectedValueOnce(new Error('intent-derive-failed'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const scheduleReplaySpy = vi.mocked(VoteIntentMaterializer.scheduleVoteIntentReplay);
+    scheduleReplaySpy.mockClear();
 
     useSentimentState.getState().setAgreement({
       topicId: TOPIC,
@@ -1253,6 +1275,7 @@ describe('useSentimentState', () => {
       expect.any(Error),
     );
     expect(localStorage.getItem('vh_vote_intent_queue_v1')).toBeNull();
+    expect(scheduleReplaySpy).not.toHaveBeenCalled();
 
     warnSpy.mockRestore();
   });

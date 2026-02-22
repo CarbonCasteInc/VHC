@@ -17,6 +17,7 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/analyses/', classification: 'public' },
   { pathPrefix: 'vh/aggregates/', classification: 'public' },
   { pathPrefix: 'vh/aggregates/topics/*/syntheses/*/epochs/*/voters/*', classification: 'public' },
+  { pathPrefix: 'vh/aggregates/topics/*/syntheses/*/epochs/*/points/*', classification: 'public' },
   // Wave 0 contract registrations
   { pathPrefix: 'vh/news/stories/*', classification: 'public' },
   { pathPrefix: 'vh/news/stories/*/analysis/*', classification: 'public' },

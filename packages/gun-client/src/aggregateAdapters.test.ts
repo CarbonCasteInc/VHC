@@ -4,9 +4,13 @@ import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import {
   aggregateAdapterInternal,
+  getAggregatePointsChain,
   getAggregateVotersChain,
   hasForbiddenAggregatePayloadFields,
   readAggregates,
+  readAggregateVoterRows,
+  readPointAggregateSnapshot,
+  writePointAggregateSnapshot,
   writeVoterNode,
 } from './aggregateAdapters';
 
@@ -112,6 +116,35 @@ describe('aggregateAdapters', () => {
     );
   });
 
+  it('getAggregatePointsChain builds guarded points chain', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const chain = getAggregatePointsChain(client, 'topic-1', 'synth-1', 4);
+    await chain.get('point-1').put({
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'point-1',
+      agree: 1,
+      disagree: 0,
+      weight: 1,
+      participants: 1,
+      version: 4,
+      computed_at: 4,
+      source_window: { from_seq: 4, to_seq: 4 },
+    });
+
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1/',
+      expect.objectContaining({
+        point_id: 'point-1',
+      }),
+    );
+  });
+
   it('writeVoterNode validates payload and writes to voter sub-node path', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -131,6 +164,66 @@ describe('aggregateAdapters', () => {
       path: 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1',
       value: node,
     });
+  });
+
+  it('writePointAggregateSnapshot validates schema and writes to canonical points path', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const snapshot = {
+      schema_version: 'point-aggregate-snapshot-v1' as const,
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'point-1',
+      agree: 3,
+      disagree: 1,
+      weight: 4,
+      participants: 4,
+      version: 99,
+      computed_at: 123,
+      source_window: {
+        from_seq: 12,
+        to_seq: 99,
+      },
+    };
+
+    const written = await writePointAggregateSnapshot(client, snapshot);
+
+    expect(written).toEqual(snapshot);
+    expect(mesh.writes[0]).toEqual({
+      path: 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1',
+      value: snapshot,
+    });
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1/',
+      snapshot,
+    );
+  });
+
+  it('writePointAggregateSnapshot rejects sensitive fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      writePointAggregateSnapshot(client, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 3,
+        disagree: 1,
+        weight: 4,
+        participants: 4,
+        version: 99,
+        computed_at: 123,
+        source_window: { from_seq: 1, to_seq: 99 },
+        nullifier: 'forbidden',
+      }),
+    ).rejects.toThrow('forbidden sensitive fields');
   });
 
   it('writeVoterNode rejects sensitive fields and ack errors', async () => {
@@ -203,6 +296,119 @@ describe('aggregateAdapters', () => {
       clearTimeoutSpy.mockRestore();
       vi.useRealTimers();
     }
+  });
+
+  it('readPointAggregateSnapshot returns parsed snapshot and strips metadata', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      _: { '#': 'meta' },
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 8,
+      disagree: 2,
+      weight: 10,
+      participants: 10,
+      version: 77,
+      computed_at: 77,
+      source_window: {
+        from_seq: 1,
+        to_seq: 77,
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readPointAggregateSnapshot(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 8,
+      disagree: 2,
+      weight: 10,
+      participants: 10,
+      version: 77,
+      computed_at: 77,
+      source_window: {
+        from_seq: 1,
+        to_seq: 77,
+      },
+    });
+  });
+
+  it('readAggregateVoterRows clamps pre-epoch updated_at timestamps to zero', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '1960-01-01T00:00:00.000Z',
+        },
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregateVoterRows(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual([
+      {
+        voter_id: 'voterA',
+        node: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '1960-01-01T00:00:00.000Z',
+        },
+        updated_at_ms: 0,
+      },
+    ]);
+  });
+
+  it('readAggregates prefers materialized points snapshot when present', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 6,
+      disagree: 4,
+      weight: 10,
+      participants: 10,
+      version: 42,
+      computed_at: 42,
+      source_window: { from_seq: 1, to_seq: 42 },
+    });
+    // fallback voters path intentionally has conflicting totals; snapshot should win.
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:20:00.000Z',
+        },
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agree: 6,
+      disagree: 4,
+      weight: 10,
+      participants: 10,
+    });
   });
 
   it('readAggregates fans-in voter sub-nodes and ignores neutral/invalid rows', async () => {
@@ -295,12 +501,18 @@ describe('aggregateAdapters', () => {
     expect(() => getAggregateVotersChain(client, 'topic-1', 'synth-1', -1)).toThrow('epoch must be a non-negative finite number');
   });
 
-  it('internal path helpers expose voter sub-node topology', () => {
+  it('internal path helpers expose voter + points topology', () => {
     expect(aggregateAdapterInternal.aggregateVotersPath('topic-x', 'synth-y', '3')).toBe(
       'vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/voters/',
     );
     expect(
       aggregateAdapterInternal.aggregateVoterPointPath('topic-x', 'synth-y', '3', 'voter-y', 'point-z'),
     ).toBe('vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/voters/voter-y/point-z/');
+    expect(aggregateAdapterInternal.aggregatePointsPath('topic-x', 'synth-y', '3')).toBe(
+      'vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/points/',
+    );
+    expect(aggregateAdapterInternal.aggregatePointPath('topic-x', 'synth-y', '3', 'point-z')).toBe(
+      'vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/points/point-z/',
+    );
   });
 });
