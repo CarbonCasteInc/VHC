@@ -12,6 +12,18 @@ interface PutAckResult {
   readonly timedOut: boolean;
 }
 
+const ANALYSIS_ARTIFACT_CODEC = 'analysis-artifact-json-v1' as const;
+
+interface EncodedStoryAnalysisArtifact {
+  readonly __analysis_artifact_codec: typeof ANALYSIS_ARTIFACT_CODEC;
+  readonly artifact_json: string;
+  readonly story_id: string;
+  readonly analysisKey: string;
+  readonly provenance_hash: string;
+  readonly model_scope: string;
+  readonly created_at: string;
+}
+
 const FORBIDDEN_ANALYSIS_KEYS = new Set<string>([
   'identity',
   'identity_id',
@@ -115,11 +127,54 @@ function assertNoForbiddenAnalysisFields(payload: unknown): void {
   }
 }
 
+function encodeStoryAnalysisArtifact(artifact: StoryAnalysisArtifact): EncodedStoryAnalysisArtifact {
+  return {
+    __analysis_artifact_codec: ANALYSIS_ARTIFACT_CODEC,
+    artifact_json: JSON.stringify(artifact),
+    story_id: artifact.story_id,
+    analysisKey: artifact.analysisKey,
+    provenance_hash: artifact.provenance_hash,
+    model_scope: artifact.model_scope,
+    created_at: artifact.created_at,
+  };
+}
+
+function decodeStoryAnalysisArtifact(payload: unknown): StoryAnalysisArtifact | null {
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  if (payload.__analysis_artifact_codec !== ANALYSIS_ARTIFACT_CODEC) {
+    return null;
+  }
+
+  if (typeof payload.artifact_json !== 'string') {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(payload.artifact_json) as unknown;
+    if (hasForbiddenAnalysisPayloadFields(decoded)) {
+      return null;
+    }
+    const parsed = StoryAnalysisArtifactSchema.safeParse(decoded);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 function parseStoryAnalysisArtifact(data: unknown): StoryAnalysisArtifact | null {
   const payload = stripGunMetadata(data);
   if (hasForbiddenAnalysisPayloadFields(payload)) {
     return null;
   }
+
+  const decoded = decodeStoryAnalysisArtifact(payload);
+  if (decoded) {
+    return decoded;
+  }
+
   const parsed = StoryAnalysisArtifactSchema.safeParse(payload);
   return parsed.success ? parsed.data : null;
 }
@@ -251,7 +306,11 @@ export async function writeAnalysis(
   const normalizedStoryId = normalizeRequiredId(sanitized.story_id, 'story_id');
   const normalizedAnalysisKey = normalizeRequiredId(sanitized.analysisKey, 'analysisKey');
 
-  await putWithAck(getStoryAnalysisChain(client, normalizedStoryId, normalizedAnalysisKey), sanitized);
+  const encoded = encodeStoryAnalysisArtifact(sanitized);
+  await putWithAck(
+    getStoryAnalysisChain(client, normalizedStoryId, normalizedAnalysisKey) as unknown as ChainWithGet<EncodedStoryAnalysisArtifact>,
+    encoded,
+  );
 
   const pointer: StoryAnalysisLatestPointer = {
     analysisKey: sanitized.analysisKey,
