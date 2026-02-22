@@ -85,8 +85,8 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
         desired,
         constituency_proof: proof ?? undefined,
       });
-      if (result?.denied) {
-        setDenial(result.reason);
+      if (result && !result.accepted) {
+        setDenial(result.reason ?? null);
       }
     },
     [analysisId, disabled, epoch, pointId, proof, setAgreement, synthesisId, synthesisPointId, topicId],

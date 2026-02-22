@@ -49,6 +49,7 @@ describe('useSentimentState', () => {
 
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(null);
     vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-1');
+    vi.spyOn(DataModel, 'deriveVoteIntentId').mockResolvedValue('intent-default');
     vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
       eventId: 'evt-1',
       event: {} as never,
@@ -221,7 +222,8 @@ describe('useSentimentState', () => {
       expect(after.signals).toBe(before.signals);
       expect(mockConsumeAction).not.toHaveBeenCalled();
       expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Budget exhausted');
-      expect(result).toEqual({ denied: true, reason: 'Budget exhausted' });
+      expect(result).toMatchObject({ accepted: false, reason: 'Budget exhausted' });
+      expect(result.receipt_id).toMatch(/^deny-/);
     } finally {
       warnSpy.mockRestore();
     }
@@ -237,7 +239,7 @@ describe('useSentimentState', () => {
         .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('no-reason') });
 
       expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Daily limit reached for sentiment_votes/day');
-      expect(result).toEqual({ denied: true, reason: 'Daily limit reached for sentiment_votes/day' });
+      expect(result).toMatchObject({ accepted: false, reason: 'Daily limit reached for sentiment_votes/day' });
     } finally {
       warnSpy.mockRestore();
     }
@@ -253,7 +255,7 @@ describe('useSentimentState', () => {
         .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('empty') });
 
       expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Daily limit reached for sentiment_votes/day');
-      expect(result).toEqual({ denied: true, reason: 'Daily limit reached for sentiment_votes/day' });
+      expect(result).toMatchObject({ accepted: false, reason: 'Daily limit reached for sentiment_votes/day' });
     } finally {
       warnSpy.mockRestore();
     }
@@ -270,7 +272,8 @@ describe('useSentimentState', () => {
         desired: 1
       });
 
-      expect(result).toEqual({ denied: true, reason: 'Missing constituency proof' });
+      expect(result).toMatchObject({ accepted: false, reason: 'Missing constituency proof' });
+      expect(result.receipt_id).toMatch(/^deny-/);
       expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Missing constituency proof; SentimentSignal not emitted');
     } finally {
       warnSpy.mockRestore();
@@ -289,7 +292,8 @@ describe('useSentimentState', () => {
         constituency_proof: proofFor('missing-point-id')
       });
 
-      expect(result).toEqual({ denied: true, reason: 'Missing point_id' });
+      expect(result).toMatchObject({ accepted: false, reason: 'Missing point_id' });
+      expect(result.receipt_id).toMatch(/^deny-/);
       expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Missing point_id; SentimentSignal not emitted');
     } finally {
       warnSpy.mockRestore();
@@ -307,7 +311,8 @@ describe('useSentimentState', () => {
         constituency_proof: proofFor('missing-context')
       });
 
-      expect(result).toEqual({ denied: true, reason: 'Missing synthesis context' });
+      expect(result).toMatchObject({ accepted: false, reason: 'Missing synthesis context' });
+      expect(result.receipt_id).toMatch(/^deny-/);
       expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Missing synthesis context; SentimentSignal not emitted');
     } finally {
       warnSpy.mockRestore();
@@ -327,12 +332,14 @@ describe('useSentimentState', () => {
     expect(useSentimentState.getState().signals.at(-1)?.agreement).toBe(0);
   });
 
-  it('allowed path returns void (undefined)', () => {
+  it('allowed path returns VoteAdmissionReceipt with accepted: true', () => {
     const result = useSentimentState
       .getState()
       .setAgreement({ topicId: TOPIC, pointId: POINT, analysisId: ANALYSIS, desired: 1, constituency_proof: proofFor('ok') });
 
-    expect(result).toBeUndefined();
+    expect(result).toMatchObject({ accepted: true, topic_id: TOPIC, point_id: POINT });
+    expect(result.receipt_id).toMatch(/^admit-/);
+    expect(result.admitted_at).toBeGreaterThan(0);
   });
 
   it('allows 200 sentiment votes and denies the 201st', () => {
@@ -1123,5 +1130,158 @@ describe('useSentimentState', () => {
     );
 
     infoSpy.mockRestore();
+  });
+
+  // ─── B1: Admission Receipt Tests ───────────────────────────────────────
+
+  it('setAgreement returns VoteAdmissionReceipt with accepted: true on success', () => {
+    const result = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-b1',
+      epoch: 1,
+      desired: 1,
+      constituency_proof: proofFor('b1-success'),
+    });
+
+    expect(result.accepted).toBe(true);
+    expect(result.receipt_id).toMatch(/^admit-/);
+    expect(result.receipt_id.length).toBeGreaterThan(0);
+    expect(result.topic_id).toBe(TOPIC);
+    expect(result.synthesis_id).toBe('synth-b1');
+    expect(result.epoch).toBe(1);
+    expect(result.point_id).toBe(POINT);
+    expect(result.admitted_at).toBeGreaterThan(0);
+  });
+
+  it('setAgreement returns VoteAdmissionReceipt with accepted: false on each denial path', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Missing proof
+    const proofResult = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 1,
+    });
+    expect(proofResult.accepted).toBe(false);
+    expect(proofResult.reason).toBe('Missing constituency proof');
+    expect(proofResult.receipt_id).toMatch(/^deny-/);
+
+    // Missing point_id
+    const pointResult = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: '   ',
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('b1-deny-point'),
+    });
+    expect(pointResult.accepted).toBe(false);
+    expect(pointResult.reason).toBe('Missing point_id');
+
+    // Missing synthesis context
+    const contextResult = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      desired: 1,
+      constituency_proof: proofFor('b1-deny-context'),
+    });
+    expect(contextResult.accepted).toBe(false);
+    expect(contextResult.reason).toBe('Missing synthesis context');
+
+    // Budget exceeded
+    mockCanPerformAction.mockReturnValue({ allowed: false, reason: 'Budget exhausted' });
+    const budgetResult = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('b1-deny-budget'),
+    });
+    expect(budgetResult.accepted).toBe(false);
+    expect(budgetResult.reason).toBe('Budget exhausted');
+
+    warnSpy.mockRestore();
+  });
+
+  it('admitted vote creates VoteIntentRecord in durable queue', async () => {
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-intent');
+    vi.spyOn(DataModel, 'deriveVoteIntentId').mockResolvedValue('intent-123');
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-intent',
+      epoch: 2,
+      desired: 1,
+      constituency_proof: proofFor('intent-proof'),
+    });
+
+    // Wait for async intent enqueue
+    await flushProjection();
+
+    const raw = localStorage.getItem('vh_vote_intent_queue_v1');
+    expect(raw).not.toBeNull();
+    const queue = JSON.parse(raw!) as Array<{ intent_id: string; voter_id: string; topic_id: string; proof_ref: string }>;
+    expect(queue.length).toBeGreaterThanOrEqual(1);
+    const intent = queue.find((r) => r.intent_id === 'intent-123');
+    expect(intent).toBeDefined();
+    expect(intent!.voter_id).toBe('voter-intent');
+    expect(intent!.topic_id).toBe(TOPIC);
+    // proof_ref is opaque, not the raw proof
+    expect(intent!.proof_ref).toMatch(/^pref-/);
+    expect(intent!.proof_ref).not.toContain('intent-proof');
+  });
+
+  it('receipt_id is always a non-empty string', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Denied path
+    const denied = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      desired: 1,
+    });
+    expect(typeof denied.receipt_id).toBe('string');
+    expect(denied.receipt_id.length).toBeGreaterThan(0);
+
+    // Admitted path
+    const admitted = useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('receipt-id-check'),
+    });
+    expect(typeof admitted.receipt_id).toBe('string');
+    expect(admitted.receipt_id.length).toBeGreaterThan(0);
+
+    warnSpy.mockRestore();
+  });
+
+  it('budget/proof denial logic unchanged (same XP check, same error messages)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // Proof denial — same warn message
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 1,
+    });
+    expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Missing constituency proof; SentimentSignal not emitted');
+
+    // Budget denial — same warn message
+    mockCanPerformAction.mockReturnValue({ allowed: false, reason: 'Budget exhausted' });
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('budget-unchanged'),
+    });
+    expect(warnSpy).toHaveBeenCalledWith('[vh:sentiment] Budget denied:', 'Budget exhausted');
+
+    warnSpy.mockRestore();
   });
 });
