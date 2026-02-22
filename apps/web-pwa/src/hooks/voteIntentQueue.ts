@@ -15,6 +15,31 @@ import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 const STORAGE_KEY = 'vh_vote_intent_queue_v1';
 const MAX_QUEUE_SIZE = 200;
 
+function compareReplayOrder(a: VoteIntentRecord, b: VoteIntentRecord): number {
+  if (a.seq !== b.seq) {
+    return a.seq - b.seq;
+  }
+  if (a.emitted_at !== b.emitted_at) {
+    return a.emitted_at - b.emitted_at;
+  }
+  if (a.topic_id !== b.topic_id) {
+    return a.topic_id.localeCompare(b.topic_id);
+  }
+  if (a.synthesis_id !== b.synthesis_id) {
+    return a.synthesis_id.localeCompare(b.synthesis_id);
+  }
+  if (a.epoch !== b.epoch) {
+    return a.epoch - b.epoch;
+  }
+  if (a.point_id !== b.point_id) {
+    return a.point_id.localeCompare(b.point_id);
+  }
+  if (a.voter_id !== b.voter_id) {
+    return a.voter_id.localeCompare(b.voter_id);
+  }
+  return a.intent_id.localeCompare(b.intent_id);
+}
+
 function loadQueue(): VoteIntentRecord[] {
   try {
     const raw = safeGetItem(STORAGE_KEY);
@@ -83,12 +108,20 @@ export function getPendingIntents(): VoteIntentRecord[] {
  */
 export async function replayPendingIntents(
   project: (record: VoteIntentRecord) => Promise<void>,
+  options?: {
+    limit?: number;
+  },
 ): Promise<{ replayed: number; failed: number }> {
-  const pending = loadQueue();
+  const pending = loadQueue().sort(compareReplayOrder);
+  const normalizedLimit = options?.limit && options.limit > 0
+    ? Math.floor(options.limit)
+    : pending.length;
+  const replayBatch = pending.slice(0, normalizedLimit);
+
   let replayed = 0;
   let failed = 0;
 
-  for (const record of pending) {
+  for (const record of replayBatch) {
     try {
       await project(record);
       markIntentProjected(record.intent_id);

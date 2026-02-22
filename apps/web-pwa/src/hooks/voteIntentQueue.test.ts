@@ -144,6 +144,108 @@ describe('voteIntentQueue', () => {
     expect(pending[0].intent_id).toBe('fail-1');
   });
 
+  it('replayPendingIntents uses deterministic replay order', async () => {
+    enqueueIntent(makeIntent({ intent_id: 'c', seq: 30, emitted_at: 30 }));
+    enqueueIntent(makeIntent({ intent_id: 'a', seq: 10, emitted_at: 10 }));
+    enqueueIntent(makeIntent({ intent_id: 'b', seq: 20, emitted_at: 20 }));
+
+    const replayed: string[] = [];
+    await replayPendingIntents(async (record) => {
+      replayed.push(record.intent_id);
+    });
+
+    expect(replayed).toEqual(['a', 'b', 'c']);
+  });
+
+  it('replayPendingIntents tie-breaks by emitted_at, topic_id, and synthesis_id', async () => {
+    enqueueIntent(
+      makeIntent({
+        intent_id: 'topic-a-synth-a-early',
+        seq: 10,
+        emitted_at: 1,
+        topic_id: 'topic-a',
+        synthesis_id: 'synth-a',
+      }),
+    );
+    enqueueIntent(
+      makeIntent({
+        intent_id: 'topic-a-synth-a-late',
+        seq: 10,
+        emitted_at: 2,
+        topic_id: 'topic-a',
+        synthesis_id: 'synth-a',
+      }),
+    );
+    enqueueIntent(
+      makeIntent({
+        intent_id: 'topic-a-synth-b-early',
+        seq: 10,
+        emitted_at: 1,
+        topic_id: 'topic-a',
+        synthesis_id: 'synth-b',
+      }),
+    );
+    enqueueIntent(
+      makeIntent({
+        intent_id: 'topic-b-synth-a-early',
+        seq: 10,
+        emitted_at: 1,
+        topic_id: 'topic-b',
+        synthesis_id: 'synth-a',
+      }),
+    );
+
+    const replayed: string[] = [];
+    await replayPendingIntents(async (record) => {
+      replayed.push(record.intent_id);
+    });
+
+    expect(replayed).toEqual([
+      'topic-a-synth-a-early',
+      'topic-a-synth-b-early',
+      'topic-b-synth-a-early',
+      'topic-a-synth-a-late',
+    ]);
+  });
+
+  it('replayPendingIntents tie-breaks by epoch, point_id, voter_id, and intent_id', async () => {
+    const shared = { seq: 10, emitted_at: 10, topic_id: 'topic-x', synthesis_id: 'synth-x' };
+
+    enqueueIntent(makeIntent({ ...shared, intent_id: 'epoch-2', epoch: 2, point_id: 'point-a', voter_id: 'voter-a' }));
+    enqueueIntent(makeIntent({ ...shared, intent_id: 'point-b-voter-b', epoch: 1, point_id: 'point-b', voter_id: 'voter-b' }));
+    enqueueIntent(makeIntent({ ...shared, intent_id: 'point-b-voter-a-z', epoch: 1, point_id: 'point-b', voter_id: 'voter-a' }));
+    enqueueIntent(makeIntent({ ...shared, intent_id: 'point-b-voter-a-a', epoch: 1, point_id: 'point-b', voter_id: 'voter-a' }));
+    enqueueIntent(makeIntent({ ...shared, intent_id: 'point-a-voter-a', epoch: 1, point_id: 'point-a', voter_id: 'voter-a' }));
+
+    const replayed: string[] = [];
+    await replayPendingIntents(async (record) => {
+      replayed.push(record.intent_id);
+    });
+
+    expect(replayed).toEqual([
+      'point-a-voter-a',
+      'point-b-voter-a-a',
+      'point-b-voter-a-z',
+      'point-b-voter-b',
+      'epoch-2',
+    ]);
+  });
+
+  it('replayPendingIntents respects replay limit and leaves tail pending', async () => {
+    enqueueIntent(makeIntent({ intent_id: 'l1', seq: 1, emitted_at: 1 }));
+    enqueueIntent(makeIntent({ intent_id: 'l2', seq: 2, emitted_at: 2 }));
+    enqueueIntent(makeIntent({ intent_id: 'l3', seq: 3, emitted_at: 3 }));
+
+    const replayed: string[] = [];
+    const result = await replayPendingIntents(async (record) => {
+      replayed.push(record.intent_id);
+    }, { limit: 2 });
+
+    expect(result).toEqual({ replayed: 2, failed: 0 });
+    expect(replayed).toEqual(['l1', 'l2']);
+    expect(getPendingIntents().map((record) => record.intent_id)).toEqual(['l3']);
+  });
+
   it('empty queue replay returns {replayed: 0, failed: 0}', async () => {
     const result = await replayPendingIntents(async () => {
       throw new Error('should not be called');

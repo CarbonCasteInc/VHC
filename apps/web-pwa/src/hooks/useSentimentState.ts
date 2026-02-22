@@ -14,6 +14,7 @@ import {
 import { logMeshWriteResult } from '../utils/sentimentTelemetry';
 import { createDenialReceipt, createAdmissionReceipt, deriveProofRef } from './voteAdmission';
 import { enqueueIntent } from './voteIntentQueue';
+import { scheduleVoteIntentReplay } from './voteIntentMaterializer';
 
 interface SentimentStore {
   agreements: Record<string, Agreement>;
@@ -452,6 +453,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
             emitted_at: signal.emitted_at,
           };
           enqueueIntent(intentRecord);
+          scheduleVoteIntentReplay();
         } catch (err) {
           console.warn('[vh:sentiment] Failed to enqueue vote intent:', err);
         }
