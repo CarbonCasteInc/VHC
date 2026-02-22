@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
 import { CellVoteControls } from './CellVoteControls';
 import { pointMapKey, useBiasPointIds } from './useBiasPointIds';
@@ -175,14 +175,76 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   epoch,
   votingEnabled = false,
 }) => {
+  const hasExplicitSynthesisContext = synthesisId !== undefined && epoch !== undefined;
+  const fallbackSynthesisId = analysisId ?? topicId;
+  const effectiveSynthesisId = synthesisId ?? fallbackSynthesisId;
+  const effectiveEpoch = epoch ?? 0;
+  const hasVotingContext = Boolean(
+    votingEnabled &&
+      topicId &&
+      effectiveSynthesisId &&
+      Number.isFinite(effectiveEpoch),
+  );
+
   const { legacyPointIds, synthesisPointIds } = useBiasPointIds({
     frames,
     analysisId,
     topicId,
-    synthesisId,
-    epoch,
-    votingEnabled,
+    synthesisId: hasVotingContext ? effectiveSynthesisId : undefined,
+    epoch: hasVotingContext ? effectiveEpoch : undefined,
+    votingEnabled: hasVotingContext,
   });
+
+  useEffect(() => {
+    if (!votingEnabled || frames.length === 0) {
+      return;
+    }
+
+    const expectedPointMappings = frames.length * 2;
+    const payload = {
+      topic_id: topicId ?? null,
+      analysis_id: analysisId ?? null,
+      synthesis_id: synthesisId ?? null,
+      epoch: epoch ?? null,
+      effective_synthesis_id: effectiveSynthesisId ?? null,
+      effective_epoch: hasVotingContext ? effectiveEpoch : null,
+      context_source: hasExplicitSynthesisContext
+        ? 'synthesis'
+        : analysisId
+          ? 'analysis-fallback'
+          : topicId
+            ? 'topic-fallback'
+            : 'none',
+      frame_rows: frames.length,
+      expected_point_mappings: expectedPointMappings,
+      legacy_point_mappings: Object.keys(legacyPointIds).length,
+      synthesis_point_mappings: Object.keys(synthesisPointIds).length,
+      voting_context_ready: hasVotingContext,
+    };
+
+    const pointMappingsReady =
+      Object.keys(synthesisPointIds).length === expectedPointMappings;
+
+    if (!hasVotingContext || !pointMappingsReady) {
+      console.warn('[vh:bias-table:voting-context]', payload);
+      return;
+    }
+
+    console.info('[vh:bias-table:voting-context]', payload);
+  }, [
+    analysisId,
+    effectiveEpoch,
+    effectiveSynthesisId,
+    epoch,
+    frames.length,
+    hasExplicitSynthesisContext,
+    hasVotingContext,
+    legacyPointIds,
+    synthesisId,
+    synthesisPointIds,
+    topicId,
+    votingEnabled,
+  ]);
 
   const rowAnalysisMap = buildRowAnalysisMap(frames, analyses);
 
@@ -240,13 +302,13 @@ export const BiasTable: React.FC<BiasTableProps> = ({
                   rowIndex={index}
                   topicId={topicId}
                   analysisId={analysisId}
-                  synthesisId={synthesisId}
-                  epoch={epoch}
+                  synthesisId={hasVotingContext ? effectiveSynthesisId : undefined}
+                  epoch={hasVotingContext ? effectiveEpoch : undefined}
                   framePointId={legacyPointIds[pointMapKey(index, 'frame')]}
                   reframePointId={legacyPointIds[pointMapKey(index, 'reframe')]}
                   synthesisFramePointId={synthesisPointIds[pointMapKey(index, 'frame')]}
                   synthesisReframePointId={synthesisPointIds[pointMapKey(index, 'reframe')]}
-                  votingEnabled={votingEnabled}
+                  votingEnabled={hasVotingContext}
                 />
               ))
             ) : (
