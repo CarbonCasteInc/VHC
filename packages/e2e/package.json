@@ -6,6 +6,8 @@
         "test": "VITE_E2E_MODE=true pnpm --filter @vh/web-pwa build && VITE_E2E_MODE=true playwright test",
         "test:ui": "playwright test --ui",
         "test:debug": "playwright test --debug",
+        "test:live:matrix": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=false playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
+        "test:live:matrix:strict": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=true playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
         "codegen": "playwright codegen",
         "typecheck": "tsc --noEmit"
     },
