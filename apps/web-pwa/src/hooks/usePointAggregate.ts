@@ -51,15 +51,33 @@ function normalizeErrorMessage(error: unknown): string {
 
 function logAggregateRead(
   status: PointAggregateTelemetryStatus,
-  params: { topicId: string; pointId: string; attempt: number; latencyMs: number; errorCode?: string },
+  params: {
+    topicId: string;
+    synthesisId: string;
+    epoch: number;
+    pointId: string;
+    attempt: number;
+    latencyMs: number;
+    errorCode?: string;
+    agree?: number;
+    disagree?: number;
+    participants?: number;
+    weight?: number;
+  },
 ): void {
   const payload = {
     topic_id: params.topicId,
+    synthesis_id: params.synthesisId,
+    epoch: params.epoch,
     point_id: params.pointId,
     status,
     latency_ms: params.latencyMs,
     attempt: params.attempt,
     ...(params.errorCode ? { error_code: params.errorCode } : {}),
+    ...(params.agree !== undefined ? { agree: params.agree } : {}),
+    ...(params.disagree !== undefined ? { disagree: params.disagree } : {}),
+    ...(params.participants !== undefined ? { participants: params.participants } : {}),
+    ...(params.weight !== undefined ? { weight: params.weight } : {}),
   };
 
   if (status === 'success') {
@@ -116,9 +134,15 @@ export function usePointAggregate({
 
           logAggregateRead('success', {
             topicId,
+            synthesisId,
+            epoch,
             pointId,
             attempt: attemptNumber,
             latencyMs: Date.now() - startedAt,
+            agree: aggregate.agree,
+            disagree: aggregate.disagree,
+            participants: aggregate.participants,
+            weight: aggregate.weight,
           });
 
           setResult({
@@ -135,6 +159,8 @@ export function usePointAggregate({
           const errorCode = normalizeErrorCode(error);
           logAggregateRead(errorCode === 'timeout' ? 'timeout' : 'error', {
             topicId,
+            synthesisId,
+            epoch,
             pointId,
             attempt: attemptNumber,
             latencyMs: Date.now() - startedAt,

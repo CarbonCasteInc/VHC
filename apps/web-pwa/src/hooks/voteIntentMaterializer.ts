@@ -12,7 +12,7 @@ import {
   type VennClient,
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
-import { replayPendingIntents } from './voteIntentQueue';
+import { getPendingIntents, replayPendingIntents } from './voteIntentQueue';
 
 interface PointTuple {
   topic_id: string;
@@ -24,6 +24,9 @@ interface PointTuple {
 const DEFAULT_REPLAY_LIMIT = 25;
 
 let replayInFlight = false;
+let replayRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+const REPLAY_RETRY_DELAY_MS = 3000;
 
 function toPointTuple(record: VoteIntentRecord): PointTuple {
   return {
@@ -236,7 +239,7 @@ export async function replayVoteIntentQueue(options?: {
 }): Promise<{ replayed: number; failed: number }> {
   const client = options?.client ?? resolveClientFromAppStore();
   if (!client) {
-    return { replayed: 0, failed: 0 };
+    return { replayed: 0, failed: getPendingIntents().length };
   }
 
   const now = options?.now ?? (() => Date.now());
@@ -253,12 +256,40 @@ export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
     return;
   }
 
+  if (replayRetryTimer) {
+    clearTimeout(replayRetryTimer);
+    replayRetryTimer = null;
+  }
+
   replayInFlight = true;
   queueMicrotask(async () => {
+    let replaySummary: { replayed: number; failed: number } | null = null;
+
     try {
-      await replayVoteIntentQueue({ limit });
+      replaySummary = await replayVoteIntentQueue({ limit });
     } finally {
       replayInFlight = false;
+    }
+
+    if (replaySummary && replaySummary.failed > 0) {
+      console.warn('[vh:vote:intent-replay]', {
+        replayed: replaySummary.replayed,
+        failed: replaySummary.failed,
+        retry_in_ms: REPLAY_RETRY_DELAY_MS,
+      });
+
+      replayRetryTimer = setTimeout(() => {
+        replayRetryTimer = null;
+        scheduleVoteIntentReplay(limit);
+      }, REPLAY_RETRY_DELAY_MS);
+      return;
+    }
+
+    if (replaySummary) {
+      console.info('[vh:vote:intent-replay]', {
+        replayed: replaySummary.replayed,
+        failed: replaySummary.failed,
+      });
     }
   });
 }

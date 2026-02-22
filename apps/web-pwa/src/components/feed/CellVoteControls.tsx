@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useConstituencyProof } from '../../hooks/useConstituencyProof';
 import { usePointAggregate } from '../../hooks/usePointAggregate';
@@ -71,10 +71,46 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     ? Math.max(disagrees, aggregate.disagree)
     : disagrees;
 
+  useEffect(() => {
+    console.info('[vh:bias-table:point-map]', {
+      topic_id: topicId,
+      synthesis_id: synthesisId,
+      epoch,
+      legacy_point_id: legacyPointId ?? null,
+      display_point_id: pointId,
+      canonical_point_id: canonicalPointId,
+      synthesis_point_id: synthesisPointId ?? null,
+      has_proof: hasProof,
+      aggregate_status: aggregateStatus,
+    });
+  }, [
+    aggregateStatus,
+    canonicalPointId,
+    epoch,
+    hasProof,
+    legacyPointId,
+    pointId,
+    synthesisId,
+    synthesisPointId,
+    topicId,
+  ]);
+
   const handleVote = useCallback(
     (desired: -1 | 1) => {
       if (disabled) return;
       setDenial(null);
+
+      console.info('[vh:bias-table:vote-click]', {
+        topic_id: topicId,
+        synthesis_id: synthesisId,
+        epoch,
+        desired,
+        display_point_id: pointId,
+        canonical_point_id: canonicalPointId,
+        synthesis_point_id: synthesisPointId ?? null,
+        legacy_point_id: legacyPointId ?? null,
+      });
+
       const result = setAgreement({
         topicId,
         pointId,
@@ -89,7 +125,19 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
         setDenial(result.reason ?? null);
       }
     },
-    [analysisId, disabled, epoch, pointId, proof, setAgreement, synthesisId, synthesisPointId, topicId],
+    [
+      analysisId,
+      canonicalPointId,
+      disabled,
+      epoch,
+      legacyPointId,
+      pointId,
+      proof,
+      setAgreement,
+      synthesisId,
+      synthesisPointId,
+      topicId,
+    ],
   );
 
   const denialText = denial

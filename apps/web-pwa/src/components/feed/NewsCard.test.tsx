@@ -360,6 +360,17 @@ describe('NewsCard', () => {
     expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(2);
     expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(2);
   });
+  it('renders voting controls with analysis fallback when synthesis context is missing', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    // intentionally omit setTopicSynthesis; this mirrors analysis-only live mode
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
+    expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(1);
+    expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(1);
+  });
   it('VITE_VH_BIAS_TABLE_V2 off hides voting controls even with analysis', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'false');
