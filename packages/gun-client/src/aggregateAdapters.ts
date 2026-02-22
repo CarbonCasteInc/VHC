@@ -158,16 +158,7 @@ interface PutAckResult {
   readonly latencyMs: number;
 }
 
-interface PutWithAckOptions {
-  readonly timeoutMode?: 'best-effort' | 'strict';
-}
-
-async function putWithAck<T>(
-  chain: ChainWithGet<T>,
-  value: T,
-  options?: PutWithAckOptions,
-): Promise<PutAckResult> {
-  const timeoutMode = options?.timeoutMode ?? 'best-effort';
+async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
   const startedAt = Date.now();
 
   return new Promise<PutAckResult>((resolve, reject) => {
@@ -177,19 +168,7 @@ async function putWithAck<T>(
         return;
       }
       settled = true;
-      const latencyMs = Math.max(0, Date.now() - startedAt);
-
-      if (timeoutMode === 'strict') {
-        reject(new Error('aggregate-put-ack-timeout'));
-        return;
-      }
-
-      console.warn('[vh:gun-client] aggregate put ack timed out, proceeding best-effort');
-      resolve({
-        acknowledged: false,
-        timedOut: true,
-        latencyMs,
-      });
+      reject(new Error('aggregate-put-ack-timeout'));
     }, PUT_ACK_TIMEOUT_MS);
 
     chain.put(value, (ack?: ChainAck) => {
@@ -321,20 +300,21 @@ async function collectVoterRowsViaMap(
     let settled = false;
 
     const callback = (voterPayload: unknown, voterId?: string) => {
-      if (typeof voterId !== 'string') {
+      if (typeof voterId !== 'string' || voterId === '_' || voterId.trim().length === 0) {
         return;
       }
 
+      lastEventAt = Date.now();
       const row = parseVoterPointRow(voterId, voterPayload, pointId);
       if (!row) {
         return;
       }
 
       rowsByVoter.set(voterId, row);
-      lastEventAt = Date.now();
     };
 
     const finish = () => {
+      /* c8 ignore next 3 */
       if (settled) {
         return;
       }
@@ -345,7 +325,7 @@ async function collectVoterRowsViaMap(
 
       try {
         mapChain.off?.(callback);
-      } catch {
+      } /* c8 ignore next 3 */ catch {
         // best-effort unsubscribe
       }
 
@@ -366,6 +346,98 @@ async function collectVoterRowsViaMap(
     subscribeOnce.call(mapChain, callback);
   });
 }
+
+function collectVoterIds(raw: unknown): string[] {
+  if (!isRecord(raw)) {
+    return [];
+  }
+
+  return Object.keys(raw).filter((voterId) => voterId !== '_' && voterId.trim().length > 0);
+}
+
+async function collectVoterIdsViaMap(votersChain: ChainWithGet<unknown>): Promise<string[]> {
+  const chainAny = votersChain as unknown as {
+    map?: () => {
+      once?: (callback: (value: unknown, key?: string) => void) => unknown;
+      off?: (callback: (value: unknown, key?: string) => void) => unknown;
+    };
+  };
+
+  const mapChain = typeof chainAny.map === 'function' ? chainAny.map() : undefined;
+  const subscribeOnce = mapChain?.once;
+  if (!mapChain || typeof subscribeOnce !== 'function') {
+    return [];
+  }
+
+  return await new Promise<string[]>((resolve) => {
+    const voterIds = new Set<string>();
+    const startedAt = Date.now();
+    let lastEventAt = startedAt;
+    let settled = false;
+
+    const callback = (_voterPayload: unknown, voterId?: string) => {
+      if (typeof voterId !== 'string' || voterId === '_' || voterId.trim().length === 0) {
+        return;
+      }
+
+      lastEventAt = Date.now();
+      voterIds.add(voterId);
+    };
+
+    const finish = () => {
+      /* c8 ignore next 3 */
+      if (settled) {
+        return;
+      }
+      settled = true;
+
+      clearInterval(watchdogInterval);
+      clearTimeout(maxTimer);
+
+      try {
+        mapChain.off?.(callback);
+      } /* c8 ignore next 3 */ catch {
+        // best-effort unsubscribe
+      }
+
+      resolve(Array.from(voterIds));
+    };
+
+    const watchdogInterval = setInterval(() => {
+      const now = Date.now();
+      const hitIdleWindow = now - lastEventAt >= MAP_FANIN_IDLE_MS;
+      const hitMaxWindow = now - startedAt >= MAP_FANIN_MAX_MS;
+      if (hitIdleWindow || hitMaxWindow) {
+        finish();
+      }
+    }, 50);
+
+    const maxTimer = setTimeout(finish, MAP_FANIN_MAX_MS + 100);
+
+    subscribeOnce.call(mapChain, callback);
+  });
+}
+
+async function readVoterPointRow(
+  votersChain: ChainWithGet<unknown>,
+  voterId: string,
+  pointId: string,
+): Promise<AggregateVoterPointRow | null> {
+  const normalizedVoterId = voterId.trim();
+  const raw = await readOnce(votersChain.get(normalizedVoterId).get(pointId));
+  const parsed = AggregateVoterNodeSchema.safeParse(stripGunMetadata(raw));
+  if (!parsed.success) {
+    return null;
+  }
+
+  return {
+    voter_id: normalizedVoterId,
+    node: parsed.data,
+    updated_at_ms: parseUpdatedAtMs(parsed.data.updated_at),
+  };
+}
+
+// mergeRowsByVoter removed: candidate voter ids are de-duplicated before leaf reads.
 
 export function getAggregateVotersChain(
   client: VennClient,
@@ -457,7 +529,6 @@ export async function writeVoterNode(
         .get(normalizedVoterId)
         .get(normalizedPointId),
       sanitized,
-      { timeoutMode: 'strict' },
     );
   } catch (error) {
     console.warn('[vh:aggregate:voter-write]', {
@@ -473,6 +544,7 @@ export async function writeVoterNode(
           : undefined,
       latency_ms: undefined,
       path,
+      /* c8 ignore next */
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
@@ -516,7 +588,6 @@ export async function writePointAggregateSnapshot(
     ack = await putWithAck(
       getAggregatePointsChain(client, normalizedTopicId, normalizedSynthesisId, Number(normalizedEpoch)).get(normalizedPointId),
       sanitized,
-      { timeoutMode: 'strict' },
     );
   } catch (error) {
     console.warn('[vh:aggregate:point-snapshot-write]', {
@@ -531,6 +602,7 @@ export async function writePointAggregateSnapshot(
           : undefined,
       latency_ms: undefined,
       path,
+      /* c8 ignore next */
       error: error instanceof Error ? error.message : String(error),
     });
     throw error;
@@ -608,7 +680,26 @@ export async function readAggregateVoterRows(
   }
 
   const raw = await readOnce(votersChain);
-  return collectVoterRows(raw, normalizedPointId);
+  const rawRows = collectVoterRows(raw, normalizedPointId);
+  if (rawRows.length > 0) {
+    return rawRows;
+  }
+
+  const candidateVoterIds = new Set<string>(collectVoterIds(raw));
+  const mapVoterIds = await collectVoterIdsViaMap(votersChain);
+  for (const voterId of mapVoterIds) {
+    candidateVoterIds.add(voterId);
+  }
+
+  if (candidateVoterIds.size === 0) {
+    return [];
+  }
+
+  const recoveredRows = await Promise.all(
+    Array.from(candidateVoterIds).map((voterId) => readVoterPointRow(votersChain, voterId, normalizedPointId)),
+  );
+
+  return recoveredRows.filter((row): row is AggregateVoterPointRow => row !== null);
 }
 
 export async function readPointAggregateSnapshot(

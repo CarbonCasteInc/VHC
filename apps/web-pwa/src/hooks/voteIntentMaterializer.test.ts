@@ -299,6 +299,44 @@ describe('voteIntentMaterializer', () => {
     await Promise.resolve();
   });
 
+  it('scheduleVoteIntentReplay retries failed batches after delay', async () => {
+    vi.useFakeTimers();
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const replaySpy = vi
+      .spyOn(VoteIntentQueue, 'replayPendingIntents')
+      .mockResolvedValueOnce({ replayed: 0, failed: 1 })
+      .mockResolvedValueOnce({ replayed: 1, failed: 0 });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    try {
+      scheduleVoteIntentReplay(7);
+
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(replaySpy).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(3000);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(replaySpy).toHaveBeenCalledTimes(2);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:vote:intent-replay]',
+        expect.objectContaining({ failed: 1, retry_in_ms: 3000 }),
+      );
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:vote:intent-replay]',
+        expect.objectContaining({ replayed: 1, failed: 0 }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('replayVoteIntentQueue publishes schema-conformant snapshots without sensitive fields', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);

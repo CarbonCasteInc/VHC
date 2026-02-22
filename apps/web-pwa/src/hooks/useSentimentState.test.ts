@@ -723,6 +723,130 @@ describe('useSentimentState', () => {
     expect(aggregatePayload).not.toHaveProperty('nullifier');
   });
 
+  it('logs successful voter-node readback payload after aggregate write', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-readback');
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: POINT,
+      agreement: 1,
+      weight: 1,
+      updated_at: '2026-02-18T22:20:00.000Z',
+    });
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('readback-ok'),
+    });
+
+    await flushProjection();
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:vote:voter-node-readback]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        voter_id: 'voter-readback',
+        point_id: POINT,
+        found: true,
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      }),
+    );
+
+    infoSpy.mockRestore();
+  });
+
+
+  it('logs null readback fields when aggregate readback omits optional values', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-readback-nulls');
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({ point_id: POINT } as never);
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('readback-null-fields'),
+    });
+
+    await flushProjection();
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:vote:voter-node-readback]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        voter_id: 'voter-readback-nulls',
+        point_id: POINT,
+        found: true,
+        agreement: null,
+        weight: null,
+        updated_at: null,
+      }),
+    );
+
+    infoSpy.mockRestore();
+  });
+
+  it('logs voter-node readback warning when readback throws non-Error values', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-readback-non-error');
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockRejectedValue('readback-string-failure');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('readback-fail'),
+    });
+
+    await flushProjection();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:vote:voter-node-readback]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        voter_id: 'voter-readback-non-error',
+        point_id: POINT,
+        found: false,
+        error: 'readback-string-failure',
+      }),
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it('projection failures do not rollback local vote state', async () => {
     const fakeClient = {
       gun: { user: () => ({}) },
