@@ -139,6 +139,16 @@
       "packages/gun-client/src/index*.ts"
     ]
   },
+  "sbdc": {
+    "branchPrefix": "sbdc/",
+    "_note": "Schema & Design By Contract — cross-cutting specs, schema definitions, and tooling hooks",
+    "paths": [
+      "docs/specs/**",
+      "packages/data-model/src/schemas/hermes/sentiment*.ts",
+      ".githooks/**",
+      ".github/ownership-map.json"
+    ]
+  },
   "w4l": {
     "source": [
       "packages/data-model/src/constants/**",
