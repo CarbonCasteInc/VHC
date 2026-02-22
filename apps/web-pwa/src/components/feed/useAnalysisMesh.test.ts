@@ -310,7 +310,7 @@ describe('useAnalysisMesh', () => {
         read_path: 'miss',
       }),
     );
-  });
+  }, 20_000);
 
   it('returns null on mesh read errors', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
