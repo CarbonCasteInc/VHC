@@ -290,12 +290,23 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       topic_id: signal.topic_id,
     });
 
-    await writeVoterNode(client, signal.topic_id, signal.synthesis_id, signal.epoch, voterId, {
-      point_id: signal.point_id,
-      agreement: signal.agreement,
-      weight: signal.weight,
-      updated_at: asIsoTimestamp(signal.emitted_at),
-    });
+    let writeError: unknown = null;
+    try {
+      await writeVoterNode(client, signal.topic_id, signal.synthesis_id, signal.epoch, voterId, {
+        point_id: signal.point_id,
+        agreement: signal.agreement,
+        weight: signal.weight,
+        updated_at: asIsoTimestamp(signal.emitted_at),
+      });
+    } catch (error) {
+      writeError = error;
+    }
+
+    const writeErrorMessage = writeError
+      ? writeError instanceof Error
+        ? writeError.message
+        : String(writeError)
+      : null;
 
     try {
       const readBackNode = await readAggregateVoterNode(
@@ -307,7 +318,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
         signal.point_id,
       );
 
-      console.info('[vh:vote:voter-node-readback]', {
+      const payload = {
         topic_id: signal.topic_id,
         synthesis_id: signal.synthesis_id,
         epoch: signal.epoch,
@@ -317,7 +328,14 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
         agreement: readBackNode?.agreement ?? null,
         weight: readBackNode?.weight ?? null,
         updated_at: readBackNode?.updated_at ?? null,
-      });
+        write_error: writeErrorMessage,
+      };
+
+      if (writeError) {
+        console.warn('[vh:vote:voter-node-readback]', payload);
+      } else {
+        console.info('[vh:vote:voter-node-readback]', payload);
+      }
     } catch (readBackError) {
       console.warn('[vh:vote:voter-node-readback]', {
         topic_id: signal.topic_id,
@@ -327,7 +345,12 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
         point_id: signal.point_id,
         found: false,
         error: readBackError instanceof Error ? readBackError.message : String(readBackError),
+        write_error: writeErrorMessage,
       });
+    }
+
+    if (writeError) {
+      throw writeError;
     }
   } catch (error) {
     success = false;

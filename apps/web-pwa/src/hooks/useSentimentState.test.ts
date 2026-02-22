@@ -847,6 +847,54 @@ describe('useSentimentState', () => {
     warnSpy.mockRestore();
   });
 
+  it('emits readback telemetry even when voter write fails before projection error handling', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-write-fail-readback');
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: POINT,
+      agreement: 1,
+      weight: 1,
+      updated_at: '2026-02-18T22:20:00.000Z',
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('write-fail-readback'),
+    });
+
+    await flushProjection();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:vote:voter-node-readback]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        voter_id: 'voter-write-fail-readback',
+        point_id: POINT,
+        found: true,
+        write_error: 'aggregate-put-ack-timeout',
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:sentiment] Failed to project aggregate voter node:',
+      expect.any(Error),
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it('projection failures do not rollback local vote state', async () => {
     const fakeClient = {
       gun: { user: () => ({}) },

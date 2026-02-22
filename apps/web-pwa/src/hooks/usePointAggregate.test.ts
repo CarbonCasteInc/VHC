@@ -158,6 +158,92 @@ describe('usePointAggregate', () => {
     );
   });
 
+  it('retries zero aggregate snapshots and updates once non-zero data arrives', async () => {
+    vi.useFakeTimers();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    readAggregatesMock
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 3, disagree: 1, participants: 4, weight: 4 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(3);
+
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    expect(readHookResult()).toEqual({
+      aggregate: aggregateFixture({ agree: 3, disagree: 1, participants: 4, weight: 4 }),
+      status: 'success',
+      error: null,
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:aggregate:read]',
+      expect.objectContaining({
+        attempt: 1,
+        zero_snapshot: true,
+        retrying: true,
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:aggregate:read]',
+      expect.objectContaining({
+        attempt: 3,
+        zero_snapshot: false,
+        retrying: false,
+      }),
+    );
+  });
+
+  it('stops zero-snapshot retrying after max attempts and keeps success payload', async () => {
+    vi.useFakeTimers();
+
+    readAggregatesMock.mockResolvedValue(
+      aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }),
+    );
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+
+    expect(readAggregatesMock).toHaveBeenCalledTimes(4);
+    expect(readHookResult()).toEqual({
+      aggregate: aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }),
+      status: 'success',
+      error: null,
+    });
+  });
+
   it('retries failed reads with bounded backoff and succeeds on a later attempt', async () => {
     vi.useFakeTimers();
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);

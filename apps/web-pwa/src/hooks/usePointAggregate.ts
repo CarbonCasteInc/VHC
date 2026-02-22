@@ -49,6 +49,15 @@ function normalizeErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function isZeroAggregate(aggregate: PointAggregate): boolean {
+  return (
+    aggregate.agree === 0 &&
+    aggregate.disagree === 0 &&
+    aggregate.participants === 0 &&
+    aggregate.weight === 0
+  );
+}
+
 function logAggregateRead(
   status: PointAggregateTelemetryStatus,
   params: {
@@ -63,6 +72,8 @@ function logAggregateRead(
     disagree?: number;
     participants?: number;
     weight?: number;
+    zeroSnapshot?: boolean;
+    retrying?: boolean;
   },
 ): void {
   const payload = {
@@ -78,6 +89,8 @@ function logAggregateRead(
     ...(params.disagree !== undefined ? { disagree: params.disagree } : {}),
     ...(params.participants !== undefined ? { participants: params.participants } : {}),
     ...(params.weight !== undefined ? { weight: params.weight } : {}),
+    ...(params.zeroSnapshot !== undefined ? { zero_snapshot: params.zeroSnapshot } : {}),
+    ...(params.retrying !== undefined ? { retrying: params.retrying } : {}),
   };
 
   if (status === 'success') {
@@ -132,6 +145,9 @@ export function usePointAggregate({
             return;
           }
 
+          const zeroSnapshot = isZeroAggregate(aggregate);
+          const shouldRetryZeroSnapshot = zeroSnapshot && attempt < MAX_RETRIES;
+
           logAggregateRead('success', {
             topicId,
             synthesisId,
@@ -143,6 +159,8 @@ export function usePointAggregate({
             disagree: aggregate.disagree,
             participants: aggregate.participants,
             weight: aggregate.weight,
+            zeroSnapshot,
+            retrying: shouldRetryZeroSnapshot,
           });
 
           setResult({
@@ -150,7 +168,17 @@ export function usePointAggregate({
             status: 'success',
             error: null,
           });
-          return;
+
+          if (!shouldRetryZeroSnapshot) {
+            return;
+          }
+
+          const delayMs = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!;
+          await sleep(delayMs);
+          if (cancelled) {
+            break;
+          }
+          continue;
         } catch (error) {
           if (cancelled) {
             return;
