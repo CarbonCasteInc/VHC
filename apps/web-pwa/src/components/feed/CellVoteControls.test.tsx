@@ -35,6 +35,15 @@ function seedValidProof(): void {
   });
 }
 
+function invokeReactClick(element: HTMLElement): void {
+  const reactPropsKey = Object.keys(element).find((key) => key.startsWith('__reactProps$'));
+  if (!reactPropsKey) {
+    throw new Error('React props key not found on rendered button');
+  }
+  const reactProps = (element as unknown as Record<string, { onClick?: () => void }>)[reactPropsKey];
+  reactProps.onClick?.();
+}
+
 describe('CellVoteControls', () => {
   beforeEach(() => {
     useSentimentState.setState({
@@ -150,6 +159,38 @@ describe('CellVoteControls', () => {
     );
   });
 
+  it('missing proof without error shows default unweighted warning text', () => {
+    useConstituencyProofMock.mockReturnValue({
+      proof: null,
+      error: null,
+    });
+
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    expect(screen.getByTestId('cell-vote-unweighted-point-abc')).toHaveTextContent(
+      'Voting requires verified proof',
+    );
+  });
+
+  it('denial with no reason clears visible denial message', () => {
+    vi.spyOn(useSentimentState.getState(), 'setAgreement')
+      .mockReturnValueOnce({
+        denied: true,
+        reason: 'Daily limit reached for sentiment_votes/day',
+      })
+      .mockReturnValueOnce({
+        denied: true,
+      } as never);
+
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
+    expect(screen.getByTestId('cell-vote-denial-point-abc')).toHaveTextContent('Daily vote limit reached');
+
+    fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
+    expect(screen.queryByTestId('cell-vote-denial-point-abc')).not.toBeInTheDocument();
+  });
+
   it('synthesis-context denial shows waiting message', () => {
     vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue({
       denied: true,
@@ -174,6 +215,18 @@ describe('CellVoteControls', () => {
     expect(disagree).toBeDisabled();
 
     fireEvent.click(agree);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('disabled guard short-circuits handleVote when handler is invoked directly', () => {
+    const spy = vi.spyOn(useSentimentState.getState(), 'setAgreement');
+    render(<CellVoteControls {...BASE_PROPS} disabled />);
+
+    const agree = screen.getByTestId('cell-vote-agree-point-abc');
+    expect(agree).toBeDisabled();
+
+    invokeReactClick(agree);
+
     expect(spy).not.toHaveBeenCalled();
   });
 

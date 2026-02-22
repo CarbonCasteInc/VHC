@@ -63,7 +63,8 @@ describe('useSentimentState storage bootstrap/persist guards', () => {
     }));
 
     vi.doMock('@vh/data-model', () => ({
-      deriveAggregateVoterId: vi.fn(),
+      deriveAggregateVoterId: vi.fn().mockResolvedValue('voter-mock'),
+      deriveVoteIntentId: vi.fn().mockResolvedValue('intent-mock'),
     }));
 
     vi.doMock('@vh/gun-client', () => ({

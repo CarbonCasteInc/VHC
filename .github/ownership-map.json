@@ -139,6 +139,20 @@
       "packages/gun-client/src/index*.ts"
     ]
   },
+  "sbdc": {
+    "branchPrefix": "sbdc/",
+    "_note": "Schema & Design By Contract — cross-cutting specs, schema definitions, and tooling hooks. WS-B adds sentiment admission/queue files.",
+    "paths": [
+      "docs/specs/**",
+      "packages/data-model/src/schemas/hermes/sentiment*.ts",
+      "apps/web-pwa/src/hooks/useSentimentState*.ts",
+      "apps/web-pwa/src/hooks/voteAdmission*.ts",
+      "apps/web-pwa/src/hooks/voteIntentQueue*.ts",
+      "apps/web-pwa/src/components/feed/CellVoteControls*.tsx",
+      ".githooks/**",
+      ".github/ownership-map.json"
+    ]
+  },
   "w4l": {
     "source": [
       "packages/data-model/src/constants/**",
