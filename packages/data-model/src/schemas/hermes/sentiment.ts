@@ -101,6 +101,59 @@ export const AggregateVoterNodeSchema = z
   })
   .strict();
 
+export const VoteAdmissionReceiptSchema = z
+  .object({
+    receipt_id: NonEmptyString,
+    accepted: z.boolean(),
+    reason: NonEmptyString.optional(),
+    topic_id: NonEmptyString,
+    synthesis_id: NonEmptyString,
+    epoch: z.number().int().nonnegative(),
+    point_id: NonEmptyString,
+    admitted_at: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const VoteIntentRecordSchema = z
+  .object({
+    intent_id: NonEmptyString, // idempotency key
+    voter_id: NonEmptyString, // derived, non-PII stable key
+    topic_id: NonEmptyString,
+    synthesis_id: NonEmptyString,
+    epoch: z.number().int().nonnegative(),
+    point_id: NonEmptyString,
+    agreement: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
+    weight: z.number().min(0).max(2),
+    proof_ref: NonEmptyString, // opaque reference, NOT the actual proof
+    seq: z.number().int().nonnegative(),
+    emitted_at: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const POINT_AGGREGATE_SNAPSHOT_VERSION = 'point-aggregate-snapshot-v1' as const;
+
+export const PointAggregateSnapshotV1Schema = z
+  .object({
+    schema_version: z.literal(POINT_AGGREGATE_SNAPSHOT_VERSION),
+    topic_id: NonEmptyString,
+    synthesis_id: NonEmptyString,
+    epoch: z.number().int().nonnegative(),
+    point_id: NonEmptyString,
+    agree: z.number().int().nonnegative(),
+    disagree: z.number().int().nonnegative(),
+    weight: z.number().nonnegative(),
+    participants: z.number().int().nonnegative(),
+    version: z.number().int().nonnegative(),
+    computed_at: z.number().int().nonnegative(),
+    source_window: z
+      .object({
+        from_seq: z.number().int().nonnegative(),
+        to_seq: z.number().int().nonnegative(),
+      })
+      .strict(),
+  })
+  .strict();
+
 export type StoryAnalysisFrame = z.infer<typeof StoryAnalysisFrameSchema>;
 export type StoryAnalysisSource = z.infer<typeof StoryAnalysisSourceSchema>;
 export type StoryAnalysisProvider = z.infer<typeof StoryAnalysisProviderSchema>;
@@ -108,6 +161,9 @@ export type StoryAnalysisArtifact = z.infer<typeof StoryAnalysisArtifactSchema>;
 export type StoryAnalysisLatestPointer = z.infer<typeof StoryAnalysisLatestPointerSchema>;
 export type SentimentEvent = z.infer<typeof SentimentEventSchema>;
 export type AggregateVoterNode = z.infer<typeof AggregateVoterNodeSchema>;
+export type VoteAdmissionReceipt = z.infer<typeof VoteAdmissionReceiptSchema>;
+export type VoteIntentRecord = z.infer<typeof VoteIntentRecordSchema>;
+export type PointAggregateSnapshotV1 = z.infer<typeof PointAggregateSnapshotV1Schema>;
 
 function normalizeHashToken(value: string): string {
   return value.trim().toLowerCase();
@@ -207,5 +263,26 @@ export async function deriveSentimentEventId(params: {
     normalizeHashToken(params.point_id),
   ].join('|');
 
+  return sha256(payload);
+}
+
+/**
+ * intent_id = sha256(voter_id + topic_id + synthesis_id + epoch + point_id)
+ * Idempotency key for vote intent records.
+ */
+export async function deriveVoteIntentId(params: {
+  voter_id: string;
+  topic_id: string;
+  synthesis_id: string;
+  epoch: number;
+  point_id: string;
+}): Promise<string> {
+  const payload = [
+    normalizeHashToken(params.voter_id),
+    normalizeHashToken(params.topic_id),
+    normalizeHashToken(params.synthesis_id),
+    String(Math.max(0, Math.floor(params.epoch))),
+    normalizeHashToken(params.point_id),
+  ].join('|');
   return sha256(payload);
 }
