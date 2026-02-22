@@ -482,6 +482,73 @@ describe('usePointAggregate', () => {
     expect(readAggregatesMock).toHaveBeenCalledTimes(1);
   });
 
+  it('does not issue another zero-snapshot read after unmount during retry delay', async () => {
+    vi.useFakeTimers();
+
+    readAggregatesMock.mockResolvedValue(
+      aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }),
+    );
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('exits cleanly when unmounted before fallback read resolves', async () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    let call = 0;
+    let resolveFallback: ((value: ReturnType<typeof aggregateFixture>) => void) | null = null;
+    readAggregatesMock.mockImplementation(() => {
+      call += 1;
+      if (call <= 4) {
+        return Promise.resolve(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }));
+      }
+      return new Promise((resolve) => {
+        resolveFallback = resolve as (value: ReturnType<typeof aggregateFixture>) => void;
+      });
+    });
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+
+    expect(readAggregatesMock).toHaveBeenCalledTimes(5);
+
+    unmount();
+    resolveFallback?.(aggregateFixture({ point_id: 'legacy-point', agree: 4, disagree: 1, participants: 5, weight: 5 }));
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   it('re-fetches when pointId changes', async () => {
     readAggregatesMock
       .mockResolvedValueOnce(aggregateFixture({ point_id: 'point-1' }))
@@ -617,6 +684,45 @@ describe('usePointAggregate', () => {
         canonical_point_id: 'canonical-point',
         fallback_point_id: 'legacy-point',
         total_attempts: 5,
+      }),
+    );
+  });
+
+  it('emits convergence-zero diagnostic when fallback read throws', async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    readAggregatesMock
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockRejectedValueOnce(new Error('fallback-read-failed'));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.runAllTimersAsync();
+    await Promise.resolve();
+
+    expect(readAggregatesMock).toHaveBeenCalledTimes(5);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:aggregate:convergence-zero]',
+      expect.objectContaining({
+        canonical_point_id: 'canonical-point',
+        fallback_point_id: 'legacy-point',
       }),
     );
   });
