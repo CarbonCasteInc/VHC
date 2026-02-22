@@ -13,6 +13,7 @@ export interface UsePointAggregateParams {
   readonly synthesisId: string;
   readonly epoch: number;
   readonly pointId: string;
+  readonly fallbackPointId?: string;
   readonly enabled?: boolean;
 }
 
@@ -49,6 +50,15 @@ function normalizeErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function isZeroAggregate(aggregate: PointAggregate): boolean {
+  return (
+    aggregate.agree === 0 &&
+    aggregate.disagree === 0 &&
+    aggregate.participants === 0 &&
+    aggregate.weight === 0
+  );
+}
+
 function logAggregateRead(
   status: PointAggregateTelemetryStatus,
   params: {
@@ -63,6 +73,10 @@ function logAggregateRead(
     disagree?: number;
     participants?: number;
     weight?: number;
+    zeroSnapshot?: boolean;
+    retrying?: boolean;
+    fallbackUsed?: boolean;
+    fallbackPointId?: string;
   },
 ): void {
   const payload = {
@@ -78,6 +92,10 @@ function logAggregateRead(
     ...(params.disagree !== undefined ? { disagree: params.disagree } : {}),
     ...(params.participants !== undefined ? { participants: params.participants } : {}),
     ...(params.weight !== undefined ? { weight: params.weight } : {}),
+    ...(params.zeroSnapshot !== undefined ? { zero_snapshot: params.zeroSnapshot } : {}),
+    ...(params.retrying !== undefined ? { retrying: params.retrying } : {}),
+    ...(params.fallbackUsed !== undefined ? { fallback_used: params.fallbackUsed } : {}),
+    ...(params.fallbackPointId ? { fallback_point_id: params.fallbackPointId } : {}),
   };
 
   if (status === 'success') {
@@ -93,8 +111,11 @@ export function usePointAggregate({
   synthesisId,
   epoch,
   pointId,
+  fallbackPointId,
   enabled = true,
 }: UsePointAggregateParams): UsePointAggregateResult {
+  const effectiveFallbackPointId =
+    fallbackPointId && fallbackPointId !== pointId ? fallbackPointId : undefined;
   const [result, setResult] = useState<UsePointAggregateResult>({
     aggregate: null,
     status: 'idle',
@@ -122,6 +143,8 @@ export function usePointAggregate({
     setResult({ aggregate: null, status: 'loading', error: null });
 
     void (async () => {
+      let lastZeroAggregate: PointAggregate | null = null;
+
       for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
         const attemptNumber = attempt + 1;
         const startedAt = Date.now();
@@ -131,6 +154,9 @@ export function usePointAggregate({
           if (cancelled) {
             return;
           }
+
+          const zeroSnapshot = isZeroAggregate(aggregate);
+          const shouldRetryZeroSnapshot = zeroSnapshot && attempt < MAX_RETRIES;
 
           logAggregateRead('success', {
             topicId,
@@ -143,14 +169,37 @@ export function usePointAggregate({
             disagree: aggregate.disagree,
             participants: aggregate.participants,
             weight: aggregate.weight,
+            zeroSnapshot,
+            retrying: shouldRetryZeroSnapshot,
           });
+
+          if (!zeroSnapshot) {
+            setResult({
+              aggregate,
+              status: 'success',
+              error: null,
+            });
+            return;
+          }
+
+          lastZeroAggregate = aggregate;
 
           setResult({
             aggregate,
             status: 'success',
             error: null,
           });
-          return;
+
+          if (!shouldRetryZeroSnapshot) {
+            break;
+          }
+
+          const delayMs = RETRY_DELAYS_MS[Math.min(attempt, RETRY_DELAYS_MS.length - 1)]!;
+          await sleep(delayMs);
+          if (cancelled) {
+            break;
+          }
+          continue;
         } catch (error) {
           if (cancelled) {
             return;
@@ -183,12 +232,72 @@ export function usePointAggregate({
           }
         }
       }
+
+      // Fallback: if primary canonical point ID exhausted retries with zeros
+      // and a distinct fallback point ID is available, attempt one read with it.
+      // This covers ID-partition mismatch between canonical and legacy point IDs
+      // within the same synthesis namespace.
+      if (lastZeroAggregate && effectiveFallbackPointId && !cancelled) {
+        const fallbackStartedAt = Date.now();
+        try {
+          const fallbackAggregate = await readAggregates(
+            client,
+            topicId,
+            synthesisId,
+            epoch,
+            effectiveFallbackPointId,
+          );
+          if (cancelled) {
+            return;
+          }
+
+          const fallbackZero = isZeroAggregate(fallbackAggregate);
+
+          logAggregateRead('success', {
+            topicId,
+            synthesisId,
+            epoch,
+            pointId: effectiveFallbackPointId,
+            attempt: MAX_RETRIES + 2,
+            latencyMs: Date.now() - fallbackStartedAt,
+            agree: fallbackAggregate.agree,
+            disagree: fallbackAggregate.disagree,
+            participants: fallbackAggregate.participants,
+            weight: fallbackAggregate.weight,
+            zeroSnapshot: fallbackZero,
+            fallbackUsed: true,
+            fallbackPointId: effectiveFallbackPointId,
+          });
+
+          if (!fallbackZero) {
+            setResult({
+              aggregate: fallbackAggregate,
+              status: 'success',
+              error: null,
+            });
+            return;
+          }
+        } catch {
+          // Fallback read failed — keep the primary zero result
+        }
+
+        // Both canonical and fallback returned zeros. Emit convergence-zero
+        // diagnostic for post-hoc analysis of namespace mismatch.
+        console.warn('[vh:aggregate:convergence-zero]', {
+          topic_id: topicId,
+          synthesis_id: synthesisId,
+          epoch,
+          canonical_point_id: pointId,
+          fallback_point_id: effectiveFallbackPointId,
+          total_attempts: MAX_RETRIES + 2,
+        });
+      }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [enabled, epoch, pointId, synthesisId, topicId]);
+  }, [effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
 
   return result;
 }

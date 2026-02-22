@@ -62,6 +62,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     synthesisId,
     epoch,
     pointId: canonicalPointId,
+    fallbackPointId: legacyPointId,
     enabled: !disabled,
   });
   const displayAgrees = aggregateStatus === 'success' && aggregate
@@ -71,8 +72,10 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     ? Math.max(disagrees, aggregate.disagree)
     : disagrees;
 
+  const hasIdPartition = !!(legacyPointId && legacyPointId !== canonicalPointId);
+
   useEffect(() => {
-    console.info('[vh:bias-table:point-map]', {
+    const payload = {
       topic_id: topicId,
       synthesis_id: synthesisId,
       epoch,
@@ -82,11 +85,20 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
       synthesis_point_id: synthesisPointId ?? null,
       has_proof: hasProof,
       aggregate_status: aggregateStatus,
-    });
+      id_partition: hasIdPartition,
+    };
+
+    if (hasIdPartition && aggregateStatus === 'success' && aggregate && aggregate.agree === 0 && aggregate.disagree === 0) {
+      console.warn('[vh:bias-table:point-map]', payload);
+    } else {
+      console.info('[vh:bias-table:point-map]', payload);
+    }
   }, [
+    aggregate,
     aggregateStatus,
     canonicalPointId,
     epoch,
+    hasIdPartition,
     hasProof,
     legacyPointId,
     pointId,

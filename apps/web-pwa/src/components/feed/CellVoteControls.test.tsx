@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CellVoteControls } from './CellVoteControls';
@@ -299,6 +299,36 @@ describe('CellVoteControls', () => {
         enabled: true,
       }),
     );
+  });
+
+  it('warns when partitioned point IDs still resolve to zero aggregate', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    usePointAggregateMock.mockReturnValueOnce({
+      aggregate: {
+        point_id: 'synth-point-xyz',
+        agree: 0,
+        disagree: 0,
+        weight: 0,
+        participants: 0,
+      },
+      status: 'success',
+      error: null,
+    });
+
+    render(<CellVoteControls {...BASE_PROPS} synthesisPointId="synth-point-xyz" />);
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:bias-table:point-map]',
+        expect.objectContaining({
+          display_point_id: 'point-abc',
+          canonical_point_id: 'synth-point-xyz',
+          id_partition: true,
+          aggregate_status: 'success',
+        }),
+      );
+    });
   });
 
   it('counts legacy signal IDs when synthesisPointId is provided', () => {
