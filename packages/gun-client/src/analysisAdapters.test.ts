@@ -286,6 +286,22 @@ describe('analysisAdapters', () => {
       ...ARTIFACT,
       nested: { nullifier: 'bad' },
     });
+    mesh.setRead('news/stories/story-1/analysis/encoded-non-string', {
+      __analysis_artifact_codec: 'analysis-artifact-json-v1',
+      artifact_json: 123,
+    });
+    mesh.setRead('news/stories/story-1/analysis/encoded-malformed-json', {
+      __analysis_artifact_codec: 'analysis-artifact-json-v1',
+      artifact_json: '{not-json',
+    });
+    mesh.setRead('news/stories/story-1/analysis/encoded-forbidden', {
+      __analysis_artifact_codec: 'analysis-artifact-json-v1',
+      artifact_json: JSON.stringify({ ...ARTIFACT, nullifier: 'bad' }),
+    });
+    mesh.setRead('news/stories/story-1/analysis/encoded-invalid-schema', {
+      __analysis_artifact_codec: 'analysis-artifact-json-v1',
+      artifact_json: JSON.stringify({ schemaVersion: 'story-analysis-v1', story_id: 'story-1' }),
+    });
 
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
@@ -294,6 +310,10 @@ describe('analysisAdapters', () => {
     await expect(readAnalysis(client, 'story-1', 'non-object')).resolves.toBeNull();
     await expect(readAnalysis(client, 'story-1', 'invalid')).resolves.toBeNull();
     await expect(readAnalysis(client, 'story-1', 'forbidden')).resolves.toBeNull();
+    await expect(readAnalysis(client, 'story-1', 'encoded-non-string')).resolves.toBeNull();
+    await expect(readAnalysis(client, 'story-1', 'encoded-malformed-json')).resolves.toBeNull();
+    await expect(readAnalysis(client, 'story-1', 'encoded-forbidden')).resolves.toBeNull();
+    await expect(readAnalysis(client, 'story-1', 'encoded-invalid-schema')).resolves.toBeNull();
   });
 
   it('readLatestAnalysis uses pointer and falls back to list sorting when pointer is invalid', async () => {
