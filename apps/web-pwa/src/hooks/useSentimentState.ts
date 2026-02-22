@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { SentimentSignal, ConstituencyProof } from '@vh/types';
-import { deriveAggregateVoterId } from '@vh/data-model';
+import { deriveAggregateVoterId, deriveVoteIntentId, type VoteAdmissionReceipt, type VoteIntentRecord } from '@vh/data-model';
 import { writeSentimentEvent, writeVoterNode } from '@vh/gun-client';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { resolveClientFromAppStore } from '../store/clientResolver';
@@ -11,7 +11,9 @@ import {
   resolveNextAgreement,
   type Agreement,
 } from '../components/feed/voteSemantics';
-import { logMeshWriteResult, logVoteAdmission } from '../utils/sentimentTelemetry';
+import { logMeshWriteResult } from '../utils/sentimentTelemetry';
+import { createDenialReceipt, createAdmissionReceipt, deriveProofRef } from './voteAdmission';
+import { enqueueIntent } from './voteIntentQueue';
 
 interface SentimentStore {
   agreements: Record<string, Agreement>;
@@ -28,7 +30,7 @@ interface SentimentStore {
     desired: Agreement;
     constituency_proof?: ConstituencyProof;
     analysisId?: string;
-  }) => { denied: true; reason: string } | void;
+  }) => VoteAdmissionReceipt;
   recordRead: (topicId: string) => number;
   /** Generic engagement tracker (for forum votes/comments) - increments lightbulb weight with decay */
   recordEngagement: (topicId: string) => number;
@@ -224,6 +226,7 @@ function asIsoTimestamp(emittedAt: number): string {
 async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   const startedAt = Date.now();
   let success = true;
+  let timedOut = false;
   let errorMessage: string | undefined;
 
   const finalize = () => {
@@ -231,6 +234,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       topic_id: signal.topic_id,
       point_id: signal.point_id,
       success,
+      timed_out: timedOut,
       latency_ms: Math.max(0, Date.now() - startedAt),
       error: errorMessage,
     });
@@ -255,7 +259,7 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   }
 
   try {
-    await writeSentimentEvent(client, {
+    const eventWriteResult = await writeSentimentEvent(client, {
       topic_id: signal.topic_id,
       synthesis_id: signal.synthesis_id,
       epoch: signal.epoch,
@@ -265,6 +269,14 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       constituency_proof: signal.constituency_proof,
       emitted_at: signal.emitted_at,
     });
+
+    if (!eventWriteResult.ack.acknowledged) {
+      success = false;
+      timedOut = eventWriteResult.ack.timedOut;
+      errorMessage = eventWriteResult.ack.timedOut
+        ? 'sentiment-outbox-timeout'
+        : 'sentiment-outbox-not-acknowledged';
+    }
   } catch (error) {
     success = false;
     errorMessage = error instanceof Error ? error.message : String(error);
@@ -301,26 +313,14 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
   signals: [],
   setAgreement({ topicId, pointId, synthesisPointId, synthesisId, epoch, desired, constituency_proof, analysisId }) {
     if (!constituency_proof) {
-      logVoteAdmission({
-        topic_id: topicId,
-        point_id: pointId,
-        admitted: false,
-        reason: 'Missing constituency proof',
-      });
       console.warn('[vh:sentiment] Missing constituency proof; SentimentSignal not emitted');
-      return { denied: true, reason: 'Missing constituency proof' };
+      return createDenialReceipt(topicId, pointId, '', 0, 'Missing constituency proof');
     }
 
     const normalizedPointId = normalizePointId(pointId);
     if (!normalizedPointId) {
-      logVoteAdmission({
-        topic_id: topicId,
-        point_id: pointId,
-        admitted: false,
-        reason: 'Missing point_id',
-      });
       console.warn('[vh:sentiment] Missing point_id; SentimentSignal not emitted');
-      return { denied: true, reason: 'Missing point_id' };
+      return createDenialReceipt(topicId, pointId, '', 0, 'Missing point_id');
     }
 
     const normalizedSynthesisPointId = normalizePointId(synthesisPointId) ?? normalizedPointId;
@@ -330,14 +330,8 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
 
     const context = resolveSentimentContext({ synthesisId, epoch, analysisId });
     if (!context) {
-      logVoteAdmission({
-        topic_id: topicId,
-        point_id: normalizedSynthesisPointId,
-        admitted: false,
-        reason: 'Missing synthesis context',
-      });
       console.warn('[vh:sentiment] Missing synthesis context; SentimentSignal not emitted');
-      return { denied: true, reason: 'Missing synthesis context' };
+      return createDenialReceipt(topicId, normalizedSynthesisPointId, '', 0, 'Missing synthesis context');
     }
 
     const normalizedSynthesisId = context.synthesisId;
@@ -349,21 +343,11 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
     const budgetCheck = useXpLedger.getState().canPerformAction('sentiment_votes/day', 1);
     if (!budgetCheck.allowed) {
       const reason = budgetCheck.reason || 'Daily limit reached for sentiment_votes/day';
-      logVoteAdmission({
-        topic_id: topicId,
-        point_id: normalizedSynthesisPointId,
-        admitted: false,
-        reason,
-      });
       console.warn('[vh:sentiment] Budget denied:', reason);
-      return { denied: true, reason };
+      return createDenialReceipt(topicId, normalizedSynthesisPointId, normalizedSynthesisId, normalizedEpoch, reason);
     }
 
-    logVoteAdmission({
-      topic_id: topicId,
-      point_id: normalizedSynthesisPointId,
-      admitted: true,
-    });
+    const admissionReceipt = createAdmissionReceipt(topicId, normalizedSynthesisPointId, normalizedSynthesisId, normalizedEpoch);
 
     const canonicalContextKey = buildAgreementKey(
       topicId,
@@ -439,8 +423,43 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
 
     useXpLedger.getState().consumeAction('sentiment_votes/day', 1);
     if (emittedSignal) {
+      // Persist durable intent record before projection
+      const signal: SentimentSignal = emittedSignal;
+      void (async () => {
+        try {
+          const voterId = await deriveAggregateVoterId({
+            nullifier: constituency_proof.nullifier,
+            topic_id: topicId,
+          });
+          const intentId = await deriveVoteIntentId({
+            voter_id: voterId,
+            topic_id: topicId,
+            synthesis_id: normalizedSynthesisId,
+            epoch: normalizedEpoch,
+            point_id: normalizedSynthesisPointId,
+          });
+          const intentRecord: VoteIntentRecord = {
+            intent_id: intentId,
+            voter_id: voterId,
+            topic_id: topicId,
+            synthesis_id: normalizedSynthesisId,
+            epoch: normalizedEpoch,
+            point_id: normalizedSynthesisPointId,
+            agreement: signal.agreement,
+            weight: signal.weight,
+            proof_ref: deriveProofRef(constituency_proof),
+            seq: signal.emitted_at,
+            emitted_at: signal.emitted_at,
+          };
+          enqueueIntent(intentRecord);
+        } catch (err) {
+          console.warn('[vh:sentiment] Failed to enqueue vote intent:', err);
+        }
+      })();
       void projectSignalToMesh(emittedSignal);
     }
+
+    return admissionReceipt;
   },
   recordRead(topicId) {
     const current = get().eye[topicId] ?? 0;

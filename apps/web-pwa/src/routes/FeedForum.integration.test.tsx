@@ -93,7 +93,7 @@ describe('Feed ↔ Forum integration', () => {
 
   it('creates a thread from analysis feed context with sourceUrl/urlHash/topicId/isHeadline', async () => {
     const sourceUrl = 'https://example.com/news/story';
-    const sourceAnalysisId = hashUrl(sourceUrl);
+    const sourceAnalysisId = await hashUrl(sourceUrl);
     const summary = 'Analysis summary headline';
 
     localStorage.setItem(

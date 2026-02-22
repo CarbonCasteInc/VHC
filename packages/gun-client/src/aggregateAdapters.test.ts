@@ -195,7 +195,7 @@ describe('aggregateAdapters', () => {
       };
 
       await expect(writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node)).resolves.toEqual(node);
-      await vi.advanceTimersByTimeAsync(1500);
+      await vi.advanceTimersByTimeAsync(3000);
 
       expect(warnSpy).not.toHaveBeenCalled();
     } finally {

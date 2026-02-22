@@ -1,8 +1,10 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { dirname, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-const PROJECT_ROOT = process.cwd();
+const TEST_FILE_DIR = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = resolve(TEST_FILE_DIR, '../../..');
 const WEB_PWA_SRC_DIR = resolve(PROJECT_ROOT, 'apps/web-pwa/src');
 const IDENTITY_VAULT_SRC_DIR = resolve(PROJECT_ROOT, 'packages/identity-vault/src');
 

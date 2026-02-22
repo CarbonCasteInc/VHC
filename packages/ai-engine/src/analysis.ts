@@ -27,19 +27,72 @@ export interface AnalysisStore {
   listRecent(limit?: number): Promise<CanonicalAnalysis[]>;
 }
 
-function toHex(value: number) {
-  return value.toString(16).padStart(8, '0');
+const textEncoder = new TextEncoder();
+const URL_WITH_SCHEME_RE = /^[a-zA-Z][a-zA-Z\d+\-.]*:/;
+
+function toHex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer))
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
 }
 
-// Lightweight FNV-1a hash to keep the function sync and browser-friendly.
-export function hashUrl(url: string): string {
-  const normalized = url.trim().toLowerCase();
-  let hash = 0x811c9dc5;
-  for (let i = 0; i < normalized.length; i++) {
-    hash ^= normalized.charCodeAt(i);
-    hash = (hash * 0x01000193) >>> 0;
+function normalizeUrlForHash(url: string): string {
+  const trimmed = url.trim();
+  if (!trimmed) {
+    return '';
   }
-  return toHex(hash);
+
+  const candidate = URL_WITH_SCHEME_RE.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const hadExplicitDefaultPort = /^https?:\/\/[^/?#]+:(?:80|443)(?=[/?#]|$)/i.test(candidate);
+
+  try {
+    const parsed = new URL(candidate);
+    parsed.hash = '';
+    parsed.protocol = parsed.protocol.toLowerCase();
+    parsed.hostname = parsed.hostname.toLowerCase();
+
+    if (hadExplicitDefaultPort && (parsed.protocol === 'https:' || parsed.protocol === 'http:')) {
+      parsed.port = '';
+    }
+
+    if (parsed.pathname !== '/') {
+      parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '/';
+    }
+
+    const sortedEntries = Array.from(parsed.searchParams.entries()).sort(([aKey, aValue], [bKey, bValue]) => {
+      if (aKey === bKey) {
+        return aValue.localeCompare(bValue);
+      }
+      return aKey.localeCompare(bKey);
+    });
+
+    parsed.search = '';
+    if (sortedEntries.length > 0) {
+      const sortedParams = new URLSearchParams(sortedEntries);
+      parsed.search = `?${sortedParams.toString()}`;
+    }
+
+    return parsed.toString();
+  } catch {
+    return trimmed.toLowerCase();
+  }
+}
+
+/**
+ * Canonical analysis key for URL-based first-to-file flow.
+ *
+ * 2026-02-21 migration: switched from 32-bit FNV-1a to SHA-256 (16 hex prefix)
+ * for significantly lower collision risk.
+ */
+export async function hashUrl(url: string): Promise<string> {
+  const normalized = normalizeUrlForHash(url);
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('SubtleCrypto is unavailable for URL hashing');
+  }
+
+  const digest = await subtle.digest('SHA-256', textEncoder.encode(normalized));
+  return toHex(digest).slice(0, 16);
 }
 
 export async function getOrGenerate(
@@ -47,7 +100,7 @@ export async function getOrGenerate(
   store: AnalysisStore,
   generate: (url: string) => Promise<GenerateResult>
 ): Promise<{ analysis: CanonicalAnalysis; reused: boolean }> {
-  const urlHash = hashUrl(url);
+  const urlHash = await hashUrl(url);
   const existing = await store.getByHash(urlHash);
   if (existing) {
     return { analysis: existing, reused: true };
@@ -67,3 +120,7 @@ export async function getOrGenerate(
   await store.save(canonical);
   return { analysis: canonical, reused: false };
 }
+
+export const analysisInternal = {
+  normalizeUrlForHash,
+};

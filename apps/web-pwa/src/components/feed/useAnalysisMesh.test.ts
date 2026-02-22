@@ -330,6 +330,7 @@ describe('useAnalysisMesh', () => {
   });
 
   it('writes normalized artifact to mesh when client is available', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const story = makeStoryBundle();
     const synthesis = makeSynthesis();
 
@@ -348,19 +349,48 @@ describe('useAnalysisMesh', () => {
       summary: synthesis.summary,
     });
     expect((artifact as any).analysisKey).toMatch(/^[a-f0-9]{64}$/);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh-write]',
+      expect.objectContaining({
+        source: 'news-card',
+        event: 'mesh_write_success',
+        story_id: story.story_id,
+      }),
+    );
+    infoSpy.mockRestore();
   });
 
-  it('does not write when client is missing and swallows write failures', async () => {
+  it('emits telemetry when client is unavailable or write fails', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const story = makeStoryBundle();
     const synthesis = makeSynthesis();
 
     mockResolveClientFromAppStore.mockReturnValueOnce(null);
     await writeMeshAnalysis(story, synthesis, 'model:default');
     expect(mockWriteAnalysis).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh-write]',
+      expect.objectContaining({
+        source: 'news-card',
+        event: 'mesh_write_skipped',
+        reason: 'client_unavailable',
+      }),
+    );
 
     mockResolveClientFromAppStore.mockReturnValue({} as any);
     mockWriteAnalysis.mockRejectedValueOnce(new Error('write failed'));
     await expect(writeMeshAnalysis(story, synthesis, 'model:default')).resolves.toBeUndefined();
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh-write]',
+      expect.objectContaining({
+        source: 'news-card',
+        event: 'mesh_write_failed',
+        error: 'write failed',
+      }),
+    );
+    infoSpy.mockRestore();
+    warnSpy.mockRestore();
   });
 
   it('normalizes sparse synthesis fields while building artifacts', async () => {

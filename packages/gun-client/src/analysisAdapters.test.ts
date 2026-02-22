@@ -19,11 +19,13 @@ interface FakeMesh {
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
   setPutError: (path: string, err: string) => void;
+  setPutDelay: (path: string, delayMs: number) => void;
 }
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
   const putErrors = new Map<string, string>();
+  const putDelays = new Map<string, number>();
   const writes: Array<{ path: string; value: unknown }> = [];
 
   const makeNode = (segments: string[]): any => {
@@ -33,6 +35,11 @@ function createFakeMesh(): FakeMesh {
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         const err = putErrors.get(path);
+        const delayMs = putDelays.get(path);
+        if (typeof delayMs === 'number') {
+          setTimeout(() => cb?.(err ? { err } : {}), delayMs);
+          return;
+        }
         cb?.(err ? { err } : {});
       }),
       get: vi.fn((key: string) => makeNode([...segments, key])),
@@ -48,6 +55,9 @@ function createFakeMesh(): FakeMesh {
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
+    },
+    setPutDelay(path: string, delayMs: number) {
+      putDelays.set(path, delayMs);
     },
   };
 }
@@ -181,6 +191,49 @@ describe('analysisAdapters', () => {
     ).rejects.toThrow('forbidden identity/token fields');
 
     await expect(writeAnalysis(client, ARTIFACT)).rejects.toThrow('write failed');
+  });
+
+  it('writeAnalysis resolves on ack timeout and ignores a late ack callback', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    mesh.setPutDelay('news/stories/story-1/analysis/analysis-1', 1100);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const writePromise = writeAnalysis(client, ARTIFACT);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(writePromise).resolves.toEqual(ARTIFACT);
+      await vi.advanceTimersByTimeAsync(200);
+
+      expect(mesh.writes).toHaveLength(2);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores timeout callback when put already settled and timer fires late', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => undefined);
+
+    try {
+      await expect(writeAnalysis(client, ARTIFACT)).resolves.toEqual(ARTIFACT);
+      await vi.advanceTimersByTimeAsync(1000);
+
+      expect(warnSpy).not.toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+      expect(clearTimeoutSpy).toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('readAnalysis parses valid payload and strips gun metadata', async () => {

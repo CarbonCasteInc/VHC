@@ -2,9 +2,10 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import { AnalysisFeed, ANALYSIS_FEED_STORAGE_KEY, createBudgetDeniedResult } from './AnalysisFeed';
 import '@testing-library/jest-dom/vitest';
-import { hashUrl } from '../../../../packages/ai-engine/src/analysis';
+import { analysisInternal } from '../../../../packages/ai-engine/src/analysis';
 import * as AnalysisModule from '../../../../packages/ai-engine/src/analysis';
 import { createBudgetMock } from '../test-utils/budgetMock';
 
@@ -71,6 +72,11 @@ function createFakeGunChain() {
     }
   };
   return { chain, map };
+}
+
+function hashUrl(url: string): string {
+  const normalized = analysisInternal.normalizeUrlForHash(url);
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 16);
 }
 
 function submitUrl(targetUrl: string) {
@@ -327,7 +333,8 @@ describe('AnalysisFeed', () => {
     }
   });
 
-  it('propagates mesh write errors', async () => {
+  it('continues local-first flow when mesh write fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const analyses = {
       get: () => analyses,
       once: (cb: (data: any) => void) => cb(undefined),
@@ -338,7 +345,75 @@ describe('AnalysisFeed', () => {
     fireEvent.change(screen.getByTestId('analysis-url-input'), { target: { value: 'https://failmesh.com' } });
     fireEvent.click(screen.getByText('Analyze'));
 
-    await waitFor(() => expect(screen.getByText('mesh write failed')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByText(/analysis stored locally; connect identity to sync\./i)).toBeInTheDocument(),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh-write]',
+      expect.objectContaining({
+        source: 'analysis-feed',
+        event: 'mesh_write_failed',
+        error: 'mesh write failed',
+      }),
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('logs mesh write timeout and continues when ack callback never returns', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const analyses = {
+      get: () => analyses,
+      once: (cb: (data: any) => void) => cb(undefined),
+      put: (_value: any, _cb?: (ack?: { err?: string }) => void) => {
+        // simulate ack never arriving
+      }
+    };
+    mockUseAppStore.mockReturnValue({ client: { mesh: { get: () => analyses } } });
+
+    render(<AnalysisFeed />);
+    fireEvent.change(screen.getByTestId('analysis-url-input'), { target: { value: 'https://timeoutmesh.com' } });
+    fireEvent.click(screen.getByText('Analyze'));
+
+    await waitFor(
+      () => expect(screen.getByText(/analysis stored locally; connect identity to sync\./i)).toBeInTheDocument(),
+      { timeout: 2500 },
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh-write]',
+      expect.objectContaining({
+        source: 'analysis-feed',
+        event: 'mesh_write_timeout',
+      }),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('logs mesh write success telemetry on ack success', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const analyses = {
+      get: () => analyses,
+      once: (cb: (data: any) => void) => cb(undefined),
+      put: (_value: any, cb?: (ack?: { err?: string }) => void) => cb?.({})
+    };
+    mockUseAppStore.mockReturnValue({ client: { mesh: { get: () => analyses } } });
+
+    render(<AnalysisFeed />);
+    fireEvent.change(screen.getByTestId('analysis-url-input'), { target: { value: 'https://meshsuccess.com' } });
+    fireEvent.click(screen.getByText('Analyze'));
+
+    await waitFor(() =>
+      expect(screen.getByText(/analysis stored locally; connect identity to sync\./i)).toBeInTheDocument(),
+    );
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh-write]',
+      expect.objectContaining({
+        source: 'analysis-feed',
+        event: 'mesh_write_success',
+      }),
+    );
+    infoSpy.mockRestore();
   });
 
   it('ignores gun store when analyses chain is incomplete', async () => {
@@ -528,6 +603,8 @@ describe('AnalysisFeed', () => {
         if (!form) throw new Error('form not found');
         fireEvent.submit(form);
         fireEvent.submit(form);
+
+        await waitFor(() => expect(typeof resolveGenerate).toBe('function'));
 
         resolveGenerate({
           analysis: {

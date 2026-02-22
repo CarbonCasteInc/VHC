@@ -1,0 +1,380 @@
+{
+  "generatedAt": "2026-02-21T10:09:36Z",
+  "samples": 20,
+  "summary": {
+    "http://127.0.0.1:3001/api/analysis/health?pipeline=true": {
+      "ok": 20,
+      "fail": 0
+    },
+    "http://127.0.0.1:2048/api/analysis/health?pipeline=true": {
+      "ok": 20,
+      "fail": 0
+    },
+    "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true": {
+      "ok": 20,
+      "fail": 0
+    }
+  },
+  "results": [
+    {
+      "i": 0,
+      "ts": 1771668555.9735734,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 1,
+      "ts": 1771668556.9999,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 2,
+      "ts": 1771668558.0260234,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 3,
+      "ts": 1771668559.0512648,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 4,
+      "ts": 1771668560.0780432,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 5,
+      "ts": 1771668561.1033478,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 6,
+      "ts": 1771668562.130256,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 7,
+      "ts": 1771668563.1567266,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 8,
+      "ts": 1771668564.182465,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 9,
+      "ts": 1771668565.2082996,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 10,
+      "ts": 1771668566.2332666,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 11,
+      "ts": 1771668567.256434,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 12,
+      "ts": 1771668568.2791288,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 13,
+      "ts": 1771668569.3044302,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 14,
+      "ts": 1771668570.3276632,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 15,
+      "ts": 1771668571.352109,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 16,
+      "ts": 1771668572.3787274,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 17,
+      "ts": 1771668573.4050088,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 18,
+      "ts": 1771668574.430322,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    },
+    {
+      "i": 19,
+      "ts": 1771668575.4567406,
+      "checks": [
+        {
+          "url": "http://127.0.0.1:3001/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "http://127.0.0.1:2048/api/analysis/health?pipeline=true",
+          "code": "200"
+        },
+        {
+          "url": "https://ccibootstrap.tail6cc9b5.ts.net/api/analysis/health?pipeline=true",
+          "code": "200"
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,11 @@ import {
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
 
+interface PutAckResult {
+  readonly acknowledged: boolean;
+  readonly timedOut: boolean;
+}
+
 const FORBIDDEN_ANALYSIS_KEYS = new Set<string>([
   'identity',
   'identity_id',
@@ -141,14 +146,37 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
-async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
+const PUT_ACK_TIMEOUT_MS = 1000;
+
+async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
+  return new Promise<PutAckResult>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      console.warn('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+      resolve({
+        acknowledged: false,
+        timedOut: true,
+      });
+    }, PUT_ACK_TIMEOUT_MS);
+
     chain.put(value, (ack?: ChainAck) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
       if (ack?.err) {
         reject(new Error(ack.err));
         return;
       }
-      resolve();
+      resolve({
+        acknowledged: true,
+        timedOut: false,
+      });
     });
   });
 }

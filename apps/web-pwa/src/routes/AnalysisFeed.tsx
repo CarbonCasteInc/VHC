@@ -16,6 +16,7 @@ import { useAppStore } from '../store';
 import { useIdentity } from '../hooks/useIdentity';
 import { useXpLedger } from '../store/xpLedger';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
+import { logAnalysisMeshWrite } from '../utils/analysisTelemetry';
 
 export const ANALYSIS_FEED_STORAGE_KEY = 'vh_canonical_analyses';
 
@@ -51,6 +52,8 @@ async function getFromFeed(urlHash: string, feed: CanonicalAnalysis[]) {
   return existing ?? null;
 }
 
+const ANALYSIS_MESH_PUT_ACK_TIMEOUT_MS = 1000;
+
 function createGunStore(client: VennClient | null) {
   const mesh = (client as any)?.mesh ?? (client as any)?.gun ?? null;
   if (!mesh?.get) return null;
@@ -65,12 +68,47 @@ function createGunStore(client: VennClient | null) {
       });
     },
     async save(record: CanonicalAnalysis) {
-      return new Promise<void>((resolve, reject) => {
-        analyses.get(record.urlHash).put(record, (ack?: { err?: string }) => {
-          if (ack?.err) {
-            reject(new Error(ack.err));
+      const startedAt = Date.now();
+      return new Promise<void>((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) {
             return;
           }
+          settled = true;
+          logAnalysisMeshWrite({
+            source: 'analysis-feed',
+            event: 'mesh_write_timeout',
+            url_hash: record.urlHash,
+            latency_ms: Math.max(0, Date.now() - startedAt),
+          });
+          resolve();
+        }, ANALYSIS_MESH_PUT_ACK_TIMEOUT_MS);
+
+        analyses.get(record.urlHash).put(record, (ack?: { err?: string }) => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          if (ack?.err) {
+            logAnalysisMeshWrite({
+              source: 'analysis-feed',
+              event: 'mesh_write_failed',
+              url_hash: record.urlHash,
+              error: ack.err,
+              latency_ms: Math.max(0, Date.now() - startedAt),
+            });
+            resolve();
+            return;
+          }
+
+          logAnalysisMeshWrite({
+            source: 'analysis-feed',
+            event: 'mesh_write_success',
+            url_hash: record.urlHash,
+            latency_ms: Math.max(0, Date.now() - startedAt),
+          });
           resolve();
         });
       });
@@ -112,7 +150,8 @@ export const AnalysisFeed: React.FC = () => {
       if (isRunningRef.current) return { analysis: null };
       isRunningRef.current = true;
       setBusy(true);
-      return new Promise<{ analysis: CanonicalAnalysis | null; notice?: string }>((resolve, reject) => {
+
+      try {
         const generate = async (articleText: string): Promise<GenerateResult> => {
           const result = await pipeline(articleText);
           return {
@@ -123,13 +162,11 @@ export const AnalysisFeed: React.FC = () => {
         };
 
         let reusedFromMesh = false;
-        let reusedFromLocal = false;
 
         const analysisStore = {
           async getByHash(hash: string) {
             const local = await getFromFeed(hash, feed);
             if (local) {
-              reusedFromLocal = true;
               return local;
             }
             if (gunStore) {
@@ -156,7 +193,7 @@ export const AnalysisFeed: React.FC = () => {
 
         void analysisStore.listRecent();
 
-        const topicId = hashUrl(targetUrl);
+        const topicId = await hashUrl(targetUrl);
         const nullifier = identity?.session?.nullifier;
         if (nullifier) {
           const xpLedger = useXpLedger.getState();
@@ -166,42 +203,37 @@ export const AnalysisFeed: React.FC = () => {
             const reason = budgetCheck.reason || 'Daily limit reached for analyses/day';
             console.warn('[vh:analysis] Budget denied:', reason);
             setMessage(reason);
-            isRunningRef.current = false;
-            setBusy(false);
-            resolve(createBudgetDeniedResult(reason));
-            return;
+            return createBudgetDeniedResult(reason);
           }
         }
 
-        void getOrGenerate(targetUrl, analysisStore, generate)
-          .then((result) => {
-            if (!result.reused && nullifier && result.analysis) {
-              useXpLedger.getState().consumeAction('analyses/day', 1, topicId);
-            }
-            let notice: string | undefined;
-            if (result.reused && reusedFromMesh) {
-              notice = 'Analysis fetched from mesh.';
-              const alreadyInFeed = feed.some((item) => item.urlHash === result.analysis.urlHash);
-              if (!alreadyInFeed) {
-                const next = [result.analysis, ...feed];
-                setFeed(next);
-                store.save(next);
-              }
-            } else if (result.reused) {
-              notice = 'Analysis already exists. Showing cached result.';
-            } else if (!gunStore) {
-              notice = 'Analysis stored locally only.';
-            } else if (!identity) {
-              notice = 'Analysis stored locally; connect identity to sync.';
-            }
-            resolve({ analysis: result.analysis, notice });
-          })
-          .catch((error) => reject(error))
-          .finally(() => {
-            isRunningRef.current = false;
-            setBusy(false);
-          });
-      });
+        const result = await getOrGenerate(targetUrl, analysisStore, generate);
+        if (!result.reused && nullifier && result.analysis) {
+          useXpLedger.getState().consumeAction('analyses/day', 1, topicId);
+        }
+
+        let notice: string | undefined;
+        if (result.reused && reusedFromMesh) {
+          notice = 'Analysis fetched from mesh.';
+          const alreadyInFeed = feed.some((item) => item.urlHash === result.analysis.urlHash);
+          if (!alreadyInFeed) {
+            const next = [result.analysis, ...feed];
+            setFeed(next);
+            store.save(next);
+          }
+        } else if (result.reused) {
+          notice = 'Analysis already exists. Showing cached result.';
+        } else if (!gunStore) {
+          notice = 'Analysis stored locally only.';
+        } else if (!identity) {
+          notice = 'Analysis stored locally; connect identity to sync.';
+        }
+
+        return { analysis: result.analysis, notice };
+      } finally {
+        isRunningRef.current = false;
+        setBusy(false);
+      }
     },
     [feed, gunStore, identity, pipeline, store]
   );

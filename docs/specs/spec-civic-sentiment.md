@@ -142,3 +142,29 @@ These clarifications are binding for the active production-wiring program.
 2. Migration must emit mapped/unmapped/orphaned counters.
 3. Production cutover requires explicit threshold criteria defined in dispatch/delta contracts.
 4. Rollback must preserve vote-state readability for both roots until sunset is complete.
+
+## 11. Mesh persistence closure clarifications (2026-02-21)
+
+These constraints are binding for AC1-AC5 production-wiring closeout.
+
+1. **Analysis write/read determinism:** Analysis persistence MUST write under canonical mesh key and support deterministic read-by-key reuse before any latest-pointer fallback.
+2. **Non-silent write outcomes:** Sentiment and analysis mesh writes MUST emit terminal telemetry for success/failure/timeout paths (no silent-success ambiguity).
+3. **Multi-user convergence contract:** Per-cell aggregate counters MUST converge from shared mesh state under multi-user voting and remain stable across reload.
+4. **Shared artifact readability:** Persisted analysis artifacts MUST be reusable by independent clients viewing the same topic/synthesis context.
+5. **UI responsiveness envelope:** Mesh persistence instrumentation must not block UI completion indefinitely; bounded timeout behavior is required with observable state.
+
+## 12. Admission/projection architecture split (SBDC, 2026-02-22)
+
+The canonical vote architecture separates into four planes:
+
+1. **Admission plane** — validates trust/proof/budget/synthesis context, issues `VoteAdmissionReceipt` immediately. Front-door success = admission accepted + intent durably enqueued.
+2. **Event plane** — durable, idempotent `VoteIntentRecord` stream with last-write-wins per `(voter_id, topic_id, synthesis_id, epoch, point_id)`.
+3. **Projection plane** — asynchronous materializer produces `PointAggregateSnapshotV1` from intent stream. Deterministic replay from checkpoint.
+4. **Delivery plane** — publishes signed/versioned aggregate snapshots to `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/points/<pointId>`.
+
+**Deprecated patterns:**
+- ~~Direct dual remote write (sentiment outbox + aggregate voter node) as front-door correctness gate.~~
+- ~~Per-voter public subtree reads for aggregate computation.~~
+- ~~Fixed ack-timeout thresholds as correctness determinants.~~
+
+These deprecated patterns remain functional during migration (WS-F) but are not the canonical path for new development.

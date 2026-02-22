@@ -264,8 +264,8 @@ describe('startArticleTextServer', () => {
     await stop(server);
   });
 
-  it('uses default host/port and default service when options are omitted', async () => {
-    const server = startArticleTextServer();
+  it('uses default host and default service when host/service are omitted', async () => {
+    const server = startArticleTextServer({ port: 0 });
 
     await new Promise<void>((resolve, reject) => {
       if (server.listening) {
@@ -276,7 +276,10 @@ describe('startArticleTextServer', () => {
       server.once('error', reject);
     });
 
+    const address = server.address() as AddressInfo;
     expect(server.listening).toBe(true);
+    expect(address.address).toBe('127.0.0.1');
+    expect(address.port).toBeGreaterThan(0);
     await stop(server);
   });
 });
