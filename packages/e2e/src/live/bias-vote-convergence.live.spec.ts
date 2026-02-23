@@ -19,6 +19,15 @@ const FEED_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FEED_RE
 const CANDIDATE_POOL_MULTIPLIER = Number.isFinite(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER))
   ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER)))
   : 4;
+const PREFLIGHT_SETTLE_MS = Number.isFinite(Number(process.env.VH_LIVE_PREFLIGHT_SETTLE_MS))
+  ? Math.max(0, Math.floor(Number(process.env.VH_LIVE_PREFLIGHT_SETTLE_MS)))
+  : 2_000;
+const MAX_SCAN_SIZE = Number.isFinite(Number(process.env.VH_LIVE_MAX_SCAN_SIZE))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_MAX_SCAN_SIZE)))
+  : TOPIC_LIMIT * CANDIDATE_POOL_MULTIPLIER;
+const SCROLL_PASSES = Number.isFinite(Number(process.env.VH_LIVE_SCROLL_PASSES))
+  ? Math.max(0, Math.floor(Number(process.env.VH_LIVE_SCROLL_PASSES)))
+  : 3;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -281,6 +290,39 @@ async function getTopicRows(page: Page): Promise<ReadonlyArray<TopicRow>> {
   return dedup;
 }
 
+async function discoverTopicsByScrolling(
+  page: Page,
+  maxCandidates: number,
+): Promise<ReadonlyArray<TopicRow>> {
+  const seen = new Set<string>();
+  const all: TopicRow[] = [];
+
+  const collect = async (): Promise<void> => {
+    const rows = await getTopicRows(page);
+    for (const row of rows) {
+      if (seen.has(row.storyId)) continue;
+      seen.add(row.storyId);
+      all.push(row);
+    }
+  };
+
+  // Collect from initial viewport
+  await collect();
+
+  // Scroll down in passes to reveal more topics
+  for (let pass = 0; pass < SCROLL_PASSES && all.length < maxCandidates; pass += 1) {
+    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+    await page.waitForTimeout(1_200);
+    await collect();
+  }
+
+  // Scroll back to top so the page is in a clean state
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForTimeout(400);
+
+  return all.slice(0, maxCandidates);
+}
+
 async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator | null> {
   const escapedStoryId = row.storyId.replace(/"/g, '\\"');
   const byStoryId = page.locator(
@@ -395,6 +437,9 @@ async function collectVoteCapableRows(
 
     try {
       card = await openTopic(page, row);
+      if (PREFLIGHT_SETTLE_MS > 0) {
+        await page.waitForTimeout(PREFLIGHT_SETTLE_MS);
+      }
       const point = await resolvePointInCard(card);
       if (point.found) {
         ready.push(row);
@@ -502,8 +547,7 @@ test.describe('live mesh convergence', () => {
         await gotoFeed(pageA);
         await gotoFeed(pageB);
 
-        const topics = await getTopicRows(pageA);
-        const candidatePool = topics.slice(0, TOPIC_LIMIT * CANDIDATE_POOL_MULTIPLIER);
+        const candidatePool = await discoverTopicsByScrolling(pageA, MAX_SCAN_SIZE);
         const selected = await collectVoteCapableRows(pageA, candidatePool, TOPIC_LIMIT);
 
         if (selected.length < TOPIC_LIMIT) {
