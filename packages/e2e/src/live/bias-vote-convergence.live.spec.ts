@@ -13,6 +13,9 @@ const MIN_CONVERGED = Number.isFinite(Number(process.env.VH_LIVE_MATRIX_MIN_CONV
 const FEED_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READY_ATTEMPTS))
   ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_FEED_READY_ATTEMPTS)))
   : 3;
+const FEED_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS)))
+  : 30_000;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -99,6 +102,12 @@ function isHarnessNoiseReason(reason: string): boolean {
     reason.startsWith('feed-not-ready:')
     || reason.startsWith('headline-not-found:')
     || reason.startsWith('identity-bootstrap-timeout')
+    || reason.startsWith('A:no-vote-buttons')
+    || reason.startsWith('B:no-vote-buttons')
+    || reason.startsWith('B-reload:no-vote-buttons')
+    || reason.startsWith('locator.')
+    || reason.includes('Target page, context or browser has been closed')
+    || reason.includes('Test ended.')
   );
 }
 
@@ -127,8 +136,8 @@ async function gotoFeed(page: Page): Promise<void> {
 
     const ready = await waitFor(
       async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
-      30_000,
-      500,
+      FEED_READY_TIMEOUT_MS,
+      400,
     );
 
     if (ready) {
@@ -407,16 +416,19 @@ test.describe('live mesh convergence', () => {
     const matrix: MatrixRow[] = [];
 
     try {
-      await ensureIdentity(pageA, 'AliceLive');
-      await ensureIdentity(pageB, 'BobLive');
+      let setupFailureReason: string | null = null;
 
-      await gotoFeed(pageA);
-      await gotoFeed(pageB);
+      try {
+        await ensureIdentity(pageA, 'AliceLive');
+        await ensureIdentity(pageB, 'BobLive');
 
-      const topics = await getTopicRows(pageA);
-      const selected = topics.slice(0, TOPIC_LIMIT);
+        await gotoFeed(pageA);
+        await gotoFeed(pageB);
 
-      for (const row of selected) {
+        const topics = await getTopicRows(pageA);
+        const selected = topics.slice(0, TOPIC_LIMIT);
+
+        for (const row of selected) {
         const result: MatrixRow = {
           topicId: row.topicId,
           headline: row.headline,
@@ -439,6 +451,7 @@ test.describe('live mesh convergence', () => {
           if (!pointA.found) {
             result.reason = `A:${pointA.reason}`;
             await closeTopic(pageA, cardA);
+            result.failureClass = classifyFailure(result.reason);
             matrix.push(result);
             continue;
           }
@@ -455,6 +468,7 @@ test.describe('live mesh convergence', () => {
           if (!pointB.found) {
             result.reason = `B:${pointB.reason}`;
             await closeTopic(pageB, cardB);
+            result.failureClass = classifyFailure(result.reason);
             matrix.push(result);
             continue;
           }
@@ -498,6 +512,27 @@ test.describe('live mesh convergence', () => {
 
         result.failureClass = result.converged ? null : classifyFailure(result.reason);
         matrix.push(result);
+        }
+      } catch (error) {
+        setupFailureReason = error instanceof Error ? error.message : String(error);
+      }
+
+      if (setupFailureReason) {
+        const failureClass = classifyFailure(setupFailureReason);
+        matrix.push({
+          topicId: '__setup__',
+          headline: '__setup__',
+          startedAt: new Date().toISOString(),
+          votedPointId: null,
+          bPointId: null,
+          bMatchedA: null,
+          aAfterClick: null,
+          bObserved: null,
+          bObservedAfterReload: null,
+          converged: false,
+          reason: setupFailureReason,
+          failureClass,
+        });
       }
 
       const harnessFailedRows = matrix.filter((row) => row.failureClass === 'harness');
@@ -519,11 +554,11 @@ test.describe('live mesh convergence', () => {
         contentType: 'application/json',
       });
 
-      expect(summary.tested, 'Live matrix produced no testable convergence rows').toBeGreaterThan(0);
       expect(
         summary.harnessFailed,
         `Harness failures detected (${summary.harnessFailed}) — see matrix failureClass='harness' rows`,
       ).toBe(0);
+      expect(summary.tested, 'Live matrix produced no testable convergence rows').toBeGreaterThan(0);
       expect(
         summary.converged,
         `Live convergence below threshold: converged=${summary.converged}, tested=${summary.tested}, minRequired=${MIN_CONVERGED}`,

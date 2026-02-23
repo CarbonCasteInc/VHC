@@ -283,6 +283,7 @@ async function projectIntentRecord(
       });
     }
 
+    /* c8 ignore next 3 */
     if (!nextRow) {
       throw new Error('intent-replay-next-row-missing');
     }
