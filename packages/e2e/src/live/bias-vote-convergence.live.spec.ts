@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
+import { test, expect, type Browser, type BrowserContext, type ConsoleMessage, type Locator, type Page } from '@playwright/test';
 
 const LIVE_BASE_URL = process.env.VH_LIVE_BASE_URL ?? 'https://ccibootstrap.tail6cc9b5.ts.net/';
 const SHOULD_RUN_LIVE = process.env.VH_RUN_LIVE_MATRIX === 'true';
@@ -16,6 +16,9 @@ const FEED_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READ
 const FEED_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS)))
   : 30_000;
+const CANDIDATE_POOL_MULTIPLIER = Number.isFinite(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER)))
+  : 4;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -29,6 +32,7 @@ type Actor = 'A' | 'B';
 
 type TopicRow = {
   readonly topicId: string;
+  readonly storyId: string;
   readonly headline: string;
 };
 
@@ -41,6 +45,7 @@ type VoteCounts = {
 
 type MatrixRow = {
   readonly topicId: string;
+  readonly storyId: string;
   readonly headline: string;
   readonly startedAt: string;
   votedPointId: string | null;
@@ -102,6 +107,7 @@ function isHarnessNoiseReason(reason: string): boolean {
     reason.startsWith('feed-not-ready:')
     || reason.startsWith('headline-not-found:')
     || reason.startsWith('identity-bootstrap-timeout')
+    || reason.startsWith('vote-capable-preflight-failed:')
     || reason.startsWith('A:no-vote-buttons')
     || reason.startsWith('B:no-vote-buttons')
     || reason.startsWith('B-reload:no-vote-buttons')
@@ -116,6 +122,23 @@ function classifyFailure(reason: string | null): MatrixRow['failureClass'] {
     return null;
   }
   return isHarnessNoiseReason(reason) ? 'harness' : 'convergence';
+}
+
+async function createRuntimeRoleContext(
+  browser: Browser,
+  role: 'ingester' | 'consumer',
+  testSession: boolean,
+): Promise<BrowserContext> {
+  const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  await context.addInitScript(({ runtimeRole, isTestSession }) => {
+    const testWindow = window as unknown as {
+      __VH_NEWS_RUNTIME_ROLE?: string;
+      __VH_TEST_SESSION?: boolean;
+    };
+    testWindow.__VH_NEWS_RUNTIME_ROLE = runtimeRole;
+    testWindow.__VH_TEST_SESSION = isTestSession;
+  }, { runtimeRole: role, isTestSession: testSession });
+  return context;
 }
 
 async function gotoFeed(page: Page): Promise<void> {
@@ -231,15 +254,19 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
 async function getTopicRows(page: Page): Promise<ReadonlyArray<TopicRow>> {
   const rows = await page.evaluate<ReadonlyArray<TopicRow>>(() => {
     const out: TopicRow[] = [];
-    const nodes = Array.from(document.querySelectorAll('[data-testid^="news-card-headline-"]'));
+    const nodes = Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="news-card-headline-"]'));
     for (const node of nodes) {
       const testId = node.getAttribute('data-testid') || '';
       const topicId = testId.replace('news-card-headline-', '');
+      const storyId =
+        node.getAttribute('data-story-id')
+        ?? node.closest<HTMLElement>('[data-story-id]')?.getAttribute('data-story-id')
+        ?? '';
       const headline = (node.textContent || '').trim();
-      if (!topicId || !headline) {
+      if (!topicId || !storyId || !headline) {
         continue;
       }
-      out.push({ topicId, headline });
+      out.push({ topicId, storyId, headline });
     }
     return out;
   });
@@ -247,22 +274,30 @@ async function getTopicRows(page: Page): Promise<ReadonlyArray<TopicRow>> {
   const dedup: TopicRow[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
-    const key = `${row.topicId}|${row.headline}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    if (seen.has(row.storyId)) continue;
+    seen.add(row.storyId);
     dedup.push(row);
   }
   return dedup;
 }
 
 async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator | null> {
+  const escapedStoryId = row.storyId.replace(/"/g, '\\"');
+  const byStoryId = page.locator(
+    `[data-testid^="news-card-headline-"][data-story-id="${escapedStoryId}"]`,
+  );
+  if (await byStoryId.count()) {
+    return byStoryId.first();
+  }
+
   const candidates = page.locator(`[data-testid="news-card-headline-${row.topicId}"]`);
   const count = await candidates.count();
 
   for (let i = 0; i < count; i += 1) {
     const candidate = candidates.nth(i);
     const text = ((await candidate.textContent()) ?? '').trim();
-    if (text === row.headline) {
+    const candidateStoryId = (await candidate.getAttribute('data-story-id')) ?? '';
+    if (candidateStoryId === row.storyId || text === row.headline) {
       return candidate;
     }
   }
@@ -281,7 +316,7 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
   const headline = await findHeadlineLocator(page, row);
   if (!headline) {
-    throw new Error(`headline-not-found:${row.topicId}`);
+    throw new Error(`headline-not-found:${row.storyId}`);
   }
 
   await headline.waitFor({ state: 'visible', timeout: 20_000 });
@@ -335,6 +370,45 @@ async function resolvePointInCard(card: Locator, preferredPointId: string | null
     pointId: testId.replace('cell-vote-agree-', ''),
     matchedPreferred: false,
   };
+}
+
+async function collectVoteCapableRows(
+  page: Page,
+  candidates: ReadonlyArray<TopicRow>,
+  requiredCount: number,
+): Promise<ReadonlyArray<TopicRow>> {
+  const ready: TopicRow[] = [];
+  const seen = new Set<string>();
+
+  for (const row of candidates) {
+    if (ready.length >= requiredCount) {
+      break;
+    }
+
+    if (seen.has(row.storyId)) {
+      continue;
+    }
+    seen.add(row.storyId);
+
+    await gotoFeed(page);
+    let card: Locator | null = null;
+
+    try {
+      card = await openTopic(page, row);
+      const point = await resolvePointInCard(card);
+      if (point.found) {
+        ready.push(row);
+      }
+    } catch {
+      // Ignore candidate-level preflight failures; strict run will report real failures.
+    } finally {
+      if (card) {
+        await closeTopic(page, card).catch(() => {});
+      }
+    }
+  }
+
+  return ready;
 }
 
 async function readCounts(card: Locator, pointId: string): Promise<VoteCounts> {
@@ -404,8 +478,10 @@ test.describe('live mesh convergence', () => {
 
   test('A->B bias vote aggregate convergence across live matrix', async ({ browser }, testInfo) => {
     test.setTimeout(15 * 60_000);
-    const contextA = await browser.newContext({ ignoreHTTPSErrors: true });
-    const contextB = await browser.newContext({ ignoreHTTPSErrors: true });
+    const ingesterContext = await createRuntimeRoleContext(browser, 'ingester', false);
+    const contextA = await createRuntimeRoleContext(browser, 'consumer', true);
+    const contextB = await createRuntimeRoleContext(browser, 'consumer', true);
+    const ingesterPage = await ingesterContext.newPage();
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 
@@ -419,6 +495,7 @@ test.describe('live mesh convergence', () => {
       let setupFailureReason: string | null = null;
 
       try {
+        await gotoFeed(ingesterPage);
         await ensureIdentity(pageA, 'AliceLive');
         await ensureIdentity(pageB, 'BobLive');
 
@@ -426,11 +503,17 @@ test.describe('live mesh convergence', () => {
         await gotoFeed(pageB);
 
         const topics = await getTopicRows(pageA);
-        const selected = topics.slice(0, TOPIC_LIMIT);
+        const candidatePool = topics.slice(0, TOPIC_LIMIT * CANDIDATE_POOL_MULTIPLIER);
+        const selected = await collectVoteCapableRows(pageA, candidatePool, TOPIC_LIMIT);
+
+        if (selected.length < TOPIC_LIMIT) {
+          throw new Error(`vote-capable-preflight-failed:${selected.length}/${TOPIC_LIMIT}`);
+        }
 
         for (const row of selected) {
         const result: MatrixRow = {
           topicId: row.topicId,
+          storyId: row.storyId,
           headline: row.headline,
           startedAt: new Date().toISOString(),
           votedPointId: null,
@@ -521,6 +604,7 @@ test.describe('live mesh convergence', () => {
         const failureClass = classifyFailure(setupFailureReason);
         matrix.push({
           topicId: '__setup__',
+          storyId: '__setup__',
           headline: '__setup__',
           startedAt: new Date().toISOString(),
           votedPointId: null,
@@ -569,6 +653,7 @@ test.describe('live mesh convergence', () => {
       }
     } finally {
       await Promise.all([
+        ingesterContext.close().catch(() => {}),
         contextA.close().catch(() => {}),
         contextB.close().catch(() => {}),
       ]);

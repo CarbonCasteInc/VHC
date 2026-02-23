@@ -90,6 +90,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const synthesisError = synthesisTopicState?.error ?? null;
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
+  const storyId = story?.story_id ?? null;
   const computedAnalysisId = story ? `${story.story_id}:${story.provenance_hash}` : null;
   const synthesisId = synthesis?.synthesis_id ?? null;
   const synthesisEpoch = synthesis?.epoch;
@@ -176,6 +177,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   return (
     <article
       data-testid={`news-card-${item.topic_id}`}
+      data-story-id={storyId ?? undefined}
       className="relative overflow-hidden rounded-2xl p-5 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
       style={{
         backgroundColor: 'var(--headline-card-bg)',
@@ -192,7 +194,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     >
       <FlippableCard
         front={
-          <section id={frontRegionId} data-testid={`news-card-front-${item.topic_id}`}>
+          <section id={frontRegionId} data-testid={`news-card-front-${item.topic_id}`} data-story-id={storyId ?? undefined}>
             <header className="mb-2 flex items-center justify-between gap-2">
               <span
                 className="rounded-full px-2 py-0.5 text-xs font-semibold"
@@ -216,6 +218,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               className="mt-1 text-left text-lg font-semibold tracking-[0.01em] underline-offset-2 hover:underline"
               style={{ color: 'var(--headline-card-text)' }}
               data-testid={`news-card-headline-${item.topic_id}`}
+              data-story-id={storyId ?? undefined}
               onClick={openBack}
             >
               {item.title}
