@@ -15,6 +15,8 @@ const DEFAULT_TOPIC_MAPPING: TopicMapping = {
   sourceTopics: {},
 };
 
+type NewsRuntimeRole = 'auto' | 'ingester' | 'consumer';
+
 let runtimeHandle: NewsRuntimeHandle | null = null;
 let runtimeClient: VennClient | null = null;
 
@@ -24,6 +26,72 @@ function readEnvVar(name: string): string | undefined {
     typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>)[name] : undefined;
   const value = viteValue ?? processValue;
   return typeof value === 'string' ? value : undefined;
+}
+
+function readGlobalFlag(name: string): unknown {
+  if (typeof window === 'undefined') {
+    return undefined;
+  }
+
+  return (window as unknown as Record<string, unknown>)[name];
+}
+
+function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
+  if (!raw) {
+    return fallback;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+}
+
+function resolveRuntimeRole(): NewsRuntimeRole {
+  const globalOverride = readGlobalFlag('__VH_NEWS_RUNTIME_ROLE');
+  const envRole = readEnvVar('VITE_NEWS_RUNTIME_ROLE');
+  const raw = typeof globalOverride === 'string' ? globalOverride : envRole;
+
+  switch (raw?.trim().toLowerCase()) {
+    case 'consumer':
+      return 'consumer';
+    case 'ingester':
+      return 'ingester';
+    default:
+      return 'auto';
+  }
+}
+
+function isTestSession(): boolean {
+  return readGlobalFlag('__VH_TEST_SESSION') === true;
+}
+
+function shouldRunRuntimeInCurrentSession(): boolean {
+  const role = resolveRuntimeRole();
+  if (role === 'consumer') {
+    return false;
+  }
+
+  if (role === 'ingester') {
+    return true;
+  }
+
+  const disableInTests = parseBooleanFlag(readEnvVar('VITE_NEWS_RUNTIME_DISABLE_IN_TEST'), true);
+  if (disableInTests && isTestSession()) {
+    return false;
+  }
+
+  return true;
 }
 
 function parseFeedSources(raw: string | undefined): FeedSource[] {
@@ -79,6 +147,14 @@ function parsePollIntervalMs(raw: string | undefined): number | undefined {
 
 export function ensureNewsRuntimeStarted(client: VennClient): void {
   if (!isNewsRuntimeEnabled()) {
+    return;
+  }
+
+  if (!shouldRunRuntimeInCurrentSession()) {
+    runtimeHandle?.stop();
+    runtimeHandle = null;
+    runtimeClient = null;
+    console.info('[vh:news-runtime] skipped for this session');
     return;
   }
 

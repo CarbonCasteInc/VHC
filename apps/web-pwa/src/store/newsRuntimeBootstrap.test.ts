@@ -43,12 +43,14 @@ describe('ensureNewsRuntimeStarted', () => {
     stopMock.mockReset();
     writeStoryBundleMock.mockReset();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     startNewsRuntimeMock.mockReturnValue(makeHandle(true));
   });
 
   afterEach(() => {
     __resetNewsRuntimeForTesting();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -56,6 +58,38 @@ describe('ensureNewsRuntimeStarted', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'false');
 
     ensureNewsRuntimeStarted({ id: 'client-1' } as any);
+
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  it('skips runtime in test sessions by default', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubGlobal('window', { __VH_TEST_SESSION: true });
+
+    ensureNewsRuntimeStarted({ id: 'test-session-client' } as any);
+
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith('[vh:news-runtime] skipped for this session');
+  });
+
+  it('runs runtime in test sessions when explicitly forced to ingester role', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubGlobal('window', {
+      __VH_TEST_SESSION: true,
+      __VH_NEWS_RUNTIME_ROLE: 'ingester',
+    });
+
+    ensureNewsRuntimeStarted({ id: 'forced-ingester-client' } as any);
+
+    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips runtime when role is configured as consumer', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_RUNTIME_ROLE', 'consumer');
+
+    ensureNewsRuntimeStarted({ id: 'consumer-client' } as any);
 
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
