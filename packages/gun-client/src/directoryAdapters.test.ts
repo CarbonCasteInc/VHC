@@ -97,4 +97,42 @@ describe('directoryAdapters', () => {
       vi.useRealTimers();
     }
   });
+
+  it('ignores duplicate ack callbacks and late timeout ticks after settlement', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((() => undefined) as typeof clearTimeout);
+
+    try {
+      const duplicateAckChain: any = {
+        get: vi.fn(() => duplicateAckChain),
+        once: vi.fn(),
+        put: vi.fn((_value: any, cb?: (ack?: { err?: string }) => void) => {
+          cb?.({});
+          cb?.({});
+        })
+      };
+
+      const client = createClient(duplicateAckChain);
+      await expect(
+        publishToDirectory(client, {
+          schemaVersion: 'hermes-directory-v0',
+          nullifier: 'duplicate-ack',
+          devicePub: 'device',
+          epub: 'epub',
+          registeredAt: 1,
+          lastSeenAt: 2
+        } as any)
+      ).resolves.toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });

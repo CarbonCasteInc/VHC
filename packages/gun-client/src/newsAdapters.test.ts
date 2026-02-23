@@ -24,12 +24,14 @@ interface FakeMesh {
   setRead: (path: string, value: unknown) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
+  setPutDoubleAck: (path: string) => void;
 }
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
+  const putDoubleAcks = new Set<string>();
   const writes: Array<{ path: string; value: unknown }> = [];
 
   const makeNode = (segments: string[]): any => {
@@ -43,6 +45,9 @@ function createFakeMesh(): FakeMesh {
         }
         const err = putErrors.get(path);
         cb?.(err ? { err } : {});
+        if (putDoubleAcks.has(path)) {
+          cb?.({});
+        }
       }),
       get: vi.fn((key: string) => makeNode([...segments, key]))
     };
@@ -60,6 +65,9 @@ function createFakeMesh(): FakeMesh {
     },
     setPutHang(path: string) {
       putHangs.add(path);
+    },
+    setPutDoubleAck(path: string) {
+      putDoubleAcks.add(path);
     }
   };
 }
@@ -208,6 +216,30 @@ describe('newsAdapters', () => {
       await expect(writePromise).resolves.toEqual(STORY);
       expect(warning).toHaveBeenCalledWith('[vh:news] put ack timed out, proceeding without ack');
     } finally {
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores duplicate ack callbacks and late timeout ticks after settlement', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((() => undefined) as typeof clearTimeout);
+
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutDoubleAck('news/stories/story-123');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      await expect(writeNewsStory(client, STORY)).resolves.toEqual(STORY);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
       warning.mockRestore();
       vi.useRealTimers();
     }
