@@ -68,4 +68,33 @@ describe('directoryAdapters', () => {
       } as any)
     ).rejects.toThrow('boom');
   });
+
+  it('resolves when publish ack times out', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const hangingChain: any = {
+        get: vi.fn(() => hangingChain),
+        once: vi.fn(),
+        put: vi.fn((_value: any, _cb?: (ack?: { err?: string }) => void) => undefined)
+      };
+      const client = createClient(hangingChain);
+      const publishPromise = publishToDirectory(client, {
+        schemaVersion: 'hermes-directory-v0',
+        nullifier: 'timeout-case',
+        devicePub: 'device',
+        epub: 'epub',
+        registeredAt: 1,
+        lastSeenAt: 2
+      } as any);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(publishPromise).resolves.toBeUndefined();
+      expect(warning).toHaveBeenCalledWith('[vh:directory] publish ack timed out, proceeding without ack');
+    } finally {
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });
