@@ -76,6 +76,16 @@ function summarizeFailureReasons(summary) {
   return reasons;
 }
 
+function summarizeFailureClasses(summary) {
+  const classes = {};
+  for (const row of summary?.matrix ?? []) {
+    if (row?.converged) continue;
+    const failureClass = row?.failureClass ?? 'unclassified';
+    classes[failureClass] = (classes[failureClass] ?? 0) + 1;
+  }
+  return classes;
+}
+
 async function main() {
   const runCount = readPositiveInt('VH_LIVE_MATRIX_STABILITY_RUNS', 3);
   const pauseMs = readNonNegativeInt('VH_LIVE_MATRIX_STABILITY_PAUSE_MS', 1500);
@@ -142,7 +152,8 @@ async function main() {
       && typeof summary.tested === 'number'
       && summary.tested > 0
       && summary.converged === summary.tested
-      && summary.failed === 0,
+      && summary.failed === 0
+      && (typeof summary.harnessFailed !== 'number' || summary.harnessFailed === 0),
     );
 
     const runRecord = {
@@ -158,7 +169,9 @@ async function main() {
       tested: summary?.tested ?? null,
       converged: summary?.converged ?? null,
       failed: summary?.failed ?? null,
+      harnessFailed: summary?.harnessFailed ?? 0,
       failureReasons: summary ? summarizeFailureReasons(summary) : {},
+      failureClasses: summary ? summarizeFailureClasses(summary) : {},
       firstFailure: (summary?.matrix ?? []).find((row) => !row.converged) ?? null,
       telemetry: summary?.telemetry ?? {},
       strictPass,
@@ -168,7 +181,7 @@ async function main() {
 
     const state = strictPass
       ? `PASS (${runRecord.converged}/${runRecord.tested})`
-      : `FAIL (${runRecord.converged ?? 'n/a'}/${runRecord.tested ?? 'n/a'})`;
+      : `FAIL (${runRecord.converged ?? 'n/a'}/${runRecord.tested ?? 'n/a'}, harness=${runRecord.harnessFailed ?? 'n/a'})`;
     console.log(`[vh:live-stability] run ${run}/${runCount} ${state}`);
 
     if (run < runCount && pauseMs > 0) {

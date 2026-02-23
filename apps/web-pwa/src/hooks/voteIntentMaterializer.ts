@@ -4,6 +4,7 @@ import {
   type VoteIntentRecord,
 } from '@vh/data-model';
 import {
+  readAggregateVoterNode,
   readAggregateVoterRows,
   readPointAggregateSnapshot,
   writePointAggregateSnapshot,
@@ -26,7 +27,7 @@ const DEFAULT_REPLAY_LIMIT = 25;
 let replayInFlight = false;
 let replayRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-const REPLAY_RETRY_DELAY_MS = 3000;
+const REPLAY_RETRY_DELAY_MS = 1000;
 
 function toPointTuple(record: VoteIntentRecord): PointTuple {
   return {
@@ -51,6 +52,42 @@ function normalizeNonNegativeInt(value: number): number {
     return 0;
   }
   return Math.floor(value);
+}
+
+function normalizeMaybeTimestampMs(value: string): number {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return Math.floor(parsed);
+}
+
+function isAckTimeoutError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('aggregate-put-ack-timeout');
+}
+
+function matchesRecoveredIntentNode(params: {
+  readonly record: VoteIntentRecord;
+  readonly tuple: PointTuple;
+  readonly recovered: {
+    readonly point_id: string;
+    readonly agreement: number;
+    readonly weight: number;
+    readonly updated_at: string;
+  };
+}): boolean {
+  if (params.recovered.point_id !== params.tuple.point_id) {
+    return false;
+  }
+
+  if (params.recovered.agreement !== params.record.agreement) {
+    return false;
+  }
+
+  const recoveredUpdatedAtMs = normalizeMaybeTimestampMs(params.recovered.updated_at);
+  const incomingSeq = normalizeNonNegativeInt(params.record.seq);
+  return recoveredUpdatedAtMs >= incomingSeq;
 }
 
 function compareIntentLww(a: VoteIntentRecord, b: VoteIntentRecord): number {
@@ -187,23 +224,68 @@ async function projectIntentRecord(
 
   if (incomingWins) {
     const updatedAtIso = new Date(normalizeNonNegativeInt(record.emitted_at)).toISOString();
-    await writeVoterNode(client, tuple.topic_id, tuple.synthesis_id, tuple.epoch, record.voter_id, {
-      point_id: tuple.point_id,
-      agreement: record.agreement,
-      weight: record.weight,
-      updated_at: updatedAtIso,
-    });
+    let nextRow: AggregateVoterPointRow | null = null;
 
-    const nextRow: AggregateVoterPointRow = {
-      voter_id: record.voter_id,
-      node: {
+    try {
+      await writeVoterNode(client, tuple.topic_id, tuple.synthesis_id, tuple.epoch, record.voter_id, {
         point_id: tuple.point_id,
         agreement: record.agreement,
         weight: record.weight,
         updated_at: updatedAtIso,
-      },
-      updated_at_ms: normalizeNonNegativeInt(record.emitted_at),
-    };
+      });
+
+      nextRow = {
+        voter_id: record.voter_id,
+        node: {
+          point_id: tuple.point_id,
+          agreement: record.agreement,
+          weight: record.weight,
+          updated_at: updatedAtIso,
+        },
+        updated_at_ms: normalizeNonNegativeInt(record.emitted_at),
+      };
+    } catch (error) {
+      if (!isAckTimeoutError(error)) {
+        throw error;
+      }
+
+      const recovered = await readAggregateVoterNode(
+        client,
+        tuple.topic_id,
+        tuple.synthesis_id,
+        tuple.epoch,
+        record.voter_id,
+        tuple.point_id,
+      );
+
+      if (!recovered || !matchesRecoveredIntentNode({
+        record,
+        tuple,
+        recovered,
+      })) {
+        throw error;
+      }
+
+      const recoveredUpdatedAtMs = normalizeMaybeTimestampMs(recovered.updated_at);
+      nextRow = {
+        voter_id: record.voter_id,
+        node: recovered,
+        updated_at_ms: recoveredUpdatedAtMs,
+      };
+
+      console.warn('[vh:vote:intent-replay:timeout-recovered]', {
+        topic_id: tuple.topic_id,
+        synthesis_id: tuple.synthesis_id,
+        epoch: tuple.epoch,
+        point_id: tuple.point_id,
+        voter_id: record.voter_id,
+        intent_id: record.intent_id,
+      });
+    }
+
+    if (!nextRow) {
+      throw new Error('intent-replay-next-row-missing');
+    }
 
     const replaceIndex = nextRows.findIndex((row) => row.voter_id === record.voter_id);
     if (replaceIndex >= 0) {

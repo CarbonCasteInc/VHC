@@ -10,6 +10,9 @@ const REQUIRE_FULL_CONVERGENCE = process.env.VH_LIVE_MATRIX_REQUIRE_FULL === 'tr
 const MIN_CONVERGED = Number.isFinite(Number(process.env.VH_LIVE_MATRIX_MIN_CONVERGED))
   ? Math.max(0, Math.floor(Number(process.env.VH_LIVE_MATRIX_MIN_CONVERGED)))
   : (REQUIRE_FULL_CONVERGENCE ? TOPIC_LIMIT : 1);
+const FEED_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READY_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_FEED_READY_ATTEMPTS)))
+  : 3;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -45,6 +48,7 @@ type MatrixRow = {
   bObservedAfterReload: VoteCounts | null;
   converged: boolean;
   reason: string | null;
+  failureClass: 'convergence' | 'harness' | null;
 };
 
 type TelemetryEvent = {
@@ -60,6 +64,7 @@ type SummaryPacket = {
   readonly tested: number;
   readonly converged: number;
   readonly failed: number;
+  readonly harnessFailed: number;
   readonly at: string;
   readonly matrix: ReadonlyArray<MatrixRow>;
   readonly telemetry: Record<string, { count: number }>;
@@ -89,28 +94,52 @@ async function waitFor(condition: () => Promise<boolean>, timeoutMs: number, ste
   return false;
 }
 
-async function gotoFeed(page: Page): Promise<void> {
-  await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-  await page.waitForTimeout(750);
-
-  const vennLink = page.getByRole('link', { name: 'VENN' });
-  if (await vennLink.count()) {
-    const first = vennLink.first();
-    if (await first.isVisible().catch(() => false)) {
-      await first.click().catch(() => {});
-      await page.waitForTimeout(500);
-    }
-  }
-
-  const ready = await waitFor(
-    async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
-    30_000,
-    500,
+function isHarnessNoiseReason(reason: string): boolean {
+  return (
+    reason.startsWith('feed-not-ready:')
+    || reason.startsWith('headline-not-found:')
+    || reason.startsWith('identity-bootstrap-timeout')
   );
+}
 
-  if (!ready) {
-    throw new Error('feed-not-ready: no news-card-headline nodes found');
+function classifyFailure(reason: string | null): MatrixRow['failureClass'] {
+  if (!reason) {
+    return null;
   }
+  return isHarnessNoiseReason(reason) ? 'harness' : 'convergence';
+}
+
+async function gotoFeed(page: Page): Promise<void> {
+  let lastError: string | null = null;
+
+  for (let attempt = 1; attempt <= FEED_READY_ATTEMPTS; attempt += 1) {
+    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.waitForTimeout(750);
+
+    const vennLink = page.getByRole('link', { name: 'VENN' });
+    if (await vennLink.count()) {
+      const first = vennLink.first();
+      if (await first.isVisible().catch(() => false)) {
+        await first.click().catch(() => {});
+        await page.waitForTimeout(500);
+      }
+    }
+
+    const ready = await waitFor(
+      async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
+      30_000,
+      500,
+    );
+
+    if (ready) {
+      return;
+    }
+
+    lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})`;
+    await page.waitForTimeout(750);
+  }
+
+  throw new Error(lastError ?? 'feed-not-ready: unknown');
 }
 
 async function ensureIdentity(page: Page, label: string): Promise<void> {
@@ -400,6 +429,7 @@ test.describe('live mesh convergence', () => {
           bObservedAfterReload: null,
           converged: false,
           reason: null,
+          failureClass: null,
         };
 
         try {
@@ -466,15 +496,19 @@ test.describe('live mesh convergence', () => {
           result.reason = error instanceof Error ? error.message : String(error);
         }
 
+        result.failureClass = result.converged ? null : classifyFailure(result.reason);
         matrix.push(result);
       }
 
-      const converged = matrix.filter((row) => row.converged).length;
+      const harnessFailedRows = matrix.filter((row) => row.failureClass === 'harness');
+      const convergenceRows = matrix.filter((row) => row.failureClass !== 'harness');
+      const converged = convergenceRows.filter((row) => row.converged).length;
       const summary: SummaryPacket = {
         baseUrl: LIVE_BASE_URL,
-        tested: matrix.length,
+        tested: convergenceRows.length,
         converged,
-        failed: matrix.length - converged,
+        failed: convergenceRows.length - converged,
+        harnessFailed: harnessFailedRows.length,
         at: new Date().toISOString(),
         matrix,
         telemetry: summarizeTelemetry(telemetryEvents),
@@ -485,14 +519,18 @@ test.describe('live mesh convergence', () => {
         contentType: 'application/json',
       });
 
-      expect(summary.tested, 'Live matrix produced no testable rows').toBeGreaterThan(0);
+      expect(summary.tested, 'Live matrix produced no testable convergence rows').toBeGreaterThan(0);
+      expect(
+        summary.harnessFailed,
+        `Harness failures detected (${summary.harnessFailed}) — see matrix failureClass='harness' rows`,
+      ).toBe(0);
       expect(
         summary.converged,
         `Live convergence below threshold: converged=${summary.converged}, tested=${summary.tested}, minRequired=${MIN_CONVERGED}`,
       ).toBeGreaterThanOrEqual(MIN_CONVERGED);
 
       if (REQUIRE_FULL_CONVERGENCE) {
-        expect(summary.failed, `Convergence failed for ${summary.failed}/${summary.tested} rows`).toBe(0);
+        expect(summary.failed, `Convergence failed for ${summary.failed}/${summary.tested} convergence rows`).toBe(0);
       }
     } finally {
       await Promise.all([
