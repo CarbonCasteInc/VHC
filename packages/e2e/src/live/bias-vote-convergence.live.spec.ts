@@ -356,11 +356,24 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 }
 
 async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
-  const headline = await findHeadlineLocator(page, row);
+  let headline = await findHeadlineLocator(page, row);
+
+  // If the headline wasn't found in the current viewport, scroll down in
+  // bounded passes to bring below-fold topics into the DOM before giving up.
+  if (!headline) {
+    for (let pass = 0; pass < SCROLL_PASSES; pass += 1) {
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+      await page.waitForTimeout(1_200);
+      headline = await findHeadlineLocator(page, row);
+      if (headline) break;
+    }
+  }
+
   if (!headline) {
     throw new Error(`headline-not-found:${row.storyId}`);
   }
 
+  await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
   await headline.waitFor({ state: 'visible', timeout: 20_000 });
   const card = headline.locator('xpath=ancestor::article[1]');
   await headline.click();
