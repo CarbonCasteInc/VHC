@@ -28,6 +28,9 @@ const MAX_SCAN_SIZE = Number.isFinite(Number(process.env.VH_LIVE_MAX_SCAN_SIZE))
 const SCROLL_PASSES = Number.isFinite(Number(process.env.VH_LIVE_SCROLL_PASSES))
   ? Math.max(0, Math.floor(Number(process.env.VH_LIVE_SCROLL_PASSES)))
   : 3;
+const NAV_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS))
+  ? Math.max(10_000, Math.floor(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS)))
+  : 90_000;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -154,7 +157,7 @@ async function gotoFeed(page: Page): Promise<void> {
   let lastError: string | null = null;
 
   for (let attempt = 1; attempt <= FEED_READY_ATTEMPTS; attempt += 1) {
-    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
     await page.waitForTimeout(750);
 
     const vennLink = page.getByRole('link', { name: 'VENN' });
@@ -185,7 +188,7 @@ async function gotoFeed(page: Page): Promise<void> {
 
 async function ensureIdentity(page: Page, label: string): Promise<void> {
   const openDashboard = async (): Promise<void> => {
-    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
     await page.waitForTimeout(1_000);
 
     const loading = page.getByText('Loading Mesh…');
@@ -625,7 +628,7 @@ test.describe('live mesh convergence', () => {
 
           if (!convergedLive) {
             await closeTopic(pageB, cardB);
-            await pageB.reload({ waitUntil: 'domcontentloaded', timeout: 45_000 });
+            await pageB.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
             await gotoFeed(pageB);
             const cardReload = await openTopic(pageB, row);
             const pointReload = await resolvePointInCard(cardReload, pointB.pointId);
