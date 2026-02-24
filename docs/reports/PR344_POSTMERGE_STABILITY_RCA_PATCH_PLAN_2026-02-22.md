@@ -4,6 +4,19 @@ Date: 2026-02-22 (UTC)
 Owner: coordinator
 Context: PR #344 merged (`15d1af6365973f90a8ed9e40d689b1da34695826`), single strict confirmation passed, but consecutive strict runs regressed.
 
+## Resolution Update (2026-02-24)
+
+This plan has been executed and superseded by merged PR #345 (`coord/postmerge-convergence-stability-gate`).
+
+Shipped outcomes now on `main`:
+- strict stability runner is live (`packages/e2e/src/live/live-matrix-stability-gate.mjs`);
+- live matrix spec moved to two-phase operation (readiness preflight + locked-candidate convergence);
+- setup scarcity is explicitly classified as `blocked_setup_scarcity` with preflight reject diagnostics;
+- phase-2 per-topic feed reloads were removed to reduce strict-run navigation overhead.
+
+Interpretation change:
+- repeated strict failures that end in setup scarcity are treated as environment readiness blockers, not convergence-path regressions.
+
 ## Problem Statement
 
 Residual strict convergence flake persists after PR #344 hardening:
