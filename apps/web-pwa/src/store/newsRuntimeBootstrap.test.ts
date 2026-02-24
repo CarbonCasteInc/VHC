@@ -43,12 +43,14 @@ describe('ensureNewsRuntimeStarted', () => {
     stopMock.mockReset();
     writeStoryBundleMock.mockReset();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     startNewsRuntimeMock.mockReturnValue(makeHandle(true));
   });
 
   afterEach(() => {
     __resetNewsRuntimeForTesting();
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -58,6 +60,86 @@ describe('ensureNewsRuntimeStarted', () => {
     ensureNewsRuntimeStarted({ id: 'client-1' } as any);
 
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  it('skips runtime in test sessions by default', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubGlobal('window', { __VH_TEST_SESSION: true });
+
+    ensureNewsRuntimeStarted({ id: 'test-session-client' } as any);
+
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith('[vh:news-runtime] skipped for this session');
+  });
+
+  it('treats blank disable flag values as fallback=true in test sessions', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', '   ');
+    vi.stubGlobal('window', { __VH_TEST_SESSION: true });
+
+    ensureNewsRuntimeStarted({ id: 'blank-disable-flag-client' } as any);
+
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  it('honors explicit true/false disable flag values in test sessions', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubGlobal('window', { __VH_TEST_SESSION: true });
+
+    vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', 'on');
+    ensureNewsRuntimeStarted({ id: 'disable-on-client' } as any);
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+
+    vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', 'off');
+    ensureNewsRuntimeStarted({ id: 'disable-off-client' } as any);
+    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to default disable behavior for malformed disable flag values', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', 'maybe');
+    vi.stubGlobal('window', { __VH_TEST_SESSION: true });
+
+    ensureNewsRuntimeStarted({ id: 'invalid-disable-flag-client' } as any);
+
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  it('runs runtime in test sessions when explicitly forced to ingester role', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubGlobal('window', {
+      __VH_TEST_SESSION: true,
+      __VH_NEWS_RUNTIME_ROLE: 'ingester',
+    });
+
+    ensureNewsRuntimeStarted({ id: 'forced-ingester-client' } as any);
+
+    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips runtime when role is configured as consumer', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_RUNTIME_ROLE', 'consumer');
+
+    ensureNewsRuntimeStarted({ id: 'consumer-client' } as any);
+
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  it('stops an already-running runtime when role flips to consumer', () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+
+    const client = { id: 'role-flip-client' } as any;
+    ensureNewsRuntimeStarted(client);
+
+    vi.stubEnv('VITE_NEWS_RUNTIME_ROLE', 'consumer');
+    ensureNewsRuntimeStarted(client);
+
+    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith('[vh:news-runtime] skipped for this session');
   });
 
   it('boots runtime with parsed env config and gun write adapter when enabled', async () => {

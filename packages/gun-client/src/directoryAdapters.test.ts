@@ -68,4 +68,71 @@ describe('directoryAdapters', () => {
       } as any)
     ).rejects.toThrow('boom');
   });
+
+  it('resolves when publish ack times out', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const hangingChain: any = {
+        get: vi.fn(() => hangingChain),
+        once: vi.fn(),
+        put: vi.fn((_value: any, _cb?: (ack?: { err?: string }) => void) => undefined)
+      };
+      const client = createClient(hangingChain);
+      const publishPromise = publishToDirectory(client, {
+        schemaVersion: 'hermes-directory-v0',
+        nullifier: 'timeout-case',
+        devicePub: 'device',
+        epub: 'epub',
+        registeredAt: 1,
+        lastSeenAt: 2
+      } as any);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(publishPromise).resolves.toBeUndefined();
+      expect(warning).toHaveBeenCalledWith('[vh:directory] publish ack timed out, proceeding without ack');
+    } finally {
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores duplicate ack callbacks and late timeout ticks after settlement', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((() => undefined) as typeof clearTimeout);
+
+    try {
+      const duplicateAckChain: any = {
+        get: vi.fn(() => duplicateAckChain),
+        once: vi.fn(),
+        put: vi.fn((_value: any, cb?: (ack?: { err?: string }) => void) => {
+          cb?.({});
+          cb?.({});
+        })
+      };
+
+      const client = createClient(duplicateAckChain);
+      await expect(
+        publishToDirectory(client, {
+          schemaVersion: 'hermes-directory-v0',
+          nullifier: 'duplicate-ack',
+          devicePub: 'device',
+          epub: 'epub',
+          registeredAt: 1,
+          lastSeenAt: 2
+        } as any)
+      ).resolves.toBeUndefined();
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 });

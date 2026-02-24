@@ -266,6 +266,241 @@ describe('voteIntentMaterializer', () => {
     );
   });
 
+  it('replayVoteIntentQueue recovers aggregate-put-ack-timeout when voter-node readback confirms persistence', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(150).toISOString(),
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const writeSnapshotSpy = vi
+      .spyOn(GunClient, 'writePointAggregateSnapshot')
+      .mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
+
+    enqueueIntent(makeIntent({
+      intent_id: 'timeout-recovered',
+      voter_id: 'voter-timeout',
+      agreement: 1,
+      weight: 1,
+      seq: 120,
+      emitted_at: 120,
+    }));
+
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 500 });
+
+    expect(result).toEqual({ replayed: 1, failed: 0 });
+    expect(writeSnapshotSpy).toHaveBeenCalledWith(
+      client,
+      expect.objectContaining({
+        agree: 1,
+        disagree: 0,
+        participants: 1,
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:vote:intent-replay:timeout-recovered]',
+      expect.objectContaining({
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 1,
+        point_id: 'point-1',
+        voter_id: 'voter-timeout',
+        intent_id: 'timeout-recovered',
+      }),
+    );
+  });
+
+  it('replayVoteIntentQueue keeps intent pending when timeout readback is stale/mismatched', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(10).toISOString(),
+    });
+    const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+    enqueueIntent(makeIntent({
+      intent_id: 'timeout-stale',
+      voter_id: 'voter-timeout-stale',
+      agreement: 1,
+      weight: 1,
+      seq: 120,
+      emitted_at: 120,
+    }));
+
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 500 });
+
+    expect(result).toEqual({ replayed: 0, failed: 1 });
+    expect(writeSnapshotSpy).not.toHaveBeenCalled();
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-stale']);
+  });
+
+  it('replayVoteIntentQueue treats string timeout errors as recoverable when readback matches', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue('aggregate-put-ack-timeout');
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(150).toISOString(),
+    });
+    const writeSnapshotSpy = vi
+      .spyOn(GunClient, 'writePointAggregateSnapshot')
+      .mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
+
+    enqueueIntent(makeIntent({
+      intent_id: 'timeout-string-recovered',
+      voter_id: 'voter-timeout-string',
+      agreement: 1,
+      weight: 1,
+      seq: 120,
+      emitted_at: 120,
+    }));
+
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 501 });
+
+    expect(result).toEqual({ replayed: 1, failed: 0 });
+    expect(writeSnapshotSpy).toHaveBeenCalledTimes(1);
+    expect(getPendingIntents()).toHaveLength(0);
+  });
+
+  it('replayVoteIntentQueue keeps intent pending when timeout readback point_id mismatches', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: 'other-point',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(150).toISOString(),
+    });
+    const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+    enqueueIntent(makeIntent({
+      intent_id: 'timeout-mismatch-point',
+      voter_id: 'voter-timeout-point',
+      agreement: 1,
+      weight: 1,
+      seq: 120,
+      emitted_at: 120,
+    }));
+
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 502 });
+
+    expect(result).toEqual({ replayed: 0, failed: 1 });
+    expect(writeSnapshotSpy).not.toHaveBeenCalled();
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-mismatch-point']);
+  });
+
+  it('replayVoteIntentQueue keeps intent pending when timeout readback agreement mismatches', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: -1,
+      weight: 1,
+      updated_at: new Date(150).toISOString(),
+    });
+    const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+    enqueueIntent(makeIntent({
+      intent_id: 'timeout-mismatch-agreement',
+      voter_id: 'voter-timeout-agreement',
+      agreement: 1,
+      weight: 1,
+      seq: 120,
+      emitted_at: 120,
+    }));
+
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 503 });
+
+    expect(result).toEqual({ replayed: 0, failed: 1 });
+    expect(writeSnapshotSpy).not.toHaveBeenCalled();
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-mismatch-agreement']);
+  });
+
+  it('replayVoteIntentQueue keeps intent pending when timeout readback timestamp is invalid', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: 1,
+      weight: 1,
+      updated_at: 'not-a-date',
+    });
+    const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+    enqueueIntent(makeIntent({
+      intent_id: 'timeout-invalid-timestamp',
+      voter_id: 'voter-timeout-invalid-ts',
+      agreement: 1,
+      weight: 1,
+      seq: 120,
+      emitted_at: 120,
+    }));
+
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 504 });
+
+    expect(result).toEqual({ replayed: 0, failed: 1 });
+    expect(writeSnapshotSpy).not.toHaveBeenCalled();
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-invalid-timestamp']);
+  });
+
+  it('replayVoteIntentQueue keeps intent pending on non-timeout writeVoterNode errors', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('write-failed-hard'));
+    const readBackSpy = vi.spyOn(GunClient, 'readAggregateVoterNode');
+    const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+    enqueueIntent(makeIntent({
+      intent_id: 'non-timeout-error',
+      voter_id: 'voter-non-timeout',
+      agreement: 1,
+      weight: 1,
+      seq: 120,
+      emitted_at: 120,
+    }));
+
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 505 });
+
+    expect(result).toEqual({ replayed: 0, failed: 1 });
+    expect(readBackSpy).not.toHaveBeenCalled();
+    expect(writeSnapshotSpy).not.toHaveBeenCalled();
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['non-timeout-error']);
+  });
+
   it('replayVoteIntentQueue uses default replay limit when none is provided', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
@@ -317,14 +552,14 @@ describe('voteIntentMaterializer', () => {
       await Promise.resolve();
       expect(replaySpy).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(3000);
+      await vi.advanceTimersByTimeAsync(1000);
       await Promise.resolve();
       await Promise.resolve();
 
       expect(replaySpy).toHaveBeenCalledTimes(2);
       expect(warnSpy).toHaveBeenCalledWith(
         '[vh:vote:intent-replay]',
-        expect.objectContaining({ failed: 1, retry_in_ms: 3000 }),
+        expect.objectContaining({ failed: 1, retry_in_ms: 1000 }),
       );
       expect(infoSpy).toHaveBeenCalledWith(
         '[vh:vote:intent-replay]',

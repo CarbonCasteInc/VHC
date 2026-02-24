@@ -8,6 +8,7 @@
         "test:debug": "playwright test --debug",
         "test:live:matrix": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=false playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
         "test:live:matrix:strict": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=true playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
+        "test:live:matrix:strict:stability": "node ./src/live/live-matrix-stability-gate.mjs",
         "codegen": "playwright codegen",
         "typecheck": "tsc --noEmit"
     },

@@ -23,11 +23,15 @@ interface FakeMesh {
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
   setPutError: (path: string, err: string) => void;
+  setPutHang: (path: string) => void;
+  setPutDoubleAck: (path: string) => void;
 }
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
   const putErrors = new Map<string, string>();
+  const putHangs = new Set<string>();
+  const putDoubleAcks = new Set<string>();
   const writes: Array<{ path: string; value: unknown }> = [];
 
   const makeNode = (segments: string[]): any => {
@@ -36,8 +40,14 @@ function createFakeMesh(): FakeMesh {
       once: vi.fn((cb?: (data: unknown) => void) => cb?.(reads.get(path))),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
+        if (putHangs.has(path)) {
+          return;
+        }
         const err = putErrors.get(path);
         cb?.(err ? { err } : {});
+        if (putDoubleAcks.has(path)) {
+          cb?.({});
+        }
       }),
       get: vi.fn((key: string) => makeNode([...segments, key]))
     };
@@ -52,6 +62,12 @@ function createFakeMesh(): FakeMesh {
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
+    },
+    setPutHang(path: string) {
+      putHangs.add(path);
+    },
+    setPutDoubleAck(path: string) {
+      putDoubleAcks.add(path);
     }
   };
 }
@@ -183,6 +199,50 @@ describe('newsAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(writeNewsStory(client, STORY)).rejects.toThrow('write failed');
+  });
+
+  it('writeNewsStory resolves when put ack times out', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutHang('news/stories/story-123');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const writePromise = writeNewsStory(client, STORY);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(writePromise).resolves.toEqual(STORY);
+      expect(warning).toHaveBeenCalledWith('[vh:news] put ack timed out, proceeding without ack');
+    } finally {
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores duplicate ack callbacks and late timeout ticks after settlement', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((() => undefined) as typeof clearTimeout);
+
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutDoubleAck('news/stories/story-123');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      await expect(writeNewsStory(client, STORY)).resolves.toEqual(STORY);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('readNewsStory parses valid payload and strips Gun metadata', async () => {

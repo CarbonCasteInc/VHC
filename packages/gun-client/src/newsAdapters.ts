@@ -114,9 +114,24 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
+const NEWS_PUT_ACK_TIMEOUT_MS = 1000;
+
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      console.warn('[vh:news] put ack timed out, proceeding without ack');
+      resolve();
+    }, NEWS_PUT_ACK_TIMEOUT_MS);
+
     chain.put(value, (ack?: ChainAck) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
       if (ack?.err) {
         reject(new Error(ack.err));
         return;
