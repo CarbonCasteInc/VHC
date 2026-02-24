@@ -1,7 +1,7 @@
 # TRINITY Implementation Status
 
-**Last Updated:** 2026-02-19
-**Version:** 0.7.1 (Post-Wave-4 + FPD Production-Wiring Program Active)
+**Last Updated:** 2026-02-24
+**Version:** 0.7.2 (Post-PR345 stability-gate hardening)
 **Assessment:** Pre-production prototype. Wave 4 closed; active work is FPD production wiring with explicit no-ship guardrails until hard gates pass.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
@@ -40,6 +40,23 @@ Current policy state:
 - Transitional proof shim is allowed only in dev/staging/E2E and must be removed before final ship.
 - Point-identity migration requires dual-write/backfill with explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
+
+---
+
+## Post-Merge Stability Gate Hardening (PR #345, merged 2026-02-24)
+
+Merged on `main` via `coord/postmerge-convergence-stability-gate`:
+- Tunable live nav timeout (`VH_LIVE_NAV_TIMEOUT_MS`, default 90s) for live matrix navigation calls.
+- Two-phase strict gate in `packages/e2e/src/live/bias-vote-convergence.live.spec.ts`:
+  - Phase 1 readiness = budget-capped candidate discovery and vote-capability probing.
+  - Phase 2 convergence = locked/frozen candidate set only.
+- Explicit setup scarcity verdict (`blocked_setup_scarcity`) with preflight reject-reason diagnostics.
+- Stability runner (`packages/e2e/src/live/live-matrix-stability-gate.mjs`) now records scarcity separately (`scarcityCount`).
+- Phase-2 per-topic feed reload removal (feed nav once/page before loop) to reduce strict-run wall-clock overhead.
+
+Operational interpretation:
+- Live strict failures are now classified as either setup-readiness scarcity or functional convergence failure.
+- Setup scarcity indicates environment readiness issues (feed/analysis/vote-capable topic availability), not silent harness timeout.
 
 ---
 
@@ -174,6 +191,12 @@ Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean conf
 
 **Gate verification date:** 2026-02-15
 **Branch verified:** `main` at `df0f787` (PR #276 merged, all 7 CI checks green)
+
+### Live strict matrix lane (post-merge)
+
+- Canonical single-run strict: `pnpm --filter @vh/e2e test:live:matrix:strict`
+- Canonical multi-run strict stability gate: `pnpm --filter @vh/e2e test:live:matrix:strict:stability`
+- Strict gate now emits setup-scarcity vs convergence outcomes explicitly via `live-bias-vote-convergence-summary`.
 
 | Gate | Result | Detail |
 |------|--------|--------|

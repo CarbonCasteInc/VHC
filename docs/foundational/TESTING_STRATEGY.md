@@ -113,6 +113,23 @@ RIGHT: Separate browser contexts
 **Execution**: Nightly/Release, <10 minutes  
 **Current**: 📋 Planned for Season 1
 
+### Layer 7: Live Strict Matrix Stability Gate (Playwright Live)
+**Scope**: Two independent browser contexts (`A`/`B`) against live feed + mesh, with strict convergence requirements  
+**Execution**: Post-merge stability verification / release gate  
+**Entry points**:
+- `pnpm --filter @vh/e2e test:live:matrix:strict`
+- `pnpm --filter @vh/e2e test:live:matrix:strict:stability`
+
+**Current contract (PR #345):**
+- Phase 1 readiness (budget-capped): discover and probe vote-capable topics.
+- Phase 2 convergence: run only against the locked candidate set from Phase 1.
+- Setup scarcity is first-class: insufficient vote-capable rows returns `blocked_setup_scarcity` with preflight reject reasons.
+- Stability packet includes per-run verdicts plus `scarcityCount` (`packages/e2e/src/live/live-matrix-stability-gate.mjs`).
+
+**Operational note**:
+- Live strict failures can be environmental (feed/analysis readiness), not only functional regressions.
+- Treat `blocked_setup_scarcity` as setup-readiness failure class and triage environment before code-path debugging.
+
 ---
 
 ## Infrastructure Required
@@ -300,6 +317,7 @@ jobs:
 | Store Integration | ✅ Passing | None |
 | Single-User E2E | ✅ 2 Passing | None |
 | Multi-User E2E | ✅ 7 Passing | None |
+| Live Strict Matrix | ✅ Shipped in CI/ops lane | Environment readiness required (feed + analysis) |
 | Cross-Device | 📋 Planned | BrowserStack setup |
 
 **Sprint 3 Complete (Dec 3, 2025):**
@@ -310,4 +328,3 @@ jobs:
 - Forum and Messaging E2E flows implemented
 
 **Next step**: Proceed to Sprint 4 (Agentic Foundation) or add BrowserStack for real cross-device testing.
-

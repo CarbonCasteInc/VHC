@@ -29,3 +29,6 @@ Status: draft helper to keep coverage aligned with `docs/foundational/ARCHITECTU
 ## E2E Golden Paths
 - Identity → UBE → Analysis → Mesh reuse: `packages/e2e/src/full-flow.spec.ts`
 - Identity → Analysis loop: `packages/e2e/src/tracer-bullet.spec.ts`
+- Live A↔B vote convergence (strict/full matrix contract): `packages/e2e/src/live/bias-vote-convergence.live.spec.ts`
+- Multi-run strict stability gate (`N=3` default) + machine-readable packet: `packages/e2e/src/live/live-matrix-stability-gate.mjs` (script: `pnpm --filter @vh/e2e test:live:matrix:strict:stability`)
+- Setup-scarcity verdict path (`blocked_setup_scarcity`) with preflight reject diagnostics: `packages/e2e/src/live/bias-vote-convergence.live.spec.ts`
