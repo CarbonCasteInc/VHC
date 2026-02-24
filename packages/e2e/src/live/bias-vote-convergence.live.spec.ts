@@ -31,6 +31,12 @@ const SCROLL_PASSES = Number.isFinite(Number(process.env.VH_LIVE_SCROLL_PASSES))
 const NAV_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS))
   ? Math.max(10_000, Math.floor(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS)))
   : 90_000;
+const READINESS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_READINESS_BUDGET_MS))
+  ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_READINESS_BUDGET_MS)))
+  : 5 * 60_000;
+const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS)))
+  : 30_000;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -79,13 +85,27 @@ type TelemetryEvent = {
   readonly args: ReadonlyArray<unknown>;
 };
 
+type PreflightSummary = {
+  readonly candidatesDiscovered: number;
+  readonly candidatesScanned: number;
+  readonly voteCapableFound: number;
+  readonly voteCapableRequired: number;
+  readonly exhaustedBudget: boolean;
+  readonly budgetMs: number;
+  readonly elapsedMs: number;
+  readonly rejects: ReadonlyArray<PreflightReject>;
+  readonly rejectReasonCounts: Record<string, number>;
+};
+
 type SummaryPacket = {
   readonly baseUrl: string;
+  readonly verdict: 'pass' | 'fail' | 'blocked_setup_scarcity';
   readonly tested: number;
   readonly converged: number;
   readonly failed: number;
   readonly harnessFailed: number;
   readonly at: string;
+  readonly preflight: PreflightSummary | null;
   readonly matrix: ReadonlyArray<MatrixRow>;
   readonly telemetry: Record<string, { count: number }>;
 };
@@ -120,6 +140,7 @@ function isHarnessNoiseReason(reason: string): boolean {
     || reason.startsWith('headline-not-found:')
     || reason.startsWith('identity-bootstrap-timeout')
     || reason.startsWith('vote-capable-preflight-failed:')
+    || reason.startsWith('blocked-setup-scarcity:')
     || reason.startsWith('A:no-vote-buttons')
     || reason.startsWith('B:no-vote-buttons')
     || reason.startsWith('B-reload:no-vote-buttons')
@@ -430,16 +451,37 @@ async function resolvePointInCard(card: Locator, preferredPointId: string | null
   };
 }
 
+type PreflightReject = {
+  readonly storyId: string;
+  readonly headline: string;
+  readonly reason: string;
+};
+
+type PreflightResult = {
+  readonly ready: ReadonlyArray<TopicRow>;
+  readonly rejects: ReadonlyArray<PreflightReject>;
+  readonly exhaustedBudget: boolean;
+};
+
 async function collectVoteCapableRows(
   page: Page,
   candidates: ReadonlyArray<TopicRow>,
   requiredCount: number,
-): Promise<ReadonlyArray<TopicRow>> {
+  budgetMs: number,
+): Promise<PreflightResult> {
   const ready: TopicRow[] = [];
+  const rejects: PreflightReject[] = [];
   const seen = new Set<string>();
+  const budgetDeadline = Date.now() + budgetMs;
+  let exhaustedBudget = false;
 
   for (const row of candidates) {
     if (ready.length >= requiredCount) {
+      break;
+    }
+
+    if (Date.now() >= budgetDeadline) {
+      exhaustedBudget = true;
       break;
     }
 
@@ -448,20 +490,31 @@ async function collectVoteCapableRows(
     }
     seen.add(row.storyId);
 
-    await gotoFeed(page);
     let card: Locator | null = null;
 
     try {
+      const candidateDeadline = Math.min(Date.now() + PER_CANDIDATE_BUDGET_MS, budgetDeadline);
       card = await openTopic(page, row);
       if (PREFLIGHT_SETTLE_MS > 0) {
         await page.waitForTimeout(PREFLIGHT_SETTLE_MS);
       }
+
+      if (Date.now() >= candidateDeadline) {
+        rejects.push({ storyId: row.storyId, headline: row.headline, reason: 'per-candidate-timeout' });
+        await closeTopic(page, card).catch(() => {});
+        card = null;
+        continue;
+      }
+
       const point = await resolvePointInCard(card);
       if (point.found) {
         ready.push(row);
+      } else {
+        rejects.push({ storyId: row.storyId, headline: row.headline, reason: point.reason });
       }
-    } catch {
-      // Ignore candidate-level preflight failures; strict run will report real failures.
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      rejects.push({ storyId: row.storyId, headline: row.headline, reason });
     } finally {
       if (card) {
         await closeTopic(page, card).catch(() => {});
@@ -469,7 +522,7 @@ async function collectVoteCapableRows(
     }
   }
 
-  return ready;
+  return { ready, rejects, exhaustedBudget };
 }
 
 async function readCounts(card: Locator, pointId: string): Promise<VoteCounts> {
@@ -551,116 +604,160 @@ test.describe('live mesh convergence', () => {
     attachTelemetry(pageB, 'B', telemetryEvents);
 
     const matrix: MatrixRow[] = [];
+    let preflightSummary: PreflightSummary | null = null;
+    let verdict: SummaryPacket['verdict'] = 'fail';
 
     try {
       let setupFailureReason: string | null = null;
 
       try {
+        // ── Phase 1: Readiness ──────────────────────────────────────────
+        const readinessStart = Date.now();
+
         await gotoFeed(ingesterPage);
         await ensureIdentity(pageA, 'AliceLive');
         await ensureIdentity(pageB, 'BobLive');
 
         await gotoFeed(pageA);
-        await gotoFeed(pageB);
 
         const candidatePool = await discoverTopicsByScrolling(pageA, MAX_SCAN_SIZE);
-        const selected = await collectVoteCapableRows(pageA, candidatePool, TOPIC_LIMIT);
 
-        if (selected.length < TOPIC_LIMIT) {
-          throw new Error(`vote-capable-preflight-failed:${selected.length}/${TOPIC_LIMIT}`);
+        const remainingReadinessBudget = Math.max(
+          30_000,
+          READINESS_BUDGET_MS - (Date.now() - readinessStart),
+        );
+        const preflight = await collectVoteCapableRows(
+          pageA,
+          candidatePool,
+          TOPIC_LIMIT,
+          remainingReadinessBudget,
+        );
+
+        const rejectReasonCounts: Record<string, number> = {};
+        for (const reject of preflight.rejects) {
+          rejectReasonCounts[reject.reason] = (rejectReasonCounts[reject.reason] ?? 0) + 1;
         }
 
-        for (const row of selected) {
-        const result: MatrixRow = {
-          topicId: row.topicId,
-          storyId: row.storyId,
-          headline: row.headline,
-          startedAt: new Date().toISOString(),
-          votedPointId: null,
-          bPointId: null,
-          bMatchedA: null,
-          aAfterClick: null,
-          bObserved: null,
-          bObservedAfterReload: null,
-          converged: false,
-          reason: null,
-          failureClass: null,
+        preflightSummary = {
+          candidatesDiscovered: candidatePool.length,
+          candidatesScanned: preflight.ready.length + preflight.rejects.length,
+          voteCapableFound: preflight.ready.length,
+          voteCapableRequired: TOPIC_LIMIT,
+          exhaustedBudget: preflight.exhaustedBudget,
+          budgetMs: remainingReadinessBudget,
+          elapsedMs: Date.now() - readinessStart,
+          rejects: preflight.rejects,
+          rejectReasonCounts,
         };
 
-        try {
-          await gotoFeed(pageA);
-          const cardA = await openTopic(pageA, row);
-          const pointA = await resolvePointInCard(cardA);
-          if (!pointA.found) {
-            result.reason = `A:${pointA.reason}`;
-            await closeTopic(pageA, cardA);
-            result.failureClass = classifyFailure(result.reason);
-            matrix.push(result);
-            continue;
-          }
+        // Locked candidate set — frozen after readiness, used for all convergence checks
+        const selected: ReadonlyArray<TopicRow> = preflight.ready;
 
-          result.votedPointId = pointA.pointId;
-          await cardA.getByTestId(`cell-vote-agree-${pointA.pointId}`).click({ timeout: 10_000 });
-          await pageA.waitForTimeout(1_500);
-          result.aAfterClick = await readCounts(cardA, pointA.pointId);
-          await closeTopic(pageA, cardA);
-
-          await gotoFeed(pageB);
-          const cardB = await openTopic(pageB, row);
-          const pointB = await resolvePointInCard(cardB, pointA.pointId);
-          if (!pointB.found) {
-            result.reason = `B:${pointB.reason}`;
-            await closeTopic(pageB, cardB);
-            result.failureClass = classifyFailure(result.reason);
-            matrix.push(result);
-            continue;
-          }
-
-          result.bPointId = pointB.pointId;
-          result.bMatchedA = pointB.matchedPreferred;
-          result.bObserved = await readCounts(cardB, pointB.pointId);
-
-          const convergedLive = await waitFor(async () => {
-            const counts = await readCounts(cardB, pointB.pointId);
-            result.bObserved = counts;
-            return counts.agree > 0;
-          }, 10_000, 1_000);
-
-          if (!convergedLive) {
-            await closeTopic(pageB, cardB);
-            await pageB.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-            await gotoFeed(pageB);
-            const cardReload = await openTopic(pageB, row);
-            const pointReload = await resolvePointInCard(cardReload, pointB.pointId);
-            if (pointReload.found) {
-              result.bPointId = pointReload.pointId;
-              result.bMatchedA = pointReload.pointId === pointA.pointId;
-              result.bObservedAfterReload = await readCounts(cardReload, pointReload.pointId);
-            } else {
-              result.reason = `B-reload:${pointReload.reason}`;
-            }
-            await closeTopic(pageB, cardReload);
-          } else {
-            await closeTopic(pageB, cardB);
-          }
-
-          const finalAgree = result.bObservedAfterReload?.agree ?? result.bObserved?.agree ?? 0;
-          result.converged = finalAgree > 0;
-          if (!result.converged && !result.reason) {
-            result.reason = 'b-aggregate-remained-zero';
-          }
-        } catch (error) {
-          result.reason = error instanceof Error ? error.message : String(error);
+        if (selected.length < TOPIC_LIMIT) {
+          const tag = preflight.exhaustedBudget ? 'budget-exhausted' : 'insufficient-candidates';
+          throw new Error(
+            `blocked-setup-scarcity:${selected.length}/${TOPIC_LIMIT} (${tag}, `
+            + `discovered=${candidatePool.length}, scanned=${preflightSummary.candidatesScanned}, `
+            + `rejects=${preflight.rejects.length})`,
+          );
         }
 
-        result.failureClass = result.converged ? null : classifyFailure(result.reason);
-        matrix.push(result);
+        // ── Phase 2: Convergence ────────────────────────────────────────
+        await gotoFeed(pageA);
+        await gotoFeed(pageB);
+
+        for (const row of selected) {
+          const result: MatrixRow = {
+            topicId: row.topicId,
+            storyId: row.storyId,
+            headline: row.headline,
+            startedAt: new Date().toISOString(),
+            votedPointId: null,
+            bPointId: null,
+            bMatchedA: null,
+            aAfterClick: null,
+            bObserved: null,
+            bObservedAfterReload: null,
+            converged: false,
+            reason: null,
+            failureClass: null,
+          };
+
+          try {
+            await gotoFeed(pageA);
+            const cardA = await openTopic(pageA, row);
+            const pointA = await resolvePointInCard(cardA);
+            if (!pointA.found) {
+              result.reason = `A:${pointA.reason}`;
+              await closeTopic(pageA, cardA);
+              result.failureClass = classifyFailure(result.reason);
+              matrix.push(result);
+              continue;
+            }
+
+            result.votedPointId = pointA.pointId;
+            await cardA.getByTestId(`cell-vote-agree-${pointA.pointId}`).click({ timeout: 10_000 });
+            await pageA.waitForTimeout(1_500);
+            result.aAfterClick = await readCounts(cardA, pointA.pointId);
+            await closeTopic(pageA, cardA);
+
+            await gotoFeed(pageB);
+            const cardB = await openTopic(pageB, row);
+            const pointB = await resolvePointInCard(cardB, pointA.pointId);
+            if (!pointB.found) {
+              result.reason = `B:${pointB.reason}`;
+              await closeTopic(pageB, cardB);
+              result.failureClass = classifyFailure(result.reason);
+              matrix.push(result);
+              continue;
+            }
+
+            result.bPointId = pointB.pointId;
+            result.bMatchedA = pointB.matchedPreferred;
+            result.bObserved = await readCounts(cardB, pointB.pointId);
+
+            const convergedLive = await waitFor(async () => {
+              const counts = await readCounts(cardB, pointB.pointId);
+              result.bObserved = counts;
+              return counts.agree > 0;
+            }, 10_000, 1_000);
+
+            if (!convergedLive) {
+              await closeTopic(pageB, cardB);
+              await pageB.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+              await gotoFeed(pageB);
+              const cardReload = await openTopic(pageB, row);
+              const pointReload = await resolvePointInCard(cardReload, pointB.pointId);
+              if (pointReload.found) {
+                result.bPointId = pointReload.pointId;
+                result.bMatchedA = pointReload.pointId === pointA.pointId;
+                result.bObservedAfterReload = await readCounts(cardReload, pointReload.pointId);
+              } else {
+                result.reason = `B-reload:${pointReload.reason}`;
+              }
+              await closeTopic(pageB, cardReload);
+            } else {
+              await closeTopic(pageB, cardB);
+            }
+
+            const finalAgree = result.bObservedAfterReload?.agree ?? result.bObserved?.agree ?? 0;
+            result.converged = finalAgree > 0;
+            if (!result.converged && !result.reason) {
+              result.reason = 'b-aggregate-remained-zero';
+            }
+          } catch (error) {
+            result.reason = error instanceof Error ? error.message : String(error);
+          }
+
+          result.failureClass = result.converged ? null : classifyFailure(result.reason);
+          matrix.push(result);
         }
       } catch (error) {
         setupFailureReason = error instanceof Error ? error.message : String(error);
       }
 
       if (setupFailureReason) {
+        const isScarcity = setupFailureReason.startsWith('blocked-setup-scarcity:');
         const failureClass = classifyFailure(setupFailureReason);
         matrix.push({
           topicId: '__setup__',
@@ -677,39 +774,65 @@ test.describe('live mesh convergence', () => {
           reason: setupFailureReason,
           failureClass,
         });
+        if (isScarcity) {
+          verdict = 'blocked_setup_scarcity';
+        }
       }
 
       const harnessFailedRows = matrix.filter((row) => row.failureClass === 'harness');
       const convergenceRows = matrix.filter((row) => row.failureClass !== 'harness');
       const converged = convergenceRows.filter((row) => row.converged).length;
-      const summary: SummaryPacket = {
+
+      if (verdict !== 'blocked_setup_scarcity') {
+        const allPassed = convergenceRows.length > 0
+          && converged >= MIN_CONVERGED
+          && harnessFailedRows.length === 0
+          && (!REQUIRE_FULL_CONVERGENCE || converged === convergenceRows.length);
+        verdict = allPassed ? 'pass' : 'fail';
+      }
+
+      const summaryPacket: SummaryPacket = {
         baseUrl: LIVE_BASE_URL,
+        verdict,
         tested: convergenceRows.length,
         converged,
         failed: convergenceRows.length - converged,
         harnessFailed: harnessFailedRows.length,
         at: new Date().toISOString(),
+        preflight: preflightSummary,
         matrix,
         telemetry: summarizeTelemetry(telemetryEvents),
       };
 
       await testInfo.attach('live-bias-vote-convergence-summary', {
-        body: Buffer.from(JSON.stringify(summary, null, 2), 'utf8'),
+        body: Buffer.from(JSON.stringify(summaryPacket, null, 2), 'utf8'),
         contentType: 'application/json',
       });
 
+      if (verdict === 'blocked_setup_scarcity') {
+        const pf = preflightSummary;
+        const rejectDetail = pf
+          ? ` | rejects: ${JSON.stringify(pf.rejectReasonCounts)}`
+          : '';
+        throw new Error(
+          `BLOCKED_SETUP_SCARCITY: found ${pf?.voteCapableFound ?? 0}/${TOPIC_LIMIT} vote-capable topics `
+          + `(discovered=${pf?.candidatesDiscovered ?? 0}, scanned=${pf?.candidatesScanned ?? 0}, `
+          + `budgetExhausted=${pf?.exhaustedBudget ?? false}${rejectDetail})`,
+        );
+      }
+
       expect(
-        summary.harnessFailed,
-        `Harness failures detected (${summary.harnessFailed}) — see matrix failureClass='harness' rows`,
+        summaryPacket.harnessFailed,
+        `Harness failures detected (${summaryPacket.harnessFailed}) — see matrix failureClass='harness' rows`,
       ).toBe(0);
-      expect(summary.tested, 'Live matrix produced no testable convergence rows').toBeGreaterThan(0);
+      expect(summaryPacket.tested, 'Live matrix produced no testable convergence rows').toBeGreaterThan(0);
       expect(
-        summary.converged,
-        `Live convergence below threshold: converged=${summary.converged}, tested=${summary.tested}, minRequired=${MIN_CONVERGED}`,
+        summaryPacket.converged,
+        `Live convergence below threshold: converged=${summaryPacket.converged}, tested=${summaryPacket.tested}, minRequired=${MIN_CONVERGED}`,
       ).toBeGreaterThanOrEqual(MIN_CONVERGED);
 
       if (REQUIRE_FULL_CONVERGENCE) {
-        expect(summary.failed, `Convergence failed for ${summary.failed}/${summary.tested} convergence rows`).toBe(0);
+        expect(summaryPacket.failed, `Convergence failed for ${summaryPacket.failed}/${summaryPacket.tested} convergence rows`).toBe(0);
       }
     } finally {
       await Promise.all([

@@ -146,9 +146,13 @@ async function main() {
       writeFileSync(summaryPathForRun, JSON.stringify(summary, null, 2), 'utf8');
     }
 
+    const summaryVerdict = summary?.verdict ?? null;
+    const isScarcity = summaryVerdict === 'blocked_setup_scarcity';
+
     const strictPass = Boolean(
       proc.status === 0
       && summary
+      && summaryVerdict === 'pass'
       && typeof summary.tested === 'number'
       && summary.tested > 0
       && summary.converged === summary.tested
@@ -164,12 +168,15 @@ async function main() {
       reportParseError: parseError,
       summaryPath: summaryPathForRun,
       summaryError,
+      verdict: summaryVerdict,
       status: primaryResult?.status ?? (strictPass ? 'passed' : 'failed'),
       at: summary?.at ?? null,
       tested: summary?.tested ?? null,
       converged: summary?.converged ?? null,
       failed: summary?.failed ?? null,
       harnessFailed: summary?.harnessFailed ?? 0,
+      blockedSetupScarcity: isScarcity,
+      preflight: summary?.preflight ?? null,
       failureReasons: summary ? summarizeFailureReasons(summary) : {},
       failureClasses: summary ? summarizeFailureClasses(summary) : {},
       firstFailure: (summary?.matrix ?? []).find((row) => !row.converged) ?? null,
@@ -181,7 +188,9 @@ async function main() {
 
     const state = strictPass
       ? `PASS (${runRecord.converged}/${runRecord.tested})`
-      : `FAIL (${runRecord.converged ?? 'n/a'}/${runRecord.tested ?? 'n/a'}, harness=${runRecord.harnessFailed ?? 'n/a'})`;
+      : isScarcity
+        ? `BLOCKED_SETUP_SCARCITY (found=${runRecord.preflight?.voteCapableFound ?? '?'}/${runRecord.preflight?.voteCapableRequired ?? '?'})`
+        : `FAIL (${runRecord.converged ?? 'n/a'}/${runRecord.tested ?? 'n/a'}, harness=${runRecord.harnessFailed ?? 'n/a'})`;
     console.log(`[vh:live-stability] run ${run}/${runCount} ${state}`);
 
     if (run < runCount && pauseMs > 0) {
@@ -190,12 +199,14 @@ async function main() {
   }
 
   const strictStabilityAchieved = results.every((result) => result.strictPass);
+  const scarcityCount = results.filter((result) => result.blockedSetupScarcity).length;
   const packet = {
     generatedAt: new Date().toISOString(),
     runCount,
     strictStabilityAchieved,
     passCount: results.filter((result) => result.strictPass).length,
     failCount: results.filter((result) => !result.strictPass).length,
+    scarcityCount,
     results,
   };
 
@@ -206,6 +217,7 @@ async function main() {
     strictStabilityAchieved,
     passCount: packet.passCount,
     failCount: packet.failCount,
+    scarcityCount: packet.scarcityCount,
   }, null, 2));
 
   if (!strictStabilityAchieved) {
