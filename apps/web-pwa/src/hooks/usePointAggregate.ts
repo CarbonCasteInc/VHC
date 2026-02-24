@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { readAggregates, type PointAggregate } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
+import { consumeVoteTimestamp, logConvergenceLag } from '../utils/sentimentTelemetry';
 
 type PointAggregateStatus = 'idle' | 'loading' | 'success' | 'error';
 type PointAggregateTelemetryStatus = 'success' | 'error' | 'timeout';
@@ -174,6 +175,17 @@ export function usePointAggregate({
           });
 
           if (!zeroSnapshot) {
+            const voteTs = consumeVoteTimestamp(topicId, pointId);
+            if (voteTs !== null) {
+              const observedAt = Date.now();
+              logConvergenceLag({
+                topic_id: topicId,
+                point_id: pointId,
+                write_at: voteTs,
+                observed_at: observedAt,
+                lag_ms: Math.max(0, observedAt - voteTs),
+              });
+            }
             setResult({
               aggregate,
               status: 'success',
