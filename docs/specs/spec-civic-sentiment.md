@@ -168,3 +168,13 @@ The canonical vote architecture separates into four planes:
 - ~~Fixed ack-timeout thresholds as correctness determinants.~~
 
 These deprecated patterns remain functional during migration (WS-F) but are not the canonical path for new development.
+
+## 13. Live stability gate clarifications (2026-02-24)
+
+These constraints define how strict live validation must classify outcomes for the civic sentiment convergence contract.
+
+1. **Setup vs convergence separation (required):** strict live checks MUST distinguish setup-readiness failures from convergence correctness failures.
+2. **Scarcity classification (required):** if the environment cannot produce enough vote-capable topics for the configured matrix cardinality, the run MUST return a setup-scarcity verdict (not a convergence defect).
+3. **Locked candidate set (required):** once readiness preflight succeeds, convergence checks MUST run against a frozen candidate set for deterministic A/B comparison.
+4. **Bounded readiness (required):** preflight discovery/probing must use explicit time budgets to avoid consuming the full test window before convergence is exercised.
+5. **Diagnostic completeness (required):** setup-scarcity outcomes must include reject-reason counts so environmental blockers (feed discovery, vote control readiness, analysis availability) are auditable.
