@@ -75,6 +75,7 @@ describe('useSentimentState storage bootstrap/persist guards', () => {
     vi.doMock('../utils/sentimentTelemetry', () => ({
       logVoteAdmission: vi.fn(),
       logMeshWriteResult: vi.fn(),
+      recordVoteTimestamp: vi.fn(),
     }));
 
     const { useSentimentState } = await importFreshStore();

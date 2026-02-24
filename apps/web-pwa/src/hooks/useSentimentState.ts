@@ -11,7 +11,7 @@ import {
   resolveNextAgreement,
   type Agreement,
 } from '../components/feed/voteSemantics';
-import { logMeshWriteResult } from '../utils/sentimentTelemetry';
+import { logMeshWriteResult, recordVoteTimestamp } from '../utils/sentimentTelemetry';
 import { createDenialReceipt, createAdmissionReceipt, deriveProofRef } from './voteAdmission';
 import { enqueueIntent } from './voteIntentQueue';
 import { scheduleVoteIntentReplay } from './voteIntentMaterializer';
@@ -480,6 +480,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
 
     useXpLedger.getState().consumeAction('sentiment_votes/day', 1);
     if (emittedSignal) {
+      recordVoteTimestamp(topicId, normalizedSynthesisPointId);
       // Persist durable intent record before projection
       const signal: SentimentSignal = emittedSignal;
       void (async () => {

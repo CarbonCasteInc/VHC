@@ -10,6 +10,10 @@ const DevModelPicker = import.meta.env.DEV
   ? lazy(() => import('./components/dev/DevModelPicker'))
   : null;
 
+const HealthIndicator = import.meta.env.DEV || import.meta.env.VITE_VH_SHOW_HEALTH === 'true'
+  ? lazy(() => import('./components/dev/HealthIndicator'))
+  : null;
+
 console.info('[vh:web-pwa] main.tsx executing, mounting router...');
 
 const router = createRouter({ routeTree });
@@ -30,6 +34,11 @@ if (root) {
         {DevModelPicker && (
           <Suspense fallback={null}>
             <DevModelPicker />
+          </Suspense>
+        )}
+        {HealthIndicator && (
+          <Suspense fallback={null}>
+            <HealthIndicator />
           </Suspense>
         )}
       </ThemeProvider>
