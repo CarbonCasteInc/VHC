@@ -663,6 +663,8 @@ test.describe('live mesh convergence', () => {
         }
 
         // ── Phase 2: Convergence ────────────────────────────────────────
+        // Navigate to feed once per page; topics are opened/closed in-place
+        // against the locked candidate set without per-topic reloads.
         await gotoFeed(pageA);
         await gotoFeed(pageB);
 
@@ -684,7 +686,6 @@ test.describe('live mesh convergence', () => {
           };
 
           try {
-            await gotoFeed(pageA);
             const cardA = await openTopic(pageA, row);
             const pointA = await resolvePointInCard(cardA);
             if (!pointA.found) {
@@ -701,7 +702,6 @@ test.describe('live mesh convergence', () => {
             result.aAfterClick = await readCounts(cardA, pointA.pointId);
             await closeTopic(pageA, cardA);
 
-            await gotoFeed(pageB);
             const cardB = await openTopic(pageB, row);
             const pointB = await resolvePointInCard(cardB, pointA.pointId);
             if (!pointB.found) {
@@ -724,6 +724,8 @@ test.describe('live mesh convergence', () => {
 
             if (!convergedLive) {
               await closeTopic(pageB, cardB);
+              // Reload is the one exception — convergence polling failed, so
+              // B needs a fresh page to read mesh state from scratch.
               await pageB.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
               await gotoFeed(pageB);
               const cardReload = await openTopic(pageB, row);
