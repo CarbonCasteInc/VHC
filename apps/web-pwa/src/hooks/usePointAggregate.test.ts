@@ -7,6 +7,8 @@ import { usePointAggregate } from './usePointAggregate';
 
 const readAggregatesMock = vi.hoisted(() => vi.fn());
 const resolveClientFromAppStoreMock = vi.hoisted(() => vi.fn());
+const consumeVoteTimestampMock = vi.hoisted(() => vi.fn());
+const logConvergenceLagMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@vh/gun-client', () => ({
   readAggregates: (...args: unknown[]) => readAggregatesMock(...args),
@@ -14,6 +16,11 @@ vi.mock('@vh/gun-client', () => ({
 
 vi.mock('../store/clientResolver', () => ({
   resolveClientFromAppStore: () => resolveClientFromAppStoreMock(),
+}));
+
+vi.mock('../utils/sentimentTelemetry', () => ({
+  consumeVoteTimestamp: (...args: unknown[]) => consumeVoteTimestampMock(...args),
+  logConvergenceLag: (...args: unknown[]) => logConvergenceLagMock(...args),
 }));
 
 function HookHarness(props: {
@@ -58,7 +65,10 @@ describe('usePointAggregate', () => {
   beforeEach(() => {
     readAggregatesMock.mockReset();
     resolveClientFromAppStoreMock.mockReset();
+    consumeVoteTimestampMock.mockReset();
+    logConvergenceLagMock.mockReset();
     resolveClientFromAppStoreMock.mockReturnValue({} as any);
+    consumeVoteTimestampMock.mockReturnValue(null);
     vi.useRealTimers();
   });
 
@@ -158,6 +168,36 @@ describe('usePointAggregate', () => {
         attempt: 1,
       }),
     );
+  });
+
+  it('emits convergence lag telemetry when a vote timestamp is present', async () => {
+    readAggregatesMock.mockResolvedValueOnce(aggregateFixture({ agree: 3, disagree: 1, participants: 4, weight: 4 }));
+    consumeVoteTimestampMock.mockReturnValueOnce(10_000);
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await waitFor(() => {
+      expect(readHookResult().status).toBe('success');
+    });
+
+    expect(logConvergenceLagMock).toHaveBeenCalledTimes(1);
+    const payload = logConvergenceLagMock.mock.calls[0]?.[0] as {
+      topic_id: string;
+      point_id: string;
+      write_at: number;
+      observed_at: number;
+      lag_ms: number;
+    };
+    expect(payload.topic_id).toBe('topic-1');
+    expect(payload.point_id).toBe('point-1');
+    expect(payload.write_at).toBe(10_000);
+    expect(payload.observed_at).toBeGreaterThanOrEqual(payload.write_at);
+    expect(payload.lag_ms).toBeGreaterThanOrEqual(0);
   });
 
   it('retries zero aggregate snapshots and updates once non-zero data arrives', async () => {

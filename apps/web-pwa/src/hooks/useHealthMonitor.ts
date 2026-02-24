@@ -29,14 +29,12 @@ const CONVERGENCE_LAG_WINDOW_SIZE = 20;
 const meshWriteResults: boolean[] = [];
 const convergenceLagSamples: number[] = [];
 
-function computeRate(results: boolean[]): number {
-  if (results.length === 0) return 1;
+function computeRate(results: readonly boolean[]): number {
   const successes = results.filter(Boolean).length;
   return successes / results.length;
 }
 
-function computeP95(samples: number[]): number | null {
-  if (samples.length === 0) return null;
+function computeP95(samples: readonly number[]): number {
   const sorted = [...samples].sort((a, b) => a - b);
   const idx = Math.ceil(sorted.length * 0.95) - 1;
   return sorted[Math.max(0, idx)]!;
@@ -135,11 +133,9 @@ function probeGunPeer(): void {
       },
     );
   } catch {
-    if (!resolved) {
-      resolved = true;
-      clearTimeout(timeout);
-      useHealthStore.getState().updateGunPeerState('disconnected');
-    }
+    resolved = true;
+    clearTimeout(timeout);
+    useHealthStore.getState().updateGunPeerState('disconnected');
   }
 }
 
