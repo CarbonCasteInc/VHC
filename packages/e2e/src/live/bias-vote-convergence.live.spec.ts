@@ -53,7 +53,7 @@ const TELEMETRY_TAGS = [
   '[vh:vote:intent-replay]',
 ] as const;
 
-type Actor = 'A' | 'B';
+type Actor = 'A' | 'B' | 'I';
 
 type TopicRow = {
   readonly topicId: string;
@@ -777,6 +777,7 @@ test.describe('live mesh convergence', () => {
     const pageB = await contextB.newPage();
 
     const telemetryEvents: TelemetryEvent[] = [];
+    attachTelemetry(ingesterPage, 'I', telemetryEvents);
     attachTelemetry(pageA, 'A', telemetryEvents);
     attachTelemetry(pageB, 'B', telemetryEvents);
 
