@@ -220,6 +220,14 @@ function createAnalysisRelayPlugin(): Plugin {
           );
           if (result.status === 200) {
             sendJson(res, 200, { ok: true, model: c.modelOverride ?? 'default', upstream: 'reachable' });
+          } else if (result.status === 502 && result.payload.error === 'Upstream response missing content') {
+            // Some models can return empty content for tiny prompts while still proving upstream connectivity.
+            sendJson(res, 200, {
+              ok: true,
+              model: c.modelOverride ?? 'default',
+              upstream: 'reachable',
+              note: 'upstream returned empty content for probe prompt',
+            });
           } else {
             sendJson(res, 502, { ok: false, error: result.payload.error ?? `Upstream status ${result.status}`, status: result.status });
           }
