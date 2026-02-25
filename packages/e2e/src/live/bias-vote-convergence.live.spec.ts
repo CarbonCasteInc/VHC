@@ -434,8 +434,74 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
   return null;
 }
 
+async function resolveCardLocator(page: Page, row: TopicRow): Promise<Locator | null> {
+  const escapedStoryId = row.storyId.replace(/"/g, '\\"');
+  const byStory = page.locator(
+    `[data-testid^="news-card-headline-"][data-story-id="${escapedStoryId}"]`,
+  );
+  if (await byStory.count()) {
+    return byStory.first().locator('xpath=ancestor::article[1]');
+  }
+
+  const byTopic = page.locator(`[data-testid="news-card-headline-${row.topicId}"]`);
+  if (await byTopic.count()) {
+    return byTopic.first().locator('xpath=ancestor::article[1]');
+  }
+
+  return null;
+}
+
+function isTransientPreflightReason(reason: string): boolean {
+  return (
+    reason.startsWith('headline-not-found:')
+    || reason.startsWith('headline-miss:')
+    || reason.startsWith('card-open-timeout:')
+    || reason.startsWith('locator-detached:')
+    || reason.startsWith('card-detached:')
+    || reason.startsWith('locator.scrollIntoViewIfNeeded:')
+    || reason.startsWith('locator.waitFor:')
+    || reason.includes('not attached to the DOM')
+  );
+}
+
+async function waitForFlipSettled(
+  page: Page,
+  row: TopicRow,
+  timeoutMs: number,
+): Promise<Locator | null> {
+  const deadline = Date.now() + timeoutMs;
+  let stableSince = 0;
+
+  while (Date.now() < deadline) {
+    const card = await resolveCardLocator(page, row);
+    if (!card) {
+      stableSince = 0;
+      await sleep(150);
+      continue;
+    }
+
+    const backVisible = await card.locator('[data-testid^="news-card-back-"]').first().isVisible().catch(() => false);
+    const frontVisible = await card.locator('[data-testid^="news-card-headline-"]').first().isVisible().catch(() => false);
+
+    if (backVisible && !frontVisible) {
+      if (stableSince === 0) {
+        stableSince = Date.now();
+      }
+      if (Date.now() - stableSince >= 350) {
+        return card;
+      }
+    } else {
+      stableSince = 0;
+    }
+
+    await sleep(150);
+  }
+
+  return null;
+}
+
 async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     let headline = await findHeadlineLocator(page, row);
 
     // If the headline wasn't found in the current viewport, scroll down in
@@ -457,8 +523,29 @@ async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
       throw new Error(`headline-not-found:${row.storyId}`);
     }
 
-    await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
-    await headline.waitFor({ state: 'visible', timeout: 20_000 });
+    try {
+      await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
+      await headline.waitFor({ state: 'visible', timeout: 20_000 });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      if (isTransientPreflightReason(reason) && attempt < 2) {
+        await page.waitForTimeout(250);
+        continue;
+      }
+      throw error;
+    }
+
+    // Re-resolve headline immediately before click to avoid stale handles
+    // when feed rows are re-keyed during bridge updates.
+    headline = await findHeadlineLocator(page, row);
+    if (!headline) {
+      if (attempt < 2) {
+        await page.waitForTimeout(250);
+        continue;
+      }
+      throw new Error(`headline-not-found:${row.storyId}`);
+    }
+
     const card = headline.locator('xpath=ancestor::article[1]');
     // Clicking the article container is more stable than clicking the nested
     // headline button when FlippableCard front/back transitions are mid-flight.
@@ -466,13 +553,9 @@ async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
       await headline.click();
     });
 
-    const opened = await waitFor(
-      async () => await card.locator('[data-testid^="news-card-back-"]').first().isVisible().catch(() => false),
-      8_000,
-      250,
-    );
-    if (opened) {
-      return card;
+    const settledCard = await waitForFlipSettled(page, row, 8_000);
+    if (settledCard) {
+      return settledCard;
     }
 
     await page.keyboard.press('Escape').catch(() => {});
@@ -482,50 +565,83 @@ async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
   throw new Error(`card-open-timeout:${row.storyId}`);
 }
 
-async function closeTopic(page: Page, card: Locator): Promise<void> {
-  const backButton = card.locator('[data-testid^="news-card-back-button-"]');
-  if (await backButton.count()) {
-    const first = backButton.first();
-    if (await first.isVisible().catch(() => false)) {
-      await first.click().catch(() => {});
-      await page.waitForTimeout(250);
+async function closeTopic(page: Page, row: TopicRow, cardHint?: Locator): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const card = (await resolveCardLocator(page, row)) ?? cardHint ?? null;
+    if (card) {
+      const backButton = card.locator('[data-testid^="news-card-back-button-"]').first();
+      const backVisible = await backButton.isVisible().catch(() => false);
+      if (backVisible) {
+        await backButton.click().catch(() => {});
+      } else {
+        await page.keyboard.press('Escape').catch(() => {});
+      }
+    } else {
+      await page.keyboard.press('Escape').catch(() => {});
+    }
+
+    const closed = await waitFor(async () => {
+      const resolved = await resolveCardLocator(page, row);
+      if (!resolved) return true;
+      const backVisible = await resolved.locator('[data-testid^="news-card-back-"]').first().isVisible().catch(() => false);
+      return !backVisible;
+    }, 2_000, 150);
+    if (closed) {
+      await page.waitForTimeout(150);
       return;
     }
+
+    await page.waitForTimeout(150);
   }
 
   await page.keyboard.press('Escape').catch(() => {});
-  await page.waitForTimeout(250);
+  await page.waitForTimeout(150);
 }
 
 type ResolvedPoint =
   | { found: true; pointId: string; matchedPreferred: boolean }
   | { found: false; reason: string };
 
-async function resolvePointInCard(card: Locator, preferredPointId: string | null = null, timeoutMs = 20_000): Promise<ResolvedPoint> {
-  const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
-  const hasButtons = await waitFor(async () => (await buttons.count()) > 0, timeoutMs, 300);
-  if (!hasButtons) {
-    return { found: false, reason: 'no-vote-buttons' };
-  }
+async function resolvePointInCard(
+  page: Page,
+  row: TopicRow,
+  preferredPointId: string | null = null,
+  timeoutMs = 20_000,
+  cardHint?: Locator,
+): Promise<ResolvedPoint> {
+  const deadline = Date.now() + timeoutMs;
 
-  if (preferredPointId) {
-    const preferred = card.getByTestId(`cell-vote-agree-${preferredPointId}`);
-    if (await preferred.count()) {
-      return { found: true, pointId: preferredPointId, matchedPreferred: true };
+  while (Date.now() < deadline) {
+    const card = (await resolveCardLocator(page, row)) ?? cardHint ?? null;
+    if (card) {
+      const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
+      const buttonCount = await buttons.count().catch(() => 0);
+      if (buttonCount > 0) {
+        if (preferredPointId) {
+          const preferred = card.getByTestId(`cell-vote-agree-${preferredPointId}`);
+          if (await preferred.count().catch(() => 0)) {
+            return { found: true, pointId: preferredPointId, matchedPreferred: true };
+          }
+        }
+
+        const first = buttons.first();
+        const testId = await first.getAttribute('data-testid');
+        if (!testId) {
+          return { found: false, reason: 'missing-point-testid' };
+        }
+
+        return {
+          found: true,
+          pointId: testId.replace('cell-vote-agree-', ''),
+          matchedPreferred: false,
+        };
+      }
     }
+
+    await sleep(250);
   }
 
-  const first = buttons.first();
-  const testId = await first.getAttribute('data-testid');
-  if (!testId) {
-    return { found: false, reason: 'missing-point-testid' };
-  }
-
-  return {
-    found: true,
-    pointId: testId.replace('cell-vote-agree-', ''),
-    matchedPreferred: false,
-  };
+  return { found: false, reason: 'no-vote-buttons' };
 }
 
 type PreflightReject = {
@@ -548,9 +664,11 @@ async function collectVoteCapableRows(
 ): Promise<PreflightResult> {
   const ready: TopicRow[] = [];
   const rejects: PreflightReject[] = [];
-  const seen = new Set<string>();
+  const settled = new Set<string>();
+  const attemptsByStory = new Map<string, number>();
   const queued = new Set<string>();
   const queue: TopicRow[] = [];
+  const MAX_TRANSIENT_RETRIES_PER_STORY = 3;
   for (const row of candidates) {
     if (queued.has(row.storyId)) continue;
     queued.add(row.storyId);
@@ -558,12 +676,10 @@ async function collectVoteCapableRows(
   }
   const budgetDeadline = Date.now() + budgetMs;
   let exhaustedBudget = false;
-  const isTransientCandidateMiss = (reason: string): boolean =>
-    reason.startsWith('headline-not-found:') || reason.startsWith('card-open-timeout:');
   const enqueueFreshCandidates = async (): Promise<void> => {
     const refreshed = await discoverTopicsByScrolling(page, MAX_SCAN_SIZE);
     for (const row of refreshed) {
-      if (queued.has(row.storyId) || seen.has(row.storyId)) continue;
+      if (queued.has(row.storyId) || settled.has(row.storyId)) continue;
       queued.add(row.storyId);
       queue.push(row);
       if (queue.length >= MAX_SCAN_SIZE) break;
@@ -581,10 +697,12 @@ async function collectVoteCapableRows(
       break;
     }
 
-    if (seen.has(row.storyId)) {
+    if (settled.has(row.storyId)) {
       continue;
     }
-    seen.add(row.storyId);
+
+    const attemptCount = (attemptsByStory.get(row.storyId) ?? 0) + 1;
+    attemptsByStory.set(row.storyId, attemptCount);
 
     let card: Locator | null = null;
 
@@ -597,27 +715,37 @@ async function collectVoteCapableRows(
 
       if (Date.now() >= candidateDeadline) {
         rejects.push({ storyId: row.storyId, headline: row.headline, reason: 'per-candidate-timeout' });
-        await closeTopic(page, card).catch(() => {});
+        settled.add(row.storyId);
+        await closeTopic(page, row, card).catch(() => {});
         card = null;
         continue;
       }
 
       const remainingMs = Math.max(5_000, candidateDeadline - Date.now());
-      const point = await resolvePointInCard(card, null, remainingMs);
+      const point = await resolvePointInCard(page, row, null, remainingMs, card);
       if (point.found) {
         ready.push(row);
+        settled.add(row.storyId);
       } else {
         rejects.push({ storyId: row.storyId, headline: row.headline, reason: point.reason });
+        settled.add(row.storyId);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      if (isTransientCandidateMiss(reason) && Date.now() < budgetDeadline && queue.length < MAX_SCAN_SIZE) {
-        await enqueueFreshCandidates().catch(() => {});
+      const transient = isTransientPreflightReason(reason);
+
+      if (transient && Date.now() < budgetDeadline && attemptCount < MAX_TRANSIENT_RETRIES_PER_STORY) {
+        queue.push(row);
+        if (queue.length < MAX_SCAN_SIZE) {
+          await enqueueFreshCandidates().catch(() => {});
+        }
+      } else {
+        rejects.push({ storyId: row.storyId, headline: row.headline, reason });
+        settled.add(row.storyId);
       }
-      rejects.push({ storyId: row.storyId, headline: row.headline, reason });
     } finally {
       if (card) {
-        await closeTopic(page, card).catch(() => {});
+        await closeTopic(page, row, card).catch(() => {});
       }
     }
   }
@@ -625,7 +753,12 @@ async function collectVoteCapableRows(
   return { ready, rejects, exhaustedBudget };
 }
 
-async function readCounts(card: Locator, pointId: string): Promise<VoteCounts> {
+async function readCounts(page: Page, row: TopicRow, pointId: string, cardHint?: Locator): Promise<VoteCounts> {
+  const card = (await resolveCardLocator(page, row)) ?? cardHint ?? null;
+  if (!card) {
+    throw new Error(`card-detached:${row.storyId}`);
+  }
+
   const agreeText = (await card.getByTestId(`cell-vote-agree-${pointId}`).textContent())?.trim() ?? '';
   const disagreeText = (await card.getByTestId(`cell-vote-disagree-${pointId}`).textContent())?.trim() ?? '';
 
@@ -865,10 +998,10 @@ test.describe('live mesh convergence', () => {
 
           try {
             const cardA = await openTopic(pageA, row);
-            const pointA = await resolvePointInCard(cardA);
+            const pointA = await resolvePointInCard(pageA, row, null, 20_000, cardA);
             if (!pointA.found) {
               result.reason = `A:${pointA.reason}`;
-              await closeTopic(pageA, cardA);
+              await closeTopic(pageA, row, cardA);
               result.failureClass = classifyFailure(result.reason);
               matrix.push(result);
               continue;
@@ -879,14 +1012,14 @@ test.describe('live mesh convergence', () => {
             // Allow mesh projection (writeVoterNode, writeSentimentEvent) to
             // complete and begin replicating before B opens the topic.
             await pageA.waitForTimeout(3_000);
-            result.aAfterClick = await readCounts(cardA, pointA.pointId);
-            await closeTopic(pageA, cardA);
+            result.aAfterClick = await readCounts(pageA, row, pointA.pointId, cardA);
+            await closeTopic(pageA, row, cardA);
 
             const cardB = await openTopic(pageB, row);
-            const pointB = await resolvePointInCard(cardB, pointA.pointId);
+            const pointB = await resolvePointInCard(pageB, row, pointA.pointId, 20_000, cardB);
             if (!pointB.found) {
               result.reason = `B:${pointB.reason}`;
-              await closeTopic(pageB, cardB);
+              await closeTopic(pageB, row, cardB);
               result.failureClass = classifyFailure(result.reason);
               matrix.push(result);
               continue;
@@ -894,7 +1027,7 @@ test.describe('live mesh convergence', () => {
 
             result.bPointId = pointB.pointId;
             result.bMatchedA = pointB.matchedPreferred;
-            result.bObserved = await readCounts(cardB, pointB.pointId);
+            result.bObserved = await readCounts(pageB, row, pointB.pointId, cardB);
 
             // Phase 2 convergence: close/re-open topic on each poll iteration
             // so usePointAggregate re-mounts with fresh Gun .once() reads.
@@ -903,18 +1036,18 @@ test.describe('live mesh convergence', () => {
             const CONVERGENCE_POLLS = 4;
             const CONVERGENCE_SETTLE_MS = 2_000;
             let convergedLive = result.bObserved.agree > 0;
-            await closeTopic(pageB, cardB);
+            await closeTopic(pageB, row, cardB);
 
             for (let poll = 0; poll < CONVERGENCE_POLLS && !convergedLive; poll += 1) {
               await pageB.waitForTimeout(CONVERGENCE_SETTLE_MS);
               const pollCard = await openTopic(pageB, row);
-              const pollPoint = await resolvePointInCard(pollCard, pointA.pointId);
+              const pollPoint = await resolvePointInCard(pageB, row, pointA.pointId, 20_000, pollCard);
               if (pollPoint.found) {
-                const counts = await readCounts(pollCard, pollPoint.pointId);
+                const counts = await readCounts(pageB, row, pollPoint.pointId, pollCard);
                 result.bObserved = counts;
                 convergedLive = counts.agree > 0;
               }
-              await closeTopic(pageB, pollCard);
+              await closeTopic(pageB, row, pollCard);
             }
 
             if (!convergedLive) {
@@ -922,15 +1055,15 @@ test.describe('live mesh convergence', () => {
               await pageB.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
               await gotoFeed(pageB);
               const cardReload = await openTopic(pageB, row);
-              const pointReload = await resolvePointInCard(cardReload, pointA.pointId);
+              const pointReload = await resolvePointInCard(pageB, row, pointA.pointId, 20_000, cardReload);
               if (pointReload.found) {
                 result.bPointId = pointReload.pointId;
                 result.bMatchedA = pointReload.pointId === pointA.pointId;
-                result.bObservedAfterReload = await readCounts(cardReload, pointReload.pointId);
+                result.bObservedAfterReload = await readCounts(pageB, row, pointReload.pointId, cardReload);
               } else {
                 result.reason = `B-reload:${pointReload.reason}`;
               }
-              await closeTopic(pageB, cardReload);
+              await closeTopic(pageB, row, cardReload);
             }
 
             const finalAgree = result.bObservedAfterReload?.agree ?? result.bObserved?.agree ?? 0;
