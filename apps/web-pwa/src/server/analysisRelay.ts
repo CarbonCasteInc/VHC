@@ -161,6 +161,24 @@ export function extractTopicId(articleText: string): string | undefined {
   return match && match.length > 0 ? match : undefined;
 }
 
+/**
+ * Convert a flat { prompt, model, max_tokens, temperature } request into
+ * OpenAI chat-completions format ({ model, messages, max_tokens, temperature }).
+ */
+function toChatCompletionsPayload(request: {
+  prompt: string;
+  model: string;
+  max_tokens: number;
+  temperature: number;
+}): { model: string; messages: Array<{ role: string; content: string }>; max_tokens: number; temperature: number } {
+  return {
+    model: request.model,
+    messages: [{ role: 'user', content: request.prompt }],
+    max_tokens: request.max_tokens,
+    temperature: request.temperature,
+  };
+}
+
 function readContentFromUpstream(body: unknown): string | null {
   if (!isObject(body)) return null;
   const fromContent = asNonEmptyString(body.content);
@@ -267,13 +285,14 @@ export async function relayAnalysis(
   };
 
   try {
+    const chatPayload = toChatCompletionsPayload(upstreamRequest);
     const upstream = await fetchImpl(config.endpointUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${config.apiKey}`,
       },
-      body: JSON.stringify(upstreamRequest),
+      body: JSON.stringify(chatPayload),
     });
 
     if (!upstream.ok) {
