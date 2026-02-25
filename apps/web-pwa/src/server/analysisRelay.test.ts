@@ -152,11 +152,12 @@ describe('analysisRelay config + success paths', () => {
       Authorization: 'Bearer server-secret',
     });
     expect(body).toMatchObject({
-      prompt: 'Prompt body',
       model: 'client-model',
+      messages: [{ role: 'user', content: 'Prompt body' }],
       max_tokens: 128,
       temperature: 0.2,
     });
+    expect(body).not.toHaveProperty('prompt');
   });
 
   it('enforces server model override even when client supplies model', async () => {
@@ -259,7 +260,8 @@ describe('analysisRelay config + success paths', () => {
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.prompt).toContain('You are VHC.Legacy, the canonical analysis path for article synthesis.');
+    expect(body.messages[0].content).toContain('You are VHC.Legacy, the canonical analysis path for article synthesis.');
+    expect(body).not.toHaveProperty('prompt');
   });
 
   it('uses explicit topicId for article requests when provided', async () => {
