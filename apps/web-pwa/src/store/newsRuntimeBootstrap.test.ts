@@ -36,6 +36,20 @@ function makeHandle(running = true) {
   };
 }
 
+function makeMockResponse(status: number, payload: unknown) {
+  const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    async text() {
+      return body;
+    },
+    async json() {
+      return typeof payload === 'string' ? JSON.parse(payload) : payload;
+    },
+  };
+}
+
 describe('ensureNewsRuntimeStarted', () => {
   beforeEach(() => {
     __resetNewsRuntimeForTesting();
@@ -294,5 +308,71 @@ describe('ensureNewsRuntimeStarted', () => {
 
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
     expect(stopMock).not.toHaveBeenCalled();
+  });
+
+  it('filters runtime feed sources by article-text reliability when gate is enabled', async () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_GATE', 'true');
+    vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_SAMPLE_SIZE', '2');
+    vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_MIN_SUCCESS_COUNT', '1');
+    vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_MIN_SUCCESS_RATE', '0.5');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+      ]),
+    );
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const requestUrl = String(input);
+      if (requestUrl === '/rss/source-a') {
+        return makeMockResponse(
+          200,
+          `<rss><channel><item><link>https://a.example/1</link></item><item><link>https://a.example/2</link></item></channel></rss>`,
+        );
+      }
+      if (requestUrl === '/rss/source-b') {
+        return makeMockResponse(
+          200,
+          `<rss><channel><item><link>https://b.example/1</link></item><item><link>https://b.example/2</link></item></channel></rss>`,
+        );
+      }
+      if (requestUrl.includes('/article-text?url=')) {
+        const target = decodeURIComponent(requestUrl.split('/article-text?url=')[1] ?? '');
+        if (target.includes('a.example')) {
+          return makeMockResponse(200, { text: 'A'.repeat(500) });
+        }
+        return makeMockResponse(502, { error: 'extract failed' });
+      }
+      return makeMockResponse(404, { error: 'not found' });
+    });
+
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+    await ensureNewsRuntimeStarted({ id: 'reliability-client' } as any);
+
+    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as { feedSources: Array<{ id: string }> };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a']);
+  });
+
+  it('keeps sources when reliability probe is inconclusive for all sources', async () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_GATE', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+      ]),
+    );
+
+    const fetchMock = vi.fn(async () => makeMockResponse(404, { error: 'proxy unavailable' }));
+    vi.stubGlobal('fetch', fetchMock as unknown as typeof fetch);
+    await ensureNewsRuntimeStarted({ id: 'inconclusive-client' } as any);
+
+    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as { feedSources: Array<{ id: string }> };
+    expect(runtimeConfig.feedSources.map((source) => source.id).sort()).toEqual(['source-a', 'source-b']);
   });
 });
