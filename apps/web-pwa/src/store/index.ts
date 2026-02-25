@@ -91,7 +91,7 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
   }
 
   try {
-    ensureNewsRuntimeStarted(client);
+    await ensureNewsRuntimeStarted(client);
   } catch (runtimeError) {
     console.warn(`[vh:news-runtime] Failed to bootstrap runtime (${context}):`, runtimeError);
   }
