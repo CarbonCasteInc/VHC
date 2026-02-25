@@ -160,6 +160,28 @@ describe('analysisRelay config + success paths', () => {
     expect(body).not.toHaveProperty('prompt');
   });
 
+  it('uses max_completion_tokens for gpt-5/o-series models', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}', model: 'provider-model' }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Prompt body',
+        model: 'gpt-5-nano',
+        max_tokens: 96,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('gpt-5-nano');
+    expect(body.max_completion_tokens).toBe(96);
+    expect(body).not.toHaveProperty('max_tokens');
+  });
+
   it('enforces server model override even when client supplies model', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse({ content: '{"ok":true}' }));
 

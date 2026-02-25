@@ -289,6 +289,18 @@ async function getTopicRows(page: Page): Promise<ReadonlyArray<TopicRow>> {
     const out: TopicRow[] = [];
     const nodes = Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="news-card-headline-"]'));
     for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      const visible =
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.opacity !== '0';
+      if (!visible) {
+        continue;
+      }
+
       const testId = node.getAttribute('data-testid') || '';
       const topicId = testId.replace('news-card-headline-', '');
       const storyId =
@@ -352,8 +364,12 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
   const byStoryId = page.locator(
     `[data-testid^="news-card-headline-"][data-story-id="${escapedStoryId}"]`,
   );
-  if (await byStoryId.count()) {
-    return byStoryId.first();
+  const byStoryIdCount = await byStoryId.count();
+  for (let i = 0; i < byStoryIdCount; i += 1) {
+    const candidate = byStoryId.nth(i);
+    if (await candidate.isVisible().catch(() => false)) {
+      return candidate;
+    }
   }
 
   const candidates = page.locator(`[data-testid="news-card-headline-${row.topicId}"]`);
@@ -361,6 +377,9 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 
   for (let i = 0; i < count; i += 1) {
     const candidate = candidates.nth(i);
+    if (!await candidate.isVisible().catch(() => false)) {
+      continue;
+    }
     const text = ((await candidate.textContent()) ?? '').trim();
     const candidateStoryId = (await candidate.getAttribute('data-story-id')) ?? '';
     if (candidateStoryId === row.storyId || text === row.headline) {
@@ -370,8 +389,26 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 
   for (let i = 0; i < count; i += 1) {
     const candidate = candidates.nth(i);
+    if (!await candidate.isVisible().catch(() => false)) {
+      continue;
+    }
     const text = ((await candidate.textContent()) ?? '').trim();
     if (text.includes(row.headline) || row.headline.includes(text)) {
+      return candidate;
+    }
+  }
+
+  // Feed rows can be re-keyed while the runtime bridge is updating. Fall back
+  // to a global headline text scan so we can still open the matching story.
+  const allHeadlines = page.locator('[data-testid^="news-card-headline-"]');
+  const allCount = await allHeadlines.count();
+  for (let i = 0; i < allCount; i += 1) {
+    const candidate = allHeadlines.nth(i);
+    if (!await candidate.isVisible().catch(() => false)) {
+      continue;
+    }
+    const text = ((await candidate.textContent()) ?? '').trim();
+    if (text === row.headline || text.includes(row.headline) || row.headline.includes(text)) {
       return candidate;
     }
   }
@@ -380,29 +417,51 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 }
 
 async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
-  let headline = await findHeadlineLocator(page, row);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    let headline = await findHeadlineLocator(page, row);
 
-  // If the headline wasn't found in the current viewport, scroll down in
-  // bounded passes to bring below-fold topics into the DOM before giving up.
-  if (!headline) {
-    for (let pass = 0; pass < SCROLL_PASSES; pass += 1) {
-      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-      await page.waitForTimeout(1_200);
-      headline = await findHeadlineLocator(page, row);
-      if (headline) break;
+    // If the headline wasn't found in the current viewport, scroll down in
+    // bounded passes to bring below-fold topics into the DOM before giving up.
+    if (!headline) {
+      for (let pass = 0; pass < SCROLL_PASSES; pass += 1) {
+        await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+        await page.waitForTimeout(1_200);
+        headline = await findHeadlineLocator(page, row);
+        if (headline) break;
+      }
     }
+
+    if (!headline) {
+      if (attempt === 0) {
+        await gotoFeed(page);
+        continue;
+      }
+      throw new Error(`headline-not-found:${row.storyId}`);
+    }
+
+    await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
+    await headline.waitFor({ state: 'visible', timeout: 20_000 });
+    const card = headline.locator('xpath=ancestor::article[1]');
+    // Clicking the article container is more stable than clicking the nested
+    // headline button when FlippableCard front/back transitions are mid-flight.
+    await card.click().catch(async () => {
+      await headline.click();
+    });
+
+    const opened = await waitFor(
+      async () => await card.locator('[data-testid^="news-card-back-"]').first().isVisible().catch(() => false),
+      8_000,
+      250,
+    );
+    if (opened) {
+      return card;
+    }
+
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(250);
   }
 
-  if (!headline) {
-    throw new Error(`headline-not-found:${row.storyId}`);
-  }
-
-  await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
-  await headline.waitFor({ state: 'visible', timeout: 20_000 });
-  const card = headline.locator('xpath=ancestor::article[1]');
-  await headline.click();
-  await card.locator('[data-testid^="news-card-back-"]').first().waitFor({ state: 'visible', timeout: 20_000 });
-  return card;
+  throw new Error(`card-open-timeout:${row.storyId}`);
 }
 
 async function closeTopic(page: Page, card: Locator): Promise<void> {
@@ -472,10 +531,29 @@ async function collectVoteCapableRows(
   const ready: TopicRow[] = [];
   const rejects: PreflightReject[] = [];
   const seen = new Set<string>();
+  const queued = new Set<string>();
+  const queue: TopicRow[] = [];
+  for (const row of candidates) {
+    if (queued.has(row.storyId)) continue;
+    queued.add(row.storyId);
+    queue.push(row);
+  }
   const budgetDeadline = Date.now() + budgetMs;
   let exhaustedBudget = false;
+  const isTransientCandidateMiss = (reason: string): boolean =>
+    reason.startsWith('headline-not-found:') || reason.startsWith('card-open-timeout:');
+  const enqueueFreshCandidates = async (): Promise<void> => {
+    const refreshed = await discoverTopicsByScrolling(page, MAX_SCAN_SIZE);
+    for (const row of refreshed) {
+      if (queued.has(row.storyId) || seen.has(row.storyId)) continue;
+      queued.add(row.storyId);
+      queue.push(row);
+      if (queue.length >= MAX_SCAN_SIZE) break;
+    }
+  };
 
-  for (const row of candidates) {
+  for (let index = 0; index < queue.length; index += 1) {
+    const row = queue[index]!;
     if (ready.length >= requiredCount) {
       break;
     }
@@ -515,6 +593,9 @@ async function collectVoteCapableRows(
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
+      if (isTransientCandidateMiss(reason) && Date.now() < budgetDeadline && queue.length < MAX_SCAN_SIZE) {
+        await enqueueFreshCandidates().catch(() => {});
+      }
       rejects.push({ storyId: row.storyId, headline: row.headline, reason });
     } finally {
       if (card) {

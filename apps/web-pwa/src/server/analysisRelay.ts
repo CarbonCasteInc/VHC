@@ -161,6 +161,17 @@ export function extractTopicId(articleText: string): string | undefined {
   return match && match.length > 0 ? match : undefined;
 }
 
+function resolveTokenParam(model: string): 'max_completion_tokens' | 'max_tokens' {
+  if (/^(gpt-5|o1|o3)/i.test(model)) {
+    return 'max_completion_tokens';
+  }
+  return 'max_tokens';
+}
+
+function shouldSendTemperature(model: string): boolean {
+  return !/^(gpt-5|o1|o3)/i.test(model);
+}
+
 /**
  * Convert a flat { prompt, model, max_tokens, temperature } request into
  * OpenAI chat-completions format ({ model, messages, max_tokens, temperature }).
@@ -170,12 +181,19 @@ function toChatCompletionsPayload(request: {
   model: string;
   max_tokens: number;
   temperature: number;
-}): { model: string; messages: Array<{ role: string; content: string }>; max_tokens: number; temperature: number } {
+}): {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  temperature?: number;
+} {
+  const tokenParam = resolveTokenParam(request.model);
   return {
     model: request.model,
     messages: [{ role: 'user', content: request.prompt }],
-    max_tokens: request.max_tokens,
-    temperature: request.temperature,
+    [tokenParam]: request.max_tokens,
+    ...(shouldSendTemperature(request.model) ? { temperature: request.temperature } : {}),
   };
 }
 
