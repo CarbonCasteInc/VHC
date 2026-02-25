@@ -5,6 +5,8 @@ import { buildLegacyVhcArticlePrompt } from './legacyPrompt';
 const DEFAULT_ANALYSES_LIMIT = 25;
 const DEFAULT_ANALYSES_PER_TOPIC_LIMIT = 5;
 const TOPIC_ID_LINE_PATTERN = /^Topic ID:\s*(.+)$/im;
+const ARTICLE_DELIMITER = '--- ARTICLE START ---';
+const UPSTREAM_EMPTY_CONTENT_RETRIES = 2;
 
 type AnalysisProvider = {
   provider_id: string;
@@ -162,6 +164,27 @@ export function extractTopicId(articleText: string): string | undefined {
 }
 
 /**
+ * Split a prompt into system + user messages when an article delimiter is present.
+ * System instructions go in the system role; the article content goes in the user role.
+ * Falls back to a single user message when no delimiter is found.
+ */
+function splitPromptMessages(prompt: string): Array<{ role: string; content: string }> {
+  const idx = prompt.indexOf(ARTICLE_DELIMITER);
+  if (idx <= 0) {
+    return [{ role: 'user', content: prompt }];
+  }
+  const system = prompt.slice(0, idx).trim();
+  const user = prompt.slice(idx).trim();
+  if (!system) {
+    return [{ role: 'user', content: prompt }];
+  }
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+/**
  * Convert a flat { prompt, model, max_tokens, temperature } request into
  * OpenAI chat-completions format ({ model, messages, max_tokens, temperature }).
  */
@@ -173,7 +196,7 @@ function toChatCompletionsPayload(request: {
 }): { model: string; messages: Array<{ role: string; content: string }>; max_tokens: number; temperature: number } {
   return {
     model: request.model,
-    messages: [{ role: 'user', content: request.prompt }],
+    messages: splitPromptMessages(request.prompt),
     max_tokens: request.max_tokens,
     temperature: request.temperature,
   };
@@ -286,51 +309,58 @@ export async function relayAnalysis(
 
   try {
     const chatPayload = toChatCompletionsPayload(upstreamRequest);
-    const upstream = await fetchImpl(config.endpointUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(chatPayload),
-    });
+    const maxAttempts = 1 + UPSTREAM_EMPTY_CONTENT_RETRIES;
+    let lastUpstreamBody: unknown = null;
 
-    if (!upstream.ok) {
-      return { status: 502, payload: { error: `Upstream returned ${upstream.status}` } };
-    }
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const upstream = await fetchImpl(config.endpointUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${config.apiKey}`,
+        },
+        body: JSON.stringify(chatPayload),
+      });
 
-    const upstreamBody = await upstream.json();
-    const content = readContentFromUpstream(upstreamBody);
-    if (!content) {
-      return { status: 502, payload: { error: 'Upstream response missing content' } };
-    }
+      if (!upstream.ok) {
+        return { status: 502, payload: { error: `Upstream returned ${upstream.status}` } };
+      }
 
-    const provider: AnalysisProvider = {
-      provider_id: config.providerId,
-      model_id: readModelFromUpstream(upstreamBody as Record<string, unknown>, upstreamRequest.model),
-      kind: 'remote',
-    };
+      lastUpstreamBody = await upstream.json();
+      const content = readContentFromUpstream(lastUpstreamBody);
+      if (content) {
+        const provider: AnalysisProvider = {
+          provider_id: config.providerId,
+          model_id: readModelFromUpstream(lastUpstreamBody as Record<string, unknown>, upstreamRequest.model),
+          kind: 'remote',
+        };
 
-    let analysis: AnalysisResult | undefined;
-    if (articleRequest) {
-      try {
-        analysis = { ...parseAnalysisResponse(content), provider };
-      } catch (error) {
+        let analysis: AnalysisResult | undefined;
+        if (articleRequest) {
+          try {
+            analysis = { ...parseAnalysisResponse(content), provider };
+          } catch (error) {
+            return {
+              status: 502,
+              payload: {
+                error: 'Relay could not parse analysis output',
+                details: error instanceof Error ? error.message : 'Unknown parse failure',
+              },
+            };
+          }
+        }
+
+        consumeBudget(topicId);
         return {
-          status: 502,
-          payload: {
-            error: 'Relay could not parse analysis output',
-            details: error instanceof Error ? error.message : 'Unknown parse failure',
-          },
+          status: 200,
+          payload: { content, analysis, provider, budget: budgetSnapshot(topicId) },
         };
       }
+
+      // Content was empty/null — retry if attempts remain
     }
 
-    consumeBudget(topicId);
-    return {
-      status: 200,
-      payload: { content, analysis, provider, budget: budgetSnapshot(topicId) },
-    };
+    return { status: 502, payload: { error: 'Upstream response missing content' } };
   } catch (error) {
     return {
       status: 502,
