@@ -39,6 +39,13 @@ const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_C
   : 45_000;
 
 const TELEMETRY_TAGS = [
+  '[vh:trinity:pipeline]',
+  '[vh:news-card-analysis]',
+  '[vh:analysis:mesh]',
+  '[vh:analysis:mesh-write]',
+  '[vh:bias-table:voting-context]',
+  '[vh:bias-table:point-map]',
+  '[vh:vote:mesh-write]',
   '[vh:aggregate:voter-write]',
   '[vh:vote:voter-node-readback]',
   '[vh:aggregate:point-snapshot-write]',
@@ -108,6 +115,17 @@ type SummaryPacket = {
   readonly preflight: PreflightSummary | null;
   readonly matrix: ReadonlyArray<MatrixRow>;
   readonly telemetry: Record<string, { count: number }>;
+  readonly pipeline: {
+    readonly trinityEvents: number;
+    readonly stageStatusCounts: Record<string, number>;
+    readonly failureReasonCounts: Record<string, number>;
+    readonly storyStageSummary: Record<string, {
+      events: number;
+      lastStage: string;
+      lastStatus: string;
+      lastReason?: string;
+    }>;
+  };
 };
 
 function sleep(ms: number): Promise<void> {
@@ -669,6 +687,83 @@ function summarizeTelemetry(events: ReadonlyArray<TelemetryEvent>): Record<strin
   return summary;
 }
 
+function firstObjectArg(args: ReadonlyArray<unknown>): Record<string, unknown> | null {
+  for (const arg of args) {
+    if (!arg || typeof arg !== 'object' || Array.isArray(arg)) {
+      continue;
+    }
+    return arg as Record<string, unknown>;
+  }
+  return null;
+}
+
+function readString(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.trim().length > 0 ? value : fallback;
+}
+
+function summarizeTrinityPipeline(events: ReadonlyArray<TelemetryEvent>): {
+  trinityEvents: number;
+  stageStatusCounts: Record<string, number>;
+  failureReasonCounts: Record<string, number>;
+  storyStageSummary: Record<string, {
+    events: number;
+    lastStage: string;
+    lastStatus: string;
+    lastReason?: string;
+  }>;
+} {
+  const stageStatusCounts: Record<string, number> = {};
+  const failureReasonCounts: Record<string, number> = {};
+  const storyStageSummary: Record<string, {
+    events: number;
+    lastStage: string;
+    lastStatus: string;
+    lastReason?: string;
+  }> = {};
+
+  let trinityEvents = 0;
+
+  for (const event of events) {
+    if (!event.text.includes('[vh:trinity:pipeline]')) {
+      continue;
+    }
+    trinityEvents += 1;
+    const payload = firstObjectArg(event.args);
+    const stage = readString(payload?.stage, 'unknown-stage');
+    const status = readString(payload?.status, 'unknown-status');
+    const stageStatusKey = `${stage}:${status}`;
+    stageStatusCounts[stageStatusKey] = (stageStatusCounts[stageStatusKey] ?? 0) + 1;
+
+    const reason = readString(payload?.reason, '');
+    if (reason) {
+      const failureKey = `${stage}:${reason}`;
+      failureReasonCounts[failureKey] = (failureReasonCounts[failureKey] ?? 0) + 1;
+    }
+
+    const storyId = readString(payload?.story_id, '');
+    if (storyId) {
+      const current = storyStageSummary[storyId] ?? {
+        events: 0,
+        lastStage: stage,
+        lastStatus: status,
+      };
+      storyStageSummary[storyId] = {
+        events: current.events + 1,
+        lastStage: stage,
+        lastStatus: status,
+        lastReason: reason || current.lastReason,
+      };
+    }
+  }
+
+  return {
+    trinityEvents,
+    stageStatusCounts,
+    failureReasonCounts,
+    storyStageSummary,
+  };
+}
+
 test.describe('live mesh convergence', () => {
   test.skip(!SHOULD_RUN_LIVE, 'Set VH_RUN_LIVE_MATRIX=true to run the live convergence matrix');
 
@@ -899,10 +994,20 @@ test.describe('live mesh convergence', () => {
         preflight: preflightSummary,
         matrix,
         telemetry: summarizeTelemetry(telemetryEvents),
+        pipeline: summarizeTrinityPipeline(telemetryEvents),
       };
 
       await testInfo.attach('live-bias-vote-convergence-summary', {
         body: Buffer.from(JSON.stringify(summaryPacket, null, 2), 'utf8'),
+        contentType: 'application/json',
+      });
+
+      await testInfo.attach('live-trinity-pipeline-events', {
+        body: Buffer.from(JSON.stringify(
+          telemetryEvents.filter((event) => event.text.includes('[vh:trinity:pipeline]')),
+          null,
+          2,
+        ), 'utf8'),
         contentType: 'application/json',
       });
 

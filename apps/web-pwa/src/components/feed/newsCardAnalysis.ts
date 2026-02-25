@@ -8,6 +8,25 @@ const MAX_SOURCE_ANALYSES = 3;
 const DEFAULT_RELAY_MAX_SOURCE_ANALYSES = 1;
 const MAX_FRAME_ROWS = 12;
 
+type TrinityPipelineStatus = 'start' | 'success' | 'failed' | 'fallback' | 'skipped';
+
+function logTrinityPipeline(
+  stage: string,
+  status: TrinityPipelineStatus,
+  payload: Record<string, unknown>,
+): void {
+  const entry = {
+    stage,
+    status,
+    ...payload,
+  };
+  if (status === 'failed' || status === 'fallback') {
+    console.warn('[vh:trinity:pipeline]', entry);
+    return;
+  }
+  console.info('[vh:trinity:pipeline]', entry);
+}
+
 export interface NewsCardSourceAnalysis {
   readonly source_id: string;
   readonly publisher: string;
@@ -65,10 +84,32 @@ async function fetchArticleTextViaProxy(url: string): Promise<string> {
   let pending = articleTextCache.get(trimmedUrl);
   if (!pending) {
     pending = (async () => {
+      const startedAt = Date.now();
       const res = await fetch(`/article-text?url=${encodeURIComponent(trimmedUrl)}`);
-      if (!res.ok) throw new Error(`article-text proxy returned ${res.status}`);
+      if (!res.ok) {
+        logTrinityPipeline('article-text-fetch', 'failed', {
+          url: trimmedUrl,
+          http_status: res.status,
+          latency_ms: Math.max(0, Date.now() - startedAt),
+        });
+        throw new Error(`article-text proxy returned ${res.status}`);
+      }
       const payload = readArticleTextResponse(await res.json());
-      if (!payload) throw new Error('Invalid article-text payload');
+      if (!payload) {
+        logTrinityPipeline('article-text-fetch', 'failed', {
+          url: trimmedUrl,
+          reason: 'invalid-payload',
+          http_status: res.status,
+          latency_ms: Math.max(0, Date.now() - startedAt),
+        });
+        throw new Error('Invalid article-text payload');
+      }
+      logTrinityPipeline('article-text-fetch', 'success', {
+        url: trimmedUrl,
+        text_chars: payload.text.length,
+        http_status: res.status,
+        latency_ms: Math.max(0, Date.now() - startedAt),
+      });
       return payload.text;
     })();
     articleTextCache.set(trimmedUrl, pending);
@@ -108,12 +149,27 @@ function isRelayEnabled(): boolean {
 
 async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, 'analysis'>> {
   const devModel = getDevModelOverride();
+  const startedAt = Date.now();
   const r = await fetch('/api/analyze', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ articleText: text, ...(devModel ? { model: devModel } : {}) }),
   });
-  if (!r.ok) throw new Error(`Analysis relay error: ${r.status}`);
+  if (!r.ok) {
+    logTrinityPipeline('analysis-relay', 'failed', {
+      model: devModel ?? null,
+      http_status: r.status,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+    });
+    throw new Error(`Analysis relay error: ${r.status}`);
+  }
   const { analysis } = await r.json();
+  logTrinityPipeline('analysis-relay', 'success', {
+    model: devModel ?? null,
+    provider_id: normalizeOptionalString(analysis?.provider_id) ?? normalizeOptionalString(analysis?.provider?.provider_id),
+    model_id: normalizeOptionalString(analysis?.model_id) ?? normalizeOptionalString(analysis?.provider?.model_id),
+    http_status: r.status,
+    latency_ms: Math.max(0, Date.now() - startedAt),
+  });
   return { analysis };
 }
 
@@ -271,6 +327,14 @@ async function runSynthesis(
   const analyzed: NewsCardSourceAnalysis[] = [];
 
   for (const source of selectedSources) {
+    const sourceStartedAt = Date.now();
+    logTrinityPipeline('story-source-analysis', 'start', {
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      source_id: source.source_id,
+      source_url: source.url,
+    });
+
     try {
       let articleText: string | null = null;
       try {
@@ -281,27 +345,69 @@ async function runSynthesis(
           url: source.url,
           error,
         });
+        logTrinityPipeline('story-source-analysis', 'fallback', {
+          story_id: story.story_id,
+          topic_id: story.topic_id,
+          source_id: source.source_id,
+          source_url: source.url,
+          reason: error instanceof Error ? error.message : String(error),
+          fallback: 'metadata-only',
+          latency_ms: Math.max(0, Date.now() - sourceStartedAt),
+        });
       }
 
       const input = buildAnalysisInput(story, source, articleText);
       const result = await runAnalysis(input);
       analyzed.push(toSourceAnalysis(source, result.analysis));
+      logTrinityPipeline('story-source-analysis', 'success', {
+        story_id: story.story_id,
+        topic_id: story.topic_id,
+        source_id: source.source_id,
+        source_url: source.url,
+        used_article_text: articleText !== null,
+        bias_rows: result.analysis.biases.length,
+        counterpoint_rows: result.analysis.counterpoints.length,
+        latency_ms: Math.max(0, Date.now() - sourceStartedAt),
+      });
     } catch (error) {
       console.warn('[vh:news-card-analysis] source analysis failed', {
         sourceId: source.source_id,
         url: source.url,
         error,
       });
+      logTrinityPipeline('story-source-analysis', 'failed', {
+        story_id: story.story_id,
+        topic_id: story.topic_id,
+        source_id: source.source_id,
+        source_url: source.url,
+        reason: error instanceof Error ? error.message : String(error),
+        latency_ms: Math.max(0, Date.now() - sourceStartedAt),
+      });
     }
   }
 
   if (analyzed.length === 0) {
+    logTrinityPipeline('story-synthesis', 'failed', {
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      selected_sources: selectedSources.length,
+      reason: 'all-sources-failed',
+    });
     throw new Error('Analysis pipeline unavailable for all story sources');
   }
 
+  const frameRows = toFrameRows(analyzed);
+  logTrinityPipeline('story-synthesis', 'success', {
+    story_id: story.story_id,
+    topic_id: story.topic_id,
+    selected_sources: selectedSources.length,
+    analyzed_sources: analyzed.length,
+    frame_rows: frameRows.length,
+  });
+
   return {
     summary: synthesizeSummary(analyzed),
-    frames: toFrameRows(analyzed),
+    frames: frameRows,
     analyses: analyzed,
   };
 }

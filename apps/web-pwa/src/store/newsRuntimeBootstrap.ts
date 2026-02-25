@@ -34,6 +34,25 @@ const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
 const RELIABILITY_ARTICLE_MIN_CHARS = 200;
 
+type TrinityPipelineStatus = 'start' | 'success' | 'failed' | 'inconclusive' | 'cached';
+
+function logTrinityPipeline(
+  stage: string,
+  status: TrinityPipelineStatus,
+  payload: Record<string, unknown>,
+): void {
+  const entry = {
+    stage,
+    status,
+    ...payload,
+  };
+  if (status === 'failed' || status === 'inconclusive') {
+    console.warn('[vh:trinity:pipeline]', entry);
+    return;
+  }
+  console.info('[vh:trinity:pipeline]', entry);
+}
+
 function readEnvVar(name: string): string | undefined {
   const viteValue = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.[name];
   const processValue =
@@ -288,6 +307,10 @@ async function filterFeedSourcesByReliability(feedSources: FeedSource[]): Promis
     Date.now() - reliabilityCache.at <= cacheTtlMs &&
     sourceIds.every((sourceId) => reliabilityCache?.bySourceId[sourceId] !== undefined)
   ) {
+    logTrinityPipeline('feed-source-reliability-gate', 'cached', {
+      source_ids: sourceIds,
+      cache_ttl_ms: cacheTtlMs,
+    });
     return feedSources.filter((source) => reliabilityCache?.bySourceId[source.id] === true);
   }
 
@@ -295,15 +318,33 @@ async function filterFeedSourcesByReliability(feedSources: FeedSource[]): Promis
   const unknownSourceIds: string[] = [];
 
   for (const source of feedSources) {
+    const startedAt = Date.now();
+    logTrinityPipeline('feed-source-reliability-probe', 'start', {
+      source_id: source.id,
+      rss_url: source.rssUrl,
+    });
+
     const xml = await readFeedXml(source);
     if (!xml) {
       unknownSourceIds.push(source.id);
+      logTrinityPipeline('feed-source-reliability-probe', 'inconclusive', {
+        source_id: source.id,
+        rss_url: source.rssUrl,
+        reason: 'feed-unavailable',
+        latency_ms: Math.max(0, Date.now() - startedAt),
+      });
       continue;
     }
 
     const links = parseFeedLinks(xml, sampleSize);
     if (links.length === 0) {
       unknownSourceIds.push(source.id);
+      logTrinityPipeline('feed-source-reliability-probe', 'inconclusive', {
+        source_id: source.id,
+        rss_url: source.rssUrl,
+        reason: 'no-article-links',
+        latency_ms: Math.max(0, Date.now() - startedAt),
+      });
       continue;
     }
 
@@ -317,6 +358,16 @@ async function filterFeedSourcesByReliability(feedSources: FeedSource[]): Promis
     const successRate = successes / links.length;
     const reliable = successes >= minSuccessCount && successRate >= minSuccessRate;
     bySourceId[source.id] = reliable;
+    logTrinityPipeline('feed-source-reliability-probe', reliable ? 'success' : 'failed', {
+      source_id: source.id,
+      rss_url: source.rssUrl,
+      sampled_links: links.length,
+      successful_extracts: successes,
+      success_rate: Number(successRate.toFixed(3)),
+      min_success_count: minSuccessCount,
+      min_success_rate: minSuccessRate,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+    });
   }
 
   reliabilityCache = {
@@ -332,6 +383,11 @@ async function filterFeedSourcesByReliability(feedSources: FeedSource[]): Promis
     if (dropped.length > 0) {
       console.warn('[vh:news-runtime] dropped unreliable feed sources', dropped);
     }
+    logTrinityPipeline('feed-source-reliability-gate', 'success', {
+      accepted_source_ids: reliableSources.map((source) => source.id),
+      dropped_source_ids: dropped,
+      unknown_source_ids: unknownSourceIds,
+    });
     return reliableSources;
   }
 
@@ -340,10 +396,19 @@ async function filterFeedSourcesByReliability(feedSources: FeedSource[]): Promis
   if (unknownSourceIds.length > 0) {
     const fallback = feedSources.filter((source) => unknownSourceIds.includes(source.id));
     console.warn('[vh:news-runtime] reliability probe inconclusive; keeping unknown sources', unknownSourceIds);
+    logTrinityPipeline('feed-source-reliability-gate', 'inconclusive', {
+      accepted_source_ids: fallback.map((source) => source.id),
+      unknown_source_ids: unknownSourceIds,
+      reason: 'all-probes-inconclusive',
+    });
     return fallback;
   }
 
   console.warn('[vh:news-runtime] all feed sources failed reliability gate');
+  logTrinityPipeline('feed-source-reliability-gate', 'failed', {
+    source_ids: feedSources.map((source) => source.id),
+    reason: 'all-sources-unreliable',
+  });
   return [];
 }
 
