@@ -36,7 +36,7 @@ const READINESS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_READINESS
   : 5 * 60_000;
 const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS)))
-  : 30_000;
+  : 45_000;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -424,9 +424,9 @@ type ResolvedPoint =
   | { found: true; pointId: string; matchedPreferred: boolean }
   | { found: false; reason: string };
 
-async function resolvePointInCard(card: Locator, preferredPointId: string | null = null): Promise<ResolvedPoint> {
+async function resolvePointInCard(card: Locator, preferredPointId: string | null = null, timeoutMs = 20_000): Promise<ResolvedPoint> {
   const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
-  const hasButtons = await waitFor(async () => (await buttons.count()) > 0, 20_000, 300);
+  const hasButtons = await waitFor(async () => (await buttons.count()) > 0, timeoutMs, 300);
   if (!hasButtons) {
     return { found: false, reason: 'no-vote-buttons' };
   }
@@ -506,7 +506,8 @@ async function collectVoteCapableRows(
         continue;
       }
 
-      const point = await resolvePointInCard(card);
+      const remainingMs = Math.max(5_000, candidateDeadline - Date.now());
+      const point = await resolvePointInCard(card, null, remainingMs);
       if (point.found) {
         ready.push(row);
       } else {
