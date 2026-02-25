@@ -698,7 +698,9 @@ test.describe('live mesh convergence', () => {
 
             result.votedPointId = pointA.pointId;
             await cardA.getByTestId(`cell-vote-agree-${pointA.pointId}`).click({ timeout: 10_000 });
-            await pageA.waitForTimeout(1_500);
+            // Allow mesh projection (writeVoterNode, writeSentimentEvent) to
+            // complete and begin replicating before B opens the topic.
+            await pageA.waitForTimeout(3_000);
             result.aAfterClick = await readCounts(cardA, pointA.pointId);
             await closeTopic(pageA, cardA);
 
@@ -716,20 +718,33 @@ test.describe('live mesh convergence', () => {
             result.bMatchedA = pointB.matchedPreferred;
             result.bObserved = await readCounts(cardB, pointB.pointId);
 
-            const convergedLive = await waitFor(async () => {
-              const counts = await readCounts(cardB, pointB.pointId);
-              result.bObserved = counts;
-              return counts.agree > 0;
-            }, 10_000, 1_000);
+            // Phase 2 convergence: close/re-open topic on each poll iteration
+            // so usePointAggregate re-mounts with fresh Gun .once() reads.
+            // Polling the same mounted component is unreliable because the hook
+            // exhausts its retry budget once and never re-reads.
+            const CONVERGENCE_POLLS = 4;
+            const CONVERGENCE_SETTLE_MS = 2_000;
+            let convergedLive = result.bObserved.agree > 0;
+            await closeTopic(pageB, cardB);
+
+            for (let poll = 0; poll < CONVERGENCE_POLLS && !convergedLive; poll += 1) {
+              await pageB.waitForTimeout(CONVERGENCE_SETTLE_MS);
+              const pollCard = await openTopic(pageB, row);
+              const pollPoint = await resolvePointInCard(pollCard, pointA.pointId);
+              if (pollPoint.found) {
+                const counts = await readCounts(pollCard, pollPoint.pointId);
+                result.bObserved = counts;
+                convergedLive = counts.agree > 0;
+              }
+              await closeTopic(pageB, pollCard);
+            }
 
             if (!convergedLive) {
-              await closeTopic(pageB, cardB);
-              // Reload is the one exception — convergence polling failed, so
-              // B needs a fresh page to read mesh state from scratch.
+              // Final attempt: full reload to force fresh Gun chain state.
               await pageB.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
               await gotoFeed(pageB);
               const cardReload = await openTopic(pageB, row);
-              const pointReload = await resolvePointInCard(cardReload, pointB.pointId);
+              const pointReload = await resolvePointInCard(cardReload, pointA.pointId);
               if (pointReload.found) {
                 result.bPointId = pointReload.pointId;
                 result.bMatchedA = pointReload.pointId === pointA.pointId;
@@ -738,8 +753,6 @@ test.describe('live mesh convergence', () => {
                 result.reason = `B-reload:${pointReload.reason}`;
               }
               await closeTopic(pageB, cardReload);
-            } else {
-              await closeTopic(pageB, cardB);
             }
 
             const finalAgree = result.bObservedAfterReload?.agree ?? result.bObserved?.agree ?? 0;
