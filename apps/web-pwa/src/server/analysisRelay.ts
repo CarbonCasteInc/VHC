@@ -7,6 +7,7 @@ const DEFAULT_ANALYSES_PER_TOPIC_LIMIT = 5;
 const TOPIC_ID_LINE_PATTERN = /^Topic ID:\s*(.+)$/im;
 const ARTICLE_DELIMITER = '--- ARTICLE START ---';
 const UPSTREAM_EMPTY_CONTENT_RETRIES = 2;
+const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 
 type AnalysisProvider = {
   provider_id: string;
@@ -331,17 +332,33 @@ export async function relayAnalysis(
     let lastUpstreamBody: unknown = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const upstream = await fetchImpl(config.endpointUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.apiKey}`,
-        },
-        body: JSON.stringify(chatPayload),
-      });
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), UPSTREAM_FETCH_TIMEOUT_MS);
+
+      let upstream: Response;
+      try {
+        upstream = await fetchImpl(config.endpointUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.apiKey}`,
+          },
+          body: JSON.stringify(chatPayload),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
 
       if (!upstream.ok) {
-        return { status: 502, payload: { error: `Upstream returned ${upstream.status}` } };
+        let errorDetail = `Upstream returned ${upstream.status}`;
+        try {
+          const errBody = await upstream.json();
+          const errField = isObject(errBody) ? errBody.error : undefined;
+          const msg = asNonEmptyString(isObject(errField) ? errField.message : errField);
+          if (msg) errorDetail = `Upstream ${upstream.status}: ${msg}`;
+        } catch { /* ignore unparseable error body */ }
+        return { status: 502, payload: { error: errorDetail } };
       }
 
       lastUpstreamBody = await upstream.json();
@@ -380,9 +397,14 @@ export async function relayAnalysis(
 
     return { status: 502, payload: { error: 'Upstream response missing content' } };
   } catch (error) {
+    const isTimeout = error instanceof DOMException && error.name === 'AbortError';
     return {
       status: 502,
-      payload: { error: error instanceof Error ? error.message : 'Relay request failed' },
+      payload: {
+        error: isTimeout
+          ? `Upstream request timed out after ${UPSTREAM_FETCH_TIMEOUT_MS}ms`
+          : error instanceof Error ? error.message : 'Relay request failed',
+      },
     };
   }
 }
