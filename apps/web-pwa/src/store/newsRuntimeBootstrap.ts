@@ -367,9 +367,18 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
   runtimeHandle?.stop();
 
   const parsedFeedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
-  const feedSources = parseReliabilityGateEnabled()
+  const reliableSources = parseReliabilityGateEnabled()
     ? await filterFeedSourcesByReliability(parsedFeedSources)
     : parsedFeedSources;
+
+  // Rewrite rssUrl to same-origin proxy to avoid browser CORS blocks.
+  // The Vite dev server proxies /rss/<sourceId> to each external RSS endpoint.
+  // Fall back to the original rssUrl in non-browser contexts (SSR, Node tests).
+  const inBrowser = typeof window !== 'undefined';
+  const feedSources = reliableSources.map((source) => ({
+    ...source,
+    rssUrl: inBrowser ? `/rss/${source.id}` : source.rssUrl,
+  }));
 
   const handle = startNewsRuntime({
     feedSources,

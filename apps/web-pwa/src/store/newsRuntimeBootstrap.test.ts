@@ -158,6 +158,7 @@ describe('ensureNewsRuntimeStarted', () => {
 
   it('boots runtime with parsed env config and gun write adapter when enabled', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('window', {});
 
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv(
@@ -200,6 +201,7 @@ describe('ensureNewsRuntimeStarted', () => {
 
     expect(runtimeConfig.writeStoryBundle).toBeTypeOf('function');
     expect(runtimeConfig.feedSources).toHaveLength(1);
+    expect((runtimeConfig.feedSources[0] as { rssUrl: string }).rssUrl).toBe('/rss/source-1');
     expect(runtimeConfig.topicMapping.defaultTopicId).toBe('topic-news');
 
     await runtimeConfig.writeStoryBundle(client, { story_id: 'story-1' });
@@ -259,6 +261,24 @@ describe('ensureNewsRuntimeStarted', () => {
     enabledSpy.mockRestore();
   });
 
+  it('keeps original rssUrl when window is undefined (non-browser context)', () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'src-ssr', name: 'SSR Source', rssUrl: 'https://example.com/rss.xml', enabled: true },
+      ]),
+    );
+    vi.stubGlobal('window', undefined);
+
+    ensureNewsRuntimeStarted({ id: 'ssr-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string; rssUrl: string }>;
+    };
+    expect(runtimeConfig.feedSources[0]?.rssUrl).toBe('https://example.com/rss.xml');
+  });
+
   it('falls back to default topic mapping when JSON is valid but schema-invalid', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_TOPIC_MAPPING', JSON.stringify({ defaultTopicId: 123 }));
@@ -311,6 +331,7 @@ describe('ensureNewsRuntimeStarted', () => {
   });
 
   it('filters runtime feed sources by article-text reliability when gate is enabled', async () => {
+    vi.stubGlobal('window', {});
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_GATE', 'true');
     vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_SAMPLE_SIZE', '2');
@@ -352,8 +373,9 @@ describe('ensureNewsRuntimeStarted', () => {
     await ensureNewsRuntimeStarted({ id: 'reliability-client' } as any);
 
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
-    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as { feedSources: Array<{ id: string }> };
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as { feedSources: Array<{ id: string; rssUrl: string }> };
     expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a']);
+    expect(runtimeConfig.feedSources[0]?.rssUrl).toBe('/rss/source-a');
   });
 
   it('keeps sources when reliability probe is inconclusive for all sources', async () => {
