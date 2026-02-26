@@ -400,8 +400,28 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     topicMapping: parseTopicMapping(readEnvVar('VITE_NEWS_TOPIC_MAPPING')),
     gunClient: client,
     pollIntervalMs: parsePollIntervalMs(readEnvVar('VITE_NEWS_POLL_INTERVAL_MS')),
-    writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) =>
-      writeStoryBundle(runtimeClient as VennClient, bundle),
+    writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
+      // Eagerly inject into the local news store so headlines render
+      // immediately, bypassing the Gun write→subscription roundtrip
+      // which silently fails when no Gun peers are reachable.
+      try {
+        const [{ useNewsStore }, { StoryBundleSchema }] = await Promise.all([
+          import('./news'),
+          import('@vh/data-model'),
+        ]);
+        const parsed = StoryBundleSchema.safeParse(bundle);
+        if (parsed.success) {
+          useNewsStore.getState().upsertStory(parsed.data);
+          useNewsStore.getState().upsertLatestIndex(
+            parsed.data.story_id,
+            parsed.data.created_at,
+          );
+        }
+      } catch {
+        // Best-effort; Gun write below is the authoritative path.
+      }
+      return writeStoryBundle(runtimeClient as VennClient, bundle);
+    },
     onError(error) {
       console.warn('[vh:news-runtime] runtime tick failed', error);
     },
