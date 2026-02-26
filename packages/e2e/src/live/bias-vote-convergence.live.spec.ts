@@ -898,14 +898,18 @@ test.describe('live mesh convergence', () => {
         // This catches the "server started without env vars" class of
         // failure in < 5 s instead of timing out after 90+ s.
         await ingesterPage.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-        const buildFlags = await ingesterPage.evaluate(() => {
-          const env = (import.meta as any).env ?? {};
-          return {
-            analysisPipeline: env.VITE_VH_ANALYSIS_PIPELINE,
-            newsRuntime: env.VITE_NEWS_RUNTIME_ENABLED,
-            newsBridge: env.VITE_NEWS_BRIDGE_ENABLED,
-          };
-        }).catch(() => null);
+        // Use a string expression so TypeScript's CJS transform doesn't choke
+        // on `import.meta` (it only exists in the browser's ES module scope).
+        const buildFlags = await ingesterPage.evaluate(`
+          (() => {
+            const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+            return {
+              analysisPipeline: env.VITE_VH_ANALYSIS_PIPELINE,
+              newsRuntime: env.VITE_NEWS_RUNTIME_ENABLED,
+              newsBridge: env.VITE_NEWS_BRIDGE_ENABLED,
+            };
+          })()
+        `).catch(() => null) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string } | null;
 
         const missingFlags: string[] = [];
         if (buildFlags) {
