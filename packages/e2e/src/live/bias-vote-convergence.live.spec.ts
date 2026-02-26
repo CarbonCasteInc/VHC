@@ -16,6 +16,9 @@ const FEED_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READ
 const FEED_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS)))
   : 30_000;
+const INGESTER_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_READY_TIMEOUT_MS))
+  ? Math.max(10_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_READY_TIMEOUT_MS)))
+  : FEED_READY_TIMEOUT_MS * FEED_READY_ATTEMPTS;
 const CANDIDATE_POOL_MULTIPLIER = Number.isFinite(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER))
   ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER)))
   : 4;
@@ -49,6 +52,8 @@ const IDENTITY_DASHBOARD_STEP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH
 const IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS)))
   : 30_000;
+const CONSUMER_RUNTIME_ROLE_OVERRIDE =
+  process.env.VH_LIVE_CONSUMER_RUNTIME_ROLE === 'ingester' ? 'ingester' : 'consumer';
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -176,6 +181,9 @@ async function createRuntimeRoleContext(
   testSession: boolean,
 ): Promise<BrowserContext> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const runtimeRole = role === 'consumer'
+    ? CONSUMER_RUNTIME_ROLE_OVERRIDE
+    : role;
   await context.addInitScript(({ runtimeRole, isTestSession }) => {
     const testWindow = window as unknown as {
       __VH_NEWS_RUNTIME_ROLE?: string;
@@ -183,7 +191,12 @@ async function createRuntimeRoleContext(
     };
     testWindow.__VH_NEWS_RUNTIME_ROLE = runtimeRole;
     testWindow.__VH_TEST_SESSION = isTestSession;
-  }, { runtimeRole: role, isTestSession: testSession });
+    try {
+      window.localStorage.setItem('vh_invite_access_granted', 'granted');
+    } catch {
+      // Ignore storage write failures in hardened browser contexts.
+    }
+  }, { runtimeRole, isTestSession: testSession });
   return context;
 }
 
@@ -213,11 +226,71 @@ async function gotoFeed(page: Page): Promise<void> {
       return;
     }
 
-    lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})`;
+    const diagnostics = await page.evaluate(() => {
+      const ids = Array.from(document.querySelectorAll('[data-testid]'))
+        .map((node) => node.getAttribute('data-testid'))
+        .filter((id): id is string => Boolean(id))
+        .slice(0, 15);
+
+      const win = window as Window & {
+        __VH_NEWS_RUNTIME_ROLE?: unknown;
+        __VH_TEST_SESSION?: unknown;
+      };
+
+      return {
+        runtimeRole: typeof win.__VH_NEWS_RUNTIME_ROLE === 'string' ? win.__VH_NEWS_RUNTIME_ROLE : String(win.__VH_NEWS_RUNTIME_ROLE),
+        testSession: win.__VH_TEST_SESSION === true,
+        inviteGate: document.body.innerText.includes('Invite Only'),
+        hasUserLink: Boolean(document.querySelector('[data-testid=\"user-link\"]')),
+        hasFeedShell: Boolean(document.querySelector('[data-testid=\"feed-shell\"]')),
+        visibleTestIds: ids,
+      };
+    }).catch(() => null);
+
+    const diagnosticsText = diagnostics
+      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} inviteGate=${diagnostics.inviteGate} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} testIds=${diagnostics.visibleTestIds.join('|')}`
+      : '';
+    lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})${diagnosticsText}`;
     await page.waitForTimeout(750);
   }
 
   throw new Error(lastError ?? 'feed-not-ready: unknown');
+}
+
+async function waitForIngesterReadiness(page: Page): Promise<void> {
+  let resolved = false;
+  let resolveReady!: () => void;
+  const readyPromise = new Promise<void>((resolve) => {
+    resolveReady = resolve;
+  });
+  const markReady = () => {
+    if (resolved) return;
+    resolved = true;
+    resolveReady();
+  };
+
+  const onConsole = (msg: ConsoleMessage) => {
+    if (msg.text().includes('[vh:news-runtime] started')) {
+      markReady();
+    }
+  };
+
+  page.on('console', onConsole);
+  try {
+    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+    await page.waitForTimeout(750);
+
+    if ((await page.locator('[data-testid^="news-card-headline-"]').count()) > 0) {
+      markReady();
+    }
+
+    const timeoutPromise = new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error('ingester-not-ready: missing [vh:news-runtime] started log')), INGESTER_READY_TIMEOUT_MS),
+    );
+    await Promise.race([readyPromise, timeoutPromise]);
+  } finally {
+    page.off('console', onConsole);
+  }
 }
 
 async function ensureIdentity(page: Page, label: string): Promise<void> {
@@ -259,11 +332,6 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
 
           const welcome = document.querySelector('[data-testid="welcome-msg"]');
           if (welcome && (welcome.textContent ?? '').trim().length > 0) {
-            return true;
-          }
-
-          const joinButton = document.querySelector('[data-testid="create-identity-btn"]');
-          if (!joinButton) {
             return true;
           }
 
@@ -756,7 +824,7 @@ test.describe('live mesh convergence', () => {
         // ── Phase 1: Readiness ──────────────────────────────────────────
         const readinessStart = Date.now();
 
-        await gotoFeed(ingesterPage);
+        await waitForIngesterReadiness(ingesterPage);
         await ensureIdentity(pageA, 'AliceLive');
         await ensureIdentity(pageB, 'BobLive');
 
