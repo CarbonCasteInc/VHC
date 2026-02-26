@@ -66,6 +66,8 @@ const TELEMETRY_TAGS = [
   '[vh:aggregate:read]',
   '[vh:vote:intent-replay]',
   '[vh:analysis:boot]',
+  '[vh:bias-table:voting-context]',
+  '[vh:bias-table:point-map]',
 ] as const;
 
 type Actor = 'A' | 'B';
@@ -192,9 +194,13 @@ async function createRuntimeRoleContext(
     const testWindow = window as unknown as {
       __VH_NEWS_RUNTIME_ROLE?: string;
       __VH_TEST_SESSION?: boolean;
+      __VH_BIAS_TABLE_V2_OVERRIDE__?: boolean;
     };
     testWindow.__VH_NEWS_RUNTIME_ROLE = runtimeRole;
     testWindow.__VH_TEST_SESSION = isTestSession;
+    // Enable BiasTable v2 (vote buttons) regardless of build-time
+    // VITE_VH_BIAS_TABLE_V2 flag — the live test needs vote controls.
+    testWindow.__VH_BIAS_TABLE_V2_OVERRIDE__ = true;
     try {
       window.localStorage.setItem('vh_invite_access_granted', 'granted');
     } catch {
@@ -619,7 +625,32 @@ async function resolvePointInCard(card: Locator, preferredPointId: string | null
   const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
   const hasButtons = await waitFor(async () => (await buttons.count()) > 0, timeoutMs, 300);
   if (!hasButtons) {
-    return { found: false, reason: 'no-vote-buttons' };
+    // Diagnostic: report what IS visible on the card back to aid debugging.
+    const diag = await card.evaluate((el) => {
+      const back = el.querySelector('[data-testid^="news-card-back-"]');
+      if (!back) return 'no-card-back';
+      const biasTable = el.querySelector('[data-testid="bias-table"]');
+      const biasTableEmpty = el.querySelector('[data-testid="bias-table-empty"]');
+      const legacyTable = el.querySelector('[data-testid^="news-card-frame-table-"]');
+      const synthesisLoading = el.querySelector('[data-testid^="news-card-synthesis-loading-"]');
+      const synthesisError = el.querySelector('[data-testid^="news-card-synthesis-error-"]');
+      const analysisLoading = el.querySelector('[data-testid^="analysis-loading-"]');
+      const pipelineAttr = el.getAttribute('data-analysis-pipeline');
+      const frameRows = el.querySelectorAll('[data-testid^="bias-table-row-"]');
+      const skeletonRows = el.querySelectorAll('[data-testid^="bias-table-skeleton-row-"]');
+      return [
+        `pipeline=${pipelineAttr}`,
+        biasTable ? 'biasTableV2=yes' : 'biasTableV2=no',
+        biasTableEmpty ? 'biasTableEmpty=yes' : 'biasTableEmpty=no',
+        legacyTable ? 'legacyTable=yes' : 'legacyTable=no',
+        `frameRows=${frameRows.length}`,
+        `skeletonRows=${skeletonRows.length}`,
+        synthesisLoading ? 'synthesisLoading=yes' : 'synthesisLoading=no',
+        synthesisError ? 'synthesisError=yes' : 'synthesisError=no',
+        analysisLoading ? 'analysisLoading=yes' : 'analysisLoading=no',
+      ].join(',');
+    }).catch(() => 'diag-error');
+    return { found: false, reason: `no-vote-buttons(${diag})` };
   }
 
   if (preferredPointId) {

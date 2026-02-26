@@ -32,6 +32,10 @@ export interface NewsCardBackProps {
 }
 
 function isBiasTableV2Enabled(): boolean {
+  const runtimeOverride = (globalThis as any).__VH_BIAS_TABLE_V2_OVERRIDE__;
+  if (typeof runtimeOverride === 'boolean') {
+    return runtimeOverride;
+  }
   return import.meta.env.VITE_VH_BIAS_TABLE_V2 === 'true';
 }
 
