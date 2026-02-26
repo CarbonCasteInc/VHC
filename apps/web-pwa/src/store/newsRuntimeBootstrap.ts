@@ -251,6 +251,23 @@ async function readFeedXml(source: FeedSource): Promise<string | null> {
   return fetchText(source.rssUrl);
 }
 
+function resolveRuntimeRssUrl(source: FeedSource): string {
+  if (typeof window === 'undefined') {
+    return source.rssUrl;
+  }
+
+  const origin = window.location?.origin;
+  if (!origin) {
+    return source.rssUrl;
+  }
+
+  try {
+    return new URL(`/rss/${source.id}`, origin).toString();
+  } catch {
+    return source.rssUrl;
+  }
+}
+
 async function probeArticleText(url: string): Promise<boolean> {
   try {
     const response = await fetch(`/article-text?url=${encodeURIComponent(url)}`);
@@ -372,12 +389,10 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     : parsedFeedSources;
 
   // Rewrite rssUrl to same-origin proxy to avoid browser CORS blocks.
-  // The Vite dev server proxies /rss/<sourceId> to each external RSS endpoint.
-  // Fall back to the original rssUrl in non-browser contexts (SSR, Node tests).
-  const inBrowser = typeof window !== 'undefined';
+  // The runtime validates feedSources with a URL schema, so use absolute proxy URLs.
   const feedSources = reliableSources.map((source) => ({
     ...source,
-    rssUrl: inBrowser ? `/rss/${source.id}` : source.rssUrl,
+    rssUrl: resolveRuntimeRssUrl(source),
   }));
 
   const handle = startNewsRuntime({
