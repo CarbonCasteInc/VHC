@@ -56,6 +56,10 @@ const CONSUMER_RUNTIME_ROLE_OVERRIDE =
   process.env.VH_LIVE_CONSUMER_RUNTIME_ROLE === 'ingester' ? 'ingester' : 'consumer';
 
 const TELEMETRY_TAGS = [
+  '[vh:news-runtime]',
+  '[vh:feed-bridge]',
+  '[vh:news]',
+  '[vh:gun-client]',
   '[vh:aggregate:voter-write]',
   '[vh:vote:voter-node-readback]',
   '[vh:aggregate:point-snapshot-write]',
