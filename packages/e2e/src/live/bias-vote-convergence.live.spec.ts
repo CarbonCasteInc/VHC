@@ -83,6 +83,9 @@ const TELEMETRY_TAGS = [
   '[vh:aggregate:read]',
   '[vh:vote:intent-replay]',
   '[vh:analysis:boot]',
+  '[vh:news-card-analysis]',
+  '[vh:analysis:mesh]',
+  '[vh:analysis:mesh-write]',
   '[vh:bias-table:voting-context]',
   '[vh:bias-table:point-map]',
 ] as const;
