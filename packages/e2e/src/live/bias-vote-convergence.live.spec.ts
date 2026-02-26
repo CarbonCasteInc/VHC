@@ -193,6 +193,7 @@ function isHarnessNoiseReason(reason: string): boolean {
     || reason.startsWith('identity-bootstrap-timeout')
     || reason.startsWith('vote-capable-preflight-failed:')
     || reason.startsWith('blocked-setup-scarcity:')
+    || reason.startsWith('blocked-setup-ingester-synthesis-scarcity:')
     || reason.startsWith('A:no-vote-buttons')
     || reason.startsWith('B:no-vote-buttons')
     || reason.startsWith('B-reload:no-vote-buttons')
@@ -1207,7 +1208,8 @@ test.describe('live mesh convergence', () => {
       }
 
       if (setupFailureReason) {
-        const isScarcity = setupFailureReason.startsWith('blocked-setup-scarcity:');
+        const isScarcity = setupFailureReason.startsWith('blocked-setup-scarcity:')
+          || setupFailureReason.startsWith('blocked-setup-ingester-synthesis-scarcity:');
         const failureClass = classifyFailure(setupFailureReason);
         matrix.push({
           topicId: '__setup__',
