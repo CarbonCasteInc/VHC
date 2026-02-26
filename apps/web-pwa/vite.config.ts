@@ -253,9 +253,9 @@ function createAnalysisRelayPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: ANALYSIS_PIPELINE_ENABLED
-    ? [react(), createAnalysisRelayPlugin()]
-    : [react(), createArticleTextProxyPlugin(), createAnalysisRelayPlugin()],
+  // Keep article-text proxy available in all modes so feed source reliability
+  // probing continues to work when analysis relay is enabled.
+  plugins: [react(), createArticleTextProxyPlugin(), createAnalysisRelayPlugin()],
   server: {
     host: true,
     port: 2048,
