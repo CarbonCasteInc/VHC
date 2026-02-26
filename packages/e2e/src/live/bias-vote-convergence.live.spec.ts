@@ -37,6 +37,18 @@ const READINESS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_READINESS
 const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS)))
   : 45_000;
+const IDENTITY_BOOTSTRAP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS))
+  ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS)))
+  : 120_000;
+const IDENTITY_DASHBOARD_OPEN_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_OPEN_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_OPEN_ATTEMPTS)))
+  : 3;
+const IDENTITY_DASHBOARD_STEP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_STEP_TIMEOUT_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_STEP_TIMEOUT_MS)))
+  : 20_000;
+const IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS)))
+  : 30_000;
 
 const TELEMETRY_TAGS = [
   '[vh:aggregate:voter-write]',
@@ -209,26 +221,63 @@ async function gotoFeed(page: Page): Promise<void> {
 }
 
 async function ensureIdentity(page: Page, label: string): Promise<void> {
-  const openDashboard = async (): Promise<void> => {
-    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    await page.waitForTimeout(1_000);
+  const openDashboard = async (): Promise<boolean> => {
+    for (let attempt = 1; attempt <= IDENTITY_DASHBOARD_OPEN_ATTEMPTS; attempt += 1) {
+      try {
+        await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+        await page.waitForTimeout(1_000);
 
-    const loading = page.getByText('Loading Mesh…');
-    if (await loading.count()) {
-      await loading.first().waitFor({ state: 'hidden', timeout: 35_000 }).catch(() => {});
+        const loading = page.getByText('Loading Mesh…');
+        if (await loading.count()) {
+          await loading.first().waitFor({ state: 'hidden', timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS }).catch(() => {});
+        }
+
+        const userLink = page.getByTestId('user-link');
+        await userLink.waitFor({ state: 'visible', timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+        await userLink.click({ timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+        await page.waitForURL('**/dashboard', { timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+        await page.waitForTimeout(400);
+        return true;
+      } catch {
+        if (attempt >= IDENTITY_DASHBOARD_OPEN_ATTEMPTS) {
+          return false;
+        }
+        await page.waitForTimeout(1_000);
+      }
     }
-
-    const userLink = page.getByTestId('user-link');
-    await userLink.waitFor({ state: 'visible', timeout: 35_000 });
-    await userLink.click();
-    await page.waitForURL('**/dashboard', { timeout: 35_000 });
-    await page.waitForTimeout(400);
+    return false;
   };
 
   const waitForIdentityHydrated = async (timeoutMs: number): Promise<boolean> => {
     try {
       await page.waitForFunction(
-        () => Boolean((window as Window & { __vh_identity_published?: unknown }).__vh_identity_published),
+        () => {
+          const globalWindow = window as Window & { __vh_identity_published?: unknown };
+          if (Boolean(globalWindow.__vh_identity_published)) {
+            return true;
+          }
+
+          const welcome = document.querySelector('[data-testid="welcome-msg"]');
+          if (welcome && (welcome.textContent ?? '').trim().length > 0) {
+            return true;
+          }
+
+          const joinButton = document.querySelector('[data-testid="create-identity-btn"]');
+          if (!joinButton) {
+            return true;
+          }
+
+          try {
+            const profileRaw = window.localStorage.getItem('vh_profile');
+            if (typeof profileRaw === 'string' && profileRaw.trim().length > 0) {
+              return true;
+            }
+          } catch {
+            // Ignore localStorage access failures in hardened hydration checks.
+          }
+
+          return false;
+        },
         undefined,
         { timeout: timeoutMs },
       );
@@ -238,14 +287,17 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
     }
   };
 
-  await openDashboard();
-
   const welcome = page.getByTestId('welcome-msg');
   const joinBtn = page.getByTestId('create-identity-btn');
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + IDENTITY_BOOTSTRAP_TIMEOUT_MS;
   let attempts = 0;
 
   while (Date.now() < deadline) {
+    const dashboardReady = await openDashboard();
+    if (!dashboardReady) {
+      continue;
+    }
+
     const welcomeVisible = (await welcome.count()) > 0 && await welcome.isVisible().catch(() => false);
     if (welcomeVisible || await waitForIdentityHydrated(2_000)) {
       break;
@@ -258,22 +310,29 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
       const username = `${label}${suffix}`.slice(0, 24);
       const handle = username.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 24);
 
-      await page.fill('input[placeholder="Choose a username"]', username);
-      await page.fill('input[placeholder="Choose a handle (letters, numbers, _)"]', handle || `u${suffix}`);
-      await joinBtn.click();
+      try {
+        await page.fill('input[placeholder="Choose a username"]', username);
+        await page.fill('input[placeholder="Choose a handle (letters, numbers, _)"]', handle || `u${suffix}`);
+        await joinBtn.click({ timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+      } catch {
+        await page.waitForTimeout(750);
+        continue;
+      }
 
+      const joinAttemptTimeoutMs = Math.min(
+        IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS,
+        Math.max(5_000, deadline - Date.now()),
+      );
       const joined = await waitFor(async () => {
         const visible = (await welcome.count()) > 0 && await welcome.isVisible().catch(() => false);
         if (visible) return true;
         return waitForIdentityHydrated(250);
-      }, 25_000, 500);
+      }, joinAttemptTimeoutMs, 500);
 
       if (joined || attempts >= 4) {
         break;
       }
     }
-
-    await openDashboard();
   }
 
   const welcomeVisible = (await welcome.count()) > 0 && await welcome.isVisible().catch(() => false);
