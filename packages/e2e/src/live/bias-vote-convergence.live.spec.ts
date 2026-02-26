@@ -43,6 +43,9 @@ const INGESTER_SYNTHESIS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_
 const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS)))
   : 45_000;
+const INGESTER_PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_PER_CANDIDATE_BUDGET_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_PER_CANDIDATE_BUDGET_MS)))
+  : Math.min(30_000, PER_CANDIDATE_BUDGET_MS);
 const IDENTITY_BOOTSTRAP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS))
   ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS)))
   : 120_000;
@@ -208,6 +211,14 @@ function classifyFailure(reason: string | null): MatrixRow['failureClass'] {
     return null;
   }
   return isHarnessNoiseReason(reason) ? 'harness' : 'convergence';
+}
+
+function toRejectReasonCounts(rejects: ReadonlyArray<PreflightReject>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const reject of rejects) {
+    counts[reject.reason] = (counts[reject.reason] ?? 0) + 1;
+  }
+  return counts;
 }
 
 async function createRuntimeRoleContext(
@@ -619,18 +630,19 @@ async function openTopic(page: Page, row: TopicRow, deadlineMs?: number): Promis
 
       headline = await findHeadlineLocator(page, row);
       if (!headline) break;
+      const currentHeadline = headline;
 
       const stepTimeout = deadlineMs !== undefined
         ? Math.max(3_000, deadlineMs - Date.now())
         : 10_000;
-      await headline.scrollIntoViewIfNeeded({ timeout: stepTimeout });
-      await headline.waitFor({ state: 'visible', timeout: stepTimeout });
+      await currentHeadline.scrollIntoViewIfNeeded({ timeout: stepTimeout });
+      await currentHeadline.waitFor({ state: 'visible', timeout: stepTimeout });
 
-      const card = headline.locator('xpath=ancestor::article[1]');
+      const card = currentHeadline.locator('xpath=ancestor::article[1]');
       // Re-resolve and click in each attempt to avoid stale handles while feed
       // rows re-key under runtime bridge updates.
       await card.click().catch(async () => {
-        await headline.click();
+        await currentHeadline.click();
       });
 
       const back = card.locator('[data-testid^="news-card-back-"]').first();
@@ -817,6 +829,7 @@ async function collectVoteCapableRows(
   candidates: ReadonlyArray<TopicRow>,
   requiredCount: number,
   budgetMs: number,
+  candidateBudgetMs = PER_CANDIDATE_BUDGET_MS,
 ): Promise<PreflightResult> {
   const ready: TopicRow[] = [];
   const rejects: PreflightReject[] = [];
@@ -863,7 +876,7 @@ async function collectVoteCapableRows(
     let activeCard: Locator | null = null;
 
     try {
-      const candidateDeadline = Math.min(Date.now() + PER_CANDIDATE_BUDGET_MS, budgetDeadline);
+      const candidateDeadline = Math.min(Date.now() + candidateBudgetMs, budgetDeadline);
       card = await openTopic(page, row, candidateDeadline);
       activeCard = await resolveCardLocatorForStory(page, row, card);
       if (PREFLIGHT_SETTLE_MS > 0) {
@@ -1086,13 +1099,27 @@ test.describe('live mesh convergence', () => {
           ingesterCandidatePool,
           TOPIC_LIMIT,
           INGESTER_SYNTHESIS_BUDGET_MS,
+          INGESTER_PER_CANDIDATE_BUDGET_MS,
         );
         const ingesterReady = ingesterPreflight.ready.slice(0, TOPIC_LIMIT);
         if (ingesterReady.length < TOPIC_LIMIT) {
+          const ingesterRejectReasonCounts = toRejectReasonCounts(ingesterPreflight.rejects);
+          preflightSummary = {
+            candidatesDiscovered: ingesterCandidatePool.length,
+            candidatesScanned: ingesterPreflight.ready.length + ingesterPreflight.rejects.length,
+            voteCapableFound: ingesterReady.length,
+            voteCapableRequired: TOPIC_LIMIT,
+            exhaustedBudget: ingesterPreflight.exhaustedBudget,
+            budgetMs: INGESTER_SYNTHESIS_BUDGET_MS,
+            elapsedMs: Date.now() - readinessStart,
+            rejects: ingesterPreflight.rejects,
+            rejectReasonCounts: ingesterRejectReasonCounts,
+          };
           throw new Error(
             `blocked-setup-ingester-synthesis-scarcity:${ingesterReady.length}/${TOPIC_LIMIT} `
             + `(discovered=${ingesterCandidatePool.length}, scanned=${ingesterPreflight.ready.length + ingesterPreflight.rejects.length}, `
-            + `budgetExhausted=${ingesterPreflight.exhaustedBudget}, rejects=${ingesterPreflight.rejects.length})`,
+            + `budgetExhausted=${ingesterPreflight.exhaustedBudget}, rejects=${ingesterPreflight.rejects.length}, `
+            + `candidateBudgetMs=${INGESTER_PER_CANDIDATE_BUDGET_MS}, rejectReasonCounts=${JSON.stringify(ingesterRejectReasonCounts)})`,
           );
         }
 
@@ -1114,10 +1141,7 @@ test.describe('live mesh convergence', () => {
           remainingReadinessBudget,
         );
 
-        const rejectReasonCounts: Record<string, number> = {};
-        for (const reject of preflight.rejects) {
-          rejectReasonCounts[reject.reason] = (rejectReasonCounts[reject.reason] ?? 0) + 1;
-        }
+        const rejectReasonCounts = toRejectReasonCounts(preflight.rejects);
 
         preflightSummary = {
           candidatesDiscovered: candidatePool.length,

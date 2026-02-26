@@ -40,6 +40,7 @@ Current policy state:
 - Transitional proof shim is allowed only in dev/staging/E2E and must be removed before final ship.
 - Point-identity migration requires dual-write/backfill with explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
+- Day-to-day build loop follows `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` until external beta gates are met.
 
 ---
 
@@ -478,6 +479,7 @@ Post-Season 0 (deferred per spec §9.2):
 
 ### Architecture & Specs
 - `System_Architecture.md` — Target architecture
+- `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` — Active local-first dev posture for the 2-user build phase
 - `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails
 - `docs/specs/spec-hermes-docs-v0.md` — HERMES Docs spec (Canonical for Season 0)
 - `docs/specs/spec-hermes-forum-v0.md` — Forum spec
