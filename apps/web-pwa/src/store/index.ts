@@ -119,14 +119,21 @@ function resolveGunPeers(): string[] {
 }
 
 export async function authenticateGunUser(client: VennClient, devicePair: DevicePair): Promise<void> {
+  const AUTH_TIMEOUT_MS = 10_000;
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      console.warn('[vh:gun] Auth timed out after', AUTH_TIMEOUT_MS, 'ms — continuing without auth');
+      resolve();
+    }, AUTH_TIMEOUT_MS);
     const user = client.gun.user();
     if ((user as any).is) {
+      clearTimeout(timer);
       console.info('[vh:gun] Already authenticated');
       resolve();
       return;
     }
     user.auth(devicePair as any, (ack: any) => {
+      clearTimeout(timer);
       if (ack?.err) {
         console.error('[vh:gun] Auth failed:', ack.err);
         reject(new Error(ack.err));
@@ -190,7 +197,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         requireSession: true
       });
       console.info('[vh:web-pwa] using Gun peers', client.config.peers);
-      await client.hydrationBarrier.prepare();
+      await Promise.race([
+        client.hydrationBarrier.prepare(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error('[vh:web-pwa] hydration barrier timed out after 15 s')), 15_000),
+        ),
+      ]).catch((err) => {
+        console.warn('[vh:web-pwa] hydration barrier did not resolve, continuing:', err);
+      });
       const profile = loadProfile();
       // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
       await migrateLegacyLocalStorage();
