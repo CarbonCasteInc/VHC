@@ -158,7 +158,7 @@ describe('ensureNewsRuntimeStarted', () => {
 
   it('boots runtime with parsed env config and gun write adapter when enabled', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
-    vi.stubGlobal('window', {});
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
 
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv(
@@ -201,7 +201,9 @@ describe('ensureNewsRuntimeStarted', () => {
 
     expect(runtimeConfig.writeStoryBundle).toBeTypeOf('function');
     expect(runtimeConfig.feedSources).toHaveLength(1);
-    expect((runtimeConfig.feedSources[0] as { rssUrl: string }).rssUrl).toBe('/rss/source-1');
+    expect((runtimeConfig.feedSources[0] as { rssUrl: string }).rssUrl).toBe(
+      'http://127.0.0.1:2048/rss/source-1',
+    );
     expect(runtimeConfig.topicMapping.defaultTopicId).toBe('topic-news');
 
     await runtimeConfig.writeStoryBundle(client, { story_id: 'story-1' });
@@ -331,7 +333,7 @@ describe('ensureNewsRuntimeStarted', () => {
   });
 
   it('filters runtime feed sources by article-text reliability when gate is enabled', async () => {
-    vi.stubGlobal('window', {});
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_GATE', 'true');
     vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_SAMPLE_SIZE', '2');
@@ -375,7 +377,7 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
     const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as { feedSources: Array<{ id: string; rssUrl: string }> };
     expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a']);
-    expect(runtimeConfig.feedSources[0]?.rssUrl).toBe('/rss/source-a');
+    expect(runtimeConfig.feedSources[0]?.rssUrl).toBe('http://127.0.0.1:2048/rss/source-a');
   });
 
   it('keeps sources when reliability probe is inconclusive for all sources', async () => {
