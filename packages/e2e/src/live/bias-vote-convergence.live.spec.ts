@@ -621,36 +621,72 @@ type ResolvedPoint =
   | { found: true; pointId: string; matchedPreferred: boolean }
   | { found: false; reason: string };
 
+function collectCardBackDiag(el: Element): string {
+  const back = el.querySelector('[data-testid^="news-card-back-"]');
+  if (!back) return 'no-card-back';
+  const biasTable = el.querySelector('[data-testid="bias-table"]');
+  const biasTableEmpty = el.querySelector('[data-testid="bias-table-empty"]');
+  const legacyTable = el.querySelector('[data-testid^="news-card-frame-table-"]');
+  const synthesisLoading = el.querySelector('[data-testid^="news-card-synthesis-loading-"]');
+  const synthesisError = el.querySelector('[data-testid^="news-card-synthesis-error-"]');
+  const analysisLoading = el.querySelector('[data-testid^="analysis-loading-"]');
+  const pipelineAttr = el.getAttribute('data-analysis-pipeline');
+  const frameRows = el.querySelectorAll('[data-testid^="bias-table-row-"]');
+  const skeletonRows = el.querySelectorAll('[data-testid^="bias-table-skeleton-row-"]');
+  return [
+    `pipeline=${pipelineAttr}`,
+    biasTable ? 'biasTableV2=yes' : 'biasTableV2=no',
+    biasTableEmpty ? 'biasTableEmpty=yes' : 'biasTableEmpty=no',
+    legacyTable ? 'legacyTable=yes' : 'legacyTable=no',
+    `frameRows=${frameRows.length}`,
+    `skeletonRows=${skeletonRows.length}`,
+    synthesisLoading ? 'synthesisLoading=yes' : 'synthesisLoading=no',
+    synthesisError ? 'synthesisError=yes' : 'synthesisError=no',
+    analysisLoading ? 'analysisLoading=yes' : 'analysisLoading=no',
+  ].join(',');
+}
+
 async function resolvePointInCard(card: Locator, preferredPointId: string | null = null, timeoutMs = 20_000): Promise<ResolvedPoint> {
   const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
-  const hasButtons = await waitFor(async () => (await buttons.count()) > 0, timeoutMs, 300);
+  let hasButtons = await waitFor(async () => (await buttons.count()) > 0, timeoutMs, 300);
+
+  // If no vote buttons appeared, check whether BiasTable v2 rendered but
+  // synthesis frames haven't arrived yet.  Give frames extra settle time
+  // before giving up — synthesis hydration from Gun can lag behind the
+  // initial card-back render.
   if (!hasButtons) {
-    // Diagnostic: report what IS visible on the card back to aid debugging.
-    const diag = await card.evaluate((el) => {
-      const back = el.querySelector('[data-testid^="news-card-back-"]');
-      if (!back) return 'no-card-back';
-      const biasTable = el.querySelector('[data-testid="bias-table"]');
-      const biasTableEmpty = el.querySelector('[data-testid="bias-table-empty"]');
-      const legacyTable = el.querySelector('[data-testid^="news-card-frame-table-"]');
-      const synthesisLoading = el.querySelector('[data-testid^="news-card-synthesis-loading-"]');
-      const synthesisError = el.querySelector('[data-testid^="news-card-synthesis-error-"]');
-      const analysisLoading = el.querySelector('[data-testid^="analysis-loading-"]');
-      const pipelineAttr = el.getAttribute('data-analysis-pipeline');
-      const frameRows = el.querySelectorAll('[data-testid^="bias-table-row-"]');
-      const skeletonRows = el.querySelectorAll('[data-testid^="bias-table-skeleton-row-"]');
-      return [
-        `pipeline=${pipelineAttr}`,
-        biasTable ? 'biasTableV2=yes' : 'biasTableV2=no',
-        biasTableEmpty ? 'biasTableEmpty=yes' : 'biasTableEmpty=no',
-        legacyTable ? 'legacyTable=yes' : 'legacyTable=no',
-        `frameRows=${frameRows.length}`,
-        `skeletonRows=${skeletonRows.length}`,
-        synthesisLoading ? 'synthesisLoading=yes' : 'synthesisLoading=no',
-        synthesisError ? 'synthesisError=yes' : 'synthesisError=no',
-        analysisLoading ? 'analysisLoading=yes' : 'analysisLoading=no',
-      ].join(',');
-    }).catch(() => 'diag-error');
-    return { found: false, reason: `no-vote-buttons(${diag})` };
+    const snap = await card.evaluate(collectCardBackDiag).catch(() => 'diag-error');
+    const v2Active = snap.includes('biasTableV2=yes');
+    const zeroFrames = snap.includes('frameRows=0');
+
+    if (v2Active && zeroFrames) {
+      // Extended wait: poll for frame rows to materialise from synthesis.
+      const frameSettleBudget = Math.min(15_000, Math.max(5_000, timeoutMs));
+      const frameRows = card.locator('[data-testid^="bias-table-row-"]');
+      const hasFrames = await waitFor(
+        async () => (await frameRows.count()) > 0,
+        frameSettleBudget,
+        500,
+      );
+
+      if (hasFrames) {
+        // Frames arrived — wait a little more for point-ID derivation
+        // to complete and CellVoteControls to mount.
+        hasButtons = await waitFor(
+          async () => (await buttons.count()) > 0,
+          5_000,
+          300,
+        );
+      }
+
+      if (!hasButtons) {
+        const finalSnap = await card.evaluate(collectCardBackDiag).catch(() => 'diag-error');
+        const tag = hasFrames ? 'frames-ok-points-pending' : 'synthesis-frames-timeout';
+        return { found: false, reason: `no-vote-buttons:${tag}(${finalSnap})` };
+      }
+    } else {
+      return { found: false, reason: `no-vote-buttons(${snap})` };
+    }
   }
 
   if (preferredPointId) {
