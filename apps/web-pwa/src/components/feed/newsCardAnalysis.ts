@@ -147,6 +147,34 @@ function isRelayEnabled(): boolean {
   return readEnvVar('VITE_VH_ANALYSIS_PIPELINE') === 'true';
 }
 
+async function readRelayErrorDetail(response: Response): Promise<string | null> {
+  try {
+    const raw = await response.text();
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    try {
+      const parsed = JSON.parse(trimmed) as {
+        error?: { message?: unknown } | unknown;
+        message?: unknown;
+      };
+      const nested = (parsed?.error && typeof parsed.error === 'object')
+        ? (parsed.error as { message?: unknown }).message
+        : undefined;
+      const direct = parsed?.message;
+      const fallback = parsed?.error;
+      const candidate = nested ?? direct ?? fallback;
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    } catch {
+      // non-json body
+    }
+    return trimmed.slice(0, 300);
+  } catch {
+    return null;
+  }
+}
+
 async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, 'analysis'>> {
   const devModel = getDevModelOverride();
   const startedAt = Date.now();
@@ -155,12 +183,14 @@ async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, '
     body: JSON.stringify({ articleText: text, ...(devModel ? { model: devModel } : {}) }),
   });
   if (!r.ok) {
+    const detail = await readRelayErrorDetail(r);
     logTrinityPipeline('analysis-relay', 'failed', {
       model: devModel ?? null,
       http_status: r.status,
+      reason: detail ?? 'relay-non-ok',
       latency_ms: Math.max(0, Date.now() - startedAt),
     });
-    throw new Error(`Analysis relay error: ${r.status}`);
+    throw new Error(`Analysis relay error: ${r.status}${detail ? ` ${detail}` : ''}`);
   }
   const { analysis } = await r.json();
   logTrinityPipeline('analysis-relay', 'success', {

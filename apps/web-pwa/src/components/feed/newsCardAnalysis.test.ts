@@ -351,5 +351,16 @@ describe('newsCardAnalysis', () => {
       expect(body).not.toHaveProperty('model');
       expect(body.articleText).toBe('test text');
     });
+
+    it('surfaces relay error body details on non-ok responses', async () => {
+      fetchSpy.mockResolvedValueOnce({
+        ok: false,
+        status: 502,
+        text: () => Promise.resolve(JSON.stringify({ error: { message: 'Upstream request timed out after 30000ms' } })),
+      });
+      await expect(newsCardAnalysisInternal.runAnalysisViaRelay('test text')).rejects.toThrow(
+        'Analysis relay error: 502 Upstream request timed out after 30000ms',
+      );
+    });
   });
 });
