@@ -1036,9 +1036,10 @@ test.describe('live mesh convergence', () => {
               analysisPipeline: env.VITE_VH_ANALYSIS_PIPELINE,
               newsRuntime: env.VITE_NEWS_RUNTIME_ENABLED,
               newsBridge: env.VITE_NEWS_BRIDGE_ENABLED,
+              biasTableV2: env.VITE_VH_BIAS_TABLE_V2,
             };
           })()
-        `).catch((err: unknown) => { preflightError = err; return null; }) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string } | null;
+        `).catch((err: unknown) => { preflightError = err; return null; }) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string; biasTableV2?: string } | null;
 
         if (buildFlags === null) {
           // eslint-disable-next-line no-console
@@ -1050,6 +1051,7 @@ test.describe('live mesh convergence', () => {
           if (buildFlags.analysisPipeline !== 'true') missingFlags.push(`VITE_VH_ANALYSIS_PIPELINE=${buildFlags.analysisPipeline ?? 'undefined'}`);
           if (buildFlags.newsRuntime !== 'true') missingFlags.push(`VITE_NEWS_RUNTIME_ENABLED=${buildFlags.newsRuntime ?? 'undefined'}`);
           if (buildFlags.newsBridge !== 'true') missingFlags.push(`VITE_NEWS_BRIDGE_ENABLED=${buildFlags.newsBridge ?? 'undefined'}`);
+          if (buildFlags.biasTableV2 !== 'true') missingFlags.push(`VITE_VH_BIAS_TABLE_V2=${buildFlags.biasTableV2 ?? 'undefined'}`);
         }
         if (missingFlags.length > 0) {
           throw new Error(
