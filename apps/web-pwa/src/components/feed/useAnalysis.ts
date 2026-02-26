@@ -36,8 +36,15 @@ export interface UseAnalysisResult {
   retry: () => void;
 }
 
+let _pipelineBootLogged = false;
+
 function isAnalysisPipelineEnabled(): boolean {
-  return import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
+  const enabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
+  if (!_pipelineBootLogged) {
+    _pipelineBootLogged = true;
+    console.info(`[vh:analysis:boot] pipeline=${enabled} VITE_VH_ANALYSIS_PIPELINE=${import.meta.env.VITE_VH_ANALYSIS_PIPELINE ?? 'undefined'}`);
+  }
+  return enabled;
 }
 
 function todayIsoDate(): string {
