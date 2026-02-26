@@ -583,8 +583,13 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
   return null;
 }
 
-async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
+async function openTopic(page: Page, row: TopicRow, deadlineMs?: number): Promise<Locator> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
+    // Bail between outer attempts if the caller's deadline has passed.
+    if (deadlineMs !== undefined && Date.now() >= deadlineMs) {
+      throw new Error(`card-open-timeout:${row.storyId}`);
+    }
+
     let headline = await findHeadlineLocator(page, row);
 
     // If the headline wasn't found in the current viewport, scroll down in
@@ -607,11 +612,19 @@ async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
     }
 
     for (let clickAttempt = 0; clickAttempt < 3; clickAttempt += 1) {
+      // Bail between click attempts when deadline exceeded.
+      if (deadlineMs !== undefined && Date.now() >= deadlineMs) {
+        throw new Error(`card-open-timeout:${row.storyId}`);
+      }
+
       headline = await findHeadlineLocator(page, row);
       if (!headline) break;
 
-      await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
-      await headline.waitFor({ state: 'visible', timeout: 20_000 });
+      const stepTimeout = deadlineMs !== undefined
+        ? Math.max(3_000, deadlineMs - Date.now())
+        : 10_000;
+      await headline.scrollIntoViewIfNeeded({ timeout: stepTimeout });
+      await headline.waitFor({ state: 'visible', timeout: stepTimeout });
 
       const card = headline.locator('xpath=ancestor::article[1]');
       // Re-resolve and click in each attempt to avoid stale handles while feed
@@ -622,6 +635,10 @@ async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
 
       const back = card.locator('[data-testid^="news-card-back-"]').first();
       const front = card.locator('[data-testid^="news-card-headline-"]').first();
+      // Cap the flip wait at the remaining deadline when one is provided.
+      const flipTimeout = deadlineMs !== undefined
+        ? Math.min(FLIP_OPEN_TIMEOUT_MS, Math.max(2_000, deadlineMs - Date.now()))
+        : FLIP_OPEN_TIMEOUT_MS;
       const settled = await waitFor(
         async () => {
           const backVisible = await back.isVisible().catch(() => false);
@@ -634,7 +651,7 @@ async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
           const frontVisibleAfterWindow = await front.isVisible().catch(() => false);
           return backVisibleAfterWindow && !frontVisibleAfterWindow;
         },
-        FLIP_OPEN_TIMEOUT_MS,
+        flipTimeout,
         250,
       );
       if (settled) return card;
@@ -847,7 +864,7 @@ async function collectVoteCapableRows(
 
     try {
       const candidateDeadline = Math.min(Date.now() + PER_CANDIDATE_BUDGET_MS, budgetDeadline);
-      card = await openTopic(page, row);
+      card = await openTopic(page, row, candidateDeadline);
       activeCard = await resolveCardLocatorForStory(page, row, card);
       if (PREFLIGHT_SETTLE_MS > 0) {
         await page.waitForTimeout(PREFLIGHT_SETTLE_MS);
@@ -1031,6 +1048,34 @@ test.describe('live mesh convergence', () => {
 
         await waitForIngesterReadiness(ingesterPage);
         await gotoFeed(ingesterPage);
+
+        // Wait for at least one synthesis frame to materialise before starting
+        // the expensive per-story preflight scan.  The news runtime fires
+        // [vh:news-runtime] started before synthesis output is ready, so give
+        // the pipeline a bounded warmup window to produce its first frames.
+        // Probe by opening the first visible story and polling for frame rows
+        // inside its card-back, then close it before the real scan begins.
+        const SYNTHESIS_WARMUP_MS = Math.min(45_000, Math.floor(INGESTER_SYNTHESIS_BUDGET_MS * 0.3));
+        const probeCard = ingesterPage.locator('article[data-story-id]').first();
+        let hasSynthesisFrames = false;
+        if (await probeCard.count().catch(() => 0) > 0) {
+          await probeCard.click().catch(() => {});
+          await ingesterPage.waitForTimeout(1_000);
+          hasSynthesisFrames = await waitFor(
+            async () => {
+              const backRows = await probeCard.locator('[data-testid^="bias-table-row-"]').count().catch(() => 0);
+              return backRows > 0;
+            },
+            SYNTHESIS_WARMUP_MS,
+            2_000,
+          );
+          // Close the probe card so the feed is clean for the preflight scan.
+          await ingesterPage.keyboard.press('Escape').catch(() => {});
+          await ingesterPage.waitForTimeout(500);
+        }
+        if (!hasSynthesisFrames) {
+          console.warn(`[preflight] No synthesis frames detected after ${SYNTHESIS_WARMUP_MS}ms warmup – proceeding with preflight scan anyway`);
+        }
 
         // Gate consumer preflight on ingester-side synthesis readiness.
         // This ensures we only scan stories that already have frames/points
