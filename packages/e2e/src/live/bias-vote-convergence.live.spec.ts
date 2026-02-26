@@ -52,6 +52,15 @@ const IDENTITY_DASHBOARD_STEP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH
 const IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS)))
   : 30_000;
+const TRANSIENT_STORY_RETRY_LIMIT = Number.isFinite(Number(process.env.VH_LIVE_TRANSIENT_STORY_RETRY_LIMIT))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_TRANSIENT_STORY_RETRY_LIMIT)))
+  : 3;
+const FLIP_STABILITY_WINDOW_MS = Number.isFinite(Number(process.env.VH_LIVE_FLIP_STABILITY_WINDOW_MS))
+  ? Math.max(150, Math.floor(Number(process.env.VH_LIVE_FLIP_STABILITY_WINDOW_MS)))
+  : 400;
+const FLIP_OPEN_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FLIP_OPEN_TIMEOUT_MS))
+  ? Math.max(3_000, Math.floor(Number(process.env.VH_LIVE_FLIP_OPEN_TIMEOUT_MS)))
+  : 8_000;
 const CONSUMER_RUNTIME_ROLE_OVERRIDE =
   process.env.VH_LIVE_CONSUMER_RUNTIME_ROLE === 'ingester' ? 'ingester' : 'consumer';
 
@@ -158,6 +167,18 @@ async function waitFor(condition: () => Promise<boolean>, timeoutMs: number, ste
     await sleep(stepMs);
   }
   return false;
+}
+
+function isTransientCandidateMiss(reason: string): boolean {
+  const normalized = reason.toLowerCase();
+  return (
+    reason.startsWith('headline-not-found:')
+    || reason.startsWith('card-open-timeout:')
+    || reason.startsWith('locator.')
+    || normalized.includes('not attached to the dom')
+    || normalized.includes('execution context was destroyed')
+    || normalized.includes('target closed')
+  );
 }
 
 function isHarnessNoiseReason(reason: string): boolean {
@@ -557,7 +578,7 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 }
 
 async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     let headline = await findHeadlineLocator(page, row);
 
     // If the headline wasn't found in the current viewport, scroll down in
@@ -579,40 +600,66 @@ async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
       throw new Error(`headline-not-found:${row.storyId}`);
     }
 
-    await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
-    await headline.waitFor({ state: 'visible', timeout: 20_000 });
-    const card = headline.locator('xpath=ancestor::article[1]');
-    // Clicking the article container is more stable than clicking the nested
-    // headline button when FlippableCard front/back transitions are mid-flight.
-    await card.click().catch(async () => {
-      await headline.click();
-    });
+    for (let clickAttempt = 0; clickAttempt < 3; clickAttempt += 1) {
+      headline = await findHeadlineLocator(page, row);
+      if (!headline) break;
 
-    const opened = await waitFor(
-      async () => await card.locator('[data-testid^="news-card-back-"]').first().isVisible().catch(() => false),
-      8_000,
-      250,
-    );
-    if (opened) {
-      return card;
+      await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
+      await headline.waitFor({ state: 'visible', timeout: 20_000 });
+
+      const card = headline.locator('xpath=ancestor::article[1]');
+      // Re-resolve and click in each attempt to avoid stale handles while feed
+      // rows re-key under runtime bridge updates.
+      await card.click().catch(async () => {
+        await headline.click();
+      });
+
+      const back = card.locator('[data-testid^="news-card-back-"]').first();
+      const front = card.locator('[data-testid^="news-card-headline-"]').first();
+      const settled = await waitFor(
+        async () => {
+          const backVisible = await back.isVisible().catch(() => false);
+          if (!backVisible) return false;
+          const frontVisible = await front.isVisible().catch(() => false);
+          if (frontVisible) return false;
+          // Require a short stability window after flip completion.
+          await page.waitForTimeout(FLIP_STABILITY_WINDOW_MS);
+          const backVisibleAfterWindow = await back.isVisible().catch(() => false);
+          const frontVisibleAfterWindow = await front.isVisible().catch(() => false);
+          return backVisibleAfterWindow && !frontVisibleAfterWindow;
+        },
+        FLIP_OPEN_TIMEOUT_MS,
+        250,
+      );
+      if (settled) return card;
+
+      await closeTopic(page, card).catch(() => {});
     }
-
-    await page.keyboard.press('Escape').catch(() => {});
-    await page.waitForTimeout(250);
   }
 
   throw new Error(`card-open-timeout:${row.storyId}`);
 }
 
 async function closeTopic(page: Page, card: Locator): Promise<void> {
-  const backButton = card.locator('[data-testid^="news-card-back-button-"]');
-  if (await backButton.count()) {
-    const first = backButton.first();
-    if (await first.isVisible().catch(() => false)) {
-      await first.click().catch(() => {});
-      await page.waitForTimeout(250);
-      return;
+  const clickVisibleCloseButton = async (locator: Locator): Promise<boolean> => {
+    const count = await locator.count().catch(() => 0);
+    for (let i = 0; i < count; i += 1) {
+      const candidate = locator.nth(i);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+      await candidate.click().catch(() => {});
+      await page.waitForTimeout(200);
+      return true;
     }
+    return false;
+  };
+
+  // Try card-scoped close first.
+  if (await clickVisibleCloseButton(card.locator('[data-testid^="news-card-back-button-"]'))) {
+    return;
+  }
+  // Fallback to globally-visible close buttons in case card locator detached.
+  if (await clickVisibleCloseButton(page.locator('[data-testid^="news-card-back-button-"]'))) {
+    return;
   }
 
   await page.keyboard.press('Escape').catch(() => {});
@@ -731,7 +778,8 @@ async function collectVoteCapableRows(
 ): Promise<PreflightResult> {
   const ready: TopicRow[] = [];
   const rejects: PreflightReject[] = [];
-  const seen = new Set<string>();
+  const resolved = new Set<string>();
+  const attemptsByStory = new Map<string, number>();
   const queued = new Set<string>();
   const queue: TopicRow[] = [];
   for (const row of candidates) {
@@ -741,12 +789,10 @@ async function collectVoteCapableRows(
   }
   const budgetDeadline = Date.now() + budgetMs;
   let exhaustedBudget = false;
-  const isTransientCandidateMiss = (reason: string): boolean =>
-    reason.startsWith('headline-not-found:') || reason.startsWith('card-open-timeout:');
   const enqueueFreshCandidates = async (): Promise<void> => {
     const refreshed = await discoverTopicsByScrolling(page, MAX_SCAN_SIZE);
     for (const row of refreshed) {
-      if (queued.has(row.storyId) || seen.has(row.storyId)) continue;
+      if (queued.has(row.storyId) || resolved.has(row.storyId)) continue;
       queued.add(row.storyId);
       queue.push(row);
       if (queue.length >= MAX_SCAN_SIZE) break;
@@ -764,10 +810,12 @@ async function collectVoteCapableRows(
       break;
     }
 
-    if (seen.has(row.storyId)) {
+    if (resolved.has(row.storyId)) {
       continue;
     }
-    seen.add(row.storyId);
+
+    const attempts = (attemptsByStory.get(row.storyId) ?? 0) + 1;
+    attemptsByStory.set(row.storyId, attempts);
 
     let card: Locator | null = null;
 
@@ -789,15 +837,23 @@ async function collectVoteCapableRows(
       const point = await resolvePointInCard(card, null, remainingMs);
       if (point.found) {
         ready.push(row);
+        resolved.add(row.storyId);
       } else {
         rejects.push({ storyId: row.storyId, headline: row.headline, reason: point.reason });
+        resolved.add(row.storyId);
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      if (isTransientCandidateMiss(reason) && Date.now() < budgetDeadline && queue.length < MAX_SCAN_SIZE) {
-        await enqueueFreshCandidates().catch(() => {});
+      if (isTransientCandidateMiss(reason) && attempts < TRANSIENT_STORY_RETRY_LIMIT && Date.now() < budgetDeadline) {
+        // Retry the same story without consuming a scarcity reject slot.
+        queue.push(row);
+        if (queue.length < MAX_SCAN_SIZE) {
+          await enqueueFreshCandidates().catch(() => {});
+        }
+      } else {
+        rejects.push({ storyId: row.storyId, headline: row.headline, reason });
+        resolved.add(row.storyId);
       }
-      rejects.push({ storyId: row.storyId, headline: row.headline, reason });
     } finally {
       if (card) {
         await closeTopic(page, card).catch(() => {});
