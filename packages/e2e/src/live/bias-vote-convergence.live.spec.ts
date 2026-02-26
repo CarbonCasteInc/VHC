@@ -727,12 +727,32 @@ function collectCardBackDiag(el: Element): string {
   const legacyTable = el.querySelector('[data-testid^="news-card-frame-table-"]');
   const synthesisLoading = el.querySelector('[data-testid^="news-card-synthesis-loading-"]');
   const synthesisError = el.querySelector('[data-testid^="news-card-synthesis-error-"]');
-  const analysisLoading = el.querySelector('[data-testid^="analysis-loading-"]');
+  const analysisStatusMessageNode = el.querySelector('[data-testid="analysis-status-message"]');
+  const analysisStatusMessage = (analysisStatusMessageNode?.textContent ?? '').trim();
+  const analysisRetry = el.querySelector('[data-testid="analysis-retry-button"]');
+  const analysisErrorCard = el.querySelector('[data-testid^="news-card-analysis-error-"]');
   const pipelineAttr = el.getAttribute('data-analysis-pipeline');
+  const storyIdAttr = el.getAttribute('data-story-id');
+  const sourceBadgeRow = el.querySelector('[data-testid="source-badge-row"]');
   const frameRows = el.querySelectorAll('[data-testid^="bias-table-row-"]');
   const skeletonRows = el.querySelectorAll('[data-testid^="bias-table-skeleton-row-"]');
+  let analysisState = 'idle';
+  if (analysisStatusMessage.length > 0) {
+    const msg = analysisStatusMessage.toLowerCase();
+    if (msg.includes('extracting article text') || msg.includes('analyzing perspectives') || msg.includes('generating balanced summary') || msg.includes('almost ready')) {
+      analysisState = 'loading';
+    } else if (msg.includes('timed out')) {
+      analysisState = 'timeout';
+    } else if (msg.includes('daily analysis limit reached')) {
+      analysisState = 'budget_exceeded';
+    } else {
+      analysisState = 'error';
+    }
+  }
   return [
     `pipeline=${pipelineAttr}`,
+    `storyId=${storyIdAttr ?? 'none'}`,
+    sourceBadgeRow ? 'sourceBadges=yes' : 'sourceBadges=no',
     biasTableAny ? 'biasTableV2=yes' : 'biasTableV2=no',
     biasTable ? 'biasTableData=yes' : 'biasTableData=no',
     biasTableEmpty ? 'biasTableEmpty=yes' : 'biasTableEmpty=no',
@@ -741,7 +761,10 @@ function collectCardBackDiag(el: Element): string {
     `skeletonRows=${skeletonRows.length}`,
     synthesisLoading ? 'synthesisLoading=yes' : 'synthesisLoading=no',
     synthesisError ? 'synthesisError=yes' : 'synthesisError=no',
-    analysisLoading ? 'analysisLoading=yes' : 'analysisLoading=no',
+    `analysisState=${analysisState}`,
+    analysisRetry ? 'analysisRetry=yes' : 'analysisRetry=no',
+    analysisErrorCard ? 'analysisErrorCard=yes' : 'analysisErrorCard=no',
+    analysisStatusMessage.length > 0 ? `analysisMessage=${analysisStatusMessage.replace(/\s+/g, ' ').slice(0, 96)}` : 'analysisMessage=none',
   ].join(',');
 }
 
