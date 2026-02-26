@@ -892,6 +892,35 @@ test.describe('live mesh convergence', () => {
       let setupFailureReason: string | null = null;
 
       try {
+        // ── Phase 0: Build-flag preflight ───────────────────────────────
+        // Verify that the served app was built with the required VITE_*
+        // feature flags before burning time on feed/identity readiness.
+        // This catches the "server started without env vars" class of
+        // failure in < 5 s instead of timing out after 90+ s.
+        await ingesterPage.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+        const buildFlags = await ingesterPage.evaluate(() => {
+          const env = (import.meta as any).env ?? {};
+          return {
+            analysisPipeline: env.VITE_VH_ANALYSIS_PIPELINE,
+            newsRuntime: env.VITE_NEWS_RUNTIME_ENABLED,
+            newsBridge: env.VITE_NEWS_BRIDGE_ENABLED,
+          };
+        }).catch(() => null);
+
+        const missingFlags: string[] = [];
+        if (buildFlags) {
+          if (buildFlags.analysisPipeline !== 'true') missingFlags.push(`VITE_VH_ANALYSIS_PIPELINE=${buildFlags.analysisPipeline ?? 'undefined'}`);
+          if (buildFlags.newsRuntime !== 'true') missingFlags.push(`VITE_NEWS_RUNTIME_ENABLED=${buildFlags.newsRuntime ?? 'undefined'}`);
+          if (buildFlags.newsBridge !== 'true') missingFlags.push(`VITE_NEWS_BRIDGE_ENABLED=${buildFlags.newsBridge ?? 'undefined'}`);
+        }
+        if (missingFlags.length > 0) {
+          throw new Error(
+            `build-flag-preflight-failed: the served app is missing required feature flags. `
+            + `Restart the dev server with: VITE_VH_ANALYSIS_PIPELINE=true pnpm dev. `
+            + `Missing/wrong: [${missingFlags.join(', ')}]`,
+          );
+        }
+
         // ── Phase 1: Readiness ──────────────────────────────────────────
         const readinessStart = Date.now();
 
