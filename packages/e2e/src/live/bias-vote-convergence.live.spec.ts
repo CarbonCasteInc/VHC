@@ -44,6 +44,7 @@ const TELEMETRY_TAGS = [
   '[vh:aggregate:point-snapshot-write]',
   '[vh:aggregate:read]',
   '[vh:vote:intent-replay]',
+  '[vh:analysis:boot]',
 ] as const;
 
 type Actor = 'A' | 'B';

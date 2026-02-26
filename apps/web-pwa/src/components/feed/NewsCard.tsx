@@ -185,6 +185,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
         borderWidth: '1px',
         borderStyle: 'solid',
       }}
+      data-analysis-pipeline={analysisPipelineEnabled ? 'true' : 'false'}
       aria-label="News story"
       aria-expanded={isExpanded}
       aria-controls={isExpanded ? backRegionId : frontRegionId}
