@@ -11,7 +11,7 @@ import {
   getDevModelOverride,
 } from '../dev/DevModelPicker';
 
-const ANALYSIS_TIMEOUT_MS = 30_000;
+const ANALYSIS_TIMEOUT_MS = 60_000;
 const ANALYSIS_BUDGET_KEY = 'vh_analysis_budget';
 const DEFAULT_ANALYSIS_BUDGET_LIMIT = 20;
 const RETRY_NOOP = (): void => {};
