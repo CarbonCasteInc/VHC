@@ -37,6 +37,9 @@ const NAV_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS
 const READINESS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_READINESS_BUDGET_MS))
   ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_READINESS_BUDGET_MS)))
   : 5 * 60_000;
+const INGESTER_SYNTHESIS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_SYNTHESIS_BUDGET_MS))
+  ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_SYNTHESIS_BUDGET_MS)))
+  : Math.max(60_000, Math.floor(READINESS_BUDGET_MS * 0.5));
 const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS)))
   : 45_000;
@@ -863,8 +866,16 @@ async function collectVoteCapableRows(
         ready.push(row);
         resolved.add(row.storyId);
       } else {
-        rejects.push({ storyId: row.storyId, headline: row.headline, reason: point.reason });
-        resolved.add(row.storyId);
+        const shouldRetrySameStory =
+          (point.reason.startsWith('card-back-missing:') || point.reason.startsWith('card-locator-stale:'))
+          && attempts < TRANSIENT_STORY_RETRY_LIMIT
+          && Date.now() < budgetDeadline;
+        if (shouldRetrySameStory) {
+          queue.push(row);
+        } else {
+          rejects.push({ storyId: row.storyId, headline: row.headline, reason: point.reason });
+          resolved.add(row.storyId);
+        }
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -1018,12 +1029,33 @@ test.describe('live mesh convergence', () => {
         const readinessStart = Date.now();
 
         await waitForIngesterReadiness(ingesterPage);
+        await gotoFeed(ingesterPage);
+
+        // Gate consumer preflight on ingester-side synthesis readiness.
+        // This ensures we only scan stories that already have frames/points
+        // materialized on the producer side before testing mesh propagation.
+        const ingesterCandidatePool = await discoverTopicsByScrolling(ingesterPage, MAX_SCAN_SIZE);
+        const ingesterPreflight = await collectVoteCapableRows(
+          ingesterPage,
+          ingesterCandidatePool,
+          TOPIC_LIMIT,
+          INGESTER_SYNTHESIS_BUDGET_MS,
+        );
+        const ingesterReady = ingesterPreflight.ready.slice(0, TOPIC_LIMIT);
+        if (ingesterReady.length < TOPIC_LIMIT) {
+          throw new Error(
+            `blocked-setup-ingester-synthesis-scarcity:${ingesterReady.length}/${TOPIC_LIMIT} `
+            + `(discovered=${ingesterCandidatePool.length}, scanned=${ingesterPreflight.ready.length + ingesterPreflight.rejects.length}, `
+            + `budgetExhausted=${ingesterPreflight.exhaustedBudget}, rejects=${ingesterPreflight.rejects.length})`,
+          );
+        }
+
         await ensureIdentity(pageA, 'AliceLive');
         await ensureIdentity(pageB, 'BobLive');
 
         await gotoFeed(pageA);
 
-        const candidatePool = await discoverTopicsByScrolling(pageA, MAX_SCAN_SIZE);
+        const candidatePool = ingesterReady;
 
         const remainingReadinessBudget = Math.max(
           30_000,
