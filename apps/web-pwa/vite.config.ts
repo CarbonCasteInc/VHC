@@ -188,6 +188,15 @@ function readBooleanEnv(value: string | undefined): boolean {
 }
 
 const ANALYSIS_PIPELINE_ENABLED = readBooleanEnv(process.env.VITE_VH_ANALYSIS_PIPELINE);
+
+// When the analysis pipeline is enabled, auto-enable its data dependencies
+// (news runtime for RSS ingestion, news bridge for discovery feed population).
+// Explicit opt-out (e.g. VITE_NEWS_RUNTIME_ENABLED=false) is still honored.
+if (ANALYSIS_PIPELINE_ENABLED) {
+  process.env.VITE_NEWS_RUNTIME_ENABLED ??= 'true';
+  process.env.VITE_NEWS_BRIDGE_ENABLED ??= 'true';
+}
+
 const EXTRACTION_SERVICE_TARGET =
   process.env.VITE_NEWS_EXTRACTION_SERVICE_URL?.trim() || 'http://127.0.0.1:3001';
 
