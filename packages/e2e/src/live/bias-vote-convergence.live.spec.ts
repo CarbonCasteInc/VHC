@@ -174,6 +174,8 @@ function isTransientCandidateMiss(reason: string): boolean {
   return (
     reason.startsWith('headline-not-found:')
     || reason.startsWith('card-open-timeout:')
+    || reason.startsWith('card-locator-stale:')
+    || reason.startsWith('card-back-missing:')
     || reason.startsWith('locator.')
     || normalized.includes('not attached to the dom')
     || normalized.includes('execution context was destroyed')
@@ -666,6 +668,16 @@ async function closeTopic(page: Page, card: Locator): Promise<void> {
   await page.waitForTimeout(250);
 }
 
+async function resolveCardLocatorForStory(page: Page, row: TopicRow, fallback: Locator): Promise<Locator> {
+  const escapedStoryId = row.storyId.replace(/"/g, '\\"');
+  const byStory = page.locator(`article[data-story-id="${escapedStoryId}"]`).first();
+  const byStoryCount = await byStory.count().catch(() => 0);
+  if (byStoryCount > 0) {
+    return byStory;
+  }
+  return fallback;
+}
+
 type ResolvedPoint =
   | { found: true; pointId: string; matchedPreferred: boolean }
   | { found: false; reason: string };
@@ -675,6 +687,7 @@ function collectCardBackDiag(el: Element): string {
   if (!back) return 'no-card-back';
   const biasTable = el.querySelector('[data-testid="bias-table"]');
   const biasTableEmpty = el.querySelector('[data-testid="bias-table-empty"]');
+  const biasTableAny = Boolean(biasTable || biasTableEmpty);
   const legacyTable = el.querySelector('[data-testid^="news-card-frame-table-"]');
   const synthesisLoading = el.querySelector('[data-testid^="news-card-synthesis-loading-"]');
   const synthesisError = el.querySelector('[data-testid^="news-card-synthesis-error-"]');
@@ -684,7 +697,8 @@ function collectCardBackDiag(el: Element): string {
   const skeletonRows = el.querySelectorAll('[data-testid^="bias-table-skeleton-row-"]');
   return [
     `pipeline=${pipelineAttr}`,
-    biasTable ? 'biasTableV2=yes' : 'biasTableV2=no',
+    biasTableAny ? 'biasTableV2=yes' : 'biasTableV2=no',
+    biasTable ? 'biasTableData=yes' : 'biasTableData=no',
     biasTableEmpty ? 'biasTableEmpty=yes' : 'biasTableEmpty=no',
     legacyTable ? 'legacyTable=yes' : 'legacyTable=no',
     `frameRows=${frameRows.length}`,
@@ -705,6 +719,13 @@ async function resolvePointInCard(card: Locator, preferredPointId: string | null
   // initial card-back render.
   if (!hasButtons) {
     const snap = await card.evaluate(collectCardBackDiag).catch(() => 'diag-error');
+    if (snap === 'no-card-back') {
+      const cardCount = await card.count().catch(() => 0);
+      const reason = cardCount === 0
+        ? 'card-locator-stale:no-card-back'
+        : 'card-back-missing:no-card-back';
+      return { found: false, reason };
+    }
     const v2Active = snap.includes('biasTableV2=yes');
     const zeroFrames = snap.includes('frameRows=0');
 
@@ -818,23 +839,26 @@ async function collectVoteCapableRows(
     attemptsByStory.set(row.storyId, attempts);
 
     let card: Locator | null = null;
+    let activeCard: Locator | null = null;
 
     try {
       const candidateDeadline = Math.min(Date.now() + PER_CANDIDATE_BUDGET_MS, budgetDeadline);
       card = await openTopic(page, row);
+      activeCard = await resolveCardLocatorForStory(page, row, card);
       if (PREFLIGHT_SETTLE_MS > 0) {
         await page.waitForTimeout(PREFLIGHT_SETTLE_MS);
       }
 
       if (Date.now() >= candidateDeadline) {
         rejects.push({ storyId: row.storyId, headline: row.headline, reason: 'per-candidate-timeout' });
-        await closeTopic(page, card).catch(() => {});
+        await closeTopic(page, activeCard ?? card).catch(() => {});
         card = null;
+        activeCard = null;
         continue;
       }
 
       const remainingMs = Math.max(5_000, candidateDeadline - Date.now());
-      const point = await resolvePointInCard(card, null, remainingMs);
+      const point = await resolvePointInCard(activeCard ?? card, null, remainingMs);
       if (point.found) {
         ready.push(row);
         resolved.add(row.storyId);
@@ -855,8 +879,8 @@ async function collectVoteCapableRows(
         resolved.add(row.storyId);
       }
     } finally {
-      if (card) {
-        await closeTopic(page, card).catch(() => {});
+      if (activeCard || card) {
+        await closeTopic(page, activeCard ?? card!).catch(() => {});
       }
     }
   }
