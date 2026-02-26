@@ -900,6 +900,7 @@ test.describe('live mesh convergence', () => {
         await ingesterPage.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
         // Use a string expression so TypeScript's CJS transform doesn't choke
         // on `import.meta` (it only exists in the browser's ES module scope).
+        let preflightError: unknown;
         const buildFlags = await ingesterPage.evaluate(`
           (() => {
             const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
@@ -909,7 +910,12 @@ test.describe('live mesh convergence', () => {
               newsBridge: env.VITE_NEWS_BRIDGE_ENABLED,
             };
           })()
-        `).catch(() => null) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string } | null;
+        `).catch((err: unknown) => { preflightError = err; return null; }) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string } | null;
+
+        if (buildFlags === null) {
+          // eslint-disable-next-line no-console
+          console.warn(`[build-flag-preflight] could not read import.meta.env — preflight skipped (${preflightError})`);
+        }
 
         const missingFlags: string[] = [];
         if (buildFlags) {
