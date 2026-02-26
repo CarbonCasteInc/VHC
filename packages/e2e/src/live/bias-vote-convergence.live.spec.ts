@@ -763,8 +763,11 @@ async function resolvePointInCard(card: Locator, preferredPointId: string | null
     const zeroFrames = snap.includes('frameRows=0');
 
     if (v2Active && zeroFrames) {
-      // Extended wait: poll for frame rows to materialise from synthesis.
-      const frameSettleBudget = Math.min(15_000, Math.max(5_000, timeoutMs));
+      // Extended wait: poll for frame rows to materialise from the analysis
+      // pipeline relay or Gun synthesis hydration.  The relay round-trip
+      // (article-text fetch + upstream LLM call) can take 15-30s, so use
+      // the full remaining candidate budget rather than a hard 15s cap.
+      const frameSettleBudget = Math.max(5_000, timeoutMs);
       const frameRows = card.locator('[data-testid^="bias-table-row-"]');
       const hasFrames = await waitFor(
         async () => (await frameRows.count()) > 0,
@@ -1054,6 +1057,32 @@ test.describe('live mesh convergence', () => {
             + `Restart the dev server with: VITE_VH_ANALYSIS_PIPELINE=true pnpm dev. `
             + `Missing/wrong: [${missingFlags.join(', ')}]`,
           );
+        }
+
+        // ── Analysis relay preflight ──────────────────────────────────────
+        // Probe /api/analyze/health before spending budget on per-story
+        // scans.  If the relay is not configured (503) synthesis frames
+        // can never materialise and every candidate will time out.
+        const relayHealthUrl = new URL('/api/analyze/health', LIVE_BASE_URL).href;
+        try {
+          const healthRes = await ingesterPage.request.get(relayHealthUrl, { timeout: 10_000 });
+          const healthStatus = healthRes.status();
+          if (healthStatus === 503) {
+            const body = await healthRes.json().catch(() => ({})) as Record<string, unknown>;
+            throw new Error(
+              `blocked-setup-analysis-relay-not-configured: /api/analyze/health returned 503. `
+              + `Start the dev server with ANALYSIS_RELAY_UPSTREAM_URL and ANALYSIS_RELAY_API_KEY set. `
+              + `Detail: ${JSON.stringify(body)}`,
+            );
+          }
+          if (healthStatus !== 200) {
+            console.warn(`[preflight] /api/analyze/health returned ${healthStatus} – relay may be misconfigured`);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('blocked-setup-')) {
+            throw error;
+          }
+          console.warn('[preflight] /api/analyze/health probe failed, continuing:', error instanceof Error ? error.message : error);
         }
 
         // ── Phase 1: Readiness ──────────────────────────────────────────
