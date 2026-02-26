@@ -1,6 +1,14 @@
 /* Minimal Gun relay for local/dev usage */
 const http = require('http');
-const Gun = require('gun');
+const path = require('path');
+const { createRequire } = require('module');
+
+// Load Gun from the workspace package that owns the dependency.
+// Root workspace does not declare `gun`, so plain require('gun') fails.
+const gunRequire = createRequire(
+  path.resolve(__dirname, '../../packages/gun-client/node_modules/gun/gun.js')
+);
+const Gun = gunRequire('gun');
 
 // Provide required internal utilities that the WS adapter depends on.
 // These were deprecated in Gun but ws.js still uses Gun.text.random and Gun.obj.* helpers.
@@ -28,7 +36,7 @@ Gun.obj.del = Gun.obj.del || ((obj, key) => {
   return obj;
 });
 
-require('gun/lib/ws');
+gunRequire('gun/lib/ws');
 
 const port = process.env.GUN_PORT || 7777;
 

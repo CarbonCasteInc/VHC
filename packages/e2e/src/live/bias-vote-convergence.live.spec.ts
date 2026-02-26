@@ -56,6 +56,8 @@ const CONSUMER_RUNTIME_ROLE_OVERRIDE =
   process.env.VH_LIVE_CONSUMER_RUNTIME_ROLE === 'ingester' ? 'ingester' : 'consumer';
 
 const TELEMETRY_TAGS = [
+  '[vh:web-pwa]',
+  '[vh:gun]',
   '[vh:news-runtime]',
   '[vh:feed-bridge]',
   '[vh:news]',
@@ -70,7 +72,7 @@ const TELEMETRY_TAGS = [
   '[vh:bias-table:point-map]',
 ] as const;
 
-type Actor = 'A' | 'B';
+type Actor = 'A' | 'B' | 'I';
 
 type TopicRow = {
   readonly topicId: string;
@@ -852,7 +854,7 @@ function attachTelemetry(page: Page, actor: Actor, sink: TelemetryEvent[]): void
       ts: new Date().toISOString(),
       actor,
       level: 'pageerror',
-      text: String(error.message),
+      text: String(error.stack ?? error.message),
       args: [],
     });
   });
@@ -881,6 +883,7 @@ test.describe('live mesh convergence', () => {
     const pageB = await contextB.newPage();
 
     const telemetryEvents: TelemetryEvent[] = [];
+    attachTelemetry(ingesterPage, 'I', telemetryEvents);
     attachTelemetry(pageA, 'A', telemetryEvents);
     attachTelemetry(pageB, 'B', telemetryEvents);
 
@@ -1141,6 +1144,10 @@ test.describe('live mesh convergence', () => {
 
       await testInfo.attach('live-bias-vote-convergence-summary', {
         body: Buffer.from(JSON.stringify(summaryPacket, null, 2), 'utf8'),
+        contentType: 'application/json',
+      });
+      await testInfo.attach('live-bias-vote-convergence-telemetry', {
+        body: Buffer.from(JSON.stringify(telemetryEvents, null, 2), 'utf8'),
         contentType: 'application/json',
       });
 

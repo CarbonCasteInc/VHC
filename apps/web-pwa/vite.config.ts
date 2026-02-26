@@ -364,7 +364,7 @@ export default defineConfig({
   },
   define: {
     'process.env': {},
-    global: 'window'
+    global: 'globalThis'
   },
   worker: {
     format: 'es'

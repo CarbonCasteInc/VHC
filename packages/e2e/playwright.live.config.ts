@@ -1,4 +1,4 @@
-import { defineConfig, devices } from '@playwright/test';
+import { defineConfig, devices, type TestConfig } from '@playwright/test';
 
 const baseUrl = process.env.VH_LIVE_BASE_URL ?? '';
 const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(baseUrl);
@@ -18,14 +18,24 @@ function extractPort(url: string): number {
 // This eliminates the recurring "feed-not-ready" failure class caused by a
 // manually-started server missing VITE_VH_ANALYSIS_PIPELINE (and its cascading
 // VITE_NEWS_RUNTIME_ENABLED / VITE_NEWS_BRIDGE_ENABLED defaults).
-const localWebServer = isLocalTarget
-  ? {
-    webServer: {
+const localWebServers: TestConfig['webServer'] = isLocalTarget
+  ? [
+    {
+      command: 'node ../../infra/relay/server.js',
+      url: 'http://localhost:7777',
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+      env: {
+        GUN_PORT: '7777',
+      },
+    },
+    {
       command: [
         'VITE_VH_ANALYSIS_PIPELINE=true',
         'VITE_VH_BIAS_TABLE_V2=true',
         'VITE_NEWS_RUNTIME_ENABLED=true',
         'VITE_NEWS_BRIDGE_ENABLED=true',
+        `VITE_GUN_PEERS='[\"http://localhost:7777/gun\"]'`,
         `pnpm --filter @vh/web-pwa dev --port ${extractPort(baseUrl)} --strictPort`,
       ].join(' '),
       url: baseUrl,
@@ -36,10 +46,11 @@ const localWebServer = isLocalTarget
         VITE_VH_BIAS_TABLE_V2: 'true',
         VITE_NEWS_RUNTIME_ENABLED: 'true',
         VITE_NEWS_BRIDGE_ENABLED: 'true',
+        VITE_GUN_PEERS: '["http://localhost:7777/gun"]',
       },
     },
-  }
-  : {};
+  ]
+  : undefined;
 
 export default defineConfig({
   testDir: './src/live',
@@ -57,5 +68,5 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  ...localWebServer,
+  webServer: localWebServers,
 });
