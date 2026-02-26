@@ -268,7 +268,7 @@ describe('useAnalysis', () => {
     expect(mockReadMeshAnalysis).toHaveBeenCalledTimes(2);
     userB.unmount();
   });
-  it('times out after 30 seconds', () => {
+  it('times out after 60 seconds', () => {
     vi.useFakeTimers();
     const story = makeStoryBundle();
     const neverSettles = new Promise<NewsCardAnalysisSynthesis>(() => {
@@ -278,7 +278,7 @@ describe('useAnalysis', () => {
     const { result } = renderHook(() => useAnalysis(story, true));
     expect(result.current.status).toBe('loading');
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
     expect(result.current.status).toBe('timeout');
     expect(result.current.error).toBe('Analysis timed out. The server may be busy.');
@@ -340,7 +340,7 @@ describe('useAnalysis', () => {
     unmount();
     expect(clearTimeoutSpy).toHaveBeenCalled();
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
   });
   it('recordAnalysis and canAnalyze enforce max 20 analyses per day', () => {
@@ -404,7 +404,7 @@ describe('useAnalysis', () => {
     const { result } = renderHook(() => useAnalysis(story, true));
     expect(result.current.status).toBe('loading');
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
     expect(result.current.status).toBe('timeout');
     await act(async () => {
@@ -428,7 +428,7 @@ describe('useAnalysis', () => {
     const { result } = renderHook(() => useAnalysis(story, true));
     expect(result.current.status).toBe('loading');
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
     expect(result.current.status).toBe('timeout');
     await act(async () => {
