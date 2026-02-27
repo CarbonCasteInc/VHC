@@ -8,6 +8,8 @@ type PointAggregateTelemetryStatus = 'success' | 'error' | 'timeout';
 
 const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [500, 1000, 2000, 4000] as const;
+const ZERO_SNAPSHOT_POLL_INTERVAL_MS = 3_000;
+const ZERO_SNAPSHOT_POLL_ATTEMPTS = 10;
 
 export interface UsePointAggregateParams {
   readonly topicId: string;
@@ -245,10 +247,9 @@ export function usePointAggregate({
         }
       }
 
-      // Fallback: if primary canonical point ID exhausted retries with zeros
-      // and a distinct fallback point ID is available, attempt one read with it.
-      // This covers ID-partition mismatch between canonical and legacy point IDs
-      // within the same synthesis namespace.
+      // Fallback: if canonical exhausted retries with zeros and a distinct
+      // fallback point ID is available, try it once before entering bounded
+      // convergence polling.
       if (lastZeroAggregate && effectiveFallbackPointId && !cancelled) {
         const fallbackStartedAt = Date.now();
         try {
@@ -264,7 +265,6 @@ export function usePointAggregate({
           }
 
           const fallbackZero = isZeroAggregate(fallbackAggregate);
-
           logAggregateRead('success', {
             topicId,
             synthesisId,
@@ -290,19 +290,124 @@ export function usePointAggregate({
             return;
           }
         } catch {
-          // Fallback read failed — keep the primary zero result
+          // Fallback read failed — keep the primary zero result.
+        }
+      }
+
+      // Bounded convergence polling: mesh writes can land after initial read
+      // retries (especially after reload). Keep polling while mounted so
+      // cross-tab vote visibility converges without manual reopen.
+      if (lastZeroAggregate && !cancelled) {
+        for (let pollAttempt = 1; pollAttempt <= ZERO_SNAPSHOT_POLL_ATTEMPTS; pollAttempt += 1) {
+          await sleep(ZERO_SNAPSHOT_POLL_INTERVAL_MS);
+          if (cancelled) {
+            return;
+          }
+
+          const attemptNumber = MAX_RETRIES + 2 + pollAttempt;
+          const startedAt = Date.now();
+          try {
+            const aggregate = await readAggregates(client, topicId, synthesisId, epoch, pointId);
+            if (cancelled) {
+              return;
+            }
+
+            const zeroSnapshot = isZeroAggregate(aggregate);
+            logAggregateRead('success', {
+              topicId,
+              synthesisId,
+              epoch,
+              pointId,
+              attempt: attemptNumber,
+              latencyMs: Date.now() - startedAt,
+              agree: aggregate.agree,
+              disagree: aggregate.disagree,
+              participants: aggregate.participants,
+              weight: aggregate.weight,
+              zeroSnapshot,
+              retrying: zeroSnapshot && pollAttempt < ZERO_SNAPSHOT_POLL_ATTEMPTS,
+            });
+
+            if (!zeroSnapshot) {
+              setResult({
+                aggregate,
+                status: 'success',
+                error: null,
+              });
+              return;
+            }
+
+            if (effectiveFallbackPointId) {
+              const fallbackStartedAt = Date.now();
+              try {
+                const fallbackAggregate = await readAggregates(
+                  client,
+                  topicId,
+                  synthesisId,
+                  epoch,
+                  effectiveFallbackPointId,
+                );
+                if (cancelled) {
+                  return;
+                }
+
+                const fallbackZero = isZeroAggregate(fallbackAggregate);
+                logAggregateRead('success', {
+                  topicId,
+                  synthesisId,
+                  epoch,
+                  pointId: effectiveFallbackPointId,
+                  attempt: attemptNumber,
+                  latencyMs: Date.now() - fallbackStartedAt,
+                  agree: fallbackAggregate.agree,
+                  disagree: fallbackAggregate.disagree,
+                  participants: fallbackAggregate.participants,
+                  weight: fallbackAggregate.weight,
+                  zeroSnapshot: fallbackZero,
+                  fallbackUsed: true,
+                  fallbackPointId: effectiveFallbackPointId,
+                });
+
+                if (!fallbackZero) {
+                  setResult({
+                    aggregate: fallbackAggregate,
+                    status: 'success',
+                    error: null,
+                  });
+                  return;
+                }
+              } catch {
+                // Best-effort fallback read during convergence polling.
+              }
+            }
+          } catch (error) {
+            if (cancelled) {
+              return;
+            }
+
+            const errorCode = normalizeErrorCode(error);
+            logAggregateRead(errorCode === 'timeout' ? 'timeout' : 'error', {
+              topicId,
+              synthesisId,
+              epoch,
+              pointId,
+              attempt: attemptNumber,
+              latencyMs: Date.now() - startedAt,
+              errorCode,
+            });
+          }
         }
 
-        // Both canonical and fallback returned zeros. Emit convergence-zero
-        // diagnostic for post-hoc analysis of namespace mismatch.
-        console.warn('[vh:aggregate:convergence-zero]', {
-          topic_id: topicId,
-          synthesis_id: synthesisId,
-          epoch,
-          canonical_point_id: pointId,
-          fallback_point_id: effectiveFallbackPointId,
-          total_attempts: MAX_RETRIES + 2,
-        });
+        if (effectiveFallbackPointId) {
+          console.warn('[vh:aggregate:convergence-zero]', {
+            topic_id: topicId,
+            synthesis_id: synthesisId,
+            epoch,
+            canonical_point_id: pointId,
+            fallback_point_id: effectiveFallbackPointId,
+            total_attempts: MAX_RETRIES + 2 + ZERO_SNAPSHOT_POLL_ATTEMPTS,
+          });
+        }
       }
     })();
 
