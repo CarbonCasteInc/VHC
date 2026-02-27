@@ -64,6 +64,7 @@ let socialBridgeActive = false;
 let newsUnsubscribe: (() => void) | null = null;
 let synthesisUnsubscribe: (() => void) | null = null;
 let clearSocialBridgeHandler: (() => void) | null = null;
+const NEWS_BRIDGE_REFRESH_TIMEOUT_MS = 7_500;
 
 function toTimestamp(value: number): number {
   if (!Number.isFinite(value) || value < 0) {
@@ -209,7 +210,15 @@ export async function startNewsBridge(): Promise<void> {
   const newsState = newsStore.getState();
   newsState.startHydration();
   try {
-    await newsState.refreshLatest();
+    await Promise.race([
+      newsState.refreshLatest(),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error(`refreshLatest timeout after ${NEWS_BRIDGE_REFRESH_TIMEOUT_MS}ms`)),
+          NEWS_BRIDGE_REFRESH_TIMEOUT_MS,
+        );
+      }),
+    ]);
   } catch (error) {
     console.warn('[vh:feed-bridge] refreshLatest failed during bootstrap:', error);
   }
