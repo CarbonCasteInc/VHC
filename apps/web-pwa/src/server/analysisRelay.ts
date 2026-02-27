@@ -9,7 +9,9 @@ const ARTICLE_DELIMITER = '--- ARTICLE START ---';
 const UPSTREAM_EMPTY_CONTENT_RETRIES = 2;
 const UPSTREAM_STATUS_RETRIES = 1;
 const UPSTREAM_RETRY_BACKOFF_MS = 300;
-const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
+const UPSTREAM_FETCH_TIMEOUT_MS = Number.isFinite(Number(process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS)))
+  : 30_000;
 
 type AnalysisProvider = {
   provider_id: string;
