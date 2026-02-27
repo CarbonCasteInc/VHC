@@ -291,7 +291,19 @@ export async function startNewsBridge(): Promise<void> {
   const newsState = newsStore.getState();
   newsState.startHydration();
   try {
+<<<<<<< HEAD
     await runRefreshLatestWithRetry(newsState);
+=======
+    await Promise.race([
+      newsState.refreshLatest(),
+      new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error(`refreshLatest timeout after ${NEWS_BRIDGE_REFRESH_TIMEOUT_MS}ms`)),
+          NEWS_BRIDGE_REFRESH_TIMEOUT_MS,
+        );
+      }),
+    ]);
+>>>>>>> 900709d (fix(feed): bound refreshLatest bootstrap to prevent headline deadlock)
   } catch (error) {
     console.warn('[vh:feed-bridge] refreshLatest failed during bootstrap:', error);
   }
