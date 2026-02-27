@@ -34,6 +34,7 @@ interface AnalysisRelayConfig {
   apiKey: string;
   providerId: string;
   modelOverride?: string;
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
   analysesLimit: number;
   analysesPerTopicLimit: number;
 }
@@ -130,6 +131,14 @@ function parsePositiveIntString(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function parseReasoningEffort(value: string | undefined): 'minimal' | 'low' | 'medium' | 'high' | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === 'minimal' || normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+    return normalized;
+  }
+  return undefined;
+}
 export function resolveAnalysisRelayConfig(env: Record<string, string | undefined>): AnalysisRelayConfig | null {
   const endpointUrl = readServerEnvVar(env, 'ANALYSIS_RELAY_UPSTREAM_URL');
   const apiKey = readServerEnvVar(env, 'ANALYSIS_RELAY_API_KEY');
@@ -140,6 +149,7 @@ export function resolveAnalysisRelayConfig(env: Record<string, string | undefine
     apiKey,
     providerId: readServerEnvVar(env, 'ANALYSIS_RELAY_PROVIDER_ID') ?? 'remote-analysis-relay',
     modelOverride: readServerEnvVar(env, 'ANALYSIS_RELAY_MODEL'),
+    reasoningEffort: parseReasoningEffort(readServerEnvVar(env, 'ANALYSIS_RELAY_REASONING_EFFORT')),
     analysesLimit: parsePositiveIntString(readServerEnvVar(env, 'ANALYSIS_RELAY_BUDGET_ANALYSES')) ?? DEFAULT_ANALYSES_LIMIT,
     analysesPerTopicLimit:
       parsePositiveIntString(readServerEnvVar(env, 'ANALYSIS_RELAY_BUDGET_ANALYSES_PER_TOPIC')) ??
@@ -164,6 +174,20 @@ export function extractTopicId(articleText: string): string | undefined {
   return match && match.length > 0 ? match : undefined;
 }
 
+function resolveTokenParam(model: string): 'max_completion_tokens' | 'max_tokens' {
+  if (/^(gpt-5|o1|o3)/i.test(model)) {
+    return 'max_completion_tokens';
+  }
+  return 'max_tokens';
+}
+
+function shouldSendTemperature(model: string): boolean {
+  return !/^(gpt-5|o1|o3)/i.test(model);
+}
+
+function shouldSendReasoningEffort(model: string): boolean {
+  return /^gpt-5/i.test(model);
+}
 /**
  * Split a prompt into system + user messages when an article delimiter is present.
  * System instructions go in the system role; the article content goes in the user role.
@@ -194,12 +218,23 @@ function toChatCompletionsPayload(request: {
   model: string;
   max_tokens: number;
   temperature: number;
-}): { model: string; messages: Array<{ role: string; content: string }>; max_tokens: number; temperature: number } {
+  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+}): {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  temperature?: number;
+  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+} {
+  const tokenParam = resolveTokenParam(request.model);
+  const reasoningEffort = request.reasoningEffort ?? 'minimal';
   return {
     model: request.model,
     messages: splitPromptMessages(request.prompt),
-    max_tokens: request.max_tokens,
-    temperature: request.temperature,
+    [tokenParam]: request.max_tokens,
+    ...(shouldSendTemperature(request.model) ? { temperature: request.temperature } : {}),
+    ...(shouldSendReasoningEffort(request.model) ? { reasoning_effort: reasoningEffort } : {}),
   };
 }
 
@@ -309,7 +344,10 @@ export async function relayAnalysis(
   };
 
   try {
-    const chatPayload = toChatCompletionsPayload(upstreamRequest);
+    const chatPayload = toChatCompletionsPayload({
+      ...upstreamRequest,
+      reasoningEffort: config.reasoningEffort,
+    });
     const maxAttempts = 1 + UPSTREAM_EMPTY_CONTENT_RETRIES;
     let lastUpstreamBody: unknown = null;
 
