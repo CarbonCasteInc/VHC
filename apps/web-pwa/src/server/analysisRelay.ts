@@ -34,7 +34,7 @@ interface AnalysisRelayConfig {
   apiKey: string;
   providerId: string;
   modelOverride?: string;
-  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
   analysesLimit: number;
   analysesPerTopicLimit: number;
 }
@@ -131,10 +131,20 @@ function parsePositiveIntString(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
-function parseReasoningEffort(value: string | undefined): 'minimal' | 'low' | 'medium' | 'high' | undefined {
+function parseReasoningEffort(value: string | undefined): 'none' | 'low' | 'medium' | 'high' | 'xhigh' | undefined {
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase();
-  if (normalized === 'minimal' || normalized === 'low' || normalized === 'medium' || normalized === 'high') {
+  // Backward-compatible alias used by earlier relay experiments.
+  if (normalized === 'minimal') {
+    return 'low';
+  }
+  if (
+    normalized === 'none'
+    || normalized === 'low'
+    || normalized === 'medium'
+    || normalized === 'high'
+    || normalized === 'xhigh'
+  ) {
     return normalized;
   }
   return undefined;
@@ -218,17 +228,17 @@ function toChatCompletionsPayload(request: {
   model: string;
   max_tokens: number;
   temperature: number;
-  reasoningEffort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 }): {
   model: string;
   messages: Array<{ role: string; content: string }>;
   max_tokens?: number;
   max_completion_tokens?: number;
   temperature?: number;
-  reasoning_effort?: 'minimal' | 'low' | 'medium' | 'high';
+  reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
 } {
   const tokenParam = resolveTokenParam(request.model);
-  const reasoningEffort = request.reasoningEffort ?? 'minimal';
+  const reasoningEffort = request.reasoningEffort ?? 'low';
   return {
     model: request.model,
     messages: splitPromptMessages(request.prompt),

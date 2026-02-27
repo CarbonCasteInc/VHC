@@ -182,7 +182,7 @@ describe('analysisRelay config + success paths', () => {
     expect(body.model).toBe('gpt-5-nano');
     expect(body.max_completion_tokens).toBe(96);
     expect(body).not.toHaveProperty('max_tokens');
-    expect(body.reasoning_effort).toBe('minimal');
+    expect(body.reasoning_effort).toBe('low');
   });
 
   it('does not include reasoning_effort for non-gpt-5 models', async () => {
@@ -228,6 +228,15 @@ describe('analysisRelay config + success paths', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(body.reasoning_effort).toBe('low');
+  });
+
+  it('maps legacy minimal reasoning effort env value to low', () => {
+    const config = resolveAnalysisRelayConfig({
+      ...BASE_ENV,
+      ANALYSIS_RELAY_REASONING_EFFORT: 'minimal',
+    });
+
+    expect(config?.reasoningEffort).toBe('low');
   });
   it('enforces server model override even when client supplies model', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse({ content: '{"ok":true}' }));
