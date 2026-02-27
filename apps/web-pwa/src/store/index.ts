@@ -28,6 +28,8 @@ interface AppState {
   createIdentity: (username: string) => Promise<void>;
 }
 
+let initInFlight: Promise<void> | null = null;
+
 function loadProfile(): Profile | null {
   try {
     const raw = safeGetItem(PROFILE_KEY);
@@ -168,67 +170,78 @@ export const useAppStore = create<AppState>((set, get) => ({
   initializing: false,
   identityStatus: 'idle',
   async init() {
-    const existingClient = get().client;
-    if (existingClient) {
-      await bootstrapRuntimeFeatures(existingClient, 'existing-client');
-      return;
+    if (initInFlight) {
+      return initInFlight;
     }
-    set({ initializing: true, error: undefined });
-    try {
-      const e2e = isE2EMode();
-      if (e2e) {
-        console.info('[vh:web-pwa] Starting in E2E/Offline Mode with mocked client');
-        const mockClient = createMockClient();
-        const profile = loadProfile();
-        set({
-          client: mockClient,
-          initializing: false,
-          sessionReady: true,
-          identityStatus: profile ? 'ready' : 'idle',
-          profile
-        });
 
-        await bootstrapRuntimeFeatures(mockClient, 'e2e');
+    const runInit = async (): Promise<void> => {
+      const existingClient = get().client;
+      if (existingClient) {
+        await bootstrapRuntimeFeatures(existingClient, 'existing-client');
         return;
       }
+      set({ initializing: true, error: undefined });
+      try {
+        const e2e = isE2EMode();
+        if (e2e) {
+          console.info('[vh:web-pwa] Starting in E2E/Offline Mode with mocked client');
+          const mockClient = createMockClient();
+          const profile = loadProfile();
+          set({
+            client: mockClient,
+            initializing: false,
+            sessionReady: true,
+            identityStatus: profile ? 'ready' : 'idle',
+            profile
+          });
 
-      const client = createClient({
-        peers: resolveGunPeers(),
-        requireSession: true
-      });
-      console.info('[vh:web-pwa] using Gun peers', client.config.peers);
-      await Promise.race([
-        client.hydrationBarrier.prepare(),
-        new Promise<void>((_, reject) =>
-          setTimeout(() => reject(new Error('[vh:web-pwa] hydration barrier timed out after 15 s')), 15_000),
-        ),
-      ]).catch((err) => {
-        console.warn('[vh:web-pwa] hydration barrier did not resolve, continuing:', err);
-      });
-      const profile = loadProfile();
-      // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
-      await migrateLegacyLocalStorage();
-      const identity = await loadIdentityRecord();
-      if (identity?.devicePair) {
-        try {
-          await authenticateGunUser(client, identity.devicePair);
-          await publishDirectoryEntry(client, identity);
-        } catch (err) {
-          console.warn('[vh:gun] Auth/directory publish failed, continuing anyway:', err);
+          await bootstrapRuntimeFeatures(mockClient, 'e2e');
+          return;
         }
-      }
-      set({
-        client,
-        profile,
-        initializing: false,
-        identityStatus: profile ? 'ready' : 'idle',
-        sessionReady: Boolean(profile)
-      });
 
-      await bootstrapRuntimeFeatures(client, 'default');
-    } catch (err) {
-      set({ initializing: false, identityStatus: 'error', error: (err as Error).message });
-    }
+        const client = createClient({
+          peers: resolveGunPeers(),
+          requireSession: true
+        });
+        console.info('[vh:web-pwa] using Gun peers', client.config.peers);
+        await Promise.race([
+          client.hydrationBarrier.prepare(),
+          new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('[vh:web-pwa] hydration barrier timed out after 15 s')), 15_000),
+          ),
+        ]).catch((err) => {
+          console.warn('[vh:web-pwa] hydration barrier did not resolve, continuing:', err);
+        });
+        const profile = loadProfile();
+        // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
+        await migrateLegacyLocalStorage();
+        const identity = await loadIdentityRecord();
+        if (identity?.devicePair) {
+          try {
+            await authenticateGunUser(client, identity.devicePair);
+            await publishDirectoryEntry(client, identity);
+          } catch (err) {
+            console.warn('[vh:gun] Auth/directory publish failed, continuing anyway:', err);
+          }
+        }
+        set({
+          client,
+          profile,
+          initializing: false,
+          identityStatus: profile ? 'ready' : 'idle',
+          sessionReady: Boolean(profile)
+        });
+
+        await bootstrapRuntimeFeatures(client, 'default');
+      } catch (err) {
+        set({ initializing: false, identityStatus: 'error', error: (err as Error).message });
+      }
+    };
+
+    initInFlight = runInit().finally(() => {
+      initInFlight = null;
+    });
+    return initInFlight;
   },
   async createIdentity(username: string) {
     const client = get().client;

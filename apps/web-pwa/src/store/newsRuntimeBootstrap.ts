@@ -19,6 +19,8 @@ type NewsRuntimeRole = 'auto' | 'ingester' | 'consumer';
 
 let runtimeHandle: NewsRuntimeHandle | null = null;
 let runtimeClient: VennClient | null = null;
+let runtimeStartPromise: Promise<void> | null = null;
+let runtimeStartClient: VennClient | null = null;
 let reliabilityCache:
   | {
       readonly at: number;
@@ -365,82 +367,101 @@ async function filterFeedSourcesByReliability(feedSources: FeedSource[]): Promis
 }
 
 export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void> {
-  if (!isNewsRuntimeEnabled()) {
+  if (runtimeStartPromise && runtimeStartClient === client) {
+    await runtimeStartPromise;
     return;
   }
 
-  if (!shouldRunRuntimeInCurrentSession()) {
+  const start = async (): Promise<void> => {
+    if (!isNewsRuntimeEnabled()) {
+      return;
+    }
+
+    if (!shouldRunRuntimeInCurrentSession()) {
+      runtimeHandle?.stop();
+      runtimeHandle = null;
+      runtimeClient = null;
+      console.info('[vh:news-runtime] skipped for this session');
+      return;
+    }
+
+    if (runtimeHandle?.isRunning() && runtimeClient === client) {
+      return;
+    }
+
     runtimeHandle?.stop();
+
+    const parsedFeedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
+    const reliableSources = parseReliabilityGateEnabled()
+      ? await filterFeedSourcesByReliability(parsedFeedSources)
+      : parsedFeedSources;
+
+    // Rewrite rssUrl to same-origin proxy to avoid browser CORS blocks.
+    // The runtime validates feedSources with a URL schema, so use absolute proxy URLs.
+    const feedSources = reliableSources.map((source) => ({
+      ...source,
+      rssUrl: resolveRuntimeRssUrl(source),
+    }));
+
+    const handle = startNewsRuntime({
+      feedSources,
+      topicMapping: parseTopicMapping(readEnvVar('VITE_NEWS_TOPIC_MAPPING')),
+      gunClient: client,
+      pollIntervalMs: parsePollIntervalMs(readEnvVar('VITE_NEWS_POLL_INTERVAL_MS')),
+      writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
+        // Eagerly inject into the local news store so headlines render
+        // immediately, bypassing the Gun write→subscription roundtrip
+        // which silently fails when no Gun peers are reachable.
+        try {
+          const [{ useNewsStore }, { StoryBundleSchema }] = await Promise.all([
+            import('./news'),
+            import('@vh/data-model'),
+          ]);
+          const parsed = StoryBundleSchema.safeParse(bundle);
+          if (parsed.success) {
+            useNewsStore.getState().upsertStory(parsed.data);
+            useNewsStore.getState().upsertLatestIndex(
+              parsed.data.story_id,
+              parsed.data.created_at,
+            );
+          }
+        } catch {
+          // Best-effort; Gun write below is the authoritative path.
+        }
+        return writeStoryBundle(runtimeClient as VennClient, bundle);
+      },
+      onError(error) {
+        console.warn('[vh:news-runtime] runtime tick failed', error);
+      },
+    });
+
+    if (handle.isRunning()) {
+      runtimeHandle = handle;
+      runtimeClient = client;
+      console.info('[vh:news-runtime] started');
+      return;
+    }
+
     runtimeHandle = null;
     runtimeClient = null;
-    console.info('[vh:news-runtime] skipped for this session');
-    return;
-  }
+  };
 
-  if (runtimeHandle?.isRunning() && runtimeClient === client) {
-    return;
-  }
-
-  runtimeHandle?.stop();
-
-  const parsedFeedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
-  const reliableSources = parseReliabilityGateEnabled()
-    ? await filterFeedSourcesByReliability(parsedFeedSources)
-    : parsedFeedSources;
-
-  // Rewrite rssUrl to same-origin proxy to avoid browser CORS blocks.
-  // The runtime validates feedSources with a URL schema, so use absolute proxy URLs.
-  const feedSources = reliableSources.map((source) => ({
-    ...source,
-    rssUrl: resolveRuntimeRssUrl(source),
-  }));
-
-  const handle = startNewsRuntime({
-    feedSources,
-    topicMapping: parseTopicMapping(readEnvVar('VITE_NEWS_TOPIC_MAPPING')),
-    gunClient: client,
-    pollIntervalMs: parsePollIntervalMs(readEnvVar('VITE_NEWS_POLL_INTERVAL_MS')),
-    writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
-      // Eagerly inject into the local news store so headlines render
-      // immediately, bypassing the Gun write→subscription roundtrip
-      // which silently fails when no Gun peers are reachable.
-      try {
-        const [{ useNewsStore }, { StoryBundleSchema }] = await Promise.all([
-          import('./news'),
-          import('@vh/data-model'),
-        ]);
-        const parsed = StoryBundleSchema.safeParse(bundle);
-        if (parsed.success) {
-          useNewsStore.getState().upsertStory(parsed.data);
-          useNewsStore.getState().upsertLatestIndex(
-            parsed.data.story_id,
-            parsed.data.created_at,
-          );
-        }
-      } catch {
-        // Best-effort; Gun write below is the authoritative path.
-      }
-      return writeStoryBundle(runtimeClient as VennClient, bundle);
-    },
-    onError(error) {
-      console.warn('[vh:news-runtime] runtime tick failed', error);
-    },
+  const inFlight = start();
+  runtimeStartPromise = inFlight;
+  runtimeStartClient = client;
+  await inFlight.finally(() => {
+    if (runtimeStartPromise === inFlight) {
+      runtimeStartPromise = null;
+      runtimeStartClient = null;
+    }
   });
-
-  if (handle.isRunning()) {
-    runtimeHandle = handle;
-    runtimeClient = client;
-    console.info('[vh:news-runtime] started');
-    return;
-  }
-
-  runtimeHandle = null;
-  runtimeClient = null;
 }
 
 export function __resetNewsRuntimeForTesting(): void {
   runtimeHandle?.stop();
   runtimeHandle = null;
   runtimeClient = null;
+  runtimeStartPromise = null;
+  runtimeStartClient = null;
   reliabilityCache = null;
 }

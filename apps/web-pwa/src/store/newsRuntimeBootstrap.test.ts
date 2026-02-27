@@ -141,15 +141,15 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
 
-  it('stops an already-running runtime when role flips to consumer', () => {
+  it('stops an already-running runtime when role flips to consumer', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
 
     const client = { id: 'role-flip-client' } as any;
-    ensureNewsRuntimeStarted(client);
+    await ensureNewsRuntimeStarted(client);
 
     vi.stubEnv('VITE_NEWS_RUNTIME_ROLE', 'consumer');
-    ensureNewsRuntimeStarted(client);
+    await ensureNewsRuntimeStarted(client);
 
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
     expect(stopMock).toHaveBeenCalledTimes(1);
@@ -307,15 +307,15 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(2);
   });
 
-  it('clears runtime state when startNewsRuntime returns a stopped handle', () => {
+  it('clears runtime state when startNewsRuntime returns a stopped handle', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
 
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     startNewsRuntimeMock.mockReturnValue(makeHandle(false));
 
     const client = { id: 'stopped-handle-client' } as any;
-    ensureNewsRuntimeStarted(client);
-    ensureNewsRuntimeStarted(client);
+    await ensureNewsRuntimeStarted(client);
+    await ensureNewsRuntimeStarted(client);
 
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(2);
     expect(infoSpy).not.toHaveBeenCalled();
