@@ -13,7 +13,10 @@ import {
   type NewsCardAnalysisSynthesis,
 } from './newsCardAnalysis';
 import {
+  clearPendingMeshAnalysis,
+  readPendingMeshAnalysis,
   readMeshAnalysis,
+  upsertPendingMeshAnalysis,
   writeMeshAnalysis,
 } from './useAnalysisMesh';
 import * as DevModelPickerModule from '../dev/DevModelPicker';
@@ -22,7 +25,10 @@ vi.mock('./newsCardAnalysis', () => ({
   getCachedSynthesisForStory: vi.fn(),
 }));
 vi.mock('./useAnalysisMesh', () => ({
+  clearPendingMeshAnalysis: vi.fn(),
+  readPendingMeshAnalysis: vi.fn(),
   readMeshAnalysis: vi.fn(),
+  upsertPendingMeshAnalysis: vi.fn(),
   writeMeshAnalysis: vi.fn(),
 }));
 vi.mock('../dev/DevModelPicker', () => ({
@@ -34,7 +40,10 @@ const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
   synthesizeStoryFromAnalysisPipeline,
 );
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
+const mockClearPendingMeshAnalysis = vi.mocked(clearPendingMeshAnalysis);
+const mockReadPendingMeshAnalysis = vi.mocked(readPendingMeshAnalysis);
 const mockReadMeshAnalysis = vi.mocked(readMeshAnalysis);
+const mockUpsertPendingMeshAnalysis = vi.mocked(upsertPendingMeshAnalysis);
 const mockWriteMeshAnalysis = vi.mocked(writeMeshAnalysis);
 const mockGetDevModelOverride = vi.mocked(DevModelPickerModule.getDevModelOverride);
 const NOW = 1_700_000_000_000;
@@ -102,11 +111,21 @@ describe('useAnalysis', () => {
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
     mockGetCachedSynthesisForStory.mockReset();
     mockReadMeshAnalysis.mockReset();
+    mockReadPendingMeshAnalysis.mockReset();
+    mockUpsertPendingMeshAnalysis.mockReset();
+    mockClearPendingMeshAnalysis.mockReset();
     mockWriteMeshAnalysis.mockReset();
     mockGetDevModelOverride.mockReset();
     mockGetDevModelOverride.mockReturnValue(null);
     mockGetCachedSynthesisForStory.mockReturnValue(null);
     mockReadMeshAnalysis.mockResolvedValue(null);
+    mockReadPendingMeshAnalysis.mockResolvedValue(null);
+    mockUpsertPendingMeshAnalysis.mockResolvedValue({
+      owner: 'test-owner',
+      startedAt: NOW,
+      expiresAt: NOW + 90_000,
+    });
+    mockClearPendingMeshAnalysis.mockResolvedValue();
     mockWriteMeshAnalysis.mockResolvedValue();
   });
   afterEach(() => {

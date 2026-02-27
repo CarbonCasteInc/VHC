@@ -5,13 +5,21 @@ import {
   synthesizeStoryFromAnalysisPipeline,
   type NewsCardAnalysisSynthesis,
 } from './newsCardAnalysis';
-import { readMeshAnalysis, writeMeshAnalysis } from './useAnalysisMesh';
+import {
+  clearPendingMeshAnalysis,
+  readPendingMeshAnalysis,
+  readMeshAnalysis,
+  upsertPendingMeshAnalysis,
+  writeMeshAnalysis,
+} from './useAnalysisMesh';
 import {
   DEV_MODEL_CHANGED_EVENT,
   getDevModelOverride,
 } from '../dev/DevModelPicker';
 
 const ANALYSIS_TIMEOUT_MS = 60_000;
+const ANALYSIS_PENDING_WAIT_WINDOW_MS = 35_000;
+const ANALYSIS_PENDING_POLL_INTERVAL_MS = 1_500;
 const ANALYSIS_BUDGET_KEY = 'vh_analysis_budget';
 const DEFAULT_ANALYSIS_BUDGET_LIMIT = 20;
 const RETRY_NOOP = (): void => {};
@@ -159,6 +167,35 @@ function toErrorMessage(error: unknown): string {
   return 'Analysis pipeline unavailable.';
 }
 
+async function waitForPendingPeerAnalysis(
+  story: StoryBundle,
+  modelScopeKey: string,
+  maxWaitMs: number,
+): Promise<NewsCardAnalysisSynthesis | null> {
+  if (maxWaitMs <= 0) {
+    return null;
+  }
+
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    const sleepMs = Math.min(
+      ANALYSIS_PENDING_POLL_INTERVAL_MS,
+      Math.max(0, deadline - Date.now()),
+    );
+
+    await new Promise<void>((resolve) => {
+      globalThis.setTimeout(resolve, sleepMs);
+    });
+
+    const analysis = await readMeshAnalysis(story, modelScopeKey);
+    if (analysis) {
+      return analysis;
+    }
+  }
+
+  return null;
+}
+
 export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAnalysisResult {
   const [analysis, setAnalysis] = useState<NewsCardAnalysisSynthesis | null>(null);
   const [status, setStatus] = useState<AnalysisStatus>('idle');
@@ -237,6 +274,7 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
 
     const requestId = activeRequestId.current + 1;
     activeRequestId.current = requestId;
+    const requestStartedAt = Date.now();
 
     let timedOut = false;
     const timeoutId = globalThis.setTimeout(() => {
@@ -268,19 +306,60 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
         return;
       }
 
-      recordAnalysis();
-      const nextAnalysis = await synthesizeStoryFromAnalysisPipeline(stableStory);
-
+      const pending = await readPendingMeshAnalysis(stableStory, modelScopeKey);
       if (activeRequestId.current !== requestId || timedOut) {
         return;
       }
 
-      successfulStoryKey.current = storyKey;
-      setAnalysis(nextAnalysis);
-      setStatus('success');
-      setError(null);
+      if (pending) {
+        const remainingTimeoutBudget = Math.max(
+          0,
+          ANALYSIS_TIMEOUT_MS - (Date.now() - requestStartedAt) - 1_000,
+        );
+        const peerWaitBudget = Math.min(
+          ANALYSIS_PENDING_WAIT_WINDOW_MS,
+          Math.max(0, pending.expiresAt - Date.now()),
+          remainingTimeoutBudget,
+        );
 
-      await writeMeshAnalysis(stableStory, nextAnalysis, modelScopeKey);
+        const peerResult = await waitForPendingPeerAnalysis(
+          stableStory,
+          modelScopeKey,
+          peerWaitBudget,
+        );
+
+        if (activeRequestId.current !== requestId || timedOut) {
+          return;
+        }
+
+        if (peerResult) {
+          successfulStoryKey.current = storyKey;
+          setAnalysis(peerResult);
+          setStatus('success');
+          setError(null);
+          return;
+        }
+      }
+
+      await upsertPendingMeshAnalysis(stableStory, modelScopeKey);
+
+      try {
+        recordAnalysis();
+        const nextAnalysis = await synthesizeStoryFromAnalysisPipeline(stableStory);
+
+        if (activeRequestId.current !== requestId || timedOut) {
+          return;
+        }
+
+        successfulStoryKey.current = storyKey;
+        setAnalysis(nextAnalysis);
+        setStatus('success');
+        setError(null);
+
+        await writeMeshAnalysis(stableStory, nextAnalysis, modelScopeKey);
+      } finally {
+        await clearPendingMeshAnalysis(stableStory, modelScopeKey);
+      }
     })()
       .catch((cause: unknown) => {
         if (activeRequestId.current !== requestId || timedOut) {
