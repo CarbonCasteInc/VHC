@@ -259,7 +259,7 @@ describe('useAnalysisMesh', () => {
     );
   });
 
-  it('returns null on fallback miss/mismatch and emits miss telemetry', async () => {
+  it('falls back to latest pointer and allows cross-model reuse on matching provenance', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const story = makeStoryBundle();
 
@@ -299,15 +299,17 @@ describe('useAnalysisMesh', () => {
         created_at: '2026-02-18T22:00:00.000Z',
       } as any);
 
-    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
-    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
-    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toEqual({
+      summary: 'Mismatch model',
+      frames: [{ frame: 'f', reframe: 'r' }],
+      analyses: [],
+    });
 
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:analysis:mesh]',
       expect.objectContaining({
         story_id: story.story_id,
-        read_path: 'miss',
+        read_path: 'latest-pointer',
       }),
     );
   }, 20_000);

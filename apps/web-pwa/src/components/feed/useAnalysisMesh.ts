@@ -18,6 +18,18 @@ const ANALYSIS_PENDING_OWNER =
     ? crypto.randomUUID()
     : `pending-${Math.random().toString(16).slice(2)}`;
 
+function isCrossModelReuseEnabled(): boolean {
+  const viteValue = (import.meta as any).env?.VITE_VH_ANALYSIS_CROSS_MODEL_REUSE;
+  const processValue =
+    typeof process !== 'undefined'
+      ? process.env?.VITE_VH_ANALYSIS_CROSS_MODEL_REUSE
+      : undefined;
+  const raw = (viteValue ?? processValue ?? 'true').toString().trim().toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(raw);
+}
+
+const CROSS_MODEL_REUSE_ENABLED = isCrossModelReuseEnabled();
+
 interface AnalysisPendingPayload {
   readonly story_id: string;
   readonly provenance_hash: string;
@@ -342,7 +354,10 @@ export async function readMeshAnalysis(
             analysis_key: latestArtifact.analysisKey,
             model_scope: latestArtifact.model_scope,
           });
-        } else if (latestArtifact.model_scope !== modelScopeKey) {
+        } else if (
+          latestArtifact.model_scope !== modelScopeKey &&
+          !CROSS_MODEL_REUSE_ENABLED
+        ) {
           logMeshDebug('read-latest-pointer-model-scope-mismatch', {
             story_id: story.story_id,
             attempt,
@@ -352,6 +367,16 @@ export async function readMeshAnalysis(
             provenance_hash: latestArtifact.provenance_hash,
           });
         } else {
+          if (latestArtifact.model_scope !== modelScopeKey) {
+            logMeshDebug('read-latest-pointer-cross-model-reuse', {
+              story_id: story.story_id,
+              attempt,
+              expected_model_scope: modelScopeKey,
+              actual_model_scope: latestArtifact.model_scope,
+              analysis_key: latestArtifact.analysisKey,
+              provenance_hash: latestArtifact.provenance_hash,
+            });
+          }
           logMeshDebug('read-latest-pointer-hit', {
             story_id: story.story_id,
             attempt,
