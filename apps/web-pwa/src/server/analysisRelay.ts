@@ -7,6 +7,8 @@ const DEFAULT_ANALYSES_PER_TOPIC_LIMIT = 5;
 const TOPIC_ID_LINE_PATTERN = /^Topic ID:\s*(.+)$/im;
 const ARTICLE_DELIMITER = '--- ARTICLE START ---';
 const UPSTREAM_EMPTY_CONTENT_RETRIES = 2;
+const UPSTREAM_STATUS_RETRIES = 1;
+const UPSTREAM_RETRY_BACKOFF_MS = 300;
 const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
 
 type AnalysisProvider = {
@@ -130,6 +132,16 @@ function parsePositiveIntString(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function retryDelayMs(attempt: number): number {
+  return UPSTREAM_RETRY_BACKOFF_MS * Math.max(1, attempt);
+}
+
 export function resolveAnalysisRelayConfig(env: Record<string, string | undefined>): AnalysisRelayConfig | null {
   const endpointUrl = readServerEnvVar(env, 'ANALYSIS_RELAY_UPSTREAM_URL');
   const apiKey = readServerEnvVar(env, 'ANALYSIS_RELAY_API_KEY');
@@ -249,6 +261,23 @@ function readModelFromUpstream(body: Record<string, unknown>, fallback: string):
   return fallback;
 }
 
+function byteLength(value: string): number {
+  return new TextEncoder().encode(value).length;
+}
+
+async function readUpstreamBody(upstream: Response): Promise<{ body: unknown; bytes: number }> {
+  const raw = await upstream.text();
+  const bytes = byteLength(raw);
+  if (raw.trim().length === 0) {
+    return { body: {}, bytes };
+  }
+  try {
+    return { body: JSON.parse(raw) as unknown, bytes };
+  } catch {
+    return { body: { raw }, bytes };
+  }
+}
+
 function budgetSnapshot(topicId: string | undefined): { analyses: number; analyses_per_topic: number } {
   return {
     analyses: relayBudgetState.analyses,
@@ -280,7 +309,12 @@ function consumeBudget(topicId: string | undefined): void {
 
 export async function relayAnalysis(
   rawBody: unknown,
-  options: { fetchImpl?: typeof fetch; env?: Record<string, string | undefined>; now?: () => Date } = {},
+  options: {
+    fetchImpl?: typeof fetch;
+    env?: Record<string, string | undefined>;
+    now?: () => Date;
+    sleepImpl?: (ms: number) => Promise<void>;
+  } = {},
 ): Promise<AnalysisRelayResult> {
   const env =
     options.env ??
@@ -297,6 +331,7 @@ export async function relayAnalysis(
   }
 
   const fetchImpl = options.fetchImpl ?? fetch;
+  const sleepImpl = options.sleepImpl ?? sleep;
   const now = options.now ?? (() => new Date());
   resetBudgetIfNeeded(now());
 
@@ -328,10 +363,15 @@ export async function relayAnalysis(
 
   try {
     const chatPayload = toChatCompletionsPayload(upstreamRequest);
-    const maxAttempts = 1 + UPSTREAM_EMPTY_CONTENT_RETRIES;
+    const payloadJson = JSON.stringify(chatPayload);
+    const requestBytes = byteLength(payloadJson);
+    const maxAttempts = 1 + UPSTREAM_EMPTY_CONTENT_RETRIES + UPSTREAM_STATUS_RETRIES;
+    let statusRetriesRemaining = UPSTREAM_STATUS_RETRIES;
+    let emptyRetriesRemaining = UPSTREAM_EMPTY_CONTENT_RETRIES;
     let lastUpstreamBody: unknown = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const startedAt = Date.now();
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), UPSTREAM_FETCH_TIMEOUT_MS);
 
@@ -343,25 +383,45 @@ export async function relayAnalysis(
             'Content-Type': 'application/json',
             Authorization: `Bearer ${config.apiKey}`,
           },
-          body: JSON.stringify(chatPayload),
+          body: payloadJson,
           signal: controller.signal,
         });
       } finally {
         clearTimeout(timer);
       }
 
+      const latencyMs = Date.now() - startedAt;
+      const { body: upstreamBody, bytes: responseBytes } = await readUpstreamBody(upstream);
+      lastUpstreamBody = upstreamBody;
+
       if (!upstream.ok) {
         let errorDetail = `Upstream returned ${upstream.status}`;
         try {
-          const errBody = await upstream.json();
-          const errField = isObject(errBody) ? errBody.error : undefined;
+          const errField = isObject(upstreamBody) ? upstreamBody.error : undefined;
           const msg = asNonEmptyString(isObject(errField) ? errField.message : errField);
           if (msg) errorDetail = `Upstream ${upstream.status}: ${msg}`;
         } catch { /* ignore unparseable error body */ }
+
+        if ((upstream.status === 502 || upstream.status === 503) && statusRetriesRemaining > 0) {
+          const retryIndex = UPSTREAM_STATUS_RETRIES - statusRetriesRemaining + 1;
+          statusRetriesRemaining -= 1;
+          const delayMs = retryDelayMs(retryIndex);
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[vh:analysis-relay] retry status=${upstream.status} attempt=${attempt + 1}/${maxAttempts} `
+            + `request_bytes=${requestBytes} response_bytes=${responseBytes} latency_ms=${latencyMs} delay_ms=${delayMs}`,
+          );
+          await sleepImpl(delayMs);
+          continue;
+        }
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[vh:analysis-relay] fail status=${upstream.status} attempt=${attempt + 1}/${maxAttempts} `
+          + `request_bytes=${requestBytes} response_bytes=${responseBytes} latency_ms=${latencyMs}`,
+        );
         return { status: 502, payload: { error: errorDetail } };
       }
 
-      lastUpstreamBody = await upstream.json();
       const content = readContentFromUpstream(lastUpstreamBody);
       if (content) {
         const provider: AnalysisProvider = {
@@ -392,7 +452,21 @@ export async function relayAnalysis(
         };
       }
 
-      // Content was empty/null — retry if attempts remain
+      if (emptyRetriesRemaining > 0) {
+        const retryIndex = UPSTREAM_EMPTY_CONTENT_RETRIES - emptyRetriesRemaining + 1;
+        emptyRetriesRemaining -= 1;
+        const delayMs = retryDelayMs(retryIndex);
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[vh:analysis-relay] retry empty-content attempt=${attempt + 1}/${maxAttempts} `
+          + `request_bytes=${requestBytes} response_bytes=${responseBytes} latency_ms=${latencyMs} delay_ms=${delayMs}`,
+        );
+        await sleepImpl(delayMs);
+        continue;
+      }
+
+      // Content was empty/null and retries are exhausted.
+      break;
     }
 
     return { status: 502, payload: { error: 'Upstream response missing content' } };

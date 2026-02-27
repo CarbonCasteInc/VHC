@@ -2,6 +2,79 @@ import { defineConfig, devices, type TestConfig } from '@playwright/test';
 
 const baseUrl = process.env.VH_LIVE_BASE_URL ?? '';
 const isLocalTarget = /^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(baseUrl);
+type DevFeedSource = {
+  id: string;
+  name: string;
+  displayName: string;
+  rssUrl: string;
+  perspectiveTag: string;
+  iconKey: string;
+  enabled: true;
+};
+
+const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
+  'fox-latest': {
+    id: 'fox-latest',
+    name: 'Fox News',
+    displayName: 'Fox News',
+    rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml',
+    perspectiveTag: 'conservative',
+    iconKey: 'fox',
+    enabled: true,
+  },
+  'nypost-politics': {
+    id: 'nypost-politics',
+    name: 'New York Post Politics',
+    displayName: 'New York Post',
+    rssUrl: 'https://nypost.com/politics/feed/',
+    perspectiveTag: 'conservative',
+    iconKey: 'nypost',
+    enabled: true,
+  },
+  'guardian-us': {
+    id: 'guardian-us',
+    name: 'The Guardian US',
+    displayName: 'The Guardian',
+    rssUrl: 'https://www.theguardian.com/us-news/rss',
+    perspectiveTag: 'progressive',
+    iconKey: 'guardian',
+    enabled: true,
+  },
+  'cbs-politics': {
+    id: 'cbs-politics',
+    name: 'CBS News Politics',
+    displayName: 'CBS News',
+    rssUrl: 'https://www.cbsnews.com/latest/rss/politics',
+    perspectiveTag: 'progressive',
+    iconKey: 'cbs',
+    enabled: true,
+  },
+  'bbc-general': {
+    id: 'bbc-general',
+    name: 'BBC News',
+    displayName: 'BBC News',
+    rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'bbc',
+    enabled: true,
+  },
+  'bbc-us-canada': {
+    id: 'bbc-us-canada',
+    name: 'BBC US & Canada',
+    displayName: 'BBC',
+    rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'bbc',
+    enabled: true,
+  },
+};
+const DEFAULT_DEV_FEED_SOURCE_IDS = [
+  'fox-latest',
+  'cbs-politics',
+  'bbc-general',
+  'bbc-us-canada',
+  'guardian-us',
+];
 
 // Extract port from local base URL (e.g. http://127.0.0.1:2048/ → 2048).
 // Falls back to 5173 (Vite default) if no port is specified.
@@ -11,6 +84,24 @@ function extractPort(url: string): number {
   } catch {
     return 5173;
   }
+}
+
+function resolveDevFeedSourcesJson(): string {
+  if (typeof process.env.VITE_NEWS_FEED_SOURCES === 'string' && process.env.VITE_NEWS_FEED_SOURCES.trim().length > 0) {
+    return process.env.VITE_NEWS_FEED_SOURCES;
+  }
+
+  const requestedIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_DEV_FEED_SOURCE_IDS.join(','))
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  const resolved = requestedIds
+    .map((id) => DEV_FEED_CATALOG[id])
+    .filter((source): source is DevFeedSource => Boolean(source));
+  const fallback = DEFAULT_DEV_FEED_SOURCE_IDS
+    .map((id) => DEV_FEED_CATALOG[id])
+    .filter((source): source is DevFeedSource => Boolean(source));
+  return JSON.stringify(resolved.length > 0 ? resolved : fallback);
 }
 
 // When targeting a local server, Playwright manages the dev server lifecycle
@@ -47,6 +138,7 @@ const localWebServers: TestConfig['webServer'] = isLocalTarget
         VITE_NEWS_RUNTIME_ENABLED: 'true',
         VITE_NEWS_BRIDGE_ENABLED: 'true',
         VITE_GUN_PEERS: '["http://localhost:7777/gun"]',
+        VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
       },
     },
   ]

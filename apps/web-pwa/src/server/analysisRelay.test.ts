@@ -12,8 +12,11 @@ const BASE_ENV = {
 };
 
 function okResponse(payload: unknown): Response {
+  const textPayload = JSON.stringify(payload);
   return {
     ok: true,
+    status: 200,
+    text: vi.fn().mockResolvedValue(textPayload),
     json: vi.fn().mockResolvedValue(payload),
   } as unknown as Response;
 }
@@ -381,7 +384,7 @@ describe('analysisRelay config + success paths', () => {
 
     const result = await relayAnalysis(
       { articleText: 'Topic ID: topic-retry\nBody text' },
-      { env: BASE_ENV, fetchImpl: fetchMock },
+      { env: BASE_ENV, fetchImpl: fetchMock, sleepImpl: async () => {} },
     );
 
     expect(result.status).toBe(200);
@@ -396,7 +399,7 @@ describe('analysisRelay config + success paths', () => {
 
     const result = await relayAnalysis(
       { prompt: 'Should fail' },
-      { env: BASE_ENV, fetchImpl: fetchMock },
+      { env: BASE_ENV, fetchImpl: fetchMock, sleepImpl: async () => {} },
     );
 
     expect(result.status).toBe(502);
@@ -406,7 +409,12 @@ describe('analysisRelay config + success paths', () => {
   });
 
   it('does not retry on non-ok upstream status', async () => {
-    const errorResponse = { ok: false, status: 500, json: vi.fn() } as unknown as Response;
+    const errorResponse = {
+      ok: false,
+      status: 500,
+      text: vi.fn().mockResolvedValue('{}'),
+      json: vi.fn().mockResolvedValue({}),
+    } as unknown as Response;
     const fetchMock = vi.fn().mockResolvedValue(errorResponse);
 
     const result = await relayAnalysis(

@@ -19,6 +19,7 @@
     "deps:check": "madge --circular --extensions ts,tsx .",
     "lint:loc": "./tools/scripts/check-loc.sh",
     "bundle:check": "node tools/scripts/check-bundle-size.mjs",
+    "probe:analysis-relay": "node tools/scripts/canary/analysis-relay-burst-probe.mjs",
     "hooks:install": "bash tools/scripts/install-git-hooks.sh"
   },
   "pnpm": {

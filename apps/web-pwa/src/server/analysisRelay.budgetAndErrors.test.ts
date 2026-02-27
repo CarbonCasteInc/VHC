@@ -11,17 +11,22 @@ const BASE_ENV = {
 };
 
 function okResponse(payload: unknown): Response {
+  const textPayload = JSON.stringify(payload);
   return {
     ok: true,
+    status: 200,
+    text: vi.fn().mockResolvedValue(textPayload),
     json: vi.fn().mockResolvedValue(payload),
   } as unknown as Response;
 }
 
-function statusResponse(status: number): Response {
+function statusResponse(status: number, payload: unknown = {}): Response {
+  const textPayload = JSON.stringify(payload);
   return {
     ok: false,
     status,
-    json: vi.fn().mockResolvedValue({}),
+    text: vi.fn().mockResolvedValue(textPayload),
+    json: vi.fn().mockResolvedValue(payload),
   } as unknown as Response;
 }
 
@@ -120,13 +125,13 @@ describe('analysisRelay budget + error paths', () => {
   it('handles upstream error responses, missing content, parse errors, and thrown fetch errors', async () => {
     const nonOk = await relayAnalysis(
       { prompt: 'x' },
-      { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(statusResponse(500)) },
+      { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(statusResponse(500)), sleepImpl: async () => {} },
     );
     expect(nonOk).toEqual({ status: 502, payload: { error: 'Upstream returned 500' } });
 
     const missingContent = await relayAnalysis(
       { prompt: 'x' },
-      { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(okResponse({})) },
+      { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(okResponse({})), sleepImpl: async () => {} },
     );
     expect(missingContent).toEqual({
       status: 502,
@@ -135,7 +140,7 @@ describe('analysisRelay budget + error paths', () => {
 
     const missingContentFromNonObject = await relayAnalysis(
       { prompt: 'x' },
-      { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(okResponse('raw-string-response')) },
+      { env: BASE_ENV, fetchImpl: vi.fn().mockResolvedValue(okResponse('raw-string-response')), sleepImpl: async () => {} },
     );
     expect(missingContentFromNonObject).toEqual({
       status: 502,
@@ -212,6 +217,7 @@ describe('analysisRelay budget + error paths', () => {
     const errorResponse = {
       ok: false,
       status: 429,
+      text: vi.fn().mockResolvedValue(JSON.stringify(errorBody)),
       json: vi.fn().mockResolvedValue(errorBody),
     } as unknown as Response;
     const fetchMock = vi.fn().mockResolvedValue(errorResponse);
@@ -230,6 +236,7 @@ describe('analysisRelay budget + error paths', () => {
     const errorResponse = {
       ok: false,
       status: 503,
+      text: vi.fn().mockResolvedValue(JSON.stringify(errorBody)),
       json: vi.fn().mockResolvedValue(errorBody),
     } as unknown as Response;
     const fetchMock = vi.fn().mockResolvedValue(errorResponse);
@@ -241,6 +248,42 @@ describe('analysisRelay budget + error paths', () => {
 
     expect(result.status).toBe(502);
     expect(result.payload.error).toBe('Upstream 503: Model overloaded');
+  });
+
+  it('retries once on upstream 503 and succeeds on next attempt', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(statusResponse(503, { error: 'upstream unavailable' }))
+      .mockResolvedValueOnce(okResponse({ content: '{"ok":true}', model: 'provider-model' }));
+
+    const result = await relayAnalysis(
+      { prompt: 'retryable status path' },
+      {
+        env: BASE_ENV,
+        fetchImpl: fetchMock,
+        sleepImpl: async () => {},
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.status).toBe(200);
+    expect(result.payload.content).toBe('{"ok":true}');
+  });
+
+  it('does not retry non-retryable upstream statuses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(statusResponse(429, { error: { message: 'rate limited' } }));
+
+    const result = await relayAnalysis(
+      { prompt: 'non-retryable status path' },
+      {
+        env: BASE_ENV,
+        fetchImpl: fetchMock,
+        sleepImpl: async () => {},
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream 429: rate limited');
   });
 
   it('uses global fetch fallback when fetchImpl is omitted', async () => {

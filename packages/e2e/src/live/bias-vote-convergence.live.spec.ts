@@ -19,6 +19,12 @@ const FEED_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FEED_RE
 const INGESTER_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_READY_TIMEOUT_MS))
   ? Math.max(10_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_READY_TIMEOUT_MS)))
   : FEED_READY_TIMEOUT_MS * FEED_READY_ATTEMPTS;
+const INGESTER_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_READY_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_INGESTER_READY_ATTEMPTS)))
+  : 3;
+const INGESTER_READY_BACKOFF_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_READY_BACKOFF_MS))
+  ? Math.max(250, Math.floor(Number(process.env.VH_LIVE_INGESTER_READY_BACKOFF_MS)))
+  : 2_000;
 const CANDIDATE_POOL_MULTIPLIER = Number.isFinite(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER))
   ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER)))
   : 4;
@@ -314,39 +320,54 @@ async function gotoFeed(page: Page): Promise<void> {
 }
 
 async function waitForIngesterReadiness(page: Page): Promise<void> {
-  let resolved = false;
-  let resolveReady!: () => void;
-  const readyPromise = new Promise<void>((resolve) => {
-    resolveReady = resolve;
-  });
-  const markReady = () => {
-    if (resolved) return;
-    resolved = true;
-    resolveReady();
-  };
+  let lastReason = 'missing [vh:news-runtime] started log';
 
-  const onConsole = (msg: ConsoleMessage) => {
-    if (msg.text().includes('[vh:news-runtime] started')) {
-      markReady();
+  for (let attempt = 1; attempt <= INGESTER_READY_ATTEMPTS; attempt += 1) {
+    let resolved = false;
+    let resolveReady!: () => void;
+    const readyPromise = new Promise<void>((resolve) => {
+      resolveReady = resolve;
+    });
+    const markReady = () => {
+      if (resolved) return;
+      resolved = true;
+      resolveReady();
+    };
+
+    const onConsole = (msg: ConsoleMessage) => {
+      if (msg.text().includes('[vh:news-runtime] started')) {
+        markReady();
+      }
+    };
+
+    page.on('console', onConsole);
+    try {
+      await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+      await page.waitForTimeout(750);
+
+      if ((await page.locator('[data-testid^="news-card-headline-"]').count()) > 0) {
+        markReady();
+      }
+
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('ingester-not-ready: missing [vh:news-runtime] started log')), INGESTER_READY_TIMEOUT_MS),
+      );
+      await Promise.race([readyPromise, timeoutPromise]);
+      return;
+    } catch (error) {
+      lastReason = error instanceof Error ? error.message : String(error);
+      if (attempt < INGESTER_READY_ATTEMPTS) {
+        const backoffMs = INGESTER_READY_BACKOFF_MS * attempt;
+        await page.waitForTimeout(backoffMs);
+      }
+    } finally {
+      page.off('console', onConsole);
     }
-  };
-
-  page.on('console', onConsole);
-  try {
-    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    await page.waitForTimeout(750);
-
-    if ((await page.locator('[data-testid^="news-card-headline-"]').count()) > 0) {
-      markReady();
-    }
-
-    const timeoutPromise = new Promise<void>((_, reject) =>
-      setTimeout(() => reject(new Error('ingester-not-ready: missing [vh:news-runtime] started log')), INGESTER_READY_TIMEOUT_MS),
-    );
-    await Promise.race([readyPromise, timeoutPromise]);
-  } finally {
-    page.off('console', onConsole);
   }
+
+  throw new Error(
+    `ingester-not-ready: ${lastReason} (attempts=${INGESTER_READY_ATTEMPTS}, timeout_per_attempt_ms=${INGESTER_READY_TIMEOUT_MS})`,
+  );
 }
 
 async function ensureIdentity(page: Page, label: string): Promise<void> {
