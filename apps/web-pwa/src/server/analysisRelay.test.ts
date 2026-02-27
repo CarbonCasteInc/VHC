@@ -63,6 +63,7 @@ describe('analysisRelay config + success paths', () => {
       ...BASE_ENV,
       ANALYSIS_RELAY_PROVIDER_ID: 'provider-1',
       ANALYSIS_RELAY_MODEL: 'server-model',
+      ANALYSIS_RELAY_REASONING_EFFORT: 'low',
       ANALYSIS_RELAY_BUDGET_ANALYSES: '9',
       ANALYSIS_RELAY_BUDGET_ANALYSES_PER_TOPIC: '2',
     });
@@ -70,6 +71,7 @@ describe('analysisRelay config + success paths', () => {
     expect(config).toMatchObject({
       providerId: 'provider-1',
       modelOverride: 'server-model',
+      reasoningEffort: 'low',
       analysesLimit: 9,
       analysesPerTopicLimit: 2,
     });
@@ -183,6 +185,52 @@ describe('analysisRelay config + success paths', () => {
     expect(body.model).toBe('gpt-5-nano');
     expect(body.max_completion_tokens).toBe(96);
     expect(body).not.toHaveProperty('max_tokens');
+    expect(body.reasoning_effort).toBe('minimal');
+  });
+
+  it('does not include reasoning_effort for non-gpt-5 models', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}', model: 'provider-model' }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Prompt body',
+        model: 'gpt-4o-mini',
+        max_tokens: 96,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('uses configured reasoning effort override for gpt-5 models', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}', model: 'provider-model' }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Prompt body',
+        model: 'gpt-5-nano',
+      },
+      {
+        env: {
+          ...BASE_ENV,
+          ANALYSIS_RELAY_REASONING_EFFORT: 'low',
+        },
+        fetchImpl: fetchMock,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.reasoning_effort).toBe('low');
   });
 
   it('enforces server model override even when client supplies model', async () => {
