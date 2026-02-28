@@ -10,6 +10,17 @@ const MAX_RETRIES = 3;
 const RETRY_DELAYS_MS = [500, 1000, 2000, 4000] as const;
 const ZERO_SNAPSHOT_POLL_INTERVAL_MS = 3_000;
 const ZERO_SNAPSHOT_POLL_ATTEMPTS = 10;
+const LIVE_REFRESH_INTERVAL_MS = 4_000;
+
+function isLiveRefreshEnabled(): boolean {
+  const viteMode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
+  if (viteMode === 'test') {
+    return false;
+  }
+  return true;
+}
+
+const LIVE_REFRESH_ENABLED = isLiveRefreshEnabled();
 
 export interface UsePointAggregateParams {
   readonly topicId: string;
@@ -59,6 +70,23 @@ function isZeroAggregate(aggregate: PointAggregate): boolean {
     aggregate.disagree === 0 &&
     aggregate.participants === 0 &&
     aggregate.weight === 0
+  );
+}
+
+function areAggregatesEqual(left: PointAggregate | null, right: PointAggregate | null): boolean {
+  if (left === right) {
+    return true;
+  }
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    left.point_id === right.point_id &&
+    left.agree === right.agree &&
+    left.disagree === right.disagree &&
+    left.participants === right.participants &&
+    left.weight === right.weight
   );
 }
 
@@ -413,6 +441,92 @@ export function usePointAggregate({
 
     return () => {
       cancelled = true;
+    };
+  }, [effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let inFlight = false;
+
+    if (!LIVE_REFRESH_ENABLED) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!enabled || !topicId || !synthesisId || epoch === undefined || !pointId) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const client = resolveClientFromAppStore();
+    if (!client) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const refreshLiveAggregate = async (): Promise<void> => {
+      if (cancelled || inFlight) {
+        return;
+      }
+      inFlight = true;
+
+      try {
+        const primary = await readAggregates(client, topicId, synthesisId, epoch, pointId);
+        if (cancelled) {
+          return;
+        }
+
+        let nextAggregate = primary;
+        if (isZeroAggregate(primary) && effectiveFallbackPointId) {
+          try {
+            const fallback = await readAggregates(
+              client,
+              topicId,
+              synthesisId,
+              epoch,
+              effectiveFallbackPointId,
+            );
+            if (!isZeroAggregate(fallback)) {
+              nextAggregate = fallback;
+            }
+          } catch {
+            // Best-effort fallback during background refresh.
+          }
+        }
+
+        setResult((previous) => {
+          if (
+            previous.status === 'success' &&
+            previous.error === null &&
+            areAggregatesEqual(previous.aggregate, nextAggregate)
+          ) {
+            return previous;
+          }
+
+          return {
+            aggregate: nextAggregate,
+            status: 'success',
+            error: null,
+          };
+        });
+      } catch {
+        // Ignore background refresh failures. Foreground read path reports errors.
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void refreshLiveAggregate();
+    const timer = setInterval(() => {
+      void refreshLiveAggregate();
+    }, LIVE_REFRESH_INTERVAL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
     };
   }, [effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
 

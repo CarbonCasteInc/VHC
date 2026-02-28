@@ -42,7 +42,7 @@ describe('RemoteApiEngine', () => {
 
     expect(engine.kind).toBe('remote');
     expect(engine.name).toBe('remote-api');
-    expect(engine.modelName).toBe('gpt-5.2');
+    expect(engine.modelName).toBe('gpt-5-nano');
 
     vi.stubEnv('VITE_ANALYSIS_MODEL', 'gpt-5.2-mini');
     expect(engine.modelName).toBe('gpt-5.2-mini');
@@ -69,7 +69,7 @@ describe('RemoteApiEngine', () => {
     });
     expect(parsedBody).toEqual({
       prompt: 'Prompt body',
-      model: 'gpt-5.2',
+      model: 'gpt-5-nano',
       max_tokens: 2048,
       temperature: 0.1,
     });
@@ -153,11 +153,11 @@ describe('RemoteApiEngine', () => {
     const engine = new RemoteApiEngine({ endpointUrl: '/api/analyze' });
     await engine.generate('Prompt body');
     expect(engine.name).toBe('remote-api');
-    expect(engine.modelName).toBe('gpt-5.2');
+    expect(engine.modelName).toBe('gpt-5-nano');
 
     await engine.generate('Prompt body 2');
     expect(engine.name).toBe('remote-api');
-    expect(engine.modelName).toBe('gpt-5.2');
+    expect(engine.modelName).toBe('gpt-5-nano');
   });
 
   it('treats non-object JSON payloads as unavailable', async () => {
@@ -312,7 +312,7 @@ describe('RemoteApiEngine', () => {
     const serializedBody = String(calledInit.body);
 
     expect(serializedBody).not.toMatch(/super-secret/i);
-    expect(serializedBody).toMatch(/"model":"gpt-5\.2"/);
+    expect(serializedBody).toMatch(/"model":"gpt-5-nano"/);
     expect(serializedBody).not.toMatch(/authorization/i);
   });
 });

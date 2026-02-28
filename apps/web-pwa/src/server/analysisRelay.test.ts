@@ -335,7 +335,7 @@ describe('analysisRelay config + success paths', () => {
     expect(result.payload.analysis?.summary).toBe('Article summary');
     expect(result.payload.analysis?.provider).toEqual({
       provider_id: 'remote-analysis-relay',
-      model_id: 'gpt-5.2',
+      model_id: 'gpt-5-nano',
       kind: 'remote',
     });
     expect(result.payload.budget).toEqual({ analyses: 1, analyses_per_topic: 1 });
@@ -411,7 +411,7 @@ describe('analysisRelay config + success paths', () => {
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe('gpt-5.2');
+    expect(body.model).toBe('gpt-5-nano');
   });
 
   it('keeps plain prompt payloads as a single user message (no split)', async () => {

@@ -176,6 +176,8 @@ function toSynthesis(artifact: StoryAnalysisArtifact): NewsCardAnalysisSynthesis
       provider_id: entry.provider_id,
       model_id: entry.model_id,
     })),
+    analysisKey: artifact.analysisKey,
+    modelScope: artifact.model_scope,
   };
 }
 

@@ -21,6 +21,7 @@ let runtimeHandle: NewsRuntimeHandle | null = null;
 let runtimeClient: VennClient | null = null;
 let runtimeStartPromise: Promise<void> | null = null;
 let runtimeStartClient: VennClient | null = null;
+let runtimeLeaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let reliabilityCache:
   | {
       readonly at: number;
@@ -35,6 +36,13 @@ const DEFAULT_RELIABILITY_CACHE_TTL_MS = 30 * 60 * 1_000;
 const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
 const RELIABILITY_ARTICLE_MIN_CHARS = 200;
+const RUNTIME_LEASE_TTL_MS = 15_000;
+const RUNTIME_LEASE_HEARTBEAT_MS = 5_000;
+const RUNTIME_LEASE_ACK_TIMEOUT_MS = 1_500;
+const RUNTIME_LEASE_OWNER =
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `news-runtime-${Math.random().toString(16).slice(2)}`;
 
 function readEnvVar(name: string): string | undefined {
   const viteValue = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.[name];
@@ -179,6 +187,124 @@ function parseRate(raw: string | undefined, fallback: number): number {
   return parsed;
 }
 
+interface RuntimeLeasePayload {
+  readonly owner: string;
+  readonly started_at: number;
+  readonly expires_at: number;
+}
+
+function hasRuntimeLeaseTransport(client: VennClient): boolean {
+  return typeof (client as any).mesh?.get === 'function';
+}
+
+function toRuntimeLeaseChain(client: VennClient): any {
+  return (client as any).mesh
+    .get('news')
+    .get('runtime_leader')
+    .get('lease');
+}
+
+function readOnce(chain: any): Promise<Record<string, unknown> | null> {
+  return new Promise((resolve) => {
+    chain.once((raw: unknown) => {
+      if (!raw || typeof raw !== 'object') {
+        resolve(null);
+        return;
+      }
+      const payload = { ...(raw as Record<string, unknown>) };
+      delete (payload as { _?: unknown })._;
+      resolve(payload);
+    });
+  });
+}
+
+function parseRuntimeLease(payload: Record<string, unknown> | null): RuntimeLeasePayload | null {
+  if (!payload) return null;
+
+  const owner = typeof payload.owner === 'string' ? payload.owner.trim() : '';
+  const startedAt =
+    typeof payload.started_at === 'number' && Number.isFinite(payload.started_at)
+      ? Math.floor(payload.started_at)
+      : 0;
+  const expiresAt =
+    typeof payload.expires_at === 'number' && Number.isFinite(payload.expires_at)
+      ? Math.floor(payload.expires_at)
+      : 0;
+
+  if (!owner || startedAt <= 0 || expiresAt <= 0) {
+    return null;
+  }
+
+  return {
+    owner,
+    started_at: startedAt,
+    expires_at: expiresAt,
+  };
+}
+
+async function putLeaseWithTimeout(chain: any, payload: RuntimeLeasePayload): Promise<void> {
+  await new Promise<void>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    }, RUNTIME_LEASE_ACK_TIMEOUT_MS);
+
+    chain.put(payload, () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+function stopRuntimeLeaseHeartbeat(): void {
+  if (runtimeLeaseHeartbeatTimer) {
+    clearInterval(runtimeLeaseHeartbeatTimer);
+    runtimeLeaseHeartbeatTimer = null;
+  }
+}
+
+async function writeRuntimeLease(client: VennClient): Promise<void> {
+  if (!hasRuntimeLeaseTransport(client)) {
+    return;
+  }
+  const now = Date.now();
+  await putLeaseWithTimeout(toRuntimeLeaseChain(client), {
+    owner: RUNTIME_LEASE_OWNER,
+    started_at: now,
+    expires_at: now + RUNTIME_LEASE_TTL_MS,
+  });
+}
+
+async function acquireRuntimeLease(client: VennClient): Promise<boolean> {
+  if (!hasRuntimeLeaseTransport(client)) {
+    return true;
+  }
+  try {
+    const lease = parseRuntimeLease(await readOnce(toRuntimeLeaseChain(client)));
+    const now = Date.now();
+    if (lease && lease.expires_at > now && lease.owner !== RUNTIME_LEASE_OWNER) {
+      return false;
+    }
+
+    await writeRuntimeLease(client);
+    const verified = parseRuntimeLease(await readOnce(toRuntimeLeaseChain(client)));
+    return Boolean(verified && verified.owner === RUNTIME_LEASE_OWNER && verified.expires_at > now);
+  } catch {
+    return false;
+  }
+}
+
+function startRuntimeLeaseHeartbeat(client: VennClient): void {
+  stopRuntimeLeaseHeartbeat();
+  runtimeLeaseHeartbeatTimer = setInterval(() => {
+    void writeRuntimeLease(client);
+  }, RUNTIME_LEASE_HEARTBEAT_MS);
+}
+
 function decodeXmlEntities(input: string): string {
   return input
     .replace(/&lt;/g, '<')
@@ -248,9 +374,7 @@ async function fetchText(url: string): Promise<string | null> {
 }
 
 async function readFeedXml(source: FeedSource): Promise<string | null> {
-  const proxied = await fetchText(`/rss/${source.id}`);
-  if (proxied) return proxied;
-  return fetchText(source.rssUrl);
+  return fetchText(`/rss/${source.id}`);
 }
 
 function resolveRuntimeRssUrl(source: FeedSource): string {
@@ -381,6 +505,7 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
       runtimeHandle?.stop();
       runtimeHandle = null;
       runtimeClient = null;
+      stopRuntimeLeaseHeartbeat();
       console.info('[vh:news-runtime] skipped for this session');
       return;
     }
@@ -390,6 +515,20 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     }
 
     runtimeHandle?.stop();
+    stopRuntimeLeaseHeartbeat();
+
+    const role = resolveRuntimeRole();
+    if (role === 'auto' && hasRuntimeLeaseTransport(client)) {
+      const acquiredLease = await acquireRuntimeLease(client);
+      if (!acquiredLease) {
+        runtimeHandle = null;
+        runtimeClient = null;
+        console.info('[vh:news-runtime] running as consumer (ingester lease held by another peer)');
+        return;
+      }
+    } else if (role === 'ingester' && hasRuntimeLeaseTransport(client)) {
+      await writeRuntimeLease(client);
+    }
 
     const parsedFeedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
     const reliableSources = parseReliabilityGateEnabled()
@@ -438,12 +577,16 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     if (handle.isRunning()) {
       runtimeHandle = handle;
       runtimeClient = client;
+      if (role !== 'consumer') {
+        startRuntimeLeaseHeartbeat(client);
+      }
       console.info('[vh:news-runtime] started');
       return;
     }
 
     runtimeHandle = null;
     runtimeClient = null;
+    stopRuntimeLeaseHeartbeat();
   };
 
   const inFlight = start();
@@ -463,5 +606,6 @@ export function __resetNewsRuntimeForTesting(): void {
   runtimeClient = null;
   runtimeStartPromise = null;
   runtimeStartClient = null;
+  stopRuntimeLeaseHeartbeat();
   reliabilityCache = null;
 }

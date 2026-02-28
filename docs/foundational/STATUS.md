@@ -159,7 +159,7 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_NEWS_POLL_INTERVAL_MS` | Runtime polling cadence override (ms) | empty (defaults to 30m) | 1 |
 | `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
 | `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine endpoint opt-in | empty | 1 |
-| `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5.2` | 1 |
+| `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5-nano` | 1 |
 | `VITE_REMOTE_API_KEY` | Auth key for remote analysis requests | empty | 1 |
 | `VITE_HERMES_DOCS_ENABLED` | Gates HERMES Docs store + article editor | `false` | 2 |
 | `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |

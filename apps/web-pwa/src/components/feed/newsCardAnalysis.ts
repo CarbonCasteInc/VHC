@@ -1,4 +1,4 @@
-import type { StoryBundle } from '@vh/data-model';
+import { deriveAnalysisKey, type StoryBundle } from '@vh/data-model';
 import { createRemoteEngine } from '../../../../../packages/ai-engine/src/engines';
 import { createAnalysisPipeline, type PipelineResult } from '../../../../../packages/ai-engine/src/pipeline';
 import type { AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
@@ -8,6 +8,8 @@ const MAX_SOURCE_ANALYSES = 3;
 const DEFAULT_RELAY_MAX_SOURCE_ANALYSES = 1;
 const MAX_FRAME_ROWS = 12;
 const ARTICLE_TEXT_TIMEOUT_MS = 12_000;
+const ANALYSIS_REQUEST_TIMEOUT_MS = 30_000;
+const ANALYSIS_PIPELINE_VERSION = 'news-card-analysis-v1';
 
 export interface NewsCardSourceAnalysis {
   readonly source_id: string;
@@ -26,6 +28,8 @@ export interface NewsCardAnalysisSynthesis {
   readonly summary: string;
   readonly frames: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly analyses: ReadonlyArray<NewsCardSourceAnalysis>;
+  readonly analysisKey?: string;
+  readonly modelScope?: string;
 }
 
 interface NewsCardAnalysisOptions {
@@ -123,10 +127,26 @@ function isRelayEnabled(): boolean {
 
 async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, 'analysis'>> {
   const devModel = getDevModelOverride();
-  const r = await fetch('/api/analyze', {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ articleText: text, ...(devModel ? { model: devModel } : {}) }),
-  });
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => {
+    controller.abort();
+  }, ANALYSIS_REQUEST_TIMEOUT_MS);
+  let r: Response;
+  try {
+    r = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({ articleText: text, ...(devModel ? { model: devModel } : {}) }),
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error(`Analysis relay timeout after ${ANALYSIS_REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
   if (!r.ok) {
     let detail = '';
     try {
@@ -299,41 +319,71 @@ async function runSynthesis(
   maxSourceAnalyses: number,
 ): Promise<NewsCardAnalysisSynthesis> {
   const selectedSources = selectSourcesForAnalysis(story, maxSourceAnalyses);
-  const analyzed: NewsCardSourceAnalysis[] = [];
-
-  for (const source of selectedSources) {
+  const analyzeSource = async (source: StoryBundle['sources'][number]): Promise<NewsCardSourceAnalysis> => {
+    let articleText: string | null = null;
     try {
-      let articleText: string | null = null;
-      try {
-        articleText = await fetchArticleText(source.url);
-      } catch (error) {
-        console.warn('[vh:news-card-analysis] article fetch failed; using metadata fallback', {
-          sourceId: source.source_id,
-          url: source.url,
-          error,
-        });
-      }
-
-      const input = buildAnalysisInput(story, source, articleText);
-      const result = await runAnalysis(input);
-      analyzed.push(toSourceAnalysis(source, result.analysis));
+      articleText = await fetchArticleText(source.url);
     } catch (error) {
-      console.warn('[vh:news-card-analysis] source analysis failed', {
+      console.warn('[vh:news-card-analysis] article fetch failed; using metadata fallback', {
         sourceId: source.source_id,
         url: source.url,
         error,
       });
     }
-  }
 
-  if (analyzed.length === 0) {
+    const input = buildAnalysisInput(story, source, articleText);
+    const result = await runAnalysis(input);
+    const sourceAnalysis = toSourceAnalysis(source, result.analysis);
+    console.info('[vh:news-card-analysis] source analysis success', {
+      sourceId: source.source_id,
+      url: source.url,
+      modelId: sourceAnalysis.model_id ?? null,
+      providerId: sourceAnalysis.provider_id ?? null,
+    });
+    return sourceAnalysis;
+  };
+
+  const sourcePromises = selectedSources.map((source) => {
+    return analyzeSource(source).catch((error) => {
+      console.warn('[vh:news-card-analysis] source analysis failed', {
+        sourceId: source.source_id,
+        url: source.url,
+        error,
+      });
+      throw error;
+    });
+  });
+
+  let firstSuccess: NewsCardSourceAnalysis;
+  try {
+    firstSuccess = await Promise.any(sourcePromises);
+  } catch {
     throw new Error('Analysis pipeline unavailable for all story sources');
   }
 
   return {
-    summary: synthesizeSummary(analyzed),
-    frames: toFrameRows(analyzed),
-    analyses: analyzed,
+    summary: synthesizeSummary([firstSuccess]),
+    frames: toFrameRows([firstSuccess]),
+    analyses: [firstSuccess],
+  };
+}
+
+async function withAnalysisIdentity(
+  story: StoryBundle,
+  synthesis: NewsCardAnalysisSynthesis,
+): Promise<NewsCardAnalysisSynthesis> {
+  const modelScope = getAnalysisModelScopeKey();
+  const analysisKey = await deriveAnalysisKey({
+    story_id: story.story_id,
+    provenance_hash: story.provenance_hash,
+    pipeline_version: ANALYSIS_PIPELINE_VERSION,
+    model_scope: modelScope,
+  });
+
+  return {
+    ...synthesis,
+    analysisKey,
+    modelScope,
   };
 }
 
@@ -344,7 +394,8 @@ export async function synthesizeStoryFromAnalysisPipeline(
   const fetchArticleText = getArticleTextFetcher(options);
 
   if (options?.runAnalysis) {
-    return runSynthesis(story, options.runAnalysis, fetchArticleText, MAX_SOURCE_ANALYSES);
+    const synthesis = await runSynthesis(story, options.runAnalysis, fetchArticleText, MAX_SOURCE_ANALYSES);
+    return withAnalysisIdentity(story, synthesis);
   }
 
   const maxSourceAnalyses = getRuntimeMaxSourceAnalyses();
@@ -356,7 +407,8 @@ export async function synthesizeStoryFromAnalysisPipeline(
 
   let pending = synthesisCache.get(cacheKey);
   if (!pending) {
-    pending = runSynthesis(story, getRunAnalysis(), fetchArticleText, maxSourceAnalyses);
+    pending = runSynthesis(story, getRunAnalysis(), fetchArticleText, maxSourceAnalyses)
+      .then((synthesis) => withAnalysisIdentity(story, synthesis));
     synthesisCache.set(cacheKey, pending);
   }
 

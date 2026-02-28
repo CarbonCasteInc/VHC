@@ -20,6 +20,7 @@ export interface ChainWithGet<T> extends ChainLike<T> {
 }
 
 const WAIT_FOR_REMOTE_WARN_INTERVAL_MS = 15_000;
+const WAIT_FOR_REMOTE_TIMEOUT_MS = 2_500;
 let lastWaitForRemoteWarnAt = Number.NEGATIVE_INFINITY;
 let suppressedWaitForRemoteWarns = 0;
 
@@ -49,7 +50,7 @@ export async function waitForRemote<T>(chain: ChainLike<T>, barrier: HydrationBa
         warnWaitForRemoteTimeout();
         resolve();
       }
-    }, 500);
+    }, WAIT_FOR_REMOTE_TIMEOUT_MS);
     chain.once(() => {
       if (!resolved) {
         resolved = true;

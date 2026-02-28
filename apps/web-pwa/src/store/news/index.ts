@@ -194,7 +194,16 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         return;
       }
       set((state) => {
-        const deduped = dedupeStories([...state.stories, validated]);
+        const existing = state.stories.find((candidate) => candidate.story_id === validated.story_id);
+        const nextStory = existing
+          ? {
+              ...validated,
+              // Keep first-seen created_at stable for this story id so feed keying
+              // and ordering do not churn on repeated runtime writes.
+              created_at: Math.min(existing.created_at, validated.created_at),
+            }
+          : validated;
+        const deduped = dedupeStories([...state.stories, nextStory]);
         return {
           stories: sortStories(deduped, state.latestIndex),
           error: null
@@ -218,6 +227,10 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       }
 
       set((state) => {
+        const existing = state.latestIndex[normalizedStoryId];
+        if (existing !== undefined) {
+          return state;
+        }
         const nextIndex = {
           ...state.latestIndex,
           [normalizedStoryId]: Math.floor(createdAt)

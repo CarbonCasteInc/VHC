@@ -150,6 +150,8 @@ describe('useAnalysisMesh', () => {
           model_id: 'gpt-5.3-codex',
         },
       ],
+      analysisKey: 'derived-key',
+      modelScope: 'model:default',
     });
 
     expect(mockReadAnalysis).toHaveBeenCalledTimes(1);
@@ -299,10 +301,12 @@ describe('useAnalysisMesh', () => {
         created_at: '2026-02-18T22:00:00.000Z',
       } as any);
 
-    await expect(readMeshAnalysis(story, 'model:default')).resolves.toEqual({
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toMatchObject({
       summary: 'Mismatch model',
       frames: [{ frame: 'f', reframe: 'r' }],
       analyses: [],
+      analysisKey: 'latest-mismatch-model',
+      modelScope: 'model:other',
     });
 
     expect(infoSpy).toHaveBeenCalledWith(

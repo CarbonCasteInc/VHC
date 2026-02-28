@@ -17,6 +17,7 @@ function emitModelChangedEvent(model: string | null): void {
 
 const MODEL_OPTIONS = [
   { value: '', label: 'Auto / Default' },
+  { value: 'gpt-5-nano', label: 'gpt-5-nano' },
   { value: 'openai-codex/gpt-5.2-codex', label: 'gpt-5.2' },
   { value: 'gpt-4o-mini', label: 'gpt-4o-mini' },
   { value: 'gpt-4o', label: 'gpt-4o' },

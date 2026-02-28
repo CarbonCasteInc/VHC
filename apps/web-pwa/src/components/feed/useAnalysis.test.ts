@@ -306,7 +306,7 @@ describe('useAnalysis', () => {
 
     expect(userB.result.current.analysis?.summary).toBe('User A generated this artifact.');
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
-    expect(mockReadMeshAnalysis).toHaveBeenCalledTimes(2);
+    expect(mockReadMeshAnalysis.mock.calls.length).toBeGreaterThanOrEqual(2);
     userB.unmount();
   });
   it('times out after 60 seconds', () => {

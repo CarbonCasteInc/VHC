@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useConstituencyProof } from '../../hooks/useConstituencyProof';
 import { usePointAggregate } from '../../hooks/usePointAggregate';
@@ -11,25 +11,6 @@ export interface CellVoteControlsProps {
   readonly epoch: number;
   readonly analysisId?: string;
   readonly disabled?: boolean;
-}
-
-function countSignals(
-  signals: ReadonlyArray<{ point_id: string; agreement: number; synthesis_id?: string; epoch?: number }>,
-  pointId: string,
-  synthesisId: string,
-  epoch: number,
-  legacyPointId?: string,
-): { agrees: number; disagrees: number } {
-  let agrees = 0;
-  let disagrees = 0;
-  for (const s of signals) {
-    const isMatchingPoint = s.point_id === pointId || (legacyPointId !== undefined && s.point_id === legacyPointId);
-    if (isMatchingPoint && s.synthesis_id === synthesisId && s.epoch === epoch) {
-      if (s.agreement === 1) agrees += 1;
-      else if (s.agreement === -1) disagrees += 1;
-    }
-  }
-  return { agrees, disagrees };
 }
 
 export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
@@ -47,16 +28,13 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   const currentVote = useSentimentState((s) =>
     s.getAgreement(topicId, canonicalPointId, synthesisId, epoch, legacyPointId),
   );
-  const signals = useSentimentState((s) => s.signals);
   const setAgreement = useSentimentState((s) => s.setAgreement);
   const [denial, setDenial] = useState<string | null>(null);
   const { proof, error: proofError } = useConstituencyProof();
 
   const hasProof = proof !== null;
-  const { agrees, disagrees } = useMemo(
-    () => countSignals(signals, canonicalPointId, synthesisId, epoch, legacyPointId),
-    [canonicalPointId, epoch, legacyPointId, signals, synthesisId],
-  );
+  const optimisticAgrees = currentVote === 1 ? 1 : 0;
+  const optimisticDisagrees = currentVote === -1 ? 1 : 0;
   const { aggregate, status: aggregateStatus } = usePointAggregate({
     topicId,
     synthesisId,
@@ -66,11 +44,11 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     enabled: !disabled,
   });
   const displayAgrees = aggregateStatus === 'success' && aggregate
-    ? Math.max(agrees, aggregate.agree)
-    : agrees;
+    ? Math.max(aggregate.agree, optimisticAgrees)
+    : optimisticAgrees;
   const displayDisagrees = aggregateStatus === 'success' && aggregate
-    ? Math.max(disagrees, aggregate.disagree)
-    : disagrees;
+    ? Math.max(aggregate.disagree, optimisticDisagrees)
+    : optimisticDisagrees;
 
   const hasIdPartition = !!(legacyPointId && legacyPointId !== canonicalPointId);
 

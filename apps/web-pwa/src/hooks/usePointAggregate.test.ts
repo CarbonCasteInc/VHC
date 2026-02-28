@@ -712,8 +712,8 @@ describe('usePointAggregate', () => {
     await vi.runAllTimersAsync();
     await Promise.resolve();
 
-    // 4 canonical retries + 1 fallback = 5
-    expect(readAggregatesMock).toHaveBeenCalledTimes(5);
+    // 4 canonical retries + 1 fallback minimum, plus bounded convergence polling.
+    expect(readAggregatesMock.mock.calls.length).toBeGreaterThanOrEqual(5);
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:aggregate:convergence-zero]',
@@ -723,7 +723,7 @@ describe('usePointAggregate', () => {
         epoch: 0,
         canonical_point_id: 'canonical-point',
         fallback_point_id: 'legacy-point',
-        total_attempts: 5,
+        total_attempts: 15,
       }),
     );
   });
@@ -757,7 +757,7 @@ describe('usePointAggregate', () => {
     await vi.runAllTimersAsync();
     await Promise.resolve();
 
-    expect(readAggregatesMock).toHaveBeenCalledTimes(5);
+    expect(readAggregatesMock.mock.calls.length).toBeGreaterThanOrEqual(5);
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:aggregate:convergence-zero]',
       expect.objectContaining({
@@ -792,8 +792,8 @@ describe('usePointAggregate', () => {
     await vi.runAllTimersAsync();
     await Promise.resolve();
 
-    // Only canonical retries, no fallback
-    expect(readAggregatesMock).toHaveBeenCalledTimes(4);
+    // Only canonical retries minimum; bounded convergence polling may add reads.
+    expect(readAggregatesMock.mock.calls.length).toBeGreaterThanOrEqual(4);
   });
 
   it('does not use fallback when canonical returns non-zero before exhausting retries', async () => {

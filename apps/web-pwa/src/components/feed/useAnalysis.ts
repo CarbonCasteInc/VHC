@@ -414,6 +414,14 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
         setError(null);
 
         await writeMeshAnalysis(stableStory, nextAnalysis, modelScopeKey);
+
+        const canonical = await readMeshAnalysis(stableStory, modelScopeKey);
+        if (activeRequestId.current !== requestId || timedOut) {
+          return;
+        }
+        if (canonical) {
+          setAnalysis(canonical);
+        }
       } finally {
         if (claimedPending) {
           await clearPendingMeshAnalysis(stableStory, modelScopeKey);

@@ -23,7 +23,6 @@ function toFeedItemKey(item: FeedItem): string {
   return [
     item.kind,
     item.topic_id,
-    Math.max(0, Math.floor(item.created_at)),
     normalizedTitle,
   ].join('|');
 }

@@ -29,7 +29,7 @@ function toSafeTimestamp(value: number): number {
 
 function toCardInstanceKey(item: FeedItem): string {
   const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
-  return `${item.topic_id}|${toSafeTimestamp(item.created_at)}|${normalizedTitle}`;
+  return `${item.topic_id}|${normalizedTitle}`;
 }
 
 function resolveStoryBundle(
@@ -69,7 +69,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
   const cardInstanceKey = useMemo(
     () => toCardInstanceKey(item),
-    [item.created_at, item.title, item.topic_id],
+    [item.title, item.topic_id],
   );
   const isExpanded = useStore(
     useExpandedCardStore,
@@ -91,9 +91,9 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
   const storyId = story?.story_id ?? null;
-  const computedAnalysisId = story ? `${story.story_id}:${story.provenance_hash}` : null;
-  const synthesisId = synthesis?.synthesis_id ?? null;
-  const synthesisEpoch = synthesis?.epoch;
+  const computedAnalysisId = analysis?.analysisKey ?? (story ? `${story.story_id}:${story.provenance_hash}` : null);
+  const synthesisId = synthesis?.synthesis_id ?? analysis?.analysisKey ?? null;
+  const synthesisEpoch = synthesis?.epoch ?? (analysis?.analysisKey ? 0 : undefined);
   const analysisFeedbackStatus =
     analysisPipelineEnabled &&
     (analysisStatus === 'loading' ||
