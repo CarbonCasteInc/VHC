@@ -242,6 +242,28 @@ describe('useAnalysis', () => {
     expect(mockWriteMeshAnalysis).not.toHaveBeenCalled();
   });
 
+  it('rechecks mesh after pending claim and skips duplicate generation', async () => {
+    const story = makeStoryBundle();
+    const meshAnalysis = makeAnalysis({ summary: 'Mesh landed after pending claim.' });
+
+    mockReadMeshAnalysis
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(meshAnalysis);
+
+    const { result } = renderHook(() => useAnalysis(story, true));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+
+    expect(result.current.analysis?.summary).toBe('Mesh landed after pending claim.');
+    expect(mockReadMeshAnalysis).toHaveBeenNthCalledWith(1, story, 'model:default');
+    expect(mockReadMeshAnalysis).toHaveBeenNthCalledWith(2, story, 'model:default');
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
+    expect(mockWriteMeshAnalysis).not.toHaveBeenCalled();
+    expect(mockClearPendingMeshAnalysis).toHaveBeenCalledWith(story, 'model:default');
+  });
+
   it('publishes generated analysis to mesh after pipeline success', async () => {
     const story = makeStoryBundle();
     const generated = makeAnalysis({ summary: 'Generated and persisted.' });
