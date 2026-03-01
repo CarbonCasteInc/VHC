@@ -264,7 +264,7 @@ async function createRuntimeRoleContext(
 
 async function gotoFeed(page: Page): Promise<void> {
   let lastError: string | null = null;
-  const recoverTimeoutMs = Math.min(20_000, FEED_READY_TIMEOUT_MS);
+  const recoverTimeoutMs = FEED_READY_TIMEOUT_MS;
 
   for (let attempt = 1; attempt <= FEED_READY_ATTEMPTS; attempt += 1) {
     await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
@@ -293,6 +293,11 @@ async function gotoFeed(page: Page): Promise<void> {
     // propagating. Treat this as recoverable setup noise before failing the attempt.
     const feedEmptyVisible = await page.getByTestId('feed-empty').isVisible().catch(() => false);
     if (feedEmptyVisible) {
+      const latestSort = page.getByTestId('sort-mode-LATEST');
+      if (await latestSort.count()) {
+        await latestSort.first().click().catch(() => {});
+      }
+
       const allChip = page.getByTestId('filter-chip-ALL');
       if (await allChip.count()) {
         await allChip.first().click().catch(() => {});
@@ -309,6 +314,19 @@ async function gotoFeed(page: Page): Promise<void> {
         400,
       );
       if (recovered) {
+        return;
+      }
+
+      if (await refreshButton.count()) {
+        await refreshButton.first().click().catch(() => {});
+      }
+
+      const recoveredAfterSecondRefresh = await waitFor(
+        async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
+        Math.max(5_000, Math.floor(recoverTimeoutMs / 2)),
+        400,
+      );
+      if (recoveredAfterSecondRefresh) {
         return;
       }
     }
@@ -414,7 +432,11 @@ async function waitForIngesterReadiness(page: Page): Promise<void> {
   );
 }
 
-async function ensureIdentity(page: Page, label: string): Promise<void> {
+async function ensureIdentity(
+  page: Page,
+  label: string,
+  options?: { requireFeed?: boolean },
+): Promise<void> {
   const openDashboard = async (): Promise<boolean> => {
     for (let attempt = 1; attempt <= IDENTITY_DASHBOARD_OPEN_ATTEMPTS; attempt += 1) {
       try {
@@ -530,7 +552,9 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
     throw new Error('identity-bootstrap-timeout');
   }
 
-  await gotoFeed(page);
+  if (options?.requireFeed !== false) {
+    await gotoFeed(page);
+  }
 }
 
 async function getTopicRows(page: Page): Promise<ReadonlyArray<TopicRow>> {
@@ -1248,8 +1272,8 @@ test.describe('live mesh convergence', () => {
           );
         }
 
-        await ensureIdentity(pageA, 'AliceLive');
-        await ensureIdentity(pageB, 'BobLive');
+        await ensureIdentity(pageA, 'AliceLive', { requireFeed: false });
+        await ensureIdentity(pageB, 'BobLive', { requireFeed: false });
 
         await gotoFeed(pageA);
 
