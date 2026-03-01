@@ -52,6 +52,15 @@ const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_C
 const INGESTER_PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_PER_CANDIDATE_BUDGET_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_PER_CANDIDATE_BUDGET_MS)))
   : Math.min(30_000, PER_CANDIDATE_BUDGET_MS);
+const INGESTER_FEED_RECOVERY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_ATTEMPTS)))
+  : 3;
+const INGESTER_FEED_RECOVERY_SETTLE_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_SETTLE_MS))
+  ? Math.max(250, Math.floor(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_SETTLE_MS)))
+  : 2_000;
+const INGESTER_FEED_RECOVERY_WAIT_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_WAIT_MS))
+  ? Math.max(1_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_WAIT_MS)))
+  : 8_000;
 const IDENTITY_BOOTSTRAP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS))
   ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS)))
   : 120_000;
@@ -432,6 +441,30 @@ async function waitForIngesterReadiness(page: Page): Promise<void> {
   );
 }
 
+async function applyFeedRefreshControls(page: Page): Promise<void> {
+  const latestSort = page.getByTestId('sort-mode-LATEST');
+  if (await latestSort.count()) {
+    await latestSort.first().click().catch(() => {});
+  }
+
+  const allChip = page.getByTestId('filter-chip-ALL');
+  if (await allChip.count()) {
+    await allChip.first().click().catch(() => {});
+  }
+
+  const refreshButton = page.getByTestId('feed-refresh-button');
+  if (await refreshButton.count()) {
+    await refreshButton.first().click().catch(() => {});
+  }
+}
+
+type FeedRecoveryResult = {
+  readonly triggered: boolean;
+  readonly recovered: boolean;
+  readonly rows: ReadonlyArray<TopicRow>;
+  readonly detail: string;
+};
+
 async function ensureIdentity(
   page: Page,
   label: string,
@@ -630,6 +663,60 @@ async function discoverTopicsByScrolling(
   await page.waitForTimeout(400);
 
   return all.slice(0, maxCandidates);
+}
+
+async function recoverIngesterFeedCandidates(
+  page: Page,
+  maxCandidates: number,
+): Promise<FeedRecoveryResult> {
+  const headlineLocator = page.locator('[data-testid^="news-card-headline-"]');
+  const baselineHeadlineCount = await headlineLocator.count();
+  const baselineFeedEmpty = await page.getByTestId('feed-empty').isVisible().catch(() => false);
+  if (baselineHeadlineCount > 0 && !baselineFeedEmpty) {
+    return {
+      triggered: false,
+      recovered: true,
+      rows: [],
+      detail: `headlines=${baselineHeadlineCount} feedEmpty=${baselineFeedEmpty}`,
+    };
+  }
+
+  let lastDetail = `headlines=${baselineHeadlineCount} feedEmpty=${baselineFeedEmpty} rows=0`;
+  for (let attempt = 1; attempt <= INGESTER_FEED_RECOVERY_ATTEMPTS; attempt += 1) {
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    await applyFeedRefreshControls(page);
+    await page.waitForTimeout(INGESTER_FEED_RECOVERY_SETTLE_MS);
+
+    const sawHeadlines = await waitFor(
+      async () => (await headlineLocator.count()) > 0,
+      INGESTER_FEED_RECOVERY_WAIT_MS,
+      400,
+    );
+    const rows = await discoverTopicsByScrolling(page, maxCandidates);
+    const headlineCount = await headlineLocator.count();
+    const feedEmptyVisible = await page.getByTestId('feed-empty').isVisible().catch(() => false);
+    lastDetail = `attempt=${attempt}/${INGESTER_FEED_RECOVERY_ATTEMPTS} headlines=${headlineCount} feedEmpty=${feedEmptyVisible} rows=${rows.length}`;
+
+    if (sawHeadlines && rows.length > 0) {
+      return {
+        triggered: true,
+        recovered: true,
+        rows,
+        detail: lastDetail,
+      };
+    }
+
+    if (attempt < INGESTER_FEED_RECOVERY_ATTEMPTS) {
+      console.warn(`[preflight] ingester feed recovery attempt failed (${lastDetail})`);
+    }
+  }
+
+  return {
+    triggered: true,
+    recovered: false,
+    rows: [],
+    detail: lastDetail,
+  };
 }
 
 async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator | null> {
@@ -945,12 +1032,17 @@ type PreflightResult = {
   readonly exhaustedBudget: boolean;
 };
 
+type PreflightCollectOptions = {
+  readonly recoverFeedBeforeCandidate?: boolean;
+};
+
 async function collectVoteCapableRows(
   page: Page,
   candidates: ReadonlyArray<TopicRow>,
   requiredCount: number,
   budgetMs: number,
   candidateBudgetMs = PER_CANDIDATE_BUDGET_MS,
+  options?: PreflightCollectOptions,
 ): Promise<PreflightResult> {
   const ready: TopicRow[] = [];
   const rejects: PreflightReject[] = [];
@@ -958,21 +1050,21 @@ async function collectVoteCapableRows(
   const attemptsByStory = new Map<string, number>();
   const queued = new Set<string>();
   const queue: TopicRow[] = [];
-  for (const row of candidates) {
-    if (queued.has(row.storyId)) continue;
-    queued.add(row.storyId);
-    queue.push(row);
-  }
-  const budgetDeadline = Date.now() + budgetMs;
-  let exhaustedBudget = false;
-  const enqueueFreshCandidates = async (): Promise<void> => {
-    const refreshed = await discoverTopicsByScrolling(page, MAX_SCAN_SIZE);
-    for (const row of refreshed) {
+  const pushFreshRows = (rows: ReadonlyArray<TopicRow>): void => {
+    for (const row of rows) {
       if (queued.has(row.storyId) || resolved.has(row.storyId)) continue;
       queued.add(row.storyId);
       queue.push(row);
       if (queue.length >= MAX_SCAN_SIZE) break;
     }
+  };
+  pushFreshRows(candidates);
+
+  const budgetDeadline = Date.now() + budgetMs;
+  let exhaustedBudget = false;
+  const enqueueFreshCandidates = async (): Promise<void> => {
+    const refreshed = await discoverTopicsByScrolling(page, MAX_SCAN_SIZE);
+    pushFreshRows(refreshed);
   };
 
   for (let index = 0; index < queue.length; index += 1) {
@@ -988,6 +1080,26 @@ async function collectVoteCapableRows(
 
     if (resolved.has(row.storyId)) {
       continue;
+    }
+
+    if (options?.recoverFeedBeforeCandidate) {
+      const recovery = await recoverIngesterFeedCandidates(page, MAX_SCAN_SIZE);
+      if (recovery.triggered) {
+        pushFreshRows(recovery.rows);
+        if (recovery.recovered) {
+          // Recovery happened before scanning this row; retry this row without
+          // spending per-story attempt budget in an unstable feed state.
+          queue.push(row);
+          continue;
+        }
+        rejects.push({
+          storyId: row.storyId,
+          headline: row.headline,
+          reason: `feed-not-ready: ingester-feed-recovery-exhausted (${recovery.detail})`,
+        });
+        resolved.add(row.storyId);
+        continue;
+      }
     }
 
     const attempts = (attemptsByStory.get(row.storyId) ?? 0) + 1;
@@ -1249,6 +1361,7 @@ test.describe('live mesh convergence', () => {
           TOPIC_LIMIT,
           INGESTER_SYNTHESIS_BUDGET_MS,
           INGESTER_PER_CANDIDATE_BUDGET_MS,
+          { recoverFeedBeforeCandidate: true },
         );
         const ingesterReady = ingesterPreflight.ready.slice(0, TOPIC_LIMIT);
         if (ingesterReady.length < TOPIC_LIMIT) {
