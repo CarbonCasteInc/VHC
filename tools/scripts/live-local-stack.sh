@@ -93,20 +93,16 @@ load_profile_env() {
 
 start_relay() {
   info "Starting local Gun relay on :${RELAY_PORT}"
-  (
-    cd "$ROOT"
-    nohup env GUN_PORT="$RELAY_PORT" node infra/relay/server.js >"$RELAY_LOG" 2>&1 &
-    echo "$!" > "$RELAY_PID_FILE"
-  )
+  nohup bash -lc "cd \"$ROOT\" && exec env GUN_PORT=\"$RELAY_PORT\" node infra/relay/server.js" \
+    >"$RELAY_LOG" 2>&1 < /dev/null &
+  echo "$!" > "$RELAY_PID_FILE"
 }
 
 start_web() {
   info "Starting web-pwa on :${WEB_PORT} with live profile env"
-  (
-    cd "$ROOT"
-    nohup pnpm --filter @vh/web-pwa dev --port "$WEB_PORT" --strictPort >"$WEB_LOG" 2>&1 &
-    echo "$!" > "$WEB_PID_FILE"
-  )
+  nohup bash -lc "cd \"$ROOT\" && exec pnpm --filter @vh/web-pwa dev --port \"$WEB_PORT\" --strictPort" \
+    >"$WEB_LOG" 2>&1 < /dev/null &
+  echo "$!" > "$WEB_PID_FILE"
 }
 
 stack_up() {
