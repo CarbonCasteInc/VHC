@@ -1119,8 +1119,8 @@ test.describe('live mesh convergence', () => {
   test('A->B bias vote aggregate convergence across live matrix', async ({ browser }, testInfo) => {
     test.setTimeout(15 * 60_000);
     const ingesterContext = await createRuntimeRoleContext(browser, 'ingester', false);
-    const contextA = await createRuntimeRoleContext(browser, 'consumer', true);
-    const contextB = await createRuntimeRoleContext(browser, 'consumer', true);
+    const contextA = await createRuntimeRoleContext(browser, 'consumer', false);
+    const contextB = await createRuntimeRoleContext(browser, 'consumer', false);
     const ingesterPage = await ingesterContext.newPage();
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();

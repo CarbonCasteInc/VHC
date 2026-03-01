@@ -20,6 +20,10 @@
     "lint:loc": "./tools/scripts/check-loc.sh",
     "bundle:check": "node tools/scripts/check-bundle-size.mjs",
     "probe:analysis-relay": "node tools/scripts/canary/analysis-relay-burst-probe.mjs",
+    "live:stack:up": "bash tools/scripts/live-local-stack.sh up",
+    "live:stack:down": "bash tools/scripts/live-local-stack.sh down",
+    "live:stack:status": "bash tools/scripts/live-local-stack.sh status",
+    "live:smoke": "bash tools/scripts/live-local-stack.sh smoke",
     "hooks:install": "bash tools/scripts/install-git-hooks.sh"
   },
   "pnpm": {
