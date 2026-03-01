@@ -64,7 +64,30 @@ let socialBridgeActive = false;
 let newsUnsubscribe: (() => void) | null = null;
 let synthesisUnsubscribe: (() => void) | null = null;
 let clearSocialBridgeHandler: (() => void) | null = null;
-const NEWS_BRIDGE_REFRESH_TIMEOUT_MS = 20_000;
+
+function readBridgeTimeoutMs(
+  keys: ReadonlyArray<string>,
+  fallbackMs: number,
+): number {
+  for (const key of keys) {
+    const nodeValue = typeof process !== 'undefined' ? process.env?.[key] : undefined;
+    const viteValue = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[key];
+    const raw = nodeValue ?? viteValue;
+    if (!raw) {
+      continue;
+    }
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed >= 5_000) {
+      return Math.floor(parsed);
+    }
+  }
+  return fallbackMs;
+}
+
+const NEWS_BRIDGE_REFRESH_TIMEOUT_MS = readBridgeTimeoutMs(
+  ['VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS', 'VH_NEWS_BRIDGE_REFRESH_TIMEOUT_MS'],
+  60_000,
+);
 
 function toTimestamp(value: number): number {
   if (!Number.isFinite(value) || value < 0) {
