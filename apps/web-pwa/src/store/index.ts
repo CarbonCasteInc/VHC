@@ -83,6 +83,12 @@ function shouldBootstrapFeedBridges(): boolean {
 }
 
 async function bootstrapRuntimeFeatures(client: VennClient, context: string): Promise<void> {
+  try {
+    await ensureNewsRuntimeStarted(client);
+  } catch (runtimeError) {
+    console.warn(`[vh:news-runtime] Failed to bootstrap runtime (${context}):`, runtimeError);
+  }
+
   if (shouldBootstrapFeedBridges()) {
     try {
       const { bootstrapFeedBridges } = await import('./feedBridge');
@@ -90,12 +96,6 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
     } catch (bridgeError) {
       console.warn(`[vh:feed-bridge] Failed to bootstrap bridges (${context}):`, bridgeError);
     }
-  }
-
-  try {
-    await ensureNewsRuntimeStarted(client);
-  } catch (runtimeError) {
-    console.warn(`[vh:news-runtime] Failed to bootstrap runtime (${context}):`, runtimeError);
   }
 }
 
