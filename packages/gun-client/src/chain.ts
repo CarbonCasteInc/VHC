@@ -1,5 +1,6 @@
 import type { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
+import { readGunTimeoutMs } from './runtimeConfig';
 
 export interface ChainAck {
   err?: string;
@@ -20,7 +21,10 @@ export interface ChainWithGet<T> extends ChainLike<T> {
 }
 
 const WAIT_FOR_REMOTE_WARN_INTERVAL_MS = 15_000;
-const WAIT_FOR_REMOTE_TIMEOUT_MS = 2_500;
+const WAIT_FOR_REMOTE_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS', 'VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS'],
+  2_500,
+);
 let lastWaitForRemoteWarnAt = Number.NEGATIVE_INFINITY;
 let suppressedWaitForRemoteWarns = 0;
 

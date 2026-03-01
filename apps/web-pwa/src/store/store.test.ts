@@ -155,7 +155,7 @@ describe('useAppStore', () => {
   });
 
   it('continues init when auth fails', async () => {
-    mockGunAuth.mockImplementationOnce((_pair?: any, cb?: (ack?: { err?: string }) => void) => cb?.({ err: 'nope' }));
+    mockGunAuth.mockImplementation((_pair?: any, cb?: (ack?: { err?: string }) => void) => cb?.({ err: 'nope' }));
     (globalThis as any).localStorage.setItem(
       'vh_identity',
       JSON.stringify({

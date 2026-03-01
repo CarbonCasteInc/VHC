@@ -18,8 +18,12 @@ import {
 } from '../dev/DevModelPicker';
 
 const ANALYSIS_TIMEOUT_MS = 60_000;
-const ANALYSIS_PENDING_WAIT_WINDOW_MS = 35_000;
+const ANALYSIS_PENDING_WAIT_WINDOW_MS = 8_000;
+const ANALYSIS_PENDING_STALE_MS = 20_000;
 const ANALYSIS_PENDING_POLL_INTERVAL_MS = 1_500;
+const ANALYSIS_MESH_READ_BUDGET_MS = Number.isFinite(Number(import.meta.env.VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS))
+  ? Math.max(1_000, Math.floor(Number(import.meta.env.VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS)))
+  : 8_000;
 const ANALYSIS_BUDGET_KEY = 'vh_analysis_budget';
 const DEFAULT_ANALYSIS_BUDGET_LIMIT = 20;
 const RETRY_NOOP = (): void => {};
@@ -187,7 +191,11 @@ async function waitForPendingPeerAnalysis(
       globalThis.setTimeout(resolve, sleepMs);
     });
 
-    const analysis = await readMeshAnalysis(story, modelScopeKey);
+    const perReadBudgetMs = Math.min(
+      ANALYSIS_MESH_READ_BUDGET_MS,
+      Math.max(1_000, deadline - Date.now()),
+    );
+    const analysis = await readMeshAnalysisWithBudget(story, modelScopeKey, perReadBudgetMs);
     if (analysis) {
       return analysis;
     }
@@ -196,11 +204,28 @@ async function waitForPendingPeerAnalysis(
   return null;
 }
 
+async function readMeshAnalysisWithBudget(
+  story: StoryBundle,
+  modelScopeKey: string,
+  budgetMs = ANALYSIS_MESH_READ_BUDGET_MS,
+): Promise<NewsCardAnalysisSynthesis | null> {
+  return await Promise.race([
+    readMeshAnalysis(story, modelScopeKey),
+    new Promise<null>((resolve) => {
+      globalThis.setTimeout(() => resolve(null), Math.max(1_000, budgetMs));
+    }),
+  ]);
+}
+
 function remainingTimeoutBudgetMs(requestStartedAt: number): number {
   return Math.max(
     0,
     ANALYSIS_TIMEOUT_MS - (Date.now() - requestStartedAt) - 1_000,
   );
+}
+
+function isPendingLikelyStale(pending: { startedAt: number }): boolean {
+  return (Date.now() - pending.startedAt) >= ANALYSIS_PENDING_STALE_MS;
 }
 
 export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAnalysisResult {
@@ -293,7 +318,7 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
     void (async () => {
       const meshAnalysis = isExplicitRetry
         ? null
-        : await readMeshAnalysis(stableStory, modelScopeKey);
+        : await readMeshAnalysisWithBudget(stableStory, modelScopeKey);
 
       if (activeRequestId.current !== requestId || timedOut) {
         return;
@@ -319,36 +344,81 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
       }
 
       if (pending) {
-        const remainingTimeoutBudget = remainingTimeoutBudgetMs(requestStartedAt);
-        const peerWaitBudget = Math.min(
-          ANALYSIS_PENDING_WAIT_WINDOW_MS,
-          Math.max(0, pending.expiresAt - Date.now()),
-          remainingTimeoutBudget,
-        );
+        if (!isPendingLikelyStale(pending)) {
+          const remainingTimeoutBudget = remainingTimeoutBudgetMs(requestStartedAt);
+          const peerWaitBudget = Math.min(
+            ANALYSIS_PENDING_WAIT_WINDOW_MS,
+            Math.max(0, pending.expiresAt - Date.now()),
+            remainingTimeoutBudget,
+          );
 
-        const peerResult = await waitForPendingPeerAnalysis(
-          stableStory,
-          modelScopeKey,
-          peerWaitBudget,
-        );
+          const peerResult = await waitForPendingPeerAnalysis(
+            stableStory,
+            modelScopeKey,
+            peerWaitBudget,
+          );
 
-        if (activeRequestId.current !== requestId || timedOut) {
-          return;
-        }
+          if (activeRequestId.current !== requestId || timedOut) {
+            return;
+          }
 
-        if (peerResult) {
-          successfulStoryKey.current = storyKey;
-          setAnalysis(peerResult);
-          setStatus('success');
-          setError(null);
-          return;
+          if (peerResult) {
+            successfulStoryKey.current = storyKey;
+            setAnalysis(peerResult);
+            setStatus('success');
+            setError(null);
+            return;
+          }
+        } else {
+          console.info('[vh:news-card-analysis] pending lock stale; bypassing peer wait', {
+            storyId: stableStory.story_id,
+            modelScopeKey,
+            pendingAgeMs: Date.now() - pending.startedAt,
+          });
         }
       }
 
       let claimedPending = false;
       try {
-        const pendingClaim = await upsertPendingMeshAnalysis(stableStory, modelScopeKey);
+        let pendingClaim = await upsertPendingMeshAnalysis(stableStory, modelScopeKey);
         claimedPending = pendingClaim !== null;
+        if (!claimedPending) {
+          const contentionWaitBudget = Math.min(
+            ANALYSIS_PENDING_WAIT_WINDOW_MS,
+            remainingTimeoutBudgetMs(requestStartedAt),
+          );
+          const peerResult = await waitForPendingPeerAnalysis(
+            stableStory,
+            modelScopeKey,
+            contentionWaitBudget,
+          );
+
+          if (activeRequestId.current !== requestId || timedOut) {
+            return;
+          }
+
+          if (peerResult) {
+            successfulStoryKey.current = storyKey;
+            setAnalysis(peerResult);
+            setStatus('success');
+            setError(null);
+            return;
+          }
+
+          const stalePending = await readPendingMeshAnalysis(stableStory, modelScopeKey);
+          if (activeRequestId.current !== requestId || timedOut) {
+            return;
+          }
+          if (stalePending && !isPendingLikelyStale(stalePending)) {
+            throw new Error('Analysis is already in progress in another tab. Try again shortly.');
+          }
+
+          pendingClaim = await upsertPendingMeshAnalysis(stableStory, modelScopeKey);
+          claimedPending = pendingClaim !== null;
+          if (!claimedPending) {
+            throw new Error('Analysis lock contention; retry in a moment.');
+          }
+        }
 
         if (activeRequestId.current !== requestId || timedOut) {
           return;
@@ -356,7 +426,7 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
 
         // Re-check mesh after claiming pending ownership to avoid duplicate
         // analysis generation when another tab's write lands slightly late.
-        const meshAfterClaim = await readMeshAnalysis(stableStory, modelScopeKey);
+        const meshAfterClaim = await readMeshAnalysisWithBudget(stableStory, modelScopeKey);
         if (activeRequestId.current !== requestId || timedOut) {
           return;
         }
@@ -366,39 +436,6 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
           setStatus('success');
           setError(null);
           return;
-        }
-
-        if (pendingClaim) {
-          const activePending = await readPendingMeshAnalysis(stableStory, modelScopeKey);
-          if (activeRequestId.current !== requestId || timedOut) {
-            return;
-          }
-
-          if (activePending && activePending.owner !== pendingClaim.owner) {
-            const peerWaitBudget = Math.min(
-              ANALYSIS_PENDING_WAIT_WINDOW_MS,
-              Math.max(0, activePending.expiresAt - Date.now()),
-              remainingTimeoutBudgetMs(requestStartedAt),
-            );
-
-            const peerResult = await waitForPendingPeerAnalysis(
-              stableStory,
-              modelScopeKey,
-              peerWaitBudget,
-            );
-
-            if (activeRequestId.current !== requestId || timedOut) {
-              return;
-            }
-
-            if (peerResult) {
-              successfulStoryKey.current = storyKey;
-              setAnalysis(peerResult);
-              setStatus('success');
-              setError(null);
-              return;
-            }
-          }
         }
 
         recordAnalysis();
@@ -415,7 +452,7 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
 
         await writeMeshAnalysis(stableStory, nextAnalysis, modelScopeKey);
 
-        const canonical = await readMeshAnalysis(stableStory, modelScopeKey);
+        const canonical = await readMeshAnalysisWithBudget(stableStory, modelScopeKey);
         if (activeRequestId.current !== requestId || timedOut) {
           return;
         }

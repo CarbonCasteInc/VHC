@@ -13,6 +13,25 @@ const MESH_READ_MAX_ATTEMPTS = 3;
 const MESH_READ_RETRY_BASE_DELAY_MS = 700;
 const ANALYSIS_PENDING_TTL_MS = 90_000;
 const PENDING_ACK_TIMEOUT_MS = 1_000;
+
+function resolveMeshReadOnceTimeoutMs(): number {
+  let raw: unknown;
+  try {
+    raw = (import.meta as any).env?.VITE_VH_GUN_READ_TIMEOUT_MS;
+  } catch {
+    raw = undefined;
+  }
+  if ((raw === undefined || raw === null || raw === '') && typeof process !== 'undefined') {
+    raw = process.env?.VITE_VH_GUN_READ_TIMEOUT_MS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 2_500;
+  }
+  return Math.max(500, Math.floor(parsed));
+}
+
+const MESH_READ_ONCE_TIMEOUT_MS = resolveMeshReadOnceTimeoutMs();
 const ANALYSIS_PENDING_OWNER =
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -79,7 +98,17 @@ function toPendingChain(client: ReturnType<typeof resolveClientFromAppStore>, st
 
 function readOnce(chain: any): Promise<Record<string, unknown> | null> {
   return new Promise<Record<string, unknown> | null>((resolve) => {
+    let settled = false;
+    const timeout = globalThis.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, MESH_READ_ONCE_TIMEOUT_MS);
+
     chain.once((data: unknown) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
       if (data && typeof data === 'object') {
         const payload = { ...(data as Record<string, unknown>) };
         delete (payload as any)._;
@@ -534,16 +563,28 @@ export async function upsertPendingMeshAnalysis(
   try {
     const chain = toPendingChain(client, story.story_id, modelScopeKey);
     await putWithTimeout(chain, pendingPayload as unknown as Record<string, unknown>);
+    const observedPayload = await readOnce(chain);
+    const observedPending = parsePendingPayload(observedPayload, story, modelScopeKey);
+    if (
+      !observedPending
+      || observedPending.owner !== ANALYSIS_PENDING_OWNER
+    ) {
+      logMeshDebug('pending-lock-contention', {
+        story_id: story.story_id,
+        expected_owner: ANALYSIS_PENDING_OWNER,
+        requested_started_at: pendingPayload.started_at,
+        observed_owner: observedPending?.owner ?? null,
+        observed_started_at: observedPending?.startedAt ?? null,
+      });
+      return null;
+    }
+
     logMeshDebug('pending-write', {
       story_id: story.story_id,
       owner: ANALYSIS_PENDING_OWNER,
       expires_at: pendingPayload.expires_at,
     });
-    return {
-      owner: pendingPayload.owner,
-      startedAt: pendingPayload.started_at,
-      expiresAt: pendingPayload.expires_at,
-    };
+    return observedPending;
   } catch (error) {
     logMeshDebug('pending-write-failed', {
       story_id: story.story_id,

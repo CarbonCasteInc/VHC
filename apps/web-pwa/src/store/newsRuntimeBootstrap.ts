@@ -359,7 +359,7 @@ function parseFeedLinks(xml: string, sampleSize: number): string[] {
 
 function parseReliabilityGateEnabled(): boolean {
   const mode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
-  const defaultEnabled = mode === 'test' ? false : true;
+  const defaultEnabled = mode === 'production';
   return parseBooleanFlag(readEnvVar('VITE_NEWS_SOURCE_RELIABILITY_GATE'), defaultEnabled);
 }
 

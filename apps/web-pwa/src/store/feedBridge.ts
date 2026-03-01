@@ -64,7 +64,7 @@ let socialBridgeActive = false;
 let newsUnsubscribe: (() => void) | null = null;
 let synthesisUnsubscribe: (() => void) | null = null;
 let clearSocialBridgeHandler: (() => void) | null = null;
-const NEWS_BRIDGE_REFRESH_TIMEOUT_MS = 7_500;
+const NEWS_BRIDGE_REFRESH_TIMEOUT_MS = 20_000;
 
 function toTimestamp(value: number): number {
   if (!Number.isFinite(value) || value < 0) {

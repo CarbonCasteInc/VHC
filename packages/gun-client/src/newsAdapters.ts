@@ -1,5 +1,6 @@
 import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
 export type NewsLatestIndex = Record<string, number>;
@@ -114,7 +115,10 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
-const NEWS_PUT_ACK_TIMEOUT_MS = 1000;
+const NEWS_PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_PUT_ACK_TIMEOUT_MS', 'VH_GUN_PUT_ACK_TIMEOUT_MS'],
+  1_000,
+);
 const NEWS_ACK_WARN_INTERVAL_MS = 15_000;
 let lastNewsAckWarnAt = Number.NEGATIVE_INFINITY;
 let suppressedNewsAckWarns = 0;

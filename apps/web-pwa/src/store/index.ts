@@ -120,18 +120,26 @@ function resolveGunPeers(): string[] {
   return ['http://100.75.18.26:7777/gun', 'http://localhost:7777/gun'];
 }
 
-export async function authenticateGunUser(client: VennClient, devicePair: DevicePair): Promise<void> {
-  const AUTH_TIMEOUT_MS = 10_000;
+const GUN_AUTH_TIMEOUT_MS = 10_000;
+const GUN_AUTH_RETRY_ATTEMPTS = 4;
+const GUN_AUTH_RETRY_BACKOFF_MS = 2_000;
+
+type GunAuthOutcome = 'already' | 'authenticated' | 'timed_out';
+
+async function authenticateGunUserAttempt(
+  client: VennClient,
+  devicePair: DevicePair,
+): Promise<GunAuthOutcome> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
-      console.warn('[vh:gun] Auth timed out after', AUTH_TIMEOUT_MS, 'ms — continuing without auth');
-      resolve();
-    }, AUTH_TIMEOUT_MS);
+      console.warn('[vh:gun] Auth timed out after', GUN_AUTH_TIMEOUT_MS, 'ms — will retry');
+      resolve('timed_out');
+    }, GUN_AUTH_TIMEOUT_MS);
     const user = client.gun.user();
     if ((user as any).is) {
       clearTimeout(timer);
       console.info('[vh:gun] Already authenticated');
-      resolve();
+      resolve('already');
       return;
     }
     user.auth(devicePair as any, (ack: any) => {
@@ -141,10 +149,47 @@ export async function authenticateGunUser(client: VennClient, devicePair: Device
         reject(new Error(ack.err));
       } else {
         console.info('[vh:gun] Authenticated as', devicePair.pub.slice(0, 12) + '...');
-        resolve();
+        resolve('authenticated');
       }
     });
   });
+}
+
+export async function authenticateGunUser(client: VennClient, devicePair: DevicePair): Promise<void> {
+  await authenticateGunUserAttempt(client, devicePair);
+}
+
+async function authenticateGunUserWithRetry(client: VennClient, devicePair: DevicePair): Promise<boolean> {
+  for (let attempt = 1; attempt <= GUN_AUTH_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      const outcome = await authenticateGunUserAttempt(client, devicePair);
+      if (outcome !== 'timed_out') {
+        if (attempt > 1) {
+          console.info('[vh:gun] Auth recovered after retry', {
+            attempt,
+            maxAttempts: GUN_AUTH_RETRY_ATTEMPTS,
+          });
+        }
+        return true;
+      }
+    } catch (error) {
+      console.warn('[vh:gun] Auth failed with explicit error; skipping timeout retries', {
+        attempt,
+        maxAttempts: GUN_AUTH_RETRY_ATTEMPTS,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+
+    if (attempt < GUN_AUTH_RETRY_ATTEMPTS) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, GUN_AUTH_RETRY_BACKOFF_MS * attempt);
+      });
+    }
+  }
+
+  console.warn('[vh:gun] Auth retry budget exhausted; continuing without auth');
+  return false;
 }
 
 export async function publishDirectoryEntry(client: VennClient, identity: IdentityRecord): Promise<void> {
@@ -218,8 +263,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         const identity = await loadIdentityRecord();
         if (identity?.devicePair) {
           try {
-            await authenticateGunUser(client, identity.devicePair);
-            await publishDirectoryEntry(client, identity);
+            const authSucceeded = await authenticateGunUserWithRetry(client, identity.devicePair);
+            if (authSucceeded) {
+              await publishDirectoryEntry(client, identity);
+            }
           } catch (err) {
             console.warn('[vh:gun] Auth/directory publish failed, continuing anyway:', err);
           }

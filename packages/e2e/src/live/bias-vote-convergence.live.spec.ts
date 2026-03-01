@@ -320,10 +320,12 @@ async function gotoFeed(page: Page): Promise<void> {
 }
 
 async function waitForIngesterReadiness(page: Page): Promise<void> {
-  let lastReason = 'missing [vh:news-runtime] started log';
+  let lastReason = 'missing readiness logs ([vh:news-runtime])';
 
   for (let attempt = 1; attempt <= INGESTER_READY_ATTEMPTS; attempt += 1) {
     let resolved = false;
+    let sawRuntimeStarted = false;
+    let sawGunAuth = false;
     let resolveReady!: () => void;
     const readyPromise = new Promise<void>((resolve) => {
       resolveReady = resolve;
@@ -334,10 +336,21 @@ async function waitForIngesterReadiness(page: Page): Promise<void> {
       resolveReady();
     };
 
-    const onConsole = (msg: ConsoleMessage) => {
-      if (msg.text().includes('[vh:news-runtime] started')) {
+    const maybeMarkReady = () => {
+      if (sawRuntimeStarted) {
         markReady();
       }
+    };
+
+    const onConsole = (msg: ConsoleMessage) => {
+      const text = msg.text();
+      if (text.includes('[vh:news-runtime] started')) {
+        sawRuntimeStarted = true;
+      }
+      if (text.includes('[vh:gun] Authenticated as')) {
+        sawGunAuth = true;
+      }
+      maybeMarkReady();
     };
 
     page.on('console', onConsole);
@@ -345,14 +358,19 @@ async function waitForIngesterReadiness(page: Page): Promise<void> {
       await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
       await page.waitForTimeout(750);
 
-      if ((await page.locator('[data-testid^="news-card-headline-"]').count()) > 0) {
-        markReady();
+      const headlineCount = await page.locator('[data-testid^="news-card-headline-"]').count();
+      if (headlineCount > 0) {
+        sawRuntimeStarted = true;
+        maybeMarkReady();
       }
 
       const timeoutPromise = new Promise<void>((_, reject) =>
         setTimeout(() => reject(new Error('ingester-not-ready: missing [vh:news-runtime] started log')), INGESTER_READY_TIMEOUT_MS),
       );
       await Promise.race([readyPromise, timeoutPromise]);
+      if (!sawGunAuth) {
+        console.warn('[vh:live] ingester ready without explicit [vh:gun] auth log; continuing with runtime signal');
+      }
       return;
     } catch (error) {
       lastReason = error instanceof Error ? error.message : String(error);
