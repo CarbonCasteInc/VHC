@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import { useConstituencyProof } from '../../hooks/useConstituencyProof';
 import { usePointAggregate } from '../../hooks/usePointAggregate';
+import type { Agreement } from './voteSemantics';
 
 export interface CellVoteControlsProps {
   readonly topicId: string;
@@ -22,6 +23,13 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   analysisId,
   disabled = false,
 }) => {
+  type AggregateSnapshot = {
+    readonly contextKey: string;
+    readonly agree: number;
+    readonly disagree: number;
+    readonly vote: Agreement;
+  };
+
   const canonicalPointId = synthesisPointId ?? pointId;
   const legacyPointId = synthesisPointId && synthesisPointId !== pointId ? pointId : undefined;
 
@@ -43,12 +51,58 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     fallbackPointId: legacyPointId,
     enabled: !disabled,
   });
-  const displayAgrees = aggregateStatus === 'success' && aggregate
-    ? Math.max(aggregate.agree, optimisticAgrees)
-    : optimisticAgrees;
-  const displayDisagrees = aggregateStatus === 'success' && aggregate
-    ? Math.max(aggregate.disagree, optimisticDisagrees)
-    : optimisticDisagrees;
+  const contextKey = `${topicId}:${synthesisId}:${epoch}:${canonicalPointId}`;
+  const [aggregateSnapshot, setAggregateSnapshot] = useState<AggregateSnapshot | null>(null);
+
+  useEffect(() => {
+    setAggregateSnapshot(null);
+  }, [contextKey]);
+
+  useEffect(() => {
+    if (aggregateStatus !== 'success' || !aggregate) {
+      return;
+    }
+
+    const nextSnapshot: AggregateSnapshot = {
+      contextKey,
+      agree: aggregate.agree,
+      disagree: aggregate.disagree,
+      vote: currentVote,
+    };
+
+    setAggregateSnapshot((previous) => {
+      if (
+        previous &&
+        previous.contextKey === nextSnapshot.contextKey &&
+        previous.agree === nextSnapshot.agree &&
+        previous.disagree === nextSnapshot.disagree &&
+        previous.vote === nextSnapshot.vote
+      ) {
+        return previous;
+      }
+      return nextSnapshot;
+    });
+  }, [aggregate?.agree, aggregate?.disagree, aggregateStatus, contextKey]);
+
+  let displayAgrees = optimisticAgrees;
+  let displayDisagrees = optimisticDisagrees;
+
+  if (aggregateStatus === 'success' && aggregate) {
+    const baseline = aggregateSnapshot && aggregateSnapshot.contextKey === contextKey
+      ? aggregateSnapshot
+      : {
+        contextKey,
+        agree: aggregate.agree,
+        disagree: aggregate.disagree,
+        vote: currentVote,
+      };
+
+    const agreeDelta = optimisticAgrees - (baseline.vote === 1 ? 1 : 0);
+    const disagreeDelta = optimisticDisagrees - (baseline.vote === -1 ? 1 : 0);
+
+    displayAgrees = Math.max(0, baseline.agree + agreeDelta);
+    displayDisagrees = Math.max(0, baseline.disagree + disagreeDelta);
+  }
 
   const hasIdPartition = !!(legacyPointId && legacyPointId !== canonicalPointId);
 
