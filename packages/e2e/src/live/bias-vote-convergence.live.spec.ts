@@ -264,6 +264,7 @@ async function createRuntimeRoleContext(
 
 async function gotoFeed(page: Page): Promise<void> {
   let lastError: string | null = null;
+  const recoverTimeoutMs = Math.min(20_000, FEED_READY_TIMEOUT_MS);
 
   for (let attempt = 1; attempt <= FEED_READY_ATTEMPTS; attempt += 1) {
     await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
@@ -288,6 +289,30 @@ async function gotoFeed(page: Page): Promise<void> {
       return;
     }
 
+    // Feed shell can briefly render an empty state while bridge/news events are still
+    // propagating. Treat this as recoverable setup noise before failing the attempt.
+    const feedEmptyVisible = await page.getByTestId('feed-empty').isVisible().catch(() => false);
+    if (feedEmptyVisible) {
+      const allChip = page.getByTestId('filter-chip-ALL');
+      if (await allChip.count()) {
+        await allChip.first().click().catch(() => {});
+      }
+
+      const refreshButton = page.getByTestId('feed-refresh-button');
+      if (await refreshButton.count()) {
+        await refreshButton.first().click().catch(() => {});
+      }
+
+      const recovered = await waitFor(
+        async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
+        recoverTimeoutMs,
+        400,
+      );
+      if (recovered) {
+        return;
+      }
+    }
+
     const diagnostics = await page.evaluate(() => {
       const ids = Array.from(document.querySelectorAll('[data-testid]'))
         .map((node) => node.getAttribute('data-testid'))
@@ -305,12 +330,13 @@ async function gotoFeed(page: Page): Promise<void> {
         inviteGate: document.body.innerText.includes('Invite Only'),
         hasUserLink: Boolean(document.querySelector('[data-testid=\"user-link\"]')),
         hasFeedShell: Boolean(document.querySelector('[data-testid=\"feed-shell\"]')),
+        hasFeedEmpty: Boolean(document.querySelector('[data-testid=\"feed-empty\"]')),
         visibleTestIds: ids,
       };
     }).catch(() => null);
 
     const diagnosticsText = diagnostics
-      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} inviteGate=${diagnostics.inviteGate} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} testIds=${diagnostics.visibleTestIds.join('|')}`
+      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} inviteGate=${diagnostics.inviteGate} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} hasFeedEmpty=${diagnostics.hasFeedEmpty} testIds=${diagnostics.visibleTestIds.join('|')}`
       : '';
     lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})${diagnosticsText}`;
     await page.waitForTimeout(750);
