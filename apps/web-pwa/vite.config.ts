@@ -277,11 +277,11 @@ export default defineConfig({
         secure: true,
         rewrite: () => '/google-publisher/latest.xml'
       },
-      '/rss/washtimes-politics': {
-        target: 'https://www.washingtontimes.com',
+      '/rss/nypost-politics': {
+        target: 'https://nypost.com',
         changeOrigin: true,
         secure: true,
-        rewrite: () => '/rss/headlines/news/politics/'
+        rewrite: () => '/politics/feed/'
       },
       '/rss/federalist': {
         target: 'https://thefederalist.com',
@@ -301,11 +301,11 @@ export default defineConfig({
         secure: true,
         rewrite: () => '/us/auto/vertical/us-news'
       },
-      '/rss/washpost-politics': {
-        target: 'https://feeds.washingtonpost.com',
+      '/rss/cbs-politics': {
+        target: 'https://www.cbsnews.com',
         changeOrigin: true,
         secure: true,
-        rewrite: () => '/rss/politics'
+        rewrite: () => '/latest/rss/politics'
       },
       '/rss/bbc-general': {
         target: 'https://feeds.bbci.co.uk',

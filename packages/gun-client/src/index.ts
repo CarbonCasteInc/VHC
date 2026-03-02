@@ -77,7 +77,12 @@ export function createClient(config: VennClientConfig = {}): VennClient {
   const peers = normalizePeers(config.peers);
   const storage = config.storage ?? createStorageAdapter(hydrationBarrier);
   const guard = config.topologyGuard ?? new TopologyGuard();
-  const gun = Gun({ peers }) as IGunInstance;
+  // Disable Gun's localStorage adapter to avoid quota crashes in long-lived
+  // browser sessions. VHC persists app data through its own IndexedDB adapter.
+  const gun = Gun({
+    peers,
+    localStorage: false
+  }) as IGunInstance;
   let sessionReady = false;
 
   storage
