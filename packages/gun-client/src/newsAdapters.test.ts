@@ -221,6 +221,47 @@ describe('newsAdapters', () => {
     }
   });
 
+  it('suppresses repeated timeout warnings within interval and reports suppressed count later', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2100-01-01T00:00:00.000Z'));
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutHang('news/stories/story-timeout-1');
+      mesh.setPutHang('news/stories/story-timeout-2');
+      mesh.setPutHang('news/stories/story-timeout-3');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const storyOne: StoryBundle = { ...STORY, story_id: 'story-timeout-1' };
+      const storyTwo: StoryBundle = { ...STORY, story_id: 'story-timeout-2' };
+      const storyThree: StoryBundle = { ...STORY, story_id: 'story-timeout-3' };
+
+      const firstWrite = writeNewsStory(client, storyOne);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(firstWrite).resolves.toEqual(storyOne);
+      const warningsAfterFirstWrite = warning.mock.calls.length;
+
+      const secondWrite = writeNewsStory(client, storyTwo);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(secondWrite).resolves.toEqual(storyTwo);
+      expect(warning.mock.calls.length).toBe(warningsAfterFirstWrite);
+
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      const thirdWrite = writeNewsStory(client, storyThree);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(thirdWrite).resolves.toEqual(storyThree);
+      expect(warning).toHaveBeenLastCalledWith(
+        '[vh:news] put ack timed out, proceeding without ack (suppressed 1 repeats)',
+      );
+    } finally {
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('ignores duplicate ack callbacks and late timeout ticks after settlement', async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
