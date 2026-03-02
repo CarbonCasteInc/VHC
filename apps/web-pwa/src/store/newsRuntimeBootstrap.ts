@@ -232,7 +232,10 @@ function parseFeedLinks(xml: string, sampleSize: number): string[] {
 }
 
 function parseReliabilityGateEnabled(): boolean {
-  const mode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
+  const importMode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
+  const processMode =
+    typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>).MODE : undefined;
+  const mode = processMode ?? importMode;
   const defaultEnabled = mode === 'test' ? false : true;
   return parseBooleanFlag(readEnvVar('VITE_NEWS_SOURCE_RELIABILITY_GATE'), defaultEnabled);
 }
