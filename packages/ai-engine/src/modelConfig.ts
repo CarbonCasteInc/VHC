@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const DEFAULT_ANALYSIS_MODEL = 'gpt-5.2';
+export const DEFAULT_ANALYSIS_MODEL = 'gpt-5-nano';
 
 const NonEmptyStringSchema = z.string().trim().min(1);
 
