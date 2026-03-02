@@ -61,6 +61,17 @@ function aggregateFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const AGGREGATE_CACHE_STORAGE_KEY = 'vh_point_aggregate_cache_v1';
+
+function aggregateCacheKey(params: {
+  topicId: string;
+  synthesisId: string;
+  epoch: number;
+  pointId: string;
+}): string {
+  return `${params.topicId}:${params.synthesisId}:${params.epoch}:${params.pointId}`;
+}
+
 describe('usePointAggregate', () => {
   beforeEach(() => {
     readAggregatesMock.mockReset();
@@ -69,6 +80,7 @@ describe('usePointAggregate', () => {
     logConvergenceLagMock.mockReset();
     resolveClientFromAppStoreMock.mockReturnValue({} as any);
     consumeVoteTimestampMock.mockReturnValue(null);
+    globalThis.localStorage?.clear();
     vi.useRealTimers();
   });
 
@@ -1126,5 +1138,158 @@ describe('usePointAggregate', () => {
         point_id: 'canonical-point',
       }),
     );
+  });
+
+  it('treats malformed cache JSON as empty and continues loading from mesh', async () => {
+    globalThis.localStorage.setItem(AGGREGATE_CACHE_STORAGE_KEY, '{invalid-json');
+    readAggregatesMock.mockResolvedValueOnce(aggregateFixture({ agree: 9, disagree: 1 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await waitFor(() => {
+      expect(readHookResult().status).toBe('success');
+    });
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats non-object cache payloads as empty and continues loading from mesh', async () => {
+    globalThis.localStorage.setItem(AGGREGATE_CACHE_STORAGE_KEY, '"not-an-object"');
+    readAggregatesMock.mockResolvedValueOnce(aggregateFixture({ agree: 8, disagree: 2 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await waitFor(() => {
+      expect(readHookResult().status).toBe('success');
+    });
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('evicts expired cache entries before attempting mesh reads', async () => {
+    const key = aggregateCacheKey({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+    globalThis.localStorage.setItem(
+      AGGREGATE_CACHE_STORAGE_KEY,
+      JSON.stringify({
+        [key]: {
+          aggregate: aggregateFixture({ agree: 4 }),
+          cachedAtMs: Date.now() - 10 * 60_000,
+        },
+      }),
+    );
+
+    let resolveRead: ((value: ReturnType<typeof aggregateFixture>) => void) | null = null;
+    readAggregatesMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve as (value: ReturnType<typeof aggregateFixture>) => void;
+        }),
+    );
+
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await waitFor(() => {
+      expect(setItemSpy).toHaveBeenCalled();
+    });
+
+    const serializedCache = globalThis.localStorage.getItem(AGGREGATE_CACHE_STORAGE_KEY);
+    expect(serializedCache).not.toContain(key);
+    resolveRead?.(aggregateFixture({ agree: 7, disagree: 1, participants: 8, weight: 8 }));
+  });
+
+  it('no-ops cache helpers when localStorage is unavailable', async () => {
+    const localStorageDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: undefined,
+    });
+
+    readAggregatesMock.mockResolvedValueOnce(aggregateFixture({ agree: 3, disagree: 0, participants: 3, weight: 3 }));
+
+    try {
+      renderHarness({
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 0,
+        pointId: 'point-1',
+      });
+
+      await waitFor(() => {
+        expect(readHookResult().status).toBe('success');
+      });
+      expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+    } finally {
+      if (localStorageDescriptor) {
+        Object.defineProperty(globalThis, 'localStorage', localStorageDescriptor);
+      }
+    }
+  });
+
+  it('swallows cache write failures and trims oversized cache payloads', async () => {
+    const baseCache: Record<string, unknown> = {
+      'malformed-entry': null,
+    };
+    for (let index = 0; index < 205; index += 1) {
+      baseCache[`topic:synth:0:seed-${index}`] = {
+        aggregate: aggregateFixture({ point_id: `seed-${index}` }),
+        cachedAtMs: Date.now() - index,
+      };
+    }
+    globalThis.localStorage.setItem(AGGREGATE_CACHE_STORAGE_KEY, JSON.stringify(baseCache));
+
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    readAggregatesMock.mockResolvedValueOnce(aggregateFixture({ agree: 6, disagree: 1, participants: 7, weight: 7 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await waitFor(() => {
+      expect(readHookResult().status).toBe('success');
+    });
+
+    const persistedPayload = setItemSpy.mock.calls
+      .map((call) => call[1])
+      .find((value) => typeof value === 'string' && value.includes('topic-1:synth-1:0:point-1')) as string | undefined;
+    expect(persistedPayload).toBeDefined();
+    const parsedPayload = JSON.parse(persistedPayload ?? '{}') as Record<string, unknown>;
+    expect(Object.keys(parsedPayload).length).toBeLessThanOrEqual(200);
+
+    setItemSpy.mockImplementationOnce(() => {
+      throw new Error('quota');
+    });
+    cleanup();
+    readAggregatesMock.mockResolvedValueOnce(aggregateFixture({ agree: 10, disagree: 1, participants: 11, weight: 11 }));
+    renderHarness({
+      topicId: 'topic-2',
+      synthesisId: 'synth-2',
+      epoch: 0,
+      pointId: 'point-2',
+    });
+    await waitFor(() => {
+      expect(readHookResult().status).toBe('success');
+    });
   });
 });

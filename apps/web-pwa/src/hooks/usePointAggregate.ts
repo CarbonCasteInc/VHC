@@ -11,6 +11,9 @@ const RETRY_DELAYS_MS = [500, 1000, 2000, 4000] as const;
 const ZERO_SNAPSHOT_POLL_INTERVAL_MS = 3_000;
 const ZERO_SNAPSHOT_POLL_ATTEMPTS = 10;
 const LIVE_REFRESH_INTERVAL_MS = 4_000;
+const AGGREGATE_CACHE_STORAGE_KEY = 'vh_point_aggregate_cache_v1';
+const AGGREGATE_CACHE_TTL_MS = 5 * 60_000;
+const AGGREGATE_CACHE_MAX_ENTRIES = 200;
 
 function isLiveRefreshEnabled(): boolean {
   const liveRefreshOverride = (
@@ -34,6 +37,98 @@ function isLiveRefreshEnabled(): boolean {
 }
 
 const LIVE_REFRESH_ENABLED = isLiveRefreshEnabled();
+const AGGREGATE_CACHE_ENABLED = true;
+
+interface AggregateCacheEntry {
+  readonly aggregate: PointAggregate;
+  readonly cachedAtMs: number;
+}
+
+type AggregateCache = Record<string, AggregateCacheEntry>;
+
+function toAggregateCacheKey(params: {
+  topicId: string;
+  synthesisId: string;
+  epoch: number;
+  pointId: string;
+}): string {
+  return `${params.topicId}:${params.synthesisId}:${params.epoch}:${params.pointId}`;
+}
+
+function readAggregateCache(): AggregateCache {
+  if (!AGGREGATE_CACHE_ENABLED || typeof globalThis.localStorage === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = globalThis.localStorage.getItem(AGGREGATE_CACHE_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw) as AggregateCache;
+    if (!parsed || typeof parsed !== 'object') {
+      return {};
+    }
+
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+function writeAggregateCache(cache: AggregateCache): void {
+  if (!AGGREGATE_CACHE_ENABLED || typeof globalThis.localStorage === 'undefined') {
+    return;
+  }
+
+  try {
+    globalThis.localStorage.setItem(AGGREGATE_CACHE_STORAGE_KEY, JSON.stringify(cache));
+  } catch {
+    // no-op when storage write is blocked
+  }
+}
+
+function readCachedAggregate(cacheKey: string): PointAggregate | null {
+  const cache = readAggregateCache();
+  const entry = cache[cacheKey];
+  if (!entry) {
+    return null;
+  }
+
+  if (!Number.isFinite(entry.cachedAtMs) || Date.now() - entry.cachedAtMs > AGGREGATE_CACHE_TTL_MS) {
+    delete cache[cacheKey];
+    writeAggregateCache(cache);
+    return null;
+  }
+
+  return entry.aggregate;
+}
+
+function persistCachedAggregate(cacheKey: string, aggregate: PointAggregate): void {
+  const cache = readAggregateCache();
+  cache[cacheKey] = {
+    aggregate,
+    cachedAtMs: Date.now(),
+  };
+
+  for (const [existingKey, existingEntry] of Object.entries(cache)) {
+    if (!existingEntry || !Number.isFinite(existingEntry.cachedAtMs)) {
+      delete cache[existingKey];
+    }
+  }
+
+  const keysByFreshness = Object.entries(cache)
+    .sort((left, right) => right[1].cachedAtMs - left[1].cachedAtMs)
+    .map(([key]) => key);
+  if (keysByFreshness.length > AGGREGATE_CACHE_MAX_ENTRIES) {
+    for (const staleKey of keysByFreshness.slice(AGGREGATE_CACHE_MAX_ENTRIES)) {
+      delete cache[staleKey];
+    }
+  }
+
+  writeAggregateCache(cache);
+}
 
 export interface UsePointAggregateParams {
   readonly topicId: string;
@@ -157,6 +252,12 @@ export function usePointAggregate({
 }: UsePointAggregateParams): UsePointAggregateResult {
   const effectiveFallbackPointId =
     fallbackPointId && fallbackPointId !== pointId ? fallbackPointId : undefined;
+  const aggregateCacheKey = toAggregateCacheKey({
+    topicId,
+    synthesisId,
+    epoch,
+    pointId,
+  });
   const [result, setResult] = useState<UsePointAggregateResult>({
     aggregate: null,
     status: 'idle',
@@ -181,7 +282,12 @@ export function usePointAggregate({
       };
     }
 
-    setResult({ aggregate: null, status: 'loading', error: null });
+    const cachedAggregate = readCachedAggregate(aggregateCacheKey);
+    setResult(
+      cachedAggregate
+        ? { aggregate: cachedAggregate, status: 'success', error: null }
+        : { aggregate: null, status: 'loading', error: null },
+    );
 
     void (async () => {
       let lastZeroAggregate: PointAggregate | null = null;
@@ -231,6 +337,7 @@ export function usePointAggregate({
               status: 'success',
               error: null,
             });
+            persistCachedAggregate(aggregateCacheKey, aggregate);
             return;
           }
 
@@ -325,6 +432,7 @@ export function usePointAggregate({
               status: 'success',
               error: null,
             });
+            persistCachedAggregate(aggregateCacheKey, fallbackAggregate);
             return;
           }
         } catch {
@@ -372,6 +480,7 @@ export function usePointAggregate({
                 status: 'success',
                 error: null,
               });
+              persistCachedAggregate(aggregateCacheKey, aggregate);
               return;
             }
 
@@ -412,6 +521,7 @@ export function usePointAggregate({
                     status: 'success',
                     error: null,
                   });
+                  persistCachedAggregate(aggregateCacheKey, fallbackAggregate);
                   return;
                 }
               } catch {
@@ -452,7 +562,7 @@ export function usePointAggregate({
     return () => {
       cancelled = true;
     };
-  }, [effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
+  }, [aggregateCacheKey, effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -523,6 +633,7 @@ export function usePointAggregate({
             error: null,
           };
         });
+        persistCachedAggregate(aggregateCacheKey, nextAggregate);
       } catch {
         // Ignore background refresh failures. Foreground read path reports errors.
       } finally {
@@ -539,7 +650,7 @@ export function usePointAggregate({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
+  }, [aggregateCacheKey, effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
 
   return result;
 }
