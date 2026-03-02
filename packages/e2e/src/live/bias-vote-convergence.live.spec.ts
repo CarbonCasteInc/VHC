@@ -16,6 +16,15 @@ const FEED_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READ
 const FEED_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_FEED_READY_TIMEOUT_MS)))
   : 30_000;
+const INGESTER_READY_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_READY_TIMEOUT_MS))
+  ? Math.max(10_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_READY_TIMEOUT_MS)))
+  : FEED_READY_TIMEOUT_MS * FEED_READY_ATTEMPTS;
+const INGESTER_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_READY_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_INGESTER_READY_ATTEMPTS)))
+  : 3;
+const INGESTER_READY_BACKOFF_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_READY_BACKOFF_MS))
+  ? Math.max(250, Math.floor(Number(process.env.VH_LIVE_INGESTER_READY_BACKOFF_MS)))
+  : 2_000;
 const CANDIDATE_POOL_MULTIPLIER = Number.isFinite(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER))
   ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_CANDIDATE_POOL_MULTIPLIER)))
   : 4;
@@ -34,19 +43,69 @@ const NAV_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS
 const READINESS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_READINESS_BUDGET_MS))
   ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_READINESS_BUDGET_MS)))
   : 5 * 60_000;
+const INGESTER_SYNTHESIS_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_SYNTHESIS_BUDGET_MS))
+  ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_SYNTHESIS_BUDGET_MS)))
+  : Math.max(60_000, Math.floor(READINESS_BUDGET_MS * 0.5));
 const PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS))
   ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_PER_CANDIDATE_BUDGET_MS)))
+  : 45_000;
+const INGESTER_PER_CANDIDATE_BUDGET_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_PER_CANDIDATE_BUDGET_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_PER_CANDIDATE_BUDGET_MS)))
+  : Math.min(30_000, PER_CANDIDATE_BUDGET_MS);
+const INGESTER_FEED_RECOVERY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_ATTEMPTS)))
+  : 3;
+const INGESTER_FEED_RECOVERY_SETTLE_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_SETTLE_MS))
+  ? Math.max(250, Math.floor(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_SETTLE_MS)))
+  : 2_000;
+const INGESTER_FEED_RECOVERY_WAIT_MS = Number.isFinite(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_WAIT_MS))
+  ? Math.max(1_000, Math.floor(Number(process.env.VH_LIVE_INGESTER_FEED_RECOVERY_WAIT_MS)))
+  : 8_000;
+const IDENTITY_BOOTSTRAP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS))
+  ? Math.max(30_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_BOOTSTRAP_TIMEOUT_MS)))
+  : 120_000;
+const IDENTITY_DASHBOARD_OPEN_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_OPEN_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_OPEN_ATTEMPTS)))
+  : 3;
+const IDENTITY_DASHBOARD_STEP_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_STEP_TIMEOUT_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_DASHBOARD_STEP_TIMEOUT_MS)))
+  : 20_000;
+const IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS))
+  ? Math.max(5_000, Math.floor(Number(process.env.VH_LIVE_IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS)))
   : 30_000;
+const TRANSIENT_STORY_RETRY_LIMIT = Number.isFinite(Number(process.env.VH_LIVE_TRANSIENT_STORY_RETRY_LIMIT))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_TRANSIENT_STORY_RETRY_LIMIT)))
+  : 3;
+const FLIP_STABILITY_WINDOW_MS = Number.isFinite(Number(process.env.VH_LIVE_FLIP_STABILITY_WINDOW_MS))
+  ? Math.max(150, Math.floor(Number(process.env.VH_LIVE_FLIP_STABILITY_WINDOW_MS)))
+  : 400;
+const FLIP_OPEN_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_FLIP_OPEN_TIMEOUT_MS))
+  ? Math.max(3_000, Math.floor(Number(process.env.VH_LIVE_FLIP_OPEN_TIMEOUT_MS)))
+  : 8_000;
+const CONSUMER_RUNTIME_ROLE_OVERRIDE =
+  process.env.VH_LIVE_CONSUMER_RUNTIME_ROLE === 'ingester' ? 'ingester' : 'consumer';
 
 const TELEMETRY_TAGS = [
+  '[vh:web-pwa]',
+  '[vh:gun]',
+  '[vh:news-runtime]',
+  '[vh:feed-bridge]',
+  '[vh:news]',
+  '[vh:gun-client]',
   '[vh:aggregate:voter-write]',
   '[vh:vote:voter-node-readback]',
   '[vh:aggregate:point-snapshot-write]',
   '[vh:aggregate:read]',
   '[vh:vote:intent-replay]',
+  '[vh:analysis:boot]',
+  '[vh:news-card-analysis]',
+  '[vh:analysis:mesh]',
+  '[vh:analysis:mesh-write]',
+  '[vh:bias-table:voting-context]',
+  '[vh:bias-table:point-map]',
 ] as const;
 
-type Actor = 'A' | 'B';
+type Actor = 'A' | 'B' | 'I';
 
 type TopicRow = {
   readonly topicId: string;
@@ -134,6 +193,20 @@ async function waitFor(condition: () => Promise<boolean>, timeoutMs: number, ste
   return false;
 }
 
+function isTransientCandidateMiss(reason: string): boolean {
+  const normalized = reason.toLowerCase();
+  return (
+    reason.startsWith('headline-not-found:')
+    || reason.startsWith('card-open-timeout:')
+    || reason.startsWith('card-locator-stale:')
+    || reason.startsWith('card-back-missing:')
+    || reason.startsWith('locator.')
+    || normalized.includes('not attached to the dom')
+    || normalized.includes('execution context was destroyed')
+    || normalized.includes('target closed')
+  );
+}
+
 function isHarnessNoiseReason(reason: string): boolean {
   return (
     reason.startsWith('feed-not-ready:')
@@ -141,6 +214,10 @@ function isHarnessNoiseReason(reason: string): boolean {
     || reason.startsWith('identity-bootstrap-timeout')
     || reason.startsWith('vote-capable-preflight-failed:')
     || reason.startsWith('blocked-setup-scarcity:')
+    || reason.startsWith('blocked-setup-ingester-synthesis-scarcity:')
+    || reason.startsWith('blocked-setup-analysis-relay-not-configured:')
+    || reason.startsWith('blocked-setup-analysis-relay-unhealthy:')
+    || reason.startsWith('build-flag-preflight-failed:')
     || reason.startsWith('A:no-vote-buttons')
     || reason.startsWith('B:no-vote-buttons')
     || reason.startsWith('B-reload:no-vote-buttons')
@@ -157,25 +234,46 @@ function classifyFailure(reason: string | null): MatrixRow['failureClass'] {
   return isHarnessNoiseReason(reason) ? 'harness' : 'convergence';
 }
 
+function toRejectReasonCounts(rejects: ReadonlyArray<PreflightReject>): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const reject of rejects) {
+    counts[reject.reason] = (counts[reject.reason] ?? 0) + 1;
+  }
+  return counts;
+}
+
 async function createRuntimeRoleContext(
   browser: Browser,
   role: 'ingester' | 'consumer',
   testSession: boolean,
 ): Promise<BrowserContext> {
   const context = await browser.newContext({ ignoreHTTPSErrors: true });
+  const runtimeRole = role === 'consumer'
+    ? CONSUMER_RUNTIME_ROLE_OVERRIDE
+    : role;
   await context.addInitScript(({ runtimeRole, isTestSession }) => {
     const testWindow = window as unknown as {
       __VH_NEWS_RUNTIME_ROLE?: string;
       __VH_TEST_SESSION?: boolean;
+      __VH_BIAS_TABLE_V2_OVERRIDE__?: boolean;
     };
     testWindow.__VH_NEWS_RUNTIME_ROLE = runtimeRole;
     testWindow.__VH_TEST_SESSION = isTestSession;
-  }, { runtimeRole: role, isTestSession: testSession });
+    // Enable BiasTable v2 (vote buttons) regardless of build-time
+    // VITE_VH_BIAS_TABLE_V2 flag — the live test needs vote controls.
+    testWindow.__VH_BIAS_TABLE_V2_OVERRIDE__ = true;
+    try {
+      window.localStorage.setItem('vh_invite_access_granted', 'granted');
+    } catch {
+      // Ignore storage write failures in hardened browser contexts.
+    }
+  }, { runtimeRole, isTestSession: testSession });
   return context;
 }
 
 async function gotoFeed(page: Page): Promise<void> {
   let lastError: string | null = null;
+  const recoverTimeoutMs = FEED_READY_TIMEOUT_MS;
 
   for (let attempt = 1; attempt <= FEED_READY_ATTEMPTS; attempt += 1) {
     await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
@@ -200,34 +298,230 @@ async function gotoFeed(page: Page): Promise<void> {
       return;
     }
 
-    lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})`;
+    // Feed shell can briefly render an empty state while bridge/news events are still
+    // propagating. Treat this as recoverable setup noise before failing the attempt.
+    const feedEmptyVisible = await page.getByTestId('feed-empty').isVisible().catch(() => false);
+    if (feedEmptyVisible) {
+      const latestSort = page.getByTestId('sort-mode-LATEST');
+      if (await latestSort.count()) {
+        await latestSort.first().click().catch(() => {});
+      }
+
+      const allChip = page.getByTestId('filter-chip-ALL');
+      if (await allChip.count()) {
+        await allChip.first().click().catch(() => {});
+      }
+
+      const refreshButton = page.getByTestId('feed-refresh-button');
+      if (await refreshButton.count()) {
+        await refreshButton.first().click().catch(() => {});
+      }
+
+      const recovered = await waitFor(
+        async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
+        recoverTimeoutMs,
+        400,
+      );
+      if (recovered) {
+        return;
+      }
+
+      if (await refreshButton.count()) {
+        await refreshButton.first().click().catch(() => {});
+      }
+
+      const recoveredAfterSecondRefresh = await waitFor(
+        async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
+        Math.max(5_000, Math.floor(recoverTimeoutMs / 2)),
+        400,
+      );
+      if (recoveredAfterSecondRefresh) {
+        return;
+      }
+    }
+
+    const diagnostics = await page.evaluate(() => {
+      const ids = Array.from(document.querySelectorAll('[data-testid]'))
+        .map((node) => node.getAttribute('data-testid'))
+        .filter((id): id is string => Boolean(id))
+        .slice(0, 15);
+
+      const win = window as Window & {
+        __VH_NEWS_RUNTIME_ROLE?: unknown;
+        __VH_TEST_SESSION?: unknown;
+      };
+
+      return {
+        runtimeRole: typeof win.__VH_NEWS_RUNTIME_ROLE === 'string' ? win.__VH_NEWS_RUNTIME_ROLE : String(win.__VH_NEWS_RUNTIME_ROLE),
+        testSession: win.__VH_TEST_SESSION === true,
+        inviteGate: document.body.innerText.includes('Invite Only'),
+        hasUserLink: Boolean(document.querySelector('[data-testid=\"user-link\"]')),
+        hasFeedShell: Boolean(document.querySelector('[data-testid=\"feed-shell\"]')),
+        hasFeedEmpty: Boolean(document.querySelector('[data-testid=\"feed-empty\"]')),
+        visibleTestIds: ids,
+      };
+    }).catch(() => null);
+
+    const diagnosticsText = diagnostics
+      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} inviteGate=${diagnostics.inviteGate} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} hasFeedEmpty=${diagnostics.hasFeedEmpty} testIds=${diagnostics.visibleTestIds.join('|')}`
+      : '';
+    lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})${diagnosticsText}`;
     await page.waitForTimeout(750);
   }
 
   throw new Error(lastError ?? 'feed-not-ready: unknown');
 }
 
-async function ensureIdentity(page: Page, label: string): Promise<void> {
-  const openDashboard = async (): Promise<void> => {
-    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-    await page.waitForTimeout(1_000);
+async function waitForIngesterReadiness(page: Page): Promise<void> {
+  let lastReason = 'missing readiness logs ([vh:news-runtime])';
 
-    const loading = page.getByText('Loading Mesh…');
-    if (await loading.count()) {
-      await loading.first().waitFor({ state: 'hidden', timeout: 35_000 }).catch(() => {});
+  for (let attempt = 1; attempt <= INGESTER_READY_ATTEMPTS; attempt += 1) {
+    let resolved = false;
+    let sawRuntimeStarted = false;
+    let sawGunAuth = false;
+    let resolveReady!: () => void;
+    const readyPromise = new Promise<void>((resolve) => {
+      resolveReady = resolve;
+    });
+    const markReady = () => {
+      if (resolved) return;
+      resolved = true;
+      resolveReady();
+    };
+
+    const maybeMarkReady = () => {
+      if (sawRuntimeStarted) {
+        markReady();
+      }
+    };
+
+    const onConsole = (msg: ConsoleMessage) => {
+      const text = msg.text();
+      if (text.includes('[vh:news-runtime] started')) {
+        sawRuntimeStarted = true;
+      }
+      if (text.includes('[vh:gun] Authenticated as')) {
+        sawGunAuth = true;
+      }
+      maybeMarkReady();
+    };
+
+    page.on('console', onConsole);
+    try {
+      await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+      await page.waitForTimeout(750);
+
+      const headlineCount = await page.locator('[data-testid^="news-card-headline-"]').count();
+      if (headlineCount > 0) {
+        sawRuntimeStarted = true;
+        maybeMarkReady();
+      }
+
+      const timeoutPromise = new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('ingester-not-ready: missing [vh:news-runtime] started log')), INGESTER_READY_TIMEOUT_MS),
+      );
+      await Promise.race([readyPromise, timeoutPromise]);
+      if (!sawGunAuth) {
+        console.warn('[vh:live] ingester ready without explicit [vh:gun] auth log; continuing with runtime signal');
+      }
+      return;
+    } catch (error) {
+      lastReason = error instanceof Error ? error.message : String(error);
+      if (attempt < INGESTER_READY_ATTEMPTS) {
+        const backoffMs = INGESTER_READY_BACKOFF_MS * attempt;
+        await page.waitForTimeout(backoffMs);
+      }
+    } finally {
+      page.off('console', onConsole);
     }
+  }
 
-    const userLink = page.getByTestId('user-link');
-    await userLink.waitFor({ state: 'visible', timeout: 35_000 });
-    await userLink.click();
-    await page.waitForURL('**/dashboard', { timeout: 35_000 });
-    await page.waitForTimeout(400);
+  throw new Error(
+    `ingester-not-ready: ${lastReason} (attempts=${INGESTER_READY_ATTEMPTS}, timeout_per_attempt_ms=${INGESTER_READY_TIMEOUT_MS})`,
+  );
+}
+
+async function applyFeedRefreshControls(page: Page): Promise<void> {
+  const latestSort = page.getByTestId('sort-mode-LATEST');
+  if (await latestSort.count()) {
+    await latestSort.first().click().catch(() => {});
+  }
+
+  const allChip = page.getByTestId('filter-chip-ALL');
+  if (await allChip.count()) {
+    await allChip.first().click().catch(() => {});
+  }
+
+  const refreshButton = page.getByTestId('feed-refresh-button');
+  if (await refreshButton.count()) {
+    await refreshButton.first().click().catch(() => {});
+  }
+}
+
+type FeedRecoveryResult = {
+  readonly triggered: boolean;
+  readonly recovered: boolean;
+  readonly rows: ReadonlyArray<TopicRow>;
+  readonly detail: string;
+};
+
+async function ensureIdentity(
+  page: Page,
+  label: string,
+  options?: { requireFeed?: boolean },
+): Promise<void> {
+  const openDashboard = async (): Promise<boolean> => {
+    for (let attempt = 1; attempt <= IDENTITY_DASHBOARD_OPEN_ATTEMPTS; attempt += 1) {
+      try {
+        await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+        await page.waitForTimeout(1_000);
+
+        const loading = page.getByText('Loading Mesh…');
+        if (await loading.count()) {
+          await loading.first().waitFor({ state: 'hidden', timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS }).catch(() => {});
+        }
+
+        const userLink = page.getByTestId('user-link');
+        await userLink.waitFor({ state: 'visible', timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+        await userLink.click({ timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+        await page.waitForURL('**/dashboard', { timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+        await page.waitForTimeout(400);
+        return true;
+      } catch {
+        if (attempt >= IDENTITY_DASHBOARD_OPEN_ATTEMPTS) {
+          return false;
+        }
+        await page.waitForTimeout(1_000);
+      }
+    }
+    return false;
   };
 
   const waitForIdentityHydrated = async (timeoutMs: number): Promise<boolean> => {
     try {
       await page.waitForFunction(
-        () => Boolean((window as Window & { __vh_identity_published?: unknown }).__vh_identity_published),
+        () => {
+          const globalWindow = window as Window & { __vh_identity_published?: unknown };
+          if (Boolean(globalWindow.__vh_identity_published)) {
+            return true;
+          }
+
+          const welcome = document.querySelector('[data-testid="welcome-msg"]');
+          if (welcome && (welcome.textContent ?? '').trim().length > 0) {
+            return true;
+          }
+
+          try {
+            const profileRaw = window.localStorage.getItem('vh_profile');
+            if (typeof profileRaw === 'string' && profileRaw.trim().length > 0) {
+              return true;
+            }
+          } catch {
+            // Ignore localStorage access failures in hardened hydration checks.
+          }
+
+          return false;
+        },
         undefined,
         { timeout: timeoutMs },
       );
@@ -237,14 +531,17 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
     }
   };
 
-  await openDashboard();
-
   const welcome = page.getByTestId('welcome-msg');
   const joinBtn = page.getByTestId('create-identity-btn');
-  const deadline = Date.now() + 120_000;
+  const deadline = Date.now() + IDENTITY_BOOTSTRAP_TIMEOUT_MS;
   let attempts = 0;
 
   while (Date.now() < deadline) {
+    const dashboardReady = await openDashboard();
+    if (!dashboardReady) {
+      continue;
+    }
+
     const welcomeVisible = (await welcome.count()) > 0 && await welcome.isVisible().catch(() => false);
     if (welcomeVisible || await waitForIdentityHydrated(2_000)) {
       break;
@@ -257,22 +554,29 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
       const username = `${label}${suffix}`.slice(0, 24);
       const handle = username.toLowerCase().replace(/[^a-z0-9_]/g, '_').slice(0, 24);
 
-      await page.fill('input[placeholder="Choose a username"]', username);
-      await page.fill('input[placeholder="Choose a handle (letters, numbers, _)"]', handle || `u${suffix}`);
-      await joinBtn.click();
+      try {
+        await page.fill('input[placeholder="Choose a username"]', username);
+        await page.fill('input[placeholder="Choose a handle (letters, numbers, _)"]', handle || `u${suffix}`);
+        await joinBtn.click({ timeout: IDENTITY_DASHBOARD_STEP_TIMEOUT_MS });
+      } catch {
+        await page.waitForTimeout(750);
+        continue;
+      }
 
+      const joinAttemptTimeoutMs = Math.min(
+        IDENTITY_JOIN_ATTEMPT_TIMEOUT_MS,
+        Math.max(5_000, deadline - Date.now()),
+      );
       const joined = await waitFor(async () => {
         const visible = (await welcome.count()) > 0 && await welcome.isVisible().catch(() => false);
         if (visible) return true;
         return waitForIdentityHydrated(250);
-      }, 25_000, 500);
+      }, joinAttemptTimeoutMs, 500);
 
       if (joined || attempts >= 4) {
         break;
       }
     }
-
-    await openDashboard();
   }
 
   const welcomeVisible = (await welcome.count()) > 0 && await welcome.isVisible().catch(() => false);
@@ -281,7 +585,9 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
     throw new Error('identity-bootstrap-timeout');
   }
 
-  await gotoFeed(page);
+  if (options?.requireFeed !== false) {
+    await gotoFeed(page);
+  }
 }
 
 async function getTopicRows(page: Page): Promise<ReadonlyArray<TopicRow>> {
@@ -289,6 +595,18 @@ async function getTopicRows(page: Page): Promise<ReadonlyArray<TopicRow>> {
     const out: TopicRow[] = [];
     const nodes = Array.from(document.querySelectorAll<HTMLElement>('[data-testid^="news-card-headline-"]'));
     for (const node of nodes) {
+      const rect = node.getBoundingClientRect();
+      const style = window.getComputedStyle(node);
+      const visible =
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.display !== 'none' &&
+        style.visibility !== 'hidden' &&
+        style.opacity !== '0';
+      if (!visible) {
+        continue;
+      }
+
       const testId = node.getAttribute('data-testid') || '';
       const topicId = testId.replace('news-card-headline-', '');
       const storyId =
@@ -347,13 +665,71 @@ async function discoverTopicsByScrolling(
   return all.slice(0, maxCandidates);
 }
 
+async function recoverIngesterFeedCandidates(
+  page: Page,
+  maxCandidates: number,
+): Promise<FeedRecoveryResult> {
+  const headlineLocator = page.locator('[data-testid^="news-card-headline-"]');
+  const baselineHeadlineCount = await headlineLocator.count();
+  const baselineFeedEmpty = await page.getByTestId('feed-empty').isVisible().catch(() => false);
+  if (baselineHeadlineCount > 0 && !baselineFeedEmpty) {
+    return {
+      triggered: false,
+      recovered: true,
+      rows: [],
+      detail: `headlines=${baselineHeadlineCount} feedEmpty=${baselineFeedEmpty}`,
+    };
+  }
+
+  let lastDetail = `headlines=${baselineHeadlineCount} feedEmpty=${baselineFeedEmpty} rows=0`;
+  for (let attempt = 1; attempt <= INGESTER_FEED_RECOVERY_ATTEMPTS; attempt += 1) {
+    await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
+    await applyFeedRefreshControls(page);
+    await page.waitForTimeout(INGESTER_FEED_RECOVERY_SETTLE_MS);
+
+    const sawHeadlines = await waitFor(
+      async () => (await headlineLocator.count()) > 0,
+      INGESTER_FEED_RECOVERY_WAIT_MS,
+      400,
+    );
+    const rows = await discoverTopicsByScrolling(page, maxCandidates);
+    const headlineCount = await headlineLocator.count();
+    const feedEmptyVisible = await page.getByTestId('feed-empty').isVisible().catch(() => false);
+    lastDetail = `attempt=${attempt}/${INGESTER_FEED_RECOVERY_ATTEMPTS} headlines=${headlineCount} feedEmpty=${feedEmptyVisible} rows=${rows.length}`;
+
+    if (sawHeadlines && rows.length > 0) {
+      return {
+        triggered: true,
+        recovered: true,
+        rows,
+        detail: lastDetail,
+      };
+    }
+
+    if (attempt < INGESTER_FEED_RECOVERY_ATTEMPTS) {
+      console.warn(`[preflight] ingester feed recovery attempt failed (${lastDetail})`);
+    }
+  }
+
+  return {
+    triggered: true,
+    recovered: false,
+    rows: [],
+    detail: lastDetail,
+  };
+}
+
 async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator | null> {
   const escapedStoryId = row.storyId.replace(/"/g, '\\"');
   const byStoryId = page.locator(
     `[data-testid^="news-card-headline-"][data-story-id="${escapedStoryId}"]`,
   );
-  if (await byStoryId.count()) {
-    return byStoryId.first();
+  const byStoryIdCount = await byStoryId.count();
+  for (let i = 0; i < byStoryIdCount; i += 1) {
+    const candidate = byStoryId.nth(i);
+    if (await candidate.isVisible().catch(() => false)) {
+      return candidate;
+    }
   }
 
   const candidates = page.locator(`[data-testid="news-card-headline-${row.topicId}"]`);
@@ -361,6 +737,9 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 
   for (let i = 0; i < count; i += 1) {
     const candidate = candidates.nth(i);
+    if (!await candidate.isVisible().catch(() => false)) {
+      continue;
+    }
     const text = ((await candidate.textContent()) ?? '').trim();
     const candidateStoryId = (await candidate.getAttribute('data-story-id')) ?? '';
     if (candidateStoryId === row.storyId || text === row.headline) {
@@ -370,8 +749,26 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
 
   for (let i = 0; i < count; i += 1) {
     const candidate = candidates.nth(i);
+    if (!await candidate.isVisible().catch(() => false)) {
+      continue;
+    }
     const text = ((await candidate.textContent()) ?? '').trim();
     if (text.includes(row.headline) || row.headline.includes(text)) {
+      return candidate;
+    }
+  }
+
+  // Feed rows can be re-keyed while the runtime bridge is updating. Fall back
+  // to a global headline text scan so we can still open the matching story.
+  const allHeadlines = page.locator('[data-testid^="news-card-headline-"]');
+  const allCount = await allHeadlines.count();
+  for (let i = 0; i < allCount; i += 1) {
+    const candidate = allHeadlines.nth(i);
+    if (!await candidate.isVisible().catch(() => false)) {
+      continue;
+    }
+    const text = ((await candidate.textContent()) ?? '').trim();
+    if (text === row.headline || text.includes(row.headline) || row.headline.includes(text)) {
       return candidate;
     }
   }
@@ -379,56 +776,228 @@ async function findHeadlineLocator(page: Page, row: TopicRow): Promise<Locator |
   return null;
 }
 
-async function openTopic(page: Page, row: TopicRow): Promise<Locator> {
-  let headline = await findHeadlineLocator(page, row);
+async function openTopic(page: Page, row: TopicRow, deadlineMs?: number): Promise<Locator> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    // Bail between outer attempts if the caller's deadline has passed.
+    if (deadlineMs !== undefined && Date.now() >= deadlineMs) {
+      throw new Error(`card-open-timeout:${row.storyId}`);
+    }
 
-  // If the headline wasn't found in the current viewport, scroll down in
-  // bounded passes to bring below-fold topics into the DOM before giving up.
-  if (!headline) {
-    for (let pass = 0; pass < SCROLL_PASSES; pass += 1) {
-      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-      await page.waitForTimeout(1_200);
+    let headline = await findHeadlineLocator(page, row);
+
+    // If the headline wasn't found in the current viewport, scroll down in
+    // bounded passes to bring below-fold topics into the DOM before giving up.
+    if (!headline) {
+      for (let pass = 0; pass < SCROLL_PASSES; pass += 1) {
+        await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+        await page.waitForTimeout(1_200);
+        headline = await findHeadlineLocator(page, row);
+        if (headline) break;
+      }
+    }
+
+    if (!headline) {
+      if (attempt === 0) {
+        await gotoFeed(page);
+        continue;
+      }
+      throw new Error(`headline-not-found:${row.storyId}`);
+    }
+
+    for (let clickAttempt = 0; clickAttempt < 3; clickAttempt += 1) {
+      // Bail between click attempts when deadline exceeded.
+      if (deadlineMs !== undefined && Date.now() >= deadlineMs) {
+        throw new Error(`card-open-timeout:${row.storyId}`);
+      }
+
       headline = await findHeadlineLocator(page, row);
-      if (headline) break;
+      if (!headline) break;
+      const currentHeadline = headline;
+
+      const stepTimeout = deadlineMs !== undefined
+        ? Math.max(3_000, deadlineMs - Date.now())
+        : 10_000;
+      await currentHeadline.scrollIntoViewIfNeeded({ timeout: stepTimeout });
+      await currentHeadline.waitFor({ state: 'visible', timeout: stepTimeout });
+
+      const card = currentHeadline.locator('xpath=ancestor::article[1]');
+      // Re-resolve and click in each attempt to avoid stale handles while feed
+      // rows re-key under runtime bridge updates.
+      await card.click().catch(async () => {
+        await currentHeadline.click();
+      });
+
+      const back = card.locator('[data-testid^="news-card-back-"]').first();
+      const front = card.locator('[data-testid^="news-card-headline-"]').first();
+      // Cap the flip wait at the remaining deadline when one is provided.
+      const flipTimeout = deadlineMs !== undefined
+        ? Math.min(FLIP_OPEN_TIMEOUT_MS, Math.max(2_000, deadlineMs - Date.now()))
+        : FLIP_OPEN_TIMEOUT_MS;
+      const settled = await waitFor(
+        async () => {
+          const backVisible = await back.isVisible().catch(() => false);
+          if (!backVisible) return false;
+          const frontVisible = await front.isVisible().catch(() => false);
+          if (frontVisible) return false;
+          // Require a short stability window after flip completion.
+          await page.waitForTimeout(FLIP_STABILITY_WINDOW_MS);
+          const backVisibleAfterWindow = await back.isVisible().catch(() => false);
+          const frontVisibleAfterWindow = await front.isVisible().catch(() => false);
+          return backVisibleAfterWindow && !frontVisibleAfterWindow;
+        },
+        flipTimeout,
+        250,
+      );
+      if (settled) return card;
+
+      await closeTopic(page, card).catch(() => {});
     }
   }
 
-  if (!headline) {
-    throw new Error(`headline-not-found:${row.storyId}`);
-  }
-
-  await headline.scrollIntoViewIfNeeded({ timeout: 10_000 });
-  await headline.waitFor({ state: 'visible', timeout: 20_000 });
-  const card = headline.locator('xpath=ancestor::article[1]');
-  await headline.click();
-  await card.locator('[data-testid^="news-card-back-"]').first().waitFor({ state: 'visible', timeout: 20_000 });
-  return card;
+  throw new Error(`card-open-timeout:${row.storyId}`);
 }
 
 async function closeTopic(page: Page, card: Locator): Promise<void> {
-  const backButton = card.locator('[data-testid^="news-card-back-button-"]');
-  if (await backButton.count()) {
-    const first = backButton.first();
-    if (await first.isVisible().catch(() => false)) {
-      await first.click().catch(() => {});
-      await page.waitForTimeout(250);
-      return;
+  const clickVisibleCloseButton = async (locator: Locator): Promise<boolean> => {
+    const count = await locator.count().catch(() => 0);
+    for (let i = 0; i < count; i += 1) {
+      const candidate = locator.nth(i);
+      if (!await candidate.isVisible().catch(() => false)) continue;
+      await candidate.click().catch(() => {});
+      await page.waitForTimeout(200);
+      return true;
     }
+    return false;
+  };
+
+  // Try card-scoped close first.
+  if (await clickVisibleCloseButton(card.locator('[data-testid^="news-card-back-button-"]'))) {
+    return;
+  }
+  // Fallback to globally-visible close buttons in case card locator detached.
+  if (await clickVisibleCloseButton(page.locator('[data-testid^="news-card-back-button-"]'))) {
+    return;
   }
 
   await page.keyboard.press('Escape').catch(() => {});
   await page.waitForTimeout(250);
 }
 
+async function resolveCardLocatorForStory(page: Page, row: TopicRow, fallback: Locator): Promise<Locator> {
+  const escapedStoryId = row.storyId.replace(/"/g, '\\"');
+  const byStory = page.locator(`article[data-story-id="${escapedStoryId}"]`).first();
+  const byStoryCount = await byStory.count().catch(() => 0);
+  if (byStoryCount > 0) {
+    return byStory;
+  }
+  return fallback;
+}
+
 type ResolvedPoint =
   | { found: true; pointId: string; matchedPreferred: boolean }
   | { found: false; reason: string };
 
-async function resolvePointInCard(card: Locator, preferredPointId: string | null = null): Promise<ResolvedPoint> {
+function collectCardBackDiag(el: Element): string {
+  const back = el.querySelector('[data-testid^="news-card-back-"]');
+  if (!back) return 'no-card-back';
+  const biasTable = el.querySelector('[data-testid="bias-table"]');
+  const biasTableEmpty = el.querySelector('[data-testid="bias-table-empty"]');
+  const biasTableAny = Boolean(biasTable || biasTableEmpty);
+  const legacyTable = el.querySelector('[data-testid^="news-card-frame-table-"]');
+  const synthesisLoading = el.querySelector('[data-testid^="news-card-synthesis-loading-"]');
+  const synthesisError = el.querySelector('[data-testid^="news-card-synthesis-error-"]');
+  const analysisStatusMessageNode = el.querySelector('[data-testid="analysis-status-message"]');
+  const analysisStatusMessage = (analysisStatusMessageNode?.textContent ?? '').trim();
+  const analysisRetry = el.querySelector('[data-testid="analysis-retry-button"]');
+  const analysisErrorCard = el.querySelector('[data-testid^="news-card-analysis-error-"]');
+  const pipelineAttr = el.getAttribute('data-analysis-pipeline');
+  const storyIdAttr = el.getAttribute('data-story-id');
+  const sourceBadgeRow = el.querySelector('[data-testid="source-badge-row"]');
+  const frameRows = el.querySelectorAll('[data-testid^="bias-table-row-"]');
+  const skeletonRows = el.querySelectorAll('[data-testid^="bias-table-skeleton-row-"]');
+  let analysisState = 'idle';
+  if (analysisStatusMessage.length > 0) {
+    const msg = analysisStatusMessage.toLowerCase();
+    if (msg.includes('extracting article text') || msg.includes('analyzing perspectives') || msg.includes('generating balanced summary') || msg.includes('almost ready')) {
+      analysisState = 'loading';
+    } else if (msg.includes('timed out')) {
+      analysisState = 'timeout';
+    } else if (msg.includes('daily analysis limit reached')) {
+      analysisState = 'budget_exceeded';
+    } else {
+      analysisState = 'error';
+    }
+  }
+  return [
+    `pipeline=${pipelineAttr}`,
+    `storyId=${storyIdAttr ?? 'none'}`,
+    sourceBadgeRow ? 'sourceBadges=yes' : 'sourceBadges=no',
+    biasTableAny ? 'biasTableV2=yes' : 'biasTableV2=no',
+    biasTable ? 'biasTableData=yes' : 'biasTableData=no',
+    biasTableEmpty ? 'biasTableEmpty=yes' : 'biasTableEmpty=no',
+    legacyTable ? 'legacyTable=yes' : 'legacyTable=no',
+    `frameRows=${frameRows.length}`,
+    `skeletonRows=${skeletonRows.length}`,
+    synthesisLoading ? 'synthesisLoading=yes' : 'synthesisLoading=no',
+    synthesisError ? 'synthesisError=yes' : 'synthesisError=no',
+    `analysisState=${analysisState}`,
+    analysisRetry ? 'analysisRetry=yes' : 'analysisRetry=no',
+    analysisErrorCard ? 'analysisErrorCard=yes' : 'analysisErrorCard=no',
+    analysisStatusMessage.length > 0 ? `analysisMessage=${analysisStatusMessage.replace(/\s+/g, ' ').slice(0, 96)}` : 'analysisMessage=none',
+  ].join(',');
+}
+
+async function resolvePointInCard(card: Locator, preferredPointId: string | null = null, timeoutMs = 20_000): Promise<ResolvedPoint> {
   const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
-  const hasButtons = await waitFor(async () => (await buttons.count()) > 0, 20_000, 300);
+  let hasButtons = await waitFor(async () => (await buttons.count()) > 0, timeoutMs, 300);
+
+  // If no vote buttons appeared, check whether BiasTable v2 rendered but
+  // synthesis frames haven't arrived yet.  Give frames extra settle time
+  // before giving up — synthesis hydration from Gun can lag behind the
+  // initial card-back render.
   if (!hasButtons) {
-    return { found: false, reason: 'no-vote-buttons' };
+    const snap = await card.evaluate(collectCardBackDiag).catch(() => 'diag-error');
+    if (snap === 'no-card-back') {
+      const cardCount = await card.count().catch(() => 0);
+      const reason = cardCount === 0
+        ? 'card-locator-stale:no-card-back'
+        : 'card-back-missing:no-card-back';
+      return { found: false, reason };
+    }
+    const v2Active = snap.includes('biasTableV2=yes');
+    const zeroFrames = snap.includes('frameRows=0');
+
+    if (v2Active && zeroFrames) {
+      // Extended wait: poll for frame rows to materialise from the analysis
+      // pipeline relay or Gun synthesis hydration.  The relay round-trip
+      // (article-text fetch + upstream LLM call) can take 15-30s, so use
+      // the full remaining candidate budget rather than a hard 15s cap.
+      const frameSettleBudget = Math.max(5_000, timeoutMs);
+      const frameRows = card.locator('[data-testid^="bias-table-row-"]');
+      const hasFrames = await waitFor(
+        async () => (await frameRows.count()) > 0,
+        frameSettleBudget,
+        500,
+      );
+
+      if (hasFrames) {
+        // Frames arrived — wait a little more for point-ID derivation
+        // to complete and CellVoteControls to mount.
+        hasButtons = await waitFor(
+          async () => (await buttons.count()) > 0,
+          5_000,
+          300,
+        );
+      }
+
+      if (!hasButtons) {
+        const finalSnap = await card.evaluate(collectCardBackDiag).catch(() => 'diag-error');
+        const tag = hasFrames ? 'frames-ok-points-pending' : 'synthesis-frames-timeout';
+        return { found: false, reason: `no-vote-buttons:${tag}(${finalSnap})` };
+      }
+    } else {
+      return { found: false, reason: `no-vote-buttons(${snap})` };
+    }
   }
 
   if (preferredPointId) {
@@ -463,19 +1032,43 @@ type PreflightResult = {
   readonly exhaustedBudget: boolean;
 };
 
+type PreflightCollectOptions = {
+  readonly recoverFeedBeforeCandidate?: boolean;
+};
+
 async function collectVoteCapableRows(
   page: Page,
   candidates: ReadonlyArray<TopicRow>,
   requiredCount: number,
   budgetMs: number,
+  candidateBudgetMs = PER_CANDIDATE_BUDGET_MS,
+  options?: PreflightCollectOptions,
 ): Promise<PreflightResult> {
   const ready: TopicRow[] = [];
   const rejects: PreflightReject[] = [];
-  const seen = new Set<string>();
+  const resolved = new Set<string>();
+  const attemptsByStory = new Map<string, number>();
+  const queued = new Set<string>();
+  const queue: TopicRow[] = [];
+  const pushFreshRows = (rows: ReadonlyArray<TopicRow>): void => {
+    for (const row of rows) {
+      if (queued.has(row.storyId) || resolved.has(row.storyId)) continue;
+      queued.add(row.storyId);
+      queue.push(row);
+      if (queue.length >= MAX_SCAN_SIZE) break;
+    }
+  };
+  pushFreshRows(candidates);
+
   const budgetDeadline = Date.now() + budgetMs;
   let exhaustedBudget = false;
+  const enqueueFreshCandidates = async (): Promise<void> => {
+    const refreshed = await discoverTopicsByScrolling(page, MAX_SCAN_SIZE);
+    pushFreshRows(refreshed);
+  };
 
-  for (const row of candidates) {
+  for (let index = 0; index < queue.length; index += 1) {
+    const row = queue[index]!;
     if (ready.length >= requiredCount) {
       break;
     }
@@ -485,39 +1078,84 @@ async function collectVoteCapableRows(
       break;
     }
 
-    if (seen.has(row.storyId)) {
+    if (resolved.has(row.storyId)) {
       continue;
     }
-    seen.add(row.storyId);
+
+    if (options?.recoverFeedBeforeCandidate) {
+      const recovery = await recoverIngesterFeedCandidates(page, MAX_SCAN_SIZE);
+      if (recovery.triggered) {
+        pushFreshRows(recovery.rows);
+        if (recovery.recovered) {
+          // Recovery happened before scanning this row; retry this row without
+          // spending per-story attempt budget in an unstable feed state.
+          queue.push(row);
+          continue;
+        }
+        rejects.push({
+          storyId: row.storyId,
+          headline: row.headline,
+          reason: `feed-not-ready: ingester-feed-recovery-exhausted (${recovery.detail})`,
+        });
+        resolved.add(row.storyId);
+        continue;
+      }
+    }
+
+    const attempts = (attemptsByStory.get(row.storyId) ?? 0) + 1;
+    attemptsByStory.set(row.storyId, attempts);
 
     let card: Locator | null = null;
+    let activeCard: Locator | null = null;
 
     try {
-      const candidateDeadline = Math.min(Date.now() + PER_CANDIDATE_BUDGET_MS, budgetDeadline);
-      card = await openTopic(page, row);
+      const candidateDeadline = Math.min(Date.now() + candidateBudgetMs, budgetDeadline);
+      card = await openTopic(page, row, candidateDeadline);
+      activeCard = await resolveCardLocatorForStory(page, row, card);
       if (PREFLIGHT_SETTLE_MS > 0) {
         await page.waitForTimeout(PREFLIGHT_SETTLE_MS);
       }
 
       if (Date.now() >= candidateDeadline) {
         rejects.push({ storyId: row.storyId, headline: row.headline, reason: 'per-candidate-timeout' });
-        await closeTopic(page, card).catch(() => {});
+        await closeTopic(page, activeCard ?? card).catch(() => {});
         card = null;
+        activeCard = null;
         continue;
       }
 
-      const point = await resolvePointInCard(card);
+      const remainingMs = Math.max(5_000, candidateDeadline - Date.now());
+      const point = await resolvePointInCard(activeCard ?? card, null, remainingMs);
       if (point.found) {
         ready.push(row);
+        resolved.add(row.storyId);
       } else {
-        rejects.push({ storyId: row.storyId, headline: row.headline, reason: point.reason });
+        const shouldRetrySameStory =
+          (point.reason.startsWith('card-back-missing:') || point.reason.startsWith('card-locator-stale:'))
+          && attempts < TRANSIENT_STORY_RETRY_LIMIT
+          && Date.now() < budgetDeadline;
+        if (shouldRetrySameStory) {
+          queue.push(row);
+        } else {
+          rejects.push({ storyId: row.storyId, headline: row.headline, reason: point.reason });
+          resolved.add(row.storyId);
+        }
       }
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      rejects.push({ storyId: row.storyId, headline: row.headline, reason });
+      if (isTransientCandidateMiss(reason) && attempts < TRANSIENT_STORY_RETRY_LIMIT && Date.now() < budgetDeadline) {
+        // Retry the same story without consuming a scarcity reject slot.
+        queue.push(row);
+        if (queue.length < MAX_SCAN_SIZE) {
+          await enqueueFreshCandidates().catch(() => {});
+        }
+      } else {
+        rejects.push({ storyId: row.storyId, headline: row.headline, reason });
+        resolved.add(row.storyId);
+      }
     } finally {
-      if (card) {
-        await closeTopic(page, card).catch(() => {});
+      if (activeCard || card) {
+        await closeTopic(page, activeCard ?? card!).catch(() => {});
       }
     }
   }
@@ -571,7 +1209,7 @@ function attachTelemetry(page: Page, actor: Actor, sink: TelemetryEvent[]): void
       ts: new Date().toISOString(),
       actor,
       level: 'pageerror',
-      text: String(error.message),
+      text: String(error.stack ?? error.message),
       args: [],
     });
   });
@@ -593,13 +1231,14 @@ test.describe('live mesh convergence', () => {
   test('A->B bias vote aggregate convergence across live matrix', async ({ browser }, testInfo) => {
     test.setTimeout(15 * 60_000);
     const ingesterContext = await createRuntimeRoleContext(browser, 'ingester', false);
-    const contextA = await createRuntimeRoleContext(browser, 'consumer', true);
-    const contextB = await createRuntimeRoleContext(browser, 'consumer', true);
+    const contextA = await createRuntimeRoleContext(browser, 'consumer', false);
+    const contextB = await createRuntimeRoleContext(browser, 'consumer', false);
     const ingesterPage = await ingesterContext.newPage();
     const pageA = await contextA.newPage();
     const pageB = await contextB.newPage();
 
     const telemetryEvents: TelemetryEvent[] = [];
+    attachTelemetry(ingesterPage, 'I', telemetryEvents);
     attachTelemetry(pageA, 'A', telemetryEvents);
     attachTelemetry(pageB, 'B', telemetryEvents);
 
@@ -611,16 +1250,147 @@ test.describe('live mesh convergence', () => {
       let setupFailureReason: string | null = null;
 
       try {
+        // ── Phase 0: Build-flag preflight ───────────────────────────────
+        // Verify that the served app was built with the required VITE_*
+        // feature flags before burning time on feed/identity readiness.
+        // This catches the "server started without env vars" class of
+        // failure in < 5 s instead of timing out after 90+ s.
+        await ingesterPage.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+        // Use a string expression so TypeScript's CJS transform doesn't choke
+        // on `import.meta` (it only exists in the browser's ES module scope).
+        let preflightError: unknown;
+        const buildFlags = await ingesterPage.evaluate(`
+          (() => {
+            const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
+            return {
+              analysisPipeline: env.VITE_VH_ANALYSIS_PIPELINE,
+              newsRuntime: env.VITE_NEWS_RUNTIME_ENABLED,
+              newsBridge: env.VITE_NEWS_BRIDGE_ENABLED,
+              biasTableV2: env.VITE_VH_BIAS_TABLE_V2,
+            };
+          })()
+        `).catch((err: unknown) => { preflightError = err; return null; }) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string; biasTableV2?: string } | null;
+
+        if (buildFlags === null) {
+          // eslint-disable-next-line no-console
+          console.warn(`[build-flag-preflight] could not read import.meta.env — preflight skipped (${preflightError})`);
+        }
+
+        const missingFlags: string[] = [];
+        if (buildFlags) {
+          if (buildFlags.analysisPipeline !== 'true') missingFlags.push(`VITE_VH_ANALYSIS_PIPELINE=${buildFlags.analysisPipeline ?? 'undefined'}`);
+          if (buildFlags.newsRuntime !== 'true') missingFlags.push(`VITE_NEWS_RUNTIME_ENABLED=${buildFlags.newsRuntime ?? 'undefined'}`);
+          if (buildFlags.newsBridge !== 'true') missingFlags.push(`VITE_NEWS_BRIDGE_ENABLED=${buildFlags.newsBridge ?? 'undefined'}`);
+          if (buildFlags.biasTableV2 !== 'true') missingFlags.push(`VITE_VH_BIAS_TABLE_V2=${buildFlags.biasTableV2 ?? 'undefined'}`);
+        }
+        if (missingFlags.length > 0) {
+          throw new Error(
+            `build-flag-preflight-failed: the served app is missing required feature flags. `
+            + `Restart the dev server with: VITE_VH_ANALYSIS_PIPELINE=true pnpm dev. `
+            + `Missing/wrong: [${missingFlags.join(', ')}]`,
+          );
+        }
+
+        // ── Analysis relay preflight ──────────────────────────────────────
+        // Probe /api/analyze/health before spending budget on per-story
+        // scans.  If the relay is not configured (503) synthesis frames
+        // can never materialise and every candidate will time out.
+        const relayHealthUrl = new URL('/api/analyze/health', LIVE_BASE_URL).href;
+        try {
+          const healthRes = await ingesterPage.request.get(relayHealthUrl, { timeout: 10_000 });
+          const healthStatus = healthRes.status();
+          if (healthStatus === 503) {
+            const body = await healthRes.json().catch(() => ({})) as Record<string, unknown>;
+            throw new Error(
+              `blocked-setup-analysis-relay-not-configured: /api/analyze/health returned 503. `
+              + `Start the dev server with ANALYSIS_RELAY_UPSTREAM_URL and ANALYSIS_RELAY_API_KEY set. `
+              + `Detail: ${JSON.stringify(body)}`,
+            );
+          }
+          if (healthStatus !== 200) {
+            console.warn(`[preflight] /api/analyze/health returned ${healthStatus} – relay may be misconfigured`);
+          }
+        } catch (error) {
+          if (error instanceof Error && error.message.startsWith('blocked-setup-')) {
+            throw error;
+          }
+          console.warn('[preflight] /api/analyze/health probe failed, continuing:', error instanceof Error ? error.message : error);
+        }
+
         // ── Phase 1: Readiness ──────────────────────────────────────────
         const readinessStart = Date.now();
 
+        await waitForIngesterReadiness(ingesterPage);
         await gotoFeed(ingesterPage);
-        await ensureIdentity(pageA, 'AliceLive');
-        await ensureIdentity(pageB, 'BobLive');
+
+        // Wait for at least one synthesis frame to materialise before starting
+        // the expensive per-story preflight scan.  The news runtime fires
+        // [vh:news-runtime] started before synthesis output is ready, so give
+        // the pipeline a bounded warmup window to produce its first frames.
+        // Probe by opening the first visible story and polling for frame rows
+        // inside its card-back, then close it before the real scan begins.
+        const SYNTHESIS_WARMUP_MS = Math.min(45_000, Math.floor(INGESTER_SYNTHESIS_BUDGET_MS * 0.3));
+        const probeCard = ingesterPage.locator('article[data-story-id]').first();
+        let hasSynthesisFrames = false;
+        if (await probeCard.count().catch(() => 0) > 0) {
+          await probeCard.click().catch(() => {});
+          await ingesterPage.waitForTimeout(1_000);
+          hasSynthesisFrames = await waitFor(
+            async () => {
+              const backRows = await probeCard.locator('[data-testid^="bias-table-row-"]').count().catch(() => 0);
+              return backRows > 0;
+            },
+            SYNTHESIS_WARMUP_MS,
+            2_000,
+          );
+          // Close the probe card so the feed is clean for the preflight scan.
+          await ingesterPage.keyboard.press('Escape').catch(() => {});
+          await ingesterPage.waitForTimeout(500);
+        }
+        if (!hasSynthesisFrames) {
+          console.warn(`[preflight] No synthesis frames detected after ${SYNTHESIS_WARMUP_MS}ms warmup – proceeding with preflight scan anyway`);
+        }
+
+        // Gate consumer preflight on ingester-side synthesis readiness.
+        // This ensures we only scan stories that already have frames/points
+        // materialized on the producer side before testing mesh propagation.
+        const ingesterCandidatePool = await discoverTopicsByScrolling(ingesterPage, MAX_SCAN_SIZE);
+        const ingesterPreflight = await collectVoteCapableRows(
+          ingesterPage,
+          ingesterCandidatePool,
+          TOPIC_LIMIT,
+          INGESTER_SYNTHESIS_BUDGET_MS,
+          INGESTER_PER_CANDIDATE_BUDGET_MS,
+          { recoverFeedBeforeCandidate: true },
+        );
+        const ingesterReady = ingesterPreflight.ready.slice(0, TOPIC_LIMIT);
+        if (ingesterReady.length < TOPIC_LIMIT) {
+          const ingesterRejectReasonCounts = toRejectReasonCounts(ingesterPreflight.rejects);
+          preflightSummary = {
+            candidatesDiscovered: ingesterCandidatePool.length,
+            candidatesScanned: ingesterPreflight.ready.length + ingesterPreflight.rejects.length,
+            voteCapableFound: ingesterReady.length,
+            voteCapableRequired: TOPIC_LIMIT,
+            exhaustedBudget: ingesterPreflight.exhaustedBudget,
+            budgetMs: INGESTER_SYNTHESIS_BUDGET_MS,
+            elapsedMs: Date.now() - readinessStart,
+            rejects: ingesterPreflight.rejects,
+            rejectReasonCounts: ingesterRejectReasonCounts,
+          };
+          throw new Error(
+            `blocked-setup-ingester-synthesis-scarcity:${ingesterReady.length}/${TOPIC_LIMIT} `
+            + `(discovered=${ingesterCandidatePool.length}, scanned=${ingesterPreflight.ready.length + ingesterPreflight.rejects.length}, `
+            + `budgetExhausted=${ingesterPreflight.exhaustedBudget}, rejects=${ingesterPreflight.rejects.length}, `
+            + `candidateBudgetMs=${INGESTER_PER_CANDIDATE_BUDGET_MS}, rejectReasonCounts=${JSON.stringify(ingesterRejectReasonCounts)})`,
+          );
+        }
+
+        await ensureIdentity(pageA, 'AliceLive', { requireFeed: false });
+        await ensureIdentity(pageB, 'BobLive', { requireFeed: false });
 
         await gotoFeed(pageA);
 
-        const candidatePool = await discoverTopicsByScrolling(pageA, MAX_SCAN_SIZE);
+        const candidatePool = ingesterReady;
 
         const remainingReadinessBudget = Math.max(
           30_000,
@@ -633,10 +1403,7 @@ test.describe('live mesh convergence', () => {
           remainingReadinessBudget,
         );
 
-        const rejectReasonCounts: Record<string, number> = {};
-        for (const reject of preflight.rejects) {
-          rejectReasonCounts[reject.reason] = (rejectReasonCounts[reject.reason] ?? 0) + 1;
-        }
+        const rejectReasonCounts = toRejectReasonCounts(preflight.rejects);
 
         preflightSummary = {
           candidatesDiscovered: candidatePool.length,
@@ -698,7 +1465,9 @@ test.describe('live mesh convergence', () => {
 
             result.votedPointId = pointA.pointId;
             await cardA.getByTestId(`cell-vote-agree-${pointA.pointId}`).click({ timeout: 10_000 });
-            await pageA.waitForTimeout(1_500);
+            // Allow mesh projection (writeVoterNode, writeSentimentEvent) to
+            // complete and begin replicating before B opens the topic.
+            await pageA.waitForTimeout(3_000);
             result.aAfterClick = await readCounts(cardA, pointA.pointId);
             await closeTopic(pageA, cardA);
 
@@ -716,20 +1485,33 @@ test.describe('live mesh convergence', () => {
             result.bMatchedA = pointB.matchedPreferred;
             result.bObserved = await readCounts(cardB, pointB.pointId);
 
-            const convergedLive = await waitFor(async () => {
-              const counts = await readCounts(cardB, pointB.pointId);
-              result.bObserved = counts;
-              return counts.agree > 0;
-            }, 10_000, 1_000);
+            // Phase 2 convergence: close/re-open topic on each poll iteration
+            // so usePointAggregate re-mounts with fresh Gun .once() reads.
+            // Polling the same mounted component is unreliable because the hook
+            // exhausts its retry budget once and never re-reads.
+            const CONVERGENCE_POLLS = 4;
+            const CONVERGENCE_SETTLE_MS = 2_000;
+            let convergedLive = result.bObserved.agree > 0;
+            await closeTopic(pageB, cardB);
+
+            for (let poll = 0; poll < CONVERGENCE_POLLS && !convergedLive; poll += 1) {
+              await pageB.waitForTimeout(CONVERGENCE_SETTLE_MS);
+              const pollCard = await openTopic(pageB, row);
+              const pollPoint = await resolvePointInCard(pollCard, pointA.pointId);
+              if (pollPoint.found) {
+                const counts = await readCounts(pollCard, pollPoint.pointId);
+                result.bObserved = counts;
+                convergedLive = counts.agree > 0;
+              }
+              await closeTopic(pageB, pollCard);
+            }
 
             if (!convergedLive) {
-              await closeTopic(pageB, cardB);
-              // Reload is the one exception — convergence polling failed, so
-              // B needs a fresh page to read mesh state from scratch.
+              // Final attempt: full reload to force fresh Gun chain state.
               await pageB.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
               await gotoFeed(pageB);
               const cardReload = await openTopic(pageB, row);
-              const pointReload = await resolvePointInCard(cardReload, pointB.pointId);
+              const pointReload = await resolvePointInCard(cardReload, pointA.pointId);
               if (pointReload.found) {
                 result.bPointId = pointReload.pointId;
                 result.bMatchedA = pointReload.pointId === pointA.pointId;
@@ -738,8 +1520,6 @@ test.describe('live mesh convergence', () => {
                 result.reason = `B-reload:${pointReload.reason}`;
               }
               await closeTopic(pageB, cardReload);
-            } else {
-              await closeTopic(pageB, cardB);
             }
 
             const finalAgree = result.bObservedAfterReload?.agree ?? result.bObserved?.agree ?? 0;
@@ -759,7 +1539,8 @@ test.describe('live mesh convergence', () => {
       }
 
       if (setupFailureReason) {
-        const isScarcity = setupFailureReason.startsWith('blocked-setup-scarcity:');
+        const isScarcity = setupFailureReason.startsWith('blocked-setup-scarcity:')
+          || setupFailureReason.startsWith('blocked-setup-ingester-synthesis-scarcity:');
         const failureClass = classifyFailure(setupFailureReason);
         matrix.push({
           topicId: '__setup__',
@@ -808,6 +1589,10 @@ test.describe('live mesh convergence', () => {
 
       await testInfo.attach('live-bias-vote-convergence-summary', {
         body: Buffer.from(JSON.stringify(summaryPacket, null, 2), 'utf8'),
+        contentType: 'application/json',
+      });
+      await testInfo.attach('live-bias-vote-convergence-telemetry', {
+        body: Buffer.from(JSON.stringify(telemetryEvents, null, 2), 'utf8'),
         contentType: 'application/json',
       });
 
