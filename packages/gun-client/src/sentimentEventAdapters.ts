@@ -5,6 +5,7 @@ import {
   type SentimentEvent,
 } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
 export interface EncryptedSentimentEnvelope {
@@ -101,7 +102,10 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
-const PUT_ACK_TIMEOUT_MS = 1000;
+const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_PUT_ACK_TIMEOUT_MS', 'VH_GUN_PUT_ACK_TIMEOUT_MS'],
+  1_000,
+);
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
   return new Promise<PutAckResult>((resolve, reject) => {

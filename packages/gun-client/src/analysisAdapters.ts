@@ -5,6 +5,7 @@ import {
   type StoryAnalysisLatestPointer,
 } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
 interface PutAckResult {
@@ -195,13 +196,31 @@ function parseCreatedAtMs(createdAt: string): number {
 
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, READ_ONCE_TIMEOUT_MS);
+
     chain.once((data) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       resolve((data ?? null) as T | null);
     });
   });
 }
 
-const PUT_ACK_TIMEOUT_MS = 1000;
+const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
+  2_500,
+);
+
+const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_PUT_ACK_TIMEOUT_MS', 'VH_GUN_PUT_ACK_TIMEOUT_MS'],
+  1_000,
+);
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
   return new Promise<PutAckResult>((resolve, reject) => {
