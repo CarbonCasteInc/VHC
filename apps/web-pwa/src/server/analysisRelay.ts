@@ -7,7 +7,17 @@ const DEFAULT_ANALYSES_PER_TOPIC_LIMIT = 5;
 const TOPIC_ID_LINE_PATTERN = /^Topic ID:\s*(.+)$/im;
 const ARTICLE_DELIMITER = '--- ARTICLE START ---';
 const UPSTREAM_EMPTY_CONTENT_RETRIES = 2;
-const UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
+const UPSTREAM_FETCH_TIMEOUT_MS = (() => {
+  const raw =
+    typeof process !== 'undefined'
+      ? process.env?.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS
+      : undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return 30_000;
+  }
+  return Math.max(5_000, Math.floor(parsed));
+})();
 
 type AnalysisProvider = {
   provider_id: string;
