@@ -238,6 +238,23 @@ describe('analysisRelay config + success paths', () => {
 
     expect(config?.reasoningEffort).toBe('low');
   });
+
+  it('accepts all supported reasoning effort values and drops invalid values', () => {
+    const supported: Array<'none' | 'medium' | 'high' | 'xhigh'> = ['none', 'medium', 'high', 'xhigh'];
+    for (const value of supported) {
+      const config = resolveAnalysisRelayConfig({
+        ...BASE_ENV,
+        ANALYSIS_RELAY_REASONING_EFFORT: value,
+      });
+      expect(config?.reasoningEffort).toBe(value);
+    }
+
+    const invalid = resolveAnalysisRelayConfig({
+      ...BASE_ENV,
+      ANALYSIS_RELAY_REASONING_EFFORT: 'ultra',
+    });
+    expect(invalid?.reasoningEffort).toBeUndefined();
+  });
   it('enforces server model override even when client supplies model', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse({ content: '{"ok":true}' }));
 
@@ -427,6 +444,24 @@ describe('analysisRelay config + success paths', () => {
     expect(body.messages[0].content).toBe('Analyze this text for bias.');
   });
 
+  it('keeps prompt as single user message when delimiter has no system prefix', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}' }),
+    );
+    const prompt = '   --- ARTICLE START ---\nBody text';
+
+    await relayAnalysis(
+      { prompt },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages[0].content).toBe('--- ARTICLE START ---\nBody text');
+  });
+
   it('retries upstream calls on empty content before returning 502', async () => {
     const emptyResponse = okResponse({ choices: [{ message: { content: '' } }] });
     const goodResponse = okResponse({ content: validAnalysisContent('Retry success') });
@@ -475,6 +510,24 @@ describe('analysisRelay config + success paths', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('handles non-ok upstream status when error body json parsing fails', async () => {
+    const errorResponse = {
+      ok: false,
+      status: 500,
+      json: vi.fn().mockRejectedValue(new Error('bad-json')),
+    } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValue(errorResponse);
+
+    const result = await relayAnalysis(
+      { prompt: 'Should not retry' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream returned 500');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it('client article model overrides config modelOverride (dev-only relay)', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       okResponse({ content: validAnalysisContent('Client wins') }),
@@ -491,5 +544,37 @@ describe('analysisRelay config + success paths', () => {
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
     expect(body.model).toBe('claude-3-haiku');
+  });
+
+  it('reads timeout from env at module load and uses default when process is unavailable', async () => {
+    const originalProcess = globalThis.process;
+    const abortError = new DOMException('The operation was aborted.', 'AbortError');
+
+    vi.resetModules();
+    vi.stubEnv('ANALYSIS_RELAY_UPSTREAM_URL', BASE_ENV.ANALYSIS_RELAY_UPSTREAM_URL);
+    vi.stubEnv('ANALYSIS_RELAY_API_KEY', BASE_ENV.ANALYSIS_RELAY_API_KEY);
+    vi.stubEnv('ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS', '7001');
+    let mod = await import('./analysisRelay');
+    let result = await mod.relayAnalysis(
+      { prompt: 'timeout from env' },
+      { fetchImpl: vi.fn().mockRejectedValue(abortError) },
+    );
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream request timed out after 7001ms');
+
+    vi.resetModules();
+    vi.stubGlobal('process', undefined);
+    mod = await import('./analysisRelay');
+    result = await mod.relayAnalysis(
+      { prompt: 'timeout default' },
+      {
+        env: BASE_ENV,
+        fetchImpl: vi.fn().mockRejectedValue(abortError),
+      },
+    );
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream request timed out after 30000ms');
+
+    vi.stubGlobal('process', originalProcess);
   });
 });

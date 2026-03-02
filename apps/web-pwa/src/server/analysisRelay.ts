@@ -220,9 +220,6 @@ function splitPromptMessages(prompt: string): Array<{ role: string; content: str
   }
   const system = prompt.slice(0, idx).trim();
   const user = prompt.slice(idx).trim();
-  if (!system) {
-    return [{ role: 'user', content: prompt }];
-  }
   return [
     { role: 'system', content: system },
     { role: 'user', content: user },
