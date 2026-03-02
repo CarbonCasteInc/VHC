@@ -112,8 +112,14 @@ function persistCachedAggregate(cacheKey: string, aggregate: PointAggregate): vo
     cachedAtMs: Date.now(),
   };
 
+  for (const [existingKey, existingEntry] of Object.entries(cache)) {
+    if (!existingEntry || !Number.isFinite(existingEntry.cachedAtMs)) {
+      delete cache[existingKey];
+    }
+  }
+
   const keysByFreshness = Object.entries(cache)
-    .sort((left, right) => (right[1]?.cachedAtMs ?? 0) - (left[1]?.cachedAtMs ?? 0))
+    .sort((left, right) => right[1].cachedAtMs - left[1].cachedAtMs)
     .map(([key]) => key);
   if (keysByFreshness.length > AGGREGATE_CACHE_MAX_ENTRIES) {
     for (const staleKey of keysByFreshness.slice(AGGREGATE_CACHE_MAX_ENTRIES)) {
