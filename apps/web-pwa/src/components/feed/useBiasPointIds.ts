@@ -40,6 +40,7 @@ interface UseBiasPointIdsParams {
 
 export interface UseBiasPointIdsResult {
   readonly legacyPointIds: Record<string, string>;
+  readonly canonicalPointIds: Record<string, string>;
   readonly synthesisPointIds: Record<string, string>;
 }
 
@@ -53,6 +54,7 @@ export function useBiasPointIds({
 }: UseBiasPointIdsParams): UseBiasPointIdsResult {
   const [modelScopeKey, setModelScopeKey] = useState(getModelScopeKey);
   const [legacyPointIds, setLegacyPointIds] = useState<Record<string, string>>({});
+  const [canonicalPointIds, setCanonicalPointIds] = useState<Record<string, string>>({});
   const [synthesisPointIds, setSynthesisPointIds] = useState<Record<string, string>>({});
 
   const analysisContext = useMemo(
@@ -95,6 +97,7 @@ export function useBiasPointIds({
 
     if (!shouldDeriveLegacyIds && !shouldDeriveSynthesisIds) {
       setLegacyPointIds({});
+      setCanonicalPointIds({});
       setSynthesisPointIds({});
       return () => {
         cancelled = true;
@@ -131,13 +134,17 @@ export function useBiasPointIds({
         })(),
         (async () => {
           if (!shouldDeriveSynthesisIds) {
-            return {} as Record<string, string>;
+            return {
+              synthesisPointIds: {} as Record<string, string>,
+              canonicalPointIds: {} as Record<string, string>,
+            };
           }
 
+          const nextCanonicalPointIds: Record<string, string> = {};
           const nextSynthesisPointIds: Record<string, string> = {};
           for (let rowIndex = 0; rowIndex < frames.length; rowIndex += 1) {
             const row = frames[rowIndex]!;
-            const [framePointId, reframePointId] = await Promise.all([
+            const [compatFramePointId, compatReframePointId, canonicalFramePointId, canonicalReframePointId] = await Promise.all([
               deriveSynthesisPointId({
                 topic_id: topicId!,
                 synthesis_id: synthesisId!,
@@ -152,13 +159,32 @@ export function useBiasPointIds({
                 column: 'reframe',
                 text: row.reframe,
               }),
+              deriveSynthesisPointId({
+                topic_id: topicId!,
+                synthesis_id: synthesisId!,
+                epoch: epoch!,
+                column: 'frame',
+                text: `slot:${rowIndex}`,
+              }),
+              deriveSynthesisPointId({
+                topic_id: topicId!,
+                synthesis_id: synthesisId!,
+                epoch: epoch!,
+                column: 'reframe',
+                text: `slot:${rowIndex}`,
+              }),
             ]);
 
-            nextSynthesisPointIds[pointMapKey(rowIndex, 'frame')] = framePointId;
-            nextSynthesisPointIds[pointMapKey(rowIndex, 'reframe')] = reframePointId;
+            nextSynthesisPointIds[pointMapKey(rowIndex, 'frame')] = compatFramePointId;
+            nextSynthesisPointIds[pointMapKey(rowIndex, 'reframe')] = compatReframePointId;
+            nextCanonicalPointIds[pointMapKey(rowIndex, 'frame')] = canonicalFramePointId;
+            nextCanonicalPointIds[pointMapKey(rowIndex, 'reframe')] = canonicalReframePointId;
           }
 
-          return nextSynthesisPointIds;
+          return {
+            synthesisPointIds: nextSynthesisPointIds,
+            canonicalPointIds: nextCanonicalPointIds,
+          };
         })(),
       ]);
 
@@ -174,9 +200,11 @@ export function useBiasPointIds({
       }
 
       if (synthesisResult.status === 'fulfilled') {
-        setSynthesisPointIds(synthesisResult.value);
+        setSynthesisPointIds(synthesisResult.value.synthesisPointIds);
+        setCanonicalPointIds(synthesisResult.value.canonicalPointIds);
       } else {
         console.warn('[vh:bias-table] failed to derive synthesis point IDs', synthesisResult.reason);
+        setCanonicalPointIds({});
         setSynthesisPointIds({});
       }
     })();
@@ -195,5 +223,5 @@ export function useBiasPointIds({
     topicId,
   ]);
 
-  return { legacyPointIds, synthesisPointIds };
+  return { legacyPointIds, canonicalPointIds, synthesisPointIds };
 }

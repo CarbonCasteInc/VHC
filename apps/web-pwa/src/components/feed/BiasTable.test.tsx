@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { deriveAnalysisKey, derivePointId } from '@vh/data-model';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { deriveSynthesisPointId } from '@vh/data-model';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
@@ -34,6 +34,7 @@ const FRAMES = [
 ];
 
 const TOPIC_ID = 'topic-1';
+const STORY_ID = 'story-1';
 const ANALYSIS_ID = 'story-1:prov-1';
 const SYNTHESIS_ID = 'synth-1';
 const EPOCH = 7;
@@ -44,17 +45,72 @@ async function deriveExpectedPointIds(): Promise<{
   frame1: string;
   reframe1: string;
 }> {
-  const analysisKey = await deriveAnalysisKey({
-    story_id: 'story-1',
-    provenance_hash: 'prov-1',
-    pipeline_version: 'news-card-analysis-v1',
-    model_scope: 'model:default',
+  const frame0 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'frame',
+    text: FRAMES[0]!.frame,
+  });
+  const reframe0 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'reframe',
+    text: FRAMES[0]!.reframe,
+  });
+  const frame1 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'frame',
+    text: FRAMES[1]!.frame,
+  });
+  const reframe1 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'reframe',
+    text: FRAMES[1]!.reframe,
   });
 
-  const frame0 = await derivePointId({ analysisKey, column: 'frame', text: FRAMES[0]!.frame });
-  const reframe0 = await derivePointId({ analysisKey, column: 'reframe', text: FRAMES[0]!.reframe });
-  const frame1 = await derivePointId({ analysisKey, column: 'frame', text: FRAMES[1]!.frame });
-  const reframe1 = await derivePointId({ analysisKey, column: 'reframe', text: FRAMES[1]!.reframe });
+  return { frame0, reframe0, frame1, reframe1 };
+}
+
+async function deriveExpectedStoryFallbackPointIds(): Promise<{
+  frame0: string;
+  reframe0: string;
+  frame1: string;
+  reframe1: string;
+}> {
+  const frame0 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: STORY_ID,
+    epoch: 0,
+    column: 'frame',
+    text: 'slot:0',
+  });
+  const reframe0 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: STORY_ID,
+    epoch: 0,
+    column: 'reframe',
+    text: 'slot:0',
+  });
+  const frame1 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: STORY_ID,
+    epoch: 0,
+    column: 'frame',
+    text: 'slot:1',
+  });
+  const reframe1 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: STORY_ID,
+    epoch: 0,
+    column: 'reframe',
+    text: 'slot:1',
+  });
 
   return { frame0, reframe0, frame1, reframe1 };
 }
@@ -223,6 +279,48 @@ describe('BiasTable', () => {
       />,
     );
     expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
+  });
+
+  it('uses storyId fallback for vote identity when synthesis context is missing', async () => {
+    const storyFallbackPointIds = await deriveExpectedStoryFallbackPointIds();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId={TOPIC_ID}
+        storyId={STORY_ID}
+        analysisId={ANALYSIS_ID}
+        votingEnabled
+      />,
+    );
+
+    await waitFor(() => {
+      const pointMapEvents = infoSpy.mock.calls
+        .filter((call) => call[0] === '[vh:bias-table:point-map]')
+        .map((call) => call[1] as Record<string, unknown>);
+
+      const matchingEvents = pointMapEvents.filter(
+        (event) => event.synthesis_id === STORY_ID,
+      );
+
+      const canonicalPointIds = new Set(
+        matchingEvents
+          .map((event) =>
+            typeof event.canonical_point_id === 'string'
+              ? event.canonical_point_id
+              : null,
+          )
+          .filter((value): value is string => value !== null),
+      );
+
+      expect(canonicalPointIds.has(storyFallbackPointIds.frame0)).toBe(true);
+      expect(canonicalPointIds.has(storyFallbackPointIds.reframe0)).toBe(true);
+      expect(canonicalPointIds.has(storyFallbackPointIds.frame1)).toBe(true);
+      expect(canonicalPointIds.has(storyFallbackPointIds.reframe1)).toBe(true);
+    });
+
+    infoSpy.mockRestore();
   });
 
   it('point IDs are stable content hashes across rerender', async () => {

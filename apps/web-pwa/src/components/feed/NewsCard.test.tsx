@@ -1,8 +1,8 @@
 /* @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
+import { deriveSynthesisPointId, type FeedItem, type StoryBundle, type TopicSynthesisV2 } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { NewsCard } from './NewsCard';
@@ -365,11 +365,48 @@ describe('NewsCard', () => {
     vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     // intentionally omit setTopicSynthesis; this mirrors analysis-only live mode
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
-    expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(1);
-    expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(1);
+
+    const expectedFramePointId = await deriveSynthesisPointId({
+      topic_id: 'news-1',
+      synthesis_id: 'story-news-1',
+      epoch: 0,
+      column: 'frame',
+      text: 'slot:0',
+    });
+    const expectedReframePointId = await deriveSynthesisPointId({
+      topic_id: 'news-1',
+      synthesis_id: 'story-news-1',
+      epoch: 0,
+      column: 'reframe',
+      text: 'slot:0',
+    });
+
+    await waitFor(() => {
+      const pointMapEvents = infoSpy.mock.calls
+        .filter((call) => call[0] === '[vh:bias-table:point-map]')
+        .map((call) => call[1] as Record<string, unknown>);
+      const matchingEvents = pointMapEvents.filter(
+        (event) => event.synthesis_id === 'story-news-1',
+      );
+      const canonicalPointIds = new Set(
+        matchingEvents
+          .map((event) =>
+            typeof event.canonical_point_id === 'string'
+              ? event.canonical_point_id
+              : null,
+          )
+          .filter((value): value is string => value !== null),
+      );
+
+      expect(canonicalPointIds.has(expectedFramePointId)).toBe(true);
+      expect(canonicalPointIds.has(expectedReframePointId)).toBe(true);
+    });
+
+    infoSpy.mockRestore();
   });
   it('VITE_VH_BIAS_TABLE_V2 off hides voting controls even with analysis', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');

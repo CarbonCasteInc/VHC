@@ -9,6 +9,7 @@ export interface BiasTableProps {
   readonly providerLabel?: string;
   readonly loading?: boolean;
   readonly topicId?: string;
+  readonly storyId?: string;
   readonly analysisId?: string;
   readonly synthesisId?: string;
   readonly epoch?: number;
@@ -41,10 +42,10 @@ interface ExpandableRowProps {
   readonly analysisId?: string;
   readonly synthesisId?: string;
   readonly epoch?: number;
-  readonly framePointId?: string;
-  readonly reframePointId?: string;
   readonly synthesisFramePointId?: string;
   readonly synthesisReframePointId?: string;
+  readonly compatibilityFramePointId?: string;
+  readonly compatibilityReframePointId?: string;
   readonly votingEnabled?: boolean;
 }
 
@@ -57,10 +58,10 @@ function ExpandableRow({
   analysisId,
   synthesisId,
   epoch,
-  framePointId,
-  reframePointId,
   synthesisFramePointId,
   synthesisReframePointId,
+  compatibilityFramePointId,
+  compatibilityReframePointId,
   votingEnabled,
 }: ExpandableRowProps): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
@@ -71,8 +72,8 @@ function ExpandableRow({
     (analysis?.justifyBiasClaims?.length ?? 0) > 0;
 
   const showVoting = !!(votingEnabled && topicId && synthesisId && epoch !== undefined);
-  const resolvedFramePointId = framePointId ?? synthesisFramePointId;
-  const resolvedReframePointId = reframePointId ?? synthesisReframePointId;
+  const frameVotingReady = !!(showVoting && synthesisFramePointId);
+  const reframeVotingReady = !!(showVoting && synthesisReframePointId);
 
   return (
     <>
@@ -84,10 +85,10 @@ function ExpandableRow({
       >
         <td className="border border-slate-200 px-2 py-1 text-slate-800">
           {frame}
-          {showVoting && resolvedFramePointId && (
+          {frameVotingReady && synthesisFramePointId && (
             <CellVoteControls
               topicId={topicId!}
-              pointId={resolvedFramePointId}
+              pointId={compatibilityFramePointId ?? synthesisFramePointId}
               synthesisPointId={synthesisFramePointId}
               synthesisId={synthesisId!}
               epoch={epoch!}
@@ -97,10 +98,10 @@ function ExpandableRow({
         </td>
         <td className="border border-slate-200 px-2 py-1 text-slate-700">
           {reframe}
-          {showVoting && resolvedReframePointId && (
+          {reframeVotingReady && synthesisReframePointId && (
             <CellVoteControls
               topicId={topicId!}
-              pointId={resolvedReframePointId}
+              pointId={compatibilityReframePointId ?? synthesisReframePointId}
               synthesisPointId={synthesisReframePointId}
               synthesisId={synthesisId!}
               epoch={epoch!}
@@ -170,13 +171,14 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   providerLabel,
   loading = false,
   topicId,
+  storyId,
   analysisId,
   synthesisId,
   epoch,
   votingEnabled = false,
 }) => {
   const hasExplicitSynthesisContext = synthesisId !== undefined && epoch !== undefined;
-  const fallbackSynthesisId = analysisId ?? topicId;
+  const fallbackSynthesisId = storyId ?? analysisId ?? topicId;
   const effectiveSynthesisId = synthesisId ?? fallbackSynthesisId;
   const effectiveEpoch = epoch ?? 0;
   const hasVotingContext = Boolean(
@@ -186,7 +188,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
       Number.isFinite(effectiveEpoch),
   );
 
-  const { legacyPointIds, synthesisPointIds } = useBiasPointIds({
+  const { legacyPointIds, canonicalPointIds, synthesisPointIds } = useBiasPointIds({
     frames,
     analysisId,
     topicId,
@@ -203,6 +205,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
     const expectedPointMappings = frames.length * 2;
     const payload = {
       topic_id: topicId ?? null,
+      story_id: storyId ?? null,
       analysis_id: analysisId ?? null,
       synthesis_id: synthesisId ?? null,
       epoch: epoch ?? null,
@@ -210,20 +213,26 @@ export const BiasTable: React.FC<BiasTableProps> = ({
       effective_epoch: hasVotingContext ? effectiveEpoch : null,
       context_source: hasExplicitSynthesisContext
         ? 'synthesis'
-        : analysisId
-          ? 'analysis-fallback'
-          : topicId
-            ? 'topic-fallback'
-            : 'none',
+        : storyId
+          ? 'story-fallback'
+          : analysisId
+            ? 'analysis-fallback'
+            : topicId
+              ? 'topic-fallback'
+              : 'none',
       frame_rows: frames.length,
       expected_point_mappings: expectedPointMappings,
       legacy_point_mappings: Object.keys(legacyPointIds).length,
-      synthesis_point_mappings: Object.keys(synthesisPointIds).length,
+      canonical_point_mappings: Object.keys(canonicalPointIds).length,
+      compatibility_synthesis_point_mappings: Object.keys(synthesisPointIds).length,
       voting_context_ready: hasVotingContext,
+      canonical_vote_ids_ready:
+        hasVotingContext &&
+        Object.keys(canonicalPointIds).length === expectedPointMappings,
     };
 
     const pointMappingsReady =
-      Object.keys(synthesisPointIds).length === expectedPointMappings;
+      Object.keys(canonicalPointIds).length === expectedPointMappings;
 
     if (!hasVotingContext || !pointMappingsReady) {
       console.warn('[vh:bias-table:voting-context]', payload);
@@ -233,12 +242,14 @@ export const BiasTable: React.FC<BiasTableProps> = ({
     console.info('[vh:bias-table:voting-context]', payload);
   }, [
     analysisId,
+    storyId,
     effectiveEpoch,
     effectiveSynthesisId,
     epoch,
     frames.length,
     hasExplicitSynthesisContext,
     hasVotingContext,
+    canonicalPointIds,
     legacyPointIds,
     synthesisId,
     synthesisPointIds,
@@ -304,10 +315,10 @@ export const BiasTable: React.FC<BiasTableProps> = ({
                   analysisId={analysisId}
                   synthesisId={hasVotingContext ? effectiveSynthesisId : undefined}
                   epoch={hasVotingContext ? effectiveEpoch : undefined}
-                  framePointId={legacyPointIds[pointMapKey(index, 'frame')]}
-                  reframePointId={legacyPointIds[pointMapKey(index, 'reframe')]}
-                  synthesisFramePointId={synthesisPointIds[pointMapKey(index, 'frame')]}
-                  synthesisReframePointId={synthesisPointIds[pointMapKey(index, 'reframe')]}
+                  synthesisFramePointId={canonicalPointIds[pointMapKey(index, 'frame')]}
+                  synthesisReframePointId={canonicalPointIds[pointMapKey(index, 'reframe')]}
+                  compatibilityFramePointId={synthesisPointIds[pointMapKey(index, 'frame')]}
+                  compatibilityReframePointId={synthesisPointIds[pointMapKey(index, 'reframe')]}
                   votingEnabled={hasVotingContext}
                 />
               ))

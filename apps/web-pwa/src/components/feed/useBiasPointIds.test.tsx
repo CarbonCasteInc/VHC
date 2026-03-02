@@ -32,6 +32,14 @@ function HookHarness(props: {
   return <pre data-testid="point-ids">{JSON.stringify(pointIds)}</pre>;
 }
 
+function readPointIdsPayload(): {
+  legacyPointIds: Record<string, string>;
+  canonicalPointIds: Record<string, string>;
+  synthesisPointIds: Record<string, string>;
+} {
+  return JSON.parse(screen.getByTestId('point-ids').textContent ?? '{}');
+}
+
 describe('useBiasPointIds', () => {
   beforeEach(() => {
     deriveAnalysisKeyMock.mockReset();
@@ -50,7 +58,7 @@ describe('useBiasPointIds', () => {
     vi.restoreAllMocks();
   });
 
-  it('derives legacy + synthesis point IDs when voting context is complete', async () => {
+  it('derives legacy + canonical + compatibility synthesis point IDs when voting context is complete', async () => {
     render(
       <HookHarness
         frames={[{ frame: 'Frame A', reframe: 'Reframe A' }]}
@@ -64,6 +72,7 @@ describe('useBiasPointIds', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"legacyPointIds":{"frame:0":"legacy:frame:Frame A","reframe:0":"legacy:reframe:Reframe A"}');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"canonicalPointIds":{"frame:0":"synth:frame:slot:0","reframe:0":"synth:reframe:slot:0"}');
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"synth:frame:Frame A","reframe:0":"synth:reframe:Reframe A"}');
     });
 
@@ -114,6 +123,7 @@ describe('useBiasPointIds', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"legacyPointIds":{}');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"canonicalPointIds":{"frame:0":"synth:frame:slot:0","reframe:0":"synth:reframe:slot:0"}');
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"synth:frame:Frame A","reframe:0":"synth:reframe:Reframe A"}');
     });
 
@@ -136,6 +146,7 @@ describe('useBiasPointIds', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"legacyPointIds":{}');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"canonicalPointIds":{"frame:0":"synth:frame:slot:0","reframe:0":"synth:reframe:slot:0"}');
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"synth:frame:Frame A","reframe:0":"synth:reframe:Reframe A"}');
     });
 
@@ -165,7 +176,47 @@ describe('useBiasPointIds', () => {
         expect.any(Error),
       );
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"legacyPointIds":{}');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"canonicalPointIds":{"frame:0":"synth:frame:slot:0","reframe:0":"synth:reframe:slot:0"}');
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"synth:frame:Frame A","reframe:0":"synth:reframe:Reframe A"}');
     });
+  });
+
+  it('keeps canonical slot point IDs stable when frame text mutates', async () => {
+    const { rerender } = render(
+      <HookHarness
+        frames={[{ frame: 'Frame A', reframe: 'Reframe A' }]}
+        analysisId="story-1:prov-1"
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={2}
+        votingEnabled
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"canonicalPointIds":{"frame:0":"synth:frame:slot:0","reframe:0":"synth:reframe:slot:0"}');
+    });
+
+    const firstPayload = readPointIdsPayload();
+
+    rerender(
+      <HookHarness
+        frames={[{ frame: 'Frame A (edited)', reframe: 'Reframe A (edited)' }]}
+        analysisId="story-1:prov-1"
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={2}
+        votingEnabled
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"synth:frame:Frame A (edited)","reframe:0":"synth:reframe:Reframe A (edited)"}');
+    });
+
+    const secondPayload = readPointIdsPayload();
+
+    expect(secondPayload.canonicalPointIds).toEqual(firstPayload.canonicalPointIds);
+    expect(secondPayload.synthesisPointIds).not.toEqual(firstPayload.synthesisPointIds);
   });
 });
