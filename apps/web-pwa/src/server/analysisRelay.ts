@@ -5,6 +5,19 @@ import { buildLegacyVhcArticlePrompt } from './legacyPrompt';
 const DEFAULT_ANALYSES_LIMIT = 25;
 const DEFAULT_ANALYSES_PER_TOPIC_LIMIT = 5;
 const TOPIC_ID_LINE_PATTERN = /^Topic ID:\s*(.+)$/im;
+const ARTICLE_DELIMITER = '--- ARTICLE START ---';
+const UPSTREAM_EMPTY_CONTENT_RETRIES = 2;
+const UPSTREAM_FETCH_TIMEOUT_MS = (() => {
+  const raw =
+    typeof process !== 'undefined'
+      ? process.env?.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS
+      : undefined;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) {
+    return 30_000;
+  }
+  return Math.max(5_000, Math.floor(parsed));
+})();
 
 type AnalysisProvider = {
   provider_id: string;
@@ -31,6 +44,7 @@ interface AnalysisRelayConfig {
   apiKey: string;
   providerId: string;
   modelOverride?: string;
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
   analysesLimit: number;
   analysesPerTopicLimit: number;
 }
@@ -127,6 +141,24 @@ function parsePositiveIntString(value: string | undefined): number | undefined {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+function parseReasoningEffort(value: string | undefined): 'none' | 'low' | 'medium' | 'high' | 'xhigh' | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  // Backward-compatible alias used by earlier relay experiments.
+  if (normalized === 'minimal') {
+    return 'low';
+  }
+  if (
+    normalized === 'none'
+    || normalized === 'low'
+    || normalized === 'medium'
+    || normalized === 'high'
+    || normalized === 'xhigh'
+  ) {
+    return normalized;
+  }
+  return undefined;
+}
 export function resolveAnalysisRelayConfig(env: Record<string, string | undefined>): AnalysisRelayConfig | null {
   const endpointUrl = readServerEnvVar(env, 'ANALYSIS_RELAY_UPSTREAM_URL');
   const apiKey = readServerEnvVar(env, 'ANALYSIS_RELAY_API_KEY');
@@ -137,6 +169,7 @@ export function resolveAnalysisRelayConfig(env: Record<string, string | undefine
     apiKey,
     providerId: readServerEnvVar(env, 'ANALYSIS_RELAY_PROVIDER_ID') ?? 'remote-analysis-relay',
     modelOverride: readServerEnvVar(env, 'ANALYSIS_RELAY_MODEL'),
+    reasoningEffort: parseReasoningEffort(readServerEnvVar(env, 'ANALYSIS_RELAY_REASONING_EFFORT')),
     analysesLimit: parsePositiveIntString(readServerEnvVar(env, 'ANALYSIS_RELAY_BUDGET_ANALYSES')) ?? DEFAULT_ANALYSES_LIMIT,
     analysesPerTopicLimit:
       parsePositiveIntString(readServerEnvVar(env, 'ANALYSIS_RELAY_BUDGET_ANALYSES_PER_TOPIC')) ??
@@ -159,6 +192,70 @@ function resetBudgetIfNeeded(now: Date): void {
 export function extractTopicId(articleText: string): string | undefined {
   const match = articleText.match(TOPIC_ID_LINE_PATTERN)?.[1]?.trim();
   return match && match.length > 0 ? match : undefined;
+}
+
+function resolveTokenParam(model: string): 'max_completion_tokens' | 'max_tokens' {
+  if (/^(gpt-5|o1|o3)/i.test(model)) {
+    return 'max_completion_tokens';
+  }
+  return 'max_tokens';
+}
+
+function shouldSendTemperature(model: string): boolean {
+  return !/^(gpt-5|o1|o3)/i.test(model);
+}
+
+function shouldSendReasoningEffort(model: string): boolean {
+  return /^gpt-5/i.test(model);
+}
+/**
+ * Split a prompt into system + user messages when an article delimiter is present.
+ * System instructions go in the system role; the article content goes in the user role.
+ * Falls back to a single user message when no delimiter is found.
+ */
+function splitPromptMessages(prompt: string): Array<{ role: string; content: string }> {
+  const idx = prompt.indexOf(ARTICLE_DELIMITER);
+  if (idx <= 0) {
+    return [{ role: 'user', content: prompt }];
+  }
+  const system = prompt.slice(0, idx).trim();
+  const user = prompt.slice(idx).trim();
+  if (!system) {
+    return [{ role: 'user', content: prompt }];
+  }
+  return [
+    { role: 'system', content: system },
+    { role: 'user', content: user },
+  ];
+}
+
+/**
+ * Convert a flat { prompt, model, max_tokens, temperature } request into
+ * OpenAI chat-completions format ({ model, messages, max_tokens, temperature }).
+ */
+function toChatCompletionsPayload(request: {
+  prompt: string;
+  model: string;
+  max_tokens: number;
+  temperature: number;
+  reasoningEffort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+}): {
+  model: string;
+  messages: Array<{ role: string; content: string }>;
+  max_tokens?: number;
+  max_completion_tokens?: number;
+  temperature?: number;
+  reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'xhigh';
+} {
+  const tokenParam = resolveTokenParam(request.model);
+  const reasoningEffort = request.reasoningEffort ?? 'low';
+  return {
+    model: request.model,
+    messages: splitPromptMessages(request.prompt),
+    [tokenParam]: request.max_tokens,
+    ...(shouldSendTemperature(request.model) ? { temperature: request.temperature } : {}),
+    ...(shouldSendReasoningEffort(request.model) ? { reasoning_effort: reasoningEffort } : {}),
+  };
 }
 
 function readContentFromUpstream(body: unknown): string | null {
@@ -267,55 +364,87 @@ export async function relayAnalysis(
   };
 
   try {
-    const upstream = await fetchImpl(config.endpointUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-      body: JSON.stringify(upstreamRequest),
+    const chatPayload = toChatCompletionsPayload({
+      ...upstreamRequest,
+      reasoningEffort: config.reasoningEffort,
     });
+    const maxAttempts = 1 + UPSTREAM_EMPTY_CONTENT_RETRIES;
+    let lastUpstreamBody: unknown = null;
 
-    if (!upstream.ok) {
-      return { status: 502, payload: { error: `Upstream returned ${upstream.status}` } };
-    }
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), UPSTREAM_FETCH_TIMEOUT_MS);
 
-    const upstreamBody = await upstream.json();
-    const content = readContentFromUpstream(upstreamBody);
-    if (!content) {
-      return { status: 502, payload: { error: 'Upstream response missing content' } };
-    }
-
-    const provider: AnalysisProvider = {
-      provider_id: config.providerId,
-      model_id: readModelFromUpstream(upstreamBody as Record<string, unknown>, upstreamRequest.model),
-      kind: 'remote',
-    };
-
-    let analysis: AnalysisResult | undefined;
-    if (articleRequest) {
+      let upstream: Response;
       try {
-        analysis = { ...parseAnalysisResponse(content), provider };
-      } catch (error) {
-        return {
-          status: 502,
-          payload: {
-            error: 'Relay could not parse analysis output',
-            details: error instanceof Error ? error.message : 'Unknown parse failure',
+        upstream = await fetchImpl(config.endpointUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${config.apiKey}`,
           },
+          body: JSON.stringify(chatPayload),
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (!upstream.ok) {
+        let errorDetail = `Upstream returned ${upstream.status}`;
+        try {
+          const errBody = await upstream.json();
+          const errField = isObject(errBody) ? errBody.error : undefined;
+          const msg = asNonEmptyString(isObject(errField) ? errField.message : errField);
+          if (msg) errorDetail = `Upstream ${upstream.status}: ${msg}`;
+        } catch { /* ignore unparseable error body */ }
+        return { status: 502, payload: { error: errorDetail } };
+      }
+
+      lastUpstreamBody = await upstream.json();
+      const content = readContentFromUpstream(lastUpstreamBody);
+      if (content) {
+        const provider: AnalysisProvider = {
+          provider_id: config.providerId,
+          model_id: readModelFromUpstream(lastUpstreamBody as Record<string, unknown>, upstreamRequest.model),
+          kind: 'remote',
+        };
+
+        let analysis: AnalysisResult | undefined;
+        if (articleRequest) {
+          try {
+            analysis = { ...parseAnalysisResponse(content), provider };
+          } catch (error) {
+            return {
+              status: 502,
+              payload: {
+                error: 'Relay could not parse analysis output',
+                details: error instanceof Error ? error.message : 'Unknown parse failure',
+              },
+            };
+          }
+        }
+
+        consumeBudget(topicId);
+        return {
+          status: 200,
+          payload: { content, analysis, provider, budget: budgetSnapshot(topicId) },
         };
       }
+
+      // Content was empty/null — retry if attempts remain
     }
 
-    consumeBudget(topicId);
-    return {
-      status: 200,
-      payload: { content, analysis, provider, budget: budgetSnapshot(topicId) },
-    };
+    return { status: 502, payload: { error: 'Upstream response missing content' } };
   } catch (error) {
+    const isTimeout = error instanceof DOMException && error.name === 'AbortError';
     return {
       status: 502,
-      payload: { error: error instanceof Error ? error.message : 'Relay request failed' },
+      payload: {
+        error: isTimeout
+          ? `Upstream request timed out after ${UPSTREAM_FETCH_TIMEOUT_MS}ms`
+          : error instanceof Error ? error.message : 'Relay request failed',
+      },
     };
   }
 }

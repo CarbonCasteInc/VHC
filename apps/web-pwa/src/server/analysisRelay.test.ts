@@ -60,6 +60,7 @@ describe('analysisRelay config + success paths', () => {
       ...BASE_ENV,
       ANALYSIS_RELAY_PROVIDER_ID: 'provider-1',
       ANALYSIS_RELAY_MODEL: 'server-model',
+      ANALYSIS_RELAY_REASONING_EFFORT: 'low',
       ANALYSIS_RELAY_BUDGET_ANALYSES: '9',
       ANALYSIS_RELAY_BUDGET_ANALYSES_PER_TOPIC: '2',
     });
@@ -67,6 +68,7 @@ describe('analysisRelay config + success paths', () => {
     expect(config).toMatchObject({
       providerId: 'provider-1',
       modelOverride: 'server-model',
+      reasoningEffort: 'low',
       analysesLimit: 9,
       analysesPerTopicLimit: 2,
     });
@@ -152,13 +154,90 @@ describe('analysisRelay config + success paths', () => {
       Authorization: 'Bearer server-secret',
     });
     expect(body).toMatchObject({
-      prompt: 'Prompt body',
       model: 'client-model',
+      messages: [{ role: 'user', content: 'Prompt body' }],
       max_tokens: 128,
       temperature: 0.2,
     });
+    expect(body).not.toHaveProperty('prompt');
   });
 
+  it('uses max_completion_tokens for gpt-5/o-series models', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}', model: 'provider-model' }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Prompt body',
+        model: 'gpt-5-nano',
+        max_tokens: 96,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.model).toBe('gpt-5-nano');
+    expect(body.max_completion_tokens).toBe(96);
+    expect(body).not.toHaveProperty('max_tokens');
+    expect(body.reasoning_effort).toBe('low');
+  });
+
+  it('does not include reasoning_effort for non-gpt-5 models', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}', model: 'provider-model' }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Prompt body',
+        model: 'gpt-4o-mini',
+        max_tokens: 96,
+      },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('uses configured reasoning effort override for gpt-5 models', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}', model: 'provider-model' }),
+    );
+
+    const result = await relayAnalysis(
+      {
+        prompt: 'Prompt body',
+        model: 'gpt-5-nano',
+      },
+      {
+        env: {
+          ...BASE_ENV,
+          ANALYSIS_RELAY_REASONING_EFFORT: 'low',
+        },
+        fetchImpl: fetchMock,
+      },
+    );
+
+    expect(result.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.reasoning_effort).toBe('low');
+  });
+
+  it('maps legacy minimal reasoning effort env value to low', () => {
+    const config = resolveAnalysisRelayConfig({
+      ...BASE_ENV,
+      ANALYSIS_RELAY_REASONING_EFFORT: 'minimal',
+    });
+
+    expect(config?.reasoningEffort).toBe('low');
+  });
   it('enforces server model override even when client supplies model', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse({ content: '{"ok":true}' }));
 
@@ -252,14 +331,20 @@ describe('analysisRelay config + success paths', () => {
     expect(result.payload.analysis?.summary).toBe('Article summary');
     expect(result.payload.analysis?.provider).toEqual({
       provider_id: 'remote-analysis-relay',
-      model_id: 'gpt-5.2',
+      model_id: 'gpt-5-nano',
       kind: 'remote',
     });
     expect(result.payload.budget).toEqual({ analyses: 1, analyses_per_topic: 1 });
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.prompt).toContain('You are VHC.Legacy, the canonical analysis path for article synthesis.');
+    // Article prompts should be split into system (instructions) + user (article text)
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0].role).toBe('system');
+    expect(body.messages[0].content).toContain('You are VHC.Legacy, the canonical analysis path for article synthesis.');
+    expect(body.messages[1].role).toBe('user');
+    expect(body.messages[1].content).toContain('--- ARTICLE START ---');
+    expect(body).not.toHaveProperty('prompt');
   });
 
   it('uses explicit topicId for article requests when provided', async () => {
@@ -322,7 +407,72 @@ describe('analysisRelay config + success paths', () => {
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(String(init.body));
-    expect(body.model).toBe('gpt-5.2');
+    expect(body.model).toBe('gpt-5-nano');
+  });
+
+  it('keeps plain prompt payloads as a single user message (no split)', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({ content: '{"ok":true}' }),
+    );
+
+    await relayAnalysis(
+      { prompt: 'Analyze this text for bias.' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(String(init.body));
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0].role).toBe('user');
+    expect(body.messages[0].content).toBe('Analyze this text for bias.');
+  });
+
+  it('retries upstream calls on empty content before returning 502', async () => {
+    const emptyResponse = okResponse({ choices: [{ message: { content: '' } }] });
+    const goodResponse = okResponse({ content: validAnalysisContent('Retry success') });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(emptyResponse)
+      .mockResolvedValueOnce(goodResponse);
+
+    const result = await relayAnalysis(
+      { articleText: 'Topic ID: topic-retry\nBody text' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.payload.analysis?.summary).toBe('Retry success');
+    // 1 initial + 2 retries = 3 total attempts
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('returns 502 after exhausting all retry attempts on empty content', async () => {
+    const emptyResponse = okResponse({ choices: [{ message: { content: null } }] });
+    const fetchMock = vi.fn().mockResolvedValue(emptyResponse);
+
+    const result = await relayAnalysis(
+      { prompt: 'Should fail' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream response missing content');
+    // 1 initial + 2 retries = 3 total attempts
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry on non-ok upstream status', async () => {
+    const errorResponse = { ok: false, status: 500, json: vi.fn() } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValue(errorResponse);
+
+    const result = await relayAnalysis(
+      { prompt: 'Should not retry' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream returned 500');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('client article model overrides config modelOverride (dev-only relay)', async () => {
