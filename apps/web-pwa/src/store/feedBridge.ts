@@ -71,7 +71,9 @@ function readBridgeNumber(
   min: number,
 ): number {
   for (const key of keys) {
-    const nodeValue = typeof process !== 'undefined' ? process.env?.[key] : undefined;
+    const nodeValue = (
+      globalThis as { process?: { env?: Record<string, string | undefined> } }
+    ).process?.env?.[key];
     const viteValue = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[key];
     const raw = nodeValue ?? viteValue;
     if (!raw) {
@@ -125,14 +127,14 @@ async function runRefreshLatestWithTimeout(newsState: NewsBridgeState): Promise<
 }
 
 async function runRefreshLatestWithRetry(newsState: NewsBridgeState): Promise<void> {
-  let lastError: unknown = null;
+  let lastError = new Error('refreshLatest failed');
 
   for (let attempt = 1; attempt <= NEWS_BRIDGE_REFRESH_ATTEMPTS; attempt += 1) {
     try {
       await runRefreshLatestWithTimeout(newsState);
       return;
     } catch (error) {
-      lastError = error;
+      lastError = error instanceof Error ? error : new Error(String(error));
       if (attempt < NEWS_BRIDGE_REFRESH_ATTEMPTS) {
         console.warn(
           `[vh:feed-bridge] refreshLatest attempt ${attempt}/${NEWS_BRIDGE_REFRESH_ATTEMPTS} failed; retrying`,
@@ -143,7 +145,7 @@ async function runRefreshLatestWithRetry(newsState: NewsBridgeState): Promise<vo
     }
   }
 
-  throw (lastError ?? new Error('refreshLatest failed'));
+  throw lastError;
 }
 function toTimestamp(value: number): number {
   if (!Number.isFinite(value) || value < 0) {
