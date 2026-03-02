@@ -15,6 +15,11 @@ interface ImportMetaEnv {
   readonly VITE_NEWS_FEED_SOURCES?: string;
   readonly VITE_NEWS_TOPIC_MAPPING?: string;
   readonly VITE_NEWS_POLL_INTERVAL_MS?: string;
+  readonly VITE_NEWS_SOURCE_RELIABILITY_GATE?: 'true' | 'false';
+  readonly VITE_NEWS_SOURCE_RELIABILITY_SAMPLE_SIZE?: string;
+  readonly VITE_NEWS_SOURCE_RELIABILITY_MIN_SUCCESS_RATE?: string;
+  readonly VITE_NEWS_SOURCE_RELIABILITY_MIN_SUCCESS_COUNT?: string;
+  readonly VITE_NEWS_SOURCE_RELIABILITY_CACHE_TTL_MS?: string;
   readonly VITE_NEWS_BRIDGE_ENABLED?: 'true' | 'false';
   readonly VITE_SYNTHESIS_BRIDGE_ENABLED?: 'true' | 'false';
   readonly VITE_HERMES_DOCS_ENABLED?: 'true' | 'false';

@@ -2,6 +2,9 @@ import { test, expect, type Browser, type BrowserContext, type Locator, type Pag
 
 const LIVE_BASE_URL = process.env.VH_LIVE_BASE_URL ?? 'https://ccibootstrap.tail6cc9b5.ts.net/';
 const SHOULD_RUN_LIVE = process.env.VH_RUN_LIVE_MATRIX === 'true';
+const FEED_READY_ATTEMPTS = Number.isFinite(Number(process.env.VH_LIVE_FEED_READY_ATTEMPTS))
+  ? Math.max(1, Math.floor(Number(process.env.VH_LIVE_FEED_READY_ATTEMPTS)))
+  : 3;
 const NAV_TIMEOUT_MS = Number.isFinite(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS))
   ? Math.max(10_000, Math.floor(Number(process.env.VH_LIVE_NAV_TIMEOUT_MS)))
   : 90_000;
@@ -41,35 +44,75 @@ async function createRuntimeRoleContext(
     const testWindow = window as unknown as {
       __VH_NEWS_RUNTIME_ROLE?: string;
       __VH_TEST_SESSION?: boolean;
+      __VH_BIAS_TABLE_V2_OVERRIDE__?: boolean;
     };
     testWindow.__VH_NEWS_RUNTIME_ROLE = runtimeRole;
     testWindow.__VH_TEST_SESSION = isTestSession;
+    testWindow.__VH_BIAS_TABLE_V2_OVERRIDE__ = true;
+    try {
+      window.localStorage.setItem('vh_invite_access_granted', 'granted');
+    } catch {
+      // Ignore storage write failures in hardened browser contexts.
+    }
   }, { runtimeRole: role, isTestSession: testSession });
   return context;
 }
 
 async function gotoFeed(page: Page): Promise<void> {
-  await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-  await page.waitForTimeout(750);
+  let lastError: string | null = null;
 
-  const vennLink = page.getByRole('link', { name: 'VENN' });
-  if (await vennLink.count()) {
-    const first = vennLink.first();
-    if (await first.isVisible().catch(() => false)) {
-      await first.click().catch(() => {});
-      await page.waitForTimeout(500);
+  for (let attempt = 1; attempt <= FEED_READY_ATTEMPTS; attempt += 1) {
+    await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+    await page.waitForTimeout(750);
+
+    const vennLink = page.getByRole('link', { name: 'VENN' });
+    if (await vennLink.count()) {
+      const first = vennLink.first();
+      if (await first.isVisible().catch(() => false)) {
+        await first.click().catch(() => {});
+        await page.waitForTimeout(500);
+      }
     }
+
+    const ready = await waitFor(
+      async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
+      FEED_READY_TIMEOUT_MS,
+      400,
+    );
+
+    if (ready) {
+      return;
+    }
+
+    const diagnostics = await page.evaluate(() => {
+      const ids = Array.from(document.querySelectorAll('[data-testid]'))
+        .map((node) => node.getAttribute('data-testid'))
+        .filter((id): id is string => Boolean(id))
+        .slice(0, 15);
+
+      const win = window as Window & {
+        __VH_NEWS_RUNTIME_ROLE?: unknown;
+        __VH_TEST_SESSION?: unknown;
+      };
+
+      return {
+        runtimeRole: typeof win.__VH_NEWS_RUNTIME_ROLE === 'string' ? win.__VH_NEWS_RUNTIME_ROLE : String(win.__VH_NEWS_RUNTIME_ROLE),
+        testSession: win.__VH_TEST_SESSION === true,
+        inviteGate: document.body.innerText.includes('Invite Only'),
+        hasUserLink: Boolean(document.querySelector('[data-testid="user-link"]')),
+        hasFeedShell: Boolean(document.querySelector('[data-testid="feed-shell"]')),
+        visibleTestIds: ids,
+      };
+    }).catch(() => null);
+
+    const diagnosticsText = diagnostics
+      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} inviteGate=${diagnostics.inviteGate} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} testIds=${diagnostics.visibleTestIds.join('|')}`
+      : '';
+    lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})${diagnosticsText}`;
+    await page.waitForTimeout(750);
   }
 
-  const ready = await waitFor(
-    async () => (await page.locator('[data-testid^="news-card-headline-"]').count()) > 0,
-    FEED_READY_TIMEOUT_MS,
-    400,
-  );
-
-  if (!ready) {
-    throw new Error('feed-not-ready');
-  }
+  throw new Error(lastError ?? 'feed-not-ready: unknown');
 }
 
 async function ensureIdentity(page: Page, label: string): Promise<void> {

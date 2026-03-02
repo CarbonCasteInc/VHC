@@ -7,6 +7,7 @@ import { getDevModelOverride } from '../dev/DevModelPicker';
 const MAX_SOURCE_ANALYSES = 3;
 const DEFAULT_RELAY_MAX_SOURCE_ANALYSES = 1;
 const MAX_FRAME_ROWS = 12;
+const ARTICLE_TEXT_TIMEOUT_MS = 12_000;
 
 export interface NewsCardSourceAnalysis {
   readonly source_id: string;
@@ -65,7 +66,21 @@ async function fetchArticleTextViaProxy(url: string): Promise<string> {
   let pending = articleTextCache.get(trimmedUrl);
   if (!pending) {
     pending = (async () => {
-      const res = await fetch(`/article-text?url=${encodeURIComponent(trimmedUrl)}`);
+      const controller = new AbortController();
+      const timeoutId = globalThis.setTimeout(() => {
+        controller.abort();
+      }, ARTICLE_TEXT_TIMEOUT_MS);
+      let res: Response;
+      try {
+        res = await fetch(`/article-text?url=${encodeURIComponent(trimmedUrl)}`, { signal: controller.signal });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw new Error(`article-text timeout after ${ARTICLE_TEXT_TIMEOUT_MS}ms`);
+        }
+        throw error;
+      } finally {
+        globalThis.clearTimeout(timeoutId);
+      }
       if (!res.ok) throw new Error(`article-text proxy returned ${res.status}`);
       const payload = readArticleTextResponse(await res.json());
       if (!payload) throw new Error('Invalid article-text payload');
@@ -112,7 +127,23 @@ async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, '
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ articleText: text, ...(devModel ? { model: devModel } : {}) }),
   });
-  if (!r.ok) throw new Error(`Analysis relay error: ${r.status}`);
+  if (!r.ok) {
+    let detail = '';
+    try {
+      const payload = await r.json() as { error?: unknown };
+      const message = typeof payload?.error === 'string'
+        ? payload.error
+        : (payload?.error && typeof payload.error === 'object' && 'message' in payload.error && typeof (payload.error as any).message === 'string')
+          ? (payload.error as any).message
+          : '';
+      if (message.trim().length > 0) {
+        detail = ` ${message.trim()}`;
+      }
+    } catch {
+      // ignore parse failures and keep status-only message
+    }
+    throw new Error(`Analysis relay error: ${r.status}${detail}`);
+  }
   const { analysis } = await r.json();
   return { analysis };
 }

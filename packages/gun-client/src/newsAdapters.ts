@@ -115,6 +115,25 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 }
 
 const NEWS_PUT_ACK_TIMEOUT_MS = 1000;
+const NEWS_ACK_WARN_INTERVAL_MS = 15_000;
+let lastNewsAckWarnAt = Number.NEGATIVE_INFINITY;
+let suppressedNewsAckWarns = 0;
+
+function warnNewsAckTimeout(): void {
+  const now = Date.now();
+  if (now - lastNewsAckWarnAt < NEWS_ACK_WARN_INTERVAL_MS) {
+    suppressedNewsAckWarns += 1;
+    return;
+  }
+
+  const suffix =
+    suppressedNewsAckWarns > 0
+      ? ` (suppressed ${suppressedNewsAckWarns} repeats)`
+      : '';
+  suppressedNewsAckWarns = 0;
+  lastNewsAckWarnAt = now;
+  console.warn(`[vh:news] put ack timed out, proceeding without ack${suffix}`);
+}
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
   await new Promise<void>((resolve, reject) => {
@@ -122,7 +141,7 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
     const timeout = setTimeout(() => {
       if (settled) return;
       settled = true;
-      console.warn('[vh:news] put ack timed out, proceeding without ack');
+      warnNewsAckTimeout();
       resolve();
     }, NEWS_PUT_ACK_TIMEOUT_MS);
 

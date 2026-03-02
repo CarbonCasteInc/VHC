@@ -11,6 +11,60 @@ import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 const ANALYSIS_PIPELINE_VERSION = 'news-card-analysis-v1';
 const MESH_READ_MAX_ATTEMPTS = 3;
 const MESH_READ_RETRY_BASE_DELAY_MS = 700;
+const ANALYSIS_PENDING_TTL_MS = 90_000;
+const PENDING_ACK_TIMEOUT_MS = 1_000;
+const PENDING_READBACK_ATTEMPTS = 4;
+const PENDING_READBACK_RETRY_MS = 250;
+
+function resolveMeshReadOnceTimeoutMs(): number {
+  let raw: unknown;
+  try {
+    raw = (import.meta as any).env?.VITE_VH_GUN_READ_TIMEOUT_MS;
+  } catch {
+    raw = undefined;
+  }
+  if ((raw === undefined || raw === null || raw === '') && typeof process !== 'undefined') {
+    raw = process.env?.VITE_VH_GUN_READ_TIMEOUT_MS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 2_500;
+  }
+  return Math.max(500, Math.floor(parsed));
+}
+
+const MESH_READ_ONCE_TIMEOUT_MS = resolveMeshReadOnceTimeoutMs();
+const ANALYSIS_PENDING_OWNER =
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `pending-${Math.random().toString(16).slice(2)}`;
+
+function isCrossModelReuseEnabled(): boolean {
+  const viteValue = (import.meta as any).env?.VITE_VH_ANALYSIS_CROSS_MODEL_REUSE;
+  const processValue =
+    typeof process !== 'undefined'
+      ? process.env?.VITE_VH_ANALYSIS_CROSS_MODEL_REUSE
+      : undefined;
+  const raw = (viteValue ?? processValue ?? 'true').toString().trim().toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(raw);
+}
+
+const CROSS_MODEL_REUSE_ENABLED = isCrossModelReuseEnabled();
+
+interface AnalysisPendingPayload {
+  readonly story_id: string;
+  readonly provenance_hash: string;
+  readonly model_scope: string;
+  readonly owner: string;
+  readonly started_at: number;
+  readonly expires_at: number;
+}
+
+export interface AnalysisPendingStatus {
+  readonly owner: string;
+  readonly startedAt: number;
+  readonly expiresAt: number;
+}
 
 function isMeshDebugEnabled(): boolean {
   try {
@@ -33,6 +87,100 @@ const MESH_DEBUG_ENABLED = isMeshDebugEnabled();
 function ensureNonEmpty(value: string | undefined | null, fallback: string): string {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : fallback;
+}
+
+function toPendingChain(client: ReturnType<typeof resolveClientFromAppStore>, storyId: string, modelScopeKey: string): any {
+  return (client as any).mesh
+    .get('news')
+    .get('stories')
+    .get(storyId)
+    .get('analysis_pending')
+    .get(modelScopeKey);
+}
+
+function readOnce(chain: any): Promise<Record<string, unknown> | null> {
+  return new Promise<Record<string, unknown> | null>((resolve) => {
+    let settled = false;
+    const timeout = globalThis.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, MESH_READ_ONCE_TIMEOUT_MS);
+
+    chain.once((data: unknown) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      if (data && typeof data === 'object') {
+        const payload = { ...(data as Record<string, unknown>) };
+        delete (payload as any)._;
+        resolve(payload);
+        return;
+      }
+      resolve(null);
+    });
+  });
+}
+
+function putWithTimeout(chain: any, value: Record<string, unknown>): Promise<void> {
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const timer = globalThis.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    }, PENDING_ACK_TIMEOUT_MS);
+
+    chain.put(value, (_ack?: { err?: string }) => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timer);
+      resolve();
+    });
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    globalThis.setTimeout(resolve, ms);
+  });
+}
+
+function parsePendingPayload(
+  payload: Record<string, unknown> | null,
+  story: StoryBundle,
+  modelScopeKey: string,
+): AnalysisPendingStatus | null {
+  if (!payload) return null;
+
+  const storyId = typeof payload.story_id === 'string' ? payload.story_id : '';
+  const provenanceHash =
+    typeof payload.provenance_hash === 'string' ? payload.provenance_hash : '';
+  const modelScope = typeof payload.model_scope === 'string' ? payload.model_scope : '';
+  const owner = typeof payload.owner === 'string' ? payload.owner : '';
+  const startedAt =
+    typeof payload.started_at === 'number' && Number.isFinite(payload.started_at)
+      ? Math.floor(payload.started_at)
+      : 0;
+  const expiresAt =
+    typeof payload.expires_at === 'number' && Number.isFinite(payload.expires_at)
+      ? Math.floor(payload.expires_at)
+      : 0;
+
+  if (!storyId || !owner || startedAt <= 0 || expiresAt <= 0) {
+    return null;
+  }
+  if (storyId !== story.story_id) {
+    return null;
+  }
+  if (provenanceHash !== story.provenance_hash || modelScope !== modelScopeKey) {
+    return null;
+  }
+  if (expiresAt <= Date.now()) {
+    return null;
+  }
+
+  return { owner, startedAt, expiresAt };
 }
 
 function logMeshDebug(event: string, payload: Record<string, unknown>): void {
@@ -243,7 +391,10 @@ export async function readMeshAnalysis(
             analysis_key: latestArtifact.analysisKey,
             model_scope: latestArtifact.model_scope,
           });
-        } else if (latestArtifact.model_scope !== modelScopeKey) {
+        } else if (
+          latestArtifact.model_scope !== modelScopeKey &&
+          !CROSS_MODEL_REUSE_ENABLED
+        ) {
           logMeshDebug('read-latest-pointer-model-scope-mismatch', {
             story_id: story.story_id,
             attempt,
@@ -253,6 +404,16 @@ export async function readMeshAnalysis(
             provenance_hash: latestArtifact.provenance_hash,
           });
         } else {
+          if (latestArtifact.model_scope !== modelScopeKey) {
+            logMeshDebug('read-latest-pointer-cross-model-reuse', {
+              story_id: story.story_id,
+              attempt,
+              expected_model_scope: modelScopeKey,
+              actual_model_scope: latestArtifact.model_scope,
+              analysis_key: latestArtifact.analysisKey,
+              provenance_hash: latestArtifact.provenance_hash,
+            });
+          }
           logMeshDebug('read-latest-pointer-hit', {
             story_id: story.story_id,
             attempt,
@@ -356,7 +517,153 @@ export async function writeMeshAnalysis(
   }
 }
 
+export async function readPendingMeshAnalysis(
+  story: StoryBundle,
+  modelScopeKey: string,
+): Promise<AnalysisPendingStatus | null> {
+  const client = resolveClientFromAppStore();
+  if (!client) {
+    return null;
+  }
+
+  try {
+    const payload = await readOnce(toPendingChain(client, story.story_id, modelScopeKey));
+    const parsed = parsePendingPayload(payload, story, modelScopeKey);
+    if (parsed) {
+      logMeshDebug('pending-read-hit', {
+        story_id: story.story_id,
+        owner: parsed.owner,
+        expires_at: parsed.expiresAt,
+      });
+    }
+    return parsed;
+  } catch (error) {
+    logMeshDebug('pending-read-failed', {
+      story_id: story.story_id,
+      model_scope: modelScopeKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+export async function upsertPendingMeshAnalysis(
+  story: StoryBundle,
+  modelScopeKey: string,
+): Promise<AnalysisPendingStatus | null> {
+  const client = resolveClientFromAppStore();
+  if (!client) {
+    return null;
+  }
+
+  const now = Date.now();
+  const pendingPayload: AnalysisPendingPayload = {
+    story_id: story.story_id,
+    provenance_hash: story.provenance_hash,
+    model_scope: modelScopeKey,
+    owner: ANALYSIS_PENDING_OWNER,
+    started_at: now,
+    expires_at: now + ANALYSIS_PENDING_TTL_MS,
+  };
+
+  try {
+    const chain = toPendingChain(client, story.story_id, modelScopeKey);
+    await putWithTimeout(chain, pendingPayload as unknown as Record<string, unknown>);
+    let observedContention: AnalysisPendingStatus | null = null;
+
+    for (let attempt = 1; attempt <= PENDING_READBACK_ATTEMPTS; attempt += 1) {
+      const observedPayload = await readOnce(chain);
+      const observedPending = parsePendingPayload(observedPayload, story, modelScopeKey);
+      if (observedPending?.owner === ANALYSIS_PENDING_OWNER) {
+        logMeshDebug('pending-write', {
+          story_id: story.story_id,
+          owner: ANALYSIS_PENDING_OWNER,
+          expires_at: observedPending.expiresAt,
+          readback_attempt: attempt,
+        });
+        return observedPending;
+      }
+
+      if (observedPending && observedPending.owner !== ANALYSIS_PENDING_OWNER) {
+        observedContention = observedPending;
+      }
+
+      if (attempt < PENDING_READBACK_ATTEMPTS) {
+        await sleep(PENDING_READBACK_RETRY_MS);
+      }
+    }
+
+    if (observedContention) {
+      logMeshDebug('pending-lock-contention', {
+        story_id: story.story_id,
+        expected_owner: ANALYSIS_PENDING_OWNER,
+        requested_started_at: pendingPayload.started_at,
+        observed_owner: observedContention.owner,
+        observed_started_at: observedContention.startedAt,
+      });
+      return null;
+    }
+
+    // If readback never returns a parseable payload, assume eventual-consistency lag and proceed.
+    logMeshDebug('pending-write-readback-miss', {
+      story_id: story.story_id,
+      owner: ANALYSIS_PENDING_OWNER,
+      expires_at: pendingPayload.expires_at,
+    });
+    return {
+      owner: ANALYSIS_PENDING_OWNER,
+      startedAt: pendingPayload.started_at,
+      expiresAt: pendingPayload.expires_at,
+    };
+  } catch (error) {
+    logMeshDebug('pending-write-failed', {
+      story_id: story.story_id,
+      model_scope: modelScopeKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+export async function clearPendingMeshAnalysis(
+  story: StoryBundle,
+  modelScopeKey: string,
+): Promise<void> {
+  const client = resolveClientFromAppStore();
+  if (!client) {
+    return;
+  }
+
+  const now = Date.now();
+  const expiredPayload: AnalysisPendingPayload = {
+    story_id: story.story_id,
+    provenance_hash: story.provenance_hash,
+    model_scope: modelScopeKey,
+    owner: ANALYSIS_PENDING_OWNER,
+    started_at: now,
+    expires_at: now - 1,
+  };
+
+  try {
+    const chain = toPendingChain(client, story.story_id, modelScopeKey);
+    await putWithTimeout(chain, expiredPayload as unknown as Record<string, unknown>);
+    logMeshDebug('pending-clear', {
+      story_id: story.story_id,
+      owner: ANALYSIS_PENDING_OWNER,
+    });
+  } catch (error) {
+    logMeshDebug('pending-clear-failed', {
+      story_id: story.story_id,
+      model_scope: modelScopeKey,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 export const analysisMeshInternal = {
+  clearPendingMeshAnalysis,
+  readPendingMeshAnalysis,
   toArtifact,
   toSynthesis,
+  upsertPendingMeshAnalysis,
 };

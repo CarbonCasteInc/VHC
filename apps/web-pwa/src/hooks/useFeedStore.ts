@@ -35,7 +35,10 @@ interface FeedState {
   hydrate: () => void;
   loadMore: () => void;
   setItems: (items: FeedItem[]) => void;
-  setDiscoveryFeed: (items: ReadonlyArray<DiscoveryFeedItem>) => void;
+  setDiscoveryFeed: (
+    items: ReadonlyArray<DiscoveryFeedItem>,
+    options?: { readonly resetPagination?: boolean },
+  ) => void;
 }
 
 const DISCOVERY_SUMMARY_BY_KIND: Record<FeedKind, string> = {
@@ -119,7 +122,9 @@ function buildPagedState(
   FeedState,
   'allDiscoveryFeed' | 'discoveryFeed' | 'items' | 'page' | 'hasMore' | 'loading'
 > {
-  const effectivePage = fullFeed.length === 0 ? 0 : Math.max(1, page);
+  const maxPage =
+    fullFeed.length === 0 ? 0 : Math.max(1, Math.ceil(fullFeed.length / FEED_PAGE_SIZE));
+  const effectivePage = maxPage === 0 ? 0 : Math.min(Math.max(1, page), maxPage);
   const visibleFeed = fullFeed.slice(0, effectivePage * FEED_PAGE_SIZE);
 
   return {
@@ -163,10 +168,14 @@ export const useFeedStore = create<FeedState>((set, get) => ({
     });
   },
 
-  setDiscoveryFeed(items) {
+  setDiscoveryFeed(items, options) {
     set((state) => ({
       ...state,
-      ...buildPagedState(items, 1, false),
+      ...buildPagedState(
+        items,
+        options?.resetPagination ? 1 : Math.max(1, state.page),
+        state.loading,
+      ),
     }));
   },
 

@@ -13,7 +13,10 @@ import {
   type NewsCardAnalysisSynthesis,
 } from './newsCardAnalysis';
 import {
+  clearPendingMeshAnalysis,
+  readPendingMeshAnalysis,
   readMeshAnalysis,
+  upsertPendingMeshAnalysis,
   writeMeshAnalysis,
 } from './useAnalysisMesh';
 import * as DevModelPickerModule from '../dev/DevModelPicker';
@@ -22,7 +25,10 @@ vi.mock('./newsCardAnalysis', () => ({
   getCachedSynthesisForStory: vi.fn(),
 }));
 vi.mock('./useAnalysisMesh', () => ({
+  clearPendingMeshAnalysis: vi.fn(),
+  readPendingMeshAnalysis: vi.fn(),
   readMeshAnalysis: vi.fn(),
+  upsertPendingMeshAnalysis: vi.fn(),
   writeMeshAnalysis: vi.fn(),
 }));
 vi.mock('../dev/DevModelPicker', () => ({
@@ -34,7 +40,10 @@ const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
   synthesizeStoryFromAnalysisPipeline,
 );
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
+const mockClearPendingMeshAnalysis = vi.mocked(clearPendingMeshAnalysis);
+const mockReadPendingMeshAnalysis = vi.mocked(readPendingMeshAnalysis);
 const mockReadMeshAnalysis = vi.mocked(readMeshAnalysis);
+const mockUpsertPendingMeshAnalysis = vi.mocked(upsertPendingMeshAnalysis);
 const mockWriteMeshAnalysis = vi.mocked(writeMeshAnalysis);
 const mockGetDevModelOverride = vi.mocked(DevModelPickerModule.getDevModelOverride);
 const NOW = 1_700_000_000_000;
@@ -102,11 +111,21 @@ describe('useAnalysis', () => {
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
     mockGetCachedSynthesisForStory.mockReset();
     mockReadMeshAnalysis.mockReset();
+    mockReadPendingMeshAnalysis.mockReset();
+    mockUpsertPendingMeshAnalysis.mockReset();
+    mockClearPendingMeshAnalysis.mockReset();
     mockWriteMeshAnalysis.mockReset();
     mockGetDevModelOverride.mockReset();
     mockGetDevModelOverride.mockReturnValue(null);
     mockGetCachedSynthesisForStory.mockReturnValue(null);
     mockReadMeshAnalysis.mockResolvedValue(null);
+    mockReadPendingMeshAnalysis.mockResolvedValue(null);
+    mockUpsertPendingMeshAnalysis.mockResolvedValue({
+      owner: 'test-owner',
+      startedAt: NOW,
+      expiresAt: NOW + 90_000,
+    });
+    mockClearPendingMeshAnalysis.mockResolvedValue();
     mockWriteMeshAnalysis.mockResolvedValue();
   });
   afterEach(() => {
@@ -223,6 +242,28 @@ describe('useAnalysis', () => {
     expect(mockWriteMeshAnalysis).not.toHaveBeenCalled();
   });
 
+  it('rechecks mesh after pending claim and skips duplicate generation', async () => {
+    const story = makeStoryBundle();
+    const meshAnalysis = makeAnalysis({ summary: 'Mesh landed after pending claim.' });
+
+    mockReadMeshAnalysis
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(meshAnalysis);
+
+    const { result } = renderHook(() => useAnalysis(story, true));
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('success');
+    });
+
+    expect(result.current.analysis?.summary).toBe('Mesh landed after pending claim.');
+    expect(mockReadMeshAnalysis).toHaveBeenNthCalledWith(1, story, 'model:default');
+    expect(mockReadMeshAnalysis).toHaveBeenNthCalledWith(2, story, 'model:default');
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
+    expect(mockWriteMeshAnalysis).not.toHaveBeenCalled();
+    expect(mockClearPendingMeshAnalysis).toHaveBeenCalledWith(story, 'model:default');
+  });
+
   it('publishes generated analysis to mesh after pipeline success', async () => {
     const story = makeStoryBundle();
     const generated = makeAnalysis({ summary: 'Generated and persisted.' });
@@ -265,10 +306,10 @@ describe('useAnalysis', () => {
 
     expect(userB.result.current.analysis?.summary).toBe('User A generated this artifact.');
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
-    expect(mockReadMeshAnalysis).toHaveBeenCalledTimes(2);
+    expect(mockReadMeshAnalysis.mock.calls.length).toBeGreaterThanOrEqual(2);
     userB.unmount();
   });
-  it('times out after 30 seconds', () => {
+  it('times out after 60 seconds', () => {
     vi.useFakeTimers();
     const story = makeStoryBundle();
     const neverSettles = new Promise<NewsCardAnalysisSynthesis>(() => {
@@ -278,7 +319,7 @@ describe('useAnalysis', () => {
     const { result } = renderHook(() => useAnalysis(story, true));
     expect(result.current.status).toBe('loading');
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
     expect(result.current.status).toBe('timeout');
     expect(result.current.error).toBe('Analysis timed out. The server may be busy.');
@@ -340,7 +381,7 @@ describe('useAnalysis', () => {
     unmount();
     expect(clearTimeoutSpy).toHaveBeenCalled();
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
   });
   it('recordAnalysis and canAnalyze enforce max 20 analyses per day', () => {
@@ -404,7 +445,7 @@ describe('useAnalysis', () => {
     const { result } = renderHook(() => useAnalysis(story, true));
     expect(result.current.status).toBe('loading');
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
     expect(result.current.status).toBe('timeout');
     await act(async () => {
@@ -428,7 +469,7 @@ describe('useAnalysis', () => {
     const { result } = renderHook(() => useAnalysis(story, true));
     expect(result.current.status).toBe('loading');
     act(() => {
-      vi.advanceTimersByTime(30_000);
+      vi.advanceTimersByTime(60_000);
     });
     expect(result.current.status).toBe('timeout');
     await act(async () => {

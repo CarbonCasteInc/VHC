@@ -194,6 +194,55 @@ describe('analysisRelay budget + error paths', () => {
     parseSpy.mockRestore();
   });
 
+  it('returns timeout-specific error when upstream fetch is aborted', async () => {
+    const abortError = new DOMException('The operation was aborted.', 'AbortError');
+    const fetchMock = vi.fn().mockRejectedValue(abortError);
+
+    const result = await relayAnalysis(
+      { prompt: 'timeout test' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toContain('timed out after');
+  });
+
+  it('includes upstream error message when response body contains error field', async () => {
+    const errorBody = { error: { message: 'Rate limit exceeded' } };
+    const errorResponse = {
+      ok: false,
+      status: 429,
+      json: vi.fn().mockResolvedValue(errorBody),
+    } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValue(errorResponse);
+
+    const result = await relayAnalysis(
+      { prompt: 'rate limited' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream 429: Rate limit exceeded');
+  });
+
+  it('includes upstream string error when response body has string error field', async () => {
+    const errorBody = { error: 'Model overloaded' };
+    const errorResponse = {
+      ok: false,
+      status: 503,
+      json: vi.fn().mockResolvedValue(errorBody),
+    } as unknown as Response;
+    const fetchMock = vi.fn().mockResolvedValue(errorResponse);
+
+    const result = await relayAnalysis(
+      { prompt: 'overloaded' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload.error).toBe('Upstream 503: Model overloaded');
+  });
+
   it('uses global fetch fallback when fetchImpl is omitted', async () => {
     const fetchMock = vi.fn().mockResolvedValue(okResponse({ content: '{"ok":true}' }));
     vi.stubGlobal('fetch', fetchMock);
