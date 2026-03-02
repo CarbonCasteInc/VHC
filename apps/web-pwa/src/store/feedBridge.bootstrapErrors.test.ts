@@ -120,6 +120,61 @@ describe('feedBridge bootstrap error handling', () => {
       vi.resetModules();
     }
   });
+
+  it('normalizes non-Error refresh failures before bootstrap fallback logging', async () => {
+    vi.resetModules();
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_NEWS_BRIDGE_REFRESH_ATTEMPTS', '1');
+    vi.stubEnv('VITE_NEWS_BRIDGE_REFRESH_BACKOFF_MS', '100');
+    vi.stubEnv('VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS', '5000');
+
+    const startHydration = vi.fn();
+    const refreshLatest = vi.fn<() => Promise<void>>().mockRejectedValueOnce('raw-refresh-failure');
+    const subscribeNews = vi.fn(() => () => {});
+    const subscribeSynthesis = vi.fn(() => () => {});
+    const mergeItems = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    vi.doMock('./news', () => ({
+      useNewsStore: {
+        getState: () => ({ startHydration, refreshLatest, stories: [] }),
+        subscribe: subscribeNews,
+      },
+    }));
+    vi.doMock('./synthesis', () => ({
+      useSynthesisStore: {
+        getState: () => ({ topics: {} }),
+        subscribe: subscribeSynthesis,
+      },
+    }));
+    vi.doMock('./discovery', () => ({
+      useDiscoveryStore: {
+        getState: () => ({ mergeItems }),
+      },
+    }));
+
+    try {
+      const bridgeModule = await import('./feedBridge');
+      const startPromise = bridgeModule.startNewsBridge();
+      await vi.runAllTimersAsync();
+      await expect(startPromise).resolves.toBeUndefined();
+
+      expect(startHydration).toHaveBeenCalledTimes(1);
+      expect(refreshLatest).toHaveBeenCalledTimes(1);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:feed-bridge] refreshLatest failed during bootstrap:',
+        expect.objectContaining({ message: 'raw-refresh-failure' }),
+      );
+    } finally {
+      vi.doUnmock('./news');
+      vi.doUnmock('./synthesis');
+      vi.doUnmock('./discovery');
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
   it('clears cached store promise when bridge store resolution fails', async () => {
     vi.resetModules();
 
