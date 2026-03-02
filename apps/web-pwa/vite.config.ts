@@ -209,6 +209,24 @@ function createAnalysisRelayPlugin(): Plugin {
   return {
     name: 'vh-analysis-relay',
     configureServer(server) {
+      server.middlewares.use('/api/analyze/health', async (req, res) => {
+        if ((req.method ?? 'GET').toUpperCase() !== 'GET') { sendJson(res, 405, { error: 'Method not allowed' }); return; }
+        const c = resolveAnalysisRelayConfig(process.env as Record<string, string | undefined>);
+        if (!c) { sendJson(res, 503, { ok: false, error: 'Relay not configured' }); return; }
+        try {
+          const result = await relayAnalysis(
+            { prompt: 'Respond with exactly: {"ok":true}', max_tokens: 32, temperature: 0 },
+            { env: process.env as Record<string, string | undefined> },
+          );
+          if (result.status === 200) {
+            sendJson(res, 200, { ok: true, model: c.modelOverride ?? 'default', upstream: 'reachable' });
+          } else {
+            sendJson(res, 502, { ok: false, error: result.payload.error ?? `Upstream status ${result.status}`, status: result.status });
+          }
+        } catch (error) {
+          sendJson(res, 502, { ok: false, error: error instanceof Error ? error.message : 'Health check failed' });
+        }
+      });
       server.middlewares.use('/api/analyze/config', (req, res) => {
         if ((req.method ?? 'GET').toUpperCase() !== 'GET') { sendJson(res, 405, { error: 'Method not allowed' }); return; }
         const c = resolveAnalysisRelayConfig(process.env as Record<string, string | undefined>);
@@ -235,9 +253,9 @@ function createAnalysisRelayPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: ANALYSIS_PIPELINE_ENABLED
-    ? [react(), createAnalysisRelayPlugin()]
-    : [react(), createArticleTextProxyPlugin(), createAnalysisRelayPlugin()],
+  // Keep article-text proxy available in all modes so feed source reliability
+  // probing continues to work when analysis relay is enabled.
+  plugins: [react(), createArticleTextProxyPlugin(), createAnalysisRelayPlugin()],
   server: {
     host: true,
     port: 2048,

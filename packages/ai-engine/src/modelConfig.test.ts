@@ -15,7 +15,7 @@ afterEach(() => {
 
 describe('modelConfig', () => {
   it('returns default analysis model when env var is absent', () => {
-    expect(getAnalysisModel()).toBe('gpt-5.2');
+    expect(getAnalysisModel()).toBe('gpt-5-nano');
   });
 
   it('reads configured analysis model from env var', () => {
