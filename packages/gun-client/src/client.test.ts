@@ -49,6 +49,10 @@ beforeEach(() => {
 describe('createClient', () => {
   it('normalizes peers and initializes namespaces', () => {
     const client = createClient({ peers: ['http://host:7777'] });
+    expect(mockGun).toHaveBeenCalledWith({
+      peers: ['http://host:7777/gun'],
+      localStorage: false
+    });
     expect(client.config.peers[0]).toBe('http://host:7777/gun');
     expect(client.user).toBeDefined();
     expect(client.chat).toBeDefined();

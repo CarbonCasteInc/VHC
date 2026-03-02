@@ -75,16 +75,19 @@ describe('useFeedStore', () => {
     expect(state.page).toBe(1);
   });
 
-  it('setDiscoveryFeed resets pagination to the first page', () => {
+  it('setDiscoveryFeed preserves pagination by default', () => {
+    vi.useFakeTimers();
     const fullFeed = Array.from({ length: FEED_PAGE_SIZE + 2 }, (_, index) =>
       makeDiscoveryItem(`full-${index}`),
     );
 
     useFeedStore.getState().setDiscoveryFeed(fullFeed);
+    useFeedStore.getState().loadMore();
+    vi.advanceTimersByTime(120);
 
-    expect(useFeedStore.getState().page).toBe(1);
-    expect(useFeedStore.getState().discoveryFeed).toHaveLength(FEED_PAGE_SIZE);
-    expect(useFeedStore.getState().hasMore).toBe(true);
+    expect(useFeedStore.getState().page).toBe(2);
+    expect(useFeedStore.getState().discoveryFeed).toHaveLength(FEED_PAGE_SIZE + 2);
+    expect(useFeedStore.getState().hasMore).toBe(false);
 
     const filteredFeed = [makeDiscoveryItem('filtered-1'), makeDiscoveryItem('filtered-2')];
     useFeedStore.getState().setDiscoveryFeed(filteredFeed);
@@ -93,6 +96,27 @@ describe('useFeedStore', () => {
     expect(state.discoveryFeed).toHaveLength(2);
     expect(state.page).toBe(1);
     expect(state.hasMore).toBe(false);
+  });
+
+  it('setDiscoveryFeed can reset pagination to the first page explicitly', () => {
+    const fullFeed = Array.from({ length: FEED_PAGE_SIZE + 3 }, (_, index) =>
+      makeDiscoveryItem(`full-reset-${index}`),
+    );
+
+    vi.useFakeTimers();
+    useFeedStore.getState().setDiscoveryFeed(fullFeed);
+    useFeedStore.getState().loadMore();
+    vi.advanceTimersByTime(120);
+    expect(useFeedStore.getState().page).toBe(2);
+
+    useFeedStore
+      .getState()
+      .setDiscoveryFeed(fullFeed, { resetPagination: true });
+
+    const state = useFeedStore.getState();
+    expect(state.page).toBe(1);
+    expect(state.discoveryFeed).toHaveLength(FEED_PAGE_SIZE);
+    expect(state.hasMore).toBe(true);
   });
 
   it('loadMore appends the next page and clears hasMore at the end', () => {

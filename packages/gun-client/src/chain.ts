@@ -19,6 +19,26 @@ export interface ChainWithGet<T> extends ChainLike<T> {
   map?(): ChainWithGet<T>;
 }
 
+const WAIT_FOR_REMOTE_WARN_INTERVAL_MS = 15_000;
+let lastWaitForRemoteWarnAt = Number.NEGATIVE_INFINITY;
+let suppressedWaitForRemoteWarns = 0;
+
+function warnWaitForRemoteTimeout(): void {
+  const now = Date.now();
+  if (now - lastWaitForRemoteWarnAt < WAIT_FOR_REMOTE_WARN_INTERVAL_MS) {
+    suppressedWaitForRemoteWarns += 1;
+    return;
+  }
+
+  const suffix =
+    suppressedWaitForRemoteWarns > 0
+      ? ` (suppressed ${suppressedWaitForRemoteWarns} repeats)`
+      : '';
+  suppressedWaitForRemoteWarns = 0;
+  lastWaitForRemoteWarnAt = now;
+  console.warn(`[vh:gun-client] waitForRemote timed out, proceeding anyway${suffix}`);
+}
+
 export async function waitForRemote<T>(chain: ChainLike<T>, barrier: HydrationBarrier): Promise<void> {
   await barrier.prepare();
   await new Promise<void>((resolve) => {
@@ -26,7 +46,7 @@ export async function waitForRemote<T>(chain: ChainLike<T>, barrier: HydrationBa
     const timer = setTimeout(() => {
       if (!resolved) {
         resolved = true;
-        console.warn('[vh:gun-client] waitForRemote timed out, proceeding anyway');
+        warnWaitForRemoteTimeout();
         resolve();
       }
     }, 500);

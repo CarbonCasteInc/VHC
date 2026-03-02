@@ -40,6 +40,7 @@ Current policy state:
 - Transitional proof shim is allowed only in dev/staging/E2E and must be removed before final ship.
 - Point-identity migration requires dual-write/backfill with explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
+- Day-to-day build loop follows `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` until external beta gates are met.
 
 ---
 
@@ -158,7 +159,7 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_NEWS_POLL_INTERVAL_MS` | Runtime polling cadence override (ms) | empty (defaults to 30m) | 1 |
 | `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
 | `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine endpoint opt-in | empty | 1 |
-| `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5.2` | 1 |
+| `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5-nano` | 1 |
 | `VITE_REMOTE_API_KEY` | Auth key for remote analysis requests | empty | 1 |
 | `VITE_HERMES_DOCS_ENABLED` | Gates HERMES Docs store + article editor | `false` | 2 |
 | `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |
@@ -478,6 +479,7 @@ Post-Season 0 (deferred per spec §9.2):
 
 ### Architecture & Specs
 - `System_Architecture.md` — Target architecture
+- `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` — Active local-first dev posture for the 2-user build phase
 - `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails
 - `docs/specs/spec-hermes-docs-v0.md` — HERMES Docs spec (Canonical for Season 0)
 - `docs/specs/spec-hermes-forum-v0.md` — Forum spec

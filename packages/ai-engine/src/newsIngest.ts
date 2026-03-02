@@ -116,8 +116,8 @@ function readErrorMessage(error: unknown): string {
 }
 
 export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]> {
-  const items: RawFeedItem[] = [];
-
+  // Validate and filter sources synchronously before fetching.
+  const validSources: FeedSource[] = [];
   for (const sourceInput of sources) {
     const sourceResult = FeedSourceSchema.safeParse(sourceInput);
     if (!sourceResult.success) {
@@ -132,20 +132,34 @@ export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]>
       continue;
     }
 
-    try {
+    validSources.push(source);
+  }
+
+  // Fetch all feeds in parallel to avoid sequential latency (9 feeds × 2-5s
+  // each through the Vite CORS proxy would otherwise take 18-45s).
+  const results = await Promise.allSettled(
+    validSources.map(async (source) => {
       const response = await fetch(source.rssUrl);
       if (!response.ok) {
         console.warn(
           `[newsIngest] Failed to fetch feed '${source.id}': HTTP ${response.status}`,
         );
-        continue;
+        return [];
       }
 
       const xml = await response.text();
-      items.push(...parseFeedXml(xml, source));
-    } catch (error) {
+      return parseFeedXml(xml, source);
+    }),
+  );
+
+  const items: RawFeedItem[] = [];
+  for (let i = 0; i < results.length; i++) {
+    const result = results[i]!;
+    if (result.status === 'fulfilled') {
+      items.push(...result.value);
+    } else {
       console.warn(
-        `[newsIngest] Failed to fetch feed '${source.id}': ${readErrorMessage(error)}`,
+        `[newsIngest] Failed to fetch feed '${validSources[i]!.id}': ${readErrorMessage(result.reason)}`,
       );
     }
   }
