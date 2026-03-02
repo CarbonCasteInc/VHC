@@ -18,12 +18,14 @@ interface FakeMesh {
   root: any;
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
+  setReadDelay: (path: string, delayMs: number) => void;
   setPutError: (path: string, err: string) => void;
   setPutDelay: (path: string, delayMs: number) => void;
 }
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
+  const readDelays = new Map<string, number>();
   const putErrors = new Map<string, string>();
   const putDelays = new Map<string, number>();
   const writes: Array<{ path: string; value: unknown }> = [];
@@ -31,7 +33,14 @@ function createFakeMesh(): FakeMesh {
   const makeNode = (segments: string[]): any => {
     const path = segments.join('/');
     const node: any = {
-      once: vi.fn((cb?: (data: unknown) => void) => cb?.(reads.get(path))),
+      once: vi.fn((cb?: (data: unknown) => void) => {
+        const delayMs = readDelays.get(path);
+        if (typeof delayMs === 'number') {
+          setTimeout(() => cb?.(reads.get(path)), delayMs);
+          return;
+        }
+        cb?.(reads.get(path));
+      }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         const err = putErrors.get(path);
@@ -52,6 +61,9 @@ function createFakeMesh(): FakeMesh {
     writes,
     setRead(path: string, value: unknown) {
       reads.set(path, value);
+    },
+    setReadDelay(path: string, delayMs: number) {
+      readDelays.set(path, delayMs);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -257,6 +269,44 @@ describe('analysisAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
+  });
+
+  it('readAnalysis returns null after read timeout and ignores late once callback', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', ARTIFACT);
+    mesh.setReadDelay('news/stories/story-1/analysis/analysis-1', 3_000);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    try {
+      const readPromise = readAnalysis(client, 'story-1', 'analysis-1');
+      await vi.advanceTimersByTimeAsync(2_500);
+      await expect(readPromise).resolves.toBeNull();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('readAnalysis ignores timeout callback when once settles first and timer fires late', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', ARTIFACT);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => undefined);
+
+    try {
+      await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
+      await vi.advanceTimersByTimeAsync(2_500);
+      await Promise.resolve();
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it('readAnalysis decodes encoded JSON artifact payload', async () => {

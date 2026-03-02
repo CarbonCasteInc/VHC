@@ -1,11 +1,10 @@
 function readStringEnv(name: string): string | undefined {
-  try {
-    const importMetaValue = (import.meta as unknown as { env?: Record<string, unknown> }).env?.[name];
-    if (typeof importMetaValue === 'string' && importMetaValue.trim().length > 0) {
-      return importMetaValue.trim();
-    }
-  } catch {
-    // ignore import.meta lookup failures
+  const importMetaEnv = (
+    globalThis as { __VH_IMPORT_META_ENV__?: Record<string, unknown> | undefined }
+  ).__VH_IMPORT_META_ENV__ ?? (import.meta as unknown as { env?: Record<string, unknown> }).env;
+  const importMetaValue = importMetaEnv?.[name];
+  if (typeof importMetaValue === 'string' && importMetaValue.trim().length > 0) {
+    return importMetaValue.trim();
   }
 
   if (typeof process !== 'undefined') {
@@ -15,23 +14,16 @@ function readStringEnv(name: string): string | undefined {
     }
   }
 
-  try {
-    const globalValue = (globalThis as { __VH_GUN_CLIENT_CONFIG__?: Record<string, unknown> })
-      .__VH_GUN_CLIENT_CONFIG__?.[name];
-    if (typeof globalValue === 'string' && globalValue.trim().length > 0) {
-      return globalValue.trim();
-    }
-  } catch {
-    // ignore global config lookup failures
+  const globalValue = (globalThis as { __VH_GUN_CLIENT_CONFIG__?: Record<string, unknown> })
+    .__VH_GUN_CLIENT_CONFIG__?.[name];
+  if (typeof globalValue === 'string' && globalValue.trim().length > 0) {
+    return globalValue.trim();
   }
 
   return undefined;
 }
 
-function parsePositiveMs(raw: string | undefined, fallbackMs: number, minMs = 250): number {
-  if (!raw) {
-    return fallbackMs;
-  }
+function parsePositiveMs(raw: string, fallbackMs: number, minMs = 250): number {
   const parsed = Number.parseInt(raw, 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return fallbackMs;
@@ -52,4 +44,3 @@ export function readGunTimeoutMs(
   }
   return fallbackMs;
 }
-

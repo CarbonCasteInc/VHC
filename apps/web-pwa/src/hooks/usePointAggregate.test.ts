@@ -823,4 +823,308 @@ describe('usePointAggregate', () => {
       aggregateFixture({ agree: 2, disagree: 0, participants: 2, weight: 2 }),
     );
   });
+
+  it('promotes canonical aggregate during bounded convergence polling', async () => {
+    vi.useFakeTimers();
+
+    readAggregatesMock
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 6, disagree: 2, participants: 8, weight: 8 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(5);
+    expect(readAggregatesMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'topic-1',
+      'synth-1',
+      0,
+      'canonical-point',
+    );
+  });
+
+  it('promotes fallback aggregate during bounded convergence polling', async () => {
+    vi.useFakeTimers();
+
+    readAggregatesMock
+      // Canonical retry loop (4)
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      // Fallback after retry loop (1)
+      .mockResolvedValueOnce(aggregateFixture({ point_id: 'legacy-point', agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      // Poll canonical then fallback (2)
+      .mockResolvedValueOnce(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }))
+      .mockResolvedValueOnce(aggregateFixture({ point_id: 'legacy-point', agree: 7, disagree: 1, participants: 8, weight: 8 }));
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(readAggregatesMock).toHaveBeenCalledTimes(7);
+    expect(readAggregatesMock).toHaveBeenLastCalledWith(
+      expect.anything(),
+      'topic-1',
+      'synth-1',
+      0,
+      'legacy-point',
+    );
+  });
+
+  it('handles convergence fallback read failures without crashing', async () => {
+    vi.useFakeTimers();
+    let call = 0;
+    readAggregatesMock.mockImplementation(async () => {
+      call += 1;
+      if (call === 7) {
+        throw new Error('fallback-poll-failure');
+      }
+      return aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 });
+    });
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+
+    expect(call).toBeGreaterThanOrEqual(7);
+    unmount();
+  });
+
+  it('cancels convergence polling cleanly while waiting for poll interval', async () => {
+    vi.useFakeTimers();
+    readAggregatesMock.mockResolvedValue(
+      aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }),
+    );
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+
+    unmount();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+  });
+
+  it('cancels convergence polling when poll read settles after unmount', async () => {
+    vi.useFakeTimers();
+    let call = 0;
+    let rejectPoll: ((reason?: unknown) => void) | null = null;
+    readAggregatesMock.mockImplementation(() => {
+      call += 1;
+      if (call <= 4) {
+        return Promise.resolve(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }));
+      }
+      return new Promise((_, reject) => {
+        rejectPoll = reject;
+      });
+    });
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+
+    unmount();
+    rejectPoll?.(new Error('late-poll-failure'));
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it('cancels convergence polling when canonical poll read resolves after unmount', async () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let call = 0;
+    let resolvePoll: ((value: ReturnType<typeof aggregateFixture>) => void) | null = null;
+    readAggregatesMock.mockImplementation(() => {
+      call += 1;
+      if (call <= 4) {
+        return Promise.resolve(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }));
+      }
+      return new Promise((resolve) => {
+        resolvePoll = resolve as (value: ReturnType<typeof aggregateFixture>) => void;
+      });
+    });
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+    expect(call).toBe(5);
+
+    unmount();
+    resolvePoll?.(aggregateFixture({ agree: 8, disagree: 1, participants: 9, weight: 9 }));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('cancels convergence polling when fallback poll read resolves after unmount', async () => {
+    vi.useFakeTimers();
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    let call = 0;
+    let resolveFallbackPoll: ((value: ReturnType<typeof aggregateFixture>) => void) | null = null;
+    readAggregatesMock.mockImplementation(() => {
+      call += 1;
+      if (call <= 6) {
+        return Promise.resolve(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }));
+      }
+      return new Promise((resolve) => {
+        resolveFallbackPoll = resolve as (value: ReturnType<typeof aggregateFixture>) => void;
+      });
+    });
+
+    const { unmount } = renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+      fallbackPointId: 'legacy-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+    expect(call).toBe(7);
+
+    unmount();
+    resolveFallbackPoll?.(
+      aggregateFixture({ point_id: 'legacy-point', agree: 6, disagree: 2, participants: 8, weight: 8 }),
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('emits timeout telemetry when convergence poll read times out', async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let call = 0;
+    readAggregatesMock.mockImplementation(() => {
+      call += 1;
+      if (call <= 4) {
+        return Promise.resolve(aggregateFixture({ agree: 0, disagree: 0, participants: 0, weight: 0 }));
+      }
+      throw new Error('poll timed out');
+    });
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'canonical-point',
+    });
+
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(500);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(1000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2000);
+    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.resolve();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:aggregate:read]',
+      expect.objectContaining({
+        status: 'timeout',
+        attempt: 6,
+        point_id: 'canonical-point',
+      }),
+    );
+  });
 });

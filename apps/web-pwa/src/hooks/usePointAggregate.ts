@@ -13,7 +13,20 @@ const ZERO_SNAPSHOT_POLL_ATTEMPTS = 10;
 const LIVE_REFRESH_INTERVAL_MS = 4_000;
 
 function isLiveRefreshEnabled(): boolean {
-  const viteMode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
+  const liveRefreshOverride = (
+    globalThis as { __VH_FORCE_LIVE_AGGREGATE_REFRESH__?: boolean | undefined }
+  ).__VH_FORCE_LIVE_AGGREGATE_REFRESH__;
+  if (typeof liveRefreshOverride === 'boolean') {
+    return liveRefreshOverride;
+  }
+
+  const modeOverride = (globalThis as { __VH_IMPORT_META_MODE__?: string | undefined })
+    .__VH_IMPORT_META_MODE__;
+  const viteMode =
+    (typeof modeOverride === 'string' && modeOverride.trim().length > 0
+      ? modeOverride.trim()
+      : undefined) ??
+    (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
   if (viteMode === 'test') {
     return false;
   }
@@ -73,12 +86,9 @@ function isZeroAggregate(aggregate: PointAggregate): boolean {
   );
 }
 
-function areAggregatesEqual(left: PointAggregate | null, right: PointAggregate | null): boolean {
+function areAggregatesEqual(left: PointAggregate, right: PointAggregate): boolean {
   if (left === right) {
     return true;
-  }
-  if (!left || !right) {
-    return false;
   }
 
   return (
@@ -501,6 +511,7 @@ export function usePointAggregate({
           if (
             previous.status === 'success' &&
             previous.error === null &&
+            previous.aggregate !== null &&
             areAggregatesEqual(previous.aggregate, nextAggregate)
           ) {
             return previous;

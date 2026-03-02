@@ -365,4 +365,60 @@ describe('CellVoteControls', () => {
     fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
     expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 0');
   });
+
+  it('reuses aggregate snapshot when status transitions back to unchanged success payload', async () => {
+    const aggregate = {
+      point_id: 'point-abc',
+      agree: 2,
+      disagree: 2,
+      weight: 4,
+      participants: 4,
+    };
+    let status: 'success' | 'loading' = 'success';
+    usePointAggregateMock.mockImplementation(() => ({
+      aggregate,
+      status,
+      error: null,
+    }));
+
+    const { rerender } = render(<CellVoteControls {...BASE_PROPS} />);
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 2');
+    });
+
+    status = 'loading';
+    rerender(<CellVoteControls {...BASE_PROPS} />);
+
+    status = 'success';
+    rerender(<CellVoteControls {...BASE_PROPS} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 2');
+      expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveTextContent('- 2');
+    });
+  });
+
+  it('keeps disagree count stable when local vote is already -1', () => {
+    useSentimentState.setState({
+      agreements: {
+        'topic-1:synth-1:3:point-abc': -1,
+      },
+    });
+    usePointAggregateMock.mockReturnValue({
+      aggregate: {
+        point_id: 'point-abc',
+        agree: 0,
+        disagree: 3,
+        weight: 3,
+        participants: 3,
+      },
+      status: 'success',
+      error: null,
+    });
+
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 0');
+    expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveTextContent('- 3');
+  });
 });
