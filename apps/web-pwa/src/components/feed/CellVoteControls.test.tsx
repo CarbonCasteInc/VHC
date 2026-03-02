@@ -245,40 +245,17 @@ describe('CellVoteControls', () => {
     expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('aggregate counts are filtered by synthesis_id + epoch', () => {
-    useSentimentState.setState({
-      signals: [
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-1',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: 1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-1',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: -1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-2',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: 1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-      ] as any,
+  it('renders mesh aggregate counts for the active synthesis_id + epoch context', () => {
+    usePointAggregateMock.mockReturnValue({
+      aggregate: {
+        point_id: 'point-abc',
+        agree: 1,
+        disagree: 1,
+        weight: 2,
+        participants: 2,
+      },
+      status: 'success',
+      error: null,
     });
 
     render(<CellVoteControls {...BASE_PROPS} />);
@@ -331,20 +308,11 @@ describe('CellVoteControls', () => {
     });
   });
 
-  it('counts legacy signal IDs when synthesisPointId is provided', () => {
+  it('uses contextual agreement key when synthesisPointId is provided', () => {
     useSentimentState.setState({
-      signals: [
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-1',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: 1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-      ] as any,
+      agreements: {
+        'topic-1:synth-1:3:synth-point-xyz': 1,
+      },
     });
 
     render(<CellVoteControls {...BASE_PROPS} synthesisPointId="synth-point-xyz" />);
@@ -353,53 +321,8 @@ describe('CellVoteControls', () => {
     expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveTextContent('- 0');
   });
 
-  it('shows max(local, mesh) aggregate counts when mesh aggregate is available', () => {
-    useSentimentState.setState({
-      signals: [
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-1',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: 1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-1',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: -1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-1',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: -1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-        {
-          topic_id: 'topic-1',
-          synthesis_id: 'synth-1',
-          epoch: 3,
-          point_id: 'point-abc',
-          agreement: -1,
-          weight: 1,
-          constituency_proof: { district_hash: 'd', nullifier: 'n', merkle_root: 'm' },
-          emitted_at: Date.now(),
-        },
-      ] as any,
-    });
-
-    usePointAggregateMock.mockReturnValueOnce({
+  it('uses mesh aggregate as baseline and applies local vote overlay without inflation', () => {
+    usePointAggregateMock.mockReturnValue({
       aggregate: {
         point_id: 'point-abc',
         agree: 4,
@@ -414,6 +337,32 @@ describe('CellVoteControls', () => {
     render(<CellVoteControls {...BASE_PROPS} />);
 
     expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 4');
-    expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveTextContent('- 3');
+    expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveTextContent('- 1');
+  });
+
+  it('supports immediate local decrement display when toggling +1 to neutral', () => {
+    useSentimentState.setState({
+      agreements: {
+        'topic-1:synth-1:3:point-abc': 1,
+      },
+    });
+
+    usePointAggregateMock.mockReturnValue({
+      aggregate: {
+        point_id: 'point-abc',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+      },
+      status: 'success',
+      error: null,
+    });
+
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 1');
+    fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
+    expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveTextContent('+ 0');
   });
 });
