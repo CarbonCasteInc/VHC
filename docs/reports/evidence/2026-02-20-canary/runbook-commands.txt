@@ -1,7 +1,0 @@
-2026-02-20T16:07:41Z  probe  : pnpm --filter @vh/e2e exec node /tmp/vhc_canary_probe.js
-2026-02-20T16:10:58Z  metrics: pnpm --filter @vh/e2e exec node /tmp/vhc_canary_metrics.js > /tmp/vhc_canary_metrics_output.json
-2026-02-20T16:11:58Z  check  : synthetic admission sample confirmed (admission=20, mesh=0)
-2026-02-20T16:13:24Z  check  : auth probe run (missing identity in that run; admission=10, mesh=0)
-2026-02-20T16:14:09Z  check  : identity+client probe run (identity present; admission=1, mesh=0)
-2026-02-20T17:04:48Z  rollback switch activated (VITE_VH_BIAS_TABLE_V2=false)
-2026-02-20T17:04:52Z  health : local=200 tailnet=200 gun=200

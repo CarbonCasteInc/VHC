@@ -27,20 +27,13 @@
 
 ---
 
-## Active Program — FPD Production Wiring (2026-02-19)
-
-Active coordination and implementation posture is governed by:
-- `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
-- `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
-- `docs/foundational/CONTEXT_BUILDING_LADDER.md`
-- `docs/plans/FPD_OUTLINE_AND_DISPATCH_2026-02-19.md`
+## Active Program — Production Hardening
 
 Current policy state:
-- Production rollout is blocked until all hard gates pass.
-- Transitional proof shim is allowed only in dev/staging/E2E and must be removed before final ship.
-- Point-identity migration requires dual-write/backfill with explicit sunset criteria.
+- Production rollout remains blocked until hard reliability gates pass.
+- Transitional proof shims are dev/staging only and must be removed before ship.
+- Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
-- Day-to-day build loop follows `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` until external beta gates are met.
 
 ---
 
@@ -139,9 +132,9 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 
 | Item | Reason | Carryover Doc |
 |------|--------|---------------|
-| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needs spec work; additive to landed foundation | `WAVE3_CARRYOVER.md` |
-| SoT F: Rep directory + native intents | CAK foundation landed; full delivery pipeline is Wave 3 priority | `WAVE3_CARRYOVER.md` |
-| CollabEditor runtime wiring | Foundation built and tested; wiring into ArticleEditor path deferred | `WAVE3_CARRYOVER.md` |
+| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needs spec work; additive to landed foundation | Tracked in current STATUS backlog |
+| SoT F: Rep directory + native intents | CAK foundation landed; full delivery pipeline is Wave 3 priority | Tracked in current STATUS backlog |
+| CollabEditor runtime wiring | Foundation built and tested; wiring into ArticleEditor path deferred | Tracked in current STATUS backlog |
 
 ---
 
@@ -445,7 +438,7 @@ Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integra
 - **FE-3** (cell voting): Per-cell sentiment voting on BiasTable, feature-flagged behind `VITE_VH_BIAS_TABLE_V2`
 - **FE-4** (removal polish): merged
 
-Remaining from Wave 3 carryover (see `docs/foundational/WAVE3_CARRYOVER.md`):
+Remaining backlog:
 1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after stability verification
 2. ~~**Remaining budget key**~~ — `moderation/day` enforcement landed (PR #259, all 8/8 active)
 3. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
@@ -460,26 +453,8 @@ Post-Season 0 (deferred per spec §9.2):
 
 ## References
 
-### Wave 4 Artifacts
-- `docs/reports/WAVE4_DOC_AUDIT.md` — Wave 4 closeout documentation audit
-- `docs/foundational/WAVE4_DELTA_CONTRACT.md` — 4 amendments (A5–A8)
-- `docs/foundational/WAVE4_KICKOFF_COMMAND_SHEET.md` — Execution plan
-- `docs/specs/spec-identity-trust-constituency.md` v0.2 — Architectural contract
-- `docs/specs/spec-luma-season0-trust-v0.md` v0.1 — Season 0 enforcement spec
-
-### Wave 2 Artifacts
-- `docs/reports/WAVE2_DOC_AUDIT.md` — Wave-end documentation audit
-- `docs/foundational/WAVE3_CARRYOVER.md` — Deferred items and Wave 3 entry points
-- `docs/foundational/WAVE2_DELTA_CONTRACT.md` — 16 binding policies
-- `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` — CE dual-review protocol
-
-### Wave 1 Artifacts
-- `docs/reports/WAVE1_INTEGRATION_READINESS.md` — Integration gate report
-- `docs/foundational/WAVE1_STABILITY_DECISION_RECORD.md` — Stability decisions
-
 ### Architecture & Specs
 - `System_Architecture.md` — Target architecture
-- `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` — Active local-first dev posture for the 2-user build phase
 - `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails
 - `docs/specs/spec-hermes-docs-v0.md` — HERMES Docs spec (Canonical for Season 0)
 - `docs/specs/spec-hermes-forum-v0.md` — Forum spec

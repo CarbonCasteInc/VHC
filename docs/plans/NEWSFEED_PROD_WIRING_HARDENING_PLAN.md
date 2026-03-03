@@ -21,7 +21,6 @@ Non-negotiable behavior is derived from:
 - `docs/foundational/System_Architecture.md`
 - `docs/foundational/STATUS.md`
 - `docs/specs/spec-civic-sentiment.md`
-- `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
 
 ### Required behavioral contract
 

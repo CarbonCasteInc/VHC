@@ -1,38 +1,31 @@
 # Documentation Index
 
-This repository's documentation is organized into three primary groups:
+This repository's documentation is organized into product-facing groups:
 
-- `docs/foundational` — architecture, status, policy contracts, runtime constants, role guardrails.
+- `docs/foundational` — architecture, implementation status, core contracts, and design principles.
 - `docs/specs` — canonical technical specs and protocol/data model documents.
-- `docs/sprints` — sprint plans, implementation notes, and archived sprint artifacts.
+- `docs/ops` — local stack runbooks and operational notes.
+- `docs/plans` — implementation plans tied to product behavior.
+- `docs/sprints` — sprint plans and archived sprint artifacts.
 
 ---
 
-## Active execution pack (current)
+## Core Entry Points
 
-Use these first for current coordination and implementation context:
+Read these first:
 
-1. `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
-2. `docs/plans/ACTIVE_TASK_PACKET.md`
-3. `docs/foundational/AGENT_RITUALS.md`
-4. `docs/foundational/CONTEXT_BUILDING_LADDER.md`
-5. `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
-6. `docs/plans/FPD_OUTLINE_AND_DISPATCH_2026-02-19.md`
-7. `docs/foundational/STATUS.md`
-
----
-
-## Core architectural entry points
-
-- `docs/foundational/TRINITY_Season0_SoT.md`
-- `docs/foundational/ARCHITECTURE_LOCK.md`
-- `docs/foundational/System_Architecture.md`
-- `docs/specs/spec-identity-trust-constituency.md`
-- `docs/specs/spec-civic-sentiment.md`
-- `docs/specs/spec-data-topology-privacy-v0.md`
+1. `docs/foundational/trinity_project_brief.md`
+2. `docs/foundational/TRINITY_Season0_SoT.md`
+3. `docs/foundational/System_Architecture.md`
+4. `docs/foundational/STATUS.md`
+5. `docs/specs/spec-civic-sentiment.md`
+6. `docs/specs/spec-hermes-docs-v0.md`
+7. `docs/specs/topic-synthesis-v2.md`
 
 ---
 
-## Historical wave contracts
+## Local Development and Operations
 
-Wave-specific kickoff and delta contracts under `docs/foundational/WAVE*_*.md` are retained for traceability. Treat them as historical unless referenced by `WAVE_RUNTIME_CONSTANTS.json`.
+- `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
+- `docs/ops/analysis-backend-3001.md`
+- `docs/feature-flags.md`

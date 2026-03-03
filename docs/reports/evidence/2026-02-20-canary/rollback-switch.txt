@@ -1,7 +1,0 @@
-timestamp_utc=2026-02-20T17:05:16Z
-rollback_switch: set VITE_VH_BIAS_TABLE_V2=false in /tmp/vhc-web-pwa-supervisor.sh
-active_supervisor_boot_line:
-[2026-02-20T17:04:48Z] supervisor boot (INVITE=false GUN_PEERS=["https://ccibootstrap.tail6cc9b5.ts.net/gun"] NEWS_BRIDGE=true ANALYSIS_PIPELINE=true BIAS_TABLE_V2=false ANALYSIS_MODEL=gpt-4o-mini ANALYSIS_RELAY_UPSTREAM_URL=http://127.0.0.1:3099/v1/chat/completions)
-health_local=200
-health_tailnet=200
-health_gun=200
