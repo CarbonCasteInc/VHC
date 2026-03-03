@@ -78,7 +78,6 @@ load_profile_env() {
 
   export VITE_E2E_MODE=false
   export VITE_VH_ANALYSIS_PIPELINE=true
-  export VITE_VH_BIAS_TABLE_V2=true
   export VITE_NEWS_RUNTIME_ENABLED=true
   export VITE_NEWS_RUNTIME_ROLE=ingester
   export VITE_NEWS_BRIDGE_ENABLED=true

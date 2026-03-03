@@ -168,10 +168,9 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
 | `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
 | `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
-| `VITE_VH_BIAS_TABLE_V2` | Gates per-cell sentiment voting on BiasTable | `true` in live profiles | Post-4 |
 
 Code-level defaults remain conservative (`false`/empty) unless explicitly noted.
-Operational live profiles intentionally override selected flags to enable the full production-like path (analysis relay + bias-table voting).
+Operational live profiles intentionally override selected flags to enable the full production-like path (analysis relay + runtime feed stack).
 
 ---
 
@@ -443,7 +442,7 @@ Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integra
 ### Feed Parity Slices (Post-Wave 4)
 - **FE-1** (provider model): merged
 - **FE-2** (bias table): merged
-- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable; `VITE_VH_BIAS_TABLE_V2` is enabled in live/manual profiles (compile-time fallback remains for rollback-only builds)
+- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable v2 is now always-on in production wiring
 - **FE-4** (removal polish): merged
 
 Remaining backlog:

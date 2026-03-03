@@ -124,7 +124,6 @@ const localWebServers: TestConfig['webServer'] = isLocalTarget
       command: [
         'VITE_E2E_MODE=false',
         'VITE_VH_ANALYSIS_PIPELINE=true',
-        'VITE_VH_BIAS_TABLE_V2=true',
         'VITE_NEWS_RUNTIME_ENABLED=true',
         'VITE_NEWS_BRIDGE_ENABLED=true',
         `VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS=${process.env.VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS ?? '7500'}`,
@@ -141,7 +140,6 @@ const localWebServers: TestConfig['webServer'] = isLocalTarget
       env: {
         VITE_E2E_MODE: 'false',
         VITE_VH_ANALYSIS_PIPELINE: 'true',
-        VITE_VH_BIAS_TABLE_V2: 'true',
         VITE_NEWS_RUNTIME_ENABLED: 'true',
         VITE_NEWS_BRIDGE_ENABLED: 'true',
         VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS: process.env.VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS ?? '7500',
