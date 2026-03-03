@@ -5,11 +5,15 @@
 When documents disagree, use this precedence order:
 
 1. Product intent and season scope: `docs/foundational/trinity_project_brief.md`, `docs/foundational/TRINITY_Season0_SoT.md`
-2. Architecture contract: `docs/foundational/System_Architecture.md`
-3. Normative behavior/data specs: `docs/specs/*.md`
+2. Normative behavior/data specs: `docs/specs/*.md`
+3. Architecture contract: `docs/foundational/System_Architecture.md`
 4. Implementation reality and drift: `docs/foundational/STATUS.md`
 5. Operational runbooks: `docs/ops/*.md`
 6. Plans and sprints (non-authoritative execution artifacts): `docs/plans/*.md`, `docs/sprints/**/*.md`
+
+Clarification:
+- For behavior/data contract conflicts, `docs/specs/*.md` wins over architecture prose.
+- `STATUS.md` records current implementation state and drift; it does not redefine canonical behavior contracts.
 
 Domain ownership for canonical docs is maintained in `docs/CANON_MAP.md`.
 

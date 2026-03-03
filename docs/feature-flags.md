@@ -40,8 +40,10 @@ This document defines compile-time flags used by the web PWA for FPD rollout.
 
 - **`VITE_VH_BIAS_TABLE_V2`**
   - **Default:** `false`
-  - **Description:** Enables Bias Table v2 UX behavior.
-  - **Production requirement:** set per rollout decision.
+  - **Description:** Enables Bias Table v2 UX behavior (per-cell sentiment voting).
+  - **Current deployment policy:** `true` in live/manual and strict-e2e profiles.
+  - **Why default differs:** compile-time default remains `false` only as a conservative rollback lever for non-live builds.
+  - **Production requirement:** `true`.
 
 ## Deployment guardrails
 

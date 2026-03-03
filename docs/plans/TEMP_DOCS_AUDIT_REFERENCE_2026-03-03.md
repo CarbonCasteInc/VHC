@@ -241,6 +241,17 @@ This is a working map for discussion only.
 4. Do we want one explicit precedence rule in `docs/README.md` (e.g., Specs > System Architecture > Status > Sprint docs) to eliminate authority ambiguity?
 5. Should `BETA_SESSION_RUNSHEET.md` remain canonical ops guidance, or be folded into `LOCAL_LIVE_STACK_RUNBOOK.md`?
 
+## 7.1) Resolutions Applied (2026-03-03)
+
+Resolution for #3 (`STATUS.md` scope):
+- `docs/foundational/STATUS.md` is treated as a current-state implementation ledger plus active drift/risk tracking.
+- Canonical behavior contracts remain in `docs/specs/*.md` and architecture defaults in `docs/foundational/System_Architecture.md`.
+- Historical execution artifacts stay in plans/sprints and must not supersede canonical contracts.
+
+Resolution for #4 (explicit precedence):
+- `docs/README.md` now defines explicit precedence with `docs/specs/*.md` above architecture for behavior/data contract disputes.
+- `docs/README.md` now includes a tie-break clarification that `STATUS.md` reports implementation reality and does not redefine canonical behavior contracts.
+
 ## 8) Suggested Next Consolidation Sequence (After Your Decisions)
 
 1. Fix broken links and malformed paths.

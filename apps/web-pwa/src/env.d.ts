@@ -29,7 +29,6 @@ interface ImportMetaEnv {
   readonly VITE_REMOTE_ENGINE_API_KEY?: string;
   readonly VITE_IDB_ROOT_SECRET?: string;
   readonly VITE_IDB_ROOT_SALT?: string;
-  readonly VITE_INVITE_ONLY_ENABLED?: 'true' | 'false';
   readonly VITE_VH_ANALYSIS_PIPELINE?: 'true' | 'false';
   readonly VITE_VH_BIAS_TABLE_V2?: 'true' | 'false';
 }

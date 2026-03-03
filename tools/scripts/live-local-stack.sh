@@ -77,7 +77,6 @@ load_profile_env() {
   set -a && source "$ENV_FILE" && set +a
 
   export VITE_E2E_MODE=false
-  export VITE_INVITE_ONLY_ENABLED=false
   export VITE_VH_ANALYSIS_PIPELINE=true
   export VITE_VH_BIAS_TABLE_V2=true
   export VITE_NEWS_RUNTIME_ENABLED=true

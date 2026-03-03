@@ -12,6 +12,7 @@
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
+> Scope rule: this file is the current-state/delta ledger for active engineering decisions; canonical behavior contracts remain in `docs/specs/*.md`.
 
 ---
 
@@ -165,13 +166,12 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |
 | `VITE_LINKED_SOCIAL_ENABLED` | Gates linked-social notification pipeline | `false` | 2 |
 | `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
-| `VITE_INVITE_ONLY_ENABLED` | Gates route-level invite-only mode | `false` in live profiles | 2 |
 | `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
 | `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
 | `VITE_VH_BIAS_TABLE_V2` | Gates per-cell sentiment voting on BiasTable | `true` in live profiles | Post-4 |
 
 Code-level defaults remain conservative (`false`/empty) unless explicitly noted.
-Operational live profiles intentionally override selected flags to enable the full production-like path (analysis relay, non-invite flow, bias-table voting).
+Operational live profiles intentionally override selected flags to enable the full production-like path (analysis relay + bias-table voting).
 
 ---
 
@@ -443,7 +443,7 @@ Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integra
 ### Feed Parity Slices (Post-Wave 4)
 - **FE-1** (provider model): merged
 - **FE-2** (bias table): merged
-- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable, feature-flagged behind `VITE_VH_BIAS_TABLE_V2`
+- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable; `VITE_VH_BIAS_TABLE_V2` is enabled in live/manual profiles (compile-time fallback remains for rollback-only builds)
 - **FE-4** (removal polish): merged
 
 Remaining backlog:
