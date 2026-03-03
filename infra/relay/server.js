@@ -1,6 +1,21 @@
 /* Minimal Gun relay for local/dev usage */
 const http = require('http');
-const Gun = require('gun');
+const { createRequire } = require('module');
+const path = require('path');
+
+function resolveGun() {
+  try {
+    return { Gun: require('gun'), gunRequire: require };
+  } catch {
+    // Monorepo fallback: gun is declared under packages/gun-client.
+    const gunRequire = createRequire(
+      path.resolve(__dirname, '../../packages/gun-client/package.json')
+    );
+    return { Gun: gunRequire('gun'), gunRequire };
+  }
+}
+
+const { Gun, gunRequire } = resolveGun();
 
 // Provide required internal utilities that the WS adapter depends on.
 // These were deprecated in Gun but ws.js still uses Gun.text.random and Gun.obj.* helpers.
@@ -28,7 +43,7 @@ Gun.obj.del = Gun.obj.del || ((obj, key) => {
   return obj;
 });
 
-require('gun/lib/ws');
+gunRequire('gun/lib/ws');
 
 const port = process.env.GUN_PORT || 7777;
 
