@@ -1435,7 +1435,7 @@ Project XP rides on Forum structures and tags.
 - [x] **SharedMeshStore:** In-memory mock mesh shared across isolated Playwright browser contexts (`packages/e2e/src/fixtures/multi-user.ts`).
 - [x] **User Fixtures:** `alice` and `bob` fixtures with `context.exposeFunction` for cross-context mesh sync.
 - [x] **Unique E2E Identities:** Each mock identity gets a unique nullifier to prevent collision in multi-user tests.
-- [x] **Testing Strategy:** Documented in `docs/TESTING_STRATEGY.md`.
+- [x] **Testing Strategy:** Documented in `docs/foundational/TESTING_STRATEGY.md`.
 
 **Single-User Flows:**
 - [x] **Golden Path E2E:** Identity → Attestation → Wallet → UBE → Analysis (`full-flow.spec.ts`).

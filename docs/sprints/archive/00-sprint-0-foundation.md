@@ -15,7 +15,7 @@
 - [x] Identity, trustScore, and constituency contracts are documented in `/docs/specs/spec-identity-trust-constituency.md` and referenced from `System_Architecture.md`.
 - [x] Season 0 RVU/UBE/Faucet/QF economics are documented in `/docs/specs/spec-rvu-economics-v0.md` and referenced from `System_Architecture.md`.
 - [x] AI analysis contract (prompt → JSON → validation → CanonicalAnalysis) is documented in `/docs/foundational/AI_ENGINE_CONTRACT.md` and referenced from `System_Architecture.md` and `docs/specs/canonical-analysis-v1.md`.
-- [x] Data topology & privacy rules (public vs sensitive, mesh vs device vs chain) are documented in `/docs/specs/docs/specs/spec-data-topology-privacy-v0.md` and referenced from `System_Architecture.md`.
+- [x] Data topology & privacy rules (public vs sensitive, mesh vs device vs chain) are documented in `/docs/specs/spec-data-topology-privacy-v0.md` and referenced from `System_Architecture.md`.
 
 ---
 
@@ -24,8 +24,8 @@
 ### 0.1 Source-of-Truth Adoption
 - [x] Publish `System_Architecture.md` to `/docs` and reference it from `README`.
 - [x] Add `ARCHITECTURE_LOCK.md` summarizing Zero-Trust, Local-First, and Local-Only storage guarantees.
-- [x] Capture risk register (Lamport overflow, TURN cost, AI drift) in `docs/risks.md`.
-- [x] Civic engagement & sentiment contracts documented in `/docs/specs/docs/specs/spec-civic-sentiment.md` and referenced from `System_Architecture.md`.
+- [x] Capture risk register (Lamport overflow, TURN cost, AI drift) in `docs/foundational/risks.md`.
+- [x] Civic engagement & sentiment contracts documented in `/docs/specs/spec-civic-sentiment.md` and referenced from `System_Architecture.md`.
 
 ### 0.2 Quality Gates & Tooling Alignment
 - [x] Configure `.nvmrc` → Node 20 LTS and `.npmrc` → `strict-peer-dependencies=false`.
@@ -70,7 +70,7 @@
 ## Phase 2: Core Packages & Identity (The Bedrock)
 
 ### 2.1 Core Libraries
-- [x] **Types:** Create `packages/types` (Zod schemas & TS Interfaces), including shared civic data contracts (SentimentSignal, AggregateSentiment, Eye read semantics) as defined in `System_Architecture.md` and `docs/specs/docs/specs/spec-civic-sentiment.md`.
+- [x] **Types:** Create `packages/types` (Zod schemas & TS Interfaces), including shared civic data contracts (SentimentSignal, AggregateSentiment, Eye read semantics) as defined in `System_Architecture.md` and `docs/specs/spec-civic-sentiment.md`.
 - [x] **Crypto:** Create `packages/crypto` (E2EE primitives, wrappers for `window.crypto.subtle`).
 - [x] **CRDT:** Create `packages/crdt` (Lamport, LWW, Vector Clocks).
 - [x] **Data:** Create `packages/data-model` (High-level Entities: Msg, Post).

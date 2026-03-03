@@ -2,7 +2,7 @@
 
 Last updated: 2026-02-21
 Status: Binding for FPD production-wiring execution
-Companion dispatch: `docs/plans/FPD_OUTLINE_AND_DISPATCH_2026-02-19.md`
+Companion implementation context: `docs/plans/NEWSFEED_PROD_WIRING_HARDENING_PLAN.md`
 
 ---
 
@@ -31,14 +31,14 @@ Close the gap between currently merged FPD L1-L4 behavior and production-safe en
 - Hard Gate 2 (WS6): **Satisfied** — `AnalysisView` now uses `useConstituencyProof` for vote admission parity with Feed; vote requires identity + validated proof, with reason-specific blocked UX.
 - Hard Gate 7 (WS6): **Satisfied** — critical vote-admission paths (`useSentimentState`, `CellVoteControls`, `AnalysisView`) are included in coverage gates with expanded unit tests and diff-coverage allowlisting.
 - Hard Gate 8a (WS6): **Satisfied** — telemetry (`[vh:vote:admission]`, `[vh:vote:mesh-write]`) and canary/rollback plan are documented.
-- Hard Gate 8b (WS7/WS8): **Satisfied (runtime rerun evidence captured)** — initial 2026-02-20 drill auto-aborted/rolled back, then 2026-02-21 rerun passed canary thresholds with healthy-phase non-zero mesh success and breach-sim distinction. See `docs/reports/evidence/2026-02-21-canary-rerun/EVIDENCE_BUNDLE.md` (plus legacy abort bundle at `docs/reports/FPD_CANARY_EVIDENCE_BUNDLE_2026-02-20.md`).
+- Hard Gate 8b (WS7/WS8): **Satisfied (runtime rerun evidence captured)** — initial 2026-02-20 drill auto-aborted/rolled back, then 2026-02-21 rerun passed canary thresholds with healthy-phase non-zero mesh success and breach-sim distinction.
 
 ### Post-Gate 8b mesh persistence remediation snapshot (2026-02-21)
 
 - Scope: AC1-AC5 closure for click-to-start analysis continuity, deterministic mesh persistence/reuse, multi-user shared artifact readability, and per-cell multi-user vote persistence with aggregate convergence.
 - Branch status: implemented on `coord/ce-mesh-persistence-remediation` (pending PR creation and CE dual-review on PR head).
 - Validation status: `pnpm test`, `pnpm typecheck`, and `pnpm lint` are green on remediation head.
-- Evidence bundle: `docs/reports/evidence/2026-02-21-ce-mesh-persistence/EVIDENCE_BUNDLE.md` (plus `pnpm-test.log`, `typecheck.log`, `lint.log`, `vitest-slices.log`).
+- Validation artifacts captured from `pnpm test`, `pnpm typecheck`, `pnpm lint`, and targeted vitest slices on remediation head.
 - Governance status: Phase 2 model-switch A/B remains separately gated by telemetry burn-in and CE convergence; this does not block remediation PR publication.
 
 ---

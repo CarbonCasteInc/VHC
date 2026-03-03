@@ -174,7 +174,38 @@ Potential overlap: normative thresholds vs architecture narrative vs implementat
 
 Potential overlap: norms in specs vs execution checklists in sprints.
 
-## 5) Candidate Canon Map (For Review, Not Final)
+## 5) Authority Overlap Recommendations (For Decision, Not Yet Applied)
+
+These recommendations are intentionally decision-ready but not self-executing. They are designed to remove overlap by separating `normative`, `descriptive`, and `historical` roles.
+
+1. Publish a one-page precedence contract in `docs/README.md`
+- Proposed order: product intent (`trinity_project_brief` / Season SoT) -> architecture contract (`System_Architecture.md`) -> normative behavior (`docs/specs/*`) -> implementation truth (`STATUS.md`) -> runbooks (`docs/ops/*`) -> plans/sprints (historical/planning).
+- Add required doc-header metadata (`Status`, `Owner`, `Last Reviewed`, `Depends On`) for every foundational/spec/ops doc.
+
+2. Split each overlapping domain into explicit owner docs
+- Product vision: one `intent` owner; one implementation-progress owner.
+- Analysis/synthesis: one schema/behavior owner in specs; provider/runtime detail remains in `AI_ENGINE_CONTRACT.md`; migration notes point back to owners.
+- Identity/trust: one thresholds/semantics owner in specs; architecture references it without duplicating values.
+- Messaging/forum/docs/bridge: specs remain normative; sprint docs marked explicitly as non-authoritative execution logs.
+
+3. Add a hard “normative language” rule
+- Only canonical owners use `must`, `required`, `contract`, `source of truth`.
+- Supporting docs must use `informative`, `example`, or `historical` language and link upstream for authoritative statements.
+
+4. Mark historical vs active docs in-place
+- Add a top-of-file banner for each sprint/archive file: `Historical Execution Record` or `Active Plan`.
+- Remove silent ambiguity where archived docs are still phrased as active contracts.
+
+5. Introduce a docs-consistency CI check
+- Check internal link validity for `/docs/**`.
+- Check banned authority phrases in non-authoritative docs.
+- Check presence of required metadata header in authoritative docs.
+
+6. Establish a single “canon map” artifact with ownership
+- Maintain one lightweight table with: `Domain`, `Authoritative Doc`, `Owner`, `Fallback Doc`, `Last Review Date`.
+- Update this map as part of any PR that changes foundational/spec semantics.
+
+## 6) Candidate Canon Map (For Review, Not Final)
 
 This is a working map for discussion only.
 
@@ -202,7 +233,7 @@ This is a working map for discussion only.
 - Current plans: `docs/plans/*.md`
 - Historical execution detail: `docs/sprints/*`, `docs/sprints/archive/*` (clarify authoritative status)
 
-## 6) Clarification Questions for Collaborative Refinement
+## 7) Clarification Questions for Collaborative Refinement
 
 1. Should `FPD_PROD_WIRING_DELTA_CONTRACT.md` remain in canonical foundational docs, be migrated to historical/plans, or be removed?
 2. Should sprint docs in `docs/sprints/` be treated as active implementation contracts or historical records (with explicit disclaimers)?
@@ -210,11 +241,10 @@ This is a working map for discussion only.
 4. Do we want one explicit precedence rule in `docs/README.md` (e.g., Specs > System Architecture > Status > Sprint docs) to eliminate authority ambiguity?
 5. Should `BETA_SESSION_RUNSHEET.md` remain canonical ops guidance, or be folded into `LOCAL_LIVE_STACK_RUNBOOK.md`?
 
-## 7) Suggested Next Consolidation Sequence (After Your Decisions)
+## 8) Suggested Next Consolidation Sequence (After Your Decisions)
 
 1. Fix broken links and malformed paths.
 2. Confirm authoritative precedence order in one place.
 3. Reclassify sprint docs (active vs historical) and mark accordingly.
 4. Reconcile overlapping foundational docs into clear role boundaries.
 5. Produce final concise “docs canon map” with ownership and update rules.
-
