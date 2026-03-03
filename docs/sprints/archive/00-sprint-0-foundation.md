@@ -2,7 +2,11 @@
 
 # Sprint 0: The Foundation - Implementation Checklist
 
-**Context:** `System_Architecture.md` v0.0.1 (Single Source of Truth)
+> Document Role: Historical Execution Record (non-authoritative).
+> Authority: Use `docs/specs/*` and `docs/foundational/System_Architecture.md` for current contracts.
+
+
+**Context:** `System_Architecture.md` v0.0.1 (architecture baseline at sprint time)
 **Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/specs/canonical-analysis-v1.md`.
 **Goal:** Establish the Monorepo, Hardware Roots of Trust, security posture, and basic mesh connectivity required for Milestone A readiness.
 **Status:** Archived
@@ -21,7 +25,7 @@
 
 ## Phase 0: Architecture Lock-In (Day 0)
 
-### 0.1 Source-of-Truth Adoption
+### 0.1 Architecture Contract Adoption
 - [x] Publish `System_Architecture.md` to `/docs` and reference it from `README`.
 - [x] Add `ARCHITECTURE_LOCK.md` summarizing Zero-Trust, Local-First, and Local-Only storage guarantees.
 - [x] Capture risk register (Lamport overflow, TURN cost, AI drift) in `docs/foundational/risks.md`.

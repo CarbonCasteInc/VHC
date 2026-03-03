@@ -1,5 +1,11 @@
 # FPD Production Wiring Delta Contract
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 Last updated: 2026-02-21
 Status: Binding for FPD production-wiring execution
 Companion implementation context: `docs/plans/NEWSFEED_PROD_WIRING_HARDENING_PLAN.md`

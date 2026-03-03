@@ -1,5 +1,11 @@
 # HERMES Forum Spec (v0)
 
+> Status: Normative Spec
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+
+
 Version: 0.6  
 Status: Canonical for Season 0 (V2-first alignment)  
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.

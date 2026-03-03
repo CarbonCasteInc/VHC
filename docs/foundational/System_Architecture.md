@@ -1,5 +1,11 @@
 # BIO-EC OS: Target Architecture
 
+> Status: Architecture Contract
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/TRINITY_Season0_SoT.md
+
+
 Codename: TRINITY (VENN/HERMES x LUMA x GWC)  
 Version: 0.4.0 (Season 0 Ship Snapshot, V2-first)  
 Status: Approved target architecture

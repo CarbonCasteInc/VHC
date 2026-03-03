@@ -1,5 +1,11 @@
 # Phase 4 Security Audit (Sprint 1)
 
+> Status: Historical Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/STATUS.md, docs/CANON_MAP.md
+
+
 ## Zero-Trust / Secrets
 - Client bundle contains no private keys or mnemonic strings; wallet logic relies on runtime-injected providers/addresses (`useWallet`), and E2E mode uses deterministic mocks only.
 - Identity creation enforces attestation integrity and rejects low-trust sessions (`useIdentity`: throws when `trustScore < 0.5`).

@@ -1,5 +1,11 @@
 # TRINITY Project Brief (Season 0, V2-first)
 
+> Status: Product Intent Contract
+> Owner: VHC Product + Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/TRINITY_Season0_SoT.md, docs/CANON_MAP.md
+
+
 A local-first civic-and-economic operating system that turns verified human attention and thought effort into legible civic signal and project momentum.
 
 ## 0. One paragraph summary

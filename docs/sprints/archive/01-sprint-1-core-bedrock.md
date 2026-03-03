@@ -2,6 +2,10 @@
 
 # Sprint 1: Core Bedrock - Implementation Checklist
 
+> Document Role: Historical Execution Record (non-authoritative).
+> Authority: Use `docs/specs/*` and `docs/foundational/System_Architecture.md` for current contracts.
+
+
 **Context:** `System_Architecture.md` v0.0.1 (Sprint 1: The "Data Dividend" & Civic Beta)
 **Note:** This sprint is archived. Canonical Analysis is now formalized in `System_Architecture.md` §6.3 and `docs/specs/canonical-analysis-v1.md`.
 **Goal:** Connect the PWA to the Attestation Service, deploy Contracts to Testnet, and enable the "First-to-File" Canonical Analysis protocol.

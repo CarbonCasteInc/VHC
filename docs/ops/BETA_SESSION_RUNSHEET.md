@@ -1,5 +1,11 @@
 # Beta Session Run Sheet
 
+> Status: Operational Runbook
+> Owner: VHC Ops
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 **Owner:** session operator (single person per session)
 **Profiles:** `dev-small` (current), `beta-scale` (after flip-switch)
 **Branch:** `main` (post-PR #345 merge)

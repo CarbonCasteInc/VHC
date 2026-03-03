@@ -1,5 +1,11 @@
 # HERMES Messaging Spec (v0)
 
+> Status: Normative Spec
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+
+
 **Version:** 0.2
 **Status:** Canonical for Sprint 3 — Implementation Complete (Dec 5, 2025)
 **Context:** Secure, local-first, peer-to-peer messaging for TRINITY OS.

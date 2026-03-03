@@ -1,5 +1,11 @@
 # Topic Discovery and Ranking Spec (v0)
 
+> Status: Normative Spec
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+
+
 Version: 0.3
 Status: Canonical for Season 0
 Context: Unified feed composition across News, Topics, Social, Articles, and Civic Action surfaces.

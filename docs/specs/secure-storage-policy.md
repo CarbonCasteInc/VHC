@@ -1,5 +1,11 @@
 # Secure Storage Policy
 
+> Status: Normative Spec
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+
+
 This policy defines where data may be stored in the VHC web stack.
 
 ## Tier 1 — Vault (`@vh/identity-vault`)

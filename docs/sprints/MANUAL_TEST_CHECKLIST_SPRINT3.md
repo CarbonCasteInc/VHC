@@ -1,5 +1,9 @@
 # Sprint 3 Manual Test Checklist
 
+> Document Role: Active Plan (non-authoritative for normative contracts).
+> Authority: Canonical behavior lives in owner docs listed in `docs/CANON_MAP.md`.
+
+
 **Date:** December 6, 2025  
 **Sprint:** 3 - The Agora (HERMES Messaging + Forum)  
 **Dev Server:** http://localhost:2048

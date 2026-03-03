@@ -1,5 +1,11 @@
 # canonical-analysis-v2 (Compatibility Alias)
 
+> Status: Compatibility Alias Spec
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/specs/topic-synthesis-v2.md
+
+
 Status: Compatibility alias
 Owner: VENN Engine / Data Model
 

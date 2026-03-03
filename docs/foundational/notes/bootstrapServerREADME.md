@@ -1,3 +1,9 @@
+
+> Status: Historical Working Notes
+> Owner: VHC Core Engineering
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/STATUS.md
+
 ````markdown
 # Carboncaste Bootstrap Server (Phase 0) — State of Play
 

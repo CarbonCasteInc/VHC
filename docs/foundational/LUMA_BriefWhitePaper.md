@@ -1,5 +1,11 @@
 # LUMA: The Protocol for Sovereign, Unlinkable Identity
 
+> Status: Historical Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/STATUS.md, docs/CANON_MAP.md
+
+
 White Paper v1.0
 Based on Protocol Specification v3.0
 

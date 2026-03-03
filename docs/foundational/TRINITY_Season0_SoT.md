@@ -1,5 +1,11 @@
 # TRINITY (VENN/HERMES × LUMA × GWC) - Season 0 Ship Snapshot (V2-First)
 
+> Status: Season Scope Contract
+> Owner: VHC Product + Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/System_Architecture.md
+
+
 **Purpose:** one **single tree** that gives **frontend + backend** devs the full picture (UX surfaces + contracts + privacy boundaries + gates).
 **Stance:** **Design & build for Synthesis V2**. Anything labeled V1 is **legacy/compat only**.
 **Legend:** ✅ Implemented · 🟡 Partial · 🔴 Stubbed · ⚪ Planned

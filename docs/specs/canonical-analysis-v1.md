@@ -1,5 +1,11 @@
 # canonical-analysis-v1 (DEPRECATED)
 
+> Status: Deprecated Compatibility Spec
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/specs/topic-synthesis-v2.md
+
+
 Status: Deprecated, legacy compatibility only
 Owner: VENN Engine / Data Model
 Effective date: 2026-02-08

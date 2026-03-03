@@ -90,6 +90,9 @@ jobs:
       - name: Lint (LOC & Rules)
         run: pnpm lint
 
+      - name: Docs Governance
+        run: pnpm docs:check
+
       - name: Build (for cross-package types)
         run: pnpm build
 

@@ -1,5 +1,9 @@
 # Sprint 3: The Agora - Communication (Implementation Plan)
 
+> Document Role: Active Plan (non-authoritative for normative contracts).
+> Authority: Canonical behavior lives in owner docs listed in `docs/CANON_MAP.md`.
+
+
 **Context:** `System_Architecture.md` v0.2.0 (Sprint 3: The "Agora" - Communication)
 **Goal:** Implement the "Agora" – the civic dialogue layer. This consists of **HERMES Messaging** (secure, private communication) and **HERMES Forum** (threaded civic discourse).
 **Status:** ✅ **COMPLETE** — All core functionality verified (Dec 6, 2025)
@@ -1489,7 +1493,7 @@ Project XP rides on Forum structures and tags.
 | GunDB sync latency for real-time chat | Aggressive local caching and optimistic UI. |
 | Plaintext leakage in mesh | E2EE via SEA; integration tests assert encrypted payloads only. |
 | Scope creep (group chat, push notifications) | Defer explicitly to v1+; strict backlog hygiene. |
-| Identity/trust divergence | Reuse `useIdentity` hook; single source of truth for trustScore. |
+| Identity/trust divergence | Reuse `useIdentity` hook; one shared trustScore accessor. |
 | E2E test flakiness with network mocks | True Offline Mode with full mocks; no network I/O in E2E. |
 | XP farming / Sybil attacks | Caps, substantive content heuristics, quality-gated bonuses. |
 

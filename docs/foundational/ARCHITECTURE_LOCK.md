@@ -1,5 +1,11 @@
 # Architecture Lock
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 This document summarizes the non-negotiable guardrails for the TRINITY Bio-Economic OS.
 
 ## 1. Core Principles

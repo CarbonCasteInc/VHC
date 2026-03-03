@@ -1,5 +1,11 @@
 # Identity, Trust & Constituency Spec
 
+> Status: Normative Spec (Canonical)
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/foundational/LUMA_BriefWhitePaper.md
+
+
 Version: 0.2
 Status: Canonical for Season 0 (Sprints 2-5)
 

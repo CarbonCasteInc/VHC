@@ -1,3 +1,10 @@
+# Notes (Historical Working Notes)
+
+> Status: Historical Working Notes
+> Owner: VHC Core Engineering
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/STATUS.md
+
 It is an adaptive system. THe policies are navigable, the forum can generate iterations, 66% of 66% of humans (voters?) can change the policy as the comunity deems necessary
 
 The goal is building the future for the flourishing of the carbon caste. An endeavour the concious make possible with their collaboration in concert.

@@ -1,5 +1,11 @@
 # topic-synthesis-v2 Contract (Canonical)
 
+> Status: Normative Spec (Canonical)
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/foundational/TRINITY_Season0_SoT.md
+
+
 Status: Canonical for Season 0 Ship Snapshot
 Owner: VENN Engine / Data Model
 References: `docs/foundational/System_Architecture.md`, `docs/foundational/TRINITY_Season0_SoT.md`

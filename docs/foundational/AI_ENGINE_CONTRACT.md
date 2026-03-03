@@ -1,5 +1,11 @@
 # AI Engine and Topic Synthesis Contract
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 Version: 0.2
 Status: Canonical for Season 0 (V2-first)
 Implementation note (2026-02-08): Default runtime path uses `LocalMlEngine` in non-E2E mode; mock engine is E2E/test-only. Remote fallback is opt-in and policy-gated (`local-first` when enabled).
