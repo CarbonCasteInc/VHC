@@ -97,11 +97,11 @@ Elevation of a thread to a proposal consumes the `governance_votes/day` budget (
 
 - `useIdentity`: provides `nullifier` as the XP key.
 - `useXpLedger` (Season 0): maintains `XpLedger` locally; applies emission rules on qualified events.
-- `useChatStore` / `useForumStore`: emit XP events to `useXpLedger` on qualifying actions (see `docs/sprints/03-sprint-3-the-agora.md` §3.4.6 for wiring details).
+- `useChatStore` / `useForumStore`: emit XP events to `useXpLedger` on qualifying actions (historical wiring reference: `docs/sprints/03-sprint-3-the-agora.md` §3.4.6).
 - Dashboards: may show totalXP and track breakdowns per user (local), and safe aggregates (district averages) when cohort rules are met.
 - Future GWC: can read XP (or recompute from event history) to seed participation weights for RVU/GWU distributions.
 
-**Cross-Reference:** The canonical Season 0 emission policy for HERMES Messaging, HERMES Forum, and Project XP is defined in `docs/sprints/03-sprint-3-the-agora.md` §3.4. That section specifies exact amounts, caps, windows, and quality thresholds.
+**Current state note:** Exact Season 0 emission amounts/caps are implemented and test-covered in runtime code, with historical rationale in Sprint 3 artifacts. Formal canonicalization of those exact numeric values in this spec remains open work.
 
 ## 7. Test Invariants
 

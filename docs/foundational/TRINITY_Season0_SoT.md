@@ -144,9 +144,10 @@
 
   - **Engines & services (back-end / infra pieces)** 🟡
     - **News Aggregator Service** 🟢 - Tech: RSS ingest → normalize → cluster → StoryBundle; UX: "one story, many sources" (fully implemented Wave 1)
-    - **Synthesis Engine (V2 quorum + epochs)** ⚪ - Tech: candidate gather + critique/refine + synthesize + deterministic accept
+    - **Synthesis Engine (V2 quorum + epochs)** 🟡 - Tech: candidate gather + critique/refine + synthesize + deterministic accept (core wiring present; hardening/consistency work ongoing)
     - **AI Engine Router (model switching)** 🟡
-      - Default: **WebLLM / LocalMlEngine** (edge inference) ✅/🟡
+      - Default (current live profile): **API relay-backed analysis** ✅
+      - Local-first target: **WebLLM / LocalMlEngine** when local-agent capability thresholds are met 🟡
       - Optional: Remote providers (OpenAI/Google/Anthropic/xAI) ⚪ - requires explicit opt-in + cost/privacy disclosure
       - Optional: device-local model (if available) ⚪ - "free but inconsistent"
     - **Topic Digest Builder** ⚪ - Tech: rolling digest from comments for re-synthesis input
@@ -160,7 +161,7 @@
     - **Familiar inheritance** 🟡 - familiars consume principal budgets; never multiply influence
 
   - **Implementation reality check (what exists today vs target)** 🟡
-    - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; defaults to WebLLM engine in non-E2E; remote engines not wired
+    - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)
     - **HERMES Docs** 🟡 — foundation + CollabEditor wired into ArticleEditor (flag-gated; Wave 2 Beta + Wave 3)  

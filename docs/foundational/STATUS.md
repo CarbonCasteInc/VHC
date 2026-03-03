@@ -157,19 +157,21 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_NEWS_TOPIC_MAPPING` | JSON override for runtime topic mapping | empty (defaults to `topic-news`) | 1 |
 | `VITE_NEWS_POLL_INTERVAL_MS` | Runtime polling cadence override (ms) | empty (defaults to 30m) | 1 |
 | `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
-| `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine endpoint opt-in | empty | 1 |
+| `VITE_VH_ANALYSIS_PIPELINE` | Enables relay-backed analysis path (`/api/analyze`) | `true` in live profiles | Post-4 |
+| `VITE_REMOTE_ENGINE_URL` | Direct remote engine endpoint (deprecated path) | empty | 1 |
 | `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5-nano` | 1 |
 | `VITE_REMOTE_API_KEY` | Auth key for remote analysis requests | empty | 1 |
 | `VITE_HERMES_DOCS_ENABLED` | Gates HERMES Docs store + article editor | `false` | 2 |
 | `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |
 | `VITE_LINKED_SOCIAL_ENABLED` | Gates linked-social notification pipeline | `false` | 2 |
 | `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
-| `VITE_INVITE_ONLY_ENABLED` | Gates route-level invite-only mode | `true` | 2 |
+| `VITE_INVITE_ONLY_ENABLED` | Gates route-level invite-only mode | `false` in live profiles | 2 |
 | `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
 | `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
-| `VITE_VH_BIAS_TABLE_V2` | Gates per-cell sentiment voting on BiasTable | `false` | Post-4 |
+| `VITE_VH_BIAS_TABLE_V2` | Gates per-cell sentiment voting on BiasTable | `true` in live profiles | Post-4 |
 
-Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean config/env values default to empty input with code-level fallbacks.
+Code-level defaults remain conservative (`false`/empty) unless explicitly noted.
+Operational live profiles intentionally override selected flags to enable the full production-like path (analysis relay, non-invite flow, bias-table voting).
 
 ---
 
@@ -183,14 +185,14 @@ Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean conf
 | D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | ✅ Forum sorting + 240-char reply cap + Convert-to-Article CTA + ArticleFeedCard (Wave 2 Beta S1) |
 | E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟡 Full foundation: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control (Wave 2 Beta S2); runtime wiring into ArticleEditor deferred to Wave 3 |
 | F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
-| G. Provider switching + consent | Default local WebLLM; remote providers opt-in with cost/privacy clarity | ✅ Local default path wired; remote engine opt-in with local-first policy; provider consent UI in place |
+| G. Provider switching + consent | Default API relay today; local-first when local-agent capability thresholds are met; remote providers opt-in with cost/privacy clarity | ✅ Relay default in live profiles; local engine path retained; model/provider override controls in place |
 
 ---
 
 ## Test & Coverage Truth
 
-**Gate verification date:** 2026-02-15
-**Branch verified:** `main` at `df0f787` (PR #276 merged, all 7 CI checks green)
+**Gate verification snapshot date:** 2026-02-15 (historical baseline)
+**Branch snapshot:** `main` at `df0f787` (historical reference; rerun gates on current branch before release)
 
 ### Live strict matrix lane (post-merge)
 
@@ -218,7 +220,7 @@ Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean conf
 |--------|--------|-------------|
 | **Sprint 0** (Foundation) | ✅ Complete | Monorepo, CLI, CI, core packages |
 | **Sprint 1** (Core Bedrock) | ⚠️ 90% | Encrypted vault, identity types, contracts; Sepolia deployed; attestation hardened but not production-grade |
-| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, LocalMlEngine default, RemoteApiEngine opt-in |
+| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, relay-backed live default, local engine retained as non-default path |
 | **Sprint 3** (Communication) | ✅ Complete | E2EE messaging, forum with stance-threading, XP integration |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | Stance-based threading, design unification |
 | **Sprint 4** (Agentic Foundation) | ✅ Complete | Delegation types + store + control panel; participation governors; budget denial UX |
