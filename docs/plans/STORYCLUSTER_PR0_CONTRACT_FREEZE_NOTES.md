@@ -37,7 +37,7 @@ Precedence for mixed objects is frozen as:
 2. `latest_activity_at`
 3. `created_at`
 
-Fixture source of truth:
+Fixture reference set:
 - `packages/gun-client/src/__fixtures__/latestIndexMigrationFixtures.ts`
 
 ## 4) Lease semantics baseline (unchanged in PR0)
