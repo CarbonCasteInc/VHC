@@ -4,12 +4,7 @@ export interface NewsState {
   /** Story bundles keyed and sorted for feed consumption. */
   readonly stories: ReadonlyArray<StoryBundle>;
 
-  /**
-   * Latest index from mesh: story_id -> latest activity timestamp.
-   *
-   * PR0 migration note:
-   * readers must also tolerate legacy created_at-shaped values from old writers.
-   */
+  /** Latest index from mesh: story_id -> created_at. */
   readonly latestIndex: Readonly<Record<string, number>>;
 
   /** Whether real-time hydration has been attached. */
