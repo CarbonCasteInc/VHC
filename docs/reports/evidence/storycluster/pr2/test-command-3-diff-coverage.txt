@@ -1,0 +1,10 @@
+Diff Coverage: running coverage for 3 changed source file(s).
+=============================== Coverage summary ===============================
+Statements   : 100% ( 520/520 )
+Branches     : 100% ( 183/183 )
+Functions    : 100% ( 39/39 )
+Lines        : 100% ( 520/520 )
+Diff Coverage: packages/ai-engine/src/clusterEngine.ts lines 175/175 (100.00%) | branches 72/72 (100.00%)
+Diff Coverage: packages/ai-engine/src/newsCluster.ts lines 272/272 (100.00%) | branches 89/89 (100.00%)
+Diff Coverage: packages/ai-engine/src/newsOrchestrator.ts lines 73/73 (100.00%) | branches 22/22 (100.00%)
+Diff Coverage: PASS - changed source files met per-file 100% line + branch coverage.

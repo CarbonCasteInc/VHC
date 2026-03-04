@@ -145,3 +145,88 @@
   - `docs/reports/evidence/storycluster/pr1/test-command-5-lease-heartbeat-and-storyid.txt`
   - `docs/reports/evidence/storycluster/pr1/test-command-6-diff-coverage-post-lease-fix.txt`
 - Local strict gate result: diff coverage PASS (100% lines + 100% branches on changed source files).
+
+## PR1 Closure Packet (Merged)
+
+- PR: `#362` — https://github.com/CarbonCasteInc/VHC/pull/362
+- Final PR head SHA: `638a8abad486b1bcdb76e588138c521691d35456`
+- Merge commit on `main`: `fee14db0e77cbb708f760ff68ae7d139b6fff642`
+- Merge time (UTC): `2026-03-04T16:35:58Z`
+
+### Exact PR1 test commands (executed)
+1. `pnpm test:quick apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/components/feed/FeedShell.test.tsx apps/web-pwa/src/components/feed/NewsCard.test.tsx packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+2. `pnpm test:quick apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx apps/web-pwa/src/store/discovery/store.test.ts`
+3. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+4. `node tools/scripts/check-diff-coverage.mjs`
+5. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/components/feed/NewsCardWithRemoval.test.tsx apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+6. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR1 artifact paths
+- `docs/reports/evidence/storycluster/pr1/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr1/test-command-1.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-2.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-3-lease-coverage.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-4-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-5-lease-heartbeat-and-storyid.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-6-diff-coverage-post-lease-fix.txt`
+
+### PR1 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| story_id propagation hardening end-to-end | PASS | feed bridge/discovery/news hydration + feed shell/news card tests |
+| created_at first-write-wins on re-ingest | PASS | `packages/gun-client/src/newsAdapters.ts` + tests |
+| latest-index write cutover (`cluster_window_end`) + legacy read fallback | PASS | adapters + hydration parser/tests |
+| single-writer lease behavior in ingestion path | PASS | runtime lease acquire/conflict-stop/release + heartbeat tests |
+| feed/card identity stability keyed to story identity | PASS | `FeedShell.tsx` keying + `NewsCardWithRemoval` story_id-first resolver/tests |
+| CI required checks green | PASS | GH run `22678759404` all checks pass |
+| CE dual review convergence | PASS | ce1 round-3 `AGREE`; ce2 round-3 `AGREE` |
+
+## PR2 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr2-clusterengine-abstraction`
+- Baseline: `main @ fee14db` (post-PR1 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR2 section)
+- Immediate PR2 implementation targets:
+  1. Introduce `ClusterEngine` abstraction for shared clustering pipeline.
+  2. Wire both sync and async paths through the unified abstraction.
+  3. Preserve PR0/PR1 contracts (identity + created_at + latest-index + lease assumptions).
+  4. Add deterministic regression harness and artifact packet for PR2.
+
+## PR2 Closure Packet (Draft Updated)
+
+- PR: `#363` — https://github.com/CarbonCasteInc/VHC/pull/363
+- Branch: `coord/storycluster-pr2-clusterengine-abstraction`
+- Evidence packet: `docs/reports/evidence/storycluster/pr2/EVIDENCE_PACKET.md`
+
+### Exact PR2 targeted test commands (as executed)
+1. `pnpm exec vitest run packages/ai-engine/src/__tests__/clusterEngine.test.ts packages/ai-engine/src/__tests__/newsOrchestrator.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/bundleVerification.test.ts packages/ai-engine/src/newsRuntime.test.ts`
+2. `pnpm --dir services/news-aggregator exec vitest run src/cluster.test.ts src/orchestrator.test.ts`
+3. `set -o pipefail; node tools/scripts/check-diff-coverage.mjs 2>&1 | rg "Coverage summary|Statements|Branches|Functions|Lines|Diff Coverage"`
+
+### Exact PR2 artifact paths
+- `docs/reports/evidence/storycluster/pr2/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr2/test-command-1-ai-engine.txt`
+- `docs/reports/evidence/storycluster/pr2/test-command-2-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr2/test-command-3-diff-coverage.txt`
+
+### PR2 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| ClusterEngine abstraction for shared clustering pipeline | PASS | `packages/ai-engine/src/clusterEngine.ts`; `packages/ai-engine/src/__tests__/clusterEngine.test.ts` |
+| Sync + async story-cluster paths routed through abstraction | PASS | Sync wrappers in `packages/ai-engine/src/newsCluster.ts` and `services/news-aggregator/src/cluster.ts`; async routing in `packages/ai-engine/src/newsOrchestrator.ts` + `services/news-aggregator/src/orchestrator.ts` |
+| PR0/PR1 identity + created_at + latest-index + lease assumptions preserved | PASS | No PR0/PR1 contract-path mutations; unchanged writer/adapter contract files plus existing PR0/PR1 regression suites remain green |
+| Remote-down deterministic fallback | PASS | `AutoEngine` fallback logic + deterministic fallback tests in `clusterEngine.test.ts` and `newsOrchestrator.test.ts` |
+| Duplicate direct clustering call path removed from active orchestrators | PASS | Both orchestrators now use `runClusterBatch` against cluster engines |
+
+### PR2 push/update confirmation
+- Draft PR updated: https://github.com/CarbonCasteInc/VHC/pull/363
+- Final pushed head SHA: `8e36c44f5bb5cda5c5a6705bf975dabf1c02d7ee`
+- Branch: `coord/storycluster-pr2-clusterengine-abstraction`
+
+### PR2 push/update confirmation (superseding head update)
+- Final pushed head SHA (latest): `0c678fd7e2af31c00dcc7b7c5f0d4170f0fc72ef`
+
+### PR2 Head-Pin Integrity Addendum (Final)
+- Final reviewed/pushed head SHA for PR2: `6b1da8c4b7034057fdaf1bb944b0a6732c143809`
+- CI run pin for this head: `22679987781` (Ownership Scope, Change Detection, Quality Guard, Test & Build, E2E, Bundle Size, Lighthouse all PASS)
+- This section supersedes prior interim PR2 head references (`8e36c44...`, `0c678fd...`) produced during iterative push updates.

@@ -11,6 +11,11 @@ import {
   type StoryBundle,
 } from './newsTypes';
 import { shouldMerge, computeMergeSignals } from './sameEventMerge';
+import {
+  HeuristicClusterEngine,
+  runClusterBatchSync,
+  type StoryClusterBatchInput,
+} from './clusterEngine';
 
 const MIN_ENTITY_OVERLAP = 2;
 
@@ -154,7 +159,7 @@ function headlineForCluster(items: readonly NormalizedItem[]): string {
   return sorted[0]?.title ?? 'Untitled';
 }
 
-export function clusterItems(items: NormalizedItem[], topicId: string): StoryBundle[] {
+export function clusterItemsHeuristic(items: NormalizedItem[], topicId: string): StoryBundle[] {
   if (topicId.trim().length === 0) {
     throw new Error('topicId must be non-empty');
   }
@@ -217,6 +222,21 @@ export function clusterItems(items: NormalizedItem[], topicId: string): StoryBun
       }
       return left.story_id.localeCompare(right.story_id);
     });
+}
+
+export const storyClusterHeuristicEngine = new HeuristicClusterEngine<
+  StoryClusterBatchInput,
+  StoryBundle
+>(
+  ({ items, topicId }) => clusterItemsHeuristic(items, topicId),
+  'storycluster-heuristic-engine',
+);
+
+export function clusterItems(items: NormalizedItem[], topicId: string): StoryBundle[] {
+  return runClusterBatchSync(storyClusterHeuristicEngine, {
+    items,
+    topicId,
+  });
 }
 
 // --- Verification confidence scoring ---

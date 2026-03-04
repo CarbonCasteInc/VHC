@@ -16,6 +16,7 @@ export * from './feedRegistry';
 export * from './sameEventMerge';
 export * from './newsIngest';
 export * from './newsNormalize';
+export * from './clusterEngine';
 export * from './newsCluster';
 export * from './newsOrchestrator';
 export * from './modelConfig';

@@ -3,7 +3,8 @@ import {
   newsOrchestratorInternal,
   orchestrateNewsPipeline,
 } from '../newsOrchestrator';
-import type { NormalizedItem } from '../newsTypes';
+import { runClusterBatch, type StoryClusterBatchInput } from '../clusterEngine';
+import type { NormalizedItem, StoryBundle } from '../newsTypes';
 
 const xmlForSourceA = `
   <rss>
@@ -54,6 +55,7 @@ describe('newsOrchestrator', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -214,5 +216,95 @@ describe('newsOrchestrator', () => {
     );
 
     expect(grouped.get('topic-default')).toHaveLength(2);
+  });
+
+  it('resolveClusterEngine returns injected abstraction directly', () => {
+    const injected = {
+      engineId: 'injected-engine',
+      clusterBatch: vi.fn((): StoryBundle[] => []),
+    };
+
+    const resolved = newsOrchestratorInternal.resolveClusterEngine({
+      clusterEngine: injected,
+    });
+
+    expect(resolved).toBe(injected);
+  });
+
+  it('routes through remote auto-engine and falls back to heuristic on remote failure', async () => {
+    const ingestFetch = vi.mocked(globalThis.fetch);
+    ingestFetch.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceA),
+    } as unknown as Response);
+
+    const remoteFetchFn = vi.fn(async () =>
+      new Response('remote down', {
+        status: 503,
+      }),
+    );
+    const fallbackSpy = vi.fn();
+
+    const bundles = await orchestrateNewsPipeline(
+      {
+        feedSources: [
+          {
+            id: 'source-a',
+            name: 'Source A',
+            rssUrl: 'https://feeds.example.com/a.xml',
+            enabled: true,
+          },
+        ],
+        topicMapping: {
+          defaultTopicId: 'topic-finance',
+        },
+      },
+      {
+        remoteClusterEndpoint: 'https://storycluster.example.com/cluster',
+        remoteFetchFn,
+        onRemoteFallback: fallbackSpy,
+      },
+    );
+
+    expect(remoteFetchFn).toHaveBeenCalledTimes(1);
+    expect(fallbackSpy).toHaveBeenCalledTimes(1);
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]?.topic_id).toBe('topic-finance');
+  });
+
+  it('resolveClusterEngine can consume endpoint from env when enabled', async () => {
+    vi.stubEnv('STORYCLUSTER_REMOTE_URL', 'https://env.storycluster.example.com/cluster');
+
+    const remoteFetchFn = vi.fn(async () =>
+      new Response(JSON.stringify({ bundles: [] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      }),
+    );
+
+    const resolved = newsOrchestratorInternal.resolveClusterEngine({
+      allowEnvRemoteEndpoint: true,
+      remoteFetchFn,
+    });
+
+    await runClusterBatch(resolved, {
+      topicId: 'topic-env',
+      items: [
+        {
+          sourceId: 'source-env',
+          publisher: 'Source Env',
+          url: 'https://example.com/env',
+          canonicalUrl: 'https://example.com/env',
+          title: 'Env Story',
+          publishedAt: 1,
+          summary: 'Env summary',
+          author: 'Env author',
+          url_hash: 'envhash',
+          entity_keys: ['env'],
+        },
+      ],
+    } as StoryClusterBatchInput);
+
+    expect(remoteFetchFn).toHaveBeenCalledTimes(1);
   });
 });

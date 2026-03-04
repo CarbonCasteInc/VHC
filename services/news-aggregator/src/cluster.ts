@@ -11,6 +11,11 @@
 
 import type { FeedSource, StoryBundle } from '@vh/data-model';
 import { STORY_BUNDLE_VERSION } from '@vh/data-model';
+import {
+  HeuristicClusterEngine,
+  runClusterBatchSync,
+  type ClusterEngine,
+} from '@vh/ai-engine';
 import type { NormalizedFeedItem } from './normalize';
 import { toStoryBundleSource, computeProvenanceHash } from './provenance';
 
@@ -60,6 +65,17 @@ export interface ClusterOptions {
   /** Injectable clock for testing (default: Date.now). */
   nowFn?: () => number;
 }
+
+export interface AggregatorClusterBatchInput {
+  items: NormalizedFeedItem[];
+  feedSources: Map<string, FeedSource>;
+  options?: ClusterOptions;
+}
+
+export type AggregatorClusterEngine = ClusterEngine<
+  AggregatorClusterBatchInput,
+  StoryBundle
+>;
 
 /* ------------------------------------------------------------------ */
 /*  Entity key extraction                                             */
@@ -301,7 +317,7 @@ function mergeBySharedKeys(
  * @param options - Optional clustering configuration.
  * @returns Array of StoryBundle objects.
  */
-export function clusterItems(
+function clusterItemsHeuristic(
   items: NormalizedFeedItem[],
   feedSources: Map<string, FeedSource>,
   options?: ClusterOptions,
@@ -345,5 +361,30 @@ export function clusterItems(
       provenance_hash: provenanceHash,
       created_at: nowFn(),
     };
+  });
+}
+
+const DEFAULT_CLUSTER_ENGINE = new HeuristicClusterEngine<
+  AggregatorClusterBatchInput,
+  StoryBundle
+>(
+  ({ items, feedSources, options }) =>
+    clusterItemsHeuristic(items, feedSources, options),
+  'news-aggregator-heuristic-engine',
+);
+
+export function getDefaultClusterEngine(): AggregatorClusterEngine {
+  return DEFAULT_CLUSTER_ENGINE;
+}
+
+export function clusterItems(
+  items: NormalizedFeedItem[],
+  feedSources: Map<string, FeedSource>,
+  options?: ClusterOptions,
+): StoryBundle[] {
+  return runClusterBatchSync(DEFAULT_CLUSTER_ENGINE, {
+    items,
+    feedSources,
+    options,
   });
 }
