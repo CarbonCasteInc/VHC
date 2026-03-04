@@ -3,7 +3,7 @@
 Status: Final Draft for Engineering Handoff  
 Owner: Core Engineering  
 Last Updated: 2026-03-04  
-Branch Baseline: `main` @ `628011d`
+Branch Baseline: `main` @ `37ca998`
 
 ## 1. Purpose
 
@@ -27,6 +27,7 @@ Primary goals:
 5. `created_at` for a story is immutable after first publish.
 6. Ingestion writes are single-writer at runtime (lease-enforced).
 7. API relay remains default analysis path until local-agent capability thresholds are met.
+8. Full analysis and bias-table generation must run as asynchronous enrichment and must not block StoryBundle publication, indexing, or headline renderability.
 
 ## 3. Current State of Play (Validated Against Code)
 
@@ -74,6 +75,23 @@ Components and responsibilities:
 ### 6.2 Optional enrichment artifacts
 
 Keep StoryBundle lean; publish deep analysis as separate artifacts keyed by `story_id`.
+
+### 6.3 Async enrichment lane (required behavior)
+
+1. StoryBundle publication path is the blocking lane and must remain independent of LLM enrichment latency/failure.
+2. Full analysis + bias-table artifacts are generated in a background lane after StoryBundle publish.
+3. Precompute policy (minimum required):
+   - all newly published stories.
+   - stories whose source set changed materially.
+   - a rolling top window (`Latest`/`Hot`) for fast card-open UX.
+4. Enrichment execution contract:
+   - queue-based scheduling with bounded concurrency.
+   - retry with backoff and dead-letter capture for persistent failures.
+   - explicit daily/per-topic budget controls.
+5. Enrichment identity contract:
+   - stable analysis identity per story context.
+   - stable point IDs for unchanged semantic points across refreshes.
+   - alias/migration behavior when regenerated output changes wording but not point semantics.
 
 ## 7. Ranking Design
 
@@ -152,11 +170,13 @@ Goal: move default ingest authority out of browser runtime.
 1. Add daemon entrypoint in `services/news-aggregator` for scheduled ingest+publish.
 2. Daemon acquires lease before writes.
 3. Browser defaults to consumer mode for normal runs; explicit dev override remains for local testing only.
+4. Add daemon-managed async enrichment queue wiring (non-blocking from publish path).
 
 Acceptance criteria:
 
 1. PWA shows live headlines without browser ingest authority.
 2. Daemon continuously updates StoryBundles and indexes.
+3. StoryBundle + index publish latency is not coupled to enrichment completion.
 
 ## PR4 (StoryCluster Engine Service - Phase 1)
 
@@ -170,12 +190,14 @@ Implement first-phase StoryCluster capabilities:
 4. stable incremental cluster assignment.
 5. canonical 2-3 sentence summary generation.
 6. emit coverage/velocity/confidence features.
+7. emit enrichment work items for full analysis/bias-table generation without blocking cluster publish.
 
 Acceptance criteria:
 
 1. stable `story_id` across updates.
 2. duplicate collapse improves source grouping quality.
 3. generated summaries populate `summary_hint` reliably.
+4. enrichment failures/timeouts do not block story publication or ordering updates.
 
 ## PR5 (SOTA Sorting: Hot Index + Diversification)
 
@@ -242,6 +264,13 @@ Note: update tests in the same PR for any changed contract behavior.
 2. add assertions for feed-empty recovery + stable identity behavior.
 3. ensure setup failures are classified as harness failures, not convergence failures.
 
+### 10.4 Enrichment lane gates
+
+1. Card-open on top-window stories resolves precomputed analysis in expected latency budget when artifacts exist.
+2. Missing/pending enrichment falls back gracefully without blocking interaction.
+3. StoryBundle publish SLO is unchanged under simulated enrichment provider failures.
+4. Vote context stability tests pass across enrichment refresh cycles (no point-ID churn regressions).
+
 ## 11. Migration and Compatibility Rules
 
 1. Latest-index readers must accept legacy `{created_at: ...}` entries during migration.
@@ -278,3 +307,4 @@ Note: update tests in the same PR for any changed contract behavior.
 5. Story identity and topic identity are deterministic and collision-safe.
 6. Single-writer ingestion authority enforced at runtime.
 7. `Latest` and `Hot` semantics match spec and are reproducible.
+8. Analysis/bias-table enrichment is precomputed opportunistically but never blocks headline publication, ordering, or card usability.
