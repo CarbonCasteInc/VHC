@@ -24,6 +24,7 @@ describe('newsTypes', () => {
         sourceId: 'src-1',
         url: 'https://example.com/story',
         title: 'Story title',
+        imageUrl: 'https://example.com/story.jpg',
       }).success,
     ).toBe(true);
 
@@ -79,7 +80,12 @@ describe('newsTypes', () => {
         url: 'https://example.com/story',
         canonicalUrl: 'https://example.com/story',
         title: 'Story title',
+        imageUrl: 'https://example.com/story.jpg',
         url_hash: 'deadbeef',
+        image_hash: 'beadfeed',
+        language: 'es',
+        translation_applied: true,
+        cluster_text: 'story title',
         entity_keys: ['story'],
       }).success,
     ).toBe(true);
@@ -105,6 +111,11 @@ describe('newsTypes', () => {
           entity_keys: ['story'],
           time_bucket: '2024-02-05T12',
           semantic_signature: 'deadbeef',
+          coverage_score: 0.4,
+          velocity_score: 0.3,
+          confidence_score: 0.8,
+          primary_language: 'en',
+          translation_applied: false,
         },
         provenance_hash: 'abc123ef',
         created_at: 300,

@@ -362,3 +362,33 @@
   5. canonical 2–3 sentence summary generation (`summary_hint`)
   6. coverage/velocity/confidence feature emission
   7. enrichment work-item emission for full analysis/bias-table generation (non-blocking)
+
+## PR4 Closure Packet (Draft)
+
+- PR: `#365` — https://github.com/CarbonCasteInc/VHC/pull/365
+- Branch: `coord/storycluster-pr4-engine-phase1`
+- Head SHA: pending final push of PR4 closure commit (captured in return packet)
+
+### Exact PR4 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/__tests__/newsNormalize.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/bundleVerification.test.ts packages/ai-engine/src/newsRuntime.test.ts packages/ai-engine/src/__tests__/newsTypes.test.ts`
+2. `pnpm --filter @vh/ai-engine typecheck`
+3. `pnpm --filter @vh/news-aggregator exec vitest run src/normalize.test.ts src/cluster.test.ts src/orchestrator.test.ts src/daemon.test.ts`
+4. `pnpm --filter @vh/news-aggregator typecheck`
+5. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR4 artifact paths
+- `docs/reports/evidence/storycluster/pr4/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr4/test-command-1-ai-engine-core.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-2-ai-engine-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-3-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-4-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt`
+
+### PR4 acceptance matrix (draft)
+| Criterion | Status | Evidence |
+|---|---|---|
+| Stable `story_id` across updates | PASS | `packages/ai-engine/src/__tests__/newsCluster.test.ts` incremental assignment test |
+| Duplicate collapse improves source grouping quality | PASS | `packages/ai-engine/src/__tests__/newsNormalize.test.ts`, `packages/ai-engine/src/__tests__/newsCluster.test.ts` near-dup collapse tests |
+| `summary_hint` reliably populated | PASS | Canonical summary generation + tests in `packages/ai-engine/src/__tests__/newsCluster.test.ts` |
+| Enrichment failures/timeouts do not block publication/ordering updates | PASS | `packages/ai-engine/src/newsRuntime.test.ts` async failure non-blocking test + daemon queue tests |
+| Strict per-file diff coverage | PASS | `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt` (100% line + branch on changed source files) |

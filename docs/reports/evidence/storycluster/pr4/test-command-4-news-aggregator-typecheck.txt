@@ -1,0 +1,5 @@
+$ pnpm --filter @vh/news-aggregator typecheck
+
+> @vh/news-aggregator@0.1.0 typecheck /srv/trinity/worktrees/live-main/services/news-aggregator
+> tsc --noEmit
+

@@ -1,9 +1,18 @@
 import { buildRemoteRequest, type RemoteAnalysisRequest } from './modelConfig';
+import { buildEnrichmentWorkItems } from './newsCluster';
 import { orchestrateNewsPipeline } from './newsOrchestrator';
 import type { FeedSource, StoryBundle, TopicMapping } from './newsTypes';
 
 const DEFAULT_POLL_INTERVAL_MS = 30 * 60 * 1000;
 const REMOTE_PROVIDER_ID = 'remote-analysis';
+
+export interface NewsRuntimeEnrichmentWorkItem {
+  story_id: string;
+  topic_id: string;
+  work_type: 'full-analysis' | 'bias-table';
+  summary_hint: string;
+  requested_at: number;
+}
 
 export interface NewsRuntimeSynthesisCandidate {
   story_id: string;
@@ -13,6 +22,7 @@ export interface NewsRuntimeSynthesisCandidate {
     kind: 'remote';
   };
   request: RemoteAnalysisRequest;
+  work_items: NewsRuntimeEnrichmentWorkItem[];
 }
 
 export interface NewsRuntimeConfig {
@@ -24,7 +34,7 @@ export interface NewsRuntimeConfig {
   enabled?: boolean;
   writeStoryBundle?: (client: unknown, bundle: StoryBundle) => Promise<unknown>;
   createAnalysisPrompt?: (bundle: StoryBundle) => string;
-  onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void;
+  onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
 
@@ -104,17 +114,25 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
       for (const bundle of bundles) {
         const request = buildRemoteRequest(createPrompt(bundle));
-        config.onSynthesisCandidate?.({
-          story_id: bundle.story_id,
-          provider: {
-            provider_id: REMOTE_PROVIDER_ID,
-            model_id: request.model,
-            kind: 'remote',
-          },
-          request,
-        });
 
         await writeStoryBundle(config.gunClient, bundle);
+
+        if (config.onSynthesisCandidate) {
+          const candidate: NewsRuntimeSynthesisCandidate = {
+            story_id: bundle.story_id,
+            provider: {
+              provider_id: REMOTE_PROVIDER_ID,
+              model_id: request.model,
+              kind: 'remote',
+            },
+            request,
+            work_items: buildEnrichmentWorkItems(bundle),
+          };
+
+          void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
+            config.onError?.(error);
+          });
+        }
       }
 
       lastRunAt = new Date();

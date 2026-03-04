@@ -288,8 +288,39 @@ describe('newsRuntime', () => {
           kind: 'remote',
         },
         request: expect.objectContaining({ model: 'test-model-1' }),
+        work_items: [
+          expect.objectContaining({ work_type: 'full-analysis', story_id: 'story-1' }),
+          expect.objectContaining({ work_type: 'bias-table', story_id: 'story-1' }),
+        ],
       }),
     );
+
+    handle.stop();
+  });
+
+  it('does not block story publish when enrichment callback fails asynchronously', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onError = vi.fn();
+    const onSynthesisCandidate = vi.fn().mockRejectedValue(new Error('enrichment timeout'));
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      onSynthesisCandidate,
+      runOnStart: true,
+      pollIntervalMs: 30,
+    });
+
+    await flushTasks();
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(String(onError.mock.calls[0]?.[0])).toContain('enrichment timeout');
 
     handle.stop();
   });
