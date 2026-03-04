@@ -1,5 +1,11 @@
 # Testing Strategy: Multi-User & Multi-Device
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 ## Overview
 
 VENN-HERMES is a decentralized, multi-user application with E2E encrypted messaging. Testing requires multiple strategies to cover:

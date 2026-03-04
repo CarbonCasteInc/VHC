@@ -13,7 +13,6 @@ import { IDChip } from '../components/hermes/IDChip';
 import { ScanContact } from '../components/hermes/ScanContact';
 import { DashboardPage } from './dashboardContent';
 import { DevColorPanel } from '../components/DevColorPanel';
-import { InviteGate } from '../components/InviteGate';
 
 const RootComponent = () => (
   <RootShell>
@@ -80,7 +79,7 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
               <p className="text-sm text-slate-700 dark:text-slate-200">Loading Mesh…</p>
             </div>
           ) : (
-            <InviteGate>{children}</InviteGate>
+            children
           )}
         </main>
       </div>

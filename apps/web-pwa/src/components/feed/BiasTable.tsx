@@ -162,7 +162,7 @@ function buildRowAnalysisMap(
 // point-id derivation helpers extracted to useBiasPointIds.ts
 /**
  * Two-column bias table with expandable detail rows.
- * Feature-flagged behind VITE_VH_BIAS_TABLE_V2.
+ * Production wiring: always-on.
  */
 export const BiasTable: React.FC<BiasTableProps> = ({
   analyses,

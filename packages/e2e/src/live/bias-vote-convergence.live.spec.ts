@@ -255,18 +255,9 @@ async function createRuntimeRoleContext(
     const testWindow = window as unknown as {
       __VH_NEWS_RUNTIME_ROLE?: string;
       __VH_TEST_SESSION?: boolean;
-      __VH_BIAS_TABLE_V2_OVERRIDE__?: boolean;
     };
     testWindow.__VH_NEWS_RUNTIME_ROLE = runtimeRole;
     testWindow.__VH_TEST_SESSION = isTestSession;
-    // Enable BiasTable v2 (vote buttons) regardless of build-time
-    // VITE_VH_BIAS_TABLE_V2 flag — the live test needs vote controls.
-    testWindow.__VH_BIAS_TABLE_V2_OVERRIDE__ = true;
-    try {
-      window.localStorage.setItem('vh_invite_access_granted', 'granted');
-    } catch {
-      // Ignore storage write failures in hardened browser contexts.
-    }
   }, { runtimeRole, isTestSession: testSession });
   return context;
 }
@@ -354,7 +345,6 @@ async function gotoFeed(page: Page): Promise<void> {
       return {
         runtimeRole: typeof win.__VH_NEWS_RUNTIME_ROLE === 'string' ? win.__VH_NEWS_RUNTIME_ROLE : String(win.__VH_NEWS_RUNTIME_ROLE),
         testSession: win.__VH_TEST_SESSION === true,
-        inviteGate: document.body.innerText.includes('Invite Only'),
         hasUserLink: Boolean(document.querySelector('[data-testid=\"user-link\"]')),
         hasFeedShell: Boolean(document.querySelector('[data-testid=\"feed-shell\"]')),
         hasFeedEmpty: Boolean(document.querySelector('[data-testid=\"feed-empty\"]')),
@@ -363,7 +353,7 @@ async function gotoFeed(page: Page): Promise<void> {
     }).catch(() => null);
 
     const diagnosticsText = diagnostics
-      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} inviteGate=${diagnostics.inviteGate} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} hasFeedEmpty=${diagnostics.hasFeedEmpty} testIds=${diagnostics.visibleTestIds.join('|')}`
+      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} hasFeedEmpty=${diagnostics.hasFeedEmpty} testIds=${diagnostics.visibleTestIds.join('|')}`
       : '';
     lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})${diagnosticsText}`;
     await page.waitForTimeout(750);
@@ -1266,10 +1256,9 @@ test.describe('live mesh convergence', () => {
               analysisPipeline: env.VITE_VH_ANALYSIS_PIPELINE,
               newsRuntime: env.VITE_NEWS_RUNTIME_ENABLED,
               newsBridge: env.VITE_NEWS_BRIDGE_ENABLED,
-              biasTableV2: env.VITE_VH_BIAS_TABLE_V2,
             };
           })()
-        `).catch((err: unknown) => { preflightError = err; return null; }) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string; biasTableV2?: string } | null;
+        `).catch((err: unknown) => { preflightError = err; return null; }) as { analysisPipeline?: string; newsRuntime?: string; newsBridge?: string } | null;
 
         if (buildFlags === null) {
           // eslint-disable-next-line no-console
@@ -1281,7 +1270,6 @@ test.describe('live mesh convergence', () => {
           if (buildFlags.analysisPipeline !== 'true') missingFlags.push(`VITE_VH_ANALYSIS_PIPELINE=${buildFlags.analysisPipeline ?? 'undefined'}`);
           if (buildFlags.newsRuntime !== 'true') missingFlags.push(`VITE_NEWS_RUNTIME_ENABLED=${buildFlags.newsRuntime ?? 'undefined'}`);
           if (buildFlags.newsBridge !== 'true') missingFlags.push(`VITE_NEWS_BRIDGE_ENABLED=${buildFlags.newsBridge ?? 'undefined'}`);
-          if (buildFlags.biasTableV2 !== 'true') missingFlags.push(`VITE_VH_BIAS_TABLE_V2=${buildFlags.biasTableV2 ?? 'undefined'}`);
         }
         if (missingFlags.length > 0) {
           throw new Error(

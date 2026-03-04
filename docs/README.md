@@ -1,38 +1,59 @@
 # Documentation Index
 
-This repository's documentation is organized into three primary groups:
+## Precedence Contract
 
-- `docs/foundational` — architecture, status, policy contracts, runtime constants, role guardrails.
-- `docs/specs` — canonical technical specs and protocol/data model documents.
-- `docs/sprints` — sprint plans, implementation notes, and archived sprint artifacts.
+When documents disagree, use this precedence order:
 
----
+1. Product intent and season scope: `docs/foundational/trinity_project_brief.md`, `docs/foundational/TRINITY_Season0_SoT.md`
+2. Normative behavior/data specs: `docs/specs/*.md`
+3. Architecture contract: `docs/foundational/System_Architecture.md`
+4. Implementation reality and drift: `docs/foundational/STATUS.md`
+5. Operational runbooks: `docs/ops/*.md`
+6. Plans and sprints (non-authoritative execution artifacts): `docs/plans/*.md`, `docs/sprints/**/*.md`
 
-## Active execution pack (current)
+Clarification:
+- For behavior/data contract conflicts, `docs/specs/*.md` wins over architecture prose.
+- `STATUS.md` records current implementation state and drift; it does not redefine canonical behavior contracts.
 
-Use these first for current coordination and implementation context:
+Domain ownership for canonical docs is maintained in `docs/CANON_MAP.md`.
 
-1. `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
-2. `docs/plans/ACTIVE_TASK_PACKET.md`
-3. `docs/foundational/AGENT_RITUALS.md`
-4. `docs/foundational/CONTEXT_BUILDING_LADDER.md`
-5. `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
-6. `docs/plans/FPD_OUTLINE_AND_DISPATCH_2026-02-19.md`
-7. `docs/foundational/STATUS.md`
+## Normative Language Policy
 
----
+- Authoritative docs (`docs/foundational`, `docs/specs`, `docs/ops`) may define normative contract language.
+- Non-authoritative docs (`docs/plans`, `docs/sprints`) must not declare themselves as a source of truth.
+- Plans and sprint docs may reference canonical docs, but canonical behavior must be specified in owners from `docs/CANON_MAP.md`.
 
-## Core architectural entry points
+## Required Metadata (Authoritative Docs)
 
-- `docs/foundational/TRINITY_Season0_SoT.md`
-- `docs/foundational/ARCHITECTURE_LOCK.md`
-- `docs/foundational/System_Architecture.md`
-- `docs/specs/spec-identity-trust-constituency.md`
-- `docs/specs/spec-civic-sentiment.md`
-- `docs/specs/spec-data-topology-privacy-v0.md`
+Every markdown file in `docs/foundational`, `docs/specs`, and `docs/ops` must include:
 
----
+- `Status`
+- `Owner`
+- `Last Reviewed`
+- `Depends On`
 
-## Historical wave contracts
+CI enforces this via docs governance checks.
 
-Wave-specific kickoff and delta contracts under `docs/foundational/WAVE*_*.md` are retained for traceability. Treat them as historical unless referenced by `WAVE_RUNTIME_CONSTANTS.json`.
+## Directory Map
+
+- `docs/foundational` — product intent, architecture, status, foundational contracts.
+- `docs/specs` — normative protocol/data/behavior specs.
+- `docs/ops` — local and operational runbooks.
+- `docs/plans` — implementation plans and temporary analysis artifacts.
+- `docs/sprints` — active and historical sprint execution records.
+
+## Core Entry Points
+
+1. `docs/foundational/trinity_project_brief.md`
+2. `docs/foundational/TRINITY_Season0_SoT.md`
+3. `docs/foundational/System_Architecture.md`
+4. `docs/foundational/STATUS.md`
+5. `docs/CANON_MAP.md`
+6. `docs/specs/topic-synthesis-v2.md`
+7. `docs/specs/spec-civic-sentiment.md`
+
+## Local Development and Operations
+
+- `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
+- `docs/ops/analysis-backend-3001.md`
+- `docs/feature-flags.md`

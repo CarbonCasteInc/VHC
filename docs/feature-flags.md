@@ -38,10 +38,9 @@ This document defines compile-time flags used by the web PWA for FPD rollout.
   - **Description:** Daily analysis generation cap (`0` means unlimited).
   - **Production requirement:** non-zero finite limit unless explicit exception approved.
 
-- **`VITE_VH_BIAS_TABLE_V2`**
-  - **Default:** `false`
-  - **Description:** Enables Bias Table v2 UX behavior.
-  - **Production requirement:** set per rollout decision.
+- **BiasTable v2 voting path**
+  - **Status:** always-on in production wiring.
+  - **Control model:** no runtime/compile-time feature flag; card-back voting uses BiasTable v2 unconditionally.
 
 ## Deployment guardrails
 

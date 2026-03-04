@@ -1,5 +1,11 @@
 # Dev Color Panel Reference
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 Applies across sprints. Extracted from Sprint 3.5.
 
 ### Implementation Layout (Issue #22 complete)

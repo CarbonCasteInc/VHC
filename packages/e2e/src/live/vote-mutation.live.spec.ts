@@ -44,16 +44,9 @@ async function createRuntimeRoleContext(
     const testWindow = window as unknown as {
       __VH_NEWS_RUNTIME_ROLE?: string;
       __VH_TEST_SESSION?: boolean;
-      __VH_BIAS_TABLE_V2_OVERRIDE__?: boolean;
     };
     testWindow.__VH_NEWS_RUNTIME_ROLE = runtimeRole;
     testWindow.__VH_TEST_SESSION = isTestSession;
-    testWindow.__VH_BIAS_TABLE_V2_OVERRIDE__ = true;
-    try {
-      window.localStorage.setItem('vh_invite_access_granted', 'granted');
-    } catch {
-      // Ignore storage write failures in hardened browser contexts.
-    }
   }, { runtimeRole: role, isTestSession: testSession });
   return context;
 }
@@ -98,7 +91,6 @@ async function gotoFeed(page: Page): Promise<void> {
       return {
         runtimeRole: typeof win.__VH_NEWS_RUNTIME_ROLE === 'string' ? win.__VH_NEWS_RUNTIME_ROLE : String(win.__VH_NEWS_RUNTIME_ROLE),
         testSession: win.__VH_TEST_SESSION === true,
-        inviteGate: document.body.innerText.includes('Invite Only'),
         hasUserLink: Boolean(document.querySelector('[data-testid="user-link"]')),
         hasFeedShell: Boolean(document.querySelector('[data-testid="feed-shell"]')),
         visibleTestIds: ids,
@@ -106,7 +98,7 @@ async function gotoFeed(page: Page): Promise<void> {
     }).catch(() => null);
 
     const diagnosticsText = diagnostics
-      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} inviteGate=${diagnostics.inviteGate} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} testIds=${diagnostics.visibleTestIds.join('|')}`
+      ? ` role=${diagnostics.runtimeRole} testSession=${diagnostics.testSession} hasUserLink=${diagnostics.hasUserLink} hasFeedShell=${diagnostics.hasFeedShell} testIds=${diagnostics.visibleTestIds.join('|')}`
       : '';
     lastError = `feed-not-ready: no news-card-headline nodes found (attempt ${attempt}/${FEED_READY_ATTEMPTS})${diagnosticsText}`;
     await page.waitForTimeout(750);

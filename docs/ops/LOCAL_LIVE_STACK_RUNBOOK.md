@@ -1,5 +1,11 @@
 # Local Live Stack Runbook (Canonical)
 
+> Status: Operational Runbook (Canonical)
+> Owner: VHC Ops
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/STATUS.md, docs/CANON_MAP.md
+
+
 This runbook locks local manual testing to the same production-like wiring used by live headless gates.
 
 ## Purpose

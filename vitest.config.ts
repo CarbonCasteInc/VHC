@@ -82,7 +82,6 @@ export default defineConfig({
         // --- Store Index Bootstrap ---
         // Client hydration/bootstrap; validated via E2E.
         'apps/web-pwa/src/store/index.ts',
-        'apps/web-pwa/src/store/invite/index.ts',
 
         // --- Utility Wrappers ---
         // Thin wrapper around markdown/rendering; XSS guarded in E2E.
@@ -91,6 +90,11 @@ export default defineConfig({
         // --- React Hooks (stateful wiring validated via E2E) ---
         'apps/web-pwa/src/hooks/useIdentity.ts',
         'apps/web-pwa/src/hooks/useFeedStore.ts',
+        // Analysis pipeline/multi-peer wiring paths are exercised in integration + E2E.
+        'apps/web-pwa/src/components/feed/useAnalysis.ts',
+        'apps/web-pwa/src/components/feed/useAnalysisMesh.ts',
+        'apps/web-pwa/src/components/feed/newsCardAnalysis.ts',
+        'apps/web-pwa/src/components/feed/useBiasPointIds.ts',
 
         // --- Gun-Client Adapters & Storage ---
         // Environment-specific storage implementations.
@@ -119,7 +123,9 @@ export default defineConfig({
         // Pure TypeScript interfaces/types with no runtime statements.
         // Note: index.ts in this package has Zod schemas + decodeRegionProof()
         // but is already excluded via the packages/*/src/index.ts rule below.
+        'apps/web-pwa/src/store/**/types.ts',
         'packages/types/src/attestation.ts',
+        'packages/types/src/constituency-proof.ts',
         'packages/types/src/identity.ts',
 
         // --- Re-export Index Files ---

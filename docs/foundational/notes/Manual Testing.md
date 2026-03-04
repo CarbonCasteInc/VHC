@@ -1,6 +1,9 @@
----
+# Manual Testing Checklist (Historical Notes)
 
-## Manual Testing Checklist
+> Status: Historical Working Notes
+> Owner: VHC Core Engineering
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/STATUS.md
 
 ### Prerequisites
 - [ ] Docker stack running (`manual-dev.sh up`)
@@ -8,8 +11,6 @@
 - [ ] Trusted identity created (trustScore ≥ 0.5)
 - [ ] Optional: Second browser/incognito for sync checks
 - [ ] At least one thread with comments exists (create if needed)
-
----
 
 ### 1. Composer & Stance Selection
 

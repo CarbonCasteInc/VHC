@@ -1,5 +1,11 @@
 # CSP Header Migration Guide
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 This guide documents TRINITY’s current Content Security Policy (CSP) posture, known limitations of meta-tag delivery, and a phased migration path to HTTP header-based CSP when deployment infrastructure supports custom headers. Related work: Issue #47 (follow-up) and PR #45 (initial CSP implementation).
 
 ## 1. Current Posture

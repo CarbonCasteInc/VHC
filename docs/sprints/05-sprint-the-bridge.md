@@ -1,5 +1,9 @@
 # Sprint 5: Docs + Civic Action Kit (Implementation Plan)
 
+> Document Role: Active Plan (non-authoritative for normative contracts).
+> Authority: Canonical behavior lives in owner docs listed in `docs/CANON_MAP.md`.
+
+
 Status: Planning  
 Predecessor: Sprint 4 foundations (delegation, budgets, V2 synthesis path)  
 Context: Deliver longform publishing and civic facilitation loops for Season 0.

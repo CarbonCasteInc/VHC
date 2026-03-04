@@ -1,5 +1,11 @@
 # Requirements → Tests Matrix (Sprint 2 Hardening)
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 Status: draft helper to keep coverage aligned with `docs/foundational/ARCHITECTURE_LOCK.md`, `docs/foundational/System_Architecture.md`, and `docs/sprints/02-sprint-2-advanced-features.md`.
 
 ## Civic Sentiment

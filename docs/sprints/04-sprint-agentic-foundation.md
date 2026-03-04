@@ -1,5 +1,9 @@
 # Sprint 4: Agentic Foundation (Alignment Plan)
 
+> Document Role: Active Plan (non-authoritative for normative contracts).
+> Authority: Canonical behavior lives in owner docs listed in `docs/CANON_MAP.md`.
+
+
 Status: In progress
 Predecessor: Sprint 3.5
 Context: Hardening core contracts before Sprint 5 delivery

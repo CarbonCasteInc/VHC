@@ -1,8 +1,14 @@
 # AI Engine and Topic Synthesis Contract
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 Version: 0.2
 Status: Canonical for Season 0 (V2-first)
-Implementation note (2026-02-08): Default runtime path uses `LocalMlEngine` in non-E2E mode; mock engine is E2E/test-only. Remote fallback is opt-in and policy-gated (`local-first` when enabled).
+Implementation note (2026-03-03): Current live/manual profiles default to API relay analysis (`VITE_VH_ANALYSIS_PIPELINE=true`, `/api/analyze`). Local engine paths remain available, but local-first is a target-state default gated on local-agent capability thresholds.
 
 Defines the engine-routing and safety contract for Topic Synthesis V2 generation from StoryBundle/TopicDigest inputs.
 
@@ -30,7 +36,7 @@ Single-URL article input can be used only for legacy compatibility flow.
 
 Allowed provider IDs:
 
-- `local-webllm` (default local path)
+- `local-webllm` (local path; non-default in current live profile)
 - `local-device-model`
 - `openai`
 - `google`
@@ -57,9 +63,15 @@ interface ProviderLabel {
 }
 ```
 
-## 4. Consent and switching contract
+## 4. Runtime default, consent, and switching contract
 
-Remote inference is opt-in only.
+Season 0 deployment baseline:
+
+- **Default today:** API relay path (`/api/analyze`) in live profiles.
+- **Target default later:** local-first, once local-agent capability thresholds are met.
+- **Current local-first dependency:** user-linked local agents that can complete analysis work at acceptable reliability/latency.
+
+Remote inference/provider switching remains opt-in at the provider-selection layer.
 
 Required UX sequence before first remote run:
 
@@ -70,9 +82,10 @@ Required UX sequence before first remote run:
 
 Policy rules:
 
-- Default policy is `local-only`.
-- Remote policies cannot be activated without consent record.
-- If consent is revoked, router falls back to local policy immediately.
+- Default policy in live profiles is `remote-first` via relay-backed analysis.
+- `local-only` remains supported for constrained/dev/offline profiles.
+- Alternate remote policies cannot be activated without consent record.
+- If consent is revoked for optional remote providers, router falls back to baseline profile policy.
 
 ## 5. Engine interface
 

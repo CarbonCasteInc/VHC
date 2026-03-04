@@ -1,3 +1,9 @@
+
+> Status: Historical Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/STATUS.md, docs/CANON_MAP.md
+
 Global Wealth Chain (GWC)
 The Ironclad Substrate for the Post-Labor Economy
 

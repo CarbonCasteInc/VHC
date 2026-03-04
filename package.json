@@ -17,6 +17,7 @@
     "test:e2e": "pnpm --filter @vh/e2e test",
     "test:workflow": "act -j build-and-test",
     "deps:check": "madge --circular --extensions ts,tsx .",
+    "docs:check": "node tools/scripts/check-docs-governance.mjs",
     "lint:loc": "./tools/scripts/check-loc.sh",
     "bundle:check": "node tools/scripts/check-bundle-size.mjs",
     "hooks:install": "bash tools/scripts/install-git-hooks.sh"

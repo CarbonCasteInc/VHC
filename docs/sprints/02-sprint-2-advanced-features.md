@@ -2,6 +2,10 @@
 
 # Sprint 2: The Civic Nervous System - Implementation Checklist
 
+> Document Role: Active Plan (non-authoritative for normative contracts).
+> Authority: Canonical behavior lives in owner docs listed in `docs/CANON_MAP.md`.
+
+
 **Context:** `System_Architecture.md` v0.0.1 (Sprint 2: The "Civic Nervous System")
 **Goal:** Harden the system for Mainnet, implement full Governance flows, and optimize AI performance within a polished UX.
 **Status:** [ ] In Progress
@@ -277,7 +281,7 @@
 **Goal:** Make data placement explicit and enforce public vs sensitive object rules across device, mesh, and chain.
 
 - [x] **Topology Spec:**
-  - [x] Add `docs/specs/docs/specs/spec-data-topology-privacy-v0.md` capturing object locations (device, mesh, chain, cloud).
+  - [x] Add `docs/specs/spec-data-topology-privacy-v0.md` capturing object locations (device, mesh, chain, cloud).
   - [x] Ensure `System_Architecture.md` §4.5 mirrors this table.
 
 - [x] **Mesh Policy:**

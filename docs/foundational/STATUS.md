@@ -1,11 +1,18 @@
 # TRINITY Implementation Status
 
+> Status: Implementation Truth Ledger
+> Owner: VHC Core Engineering
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+
+
 **Last Updated:** 2026-02-24
 **Version:** 0.7.2 (Post-PR345 stability-gate hardening)
 **Assessment:** Pre-production prototype. Wave 4 closed; active work is FPD production wiring with explicit no-ship guardrails until hard gates pass.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
+> Scope rule: this file is the current-state/delta ledger for active engineering decisions; canonical behavior contracts remain in `docs/specs/*.md`.
 
 ---
 
@@ -27,20 +34,13 @@
 
 ---
 
-## Active Program — FPD Production Wiring (2026-02-19)
-
-Active coordination and implementation posture is governed by:
-- `docs/foundational/WAVE_RUNTIME_CONSTANTS.json`
-- `docs/foundational/FPD_PROD_WIRING_DELTA_CONTRACT.md`
-- `docs/foundational/CONTEXT_BUILDING_LADDER.md`
-- `docs/plans/FPD_OUTLINE_AND_DISPATCH_2026-02-19.md`
+## Active Program — Production Hardening
 
 Current policy state:
-- Production rollout is blocked until all hard gates pass.
-- Transitional proof shim is allowed only in dev/staging/E2E and must be removed before final ship.
-- Point-identity migration requires dual-write/backfill with explicit sunset criteria.
+- Production rollout remains blocked until hard reliability gates pass.
+- Transitional proof shims are dev/staging only and must be removed before ship.
+- Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
-- Day-to-day build loop follows `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` until external beta gates are met.
 
 ---
 
@@ -139,9 +139,9 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 
 | Item | Reason | Carryover Doc |
 |------|--------|---------------|
-| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needs spec work; additive to landed foundation | `WAVE3_CARRYOVER.md` |
-| SoT F: Rep directory + native intents | CAK foundation landed; full delivery pipeline is Wave 3 priority | `WAVE3_CARRYOVER.md` |
-| CollabEditor runtime wiring | Foundation built and tested; wiring into ArticleEditor path deferred | `WAVE3_CARRYOVER.md` |
+| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needs spec work; additive to landed foundation | Tracked in current STATUS backlog |
+| SoT F: Rep directory + native intents | CAK foundation landed; full delivery pipeline is Wave 3 priority | Tracked in current STATUS backlog |
+| CollabEditor runtime wiring | Foundation built and tested; wiring into ArticleEditor path deferred | Tracked in current STATUS backlog |
 
 ---
 
@@ -158,19 +158,19 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 | `VITE_NEWS_TOPIC_MAPPING` | JSON override for runtime topic mapping | empty (defaults to `topic-news`) | 1 |
 | `VITE_NEWS_POLL_INTERVAL_MS` | Runtime polling cadence override (ms) | empty (defaults to 30m) | 1 |
 | `VITE_E2E_MODE` | Deterministic bypass of heavy I/O init (Gun/Yjs) | `false` | 1 |
-| `VITE_REMOTE_ENGINE_URL` | Enables remote AI engine endpoint opt-in | empty | 1 |
+| `VITE_VH_ANALYSIS_PIPELINE` | Enables relay-backed analysis path (`/api/analyze`) | `true` in live profiles | Post-4 |
+| `VITE_REMOTE_ENGINE_URL` | Direct remote engine endpoint (deprecated path) | empty | 1 |
 | `VITE_ANALYSIS_MODEL` | Selects remote analysis model id in ai-engine | `gpt-5-nano` | 1 |
 | `VITE_REMOTE_API_KEY` | Auth key for remote analysis requests | empty | 1 |
 | `VITE_HERMES_DOCS_ENABLED` | Gates HERMES Docs store + article editor | `false` | 2 |
 | `VITE_DOCS_COLLAB_ENABLED` | Gates collaborative editing runtime | `false` | 2 |
 | `VITE_LINKED_SOCIAL_ENABLED` | Gates linked-social notification pipeline | `false` | 2 |
 | `VITE_ELEVATION_ENABLED` | Gates elevation artifact generation | `false` | 2 |
-| `VITE_INVITE_ONLY_ENABLED` | Gates route-level invite-only mode | `true` | 2 |
 | `VITE_SESSION_LIFECYCLE_ENABLED` | Gates session expiry/near-expiry checks + forum freshness | `false` | 4 |
 | `VITE_CONSTITUENCY_PROOF_REAL` | Gates constituency proof verification enforcement | `false` | 4 |
-| `VITE_VH_BIAS_TABLE_V2` | Gates per-cell sentiment voting on BiasTable | `false` | Post-4 |
 
-Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean config/env values default to empty input with code-level fallbacks.
+Code-level defaults remain conservative (`false`/empty) unless explicitly noted.
+Operational live profiles intentionally override selected flags to enable the full production-like path (analysis relay + runtime feed stack).
 
 ---
 
@@ -184,14 +184,14 @@ Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean conf
 | D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | ✅ Forum sorting + 240-char reply cap + Convert-to-Article CTA + ArticleFeedCard (Wave 2 Beta S1) |
 | E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟡 Full foundation: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control (Wave 2 Beta S2); runtime wiring into ArticleEditor deferred to Wave 3 |
 | F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
-| G. Provider switching + consent | Default local WebLLM; remote providers opt-in with cost/privacy clarity | ✅ Local default path wired; remote engine opt-in with local-first policy; provider consent UI in place |
+| G. Provider switching + consent | Default API relay today; local-first when local-agent capability thresholds are met; remote providers opt-in with cost/privacy clarity | ✅ Relay default in live profiles; local engine path retained; model/provider override controls in place |
 
 ---
 
 ## Test & Coverage Truth
 
-**Gate verification date:** 2026-02-15
-**Branch verified:** `main` at `df0f787` (PR #276 merged, all 7 CI checks green)
+**Gate verification snapshot date:** 2026-02-15 (historical baseline)
+**Branch snapshot:** `main` at `df0f787` (historical reference; rerun gates on current branch before release)
 
 ### Live strict matrix lane (post-merge)
 
@@ -219,7 +219,7 @@ Feature-toggle defaults remain `false` unless explicitly noted. Non-boolean conf
 |--------|--------|-------------|
 | **Sprint 0** (Foundation) | ✅ Complete | Monorepo, CLI, CI, core packages |
 | **Sprint 1** (Core Bedrock) | ⚠️ 90% | Encrypted vault, identity types, contracts; Sepolia deployed; attestation hardened but not production-grade |
-| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, LocalMlEngine default, RemoteApiEngine opt-in |
+| **Sprint 2** (Civic Nervous System) | ✅ Complete | Full analysis pipeline, relay-backed live default, local engine retained as non-default path |
 | **Sprint 3** (Communication) | ✅ Complete | E2EE messaging, forum with stance-threading, XP integration |
 | **Sprint 3.5** (UI Refinement) | ✅ Complete | Stance-based threading, design unification |
 | **Sprint 4** (Agentic Foundation) | ✅ Complete | Delegation types + store + control panel; participation governors; budget denial UX |
@@ -442,10 +442,10 @@ Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integra
 ### Feed Parity Slices (Post-Wave 4)
 - **FE-1** (provider model): merged
 - **FE-2** (bias table): merged
-- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable, feature-flagged behind `VITE_VH_BIAS_TABLE_V2`
+- **FE-3** (cell voting): Per-cell sentiment voting on BiasTable v2 is now always-on in production wiring
 - **FE-4** (removal polish): merged
 
-Remaining from Wave 3 carryover (see `docs/foundational/WAVE3_CARRYOVER.md`):
+Remaining backlog:
 1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after stability verification
 2. ~~**Remaining budget key**~~ — `moderation/day` enforcement landed (PR #259, all 8/8 active)
 3. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
@@ -460,26 +460,8 @@ Post-Season 0 (deferred per spec §9.2):
 
 ## References
 
-### Wave 4 Artifacts
-- `docs/reports/WAVE4_DOC_AUDIT.md` — Wave 4 closeout documentation audit
-- `docs/foundational/WAVE4_DELTA_CONTRACT.md` — 4 amendments (A5–A8)
-- `docs/foundational/WAVE4_KICKOFF_COMMAND_SHEET.md` — Execution plan
-- `docs/specs/spec-identity-trust-constituency.md` v0.2 — Architectural contract
-- `docs/specs/spec-luma-season0-trust-v0.md` v0.1 — Season 0 enforcement spec
-
-### Wave 2 Artifacts
-- `docs/reports/WAVE2_DOC_AUDIT.md` — Wave-end documentation audit
-- `docs/foundational/WAVE3_CARRYOVER.md` — Deferred items and Wave 3 entry points
-- `docs/foundational/WAVE2_DELTA_CONTRACT.md` — 16 binding policies
-- `docs/foundational/CE_DUAL_REVIEW_CONTRACTS.md` — CE dual-review protocol
-
-### Wave 1 Artifacts
-- `docs/reports/WAVE1_INTEGRATION_READINESS.md` — Integration gate report
-- `docs/foundational/WAVE1_STABILITY_DECISION_RECORD.md` — Stability decisions
-
 ### Architecture & Specs
 - `System_Architecture.md` — Target architecture
-- `docs/foundational/SEASON0_DEV_OPERATING_MODE.md` — Active local-first dev posture for the 2-user build phase
 - `docs/foundational/ARCHITECTURE_LOCK.md` — Non-negotiable engineering guardrails
 - `docs/specs/spec-hermes-docs-v0.md` — HERMES Docs spec (Canonical for Season 0)
 - `docs/specs/spec-hermes-forum-v0.md` — Forum spec

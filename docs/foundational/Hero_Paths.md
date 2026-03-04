@@ -1,5 +1,11 @@
 # E2E Hero Paths - Season 0 (V2-first)
 
+> Status: Foundational Reference
+> Owner: VHC Core Architecture
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 Version: 0.3  
 Status: Canonical storyboards for Season 0 implementation and testing
 

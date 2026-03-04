@@ -1,5 +1,11 @@
 # Managed Analysis Backend on :3001
 
+> Status: Operational Runbook
+> Owner: VHC Ops
+> Last Reviewed: 2026-03-03
+> Depends On: docs/README.md, docs/CANON_MAP.md
+
+
 ## Purpose
 
 When `VITE_VH_ANALYSIS_PIPELINE=true`, Vite proxies `/api/*` and `/article-text` to `VITE_NEWS_EXTRACTION_SERVICE_URL` (default `http://127.0.0.1:3001`).

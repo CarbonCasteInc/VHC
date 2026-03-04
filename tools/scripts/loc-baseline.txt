@@ -1,0 +1,21 @@
+# LOC debt baseline.
+# Rules:
+# - Keep entries workspace-relative.
+# - Only files still over 350 lines should be listed here.
+# - Remove an entry as soon as the file is split below cap.
+
+apps/web-pwa/src/components/feed/FeedShell.tsx
+apps/web-pwa/src/components/feed/newsCardAnalysis.ts
+apps/web-pwa/src/components/feed/useAnalysis.ts
+apps/web-pwa/src/components/feed/useAnalysisMesh.ts
+apps/web-pwa/src/hooks/usePointAggregate.ts
+apps/web-pwa/src/hooks/useSentimentState.ts
+apps/web-pwa/src/hooks/voteIntentMaterializer.ts
+apps/web-pwa/src/routes/AnalysisFeed.tsx
+apps/web-pwa/src/server/analysisRelay.ts
+apps/web-pwa/src/store/feedBridge.ts
+apps/web-pwa/src/store/newsRuntimeBootstrap.ts
+apps/web-pwa/vite.config.ts
+packages/gun-client/src/aggregateAdapters.ts
+packages/gun-client/src/analysisAdapters.ts
+packages/gun-client/src/newsAdapters.ts

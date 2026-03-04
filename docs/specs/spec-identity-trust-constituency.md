@@ -1,5 +1,11 @@
 # Identity, Trust & Constituency Spec
 
+> Status: Normative Spec (Canonical)
+> Owner: VHC Spec Owners
+> Last Reviewed: 2026-03-03
+> Depends On: docs/foundational/System_Architecture.md, docs/foundational/LUMA_BriefWhitePaper.md
+
+
 Version: 0.2
 Status: Canonical for Season 0 (Sprints 2-5)
 
@@ -208,32 +214,38 @@ interface ProofVerificationResult {
 ```
 
 **Freshness requirements (Season 0):**
-- `merkle_root` SHOULD be validated against a known-good set. In Season 0 (stub acquisition), mock roots are accepted — the freshness check is a no-op that always passes for non-empty roots.
+- `merkle_root` SHOULD be validated against a known-good set. In current Season 0 implementation, freshness is a structural check only (non-empty root), so cryptographic root recency is not yet enforced.
 - Target state: `merkle_root` must match a root published within the last 30 days by the residency set authority.
 
-### 4.3 Proof Acquisition: Season 0 Stub Status
+### 4.3 Proof Acquisition: Current Season 0 Runtime State
 
-**Season 0 reality:** Constituency proof acquisition is **STUBBED**. The `getMockConstituencyProof()` function returns hardcoded mock values. Real acquisition requires:
+**Season 0 reality (runtime):** Constituency proof acquisition uses an attestation-bound deterministic provider (`getRealConstituencyProof`) built from session nullifier + configured district.
+
+Current runtime behavior:
+- `useRegion()` derives proof from identity session nullifier and configured district hash.
+- `useConstituencyProof()` hard-rejects mock proofs (`mock-*`) on voting paths.
+- Freshness remains non-cryptographic in Season 0 (non-empty root check).
+
+Transitional/test helpers:
+- `getMockConstituencyProof()` remains for tests/dev scaffolding only.
+- Production-like paths must not rely on mock proof helpers.
+
+Cryptographic acquisition still requires:
 - DBA acoustic residency proof (Phase 5 per LUMA whitepaper §3.4) — requires physical hardware anchor
 - ZK-SNARK enrollment for privacy-preserving proof generation (Phase 4 per LUMA whitepaper)
 
-**Stub behavior:**
-- `getMockConstituencyProof(districtHash)` returns `{ district_hash: districtHash, nullifier: 'mock-nullifier', merkle_root: 'mock-root' }`.
-- The stub satisfies the type interface and passes verification in dev/E2E mode.
-- Production builds MUST NOT rely on stub proofs for real constituency claims.
+### 4.4 Season 0 Deterministic → Cryptographic Migration Contract
 
-### 4.4 Stub → Real Migration Contract
-
-When real constituency proof acquisition becomes available (Phase 4–5):
+When cryptographic constituency proof acquisition becomes available (Phase 4–5):
 
 1. **Interface stability:** The `ConstituencyProof` shape (`{ district_hash, nullifier, merkle_root }`) is stable and MUST NOT change. Real proofs populate the same fields with cryptographically valid values.
-2. **Acquisition path change:** Replace `getMockConstituencyProof()` with a real acquisition flow:
+2. **Acquisition path change:** Replace deterministic Season 0 derivation with cryptographic proof acquisition flow:
    - User initiates residency proof (DBA acoustic check or VIO-based geo attestation).
    - Proof is generated locally (ZK-SNARK circuit).
    - `merkle_root` references the current residency set published by the region notary.
 3. **Verification tightening:** The freshness check transitions from no-op to real root validation.
-4. **Feature flag:** The transition SHOULD be gated behind a feature flag (`ENABLE_REAL_CONSTITUENCY_PROOF`) to allow gradual rollout.
-5. **Data migration:** Existing mock proofs in local storage MUST be invalidated on upgrade. Users will need to re-acquire proofs through the real flow.
+4. **Feature flag:** The transition SHOULD be gated behind the runtime feature flag (`VITE_CONSTITUENCY_PROOF_REAL`) to allow gradual rollout.
+5. **Data migration:** Existing non-cryptographic proof artifacts in local storage MUST be invalidated on upgrade. Users will need to re-acquire proofs through the real flow.
 
 ## 5. Multi-Device & Recovery Semantics
 

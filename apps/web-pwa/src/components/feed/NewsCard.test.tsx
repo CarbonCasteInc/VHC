@@ -307,9 +307,8 @@ describe('NewsCard', () => {
     expect(screen.getByTestId('removal-indicator')).toBeInTheDocument();
     expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
   });
-  it('renders BiasTable when VITE_VH_BIAS_TABLE_V2 is enabled', async () => {
+  it('renders BiasTable for analyzed stories', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
     render(<NewsCard item={makeNewsItem()} />);
@@ -318,16 +317,6 @@ describe('NewsCard', () => {
     expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('1 source analyzed');
     expect(screen.getByTestId('bias-table-provider-badge')).toHaveTextContent('Analysis by gpt-4o-mini');
     expect(screen.queryByTestId('news-card-frame-table-news-1')).not.toBeInTheDocument();
-  });
-  it('renders legacy table when VITE_VH_BIAS_TABLE_V2 is off', async () => {
-    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'false');
-    useNewsStore.getState().setStories([makeStoryBundle()]);
-    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
-    render(<NewsCard item={makeNewsItem()} />);
-    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByTestId('news-card-frame-table-news-1')).toBeInTheDocument();
-    expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
   });
   it('renders synthesis loading and synthesis unavailable states when analysis is disabled', () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
@@ -350,7 +339,6 @@ describe('NewsCard', () => {
   });
   it('threads analysisId from story through to BiasTable voting controls', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
     render(<NewsCard item={makeNewsItem()} />);
@@ -362,7 +350,6 @@ describe('NewsCard', () => {
   });
   it('renders voting controls with analysis fallback when synthesis context is missing', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     // intentionally omit setTopicSynthesis; this mirrors analysis-only live mode
     render(<NewsCard item={makeNewsItem()} />);
@@ -370,15 +357,5 @@ describe('NewsCard', () => {
     expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
     expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(1);
     expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(1);
-  });
-  it('VITE_VH_BIAS_TABLE_V2 off hides voting controls even with analysis', async () => {
-    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    vi.stubEnv('VITE_VH_BIAS_TABLE_V2', 'false');
-    useNewsStore.getState().setStories([makeStoryBundle()]);
-    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
-    render(<NewsCard item={makeNewsItem()} />);
-    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByTestId('news-card-frame-table-news-1')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Agree with /i })).not.toBeInTheDocument();
   });
 });
