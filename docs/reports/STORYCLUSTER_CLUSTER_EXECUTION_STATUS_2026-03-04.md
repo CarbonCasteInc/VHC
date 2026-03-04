@@ -145,3 +145,49 @@
   - `docs/reports/evidence/storycluster/pr1/test-command-5-lease-heartbeat-and-storyid.txt`
   - `docs/reports/evidence/storycluster/pr1/test-command-6-diff-coverage-post-lease-fix.txt`
 - Local strict gate result: diff coverage PASS (100% lines + 100% branches on changed source files).
+
+## PR1 Closure Packet (Merged)
+
+- PR: `#362` — https://github.com/CarbonCasteInc/VHC/pull/362
+- Final PR head SHA: `638a8abad486b1bcdb76e588138c521691d35456`
+- Merge commit on `main`: `fee14db0e77cbb708f760ff68ae7d139b6fff642`
+- Merge time (UTC): `2026-03-04T16:35:58Z`
+
+### Exact PR1 test commands (executed)
+1. `pnpm test:quick apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/components/feed/FeedShell.test.tsx apps/web-pwa/src/components/feed/NewsCard.test.tsx packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+2. `pnpm test:quick apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx apps/web-pwa/src/store/discovery/store.test.ts`
+3. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+4. `node tools/scripts/check-diff-coverage.mjs`
+5. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/components/feed/NewsCardWithRemoval.test.tsx apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+6. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR1 artifact paths
+- `docs/reports/evidence/storycluster/pr1/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr1/test-command-1.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-2.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-3-lease-coverage.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-4-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-5-lease-heartbeat-and-storyid.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-6-diff-coverage-post-lease-fix.txt`
+
+### PR1 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| story_id propagation hardening end-to-end | PASS | feed bridge/discovery/news hydration + feed shell/news card tests |
+| created_at first-write-wins on re-ingest | PASS | `packages/gun-client/src/newsAdapters.ts` + tests |
+| latest-index write cutover (`cluster_window_end`) + legacy read fallback | PASS | adapters + hydration parser/tests |
+| single-writer lease behavior in ingestion path | PASS | runtime lease acquire/conflict-stop/release + heartbeat tests |
+| feed/card identity stability keyed to story identity | PASS | `FeedShell.tsx` keying + `NewsCardWithRemoval` story_id-first resolver/tests |
+| CI required checks green | PASS | GH run `22678759404` all checks pass |
+| CE dual review convergence | PASS | ce1 round-3 `AGREE`; ce2 round-3 `AGREE` |
+
+## PR2 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr2-clusterengine-abstraction`
+- Baseline: `main @ fee14db` (post-PR1 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR2 section)
+- Immediate PR2 implementation targets:
+  1. Introduce `ClusterEngine` abstraction for shared clustering pipeline.
+  2. Wire both sync and async paths through the unified abstraction.
+  3. Preserve PR0/PR1 contracts (identity + created_at + latest-index + lease assumptions).
+  4. Add deterministic regression harness and artifact packet for PR2.
