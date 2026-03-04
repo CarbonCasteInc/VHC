@@ -2,6 +2,7 @@ $ node tools/scripts/check-diff-coverage.mjs
 Diff Coverage: running coverage for 2 changed source file(s).
   - packages/ai-engine/src/newsAdvancedPipeline.ts
   - packages/ai-engine/src/newsRuntime.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
  RUN  v2.1.9 /srv/trinity/worktrees/live-main
       Coverage enabled with v8
@@ -9,7 +10,7 @@ Diff Coverage: running coverage for 2 changed source file(s).
 stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ packages/identity-vault/src/vault.test.ts (32 tests) 36ms
+ ✓ packages/identity-vault/src/vault.test.ts (32 tests) 38ms
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > emits convergence lag telemetry when a vote timestamp is present
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -17,7 +18,7 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   epoch: 0,
   point_id: 'point-1',
   status: 'success',
-  latency_ms: 1,
+  latency_ms: 0,
   attempt: 1,
   agree: 3,
   disagree: 1,
@@ -43,8 +44,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
-
-stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > stops zero-snapshot retrying after max attempts and keeps success payload
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -106,6 +105,60 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   weight: 3.5,
   zero_snapshot: false,
   retrying: false
+}
+
+stderr | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > uses Error.message for terminal error payloads
+[vh:aggregate:read] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 0,
+  point_id: 'point-1',
+  status: 'error',
+  latency_ms: 0,
+  attempt: 1,
+  error_code: 'Error'
+}
+[vh:aggregate:read] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 0,
+  point_id: 'point-1',
+  status: 'error',
+  latency_ms: 0,
+  attempt: 2,
+  error_code: 'Error'
+}
+[vh:aggregate:read] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 0,
+  point_id: 'point-1',
+  status: 'error',
+  latency_ms: 0,
+  attempt: 3,
+  error_code: 'Error'
+}
+[vh:aggregate:read] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 0,
+  point_id: 'point-1',
+  status: 'error',
+  latency_ms: 0,
+  attempt: 4,
+  error_code: 'Error'
+}
+
+stderr | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not issue another read after unmount during backoff sleep
+[vh:aggregate:read] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 0,
+  point_id: 'point-1',
+  status: 'error',
+  latency_ms: 0,
+  attempt: 1,
+  error_code: 'Error'
 }
 
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not issue another zero-snapshot read after unmount during retry delay
@@ -187,6 +240,15 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   retrying: false
 }
 
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | apps/web-pwa/src/components/AnalysisView.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > re-fetches when pointId changes
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -211,7 +273,7 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   epoch: 0,
   point_id: 'point-2',
   status: 'success',
-  latency_ms: 0,
+  latency_ms: 1,
   attempt: 1,
   agree: 2,
   disagree: 1,
@@ -221,6 +283,10 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   retrying: false
 }
 
+stdout | apps/web-pwa/src/hooks/voteIntentMaterializer.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ apps/web-pwa/src/store/delegation/index.test.ts (18 tests) 21ms
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > emits convergence-zero diagnostic when both canonical and fallback return zeros
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -252,6 +318,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > emits convergence-zero diagnostic when both canonical and fallback return zeros
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -267,8 +335,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
-
-stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > emits convergence-zero diagnostic when both canonical and fallback return zeros
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -486,6 +552,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   fallback_used: true,
   fallback_point_id: 'legacy-point'
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > emits convergence-zero diagnostic when both canonical and fallback return zeros
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -611,6 +679,9 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   fallback_point_id: 'legacy-point'
 }
 
+stdout | apps/web-pwa/src/hooks/useGovernance.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > emits convergence-zero diagnostic when fallback read throws
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -642,8 +713,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
-
-stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > emits convergence-zero diagnostic when fallback read throws
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -675,19 +744,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   retrying: false
 }
 
-stdout | apps/web-pwa/src/hooks/voteIntentMaterializer.test.ts
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
-stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
-stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
-stdout | apps/web-pwa/src/components/AnalysisView.test.tsx
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
- ✓ apps/web-pwa/src/store/delegation/index.test.ts (18 tests) 20ms
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not use fallback when fallbackPointId equals pointId
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -704,6 +760,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not use fallback when fallbackPointId equals pointId
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -734,6 +792,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not use fallback when fallbackPointId equals pointId
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -884,6 +944,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not use fallback when fallbackPointId equals pointId
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -899,6 +961,9 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: false
 }
+
+stdout | apps/web-pwa/src/store/hermesDocs.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not use fallback when canonical returns non-zero before exhausting retries
 [vh:aggregate:read] {
@@ -916,8 +981,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
-
-stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > does not use fallback when canonical returns non-zero before exhausting retries
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -995,11 +1058,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: false
 }
-
-stdout | apps/web-pwa/src/hooks/useGovernance.test.ts
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
-stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > promotes canonical aggregate during bounded convergence polling
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -1064,8 +1122,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
-
-stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > promotes fallback aggregate during bounded convergence polling
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -1145,6 +1201,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > handles convergence fallback read failures without crashing
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -1333,9 +1391,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   retrying: true
 }
 
-stdout | apps/web-pwa/src/store/hermesDocs.test.ts
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > cancels convergence polling when poll read settles after unmount
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -1384,6 +1439,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > cancels convergence polling when canonical poll read resolves after unmount
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -1399,8 +1456,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
-
-stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > cancels convergence polling when canonical poll read resolves after unmount
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -1463,6 +1518,8 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   zero_snapshot: true,
   retrying: true
 }
+
+stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > cancels convergence polling when fallback poll read resolves after unmount
 [vh:aggregate:read] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -1596,7 +1653,7 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   epoch: 0,
   point_id: 'point-1',
   status: 'success',
-  latency_ms: 0,
+  latency_ms: 1,
   attempt: 1,
   agree: 8,
   disagree: 2,
@@ -1606,6 +1663,7 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   retrying: false
 }
 
+ ✓ apps/web-pwa/src/test-utils/testAccounts.test.ts (34 tests) 22ms
 stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > evicts expired cache entries before attempting mesh reads
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -1630,7 +1688,7 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   epoch: 0,
   point_id: 'point-1',
   status: 'success',
-  latency_ms: 1,
+  latency_ms: 0,
   attempt: 1,
   agree: 3,
   disagree: 0,
@@ -1674,13 +1732,22 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.test.ts > usePointAggregate > 
   retrying: false
 }
 
- ✓ apps/web-pwa/src/test-utils/testAccounts.test.ts (34 tests) 19ms
- ✓ apps/web-pwa/src/hooks/usePointAggregate.test.ts (34 tests) 190ms
- ✓ apps/web-pwa/src/store/discovery/store.test.ts (47 tests) 75ms
+ ✓ apps/web-pwa/src/hooks/usePointAggregate.test.ts (34 tests) 191ms
+ ✓ apps/web-pwa/src/store/discovery/store.test.ts (47 tests) 70ms
+stderr | apps/web-pwa/src/hooks/voteIntentMaterializer.test.ts > voteIntentMaterializer > replayVoteIntentQueue treats string timeout errors as recoverable when readback matches
+[vh:vote:intent-replay:timeout-recovered] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 1,
+  point_id: 'point-1',
+  voter_id: 'voter-timeout-string',
+  intent_id: 'timeout-string-recovered'
+}
+
 stdout | apps/web-pwa/src/hooks/voteIntentMaterializer.test.ts > voteIntentMaterializer > scheduleVoteIntentReplay coalesces while replay is already in flight
 [vh:vote:intent-replay] { replayed: 0, failed: 0 }
 
- ✓ apps/web-pwa/src/hooks/voteIntentMaterializer.test.ts (20 tests) 37ms
+ ✓ apps/web-pwa/src/hooks/voteIntentMaterializer.test.ts (20 tests) 38ms
 stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx > CellVoteControls > renders agree and disagree buttons
 [vh:bias-table:point-map] {
   topic_id: 'topic-1',
@@ -2060,6 +2127,50 @@ stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx > CellVoteCo
 }
 
 stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx > CellVoteControls > reuses aggregate snapshot when status transitions back to unchanged success payload
+[vh:bias-table:point-map] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 3,
+  legacy_point_id: null,
+  display_point_id: 'point-abc',
+  canonical_point_id: 'point-abc',
+  synthesis_point_id: null,
+  has_proof: true,
+  aggregate_status: 'success',
+  id_partition: false
+}
+[vh:bias-table:point-map] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 3,
+  legacy_point_id: null,
+  display_point_id: 'point-abc',
+  canonical_point_id: 'point-abc',
+  synthesis_point_id: null,
+  has_proof: true,
+  aggregate_status: 'loading',
+  id_partition: false
+}
+[vh:bias-table:point-map] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 3,
+  legacy_point_id: null,
+  display_point_id: 'point-abc',
+  canonical_point_id: 'point-abc',
+  synthesis_point_id: null,
+  has_proof: true,
+  aggregate_status: 'success',
+  id_partition: false
+}
+
+stderr | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx > CellVoteControls > reuses aggregate snapshot when status transitions back to unchanged success payload
+[vh:vote:intent-replay] { replayed: 0, failed: 1, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 1, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 2, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 2, retry_in_ms: 1000 }
+
+stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx > CellVoteControls > keeps disagree count stable when local vote is already -1
 [vh:bias-table:point-map] {
   topic_id: 'topic-1',
   synthesis_id: 'synth-1',
@@ -4069,6 +4180,9 @@ stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > 
   reason: 'Daily limit reached for sentiment_votes/day'
 }
 
+stderr | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > allows 200 sentiment votes and denies the 201st
+[vh:sentiment] Budget denied: Daily limit reached for sentiment_votes/day
+
 stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > enforces budget per nullifier isolation
 [vh:vote:admission] { topic_id: 't1', point_id: 'pa-1', admitted: true }
 [vh:vote:mesh-write] {
@@ -4094,6 +4208,9 @@ stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > 
   admitted: false,
   reason: 'Budget exhausted for a'
 }
+
+stderr | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > enforces budget per nullifier isolation
+[vh:sentiment] Budget denied: Budget exhausted for a
 
 stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > missing proof skips all budget APIs
 [vh:vote:admission] {
@@ -4249,7 +4366,19 @@ stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > 
   point_id: 'p1',
   success: true,
   timed_out: false,
-  latency_ms: 1
+  latency_ms: 0
+}
+
+stderr | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > projects accepted votes to encrypted outbox + aggregate voter nodes
+[vh:vote:voter-node-readback] {
+  topic_id: 't1',
+  synthesis_id: 'synth-9',
+  epoch: 4,
+  voter_id: 'voter-9',
+  point_id: 'p1',
+  found: false,
+  error: 'client.mesh.get(...).get is not a function',
+  write_error: null
 }
 
 stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > logs voter-node readback warning when readback throws non-Error values
@@ -4285,11 +4414,26 @@ stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > 
   error: 'client-unavailable'
 }
 
+stderr | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > emits vote-admission telemetry for denied writes
+[vh:sentiment] Missing constituency proof; SentimentSignal not emitted
+
 stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > marks mesh-write timeout as failed telemetry
 [vh:vote:admission] { topic_id: 't1', point_id: 'p1', admitted: true }
 
 stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > marks non-timeout non-acknowledged event writes as failed telemetry
 [vh:vote:admission] { topic_id: 't1', point_id: 'p1', admitted: true }
+
+stderr | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > emits successful mesh-write telemetry when projection succeeds
+[vh:vote:voter-node-readback] {
+  topic_id: 't1',
+  synthesis_id: 'synth-9',
+  epoch: 4,
+  voter_id: 'voter-1',
+  point_id: 'p1',
+  found: false,
+  error: 'client.mesh.get(...).get is not a function',
+  write_error: null
+}
 
 stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > setAgreement returns VoteAdmissionReceipt with accepted: true on success
 [vh:vote:admission] { topic_id: 't1', point_id: 'p1', admitted: true }
@@ -4392,56 +4536,16 @@ stdout | apps/web-pwa/src/hooks/useSentimentState.test.ts > useSentimentState > 
   reason: 'Budget exhausted'
 }
 
- ✓ apps/web-pwa/src/hooks/useSentimentState.test.ts (56 tests) 162ms
-stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx > CellVoteControls > reuses aggregate snapshot when status transitions back to unchanged success payload
-[vh:bias-table:point-map] {
-  topic_id: 'topic-1',
-  synthesis_id: 'synth-1',
-  epoch: 3,
-  legacy_point_id: null,
-  display_point_id: 'point-abc',
-  canonical_point_id: 'point-abc',
-  synthesis_point_id: null,
-  has_proof: true,
-  aggregate_status: 'loading',
-  id_partition: false
-}
-[vh:bias-table:point-map] {
-  topic_id: 'topic-1',
-  synthesis_id: 'synth-1',
-  epoch: 3,
-  legacy_point_id: null,
-  display_point_id: 'point-abc',
-  canonical_point_id: 'point-abc',
-  synthesis_point_id: null,
-  has_proof: true,
-  aggregate_status: 'success',
-  id_partition: false
-}
-
-stdout | apps/web-pwa/src/components/feed/CellVoteControls.test.tsx > CellVoteControls > keeps disagree count stable when local vote is already -1
-[vh:bias-table:point-map] {
-  topic_id: 'topic-1',
-  synthesis_id: 'synth-1',
-  epoch: 3,
-  legacy_point_id: null,
-  display_point_id: 'point-abc',
-  canonical_point_id: 'point-abc',
-  synthesis_point_id: null,
-  has_proof: true,
-  aggregate_status: 'success',
-  id_partition: false
-}
-
- ✓ apps/web-pwa/src/components/feed/CellVoteControls.test.tsx (20 tests) 172ms
+ ✓ apps/web-pwa/src/hooks/useSentimentState.test.ts (56 tests) 184ms
 stdout | apps/web-pwa/src/routes/AnalysisFeed.test.tsx > AnalysisFeed > stores to mesh but warns when identity missing
 [vh:analysis:mesh-write] {
   source: 'analysis-feed',
   event: 'mesh_write_success',
   url_hash: '05ec0da7501bd9f8',
-  latency_ms: 1
+  latency_ms: 0
 }
 
+ ✓ apps/web-pwa/src/components/feed/CellVoteControls.test.tsx (20 tests) 176ms
 stdout | apps/web-pwa/src/routes/AnalysisFeed.test.tsx > AnalysisFeed > shows success message when mesh sync succeeds with identity present
 [vh:analysis:mesh-write] {
   source: 'analysis-feed',
@@ -4449,12 +4553,6 @@ stdout | apps/web-pwa/src/routes/AnalysisFeed.test.tsx > AnalysisFeed > shows su
   url_hash: 'eb06507d5ff24f96',
   latency_ms: 0
 }
-
-stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > submits votes and updates counts
-[Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
-
-stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > hydrates stored votes for the same voter
-[Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
 
 stdout | apps/web-pwa/src/components/AnalysisView.test.tsx > AnalysisView > submits votes with validated constituency proof from useConstituencyProof
 [vh:vote:admission] { topic_id: 'analysis-1', point_id: 'synth-frame-1', admitted: true }
@@ -4474,7 +4572,7 @@ stdout | apps/web-pwa/src/components/AnalysisView.test.tsx > AnalysisView > subm
   point_id: 'synth-reframe-1',
   success: false,
   timed_out: false,
-  latency_ms: 1,
+  latency_ms: 0,
   error: 'client-unavailable'
 }
 
@@ -4582,16 +4680,150 @@ stdout | apps/web-pwa/src/components/AnalysisView.test.tsx > AnalysisView > forw
   reason: 'Missing constituency proof'
 }
 
+stderr | apps/web-pwa/src/components/AnalysisView.test.tsx > AnalysisView > forwards undefined proof payload when hook returns undefined proof
+[vh:sentiment] Missing constituency proof; SentimentSignal not emitted
+
+stderr | apps/web-pwa/src/components/AnalysisView.test.tsx
+[vh:vote:intent-replay] { replayed: 0, failed: 1, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 2, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 3, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+[vh:vote:intent-replay] { replayed: 0, failed: 4, retry_in_ms: 1000 }
+
+stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > submits votes and updates counts
+[Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
+
+stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > hydrates stored votes for the same voter
+[Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
+
+stderr | apps/web-pwa/src/store/hermesDocs.test.ts > createMockHermesDocsStore > publishArticle catches publishBack errors gracefully
+[vh:docs] publish back failed Error: runtime write failed
+    at Object.<anonymous> (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/hermesDocs.test.ts:472:13)
+    at Object.mockCall (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+spy@2.1.9/node_modules/@vitest/spy/dist/index.js:61:17)
+    at Object.spy [as publishBack] (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/tinyspy@3.0.2/node_modules/tinyspy/dist/index.js:45:80)
+    at Object.publishArticle (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/hermesDocs.ts:294:14)
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/store/hermesDocs.test.ts:480:35
+    at Proxy.assertThrows (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/chai@5.3.3/node_modules/chai/index.js:2767:5)
+    at Proxy.methodWrapper (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/chai@5.3.3/node_modules/chai/index.js:1686:25)
+    at Proxy.<anonymous> (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+expect@2.1.9/node_modules/@vitest/expect/dist/index.js:1029:16)
+    at Proxy.overwritingMethodWrapper (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/chai@5.3.3/node_modules/chai/index.js:1735:33)
+    at Proxy.<anonymous> (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+expect@2.1.9/node_modules/@vitest/expect/dist/index.js:1509:21)
+
 stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > hydrates after voterId appears later
 [Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
 
- ✓ apps/web-pwa/src/components/AnalysisView.test.tsx (14 tests) 434ms
- ✓ apps/web-pwa/src/store/hermesDocs.test.ts (37 tests) 48ms
 stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > isolates lastAction per voter
 [Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
 
+ ✓ apps/web-pwa/src/components/AnalysisView.test.tsx (14 tests) 401ms
+ ✓ apps/web-pwa/src/store/hermesDocs.test.ts (37 tests) 50ms
 stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > survives storage errors gracefully
 [Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
+
+stderr | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > survives storage errors gracefully
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-storage
+[vh:governance] Storage read failed for key vh_governance_votes:voter-storage
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-storage
+[vh:governance] Storage read failed for key vh_governance_votes:voter-storage
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-storage
+[vh:governance] Storage read failed for key vh_governance_votes:voter-storage
+[vh:governance] Storage map read failed
+[vh:governance] Storage write failed Error: boom
+    at Proxy.<anonymous> (/srv/trinity/worktrees/live-main/apps/web-pwa/src/hooks/useGovernance.test.ts:149:13)
+    at Proxy.mockCall (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+spy@2.1.9/node_modules/@vitest/spy/dist/index.js:61:17)
+    at Proxy.setItem (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/tinyspy@3.0.2/node_modules/tinyspy/dist/index.js:45:80)
+    at save (/srv/trinity/worktrees/live-main/apps/web-pwa/src/hooks/useGovernance.ts:115:15)
+    at persistStoredVotes (/srv/trinity/worktrees/live-main/apps/web-pwa/src/hooks/useGovernance.ts:118:5)
+    at submitVote (/srv/trinity/worktrees/live-main/apps/web-pwa/src/hooks/useGovernance.ts:232:5)
+    at Object.submitVote (/srv/trinity/worktrees/live-main/apps/web-pwa/src/hooks/useGovernance.ts:292:12)
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/hooks/useGovernance.test.ts:157:30
+    at /srv/trinity/worktrees/live-main/node_modules/.pnpm/@testing-library+react@16.3.0_@testing-library+dom@10.4.1_@types+react-dom@18.3.7_@types+reac_rhdsjwhuvyt27zr3pmopkwlsci/node_modules/@testing-library/react/dist/act-compat.js:48:24
+    at act (/srv/trinity/worktrees/live-main/node_modules/.pnpm/react@18.3.1/node_modules/react/cjs/react.development.js:2512:16)
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage read failed for key vh_governance_votes:voter-1
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage read failed for key vh_governance_votes:voter-2
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage read failed for key vh_governance_votes:late-voter
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-A
+[vh:governance] Storage read failed for key vh_governance_votes:voter-A
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-A
+[vh:governance] Storage read failed for key vh_governance_votes:voter-A
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-B
+[vh:governance] Storage read failed for key vh_governance_votes:voter-B
+[vh:governance] Storage map read failed
+[vh:governance] Storage map read failed
+[vh:governance] Storage read failed for key vh_governance_votes:voter-B
+[vh:governance] Storage read failed for key vh_governance_votes:voter-B
 
 stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > governance vote budget enforcement > allows 20 governance votes and denies the 21st
 [Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
@@ -4668,15 +4900,34 @@ stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > governan
 stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > governance vote budget enforcement > calls consumeAction for switched and updated votes too
 [Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
 
- ✓ apps/web-pwa/src/components/feed/useAnalysis.test.ts (22 tests) 971ms
- ✓ apps/web-pwa/src/store/hermesDocsCollab.test.ts (31 tests) 20ms
+ ✓ apps/web-pwa/src/components/feed/useAnalysis.test.ts (22 tests) 982ms
+ ✓ apps/web-pwa/src/store/hermesDocsCollab.test.ts (31 tests) 25ms
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > feature flag off keeps existing synthesis behavior and does not call analysis pipeline
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
 stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > coverage hardening matrix (T1-T26) > T7: persistStoredVotes is no-op when storage globals are undefined
 [Season 0] Vote recorded locally for "Expand EV Charging Network" (On-chain ID: 101). No RVU transaction sent.
+
+stderr | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > coverage hardening matrix (T1-T26) > T8: loadAllStoredVotes outer catch is defensive (branch ignored via v8 comment)
+[vh:governance] Storage map read failed
 
 stdout | apps/web-pwa/src/hooks/useGovernance.test.ts > useGovernance > coverage hardening matrix (T1-T26) > T11: submitVote accepts trust score > 1 (clamped to 1)
 [Season 0] Vote recorded locally for "High trust vote" (On-chain ID: 102). No RVU transaction sent.
 
- ✓ apps/web-pwa/src/hooks/useGovernance.test.ts (47 tests) 505ms
+ ✓ apps/web-pwa/src/hooks/useGovernance.test.ts (47 tests) 500ms
 stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > feature flag on renders analysis summary, provenance, and per-source summaries
 [vh:analysis:mesh-write] {
   source: 'news-card',
@@ -4684,6 +4935,36 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > feature
   story_id: 'story-news-1',
   reason: 'client_unavailable',
   latency_ms: 0
+}
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > feature flag on renders analysis summary, provenance, and per-source summaries
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
 }
 
 stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > uses provider_id provenance when model metadata is unavailable
@@ -4747,7 +5028,6 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.liveRefresh.test.ts > usePoint
   retrying: false
 }
 
- ✓ apps/web-pwa/src/hooks/useWallet.test.ts (10 tests) 157ms
 stdout | apps/web-pwa/src/hooks/usePointAggregate.liveRefresh.test.ts > usePointAggregate live refresh > honors explicit live refresh override when mode is test
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -4765,6 +5045,7 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.liveRefresh.test.ts > usePoint
   retrying: false
 }
 
+ ✓ apps/web-pwa/src/hooks/useWallet.test.ts (10 tests) 149ms
 stdout | apps/web-pwa/src/hooks/usePointAggregate.liveRefresh.test.ts > usePointAggregate live refresh > skips overlapping live refresh reads and cleans up interval on unmount
 [vh:aggregate:read] {
   topic_id: 'topic-1',
@@ -4833,7 +5114,7 @@ stdout | apps/web-pwa/src/hooks/usePointAggregate.liveRefresh.test.ts > usePoint
   retrying: false
 }
 
- ✓ apps/web-pwa/src/components/docs/ArticleEditor.test.tsx (25 tests) 362ms
+ ✓ apps/web-pwa/src/components/docs/ArticleEditor.test.tsx (25 tests) 350ms
 stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders BiasTable for analyzed stories
 [vh:analysis:mesh-write] {
   source: 'news-card',
@@ -4843,10 +5124,37 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders
   latency_ms: 0
 }
 
- ✓ apps/web-pwa/src/hooks/usePointAggregate.liveRefresh.test.ts (9 tests) 157ms
-stdout | apps/web-pwa/src/components/feed/BiasTable.test.tsx
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders BiasTable for analyzed stories
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
 
+ ✓ apps/web-pwa/src/hooks/usePointAggregate.liveRefresh.test.ts (9 tests) 150ms
 stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads analysisId from story through to BiasTable voting controls
 [vh:analysis:mesh-write] {
   source: 'news-card',
@@ -4855,6 +5163,39 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads
   reason: 'client_unavailable',
   latency_ms: 0
 }
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads analysisId from story through to BiasTable voting controls
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/BiasTable.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
 stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads analysisId from story through to BiasTable voting controls
 [vh:bias-table:point-map] {
@@ -4896,10 +5237,7 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads
   voting_context_ready: true
 }
 
-stdout | apps/web-pwa/src/components/feed/FeedShell.test.tsx
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
- ✓ apps/web-pwa/src/components/hermes/FamiliarControlPanel.test.tsx (10 tests) 581ms
+ ✓ apps/web-pwa/src/components/hermes/FamiliarControlPanel.test.tsx (10 tests) 568ms
 stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders voting controls with analysis fallback when synthesis context is missing
 [vh:analysis:mesh-write] {
   source: 'news-card',
@@ -4908,6 +5246,25 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders
   reason: 'client_unavailable',
   latency_ms: 0
 }
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders voting controls with analysis fallback when synthesis context is missing
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-news-1:prov-1',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/FeedShell.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
 stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders voting controls with analysis fallback when synthesis context is missing
 [vh:bias-table:point-map] {
@@ -4949,8 +5306,33 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders
   voting_context_ready: true
 }
 
- ✓ apps/web-pwa/src/hooks/voteIntentQueue.test.ts (16 tests) 84ms
- ✓ apps/web-pwa/src/components/feed/NewsCard.test.tsx (16 tests) 801ms
+stderr | apps/web-pwa/src/routes/AnalysisFeed.test.tsx > AnalysisFeed > analyses/day budget enforcement > T2: denied path blocks generation and shows reason
+[vh:analysis] Budget denied: Daily limit of 25 reached for analyses/day
+
+ ✓ apps/web-pwa/src/hooks/voteIntentQueue.test.ts (16 tests) 73ms
+stderr | apps/web-pwa/src/routes/AnalysisFeed.test.tsx > AnalysisFeed > analyses/day budget enforcement > T3: denied path does not consume budget
+[vh:analysis] Budget denied: Daily limit reached
+
+ ✓ apps/web-pwa/src/components/feed/NewsCard.test.tsx (16 tests) 805ms
+stderr | apps/web-pwa/src/routes/AnalysisFeed.test.tsx > AnalysisFeed > analyses/day budget enforcement > T8: per-topic cap denial displays per-topic reason
+[vh:analysis] Budget denied: Per-topic cap of 5 reached for analyses/day on topic abc123
+
+stderr | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > votingEnabled=true renders CellVoteControls in each cell
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-1',
+  analysis_id: 'story-1:prov-1',
+  synthesis_id: 'synth-1',
+  epoch: 7,
+  effective_synthesis_id: 'synth-1',
+  effective_epoch: 7,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
 stdout | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > votingEnabled=true renders CellVoteControls in each cell
 [vh:bias-table:point-map] {
   topic_id: 'topic-1',
@@ -5012,6 +5394,68 @@ stdout | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > votin
   expected_point_mappings: 4,
   legacy_point_mappings: 4,
   synthesis_point_mappings: 4,
+  voting_context_ready: true
+}
+
+stderr | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > no vote controls when votingEnabled but missing topicId
+[vh:bias-table:voting-context] {
+  topic_id: null,
+  analysis_id: 'story-1:prov-1',
+  synthesis_id: 'synth-1',
+  epoch: 7,
+  effective_synthesis_id: 'synth-1',
+  effective_epoch: null,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: false
+}
+[vh:bias-table:voting-context] {
+  topic_id: null,
+  analysis_id: 'story-1:prov-1',
+  synthesis_id: 'synth-1',
+  epoch: 7,
+  effective_synthesis_id: 'synth-1',
+  effective_epoch: null,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: false
+}
+
+stderr | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > no vote controls when votingEnabled but missing synthesis context
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-1',
+  analysis_id: 'story-1:prov-1',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-1:prov-1',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stderr | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > point IDs are stable content hashes across rerender
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-1',
+  analysis_id: 'story-1:prov-1',
+  synthesis_id: 'synth-1',
+  epoch: 7,
+  effective_synthesis_id: 'synth-1',
+  effective_epoch: 7,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
   voting_context_ready: true
 }
 
@@ -5079,6 +5523,22 @@ stdout | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > point
   voting_context_ready: true
 }
 
+stderr | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > frame and reframe voting controls are independent
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-1',
+  analysis_id: 'story-1:prov-1',
+  synthesis_id: 'synth-1',
+  epoch: 7,
+  effective_synthesis_id: 'synth-1',
+  effective_epoch: 7,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
 stdout | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > frame and reframe voting controls are independent
 [vh:bias-table:point-map] {
   topic_id: 'topic-1',
@@ -5143,40 +5603,42 @@ stdout | apps/web-pwa/src/components/feed/BiasTable.test.tsx > BiasTable > frame
   voting_context_ready: true
 }
 
- ✓ apps/web-pwa/src/components/hermes/forum/CommentComposer.test.tsx (20 tests) 242ms
- ✓ apps/web-pwa/src/components/feed/BiasTable.test.tsx (17 tests) 330ms
- ✓ apps/web-pwa/src/store/delegation/useFamiliar.test.ts (8 tests) 92ms
- ✓ apps/web-pwa/src/components/feed/useAnalysisMesh.test.ts (11 tests) 2140ms
-   ✓ useAnalysisMesh > falls back to latest pointer and allows cross-model reuse on matching provenance 2109ms
- ✓ apps/web-pwa/src/components/hermes/CommentStream.test.tsx (12 tests) 755ms
+ ✓ apps/web-pwa/src/components/hermes/forum/CommentComposer.test.tsx (20 tests) 231ms
+ ✓ apps/web-pwa/src/components/feed/BiasTable.test.tsx (17 tests) 337ms
+ ✓ apps/web-pwa/src/store/delegation/useFamiliar.test.ts (8 tests) 80ms
+ ✓ apps/web-pwa/src/components/hermes/CommentStream.test.tsx (12 tests) 741ms
+ ✓ apps/web-pwa/src/components/feed/useAnalysisMesh.test.ts (11 tests) 2146ms
+   ✓ useAnalysisMesh > falls back to latest pointer and allows cross-model reuse on matching provenance 2105ms
 stdout | apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/routes/AnalysisFeed.test.tsx (49 tests) 2198ms
-   ✓ AnalysisFeed > logs mesh write timeout and continues when ack callback never returns 1020ms
- ✓ apps/web-pwa/src/routes/WalletPanel.test.tsx (11 tests) 414ms
- ✓ apps/web-pwa/src/hooks/useZoomNavigation.test.ts (17 tests) 73ms
- ✓ apps/web-pwa/src/components/feed/TopicCard.test.tsx (15 tests) 180ms
- ✓ apps/web-pwa/src/components/feed/useStoryRemoval.test.ts (15 tests) 71ms
- ✓ apps/web-pwa/src/components/feed/SocialNotificationCard.test.tsx (16 tests) 122ms
- ✓ apps/web-pwa/src/components/feed/FeedShell.test.tsx (22 tests) 582ms
- ✓ apps/web-pwa/src/components/hermes/forum/CommentComposerWithArticle.test.tsx (10 tests) 257ms
- ✓ apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx (7 tests) 343ms
+ ✓ apps/web-pwa/src/routes/AnalysisFeed.test.tsx (49 tests) 2211ms
+   ✓ AnalysisFeed > logs mesh write timeout and continues when ack callback never returns 1024ms
+ ✓ apps/web-pwa/src/routes/WalletPanel.test.tsx (11 tests) 409ms
+ ✓ apps/web-pwa/src/components/feed/useStoryRemoval.test.ts (15 tests) 58ms
+ ✓ apps/web-pwa/src/components/feed/TopicCard.test.tsx (15 tests) 169ms
+ ✓ apps/web-pwa/src/hooks/useZoomNavigation.test.ts (17 tests) 67ms
+ ✓ apps/web-pwa/src/components/hermes/forum/CommentComposerWithArticle.test.tsx (10 tests) 228ms
+ ✓ apps/web-pwa/src/components/feed/SocialNotificationCard.test.tsx (16 tests) 123ms
+ ✓ apps/web-pwa/src/components/feed/FeedShell.test.tsx (22 tests) 602ms
+ ✓ apps/web-pwa/src/hooks/useConstituencyProof.test.ts (10 tests) 34ms
+ ✓ apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx (7 tests) 382ms
 stdout | apps/web-pwa/src/components/feed/NewsCardWithRemoval.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/hooks/useConstituencyProof.test.ts (10 tests) 41ms
+ ✓ apps/web-pwa/src/components/docs/useEditorMode.test.ts (17 tests) 14ms
+ ✓ apps/web-pwa/src/components/docs/ShareModal.test.tsx (20 tests) 257ms
+ ✓ apps/web-pwa/src/components/feed/NewsCardWithRemoval.test.tsx (9 tests) 96ms
 stdout | apps/web-pwa/src/routes/FeedForum.integration.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/components/docs/useEditorMode.test.ts (17 tests) 21ms
- ✓ apps/web-pwa/src/components/docs/ShareModal.test.tsx (20 tests) 293ms
- ✓ apps/web-pwa/src/components/bridge/ActionComposer.test.tsx (22 tests) 256ms
- ✓ apps/web-pwa/src/components/feed/NewsCardWithRemoval.test.tsx (9 tests) 136ms
- ✓ apps/web-pwa/src/components/bridge/ReceiptViewer.test.tsx (14 tests) 105ms
+ ✓ apps/web-pwa/src/components/bridge/ActionComposer.test.tsx (22 tests) 259ms
 stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
+ ✓ apps/web-pwa/src/components/bridge/ReceiptViewer.test.tsx (14 tests) 131ms
+ ✓ apps/web-pwa/src/components/feed/useBiasPointIds.test.tsx (5 tests) 76ms
+ ✓ apps/web-pwa/src/components/ProposalList.test.tsx (11 tests) 85ms
 stdout | apps/web-pwa/src/routes/FeedForum.integration.test.tsx > Feed ↔ Forum integration > creates a thread from analysis feed context with sourceUrl/urlHash/topicId/isHeadline
 [vh:forum] Creating thread: thread-feed-forum
 [vh:forum] Thread data for Gun: {
@@ -5199,15 +5661,13 @@ stdout | apps/web-pwa/src/routes/FeedForum.integration.test.tsx > Feed ↔ Forum
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-feed-forum
 
- ✓ apps/web-pwa/src/components/feed/useBiasPointIds.test.tsx (5 tests) 85ms
- ✓ apps/web-pwa/src/components/ProposalList.test.tsx (11 tests) 91ms
- ✓ apps/web-pwa/src/routes/FeedForum.integration.test.tsx (1 test) 163ms
- ✓ apps/web-pwa/src/hooks/useIdentity.test.ts (7 tests) 1076ms
- ✓ apps/web-pwa/src/hooks/useIntersectionLoader.test.tsx (10 tests) 66ms
+ ✓ apps/web-pwa/src/hooks/useIdentity.test.ts (7 tests) 1104ms
+ ✓ apps/web-pwa/src/routes/FeedForum.integration.test.tsx (1 test) 184ms
+ ✓ apps/web-pwa/src/hooks/useIntersectionLoader.test.tsx (10 tests) 75ms
 stdout | apps/web-pwa/src/components/feed/FeedShell.lazyLoading.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/hooks/useSynthesisPointIds.test.tsx (6 tests) 128ms
+ ✓ apps/web-pwa/src/hooks/useSynthesisPointIds.test.tsx (6 tests) 143ms
 stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
 [vh:analysis:mesh-write] {
   source: 'news-card',
@@ -5217,7 +5677,22 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx
   latency_ms: 0
 }
 
- ✓ apps/web-pwa/src/components/dev/DevModelPicker.test.tsx (15 tests) 182ms
+stderr | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-news',
+  analysis_id: 'story-one:prov-one',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-one:prov-one',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
 stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
 [vh:analysis:mesh-write] {
   source: 'news-card',
@@ -5227,81 +5702,97 @@ stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx
   latency_ms: 0
 }
 
- ✓ apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx (1 test) 335ms
-   ✓ NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared 333ms
-stdout | apps/web-pwa/src/hooks/useSynthesis.test.ts > useSynthesis > synthesis is always enabled (v2 is permanent)
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+stderr | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-news',
+  analysis_id: 'story-two:prov-two',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-two:prov-two',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
 
+ ✓ apps/web-pwa/src/components/dev/DevModelPicker.test.tsx (15 tests) 177ms
 stdout | apps/web-pwa/src/components/hermes/CommunityReactionSummary.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/components/bridge/RepresentativeSelector.test.tsx (10 tests) 150ms
- ✓ apps/web-pwa/src/components/hermes/forum/SlideToPost.test.tsx (10 tests) 135ms
- ✓ apps/web-pwa/src/hooks/useArticleFeedItems.test.ts (7 tests) 33ms
- ✓ apps/web-pwa/src/components/feed/FilterChips.test.tsx (9 tests) 104ms
- ✓ apps/web-pwa/src/hooks/useSynthesis.test.ts (4 tests) 376ms
- ✓ apps/web-pwa/src/components/feed/SynthesisSummary.test.tsx (11 tests) 116ms
+ ✓ apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx (1 test) 325ms
+   ✓ NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared 323ms
+stdout | apps/web-pwa/src/hooks/useSynthesis.test.ts > useSynthesis > synthesis is always enabled (v2 is permanent)
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ apps/web-pwa/src/components/bridge/RepresentativeSelector.test.tsx (10 tests) 142ms
+ ✓ apps/web-pwa/src/components/hermes/forum/SlideToPost.test.tsx (10 tests) 151ms
+ ✓ apps/web-pwa/src/components/feed/FilterChips.test.tsx (9 tests) 111ms
+ ✓ apps/web-pwa/src/hooks/useArticleFeedItems.test.ts (7 tests) 34ms
+ ✓ apps/web-pwa/src/components/hermes/CommunityReactionSummary.test.tsx (5 tests) 190ms
+ ✓ apps/web-pwa/src/components/feed/SynthesisSummary.test.tsx (11 tests) 120ms
+ ✓ apps/web-pwa/src/hooks/useSynthesis.test.ts (4 tests) 414ms
 stdout | apps/web-pwa/src/components/hermes/forum/ThreadView.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/hooks/useForumPreferences.test.ts (5 tests) 43ms
- ✓ apps/web-pwa/src/components/hermes/CommunityReactionSummary.test.tsx (5 tests) 187ms
- ✓ apps/web-pwa/src/hooks/useInView.test.tsx (8 tests) 95ms
- ✓ apps/web-pwa/src/components/feed/SourceBadgeRow.test.tsx (10 tests) 104ms
- ✓ apps/web-pwa/src/components/feed/FeedShell.lazyLoading.test.tsx (3 tests) 724ms
-   ✓ FeedShell lazy loading > renders first page, then appends on sentinel intersection 346ms
- ✓ apps/web-pwa/src/components/feed/SortControls.test.tsx (9 tests) 100ms
- ✓ apps/web-pwa/src/components/docs/ArticleFeedCard.test.tsx (12 tests) 131ms
- ✓ apps/web-pwa/src/components/docs/ArticleViewer.test.tsx (5 tests) 102ms
- ✓ apps/web-pwa/src/components/docs/CollabEditor.test.tsx (5 tests) 67ms
- ✓ apps/web-pwa/src/components/hermes/forum/ThreadView.test.tsx (3 tests) 446ms
- ✓ apps/web-pwa/src/hooks/useRemoteEngineOptIn.test.ts (6 tests) 37ms
- ✓ apps/web-pwa/src/components/venn/FlippableCard.test.tsx (4 tests) 155ms
- ✓ apps/web-pwa/src/components/feed/AnalysisLoadingState.test.tsx (6 tests) 76ms
- ✓ apps/web-pwa/src/components/feed/ReceiptFeedCard.test.tsx (10 tests) 110ms
- ✓ apps/web-pwa/src/components/bridge/ActionHistory.test.tsx (6 tests) 128ms
- ✓ apps/web-pwa/src/components/feed/SourceBadge.test.tsx (8 tests) 89ms
- ✓ apps/web-pwa/src/components/bridge/BridgeLayout.test.tsx (6 tests) 86ms
- ✓ apps/web-pwa/src/components/hermes/forum/VoteControl.test.tsx (5 tests) 100ms
+ ✓ apps/web-pwa/src/hooks/useForumPreferences.test.ts (5 tests) 53ms
+ ✓ apps/web-pwa/src/hooks/useInView.test.tsx (8 tests) 97ms
+ ✓ apps/web-pwa/src/components/feed/SourceBadgeRow.test.tsx (10 tests) 108ms
+ ✓ apps/web-pwa/src/components/feed/FeedShell.lazyLoading.test.tsx (3 tests) 778ms
+   ✓ FeedShell lazy loading > renders first page, then appends on sentinel intersection 360ms
+ ✓ apps/web-pwa/src/components/feed/SortControls.test.tsx (9 tests) 94ms
+ ✓ apps/web-pwa/src/components/docs/ArticleViewer.test.tsx (5 tests) 84ms
+ ✓ apps/web-pwa/src/components/docs/ArticleFeedCard.test.tsx (12 tests) 140ms
+ ✓ apps/web-pwa/src/components/feed/AnalysisLoadingState.test.tsx (6 tests) 73ms
+ ✓ apps/web-pwa/src/components/docs/CollabEditor.test.tsx (5 tests) 62ms
+ ✓ apps/web-pwa/src/components/hermes/forum/ThreadView.test.tsx (3 tests) 406ms
+ ✓ apps/web-pwa/src/hooks/useRemoteEngineOptIn.test.ts (6 tests) 40ms
+ ✓ apps/web-pwa/src/components/bridge/ActionHistory.test.tsx (6 tests) 109ms
+ ✓ apps/web-pwa/src/components/feed/ReceiptFeedCard.test.tsx (10 tests) 114ms
+ ✓ apps/web-pwa/src/components/venn/FlippableCard.test.tsx (4 tests) 148ms
+ ✓ apps/web-pwa/src/components/bridge/BridgeLayout.test.tsx (6 tests) 110ms
+ ✓ apps/web-pwa/src/components/feed/SourceBadge.test.tsx (8 tests) 85ms
 stdout | apps/web-pwa/src/hooks/useSentimentState.bootstrap.test.ts > useSentimentState storage bootstrap/persist guards > boots with empty maps when storage keys are absent
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
 stdout | apps/web-pwa/src/hooks/useSentimentState.bootstrap.test.ts > useSentimentState storage bootstrap/persist guards > swallows persist exceptions when safeSetItem throws
 [vh:vote:intent-replay] { replayed: 0, failed: 0 }
 
+ ✓ apps/web-pwa/src/components/hermes/forum/VoteControl.test.tsx (5 tests) 88ms
+ ✓ apps/web-pwa/src/hooks/useSentimentState.bootstrap.test.ts (3 tests) 298ms
  ✓ apps/web-pwa/src/hooks/useRegion.test.ts (5 tests) 31ms
- ✓ apps/web-pwa/src/hooks/useSentimentState.bootstrap.test.ts (3 tests) 345ms
- ✓ apps/web-pwa/src/components/hermes/forum/NewThreadForm.test.tsx (3 tests) 99ms
- ✓ apps/web-pwa/src/components/docs/PresenceBar.test.tsx (7 tests) 143ms
- ✓ apps/web-pwa/src/components/EngineSettings.test.tsx (6 tests) 73ms
+ ✓ apps/web-pwa/src/components/hermes/forum/NewThreadForm.test.tsx (3 tests) 97ms
+ ✓ apps/web-pwa/src/components/EngineSettings.test.tsx (6 tests) 79ms
+ ✓ apps/web-pwa/src/components/docs/PresenceBar.test.tsx (7 tests) 140ms
 stdout | apps/web-pwa/src/components/feed/useAnalysis.budgetOverride.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/components/hermes/forum/treeConnectors.test.tsx (5 tests) 102ms
- ✓ apps/web-pwa/src/components/feed/RemovalIndicator.test.tsx (8 tests) 199ms
-stdout | apps/web-pwa/src/hooks/useViewTracking.test.ts
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
-stdout | apps/web-pwa/src/components/FeedList.test.tsx
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
-
- ✓ apps/web-pwa/src/components/feed/FeedEngagement.test.tsx (4 tests) 69ms
+ ✓ apps/web-pwa/src/components/feed/RemovalIndicator.test.tsx (8 tests) 144ms
+ ✓ apps/web-pwa/src/components/hermes/forum/treeConnectors.test.tsx (5 tests) 109ms
+ ✓ apps/web-pwa/src/components/feed/useAnalysis.budgetOverride.test.ts (4 tests) 8ms
+ ✓ apps/web-pwa/src/components/feed/FeedEngagement.test.tsx (4 tests) 73ms
 stdout | apps/web-pwa/src/components/HeadlineCard.test.tsx
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/components/feed/useAnalysis.budgetOverride.test.ts (4 tests) 9ms
- ✓ apps/web-pwa/src/components/hermes/forum/ForumFeed.test.tsx (2 tests) 69ms
- ✓ apps/web-pwa/src/components/AnalysisFeedCard.test.tsx (2 tests) 70ms
- ✓ apps/web-pwa/src/hooks/useViewTracking.test.ts (3 tests) 37ms
+ ✓ apps/web-pwa/src/components/hermes/forum/ForumFeed.test.tsx (2 tests) 65ms
+stdout | apps/web-pwa/src/components/FeedList.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | apps/web-pwa/src/hooks/useViewTracking.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ apps/web-pwa/src/components/AnalysisFeedCard.test.tsx (2 tests) 74ms
  ✓ apps/web-pwa/src/store/identityProvider.browser.test.ts (1 test) 5ms
+ ✓ apps/web-pwa/src/hooks/useViewTracking.test.ts (3 tests) 35ms
  ✓ apps/web-pwa/src/components/VoteControl.test.tsx (2 tests) 62ms
- ✓ packages/types/src/adversarial-harness.test.ts (59 tests) 22ms
- ✓ apps/web-pwa/src/components/EngagementIcons.test.tsx (2 tests) 47ms
- ✓ apps/web-pwa/src/e2e-init.test.ts (1 test) 21ms
- ✓ packages/data-model/src/schemas/hermes/notification.test.ts (103 tests) 47ms
- ✓ packages/data-model/src/schemas/hermes/forum.test.ts (67 tests) 33ms
- ✓ apps/web-pwa/src/components/ProposalCard.test.tsx (1 test) 50ms
- ✓ apps/web-pwa/src/components/FeedList.test.tsx (3 tests) 91ms
+ ✓ packages/types/src/adversarial-harness.test.ts (59 tests) 20ms
+ ✓ apps/web-pwa/src/components/ProposalCard.test.tsx (1 test) 52ms
+ ✓ apps/web-pwa/src/components/EngagementIcons.test.tsx (2 tests) 44ms
+ ✓ apps/web-pwa/src/e2e-init.test.ts (1 test) 26ms
+ ✓ packages/data-model/src/schemas/hermes/notification.test.ts (103 tests) 32ms
+ ✓ packages/data-model/src/schemas/hermes/forum.test.ts (67 tests) 39ms
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > treats blank disable flag values as fallback=true in test sessions
 [vh:news-runtime] skipped for this session
 
@@ -5335,7 +5826,7 @@ stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntime
 
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > stops active runtime when lease renewal fails on a running session
 [vh:news-runtime] started
-[vh:news-runtime] lease held by another ingester { holder_id: 'vh-news-runtime:other', expires_at: 1772656471125 }
+[vh:news-runtime] lease held by another ingester { holder_id: 'vh-news-runtime:other', expires_at: 1772657432717 }
 
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > renews lease periodically while runtime is running
 [vh:news-runtime] started
@@ -5380,7 +5871,12 @@ stdout | packages/gun-client/src/aggregateAdapters.test.ts > aggregateAdapters >
   version: 99
 }
 
- ✓ packages/ai-engine/src/__tests__/topicSynthesisPipeline.test.ts (30 tests) 29ms
+ ✓ packages/ai-engine/src/newsAdvancedPipeline.test.ts (12 tests) 49ms
+ ✓ apps/web-pwa/src/store/linkedSocial/accountStore.test.ts (67 tests) 49ms
+ ✓ packages/gun-client/src/newsAdapters.test.ts (41 tests) 89ms
+stdout | apps/web-pwa/src/store/hermesForum.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to safe defaults when env values are malformed
 [vh:news-runtime] started
 
@@ -5412,12 +5908,21 @@ stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntime
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > filters runtime feed sources by article-text reliability when gate is enabled
 [vh:news-runtime] started
 
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > filters runtime feed sources by article-text reliability when gate is enabled
+[vh:news-runtime] dropped unreliable feed sources [ 'source-b' ]
+
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > reuses reliability cache for the same source set within TTL
 [vh:news-runtime] started
 [vh:news-runtime] started
 
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > reuses reliability cache for the same source set within TTL
+[vh:news-runtime] all feed sources failed reliability gate
+
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > enables reliability gating by default when MODE is non-test and gate env is unset
 [vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > enables reliability gating by default when MODE is non-test and gate env is unset
+[vh:news-runtime] dropped unreliable feed sources [ 'source-b' ]
 
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources marked unknown when feed XML has no parseable links
 [vh:news-runtime] started
@@ -5428,42 +5933,53 @@ stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntime
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to defaults when reliability env values are malformed and probe requests throw
 [vh:news-runtime] started
 
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to defaults when reliability env values are malformed and probe requests throw
+[vh:news-runtime] reliability probe inconclusive; keeping unknown sources [ 'source-fallback' ]
+
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > handles empty feed source lists when reliability gate is enabled
 [vh:news-runtime] started
 
 stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources when reliability probe is inconclusive for all sources
 [vh:news-runtime] started
 
- ✓ apps/web-pwa/src/server/analysisRelay.test.ts (30 tests) 81ms
- ✓ packages/gun-client/src/newsAdapters.test.ts (41 tests) 65ms
- ✓ apps/web-pwa/src/store/linkedSocial/accountStore.test.ts (67 tests) 36ms
- ✓ apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts (37 tests) 161ms
-stdout | apps/web-pwa/src/store/hermesForum.test.ts
-Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources when reliability probe is inconclusive for all sources
+[vh:news-runtime] reliability probe inconclusive; keeping unknown sources [ 'source-a', 'source-b' ]
 
+ ✓ apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts (37 tests) 168ms
+ ✓ apps/web-pwa/src/components/FeedList.test.tsx (3 tests) 103ms
+stderr | apps/web-pwa/src/components/HeadlineCard.test.tsx > HeadlineCard > renders metrics and expands on click
+Warning: useRouter must be used inside a <RouterProvider> component!
+Warning: useRouter must be used inside a <RouterProvider> component!
+
+ ✓ apps/web-pwa/src/server/analysisRelay.test.ts (30 tests) 69ms
+ ✓ packages/ai-engine/src/__tests__/topicSynthesisPipeline.test.ts (30 tests) 37ms
+ ✓ packages/types/src/budget-utils.test.ts (52 tests) 27ms
 stdout | apps/web-pwa/src/store/feedBridge.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ packages/types/src/budget-utils.test.ts (52 tests) 24ms
- ✓ packages/ai-engine/src/__tests__/newsCluster.test.ts (7 tests) 36ms
- ✓ packages/gun-client/src/analysisAdapters.test.ts (14 tests) 58ms
- ✓ packages/data-model/src/schemas/hermes/sentiment.test.ts (40 tests) 50ms
- ✓ apps/web-pwa/src/components/HeadlineCard.test.tsx (1 test) 422ms
-   ✓ HeadlineCard > renders metrics and expands on click 421ms
- ✓ packages/types/src/delegation-utils.test.ts (48 tests) 21ms
- ✓ packages/data-model/src/schemas/hermes/synthesis.test.ts (48 tests) 26ms
- ✓ packages/ai-engine/src/resynthesisWiring.test.ts (22 tests) 25ms
- ✓ packages/gun-client/src/synthesisAdapters.test.ts (15 tests) 50ms
- ✓ packages/ai-engine/src/commentTracker.test.ts (34 tests) 24ms
- ✓ apps/web-pwa/src/store/discovery/ranking.test.ts (40 tests) 28ms
- ✓ apps/web-pwa/src/store/xpLedger.test.ts (33 tests) 42ms
- ✓ packages/ai-engine/src/digestBuilder.test.ts (44 tests) 29ms
+ ✓ packages/ai-engine/src/__tests__/newsCluster.test.ts (7 tests) 44ms
+ ✓ packages/data-model/src/schemas/hermes/sentiment.test.ts (40 tests) 20ms
+ ✓ packages/gun-client/src/analysisAdapters.test.ts (14 tests) 50ms
+stderr | apps/web-pwa/src/components/HeadlineCard.test.tsx > HeadlineCard > renders metrics and expands on click
+Warning: useRouter must be used inside a <RouterProvider> component!
+Warning: useRouter must be used inside a <RouterProvider> component!
+Warning: useRouter must be used inside a <RouterProvider> component!
+
+ ✓ packages/data-model/src/schemas/hermes/synthesis.test.ts (48 tests) 24ms
+ ✓ packages/ai-engine/src/resynthesisWiring.test.ts (22 tests) 21ms
+ ✓ packages/types/src/delegation-utils.test.ts (48 tests) 25ms
+ ✓ packages/gun-client/src/synthesisAdapters.test.ts (15 tests) 61ms
+ ✓ apps/web-pwa/src/components/HeadlineCard.test.tsx (1 test) 417ms
+   ✓ HeadlineCard > renders metrics and expands on click 415ms
+ ✓ apps/web-pwa/src/store/discovery/ranking.test.ts (40 tests) 23ms
+ ✓ apps/web-pwa/src/store/xpLedger.test.ts (33 tests) 41ms
+ ✓ packages/ai-engine/src/commentTracker.test.ts (34 tests) 28ms
+ ✓ packages/ai-engine/src/digestBuilder.test.ts (44 tests) 31ms
 stdout | apps/web-pwa/src/store/hermesMessaging.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ packages/types/src/delegation.test.ts (39 tests) 28ms
  ✓ packages/ai-engine/src/quorum.test.ts (34 tests) 46ms
- ✓ apps/web-pwa/src/store/linkedSocial/tokenVault.test.ts (44 tests) 146ms
+ ✓ packages/types/src/delegation.test.ts (39 tests) 26ms
 stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > createThread emits project XP when tagged
 [vh:forum] Creating thread: thread-project
 [vh:forum] Thread data for Gun: {
@@ -5520,7 +6036,6 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > create
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-native
 
- ✓ packages/ai-engine/src/__tests__/sameEventMerge.test.ts (38 tests) 24ms
 stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > createThread with isHeadline sets headline flag
 [vh:forum] Creating thread: thread-headline
 [vh:forum] Thread data for Gun: {
@@ -5630,7 +6145,6 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > persis
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-persist
 
- ✓ packages/ai-engine/src/__tests__/clusterEngine.test.ts (15 tests) 33ms
 stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > writes index entries on thread creation
 [vh:forum] Creating thread: thread-index
 [vh:forum] Thread data for Gun: {
@@ -5701,6 +6215,9 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > create
 }
 [vh:forum] Put ack received: { err: 'fail' }
 
+stderr | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > createThread with Gun write failure does not consume budget
+[vh:forum] Thread write failed: fail
+
 stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > createComment with Gun write failure does not consume budget
 [vh:forum] Creating comment: comment-budget-gun-failure for thread: thread-1
 [vh:forum] Comment data: {
@@ -5716,6 +6233,9 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > create
   "stance": "concur"
 }
 [vh:forum] Comment put ack: { err: 'fail' }
+
+stderr | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > createComment with Gun write failure does not consume budget
+[vh:forum] Comment write failed: fail
 
 stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-1
@@ -5734,8 +6254,6 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-multi-1
-
-stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-2
 [vh:forum] Thread data for Gun: {
   "id": "thread-multi-2",
@@ -5752,6 +6270,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-multi-2
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-3
 [vh:forum] Thread data for Gun: {
   "id": "thread-multi-3",
@@ -5784,8 +6304,6 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-multi-4
-
-stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-5
 [vh:forum] Thread data for Gun: {
   "id": "thread-multi-5",
@@ -5934,8 +6452,6 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-multi-13
-
-stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-14
 [vh:forum] Thread data for Gun: {
   "id": "thread-multi-14",
@@ -5952,8 +6468,6 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-multi-14
-
-stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-15
 [vh:forum] Thread data for Gun: {
   "id": "thread-multi-15",
@@ -5970,6 +6484,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-multi-15
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-16
 [vh:forum] Thread data for Gun: {
   "id": "thread-multi-16",
@@ -6018,9 +6534,6 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-multi-18
-
- ✓ apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts (11 tests) 28ms
-stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget enforcement works across multiple threads
 [vh:forum] Creating thread: thread-multi-19
 [vh:forum] Thread data for Gun: {
   "id": "thread-multi-19",
@@ -6071,6 +6584,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-1
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget resets on date rollover for forum operations
 [vh:forum] Creating thread: thread-rollover-2
 [vh:forum] Thread data for Gun: {
   "id": "thread-rollover-2",
@@ -6121,6 +6636,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-4
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget resets on date rollover for forum operations
 [vh:forum] Creating thread: thread-rollover-5
 [vh:forum] Thread data for Gun: {
   "id": "thread-rollover-5",
@@ -6137,6 +6654,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-5
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget resets on date rollover for forum operations
 [vh:forum] Creating thread: thread-rollover-6
 [vh:forum] Thread data for Gun: {
   "id": "thread-rollover-6",
@@ -6169,6 +6688,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-7
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget resets on date rollover for forum operations
 [vh:forum] Creating thread: thread-rollover-8
 [vh:forum] Thread data for Gun: {
   "id": "thread-rollover-8",
@@ -6217,6 +6738,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-10
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget resets on date rollover for forum operations
 [vh:forum] Creating thread: thread-rollover-11
 [vh:forum] Thread data for Gun: {
   "id": "thread-rollover-11",
@@ -6329,6 +6852,8 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 }
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-17
+
+stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget resets on date rollover for forum operations
 [vh:forum] Creating thread: thread-rollover-18
 [vh:forum] Thread data for Gun: {
   "id": "thread-rollover-18",
@@ -6346,6 +6871,7 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-18
 
+ ✓ apps/web-pwa/src/store/linkedSocial/tokenVault.test.ts (44 tests) 132ms
 stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget resets on date rollover for forum operations
 [vh:forum] Creating thread: thread-rollover-19
 [vh:forum] Thread data for Gun: {
@@ -6400,11 +6926,130 @@ stdout | apps/web-pwa/src/store/hermesForum.test.ts > hermesForum store > budget
 [vh:forum] Put ack received: {}
 [vh:forum] Thread written successfully to path: vh/forum/threads/thread-rollover-21
 
+ ✓ packages/ai-engine/src/__tests__/sameEventMerge.test.ts (38 tests) 21ms
+ ✓ packages/ai-engine/src/__tests__/clusterEngine.test.ts (15 tests) 29ms
+stderr | apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts > newsCardAnalysis > falls back to metadata-only input when article fetch fails
+[vh:news-card-analysis] article fetch failed; using metadata fallback {
+  sourceId: 'source-1',
+  url: 'https://example.com/1',
+  error: Error: fetch blocked
+      at fetchArticleText (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:245:15)
+      at runSynthesis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:308:29)
+      at Module.synthesizeStoryFromAnalysisPipeline (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:347:12)
+      at /srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:243:26
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+      at runWithTimeout (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+      at runTest (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+      at processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+}
+
+stderr | apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts > newsCardAnalysis > throws when all source analyses fail
+[vh:news-card-analysis] article fetch failed; using metadata fallback {
+  sourceId: 'source-1',
+  url: 'https://example.com/1',
+  error: Error: fetch blocked
+      at fetchArticleText (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:270:17)
+      at runSynthesis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:308:29)
+      at Module.synthesizeStoryFromAnalysisPipeline (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:347:12)
+      at /srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:268:7
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:146:14
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:11
+      at runWithTimeout (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:39:7)
+      at runTest (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:17)
+      at processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+}
+[vh:news-card-analysis] source analysis failed {
+  sourceId: 'source-1',
+  url: 'https://example.com/1',
+  error: Error: engine offline
+      at runAnalysis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:273:17)
+      at runSynthesis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:318:28)
+      at processTicksAndRejections (node:internal/process/task_queues:105:5)
+}
+[vh:news-card-analysis] article fetch failed; using metadata fallback {
+  sourceId: 'source-2',
+  url: 'https://example.com/2',
+  error: Error: fetch blocked
+      at fetchArticleText (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:270:17)
+      at runSynthesis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:308:29)
+      at processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at /srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:267:5
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+      at runTest (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runFiles (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+      at startTests (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+}
+[vh:news-card-analysis] source analysis failed {
+  sourceId: 'source-2',
+  url: 'https://example.com/2',
+  error: Error: engine offline
+      at runAnalysis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:273:17)
+      at runSynthesis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:318:28)
+      at processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at /srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:267:5
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+      at runTest (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runFiles (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+      at startTests (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+}
+[vh:news-card-analysis] article fetch failed; using metadata fallback {
+  sourceId: 'source-3',
+  url: 'https://example.com/3',
+  error: Error: fetch blocked
+      at fetchArticleText (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:270:17)
+      at runSynthesis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:308:29)
+      at processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at /srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:267:5
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+      at runTest (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runFiles (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+      at startTests (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+}
+[vh:news-card-analysis] source analysis failed {
+  sourceId: 'source-3',
+  url: 'https://example.com/3',
+  error: Error: engine offline
+      at runAnalysis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:273:17)
+      at runSynthesis (/srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.ts:318:28)
+      at processTicksAndRejections (node:internal/process/task_queues:105:5)
+      at /srv/trinity/worktrees/live-main/apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts:267:5
+      at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
+      at runTest (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1056:11)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runSuite (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1205:15)
+      at runFiles (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1262:5)
+      at startTests (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:1271:3)
+}
+
+ ✓ apps/web-pwa/src/store/hermesForum.test.ts (26 tests) 85ms
+ ✓ apps/web-pwa/src/components/feed/newsCardAnalysis.test.ts (11 tests) 30ms
+stderr | packages/gun-client/src/aggregateAdapters.test.ts > aggregateAdapters > writeVoterNode rejects sensitive fields and ack errors
+[vh:aggregate:voter-write] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 4,
+  voter_id: 'voter-1',
+  point_id: 'point-1',
+  acknowledged: false,
+  timed_out: undefined,
+  latency_ms: undefined,
+  path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/',
+  error: 'boom'
+}
+
 stdout | apps/web-pwa/src/store/hermesForum.commentsAndHydration.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/store/hermesForum.test.ts (26 tests) 84ms
- ✓ apps/web-pwa/src/store/news/hydration.test.ts (15 tests) 976ms
+ ✓ apps/web-pwa/src/store/news/hydration.test.ts (15 tests) 978ms
 stdout | apps/web-pwa/src/store/hermesMessaging.test.ts > hermesMessaging store > sendMessage writes encrypted payload to inbox/outbox/chat
 [vh:chat] sendMessage: writing to paths {
   inboxDevicePub: 'bob-device...',
@@ -6419,12 +7064,26 @@ stdout | apps/web-pwa/src/store/hermesMessaging.test.ts > hermesMessaging store 
   channelId: 'channel-123...'
 }
 
+ ✓ packages/data-model/src/schemas/hermes/storyBundle.test.ts (40 tests) 24ms
 stdout | apps/web-pwa/src/store/hermesMessaging.test.ts > hermesMessaging store > marks status failed on write error
 [vh:chat] sendMessage: writing to paths {
   inboxDevicePub: 'bob-device...',
   messageId: 'msg-fail',
   channelId: 'channel-123...'
 }
+
+stderr | apps/web-pwa/src/store/hermesMessaging.test.ts > hermesMessaging store > marks status failed on write error
+[vh:chat] failed to write message Error: boom
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/store/chat/index.ts:196:24
+    at Object.<anonymous> (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/hermesMessaging.test.ts:273:74)
+    at Object.mockCall (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+spy@2.1.9/node_modules/@vitest/spy/dist/index.js:61:17)
+    at Object.spy (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/tinyspy@3.0.2/node_modules/tinyspy/dist/index.js:45:80)
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/store/chat/index.ts:191:19
+    at new Promise (<anonymous>)
+    at write (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/chat/index.ts:184:11)
+    at Object.sendMessage (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/chat/index.ts:203:60)
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/store/hermesMessaging.test.ts:280:5
+    at file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+runner@2.1.9/node_modules/@vitest/runner/dist/index.js:533:5
 
 stdout | apps/web-pwa/src/store/hermesMessaging.test.ts > hermesMessaging store > skips first contact XP when contact already exists
 [vh:chat] sendMessage: writing to paths {
@@ -6440,10 +7099,8 @@ stdout | apps/web-pwa/src/store/hermesMessaging.test.ts > hermesMessaging store 
   channelId: 'channel-123...'
 }
 
- ✓ apps/web-pwa/src/store/hermesMessaging.test.ts (13 tests) 38ms
- ✓ packages/data-model/src/schemas/hermes/storyBundle.test.ts (40 tests) 28ms
- ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 38ms
- ✓ packages/ai-engine/src/newsAdvancedPipeline.test.ts (8 tests) 25ms
+ ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 39ms
+ ✓ apps/web-pwa/src/store/hermesMessaging.test.ts (13 tests) 37ms
 stdout | apps/web-pwa/src/store/hermesForum.commentsAndHydration.test.ts > hermesForum store (comments & hydration) > createComment marks substantive comments
 [vh:forum] Creating comment: comment-1 for thread: thread-1
 [vh:forum] Comment data: {
@@ -6513,29 +7170,32 @@ stdout | apps/web-pwa/src/store/hermesForum.commentsAndHydration.test.ts > herme
 [vh:forum] hydration callback: { key: 'duplicate-thread', dataType: 'object', hasData: true }
 [vh:forum] skipping: already seen duplicate-thread
 
- ✓ apps/web-pwa/src/store/hermesForum.commentsAndHydration.test.ts (10 tests) 20ms
- ✓ packages/ai-engine/src/remoteApiEngine.test.ts (18 tests) 28ms
- ✓ packages/gun-client/src/bridgeAdapters.test.ts (30 tests) 24ms
- ✓ apps/web-pwa/src/components/feed/HotnessRanker.test.ts (37 tests) 18ms
- ✓ packages/ai-engine/src/__tests__/newsNormalize.test.ts (8 tests) 32ms
- ✓ packages/ai-engine/src/candidateGatherer.test.ts (27 tests) 23ms
- ✓ packages/types/src/budget.test.ts (36 tests) 21ms
- ✓ packages/gun-client/src/docsAdapters.test.ts (14 tests) 18ms
- ✓ apps/web-pwa/src/store/news/index.test.ts (27 tests) 1722ms
- ✓ packages/data-model/src/schemas/hermes/docs.test.ts (39 tests) 25ms
- ✓ packages/ai-engine/src/engines.test.ts (19 tests) 19ms
- ✓ packages/data-model/src/schemas/hermes/discovery.test.ts (65 tests) 24ms
- ✓ apps/web-pwa/src/hooks/useHealthMonitor.test.ts (8 tests) 93ms
- ✓ apps/web-pwa/src/store/forum/commentCounts.test.ts (25 tests) 15ms
- ✓ packages/ai-engine/src/__tests__/bundleVerification.test.ts (14 tests) 32ms
- ✓ apps/web-pwa/src/store/xpLedgerBudget.test.ts (26 tests) 30ms
- ✓ apps/web-pwa/src/server/analysisRelay.budgetAndErrors.test.ts (9 tests) 20ms
- ✓ packages/ai-engine/src/__tests__/newsOrchestrator.test.ts (7 tests) 41ms
- ✓ packages/ai-engine/src/synthesisTypes.test.ts (30 tests) 15ms
- ✓ packages/crdt/src/gunYjsProvider.test.ts (15 tests) 534ms
- ✓ packages/data-model/src/schemas/hermes/elevation.test.ts (38 tests) 13ms
- ✓ apps/web-pwa/src/store/synthesis/index.test.ts (18 tests) 1008ms
- ✓ packages/ai-engine/src/pipeline.test.ts (11 tests) 20ms
+ ✓ packages/ai-engine/src/remoteApiEngine.test.ts (18 tests) 25ms
+ ✓ apps/web-pwa/src/store/hermesForum.commentsAndHydration.test.ts (10 tests) 19ms
+ ✓ packages/gun-client/src/bridgeAdapters.test.ts (30 tests) 23ms
+ ✓ packages/ai-engine/src/__tests__/newsNormalize.test.ts (8 tests) 34ms
+ ✓ apps/web-pwa/src/components/feed/HotnessRanker.test.ts (37 tests) 17ms
+ ✓ packages/types/src/budget.test.ts (36 tests) 28ms
+ ✓ packages/ai-engine/src/candidateGatherer.test.ts (27 tests) 19ms
+ ✓ packages/gun-client/src/docsAdapters.test.ts (14 tests) 15ms
+ ✓ packages/data-model/src/schemas/hermes/docs.test.ts (39 tests) 24ms
+stderr | packages/ai-engine/src/engines.test.ts > createRemoteEngine > does not pass auth material into engine construction
+[vh:ai-engine] Direct remote engine URLs are deprecated. Prefer server relay endpoint /api/analyze.
+
+ ✓ apps/web-pwa/src/store/news/index.test.ts (27 tests) 1677ms
+ ✓ packages/ai-engine/src/engines.test.ts (19 tests) 18ms
+ ✓ packages/data-model/src/schemas/hermes/discovery.test.ts (65 tests) 25ms
+ ✓ packages/ai-engine/src/__tests__/bundleVerification.test.ts (14 tests) 35ms
+ ✓ apps/web-pwa/src/hooks/useHealthMonitor.test.ts (8 tests) 98ms
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.test.ts (7 tests) 53ms
+ ✓ apps/web-pwa/src/store/forum/commentCounts.test.ts (25 tests) 10ms
+ ✓ apps/web-pwa/src/store/synthesis/index.test.ts (18 tests) 903ms
+ ✓ apps/web-pwa/src/store/xpLedgerBudget.test.ts (26 tests) 34ms
+ ✓ apps/web-pwa/src/server/analysisRelay.budgetAndErrors.test.ts (9 tests) 18ms
+ ✓ packages/ai-engine/src/synthesisTypes.test.ts (30 tests) 17ms
+ ✓ packages/crdt/src/gunYjsProvider.test.ts (15 tests) 533ms
+ ✓ packages/ai-engine/src/pipeline.test.ts (11 tests) 19ms
+ ✓ packages/data-model/src/schemas/hermes/elevation.test.ts (38 tests) 29ms
 stdout | apps/web-pwa/src/store/store.test.ts > useAppStore > init sets client after hydration
 [vh:web-pwa] using Gun peers [ 'http://localhost:7777/gun' ]
 
@@ -6556,6 +7216,20 @@ stdout | apps/web-pwa/src/store/store.test.ts > useAppStore > authenticates gun 
 stdout | apps/web-pwa/src/store/store.test.ts > useAppStore > continues init when auth fails
 [vh:web-pwa] using Gun peers [ 'http://localhost:7777/gun' ]
 
+stderr | apps/web-pwa/src/store/store.test.ts > useAppStore > continues init when auth fails
+[vh:gun] Auth failed: nope
+[vh:gun] Auth/directory publish failed, continuing anyway: Error: nope
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/store/index.ts:141:16
+    at Object.<anonymous> (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/store.test.ts:158:96)
+    at Object.mockCall (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/@vitest+spy@2.1.9/node_modules/@vitest/spy/dist/index.js:61:17)
+    at Object.spy [as auth] (file:///srv/trinity/worktrees/live-main/node_modules/.pnpm/tinyspy@3.0.2/node_modules/tinyspy/dist/index.js:45:80)
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/store/index.ts:137:10
+    at new Promise (<anonymous>)
+    at authenticateGunUser (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/index.ts:125:10)
+    at runInit (/srv/trinity/worktrees/live-main/apps/web-pwa/src/store/index.ts:221:19)
+    at processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at /srv/trinity/worktrees/live-main/apps/web-pwa/src/store/store.test.ts:166:5
+
 stdout | apps/web-pwa/src/store/store.test.ts > useAppStore > createIdentity falls back when randomUUID is missing and surfaces write errors
 [vh:web-pwa] using Gun peers [ 'http://localhost:7777/gun' ]
 
@@ -6565,11 +7239,21 @@ stdout | apps/web-pwa/src/store/store.test.ts > useAppStore > init loads persist
 stdout | apps/web-pwa/src/store/store.test.ts > useAppStore > init uses empty peers in E2E mode
 [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
 
- ✓ apps/web-pwa/src/store/store.test.ts (12 tests) 34ms
- ✓ apps/web-pwa/src/secure-storage-audit.test.ts (2 tests) 14ms
- ✓ packages/ai-engine/src/epochScheduler.test.ts (16 tests) 16ms
- ✓ packages/gun-client/src/sentimentEventAdapters.test.ts (9 tests) 1038ms
-   ✓ sentimentEventAdapters > writeSentimentEvent resolves after ack-timeout fallback when put callback never arrives 1004ms
+ ✓ apps/web-pwa/src/store/store.test.ts (12 tests) 29ms
+stderr | packages/gun-client/src/aggregateAdapters.test.ts > aggregateAdapters > writeVoterNode rejects when put callback never arrives (strict ack)
+[vh:aggregate:voter-write] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 4,
+  voter_id: 'voter-1',
+  point_id: 'point-1',
+  acknowledged: false,
+  timed_out: true,
+  latency_ms: undefined,
+  path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/',
+  error: 'aggregate-put-ack-timeout'
+}
+
 stdout | packages/gun-client/src/aggregateAdapters.test.ts > aggregateAdapters > writeVoterNode ignores timeout/late ack callbacks after successful settlement
 [vh:aggregate:voter-write] {
   topic_id: 'topic-1',
@@ -6583,131 +7267,142 @@ stdout | packages/gun-client/src/aggregateAdapters.test.ts > aggregateAdapters >
   path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/'
 }
 
- ✓ apps/web-pwa/src/store/bridge/useBridgeStore.test.ts (21 tests) 22ms
+ ✓ apps/web-pwa/src/secure-storage-audit.test.ts (2 tests) 19ms
+ ✓ packages/ai-engine/src/epochScheduler.test.ts (16 tests) 14ms
+ ✓ apps/web-pwa/src/store/bridge/useBridgeStore.test.ts (21 tests) 23ms
+stderr | packages/gun-client/src/sentimentEventAdapters.test.ts > sentimentEventAdapters > writeSentimentEvent resolves after ack-timeout fallback when put callback never arrives
+[vh:gun-client] sentiment outbox put ack timed out, proceeding best-effort
+
 stdout | packages/gun-client/src/docsKeyManagement.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ apps/web-pwa/src/utils/sentimentTelemetry.test.ts (7 tests) 16ms
- ✓ packages/ai-engine/src/bundlePrompts.test.ts (18 tests) 10ms
- ✓ packages/identity-vault/src/vault.master-key-race.test.ts (3 tests) 36ms
- ✓ apps/web-pwa/src/store/feedBridge.test.ts (19 tests) 1733ms
-   ✓ startNewsBridge > logs refresh failures during bootstrap and continues 1507ms
- ✓ apps/web-pwa/src/hooks/useFeedStore.test.ts (10 tests) 30ms
- ✓ apps/web-pwa/src/test-utils/devInvite.test.ts (21 tests) 16ms
- ✓ apps/web-pwa/src/store/synthesis/__tests__/pipelineBridge.test.ts (10 tests) 17ms
- ✓ packages/gun-client/src/topology.test.ts (15 tests) 12ms
- ✓ apps/web-pwa/src/store/bridge/intentAdapters.test.ts (18 tests) 18ms
- ✓ packages/ai-engine/src/__tests__/newsIngest.test.ts (3 tests) 26ms
- ✓ packages/data-model/src/schemas.test.ts (14 tests) 17ms
+ ✓ apps/web-pwa/src/utils/sentimentTelemetry.test.ts (7 tests) 17ms
+ ✓ packages/gun-client/src/sentimentEventAdapters.test.ts (9 tests) 1037ms
+   ✓ sentimentEventAdapters > writeSentimentEvent resolves after ack-timeout fallback when put callback never arrives 1003ms
+ ✓ apps/web-pwa/src/store/feedBridge.test.ts (19 tests) 1680ms
+   ✓ startNewsBridge > logs refresh failures during bootstrap and continues 1505ms
+ ✓ packages/ai-engine/src/bundlePrompts.test.ts (18 tests) 11ms
+ ✓ apps/web-pwa/src/store/synthesis/__tests__/pipelineBridge.test.ts (10 tests) 19ms
+ ✓ apps/web-pwa/src/hooks/useFeedStore.test.ts (10 tests) 28ms
+ ✓ packages/identity-vault/src/vault.master-key-race.test.ts (3 tests) 41ms
+ ✓ apps/web-pwa/src/test-utils/devInvite.test.ts (21 tests) 15ms
+ ✓ packages/gun-client/src/topology.test.ts (15 tests) 16ms
+ ✓ apps/web-pwa/src/store/bridge/intentAdapters.test.ts (18 tests) 19ms
+ ✓ packages/ai-engine/src/__tests__/newsIngest.test.ts (3 tests) 19ms
+ ✓ packages/data-model/src/schemas.test.ts (14 tests) 20ms
 stdout | apps/web-pwa/src/store/feedBridge.bootstrapErrors.test.ts > feedBridge bootstrap error handling > clears cached store promise when bridge store resolution fails
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ packages/gun-client/src/docsKeyManagement.test.ts (16 tests) 399ms
- ✓ packages/ai-engine/src/analysis.test.ts (10 tests) 33ms
- ✓ apps/web-pwa/src/store/bridge/nominationFlow.test.ts (12 tests) 24ms
+ ✓ packages/gun-client/src/docsKeyManagement.test.ts (16 tests) 382ms
+ ✓ apps/web-pwa/src/store/bridge/nominationFlow.test.ts (12 tests) 16ms
+ ✓ packages/ai-engine/src/analysis.test.ts (10 tests) 38ms
+ ✓ apps/web-pwa/src/store/feedBridge.bootstrapErrors.test.ts (4 tests) 482ms
+ ✓ apps/web-pwa/src/store/bridge/receiptManager.test.ts (8 tests) 17ms
  ✓ apps/web-pwa/src/store/mockClient.test.ts (3 tests) 11ms
- ✓ apps/web-pwa/src/store/feedBridge.bootstrapErrors.test.ts (4 tests) 513ms
- ✓ apps/web-pwa/src/store/bridge/receiptManager.test.ts (8 tests) 25ms
- ✓ packages/data-model/src/schemas/hermes/bridgeAction.test.ts (43 tests) 32ms
- ✓ packages/types/src/constituency-verification.test.ts (10 tests) 8ms
- ✓ tools/scripts/guards/__tests__/checkProductionFlags.test.ts (8 tests) 34ms
- ✓ apps/web-pwa/src/store/hermesDocsAccess.test.ts (23 tests) 8ms
- ✓ apps/web-pwa/src/store/synthesis/hydration.test.ts (7 tests) 536ms
- ✓ apps/web-pwa/src/store/forum/helpers.test.ts (18 tests) 13ms
- ✓ packages/data-model/src/schemas/hermes/notificationToken.test.ts (25 tests) 88ms
- ✓ apps/web-pwa/src/store/identityProvider.test.ts (9 tests) 11ms
- ✓ packages/data-model/src/schemas/hermes/bridgeRepresentative.test.ts (27 tests) 19ms
- ✓ packages/ai-engine/src/__tests__/newsTypes.test.ts (5 tests) 13ms
- ✓ packages/ai-engine/src/localMlEngine.test.ts (7 tests) 60ms
- ✓ packages/gun-client/src/directoryAdapters.test.ts (5 tests) 22ms
+ ✓ packages/data-model/src/schemas/hermes/bridgeAction.test.ts (43 tests) 30ms
+ ✓ packages/types/src/constituency-verification.test.ts (10 tests) 5ms
+ ✓ tools/scripts/guards/__tests__/checkProductionFlags.test.ts (8 tests) 24ms
+ ✓ apps/web-pwa/src/store/synthesis/hydration.test.ts (7 tests) 498ms
+ ✓ apps/web-pwa/src/store/hermesDocsAccess.test.ts (23 tests) 10ms
+ ✓ apps/web-pwa/src/store/forum/helpers.test.ts (18 tests) 12ms
+ ✓ packages/data-model/src/schemas/hermes/notificationToken.test.ts (25 tests) 105ms
+ ✓ apps/web-pwa/src/store/identityProvider.test.ts (9 tests) 9ms
+ ✓ packages/ai-engine/src/__tests__/newsTypes.test.ts (5 tests) 9ms
+ ✓ packages/data-model/src/schemas/hermes/bridgeRepresentative.test.ts (27 tests) 14ms
  ✓ packages/types/src/session-lifecycle.test.ts (21 tests) 9ms
- ✓ apps/web-pwa/src/store/linkedSocial/socialFeedAdapter.test.ts (11 tests) 14ms
- ✓ packages/ai-engine/src/feedRegistry.test.ts (19 tests) 20ms
- ✓ packages/data-model/src/sentiment-aggregate.test.ts (2 tests) 12ms
+ ✓ packages/gun-client/src/directoryAdapters.test.ts (5 tests) 21ms
+ ✓ packages/ai-engine/src/localMlEngine.test.ts (7 tests) 72ms
+ ✓ packages/ai-engine/src/feedRegistry.test.ts (19 tests) 22ms
+ ✓ packages/data-model/src/sentiment-aggregate.test.ts (2 tests) 8ms
+ ✓ apps/web-pwa/src/store/linkedSocial/socialFeedAdapter.test.ts (11 tests) 15ms
  ✓ apps/web-pwa/src/store/bridge/bridgeXP.test.ts (11 tests) 10ms
- ✓ apps/web-pwa/src/store/bridge/reportGenerator.test.ts (13 tests) 16ms
- ✓ apps/web-pwa/src/store/bridge/representativeDirectory.test.ts (15 tests) 23ms
+ ✓ apps/web-pwa/src/store/bridge/representativeDirectory.test.ts (15 tests) 21ms
+ ✓ apps/web-pwa/src/store/bridge/reportGenerator.test.ts (13 tests) 20ms
  ✓ packages/gun-client/src/runtimeConfig.test.ts (8 tests) 6ms
- ✓ apps/web-pwa/src/store/forum/synthesisBridge.test.ts (7 tests) 13ms
- ✓ packages/data-model/src/schemas/hermes/message.test.ts (8 tests) 33ms
- ✓ apps/web-pwa/src/store/bridge/elevationArtifacts.test.ts (9 tests) 22ms
- ✓ packages/crdt/src/awareness.test.ts (8 tests) 13ms
- ✓ apps/web-pwa/src/components/colorUtils.test.ts (15 tests) 11ms
- ✓ packages/ai-engine/src/worker.test.ts (3 tests) 50ms
+ ✓ apps/web-pwa/src/store/forum/synthesisBridge.test.ts (7 tests) 14ms
+ ✓ packages/crdt/src/awareness.test.ts (8 tests) 15ms
+ ✓ apps/web-pwa/src/store/bridge/elevationArtifacts.test.ts (9 tests) 15ms
+ ✓ packages/data-model/src/schemas/hermes/message.test.ts (8 tests) 20ms
+ ✓ apps/web-pwa/src/components/colorUtils.test.ts (15 tests) 13ms
+ ✓ packages/ai-engine/src/worker.test.ts (3 tests) 37ms
 stdout | packages/gun-client/src/client.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ packages/gun-client/src/hermesAdapters.test.ts (3 tests) 11ms
- ✓ packages/ai-engine/src/modelConfig.test.ts (8 tests) 17ms
- ✓ packages/types/src/index.test.ts (10 tests) 14ms
- ✓ packages/ai-engine/src/decay.test.ts (8 tests) 9ms
- ✓ packages/data-model/src/governance.test.ts (5 tests) 14ms
- ✓ packages/data-model/src/schemas/hermes/bridgeReceipt.test.ts (19 tests) 12ms
- ✓ packages/gun-client/src/forumAdapters.test.ts (3 tests) 10ms
- ✓ apps/web-pwa/src/store/bridge/__tests__/realConstituencyProof.test.ts (8 tests) 10ms
- ✓ packages/ai-engine/src/__tests__/schema.test.ts (5 tests) 12ms
+ ✓ packages/ai-engine/src/modelConfig.test.ts (8 tests) 11ms
+ ✓ packages/ai-engine/src/decay.test.ts (8 tests) 8ms
+ ✓ packages/gun-client/src/hermesAdapters.test.ts (3 tests) 10ms
+ ✓ packages/data-model/src/governance.test.ts (5 tests) 9ms
+ ✓ packages/types/src/index.test.ts (10 tests) 12ms
+ ✓ packages/data-model/src/schemas/hermes/bridgeReceipt.test.ts (19 tests) 11ms
+ ✓ packages/gun-client/src/forumAdapters.test.ts (3 tests) 9ms
+ ✓ packages/ai-engine/src/__tests__/schema.test.ts (5 tests) 10ms
+stderr | packages/gun-client/src/chain.test.ts > waitForRemote > resolves after timeout when once never fires
+[vh:gun-client] waitForRemote timed out, proceeding anyway
+
  ✓ apps/web-pwa/src/utils/safeStorage.test.ts (5 tests) 7ms
- ✓ apps/web-pwa/src/store/bridge/bridgeStorage.test.ts (10 tests) 196ms
  ✓ packages/gun-client/src/chain.test.ts (4 tests) 13ms
- ✓ packages/crypto/src/primitives.test.ts (9 tests) 100ms
- ✓ apps/web-pwa/src/csp.test.ts (1 test) 6ms
+ ✓ packages/crypto/src/primitives.test.ts (9 tests) 104ms
+ ✓ apps/web-pwa/src/store/bridge/bridgeStorage.test.ts (10 tests) 196ms
+ ✓ apps/web-pwa/src/store/bridge/__tests__/realConstituencyProof.test.ts (8 tests) 12ms
  ✓ apps/web-pwa/src/utils/handle.test.ts (9 tests) 6ms
+ ✓ apps/web-pwa/src/csp.test.ts (1 test) 4ms
  ✓ apps/web-pwa/src/utils/vaultTyped.test.ts (5 tests) 8ms
- ✓ packages/crdt/src/dedup.test.ts (7 tests) 9ms
- ✓ packages/ai-engine/src/cache.test.ts (4 tests) 12ms
- ✓ packages/crypto/src/provider.test.ts (6 tests) 28ms
- ✓ packages/ai-engine/src/__tests__/modelConfig.test.ts (6 tests) 11ms
+ ✓ packages/ai-engine/src/cache.test.ts (4 tests) 11ms
+ ✓ packages/crdt/src/dedup.test.ts (7 tests) 10ms
+ ✓ packages/crypto/src/provider.test.ts (6 tests) 19ms
+ ✓ packages/ai-engine/src/__tests__/modelConfig.test.ts (6 tests) 13ms
  ✓ apps/web-pwa/src/utils/analysisTelemetry.test.ts (2 tests) 8ms
- ✓ packages/gun-client/src/storage/indexeddb.test.ts (6 tests) 5ms
- ✓ apps/web-pwa/src/components/feed/expandedCardStore.test.ts (4 tests) 5ms
  ✓ packages/ai-engine/src/prompts.test.ts (5 tests) 5ms
- ✓ apps/web-pwa/src/components/feed/voteSemantics.test.ts (3 tests) 5ms
- ✓ apps/web-pwa/src/store/bridge/constituencyProof.test.ts (6 tests) 37ms
+ ✓ apps/web-pwa/src/components/feed/expandedCardStore.test.ts (4 tests) 7ms
+ ✓ packages/gun-client/src/storage/indexeddb.test.ts (6 tests) 5ms
 stdout | packages/gun-client/src/hermesCrypto.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
+ ✓ apps/web-pwa/src/components/feed/voteSemantics.test.ts (3 tests) 5ms
+ ✓ apps/web-pwa/src/store/bridge/constituencyProof.test.ts (6 tests) 31ms
+ ✓ packages/crdt/src/lww.test.ts (4 tests) 5ms
 stdout | packages/gun-client/src/hermesCrypto.test.ts > hermesCrypto helpers > throws on invalid ciphertext
 Could not decrypt
 
- ✓ packages/crdt/src/lww.test.ts (4 tests) 5ms
- ✓ packages/gun-client/src/hermesCrypto.test.ts (5 tests) 40ms
- ✓ packages/gun-client/src/aggregateAdapters.test.ts (24 tests) 4116ms
-   ✓ aggregateAdapters > writePointAggregateSnapshot rejects when put callback never arrives (strict ack timeout) 1006ms
-   ✓ aggregateAdapters > writeVoterNode rejects when put callback never arrives (strict ack) 1002ms
-   ✓ aggregateAdapters > readAggregateVoterRows recovers leaf rows when voters root only contains relation pointers 409ms
-   ✓ aggregateAdapters > readAggregateVoterRows recovers leaf rows from map voter IDs when root once returns null 409ms
-   ✓ aggregateAdapters > readAggregates returns zeroed stats when no data exists 409ms
- ✓ packages/data-model/src/schemas/hermes/directory.test.ts (3 tests) 6ms
+ ✓ packages/gun-client/src/hermesCrypto.test.ts (5 tests) 41ms
+ ✓ packages/data-model/src/schemas/hermes/directory.test.ts (3 tests) 7ms
+ ✓ packages/gun-client/src/aggregateAdapters.test.ts (24 tests) 4156ms
+   ✓ aggregateAdapters > writePointAggregateSnapshot rejects when put callback never arrives (strict ack timeout) 1004ms
+   ✓ aggregateAdapters > writeVoterNode rejects when put callback never arrives (strict ack) 1003ms
+   ✓ aggregateAdapters > readAggregateVoterRows recovers leaf rows when voters root only contains relation pointers 454ms
+   ✓ aggregateAdapters > readAggregateVoterRows recovers leaf rows from map voter IDs when root once returns null 404ms
+   ✓ aggregateAdapters > readAggregates returns zeroed stats when no data exists 412ms
  ✓ packages/data-model/src/index.test.ts (1 test) 5ms
- ✓ packages/gun-client/src/storage/encryption.test.ts (1 test) 44ms
- ✓ packages/gun-client/src/auth.test.ts (2 tests) 11ms
+ ✓ packages/gun-client/src/auth.test.ts (2 tests) 7ms
+ ✓ packages/gun-client/src/storage/encryption.test.ts (1 test) 34ms
+ ✓ packages/crdt/src/mockProvider.test.ts (4 tests) 9ms
+ ✓ packages/data-model/src/repro_zod.test.ts (2 tests) 6ms
  ✓ packages/data-model/src/constants/trust.test.ts (7 tests) 5ms
- ✓ packages/data-model/src/repro_zod.test.ts (2 tests) 7ms
- ✓ packages/crdt/src/mockProvider.test.ts (4 tests) 8ms
- ✓ apps/web-pwa/src/store/bridge/__tests__/districtConfig.test.ts (3 tests) 36ms
+ ✓ apps/web-pwa/src/store/bridge/__tests__/districtConfig.test.ts (3 tests) 17ms
  ✓ packages/crdt/src/clock.test.ts (2 tests) 3ms
  ✓ packages/crdt/src/index.test.ts (5 tests) 4ms
- ✓ apps/web-pwa/src/components/bridge/index.test.ts (1 test) 185ms
+ ✓ apps/web-pwa/src/components/bridge/index.test.ts (1 test) 171ms
  ✓ apps/web-pwa/src/store/bridge/index.test.ts (2 tests) 3ms
 stdout | apps/web-pwa/src/components/docs/index.test.ts
 Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
 
- ✓ packages/gun-client/src/client.test.ts (6 tests) 1015ms
-   ✓ createClient > user.write resolves even when put callback never fires (offline) 1003ms
+ ✓ packages/gun-client/src/client.test.ts (6 tests) 1014ms
+   ✓ createClient > user.write resolves even when put callback never fires (offline) 1002ms
  ✓ apps/web-pwa/src/components/docs/index.test.ts (8 tests) 3ms
 
  Test Files  236 passed (236)
-      Tests  3592 passed (3592)
-   Start at  20:33:20
-   Duration  17.95s (transform 9.74s, setup 0ms, collect 50.74s, tests 38.64s, environment 55.41s, prepare 23.46s)
+      Tests  3596 passed (3596)
+   Start at  20:49:22
+   Duration  17.72s (transform 9.14s, setup 0ms, collect 49.34s, tests 38.24s, environment 54.99s, prepare 23.46s)
 
  % Coverage report from v8
 
 =============================== Coverage summary ===============================
-Statements   : 94.76% ( 850/897 )
-Branches     : 85.94% ( 214/249 )
+Statements   : 100% ( 898/898 )
+Branches     : 100% ( 270/270 )
 Functions    : 100% ( 41/41 )
-Lines        : 94.76% ( 850/897 )
+Lines        : 100% ( 898/898 )
 ================================================================================
-Diff Coverage: packages/ai-engine/src/newsAdvancedPipeline.ts lines 713/760 (93.82%) | branches 162/197 (82.23%)
+Diff Coverage: packages/ai-engine/src/newsAdvancedPipeline.ts lines 761/761 (100.00%) | branches 218/218 (100.00%)
 Diff Coverage: packages/ai-engine/src/newsRuntime.ts lines 137/137 (100.00%) | branches 52/52 (100.00%)
+Diff Coverage: PASS - changed source files met per-file 100% line + branch coverage.

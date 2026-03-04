@@ -581,7 +581,8 @@ function buildInitialTupleInputs(
   const tuples = sortedSources.map((source) => {
     const tupleText = `${source.title} ${bundle.summary_hint ?? ''}`.trim();
     const mentions = findMentionedEntityIds(tupleText, links);
-    const subjectEntityId = mentions[0] ?? links[0]?.entity_id ?? 'ent-general';
+    const primaryMention = mentions[0];
+    const subjectEntityId = primaryMention ?? 'ent-general';
     const objectEntityId = mentions.find((entityId) => entityId !== subjectEntityId);
     const temporal = normalizeTemporalAnchor(
       tupleText,
@@ -1005,11 +1006,15 @@ export function buildStoryAdvancedArtifacts(
 
 export const newsAdvancedPipelineInternal = {
   buildEntityLinks,
+  buildGdeltGrounding,
+  buildImpactBlend,
+  buildInitialTupleInputs,
   buildRefinementWindows,
   buildTimelineGraph,
   clamp01,
   computeDriftMetrics,
   extractEntityCandidates,
+  findMentionedEntityIds,
   jaccardDistance,
   normalizeOptions,
   normalizeTemporalAnchor,

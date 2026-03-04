@@ -3,11 +3,11 @@ $ pnpm vitest run packages/ai-engine/src/newsAdvancedPipeline.test.ts packages/a
 
  RUN  v2.1.9 /srv/trinity/worktrees/live-main
 
- ✓ packages/ai-engine/src/newsAdvancedPipeline.test.ts (8 tests) 17ms
+ ✓ packages/ai-engine/src/newsAdvancedPipeline.test.ts (12 tests) 19ms
  ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 23ms
 
  Test Files  2 passed (2)
-      Tests  20 passed (20)
-   Start at  20:39:21
-   Duration  369ms (transform 153ms, setup 0ms, collect 203ms, tests 40ms, environment 0ms, prepare 132ms)
+      Tests  24 passed (24)
+   Start at  20:49:18
+   Duration  389ms (transform 174ms, setup 0ms, collect 234ms, tests 41ms, environment 0ms, prepare 110ms)
 
