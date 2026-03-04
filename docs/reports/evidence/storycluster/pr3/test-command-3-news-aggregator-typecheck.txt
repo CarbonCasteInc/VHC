@@ -1,0 +1,2 @@
+$ pnpm --dir services/news-aggregator exec tsc --noEmit
+PASS: services/news-aggregator typecheck

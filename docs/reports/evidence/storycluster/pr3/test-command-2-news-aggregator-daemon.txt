@@ -1,0 +1,15 @@
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main/services/news-aggregator
+
+ ✓ src/cluster.test.ts (28 tests) 18ms
+ ✓ src/orchestrator.test.ts (9 tests) 23ms
+stdout | src/daemon.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ src/daemon.test.ts (6 tests) 8ms
+
+ Test Files  3 passed (3)
+      Tests  43 passed (43)
+   Start at  17:55:34
+   Duration  607ms (transform 380ms, setup 0ms, collect 840ms, tests 50ms, environment 0ms, prepare 198ms)
+

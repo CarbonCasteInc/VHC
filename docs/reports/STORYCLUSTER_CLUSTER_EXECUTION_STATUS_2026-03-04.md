@@ -230,3 +230,86 @@
 - Final reviewed/pushed head SHA for PR2: `6b1da8c4b7034057fdaf1bb944b0a6732c143809`
 - CI run pin for this head: `22679987781` (Ownership Scope, Change Detection, Quality Guard, Test & Build, E2E, Bundle Size, Lighthouse all PASS)
 - This section supersedes prior interim PR2 head references (`8e36c44...`, `0c678fd...`) produced during iterative push updates.
+
+## PR2 Closure Packet (Merged)
+
+- PR: `#363` — https://github.com/CarbonCasteInc/VHC/pull/363
+- Final PR head SHA: `90f05c877d2521be2746b94f31dd518fce635022` (CI retrigger tip; functional implementation anchored at `6b1da8c4...` with head-pin addendum)
+- Merge commit on `main`: `85e39f05cafa45d71824008d3c71975067a3e2cb`
+- Merge time (UTC): `2026-03-04T17:39:41Z`
+
+### Exact PR2 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/__tests__/clusterEngine.test.ts packages/ai-engine/src/__tests__/newsOrchestrator.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/bundleVerification.test.ts packages/ai-engine/src/newsRuntime.test.ts`
+2. `pnpm --dir services/news-aggregator exec vitest run src/cluster.test.ts src/orchestrator.test.ts`
+3. `node tools/scripts/check-diff-coverage.mjs | rg "Coverage summary|Statements|Branches|Functions|Lines|Diff Coverage"`
+
+### Exact PR2 artifact paths
+- `docs/reports/evidence/storycluster/pr2/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr2/test-command-1-ai-engine.txt`
+- `docs/reports/evidence/storycluster/pr2/test-command-2-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr2/test-command-3-diff-coverage.txt`
+
+### PR2 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| ClusterEngine abstraction introduced/correct | PASS | `packages/ai-engine/src/clusterEngine.ts` + `clusterEngine.test.ts` |
+| Sync + async routing through abstraction | PASS | `newsCluster.ts`, `newsOrchestrator.ts`, `services/news-aggregator/src/{cluster,orchestrator}.ts` |
+| PR0/PR1 contracts preserved | PASS | PR2 diff excludes contract-critical files (`newsAdapters.ts`, web-pwa news/discovery contract paths) |
+| Deterministic evidence integrity | PASS | Head-pin integrity addendum in status/evidence packets + green CI refs |
+| CI required checks green | PASS | GH run `22681280606` all checks pass |
+| CE dual review convergence | PASS | ce1 round-2 `AGREE`; ce2 round-3 `AGREE` |
+
+## PR3 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr3-daemon-canonical-writer`
+- Baseline: `main @ 85e39f0` (post-PR2 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR3 section)
+- Immediate PR3 implementation targets:
+  1. Add daemon entrypoint in `services/news-aggregator` for scheduled ingest + publish.
+  2. Enforce lease acquisition in daemon before writes.
+  3. Browser defaults to consumer mode in normal runs; dev-only override retained.
+  4. Wire daemon-managed async enrichment queue non-blocking from publish path.
+
+## PR3 Closure Packet (Draft)
+
+- PR: `#364` — https://github.com/CarbonCasteInc/VHC/pull/364
+- Branch: `coord/storycluster-pr3-daemon-canonical-writer`
+- Current head SHA: tracked at PR #364 head ref (update on final non-draft promotion)
+
+### Exact PR3 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+2. `pnpm --dir services/news-aggregator exec vitest run src/daemon.test.ts src/cluster.test.ts src/orchestrator.test.ts`
+3. `pnpm --dir services/news-aggregator exec tsc --noEmit`
+4. `node tools/scripts/check-diff-coverage.mjs`
+5. `pnpm exec vitest run apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/news/index.test.ts`
+
+### Exact PR3 artifact paths
+- `docs/reports/evidence/storycluster/pr3/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr3/test-command-1-runtime-and-browser.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-2-news-aggregator-daemon.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-3-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-4-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-5-pwa-news-store-hydration.txt`
+
+### PR3 acceptance matrix (draft)
+| Criterion | Status | Evidence |
+|---|---|---|
+| PWA shows live headlines without browser ingest authority | PASS | Browser runtime auto-role now defaults to consumer outside `MODE=test` in `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; regression covered by `newsRuntimeBootstrap.test.ts`; hydration/index feeds verified by `apps/web-pwa/src/store/news/{hydration,index}.test.ts` |
+| Daemon continuously updates StoryBundles and indexes | PASS | New `services/news-aggregator/src/daemon.ts` leader loop acquires/renews lease and runs scheduled runtime publish path through guarded writes; coverage in `services/news-aggregator/src/daemon.test.ts` |
+| Publish latency decoupled from enrichment completion | PASS | Async daemon enrichment queue wiring in `services/news-aggregator/src/daemon.ts` with non-blocking enqueue; verified by daemon test `wires async enrichment queue without blocking publish path` |
+
+### PR3 CI Unblock Packet (runtime mode fallback branch)
+
+- Trigger: `Test & Build` diff-aware coverage failure on PR #364 (`newsRuntimeBootstrap.ts` uncovered branch line 90).
+- Remediation: added targeted blank-MODE fallback test in `newsRuntimeBootstrap.test.ts`.
+
+#### Exact unblock commands
+6. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+7. `node tools/scripts/check-diff-coverage.mjs`
+
+#### Exact unblock artifacts
+- `docs/reports/evidence/storycluster/pr3/test-command-6-runtime-mode-blank-fallback.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-7-diff-coverage-remediation.txt`
+
+#### Unblock result
+- Diff-aware per-file gate: PASS (100% lines + 100% branches on changed source files).

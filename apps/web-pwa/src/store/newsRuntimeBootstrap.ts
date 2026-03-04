@@ -82,6 +82,14 @@ function parseBooleanFlag(raw: string | undefined, fallback: boolean): boolean {
   return fallback;
 }
 
+function readRuntimeMode(): string {
+  const importMode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
+  const processMode =
+    typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>).MODE : undefined;
+  const mode = processMode ?? importMode;
+  return typeof mode === 'string' && mode.trim().length > 0 ? mode.trim().toLowerCase() : 'test';
+}
+
 function resolveRuntimeRole(): NewsRuntimeRole {
   const globalOverride = readGlobalFlag('__VH_NEWS_RUNTIME_ROLE');
   const envRole = readEnvVar('VITE_NEWS_RUNTIME_ROLE');
@@ -109,6 +117,10 @@ function shouldRunRuntimeInCurrentSession(): boolean {
 
   if (role === 'ingester') {
     return true;
+  }
+
+  if (readRuntimeMode() !== 'test') {
+    return false;
   }
 
   const disableInTests = parseBooleanFlag(readEnvVar('VITE_NEWS_RUNTIME_DISABLE_IN_TEST'), true);

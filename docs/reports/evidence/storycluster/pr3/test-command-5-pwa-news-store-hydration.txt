@@ -1,0 +1,12 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main
+
+ ✓ apps/web-pwa/src/store/news/hydration.test.ts (14 tests) 270ms
+ ✓ apps/web-pwa/src/store/news/index.test.ts (24 tests) 410ms
+
+ Test Files  2 passed (2)
+      Tests  38 passed (38)
+   Start at  17:55:01
+   Duration  697ms (transform 200ms, setup 0ms, collect 136ms, tests 680ms, environment 0ms, prepare 119ms)
+

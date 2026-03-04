@@ -6,12 +6,14 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
+    "daemon": "tsc -p tsconfig.json && node dist/daemon.js",
     "lint": "echo 'lint: ok (no sources yet)'"
   },
   "dependencies": {
     "@extractus/article-extractor": "^8.0.0",
     "@vh/ai-engine": "workspace:*",
     "@vh/data-model": "workspace:*",
+    "@vh/gun-client": "workspace:*",
     "zod": "^3.23.8"
   },
   "devDependencies": {

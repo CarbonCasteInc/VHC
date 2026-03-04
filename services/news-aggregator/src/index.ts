@@ -126,3 +126,13 @@ export {
   createArticleTextServer,
   startArticleTextServer,
 } from './server';
+
+export {
+  createNewsAggregatorDaemon,
+  startNewsAggregatorDaemonFromEnv,
+} from './daemon';
+export type {
+  NewsAggregatorDaemonConfig,
+  NewsAggregatorDaemonHandle,
+  NewsAggregatorDaemonProcessHandle,
+} from './daemon';

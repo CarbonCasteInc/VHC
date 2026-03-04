@@ -128,6 +128,28 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('allows explicit enabled override for daemon callers', async () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'false');
+    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      enabled: true,
+      writeStoryBundle,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(handle.isRunning()).toBe(true);
+    expect(orchestrateNewsPipelineMock).toHaveBeenCalledTimes(1);
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+
+    handle.stop();
+  });
+
   it('runs periodic ticks, publishes bundles, and updates lastRun', async () => {
     orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
 
