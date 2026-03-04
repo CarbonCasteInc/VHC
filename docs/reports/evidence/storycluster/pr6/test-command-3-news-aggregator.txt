@@ -1,0 +1,32 @@
+$ pnpm --filter @vh/news-aggregator test
+
+> @vh/news-aggregator@0.1.0 test /srv/trinity/worktrees/live-main/services/news-aggregator
+> vitest run --config ./vitest.config.ts
+
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main/services/news-aggregator
+
+ ✓ src/__tests__/articleTextCache.test.ts (7 tests) 5ms
+ ✓ src/__tests__/sourceRegistry.test.ts (6 tests) 5ms
+ ✓ src/__tests__/removalLedger.test.ts (6 tests) 7ms
+ ✓ src/fullTextFetcher.test.ts (11 tests) 14ms
+ ✓ src/provenance.test.ts (9 tests) 15ms
+ ✓ src/__tests__/sourceLifecycle.test.ts (7 tests) 15ms
+ ✓ src/normalize.test.ts (46 tests) 16ms
+ ✓ src/prompts.test.ts (14 tests) 10ms
+ ✓ src/__tests__/articleTextService.test.ts (17 tests) 35ms
+ ✓ src/__tests__/server.test.ts (7 tests) 85ms
+ ✓ src/ingest.test.ts (45 tests) 20ms
+ ✓ src/analysisRelay.test.ts (27 tests) 14ms
+ ✓ src/cluster.test.ts (28 tests) 17ms
+ ✓ src/orchestrator.test.ts (9 tests) 24ms
+stdout | src/daemon.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ src/daemon.test.ts (6 tests) 8ms
+
+ Test Files  15 passed (15)
+      Tests  245 passed (245)
+   Start at  20:33:06
+   Duration  866ms (transform 1.23s, setup 0ms, collect 3.39s, tests 290ms, environment 3ms, prepare 1.53s)
+

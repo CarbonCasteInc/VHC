@@ -305,10 +305,6 @@ function jaccardDistance(left: ReadonlySet<string>, right: ReadonlySet<string>):
   }
 
   const union = left.size + right.size - intersection;
-  if (union <= 0) {
-    return 0;
-  }
-
   return 1 - intersection / union;
 }
 
@@ -399,13 +395,12 @@ function buildEntityLinks(entityCandidates: readonly string[]): StoryEntityLink[
   return [...supportByEntity.values()]
     .map((entry) => {
       const aliases = [...entry.aliases].sort((left, right) => left.localeCompare(right));
-      const aliasBonus = aliases.length > 1 ? 0.05 : 0;
       return {
         entity_id: toEntityId(entry.canonical),
         canonical_label: entry.canonical,
         aliases,
         support_count: entry.count,
-        confidence: roundMetric(entry.count / denominator + aliasBonus),
+        confidence: roundMetric(entry.count / denominator),
       };
     })
     .sort((left, right) => left.canonical_label.localeCompare(right.canonical_label));
@@ -556,7 +551,7 @@ function scoreTuple(
   },
   bundle: StoryBundle,
 ): number {
-  const subjectSignal = tuple.subjectEntityId ? 0.28 : 0.1;
+  const subjectSignal = 0.28;
   const objectSignal = tuple.objectEntityId ? 0.15 : 0.05;
 
   const temporalSignal =
@@ -775,8 +770,8 @@ function buildRefinementWindows(
     .sort((left, right) => left[0] - right[0])
     .map(([index, windowTuples]) => {
       const timestamps = windowTuples.map((tuple) => tuple.temporal.normalized_at);
-      const startAt = timestamps.length > 0 ? Math.min(...timestamps) : clusterWindowStart;
-      const endAt = timestamps.length > 0 ? Math.max(...timestamps) : startAt;
+      const startAt = Math.min(...timestamps);
+      const endAt = Math.max(...timestamps);
 
       return {
         index,
