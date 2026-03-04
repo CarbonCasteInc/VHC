@@ -74,6 +74,20 @@ describe('FeedItemSchema', () => {
     expect(parsed.kind).toBe('NEWS_STORY');
   });
 
+  it('accepts NEWS_STORY item with story_id identity field', () => {
+    const parsed = FeedItemSchema.parse({ ...validFeedItem, story_id: 'story-abc-123' });
+    expect(parsed.story_id).toBe('story-abc-123');
+  });
+
+  it('accepts NEWS_STORY item without story_id during migration', () => {
+    const parsed = FeedItemSchema.parse(validFeedItem);
+    expect(parsed.story_id).toBeUndefined();
+  });
+
+  it('rejects empty story_id when provided', () => {
+    expect(FeedItemSchema.safeParse({ ...validFeedItem, story_id: '' }).success).toBe(false);
+  });
+
   it('accepts item with optional my_activity_score', () => {
     const parsed = FeedItemSchema.parse({ ...validFeedItem, my_activity_score: 5.0 });
     expect(parsed.my_activity_score).toBe(5.0);

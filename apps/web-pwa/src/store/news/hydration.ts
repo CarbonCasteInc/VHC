@@ -12,6 +12,14 @@ import type { NewsState } from './types';
 const hydratedStores = new WeakSet<StoreApi<NewsState>>();
 const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
 
+/**
+ * Latest-index migration parser.
+ *
+ * Supports:
+ * - target activity timestamps (number/string scalar)
+ * - transitional objects (`cluster_window_end`, `latest_activity_at`)
+ * - legacy objects (`created_at`)
+ */
 function parseLatestTimestamp(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return Math.floor(value);
@@ -25,8 +33,22 @@ function parseLatestTimestamp(value: unknown): number | null {
     return null;
   }
 
-  if (value && typeof value === 'object' && 'created_at' in value) {
-    return parseLatestTimestamp((value as { created_at?: unknown }).created_at);
+  if (value && typeof value === 'object') {
+    const record = value as {
+      cluster_window_end?: unknown;
+      latest_activity_at?: unknown;
+      created_at?: unknown;
+    };
+
+    if ('cluster_window_end' in record) {
+      return parseLatestTimestamp(record.cluster_window_end);
+    }
+    if ('latest_activity_at' in record) {
+      return parseLatestTimestamp(record.latest_activity_at);
+    }
+    if ('created_at' in record) {
+      return parseLatestTimestamp(record.created_at);
+    }
   }
 
   return null;

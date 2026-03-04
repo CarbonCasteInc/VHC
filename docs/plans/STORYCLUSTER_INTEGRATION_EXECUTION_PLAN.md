@@ -120,6 +120,7 @@ Goal: lock interfaces before behavior changes.
 
 1. Freeze `StoryBundle` and discovery identity contracts for NEWS_STORY.
 2. Add implementation notes for latest-index migration shape.
+   - Notes: `docs/plans/STORYCLUSTER_PR0_CONTRACT_FREEZE_NOTES.md`
 3. Add migration test fixtures for old index payloads.
 
 Exit criteria:

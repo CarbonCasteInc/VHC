@@ -39,6 +39,14 @@ export type FilterChip = z.infer<typeof FilterChipSchema>;
 // ---------- FeedItem ----------
 
 export const FeedItemSchema = z.object({
+  /**
+   * Optional NEWS_STORY identity handle.
+   *
+   * PR0 contract freeze:
+   * - consumers must tolerate absence during migration windows
+   * - when present for NEWS_STORY items, this is the canonical story identity
+   */
+  story_id: z.string().min(1).optional(),
   topic_id: z.string().min(1),
   kind: FeedKindSchema,
   title: z.string().min(1),

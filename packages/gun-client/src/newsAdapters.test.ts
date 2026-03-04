@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { StoryBundle } from '@vh/data-model';
+import {
+  LEGACY_LATEST_INDEX_EXPECTED_FIXTURE,
+  LEGACY_LATEST_INDEX_PAYLOAD_FIXTURE,
+  MIXED_LATEST_INDEX_PRECEDENCE_EXPECTED_FIXTURE,
+  MIXED_LATEST_INDEX_PRECEDENCE_PAYLOAD_FIXTURE,
+  TARGET_LATEST_INDEX_EXPECTED_FIXTURE,
+  TARGET_LATEST_INDEX_PAYLOAD_FIXTURE,
+} from './__fixtures__/latestIndexMigrationFixtures';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import { HydrationBarrier } from './sync/barrier';
@@ -179,6 +187,28 @@ describe('newsAdapters', () => {
     ).toEqual(STORY);
   });
 
+  it('writeNewsStory preserves created_at immutability expectation at adapter boundary', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const frozenCreatedAt = 1_700_000_020_123;
+
+    const result = await writeNewsStory(client, {
+      ...STORY,
+      created_at: frozenCreatedAt,
+      cluster_window_end: frozenCreatedAt + 5000,
+    });
+
+    expect(result.created_at).toBe(frozenCreatedAt);
+    expect(
+      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string),
+    ).toMatchObject({
+      story_id: STORY.story_id,
+      created_at: frozenCreatedAt,
+      cluster_window_end: frozenCreatedAt + 5000,
+    });
+  });
+
   it('writeNewsStory rejects forbidden identity/token payloads', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -347,25 +377,40 @@ describe('newsAdapters', () => {
     await expect(readNewsStory(client, 'forbidden')).resolves.toBeNull();
   });
 
-  it('readNewsLatestIndex coerces values and drops invalid entries', async () => {
+  it('readNewsLatestIndex supports legacy migration fixtures', async () => {
     const mesh = createFakeMesh();
-    mesh.setRead('news/index/latest', {
-      _: { '#': 'meta' },
-      'story-a': 100,
-      'story-b': '200',
-      'story-c': { created_at: 300 },
-      'story-negative': -1,
-      'story-bad': 'not-a-number'
-    });
+    mesh.setRead('news/index/latest', LEGACY_LATEST_INDEX_PAYLOAD_FIXTURE);
 
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    await expect(readNewsLatestIndex(client)).resolves.toEqual({
-      'story-a': 100,
-      'story-b': 200,
-      'story-c': 300
-    });
+    await expect(readNewsLatestIndex(client)).resolves.toEqual(
+      LEGACY_LATEST_INDEX_EXPECTED_FIXTURE,
+    );
+  });
+
+  it('readNewsLatestIndex supports target migration fixtures', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/index/latest', TARGET_LATEST_INDEX_PAYLOAD_FIXTURE);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual(
+      TARGET_LATEST_INDEX_EXPECTED_FIXTURE,
+    );
+  });
+
+  it('readNewsLatestIndex prefers target activity keys over legacy keys in mixed payloads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/index/latest', MIXED_LATEST_INDEX_PRECEDENCE_PAYLOAD_FIXTURE);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual(
+      MIXED_LATEST_INDEX_PRECEDENCE_EXPECTED_FIXTURE,
+    );
   });
 
   it('readNewsLatestIndex returns empty object for non-object payloads', async () => {
@@ -392,7 +437,7 @@ describe('newsAdapters', () => {
     await expect(writeNewsLatestIndexEntry(client, '   ', 1)).rejects.toThrow('storyId is required');
   });
 
-  it('writeNewsBundle writes story and latest index', async () => {
+  it('writeNewsBundle writes story and latest index using created_at baseline semantics (PR0 freeze)', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);

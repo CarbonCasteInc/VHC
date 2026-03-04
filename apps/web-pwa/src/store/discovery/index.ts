@@ -31,23 +31,29 @@ const INITIAL_STATE: Pick<
 /**
  * Deduplicate discovery items while preserving distinct NEWS_STORY headlines.
  *
- * - NEWS_STORY identity: kind + topic_id + created_at + normalized title
- *   (multiple clustered stories can share topic_id but must remain visible)
+ * PR0 contract freeze:
+ * - NEWS_STORY canonical identity is `story_id` when present.
+ * - Migration fallback (when story_id is absent):
+ *   kind + topic_id + created_at + normalized title
+ *   (multiple clustered stories can share topic_id and remain visible)
  * - Other kinds: kind + topic_id
  */
 function dedupeFeedItems(items: FeedItem[]): FeedItem[] {
   const map = new Map<string, FeedItem>();
 
   for (const item of items) {
+    const normalizedStoryId = item.story_id?.trim();
     const key =
-      item.kind === 'NEWS_STORY'
-        ? [
-            item.kind,
-            item.topic_id,
-            Math.max(0, Math.floor(item.created_at)),
-            item.title.trim().toLowerCase(),
-          ].join('|')
-        : [item.kind, item.topic_id].join('|');
+      item.kind === 'NEWS_STORY' && normalizedStoryId
+        ? [item.kind, normalizedStoryId].join('|')
+        : item.kind === 'NEWS_STORY'
+          ? [
+              item.kind,
+              item.topic_id,
+              Math.max(0, Math.floor(item.created_at)),
+              item.title.trim().toLowerCase(),
+            ].join('|')
+          : [item.kind, item.topic_id].join('|');
 
     map.set(key, item);
   }

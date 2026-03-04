@@ -136,6 +136,7 @@ function buildSeedIndex(stories: StoryBundle[]): Record<string, number> {
 
 function storyToDiscoveryItem(story: StoryBundle): FeedItem {
   return {
+    story_id: story.story_id,
     topic_id: story.topic_id,
     kind: 'NEWS_STORY',
     title: story.headline,

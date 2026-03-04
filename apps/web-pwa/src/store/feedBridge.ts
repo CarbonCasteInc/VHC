@@ -247,6 +247,7 @@ async function resolveSocialBridgeDependencies(): Promise<SocialBridgeDependenci
  */
 export function storyBundleToFeedItem(bundle: StoryBundle): FeedItem {
   return {
+    story_id: bundle.story_id,
     topic_id: bundle.topic_id,
     kind: 'NEWS_STORY',
     title: bundle.headline,

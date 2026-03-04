@@ -1,5 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoryBundle } from '@vh/data-model';
+import {
+  LEGACY_LATEST_INDEX_EXPECTED_FIXTURE,
+  LEGACY_LATEST_INDEX_PAYLOAD_FIXTURE,
+  MIXED_LATEST_INDEX_PRECEDENCE_EXPECTED_FIXTURE,
+  MIXED_LATEST_INDEX_PRECEDENCE_PAYLOAD_FIXTURE,
+  TARGET_LATEST_INDEX_EXPECTED_FIXTURE,
+  TARGET_LATEST_INDEX_PAYLOAD_FIXTURE,
+} from '../../../../../packages/gun-client/src/__fixtures__/latestIndexMigrationFixtures';
 import type { NewsState } from './index';
 
 const gunMocks = vi.hoisted(() => ({
@@ -215,7 +223,7 @@ describe('hydrateNewsStore', () => {
     expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
-  it('hydrates latest index and ignores invalid entries', async () => {
+  it('hydrates legacy latest-index migration fixture entries', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
@@ -226,16 +234,63 @@ describe('hydrateNewsStore', () => {
 
     hydrateNewsStore(() => ({}) as never, store);
 
-    latestChain.emit(100.9, 'a');
-    latestChain.emit('200', 'b');
-    latestChain.emit({ created_at: 300 }, 'c');
-    latestChain.emit(-1, 'neg');
-    latestChain.emit('bad', 'bad');
+    for (const [key, value] of Object.entries(LEGACY_LATEST_INDEX_PAYLOAD_FIXTURE)) {
+      latestChain.emit(value, key);
+    }
     latestChain.emit(10, undefined);
 
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('a', 100);
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('b', 200);
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('c', 300);
-    expect(state.upsertLatestIndex).toHaveBeenCalledTimes(3);
+    for (const [key, expected] of Object.entries(LEGACY_LATEST_INDEX_EXPECTED_FIXTURE)) {
+      expect(state.upsertLatestIndex).toHaveBeenCalledWith(key, expected);
+    }
+    expect(state.upsertLatestIndex).toHaveBeenCalledTimes(
+      Object.keys(LEGACY_LATEST_INDEX_EXPECTED_FIXTURE).length,
+    );
+  });
+
+  it('hydrates target latest-index migration fixture entries', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    for (const [key, value] of Object.entries(TARGET_LATEST_INDEX_PAYLOAD_FIXTURE)) {
+      latestChain.emit(value, key);
+    }
+    latestChain.emit(10, undefined);
+
+    for (const [key, expected] of Object.entries(TARGET_LATEST_INDEX_EXPECTED_FIXTURE)) {
+      expect(state.upsertLatestIndex).toHaveBeenCalledWith(key, expected);
+    }
+    expect(state.upsertLatestIndex).toHaveBeenCalledTimes(
+      Object.keys(TARGET_LATEST_INDEX_EXPECTED_FIXTURE).length,
+    );
+  });
+
+  it('prefers cluster_window_end over fallback keys in mixed latest-index payloads', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    for (const [key, value] of Object.entries(MIXED_LATEST_INDEX_PRECEDENCE_PAYLOAD_FIXTURE)) {
+      latestChain.emit(value, key);
+    }
+
+    for (const [key, expected] of Object.entries(MIXED_LATEST_INDEX_PRECEDENCE_EXPECTED_FIXTURE)) {
+      expect(state.upsertLatestIndex).toHaveBeenCalledWith(key, expected);
+    }
+    expect(state.upsertLatestIndex).toHaveBeenCalledTimes(
+      Object.keys(MIXED_LATEST_INDEX_PRECEDENCE_EXPECTED_FIXTURE).length,
+    );
   });
 });

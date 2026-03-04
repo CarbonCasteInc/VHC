@@ -135,6 +135,7 @@ describe('storyBundleToFeedItem', () => {
     );
 
     expect(item).toEqual({
+      story_id: 'story-1',
       topic_id: 'topic-news',
       kind: 'NEWS_STORY',
       title: 'Breaking update',
