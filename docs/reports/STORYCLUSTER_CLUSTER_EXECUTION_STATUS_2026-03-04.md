@@ -217,3 +217,8 @@
 | PR0/PR1 identity + created_at + latest-index + lease assumptions preserved | PASS | No PR0/PR1 contract-path mutations; unchanged writer/adapter contract files plus existing PR0/PR1 regression suites remain green |
 | Remote-down deterministic fallback | PASS | `AutoEngine` fallback logic + deterministic fallback tests in `clusterEngine.test.ts` and `newsOrchestrator.test.ts` |
 | Duplicate direct clustering call path removed from active orchestrators | PASS | Both orchestrators now use `runClusterBatch` against cluster engines |
+
+### PR2 push/update confirmation
+- Draft PR updated: https://github.com/CarbonCasteInc/VHC/pull/363
+- Final pushed head SHA: `8e36c44f5bb5cda5c5a6705bf975dabf1c02d7ee`
+- Branch: `coord/storycluster-pr2-clusterengine-abstraction`
