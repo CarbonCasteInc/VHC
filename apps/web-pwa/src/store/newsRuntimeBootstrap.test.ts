@@ -4,16 +4,12 @@ const {
   startNewsRuntimeMock,
   stopMock,
   writeStoryBundleMock,
-  readNewsIngestionLeaseMock,
-  writeNewsIngestionLeaseMock,
   localUpsertStoryMock,
   localUpsertLatestIndexMock,
 } = vi.hoisted(() => ({
   startNewsRuntimeMock: vi.fn(),
   stopMock: vi.fn(),
   writeStoryBundleMock: vi.fn(),
-  readNewsIngestionLeaseMock: vi.fn(),
-  writeNewsIngestionLeaseMock: vi.fn(),
   localUpsertStoryMock: vi.fn(),
   localUpsertLatestIndexMock: vi.fn(),
 }));
@@ -28,8 +24,6 @@ vi.mock('@vh/ai-engine', async () => {
 
 vi.mock('@vh/gun-client', () => ({
   writeStoryBundle: (...args: unknown[]) => writeStoryBundleMock(...args),
-  readNewsIngestionLease: (...args: unknown[]) => readNewsIngestionLeaseMock(...args),
-  writeNewsIngestionLease: (...args: unknown[]) => writeNewsIngestionLeaseMock(...args),
 }));
 
 vi.mock('./news', () => ({
@@ -99,35 +93,15 @@ function makeStoryBundle(storyId = 'story-bootstrap-1') {
 }
 
 describe('ensureNewsRuntimeStarted', () => {
-  let leaseState: {
-    holder_id: string;
-    lease_token: string;
-    acquired_at: number;
-    heartbeat_at: number;
-    expires_at: number;
-  } | null;
-
   beforeEach(() => {
     __resetNewsRuntimeForTesting();
     startNewsRuntimeMock.mockReset();
     stopMock.mockReset();
     writeStoryBundleMock.mockReset();
-    readNewsIngestionLeaseMock.mockReset();
-    writeNewsIngestionLeaseMock.mockReset();
     localUpsertStoryMock.mockReset();
     localUpsertLatestIndexMock.mockReset();
     vi.unstubAllEnvs();
     vi.unstubAllGlobals();
-
-    leaseState = null;
-    readNewsIngestionLeaseMock.mockImplementation(async () => leaseState);
-    writeNewsIngestionLeaseMock.mockImplementation(async (_client: unknown, lease: typeof leaseState) => {
-      leaseState = lease;
-      return lease;
-    });
-
-    // Most tests assert runtime bootstrap behavior independent of lease gating.
-    vi.stubEnv('VITE_NEWS_RUNTIME_LEASE_ENABLED', 'false');
     startNewsRuntimeMock.mockReturnValue(makeHandle(true));
   });
 
@@ -138,75 +112,75 @@ describe('ensureNewsRuntimeStarted', () => {
     vi.restoreAllMocks();
   });
 
-  it('is a no-op when VITE_NEWS_RUNTIME_ENABLED is false', async () => {
+  it('is a no-op when VITE_NEWS_RUNTIME_ENABLED is false', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'false');
 
-    await ensureNewsRuntimeStarted({ id: 'client-1' } as any);
+    ensureNewsRuntimeStarted({ id: 'client-1' } as any);
 
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
 
-  it('skips runtime in test sessions by default', async () => {
+  it('skips runtime in test sessions by default', () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubGlobal('window', { __VH_TEST_SESSION: true });
 
-    await ensureNewsRuntimeStarted({ id: 'test-session-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'test-session-client' } as any);
 
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
     expect(infoSpy).toHaveBeenCalledWith('[vh:news-runtime] skipped for this session');
   });
 
-  it('treats blank disable flag values as fallback=true in test sessions', async () => {
+  it('treats blank disable flag values as fallback=true in test sessions', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', '   ');
     vi.stubGlobal('window', { __VH_TEST_SESSION: true });
 
-    await ensureNewsRuntimeStarted({ id: 'blank-disable-flag-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'blank-disable-flag-client' } as any);
 
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
 
-  it('honors explicit true/false disable flag values in test sessions', async () => {
+  it('honors explicit true/false disable flag values in test sessions', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubGlobal('window', { __VH_TEST_SESSION: true });
 
     vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', 'on');
-    await ensureNewsRuntimeStarted({ id: 'disable-on-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'disable-on-client' } as any);
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
 
     vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', 'off');
-    await ensureNewsRuntimeStarted({ id: 'disable-off-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'disable-off-client' } as any);
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to default disable behavior for malformed disable flag values', async () => {
+  it('falls back to default disable behavior for malformed disable flag values', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_RUNTIME_DISABLE_IN_TEST', 'maybe');
     vi.stubGlobal('window', { __VH_TEST_SESSION: true });
 
-    await ensureNewsRuntimeStarted({ id: 'invalid-disable-flag-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'invalid-disable-flag-client' } as any);
 
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
 
-  it('runs runtime in test sessions when explicitly forced to ingester role', async () => {
+  it('runs runtime in test sessions when explicitly forced to ingester role', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubGlobal('window', {
       __VH_TEST_SESSION: true,
       __VH_NEWS_RUNTIME_ROLE: 'ingester',
     });
 
-    await ensureNewsRuntimeStarted({ id: 'forced-ingester-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'forced-ingester-client' } as any);
 
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
   });
 
-  it('skips runtime when role is configured as consumer', async () => {
+  it('skips runtime when role is configured as consumer', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_RUNTIME_ROLE', 'consumer');
 
-    await ensureNewsRuntimeStarted({ id: 'consumer-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'consumer-client' } as any);
 
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
@@ -224,59 +198,6 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
     expect(stopMock).toHaveBeenCalledTimes(1);
     expect(infoSpy).toHaveBeenCalledWith('[vh:news-runtime] skipped for this session');
-  });
-
-  it('acquires ingestion lease before starting runtime when lease mode is enabled', async () => {
-    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
-    vi.stubEnv('VITE_NEWS_RUNTIME_LEASE_ENABLED', 'true');
-
-    await ensureNewsRuntimeStarted({ id: 'lease-enabled-client' } as any);
-
-    expect(readNewsIngestionLeaseMock).toHaveBeenCalled();
-    expect(writeNewsIngestionLeaseMock).toHaveBeenCalled();
-    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
-    expect(leaseState).not.toBeNull();
-    expect(leaseState?.holder_id).toContain('vh-news-');
-  });
-
-  it('does not start runtime when lease is held by another writer', async () => {
-    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
-
-    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
-    vi.stubEnv('VITE_NEWS_RUNTIME_LEASE_ENABLED', 'true');
-
-    leaseState = {
-      holder_id: 'other-holder',
-      lease_token: 'other-token',
-      acquired_at: Date.now() - 5_000,
-      heartbeat_at: Date.now() - 1_000,
-      expires_at: Date.now() + 60_000,
-    };
-
-    await ensureNewsRuntimeStarted({ id: 'lease-blocked-client' } as any);
-
-    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
-    expect(writeNewsIngestionLeaseMock).not.toHaveBeenCalled();
-    expect(infoSpy).toHaveBeenCalledWith('[vh:news-runtime] lease not acquired; running as consumer');
-  });
-
-  it('releases held lease when runtime role flips to consumer', async () => {
-    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
-    vi.stubEnv('VITE_NEWS_RUNTIME_LEASE_ENABLED', 'true');
-
-    const client = { id: 'lease-release-client' } as any;
-    await ensureNewsRuntimeStarted(client);
-
-    vi.stubEnv('VITE_NEWS_RUNTIME_ROLE', 'consumer');
-    await ensureNewsRuntimeStarted(client);
-
-    expect(stopMock).toHaveBeenCalledTimes(1);
-    expect(writeNewsIngestionLeaseMock.mock.calls.length).toBeGreaterThanOrEqual(2);
-    const releasedLease = writeNewsIngestionLeaseMock.mock.calls.at(-1)?.[1] as {
-      heartbeat_at: number;
-      expires_at: number;
-    };
-    expect(releasedLease.expires_at).toBeLessThanOrEqual(releasedLease.heartbeat_at);
   });
 
   it('boots runtime with parsed env config and gun write adapter when enabled', async () => {
@@ -351,13 +272,13 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(warnSpy).toHaveBeenCalledWith('[vh:news-runtime] runtime tick failed', runtimeError);
   });
 
-  it('falls back to safe defaults when env values are malformed', async () => {
+  it('falls back to safe defaults when env values are malformed', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_FEED_SOURCES', JSON.stringify({ not: 'an-array' }));
     vi.stubEnv('VITE_NEWS_TOPIC_MAPPING', '{broken-json');
     vi.stubEnv('VITE_NEWS_POLL_INTERVAL_MS', '-42');
 
-    await ensureNewsRuntimeStarted({ id: 'fallback-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'fallback-client' } as any);
 
     const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
       feedSources: unknown[];
@@ -373,11 +294,11 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(runtimeConfig.pollIntervalMs).toBeUndefined();
   });
 
-  it('handles invalid feed source JSON by falling back to an empty source list', async () => {
+  it('handles invalid feed source JSON by falling back to an empty source list', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_FEED_SOURCES', '{invalid-json');
 
-    await ensureNewsRuntimeStarted({ id: 'invalid-feed-json' } as any);
+    ensureNewsRuntimeStarted({ id: 'invalid-feed-json' } as any);
 
     const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
       feedSources: unknown[];
@@ -386,13 +307,13 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(runtimeConfig.feedSources).toEqual([]);
   });
 
-  it('handles env resolution safely when process is unavailable', async () => {
+  it('handles env resolution safely when process is unavailable', () => {
     const enabledSpy = vi.spyOn(aiEngine, 'isNewsRuntimeEnabled').mockReturnValue(true);
     const originalProcess = globalThis.process;
 
     vi.stubGlobal('process', undefined);
 
-    await ensureNewsRuntimeStarted({ id: 'no-process-runtime' } as any);
+    ensureNewsRuntimeStarted({ id: 'no-process-runtime' } as any);
 
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
 
@@ -400,7 +321,7 @@ describe('ensureNewsRuntimeStarted', () => {
     enabledSpy.mockRestore();
   });
 
-  it('keeps original rssUrl when window is undefined (non-browser context)', async () => {
+  it('keeps original rssUrl when window is undefined (non-browser context)', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv(
       'VITE_NEWS_FEED_SOURCES',
@@ -410,7 +331,7 @@ describe('ensureNewsRuntimeStarted', () => {
     );
     vi.stubGlobal('window', undefined);
 
-    await ensureNewsRuntimeStarted({ id: 'ssr-client' } as any);
+    ensureNewsRuntimeStarted({ id: 'ssr-client' } as any);
 
     const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
       feedSources: Array<{ id: string; rssUrl: string }>;
@@ -418,11 +339,11 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(runtimeConfig.feedSources[0]?.rssUrl).toBe('https://example.com/rss.xml');
   });
 
-  it('falls back to default topic mapping when JSON is valid but schema-invalid', async () => {
+  it('falls back to default topic mapping when JSON is valid but schema-invalid', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_NEWS_TOPIC_MAPPING', JSON.stringify({ defaultTopicId: 123 }));
 
-    await ensureNewsRuntimeStarted({ id: 'invalid-topic-mapping' } as any);
+    ensureNewsRuntimeStarted({ id: 'invalid-topic-mapping' } as any);
 
     const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
       topicMapping: { defaultTopicId: string; sourceTopics: Record<string, string> };
@@ -434,11 +355,11 @@ describe('ensureNewsRuntimeStarted', () => {
     });
   });
 
-  it('stops the previous runtime before starting with a different client', async () => {
+  it('stops the previous runtime before starting with a different client', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
 
-    await ensureNewsRuntimeStarted({ id: 'client-a' } as any);
-    await ensureNewsRuntimeStarted({ id: 'client-b' } as any);
+    ensureNewsRuntimeStarted({ id: 'client-a' } as any);
+    ensureNewsRuntimeStarted({ id: 'client-b' } as any);
 
     expect(stopMock).toHaveBeenCalledTimes(1);
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(2);
@@ -458,12 +379,12 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(infoSpy).not.toHaveBeenCalled();
   });
 
-  it('is idempotent across repeated calls with the same client', async () => {
+  it('is idempotent across repeated calls with the same client', () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
 
     const client = { id: 'stable-client' } as any;
-    await ensureNewsRuntimeStarted(client);
-    await ensureNewsRuntimeStarted(client);
+    ensureNewsRuntimeStarted(client);
+    ensureNewsRuntimeStarted(client);
 
     expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
     expect(stopMock).not.toHaveBeenCalled();

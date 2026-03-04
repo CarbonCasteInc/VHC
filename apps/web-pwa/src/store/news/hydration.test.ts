@@ -186,6 +186,57 @@ describe('hydrateNewsStore', () => {
     expect(state.upsertLatestIndex).not.toHaveBeenCalledWith('legacy-map-key', expect.any(Number));
   });
 
+  it('falls back to Gun map key when payload story_id is blank', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(story({ story_id: '   ', cluster_window_end: 902 }), 'fallback-key');
+
+    expect(state.upsertStory).toHaveBeenCalledTimes(1);
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('fallback-key', 902);
+  });
+
+  it('uses payload story_id when map key is missing or non-string', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(story({ story_id: 'payload-only-id', cluster_window_end: 902 }));
+
+    expect(state.upsertStory).toHaveBeenCalledTimes(1);
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('payload-only-id', 902);
+  });
+
+  it('drops story updates when both payload story_id and map key are blank', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(story({ story_id: '   ', cluster_window_end: 903 }), '   ');
+
+    expect(state.upsertStory).not.toHaveBeenCalled();
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
+  });
+
   it('hydrates stories from encoded story-bundle payloads', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();

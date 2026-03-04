@@ -285,6 +285,25 @@ describe('news store', () => {
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['story-a', 'story-z']);
   });
 
+  it('falls back to created_at ranking when cluster_window_end is missing in in-memory stories', async () => {
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => null });
+
+    const withoutWindowEndA = {
+      ...story({ story_id: 'created-at-a', created_at: 10, cluster_window_end: 10 }),
+      cluster_window_end: undefined,
+    } as unknown as StoryBundle;
+    const withoutWindowEndB = {
+      ...story({ story_id: 'created-at-b', created_at: 20, cluster_window_end: 20 }),
+      cluster_window_end: undefined,
+    } as unknown as StoryBundle;
+
+    store.setState({ stories: [withoutWindowEndA, withoutWindowEndB], latestIndex: {} });
+    store.getState().setLatestIndex({});
+
+    expect(store.getState().stories.map((s) => s.story_id)).toEqual(['created-at-b', 'created-at-a']);
+  });
+
   it('upsertStory inserts and updates existing stories while preserving first created_at', async () => {
     const { createNewsStore } = await import('./index');
     const store = createNewsStore({ resolveClient: () => null });

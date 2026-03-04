@@ -601,6 +601,47 @@ describe('newsAdapters', () => {
     ).rejects.toThrow('lease_token is required');
   });
 
+  it('readNewsIngestionLease returns null when lease node is missing or non-object', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsIngestionLease(client)).resolves.toBeNull();
+
+    mesh.setRead('news/runtime/lease/ingester', 42);
+    await expect(readNewsIngestionLease(client)).resolves.toBeNull();
+  });
+
+  it('writeNewsIngestionLease validates object, string ids, and timestamps', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(writeNewsIngestionLease(client, null as unknown as any)).rejects.toThrow(
+      'lease payload must be an object',
+    );
+
+    await expect(
+      writeNewsIngestionLease(client, {
+        holder_id: 99,
+        lease_token: 'token-1',
+        acquired_at: 1,
+        heartbeat_at: 2,
+        expires_at: 3,
+      } as unknown as any),
+    ).rejects.toThrow('holder_id must be a string');
+
+    await expect(
+      writeNewsIngestionLease(client, {
+        holder_id: 'holder-1',
+        lease_token: 'token-1',
+        acquired_at: Number.NaN,
+        heartbeat_at: 2,
+        expires_at: 3,
+      } as unknown as any),
+    ).rejects.toThrow('acquired_at must be a non-negative finite number');
+  });
+
   // ---- Removal ledger adapters ----
 
   it('getNewsRemovalChain builds correct path and guards writes', async () => {

@@ -272,6 +272,17 @@ describe('startNewsBridge', () => {
     expect(topics).toEqual(['topic-1', 'topic-2']);
   });
 
+  it('ignores empty story snapshots emitted by subscription updates', async () => {
+    await startNewsBridge();
+
+    const s1 = makeStoryBundle({ story_id: 'story-non-empty', topic_id: 'topic-non-empty' });
+    useNewsStore.getState().setStories([s1]);
+    expect(useDiscoveryStore.getState().items).toHaveLength(1);
+
+    useNewsStore.getState().setStories([]);
+    expect(useDiscoveryStore.getState().items).toHaveLength(1);
+  });
+
   it('propagates updates for existing story identities into discovery', async () => {
     await startNewsBridge();
 

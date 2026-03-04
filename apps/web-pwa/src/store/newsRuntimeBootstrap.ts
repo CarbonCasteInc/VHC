@@ -8,13 +8,7 @@ import {
   type NewsRuntimeHandle,
   type TopicMapping,
 } from '@vh/ai-engine';
-import {
-  readNewsIngestionLease,
-  writeNewsIngestionLease,
-  writeStoryBundle,
-  type NewsIngestionLease,
-  type VennClient,
-} from '@vh/gun-client';
+import { writeStoryBundle, type VennClient } from '@vh/gun-client';
 
 const DEFAULT_TOPIC_MAPPING: TopicMapping = {
   defaultTopicId: 'topic-news',
@@ -34,20 +28,10 @@ let reliabilityCache:
     }
   | null = null;
 
-let leaseHolderId: string | null = null;
-let leaseToken: string | null = null;
-let leaseClient: VennClient | null = null;
-let leaseRenewTimer: ReturnType<typeof setInterval> | null = null;
-let leaseRetryTimer: ReturnType<typeof setTimeout> | null = null;
-let leaseRenewInFlight = false;
-
 const DEFAULT_RELIABILITY_SAMPLE_SIZE = 4;
 const DEFAULT_RELIABILITY_MIN_SUCCESS_RATE = 0.75;
 const DEFAULT_RELIABILITY_MIN_SUCCESS_COUNT = 2;
 const DEFAULT_RELIABILITY_CACHE_TTL_MS = 30 * 60 * 1_000;
-const DEFAULT_RUNTIME_LEASE_TTL_MS = 90_000;
-const DEFAULT_RUNTIME_LEASE_RETRY_MS = 15_000;
-const MIN_RUNTIME_LEASE_RENEW_MS = 5_000;
 const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
 const RELIABILITY_ARTICLE_MIN_CHARS = 200;
@@ -195,70 +179,6 @@ function parseRate(raw: string | undefined, fallback: number): number {
   return parsed;
 }
 
-function readRuntimeMode(): string | undefined {
-  const importMode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
-  const processMode =
-    typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>).MODE : undefined;
-  return processMode ?? (typeof importMode === 'string' ? importMode : undefined);
-}
-
-function isRuntimeLeaseEnabled(): boolean {
-  const defaultEnabled = readRuntimeMode() === 'test' ? false : true;
-  return parseBooleanFlag(readEnvVar('VITE_NEWS_RUNTIME_LEASE_ENABLED'), defaultEnabled);
-}
-
-function parseRuntimeLeaseTtlMs(): number {
-  return parsePositiveInt(readEnvVar('VITE_NEWS_RUNTIME_LEASE_TTL_MS'), DEFAULT_RUNTIME_LEASE_TTL_MS);
-}
-
-function parseRuntimeLeaseRetryMs(): number {
-  return parsePositiveInt(readEnvVar('VITE_NEWS_RUNTIME_LEASE_RETRY_MS'), DEFAULT_RUNTIME_LEASE_RETRY_MS);
-}
-
-function parseRuntimeLeaseRenewMs(ttlMs: number): number {
-  const fallback = Math.max(MIN_RUNTIME_LEASE_RENEW_MS, Math.floor(ttlMs / 2));
-  const parsed = parsePositiveInt(readEnvVar('VITE_NEWS_RUNTIME_LEASE_RENEW_MS'), fallback);
-  return Math.min(parsed, Math.max(MIN_RUNTIME_LEASE_RENEW_MS, ttlMs));
-}
-
-function randomToken(): string {
-  return Math.random().toString(36).slice(2, 12);
-}
-
-function resolveLeaseHolderId(client: VennClient): string {
-  if (leaseHolderId) {
-    return leaseHolderId;
-  }
-
-  const override = readGlobalFlag('__VH_NEWS_RUNTIME_HOLDER_ID');
-  if (typeof override === 'string' && override.trim()) {
-    leaseHolderId = override.trim();
-    return leaseHolderId;
-  }
-
-  const clientHint =
-    typeof (client as unknown as { id?: unknown }).id === 'string'
-      ? ((client as unknown as { id: string }).id || '').trim()
-      : '';
-  const sessionId = `${Date.now().toString(36)}-${randomToken()}`;
-  leaseHolderId = clientHint ? `vh-news-${sessionId}-${clientHint}` : `vh-news-${sessionId}`;
-  return leaseHolderId;
-}
-
-function clearLeaseTimers(): void {
-  if (leaseRenewTimer) {
-    clearInterval(leaseRenewTimer);
-    leaseRenewTimer = null;
-  }
-
-  if (leaseRetryTimer) {
-    clearTimeout(leaseRetryTimer);
-    leaseRetryTimer = null;
-  }
-
-  leaseRenewInFlight = false;
-}
-
 function decodeXmlEntities(input: string): string {
   return input
     .replace(/&lt;/g, '<')
@@ -312,7 +232,11 @@ function parseFeedLinks(xml: string, sampleSize: number): string[] {
 }
 
 function parseReliabilityGateEnabled(): boolean {
-  const defaultEnabled = readRuntimeMode() === 'test' ? false : true;
+  const importMode = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.MODE;
+  const processMode =
+    typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>).MODE : undefined;
+  const mode = processMode ?? importMode;
+  const defaultEnabled = mode === 'test' ? false : true;
   return parseBooleanFlag(readEnvVar('VITE_NEWS_SOURCE_RELIABILITY_GATE'), defaultEnabled);
 }
 
@@ -445,171 +369,6 @@ async function filterFeedSourcesByReliability(feedSources: FeedSource[]): Promis
   return [];
 }
 
-function stopRuntimeAndClearState(): void {
-  runtimeHandle?.stop();
-  runtimeHandle = null;
-  runtimeClient = null;
-}
-
-async function tryAcquireRuntimeLease(client: VennClient): Promise<boolean> {
-  const holderId = resolveLeaseHolderId(client);
-  const ttlMs = parseRuntimeLeaseTtlMs();
-  const now = Date.now();
-  const current = await readNewsIngestionLease(client);
-
-  if (current && current.expires_at > now && current.holder_id !== holderId) {
-    return false;
-  }
-
-  const nextToken =
-    current && current.holder_id === holderId && current.expires_at > now
-      ? current.lease_token
-      : `${holderId}:${randomToken()}`;
-  const lease: NewsIngestionLease = {
-    holder_id: holderId,
-    lease_token: nextToken,
-    acquired_at: current?.holder_id === holderId ? current.acquired_at : now,
-    heartbeat_at: now,
-    expires_at: now + ttlMs,
-  };
-
-  await writeNewsIngestionLease(client, lease);
-  const confirmed = await readNewsIngestionLease(client);
-  if (!confirmed) {
-    return false;
-  }
-
-  if (
-    confirmed.holder_id !== holderId ||
-    confirmed.lease_token !== nextToken ||
-    confirmed.expires_at <= Date.now()
-  ) {
-    return false;
-  }
-
-  leaseClient = client;
-  leaseToken = nextToken;
-  return true;
-}
-
-async function tryRenewRuntimeLease(client: VennClient): Promise<boolean> {
-  if (!leaseToken || !leaseHolderId) {
-    return false;
-  }
-
-  const ttlMs = parseRuntimeLeaseTtlMs();
-  const now = Date.now();
-  const current = await readNewsIngestionLease(client);
-  if (
-    !current ||
-    current.holder_id !== leaseHolderId ||
-    current.lease_token !== leaseToken ||
-    current.expires_at <= now
-  ) {
-    return false;
-  }
-
-  await writeNewsIngestionLease(client, {
-    ...current,
-    heartbeat_at: now,
-    expires_at: now + ttlMs,
-  });
-
-  const confirmed = await readNewsIngestionLease(client);
-  return Boolean(
-    confirmed &&
-      confirmed.holder_id === leaseHolderId &&
-      confirmed.lease_token === leaseToken &&
-      confirmed.expires_at > Date.now(),
-  );
-}
-
-async function releaseRuntimeLeaseIfHeld(): Promise<void> {
-  if (!leaseClient || !leaseToken || !leaseHolderId) {
-    return;
-  }
-
-  const client = leaseClient;
-  const token = leaseToken;
-  const holderId = leaseHolderId;
-
-  leaseClient = null;
-  leaseToken = null;
-
-  try {
-    const current = await readNewsIngestionLease(client);
-    if (!current || current.holder_id !== holderId || current.lease_token !== token) {
-      return;
-    }
-
-    const now = Date.now();
-    await writeNewsIngestionLease(client, {
-      ...current,
-      heartbeat_at: now,
-      expires_at: now,
-    });
-  } catch (error) {
-    console.warn('[vh:news-runtime] failed to release ingestion lease', error);
-  }
-}
-
-function clearLeaseRetryTimer(): void {
-  if (!leaseRetryTimer) {
-    return;
-  }
-
-  clearTimeout(leaseRetryTimer);
-  leaseRetryTimer = null;
-}
-
-function scheduleRuntimeLeaseRetry(client: VennClient): void {
-  if (leaseRetryTimer) {
-    return;
-  }
-
-  const retryMs = parseRuntimeLeaseRetryMs();
-  leaseRetryTimer = setTimeout(() => {
-    leaseRetryTimer = null;
-    void ensureNewsRuntimeStarted(client);
-  }, retryMs);
-}
-
-function startLeaseRenewLoop(client: VennClient): void {
-  if (leaseRenewTimer) {
-    return;
-  }
-
-  const renewMs = parseRuntimeLeaseRenewMs(parseRuntimeLeaseTtlMs());
-  leaseRenewTimer = setInterval(() => {
-    if (leaseRenewInFlight) {
-      return;
-    }
-
-    if (!runtimeHandle?.isRunning() || runtimeClient !== client) {
-      return;
-    }
-
-    leaseRenewInFlight = true;
-    void tryRenewRuntimeLease(client)
-      .then((ok) => {
-        if (ok) {
-          return;
-        }
-
-        console.warn('[vh:news-runtime] ingestion lease lost; stopping runtime');
-        stopRuntimeAndClearState();
-        clearLeaseTimers();
-        scheduleRuntimeLeaseRetry(client);
-      })
-      .catch((error) => {
-        console.warn('[vh:news-runtime] ingestion lease renewal failed', error);
-      })
-      .finally(() => {
-        leaseRenewInFlight = false;
-      });
-  }, renewMs);
-}
-
 export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void> {
   if (runtimeStartPromise && runtimeStartClient === client) {
     await runtimeStartPromise;
@@ -617,50 +376,23 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
   }
 
   const start = async (): Promise<void> => {
-    const leaseEnabled = isRuntimeLeaseEnabled();
-
     if (!isNewsRuntimeEnabled()) {
-      stopRuntimeAndClearState();
-      clearLeaseTimers();
-      await releaseRuntimeLeaseIfHeld();
       return;
     }
 
     if (!shouldRunRuntimeInCurrentSession()) {
-      stopRuntimeAndClearState();
-      clearLeaseTimers();
-      await releaseRuntimeLeaseIfHeld();
+      runtimeHandle?.stop();
+      runtimeHandle = null;
+      runtimeClient = null;
       console.info('[vh:news-runtime] skipped for this session');
       return;
     }
 
     if (runtimeHandle?.isRunning() && runtimeClient === client) {
-      if (leaseEnabled) {
-        startLeaseRenewLoop(client);
-      }
       return;
     }
 
-    stopRuntimeAndClearState();
-    clearLeaseTimers();
-    await releaseRuntimeLeaseIfHeld();
-
-    if (leaseEnabled) {
-      let acquired = false;
-      try {
-        acquired = await tryAcquireRuntimeLease(client);
-      } catch (error) {
-        console.warn('[vh:news-runtime] ingestion lease acquisition failed', error);
-      }
-
-      if (!acquired) {
-        console.info('[vh:news-runtime] lease not acquired; running as consumer');
-        scheduleRuntimeLeaseRetry(client);
-        return;
-      }
-
-      clearLeaseRetryTimer();
-    }
+    runtimeHandle?.stop();
 
     const parsedFeedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
     const reliableSources = parseReliabilityGateEnabled()
@@ -709,19 +441,12 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     if (handle.isRunning()) {
       runtimeHandle = handle;
       runtimeClient = client;
-      if (leaseEnabled) {
-        startLeaseRenewLoop(client);
-      }
       console.info('[vh:news-runtime] started');
       return;
     }
 
-    stopRuntimeAndClearState();
-    if (leaseEnabled) {
-      clearLeaseTimers();
-      await releaseRuntimeLeaseIfHeld();
-      scheduleRuntimeLeaseRetry(client);
-    }
+    runtimeHandle = null;
+    runtimeClient = null;
   };
 
   const inFlight = start();
@@ -736,11 +461,9 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
 }
 
 export function __resetNewsRuntimeForTesting(): void {
-  stopRuntimeAndClearState();
-  clearLeaseTimers();
-  leaseClient = null;
-  leaseToken = null;
-  leaseHolderId = null;
+  runtimeHandle?.stop();
+  runtimeHandle = null;
+  runtimeClient = null;
   runtimeStartPromise = null;
   runtimeStartClient = null;
   reliabilityCache = null;
