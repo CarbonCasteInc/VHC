@@ -43,6 +43,7 @@ describe('TopologyGuard', () => {
     const guard = new TopologyGuard();
     expect(() => guard.validateWrite('vh/discovery/items/item-1', { id: 'item-1', score: 1 })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/stories/story-1', { story_id: 'story-1', title: 'Headline' })).not.toThrow();
+    expect(() => guard.validateWrite('vh/news/index/hot/story-1', { hotness: 0.92 })).not.toThrow();
     expect(() =>
       guard.validateWrite('vh/news/runtime/lease/ingester', {
         holder_id: 'holder-1',

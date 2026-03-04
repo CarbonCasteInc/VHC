@@ -12,6 +12,9 @@ import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import { HydrationBarrier } from './sync/barrier';
 import {
+  DEFAULT_NEWS_HOTNESS_CONFIG,
+  computeStoryHotness,
+  getNewsHotIndexChain,
   getNewsIngestionLeaseChain,
   getNewsStoryChain,
   getNewsStoriesChain,
@@ -19,11 +22,13 @@ import {
   hasForbiddenNewsPayloadFields,
   parseRemovalEntry,
   readLatestStoryIds,
+  readNewsHotIndex,
   readNewsIngestionLease,
   readNewsLatestIndex,
   readNewsRemoval,
   readNewsStory,
   writeNewsBundle,
+  writeNewsHotIndexEntry,
   writeNewsIngestionLease,
   writeNewsLatestIndexEntry,
   writeNewsStory
@@ -152,6 +157,17 @@ describe('newsAdapters', () => {
     await storyChain.put(STORY);
 
     expect(guard.validateWrite).toHaveBeenCalledWith('vh/news/stories/story-123/', STORY);
+  });
+
+  it('builds hot index chain and guards writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const hotIndexChain = getNewsHotIndexChain(client);
+    await hotIndexChain.get('story-xyz').put(0.625);
+
+    expect(guard.validateWrite).toHaveBeenCalledWith('vh/news/index/hot/story-xyz/', 0.625);
   });
 
   it('detects forbidden payload fields recursively', () => {
@@ -456,6 +472,121 @@ describe('newsAdapters', () => {
     await expect(readNewsLatestIndex(client)).resolves.toEqual({});
   });
 
+  it('readNewsHotIndex parses numeric/string/object payloads and drops invalid entries', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/index/hot', {
+      'story-a': 0.912345678,
+      'story-b': '0.75',
+      'story-c': { hotness: 0.5 },
+      'story-d': { hotness: '0.33' },
+      'story-invalid': { hotness: -1 },
+      'story-bad': 'not-a-number',
+      _: { '#': 'meta' },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsHotIndex(client)).resolves.toEqual({
+      'story-a': 0.912346,
+      'story-b': 0.75,
+      'story-c': 0.5,
+      'story-d': 0.33,
+    });
+  });
+
+  it('readNewsHotIndex returns empty object for non-object payloads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/index/hot', null);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsHotIndex(client)).resolves.toEqual({});
+  });
+
+  it('computeStoryHotness is deterministic for fixed inputs', () => {
+    const fixedNow = STORY.cluster_window_end + 2 * 60 * 60 * 1000;
+    const a = computeStoryHotness(STORY, fixedNow);
+    const b = computeStoryHotness(STORY, fixedNow);
+
+    expect(a).toBe(b);
+  });
+
+  it('computeStoryHotness favors breaking velocity and decays over time', () => {
+    const now = STORY.cluster_window_end + 60 * 60 * 1000;
+    const breaking = computeStoryHotness(
+      {
+        ...STORY,
+        cluster_features: {
+          ...STORY.cluster_features,
+          coverage_score: 0.85,
+          velocity_score: 0.95,
+          confidence_score: 0.7,
+        },
+      },
+      now,
+      DEFAULT_NEWS_HOTNESS_CONFIG,
+    );
+
+    const stale = computeStoryHotness(
+      {
+        ...STORY,
+        cluster_features: {
+          ...STORY.cluster_features,
+          coverage_score: 0.85,
+          velocity_score: 0.95,
+          confidence_score: 0.7,
+        },
+      },
+      now + 24 * 60 * 60 * 1000,
+      DEFAULT_NEWS_HOTNESS_CONFIG,
+    );
+
+    expect(breaking).toBeGreaterThan(stale);
+  });
+
+  it('computeStoryHotness clamps invalid config and sparse feature vectors', () => {
+    const sparse = {
+      ...STORY,
+      sources: [],
+      cluster_features: {
+        ...STORY.cluster_features,
+        coverage_score: undefined,
+        velocity_score: undefined,
+        confidence_score: undefined,
+      },
+    } as StoryBundle;
+
+    const customConfig = {
+      ...DEFAULT_NEWS_HOTNESS_CONFIG,
+      decayHalfLifeHours: 0,
+      breakingWindowHours: -5,
+      breakingVelocityBoost: -1,
+    };
+
+    const score = computeStoryHotness(sparse, Number.NaN, customConfig);
+    expect(Number.isFinite(score)).toBe(true);
+    expect(score).toBeGreaterThanOrEqual(0);
+  });
+
+  it('computeStoryHotness clamps non-finite and out-of-range feature inputs', () => {
+    const outOfRange = {
+      ...STORY,
+      cluster_features: {
+        ...STORY.cluster_features,
+        coverage_score: Number.NaN,
+        velocity_score: -0.2,
+        confidence_score: 1.8,
+      },
+    } as StoryBundle;
+
+    const score = computeStoryHotness(outOfRange, STORY.cluster_window_end + 15 * 60 * 1000);
+    expect(Number.isFinite(score)).toBe(true);
+    expect(score).toBeGreaterThanOrEqual(0);
+    expect(score).toBeLessThanOrEqual(2);
+  });
+
   it('writeNewsLatestIndexEntry validates id and normalizes timestamp', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -470,25 +601,53 @@ describe('newsAdapters', () => {
     await expect(writeNewsLatestIndexEntry(client, '   ', 1)).rejects.toThrow('storyId is required');
   });
 
-  it('writeNewsBundle writes story and latest index using cluster_window_end activity semantics', async () => {
+  it('writeNewsHotIndexEntry validates id and normalizes score', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    const result = await writeNewsBundle(client, STORY);
+    await expect(writeNewsHotIndexEntry(client, ' story-a ', 0.912345678)).resolves.toBe(0.912346);
+    expect(mesh.writes[0]).toEqual({ path: 'news/index/hot/story-a', value: 0.912346 });
 
-    expect(result.story_id).toBe('story-123');
-    expect(mesh.writes).toHaveLength(2);
-    expect(mesh.writes[0].path).toBe('news/stories/story-123');
-    expect(mesh.writes[0].value).toMatchObject({
-      story_id: STORY.story_id,
-      created_at: STORY.created_at,
-      schemaVersion: STORY.schemaVersion
-    });
-    expect(
-      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
-    ).toEqual(STORY);
-    expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.cluster_window_end });
+    await expect(writeNewsHotIndexEntry(client, 'story-b', Number.NaN)).resolves.toBe(0);
+    expect(mesh.writes[1]).toEqual({ path: 'news/index/hot/story-b', value: 0 });
+
+    await expect(writeNewsHotIndexEntry(client, 'story-c', -1)).resolves.toBe(0);
+    expect(mesh.writes[2]).toEqual({ path: 'news/index/hot/story-c', value: 0 });
+
+    await expect(writeNewsHotIndexEntry(client, '   ', 0.1)).rejects.toThrow('storyId is required');
+  });
+
+  it('writeNewsBundle writes story, latest index, and deterministic hot index', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(STORY.cluster_window_end + 30 * 60 * 1000));
+
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const result = await writeNewsBundle(client, STORY);
+
+      expect(result.story_id).toBe('story-123');
+      expect(mesh.writes).toHaveLength(3);
+      expect(mesh.writes[0].path).toBe('news/stories/story-123');
+      expect(mesh.writes[0].value).toMatchObject({
+        story_id: STORY.story_id,
+        created_at: STORY.created_at,
+        schemaVersion: STORY.schemaVersion
+      });
+      expect(
+        JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
+      ).toEqual(STORY);
+      expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.cluster_window_end });
+      expect(mesh.writes[2]).toEqual({
+        path: 'news/index/hot/story-123',
+        value: computeStoryHotness(STORY, Date.now()),
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('readLatestStoryIds sorts newest-first, then by id; respects limit', async () => {

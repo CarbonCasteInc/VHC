@@ -391,12 +391,15 @@ describe('synthesisAdapters', () => {
     const written = await writeStoryBundle(client, STORY);
     expect(written).toEqual(STORY);
 
-    expect(mesh.writes).toHaveLength(2);
+    expect(mesh.writes).toHaveLength(3);
     expect(mesh.writes[0]?.path).toBe('news/stories/story-1');
     expect(mesh.writes[1]).toEqual({
       path: 'news/index/latest/story-1',
       value: STORY.cluster_window_end
     });
+    expect(mesh.writes[2]?.path).toBe('news/index/hot/story-1');
+    expect(typeof mesh.writes[2]?.value).toBe('number');
+    expect((mesh.writes[2]?.value as number) >= 0).toBe(true);
 
     const encodedStoryWrite = mesh.writes[0]?.value as Record<string, unknown>;
     expect(encodedStoryWrite).toMatchObject({

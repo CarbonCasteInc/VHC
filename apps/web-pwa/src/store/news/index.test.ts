@@ -5,6 +5,7 @@ const hydrateNewsStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const hasForbiddenNewsPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
 const readLatestStoryIdsMock = vi.fn<(client: unknown, limit?: number) => Promise<string[]>>();
 const readNewsLatestIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
+const readNewsHotIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
 const readNewsStoryMock = vi.fn<(client: unknown, storyId: string) => Promise<StoryBundle | null>>();
 
 vi.mock('./hydration', () => ({
@@ -14,6 +15,7 @@ vi.mock('./hydration', () => ({
 vi.mock('@vh/gun-client', () => ({
   hasForbiddenNewsPayloadFields: hasForbiddenNewsPayloadFieldsMock,
   readLatestStoryIds: readLatestStoryIdsMock,
+  readNewsHotIndex: readNewsHotIndexMock,
   readNewsLatestIndex: readNewsLatestIndexMock,
   readNewsStory: readNewsStoryMock
 }));
@@ -49,17 +51,24 @@ function story(overrides: Partial<StoryBundle> = {}): StoryBundle {
 }
 
 describe('news store', () => {
+  it('exports news store type surface version marker', async () => {
+    const { getNewsStoreTypesVersion } = await import('./types');
+    expect(getNewsStoreTypesVersion()).toBe('storycluster-pr5-hot-index-v1');
+  });
+
   beforeEach(() => {
     hydrateNewsStoreMock.mockReset();
     hasForbiddenNewsPayloadFieldsMock.mockReset();
     readLatestStoryIdsMock.mockReset();
     readNewsLatestIndexMock.mockReset();
+    readNewsHotIndexMock.mockReset();
     readNewsStoryMock.mockReset();
 
     hydrateNewsStoreMock.mockReturnValue(false);
     hasForbiddenNewsPayloadFieldsMock.mockReturnValue(false);
     readLatestStoryIdsMock.mockResolvedValue([]);
     readNewsLatestIndexMock.mockResolvedValue({});
+    readNewsHotIndexMock.mockResolvedValue({});
     readNewsStoryMock.mockResolvedValue(null);
 
     vi.resetModules();
@@ -72,6 +81,7 @@ describe('news store', () => {
     const state = store.getState();
     expect(state.stories).toEqual([]);
     expect(state.latestIndex).toEqual({});
+    expect(state.hotIndex).toEqual({});
     expect(state.hydrated).toBe(false);
     expect(state.loading).toBe(false);
     expect(state.error).toBeNull();
@@ -334,6 +344,31 @@ describe('news store', () => {
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s1', 's2']);
   });
 
+  it('setHotIndex sanitizes values', async () => {
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => null });
+
+    store.getState().setHotIndex({
+      s1: 0.912345678,
+      s2: -0.2,
+      s3: Number.NaN,
+      '  ': 0.5,
+    });
+
+    expect(store.getState().hotIndex).toEqual({ s1: 0.912346 });
+  });
+
+  it('upsertHotIndex validates and normalizes incoming values', async () => {
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => null });
+
+    store.getState().upsertHotIndex('story-hot', 0.123456789);
+    store.getState().upsertHotIndex('story-hot', Number.NaN);
+    store.getState().upsertHotIndex('   ', 0.8);
+
+    expect(store.getState().hotIndex).toEqual({ 'story-hot': 0.123457 });
+  });
+
   it('startHydration toggles hydrated when hydration attaches', async () => {
     hydrateNewsStoreMock.mockReturnValue(true);
 
@@ -354,13 +389,15 @@ describe('news store', () => {
     expect(store.getState().stories).toEqual([]);
     expect(store.getState().loading).toBe(false);
     expect(readNewsLatestIndexMock).not.toHaveBeenCalled();
+    expect(readNewsHotIndexMock).not.toHaveBeenCalled();
   });
 
-  it('refreshLatest loads index + stories and clears loading', async () => {
+  it('refreshLatest loads latest/hot indexes + stories and clears loading', async () => {
     hydrateNewsStoreMock.mockReturnValue(true);
 
     const client = { id: 'client' };
     readNewsLatestIndexMock.mockResolvedValue({ s1: 200, s2: 100 });
+    readNewsHotIndexMock.mockResolvedValue({ s1: 0.91, s2: 0.42 });
     readLatestStoryIdsMock.mockResolvedValue(['s1', 's2']);
     readNewsStoryMock.mockImplementation(async (_client, storyId) => {
       if (storyId === 's1') return story({ story_id: 's1', created_at: 10 });
@@ -374,8 +411,10 @@ describe('news store', () => {
 
     expect(hydrateNewsStoreMock).toHaveBeenCalled();
     expect(readLatestStoryIdsMock).toHaveBeenCalledWith(client, 25);
+    expect(readNewsHotIndexMock).toHaveBeenCalledWith(client);
     expect(store.getState().hydrated).toBe(true);
     expect(store.getState().latestIndex).toEqual({ s1: 200, s2: 100 });
+    expect(store.getState().hotIndex).toEqual({ s1: 0.91, s2: 0.42 });
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['s1', 's2']);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
@@ -400,6 +439,7 @@ describe('news store', () => {
     expect(store.getState().stories[0]?.headline).toBe('updated');
     expect(store.getState().stories[0]?.created_at).toBe(10);
     expect(store.getState().latestIndex).toEqual({ s1: 400 });
+    expect(store.getState().hotIndex).toEqual({});
   });
 
   it('refreshLatest warns when discovery mirroring fails', async () => {
@@ -478,6 +518,7 @@ describe('news store', () => {
     store.getState().reset();
     expect(store.getState().stories).toEqual([]);
     expect(store.getState().latestIndex).toEqual({});
+    expect(store.getState().hotIndex).toEqual({});
     expect(store.getState().hydrated).toBe(false);
     expect(store.getState().loading).toBe(false);
     expect(store.getState().error).toBeNull();
@@ -502,12 +543,14 @@ describe('news store', () => {
 
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['m2', 'm1']);
     expect(store.getState().latestIndex).toEqual({ m1: 100, m2: 200 });
+    expect(store.getState().hotIndex).toEqual({});
 
     await store.getState().refreshLatest();
 
     const empty = createMockNewsStore();
     expect(empty.getState().stories).toEqual([]);
     expect(empty.getState().latestIndex).toEqual({});
+    expect(empty.getState().hotIndex).toEqual({});
 
     await empty.getState().refreshLatest();
   });

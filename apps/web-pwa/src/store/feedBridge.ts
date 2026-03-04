@@ -14,6 +14,7 @@ type BridgeFlag =
 
 interface NewsBridgeState {
   stories: ReadonlyArray<StoryBundle>;
+  hotIndex: Readonly<Record<string, number>>;
   startHydration: () => void;
   refreshLatest: (limit?: number) => Promise<void>;
 }
@@ -245,7 +246,10 @@ async function resolveSocialBridgeDependencies(): Promise<SocialBridgeDependenci
 /**
  * Convert a StoryBundle to a discovery FeedItem (kind=NEWS_STORY).
  */
-export function storyBundleToFeedItem(bundle: StoryBundle): FeedItem {
+export function storyBundleToFeedItem(
+  bundle: StoryBundle,
+  hotIndex: Readonly<Record<string, number>> = {},
+): FeedItem {
   return {
     story_id: bundle.story_id,
     topic_id: bundle.topic_id,
@@ -253,7 +257,7 @@ export function storyBundleToFeedItem(bundle: StoryBundle): FeedItem {
     title: bundle.headline,
     created_at: toTimestamp(bundle.created_at),
     latest_activity_at: toTimestamp(bundle.cluster_window_end),
-    hotness: 0,
+    hotness: Math.max(0, hotIndex[bundle.story_id] ?? 0),
     eye: 0,
     lightbulb: bundle.sources.length,
     comments: 0,
@@ -297,13 +301,16 @@ export async function startNewsBridge(): Promise<void> {
     console.warn('[vh:feed-bridge] refreshLatest failed during bootstrap:', error);
   }
 
-  const currentStories = newsStore.getState().stories;
-  if (currentStories.length > 0) {
-    mergeIntoDiscovery(currentStories.map(storyBundleToFeedItem), discoveryStore);
+  const currentNewsState = newsStore.getState();
+  if (currentNewsState.stories.length > 0) {
+    mergeIntoDiscovery(
+      currentNewsState.stories.map((story) => storyBundleToFeedItem(story, currentNewsState.hotIndex)),
+      discoveryStore,
+    );
   }
 
   newsUnsubscribe = newsStore.subscribe((state, prevState) => {
-    if (state.stories === prevState.stories) {
+    if (state.stories === prevState.stories && state.hotIndex === prevState.hotIndex) {
       return;
     }
 
@@ -311,7 +318,10 @@ export async function startNewsBridge(): Promise<void> {
       return;
     }
 
-    mergeIntoDiscovery(state.stories.map(storyBundleToFeedItem), discoveryStore);
+    mergeIntoDiscovery(
+      state.stories.map((story) => storyBundleToFeedItem(story, state.hotIndex)),
+      discoveryStore,
+    );
   });
 }
 

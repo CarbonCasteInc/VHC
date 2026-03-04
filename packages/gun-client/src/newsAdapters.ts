@@ -3,6 +3,38 @@ import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
 
 export type NewsLatestIndex = Record<string, number>;
+export type NewsHotIndex = Record<string, number>;
+
+export interface NewsHotnessConfig {
+  readonly version: 'storycluster-hot-v1';
+  readonly decayHalfLifeHours: number;
+  readonly breakingWindowHours: number;
+  readonly breakingVelocityBoost: number;
+  readonly weights: {
+    readonly coverage: number;
+    readonly velocity: number;
+    readonly confidence: number;
+    readonly sourceDiversity: number;
+    readonly freshness: number;
+  };
+}
+
+export const DEFAULT_NEWS_HOTNESS_CONFIG: NewsHotnessConfig = {
+  version: 'storycluster-hot-v1',
+  decayHalfLifeHours: 8,
+  breakingWindowHours: 3,
+  breakingVelocityBoost: 0.75,
+  weights: {
+    coverage: 0.32,
+    velocity: 0.38,
+    confidence: 0.12,
+    sourceDiversity: 0.08,
+    freshness: 0.1,
+  },
+};
+
+const HOTNESS_ROUNDING_SCALE = 1_000_000;
+const MS_PER_HOUR = 3_600_000;
 
 const FORBIDDEN_NEWS_KEYS = new Set<string>([
   'identity',
@@ -100,6 +132,10 @@ function storiesPath(): string {
 
 function latestIndexPath(): string {
   return 'vh/news/index/latest/';
+}
+
+function hotIndexPath(): string {
+  return 'vh/news/index/hot/';
 }
 
 function ingestionLeasePath(): string {
@@ -200,6 +236,55 @@ function parseLatestTimestamp(value: unknown): number | null {
   return null;
 }
 
+function parseHotnessScore(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.round(value * HOTNESS_ROUNDING_SCALE) / HOTNESS_ROUNDING_SCALE;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return Math.round(parsed * HOTNESS_ROUNDING_SCALE) / HOTNESS_ROUNDING_SCALE;
+    }
+    return null;
+  }
+
+  if (isRecord(value) && 'hotness' in value) {
+    return parseHotnessScore(value.hotness);
+  }
+
+  return null;
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  if (value <= 0) {
+    return 0;
+  }
+  if (value >= 1) {
+    return 1;
+  }
+  return value;
+}
+
+function normalizeUnitInterval(value: unknown, fallback: number): number {
+  if (typeof value !== 'number') {
+    return clamp01(fallback);
+  }
+  return clamp01(value);
+}
+
+function computeSourceDiversityScore(sourceCount: number): number {
+  if (!Number.isFinite(sourceCount) || sourceCount <= 0) {
+    return 0;
+  }
+
+  const normalized = Math.log1p(sourceCount) / Math.log(8);
+  return clamp01(normalized);
+}
+
 function stripGunMetadata(data: unknown): unknown {
   if (!isRecord(data)) {
     return data;
@@ -265,6 +350,46 @@ async function enforceCreatedAtFirstWriteWins(client: VennClient, story: StoryBu
 }
 
 /**
+ * Deterministic hotness scorer for StoryBundle publication.
+ *
+ * Inputs are versioned via `NewsHotnessConfig` and deterministic for
+ * identical `(story, nowMs, config)` tuples.
+ */
+export function computeStoryHotness(
+  story: StoryBundle,
+  nowMs: number = Date.now(),
+  config: NewsHotnessConfig = DEFAULT_NEWS_HOTNESS_CONFIG,
+): number {
+  const latestActivityAt = Math.max(0, Math.floor(story.cluster_window_end));
+  const normalizedNow = Number.isFinite(nowMs) && nowMs >= 0 ? Math.floor(nowMs) : latestActivityAt;
+  const ageHours = Math.max(0, normalizedNow - latestActivityAt) / MS_PER_HOUR;
+
+  const halfLifeHours = Math.max(0.25, config.decayHalfLifeHours);
+  const freshness = Math.pow(2, -ageHours / halfLifeHours);
+
+  const coverage = normalizeUnitInterval(story.cluster_features.coverage_score, 0.35);
+  const velocity = normalizeUnitInterval(story.cluster_features.velocity_score, 0.2);
+  const confidence = normalizeUnitInterval(story.cluster_features.confidence_score, 0.5);
+  const sourceDiversity = computeSourceDiversityScore(story.sources.length);
+
+  const weightedBase =
+    config.weights.coverage * coverage +
+    config.weights.velocity * velocity +
+    config.weights.confidence * confidence +
+    config.weights.sourceDiversity * sourceDiversity +
+    config.weights.freshness * freshness;
+
+  const breakingWindowHours = Math.max(0, config.breakingWindowHours);
+  const inBreakingWindow = ageHours <= breakingWindowHours;
+  const breakingMultiplier = inBreakingWindow
+    ? 1 + Math.max(0, config.breakingVelocityBoost) * velocity
+    : 1;
+
+  const score = weightedBase * breakingMultiplier;
+  return Math.round(Math.max(0, score) * HOTNESS_ROUNDING_SCALE) / HOTNESS_ROUNDING_SCALE;
+}
+
+/**
  * Root chain for `vh/news/stories/*`.
  */
 export function getNewsStoriesChain(client: VennClient): ChainWithGet<StoryBundle> {
@@ -286,6 +411,14 @@ export function getNewsStoryChain(client: VennClient, storyId: string): ChainWit
 export function getNewsLatestIndexChain(client: VennClient): ChainWithGet<number> {
   const chain = client.mesh.get('news').get('index').get('latest') as unknown as ChainWithGet<number>;
   return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, latestIndexPath());
+}
+
+/**
+ * Root chain for `vh/news/index/hot/*`.
+ */
+export function getNewsHotIndexChain(client: VennClient): ChainWithGet<number> {
+  const chain = client.mesh.get('news').get('index').get('hot') as unknown as ChainWithGet<number>;
+  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, hotIndexPath());
 }
 
 export interface NewsIngestionLease {
@@ -434,6 +567,29 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
 }
 
 /**
+ * Read `vh/news/index/hot/*` and coerce to `{ [storyId]: hotness }`.
+ */
+export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex> {
+  const raw = await readOnce(getNewsHotIndexChain(client) as unknown as ChainWithGet<unknown>);
+  if (!isRecord(raw)) {
+    return {};
+  }
+
+  const index: NewsHotIndex = {};
+  for (const [storyId, value] of Object.entries(raw)) {
+    if (storyId === '_') {
+      continue;
+    }
+    const hotness = parseHotnessScore(value);
+    if (hotness !== null) {
+      index[storyId] = hotness;
+    }
+  }
+
+  return index;
+}
+
+/**
  * Write latest-index entry for a story.
  */
 export async function writeNewsLatestIndexEntry(
@@ -450,13 +606,33 @@ export async function writeNewsLatestIndexEntry(
 }
 
 /**
+ * Write hot-index entry for a story.
+ */
+export async function writeNewsHotIndexEntry(
+  client: VennClient,
+  storyId: string,
+  hotnessScore: number,
+): Promise<number> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    throw new Error('storyId is required');
+  }
+
+  const normalizedHotness = parseHotnessScore(hotnessScore) ?? 0;
+  await putWithAck(getNewsHotIndexChain(client).get(normalizedId), normalizedHotness);
+  return normalizedHotness;
+}
+
+/**
  * Convenience writer for publishing bundle + latest index atomically at app level.
  *
  * PR1 semantics: latest index is activity-based and keyed by `cluster_window_end`.
+ * PR5 semantics: hot index is deterministic and keyed by computed story hotness.
  */
 export async function writeNewsBundle(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = await writeNewsStory(client, story);
   await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.cluster_window_end);
+  await writeNewsHotIndexEntry(client, sanitized.story_id, computeStoryHotness(sanitized));
   return sanitized;
 }
 

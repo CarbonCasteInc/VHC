@@ -1,5 +1,6 @@
 import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
 import {
+  getNewsHotIndexChain,
   getNewsLatestIndexChain,
   getNewsStoriesChain,
   hasForbiddenNewsPayloadFields,
@@ -54,6 +55,26 @@ function parseLatestTimestamp(value: unknown): number | null {
   return null;
 }
 
+function parseHotnessScore(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
+    return Math.round(value * 1_000_000) / 1_000_000;
+  }
+
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return Math.round(parsed * 1_000_000) / 1_000_000;
+    }
+    return null;
+  }
+
+  if (value && typeof value === 'object' && 'hotness' in (value as Record<string, unknown>)) {
+    return parseHotnessScore((value as { hotness?: unknown }).hotness);
+  }
+
+  return null;
+}
+
 function decodeStoryPayload(payload: Record<string, unknown>): unknown {
   const encoded = payload[STORY_BUNDLE_JSON_KEY];
   if (typeof encoded !== 'string') {
@@ -103,8 +124,9 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
 
   const storiesChain = getNewsStoriesChain(client);
   const latestChain = getNewsLatestIndexChain(client);
+  const hotChain = getNewsHotIndexChain(client);
 
-  if (!canSubscribe(storiesChain) || !canSubscribe(latestChain)) {
+  if (!canSubscribe(storiesChain) || !canSubscribe(latestChain) || !canSubscribe(hotChain)) {
     return false;
   }
 
@@ -137,6 +159,17 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
       return;
     }
     store.getState().upsertLatestIndex(key, timestamp);
+  });
+
+  hotChain.map!().on!((data: unknown, key?: string) => {
+    if (!key) {
+      return;
+    }
+    const hotness = parseHotnessScore(data);
+    if (hotness === null) {
+      return;
+    }
+    store.getState().upsertHotIndex(key, hotness);
   });
 
   return true;

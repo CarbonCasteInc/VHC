@@ -3,6 +3,7 @@ import { StoryBundleSchema, type FeedItem, type StoryBundle } from '@vh/data-mod
 import {
   hasForbiddenNewsPayloadFields,
   readLatestStoryIds,
+  readNewsHotIndex,
   readNewsLatestIndex,
   readNewsStory
 } from '@vh/gun-client';
@@ -12,9 +13,10 @@ import type { NewsState, NewsDeps } from './types';
 
 export type { NewsState, NewsDeps } from './types';
 
-const INITIAL_STATE: Pick<NewsState, 'stories' | 'latestIndex' | 'hydrated' | 'loading' | 'error'> = {
+const INITIAL_STATE: Pick<NewsState, 'stories' | 'latestIndex' | 'hotIndex' | 'hydrated' | 'loading' | 'error'> = {
   stories: [],
   latestIndex: {},
+  hotIndex: {},
   hydrated: false,
   loading: false,
   error: null
@@ -135,6 +137,20 @@ function sanitizeLatestIndex(index: Record<string, number>): Record<string, numb
   return next;
 }
 
+function sanitizeHotIndex(index: Record<string, number>): Record<string, number> {
+  const next: Record<string, number> = {};
+  for (const [storyId, hotness] of Object.entries(index)) {
+    if (!storyId.trim()) {
+      continue;
+    }
+    if (!Number.isFinite(hotness) || hotness < 0) {
+      continue;
+    }
+    next[storyId.trim()] = Math.round(hotness * 1_000_000) / 1_000_000;
+  }
+  return next;
+}
+
 function sortStories(stories: StoryBundle[], latestIndex: Record<string, number>): StoryBundle[] {
   return [...stories].sort((a, b) => {
     const aRank = latestIndex[a.story_id] ?? a.cluster_window_end ?? a.created_at;
@@ -151,7 +167,7 @@ function buildSeedIndex(stories: StoryBundle[]): Record<string, number> {
   return index;
 }
 
-function storyToDiscoveryItem(story: StoryBundle): FeedItem {
+function storyToDiscoveryItem(story: StoryBundle, hotIndex: Readonly<Record<string, number>>): FeedItem {
   return {
     story_id: story.story_id,
     topic_id: story.topic_id,
@@ -159,17 +175,20 @@ function storyToDiscoveryItem(story: StoryBundle): FeedItem {
     title: story.headline,
     created_at: Math.max(0, Math.floor(story.created_at)),
     latest_activity_at: Math.max(0, Math.floor(story.cluster_window_end)),
-    hotness: 0,
+    hotness: Math.max(0, hotIndex[story.story_id] ?? 0),
     eye: 0,
     lightbulb: Math.max(0, Math.floor(story.sources.length)),
     comments: 0,
   };
 }
 
-async function mirrorStoriesIntoDiscovery(stories: StoryBundle[]): Promise<void> {
+async function mirrorStoriesIntoDiscovery(
+  stories: StoryBundle[],
+  hotIndex: Readonly<Record<string, number>>,
+): Promise<void> {
   try {
     const { useDiscoveryStore } = await import('../discovery');
-    useDiscoveryStore.getState().mergeItems(stories.map(storyToDiscoveryItem));
+    useDiscoveryStore.getState().mergeItems(stories.map((story) => storyToDiscoveryItem(story, hotIndex)));
   } catch (error) {
     console.warn('[vh:news] failed to mirror stories into discovery store', error);
   }
@@ -248,6 +267,28 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       });
     },
 
+    setHotIndex(index: Record<string, number>) {
+      const sanitized = sanitizeHotIndex(index);
+      set({
+        hotIndex: sanitized,
+        error: null,
+      });
+    },
+
+    upsertHotIndex(storyId: string, hotness: number) {
+      const normalizedStoryId = storyId.trim();
+      if (!normalizedStoryId || !Number.isFinite(hotness) || hotness < 0) {
+        return;
+      }
+
+      set((state) => ({
+        hotIndex: {
+          ...state.hotIndex,
+          [normalizedStoryId]: Math.round(hotness * 1_000_000) / 1_000_000,
+        },
+      }));
+    },
+
     async refreshLatest(limit = 50) {
       const client = deps.resolveClient();
       if (!client) {
@@ -259,7 +300,11 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       set({ loading: true, error: null });
 
       try {
-        const latestIndex = sanitizeLatestIndex(await readNewsLatestIndex(client));
+        const [latestIndex, hotIndex] = await Promise.all([
+          readNewsLatestIndex(client).then(sanitizeLatestIndex),
+          readNewsHotIndex(client).then(sanitizeHotIndex),
+        ]);
+
         const storyIds = await readLatestStoryIds(client, limit);
         const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
         const validStories = parseStories(stories);
@@ -270,13 +315,14 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           mergedStories = dedupeStories(filteredStories, state.stories);
           return {
             latestIndex,
+            hotIndex,
             stories: sortStories(mergedStories, latestIndex),
             loading: false,
             error: null,
           };
         });
 
-        void mirrorStoriesIntoDiscovery(mergedStories);
+        void mirrorStoriesIntoDiscovery(mergedStories, hotIndex);
       } catch (error: unknown) {
         set({
           loading: false,

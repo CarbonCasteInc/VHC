@@ -132,6 +132,7 @@ describe('storyBundleToFeedItem', () => {
           },
         ],
       }),
+      { 'story-1': 0.87654321 },
     );
 
     expect(item).toEqual({
@@ -141,7 +142,7 @@ describe('storyBundleToFeedItem', () => {
       title: 'Breaking update',
       created_at: 100,
       latest_activity_at: 222,
-      hotness: 0,
+      hotness: 0.87654321,
       eye: 0,
       lightbulb: 2,
       comments: 0,
@@ -240,7 +241,10 @@ describe('startNewsBridge', () => {
     const newsState = useNewsStore.getState();
     vi.spyOn(newsState, 'refreshLatest').mockResolvedValue(undefined);
 
-    useNewsStore.setState({ stories: [valid, invalid] as StoryBundle[] });
+    useNewsStore.setState({
+      stories: [valid, invalid] as StoryBundle[],
+      hotIndex: { 'story-valid': 0.88 },
+    });
 
     await startNewsBridge();
 
@@ -248,6 +252,7 @@ describe('startNewsBridge', () => {
     expect(discoveryItems).toHaveLength(1);
     expect(discoveryItems[0]?.topic_id).toBe('topic-valid');
     expect(discoveryItems[0]?.kind).toBe('NEWS_STORY');
+    expect(discoveryItems[0]?.hotness).toBe(0.88);
   });
 
   it('new stories appearing in news store flow to discovery', async () => {
@@ -309,6 +314,25 @@ describe('startNewsBridge', () => {
     discoveryItem = useDiscoveryStore.getState().items.find((item) => item.story_id === 'story-same');
     expect(discoveryItem?.title).toBe('Updated headline');
     expect(discoveryItem?.latest_activity_at).toBe(500);
+  });
+
+  it('propagates hot-index changes for already mirrored stories', async () => {
+    await startNewsBridge();
+
+    const story = makeStoryBundle({
+      story_id: 'story-hot',
+      topic_id: 'topic-hot',
+      headline: 'Hotness update story',
+    });
+
+    useNewsStore.getState().setStories([story]);
+    let discoveryItem = useDiscoveryStore.getState().items.find((item) => item.story_id === 'story-hot');
+    expect(discoveryItem?.hotness).toBe(0);
+
+    useNewsStore.getState().setHotIndex({ 'story-hot': 0.97 });
+
+    discoveryItem = useDiscoveryStore.getState().items.find((item) => item.story_id === 'story-hot');
+    expect(discoveryItem?.hotness).toBe(0.97);
   });
 
   it('preserves multiple story headlines even when topic_id is shared', async () => {

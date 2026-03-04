@@ -1,0 +1,8 @@
+
+> @vh/gun-client@0.0.1 typecheck /srv/trinity/worktrees/live-main/packages/gun-client
+> tsc --noEmit
+
+
+> @vh/web-pwa@0.1.0 typecheck /srv/trinity/worktrees/live-main/apps/web-pwa
+> tsc --noEmit
+

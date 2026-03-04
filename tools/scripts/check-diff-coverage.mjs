@@ -62,6 +62,7 @@ const COVERAGE_EXCLUDES = [
   /^apps\/web-pwa\/src\/store\/chat\//,
   /^apps\/web-pwa\/src\/store\/forum\//,
   /^apps\/web-pwa\/src\/store\/index\.ts$/,
+  /^apps\/web-pwa\/src\/store\/news\/types\.ts$/,
   /^apps\/web-pwa\/src\/hooks\/(useIdentity|useRegion|useFeedStore|useSentimentState)\.ts$/,
   /^apps\/web-pwa\/src\/utils\/markdown\.ts$/,
   /^packages\/e2e\//,

@@ -392,3 +392,90 @@
 | `summary_hint` reliably populated | PASS | Canonical summary generation + tests in `packages/ai-engine/src/__tests__/newsCluster.test.ts` |
 | Enrichment failures/timeouts do not block publication/ordering updates | PASS | `packages/ai-engine/src/newsRuntime.test.ts` async failure non-blocking test + daemon queue tests |
 | Strict per-file diff coverage | PASS | `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt` (100% line + branch on changed source files) |
+
+## PR4 Closure Packet (Merged)
+
+- PR: `#365` — https://github.com/CarbonCasteInc/VHC/pull/365
+- Final PR head SHA: `1b61f7e7e205cc06e05d81b1cc40fa08df10a302`
+- Merge commit on `main`: `9f3dd54bc1deeb816ea205042e9f5f8ea59bc5c1`
+- Merge time (UTC): `2026-03-04T19:14:10Z`
+
+### Exact PR4 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/__tests__/newsNormalize.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/bundleVerification.test.ts packages/ai-engine/src/newsRuntime.test.ts packages/ai-engine/src/__tests__/newsTypes.test.ts`
+2. `pnpm --filter @vh/ai-engine typecheck`
+3. `pnpm --filter @vh/news-aggregator exec vitest run src/normalize.test.ts src/cluster.test.ts src/orchestrator.test.ts src/daemon.test.ts`
+4. `pnpm --filter @vh/news-aggregator typecheck`
+5. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR4 artifact paths
+- `docs/reports/evidence/storycluster/pr4/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr4/test-command-1-ai-engine-core.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-2-ai-engine-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-3-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-4-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt`
+
+### PR4 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| Stable `story_id` across updates | PASS | deterministic incremental assignment tests in `newsCluster.test.ts` |
+| Duplicate collapse improves source grouping quality | PASS | near-dup collapse tests in `newsNormalize.test.ts` and `newsCluster.test.ts` |
+| Generated summaries populate `summary_hint` reliably | PASS | canonical summary assertions in `newsCluster.test.ts` |
+| Enrichment failures/timeouts do not block publication/ordering updates | PASS | async non-blocking failure test in `newsRuntime.test.ts` + daemon queue tests |
+| Strict per-file diff coverage pass | PASS | `test-command-5-diff-coverage.txt` (100% lines + branches on changed source files) |
+| CI required checks green | PASS | GH run `22684642618` all checks pass |
+| CE dual review convergence | PASS | ce1 round-1 `AGREE`; ce2 round-1 `AGREE` |
+
+## PR5 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr5-hot-index-diversification`
+- Baseline: `main @ 9f3dd54` (post-PR4 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR5 section)
+- Immediate PR5 implementation targets:
+  1. publish `vh/news/index/hot/<story_id>`
+  2. deterministic hotness computation in writer path
+  3. deterministic feed diversification in rendering path
+- PR5 acceptance targets:
+  1. Hot feed stable across refreshes.
+  2. breaking stories rise quickly and decay predictably.
+  3. top window not monopolized by one storyline.
+
+## PR5 Closure Packet (Draft Updated)
+
+- PR: `#366` — https://github.com/CarbonCasteInc/VHC/pull/366
+- Branch: `coord/storycluster-pr5-hot-index-diversification`
+- Head SHA: pending final push (set during finalize packet)
+- Evidence packet: `docs/reports/evidence/storycluster/pr5/EVIDENCE_PACKET.md`
+
+### Exact PR5 targeted test commands (as executed)
+1. `pnpm vitest run packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/synthesisAdapters.test.ts packages/gun-client/src/topology.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/store/discovery/ranking.test.ts`
+2. `pnpm --filter @vh/gun-client typecheck && pnpm --filter @vh/web-pwa typecheck`
+3. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR5 artifact paths
+- `docs/reports/evidence/storycluster/pr5/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr5/test-command-1-focused-vitest.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-2-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-3-diff-coverage.txt`
+
+### PR5 acceptance matrix (draft)
+| Criterion | Status | Evidence |
+|---|---|---|
+| Hot feed stable across refreshes | PASS | deterministic hot-index read/write path in `packages/gun-client/src/newsAdapters.ts`; stable hot-index hydration + feed bridge projection in `apps/web-pwa/src/store/news/{index,hydration}.ts` and `apps/web-pwa/src/store/feedBridge.ts` with regression tests |
+| Breaking stories rise quickly and decay predictably | PASS | deterministic writer hotness function (`computeStoryHotness`) with freshness decay + breaking velocity multiplier in `packages/gun-client/src/newsAdapters.ts`; covered in `packages/gun-client/src/newsAdapters.test.ts` |
+| Top window not monopolized by one storyline | PASS | deterministic HOTTEST diversification window + storyline cap in `apps/web-pwa/src/store/discovery/ranking.ts`; covered in `apps/web-pwa/src/store/discovery/ranking.test.ts` |
+| Strict per-file diff coverage | PASS | `node tools/scripts/check-diff-coverage.mjs` passed with 100% lines+branches for changed eligible source files (`apps/web-pwa/src/store/discovery/ranking.ts`, `apps/web-pwa/src/store/feedBridge.ts`, `apps/web-pwa/src/store/news/{hydration,index}.ts`, `packages/gun-client/src/newsAdapters.ts`) |
+
+### PR5 CI Unblock Packet (runtime-mode fallback test timeout)
+
+- Trigger: CI run `22686592906` failed Test & Build due to timeout in `newsRuntimeBootstrap.test.ts` (`treats blank MODE as test fallback in auto role`).
+- Remediation: test now stubs `VITE_NEWS_SOURCE_RELIABILITY_GATE=off` for deterministic runtime startup.
+
+#### Exact unblock command
+4. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+
+#### Exact unblock artifact
+- `docs/reports/evidence/storycluster/pr5/test-command-4-runtime-mode-fallback-remediation.txt`
+
+#### Unblock result
+- Focused test pass locally; branch updated and CI retriggered.
