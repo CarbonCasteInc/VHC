@@ -392,3 +392,50 @@
 | `summary_hint` reliably populated | PASS | Canonical summary generation + tests in `packages/ai-engine/src/__tests__/newsCluster.test.ts` |
 | Enrichment failures/timeouts do not block publication/ordering updates | PASS | `packages/ai-engine/src/newsRuntime.test.ts` async failure non-blocking test + daemon queue tests |
 | Strict per-file diff coverage | PASS | `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt` (100% line + branch on changed source files) |
+
+## PR4 Closure Packet (Merged)
+
+- PR: `#365` — https://github.com/CarbonCasteInc/VHC/pull/365
+- Final PR head SHA: `1b61f7e7e205cc06e05d81b1cc40fa08df10a302`
+- Merge commit on `main`: `9f3dd54bc1deeb816ea205042e9f5f8ea59bc5c1`
+- Merge time (UTC): `2026-03-04T19:14:10Z`
+
+### Exact PR4 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/__tests__/newsNormalize.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/bundleVerification.test.ts packages/ai-engine/src/newsRuntime.test.ts packages/ai-engine/src/__tests__/newsTypes.test.ts`
+2. `pnpm --filter @vh/ai-engine typecheck`
+3. `pnpm --filter @vh/news-aggregator exec vitest run src/normalize.test.ts src/cluster.test.ts src/orchestrator.test.ts src/daemon.test.ts`
+4. `pnpm --filter @vh/news-aggregator typecheck`
+5. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR4 artifact paths
+- `docs/reports/evidence/storycluster/pr4/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr4/test-command-1-ai-engine-core.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-2-ai-engine-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-3-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-4-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt`
+
+### PR4 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| Stable `story_id` across updates | PASS | deterministic incremental assignment tests in `newsCluster.test.ts` |
+| Duplicate collapse improves source grouping quality | PASS | near-dup collapse tests in `newsNormalize.test.ts` and `newsCluster.test.ts` |
+| Generated summaries populate `summary_hint` reliably | PASS | canonical summary assertions in `newsCluster.test.ts` |
+| Enrichment failures/timeouts do not block publication/ordering updates | PASS | async non-blocking failure test in `newsRuntime.test.ts` + daemon queue tests |
+| Strict per-file diff coverage pass | PASS | `test-command-5-diff-coverage.txt` (100% lines + branches on changed source files) |
+| CI required checks green | PASS | GH run `22684642618` all checks pass |
+| CE dual review convergence | PASS | ce1 round-1 `AGREE`; ce2 round-1 `AGREE` |
+
+## PR5 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr5-hot-index-diversification`
+- Baseline: `main @ 9f3dd54` (post-PR4 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR5 section)
+- Immediate PR5 implementation targets:
+  1. publish `vh/news/index/hot/<story_id>`
+  2. deterministic hotness computation in writer path
+  3. deterministic feed diversification in rendering path
+- PR5 acceptance targets:
+  1. Hot feed stable across refreshes.
+  2. breaking stories rise quickly and decay predictably.
+  3. top window not monopolized by one storyline.
