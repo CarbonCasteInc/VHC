@@ -51,3 +51,23 @@ Authoritative worktree: `/srv/trinity/worktrees/live-main`
 - `packages/gun-client/src/newsAdapters.test.ts`
 - `packages/gun-client/src/topology.ts`
 - `packages/gun-client/src/topology.test.ts`
+
+## CI Unblock Addendum (Lease-path coverage hardening)
+
+- Date: 2026-03-04 (UTC)
+- Trigger: CE review requested explicit runtime lease enforcement evidence + CI diff-coverage gate strictness.
+
+### Additional exact commands executed
+3. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+4. `node tools/scripts/check-diff-coverage.mjs`
+
+### Additional artifact paths
+- `docs/reports/evidence/storycluster/pr1/test-command-3-lease-coverage.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-4-diff-coverage.txt`
+
+### Addendum acceptance checks
+| Criterion | Status | Evidence |
+|---|---|---|
+| Runtime lease guard exercised (`acquire`/`hold`/`skip`/`release`) | PASS | `apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts` new lease-path tests |
+| Concurrent start guard branch covered | PASS | `newsRuntimeBootstrap.test.ts` test: `awaits in-flight startup when called concurrently for the same client` |
+| PR diff-coverage strict gate | PASS | `test-command-4-diff-coverage.txt` (`100% lines + 100% branches` for changed source files) |

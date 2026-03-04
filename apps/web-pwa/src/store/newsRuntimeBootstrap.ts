@@ -8,7 +8,13 @@ import {
   type NewsRuntimeHandle,
   type TopicMapping,
 } from '@vh/ai-engine';
-import { writeStoryBundle, type VennClient } from '@vh/gun-client';
+import {
+  readNewsIngestionLease,
+  writeNewsIngestionLease,
+  writeStoryBundle,
+  type NewsIngestionLease,
+  type VennClient,
+} from '@vh/gun-client';
 
 const DEFAULT_TOPIC_MAPPING: TopicMapping = {
   defaultTopicId: 'topic-news',
@@ -19,6 +25,7 @@ type NewsRuntimeRole = 'auto' | 'ingester' | 'consumer';
 
 let runtimeHandle: NewsRuntimeHandle | null = null;
 let runtimeClient: VennClient | null = null;
+let runtimeLease: NewsIngestionLease | null = null;
 let runtimeStartPromise: Promise<void> | null = null;
 let runtimeStartClient: VennClient | null = null;
 let reliabilityCache:
@@ -35,6 +42,7 @@ const DEFAULT_RELIABILITY_CACHE_TTL_MS = 30 * 60 * 1_000;
 const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
 const RELIABILITY_ARTICLE_MIN_CHARS = 200;
+const DEFAULT_RUNTIME_LEASE_TTL_MS = 2 * 60 * 1000;
 
 function readEnvVar(name: string): string | undefined {
   const viteValue = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.[name];
@@ -108,6 +116,76 @@ function shouldRunRuntimeInCurrentSession(): boolean {
   }
 
   return true;
+}
+
+function resolveLeaseHolderId(client: VennClient): string {
+  const maybeId = (client as unknown as { id?: unknown }).id;
+  if (typeof maybeId === 'string' && maybeId.trim().length > 0) {
+    return `vh-news-runtime:${maybeId.trim()}`;
+  }
+  return 'vh-news-runtime:ingester';
+}
+
+function buildLeaseToken(holderId: string): string {
+  return `${holderId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function buildLeasePayload(holderId: string, existing: NewsIngestionLease | null, nowMs: number): NewsIngestionLease {
+  const leaseTtlMs = parsePositiveInt(readEnvVar('VITE_NEWS_RUNTIME_LEASE_TTL_MS'), DEFAULT_RUNTIME_LEASE_TTL_MS);
+  if (existing && existing.holder_id === holderId) {
+    return {
+      ...existing,
+      heartbeat_at: nowMs,
+      expires_at: nowMs + leaseTtlMs,
+    };
+  }
+
+  return {
+    holder_id: holderId,
+    lease_token: buildLeaseToken(holderId),
+    acquired_at: nowMs,
+    heartbeat_at: nowMs,
+    expires_at: nowMs + leaseTtlMs,
+  };
+}
+
+async function acquireRuntimeLease(client: VennClient): Promise<NewsIngestionLease | null> {
+  const holderId = resolveLeaseHolderId(client);
+  const nowMs = Date.now();
+  const current = await readNewsIngestionLease(client);
+
+  if (current && current.holder_id !== holderId && current.expires_at > nowMs) {
+    console.info('[vh:news-runtime] lease held by another ingester', {
+      holder_id: current.holder_id,
+      expires_at: current.expires_at,
+    });
+    return null;
+  }
+
+  const nextLease = buildLeasePayload(holderId, current, nowMs);
+  const written = await writeNewsIngestionLease(client, nextLease);
+  return written;
+}
+
+async function releaseRuntimeLease(client: VennClient): Promise<void> {
+  if (!runtimeLease) {
+    return;
+  }
+
+  const nowMs = Date.now();
+  await writeNewsIngestionLease(client, {
+    ...runtimeLease,
+    heartbeat_at: nowMs,
+    expires_at: nowMs,
+  });
+  runtimeLease = null;
+}
+
+async function stopRuntimeAndRelease(client: VennClient): Promise<void> {
+  runtimeHandle?.stop();
+  runtimeHandle = null;
+  runtimeClient = null;
+  await releaseRuntimeLease(client);
 }
 
 function parseFeedSources(raw: string | undefined): FeedSource[] {
@@ -381,18 +459,26 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     }
 
     if (!shouldRunRuntimeInCurrentSession()) {
-      runtimeHandle?.stop();
-      runtimeHandle = null;
-      runtimeClient = null;
+      await stopRuntimeAndRelease(runtimeClient ?? client);
       console.info('[vh:news-runtime] skipped for this session');
       return;
     }
 
     if (runtimeHandle?.isRunning() && runtimeClient === client) {
+      runtimeLease = await acquireRuntimeLease(client);
       return;
     }
 
-    runtimeHandle?.stop();
+    if (runtimeHandle?.isRunning() && runtimeClient && runtimeClient !== client) {
+      await stopRuntimeAndRelease(runtimeClient);
+    }
+
+    const lease = await acquireRuntimeLease(client);
+    if (!lease) {
+      runtimeHandle = null;
+      runtimeClient = null;
+      return;
+    }
 
     const parsedFeedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
     const reliableSources = parseReliabilityGateEnabled()
@@ -441,12 +527,15 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     if (handle.isRunning()) {
       runtimeHandle = handle;
       runtimeClient = client;
+      runtimeLease = lease;
       console.info('[vh:news-runtime] started');
       return;
     }
 
     runtimeHandle = null;
     runtimeClient = null;
+    runtimeLease = null;
+    await releaseRuntimeLease(client);
   };
 
   const inFlight = start();
@@ -464,6 +553,7 @@ export function __resetNewsRuntimeForTesting(): void {
   runtimeHandle?.stop();
   runtimeHandle = null;
   runtimeClient = null;
+  runtimeLease = null;
   runtimeStartPromise = null;
   runtimeStartClient = null;
   reliabilityCache = null;

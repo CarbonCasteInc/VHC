@@ -1,0 +1,120 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main
+
+ ✓ packages/gun-client/src/topology.test.ts (15 tests) 9ms
+stdout | apps/web-pwa/src/store/feedBridge.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ packages/gun-client/src/newsAdapters.test.ts (33 tests) 45ms
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > treats blank disable flag values as fallback=true in test sessions
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > honors explicit true/false disable flag values in test sessions
+[vh:news-runtime] skipped for this session
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to default disable behavior for malformed disable flag values
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > runs runtime in test sessions when explicitly forced to ingester role
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > skips runtime when role is configured as consumer
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > acquires ingestion lease before starting runtime
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > uses fallback lease holder id when client id is missing
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > renews existing lease for the same holder before runtime start
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > releases lease when role flips to consumer
+[vh:news-runtime] started
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > boots runtime with parsed env config and gun write adapter when enabled
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to safe defaults when env values are malformed
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > handles invalid feed source JSON by falling back to an empty source list
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > handles env resolution safely when process is unavailable
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps original rssUrl when window is undefined (non-browser context)
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to default topic mapping when JSON is valid but schema-invalid
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > stops the previous runtime before starting with a different client
+[vh:news-runtime] started
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > is idempotent across repeated calls with the same client
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > returns early when runtime is already running for the same client
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > awaits in-flight startup when called concurrently for the same client
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > filters runtime feed sources by article-text reliability when gate is enabled
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > filters runtime feed sources by article-text reliability when gate is enabled
+[vh:news-runtime] dropped unreliable feed sources [ 'source-b' ]
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > reuses reliability cache for the same source set within TTL
+[vh:news-runtime] started
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > reuses reliability cache for the same source set within TTL
+[vh:news-runtime] all feed sources failed reliability gate
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > enables reliability gating by default when MODE is non-test and gate env is unset
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > enables reliability gating by default when MODE is non-test and gate env is unset
+[vh:news-runtime] dropped unreliable feed sources [ 'source-b' ]
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources marked unknown when feed XML has no parseable links
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > drops all sources when probes run but all fail reliability thresholds
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to defaults when reliability env values are malformed and probe requests throw
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to defaults when reliability env values are malformed and probe requests throw
+[vh:news-runtime] reliability probe inconclusive; keeping unknown sources [ 'source-fallback' ]
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > handles empty feed source lists when reliability gate is enabled
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources when reliability probe is inconclusive for all sources
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources when reliability probe is inconclusive for all sources
+[vh:news-runtime] reliability probe inconclusive; keeping unknown sources [ 'source-a', 'source-b' ]
+
+ ✓ apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts (32 tests) 51ms
+ ✓ apps/web-pwa/src/store/news/hydration.test.ts (14 tests) 377ms
+ ✓ apps/web-pwa/src/store/news/index.test.ts (24 tests) 547ms
+ ✓ apps/web-pwa/src/store/feedBridge.test.ts (18 tests) 1554ms
+   ✓ startNewsBridge > logs refresh failures during bootstrap and continues 1505ms
+
+ Test Files  6 passed (6)
+      Tests  136 passed (136)
+   Start at  15:58:45
+   Duration  2.24s (transform 709ms, setup 0ms, collect 1.29s, tests 2.58s, environment 1ms, prepare 490ms)
+

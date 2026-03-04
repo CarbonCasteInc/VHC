@@ -115,3 +115,23 @@
 | latest-index write cutover to `cluster_window_end` with legacy read fallback | PASS | `packages/gun-client/src/newsAdapters.ts`; `apps/web-pwa/src/store/news/hydration.ts`; tests |
 | single-writer lease behavior | PASS | `packages/gun-client/src/newsAdapters.ts`; `packages/gun-client/src/topology.ts`; `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; tests |
 | story-identity feed/card key stability | PASS | `apps/web-pwa/src/components/feed/FeedShell.tsx`; `apps/web-pwa/src/components/feed/NewsCard.tsx`; tests |
+
+### PR1 CI Unblock Packet (Coverage + Lease Evidence)
+
+- Updated head candidate after unblock: `bad505cf02c4a92c20a3447f08f407c97dc27445`
+- Focused remediation:
+  - hardened runtime lease-path behavior evidence in `newsRuntimeBootstrap.ts`/tests
+  - covered concurrent startup guard branch
+  - reran strict diff coverage gate
+
+#### Exact unblock commands
+1. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+2. `node tools/scripts/check-diff-coverage.mjs`
+
+#### Exact unblock artifacts
+- `docs/reports/evidence/storycluster/pr1/test-command-3-lease-coverage.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-4-diff-coverage.txt`
+
+#### Unblock result
+- Diff-aware per-file gate: PASS (`100% lines + 100% branches` on changed source files)
+- CI required checks on PR #362: green on latest evaluated head (`bad505c`)
