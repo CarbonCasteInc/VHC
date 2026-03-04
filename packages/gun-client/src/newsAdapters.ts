@@ -102,6 +102,10 @@ function latestIndexPath(): string {
   return 'vh/news/index/latest/';
 }
 
+function ingestionLeasePath(): string {
+  return 'vh/news/runtime/lease/ingester/';
+}
+
 function removalPath(urlHash: string): string {
   return `vh/news/removed/${urlHash}/`;
 }
@@ -244,6 +248,22 @@ function sanitizeStoryBundle(data: unknown): StoryBundle {
   return StoryBundleSchema.parse(data);
 }
 
+async function enforceCreatedAtFirstWriteWins(client: VennClient, story: StoryBundle): Promise<StoryBundle> {
+  const existing = await readNewsStory(client, story.story_id);
+  if (!existing) {
+    return story;
+  }
+
+  if (existing.created_at === story.created_at) {
+    return story;
+  }
+
+  return {
+    ...story,
+    created_at: existing.created_at,
+  };
+}
+
 /**
  * Root chain for `vh/news/stories/*`.
  */
@@ -268,6 +288,97 @@ export function getNewsLatestIndexChain(client: VennClient): ChainWithGet<number
   return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, latestIndexPath());
 }
 
+export interface NewsIngestionLease {
+  readonly holder_id: string;
+  readonly lease_token: string;
+  readonly acquired_at: number;
+  readonly heartbeat_at: number;
+  readonly expires_at: number;
+}
+
+function sanitizeLeaseId(value: unknown, field: string): string {
+  if (typeof value !== 'string') {
+    throw new Error(`${field} must be a string`);
+  }
+
+  const normalized = value.trim();
+  if (!normalized) {
+    throw new Error(`${field} is required`);
+  }
+
+  return normalized;
+}
+
+function sanitizeLeaseTimestamp(value: unknown, field: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new Error(`${field} must be a non-negative finite number`);
+  }
+
+  return Math.floor(value);
+}
+
+function sanitizeNewsIngestionLease(value: unknown): NewsIngestionLease {
+  if (!isRecord(value)) {
+    throw new Error('lease payload must be an object');
+  }
+
+  return {
+    holder_id: sanitizeLeaseId(value.holder_id, 'holder_id'),
+    lease_token: sanitizeLeaseId(value.lease_token, 'lease_token'),
+    acquired_at: sanitizeLeaseTimestamp(value.acquired_at, 'acquired_at'),
+    heartbeat_at: sanitizeLeaseTimestamp(value.heartbeat_at, 'heartbeat_at'),
+    expires_at: sanitizeLeaseTimestamp(value.expires_at, 'expires_at'),
+  };
+}
+
+function parseNewsIngestionLease(value: unknown): NewsIngestionLease | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  try {
+    return sanitizeNewsIngestionLease(stripGunMetadata(value));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Chain for `vh/news/runtime/lease/ingester`.
+ */
+export function getNewsIngestionLeaseChain(client: VennClient): ChainWithGet<NewsIngestionLease> {
+  const chain = client.mesh
+    .get('news')
+    .get('runtime')
+    .get('lease')
+    .get('ingester') as unknown as ChainWithGet<NewsIngestionLease>;
+
+  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, ingestionLeasePath());
+}
+
+/**
+ * Read current ingestion lease holder record.
+ */
+export async function readNewsIngestionLease(client: VennClient): Promise<NewsIngestionLease | null> {
+  const raw = await readOnce(getNewsIngestionLeaseChain(client));
+  if (raw === null) {
+    return null;
+  }
+  return parseNewsIngestionLease(raw);
+}
+
+/**
+ * Write ingestion lease holder record.
+ */
+export async function writeNewsIngestionLease(
+  client: VennClient,
+  lease: NewsIngestionLease,
+): Promise<NewsIngestionLease> {
+  const sanitized = sanitizeNewsIngestionLease(lease);
+  await putWithAck(getNewsIngestionLeaseChain(client), sanitized);
+  return sanitized;
+}
+
 /**
  * Read and validate a StoryBundle from mesh.
  */
@@ -281,15 +392,19 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
 
 /**
  * Validate and write StoryBundle to `vh/news/stories/<storyId>`.
+ *
+ * `created_at` is immutable by story identity: once a story exists,
+ * subsequent re-ingest writes preserve the first observed `created_at`.
  */
 export async function writeNewsStory(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = sanitizeStoryBundle(story);
-  const encoded = encodeStoryBundleForGun(sanitized);
+  const normalized = await enforceCreatedAtFirstWriteWins(client, sanitized);
+  const encoded = encodeStoryBundleForGun(normalized);
   await putWithAck(
-    getNewsStoryChain(client, sanitized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
+    getNewsStoryChain(client, normalized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
     encoded
   );
-  return sanitized;
+  return normalized;
 }
 
 /**
@@ -337,12 +452,11 @@ export async function writeNewsLatestIndexEntry(
 /**
  * Convenience writer for publishing bundle + latest index atomically at app level.
  *
- * PR0 baseline semantics (intentionally unchanged): latest index uses `created_at`.
- * PR1 will cut over canonical writes to `cluster_window_end` (activity).
+ * PR1 semantics: latest index is activity-based and keyed by `cluster_window_end`.
  */
 export async function writeNewsBundle(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = await writeNewsStory(client, story);
-  await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.created_at);
+  await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.cluster_window_end);
   return sanitized;
 }
 

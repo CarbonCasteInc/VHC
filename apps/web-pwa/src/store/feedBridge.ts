@@ -307,13 +307,11 @@ export async function startNewsBridge(): Promise<void> {
       return;
     }
 
-    const previousIds = new Set(prevState.stories.map((story) => story.story_id));
-    const newStories = state.stories.filter((story) => !previousIds.has(story.story_id));
-    if (newStories.length === 0) {
+    if (state.stories.length === 0) {
       return;
     }
 
-    mergeIntoDiscovery(newStories.map(storyBundleToFeedItem), discoveryStore);
+    mergeIntoDiscovery(state.stories.map(storyBundleToFeedItem), discoveryStore);
   });
 }
 

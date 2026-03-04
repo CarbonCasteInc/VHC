@@ -96,32 +96,49 @@ function parseStories(stories: unknown[]): StoryBundle[] {
   return parsed;
 }
 
-function dedupeStories(stories: StoryBundle[]): StoryBundle[] {
+function dedupeStories(
+  stories: StoryBundle[],
+  existingStories: ReadonlyArray<StoryBundle> = [],
+): StoryBundle[] {
+  const existingCreatedAt = new Map<string, number>();
+  for (const story of existingStories) {
+    existingCreatedAt.set(story.story_id, story.created_at);
+  }
+
   const map = new Map<string, StoryBundle>();
   for (const story of stories) {
-    map.set(story.story_id, story);
+    const prior = map.get(story.story_id);
+    const frozenCreatedAt =
+      prior?.created_at ??
+      existingCreatedAt.get(story.story_id) ??
+      story.created_at;
+
+    map.set(story.story_id, {
+      ...story,
+      created_at: frozenCreatedAt,
+    });
   }
   return Array.from(map.values());
 }
 
 function sanitizeLatestIndex(index: Record<string, number>): Record<string, number> {
   const next: Record<string, number> = {};
-  for (const [storyId, createdAt] of Object.entries(index)) {
+  for (const [storyId, latestActivityAt] of Object.entries(index)) {
     if (!storyId.trim()) {
       continue;
     }
-    if (!Number.isFinite(createdAt) || createdAt < 0) {
+    if (!Number.isFinite(latestActivityAt) || latestActivityAt < 0) {
       continue;
     }
-    next[storyId.trim()] = Math.floor(createdAt);
+    next[storyId.trim()] = Math.floor(latestActivityAt);
   }
   return next;
 }
 
 function sortStories(stories: StoryBundle[], latestIndex: Record<string, number>): StoryBundle[] {
   return [...stories].sort((a, b) => {
-    const aRank = latestIndex[a.story_id] ?? a.created_at;
-    const bRank = latestIndex[b.story_id] ?? b.created_at;
+    const aRank = latestIndex[a.story_id] ?? a.cluster_window_end ?? a.created_at;
+    const bRank = latestIndex[b.story_id] ?? b.cluster_window_end ?? b.created_at;
     return bRank - aRank || a.story_id.localeCompare(b.story_id);
   });
 }
@@ -129,7 +146,7 @@ function sortStories(stories: StoryBundle[], latestIndex: Record<string, number>
 function buildSeedIndex(stories: StoryBundle[]): Record<string, number> {
   const index: Record<string, number> = {};
   for (const story of stories) {
-    index[story.story_id] = story.created_at;
+    index[story.story_id] = story.cluster_window_end;
   }
   return index;
 }
@@ -180,13 +197,14 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
     ...INITIAL_STATE,
 
     setStories(stories: StoryBundle[]) {
-      const validated = filterStoriesToConfiguredSources(
-        dedupeStories(parseStories(stories)),
-      );
-      set((state) => ({
-        stories: sortStories(validated, state.latestIndex),
-        error: null
-      }));
+      const validated = filterStoriesToConfiguredSources(parseStories(stories));
+      set((state) => {
+        const deduped = dedupeStories(validated, state.stories);
+        return {
+          stories: sortStories(deduped, state.latestIndex),
+          error: null,
+        };
+      });
     },
 
     upsertStory(story: StoryBundle) {
@@ -195,10 +213,10 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         return;
       }
       set((state) => {
-        const deduped = dedupeStories([...state.stories, validated]);
+        const deduped = dedupeStories([...state.stories, validated], state.stories);
         return {
           stories: sortStories(deduped, state.latestIndex),
-          error: null
+          error: null,
         };
       });
     },
@@ -212,16 +230,16 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       }));
     },
 
-    upsertLatestIndex(storyId: string, createdAt: number) {
+    upsertLatestIndex(storyId: string, latestActivityAt: number) {
       const normalizedStoryId = storyId.trim();
-      if (!normalizedStoryId || !Number.isFinite(createdAt) || createdAt < 0) {
+      if (!normalizedStoryId || !Number.isFinite(latestActivityAt) || latestActivityAt < 0) {
         return;
       }
 
       set((state) => {
         const nextIndex = {
           ...state.latestIndex,
-          [normalizedStoryId]: Math.floor(createdAt)
+          [normalizedStoryId]: Math.floor(latestActivityAt)
         };
         return {
           latestIndex: nextIndex,
@@ -244,17 +262,21 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         const latestIndex = sanitizeLatestIndex(await readNewsLatestIndex(client));
         const storyIds = await readLatestStoryIds(client, limit);
         const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
-        const validStories = dedupeStories(parseStories(stories));
+        const validStories = parseStories(stories);
         const filteredStories = filterStoriesToConfiguredSources(validStories);
 
-        set({
-          latestIndex,
-          stories: sortStories(filteredStories, latestIndex),
-          loading: false,
-          error: null
+        let mergedStories: StoryBundle[] = [];
+        set((state) => {
+          mergedStories = dedupeStories(filteredStories, state.stories);
+          return {
+            latestIndex,
+            stories: sortStories(mergedStories, latestIndex),
+            loading: false,
+            error: null,
+          };
         });
 
-        void mirrorStoriesIntoDiscovery(filteredStories);
+        void mirrorStoriesIntoDiscovery(mergedStories);
       } catch (error: unknown) {
         set({
           loading: false,

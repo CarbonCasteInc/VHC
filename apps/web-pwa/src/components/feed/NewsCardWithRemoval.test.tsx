@@ -127,6 +127,50 @@ describe('NewsCardWithRemoval', () => {
     expect(screen.queryByTestId('news-card-news-1')).not.toBeInTheDocument();
   });
 
+  it('prefers story_id match before title fallback when resolving story bundle', () => {
+    useNewsStore.getState().setStories([
+      makeStoryBundle({
+        story_id: 'story-canonical',
+        headline: 'Different canonical headline',
+        sources: [
+          {
+            source_id: 'src-canonical',
+            publisher: 'Pub Canonical',
+            url: 'https://example.com/canonical',
+            url_hash: 'hash-canonical',
+            published_at: NOW - 120_000,
+            title: 'Canonical title',
+          },
+        ],
+      }),
+      makeStoryBundle({
+        story_id: 'story-title-fallback',
+        headline: 'Test headline',
+        sources: [
+          {
+            source_id: 'src-fallback',
+            publisher: 'Pub Fallback',
+            url: 'https://example.com/fallback',
+            url_hash: 'hash-fallback',
+            published_at: NOW - 240_000,
+            title: 'Fallback title',
+          },
+        ],
+      }),
+    ]);
+
+    render(
+      <NewsCardWithRemoval
+        item={makeNewsItem({
+          story_id: 'story-canonical',
+          title: 'Test headline',
+        })}
+      />,
+    );
+
+    expect(mockUseStoryRemoval).toHaveBeenCalledWith('hash-canonical', undefined);
+  });
+
   it('passes first source url_hash to useStoryRemoval hook', () => {
     useNewsStore.getState().setStories([makeStoryBundle()]);
     render(<NewsCardWithRemoval item={makeNewsItem()} />);

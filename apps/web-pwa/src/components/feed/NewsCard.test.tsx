@@ -168,6 +168,40 @@ describe('NewsCard', () => {
       'https://example.com/news-1',
     );
   });
+  it('matches by story_id even when topic/headline drift', () => {
+    const canonical = makeStoryBundle({
+      story_id: 'story-canonical',
+      topic_id: 'topic-canonical',
+      headline: 'Canonical headline',
+      sources: [
+        {
+          source_id: 'canonical-src',
+          publisher: 'Canonical Times',
+          url: 'https://example.com/canonical',
+          url_hash: 'canonical-hash',
+          published_at: NOW,
+          title: 'Canonical headline',
+        },
+      ],
+    });
+
+    useNewsStore.getState().setStories([canonical]);
+
+    render(
+      <NewsCard
+        item={makeNewsItem({
+          story_id: 'story-canonical',
+          topic_id: 'topic-wrong',
+          title: 'Drifted headline',
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('source-badge-canonical-src')).toHaveAttribute(
+      'href',
+      'https://example.com/canonical',
+    );
+  });
   it('feature flag off keeps existing synthesis behavior and does not call analysis pipeline', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
     useNewsStore.getState().setStories([makeStoryBundle()]);

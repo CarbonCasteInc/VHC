@@ -116,9 +116,15 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
       return;
     }
 
+    const normalizedKey = typeof key === 'string' ? key.trim() : '';
+    const storyId = story.story_id.trim() || normalizedKey;
+    if (!storyId) {
+      return;
+    }
+
     store.getState().upsertStory(story);
-    if (key && !(key in store.getState().latestIndex)) {
-      store.getState().upsertLatestIndex(key, story.created_at);
+    if (!(storyId in store.getState().latestIndex)) {
+      store.getState().upsertLatestIndex(storyId, story.cluster_window_end);
     }
   });
 

@@ -43,6 +43,15 @@ describe('TopologyGuard', () => {
     const guard = new TopologyGuard();
     expect(() => guard.validateWrite('vh/discovery/items/item-1', { id: 'item-1', score: 1 })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/stories/story-1', { story_id: 'story-1', title: 'Headline' })).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/news/runtime/lease/ingester', {
+        holder_id: 'holder-1',
+        lease_token: 'token-1',
+        acquired_at: 1,
+        heartbeat_at: 1,
+        expires_at: 2,
+      })
+    ).not.toThrow();
     expect(() => guard.validateWrite('vh/news/stories/story-1/analysis/a1', { analysisKey: 'a1' })).not.toThrow();
     expect(() =>
       guard.validateWrite('vh/news/stories/story-1/analysis_latest', {

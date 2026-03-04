@@ -161,6 +161,35 @@ describe('FeedShell', () => {
     expect(screen.getByTestId('feed-item-item-2')).toBeInTheDocument();
   });
 
+  it('keeps NEWS_STORY row identity stable across created_at churn when story_id is present', () => {
+    const initial = makeFeedItem({
+      story_id: 'story-stable',
+      topic_id: 'news-stable',
+      title: 'Stable identity story',
+      created_at: NOW - 5_000,
+      latest_activity_at: NOW - 2_000,
+    });
+
+    const { rerender } = render(
+      <FeedShell feedResult={makeFeedResult({ feed: [initial] })} />,
+    );
+
+    const before = screen.getByTestId('feed-item-story-stable');
+
+    const updated = makeFeedItem({
+      story_id: 'story-stable',
+      topic_id: 'news-stable',
+      title: 'Stable identity story',
+      created_at: NOW + 99_000,
+      latest_activity_at: NOW + 120_000,
+    });
+
+    rerender(<FeedShell feedResult={makeFeedResult({ feed: [updated] })} />);
+
+    const after = screen.getByTestId('feed-item-story-stable');
+    expect(after).toBe(before);
+  });
+
   it('routes each feed kind to the matching card component', () => {
     const items = [
       makeFeedItem({ topic_id: 'news', title: 'Hot news', kind: 'NEWS_STORY' }),

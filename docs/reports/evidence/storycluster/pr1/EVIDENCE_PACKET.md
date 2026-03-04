@@ -1,0 +1,95 @@
+# STORYCLUSTER PR1 Evidence Packet — Feed Correctness Hardening
+
+Date: 2026-03-04 (UTC)
+Branch: `coord/storycluster-pr1-feed-correctness-hardening`
+Authoritative worktree: `/srv/trinity/worktrees/live-main`
+
+## Scope lock (PR1 only)
+
+1. `story_id` propagation hardening across discovery/feed bridge/news hydration.
+2. `created_at` first-write-wins for re-ingest on the same story identity.
+3. latest-index write cutover to activity semantics (`cluster_window_end`) with legacy read fallback preserved.
+4. single-writer lease behavior in ingestion runtime path.
+5. feed/card identity re-keyed to story identity to eliminate timestamp remount churn.
+
+## Acceptance matrix
+
+| Criterion | Status | Evidence |
+|---|---|---|
+| 1) `story_id` propagation hardening | PASS | `apps/web-pwa/src/store/news/hydration.ts`; `apps/web-pwa/src/store/feedBridge.ts`; `apps/web-pwa/src/components/feed/NewsCard.tsx`; `apps/web-pwa/src/components/feed/FeedShell.tsx`; tests in `news/hydration.test.ts`, `feedBridge.test.ts`, `NewsCard.test.tsx`, `FeedShell.test.tsx` |
+| 2) `created_at` first-write-wins on re-ingest | PASS | `packages/gun-client/src/newsAdapters.ts` (`writeNewsStory` first-write-wins guard); `apps/web-pwa/src/store/news/index.ts` local freeze on merges; tests in `newsAdapters.test.ts` and `news/index.test.ts` |
+| 3) latest-index write cutover to activity semantics | PASS | `packages/gun-client/src/newsAdapters.ts` (`writeNewsBundle` writes `cluster_window_end`); legacy read fallback remains in `readNewsLatestIndex` + `apps/web-pwa/src/store/news/hydration.ts`; tests in `newsAdapters.test.ts` + `news/hydration.test.ts` |
+| 4) single-writer lease behavior | PASS | New lease adapters + topology allowlist in `packages/gun-client/src/newsAdapters.ts` and `packages/gun-client/src/topology.ts`; runtime enforcement in `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; tests in `newsRuntimeBootstrap.test.ts`, `newsAdapters.test.ts`, `topology.test.ts` |
+| 5) stable feed/card identity keyed to story identity | PASS | `FeedShell` list key + row id now story-based (`story_id` first); `NewsCard` instance key + story resolution now story-id-first; tests in `FeedShell.test.tsx`, `NewsCard.test.tsx`, and shared-topic/expanded focus suites |
+
+## Exact targeted test commands executed
+
+1. `pnpm test:quick apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/components/feed/FeedShell.test.tsx apps/web-pwa/src/components/feed/NewsCard.test.tsx packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+2. `pnpm test:quick apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx apps/web-pwa/src/store/discovery/store.test.ts`
+
+## Test log artifacts
+
+- `docs/reports/evidence/storycluster/pr1/test-command-1.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-2.txt`
+
+## Files changed for PR1
+
+- `apps/web-pwa/src/components/feed/FeedShell.tsx`
+- `apps/web-pwa/src/components/feed/FeedShell.test.tsx`
+- `apps/web-pwa/src/components/feed/NewsCard.tsx`
+- `apps/web-pwa/src/components/feed/NewsCard.test.tsx`
+- `apps/web-pwa/src/store/feedBridge.ts`
+- `apps/web-pwa/src/store/feedBridge.test.ts`
+- `apps/web-pwa/src/store/news/hydration.ts`
+- `apps/web-pwa/src/store/news/hydration.test.ts`
+- `apps/web-pwa/src/store/news/index.ts`
+- `apps/web-pwa/src/store/news/index.test.ts`
+- `apps/web-pwa/src/store/news/types.ts`
+- `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`
+- `apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+- `packages/gun-client/src/newsAdapters.ts`
+- `packages/gun-client/src/newsAdapters.test.ts`
+- `packages/gun-client/src/topology.ts`
+- `packages/gun-client/src/topology.test.ts`
+
+## CI Unblock Addendum (Lease-path coverage hardening)
+
+- Date: 2026-03-04 (UTC)
+- Trigger: CE review requested explicit runtime lease enforcement evidence + CI diff-coverage gate strictness.
+
+### Additional exact commands executed
+3. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+4. `node tools/scripts/check-diff-coverage.mjs`
+
+### Additional artifact paths
+- `docs/reports/evidence/storycluster/pr1/test-command-3-lease-coverage.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-4-diff-coverage.txt`
+
+### Addendum acceptance checks
+| Criterion | Status | Evidence |
+|---|---|---|
+| Runtime lease guard exercised (`acquire`/`hold`/`skip`/`release`) | PASS | `apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts` new lease-path tests |
+| Concurrent start guard branch covered | PASS | `newsRuntimeBootstrap.test.ts` test: `awaits in-flight startup when called concurrently for the same client` |
+| PR diff-coverage strict gate | PASS | `test-command-4-diff-coverage.txt` (`100% lines + 100% branches` for changed source files) |
+
+## CE Round-2 Remediation Packet (Lease heartbeat + story_id-first resolver)
+
+### Remediation scope
+- Added lease renewal heartbeat loop for runtime ingester session and fail-closed stop when renewal loses ownership.
+- Added explicit coverage for lease renewal failure logging path.
+- Updated `NewsCardWithRemoval` resolver to prefer canonical `story_id` before title/topic fallback.
+
+### Exact commands executed
+5. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/components/feed/NewsCardWithRemoval.test.tsx apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+6. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact artifacts
+- `docs/reports/evidence/storycluster/pr1/test-command-5-lease-heartbeat-and-storyid.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-6-diff-coverage-post-lease-fix.txt`
+
+### Acceptance checks (delta)
+| Criterion | Status | Evidence |
+|---|---|---|
+| Single-writer lease continuity (renewal + fail-closed stop) | PASS | `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; lease renewal tests/logging path |
+| Canonical story resolver path for removal card | PASS | `apps/web-pwa/src/components/feed/NewsCardWithRemoval.tsx`; story_id-first test |
+| Strict per-file diff coverage gate | PASS | `test-command-6-diff-coverage-post-lease-fix.txt` |

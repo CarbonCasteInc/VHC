@@ -15,6 +15,13 @@ function resolveStoryBundle(
   stories: ReadonlyArray<StoryBundle>,
   item: FeedItem,
 ): StoryBundle | null {
+  if (item.kind === 'NEWS_STORY' && item.story_id) {
+    const byStoryId = stories.find((s) => s.story_id === item.story_id);
+    if (byStoryId) {
+      return byStoryId;
+    }
+  }
+
   const normalizedTitle = item.title.trim();
   return (
     stories.find((s) => s.topic_id === item.topic_id && s.headline.trim() === normalizedTitle) ??

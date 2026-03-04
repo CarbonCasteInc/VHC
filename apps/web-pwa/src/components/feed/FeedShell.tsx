@@ -18,14 +18,27 @@ import { useExpandedCardStore } from './expandedCardStore';
 const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
 
+function normalizeStoryId(storyId: string | undefined): string | null {
+  const normalized = storyId?.trim();
+  return normalized ? normalized : null;
+}
+
 function toFeedItemKey(item: FeedItem): string {
-  const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
-  return [
-    item.kind,
-    item.topic_id,
-    Math.max(0, Math.floor(item.created_at)),
-    normalizedTitle,
-  ].join('|');
+  if (item.kind === 'NEWS_STORY') {
+    const storyId = normalizeStoryId(item.story_id);
+    if (storyId) {
+      return ['NEWS_STORY', storyId].join('|');
+    }
+
+    const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
+    return ['NEWS_STORY', item.topic_id, normalizedTitle].join('|');
+  }
+
+  return [item.kind, item.topic_id].join('|');
+}
+
+function toFeedItemTestIdSuffix(item: FeedItem): string {
+  return normalizeStoryId(item.story_id) ?? item.topic_id;
 }
 
 export interface FeedShellProps {
@@ -306,17 +319,19 @@ interface FeedItemRowProps {
 }
 
 const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
+  const testIdSuffix = toFeedItemTestIdSuffix(item);
+
   // NEWS_STORY cards own their click interaction (headline flip in-place).
   if (item.kind === 'NEWS_STORY') {
     return (
-      <li data-testid={`feed-item-${item.topic_id}`}>
+      <li data-testid={`feed-item-${testIdSuffix}`}>
         <FeedItemCard item={item} />
       </li>
     );
   }
 
   return (
-    <li data-testid={`feed-item-${item.topic_id}`}>
+    <li data-testid={`feed-item-${testIdSuffix}`}>
       <Link
         to="/hermes/$threadId"
         params={{ threadId: item.topic_id }}
