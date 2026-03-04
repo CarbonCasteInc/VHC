@@ -191,3 +191,29 @@
   2. Wire both sync and async paths through the unified abstraction.
   3. Preserve PR0/PR1 contracts (identity + created_at + latest-index + lease assumptions).
   4. Add deterministic regression harness and artifact packet for PR2.
+
+## PR2 Closure Packet (Draft Updated)
+
+- PR: `#363` — https://github.com/CarbonCasteInc/VHC/pull/363
+- Branch: `coord/storycluster-pr2-clusterengine-abstraction`
+- Evidence packet: `docs/reports/evidence/storycluster/pr2/EVIDENCE_PACKET.md`
+
+### Exact PR2 targeted test commands (as executed)
+1. `pnpm exec vitest run packages/ai-engine/src/__tests__/clusterEngine.test.ts packages/ai-engine/src/__tests__/newsOrchestrator.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/bundleVerification.test.ts packages/ai-engine/src/newsRuntime.test.ts`
+2. `pnpm --dir services/news-aggregator exec vitest run src/cluster.test.ts src/orchestrator.test.ts`
+3. `set -o pipefail; node tools/scripts/check-diff-coverage.mjs 2>&1 | rg "Coverage summary|Statements|Branches|Functions|Lines|Diff Coverage"`
+
+### Exact PR2 artifact paths
+- `docs/reports/evidence/storycluster/pr2/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr2/test-command-1-ai-engine.txt`
+- `docs/reports/evidence/storycluster/pr2/test-command-2-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr2/test-command-3-diff-coverage.txt`
+
+### PR2 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| ClusterEngine abstraction for shared clustering pipeline | PASS | `packages/ai-engine/src/clusterEngine.ts`; `packages/ai-engine/src/__tests__/clusterEngine.test.ts` |
+| Sync + async story-cluster paths routed through abstraction | PASS | Sync wrappers in `packages/ai-engine/src/newsCluster.ts` and `services/news-aggregator/src/cluster.ts`; async routing in `packages/ai-engine/src/newsOrchestrator.ts` + `services/news-aggregator/src/orchestrator.ts` |
+| PR0/PR1 identity + created_at + latest-index + lease assumptions preserved | PASS | No PR0/PR1 contract-path mutations; unchanged writer/adapter contract files plus existing PR0/PR1 regression suites remain green |
+| Remote-down deterministic fallback | PASS | `AutoEngine` fallback logic + deterministic fallback tests in `clusterEngine.test.ts` and `newsOrchestrator.test.ts` |
+| Duplicate direct clustering call path removed from active orchestrators | PASS | Both orchestrators now use `runClusterBatch` against cluster engines |

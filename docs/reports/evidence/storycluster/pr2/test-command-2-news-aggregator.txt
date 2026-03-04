@@ -1,0 +1,11 @@
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main/services/news-aggregator
+
+ ✓ src/cluster.test.ts (28 tests) 18ms
+ ✓ src/orchestrator.test.ts (9 tests) 22ms
+
+ Test Files  2 passed (2)
+      Tests  37 passed (37)
+   Start at  16:57:00
+   Duration  520ms (transform 252ms, setup 0ms, collect 560ms, tests 40ms, environment 0ms, prepare 123ms)
+

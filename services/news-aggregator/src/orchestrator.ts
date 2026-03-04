@@ -1,11 +1,17 @@
+import { runClusterBatch } from '@vh/ai-engine';
 import type { FeedSource, StoryBundle } from '@vh/data-model';
-import { clusterItems, type ClusterOptions } from './cluster';
+import {
+  getDefaultClusterEngine,
+  type AggregatorClusterEngine,
+  type ClusterOptions,
+} from './cluster';
 import { ingestFeeds, type FetchFn, type IngestResult } from './ingest';
 import { normalizeAndDedup } from './normalize';
 
 export interface PipelineConfig {
   sources: FeedSource[];
   clusterOptions?: ClusterOptions;
+  clusterEngine?: AggregatorClusterEngine;
   fetchFn?: FetchFn;
   timeoutMs?: number;
 }
@@ -56,7 +62,13 @@ export async function orchestrateNewsPipeline(
   const allItems = ingestResults.flatMap((result) => result.items);
   const allErrors = ingestResults.flatMap((result) => result.errors);
   const normalized = normalizeAndDedup(allItems);
-  const bundles = clusterItems(normalized, feedSourceMap, config.clusterOptions);
+
+  const clusterEngine = config.clusterEngine ?? getDefaultClusterEngine();
+  const bundles = await runClusterBatch(clusterEngine, {
+    items: normalized,
+    feedSources: feedSourceMap,
+    options: config.clusterOptions,
+  });
 
   return {
     bundles,

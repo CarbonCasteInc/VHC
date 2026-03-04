@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { StoryBundleSchema, type FeedSource } from '@vh/data-model';
+import { StoryBundleSchema, type FeedSource, type StoryBundle } from '@vh/data-model';
 import { orchestrateNewsPipeline } from './orchestrator';
 import type { FetchFn } from './ingest';
 
@@ -249,5 +249,61 @@ describe('orchestrateNewsPipeline', () => {
       errors: ['Invalid pipeline config: sources must be an array'],
     });
     expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('routes async pipeline clustering through injected cluster engine abstraction', async () => {
+    const src = source('a', 'https://feeds.example.com/a.xml');
+    const fetchFn = createFetchMock({
+      [src.rssUrl]: { body: MOCK_RSS },
+    });
+
+    const bundle: StoryBundle = {
+      schemaVersion: 'story-bundle-v0',
+      story_id: 'story-injected',
+      topic_id: 'topic-injected',
+      headline: 'Injected headline',
+      summary_hint: 'Injected summary',
+      cluster_window_start: FIXED_NOW,
+      cluster_window_end: FIXED_NOW,
+      sources: [
+        {
+          source_id: 'a',
+          publisher: 'Source a',
+          url: 'https://example.com/article-1',
+          url_hash: 'hash-injected',
+          published_at: FIXED_NOW,
+          title: 'Injected headline',
+        },
+      ],
+      cluster_features: {
+        entity_keys: ['injected'],
+        time_bucket: 'tb-1',
+        semantic_signature: 'sig',
+      },
+      provenance_hash: 'hash-injected',
+      created_at: FIXED_NOW,
+    };
+
+    const clusterEngine = {
+      engineId: 'test-cluster-engine',
+      clusterBatch: vi.fn(() => [bundle]),
+    };
+
+    const result = await orchestrateNewsPipeline({
+      sources: [src],
+      fetchFn,
+      clusterEngine,
+      clusterOptions: { nowFn: () => FIXED_NOW },
+    });
+
+    expect(clusterEngine.clusterBatch).toHaveBeenCalledTimes(1);
+    expect(clusterEngine.clusterBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        items: expect.any(Array),
+        feedSources: expect.any(Map),
+        options: expect.objectContaining({ nowFn: expect.any(Function) }),
+      }),
+    );
+    expect(result.bundles).toEqual([bundle]);
   });
 });
