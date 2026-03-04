@@ -13,6 +13,37 @@ import { FILTER_TO_KINDS } from '@vh/data-model';
  */
 
 const MS_PER_HOUR = 3_600_000;
+const HOTTEST_DIVERSIFY_WINDOW = 12;
+const HOTTEST_STORYLINE_CAP = 2;
+const HOTTEST_ADJACENT_ENTITY_OVERLAP_PENALTY = 0.35;
+
+const ENTITY_STOP_WORDS = new Set([
+  'a',
+  'an',
+  'the',
+  'and',
+  'or',
+  'to',
+  'for',
+  'of',
+  'in',
+  'on',
+  'at',
+  'by',
+  'with',
+  'from',
+  'is',
+  'are',
+  'was',
+  'were',
+]);
+
+interface ScoredFeedItem {
+  readonly item: FeedItem;
+  readonly score: number;
+  readonly storyline: string;
+  readonly entityTerms: ReadonlySet<string>;
+}
 
 /**
  * Exponential freshness decay.
@@ -44,6 +75,116 @@ export function computeHotness(
     weights.freshness *
       freshnessDecay(item.latest_activity_at, nowMs, decayHalfLifeHours)
   );
+}
+
+function resolveItemHotness(item: FeedItem, config: RankingConfig, nowMs: number): number {
+  if (Number.isFinite(item.hotness) && item.hotness >= 0) {
+    return item.hotness;
+  }
+  return computeHotness(item, config, nowMs);
+}
+
+function toEntityTerms(value: string): string[] {
+  if (!value.trim()) {
+    return [];
+  }
+
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((token) => token.length > 2 && !ENTITY_STOP_WORDS.has(token));
+}
+
+function storylineKey(item: FeedItem): string {
+  if (item.kind !== 'NEWS_STORY') {
+    return `${item.kind}:${item.topic_id}`;
+  }
+
+  const terms = toEntityTerms(item.title);
+  if (terms.length === 0) {
+    return `NEWS_STORY:${item.topic_id}`;
+  }
+
+  return `NEWS_STORY:${terms.slice(0, 2).join('+')}`;
+}
+
+function entityTermsForItem(item: FeedItem): ReadonlySet<string> {
+  const terms = new Set<string>(toEntityTerms(item.title));
+  for (const topicToken of toEntityTerms(item.topic_id.replace(/[-_]+/g, ' '))) {
+    terms.add(topicToken);
+  }
+  return terms;
+}
+
+function overlapRatio(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+
+  let overlap = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      overlap += 1;
+    }
+  }
+
+  return overlap / Math.max(left.size, right.size);
+}
+
+function compareScoredFeedItems(left: ScoredFeedItem, right: ScoredFeedItem): number {
+  return right.score - left.score || left.item.topic_id.localeCompare(right.item.topic_id);
+}
+
+function diversifyHottestWindow(sorted: ScoredFeedItem[]): ScoredFeedItem[] {
+  const topWindowSize = Math.min(HOTTEST_DIVERSIFY_WINDOW, sorted.length);
+  if (topWindowSize <= 1) {
+    return sorted;
+  }
+
+  const pool = sorted.slice(0, topWindowSize);
+  const tail = sorted.slice(topWindowSize);
+
+  const selected: ScoredFeedItem[] = [];
+  const storylineCounts = new Map<string, number>();
+
+  while (pool.length > 0) {
+    const previous = selected[selected.length - 1] ?? null;
+
+    let bestIndex = -1;
+    let bestAdjustedScore = Number.NEGATIVE_INFINITY;
+
+    for (let index = 0; index < pool.length; index += 1) {
+      const candidate = pool[index]!;
+      const storylineCount = storylineCounts.get(candidate.storyline) ?? 0;
+      if (storylineCount >= HOTTEST_STORYLINE_CAP) {
+        continue;
+      }
+
+      const overlap = previous
+        ? overlapRatio(previous.entityTerms, candidate.entityTerms)
+        : 0;
+      const adjusted =
+        candidate.score - overlap * HOTTEST_ADJACENT_ENTITY_OVERLAP_PENALTY;
+
+      if (adjusted > bestAdjustedScore) {
+        bestAdjustedScore = adjusted;
+        bestIndex = index;
+        continue;
+      }
+
+    }
+
+    if (bestIndex < 0) {
+      bestIndex = 0;
+    }
+
+    const [next] = pool.splice(bestIndex, 1);
+    selected.push(next!);
+    storylineCounts.set(next!.storyline, (storylineCounts.get(next!.storyline) ?? 0) + 1);
+  }
+
+  return [...selected, ...tail];
 }
 
 /**
@@ -86,13 +227,17 @@ export function sortItems(
       );
       break;
 
-    case 'HOTTEST':
-      sorted.sort((a, b) => {
-        const ha = computeHotness(a, config, nowMs);
-        const hb = computeHotness(b, config, nowMs);
-        return hb - ha || a.topic_id.localeCompare(b.topic_id);
-      });
-      break;
+    case 'HOTTEST': {
+      const scored = sorted.map((item) => ({
+        item,
+        score: resolveItemHotness(item, config, nowMs),
+        storyline: storylineKey(item),
+        entityTerms: entityTermsForItem(item),
+      }));
+
+      scored.sort(compareScoredFeedItems);
+      return diversifyHottestWindow(scored).map((entry) => entry.item);
+    }
 
     case 'MY_ACTIVITY':
       sorted.sort(

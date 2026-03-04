@@ -200,21 +200,10 @@ describe('sortItems', () => {
     expect(result[1].topic_id).toBe('beta');
   });
 
-  it('HOTTEST sorts by computed hotness descending', () => {
-    const low = makeFeedItem({
-      topic_id: 'low',
-      eye: 1,
-      lightbulb: 0,
-      comments: 0,
-      latest_activity_at: NOW - 96 * HOUR_MS,
-    });
-    const high = makeFeedItem({
-      topic_id: 'high',
-      eye: 100,
-      lightbulb: 50,
-      comments: 30,
-      latest_activity_at: NOW,
-    });
+  it('HOTTEST sorts by indexed hotness descending', () => {
+    const low = makeFeedItem({ topic_id: 'low', hotness: 0.2 });
+    const high = makeFeedItem({ topic_id: 'high', hotness: 0.9 });
+
     const result = sortItems([low, high], 'HOTTEST', CONFIG, NOW);
     expect(result[0].topic_id).toBe('high');
     expect(result[1].topic_id).toBe('low');
@@ -226,6 +215,91 @@ describe('sortItems', () => {
     const result = sortItems([b, a], 'HOTTEST', CONFIG, NOW);
     expect(result[0].topic_id).toBe('alpha');
     expect(result[1].topic_id).toBe('beta');
+  });
+
+  it('HOTTEST falls back to computed hotness when indexed hotness is invalid', () => {
+    const low = makeFeedItem({
+      topic_id: 'fallback-low',
+      hotness: Number.NaN,
+      eye: 1,
+      lightbulb: 0,
+      comments: 0,
+      latest_activity_at: NOW - 12 * HOUR_MS,
+    });
+    const high = makeFeedItem({
+      topic_id: 'fallback-high',
+      hotness: Number.NaN,
+      eye: 80,
+      lightbulb: 20,
+      comments: 10,
+      latest_activity_at: NOW,
+    });
+
+    const result = sortItems([low, high], 'HOTTEST', CONFIG, NOW);
+    expect(result[0].topic_id).toBe('fallback-high');
+    expect(result[1].topic_id).toBe('fallback-low');
+  });
+
+  it('HOTTEST handles blank/stop-word titles via topic fallback deterministically', () => {
+    const alpha = makeFeedItem({
+      topic_id: 'x',
+      title: '   ',
+      hotness: 0.9,
+    });
+    const beta = makeFeedItem({
+      topic_id: 'y',
+      title: 'the and of',
+      hotness: 0.8,
+    });
+
+    const result = sortItems([beta, alpha], 'HOTTEST', CONFIG, NOW);
+    expect(result.map((item) => item.topic_id)).toEqual(['x', 'y']);
+  });
+
+  it('HOTTEST diversification prevents one storyline from monopolizing top window', () => {
+    const alpha1 = makeFeedItem({
+      topic_id: 'alpha-1',
+      title: 'Alpha policy update one',
+      hotness: 1.0,
+    });
+    const alpha2 = makeFeedItem({
+      topic_id: 'alpha-2',
+      title: 'Alpha policy update two',
+      hotness: 0.95,
+    });
+    const alpha3 = makeFeedItem({
+      topic_id: 'alpha-3',
+      title: 'Alpha policy update three',
+      hotness: 0.9,
+    });
+    const alpha4 = makeFeedItem({
+      topic_id: 'alpha-4',
+      title: 'Alpha policy update four',
+      hotness: 0.85,
+    });
+    const budget = makeFeedItem({
+      topic_id: 'budget',
+      title: 'Budget vote passes senate',
+      hotness: 0.8,
+    });
+    const wildfire = makeFeedItem({
+      topic_id: 'wildfire',
+      title: 'Wildfire alert grows rapidly',
+      hotness: 0.79,
+    });
+
+    const result = sortItems(
+      [alpha1, alpha2, alpha3, alpha4, budget, wildfire],
+      'HOTTEST',
+      CONFIG,
+      NOW,
+    );
+
+    const topFour = result.slice(0, 4).map((item) => item.topic_id);
+    const alphaCount = topFour.filter((topicId) => topicId.startsWith('alpha-')).length;
+
+    expect(alphaCount).toBeLessThanOrEqual(2);
+    expect(topFour).toEqual(['alpha-1', 'budget', 'alpha-2', 'wildfire']);
   });
 
   it('MY_ACTIVITY sorts by my_activity_score descending', () => {

@@ -439,3 +439,29 @@
   1. Hot feed stable across refreshes.
   2. breaking stories rise quickly and decay predictably.
   3. top window not monopolized by one storyline.
+
+## PR5 Closure Packet (Draft Updated)
+
+- PR: `#366` — https://github.com/CarbonCasteInc/VHC/pull/366
+- Branch: `coord/storycluster-pr5-hot-index-diversification`
+- Head SHA: pending final push (set during finalize packet)
+- Evidence packet: `docs/reports/evidence/storycluster/pr5/EVIDENCE_PACKET.md`
+
+### Exact PR5 targeted test commands (as executed)
+1. `pnpm vitest run packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/synthesisAdapters.test.ts packages/gun-client/src/topology.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/store/discovery/ranking.test.ts`
+2. `pnpm --filter @vh/gun-client typecheck && pnpm --filter @vh/web-pwa typecheck`
+3. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR5 artifact paths
+- `docs/reports/evidence/storycluster/pr5/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr5/test-command-1-focused-vitest.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-2-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-3-diff-coverage.txt`
+
+### PR5 acceptance matrix (draft)
+| Criterion | Status | Evidence |
+|---|---|---|
+| Hot feed stable across refreshes | PASS | deterministic hot-index read/write path in `packages/gun-client/src/newsAdapters.ts`; stable hot-index hydration + feed bridge projection in `apps/web-pwa/src/store/news/{index,hydration}.ts` and `apps/web-pwa/src/store/feedBridge.ts` with regression tests |
+| Breaking stories rise quickly and decay predictably | PASS | deterministic writer hotness function (`computeStoryHotness`) with freshness decay + breaking velocity multiplier in `packages/gun-client/src/newsAdapters.ts`; covered in `packages/gun-client/src/newsAdapters.test.ts` |
+| Top window not monopolized by one storyline | PASS | deterministic HOTTEST diversification window + storyline cap in `apps/web-pwa/src/store/discovery/ranking.ts`; covered in `apps/web-pwa/src/store/discovery/ranking.test.ts` |
+| Strict per-file diff coverage | PASS | `node tools/scripts/check-diff-coverage.mjs` passed with 100% lines+branches for changed eligible source files (`apps/web-pwa/src/store/discovery/ranking.ts`, `apps/web-pwa/src/store/feedBridge.ts`, `apps/web-pwa/src/store/news/{hydration,index}.ts`, `packages/gun-client/src/newsAdapters.ts`) |

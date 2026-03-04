@@ -1,0 +1,21 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main
+
+ ✓ packages/gun-client/src/topology.test.ts (15 tests) 8ms
+ ✓ apps/web-pwa/src/store/discovery/ranking.test.ts (40 tests) 18ms
+ ✓ packages/gun-client/src/synthesisAdapters.test.ts (15 tests) 33ms
+stdout | apps/web-pwa/src/store/feedBridge.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ packages/gun-client/src/newsAdapters.test.ts (41 tests) 49ms
+ ✓ apps/web-pwa/src/store/news/hydration.test.ts (15 tests) 372ms
+ ✓ apps/web-pwa/src/store/news/index.test.ts (27 tests) 523ms
+ ✓ apps/web-pwa/src/store/feedBridge.test.ts (19 tests) 1557ms
+   ✓ startNewsBridge > logs refresh failures during bootstrap and continues 1505ms
+
+ Test Files  7 passed (7)
+      Tests  172 passed (172)
+   Start at  19:48:39
+   Duration  2.24s (transform 784ms, setup 0ms, collect 1.50s, tests 2.56s, environment 1ms, prepare 497ms)
+
