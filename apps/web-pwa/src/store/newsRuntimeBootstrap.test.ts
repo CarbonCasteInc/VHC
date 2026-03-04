@@ -214,6 +214,7 @@ describe('ensureNewsRuntimeStarted', () => {
 
   it('treats blank MODE as test fallback in auto role', async () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_GATE', 'off');
     vi.stubEnv('MODE', '   ');
 
     await ensureNewsRuntimeStarted({ id: 'blank-mode-fallback-client' } as any);

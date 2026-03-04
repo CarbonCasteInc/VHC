@@ -69,3 +69,22 @@
 - PR0–PR4 contract paths were preserved; no backward contract removals.
 - All modified source files received targeted test coverage in the focused validation run.
 - Minimal unblock applied after first diff-coverage failure: `tools/scripts/check-diff-coverage.mjs` now excludes `apps/web-pwa/src/store/news/types.ts` (type-surface-only module) from coverage-eligible source checks.
+
+## CI Unblock Addendum (newsRuntime MODE-blank test timeout)
+
+Trigger: PR #366 `Test & Build` failed because `apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts` test `treats blank MODE as test fallback in auto role` timed out in CI.
+
+### Remediation
+- Updated that test to disable reliability gate explicitly (`VITE_NEWS_SOURCE_RELIABILITY_GATE=off`) so runtime startup path in this test does not invoke network reliability probing.
+
+### Additional exact command
+4. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+
+### Additional artifact
+- `docs/reports/evidence/storycluster/pr5/test-command-4-runtime-mode-fallback-remediation.txt`
+
+### Addendum checks
+| Check | Status | Evidence |
+|---|---|---|
+| timeout-prone test now deterministic | PASS | `newsRuntimeBootstrap.test.ts` updated env stubbing |
+| focused remediation test run | PASS | `test-command-4-runtime-mode-fallback-remediation.txt` |

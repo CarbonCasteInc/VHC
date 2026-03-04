@@ -465,3 +465,17 @@
 | Breaking stories rise quickly and decay predictably | PASS | deterministic writer hotness function (`computeStoryHotness`) with freshness decay + breaking velocity multiplier in `packages/gun-client/src/newsAdapters.ts`; covered in `packages/gun-client/src/newsAdapters.test.ts` |
 | Top window not monopolized by one storyline | PASS | deterministic HOTTEST diversification window + storyline cap in `apps/web-pwa/src/store/discovery/ranking.ts`; covered in `apps/web-pwa/src/store/discovery/ranking.test.ts` |
 | Strict per-file diff coverage | PASS | `node tools/scripts/check-diff-coverage.mjs` passed with 100% lines+branches for changed eligible source files (`apps/web-pwa/src/store/discovery/ranking.ts`, `apps/web-pwa/src/store/feedBridge.ts`, `apps/web-pwa/src/store/news/{hydration,index}.ts`, `packages/gun-client/src/newsAdapters.ts`) |
+
+### PR5 CI Unblock Packet (runtime-mode fallback test timeout)
+
+- Trigger: CI run `22686592906` failed Test & Build due to timeout in `newsRuntimeBootstrap.test.ts` (`treats blank MODE as test fallback in auto role`).
+- Remediation: test now stubs `VITE_NEWS_SOURCE_RELIABILITY_GATE=off` for deterministic runtime startup.
+
+#### Exact unblock command
+4. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+
+#### Exact unblock artifact
+- `docs/reports/evidence/storycluster/pr5/test-command-4-runtime-mode-fallback-remediation.txt`
+
+#### Unblock result
+- Focused test pass locally; branch updated and CI retriggered.
