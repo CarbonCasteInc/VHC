@@ -274,7 +274,7 @@
 
 - PR: `#364` — https://github.com/CarbonCasteInc/VHC/pull/364
 - Branch: `coord/storycluster-pr3-daemon-canonical-writer`
-- Current head SHA: `7b3a5363e823523761032a2dc8f157b088b3f702`
+- Current head SHA: `f771b26e67b5429f697236dc9f21727ac5bce46b`
 
 ### Exact PR3 test commands (executed)
 1. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
