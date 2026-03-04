@@ -1,0 +1,280 @@
+# StoryCluster Integration Execution Plan (Refined)
+
+Status: Final Draft for Engineering Handoff  
+Owner: Core Engineering  
+Last Updated: 2026-03-04  
+Branch Baseline: `main` @ `628011d`
+
+## 1. Purpose
+
+This plan defines the production-path integration of StoryCluster into VHC without mid-flight re-architecture.
+
+Primary goals:
+
+1. Fix feed correctness and stability first (identity, ordering, single-writer behavior).
+2. Introduce StoryCluster behind a clean engine contract.
+3. Move ingestion authority to a daemonized writer.
+4. Deliver deterministic, explainable `Latest` and `Hot` ranking with narrative diversification.
+
+## 2. Canonical Invariants (Must Hold)
+
+1. Unified feed has two distinct headline surfaces: `NEWS_STORY` and `USER_TOPIC`.
+2. Topic/thread semantics are preserved:
+   - user-thread topic IDs remain deterministic and thread-derived (`sha256("thread:" + threadId)`).
+   - news story topic IDs are story-derived and stable.
+3. News publication contract remains `StoryBundle`-first.
+4. `Latest` ordering must use latest activity, not first-seen timestamp.
+5. `created_at` for a story is immutable after first publish.
+6. Ingestion writes are single-writer at runtime (lease-enforced).
+7. API relay remains default analysis path until local-agent capability thresholds are met.
+
+## 3. Current State of Play (Validated Against Code)
+
+The following are true at baseline and directly inform sequencing:
+
+1. `created_at` is currently regenerated in both clustering paths.
+2. Latest index currently behaves as `created_at` index, not activity index.
+3. No single-writer lease exists in runtime write path.
+4. Feed/news card identity still depends on volatile fields (`created_at`, title), contributing to remount risk.
+5. There are two clustering stacks (`services/news-aggregator` and `packages/ai-engine`) that must be unified behind one interface.
+6. `BiasTable` is already always-on in current production wiring.
+7. Default analysis model is `gpt-5-nano`; override UI can still change model.
+
+## 4. Target Architecture (VHC-Correct)
+
+Components and responsibilities:
+
+1. StoryCluster Engine (new service): authoritative clustering intelligence.
+2. News Aggregator Daemon (canonical writer): ingest/normalize/extract -> cluster engine -> publish StoryBundles and indexes.
+3. Web PWA (consumer-first): hydrate/read/render unified feed; no default ingestion authority.
+4. Gun adapters/topology: authoritative mesh path contracts for stories and ranking indexes.
+
+## 5. Identity and Linking Contracts
+
+### 5.1 Story identity
+
+1. `story_id`: stable event cluster ID (authoritative).
+2. `created_at`: first-seen timestamp for that `story_id` (immutable).
+3. `cluster_window_end`: latest activity timestamp for that story (moves forward).
+
+### 5.2 Topic identity
+
+1. User threads: unchanged thread-derived topic ID.
+2. News stories: `topic_id = sha256Hex("news:" + story_id)`.
+3. Storyline identity is separate from `topic_id`; it remains a feature, not a replacement.
+
+## 6. Mesh Publication Contract
+
+### 6.1 Required
+
+1. `vh/news/stories/<story_id>` -> canonical `StoryBundle`.
+2. `vh/news/index/latest/<story_id>` -> `cluster_window_end` (activity index).
+3. `vh/news/index/hot/<story_id>` -> deterministic hotness score.
+
+### 6.2 Optional enrichment artifacts
+
+Keep StoryBundle lean; publish deep analysis as separate artifacts keyed by `story_id`.
+
+## 7. Ranking Design
+
+### 7.1 Modes
+
+1. `Latest`: sorted by `cluster_window_end` descending.
+2. `Hot`: deterministic score from coverage, velocity, diversity, confidence, and optional impact signals.
+3. `Top` (optional later): long-horizon importance.
+
+### 7.2 Deterministic hotness contract
+
+Use a config-versioned function in writer path and make it reproducible in client diagnostics.
+
+### 7.3 Diversification
+
+Post-sort diversification for top-N:
+
+1. storyline cap per top window.
+2. adjacent entity-overlap penalty.
+
+## 8. Delivery Sequencing (No Mid-Flight Re-architecture)
+
+## PR0 (Contract Freeze and Test Harness Alignment)
+
+Goal: lock interfaces before behavior changes.
+
+1. Freeze `StoryBundle` and discovery identity contracts for NEWS_STORY.
+2. Add implementation notes for latest-index migration shape.
+3. Add migration test fixtures for old index payloads.
+
+Exit criteria:
+
+1. Contract tests pass with both legacy and target latest-index reads.
+2. Team has final approved API/adapter signatures for PR1.
+
+## PR1 (Feed Correctness Hardening - Must Ship First)
+
+Goal: eliminate instability and ordering drift.
+
+Scope:
+
+1. Add NEWS_STORY identity field to discovery pipeline (`story_id`) and propagate end-to-end.
+2. Freeze `created_at` semantics (first-write-wins by `story_id`).
+3. Switch latest-index semantics to activity (`cluster_window_end`) with legacy read fallback.
+4. Introduce and enforce single-writer lease for ingestion writers.
+5. Re-key feed and card identity to stable story identity, not `created_at`.
+
+Acceptance criteria:
+
+1. Re-ingest same evolving story: `created_at` unchanged, `cluster_window_end` advances.
+2. Latest sort follows activity updates.
+3. Two ingesters started concurrently -> one lease holder writes.
+4. Open cards do not remount from timestamp churn.
+
+## PR2 (ClusterEngine Abstraction + Dual-Stack Unification)
+
+Goal: remove duplicate clustering behavior paths.
+
+1. Add `ClusterEngine` interface:
+   - `clusterBatch(normalizedItems) -> { bundles, features, indexes }`.
+2. Implement:
+   - `HeuristicClusterEngine` (current behavior).
+   - `StoryClusterRemoteEngine` (HTTP client).
+   - `AutoEngine` (remote preferred, heuristic fallback).
+3. Route runtime and service orchestration through this single interface.
+
+Acceptance criteria:
+
+1. Remote down -> deterministic fallback works.
+2. No duplicated clustering logic path remains active in production path.
+
+## PR3 (Aggregator Daemon Becomes Canonical Writer)
+
+Goal: move default ingest authority out of browser runtime.
+
+1. Add daemon entrypoint in `services/news-aggregator` for scheduled ingest+publish.
+2. Daemon acquires lease before writes.
+3. Browser defaults to consumer mode for normal runs; explicit dev override remains for local testing only.
+
+Acceptance criteria:
+
+1. PWA shows live headlines without browser ingest authority.
+2. Daemon continuously updates StoryBundles and indexes.
+
+## PR4 (StoryCluster Engine Service - Phase 1)
+
+Goal: deploy stable clustering quality improvements quickly.
+
+Implement first-phase StoryCluster capabilities:
+
+1. language detect + selective translation gate.
+2. near-dup collapse (text + image where available).
+3. embeddings + retrieval + hybrid assignment.
+4. stable incremental cluster assignment.
+5. canonical 2-3 sentence summary generation.
+6. emit coverage/velocity/confidence features.
+
+Acceptance criteria:
+
+1. stable `story_id` across updates.
+2. duplicate collapse improves source grouping quality.
+3. generated summaries populate `summary_hint` reliably.
+
+## PR5 (SOTA Sorting: Hot Index + Diversification)
+
+Goal: make hot feed behavior production-grade and editorially coherent.
+
+1. Publish `vh/news/index/hot/<story_id>`.
+2. Compute deterministic hotness in writer path.
+3. Apply deterministic diversification in feed rendering.
+
+Acceptance criteria:
+
+1. Hot feed stable across refreshes.
+2. breaking stories rise quickly and decay predictably.
+3. top window is not monopolized by one storyline.
+
+## PR6+ (Advanced Pipeline Completion)
+
+Roll in deeper StoryCluster features incrementally:
+
+1. ME tuple extraction + entity linking + temporal normalization.
+2. rerank/adjudication gates.
+3. GDELT grounding and impact blending.
+4. periodic cluster refinement and drift metrics.
+5. timeline/sub-event graph outputs.
+
+## 9. PR1 Detailed File Scope (Immediate Team Start)
+
+Required implementation touchpoints (initial target list):
+
+1. `packages/data-model/src/schemas/hermes/discovery.ts`
+2. `apps/web-pwa/src/store/feedBridge.ts`
+3. `apps/web-pwa/src/store/discovery/index.ts`
+4. `apps/web-pwa/src/components/feed/FeedShell.tsx`
+5. `apps/web-pwa/src/components/feed/NewsCard.tsx`
+6. `packages/gun-client/src/newsAdapters.ts`
+7. `apps/web-pwa/src/store/news/index.ts`
+8. `apps/web-pwa/src/store/news/hydration.ts`
+9. `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`
+10. `packages/gun-client/src/topology.ts`
+
+Note: update tests in the same PR for any changed contract behavior.
+
+## 10. Test and Benchmark Gates
+
+### 10.1 Unit gates
+
+1. `created_at` immutability.
+2. latest index writes/reads use activity semantics.
+3. lease acquisition/renewal/expiry behavior.
+4. topic derivation non-collision (`thread:` vs `news:` prefixes).
+5. hotness determinism and monotonic sanity expectations.
+
+### 10.2 Integration gates
+
+1. local stack: Gun + daemon + (optional) StoryCluster + web app.
+2. stable story IDs across multiple ticks.
+3. source list growth on same story without identity churn.
+4. hot index updates observed and consumed.
+5. UI `Latest` vs `Hot` behavioral differentiation.
+
+### 10.3 E2E strict lane
+
+1. keep existing strict preflight hardening.
+2. add assertions for feed-empty recovery + stable identity behavior.
+3. ensure setup failures are classified as harness failures, not convergence failures.
+
+## 11. Migration and Compatibility Rules
+
+1. Latest-index readers must accept legacy `{created_at: ...}` entries during migration.
+2. Writers must emit only target activity value after PR1 cutover.
+3. Discovery/store code must preserve behavior when old stories lacking new fields are present.
+4. Old shared-topic story artifacts are tolerated read-time but new writes must follow story-derived topic IDs once cutover is enabled.
+
+## 12. Risks and Controls
+
+1. Risk: mixed old/new identity keys cause duplicate cards.
+   - Control: explicit dual-read + canonical-write migration window and dedupe tests.
+2. Risk: lease starvation or stale holder lock.
+   - Control: heartbeat + TTL + failover test.
+3. Risk: hot ranking oscillation from noisy features.
+   - Control: config-versioned weights + bounded update cadence.
+4. Risk: daemon/browser dual-writer during rollout.
+   - Control: lease enforced in both paths with browser defaulting to consumer mode.
+
+## 13. Handoff Checklist for Dev Team
+
+1. Start with PR0 contract updates and tests.
+2. Execute PR1 exactly before any StoryCluster service integration.
+3. Do not introduce new ranking/index paths before latest-index migration lands.
+4. Do not change thread/topic canonical derivation for user topics.
+5. Keep relay-default analysis behavior intact during all phases.
+6. Maintain strict e2e artifacts and setup-vs-convergence classification integrity.
+
+## 14. Definition of Done (Program-Level)
+
+1. Headlines stable and lazily loaded with deterministic ordering.
+2. Pull-to-refresh and pagination behavior are stable and non-destructive.
+3. Story analyses persist and are reusable across sessions/users.
+4. Bias-table vote semantics remain strict tri-state and converge across users.
+5. Story identity and topic identity are deterministic and collision-safe.
+6. Single-writer ingestion authority enforced at runtime.
+7. `Latest` and `Hot` semantics match spec and are reproducible.
