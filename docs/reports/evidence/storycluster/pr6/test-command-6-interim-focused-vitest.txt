@@ -1,0 +1,13 @@
+$ pnpm vitest run packages/ai-engine/src/newsAdvancedPipeline.test.ts packages/ai-engine/src/newsRuntime.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main
+
+ ✓ packages/ai-engine/src/newsAdvancedPipeline.test.ts (12 tests) 19ms
+ ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 23ms
+
+ Test Files  2 passed (2)
+      Tests  24 passed (24)
+   Start at  20:49:18
+   Duration  389ms (transform 174ms, setup 0ms, collect 234ms, tests 41ms, environment 0ms, prepare 110ms)
+

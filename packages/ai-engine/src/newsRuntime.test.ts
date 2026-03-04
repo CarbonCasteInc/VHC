@@ -292,6 +292,53 @@ describe('newsRuntime', () => {
           expect.objectContaining({ work_type: 'full-analysis', story_id: 'story-1' }),
           expect.objectContaining({ work_type: 'bias-table', story_id: 'story-1' }),
         ],
+        advanced_artifact: expect.objectContaining({
+          schemaVersion: 'story-advanced-v1',
+          story_id: 'story-1',
+          topic_id: 'topic-1',
+          me_tuples: expect.any(Array),
+          drift_metrics: expect.objectContaining({
+            composite: expect.any(Number),
+          }),
+          timeline_graph: expect.objectContaining({
+            nodes: expect.any(Array),
+          }),
+        }),
+      }),
+    );
+
+    handle.stop();
+  });
+
+  it('does not block story publish when advanced artifact generation throws', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onError = vi.fn();
+    const onSynthesisCandidate = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onError,
+      onSynthesisCandidate,
+      createAdvancedArtifact: () => {
+        throw new Error('advanced artifact failed');
+      },
+      runOnStart: true,
+      pollIntervalMs: 30,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+    expect(handle.lastRun()).toBeInstanceOf(Date);
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
+    expect(String(onError.mock.calls[0]?.[0])).toContain('advanced artifact failed');
+    expect(onSynthesisCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        story_id: 'story-1',
+        advanced_artifact: undefined,
       }),
     );
 

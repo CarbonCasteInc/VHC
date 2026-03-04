@@ -479,3 +479,87 @@
 
 #### Unblock result
 - Focused test pass locally; branch updated and CI retriggered.
+
+## PR5 Closure Packet (Merged)
+
+- PR: `#366` — https://github.com/CarbonCasteInc/VHC/pull/366
+- Final PR head SHA: `e653bd4f2fdad40c15acf17d84bf79f055bf3d8b`
+- Merge commit on `main`: `9c102669a022dca20f56e0ed4508534f4de0f6ca`
+- Merge time (UTC): `2026-03-04T20:20:05Z`
+
+### Exact PR5 test/validation commands (executed)
+1. `pnpm vitest run packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/synthesisAdapters.test.ts packages/gun-client/src/topology.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/store/discovery/ranking.test.ts`
+2. `pnpm --filter @vh/gun-client typecheck && pnpm --filter @vh/web-pwa typecheck`
+3. `node tools/scripts/check-diff-coverage.mjs`
+4. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts` (CI timeout remediation)
+
+### Exact PR5 artifact paths
+- `docs/reports/evidence/storycluster/pr5/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr5/test-command-1-focused-vitest.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-2-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-3-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-4-runtime-mode-fallback-remediation.txt`
+
+### PR5 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| Hot feed stable across refreshes | PASS | hot index publish/read/hydration path + ranking tests |
+| Breaking stories rise quickly and decay predictably | PASS | deterministic `computeStoryHotness` + decay tests |
+| Top window not monopolized by one storyline | PASS | HOTTEST diversification and cap regression tests |
+| Strict per-file diff coverage pass | PASS | `test-command-3-diff-coverage.txt` (100% lines + branches on changed eligible files) |
+| CI required checks green | PASS | GH run `22686823911` all checks pass |
+| CE dual review convergence | PASS | ce1 round-1 `AGREE`; ce2 round-2 `AGREE` |
+
+## PR6 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr6-advanced-pipeline`
+- Baseline: `main @ 9c10266` (post-PR5 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR6+ section)
+- Immediate PR6 implementation targets:
+  1. ME tuple extraction + entity linking + temporal normalization.
+  2. rerank/adjudication gates.
+  3. GDELT grounding + impact blending.
+  4. periodic cluster refinement + drift metrics.
+  5. timeline/sub-event graph outputs.
+
+## PR6 Closure Packet (Draft Updated)
+
+- PR: `#367` — https://github.com/CarbonCasteInc/VHC/pull/367
+- Branch: `coord/storycluster-pr6-advanced-pipeline`
+- Head SHA: pending final post-remediation push (set in final subagent packet)
+- Evidence packet: `docs/reports/evidence/storycluster/pr6/EVIDENCE_PACKET.md`
+
+### Exact PR6 test/validation commands (executed)
+1. `pnpm vitest run packages/ai-engine/src/newsAdvancedPipeline.test.ts packages/ai-engine/src/newsRuntime.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/newsOrchestrator.test.ts`
+2. `pnpm --filter @vh/ai-engine typecheck`
+3. `pnpm --filter @vh/news-aggregator test`
+4. `pnpm --filter @vh/news-aggregator typecheck`
+5. `node tools/scripts/check-diff-coverage.mjs`
+6. `pnpm vitest run packages/ai-engine/src/newsAdvancedPipeline.test.ts packages/ai-engine/src/newsRuntime.test.ts`
+7. `pnpm --filter @vh/ai-engine typecheck`
+
+### Exact PR6 artifact paths
+- `docs/reports/evidence/storycluster/pr6/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr6/test-command-1-focused-vitest.txt`
+- `docs/reports/evidence/storycluster/pr6/test-command-2-ai-engine-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr6/test-command-3-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr6/test-command-4-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr6/test-command-5-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr6/test-command-6-interim-focused-vitest.txt`
+- `docs/reports/evidence/storycluster/pr6/test-command-7-interim-ai-engine-typecheck.txt`
+
+### PR6 acceptance matrix (draft)
+| Criterion | Status | Evidence |
+|---|---|---|
+| ME tuple extraction + entity linking + temporal normalization | PASS | `packages/ai-engine/src/newsAdvancedPipeline.ts` + extended branch tests in `newsAdvancedPipeline.test.ts` |
+| rerank/adjudication gates | PASS | deterministic rerank + adjudication threshold tests, including all-rejected guard branch |
+| GDELT grounding + impact blending | PASS | aggregate support/ordering tests + blend component branch coverage |
+| periodic cluster refinement + drift metrics | PASS | refinement-window branch tests + drift distribution tests |
+| timeline/sub-event graph outputs | PASS | fallback timeline node path, shared-entity edges, tie ordering, dominant entity fallback tests |
+| strict per-file diff coverage pass | PASS | `docs/reports/evidence/storycluster/pr6/test-command-5-diff-coverage.txt` (`100% lines + 100% branches` on changed source files) |
+| PR0–PR5 contracts preserved | PASS | PR6 changes isolated to advanced pipeline + test evidence/docs; no contract removals |
+
+### PR6 CI Unblock Addendum (run 22688301958)
+- Trigger: diff-coverage failure on `packages/ai-engine/src/newsAdvancedPipeline.ts` (line/branch deficits reported by CI).
+- Remediation: expanded targeted tests to explicitly cover the reported branch families; reran strict diff coverage gate.
+- Result: local diff gate PASS (`100% line + 100% branch` on changed source files).
