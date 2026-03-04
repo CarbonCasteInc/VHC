@@ -1,4 +1,8 @@
 import { buildRemoteRequest, type RemoteAnalysisRequest } from './modelConfig';
+import {
+  buildStoryAdvancedArtifact,
+  type StoryAdvancedArtifact,
+} from './newsAdvancedPipeline';
 import { buildEnrichmentWorkItems } from './newsCluster';
 import { orchestrateNewsPipeline } from './newsOrchestrator';
 import type { FeedSource, StoryBundle, TopicMapping } from './newsTypes';
@@ -23,6 +27,7 @@ export interface NewsRuntimeSynthesisCandidate {
   };
   request: RemoteAnalysisRequest;
   work_items: NewsRuntimeEnrichmentWorkItem[];
+  advanced_artifact?: StoryAdvancedArtifact;
 }
 
 export interface NewsRuntimeConfig {
@@ -34,6 +39,7 @@ export interface NewsRuntimeConfig {
   enabled?: boolean;
   writeStoryBundle?: (client: unknown, bundle: StoryBundle) => Promise<unknown>;
   createAnalysisPrompt?: (bundle: StoryBundle) => string;
+  createAdvancedArtifact?: (bundle: StoryBundle) => StoryAdvancedArtifact;
   onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void | Promise<void>;
   onError?: (error: unknown) => void;
 }
@@ -111,11 +117,20 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       }
 
       const createPrompt = config.createAnalysisPrompt ?? defaultPrompt;
+      const createAdvancedArtifact =
+        config.createAdvancedArtifact ?? ((bundle: StoryBundle) => buildStoryAdvancedArtifact(bundle));
 
       for (const bundle of bundles) {
         const request = buildRemoteRequest(createPrompt(bundle));
 
         await writeStoryBundle(config.gunClient, bundle);
+
+        let advancedArtifact: StoryAdvancedArtifact | undefined;
+        try {
+          advancedArtifact = createAdvancedArtifact(bundle);
+        } catch (error) {
+          config.onError?.(error);
+        }
 
         if (config.onSynthesisCandidate) {
           const candidate: NewsRuntimeSynthesisCandidate = {
@@ -127,6 +142,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
             },
             request,
             work_items: buildEnrichmentWorkItems(bundle),
+            advanced_artifact: advancedArtifact,
           };
 
           void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {

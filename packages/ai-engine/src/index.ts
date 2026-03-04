@@ -19,6 +19,7 @@ export * from './newsNormalize';
 export * from './clusterEngine';
 export * from './newsCluster';
 export * from './newsOrchestrator';
+export * from './newsAdvancedPipeline';
 export * from './modelConfig';
 export { startNewsRuntime, isNewsRuntimeEnabled } from './newsRuntime';
 export type {
