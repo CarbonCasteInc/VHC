@@ -395,7 +395,7 @@ describe('synthesisAdapters', () => {
     expect(mesh.writes[0]?.path).toBe('news/stories/story-1');
     expect(mesh.writes[1]).toEqual({
       path: 'news/index/latest/story-1',
-      value: STORY.created_at
+      value: STORY.cluster_window_end
     });
 
     const encodedStoryWrite = mesh.writes[0]?.value as Record<string, unknown>;
