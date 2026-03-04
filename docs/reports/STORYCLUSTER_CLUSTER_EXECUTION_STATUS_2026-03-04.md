@@ -225,3 +225,8 @@
 
 ### PR2 push/update confirmation (superseding head update)
 - Final pushed head SHA (latest): `0c678fd7e2af31c00dcc7b7c5f0d4170f0fc72ef`
+
+### PR2 Head-Pin Integrity Addendum (Final)
+- Final reviewed/pushed head SHA for PR2: `6b1da8c4b7034057fdaf1bb944b0a6732c143809`
+- CI run pin for this head: `22679987781` (Ownership Scope, Change Detection, Quality Guard, Test & Build, E2E, Bundle Size, Lighthouse all PASS)
+- This section supersedes prior interim PR2 head references (`8e36c44...`, `0c678fd...`) produced during iterative push updates.

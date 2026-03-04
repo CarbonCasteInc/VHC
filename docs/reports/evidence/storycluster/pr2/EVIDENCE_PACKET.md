@@ -45,3 +45,11 @@ Authoritative worktree: `/srv/trinity/worktrees/live-main`
 - `services/news-aggregator/src/orchestrator.ts`
 - `services/news-aggregator/src/orchestrator.test.ts`
 - `services/news-aggregator/src/index.ts`
+
+## Head-Pin Integrity Addendum
+
+- Reviewed PR: `#363`
+- Final reviewed head SHA: `6b1da8c4b7034057fdaf1bb944b0a6732c143809`
+- CI run pin: `22679987781` (all required checks green)
+
+This addendum supersedes earlier interim head references from in-flight branch updates.
