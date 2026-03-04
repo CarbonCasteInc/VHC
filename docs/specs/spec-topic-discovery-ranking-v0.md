@@ -40,6 +40,7 @@ type FeedKind =
   | 'ACTION_RECEIPT';   // Wave 3: civic action confirmations
 
 interface FeedItem {
+  story_id?: string; // NEWS_STORY canonical identity when available
   topic_id: string;
   kind: FeedKind;
   title: string;
@@ -53,7 +54,13 @@ interface FeedItem {
 }
 ```
 
-### 3.1 Filter-to-kind mapping
+### 3.1 NEWS_STORY identity contract (PR0 freeze)
+
+- `StoryBundle.story_id` is the canonical story identity.
+- When a `FeedItem.kind === "NEWS_STORY"` carries `story_id`, that value must equal the upstream `StoryBundle.story_id`.
+- During migration windows, consumers must tolerate missing `story_id` and fallback to legacy de-dup keys.
+
+### 3.2 Filter-to-kind mapping
 
 | Filter chip | Included kinds |
 |-------------|---------------|

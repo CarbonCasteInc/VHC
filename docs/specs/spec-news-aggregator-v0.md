@@ -79,6 +79,10 @@ interface StoryBundle {
 
 `story_id` and `topic_id` must be stable for the same cluster window and feature set.
 
+PR0 identity wiring freeze:
+- `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
+- Discovery NEWS_STORY projections should forward this value as `FeedItem.story_id` when available.
+
 ## 4. Provenance requirements
 
 Every story must preserve source-level provenance:
@@ -95,6 +99,17 @@ No source URLs should be dropped from provenance if used in clustering/synthesis
 - `vh/news/stories/<storyId>`
 - `vh/news/index/latest/<storyId>`
 - optional: `vh/news/source/<sourceId>/<itemId>` for debug snapshots
+
+### 5.1 Latest-index migration contract (PR0 freeze)
+
+Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest activity** timestamps.
+
+- Target write shape: scalar timestamp (activity, aligned with `cluster_window_end`).
+- Transitional read compatibility (must be supported):
+  - scalar timestamp string/number
+  - object payloads carrying `cluster_window_end` or `latest_activity_at`
+  - legacy object payloads carrying `created_at`
+- Migration discipline: reader dual-compat first; writer cutover to activity semantics in PR1.
 
 ## 6. Privacy and safety
 

@@ -81,10 +81,34 @@ describe('createDiscoveryStore', () => {
       expect(result[0].eye).toBe(99);
     });
 
+    it('uses story_id as canonical NEWS_STORY identity when present (last wins)', () => {
+      const items = [
+        makeFeedItem({ topic_id: 'topic-x', title: 'Older title', created_at: NOW - HOUR_MS, story_id: 'story-1', eye: 1 }),
+        makeFeedItem({ topic_id: 'topic-x', title: 'Refreshed title', created_at: NOW, story_id: 'story-1', eye: 99 }),
+      ];
+
+      store.getState().setItems(items);
+      const result = store.getState().items;
+      expect(result).toHaveLength(1);
+      expect(result[0].story_id).toBe('story-1');
+      expect(result[0].title).toBe('Refreshed title');
+      expect(result[0].eye).toBe(99);
+    });
+
     it('preserves distinct NEWS_STORY headlines under the same topic_id', () => {
       const items = [
         makeFeedItem({ topic_id: 'topic-world', title: 'Headline A', created_at: NOW - HOUR_MS }),
         makeFeedItem({ topic_id: 'topic-world', title: 'Headline B', created_at: NOW }),
+      ];
+
+      store.getState().setItems(items);
+      expect(store.getState().items).toHaveLength(2);
+    });
+
+    it('preserves distinct NEWS_STORY rows when story_id differs even if other fields match', () => {
+      const items = [
+        makeFeedItem({ topic_id: 'topic-world', title: 'Shared headline', created_at: NOW, story_id: 'story-a' }),
+        makeFeedItem({ topic_id: 'topic-world', title: 'Shared headline', created_at: NOW, story_id: 'story-b' }),
       ];
 
       store.getState().setItems(items);
@@ -129,6 +153,34 @@ describe('createDiscoveryStore', () => {
       const result = store.getState().items;
       expect(result).toHaveLength(1);
       expect(result[0].eye).toBe(99);
+    });
+
+    it('deduplicates on merge by story_id when present', () => {
+      store.getState().setItems([
+        makeFeedItem({
+          topic_id: 'topic-tech',
+          title: 'Initial headline',
+          created_at: NOW - HOUR_MS,
+          story_id: 'story-merge-1',
+          eye: 1,
+        }),
+      ]);
+
+      store.getState().mergeItems([
+        makeFeedItem({
+          topic_id: 'topic-tech',
+          title: 'Fresh headline',
+          created_at: NOW,
+          story_id: 'story-merge-1',
+          eye: 55,
+        }),
+      ]);
+
+      const result = store.getState().items;
+      expect(result).toHaveLength(1);
+      expect(result[0].story_id).toBe('story-merge-1');
+      expect(result[0].title).toBe('Fresh headline');
+      expect(result[0].eye).toBe(55);
     });
 
     it('merge preserves multiple NEWS_STORY headlines sharing topic_id', () => {

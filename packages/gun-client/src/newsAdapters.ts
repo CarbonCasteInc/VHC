@@ -160,6 +160,14 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
   });
 }
 
+/**
+ * Latest-index migration parser.
+ *
+ * Supports:
+ * - target activity timestamps (number/string scalar)
+ * - transitional objects (`cluster_window_end`, `latest_activity_at`)
+ * - legacy objects (`created_at`)
+ */
 function parseLatestTimestamp(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
     return Math.floor(value);
@@ -173,8 +181,16 @@ function parseLatestTimestamp(value: unknown): number | null {
     return null;
   }
 
-  if (isRecord(value) && 'created_at' in value) {
-    return parseLatestTimestamp(value.created_at);
+  if (isRecord(value)) {
+    if ('cluster_window_end' in value) {
+      return parseLatestTimestamp(value.cluster_window_end);
+    }
+    if ('latest_activity_at' in value) {
+      return parseLatestTimestamp(value.latest_activity_at);
+    }
+    if ('created_at' in value) {
+      return parseLatestTimestamp(value.created_at);
+    }
   }
 
   return null;
@@ -277,7 +293,11 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
 }
 
 /**
- * Read `vh/news/index/latest/*` and coerce to `{ [storyId]: createdAtMs }`.
+ * Read `vh/news/index/latest/*` and coerce to `{ [storyId]: latestActivityMs }`.
+ *
+ * Compatibility contract:
+ * - target semantics: scalar activity timestamp (`cluster_window_end`)
+ * - legacy semantics: `{ created_at: ... }` payloads remain readable
  */
 export async function readNewsLatestIndex(client: VennClient): Promise<NewsLatestIndex> {
   const raw = await readOnce(getNewsLatestIndexChain(client) as unknown as ChainWithGet<unknown>);
@@ -304,18 +324,21 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
 export async function writeNewsLatestIndexEntry(
   client: VennClient,
   storyId: string,
-  createdAt: number
+  latestTimestamp: number
 ): Promise<void> {
   const normalizedId = storyId.trim();
   if (!normalizedId) {
     throw new Error('storyId is required');
   }
-  const normalizedCreatedAt = Math.max(0, Math.floor(createdAt));
-  await putWithAck(getNewsLatestIndexChain(client).get(normalizedId), normalizedCreatedAt);
+  const normalizedLatestTimestamp = Math.max(0, Math.floor(latestTimestamp));
+  await putWithAck(getNewsLatestIndexChain(client).get(normalizedId), normalizedLatestTimestamp);
 }
 
 /**
  * Convenience writer for publishing bundle + latest index atomically at app level.
+ *
+ * PR0 baseline semantics (intentionally unchanged): latest index uses `created_at`.
+ * PR1 will cut over canonical writes to `cluster_window_end` (activity).
  */
 export async function writeNewsBundle(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = await writeNewsStory(client, story);
