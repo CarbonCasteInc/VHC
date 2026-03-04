@@ -47,3 +47,26 @@ Authoritative worktree: `/srv/trinity/worktrees/live-main`
 - `services/news-aggregator/package.json`
 - `services/news-aggregator/vitest.config.ts`
 - `pnpm-lock.yaml`
+
+## CI Unblock Addendum (Diff-coverage branch at runtime mode fallback)
+
+Trigger: PR #364 `Test & Build` diff-aware coverage gate reported uncovered branch on `apps/web-pwa/src/store/newsRuntimeBootstrap.ts` line 90.
+
+### Remediation
+- Added explicit test case for blank `MODE` fallback path in auto role:
+  - `apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+  - test: `treats blank MODE as test fallback in auto role`
+
+### Additional exact commands
+6. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+7. `node tools/scripts/check-diff-coverage.mjs`
+
+### Additional artifacts
+- `docs/reports/evidence/storycluster/pr3/test-command-6-runtime-mode-blank-fallback.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-7-diff-coverage-remediation.txt`
+
+### Addendum acceptance checks
+| Criterion | Status | Evidence |
+|---|---|---|
+| runtime mode fallback branch fully covered | PASS | `newsRuntimeBootstrap.test.ts` blank MODE fallback test |
+| per-file strict diff coverage (100/100) | PASS | `test-command-7-diff-coverage-remediation.txt` |

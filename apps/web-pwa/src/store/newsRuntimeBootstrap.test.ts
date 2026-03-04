@@ -212,6 +212,15 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
 
+  it('treats blank MODE as test fallback in auto role', async () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('MODE', '   ');
+
+    await ensureNewsRuntimeStarted({ id: 'blank-mode-fallback-client' } as any);
+
+    expect(startNewsRuntimeMock).toHaveBeenCalledTimes(1);
+  });
+
   it('stops an already-running runtime when role flips to consumer', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');

@@ -297,3 +297,19 @@
 | PWA shows live headlines without browser ingest authority | PASS | Browser runtime auto-role now defaults to consumer outside `MODE=test` in `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; regression covered by `newsRuntimeBootstrap.test.ts`; hydration/index feeds verified by `apps/web-pwa/src/store/news/{hydration,index}.test.ts` |
 | Daemon continuously updates StoryBundles and indexes | PASS | New `services/news-aggregator/src/daemon.ts` leader loop acquires/renews lease and runs scheduled runtime publish path through guarded writes; coverage in `services/news-aggregator/src/daemon.test.ts` |
 | Publish latency decoupled from enrichment completion | PASS | Async daemon enrichment queue wiring in `services/news-aggregator/src/daemon.ts` with non-blocking enqueue; verified by daemon test `wires async enrichment queue without blocking publish path` |
+
+### PR3 CI Unblock Packet (runtime mode fallback branch)
+
+- Trigger: `Test & Build` diff-aware coverage failure on PR #364 (`newsRuntimeBootstrap.ts` uncovered branch line 90).
+- Remediation: added targeted blank-MODE fallback test in `newsRuntimeBootstrap.test.ts`.
+
+#### Exact unblock commands
+6. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+7. `node tools/scripts/check-diff-coverage.mjs`
+
+#### Exact unblock artifacts
+- `docs/reports/evidence/storycluster/pr3/test-command-6-runtime-mode-blank-fallback.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-7-diff-coverage-remediation.txt`
+
+#### Unblock result
+- Diff-aware per-file gate: PASS (100% lines + 100% branches on changed source files).
