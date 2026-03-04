@@ -79,6 +79,9 @@ interface StoryBundle {
 
 `story_id` and `topic_id` must be stable for the same cluster window and feature set.
 
+`created_at` contract:
+- `created_at` is the first-seen publish timestamp for a `story_id` and MUST remain immutable after initial publish.
+
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
 - Discovery NEWS_STORY projections should forward this value as `FeedItem.story_id` when available.
