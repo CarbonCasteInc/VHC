@@ -269,3 +269,31 @@
   2. Enforce lease acquisition in daemon before writes.
   3. Browser defaults to consumer mode in normal runs; dev-only override retained.
   4. Wire daemon-managed async enrichment queue non-blocking from publish path.
+
+## PR3 Closure Packet (Draft)
+
+- PR: `#364` — https://github.com/CarbonCasteInc/VHC/pull/364
+- Branch: `coord/storycluster-pr3-daemon-canonical-writer`
+- Current head SHA: `TBD_AT_PUSH` (filled after final push)
+
+### Exact PR3 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+2. `pnpm --dir services/news-aggregator exec vitest run src/daemon.test.ts src/cluster.test.ts src/orchestrator.test.ts`
+3. `pnpm --dir services/news-aggregator exec tsc --noEmit`
+4. `node tools/scripts/check-diff-coverage.mjs`
+5. `pnpm exec vitest run apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/news/index.test.ts`
+
+### Exact PR3 artifact paths
+- `docs/reports/evidence/storycluster/pr3/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr3/test-command-1-runtime-and-browser.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-2-news-aggregator-daemon.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-3-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-4-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-5-pwa-news-store-hydration.txt`
+
+### PR3 acceptance matrix (draft)
+| Criterion | Status | Evidence |
+|---|---|---|
+| PWA shows live headlines without browser ingest authority | PASS | Browser runtime auto-role now defaults to consumer outside `MODE=test` in `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; regression covered by `newsRuntimeBootstrap.test.ts`; hydration/index feeds verified by `apps/web-pwa/src/store/news/{hydration,index}.test.ts` |
+| Daemon continuously updates StoryBundles and indexes | PASS | New `services/news-aggregator/src/daemon.ts` leader loop acquires/renews lease and runs scheduled runtime publish path through guarded writes; coverage in `services/news-aggregator/src/daemon.test.ts` |
+| Publish latency decoupled from enrichment completion | PASS | Async daemon enrichment queue wiring in `services/news-aggregator/src/daemon.ts` with non-blocking enqueue; verified by daemon test `wires async enrichment queue without blocking publish path` |

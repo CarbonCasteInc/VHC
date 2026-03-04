@@ -21,6 +21,7 @@ export interface NewsRuntimeConfig {
   gunClient: unknown;
   pollIntervalMs?: number;
   runOnStart?: boolean;
+  enabled?: boolean;
   writeStoryBundle?: (client: unknown, bundle: StoryBundle) => Promise<unknown>;
   createAnalysisPrompt?: (bundle: StoryBundle) => string;
   onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void;
@@ -74,7 +75,7 @@ function defaultPrompt(bundle: StoryBundle): string {
 
 export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const pollIntervalMs = normalizePollInterval(config.pollIntervalMs);
-  const shouldRun = isNewsRuntimeEnabled();
+  const shouldRun = config.enabled ?? isNewsRuntimeEnabled();
 
   let timer: ReturnType<typeof setInterval> | null = null;
   let running = false;

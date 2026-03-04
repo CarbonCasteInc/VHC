@@ -203,6 +203,15 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(startNewsRuntimeMock).not.toHaveBeenCalled();
   });
 
+  it('defaults browser runtime to consumer mode outside test mode', async () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('MODE', 'development');
+
+    await ensureNewsRuntimeStarted({ id: 'dev-default-consumer-client' } as any);
+
+    expect(startNewsRuntimeMock).not.toHaveBeenCalled();
+  });
+
   it('stops an already-running runtime when role flips to consumer', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
@@ -681,6 +690,7 @@ describe('ensureNewsRuntimeStarted', () => {
     vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
     vi.stubEnv('MODE', 'development');
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_RUNTIME_ROLE', 'ingester');
     vi.stubEnv('VITE_NEWS_SOURCE_RELIABILITY_GATE', '');
     vi.stubEnv(
       'VITE_NEWS_FEED_SOURCES',
