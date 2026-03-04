@@ -26,6 +26,7 @@ type NewsRuntimeRole = 'auto' | 'ingester' | 'consumer';
 let runtimeHandle: NewsRuntimeHandle | null = null;
 let runtimeClient: VennClient | null = null;
 let runtimeLease: NewsIngestionLease | null = null;
+let runtimeLeaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let runtimeStartPromise: Promise<void> | null = null;
 let runtimeStartClient: VennClient | null = null;
 let reliabilityCache:
@@ -181,7 +182,28 @@ async function releaseRuntimeLease(client: VennClient): Promise<void> {
   runtimeLease = null;
 }
 
+function clearRuntimeLeaseHeartbeatTimer(): void {
+  if (!runtimeLeaseHeartbeatTimer) {
+    return;
+  }
+  clearInterval(runtimeLeaseHeartbeatTimer);
+  runtimeLeaseHeartbeatTimer = null;
+}
+
+function startRuntimeLeaseHeartbeat(client: VennClient): void {
+  clearRuntimeLeaseHeartbeatTimer();
+  const leaseTtlMs = parsePositiveInt(readEnvVar('VITE_NEWS_RUNTIME_LEASE_TTL_MS'), DEFAULT_RUNTIME_LEASE_TTL_MS);
+  const renewIntervalMs = Math.max(5_000, Math.floor(leaseTtlMs / 2));
+
+  runtimeLeaseHeartbeatTimer = setInterval(() => {
+    void ensureNewsRuntimeStarted(client).catch((error: unknown) => {
+      console.warn('[vh:news-runtime] lease heartbeat renewal failed', error);
+    });
+  }, renewIntervalMs);
+}
+
 async function stopRuntimeAndRelease(client: VennClient): Promise<void> {
+  clearRuntimeLeaseHeartbeatTimer();
   runtimeHandle?.stop();
   runtimeHandle = null;
   runtimeClient = null;
@@ -465,7 +487,12 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     }
 
     if (runtimeHandle?.isRunning() && runtimeClient === client) {
-      runtimeLease = await acquireRuntimeLease(client);
+      const renewedLease = await acquireRuntimeLease(client);
+      if (!renewedLease) {
+        await stopRuntimeAndRelease(client);
+        return;
+      }
+      runtimeLease = renewedLease;
       return;
     }
 
@@ -528,6 +555,7 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
       runtimeHandle = handle;
       runtimeClient = client;
       runtimeLease = lease;
+      startRuntimeLeaseHeartbeat(client);
       console.info('[vh:news-runtime] started');
       return;
     }
@@ -535,6 +563,7 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     runtimeHandle = null;
     runtimeClient = null;
     runtimeLease = null;
+    clearRuntimeLeaseHeartbeatTimer();
     await releaseRuntimeLease(client);
   };
 
@@ -550,6 +579,7 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
 }
 
 export function __resetNewsRuntimeForTesting(): void {
+  clearRuntimeLeaseHeartbeatTimer();
   runtimeHandle?.stop();
   runtimeHandle = null;
   runtimeClient = null;

@@ -295,6 +295,64 @@ describe('ensureNewsRuntimeStarted', () => {
     );
   });
 
+  it('stops active runtime when lease renewal fails on a running session', async () => {
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+
+    const client = { id: 'lease-renew-fail-client' } as any;
+    await ensureNewsRuntimeStarted(client);
+
+    readNewsIngestionLeaseMock.mockResolvedValueOnce({
+      holder_id: 'vh-news-runtime:other',
+      lease_token: 'lease-token-other',
+      acquired_at: Date.now() - 100,
+      heartbeat_at: Date.now() - 50,
+      expires_at: Date.now() + 60_000,
+    });
+
+    await ensureNewsRuntimeStarted(client);
+
+    expect(stopMock).toHaveBeenCalledTimes(1);
+    const releasePayload = writeNewsIngestionLeaseMock.mock.calls.at(-1)?.[1] as {
+      heartbeat_at: number;
+      expires_at: number;
+    };
+    expect(releasePayload.expires_at).toBeLessThanOrEqual(releasePayload.heartbeat_at);
+  });
+
+  it('renews lease periodically while runtime is running', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_RUNTIME_LEASE_TTL_MS', '10000');
+
+    const client = { id: 'lease-heartbeat-client' } as any;
+    await ensureNewsRuntimeStarted(client);
+
+    const writesAfterStart = writeNewsIngestionLeaseMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(11_000);
+
+    expect(writeNewsIngestionLeaseMock.mock.calls.length).toBeGreaterThan(writesAfterStart);
+    vi.useRealTimers();
+  });
+
+  it('logs lease heartbeat renewal failures', async () => {
+    vi.useFakeTimers();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_RUNTIME_LEASE_TTL_MS', '10000');
+
+    const client = { id: 'lease-heartbeat-error-client' } as any;
+    await ensureNewsRuntimeStarted(client);
+
+    readNewsIngestionLeaseMock.mockRejectedValueOnce(new Error('lease-read-failed'));
+    await vi.advanceTimersByTimeAsync(11_000);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] lease heartbeat renewal failed',
+      expect.any(Error),
+    );
+    vi.useRealTimers();
+  });
+
   it('releases lease when role flips to consumer', async () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
 

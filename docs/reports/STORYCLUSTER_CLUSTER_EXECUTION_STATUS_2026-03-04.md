@@ -135,3 +135,13 @@
 #### Unblock result
 - Diff-aware per-file gate: PASS (`100% lines + 100% branches` on changed source files)
 - CI required checks on PR #362: green on latest evaluated head (`bad505c`)
+
+### PR1 CE Round-2 Remediation (Lease continuity + resolver canonicalization)
+
+- Scope addressed:
+  1. runtime lease continuity via periodic renewal heartbeat and fail-closed stop on renewal failure
+  2. canonical `story_id`-first bundle resolution in `NewsCardWithRemoval`
+- Additional deterministic artifacts added:
+  - `docs/reports/evidence/storycluster/pr1/test-command-5-lease-heartbeat-and-storyid.txt`
+  - `docs/reports/evidence/storycluster/pr1/test-command-6-diff-coverage-post-lease-fix.txt`
+- Local strict gate result: diff coverage PASS (100% lines + 100% branches on changed source files).

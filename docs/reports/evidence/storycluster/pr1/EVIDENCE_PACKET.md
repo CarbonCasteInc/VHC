@@ -71,3 +71,25 @@ Authoritative worktree: `/srv/trinity/worktrees/live-main`
 | Runtime lease guard exercised (`acquire`/`hold`/`skip`/`release`) | PASS | `apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts` new lease-path tests |
 | Concurrent start guard branch covered | PASS | `newsRuntimeBootstrap.test.ts` test: `awaits in-flight startup when called concurrently for the same client` |
 | PR diff-coverage strict gate | PASS | `test-command-4-diff-coverage.txt` (`100% lines + 100% branches` for changed source files) |
+
+## CE Round-2 Remediation Packet (Lease heartbeat + story_id-first resolver)
+
+### Remediation scope
+- Added lease renewal heartbeat loop for runtime ingester session and fail-closed stop when renewal loses ownership.
+- Added explicit coverage for lease renewal failure logging path.
+- Updated `NewsCardWithRemoval` resolver to prefer canonical `story_id` before title/topic fallback.
+
+### Exact commands executed
+5. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/components/feed/NewsCardWithRemoval.test.tsx apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+6. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact artifacts
+- `docs/reports/evidence/storycluster/pr1/test-command-5-lease-heartbeat-and-storyid.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-6-diff-coverage-post-lease-fix.txt`
+
+### Acceptance checks (delta)
+| Criterion | Status | Evidence |
+|---|---|---|
+| Single-writer lease continuity (renewal + fail-closed stop) | PASS | `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; lease renewal tests/logging path |
+| Canonical story resolver path for removal card | PASS | `apps/web-pwa/src/components/feed/NewsCardWithRemoval.tsx`; story_id-first test |
+| Strict per-file diff coverage gate | PASS | `test-command-6-diff-coverage-post-lease-fix.txt` |
