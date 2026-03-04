@@ -77,7 +77,7 @@ describe('news store', () => {
     expect(state.error).toBeNull();
   });
 
-  it('setStories validates, deduplicates, and clears errors', async () => {
+  it('setStories validates, deduplicates, freezes created_at, and clears errors', async () => {
     const { createNewsStore } = await import('./index');
     const store = createNewsStore({ resolveClient: () => null });
 
@@ -90,6 +90,7 @@ describe('news store', () => {
 
     expect(store.getState().stories).toHaveLength(1);
     expect(store.getState().stories[0]?.headline).toBe('latest wins');
+    expect(store.getState().stories[0]?.created_at).toBe(10);
     expect(store.getState().error).toBeNull();
   });
 
@@ -284,16 +285,17 @@ describe('news store', () => {
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['story-a', 'story-z']);
   });
 
-  it('upsertStory inserts and updates existing stories', async () => {
+  it('upsertStory inserts and updates existing stories while preserving first created_at', async () => {
     const { createNewsStore } = await import('./index');
     const store = createNewsStore({ resolveClient: () => null });
 
-    store.getState().upsertStory(story({ story_id: 's1', headline: 'one' }));
-    store.getState().upsertStory(story({ story_id: 's1', headline: 'updated' }));
+    store.getState().upsertStory(story({ story_id: 's1', headline: 'one', created_at: 100 }));
+    store.getState().upsertStory(story({ story_id: 's1', headline: 'updated', created_at: 999 }));
     store.getState().upsertStory({} as StoryBundle);
 
     expect(store.getState().stories).toHaveLength(1);
     expect(store.getState().stories[0]?.headline).toBe('updated');
+    expect(store.getState().stories[0]?.created_at).toBe(100);
   });
 
   it('upsertLatestIndex validates input and re-sorts stories', async () => {
@@ -360,12 +362,33 @@ describe('news store', () => {
     expect(store.getState().error).toBeNull();
   });
 
+  it('refreshLatest preserves first created_at for re-ingested story identities', async () => {
+    const client = { id: 'client-created-at-freeze' };
+    const initial = story({ story_id: 's1', created_at: 10, cluster_window_end: 20, headline: 'initial' });
+    const reingested = story({ story_id: 's1', created_at: 999, cluster_window_end: 400, headline: 'updated' });
+
+    readNewsLatestIndexMock.mockResolvedValue({ s1: 400 });
+    readLatestStoryIdsMock.mockResolvedValue(['s1']);
+    readNewsStoryMock.mockResolvedValue(reingested);
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+    store.getState().setStories([initial]);
+
+    await store.getState().refreshLatest(10);
+
+    expect(store.getState().stories).toHaveLength(1);
+    expect(store.getState().stories[0]?.headline).toBe('updated');
+    expect(store.getState().stories[0]?.created_at).toBe(10);
+    expect(store.getState().latestIndex).toEqual({ s1: 400 });
+  });
+
   it('refreshLatest warns when discovery mirroring fails', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     const client = { id: 'client-mirror' };
-    const s1 = story({ story_id: 'mirror-story', created_at: 10 });
-    readNewsLatestIndexMock.mockResolvedValue({ [s1.story_id]: s1.created_at });
+    const s1 = story({ story_id: 'mirror-story', created_at: 10, cluster_window_end: 250 });
+    readNewsLatestIndexMock.mockResolvedValue({ [s1.story_id]: s1.cluster_window_end });
     readLatestStoryIdsMock.mockResolvedValue([s1.story_id]);
     readNewsStoryMock.mockResolvedValue(s1);
 
@@ -450,16 +473,16 @@ describe('news store', () => {
     expect(store.getState().loading).toBe(false);
   });
 
-  it('createMockNewsStore seeds stories and index', async () => {
+  it('createMockNewsStore seeds stories and activity index', async () => {
     const { createMockNewsStore } = await import('./index');
 
     const store = createMockNewsStore([
-      story({ story_id: 'm1', created_at: 10 }),
-      story({ story_id: 'm2', created_at: 20 })
+      story({ story_id: 'm1', created_at: 10, cluster_window_end: 100 }),
+      story({ story_id: 'm2', created_at: 20, cluster_window_end: 200 })
     ]);
 
     expect(store.getState().stories.map((s) => s.story_id)).toEqual(['m2', 'm1']);
-    expect(store.getState().latestIndex).toEqual({ m1: 10, m2: 20 });
+    expect(store.getState().latestIndex).toEqual({ m1: 100, m2: 200 });
 
     await store.getState().refreshLatest();
 

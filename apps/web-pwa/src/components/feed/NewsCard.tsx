@@ -23,28 +23,34 @@ function formatIsoTimestamp(timestampMs: number): string {
 function formatHotness(hotness: number): string {
   return Number.isFinite(hotness) ? hotness.toFixed(2) : '0.00';
 }
-function toSafeTimestamp(value: number): number {
-  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
+function normalizeStoryId(storyId: string | undefined): string | null {
+  const normalized = storyId?.trim();
+  return normalized ? normalized : null;
 }
 
 function toCardInstanceKey(item: FeedItem): string {
+  const storyId = normalizeStoryId(item.story_id);
+  if (storyId) {
+    return storyId;
+  }
+
   const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
-  return `${item.topic_id}|${toSafeTimestamp(item.created_at)}|${normalizedTitle}`;
+  return `${item.topic_id}|${normalizedTitle}`;
 }
 
 function resolveStoryBundle(
   stories: ReadonlyArray<StoryBundle>,
   item: FeedItem,
 ): StoryBundle | null {
+  const normalizedStoryId = normalizeStoryId(item.story_id);
+  if (normalizedStoryId) {
+    const byStoryId = stories.find((s) => s.story_id === normalizedStoryId);
+    if (byStoryId) {
+      return byStoryId;
+    }
+  }
+
   const normalizedTitle = item.title.trim();
-  const normalizedCreatedAt = toSafeTimestamp(item.created_at);
-  const exact = stories.find(
-    (s) =>
-      s.topic_id === item.topic_id &&
-      s.headline.trim() === normalizedTitle &&
-      toSafeTimestamp(s.created_at) === normalizedCreatedAt,
-  );
-  if (exact) return exact;
   const sameTopicHeadline = stories.find(
     (s) => s.topic_id === item.topic_id && s.headline.trim() === normalizedTitle,
   );
@@ -69,7 +75,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
   const cardInstanceKey = useMemo(
     () => toCardInstanceKey(item),
-    [item.created_at, item.title, item.topic_id],
+    [item.story_id, item.title, item.topic_id],
   );
   const isExpanded = useStore(
     useExpandedCardStore,
@@ -77,7 +83,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   );
   const expandCard = useStore(useExpandedCardStore, (s) => s.expand);
   const collapseCard = useStore(useExpandedCardStore, (s) => s.collapse);
-  const story = useMemo(() => resolveStoryBundle(stories, item), [stories, item]);
+  const story = useMemo(
+    () => resolveStoryBundle(stories, item),
+    [stories, item.story_id, item.title, item.topic_id],
+  );
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
   const {
     analysis,
@@ -90,7 +99,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const synthesisError = synthesisTopicState?.error ?? null;
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
-  const storyId = story?.story_id ?? null;
+  const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
   const computedAnalysisId = story ? `${story.story_id}:${story.provenance_hash}` : null;
   const synthesisId = synthesis?.synthesis_id ?? null;
   const synthesisEpoch = synthesis?.epoch;

@@ -272,6 +272,34 @@ describe('startNewsBridge', () => {
     expect(topics).toEqual(['topic-1', 'topic-2']);
   });
 
+  it('propagates updates for existing story identities into discovery', async () => {
+    await startNewsBridge();
+
+    const base = makeStoryBundle({
+      story_id: 'story-same',
+      topic_id: 'topic-same',
+      headline: 'Initial headline',
+      cluster_window_end: 100,
+    });
+
+    useNewsStore.getState().setStories([base]);
+    let discoveryItem = useDiscoveryStore.getState().items.find((item) => item.story_id === 'story-same');
+    expect(discoveryItem?.title).toBe('Initial headline');
+    expect(discoveryItem?.latest_activity_at).toBe(100);
+
+    useNewsStore.getState().setStories([
+      makeStoryBundle({
+        ...base,
+        headline: 'Updated headline',
+        cluster_window_end: 500,
+      }),
+    ]);
+
+    discoveryItem = useDiscoveryStore.getState().items.find((item) => item.story_id === 'story-same');
+    expect(discoveryItem?.title).toBe('Updated headline');
+    expect(discoveryItem?.latest_activity_at).toBe(500);
+  });
+
   it('preserves multiple story headlines even when topic_id is shared', async () => {
     await startNewsBridge();
 

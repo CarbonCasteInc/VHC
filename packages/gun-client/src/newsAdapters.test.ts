@@ -12,16 +12,19 @@ import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import { HydrationBarrier } from './sync/barrier';
 import {
+  getNewsIngestionLeaseChain,
   getNewsStoryChain,
   getNewsStoriesChain,
   getNewsRemovalChain,
   hasForbiddenNewsPayloadFields,
   parseRemovalEntry,
   readLatestStoryIds,
+  readNewsIngestionLease,
   readNewsLatestIndex,
   readNewsRemoval,
   readNewsStory,
   writeNewsBundle,
+  writeNewsIngestionLease,
   writeNewsLatestIndexEntry,
   writeNewsStory
 } from './newsAdapters';
@@ -206,6 +209,36 @@ describe('newsAdapters', () => {
       story_id: STORY.story_id,
       created_at: frozenCreatedAt,
       cluster_window_end: frozenCreatedAt + 5000,
+    });
+  });
+
+  it('writeNewsStory enforces first-write-wins created_at on re-ingest', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-123', {
+      __story_bundle_json: JSON.stringify({
+        ...STORY,
+        created_at: 1_700_000_010_000,
+      }),
+      story_id: 'story-123',
+      created_at: 1_700_000_010_000,
+      schemaVersion: STORY.schemaVersion,
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const result = await writeNewsStory(client, {
+      ...STORY,
+      created_at: 1_700_000_999_000,
+    });
+
+    expect(result.created_at).toBe(1_700_000_010_000);
+    expect(mesh.writes).toHaveLength(1);
+    expect(
+      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string),
+    ).toMatchObject({
+      story_id: 'story-123',
+      created_at: 1_700_000_010_000,
     });
   });
 
@@ -437,7 +470,7 @@ describe('newsAdapters', () => {
     await expect(writeNewsLatestIndexEntry(client, '   ', 1)).rejects.toThrow('storyId is required');
   });
 
-  it('writeNewsBundle writes story and latest index using created_at baseline semantics (PR0 freeze)', async () => {
+  it('writeNewsBundle writes story and latest index using cluster_window_end activity semantics', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
@@ -455,7 +488,7 @@ describe('newsAdapters', () => {
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
     ).toEqual(STORY);
-    expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.created_at });
+    expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.cluster_window_end });
   });
 
   it('readLatestStoryIds sorts newest-first, then by id; respects limit', async () => {
@@ -472,6 +505,100 @@ describe('newsAdapters', () => {
     await expect(readLatestStoryIds(client, 2)).resolves.toEqual(['story-a', 'story-z']);
     await expect(readLatestStoryIds(client, 0)).resolves.toEqual([]);
     await expect(readLatestStoryIds(client, Number.NaN)).resolves.toEqual([]);
+  });
+
+  it('builds ingestion lease chain and guards writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const lease = {
+      holder_id: 'holder-1',
+      lease_token: 'token-1',
+      acquired_at: 1,
+      heartbeat_at: 2,
+      expires_at: 3,
+    };
+
+    const chain = getNewsIngestionLeaseChain(client);
+    await chain.put(lease);
+
+    expect(guard.validateWrite).toHaveBeenCalledWith('vh/news/runtime/lease/ingester/', lease);
+  });
+
+  it('reads and writes ingestion lease records', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/runtime/lease/ingester', {
+      _: { '#': 'meta' },
+      holder_id: 'holder-1',
+      lease_token: 'token-1',
+      acquired_at: 10,
+      heartbeat_at: 15,
+      expires_at: 25,
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsIngestionLease(client)).resolves.toEqual({
+      holder_id: 'holder-1',
+      lease_token: 'token-1',
+      acquired_at: 10,
+      heartbeat_at: 15,
+      expires_at: 25,
+    });
+
+    await expect(
+      writeNewsIngestionLease(client, {
+        holder_id: 'holder-2',
+        lease_token: 'token-2',
+        acquired_at: 20,
+        heartbeat_at: 21,
+        expires_at: 40,
+      }),
+    ).resolves.toEqual({
+      holder_id: 'holder-2',
+      lease_token: 'token-2',
+      acquired_at: 20,
+      heartbeat_at: 21,
+      expires_at: 40,
+    });
+
+    expect(mesh.writes.at(-1)).toEqual({
+      path: 'news/runtime/lease/ingester',
+      value: {
+        holder_id: 'holder-2',
+        lease_token: 'token-2',
+        acquired_at: 20,
+        heartbeat_at: 21,
+        expires_at: 40,
+      },
+    });
+  });
+
+  it('rejects malformed ingestion lease writes and ignores malformed reads', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/runtime/lease/ingester', {
+      holder_id: 'holder-1',
+      lease_token: '',
+      acquired_at: 1,
+      heartbeat_at: 2,
+      expires_at: 3,
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsIngestionLease(client)).resolves.toBeNull();
+    await expect(
+      writeNewsIngestionLease(client, {
+        holder_id: 'holder-1',
+        lease_token: ' ',
+        acquired_at: 1,
+        heartbeat_at: 2,
+        expires_at: 3,
+      }),
+    ).rejects.toThrow('lease_token is required');
   });
 
   // ---- Removal ledger adapters ----

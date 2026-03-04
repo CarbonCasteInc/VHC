@@ -1,0 +1,389 @@
+CMD: pnpm test:quick apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/components/feed/FeedShell.test.tsx apps/web-pwa/src/components/feed/NewsCard.test.tsx packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts
+
+> vh-monorepo@0.0.0 test:quick /srv/trinity/worktrees/live-main
+> vitest run "apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts" "apps/web-pwa/src/store/news/index.test.ts" "apps/web-pwa/src/store/news/hydration.test.ts" "apps/web-pwa/src/store/feedBridge.test.ts" "apps/web-pwa/src/components/feed/FeedShell.test.tsx" "apps/web-pwa/src/components/feed/NewsCard.test.tsx" "packages/gun-client/src/newsAdapters.test.ts" "packages/gun-client/src/topology.test.ts"
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main
+
+ ✓ packages/gun-client/src/topology.test.ts (15 tests) 10ms
+stdout | apps/web-pwa/src/store/feedBridge.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ packages/gun-client/src/newsAdapters.test.ts (31 tests) 39ms
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > treats blank disable flag values as fallback=true in test sessions
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > honors explicit true/false disable flag values in test sessions
+[vh:news-runtime] skipped for this session
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to default disable behavior for malformed disable flag values
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > runs runtime in test sessions when explicitly forced to ingester role
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > skips runtime when role is configured as consumer
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > acquires ingestion lease before starting runtime when lease mode is enabled
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > releases held lease when runtime role flips to consumer
+[vh:news-runtime] started
+[vh:news-runtime] skipped for this session
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > boots runtime with parsed env config and gun write adapter when enabled
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to safe defaults when env values are malformed
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > handles invalid feed source JSON by falling back to an empty source list
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > handles env resolution safely when process is unavailable
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps original rssUrl when window is undefined (non-browser context)
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to default topic mapping when JSON is valid but schema-invalid
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > stops the previous runtime before starting with a different client
+[vh:news-runtime] started
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > is idempotent across repeated calls with the same client
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > returns early when runtime is already running for the same client
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > filters runtime feed sources by article-text reliability when gate is enabled
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > filters runtime feed sources by article-text reliability when gate is enabled
+[vh:news-runtime] dropped unreliable feed sources [ 'source-b' ]
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > reuses reliability cache for the same source set within TTL
+[vh:news-runtime] started
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > reuses reliability cache for the same source set within TTL
+[vh:news-runtime] all feed sources failed reliability gate
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > enables reliability gating by default when MODE is non-test and gate env is unset
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > enables reliability gating by default when MODE is non-test and gate env is unset
+[vh:news-runtime] dropped unreliable feed sources [ 'source-b' ]
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources marked unknown when feed XML has no parseable links
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > drops all sources when probes run but all fail reliability thresholds
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to defaults when reliability env values are malformed and probe requests throw
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > falls back to defaults when reliability env values are malformed and probe requests throw
+[vh:news-runtime] reliability probe inconclusive; keeping unknown sources [ 'source-fallback' ]
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > handles empty feed source lists when reliability gate is enabled
+[vh:news-runtime] started
+
+stdout | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources when reliability probe is inconclusive for all sources
+[vh:news-runtime] started
+
+stderr | apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts > ensureNewsRuntimeStarted > keeps sources when reliability probe is inconclusive for all sources
+[vh:news-runtime] reliability probe inconclusive; keeping unknown sources [ 'source-a', 'source-b' ]
+
+ ✓ apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts (29 tests) 62ms
+ ✓ apps/web-pwa/src/store/news/hydration.test.ts (11 tests) 416ms
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | apps/web-pwa/src/components/feed/FeedShell.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ apps/web-pwa/src/store/news/index.test.ts (23 tests) 672ms
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > feature flag off keeps existing synthesis behavior and does not call analysis pipeline
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > feature flag on renders analysis summary, provenance, and per-source summaries
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-news-1',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > feature flag on renders analysis summary, provenance, and per-source summaries
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > uses provider_id provenance when model metadata is unavailable
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-news-1',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > omits provenance when analysis metadata is missing
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-news-1',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > omits provenance when analyses list is empty
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-news-1',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders BiasTable for analyzed stories
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-news-1',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders BiasTable for analyzed stories
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads analysisId from story through to BiasTable voting controls
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-news-1',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads analysisId from story through to BiasTable voting controls
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 2,
+  expected_point_mappings: 4,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+ ✓ apps/web-pwa/src/components/feed/FeedShell.test.tsx (22 tests) 192ms
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > threads analysisId from story through to BiasTable voting controls
+[vh:bias-table:point-map] {
+  topic_id: 'news-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  legacy_point_id: '394a797ea989dae58e57ebe6fb6420c969b389585c1351a8bd484a45cd696da8',
+  display_point_id: '394a797ea989dae58e57ebe6fb6420c969b389585c1351a8bd484a45cd696da8',
+  canonical_point_id: '4510bc99ae4445ef230ebf909248d027ae265024f2a9cae0b001abd3964c4f38',
+  synthesis_point_id: '4510bc99ae4445ef230ebf909248d027ae265024f2a9cae0b001abd3964c4f38',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:point-map] {
+  topic_id: 'news-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  legacy_point_id: '95ee39a2902e21817cac03fb9b9ca1af39dba385f59365b7133842117b41543c',
+  display_point_id: '95ee39a2902e21817cac03fb9b9ca1af39dba385f59365b7133842117b41543c',
+  canonical_point_id: '41380cbc4fedf0ae5521a8bcfe375a6382d9ca6022f5fb8ccae4b77a1d927e2f',
+  synthesis_point_id: '41380cbc4fedf0ae5521a8bcfe375a6382d9ca6022f5fb8ccae4b77a1d927e2f',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: 'syn-1',
+  epoch: 2,
+  effective_synthesis_id: 'syn-1',
+  effective_epoch: 2,
+  context_source: 'synthesis',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 2,
+  synthesis_point_mappings: 2,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders voting controls with analysis fallback when synthesis context is missing
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-news-1',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders voting controls with analysis fallback when synthesis context is missing
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-news-1:prov-1',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.test.tsx > NewsCard > renders voting controls with analysis fallback when synthesis context is missing
+[vh:bias-table:point-map] {
+  topic_id: 'news-1',
+  synthesis_id: 'story-news-1:prov-1',
+  epoch: 0,
+  legacy_point_id: '394a797ea989dae58e57ebe6fb6420c969b389585c1351a8bd484a45cd696da8',
+  display_point_id: '394a797ea989dae58e57ebe6fb6420c969b389585c1351a8bd484a45cd696da8',
+  canonical_point_id: 'ea48f873562361852fb7406d05fb7848139f651afa1683734443ab680bfa07fa',
+  synthesis_point_id: 'ea48f873562361852fb7406d05fb7848139f651afa1683734443ab680bfa07fa',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:point-map] {
+  topic_id: 'news-1',
+  synthesis_id: 'story-news-1:prov-1',
+  epoch: 0,
+  legacy_point_id: '95ee39a2902e21817cac03fb9b9ca1af39dba385f59365b7133842117b41543c',
+  display_point_id: '95ee39a2902e21817cac03fb9b9ca1af39dba385f59365b7133842117b41543c',
+  canonical_point_id: 'fbfc2f40096e992b8cda0b18f6c7abec458407c81430fa910e0d2424f8f448fb',
+  synthesis_point_id: 'fbfc2f40096e992b8cda0b18f6c7abec458407c81430fa910e0d2424f8f448fb',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'news-1',
+  analysis_id: 'story-news-1:prov-1',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-news-1:prov-1',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 2,
+  synthesis_point_mappings: 2,
+  voting_context_ready: true
+}
+
+ ✓ apps/web-pwa/src/components/feed/NewsCard.test.tsx (16 tests) 291ms
+ ✓ apps/web-pwa/src/store/feedBridge.test.ts (17 tests) 1552ms
+   ✓ startNewsBridge > logs refresh failures during bootstrap and continues 1505ms
+
+ Test Files  8 passed (8)
+      Tests  164 passed (164)
+   Start at  14:54:46
+   Duration  2.32s (transform 1.38s, setup 0ms, collect 3.17s, tests 3.23s, environment 627ms, prepare 653ms)
+

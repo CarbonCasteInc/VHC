@@ -4,7 +4,7 @@ export interface NewsState {
   /** Story bundles keyed and sorted for feed consumption. */
   readonly stories: ReadonlyArray<StoryBundle>;
 
-  /** Latest index from mesh: story_id -> created_at. */
+  /** Latest activity index from mesh: story_id -> latest_activity_at. */
   readonly latestIndex: Readonly<Record<string, number>>;
 
   /** Whether real-time hydration has been attached. */
@@ -19,7 +19,7 @@ export interface NewsState {
   setStories(stories: StoryBundle[]): void;
   upsertStory(story: StoryBundle): void;
   setLatestIndex(index: Record<string, number>): void;
-  upsertLatestIndex(storyId: string, createdAt: number): void;
+  upsertLatestIndex(storyId: string, latestActivityAt: number): void;
   refreshLatest(limit?: number): Promise<void>;
   startHydration(): void;
   setLoading(loading: boolean): void;

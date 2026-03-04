@@ -1,0 +1,150 @@
+CMD: pnpm test:quick apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx apps/web-pwa/src/store/discovery/store.test.ts
+
+> vh-monorepo@0.0.0 test:quick /srv/trinity/worktrees/live-main
+> vitest run "apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx" "apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx" "apps/web-pwa/src/store/discovery/store.test.ts"
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ apps/web-pwa/src/store/discovery/store.test.ts (47 tests) 47ms
+stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-one',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-news',
+  analysis_id: 'story-one:prov-one',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-one:prov-one',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+stdout | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
+[vh:bias-table:point-map] {
+  topic_id: 'topic-news',
+  synthesis_id: 'story-one:prov-one',
+  epoch: 0,
+  legacy_point_id: '8fdd91475f8f0e15bdf92a038af36885065e936a98a962fd75ad13b5b8111213',
+  display_point_id: '8fdd91475f8f0e15bdf92a038af36885065e936a98a962fd75ad13b5b8111213',
+  canonical_point_id: '64e7fac528dacba7f33fa1fc4f47e14815d43db19c8fe8ae46b4cfba7ed39910',
+  synthesis_point_id: '64e7fac528dacba7f33fa1fc4f47e14815d43db19c8fe8ae46b4cfba7ed39910',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:point-map] {
+  topic_id: 'topic-news',
+  synthesis_id: 'story-one:prov-one',
+  epoch: 0,
+  legacy_point_id: '99dbc85142f95cb9c20007f45b4d4cd0c64aa8d2399bf09d5c34b7ecf99257f0',
+  display_point_id: '99dbc85142f95cb9c20007f45b4d4cd0c64aa8d2399bf09d5c34b7ecf99257f0',
+  canonical_point_id: 'a9d24cdf0f514ff8f36ed59371d78205c2d26cc7a1f4824b655650b5fa4cb383',
+  synthesis_point_id: 'a9d24cdf0f514ff8f36ed59371d78205c2d26cc7a1f4824b655650b5fa4cb383',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-news',
+  analysis_id: 'story-one:prov-one',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-one:prov-one',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 2,
+  synthesis_point_mappings: 2,
+  voting_context_ready: true
+}
+[vh:analysis:mesh-write] {
+  source: 'news-card',
+  event: 'mesh_write_skipped',
+  story_id: 'story-two',
+  reason: 'client_unavailable',
+  latency_ms: 0
+}
+[vh:bias-table:point-map] {
+  topic_id: 'topic-news',
+  synthesis_id: 'story-two:prov-two',
+  epoch: 0,
+  legacy_point_id: '74f656087c1315c696c81bb4fedfbcbf8103d0c9873680178a798801a7db0425',
+  display_point_id: '74f656087c1315c696c81bb4fedfbcbf8103d0c9873680178a798801a7db0425',
+  canonical_point_id: '9254affacdd14f47b52e88f245d6a3794bd231980eff40be8092d28ce72442ab',
+  synthesis_point_id: '9254affacdd14f47b52e88f245d6a3794bd231980eff40be8092d28ce72442ab',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:point-map] {
+  topic_id: 'topic-news',
+  synthesis_id: 'story-two:prov-two',
+  epoch: 0,
+  legacy_point_id: '2ae8ea744832cc0f5fd18ca1b441342cc55a70613406e3798660210e9ed443a6',
+  display_point_id: '2ae8ea744832cc0f5fd18ca1b441342cc55a70613406e3798660210e9ed443a6',
+  canonical_point_id: 'dbaaa32e0b2d9b18ef7f93a866c0cf616c4d1650b6cfcf62a817017f94ff46d2',
+  synthesis_point_id: 'dbaaa32e0b2d9b18ef7f93a866c0cf616c4d1650b6cfcf62a817017f94ff46d2',
+  has_proof: false,
+  aggregate_status: 'idle',
+  id_partition: true
+}
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-news',
+  analysis_id: 'story-two:prov-two',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-two:prov-two',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 2,
+  synthesis_point_mappings: 2,
+  voting_context_ready: true
+}
+
+stderr | apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx > NewsCard shared-topic isolation > expands only the clicked card and runs one analysis when topic_id is shared
+[vh:bias-table:voting-context] {
+  topic_id: 'topic-news',
+  analysis_id: 'story-two:prov-two',
+  synthesis_id: null,
+  epoch: null,
+  effective_synthesis_id: 'story-two:prov-two',
+  effective_epoch: 0,
+  context_source: 'analysis-fallback',
+  frame_rows: 1,
+  expected_point_mappings: 2,
+  legacy_point_mappings: 0,
+  synthesis_point_mappings: 0,
+  voting_context_ready: true
+}
+
+ ✓ apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx (1 test) 129ms
+ ✓ apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx (7 tests) 137ms
+
+ Test Files  3 passed (3)
+      Tests  55 passed (55)
+   Start at  14:54:55
+   Duration  1.46s (transform 548ms, setup 0ms, collect 1.87s, tests 313ms, environment 849ms, prepare 196ms)
+

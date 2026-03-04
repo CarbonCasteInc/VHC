@@ -87,8 +87,8 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
     setStories: vi.fn(),
     upsertStory: vi.fn(),
     setLatestIndex: vi.fn(),
-    upsertLatestIndex: vi.fn((storyId: string, createdAt: number) => {
-      (state.latestIndex as Record<string, number>)[storyId] = createdAt;
+    upsertLatestIndex: vi.fn((storyId: string, latestActivityAt: number) => {
+      (state.latestIndex as Record<string, number>)[storyId] = latestActivityAt;
     }),
     refreshLatest: vi.fn(),
     startHydration: vi.fn(),
@@ -157,13 +157,33 @@ describe('hydrateNewsStore', () => {
 
     hydrateNewsStore(() => ({}) as never, store);
 
-    storyChain.emit({ _: { '#': 'meta' }, ...story({ story_id: 's1', created_at: 321 }) }, 's1');
+    storyChain.emit(
+      { _: { '#': 'meta' }, ...story({ story_id: 's1', created_at: 321, cluster_window_end: 654 }) },
+      's1',
+    );
 
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 's1' }));
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('s1', 321);
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('s1', 654);
 
-    storyChain.emit(story({ story_id: 's1', created_at: 999 }), 's1');
+    storyChain.emit(story({ story_id: 's1', created_at: 999, cluster_window_end: 888 }), 's1');
     expect(state.upsertLatestIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers StoryBundle.story_id over Gun map key when backfilling latest index', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(story({ story_id: 'canonical-story', cluster_window_end: 901 }), 'legacy-map-key');
+
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('canonical-story', 901);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalledWith('legacy-map-key', expect.any(Number));
   });
 
   it('hydrates stories from encoded story-bundle payloads', async () => {
@@ -177,11 +197,11 @@ describe('hydrateNewsStore', () => {
 
     hydrateNewsStore(() => ({}) as never, store);
 
-    const s = story({ story_id: 'encoded-1', created_at: 444 });
+    const s = story({ story_id: 'encoded-1', created_at: 444, cluster_window_end: 777 });
     storyChain.emit({ __story_bundle_json: JSON.stringify(s), story_id: s.story_id }, s.story_id);
 
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: s.story_id }));
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith(s.story_id, 444);
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith(s.story_id, 777);
   });
 
   it('drops encoded story payloads with invalid JSON', async () => {

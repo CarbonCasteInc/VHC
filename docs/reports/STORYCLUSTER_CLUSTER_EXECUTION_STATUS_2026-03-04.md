@@ -91,3 +91,27 @@
   3. latest-index activity semantics write cutover with legacy read fallback preserved.
   4. single-writer lease behavior enforcement path.
   5. stable feed/card identity (no remount churn from timestamp updates).
+
+## PR1 Closure Packet (Draft Updated)
+
+- PR: `#362` — https://github.com/CarbonCasteInc/VHC/pull/362
+- Branch: `coord/storycluster-pr1-feed-correctness-hardening`
+- Evidence packet: `docs/reports/evidence/storycluster/pr1/EVIDENCE_PACKET.md`
+
+### Exact PR1 targeted test commands (as executed)
+1. `pnpm test:quick apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/components/feed/FeedShell.test.tsx apps/web-pwa/src/components/feed/NewsCard.test.tsx packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/topology.test.ts`
+2. `pnpm test:quick apps/web-pwa/src/components/feed/NewsCard.expandedFocus.test.tsx apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx apps/web-pwa/src/store/discovery/store.test.ts`
+
+### Exact PR1 artifact paths
+- `docs/reports/evidence/storycluster/pr1/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr1/test-command-1.txt`
+- `docs/reports/evidence/storycluster/pr1/test-command-2.txt`
+
+### PR1 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| `story_id` propagation hardening (discovery/feed bridge/hydration) | PASS | `apps/web-pwa/src/store/news/hydration.ts`; `apps/web-pwa/src/store/feedBridge.ts`; `apps/web-pwa/src/components/feed/NewsCard.tsx`; tests |
+| `created_at` first-write-wins on re-ingest | PASS | `packages/gun-client/src/newsAdapters.ts`; `apps/web-pwa/src/store/news/index.ts`; tests |
+| latest-index write cutover to `cluster_window_end` with legacy read fallback | PASS | `packages/gun-client/src/newsAdapters.ts`; `apps/web-pwa/src/store/news/hydration.ts`; tests |
+| single-writer lease behavior | PASS | `packages/gun-client/src/newsAdapters.ts`; `packages/gun-client/src/topology.ts`; `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`; tests |
+| story-identity feed/card key stability | PASS | `apps/web-pwa/src/components/feed/FeedShell.tsx`; `apps/web-pwa/src/components/feed/NewsCard.tsx`; tests |
