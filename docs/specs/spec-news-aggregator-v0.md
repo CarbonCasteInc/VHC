@@ -109,6 +109,10 @@ Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest act
   - scalar timestamp string/number
   - object payloads carrying `cluster_window_end` or `latest_activity_at`
   - legacy object payloads carrying `created_at`
+- Canonical mixed-object precedence (when multiple keys are present):
+  1. `cluster_window_end`
+  2. `latest_activity_at`
+  3. `created_at`
 - Migration discipline: reader dual-compat first; writer cutover to activity semantics in PR1.
 
 ## 6. Privacy and safety

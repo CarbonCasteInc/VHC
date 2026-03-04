@@ -58,7 +58,8 @@ interface FeedItem {
 
 - `StoryBundle.story_id` is the canonical story identity.
 - When a `FeedItem.kind === "NEWS_STORY"` carries `story_id`, that value must equal the upstream `StoryBundle.story_id`.
-- During migration windows, consumers must tolerate missing `story_id` and fallback to legacy de-dup keys.
+- During migration windows, consumers must tolerate missing `story_id` and use this fallback de-dup key for NEWS_STORY:
+  - `NEWS_STORY + topic_id + created_at + normalize(title)`
 
 ### 3.2 Filter-to-kind mapping
 
@@ -113,7 +114,8 @@ All coefficients and decay parameters must be config-driven and versioned.
 - `vh/discovery/items/<topicId>`
 - `vh/discovery/index/<filter>/<sort>/<cursor>`
 
-These objects must remain token-free and identity-free.
+These objects must remain token-free and person/account-identity-free.
+Content identity fields such as `story_id` are allowed where explicitly specified in this contract.
 
 ## 8. Synthesis enrichment (Wave 3)
 
