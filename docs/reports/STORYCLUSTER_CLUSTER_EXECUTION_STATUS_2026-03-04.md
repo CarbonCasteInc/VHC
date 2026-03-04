@@ -479,3 +479,45 @@
 
 #### Unblock result
 - Focused test pass locally; branch updated and CI retriggered.
+
+## PR5 Closure Packet (Merged)
+
+- PR: `#366` — https://github.com/CarbonCasteInc/VHC/pull/366
+- Final PR head SHA: `e653bd4f2fdad40c15acf17d84bf79f055bf3d8b`
+- Merge commit on `main`: `9c102669a022dca20f56e0ed4508534f4de0f6ca`
+- Merge time (UTC): `2026-03-04T20:20:05Z`
+
+### Exact PR5 test/validation commands (executed)
+1. `pnpm vitest run packages/gun-client/src/newsAdapters.test.ts packages/gun-client/src/synthesisAdapters.test.ts packages/gun-client/src/topology.test.ts apps/web-pwa/src/store/news/index.test.ts apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/feedBridge.test.ts apps/web-pwa/src/store/discovery/ranking.test.ts`
+2. `pnpm --filter @vh/gun-client typecheck && pnpm --filter @vh/web-pwa typecheck`
+3. `node tools/scripts/check-diff-coverage.mjs`
+4. `pnpm exec vitest run apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts` (CI timeout remediation)
+
+### Exact PR5 artifact paths
+- `docs/reports/evidence/storycluster/pr5/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr5/test-command-1-focused-vitest.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-2-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-3-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr5/test-command-4-runtime-mode-fallback-remediation.txt`
+
+### PR5 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| Hot feed stable across refreshes | PASS | hot index publish/read/hydration path + ranking tests |
+| Breaking stories rise quickly and decay predictably | PASS | deterministic `computeStoryHotness` + decay tests |
+| Top window not monopolized by one storyline | PASS | HOTTEST diversification and cap regression tests |
+| Strict per-file diff coverage pass | PASS | `test-command-3-diff-coverage.txt` (100% lines + branches on changed eligible files) |
+| CI required checks green | PASS | GH run `22686823911` all checks pass |
+| CE dual review convergence | PASS | ce1 round-1 `AGREE`; ce2 round-2 `AGREE` |
+
+## PR6 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr6-advanced-pipeline`
+- Baseline: `main @ 9c10266` (post-PR5 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR6+ section)
+- Immediate PR6 implementation targets:
+  1. ME tuple extraction + entity linking + temporal normalization.
+  2. rerank/adjudication gates.
+  3. GDELT grounding + impact blending.
+  4. periodic cluster refinement + drift metrics.
+  5. timeline/sub-event graph outputs.
