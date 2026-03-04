@@ -313,3 +313,82 @@
 
 #### Unblock result
 - Diff-aware per-file gate: PASS (100% lines + 100% branches on changed source files).
+
+## PR3 Closure Packet (Merged)
+
+- PR: `#364` — https://github.com/CarbonCasteInc/VHC/pull/364
+- Final PR head SHA: `e2aa756411ce6ac73b5b72889024e05d08236c6c`
+- Merge commit on `main`: `a13dc536ffd845ed51d4195da0ab4eb0835e7270`
+- Merge time (UTC): `2026-03-04T18:31:57Z`
+
+### Exact PR3 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+2. `pnpm --dir services/news-aggregator exec vitest run src/daemon.test.ts src/cluster.test.ts src/orchestrator.test.ts`
+3. `pnpm --dir services/news-aggregator exec tsc --noEmit`
+4. `node tools/scripts/check-diff-coverage.mjs`
+5. `pnpm exec vitest run apps/web-pwa/src/store/news/hydration.test.ts apps/web-pwa/src/store/news/index.test.ts`
+6. `pnpm exec vitest run packages/ai-engine/src/newsRuntime.test.ts apps/web-pwa/src/store/newsRuntimeBootstrap.test.ts`
+7. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR3 artifact paths
+- `docs/reports/evidence/storycluster/pr3/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr3/test-command-1-runtime-and-browser.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-2-news-aggregator-daemon.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-3-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-4-diff-coverage.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-5-pwa-news-store-hydration.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-6-runtime-mode-blank-fallback.txt`
+- `docs/reports/evidence/storycluster/pr3/test-command-7-diff-coverage-remediation.txt`
+
+### PR3 acceptance matrix
+| Criterion | Status | Evidence |
+|---|---|---|
+| PWA shows live headlines without browser ingest authority | PASS | browser consumer-default mode + hydration/news tests |
+| Daemon continuously updates StoryBundles and indexes | PASS | `services/news-aggregator/src/daemon.ts` + daemon tests |
+| Publish latency decoupled from enrichment completion | PASS | daemon write path + queued enrichment behavior tests |
+| CI required checks green | PASS | GH run `22682618041` all checks pass |
+| CE dual review convergence | PASS | ce1 round-1 `AGREE`; ce2 round-1 `AGREE` |
+
+## PR4 Kickoff (In Progress)
+
+- Branch: `coord/storycluster-pr4-engine-phase1`
+- Baseline: `main @ a13dc53` (post-PR3 merge)
+- Scope source: `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md` (PR4 section)
+- Immediate PR4 implementation targets:
+  1. language detect + selective translation gate
+  2. near-dup collapse (text + image where available)
+  3. embeddings + retrieval + hybrid assignment
+  4. stable incremental cluster assignment
+  5. canonical 2–3 sentence summary generation (`summary_hint`)
+  6. coverage/velocity/confidence feature emission
+  7. enrichment work-item emission for full analysis/bias-table generation (non-blocking)
+
+## PR4 Closure Packet (Draft)
+
+- PR: `#365` — https://github.com/CarbonCasteInc/VHC/pull/365
+- Branch: `coord/storycluster-pr4-engine-phase1`
+- Head SHA: pending final push of PR4 closure commit (captured in return packet)
+
+### Exact PR4 test commands (executed)
+1. `pnpm exec vitest run packages/ai-engine/src/__tests__/newsNormalize.test.ts packages/ai-engine/src/__tests__/newsCluster.test.ts packages/ai-engine/src/__tests__/bundleVerification.test.ts packages/ai-engine/src/newsRuntime.test.ts packages/ai-engine/src/__tests__/newsTypes.test.ts`
+2. `pnpm --filter @vh/ai-engine typecheck`
+3. `pnpm --filter @vh/news-aggregator exec vitest run src/normalize.test.ts src/cluster.test.ts src/orchestrator.test.ts src/daemon.test.ts`
+4. `pnpm --filter @vh/news-aggregator typecheck`
+5. `node tools/scripts/check-diff-coverage.mjs`
+
+### Exact PR4 artifact paths
+- `docs/reports/evidence/storycluster/pr4/EVIDENCE_PACKET.md`
+- `docs/reports/evidence/storycluster/pr4/test-command-1-ai-engine-core.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-2-ai-engine-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-3-news-aggregator.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-4-news-aggregator-typecheck.txt`
+- `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt`
+
+### PR4 acceptance matrix (draft)
+| Criterion | Status | Evidence |
+|---|---|---|
+| Stable `story_id` across updates | PASS | `packages/ai-engine/src/__tests__/newsCluster.test.ts` incremental assignment test |
+| Duplicate collapse improves source grouping quality | PASS | `packages/ai-engine/src/__tests__/newsNormalize.test.ts`, `packages/ai-engine/src/__tests__/newsCluster.test.ts` near-dup collapse tests |
+| `summary_hint` reliably populated | PASS | Canonical summary generation + tests in `packages/ai-engine/src/__tests__/newsCluster.test.ts` |
+| Enrichment failures/timeouts do not block publication/ordering updates | PASS | `packages/ai-engine/src/newsRuntime.test.ts` async failure non-blocking test + daemon queue tests |
+| Strict per-file diff coverage | PASS | `docs/reports/evidence/storycluster/pr4/test-command-5-diff-coverage.txt` (100% line + branch on changed source files) |

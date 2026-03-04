@@ -1,0 +1,5 @@
+$ pnpm --filter @vh/ai-engine typecheck
+
+> @vh/ai-engine@0.1.0 typecheck /srv/trinity/worktrees/live-main/packages/ai-engine
+> tsc --noEmit
+

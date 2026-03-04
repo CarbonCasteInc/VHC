@@ -29,6 +29,7 @@ export const RawFeedItemSchema = z
     publishedAt: z.number().int().nonnegative().optional(),
     summary: z.string().min(1).optional(),
     author: z.string().min(1).optional(),
+    imageUrl: z.string().url().optional(),
   })
   .strict();
 
@@ -56,7 +57,12 @@ export const NormalizedItemSchema = z
     publishedAt: z.number().int().nonnegative().optional(),
     summary: z.string().min(1).optional(),
     author: z.string().min(1).optional(),
+    imageUrl: z.string().url().optional(),
     url_hash: z.string().min(1),
+    image_hash: z.string().min(1).optional(),
+    language: z.string().min(2).max(12).optional(),
+    translation_applied: z.boolean().optional(),
+    cluster_text: z.string().min(1).optional(),
     entity_keys: z.array(z.string().min(1)),
   })
   .strict();
@@ -89,6 +95,11 @@ export const StoryBundleSchema = z
         entity_keys: z.array(z.string().min(1)).min(1),
         time_bucket: z.string().min(1),
         semantic_signature: z.string().min(1),
+        coverage_score: z.number().min(0).max(1).optional(),
+        velocity_score: z.number().min(0).max(1).optional(),
+        confidence_score: z.number().min(0).max(1).optional(),
+        primary_language: z.string().min(2).max(12).optional(),
+        translation_applied: z.boolean().optional(),
       })
       .strict(),
     provenance_hash: z.string().min(1),

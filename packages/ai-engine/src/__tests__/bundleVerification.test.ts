@@ -31,6 +31,7 @@ describe('bundle verification', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2024-02-05T14:00:00.000Z'));
+    newsClusterInternal.resetStoryAssignmentState();
   });
 
   afterEach(() => {

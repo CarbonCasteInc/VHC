@@ -29,6 +29,7 @@ export const RawFeedItemSchema = z.object({
   publishedAt: z.number().optional(),
   summary: z.string().optional(),
   author: z.string().optional(),
+  imageUrl: z.string().url().optional(),
 });
 export type RawFeedItem = z.infer<typeof RawFeedItemSchema>;
 
@@ -54,6 +55,11 @@ export const ClusterFeaturesSchema = z.object({
   entity_keys: z.array(z.string().min(1)).min(1),
   time_bucket: z.string().min(1),
   semantic_signature: z.string().min(1),
+  coverage_score: z.number().min(0).max(1).optional(),
+  velocity_score: z.number().min(0).max(1).optional(),
+  confidence_score: z.number().min(0).max(1).optional(),
+  primary_language: z.string().min(2).max(12).optional(),
+  translation_applied: z.boolean().optional(),
 });
 export type ClusterFeatures = z.infer<typeof ClusterFeaturesSchema>;
 

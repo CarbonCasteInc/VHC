@@ -7,6 +7,17 @@ import {
 } from '../newsNormalize';
 import type { RawFeedItem } from '../newsTypes';
 
+function item(overrides: Partial<RawFeedItem> = {}): RawFeedItem {
+  return {
+    sourceId: 'src-a',
+    url: 'https://example.com/story',
+    title: 'Breaking market update',
+    publishedAt: 1_707_134_400_000,
+    summary: 'Markets move after policy decision',
+    ...overrides,
+  };
+}
+
 describe('newsNormalize', () => {
   it('canonicalizes URLs by stripping tracking params and ordering query keys', () => {
     const canonical = canonicalizeUrl(
@@ -22,80 +33,231 @@ describe('newsNormalize', () => {
     expect(newsNormalizeInternal.isTrackingParam('non_tracking')).toBe(false);
   });
 
+  it('detects language and selectively applies translation for supported non-English text', () => {
+    const english = newsNormalizeInternal.buildClusterText({
+      title: 'Markets rally after update',
+      summary: 'The market moved higher',
+    });
+    expect(english.language).toBe('en');
+    expect(english.translationApplied).toBe(false);
+
+    const spanish = newsNormalizeInternal.buildClusterText({
+      title: 'Última actualización de mercados',
+      summary: 'Los mercados suben tras anuncio del gobierno',
+    });
+    expect(spanish.language).toBe('es');
+    expect(spanish.translationApplied).toBe(true);
+    expect(spanish.clusterText).toContain('latest');
+    expect(spanish.clusterText).toContain('markets');
+
+    const nonLatin = newsNormalizeInternal.buildClusterText({
+      title: '市場速報',
+      summary: '主要指数が上昇',
+    });
+    expect(nonLatin.language).toBe('unknown');
+    expect(nonLatin.translationApplied).toBe(false);
+
+    expect(newsNormalizeInternal.shouldTranslateLanguage('es')).toBe(true);
+    expect(newsNormalizeInternal.shouldTranslateLanguage('en')).toBe(false);
+    expect(newsNormalizeInternal.shouldTranslateLanguage('unknown')).toBe(false);
+  });
+
   it('normalizes and deduplicates exact canonical URL collisions', () => {
-    const items: RawFeedItem[] = [
-      {
-        sourceId: 'src-a',
+    const normalized = normalizeAndDedup([
+      item({
         url: 'https://example.com/story/?utm_source=abc&id=1',
         title: 'Headline one',
-        publishedAt: 1707134400000,
-      },
-      {
-        sourceId: 'src-a',
+      }),
+      item({
         url: 'https://example.com/story/?id=1',
         title: 'Headline one duplicate',
-        publishedAt: 1707134405000,
-      },
-      {
-        sourceId: 'src-a',
+        publishedAt: 1_707_134_405_000,
+      }),
+      item({
         url: 'https://example.com/story/2',
         title: 'Headline two',
-        publishedAt: 1707138000000,
-      },
-    ];
-
-    const normalized = normalizeAndDedup(items);
+        imageUrl: 'https://cdn.example.com/image.jpg?utm_medium=rss',
+      }),
+    ]);
 
     expect(normalized).toHaveLength(2);
     expect(normalized[0]).toMatchObject({
       sourceId: 'src-a',
       publisher: 'src-a',
       canonicalUrl: 'https://example.com/story?id=1',
+      language: 'en',
+      translation_applied: false,
     });
     expect(normalized[0]?.url_hash).toMatch(/^[0-9a-f]{8}$/);
+    expect(normalized[1]?.image_hash).toMatch(/^[0-9a-f]{8}$/);
+    expect(normalized[1]?.cluster_text).toContain('headline two');
   });
 
-  it('deduplicates near-duplicate title/time in same source and honors configurable window', () => {
+  it('collapses near-duplicates using translated text and image signatures where available', () => {
     const items: RawFeedItem[] = [
-      {
-        sourceId: 'src-a',
+      item({
+        sourceId: 'src-es',
+        url: 'https://es.example.com/a',
+        title: 'Última actualización de mercados',
+        summary: 'Los mercados suben',
+        imageUrl: 'https://img.example.com/markets.jpg?utm_source=x',
+      }),
+      item({
+        sourceId: 'src-en',
+        url: 'https://en.example.com/b',
+        title: 'Latest market update',
+        summary: 'Markets rise after announcement',
+        imageUrl: 'https://img.example.com/markets.jpg',
+        publishedAt: 1_707_134_450_000,
+      }),
+      item({
+        sourceId: 'src-en-2',
+        url: 'https://en.example.com/c',
+        title: 'Latest market update from Europe',
+        summary: 'Markets rise in Europe after policy statement',
+        publishedAt: 1_707_134_460_000,
+      }),
+    ];
+
+    const deduped = normalizeAndDedup(items);
+    expect(deduped).toHaveLength(2);
+    expect(deduped[0]?.sourceId).toBe('src-es'); // first wins deterministically
+    expect(deduped[1]?.sourceId).toBe('src-en-2');
+  });
+
+  it('honors configurable near-duplicate windows and bucket boundaries', () => {
+    const items: RawFeedItem[] = [
+      item({
+        sourceId: 'src-1',
         url: 'https://example.com/a',
-        title: 'Breaking Market Update',
-        publishedAt: 1707134400000,
-      },
-      {
-        sourceId: 'src-a',
+        title: 'Breaking market update',
+        publishedAt: 1_707_134_400_000,
+      }),
+      item({
+        sourceId: 'src-2',
         url: 'https://example.com/b',
-        title: 'Breaking market update!!',
-        publishedAt: 1707136200000,
-      },
-      {
-        sourceId: 'src-b',
+        title: 'Breaking market update',
+        publishedAt: 1_707_137_999_999,
+      }),
+      item({
+        sourceId: 'src-3',
         url: 'https://example.com/c',
         title: 'Breaking market update',
-        publishedAt: 1707136200000,
-      },
-      {
-        sourceId: 'src-c',
-        url: 'https://example.com/d',
-        title: 'Untimed duplicate title',
-      },
-      {
-        sourceId: 'src-c',
-        url: 'https://example.com/e',
-        title: 'Untimed duplicate title',
-      },
+        publishedAt: 1_707_138_000_001,
+      }),
     ];
 
     const defaultWindow = normalizeAndDedup(items);
-    expect(defaultWindow).toHaveLength(3);
-    expect(defaultWindow.map((item) => item.sourceId)).toEqual(['src-a', 'src-b', 'src-c']);
+    expect(defaultWindow).toHaveLength(2);
 
-    const shortWindow = normalizeAndDedup(items, { nearDuplicateWindowMs: 1_000 });
-    expect(shortWindow).toHaveLength(4);
+    const tinyWindow = normalizeAndDedup(items, { nearDuplicateWindowMs: 1_000 });
+    expect(tinyWindow).toHaveLength(3);
+
+    expect(
+      newsNormalizeInternal.toTimeBucket(1_707_134_400_000, 3_600_000),
+    ).toBe(
+      Math.floor(1_707_134_400_000 / 3_600_000),
+    );
+    expect(newsNormalizeInternal.toTimeBucket(undefined, 3_600_000)).toBe(-1);
   });
 
-  it('extracts stable entity keys and covers internal title normalization', () => {
+  it('exposes near-duplicate key + similarity helpers for deterministic collapse behavior', () => {
+    const base = item({
+      title: 'Breaking Market Update',
+      imageUrl: 'https://img.example.com/a.jpg',
+    });
+    const same = item({
+      title: 'Breaking market update!!',
+      imageUrl: 'https://img.example.com/a.jpg?utm_source=rss',
+    });
+
+    const baseKey = newsNormalizeInternal.computeNearDuplicateKey(base, 3_600_000);
+    const sameKey = newsNormalizeInternal.computeNearDuplicateKey(same, 3_600_000);
+    expect(baseKey).toBe(sameKey);
+    expect(baseKey).not.toContain('no-image');
+
+    const noImageKey = newsNormalizeInternal.computeNearDuplicateKey(
+      item({ imageUrl: undefined }),
+      3_600_000,
+    );
+    expect(noImageKey).toContain('no-image');
+
+    const translated = newsNormalizeInternal.translateTokens(['mercados', 'suben'], 'es');
+    expect(translated.text).toBe('markets rise');
+    expect(translated.translatedCount).toBe(2);
+
+    const unknownTranslate = newsNormalizeInternal.translateTokens(['foo'], 'unknown');
+    expect(unknownTranslate.translatedCount).toBe(0);
+
+    expect(newsNormalizeInternal.textSimilarity('same text', 'same text')).toBe(1);
+    expect(newsNormalizeInternal.textSimilarity('alpha beta', 'gamma delta')).toBe(0);
+    expect(newsNormalizeInternal.sharedPrefixTokens('one two three', 'one two x')).toBe(2);
+
+    const normalized = normalizeAndDedup([
+      item({ sourceId: 'x', url: 'https://example.com/x', title: 'Prefix one two three four' }),
+      item({ sourceId: 'y', url: 'https://example.com/y', title: 'Prefix one two three five' }),
+    ]);
+    expect(normalized).toHaveLength(1);
+
+    const farApart = normalizeAndDedup([
+      item({ sourceId: 'x', url: 'https://example.com/x1', title: 'Same title', publishedAt: 1_000 }),
+      item({ sourceId: 'y', url: 'https://example.com/y1', title: 'Same title', publishedAt: 9_000_000 }),
+    ]);
+    expect(farApart).toHaveLength(2);
+  });
+
+  it('covers edge-case language and near-duplicate helper branches', () => {
+    expect(newsNormalizeInternal.detectLanguage('   ')).toBe('unknown');
+    expect(newsNormalizeInternal.detectLanguage('!!! ???')).toBe('unknown');
+    expect(newsNormalizeInternal.detectLanguage('mercado')).toBe('en'); // low-confidence non-en falls back to en
+
+    const untranslatedSupportedLang = newsNormalizeInternal.buildClusterText({
+      title: 'le avec pour',
+      summary: '',
+    });
+    expect(untranslatedSupportedLang.language).toBe('fr');
+    expect(untranslatedSupportedLang.translationApplied).toBe(false);
+
+    const translatedNoSummary = newsNormalizeInternal.buildClusterText({
+      title: 'Última actualización de mercados',
+      summary: undefined,
+    });
+    expect(translatedNoSummary.translationApplied).toBe(true);
+
+    const englishNoSummary = newsNormalizeInternal.buildClusterText({
+      title: 'Markets update',
+      summary: undefined,
+    });
+    expect(englishNoSummary.translationApplied).toBe(false);
+
+    expect(newsNormalizeInternal.textSimilarity('!!!', '!!!')).toBe(1);
+    expect(newsNormalizeInternal.textSimilarity('!!!', 'abc')).toBe(0);
+
+    const candidate = normalizeAndDedup([
+      item({ sourceId: 'c1', url: 'https://example.com/c1', title: 'Same title', publishedAt: 1_000 }),
+    ])[0]!;
+    const existing = normalizeAndDedup([
+      item({ sourceId: 'c2', url: 'https://example.com/c2', title: 'Same title', publishedAt: 9_000_000 }),
+    ])[0]!;
+
+    expect(newsNormalizeInternal.isNearDuplicateItem(candidate, existing, 3_600_000)).toBe(false);
+
+    const fallbackCandidate = {
+      ...candidate,
+      cluster_text: undefined,
+      image_hash: undefined,
+    };
+    const fallbackExisting = {
+      ...candidate,
+      canonicalUrl: 'https://example.com/c3',
+      url_hash: 'beefbeef',
+      cluster_text: undefined,
+      image_hash: undefined,
+    };
+    expect(newsNormalizeInternal.isNearDuplicateItem(fallbackCandidate, fallbackExisting, 3_600_000)).toBe(true);
+  });
+
+  it('extracts stable entity keys and tokenization helpers', () => {
     expect(extractEntityKeys('Markets surge after central bank policy meeting')).toEqual([
       'bank',
       'central',
@@ -106,5 +268,7 @@ describe('newsNormalize', () => {
     ]);
 
     expect(newsNormalizeInternal.normalizeTitle('  HELLO, World!!  ')).toBe('hello world');
+    expect(newsNormalizeInternal.tokenizeWords('À bientôt, marchés!')).toEqual(['a', 'bientot', 'marches']);
+    expect(newsNormalizeInternal.normalizeImageUrl('   ')).toBeUndefined();
   });
 });

@@ -27,6 +27,7 @@ const validRawFeedItem = {
   publishedAt: 1700000000000,
   summary: 'Markets went up today.',
   author: 'Jane Doe',
+  imageUrl: 'https://reuters.com/image/123.jpg',
 };
 
 const validBundleSource = {
@@ -42,6 +43,11 @@ const validClusterFeatures = {
   entity_keys: ['markets', 'stocks'],
   time_bucket: '2024-01-15T00',
   semantic_signature: 'sig-abc-123',
+  coverage_score: 0.7,
+  velocity_score: 0.5,
+  confidence_score: 0.8,
+  primary_language: 'en',
+  translation_applied: false,
 };
 
 const validStoryBundle = {
@@ -264,6 +270,22 @@ describe('ClusterFeaturesSchema', () => {
       ClusterFeaturesSchema.safeParse({
         ...validClusterFeatures,
         semantic_signature: '',
+      }).success
+    ).toBe(false);
+  });
+
+  it('rejects out-of-range numeric feature scores', () => {
+    expect(
+      ClusterFeaturesSchema.safeParse({
+        ...validClusterFeatures,
+        coverage_score: 1.2,
+      }).success
+    ).toBe(false);
+
+    expect(
+      ClusterFeaturesSchema.safeParse({
+        ...validClusterFeatures,
+        confidence_score: -0.1,
       }).success
     ).toBe(false);
   });

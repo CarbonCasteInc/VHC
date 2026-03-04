@@ -30,6 +30,22 @@ const CANDIDATE: NewsRuntimeSynthesisCandidate = {
     max_tokens: 2048,
     temperature: 0.1,
   },
+  work_items: [
+    {
+      story_id: 'story-1',
+      topic_id: 'topic-news',
+      work_type: 'full-analysis',
+      summary_hint: 'Summary',
+      requested_at: 1700000000000,
+    },
+    {
+      story_id: 'story-1',
+      topic_id: 'topic-news',
+      work_type: 'bias-table',
+      summary_hint: 'Summary',
+      requested_at: 1700000000000,
+    },
+  ],
 };
 
 function makeLease(overrides: Partial<NewsIngestionLease> = {}): NewsIngestionLease {

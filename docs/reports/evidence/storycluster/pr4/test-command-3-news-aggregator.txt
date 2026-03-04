@@ -1,0 +1,17 @@
+$ pnpm --filter @vh/news-aggregator exec vitest run src/normalize.test.ts src/cluster.test.ts src/orchestrator.test.ts src/daemon.test.ts
+
+ RUN  v2.1.9 /srv/trinity/worktrees/live-main/services/news-aggregator
+
+ ✓ src/normalize.test.ts (46 tests) 12ms
+ ✓ src/cluster.test.ts (28 tests) 19ms
+ ✓ src/orchestrator.test.ts (9 tests) 23ms
+stdout | src/daemon.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ src/daemon.test.ts (6 tests) 9ms
+
+ Test Files  4 passed (4)
+      Tests  89 passed (89)
+   Start at  19:00:04
+   Duration  632ms (transform 385ms, setup 0ms, collect 958ms, tests 64ms, environment 1ms, prepare 312ms)
+

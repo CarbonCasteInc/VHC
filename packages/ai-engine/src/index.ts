@@ -23,6 +23,7 @@ export * from './modelConfig';
 export { startNewsRuntime, isNewsRuntimeEnabled } from './newsRuntime';
 export type {
   NewsRuntimeConfig,
+  NewsRuntimeEnrichmentWorkItem,
   NewsRuntimeHandle,
   NewsRuntimeSynthesisCandidate,
 } from './newsRuntime';

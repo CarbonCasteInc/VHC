@@ -18,6 +18,8 @@ import {
 } from './clusterEngine';
 
 const MIN_ENTITY_OVERLAP = 2;
+const EMBEDDING_DIMENSIONS = 48;
+const STORY_ASSIGNMENT_THRESHOLD = 0.72;
 
 interface MutableCluster {
   readonly bucketStart: number;
@@ -25,6 +27,32 @@ interface MutableCluster {
   readonly items: NormalizedItem[];
   readonly entitySet: Set<string>;
 }
+
+interface StoryAssignmentRecord {
+  readonly storyId: string;
+  embedding: number[];
+  tokenSet: Set<string>;
+  sourceHashes: Set<string>;
+  semanticSignature: string;
+  updatedAt: number;
+}
+
+interface ClusterProfile {
+  readonly embedding: number[];
+  readonly tokenSet: Set<string>;
+  readonly sourceHashes: Set<string>;
+  readonly semanticSignature: string;
+}
+
+export interface StoryEnrichmentWorkItem {
+  story_id: string;
+  topic_id: string;
+  work_type: 'full-analysis' | 'bias-table';
+  summary_hint: string;
+  requested_at: number;
+}
+
+const storyAssignmentState = new Map<string, StoryAssignmentRecord[]>();
 
 function toHex(value: number): string {
   return value.toString(16).padStart(8, '0');
@@ -69,12 +97,84 @@ function entityKeysForItem(item: NormalizedItem): string[] {
   if (item.entity_keys.length > 0) {
     return item.entity_keys;
   }
-  return [fallbackEntityFromTitle(item.title)];
+  return [fallbackEntityFromTitle(item.cluster_text ?? item.title)];
+}
+
+function tokenizeText(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]+/gu, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3);
+}
+
+function textForSimilarity(item: NormalizedItem): string {
+  return item.cluster_text ?? `${item.title} ${item.summary ?? ''}`.trim();
+}
+
+function textSimilarity(left: string, right: string): number {
+  const leftSet = new Set(tokenizeText(left));
+  const rightSet = new Set(tokenizeText(right));
+
+  if (leftSet.size === 0 || rightSet.size === 0) {
+    return left.toLowerCase().trim() === right.toLowerCase().trim() ? 1 : 0;
+  }
+
+  let intersection = 0;
+  for (const token of leftSet) {
+    if (rightSet.has(token)) {
+      intersection += 1;
+    }
+  }
+
+  const union = leftSet.size + rightSet.size - intersection;
+  /* c8 ignore next -- union cannot be 0 when both token sets are non-empty */
+  if (union === 0) return 0;
+
+  return intersection / union;
+}
+
+function isNearDuplicatePair(left: NormalizedItem, right: NormalizedItem): boolean {
+  const leftBucket = toBucketStart(left.publishedAt);
+  const rightBucket = toBucketStart(right.publishedAt);
+  if (leftBucket !== rightBucket) {
+    return false;
+  }
+
+  const similarity = textSimilarity(textForSimilarity(left), textForSimilarity(right));
+  if (similarity >= 0.92) {
+    return true;
+  }
+
+  const imageMatch = Boolean(left.image_hash && right.image_hash && left.image_hash === right.image_hash);
+  return imageMatch && similarity >= 0.45;
+}
+
+function collapseNearDuplicates(items: NormalizedItem[]): NormalizedItem[] {
+  const deduped: NormalizedItem[] = [];
+  const sorted = [...items].sort((left, right) => {
+    const leftTime = left.publishedAt ?? 0;
+    const rightTime = right.publishedAt ?? 0;
+    if (leftTime !== rightTime) {
+      return leftTime - rightTime;
+    }
+    return left.url_hash.localeCompare(right.url_hash);
+  });
+
+  for (const item of sorted) {
+    if (deduped.some((existing) => isNearDuplicatePair(existing, item))) {
+      continue;
+    }
+    deduped.push(item);
+  }
+
+  return deduped;
 }
 
 function semanticSignature(items: readonly NormalizedItem[]): string {
   const signatureInput = items
-    .map((item) => item.title.toLowerCase().trim())
+    .map((item) => textForSimilarity(item).toLowerCase().trim())
     .sort()
     .join('|');
   return toHex(fnv1a32(signatureInput));
@@ -159,6 +259,234 @@ function headlineForCluster(items: readonly NormalizedItem[]): string {
   return sorted[0]?.title ?? 'Untitled';
 }
 
+function toEmbedding(text: string): number[] {
+  const vector = new Float64Array(EMBEDDING_DIMENSIONS);
+  for (const token of tokenizeText(text)) {
+    const hash = fnv1a32(token);
+    const index = hash % EMBEDDING_DIMENSIONS;
+    const sign = (hash & 1) === 0 ? 1 : -1;
+    vector[index]! += sign;
+  }
+
+  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+  if (magnitude === 0) {
+    return Array.from(vector);
+  }
+
+  return Array.from(vector, (value) => value / magnitude);
+}
+
+function averageEmbeddings(embeddings: readonly number[][]): number[] {
+  if (embeddings.length === 0) {
+    return Array.from({ length: EMBEDDING_DIMENSIONS }, () => 0);
+  }
+
+  const sums = new Float64Array(EMBEDDING_DIMENSIONS);
+  for (const embedding of embeddings) {
+    for (let index = 0; index < EMBEDDING_DIMENSIONS; index += 1) {
+      sums[index]! += embedding[index]!;
+    }
+  }
+
+  const averaged = Array.from(sums, (value) => value / embeddings.length);
+  const magnitude = Math.sqrt(averaged.reduce((sum, value) => sum + value * value, 0));
+  if (magnitude === 0) {
+    return averaged;
+  }
+
+  return averaged.map((value) => value / magnitude);
+}
+
+function cosineSimilarity(left: readonly number[], right: readonly number[]): number {
+  const maxLength = Math.max(left.length, right.length);
+  if (maxLength === 0) {
+    return 0;
+  }
+
+  let dot = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+  for (let index = 0; index < maxLength; index += 1) {
+    const leftValue = left[index] ?? 0;
+    const rightValue = right[index] ?? 0;
+    dot += leftValue * rightValue;
+    leftMagnitude += leftValue * leftValue;
+    rightMagnitude += rightValue * rightValue;
+  }
+
+  if (leftMagnitude === 0 || rightMagnitude === 0) {
+    return 0;
+  }
+
+  return dot / Math.sqrt(leftMagnitude * rightMagnitude);
+}
+
+function jaccardSetSimilarity(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+
+  let intersection = 0;
+  for (const token of left) {
+    if (right.has(token)) {
+      intersection += 1;
+    }
+  }
+
+  const union = left.size + right.size - intersection;
+  /* c8 ignore next -- union cannot be 0 when both sets are non-empty */
+  if (union === 0) return 0;
+
+  return intersection / union;
+}
+
+function overlapRatio(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+
+  let shared = 0;
+  for (const value of left) {
+    if (right.has(value)) {
+      shared += 1;
+    }
+  }
+
+  return shared / Math.min(left.size, right.size);
+}
+
+function profileForCluster(cluster: MutableCluster, signature: string): ClusterProfile {
+  const embedding = averageEmbeddings(
+    cluster.items.map((item) => toEmbedding(textForSimilarity(item))),
+  );
+  const tokenSet = new Set(
+    cluster.items.flatMap((item) => tokenizeText(textForSimilarity(item))),
+  );
+  const sourceHashes = new Set(cluster.items.map((item) => item.url_hash));
+
+  return {
+    embedding,
+    tokenSet,
+    sourceHashes,
+    semanticSignature: signature,
+  };
+}
+
+function stableStorySeed(topicId: string, cluster: MutableCluster, signature: string): string {
+  const anchorTitle = tokenizeText(headlineForCluster(cluster.items)).slice(0, 6).join('-');
+  const entities = [...cluster.entitySet].sort().slice(0, 4).join('-');
+  const seed = [topicId, toBucketLabel(cluster.bucketStart), entities, anchorTitle, signature].join('|');
+  return `story-${toHex(fnv1a32(seed))}`;
+}
+
+function resolveStoryId(topicId: string, cluster: MutableCluster, signature: string): string {
+  const profile = profileForCluster(cluster, signature);
+  const records = storyAssignmentState.get(topicId) ?? [];
+
+  let bestMatch: StoryAssignmentRecord | null = null;
+  let bestScore = -1;
+
+  for (const record of records) {
+    const embeddingScore = cosineSimilarity(profile.embedding, record.embedding);
+    const tokenScore = jaccardSetSimilarity(profile.tokenSet, record.tokenSet);
+    const sourceScore = overlapRatio(profile.sourceHashes, record.sourceHashes);
+    const score = embeddingScore * 0.55 + tokenScore * 0.3 + sourceScore * 0.15;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = record;
+    }
+  }
+
+  if (bestMatch && bestScore >= STORY_ASSIGNMENT_THRESHOLD) {
+    bestMatch.embedding = averageEmbeddings([bestMatch.embedding, profile.embedding]);
+    for (const token of profile.tokenSet) {
+      bestMatch.tokenSet.add(token);
+    }
+    for (const sourceHash of profile.sourceHashes) {
+      bestMatch.sourceHashes.add(sourceHash);
+    }
+    bestMatch.semanticSignature = profile.semanticSignature;
+    bestMatch.updatedAt = Date.now();
+    return bestMatch.storyId;
+  }
+
+  const storyId = stableStorySeed(topicId, cluster, signature);
+  const nextRecord: StoryAssignmentRecord = {
+    storyId,
+    embedding: profile.embedding,
+    tokenSet: new Set(profile.tokenSet),
+    sourceHashes: new Set(profile.sourceHashes),
+    semanticSignature: profile.semanticSignature,
+    updatedAt: Date.now(),
+  };
+
+  storyAssignmentState.set(topicId, [...records, nextRecord]);
+  return storyId;
+}
+
+function ensureSentence(text: string): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return 'Story update available.';
+  }
+
+  const ended = /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
+  return ended.charAt(0).toUpperCase() + ended.slice(1);
+}
+
+function canonicalSummary(cluster: MutableCluster, headline: string, entities: readonly string[]): string {
+  const lead = ensureSentence(cluster.items.find((item) => item.summary)?.summary ?? headline);
+
+  const publishers = [...new Set(cluster.items.map((item) => item.publisher))]
+    .sort()
+    .slice(0, 3);
+  const sourceCount = cluster.items.length;
+  const spanHours = Math.max(
+    0,
+    Math.round((cluster.bucketEnd - cluster.bucketStart) / (60 * 60 * 1000)),
+  );
+
+  const coverageSentence = ensureSentence(
+    `Coverage spans ${sourceCount} source${sourceCount === 1 ? '' : 's'} across ${publishers.join(', ') || 'multiple outlets'} over roughly ${spanHours} hour${spanHours === 1 ? '' : 's'}`,
+  );
+
+  const entitySentence = entities.length > 0
+    ? ensureSentence(`Key entities include ${entities.slice(0, 4).join(', ')}`)
+    : undefined;
+
+  return [lead, coverageSentence, entitySentence].filter(Boolean).join(' ');
+}
+
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+function coverageScore(cluster: MutableCluster): number {
+  const uniqueSources = new Set(cluster.items.map((item) => item.sourceId)).size;
+  return clamp01(uniqueSources / 6);
+}
+
+function velocityScore(cluster: MutableCluster): number {
+  const elapsedHours = Math.max(1, (cluster.bucketEnd - cluster.bucketStart) / (60 * 60 * 1000));
+  const itemsPerHour = cluster.items.length / elapsedHours;
+  return clamp01(itemsPerHour / 4);
+}
+
+function resolvePrimaryLanguage(cluster: MutableCluster): string {
+  const counts = new Map<string, number>();
+  for (const item of cluster.items) {
+    const language = item.language ?? 'en';
+    counts.set(language, (counts.get(language) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))[0]?.[0] ?? 'en';
+}
+
 export function clusterItemsHeuristic(items: NormalizedItem[], topicId: string): StoryBundle[] {
   if (topicId.trim().length === 0) {
     throw new Error('topicId must be non-empty');
@@ -169,14 +497,15 @@ export function clusterItemsHeuristic(items: NormalizedItem[], topicId: string):
     return [];
   }
 
-  const builtClusters = toCluster(parsedItems);
+  const deduped = collapseNearDuplicates(parsedItems);
+  const builtClusters = toCluster(deduped);
 
   return builtClusters
     .map((cluster) => {
       const sortedEntities = [...cluster.entitySet].sort();
       const timeBucket = toBucketLabel(cluster.bucketStart);
       const signature = semanticSignature(cluster.items);
-      const storyIdSeed = [topicId, timeBucket, sortedEntities.join(','), signature].join('|');
+      const storyId = resolveStoryId(topicId, cluster, signature);
 
       const sources = cluster.items
         .map((item) => ({
@@ -193,12 +522,16 @@ export function clusterItemsHeuristic(items: NormalizedItem[], topicId: string):
           return leftKey.localeCompare(rightKey);
         });
 
+      const headline = headlineForCluster(cluster.items);
+      const confidence = computeClusterConfidence(cluster);
+      const summaryHint = canonicalSummary(cluster, headline, sortedEntities);
+
       const bundle = StoryBundleSchema.parse({
         schemaVersion: 'story-bundle-v0',
-        story_id: `story-${toHex(fnv1a32(storyIdSeed))}`,
+        story_id: storyId,
         topic_id: topicId,
-        headline: headlineForCluster(cluster.items),
-        summary_hint: cluster.items.find((item) => item.summary)?.summary,
+        headline,
+        summary_hint: summaryHint,
         cluster_window_start: cluster.bucketStart,
         cluster_window_end: Math.max(cluster.bucketEnd, cluster.bucketStart),
         sources,
@@ -206,6 +539,11 @@ export function clusterItemsHeuristic(items: NormalizedItem[], topicId: string):
           entity_keys: sortedEntities,
           time_bucket: timeBucket,
           semantic_signature: signature,
+          coverage_score: coverageScore(cluster),
+          velocity_score: velocityScore(cluster),
+          confidence_score: confidence,
+          primary_language: resolvePrimaryLanguage(cluster),
+          translation_applied: cluster.items.some((item) => item.translation_applied === true),
         },
         provenance_hash: provenanceHash(sources),
         created_at: Date.now(),
@@ -237,6 +575,28 @@ export function clusterItems(items: NormalizedItem[], topicId: string): StoryBun
     items,
     topicId,
   });
+}
+
+export function buildEnrichmentWorkItems(
+  bundle: StoryBundle,
+  nowMs: number = Date.now(),
+): StoryEnrichmentWorkItem[] {
+  return [
+    {
+      story_id: bundle.story_id,
+      topic_id: bundle.topic_id,
+      work_type: 'full-analysis',
+      summary_hint: bundle.summary_hint ?? bundle.headline,
+      requested_at: nowMs,
+    },
+    {
+      story_id: bundle.story_id,
+      topic_id: bundle.topic_id,
+      work_type: 'bias-table',
+      summary_hint: bundle.summary_hint ?? bundle.headline,
+      requested_at: nowMs,
+    },
+  ];
 }
 
 // --- Verification confidence scoring ---
@@ -321,7 +681,7 @@ export function buildVerificationMap(
   topicId: string,
 ): Map<string, BundleVerificationRecord> {
   const clusters = toCluster(
-    clusterSource.map((i) => NormalizedItemSchema.parse(i)),
+    collapseNearDuplicates(clusterSource.map((i) => NormalizedItemSchema.parse(i))),
   );
   const map = new Map<string, BundleVerificationRecord>();
 
@@ -342,15 +702,39 @@ export function buildVerificationMap(
   return map;
 }
 
+function resetStoryAssignmentState(): void {
+  storyAssignmentState.clear();
+}
+
 export const newsClusterInternal = {
+  averageEmbeddings,
+  buildEnrichmentWorkItems,
+  buildEvidence,
+  canonicalSummary,
+  clamp01,
+  collapseNearDuplicates,
   computeClusterConfidence,
+  cosineSimilarity,
+  coverageScore,
+  ensureSentence,
   entityKeysForItem,
   fallbackEntityFromTitle,
   hasSignificantEntityOverlap,
   headlineForCluster,
+  isNearDuplicatePair,
+  jaccardSetSimilarity,
+  overlapRatio,
+  profileForCluster,
   provenanceHash,
+  resetStoryAssignmentState,
+  resolvePrimaryLanguage,
+  resolveStoryId,
   semanticSignature,
+  textForSimilarity,
+  textSimilarity,
   toBucketLabel,
   toBucketStart,
   toCluster,
+  toEmbedding,
+  velocityScore,
 };
