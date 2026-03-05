@@ -5,6 +5,8 @@ import {
   clusterItems,
   newsClusterInternal,
 } from '../newsCluster';
+import { clusterHeadlineTexts } from '../newsClusterBundle';
+import { normalizedItemTexts } from '../newsClusterAssignment';
 import type { NormalizedItem } from '../newsTypes';
 
 function makeItem(overrides: Partial<NormalizedItem> = {}): NormalizedItem {
@@ -264,6 +266,10 @@ describe('newsCluster', () => {
     const item = makeItem({ entity_keys: [], title: 'Plain headline text', cluster_text: undefined, summary: undefined });
     expect(newsClusterInternal.entityKeysForItem(item)).toEqual(['plain']);
     expect(newsClusterInternal.textForSimilarity(item)).toBe('Plain headline text');
+    expect(normalizedItemTexts([item])).toEqual(['Plain headline text']);
+    expect(clusterHeadlineTexts(newsClusterInternal.toCluster([item])[0]!)).toEqual([
+      'Plain headline text',
+    ]);
 
     expect(newsClusterInternal.textSimilarity('same text', 'same text')).toBe(1);
     expect(newsClusterInternal.textSimilarity('alpha beta', 'gamma delta')).toBe(0);
