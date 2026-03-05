@@ -7,6 +7,7 @@
   - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
 - Current lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
 - Milestone branch head at run start: `9dd17efc11ebed13042e9d9f7759fd5888b5f246`
+- Milestone branch head after commit/push: `902d05bd53ceb17a3f81cb4ac429243d8e2b74f4`
 
 ## Exact commands executed
 
@@ -21,6 +22,7 @@
 9. `openclaw cron list`
 10. mandatory stage sequence extract from `services/storycluster-engine/src/contracts.ts`
 11. `git status --short`
+12. `git rev-parse HEAD && git ls-remote --heads origin coord/storycluster-sprint-a-prod-no-fallback`
 
 ## Deterministic artifact paths
 
@@ -36,6 +38,7 @@
 - `docs/reports/evidence/storycluster/program/2026-03-05T1740Z/command-9-cron-status.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1740Z/command-10-mandatory-stage-sequence.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1740Z/command-11-git-status.txt`
+- `docs/reports/evidence/storycluster/program/2026-03-05T1740Z/command-12-push-state.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1740Z/command-status.csv`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1740Z/command-status-summary.txt`
 
@@ -50,6 +53,7 @@
 | 350 LOC/file cap holds for every changed file in this milestone | PASS | `command-3-loc-cap-audit.txt` |
 | Typecheck/build pass for new Sprint B service | PASS | `command-5-storycluster-engine-typecheck.txt`, `command-6-storycluster-engine-build.txt` |
 | No production fallback path introduced in this milestone | PASS | code scope is additive scaffold under `services/storycluster-engine` only (`command-11-git-status.txt`) |
+| Milestone commit head is pinned and pushed to lane branch | PASS | `command-12-push-state.txt` |
 | Cron disable condition reached | NO | `command-9-cron-status.txt` (job `365ab8b8-1ad1-454b-aa07-c78e008deba0` remains active) |
 
 ## Guardrail compliance
