@@ -737,3 +737,37 @@
 1. This milestone is unblock-artifact-only and does not alter analysis/bias-table runtime coupling.
 2. StoryBundle publish remains on the blocking lane, with enrichment/precompute work preserved on asynchronous non-blocking wiring.
 3. No new regression signal was introduced for relay-default analysis generation or bias-table precompute behavior in this step.
+
+## Program Track — Post-Merge Headless Acceptance Revalidation Milestone (2026-03-05T1709Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Milestone advanced this run: **deterministic acceptance validation** (full post-merge headless refresh rerun + re-serve verification)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Post-merge acceptance validation was rerun on merged `main` with all execution lanes green in one pass (`pnpm install`, ai-engine/news-aggregator focused vitest, build+typecheck chain, and `@vh/e2e` headless suite).
+2. Re-serve was re-executed and endpoint health is pinned for Lou:
+   - `http://127.0.0.1:2048/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/gun` = 200
+3. Final release gate remains blocked by unresolved items:
+   - §16.7(2) mandatory 3.2 stages telemetry verification: **NOT VERIFIED** (no `services/storycluster-engine` present)
+   - §16.7(3) deterministic same-event coherence audits: **NOT VERIFIED** (artifact gap remains)
+4. Production-path guardrails remain canonical no-fallback; this milestone introduced no rollback toggles or fallback wiring.
+
+### Next Actionable Steps
+
+1. Advance Sprint B implementation by creating the first production `services/storycluster-engine` slice with mandatory stage telemetry contract tests (clear §16.7(2) gap incrementally).
+2. Produce deterministic coherence fixture/live audit artifacts tied to merged `main` to clear §16.7(3).
+3. Re-run final DoD closure evaluation and disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gates are simultaneously PASS.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is validation-only and does not modify StoryBundle publish vs async enrichment queue boundaries.
+2. Analysis relay default behavior and bias-table precompute coupling remain unchanged from prior merged Sprint A wiring.
+3. No new regression signal was introduced for analysis/bias-table persistence or vote convergence in this milestone.
