@@ -309,3 +309,130 @@ Note: update tests in the same PR for any changed contract behavior.
 6. Single-writer ingestion authority enforced at runtime.
 7. `Latest` and `Hot` semantics match spec and are reproducible.
 8. Analysis/bias-table enrichment is precomputed opportunistically but never blocks headline publication, ordering, or card usability.
+
+## 15. State of Play (Validated 2026-03-05)
+
+This section supersedes assumptions in Section 3 where code has diverged.
+
+### 15.1 What is currently true in code
+
+1. The canonical daemon path still runs the ai-engine heuristic clustering runtime path by default.
+2. Remote StoryCluster is optional and only used when explicitly configured via orchestrator options; it is not the enforced default execution path.
+3. Heuristic clustering and same-event grouping are still active in production wiring (`storycluster-heuristic-engine`, token/entity overlap gates, heuristic action/location scoring).
+4. Language detection and translation are lightweight lexical heuristics, not the specified FastText + NLLB/SeaLLM pipeline.
+5. Embedding/similarity in clustering is lightweight local hashing math, not Matryoshka dimensions with ANN retrieval.
+6. Story topic assignment in active clustering path is still mapping-driven (`defaultTopicId`/`sourceTopics`) rather than strictly derived from stable story identity.
+7. The dedicated `services/storycluster-engine/` production service is not present in the repository state.
+
+### 15.2 Why the original goal is not yet met
+
+1. The SOTA pipeline is not the mandatory execution path; heuristic code remains the active path.
+2. Fallback behavior still exists in engine resolution (`AutoEngine` remote -> heuristic), which violates no-fallback production intent.
+3. Clustering quality and event coherence are constrained by heuristic merge logic, creating false merges/splits under real feeds.
+
+### 15.3 Hard conclusion
+
+Current system is improved and testable, but it is not yet the full StoryCluster end-to-end SOTA pipeline described in the research spec. Further implementation work is mandatory before claiming full completion.
+
+## 16. Next Actionable Steps (No-Fallback Implementation Track)
+
+This is the execution sequence the dev team should run now. It is strict and production-path only.
+
+### 16.1 Non-negotiable guardrails
+
+1. No heuristic fallback in production path.
+2. No dual cluster authority in production path.
+3. No "best effort" downgrade when StoryCluster is unavailable; fail closed with explicit operational error.
+4. Analysis relay path remains default for card analysis generation until local-agent thresholds are explicitly met.
+
+### 16.2 Sprint A: Enforce single authoritative clustering path
+
+1. Remove `AutoEngine` fallback behavior from production runtime wiring.
+2. Require remote StoryCluster endpoint for daemon startup in production mode.
+3. Keep heuristic engine only for isolated test fixtures and explicit local debug mode (not default, not production flag path).
+4. Add startup hard-fail checks:
+   - StoryCluster endpoint reachable.
+   - required auth/config present.
+   - health endpoint green before ingestion starts.
+
+Acceptance criteria:
+
+1. Daemon refuses to run ingestion when StoryCluster is unavailable.
+2. No published StoryBundle can originate from heuristic engine in production mode.
+3. CI includes a test asserting production config rejects fallback.
+
+### 16.3 Sprint B: Implement mandatory 3.2 pipeline stages in StoryCluster service
+
+Implement these as required stages in the service, in order:
+
+1. Language detection + selective translation (FastText gate + model translation path).
+2. Near-duplicate collapse (MinHash + pHash fusion with explicit thresholds).
+3. Document-type classification and centroid weighting.
+4. Matryoshka embedding generation (192/384/768 outputs).
+5. ME tuple extraction + NER/entity linking + temporal normalization.
+6. Qdrant candidate retrieval with geo/time/entity pre-filters.
+7. Hybrid scoring with learned weights contract.
+8. Cross-encoder reranking gate.
+9. LLM adjudication gate (<5% ambiguity lane).
+10. Dynamic cluster assignment and centroid updates.
+11. Cluster summarization and artifact publication payloads.
+
+Acceptance criteria:
+
+1. Service emits deterministic bundle outputs for fixed fixtures.
+2. Service exposes per-stage telemetry (input counts, gate pass rates, latency).
+3. Service contract tests validate all mandatory stage artifacts are present.
+
+### 16.4 Sprint C: Correct identity semantics and topic derivation
+
+1. Enforce `story_id` stability from StoryCluster output.
+2. Enforce `topic_id = sha256Hex("news:" + story_id)` for news stories.
+3. Preserve user-thread topic derivation unchanged.
+4. Ensure `created_at` first-write-wins and immutable by `story_id`.
+
+Acceptance criteria:
+
+1. Re-ingest of evolving story keeps same `story_id` and `topic_id`.
+2. `created_at` remains unchanged while `cluster_window_end` advances.
+3. Collision tests pass across `thread:` and `news:` domains.
+
+### 16.5 Sprint D: Publish complete ranking inputs and deterministic indexes
+
+1. Publish required cluster features for hotness computation.
+2. Publish `latest` index from `cluster_window_end`.
+3. Publish `hot` index from deterministic writer-side function (versioned config).
+4. Keep client diversification deterministic and reproducible.
+
+Acceptance criteria:
+
+1. Hot/Latest order stable across refresh for same underlying data snapshot.
+2. Ranking reproducibility test passes with fixed clock + fixtures.
+3. Storyline over-concentration constraints hold in top window.
+
+### 16.6 Sprint E: Production wiring and CI enforcement
+
+1. Add CI gates that fail if heuristic engine is reachable in production configuration.
+2. Add integration tests that run daemon + StoryCluster + Gun and assert:
+   - multi-source same-event coherence;
+   - no cross-event false merges on curated fixtures;
+   - stable identity under repeated ticks.
+3. Add operational SLO alarms for:
+   - cluster service health;
+   - publish latency;
+   - merge quality regressions (fragmentation/contamination metrics).
+
+Acceptance criteria:
+
+1. CI has explicit no-fallback contract checks.
+2. Strict matrix includes story coherence checks, not only availability checks.
+3. Merge to main is blocked on these gates.
+
+### 16.7 Final release gate (before claiming full completion)
+
+All items below must be true simultaneously:
+
+1. Production ingestion path uses StoryCluster only.
+2. All mandatory 3.2 stages are implemented and telemetry-verified.
+3. Story bundles show high same-event coherence on live and fixture audits.
+4. Latest/Hot ranking semantics match spec under deterministic replay.
+5. Analysis and bias-table persistence/vote convergence behavior remains intact under this wiring.
