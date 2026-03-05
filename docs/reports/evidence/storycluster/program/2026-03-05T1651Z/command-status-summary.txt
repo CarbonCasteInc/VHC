@@ -1,0 +1,3 @@
+command,status
+command-1-typecheck-unblock,PASS (exit=0)
+overall=PASS

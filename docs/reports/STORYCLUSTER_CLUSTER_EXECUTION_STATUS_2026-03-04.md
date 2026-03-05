@@ -712,3 +712,28 @@
 1. Re-serve/acceptance refresh did not change enrichment lane wiring; it remains asynchronous and non-blocking relative to headline publish.
 2. Live headless convergence specs pass post-merge, indicating vote mutation/convergence invariants remain intact under current wiring.
 3. Final closure is blocked by missing mandatory stage telemetry/coherence audit artifacts, not by analysis/bias-table persistence regressions.
+
+## Program Track — Acceptance CI Unblock Artifact Milestone (2026-03-05T1651Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Milestone advanced this run: **artifact completion** (isolated CI unblock packet for post-merge acceptance typecheck lane)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1651Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. The previously blocked post-merge acceptance typecheck lane is explicitly captured as a standalone deterministic unblock packet.
+2. Direct unblock command chain (`@vh/gun-client` build → ai-engine/news-aggregator typecheck) passes on merged `main` acceptance worktree.
+3. No production-path wiring changes were introduced in this milestone; canonical no-fallback runtime constraints remain as merged.
+
+### Next Actionable Steps
+
+1. Execute Sprint B mandatory 3.2-stage implementation + telemetry evidence path to clear release gate §16.7(2).
+2. Produce deterministic same-event coherence fixture/live audit artifacts to clear release gate §16.7(3).
+3. Re-run final DoD closure evaluation and disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gates are PASS.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is unblock-artifact-only and does not alter analysis/bias-table runtime coupling.
+2. StoryBundle publish remains on the blocking lane, with enrichment/precompute work preserved on asynchronous non-blocking wiring.
+3. No new regression signal was introduced for relay-default analysis generation or bias-table precompute behavior in this step.
