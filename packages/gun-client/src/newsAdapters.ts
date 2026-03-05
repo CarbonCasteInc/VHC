@@ -1,5 +1,6 @@
 import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
 export type NewsLatestIndex = Record<string, number>;
@@ -58,6 +59,10 @@ const FORBIDDEN_NEWS_KEYS = new Set<string>([
 ]);
 
 const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
+const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
+  2_500,
+);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -148,7 +153,17 @@ function removalPath(urlHash: string): string {
 
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve(null);
+    }, READ_ONCE_TIMEOUT_MS);
+
     chain.once((data) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
       resolve((data ?? null) as T | null);
     });
   });

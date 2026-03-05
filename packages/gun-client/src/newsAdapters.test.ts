@@ -38,6 +38,7 @@ interface FakeMesh {
   root: any;
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
+  setReadHang: (path: string) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
   setPutDoubleAck: (path: string) => void;
@@ -45,6 +46,7 @@ interface FakeMesh {
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
+  const readHangs = new Set<string>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
   const putDoubleAcks = new Set<string>();
@@ -53,7 +55,12 @@ function createFakeMesh(): FakeMesh {
   const makeNode = (segments: string[]): any => {
     const path = segments.join('/');
     const node: any = {
-      once: vi.fn((cb?: (data: unknown) => void) => cb?.(reads.get(path))),
+      once: vi.fn((cb?: (data: unknown) => void) => {
+        if (readHangs.has(path)) {
+          return;
+        }
+        cb?.(reads.get(path));
+      }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         if (putHangs.has(path)) {
@@ -75,6 +82,9 @@ function createFakeMesh(): FakeMesh {
     writes,
     setRead(path: string, value: unknown) {
       reads.set(path, value);
+    },
+    setReadHang(path: string) {
+      readHangs.add(path);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -424,6 +434,22 @@ describe('newsAdapters', () => {
     await expect(readNewsStory(client, 'non-object')).resolves.toBeNull();
     await expect(readNewsStory(client, 'invalid')).resolves.toBeNull();
     await expect(readNewsStory(client, 'forbidden')).resolves.toBeNull();
+  });
+
+  it('readNewsStory returns null when read never resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setReadHang('news/stories/hanging-story');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const readPromise = readNewsStory(client, 'hanging-story');
+      await vi.advanceTimersByTimeAsync(2_500);
+      await expect(readPromise).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('readNewsLatestIndex supports legacy migration fixtures', async () => {
