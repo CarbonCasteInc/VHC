@@ -1,0 +1,21 @@
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod
+      Coverage enabled with v8
+
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.production.test.ts (4 tests) 14ms
+ ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 23ms
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.test.ts (7 tests) 27ms
+
+ Test Files  3 passed (3)
+      Tests  23 passed (23)
+   Start at  15:48:33
+   Duration  2.70s (transform 209ms, setup 0ms, collect 393ms, tests 63ms, environment 1ms, prepare 240ms)
+
+ % Coverage report from v8
+
+=============================== Coverage summary ===============================
+Statements   : 100% ( 224/224 )
+Branches     : 100% ( 86/86 )
+Functions    : 100% ( 17/17 )
+Lines        : 100% ( 224/224 )
+================================================================================

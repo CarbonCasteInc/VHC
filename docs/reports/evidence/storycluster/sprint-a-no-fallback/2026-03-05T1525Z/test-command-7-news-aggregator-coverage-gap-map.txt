@@ -1,0 +1,47 @@
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod/services/news-aggregator
+      Coverage enabled with v8
+
+ ✓ src/cluster.test.ts (28 tests) 20ms
+stdout | src/daemon.production.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | src/daemon.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+ ✓ src/orchestrator.test.ts (9 tests) 24ms
+stdout | src/daemon.production.test.ts > news daemon production wiring > wires production no-fallback orchestrator settings on daemon startup
+[vh:news-daemon] runtime started {
+  holder_id: 'vh-news-daemon:ccibootstrap:428312',
+  poll_interval_ms: null
+}
+[vh:news-daemon] leadership loop started {
+  holder_id: 'vh-news-daemon:ccibootstrap:428312',
+  lease_ttl_ms: 120000,
+  lease_renew_interval_ms: 60000
+}
+[vh:news-daemon] stopped { holder_id: 'vh-news-daemon:ccibootstrap:428312' }
+
+ ✓ src/daemon.test.ts (6 tests) 11ms
+ ✓ src/daemon.production.test.ts (5 tests) 12ms
+
+ Test Files  4 passed (4)
+      Tests  48 passed (48)
+   Start at  15:31:40
+   Duration  820ms (transform 487ms, setup 0ms, collect 1.58s, tests 67ms, environment 1ms, prepare 286ms)
+
+ % Coverage report from v8
+----------------|---------|----------|---------|---------|----------------------
+File            | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s    
+----------------|---------|----------|---------|---------|----------------------
+All files       |   84.14 |    78.43 |    92.1 |   84.14 |                      
+ daemon.ts      |   82.82 |    81.25 |   84.21 |   82.82 | ...8,300-313,315-319 
+ daemonUtils.ts |    85.4 |     76.4 |     100 |    85.4 | ...5,291-292,299-300 
+----------------|---------|----------|---------|---------|----------------------
+
+=============================== Coverage summary ===============================
+Statements   : 84.14% ( 451/536 )
+Branches     : 78.43% ( 120/153 )
+Functions    : 92.1% ( 35/38 )
+Lines        : 84.14% ( 451/536 )
+================================================================================

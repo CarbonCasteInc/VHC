@@ -1,0 +1,12 @@
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod
+
+ ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 24ms
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.production.test.ts (4 tests) 12ms
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.test.ts (7 tests) 25ms
+
+ Test Files  3 passed (3)
+      Tests  23 passed (23)
+   Start at  15:47:43
+   Duration  392ms (transform 201ms, setup 0ms, collect 399ms, tests 61ms, environment 0ms, prepare 198ms)
+

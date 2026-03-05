@@ -24,8 +24,11 @@ export interface NewsOrchestratorOptions {
   remoteClusterTimeoutMs?: number;
   remoteClusterHeaders?: Record<string, string>;
   remoteFetchFn?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  onRemoteFailure?: (error: unknown) => void;
   onRemoteFallback?: (error: unknown) => void;
   allowEnvRemoteEndpoint?: boolean;
+  productionMode?: boolean;
+  allowHeuristicFallback?: boolean;
 }
 
 function groupByTopic(
@@ -55,11 +58,21 @@ function resolveClusterEngine(options: NewsOrchestratorOptions = {}): StoryClust
     return options.clusterEngine;
   }
 
+  const productionMode = options.productionMode ?? false;
+  const allowHeuristicFallback = options.allowHeuristicFallback ?? !productionMode;
+
+  if (productionMode && allowHeuristicFallback) {
+    throw new Error('heuristic fallback is disallowed in production mode');
+  }
+
   const remoteEndpoint =
     options.remoteClusterEndpoint ??
     (options.allowEnvRemoteEndpoint ? readStoryClusterRemoteEndpoint() : undefined);
 
   if (!remoteEndpoint) {
+    if (productionMode) {
+      throw new Error('storycluster remote endpoint is required in production mode');
+    }
     return storyClusterHeuristicEngine;
   }
 
@@ -70,10 +83,14 @@ function resolveClusterEngine(options: NewsOrchestratorOptions = {}): StoryClust
     fetchFn: options.remoteFetchFn,
   });
 
+  if (!allowHeuristicFallback) {
+    return remoteEngine;
+  }
+
   return new AutoEngine<StoryClusterBatchInput, StoryBundle>({
     heuristic: storyClusterHeuristicEngine,
     remote: remoteEngine,
-    onRemoteFailure: options.onRemoteFallback,
+    onRemoteFailure: options.onRemoteFailure ?? options.onRemoteFallback,
   });
 }
 

@@ -1,0 +1,55 @@
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod/services/news-aggregator
+      Coverage enabled with v8
+
+ ✓ src/daemonUtils.test.ts (9 tests) 17ms
+stdout | src/daemon.production.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | src/daemon.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | src/daemon.coverage.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | src/daemon.production.test.ts > news daemon production wiring > wires production no-fallback orchestrator settings on daemon startup
+[vh:news-daemon] runtime started {
+  holder_id: 'vh-news-daemon:ccibootstrap:437267',
+  poll_interval_ms: null
+}
+[vh:news-daemon] leadership loop started {
+  holder_id: 'vh-news-daemon:ccibootstrap:437267',
+  lease_ttl_ms: 120000,
+  lease_renew_interval_ms: 60000
+}
+[vh:news-daemon] stopped { holder_id: 'vh-news-daemon:ccibootstrap:437267' }
+
+stdout | src/daemon.production.test.ts > news daemon production wiring > passes configured Gun peers to client factory
+[vh:news-daemon] runtime started {
+  holder_id: 'vh-news-daemon:ccibootstrap:437267',
+  poll_interval_ms: null
+}
+[vh:news-daemon] leadership loop started {
+  holder_id: 'vh-news-daemon:ccibootstrap:437267',
+  lease_ttl_ms: 120000,
+  lease_renew_interval_ms: 60000
+}
+[vh:news-daemon] stopped { holder_id: 'vh-news-daemon:ccibootstrap:437267' }
+
+ ✓ src/daemon.coverage.test.ts (6 tests) 10ms
+ ✓ src/daemon.test.ts (6 tests) 10ms
+ ✓ src/daemon.production.test.ts (6 tests) 11ms
+
+ Test Files  4 passed (4)
+      Tests  27 passed (27)
+   Start at  15:48:47
+   Duration  834ms (transform 408ms, setup 0ms, collect 1.77s, tests 49ms, environment 1ms, prepare 299ms)
+
+ % Coverage report from v8
+
+=============================== Coverage summary ===============================
+Statements   : 100% ( 526/526 )
+Branches     : 100% ( 199/199 )
+Functions    : 100% ( 39/39 )
+Lines        : 100% ( 526/526 )
+================================================================================

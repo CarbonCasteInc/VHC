@@ -1,0 +1,13 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod
+
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.production.test.ts (4 tests) 13ms
+ ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 25ms
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.test.ts (7 tests) 26ms
+
+ Test Files  3 passed (3)
+      Tests  23 passed (23)
+   Start at  15:30:01
+   Duration  407ms (transform 217ms, setup 0ms, collect 433ms, tests 63ms, environment 0ms, prepare 216ms)
+
