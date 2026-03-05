@@ -11,8 +11,10 @@ import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 const ANALYSIS_PIPELINE_VERSION = 'news-card-analysis-v1';
 const MESH_READ_MAX_ATTEMPTS = 3;
 const MESH_READ_RETRY_BASE_DELAY_MS = 700;
+const MESH_READ_DEFAULT_BUDGET_MS = 8_000;
 const ANALYSIS_PENDING_TTL_MS = 90_000;
 const PENDING_ACK_TIMEOUT_MS = 1_000;
+const PENDING_READ_ONCE_TIMEOUT_DEFAULT_MS = 500;
 const PENDING_READBACK_ATTEMPTS = 4;
 const PENDING_READBACK_RETRY_MS = 250;
 
@@ -34,6 +36,44 @@ function resolveMeshReadOnceTimeoutMs(): number {
 }
 
 const MESH_READ_ONCE_TIMEOUT_MS = resolveMeshReadOnceTimeoutMs();
+
+function resolveMeshReadBudgetMs(): number {
+  let raw: unknown;
+  try {
+    raw = (import.meta as any).env?.VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS;
+  } catch {
+    raw = undefined;
+  }
+  if ((raw === undefined || raw === null || raw === '') && typeof process !== 'undefined') {
+    raw = process.env?.VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return MESH_READ_DEFAULT_BUDGET_MS;
+  }
+  return Math.max(1_000, Math.floor(parsed));
+}
+
+const MESH_READ_BUDGET_MS = resolveMeshReadBudgetMs();
+
+function resolvePendingReadOnceTimeoutMs(): number {
+  let raw: unknown;
+  try {
+    raw = (import.meta as any).env?.VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS;
+  } catch {
+    raw = undefined;
+  }
+  if ((raw === undefined || raw === null || raw === '') && typeof process !== 'undefined') {
+    raw = process.env?.VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return PENDING_READ_ONCE_TIMEOUT_DEFAULT_MS;
+  }
+  return Math.max(100, Math.floor(parsed));
+}
+
+const PENDING_READ_ONCE_TIMEOUT_MS = resolvePendingReadOnceTimeoutMs();
 const ANALYSIS_PENDING_OWNER =
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
@@ -98,14 +138,17 @@ function toPendingChain(client: ReturnType<typeof resolveClientFromAppStore>, st
     .get(modelScopeKey);
 }
 
-function readOnce(chain: any): Promise<Record<string, unknown> | null> {
+function readOnce(
+  chain: any,
+  timeoutMs: number = MESH_READ_ONCE_TIMEOUT_MS,
+): Promise<Record<string, unknown> | null> {
   return new Promise<Record<string, unknown> | null>((resolve) => {
     let settled = false;
     const timeout = globalThis.setTimeout(() => {
       if (settled) return;
       settled = true;
       resolve(null);
-    }, MESH_READ_ONCE_TIMEOUT_MS);
+    }, timeoutMs);
 
     chain.once((data: unknown) => {
       if (settled) return;
@@ -292,8 +335,14 @@ export async function readMeshAnalysis(
     });
   };
 
-  const waitForRetry = async (attempt: number): Promise<void> => {
-    const delayMs = MESH_READ_RETRY_BASE_DELAY_MS * attempt;
+  const waitForRetry = async (attempt: number, remainingBudgetMs: number): Promise<void> => {
+    const delayMs = Math.min(
+      MESH_READ_RETRY_BASE_DELAY_MS * attempt,
+      Math.max(0, remainingBudgetMs),
+    );
+    if (delayMs <= 0) {
+      return;
+    }
     logMeshDebug('read-retry-scheduled', {
       story_id: story.story_id,
       attempt,
@@ -311,8 +360,17 @@ export async function readMeshAnalysis(
       pipeline_version: ANALYSIS_PIPELINE_VERSION,
       model_scope: modelScopeKey,
     });
+    const deadlineAt = startedAt + MESH_READ_BUDGET_MS;
 
     for (let attempt = 1; attempt <= MESH_READ_MAX_ATTEMPTS; attempt += 1) {
+      if (attempt > 1 && Date.now() >= deadlineAt) {
+        logMeshDebug('read-budget-exhausted', {
+          story_id: story.story_id,
+          attempt,
+          budget_ms: MESH_READ_BUDGET_MS,
+        });
+        break;
+      }
       logMeshDebug('read-derived-key', {
         story_id: story.story_id,
         attempt,
@@ -361,7 +419,7 @@ export async function readMeshAnalysis(
         model_scope: modelScopeKey,
       });
 
-      const latestArtifact = await readLatestAnalysis(client, story.story_id);
+      const latestArtifact = await readLatestAnalysis(client, story.story_id, { fallbackToList: false });
       if (!latestArtifact) {
         logMeshDebug('read-latest-pointer-miss', {
           story_id: story.story_id,
@@ -427,7 +485,11 @@ export async function readMeshAnalysis(
       }
 
       if (attempt < MESH_READ_MAX_ATTEMPTS) {
-        await waitForRetry(attempt);
+        const remainingBudgetMs = deadlineAt - Date.now();
+        if (remainingBudgetMs <= 0) {
+          break;
+        }
+        await waitForRetry(attempt, remainingBudgetMs);
       }
     }
 
@@ -527,7 +589,10 @@ export async function readPendingMeshAnalysis(
   }
 
   try {
-    const payload = await readOnce(toPendingChain(client, story.story_id, modelScopeKey));
+    const payload = await readOnce(
+      toPendingChain(client, story.story_id, modelScopeKey),
+      PENDING_READ_ONCE_TIMEOUT_MS,
+    );
     const parsed = parsePendingPayload(payload, story, modelScopeKey);
     if (parsed) {
       logMeshDebug('pending-read-hit', {
@@ -572,7 +637,7 @@ export async function upsertPendingMeshAnalysis(
     let observedContention: AnalysisPendingStatus | null = null;
 
     for (let attempt = 1; attempt <= PENDING_READBACK_ATTEMPTS; attempt += 1) {
-      const observedPayload = await readOnce(chain);
+      const observedPayload = await readOnce(chain, PENDING_READ_ONCE_TIMEOUT_MS);
       const observedPending = parsePendingPayload(observedPayload, story, modelScopeKey);
       if (observedPending?.owner === ANALYSIS_PENDING_OWNER) {
         logMeshDebug('pending-write', {
