@@ -1,0 +1,4 @@
+[pre-push] Running ownership scope check for 'coord/storycluster-sprint-a-prod-no-fallback'...
+Ownership Scope: PASS - coordinator branch "coord/storycluster-sprint-a-prod-no-fallback" bypass enabled.
+Everything up-to-date
+branch 'coord/storycluster-sprint-a-prod-no-fallback' set up to track 'origin/coord/storycluster-sprint-a-prod-no-fallback'.

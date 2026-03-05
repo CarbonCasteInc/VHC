@@ -627,3 +627,32 @@
 1. Coverage-unblock edits did not alter async enrichment queue boundaries: StoryBundle publish remains the blocking lane; enrichment remains non-blocking.
 2. No-fallback enforcement remains isolated to cluster-engine resolution/startup guardrails and does not introduce coupling that could block analysis relay or bias-table precompute.
 3. Existing precompute invariants from PR3/PR4 remain intact under the validated Sprint A production-path configuration.
+
+## Sprint A No-Fallback Track — PR Sequencing Milestone (2026-03-05T16:10Z)
+
+- Branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Head SHA (PR head): `c8433b35c399f4e9cc2ce29b17e201416f6ffefb`
+- PR: `#370` — https://github.com/CarbonCasteInc/VHC/pull/370
+- Milestone advanced this run: **PR sequencing** (branch publish + PR open + head/check pin)
+- Evidence packet: `docs/reports/evidence/storycluster/sprint-a-no-fallback/2026-03-05T1610Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint A no-fallback production wiring changes are now committed and published on PR #370.
+2. Deterministic acceptance/coverage closure artifacts from 2026-03-05T1547Z remain the canonical validation packet for changed production files (100% lines/branches/functions/statements + LOC cap pass).
+3. Initial required-check snapshot captured for PR #370:
+   - `Ownership Scope`: PASS
+   - `Change Detection`: PASS
+   - `Quality Guard`: pending (run bootstrap in progress)
+
+### Next Actionable Steps
+
+1. Monitor PR #370 required checks to completion; if any gate fails, execute direct CI unblock and append deterministic remediation artifacts.
+2. Once all required checks are green, execute merge sequencing for Sprint A no-fallback branch and pin merge commit SHA in this status doc.
+3. After merge, run and publish post-merge production/distribution acceptance refresh for canonical no-fallback wiring.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. PR sequencing milestone is metadata/process-only; no code-path change to async enrichment boundaries.
+2. StoryBundle blocking lane vs enrichment non-blocking queue contract remains unchanged from prior validated milestone.
+3. No regression signal introduced for relay-default analysis generation or bias-table precompute coupling in this milestone.
