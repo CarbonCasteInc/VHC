@@ -1,0 +1,15 @@
+timestamp_utc=2026-03-05T18:21:08Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=pnpm exec vitest run packages/ai-engine/src/__tests__/newsOrchestrator.production.test.ts
+---
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod
+
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.production.test.ts (4 tests) 12ms
+
+ Test Files  1 passed (1)
+      Tests  4 passed (4)
+   Start at  18:21:09
+   Duration  356ms (transform 100ms, setup 0ms, collect 125ms, tests 12ms, environment 0ms, prepare 63ms)
+

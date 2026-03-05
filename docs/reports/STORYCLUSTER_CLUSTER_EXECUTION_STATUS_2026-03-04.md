@@ -836,3 +836,37 @@
 1. This milestone is additive service scaffolding only; it does not alter StoryBundle blocking publish lane vs async enrichment lane boundaries.
 2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback wiring.
 3. Sprint B integration follow-ups must preserve non-blocking enrichment behavior while introducing StoryCluster service authority in the clustering lane.
+
+## Program Track — Sprint B Slice 2 Daemon-Path Service Wiring Milestone (2026-03-05T1820Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Lane head at milestone start: `ab3e0d0384a6382b0a1ac920dae2b5a7775223b0`
+- Lane head after milestone commit/push: `__HEAD_AFTER_PUSH__`
+- Milestone advanced this run: **artifact completion** (Sprint B slice 2 service/daemon invocation contract wiring + deterministic validation)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1820Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint B slice 2 is now implemented in `services/storycluster-engine` with canonical `/health` + `/cluster` service endpoints and auth-capable request gating.
+2. The service-side remote contract now deterministically maps normalized StoryCluster input items into StoryBundle-v0 output payloads with stage telemetry passthrough.
+3. Daemon production-path compatibility is validated by contract: `StoryClusterRemoteEngine` can consume this service response shape directly while existing no-fallback production tests remain green.
+4. Strict quality gates for this changed slice are green:
+   - 350 LOC/file cap holds for all changed files.
+   - 100% line/branch/function/statement coverage on changed executable files in `services/storycluster-engine`.
+   - Storycluster-engine `typecheck` + `build` pass.
+5. Final closure remains blocked on downstream gates beyond this milestone (same-event coherence artifacts and full §16.7 DoD closure).
+
+### Next Actionable Steps
+
+1. Advance Sprint B slice 3: implement deterministic same-event coherence audit harness/artifacts for §16.7(3) closure.
+2. Expand stage telemetry richness toward final §16.7(2) acceptance intent (stage-level counters/latency detail where still thin).
+3. Run merged-main acceptance + re-serve with updated Sprint B slices, then disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gate items are simultaneously PASS.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone wires clustering service contract semantics only; it does not alter blocking StoryBundle publish behavior vs async analysis/bias-table enrichment queue boundaries.
+2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback path.
+3. Added service contract work preserves non-blocking enrichment assumptions while moving clustering authority to the dedicated StoryCluster service lane.

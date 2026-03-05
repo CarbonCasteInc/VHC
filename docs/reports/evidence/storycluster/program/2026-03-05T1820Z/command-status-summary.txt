@@ -1,0 +1,17 @@
+timestamp_utc=2026-03-05T18:21:52Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command-status-summary
+---
+command-1-head-and-log,PASS (exit=0)
+command-1b-log,PASS (exit=0)
+command-2-loc-cap-audit,PASS (exit=0)
+command-3-storycluster-engine-test-coverage,PASS (exit=0)
+command-4-storycluster-engine-typecheck,PASS (exit=0)
+command-5-storycluster-engine-build,PASS (exit=0)
+command-6-ai-engine-production-no-fallback-vitest,PASS (exit=0)
+command-7-news-daemon-production-vitest,PASS (exit=0)
+command-8-diff-coverage,PASS (exit=0)
+command-9-cron-status,PASS (exit=0)
+command-10-git-status,PASS (exit=0)
+command-11-plan-sprint-b-slice2-extract,PASS (exit=0)
+command-12-primary-plan-required-sections,PASS (exit=0)

@@ -1,0 +1,5 @@
+timestamp_utc=2026-03-05T18:21:05Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=git rev-parse HEAD
+---
+ab3e0d0384a6382b0a1ac920dae2b5a7775223b0
