@@ -20,6 +20,7 @@
 9. `test -d services/storycluster-engine && find services/storycluster-engine -maxdepth 2 -type f`
 10. plan §16.7 gate extract from `docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
 11. `openclaw cron list`
+12. `node tools/scripts/check-diff-coverage.mjs`
 
 ## Deterministic artifact paths
 
@@ -35,6 +36,7 @@
 - `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-9-storycluster-service-presence.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-10-final-release-gate-extract.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-11-cron-status.txt`
+- `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-12-diff-coverage-docs-only.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-status.csv`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-status-summary.txt`
 
@@ -49,6 +51,7 @@
 | Final gate §16.7(2) mandatory 3.2 stages telemetry-verified | FAIL / NOT VERIFIED | `command-9-storycluster-service-presence.txt`, `command-10-final-release-gate-extract.txt` |
 | Final gate §16.7(3) same-event coherence live+fixture audits | FAIL / NOT VERIFIED | no deterministic coherence audit artifact exists in this run |
 | Cron disable condition reached | NO | `command-11-cron-status.txt` (job `365ab8b8-1ad1-454b-aa07-c78e008deba0` still running) |
+| Changed-file coverage gate (docs-only diff) | PASS | `command-12-diff-coverage-docs-only.txt` |
 
 ## Guardrail compliance
 

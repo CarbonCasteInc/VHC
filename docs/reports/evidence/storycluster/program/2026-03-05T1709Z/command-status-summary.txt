@@ -10,4 +10,5 @@ command-8-re-serve-main-refresh,PASS (exit=0)
 command-9-storycluster-service-presence,PASS (exit=0)
 command-10-final-release-gate-extract,PASS (exit=0)
 command-11-cron-status,PASS (exit=0)
+command-12-diff-coverage-docs-only,PASS (exit=0)
 overall=PASS
