@@ -1,0 +1,3 @@
+Command: gh pr merge 370 --repo CarbonCasteInc/VHC --merge
+Result: exit code 0 (merge succeeded), no stdout emitted by gh CLI in this environment.
+Post-merge verification recorded in: test-command-4-pr-view-postmerge.json

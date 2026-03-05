@@ -656,3 +656,31 @@
 1. PR sequencing milestone is metadata/process-only; no code-path change to async enrichment boundaries.
 2. StoryBundle blocking lane vs enrichment non-blocking queue contract remains unchanged from prior validated milestone.
 3. No regression signal introduced for relay-default analysis generation or bias-table precompute coupling in this milestone.
+
+## Sprint A No-Fallback Track — Merge Sequencing Milestone (2026-03-05T16:28Z)
+
+- Branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- PR: `#370` — https://github.com/CarbonCasteInc/VHC/pull/370
+- Head SHA (merged PR head): `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+- Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Merge time (UTC): `2026-03-05T16:28:22Z`
+- Milestone advanced this run: **merge sequencing** (required-check green pin + merge closure)
+- Evidence packet: `docs/reports/evidence/storycluster/sprint-a-no-fallback/2026-03-05T1628Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint A canonical production no-fallback wiring is now merged on `main` (`d3d23965f41bb99cc971711a81b5a5ec71efe51c`).
+2. Required CI checks for PR #370 were fully green on merged head `a1774c8dc03432715cac06fcb302fc4cd465ec1d` (run `22726883701`).
+3. Prior deterministic validation constraints remain satisfied for Sprint A changed files: 350 LOC/file cap and 100% line/branch/function/statement coverage (see 2026-03-05T1547Z packet).
+
+### Next Actionable Steps
+
+1. Advance exactly one follow-on milestone: execute post-merge production/distribution headless acceptance refresh for canonical no-fallback wiring and pin deterministic artifacts.
+2. Re-serve updated VHC state at `https://ccibootstrap.tail6cc9b5.ts.net` immediately after acceptance refresh so live testing matches merged `main`.
+3. If acceptance refresh passes, prepare final StoryCluster DoD closure packet; if anything fails, execute direct unblock and append remediation artifacts.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Merge sequencing was metadata/control-plane only and did not modify async enrichment queue boundaries.
+2. StoryBundle publication remains the blocking lane while analysis/bias-table enrichment remains asynchronous and non-blocking under Sprint A no-fallback wiring.
+3. No regression signal was introduced in this milestone for relay-default analysis behavior or bias-table precompute coupling.
