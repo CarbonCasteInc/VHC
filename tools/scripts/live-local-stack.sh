@@ -94,7 +94,7 @@ load_profile_env() {
   export VITE_E2E_MODE=false
   export VITE_VH_ANALYSIS_PIPELINE=true
   export VITE_NEWS_RUNTIME_ENABLED=true
-  export VITE_NEWS_RUNTIME_ROLE="${VITE_NEWS_RUNTIME_ROLE:-consumer}"
+  export VITE_NEWS_RUNTIME_ROLE=consumer
   export VITE_NEWS_BRIDGE_ENABLED=true
   export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-10000}"
   export VITE_GUN_PEERS="${VITE_GUN_PEERS:-[\"http://localhost:${RELAY_PORT}/gun\"]}"
@@ -168,9 +168,7 @@ stack_up() {
   done
 
   if [[ "$daemon_healthy" != "true" ]]; then
-    warn "News daemon unavailable; falling back to browser ingester mode (see $DAEMON_LOG)"
-    rm -f "$DAEMON_PID_FILE"
-    export VITE_NEWS_RUNTIME_ROLE=ingester
+    die "News daemon unavailable; refusing fallback (see $DAEMON_LOG)"
   fi
 
   start_web
