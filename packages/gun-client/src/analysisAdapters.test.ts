@@ -411,6 +411,12 @@ describe('analysisAdapters', () => {
     mesh.setRead('news/stories/story-1/analysis', null);
     await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
     await expect(listAnalyses(client, 'story-1')).resolves.toEqual([]);
+
+    mesh.setRead('news/stories/story-1/analysis_latest', { invalid: true });
+    mesh.setRead('news/stories/story-1/analysis', {
+      only: newer,
+    });
+    await expect(readLatestAnalysis(client, 'story-1', { fallbackToList: false })).resolves.toBeNull();
   });
 
   it('detects forbidden payload fields recursively', () => {

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StoryBundle } from '@vh/data-model';
 import { FlippableCard } from '../venn/FlippableCard';
@@ -87,20 +87,27 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     () => resolveStoryBundle(stories, item),
     [stories, item.story_id, item.title, item.topic_id],
   );
+  const analysisStoryRef = useRef<StoryBundle | null>(story);
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
+  const analysisStory = useMemo(
+    () => (isExpanded ? analysisStoryRef.current ?? story : story),
+    [isExpanded, story],
+  );
   const {
     analysis,
     status: analysisStatus,
     error: analysisError,
     retry: retryAnalysis,
-  } = useAnalysis(story, isExpanded);
+  } = useAnalysis(analysisStory, isExpanded);
   const synthesis = synthesisTopicState?.synthesis ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
   const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
-  const computedAnalysisId = story ? `${story.story_id}:${story.provenance_hash}` : null;
+  const computedAnalysisId = analysisStory
+    ? `${analysisStory.story_id}:${analysisStory.provenance_hash}`
+    : null;
   const synthesisId = synthesis?.synthesis_id ?? null;
   const synthesisEpoch = synthesis?.epoch;
   const analysisFeedbackStatus =
@@ -135,10 +142,24 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const backRegionId = `news-card-back-region-${item.topic_id}`;
 
   const openBack = useCallback(() => {
+    if (story) {
+      analysisStoryRef.current = story;
+    }
     expandCard(cardInstanceKey);
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
-  }, [cardInstanceKey, expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
+  }, [cardInstanceKey, expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration, story]);
+
+  useEffect(() => {
+    if (isExpanded) {
+      if (!analysisStoryRef.current && story) {
+        analysisStoryRef.current = story;
+      }
+      return;
+    }
+
+    analysisStoryRef.current = story;
+  }, [isExpanded, story]);
 
   useEffect(() => {
     if (!isExpanded) return;

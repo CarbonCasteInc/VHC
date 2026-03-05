@@ -358,6 +358,7 @@ export async function readAnalysis(
 export async function readLatestAnalysis(
   client: VennClient,
   storyId: string,
+  options: { fallbackToList?: boolean } = {},
 ): Promise<StoryAnalysisArtifact | null> {
   const normalizedStoryId = normalizeRequiredId(storyId, 'storyId');
   const pointerRaw = await readOnce(getStoryAnalysisLatestChain(client, normalizedStoryId));
@@ -365,6 +366,10 @@ export async function readLatestAnalysis(
 
   if (pointer?.analysisKey) {
     return readAnalysis(client, normalizedStoryId, pointer.analysisKey);
+  }
+
+  if (options.fallbackToList === false) {
+    return null;
   }
 
   const analyses = await listAnalyses(client, normalizedStoryId);

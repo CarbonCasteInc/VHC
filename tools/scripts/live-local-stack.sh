@@ -7,8 +7,10 @@ WEB_PORT="${WEB_PORT:-2048}"
 RELAY_PORT="${RELAY_PORT:-7777}"
 WEB_LOG="${WEB_LOG:-/tmp/vh-local-web.log}"
 RELAY_LOG="${RELAY_LOG:-/tmp/vh-local-relay.log}"
+DAEMON_LOG="${DAEMON_LOG:-/tmp/vh-local-news-daemon.log}"
 WEB_PID_FILE="${WEB_PID_FILE:-/tmp/vh-local-web.pid}"
 RELAY_PID_FILE="${RELAY_PID_FILE:-/tmp/vh-local-relay.pid}"
+DAEMON_PID_FILE="${DAEMON_PID_FILE:-/tmp/vh-local-news-daemon.pid}"
 READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-45}"
 
 info() { echo "[live-local-stack] $*"; }
@@ -73,17 +75,38 @@ wait_for_http() {
 
 load_profile_env() {
   [[ -f "$ENV_FILE" ]] || die "Env profile not found: $ENV_FILE"
+
+  # Clear stale shell overrides so canonical profile values win.
+  unset \
+    VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS \
+    VITE_NEWS_BRIDGE_REFRESH_ATTEMPTS \
+    VITE_NEWS_BRIDGE_REFRESH_BACKOFF_MS \
+    VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS \
+    VITE_VH_GUN_PUT_ACK_TIMEOUT_MS \
+    VITE_VH_GUN_READ_TIMEOUT_MS \
+    VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS \
+    VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS \
+    ANALYSIS_RELAY_MODEL
+
   # shellcheck disable=SC1090
   set -a && source "$ENV_FILE" && set +a
 
   export VITE_E2E_MODE=false
   export VITE_VH_ANALYSIS_PIPELINE=true
-  export VITE_NEWS_RUNTIME_ENABLED=true
-  export VITE_NEWS_RUNTIME_ROLE=ingester
+  export VITE_NEWS_RUNTIME_ENABLED=false
+  export VITE_NEWS_RUNTIME_ROLE=consumer
   export VITE_NEWS_BRIDGE_ENABLED=true
   export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-10000}"
   export VITE_GUN_PEERS="${VITE_GUN_PEERS:-[\"http://localhost:${RELAY_PORT}/gun\"]}"
+  export VH_GUN_PEERS="${VH_GUN_PEERS:-$VITE_GUN_PEERS}"
+  export VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS="${VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS:-7500}"
+  export VITE_VH_GUN_PUT_ACK_TIMEOUT_MS="${VITE_VH_GUN_PUT_ACK_TIMEOUT_MS:-3000}"
+  export VITE_VH_GUN_READ_TIMEOUT_MS="${VITE_VH_GUN_READ_TIMEOUT_MS:-4000}"
+  export VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS="${VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS:-8000}"
+  export VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS="${VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS:-500}"
   export VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS="${VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS:-90000}"
+  export VITE_NEWS_BRIDGE_REFRESH_ATTEMPTS="${VITE_NEWS_BRIDGE_REFRESH_ATTEMPTS:-3}"
+  export VITE_NEWS_BRIDGE_REFRESH_BACKOFF_MS="${VITE_NEWS_BRIDGE_REFRESH_BACKOFF_MS:-500}"
   export ANALYSIS_RELAY_UPSTREAM_URL="${ANALYSIS_RELAY_UPSTREAM_URL:-https://api.openai.com/v1/chat/completions}"
   export ANALYSIS_RELAY_API_KEY="${ANALYSIS_RELAY_API_KEY:-${OPENAI_API_KEY:-}}"
   export ANALYSIS_RELAY_MODEL="${ANALYSIS_RELAY_MODEL:-${VITE_ANALYSIS_MODEL:-gpt-5-nano}}"
@@ -106,6 +129,13 @@ start_web() {
   echo "$!" > "$WEB_PID_FILE"
 }
 
+start_daemon() {
+  info "Starting news-aggregator daemon (canonical ingester)"
+  nohup bash -lc "cd \"$ROOT\" && exec pnpm --filter @vh/news-aggregator daemon" \
+    >"$DAEMON_LOG" 2>&1 < /dev/null &
+  echo "$!" > "$DAEMON_PID_FILE"
+}
+
 stack_up() {
   require_cmd pnpm
   require_cmd node
@@ -116,18 +146,41 @@ stack_up() {
 
   kill_pid_file "$WEB_PID_FILE"
   kill_pid_file "$RELAY_PID_FILE"
+  kill_pid_file "$DAEMON_PID_FILE"
   kill_port "$WEB_PORT"
   kill_port "$RELAY_PORT"
 
   start_relay
+  start_daemon
+
+  local daemon_pid daemon_healthy
+  daemon_pid="$(read_pid_file "$DAEMON_PID_FILE" || true)"
+  daemon_healthy=false
+  for _ in 1 2 3 4 5 6 7 8; do
+    if is_pid_alive "$daemon_pid"; then
+      daemon_healthy=true
+      sleep 1
+      daemon_pid="$(read_pid_file "$DAEMON_PID_FILE" || true)"
+      continue
+    fi
+    daemon_healthy=false
+    break
+  done
+
+  if [[ "$daemon_healthy" != "true" ]]; then
+    die "News daemon unavailable; refusing fallback (see $DAEMON_LOG)"
+  fi
+
   start_web
 
   wait_for_http "http://localhost:${WEB_PORT}/" "$READY_TIMEOUT_SECS" \
     || die "Web server did not become ready in ${READY_TIMEOUT_SECS}s (log: $WEB_LOG)"
 
   info "Stack ready"
+  info "Runtime role: $VITE_NEWS_RUNTIME_ROLE"
   info "App URL:  http://localhost:${WEB_PORT}/"
   info "Relay:    http://localhost:${RELAY_PORT}/gun"
+  info "Daemon log:$DAEMON_LOG"
   info "Web log:  $WEB_LOG"
   info "Relay log:$RELAY_LOG"
 }
@@ -135,15 +188,17 @@ stack_up() {
 stack_down() {
   kill_pid_file "$WEB_PID_FILE"
   kill_pid_file "$RELAY_PID_FILE"
+  kill_pid_file "$DAEMON_PID_FILE"
   kill_port "$WEB_PORT"
   kill_port "$RELAY_PORT"
   info "Stack stopped"
 }
 
 stack_status() {
-  local web_pid relay_pid
+  local web_pid relay_pid daemon_pid
   web_pid="$(read_pid_file "$WEB_PID_FILE" || true)"
   relay_pid="$(read_pid_file "$RELAY_PID_FILE" || true)"
+  daemon_pid="$(read_pid_file "$DAEMON_PID_FILE" || true)"
 
   if is_pid_alive "$web_pid"; then
     info "web-pwa running (pid=$web_pid, port=${WEB_PORT})"
@@ -155,6 +210,12 @@ stack_status() {
     info "relay running (pid=$relay_pid, port=${RELAY_PORT})"
   else
     warn "relay not running"
+  fi
+
+  if is_pid_alive "$daemon_pid"; then
+    info "news-daemon running (pid=$daemon_pid)"
+  else
+    warn "news-daemon not running"
   fi
 }
 
