@@ -22,9 +22,11 @@ import {
   parseGunPeers,
   parseOptionalPositiveInt,
   parsePositiveInt,
+  parseStoryClusterRemoteConfig,
   parseTopicMapping,
   readEnvVar,
   resolveLeaseHolderId,
+  verifyStoryClusterHealth,
   type EnrichmentWorker,
   type LoggerLike,
 } from './daemonUtils';
@@ -42,6 +44,7 @@ export interface NewsAggregatorDaemonConfig {
   writeLease?: (client: VennClient, lease: unknown) => Promise<NewsIngestionLease>;
   writeBundle?: (client: VennClient, bundle: unknown) => Promise<unknown>;
   enrichmentWorker?: EnrichmentWorker;
+  runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
   setIntervalFn?: typeof setInterval;
@@ -122,6 +125,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       onError(error) {
         logger.warn('[vh:news-daemon] runtime tick failed', error);
       },
+      orchestratorOptions: config.runtimeOrchestratorOptions,
     });
     if (runtimeHandle.isRunning()) {
       logger.info('[vh:news-daemon] runtime started', {
@@ -244,6 +248,14 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     readEnvVar('VH_NEWS_RUNTIME_LEASE_TTL_MS') ?? readEnvVar('VITE_NEWS_RUNTIME_LEASE_TTL_MS'),
     DEFAULT_LEASE_TTL_MS,
   );
+
+  const storyCluster = parseStoryClusterRemoteConfig();
+  await verifyStoryClusterHealth({
+    healthUrl: storyCluster.healthUrl,
+    headers: storyCluster.headers,
+    timeoutMs: storyCluster.timeoutMs,
+  });
+
   const gunPeers = parseGunPeers(readEnvVar('VH_GUN_PEERS') ?? readEnvVar('VITE_GUN_PEERS'));
   const client = createClient({
     peers: gunPeers.length > 0 ? gunPeers : undefined,
@@ -256,6 +268,13 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     pollIntervalMs,
     leaseTtlMs,
     leaseHolderId: readEnvVar('VH_NEWS_DAEMON_HOLDER_ID'),
+    runtimeOrchestratorOptions: {
+      productionMode: true,
+      allowHeuristicFallback: false,
+      remoteClusterEndpoint: storyCluster.endpointUrl,
+      remoteClusterTimeoutMs: storyCluster.timeoutMs,
+      remoteClusterHeaders: storyCluster.headers,
+    },
   });
   await daemon.start();
   return {
@@ -278,30 +297,43 @@ function isDirectExecution(metaUrl: string): boolean {
     return false;
   }
 }
-async function runFromCli(): Promise<void> {
-  const processHandle = await startNewsAggregatorDaemonFromEnv();
+type ProcessLifecycle = Pick<typeof process, 'once' | 'exit'>;
+type CliLogger = Pick<Console, 'info' | 'error'>;
+
+async function runFromCli(
+  startFromEnv: () => Promise<NewsAggregatorDaemonProcessHandle> = startNewsAggregatorDaemonFromEnv,
+  lifecycle: ProcessLifecycle = process,
+  logger: CliLogger = console,
+): Promise<void> {
+  const processHandle = await startFromEnv();
   const shutdown = async (signal: string): Promise<void> => {
-    console.info(`[vh:news-daemon] received ${signal}; shutting down`);
+    logger.info(`[vh:news-daemon] received ${signal}; shutting down`);
     await processHandle.stop();
   };
   for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    process.once(signal, () => {
+    lifecycle.once(signal, () => {
       void shutdown(signal).finally(() => {
-        process.exit(0);
+        lifecycle.exit(0);
       });
     });
   }
 }
+/* c8 ignore start */
 if (isDirectExecution(import.meta.url)) {
   void runFromCli().catch((error) => {
     console.error('[vh:news-daemon] failed to start', error);
     process.exit(1);
   });
 }
+/* c8 ignore stop */
 export const __internal = {
   buildLeasePayload,
+  isDirectExecution,
   parseFeedSources,
   parseGunPeers,
+  parseStoryClusterRemoteConfig,
   parseTopicMapping,
   resolveLeaseHolderId,
+  runFromCli,
+  verifyStoryClusterHealth,
 };

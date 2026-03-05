@@ -4,7 +4,10 @@ import {
   type StoryAdvancedArtifact,
 } from './newsAdvancedPipeline';
 import { buildEnrichmentWorkItems } from './newsCluster';
-import { orchestrateNewsPipeline } from './newsOrchestrator';
+import {
+  orchestrateNewsPipeline,
+  type NewsOrchestratorOptions,
+} from './newsOrchestrator';
 import type { FeedSource, StoryBundle, TopicMapping } from './newsTypes';
 
 const DEFAULT_POLL_INTERVAL_MS = 30 * 60 * 1000;
@@ -42,6 +45,7 @@ export interface NewsRuntimeConfig {
   createAdvancedArtifact?: (bundle: StoryBundle) => StoryAdvancedArtifact;
   onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void | Promise<void>;
   onError?: (error: unknown) => void;
+  orchestratorOptions?: NewsOrchestratorOptions;
 }
 
 export interface NewsRuntimeHandle {
@@ -106,10 +110,13 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
     inFlight = true;
 
     try {
-      const bundles = await orchestrateNewsPipeline({
-        feedSources: config.feedSources,
-        topicMapping: config.topicMapping,
-      });
+      const bundles = await orchestrateNewsPipeline(
+        {
+          feedSources: config.feedSources,
+          topicMapping: config.topicMapping,
+        },
+        config.orchestratorOptions,
+      );
 
       const writeStoryBundle = config.writeStoryBundle;
       if (!writeStoryBundle) {

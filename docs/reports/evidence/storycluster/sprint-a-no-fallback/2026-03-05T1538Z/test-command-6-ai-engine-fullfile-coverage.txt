@@ -1,0 +1,22 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod
+      Coverage enabled with v8
+
+ ✓ packages/ai-engine/src/newsRuntime.test.ts (12 tests) 23ms
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.production.test.ts (4 tests) 14ms
+ ✓ packages/ai-engine/src/__tests__/newsOrchestrator.test.ts (7 tests) 28ms
+
+ Test Files  3 passed (3)
+      Tests  23 passed (23)
+   Start at  15:47:35
+   Duration  2.67s (transform 220ms, setup 0ms, collect 409ms, tests 65ms, environment 1ms, prepare 233ms)
+
+ % Coverage report from v8
+
+=============================== Coverage summary ===============================
+Statements   : 100% ( 224/224 )
+Branches     : 100% ( 86/86 )
+Functions    : 100% ( 17/17 )
+Lines        : 100% ( 224/224 )
+================================================================================

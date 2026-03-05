@@ -1,0 +1,4 @@
+
+> @vh/ai-engine@0.1.0 typecheck /srv/trinity/worktrees/storycluster-prod/packages/ai-engine
+> tsc --noEmit
+

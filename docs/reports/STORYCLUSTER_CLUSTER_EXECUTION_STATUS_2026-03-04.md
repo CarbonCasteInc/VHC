@@ -563,3 +563,67 @@
 - Trigger: diff-coverage failure on `packages/ai-engine/src/newsAdvancedPipeline.ts` (line/branch deficits reported by CI).
 - Remediation: expanded targeted tests to explicitly cover the reported branch families; reran strict diff coverage gate.
 - Result: local diff gate PASS (`100% line + 100% branch` on changed source files).
+
+## Sprint A No-Fallback Track — Deterministic Validation Milestone (2026-03-05T15:25Z)
+
+- Branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Head SHA (workspace): `1f4bb22bbc7dae42ccb71e375116d944cd18b46f`
+- Milestone advanced this run: **Deterministic acceptance validation** (production no-fallback runtime + coverage contract audit)
+- Evidence packet: `docs/reports/evidence/storycluster/sprint-a-no-fallback/2026-03-05T1525Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Production no-fallback behavior is now explicitly wired in daemon startup and orchestrator options in working-tree changes:
+   - `services/news-aggregator/src/daemon.ts`
+   - `services/news-aggregator/src/daemonUtils.ts`
+   - `packages/ai-engine/src/newsOrchestrator.ts`
+   - `packages/ai-engine/src/newsRuntime.ts`
+2. New production-path guardrail tests were added and pass:
+   - `packages/ai-engine/src/__tests__/newsOrchestrator.production.test.ts`
+   - `services/news-aggregator/src/daemon.production.test.ts`
+3. Typecheck and deterministic focused test commands pass for ai-engine + news-aggregator.
+4. Blocking gap remains on the run-contract full-file coverage gate for changed news-aggregator files:
+   - `src/daemon.ts`: 82.82% lines/statements, 84.21% functions, 81.25% branches.
+   - `src/daemonUtils.ts`: 85.40% lines/statements, 100% functions, 76.40% branches.
+
+### Next Actionable Steps
+
+1. Add targeted unit tests for `daemon.ts` uncovered control-flow families listed in `test-command-8-news-aggregator-uncovered-lines.txt` (lease renewal failure/stop branches, startup guard rails, stop-path variants) until file-level 100/100/100/100 is reached.
+2. Add targeted unit tests for `daemonUtils.ts` uncovered parse/validation/queue branches (env parsing edge cases, health-url derivation alternatives, timeout/error normalization branches) until file-level 100/100/100/100 is reached.
+3. Re-run deterministic full-file coverage audits for changed files, then proceed to PR sequencing with pinned evidence packet + acceptance matrix.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Sprint A no-fallback wiring does not alter PR3/PR4 async enrichment contract boundaries.
+2. The daemon still keeps StoryBundle publication on the blocking lane and enrichment on asynchronous queue wiring (`createAsyncEnrichmentQueue` path), preserving non-blocking behavior expectations.
+3. No regression evidence was observed in this milestone for analysis relay defaults or bias-table precompute coupling; this lane remains a required invariant to preserve while adding no-fallback enforcement.
+
+## Sprint A No-Fallback Track — Coverage Unblock Closure Milestone (2026-03-05T15:47Z)
+
+- Branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Head SHA (workspace): `1f4bb22bbc7dae42ccb71e375116d944cd18b46f`
+- Milestone advanced this run: **Coverage unblock closure** (full-file 100% coverage for changed production files)
+- Evidence packet: `docs/reports/evidence/storycluster/sprint-a-no-fallback/2026-03-05T1547Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Production no-fallback wiring remains enforced (`productionMode: true`, `allowHeuristicFallback: false`) and validated by deterministic ai-engine/news-aggregator production-path tests.
+2. Coverage contract blocker from the prior 2026-03-05T1525Z milestone is now closed:
+   - `packages/ai-engine/src/newsOrchestrator.ts`: 100/100/100/100
+   - `packages/ai-engine/src/newsRuntime.ts`: 100/100/100/100
+   - `services/news-aggregator/src/daemon.ts`: 100/100/100/100
+   - `services/news-aggregator/src/daemonUtils.ts`: 100/100/100/100
+3. LOC cap audit passes for all changed files in this milestone (max file length: `services/news-aggregator/src/daemon.ts` at 339 LOC, cap ≤ 350).
+4. This branch is still pre-PR for Sprint A no-fallback; deterministic artifact packet is now ready for PR sequencing.
+
+### Next Actionable Steps
+
+1. Stage the Sprint A no-fallback changes and open/update the Sprint A PR with the 2026-03-05T1547Z evidence packet attached.
+2. Pin PR head SHA and CI run IDs for the no-fallback branch after push; record required-check results in this status doc and the Sprint A evidence packet.
+3. After CI green, execute merge + post-merge production/distribution acceptance report refresh for canonical no-fallback wiring.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Coverage-unblock edits did not alter async enrichment queue boundaries: StoryBundle publish remains the blocking lane; enrichment remains non-blocking.
+2. No-fallback enforcement remains isolated to cluster-engine resolution/startup guardrails and does not introduce coupling that could block analysis relay or bias-table precompute.
+3. Existing precompute invariants from PR3/PR4 remain intact under the validated Sprint A production-path configuration.

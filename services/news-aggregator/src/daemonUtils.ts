@@ -15,9 +15,16 @@ export const DEFAULT_TOPIC_MAPPING: TopicMapping = {
 };
 
 export const DEFAULT_LEASE_TTL_MS = 2 * 60 * 1000;
+export const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = 8_000;
 
 export type LoggerLike = Pick<Console, 'info' | 'warn' | 'error'>;
 
+export interface StoryClusterRemoteConfig {
+  endpointUrl: string;
+  healthUrl: string;
+  timeoutMs: number;
+  headers: Record<string, string>;
+}
 export type EnrichmentWorker = (candidate: NewsRuntimeSynthesisCandidate) => Promise<void> | void;
 
 export interface AsyncEnrichmentQueue {
@@ -25,7 +32,6 @@ export interface AsyncEnrichmentQueue {
   size(): number;
   stop(): void;
 }
-
 export function createAsyncEnrichmentQueue(worker: EnrichmentWorker, logger: LoggerLike): AsyncEnrichmentQueue {
   const pending: NewsRuntimeSynthesisCandidate[] = [];
   let draining = false;
@@ -53,13 +59,6 @@ export function createAsyncEnrichmentQueue(worker: EnrichmentWorker, logger: Log
       }
     } finally {
       draining = false;
-      if (!stopped && pending.length > 0 && !drainScheduled) {
-        drainScheduled = true;
-        queueMicrotask(() => {
-          drainScheduled = false;
-          void drain();
-        });
-      }
     }
   };
 
@@ -95,6 +94,113 @@ export function createAsyncEnrichmentQueue(worker: EnrichmentWorker, logger: Log
 export function readEnvVar(name: string): string | undefined {
   const value = process.env?.[name];
   return typeof value === 'string' ? value : undefined;
+}
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+export function deriveStoryClusterHealthUrl(endpointUrl: string): string {
+  const parsed = new URL(endpointUrl);
+  const segments = parsed.pathname.split('/').filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) {
+    parsed.pathname = '/health';
+  } else if (segments[segments.length - 1] === 'cluster') {
+    segments[segments.length - 1] = 'health';
+    parsed.pathname = `/${segments.join('/')}`;
+  } else {
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}/health`;
+  }
+
+  parsed.search = '';
+  parsed.hash = '';
+  return parsed.toString();
+}
+export function parseStoryClusterRemoteConfig(): StoryClusterRemoteConfig {
+  const endpointUrl = firstNonEmpty(
+    readEnvVar('VH_STORYCLUSTER_REMOTE_URL'),
+    readEnvVar('STORYCLUSTER_REMOTE_URL'),
+    readEnvVar('VITE_STORYCLUSTER_REMOTE_URL'),
+  );
+
+  if (!endpointUrl) {
+    throw new Error('storycluster remote endpoint is required (VH_STORYCLUSTER_REMOTE_URL)');
+  }
+
+  const authToken = firstNonEmpty(
+    readEnvVar('VH_STORYCLUSTER_REMOTE_AUTH_TOKEN'),
+    readEnvVar('STORYCLUSTER_REMOTE_AUTH_TOKEN'),
+  );
+
+  if (!authToken) {
+    throw new Error('storycluster auth token is required (VH_STORYCLUSTER_REMOTE_AUTH_TOKEN)');
+  }
+
+  const authHeader = firstNonEmpty(readEnvVar('VH_STORYCLUSTER_REMOTE_AUTH_HEADER')) ?? 'authorization';
+  const authScheme = firstNonEmpty(readEnvVar('VH_STORYCLUSTER_REMOTE_AUTH_SCHEME')) ?? 'Bearer';
+  const timeoutMs = parsePositiveInt(
+    readEnvVar('VH_STORYCLUSTER_REMOTE_TIMEOUT_MS'),
+    DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS,
+  );
+
+  const healthUrl =
+    firstNonEmpty(readEnvVar('VH_STORYCLUSTER_REMOTE_HEALTH_URL')) ??
+    deriveStoryClusterHealthUrl(endpointUrl);
+
+  return {
+    endpointUrl,
+    healthUrl,
+    timeoutMs,
+    headers: {
+      [authHeader]: `${authScheme} ${authToken}`,
+    },
+  };
+}
+
+export async function verifyStoryClusterHealth(
+  config: Pick<StoryClusterRemoteConfig, 'healthUrl' | 'headers' | 'timeoutMs'> & {
+    fetchFn?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  },
+): Promise<void> {
+  const fetchFn =
+    config.fetchFn ??
+    (typeof fetch === 'function'
+      ? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init))
+      : undefined);
+
+  if (!fetchFn) {
+    throw new Error('fetch API is unavailable for storycluster health check');
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => {
+    controller.abort();
+  }, config.timeoutMs);
+
+  try {
+    const response = await fetchFn(config.healthUrl, {
+      method: 'GET',
+      headers: config.headers,
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`storycluster health check failed: HTTP ${response.status}`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`storycluster health check timed out after ${config.timeoutMs}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -173,11 +279,7 @@ export function parseGunPeers(raw: string | undefined): string[] {
 
   if (trimmed.startsWith('[')) {
     try {
-      const parsed = JSON.parse(trimmed) as unknown;
-      if (!Array.isArray(parsed)) {
-        return [];
-      }
-
+      const parsed = JSON.parse(trimmed) as unknown[];
       return parsed
         .filter((entry): entry is string => typeof entry === 'string')
         .map((entry) => entry.trim())

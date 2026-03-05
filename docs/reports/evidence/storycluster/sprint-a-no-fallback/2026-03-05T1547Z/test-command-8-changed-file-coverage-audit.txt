@@ -1,0 +1,8 @@
+/srv/trinity/worktrees/storycluster-prod/packages/ai-engine/src/newsOrchestrator.ts
+  lines=100% statements=100% functions=100% branches=100%
+/srv/trinity/worktrees/storycluster-prod/packages/ai-engine/src/newsRuntime.ts
+  lines=100% statements=100% functions=100% branches=100%
+/srv/trinity/worktrees/storycluster-prod/services/news-aggregator/src/daemon.ts
+  lines=100% statements=100% functions=100% branches=100%
+/srv/trinity/worktrees/storycluster-prod/services/news-aggregator/src/daemonUtils.ts
+  lines=100% statements=100% functions=100% branches=100%

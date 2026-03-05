@@ -1,0 +1,4 @@
+
+> @vh/news-aggregator@0.1.0 typecheck /srv/trinity/worktrees/storycluster-prod/services/news-aggregator
+> tsc --noEmit
+
