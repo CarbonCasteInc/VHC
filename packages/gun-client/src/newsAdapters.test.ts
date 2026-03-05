@@ -39,6 +39,7 @@ interface FakeMesh {
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
   setReadHang: (path: string) => void;
+  setReadDelay: (path: string, delayMs: number) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
   setPutDoubleAck: (path: string) => void;
@@ -47,6 +48,7 @@ interface FakeMesh {
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
   const readHangs = new Set<string>();
+  const readDelays = new Map<string, number>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
   const putDoubleAcks = new Set<string>();
@@ -57,6 +59,13 @@ function createFakeMesh(): FakeMesh {
     const node: any = {
       once: vi.fn((cb?: (data: unknown) => void) => {
         if (readHangs.has(path)) {
+          return;
+        }
+        const readDelayMs = readDelays.get(path);
+        if (typeof readDelayMs === 'number' && readDelayMs > 0) {
+          setTimeout(() => {
+            cb?.(reads.get(path));
+          }, readDelayMs);
           return;
         }
         cb?.(reads.get(path));
@@ -85,6 +94,9 @@ function createFakeMesh(): FakeMesh {
     },
     setReadHang(path: string) {
       readHangs.add(path);
+    },
+    setReadDelay(path: string, delayMs: number) {
+      readDelays.set(path, delayMs);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -448,6 +460,48 @@ describe('newsAdapters', () => {
       await vi.advanceTimersByTimeAsync(2_500);
       await expect(readPromise).resolves.toBeNull();
     } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('readNewsStory ignores late once callback after timeout settlement', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setRead('news/stories/late-story', STORY);
+      mesh.setReadDelay('news/stories/late-story', 3_000);
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const readPromise = readNewsStory(client, 'late-story');
+      await vi.advanceTimersByTimeAsync(2_500);
+      await expect(readPromise).resolves.toBeNull();
+
+      // Trigger delayed once callback after readOnce has already resolved.
+      await vi.advanceTimersByTimeAsync(1_000);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('readNewsStory tolerates a timeout callback after early once settlement', async () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((() => undefined) as typeof clearTimeout);
+
+    try {
+      const mesh = createFakeMesh();
+      mesh.setRead('news/stories/settled-story', STORY);
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      await expect(readNewsStory(client, 'settled-story')).resolves.toEqual(STORY);
+
+      // With clearTimeout disabled, timeout callback still runs and must short-circuit.
+      await vi.advanceTimersByTimeAsync(2_500);
+    } finally {
+      clearTimeoutSpy.mockRestore();
       vi.useRealTimers();
     }
   });
