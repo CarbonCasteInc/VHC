@@ -1,14 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
-const { ensureNewsRuntimeStartedMock } = vi.hoisted(() => ({
-  ensureNewsRuntimeStartedMock: vi.fn(),
-}));
-
-vi.mock('./newsRuntimeBootstrap', () => ({
-  ensureNewsRuntimeStarted: (...args: unknown[]) => ensureNewsRuntimeStartedMock(...args),
-}));
-
 import { useAppStore, isE2EMode } from './index';
 import { createClient } from '@vh/gun-client';
 import * as storeModule from './index';
@@ -78,7 +70,6 @@ beforeEach(() => {
   mockGunAuth.mockClear();
   mockGunUser.is = null;
   (createClient as unknown as Mock).mockClear();
-  ensureNewsRuntimeStartedMock.mockReset();
   useAppStore.setState({
     client: null,
     profile: null,
@@ -95,15 +86,13 @@ describe('useAppStore', () => {
     expect(state.client).toBeTruthy();
     expect(mockHydration.prepare).toHaveBeenCalled();
     expect(state.identityStatus === 'idle' || state.identityStatus === 'ready').toBe(true);
-    expect(ensureNewsRuntimeStartedMock).toHaveBeenCalledWith(state.client);
   });
 
-  it('news runtime bootstrap path remains idempotent across repeated init calls', async () => {
+  it('init remains idempotent across repeated init calls', async () => {
     await useAppStore.getState().init();
     await useAppStore.getState().init();
 
     expect((createClient as unknown as Mock).mock.calls.length).toBe(1);
-    expect(ensureNewsRuntimeStartedMock).toHaveBeenCalledTimes(2);
   });
 
   it('createIdentity throws when client missing', async () => {
@@ -124,7 +113,6 @@ describe('useAppStore', () => {
     useAppStore.setState({ client: existingClient });
     await useAppStore.getState().init();
     expect((createClient as unknown as Mock).mock.calls.length).toBe(0);
-    expect(ensureNewsRuntimeStartedMock).toHaveBeenCalledWith(existingClient);
   });
 
   it('init handles corrupted persisted profile gracefully', async () => {

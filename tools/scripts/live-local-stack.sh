@@ -93,7 +93,7 @@ load_profile_env() {
 
   export VITE_E2E_MODE=false
   export VITE_VH_ANALYSIS_PIPELINE=true
-  export VITE_NEWS_RUNTIME_ENABLED=true
+  export VITE_NEWS_RUNTIME_ENABLED=false
   export VITE_NEWS_RUNTIME_ROLE=consumer
   export VITE_NEWS_BRIDGE_ENABLED=true
   export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-10000}"

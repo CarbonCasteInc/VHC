@@ -9,7 +9,6 @@ import type { DevicePair, IdentityRecord } from '@vh/types';
 import { migrateLegacyLocalStorage } from '@vh/identity-vault';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
-import { ensureNewsRuntimeStarted } from './newsRuntimeBootstrap';
 import { createMockClient } from './mockClient';
 import { setClientResolver } from './clientResolver';
 
@@ -83,11 +82,9 @@ function shouldBootstrapFeedBridges(): boolean {
 }
 
 async function bootstrapRuntimeFeatures(client: VennClient, context: string): Promise<void> {
-  try {
-    await ensureNewsRuntimeStarted(client);
-  } catch (runtimeError) {
-    console.warn(`[vh:news-runtime] Failed to bootstrap runtime (${context}):`, runtimeError);
-  }
+  // Production wiring: ingestion runs in the news-aggregator daemon.
+  // Browser clients are strictly consumers and only bootstrap feed bridges.
+  void client;
 
   if (shouldBootstrapFeedBridges()) {
     try {
