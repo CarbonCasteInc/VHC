@@ -684,3 +684,31 @@
 1. Merge sequencing was metadata/control-plane only and did not modify async enrichment queue boundaries.
 2. StoryBundle publication remains the blocking lane while analysis/bias-table enrichment remains asynchronous and non-blocking under Sprint A no-fallback wiring.
 3. No regression signal was introduced in this milestone for relay-default analysis behavior or bias-table precompute coupling.
+
+## Program Track — Post-Merge Acceptance Refresh Milestone (2026-03-05T1642Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Docs-only evidence commit pushed: `c742e22691acd51eff2d6ee56f63954a4caa3bae`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1642Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint A no-fallback production wiring remains merged on `main`.
+2. Headless acceptance refresh commands on merged `main` all pass after one direct unblock (`@vh/gun-client` build before news-aggregator typecheck in fresh worktree).
+3. Re-serve completed and pinned for Lou's test endpoint:
+   - `http://127.0.0.1:2048/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/gun` = 200
+
+### Next Actionable Steps
+
+1. Execute Sprint B mandatory 3.2-stage implementation + telemetry evidence path (currently unverified in repo lane).
+2. Produce deterministic same-event coherence fixture/live audit artifacts to satisfy final release gate item §16.7(3).
+3. Re-assess final DoD closure; disable cron only when all §16.7 gate items are simultaneously satisfied.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Re-serve/acceptance refresh did not change enrichment lane wiring; it remains asynchronous and non-blocking relative to headline publish.
+2. Live headless convergence specs pass post-merge, indicating vote mutation/convergence invariants remain intact under current wiring.
+3. Final closure is blocked by missing mandatory stage telemetry/coherence audit artifacts, not by analysis/bias-table persistence regressions.

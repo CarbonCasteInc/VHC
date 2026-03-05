@@ -1,0 +1,8 @@
+timestamp_utc=2026-03-05T16:49:34Z
+branch=coord/storycluster-sprint-a-prod-no-fallback
+head_sha=c742e22691acd51eff2d6ee56f63954a4caa3bae
+remote_head_sha=c742e22691acd51eff2d6ee56f63954a4caa3bae
+recent_commits=
+c742e22 docs(storycluster): add post-merge sequencing evidence for PR370
+a1774c8 docs(storycluster): record sprint-a no-fallback PR sequencing milestone
+c8433b3 feat(storycluster): enforce production no-fallback daemon wiring

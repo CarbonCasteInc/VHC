@@ -1,0 +1,9 @@
+=== command-8-build-gun-client ===
+timestamp_utc=2026-03-05T16:47:18Z
+cwd=/srv/trinity/worktrees/storycluster-main-accept
+cmd=pnpm --filter @vh/gun-client build
+
+> @vh/gun-client@0.0.1 build /srv/trinity/worktrees/storycluster-main-accept/packages/gun-client
+> tsc -p tsconfig.json
+
+exit_code=0

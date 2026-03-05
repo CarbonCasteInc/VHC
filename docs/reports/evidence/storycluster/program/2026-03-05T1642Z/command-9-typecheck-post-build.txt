@@ -1,0 +1,13 @@
+=== command-9-typecheck-post-build ===
+timestamp_utc=2026-03-05T16:47:20Z
+cwd=/srv/trinity/worktrees/storycluster-main-accept
+cmd=bash -lc pnpm --filter @vh/ai-engine typecheck && pnpm --filter @vh/news-aggregator typecheck
+
+> @vh/ai-engine@0.1.0 typecheck /srv/trinity/worktrees/storycluster-main-accept/packages/ai-engine
+> tsc --noEmit
+
+
+> @vh/news-aggregator@0.1.0 typecheck /srv/trinity/worktrees/storycluster-main-accept/services/news-aggregator
+> tsc --noEmit
+
+exit_code=0

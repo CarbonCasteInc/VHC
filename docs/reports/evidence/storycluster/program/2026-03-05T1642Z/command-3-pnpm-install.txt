@@ -1,0 +1,20 @@
+=== command-3-pnpm-install ===
+timestamp_utc=2026-03-05T16:46:35Z
+cwd=/srv/trinity/worktrees/storycluster-main-accept
+cmd=pnpm install --frozen-lockfile
+Scope: all 17 workspace projects
+Lockfile is up to date, resolution step is skipped
+Progress: resolved 1, reused 0, downloaded 0, added 0
+Packages: +1133
+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+Progress: resolved 1133, reused 1133, downloaded 0, added 1133, done
+
+devDependencies:
++ @vitest/coverage-v8 2.1.9
++ jsdom 24.1.3
++ madge 8.0.0
++ typescript 5.9.3
++ vitest 2.1.9
+
+Done in 1.6s
+exit_code=0
