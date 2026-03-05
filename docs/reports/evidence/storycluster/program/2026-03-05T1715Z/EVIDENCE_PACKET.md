@@ -19,6 +19,7 @@
 8. `node tools/scripts/check-diff-coverage.mjs`
 9. plan extract: section `16.7 Final release gate`
 10. no-fallback integration touchpoint inventory in orchestrator/daemon files via `rg`
+11. `git rev-parse HEAD` + `git ls-remote --heads origin coord/storycluster-sprint-a-prod-no-fallback` (post-commit push pin)
 
 ## Deterministic artifact paths
 
@@ -33,6 +34,7 @@
 - `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/command-8-diff-coverage-docs-only.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/command-9-final-release-gate-extract.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/command-10-no-fallback-touchpoint-inventory.txt`
+- `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/command-11-docs-push-state.txt`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/command-status.csv`
 - `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/command-status-summary.txt`
 
@@ -46,6 +48,7 @@
 | Explicit stage telemetry contract fields are not yet present in current advanced artifact types | PASS (gap confirmed) | `command-5-telemetry-contract-audit.txt` |
 | Deterministic coherence audit artifacts for §16.7(3) are still missing | PASS (gap confirmed) | `command-6-coherence-artifact-audit.txt` |
 | No-fallback production touchpoints for Sprint B integration handoff are pinned | PASS | `command-10-no-fallback-touchpoint-inventory.txt` |
+| Docs artifact milestone commit is pinned and pushed to lane branch | PASS | `command-11-docs-push-state.txt` |
 | Changed-file coverage gate under this docs-only milestone | PASS | `command-8-diff-coverage-docs-only.txt` |
 | Cron disable condition reached | NO | `command-7-cron-status.txt` (job `365ab8b8-1ad1-454b-aa07-c78e008deba0` remains running) |
 
