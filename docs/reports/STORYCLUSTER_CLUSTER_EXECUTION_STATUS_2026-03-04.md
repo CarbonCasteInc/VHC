@@ -771,3 +771,33 @@
 1. This milestone is validation-only and does not modify StoryBundle publish vs async enrichment queue boundaries.
 2. Analysis relay default behavior and bias-table precompute coupling remain unchanged from prior merged Sprint A wiring.
 3. No new regression signal was introduced for analysis/bias-table persistence or vote convergence in this milestone.
+
+## Program Track — Sprint B Gap Inventory Artifact Milestone (2026-03-05T1715Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Milestone advanced this run: **artifact completion** (Sprint B no-fallback implementation gap inventory with deterministic handoff map)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint B mandatory 3.2 stage requirements are now pinned from plan source text as deterministic run artifact.
+2. Repository inventory confirms `services/storycluster-engine/` is still absent on merged `main`, so §16.7(2) remains blocked.
+3. Existing advanced-pipeline function surface in `packages/ai-engine/src/newsAdvancedPipeline*` is now enumerated for direct reuse/migration planning.
+4. Deterministic coherence audit artifact search remains empty (excluding current run folder), so §16.7(3) remains blocked.
+5. No-fallback production integration touchpoints (`newsOrchestrator.ts`, `daemon.ts`, `daemonUtils.ts`) are pinned for immediate Sprint B code implementation.
+
+### Next Actionable Steps
+
+1. Implement Sprint B code slice 1: scaffold `services/storycluster-engine` with a deterministic stage-runner contract and per-stage telemetry envelope wired end-to-end (service contract tests required).
+2. Add fixture-based deterministic coherence audit harness and artifact output to satisfy §16.7(3).
+3. Run merged-main acceptance + re-serve after Sprint B slice lands; disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gate items are PASS simultaneously.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is artifact-only and does not modify StoryBundle blocking publish lane vs async enrichment queue behavior.
+2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback wiring.
+3. No regression signal was introduced for analysis/bias-table persistence or vote convergence in this milestone.

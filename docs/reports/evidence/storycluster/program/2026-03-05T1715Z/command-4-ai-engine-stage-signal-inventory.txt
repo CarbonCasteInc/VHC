@@ -1,0 +1,39 @@
+timestamp_utc=2026-03-05T17:16:32Z
+command=inventory advanced pipeline function exports
+--- packages/ai-engine/src/newsAdvancedPipelineCore.ts
+33:export function buildStoryAdvancedArtifact(
+72:export function buildStoryAdvancedArtifacts(
+--- packages/ai-engine/src/newsAdvancedPipelineEntity.ts
+78:function toEntityId(value: string): string {
+82:export function extractEntityCandidates(bundle: StoryBundle): string[] {
+110:export function buildEntityLinks(entityCandidates: readonly string[]): StoryEntityLink[] {
+151:export function findMentionedEntityIds(text: string, links: readonly StoryEntityLink[]): string[] {
+169:function parseIsoDate(text: string): number | null {
+179:function parseRelativeDate(text: string, referenceNowMs: number): StoryTemporalAnchor | null {
+231:export function normalizeTemporalAnchor(
+268:export function resolveActionProfile(text: string): ActionProfile {
+280:export function clusterSignal(bundle: StoryBundle): number {
+287:export function gdeltFromAction(action: ActionProfile, confidence: number): StoryTupleGdeltGrounding {
+--- packages/ai-engine/src/newsAdvancedPipelinePrimitives.ts
+44:export function clamp01(value: number): number {
+51:export function roundMetric(value: number): number {
+55:export function normalizeToken(value: string): string {
+62:export function tokenize(value: string): string[] {
+69:export function titleCaseLabel(value: string): string {
+76:export function average(values: readonly number[]): number {
+84:export function jaccardDistance(left: ReadonlySet<string>, right: ReadonlySet<string>): number {
+103:export function normalizeOptions(
+--- packages/ai-engine/src/newsAdvancedPipeline.test.ts
+59:function makeTuple(
+--- packages/ai-engine/src/newsAdvancedPipelineTimeline.ts
+21:export function buildRefinementWindows(
+62:export function computeDriftMetrics(
+110:export function buildTimelineGraph(
+--- packages/ai-engine/src/newsAdvancedPipeline.ts
+--- packages/ai-engine/src/newsAdvancedPipelineTuples.ts
+32:function scoreTuple(
+57:export function buildInitialTupleInputs(
+119:export function rerankAndAdjudicateTuples(
+162:export function buildGdeltGrounding(tuples: readonly StoryMETuple[]): StoryGdeltAggregate[] {
+201:export function buildImpactBlend(
+--- packages/ai-engine/src/newsAdvancedPipelineTypes.ts

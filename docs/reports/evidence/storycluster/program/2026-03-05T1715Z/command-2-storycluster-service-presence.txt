@@ -1,0 +1,6 @@
+timestamp_utc=2026-03-05T17:15:51Z
+command=ls services + storycluster-engine presence
+attestation-verifier
+bridge-stub
+news-aggregator
+storycluster_engine_dir=absent

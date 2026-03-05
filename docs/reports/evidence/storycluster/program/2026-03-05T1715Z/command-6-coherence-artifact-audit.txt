@@ -1,0 +1,3 @@
+timestamp_utc=2026-03-05T17:17:12Z
+command=find deterministic coherence audit artifacts (excluding current run folder)
+note=empty_output_means_gate_16_7_3_artifact_gap
