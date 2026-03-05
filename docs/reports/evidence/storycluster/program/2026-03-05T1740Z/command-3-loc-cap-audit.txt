@@ -1,0 +1,12 @@
+   84 services/storycluster-engine/src/contracts.ts
+   16 services/storycluster-engine/src/index.ts
+  240 services/storycluster-engine/src/stageHandlers.ts
+  158 services/storycluster-engine/src/stageHelpers.ts
+  147 services/storycluster-engine/src/stageRunner.internal.test.ts
+  281 services/storycluster-engine/src/stageRunner.pipeline.test.ts
+   98 services/storycluster-engine/src/stageRunner.ts
+   35 services/storycluster-engine/src/stageState.ts
+   20 services/storycluster-engine/vitest.config.ts
+   24 services/storycluster-engine/package.json
+   17 services/storycluster-engine/tsconfig.json
+ 1120 total

@@ -1,0 +1,8 @@
+timestamp_utc=2026-03-05T18:21:07Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=pnpm --filter @vh/storycluster-engine build
+---
+
+> @vh/storycluster-engine@0.1.0 build /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+> tsc -p tsconfig.json
+

@@ -1,0 +1,14 @@
+command,status
+command-1-main-head-sha,PASS (exit=0)
+command-2-main-log,PASS (exit=0)
+command-3-pnpm-install,PASS (exit=0)
+command-4-ai-engine-vitest,PASS (exit=0)
+command-5-news-aggregator-vitest,PASS (exit=0)
+command-6-build-and-typecheck,PASS (exit=0)
+command-7-e2e-headless,PASS (exit=0)
+command-8-re-serve-main-refresh,PASS (exit=0)
+command-9-storycluster-service-presence,PASS (exit=0)
+command-10-final-release-gate-extract,PASS (exit=0)
+command-11-cron-status,PASS (exit=0)
+command-12-diff-coverage-docs-only,PASS (exit=0)
+overall=PASS

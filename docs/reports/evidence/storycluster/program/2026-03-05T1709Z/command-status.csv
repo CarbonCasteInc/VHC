@@ -1,0 +1,12 @@
+command-1-main-head-sha,0
+command-2-main-log,0
+command-3-pnpm-install,0
+command-4-ai-engine-vitest,0
+command-5-news-aggregator-vitest,0
+command-6-build-and-typecheck,0
+command-7-e2e-headless,0
+command-8-re-serve-main-refresh,0
+command-9-storycluster-service-presence,0
+command-10-final-release-gate-extract,0
+command-11-cron-status,0
+command-12-diff-coverage-docs-only,0

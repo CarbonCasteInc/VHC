@@ -656,3 +656,285 @@
 1. PR sequencing milestone is metadata/process-only; no code-path change to async enrichment boundaries.
 2. StoryBundle blocking lane vs enrichment non-blocking queue contract remains unchanged from prior validated milestone.
 3. No regression signal introduced for relay-default analysis generation or bias-table precompute coupling in this milestone.
+
+## Sprint A No-Fallback Track — Merge Sequencing Milestone (2026-03-05T16:28Z)
+
+- Branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- PR: `#370` — https://github.com/CarbonCasteInc/VHC/pull/370
+- Head SHA (merged PR head): `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+- Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Merge time (UTC): `2026-03-05T16:28:22Z`
+- Milestone advanced this run: **merge sequencing** (required-check green pin + merge closure)
+- Evidence packet: `docs/reports/evidence/storycluster/sprint-a-no-fallback/2026-03-05T1628Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint A canonical production no-fallback wiring is now merged on `main` (`d3d23965f41bb99cc971711a81b5a5ec71efe51c`).
+2. Required CI checks for PR #370 were fully green on merged head `a1774c8dc03432715cac06fcb302fc4cd465ec1d` (run `22726883701`).
+3. Prior deterministic validation constraints remain satisfied for Sprint A changed files: 350 LOC/file cap and 100% line/branch/function/statement coverage (see 2026-03-05T1547Z packet).
+
+### Next Actionable Steps
+
+1. Advance exactly one follow-on milestone: execute post-merge production/distribution headless acceptance refresh for canonical no-fallback wiring and pin deterministic artifacts.
+2. Re-serve updated VHC state at `https://ccibootstrap.tail6cc9b5.ts.net` immediately after acceptance refresh so live testing matches merged `main`.
+3. If acceptance refresh passes, prepare final StoryCluster DoD closure packet; if anything fails, execute direct unblock and append remediation artifacts.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Merge sequencing was metadata/control-plane only and did not modify async enrichment queue boundaries.
+2. StoryBundle publication remains the blocking lane while analysis/bias-table enrichment remains asynchronous and non-blocking under Sprint A no-fallback wiring.
+3. No regression signal was introduced in this milestone for relay-default analysis behavior or bias-table precompute coupling.
+
+## Program Track — Post-Merge Acceptance Refresh Milestone (2026-03-05T1642Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Docs-only evidence commit pushed: `c742e22691acd51eff2d6ee56f63954a4caa3bae`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1642Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint A no-fallback production wiring remains merged on `main`.
+2. Headless acceptance refresh commands on merged `main` all pass after one direct unblock (`@vh/gun-client` build before news-aggregator typecheck in fresh worktree).
+3. Re-serve completed and pinned for Lou's test endpoint:
+   - `http://127.0.0.1:2048/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/gun` = 200
+
+### Next Actionable Steps
+
+1. Execute Sprint B mandatory 3.2-stage implementation + telemetry evidence path (currently unverified in repo lane).
+2. Produce deterministic same-event coherence fixture/live audit artifacts to satisfy final release gate item §16.7(3).
+3. Re-assess final DoD closure; disable cron only when all §16.7 gate items are simultaneously satisfied.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Re-serve/acceptance refresh did not change enrichment lane wiring; it remains asynchronous and non-blocking relative to headline publish.
+2. Live headless convergence specs pass post-merge, indicating vote mutation/convergence invariants remain intact under current wiring.
+3. Final closure is blocked by missing mandatory stage telemetry/coherence audit artifacts, not by analysis/bias-table persistence regressions.
+
+## Program Track — Acceptance CI Unblock Artifact Milestone (2026-03-05T1651Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Milestone advanced this run: **artifact completion** (isolated CI unblock packet for post-merge acceptance typecheck lane)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1651Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. The previously blocked post-merge acceptance typecheck lane is explicitly captured as a standalone deterministic unblock packet.
+2. Direct unblock command chain (`@vh/gun-client` build → ai-engine/news-aggregator typecheck) passes on merged `main` acceptance worktree.
+3. No production-path wiring changes were introduced in this milestone; canonical no-fallback runtime constraints remain as merged.
+
+### Next Actionable Steps
+
+1. Execute Sprint B mandatory 3.2-stage implementation + telemetry evidence path to clear release gate §16.7(2).
+2. Produce deterministic same-event coherence fixture/live audit artifacts to clear release gate §16.7(3).
+3. Re-run final DoD closure evaluation and disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gates are PASS.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is unblock-artifact-only and does not alter analysis/bias-table runtime coupling.
+2. StoryBundle publish remains on the blocking lane, with enrichment/precompute work preserved on asynchronous non-blocking wiring.
+3. No new regression signal was introduced for relay-default analysis generation or bias-table precompute behavior in this step.
+
+## Program Track — Post-Merge Headless Acceptance Revalidation Milestone (2026-03-05T1709Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Milestone advanced this run: **deterministic acceptance validation** (full post-merge headless refresh rerun + re-serve verification)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1709Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Post-merge acceptance validation was rerun on merged `main` with all execution lanes green in one pass (`pnpm install`, ai-engine/news-aggregator focused vitest, build+typecheck chain, and `@vh/e2e` headless suite).
+2. Re-serve was re-executed and endpoint health is pinned for Lou:
+   - `http://127.0.0.1:2048/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/` = 200
+   - `https://ccibootstrap.tail6cc9b5.ts.net/gun` = 200
+3. Final release gate remains blocked by unresolved items:
+   - §16.7(2) mandatory 3.2 stages telemetry verification: **NOT VERIFIED** (no `services/storycluster-engine` present)
+   - §16.7(3) deterministic same-event coherence audits: **NOT VERIFIED** (artifact gap remains)
+4. Production-path guardrails remain canonical no-fallback; this milestone introduced no rollback toggles or fallback wiring.
+
+### Next Actionable Steps
+
+1. Advance Sprint B implementation by creating the first production `services/storycluster-engine` slice with mandatory stage telemetry contract tests (clear §16.7(2) gap incrementally).
+2. Produce deterministic coherence fixture/live audit artifacts tied to merged `main` to clear §16.7(3).
+3. Re-run final DoD closure evaluation and disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gates are simultaneously PASS.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is validation-only and does not modify StoryBundle publish vs async enrichment queue boundaries.
+2. Analysis relay default behavior and bias-table precompute coupling remain unchanged from prior merged Sprint A wiring.
+3. No new regression signal was introduced for analysis/bias-table persistence or vote convergence in this milestone.
+
+## Program Track — Sprint B Gap Inventory Artifact Milestone (2026-03-05T1715Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Merged-main under test: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Milestone advanced this run: **artifact completion** (Sprint B no-fallback implementation gap inventory with deterministic handoff map)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1715Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint B mandatory 3.2 stage requirements are now pinned from plan source text as deterministic run artifact.
+2. Repository inventory confirms `services/storycluster-engine/` is still absent on merged `main`, so §16.7(2) remains blocked.
+3. Existing advanced-pipeline function surface in `packages/ai-engine/src/newsAdvancedPipeline*` is now enumerated for direct reuse/migration planning.
+4. Deterministic coherence audit artifact search remains empty (excluding current run folder), so §16.7(3) remains blocked.
+5. No-fallback production integration touchpoints (`newsOrchestrator.ts`, `daemon.ts`, `daemonUtils.ts`) are pinned for immediate Sprint B code implementation.
+
+### Next Actionable Steps
+
+1. Implement Sprint B code slice 1: scaffold `services/storycluster-engine` with a deterministic stage-runner contract and per-stage telemetry envelope wired end-to-end (service contract tests required).
+2. Add fixture-based deterministic coherence audit harness and artifact output to satisfy §16.7(3).
+3. Run merged-main acceptance + re-serve after Sprint B slice lands; disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gate items are PASS simultaneously.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is artifact-only and does not modify StoryBundle blocking publish lane vs async enrichment queue behavior.
+2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback wiring.
+3. No regression signal was introduced for analysis/bias-table persistence or vote convergence in this milestone.
+
+## Program Track — Sprint B Slice 1 Scaffold Implementation Milestone (2026-03-05T1740Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Lane head at milestone start: `9dd17efc11ebed13042e9d9f7759fd5888b5f246`
+- Lane head after milestone commit/push: `902d05bd53ceb17a3f81cb4ac429243d8e2b74f4`
+- Milestone advanced this run: **artifact completion** (Sprint B slice 1 service scaffold + deterministic contract validation)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1740Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint B code slice 1 is now implemented and pushed on lane head `902d05bd53ceb17a3f81cb4ac429243d8e2b74f4` as a dedicated `services/storycluster-engine` workspace package with deterministic stage-runner contracts and fail-closed execution semantics.
+2. Mandatory 3.2 stage sequence IDs are encoded explicitly (`language_translation` through `summarize_publish_payloads`) and emitted in telemetry envelopes.
+3. Strict quality gates pass for this changed slice:
+   - 350 LOC/file cap satisfied on all changed files.
+   - 100% line/branch/function/statement coverage on changed executable files (`contracts.ts`, `stageHelpers.ts`, `stageHandlers.ts`, `stageRunner.ts`).
+   - service `typecheck` and `build` pass.
+4. Program-level final gate remains blocked by unresolved items beyond this slice:
+   - §16.7(2): deeper mandatory stage implementation/telemetry richness still needs expansion beyond scaffold baseline.
+   - §16.7(3): deterministic same-event coherence fixture/live audit artifacts are still pending.
+
+### Next Actionable Steps
+
+1. Advance Sprint B slice 2: wire `services/storycluster-engine` into daemon production path in no-fallback mode with health-checked invocation contract tests.
+2. Expand per-stage telemetry payloads to include required stage-level artifact counters/latency fields matching §16.3 acceptance intent.
+3. Implement and run deterministic same-event coherence audit harness; publish artifact packet and re-evaluate §16.7 closure status.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is additive service scaffolding only; it does not alter StoryBundle blocking publish lane vs async enrichment lane boundaries.
+2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback wiring.
+3. Sprint B integration follow-ups must preserve non-blocking enrichment behavior while introducing StoryCluster service authority in the clustering lane.
+
+## Program Track — Sprint B Slice 2 Daemon-Path Service Wiring Milestone (2026-03-05T1820Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Lane head at milestone start: `ab3e0d0384a6382b0a1ac920dae2b5a7775223b0`
+- Lane head after milestone commit/push: `e994b896b454a6a7ae15e2bf6f6a17f2f64a3a1c`
+- Milestone advanced this run: **artifact completion** (Sprint B slice 2 service/daemon invocation contract wiring + deterministic validation)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1820Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint B slice 2 is now implemented in `services/storycluster-engine` with canonical `/health` + `/cluster` service endpoints and auth-capable request gating.
+2. The service-side remote contract now deterministically maps normalized StoryCluster input items into StoryBundle-v0 output payloads with stage telemetry passthrough.
+3. Daemon production-path compatibility is validated by contract: `StoryClusterRemoteEngine` can consume this service response shape directly while existing no-fallback production tests remain green.
+4. Strict quality gates for this changed slice are green:
+   - 350 LOC/file cap holds for all changed files.
+   - 100% line/branch/function/statement coverage on changed executable files in `services/storycluster-engine`.
+   - Storycluster-engine `typecheck` + `build` pass.
+5. Final closure remains blocked on downstream gates beyond this milestone (same-event coherence artifacts and full §16.7 DoD closure).
+
+### Next Actionable Steps
+
+1. Advance Sprint B slice 3: implement deterministic same-event coherence audit harness/artifacts for §16.7(3) closure.
+2. Expand stage telemetry richness toward final §16.7(2) acceptance intent (stage-level counters/latency detail where still thin).
+3. Run merged-main acceptance + re-serve with updated Sprint B slices, then disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gate items are simultaneously PASS.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone wires clustering service contract semantics only; it does not alter blocking StoryBundle publish behavior vs async analysis/bias-table enrichment queue boundaries.
+2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback path.
+3. Added service contract work preserves non-blocking enrichment assumptions while moving clustering authority to the dedicated StoryCluster service lane.
+
+## Program Track — Sprint B Slice 3 Coherence Audit Harness Milestone (2026-03-05T1933Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Lane head at milestone start: `d3ed5e16b0a8c18cc2c7c18a355ad9f85b86de10`
+- Lane head after milestone commit/push: `b5abac80db34e6bdbdd1fc37e8485fe4180fd758`
+- Milestone advanced this run: **artifact completion** (Sprint B slice 3 deterministic same-event coherence audit harness + evidence)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1933Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Sprint B slice 3 is now implemented in `services/storycluster-engine/src/coherenceAudit.ts` with deterministic fixture/live-replay audit scoring for contamination + fragmentation + coherence.
+2. Deterministic audit output is now pinned in run artifacts with strict thresholds met for both datasets (`contamination_rate=0`, `fragmentation_rate=0`, `coherence_score=1.0`).
+3. Regression-guard branches are explicitly covered (contamination, fragmentation, unmapped-source handling, malformed response fallback), preserving fail-closed quality checks.
+4. Strict quality gates remain green for changed files:
+   - 350 LOC/file cap holds (`coherenceAudit.ts` 342 LOC, `coherenceAudit.test.ts` 349 LOC).
+   - 100% line/branch/function/statement coverage for storycluster-engine sources.
+   - storycluster-engine `typecheck` + `build` pass.
+5. Final closure remains blocked on the remaining downstream gate item §16.7(2): mandatory-stage telemetry richness expansion and final integrated acceptance replay.
+
+### Next Actionable Steps
+
+1. Advance Sprint B telemetry-richness slice: extend stage telemetry payloads with per-stage artifact counters/latency details required for §16.7(2) closure evidence.
+2. Wire coherence audit execution into the final merged-main acceptance replay packet (fixture + live-replay + headless acceptance in one deterministic closure lane).
+3. Re-run merged-main acceptance + re-serve (`https://ccibootstrap.tail6cc9b5.ts.net`) and disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only when all §16.7 gate items are simultaneously PASS.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. This milestone is audit-harness-only; it does not alter StoryBundle blocking publish behavior vs async enrichment queue wiring.
+2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback path.
+3. Coherence-audit additions are read-only validation utilities and do not introduce blocking dependencies in analysis/bias-table generation lanes.
+
+## Program Track — Sprint B Telemetry-Richness Slice Milestone (2026-03-05T1951Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Lane head at milestone start: `3f3968c4c30be551b3edaaaed2947c9ebb5b2cb3`
+- Lane implementation head (pushed): `75dcadd756e3d583b6a5af93367d4fe6c52f2a4f`
+- Milestone advanced this run: **artifact completion** (Sprint B telemetry-richness expansion for mandatory stage telemetry contract)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1951Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Stage telemetry contract now includes deterministic `gate_pass_rate`, `latency_per_item_ms`, and `artifact_counts` for every mandatory stage.
+2. Stage-runner execution now emits per-stage artifact counters and fail-closed error telemetry counters (`failed_stage`, `retained_docs_before_error`) while preserving deterministic stage order.
+3. Strict quality gates remain green for changed files:
+   - 350 LOC/file cap holds (`contracts.ts` 89 LOC, `stageHelpers.ts` 268 LOC, `stageRunner.ts` 116 LOC).
+   - 100% line/branch/function/statement coverage in storycluster-engine test coverage output.
+   - storycluster-engine `typecheck` + `build` pass.
+4. Existing no-fallback production guard tests remain green (`newsOrchestrator.production.test.ts`, `daemon.production.test.ts`).
+5. Final closure is still pending integrated acceptance replay and release-gate convergence across §16.7.
+
+### Next Actionable Steps
+
+1. Run final integrated acceptance replay lane combining: telemetry-rich stage run evidence + coherence audit + merged-main headless acceptance + re-serve verification.
+2. Produce the final §16.7 closure matrix showing all mandatory stage telemetry checks and coherence gates PASS simultaneously.
+3. Disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only after full StoryCluster DoD + production/distribution-ready acceptance report is complete.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Telemetry-richness changes are confined to clustering-stage metadata and do not alter StoryBundle publish vs async enrichment queue boundaries.
+2. Analysis relay default behavior and bias-table precompute coupling remain unchanged under canonical no-fallback wiring.
+3. No blocking dependency was introduced between telemetry enrichment and analysis/bias-table generation; headline publication remains non-blocking relative to enrichment lanes.

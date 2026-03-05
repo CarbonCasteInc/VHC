@@ -1,0 +1,3 @@
+timestamp_utc=2026-03-05T17:11:09Z
+command=test -d services/storycluster-engine && find services/storycluster-engine -maxdepth 2 -type f
+storycluster_service=absent

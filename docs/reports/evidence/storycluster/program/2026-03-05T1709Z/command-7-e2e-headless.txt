@@ -1,0 +1,376 @@
+timestamp_utc=2026-03-05T17:10:03Z
+command=pnpm --filter @vh/e2e test
+
+> @vh/e2e@0.0.0 test /srv/trinity/worktrees/storycluster-main-accept/packages/e2e
+> VITE_E2E_MODE=true pnpm --filter @vh/web-pwa build && VITE_E2E_MODE=true playwright test
+
+
+> @vh/web-pwa@0.1.0 prebuild /srv/trinity/worktrees/storycluster-main-accept/apps/web-pwa
+> pnpm -w prebuild:guards
+
+
+> vh-monorepo@0.0.0 prebuild:guards /srv/trinity/worktrees/storycluster-main-accept
+> pnpm --dir tools/scripts/vh exec tsx ../guards/checkProductionFlags.ts
+
+
+> @vh/web-pwa@0.1.0 build /srv/trinity/worktrees/storycluster-main-accept/apps/web-pwa
+> vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 1369 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                              1.13 kB │ gzip:   0.63 kB
+dist/assets/worker-AEe_t0A3.js              67.62 kB
+dist/assets/index-DTirFpVF.css              49.11 kB │ gzip:   8.99 kB
+dist/assets/socialFeedAdapter-DpM8v1Mp.js    0.64 kB │ gzip:   0.42 kB
+dist/assets/ShareModal-BN_oW2RW.js           3.51 kB │ gzip:   1.40 kB
+dist/assets/feedBridge-BhoitKlw.js           4.67 kB │ gzip:   1.87 kB
+dist/assets/AnalysisFeed-BYF0_hNL.js        22.35 kB │ gzip:   8.27 kB
+dist/assets/WalletPanel-uRE9lYhN.js        275.06 kB │ gzip: 101.20 kB
+dist/assets/CollabEditor-Brrr2DJX.js       423.55 kB │ gzip: 129.68 kB
+dist/assets/index-WBRr_3dg.js              700.75 kB │ gzip: 216.43 kB
+✓ built in 4.57s
+
+
+Running 13 tests using 8 workers
+
+[1A[2K[1/13] [chromium] › src/live/bias-vote-convergence.live.spec.ts:1221:7 › live mesh convergence › A->B bias vote aggregate convergence across live matrix
+[1A[2K[2/13] [chromium] › src/live/three-user-convergence.live.spec.ts:264:7 › live three-user convergence › A/B/C concurrent votes converge correctly across all three clients
+[1A[2K[3/13] [chromium] › src/live/vote-mutation.live.spec.ts:297:7 › live vote mutation › vote toggle and switch transitions update state and survive reload
+[1A[2K[4/13] [chromium] › src/full-flow.spec.ts:23:7 › Golden Path E2E › Identity -> Attestation -> Wallet -> UBE -> Analysis -> Device Link
+[1A[2K[5/13] [chromium] › src/multi-user/messaging.spec.ts:108:7 › Multi-User: Shared Mesh Sync › Mesh list returns all matching items
+[1A[2K[6/13] [chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[1A[2K[7/13] [chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[1A[2K[8/13] [chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[1A[2K[9/13] [chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[1A[2K[10/13] [chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[1A[2K[11/13] [chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[1A[2K[12/13] [chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[Alice] [vh:directory] Published entry for mock-nullifier-ec70e...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:directory] Published entry for mock-nullifier-6372a...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:directory] Published entry for mock-nullifier-1a18e...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Alice] [vh:directory] Published entry for mock-nullifier-9a3cd...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Alice] [vh:directory] Published entry for mock-nullifier-80335...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:directory] Published entry for mock-nullifier-3cae6...
+
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Alice] [vh:directory] Published entry for mock-nullifier-c2aa2...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[Alice] [vh:directory] Published entry for mock-nullifier-1f8fe...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[Alice] [vh:directory] Published entry for mock-nullifier-eb7f8...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:directory] Published entry for mock-nullifier-614dd...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[Alice] [vh:directory] Published entry for mock-nullifier-8016c...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[Alice] [vh:directory] Published entry for mock-nullifier-aa508...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[Alice] [vh:directory] Published entry for mock-nullifier-38706...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Alice] [vh:gun] Already authenticated
+
+[1A[2K[Alice] [vh:directory] Published entry for mock-nullifier-24695...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:144:7 › Multi-User: Forum Integration › Trust gate blocks untrusted user from posting
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:223:7 › Multi-User: Messaging › Directory lookup fails gracefully for unknown contact
+[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[13/13] [chromium] › src/tracer-bullet.spec.ts:5:9 › The Tracer Bullet: E2E Integration › should complete the full Identity -> Analysis loop
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-df33c...
+
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-d06b8...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Bob] [vh:gun] Already authenticated
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Bob] [vh:directory] Published entry for mock-nullifier-623f5...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Bob] [vh:directory] Published entry for mock-nullifier-8b39b...
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Bob] [vh:directory] Published entry for mock-nullifier-1d721...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-b5bdb...
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-97f64...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:88:7 › Multi-User: Shared Mesh Sync › Data written by Alice is visible to Bob via shared mesh
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-ed67b...
+
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-b98bb...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:53:7 › Multi-User: Isolated Contexts › Alice and Bob have separate identities
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-987c1...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Bob] [vh:gun] Already authenticated
+
+[1A[2K[Bob] [vh:directory] Published entry for mock-nullifier-2c559...
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:71:7 › Multi-User: Isolated Contexts › Alice and Bob can both access HERMES
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:172:7 › Multi-User: Messaging › Alice and Bob exchange messages
+[Alice] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[Alice] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Alice] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+
+
+
+
+[1A[2K[chromium] › src/multi-user/messaging.spec.ts:125:7 › Multi-User: Forum Integration › Alice creates thread visible to Bob
+[Bob] [vh:web-pwa] main.tsx executing, mounting router...
+
+[1A[2K[Bob] [vh:web-pwa] Starting in E2E/Offline Mode with mocked client
+
+[1A[2K[Bob] [vh:web-pwa] SW registered: ServiceWorkerRegistration
+
+[1A[2K  3 skipped
+  10 passed (7.9s)
+
+To open last HTML report run:
+
+  pnpm exec playwright show-report
+

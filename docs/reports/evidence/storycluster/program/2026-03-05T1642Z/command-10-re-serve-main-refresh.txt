@@ -1,0 +1,16 @@
+timestamp_utc=2026-03-05T16:47:41Z
+worktree=/srv/trinity/worktrees/storycluster-main-accept
+served_sha=d3d23965f41bb99cc971711a81b5a5ec71efe51c
+served_sha_short=d3d2396
+step=kill_existing_web_pwa
+killing_pids=400901 400914
+step=start_web_pwa_dev
+new_pid=445992
+step=process_check
+ 445992 node /usr/bin/pnpm --filter @vh/web-pwa dev --port 2048 --strictPort
+ 446005 node /srv/trinity/worktrees/storycluster-main-accept/apps/web-pwa/node_modules/.bin/../vite/bin/vite.js --port 2048 --strictPort
+step=http_checks
+local_root_http=200
+tailnet_root_http=200
+tailnet_gun_http=200
+step=done

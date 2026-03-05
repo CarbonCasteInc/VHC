@@ -1,0 +1,41 @@
+timestamp_utc=2026-03-05T18:21:09Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=pnpm --dir services/news-aggregator exec vitest run src/daemon.production.test.ts
+---
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod/services/news-aggregator
+
+stdout | src/daemon.production.test.ts
+Hello wonderful person! :) Thanks for using GUN, please ask for help on http://chat.gun.eco if anything takes you longer than 5min to figure out!
+
+stdout | src/daemon.production.test.ts > news daemon production wiring > wires production no-fallback orchestrator settings on daemon startup
+[vh:news-daemon] runtime started {
+  holder_id: 'vh-news-daemon:ccibootstrap:460411',
+  poll_interval_ms: null
+}
+[vh:news-daemon] leadership loop started {
+  holder_id: 'vh-news-daemon:ccibootstrap:460411',
+  lease_ttl_ms: 120000,
+  lease_renew_interval_ms: 60000
+}
+[vh:news-daemon] stopped { holder_id: 'vh-news-daemon:ccibootstrap:460411' }
+
+stdout | src/daemon.production.test.ts > news daemon production wiring > passes configured Gun peers to client factory
+[vh:news-daemon] runtime started {
+  holder_id: 'vh-news-daemon:ccibootstrap:460411',
+  poll_interval_ms: null
+}
+[vh:news-daemon] leadership loop started {
+  holder_id: 'vh-news-daemon:ccibootstrap:460411',
+  lease_ttl_ms: 120000,
+  lease_renew_interval_ms: 60000
+}
+[vh:news-daemon] stopped { holder_id: 'vh-news-daemon:ccibootstrap:460411' }
+
+ ✓ src/daemon.production.test.ts (6 tests) 11ms
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  18:21:10
+   Duration  670ms (transform 313ms, setup 0ms, collect 453ms, tests 11ms, environment 0ms, prepare 61ms)
+

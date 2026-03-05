@@ -1,0 +1,16 @@
+command,status,exit_code
+command-1-head-and-log,PASS,0
+command-1b-log,PASS,0
+command-2-loc-cap-audit,PASS,0
+command-3-storycluster-engine-test-coverage,PASS,0
+command-4-storycluster-engine-typecheck,PASS,0
+command-5-storycluster-engine-build,PASS,0
+command-6-telemetry-focused-vitest,PASS,0
+command-7-ai-engine-production-no-fallback-vitest,PASS,0
+command-8-news-daemon-production-vitest,PASS,0
+command-9-diff-coverage,PASS,0
+command-10-cron-status,PASS,0
+command-11-git-status,PASS,0
+command-12-primary-plan-required-sections,PASS,0
+command-13-status-tail,PASS,0
+command-14-push-state,PASS,0

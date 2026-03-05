@@ -1,0 +1,3 @@
+timestamp_utc=2026-03-05T17:16:57Z
+command=rg word-boundary telemetry fields in StoryAdvancedPipeline types
+note=empty_output_means_no_explicit_stage_telemetry_contract_fields

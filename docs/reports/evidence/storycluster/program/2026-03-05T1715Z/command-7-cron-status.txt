@@ -1,0 +1,11 @@
+timestamp_utc=2026-03-05T17:17:19Z
+command=openclaw cron list
+ID                                   Name                     Schedule                         Next       Last       Status    Target    Agent ID   Model               
+365ab8b8-1ad1-454b-aa07-c78e008deba0 StoryCluster prod no-... every 20m                        11m ago    31m ago    running   isolated  main       -
+ad09187f-2309-4a2e-94e7-495893667337 Daily update check + ... cron 45 3 * * * @ America/Tor... in 15h     9h ago     ok        isolated  main       -
+628ccdc0-fd43-4827-9dfd-3246708becfb Post-update A2A guard... cron 50 3 * * * @ America/Tor... in 16h     8h ago     ok        isolated  main       -
+0ac7c6fa-18c9-448d-8278-a35890bd56e0 Daily Gmail triage (p... cron 55 3 * * * @ America/Tor... in 16h     8h ago     ok        isolated  main       -
+7d534c57-8f86-48ee-a93c-ac36a81d4335 Daily operational dig... cron 0 6 * * * @ America/Toro... in 18h     6h ago     ok        isolated  main       -
+8de6007f-8db3-46f5-9e04-807d0ea96ab1 Weekly KPI review (Mo... cron 0 7 * * 1 @ America/Toro... in 4d      3d ago     ok        isolated  main       -
+3e4e9a67-704b-4fd4-8395-8c40a7309d58 Monthly adversarial d... cron 40 3 1 * * @ America/Tor... in 27d     1d ago     ok        isolated  main       -
+9f249d64-ef77-44bb-b6fe-24aae67e364d Verify maintenance cr... cron 0 4 2 3 * @ America/Toro... in 362d    3d ago     error     isolated  main       -

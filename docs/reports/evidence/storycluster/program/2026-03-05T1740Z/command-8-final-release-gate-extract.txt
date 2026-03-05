@@ -1,0 +1,9 @@
+### 16.7 Final release gate (before claiming full completion)
+
+All items below must be true simultaneously:
+
+1. Production ingestion path uses StoryCluster only.
+2. All mandatory 3.2 stages are implemented and telemetry-verified.
+3. Story bundles show high same-event coherence on live and fixture audits.
+4. Latest/Hot ranking semantics match spec under deterministic replay.
+5. Analysis and bias-table persistence/vote convergence behavior remains intact under this wiring.

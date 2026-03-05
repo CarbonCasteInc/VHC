@@ -1,0 +1,4 @@
+
+> @vh/storycluster-engine@0.1.0 build /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+> tsc -p tsconfig.json
+

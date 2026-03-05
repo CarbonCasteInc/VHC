@@ -1,0 +1,24 @@
+timestamp_utc=2026-03-05T17:15:56Z
+command=awk extract section 16.3 Sprint B mandatory stages
+### 16.3 Sprint B: Implement mandatory 3.2 pipeline stages in StoryCluster service
+
+Implement these as required stages in the service, in order:
+
+1. Language detection + selective translation (FastText gate + model translation path).
+2. Near-duplicate collapse (MinHash + pHash fusion with explicit thresholds).
+3. Document-type classification and centroid weighting.
+4. Matryoshka embedding generation (192/384/768 outputs).
+5. ME tuple extraction + NER/entity linking + temporal normalization.
+6. Qdrant candidate retrieval with geo/time/entity pre-filters.
+7. Hybrid scoring with learned weights contract.
+8. Cross-encoder reranking gate.
+9. LLM adjudication gate (<5% ambiguity lane).
+10. Dynamic cluster assignment and centroid updates.
+11. Cluster summarization and artifact publication payloads.
+
+Acceptance criteria:
+
+1. Service emits deterministic bundle outputs for fixed fixtures.
+2. Service exposes per-stage telemetry (input counts, gate pass rates, latency).
+3. Service contract tests validate all mandatory stage artifacts are present.
+

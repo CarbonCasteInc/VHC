@@ -1,0 +1,5 @@
+timestamp_utc=2026-03-05T17:20:19Z
+command=git rev-parse HEAD && git ls-remote --heads origin coord/storycluster-sprint-a-prod-no-fallback
+head_sha=63f58c7ee762ae2e98da115ce6855c8c5c58b372
+head_short=63f58c7
+63f58c7ee762ae2e98da115ce6855c8c5c58b372	refs/heads/coord/storycluster-sprint-a-prod-no-fallback

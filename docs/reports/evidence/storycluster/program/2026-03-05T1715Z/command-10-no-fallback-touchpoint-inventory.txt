@@ -1,0 +1,57 @@
+timestamp_utc=2026-03-05T17:17:49Z
+command=rg no-fallback wiring touchpoints for Sprint B service integration
+packages/ai-engine/src/newsOrchestrator.ts:6:  StoryClusterRemoteEngine,
+packages/ai-engine/src/newsOrchestrator.ts:7:  readStoryClusterRemoteEndpoint,
+packages/ai-engine/src/newsOrchestrator.ts:10:  type StoryClusterBatchInput,
+packages/ai-engine/src/newsOrchestrator.ts:19:export type StoryClusterEngine = ClusterEngine<StoryClusterBatchInput, StoryBundle>;
+packages/ai-engine/src/newsOrchestrator.ts:22:  clusterEngine?: StoryClusterEngine;
+packages/ai-engine/src/newsOrchestrator.ts:23:  remoteClusterEndpoint?: string;
+packages/ai-engine/src/newsOrchestrator.ts:24:  remoteClusterTimeoutMs?: number;
+packages/ai-engine/src/newsOrchestrator.ts:25:  remoteClusterHeaders?: Record<string, string>;
+packages/ai-engine/src/newsOrchestrator.ts:26:  remoteFetchFn?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+packages/ai-engine/src/newsOrchestrator.ts:30:  productionMode?: boolean;
+packages/ai-engine/src/newsOrchestrator.ts:31:  allowHeuristicFallback?: boolean;
+packages/ai-engine/src/newsOrchestrator.ts:56:function resolveClusterEngine(options: NewsOrchestratorOptions = {}): StoryClusterEngine {
+packages/ai-engine/src/newsOrchestrator.ts:61:  const productionMode = options.productionMode ?? false;
+packages/ai-engine/src/newsOrchestrator.ts:62:  const allowHeuristicFallback = options.allowHeuristicFallback ?? !productionMode;
+packages/ai-engine/src/newsOrchestrator.ts:64:  if (productionMode && allowHeuristicFallback) {
+packages/ai-engine/src/newsOrchestrator.ts:68:  const remoteEndpoint =
+packages/ai-engine/src/newsOrchestrator.ts:69:    options.remoteClusterEndpoint ??
+packages/ai-engine/src/newsOrchestrator.ts:70:    (options.allowEnvRemoteEndpoint ? readStoryClusterRemoteEndpoint() : undefined);
+packages/ai-engine/src/newsOrchestrator.ts:72:  if (!remoteEndpoint) {
+packages/ai-engine/src/newsOrchestrator.ts:73:    if (productionMode) {
+packages/ai-engine/src/newsOrchestrator.ts:74:      throw new Error('storycluster remote endpoint is required in production mode');
+packages/ai-engine/src/newsOrchestrator.ts:79:  const remoteEngine = new StoryClusterRemoteEngine({
+packages/ai-engine/src/newsOrchestrator.ts:80:    endpointUrl: remoteEndpoint,
+packages/ai-engine/src/newsOrchestrator.ts:81:    timeoutMs: options.remoteClusterTimeoutMs,
+packages/ai-engine/src/newsOrchestrator.ts:82:    headers: options.remoteClusterHeaders,
+packages/ai-engine/src/newsOrchestrator.ts:83:    fetchFn: options.remoteFetchFn,
+packages/ai-engine/src/newsOrchestrator.ts:86:  if (!allowHeuristicFallback) {
+packages/ai-engine/src/newsOrchestrator.ts:87:    return remoteEngine;
+packages/ai-engine/src/newsOrchestrator.ts:90:  return new AutoEngine<StoryClusterBatchInput, StoryBundle>({
+packages/ai-engine/src/newsOrchestrator.ts:92:    remote: remoteEngine,
+packages/ai-engine/src/newsRuntime.ts:14:const REMOTE_PROVIDER_ID = 'remote-analysis';
+packages/ai-engine/src/newsRuntime.ts:29:    kind: 'remote';
+packages/ai-engine/src/newsRuntime.ts:148:              kind: 'remote',
+services/news-aggregator/src/daemonUtils.ts:22:export interface StoryClusterRemoteConfig {
+services/news-aggregator/src/daemonUtils.ts:108:export function deriveStoryClusterHealthUrl(endpointUrl: string): string {
+services/news-aggregator/src/daemonUtils.ts:125:export function parseStoryClusterRemoteConfig(): StoryClusterRemoteConfig {
+services/news-aggregator/src/daemonUtils.ts:133:    throw new Error('storycluster remote endpoint is required (VH_STORYCLUSTER_REMOTE_URL)');
+services/news-aggregator/src/daemonUtils.ts:142:    throw new Error('storycluster auth token is required (VH_STORYCLUSTER_REMOTE_AUTH_TOKEN)');
+services/news-aggregator/src/daemonUtils.ts:154:    deriveStoryClusterHealthUrl(endpointUrl);
+services/news-aggregator/src/daemonUtils.ts:166:export async function verifyStoryClusterHealth(
+services/news-aggregator/src/daemonUtils.ts:167:  config: Pick<StoryClusterRemoteConfig, 'healthUrl' | 'headers' | 'timeoutMs'> & {
+services/news-aggregator/src/daemonUtils.ts:178:    throw new Error('fetch API is unavailable for storycluster health check');
+services/news-aggregator/src/daemonUtils.ts:194:      throw new Error(`storycluster health check failed: HTTP ${response.status}`);
+services/news-aggregator/src/daemonUtils.ts:198:      throw new Error(`storycluster health check timed out after ${config.timeoutMs}ms`);
+services/news-aggregator/src/daemon.ts:25:  parseStoryClusterRemoteConfig,
+services/news-aggregator/src/daemon.ts:29:  verifyStoryClusterHealth,
+services/news-aggregator/src/daemon.ts:252:  const storyCluster = parseStoryClusterRemoteConfig();
+services/news-aggregator/src/daemon.ts:253:  await verifyStoryClusterHealth({
+services/news-aggregator/src/daemon.ts:272:      productionMode: true,
+services/news-aggregator/src/daemon.ts:273:      allowHeuristicFallback: false,
+services/news-aggregator/src/daemon.ts:274:      remoteClusterEndpoint: storyCluster.endpointUrl,
+services/news-aggregator/src/daemon.ts:275:      remoteClusterTimeoutMs: storyCluster.timeoutMs,
+services/news-aggregator/src/daemon.ts:276:      remoteClusterHeaders: storyCluster.headers,
+services/news-aggregator/src/daemon.ts:334:  parseStoryClusterRemoteConfig,
+services/news-aggregator/src/daemon.ts:338:  verifyStoryClusterHealth,

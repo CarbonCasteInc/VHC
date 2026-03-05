@@ -1,0 +1,6 @@
+timestamp_utc=2026-03-05T17:15:46Z
+command=git rev-parse HEAD && git log --oneline --decorate -n 3
+d3d23965f41bb99cc971711a81b5a5ec71efe51c
+d3d2396 (HEAD, origin/main) Merge pull request #370 from CarbonCasteInc/coord/storycluster-sprint-a-prod-no-fallback
+a1774c8 docs(storycluster): record sprint-a no-fallback PR sequencing milestone
+c8433b3 feat(storycluster): enforce production no-fallback daemon wiring

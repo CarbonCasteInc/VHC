@@ -1,0 +1,6 @@
+timestamp_utc=2026-03-05T18:24:07Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=git rev-parse HEAD && git ls-remote --heads origin coord/storycluster-sprint-a-prod-no-fallback
+---
+e994b896b454a6a7ae15e2bf6f6a17f2f64a3a1c
+e994b896b454a6a7ae15e2bf6f6a17f2f64a3a1c	refs/heads/coord/storycluster-sprint-a-prod-no-fallback
