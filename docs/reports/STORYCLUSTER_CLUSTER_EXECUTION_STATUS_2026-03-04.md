@@ -904,3 +904,37 @@
 1. This milestone is audit-harness-only; it does not alter StoryBundle blocking publish behavior vs async enrichment queue wiring.
 2. Analysis relay defaults and bias-table precompute coupling remain unchanged under merged Sprint A no-fallback path.
 3. Coherence-audit additions are read-only validation utilities and do not introduce blocking dependencies in analysis/bias-table generation lanes.
+
+## Program Track — Sprint B Telemetry-Richness Slice Milestone (2026-03-05T1951Z)
+
+- Lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
+- Canonical PR context: `#370` (merged)
+  - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
+  - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
+- Lane head at milestone start: `3f3968c4c30be551b3edaaaed2947c9ebb5b2cb3`
+- Lane implementation head (pushed): `75dcadd756e3d583b6a5af93367d4fe6c52f2a4f`
+- Milestone advanced this run: **artifact completion** (Sprint B telemetry-richness expansion for mandatory stage telemetry contract)
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1951Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. Stage telemetry contract now includes deterministic `gate_pass_rate`, `latency_per_item_ms`, and `artifact_counts` for every mandatory stage.
+2. Stage-runner execution now emits per-stage artifact counters and fail-closed error telemetry counters (`failed_stage`, `retained_docs_before_error`) while preserving deterministic stage order.
+3. Strict quality gates remain green for changed files:
+   - 350 LOC/file cap holds (`contracts.ts` 89 LOC, `stageHelpers.ts` 268 LOC, `stageRunner.ts` 116 LOC).
+   - 100% line/branch/function/statement coverage in storycluster-engine test coverage output.
+   - storycluster-engine `typecheck` + `build` pass.
+4. Existing no-fallback production guard tests remain green (`newsOrchestrator.production.test.ts`, `daemon.production.test.ts`).
+5. Final closure is still pending integrated acceptance replay and release-gate convergence across §16.7.
+
+### Next Actionable Steps
+
+1. Run final integrated acceptance replay lane combining: telemetry-rich stage run evidence + coherence audit + merged-main headless acceptance + re-serve verification.
+2. Produce the final §16.7 closure matrix showing all mandatory stage telemetry checks and coherence gates PASS simultaneously.
+3. Disable cron `365ab8b8-1ad1-454b-aa07-c78e008deba0` only after full StoryCluster DoD + production/distribution-ready acceptance report is complete.
+
+### Precompute Analysis/Bias-Table Integration Notes
+
+1. Telemetry-richness changes are confined to clustering-stage metadata and do not alter StoryBundle publish vs async enrichment queue boundaries.
+2. Analysis relay default behavior and bias-table precompute coupling remain unchanged under canonical no-fallback wiring.
+3. No blocking dependency was introduced between telemetry enrichment and analysis/bias-table generation; headline publication remains non-blocking relative to enrichment lanes.

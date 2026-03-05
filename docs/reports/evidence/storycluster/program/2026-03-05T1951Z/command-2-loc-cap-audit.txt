@@ -1,0 +1,20 @@
+$ wc -l services/storycluster-engine/src/*.ts services/storycluster-engine/*.ts services/storycluster-engine/*.json
+  349 services/storycluster-engine/src/coherenceAudit.test.ts
+  342 services/storycluster-engine/src/coherenceAudit.ts
+   89 services/storycluster-engine/src/contracts.ts
+   42 services/storycluster-engine/src/index.ts
+  253 services/storycluster-engine/src/remoteContract.test.ts
+  303 services/storycluster-engine/src/remoteContract.ts
+   80 services/storycluster-engine/src/remoteEngine.contract.test.ts
+  336 services/storycluster-engine/src/server.test.ts
+  164 services/storycluster-engine/src/server.ts
+  240 services/storycluster-engine/src/stageHandlers.ts
+  268 services/storycluster-engine/src/stageHelpers.ts
+  159 services/storycluster-engine/src/stageRunner.internal.test.ts
+  300 services/storycluster-engine/src/stageRunner.pipeline.test.ts
+  116 services/storycluster-engine/src/stageRunner.ts
+   35 services/storycluster-engine/src/stageState.ts
+   20 services/storycluster-engine/vitest.config.ts
+   24 services/storycluster-engine/package.json
+   18 services/storycluster-engine/tsconfig.json
+ 3138 total

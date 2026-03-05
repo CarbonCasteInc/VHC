@@ -1,0 +1,21 @@
+$ pnpm --filter @vh/storycluster-engine exec vitest run src/stageRunner.pipeline.test.ts src/stageRunner.internal.test.ts --reporter=verbose
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+
+ ✓ src/stageRunner.internal.test.ts > stageRunnerInternal > normalizes tokens and classifies document titles
+ ✓ src/stageRunner.internal.test.ts > stageRunnerInternal > resolves language hints and lexical fallback
+ ✓ src/stageRunner.internal.test.ts > stageRunnerInternal > normalizes request documents, trims optional fields, and handles reference-now modes
+ ✓ src/stageRunner.internal.test.ts > stageRunnerInternal > normalizes clamp/hash/telemetry helpers and stage count selectors
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > runs all mandatory stages and emits deterministic telemetry envelope
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > is deterministic for a fixed request regardless of input order
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > covers rerank tie-break branches for published_at and doc_id ordering
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > handles empty document batches and falls back to clock-based reference time
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > throws validation errors for invalid request inputs
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > fails closed on stage errors with telemetry
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > covers punctuation-token fallback in clustering and untitled summary fallback
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  19:51:31
+   Duration  286ms (transform 78ms, setup 0ms, collect 113ms, tests 24ms, environment 0ms, prepare 108ms)
+

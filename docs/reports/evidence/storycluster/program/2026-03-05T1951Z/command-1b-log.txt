@@ -1,0 +1,7 @@
+$ git log --oneline --decorate -n 6
+3f3968c (HEAD -> coord/storycluster-sprint-a-prod-no-fallback, origin/coord/storycluster-sprint-a-prod-no-fallback) docs(storycluster): refresh slice3 final head pin
+b5abac8 docs(storycluster): pin slice3 push-state evidence
+73b7b7c feat(storycluster): add deterministic coherence audit harness
+d3ed5e1 docs(storycluster): finalize sprint-b slice2 push-state evidence
+e994b89 feat(storycluster): wire sprint-b service contract into daemon path
+ab3e0d0 docs(storycluster): pin 1740 milestone push-state head
