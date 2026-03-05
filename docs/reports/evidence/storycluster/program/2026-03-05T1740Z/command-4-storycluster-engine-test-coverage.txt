@@ -1,0 +1,33 @@
+
+> @vh/storycluster-engine@0.1.0 test /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+> vitest run --coverage --config ./vitest.config.ts
+
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+      Coverage enabled with v8
+
+ ✓ src/stageRunner.internal.test.ts (4 tests) 9ms
+ ✓ src/stageRunner.pipeline.test.ts (7 tests) 15ms
+
+ Test Files  2 passed (2)
+      Tests  11 passed (11)
+   Start at  17:41:29
+   Duration  335ms (transform 74ms, setup 0ms, collect 107ms, tests 24ms, environment 0ms, prepare 134ms)
+
+ % Coverage report from v8
+------------------|---------|----------|---------|---------|-------------------
+File              | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+------------------|---------|----------|---------|---------|-------------------
+All files         |     100 |      100 |     100 |     100 |                   
+ contracts.ts     |     100 |      100 |     100 |     100 |                   
+ stageHandlers.ts |     100 |      100 |     100 |     100 |                   
+ stageHelpers.ts  |     100 |      100 |     100 |     100 |                   
+ stageRunner.ts   |     100 |      100 |     100 |     100 |                   
+------------------|---------|----------|---------|---------|-------------------
+
+=============================== Coverage summary ===============================
+Statements   : 100% ( 425/425 )
+Branches     : 100% ( 115/115 )
+Functions    : 100% ( 25/25 )
+Lines        : 100% ( 425/425 )
+================================================================================
