@@ -30,3 +30,13 @@ export {
   type StoryClusterRemoteRequest,
   type StoryClusterRemoteResponse,
 } from './remoteContract';
+
+export {
+  coherenceAuditInternal,
+  runStoryClusterCoherenceAudit,
+  type StoryClusterCoherenceAuditDataset,
+  type StoryClusterCoherenceAuditItem,
+  type StoryClusterCoherenceAuditReport,
+  type StoryClusterCoherenceDatasetResult,
+  type StoryClusterCoherenceThresholds,
+} from './coherenceAudit';

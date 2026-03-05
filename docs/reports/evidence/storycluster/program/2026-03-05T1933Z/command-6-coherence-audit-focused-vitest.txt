@@ -1,0 +1,66 @@
+timestamp_utc=2026-03-05T19:33:55Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=pnpm --filter @vh/storycluster-engine exec vitest run src/coherenceAudit.test.ts --reporter=verbose
+---
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+
+stdout | src/coherenceAudit.test.ts > runStoryClusterCoherenceAudit > passes deterministic fixture + live-replay coherence audits
+storycluster-coherence-audit-report {
+  "schema_version": "storycluster-coherence-audit-v1",
+  "generated_at_ms": 1710299999000,
+  "dataset_count": 2,
+  "thresholds": {
+    "max_contamination_rate": 0.05,
+    "max_fragmentation_rate": 0.05,
+    "min_coherence_score": 0.95
+  },
+  "datasets": [
+    {
+      "dataset_id": "fixture-same-event-coherence",
+      "topic_id": "topic-port-market",
+      "total_docs": 5,
+      "total_bundles": 2,
+      "total_events": 2,
+      "contamination_docs": 0,
+      "fragmentation_splits": 0,
+      "contamination_rate": 0,
+      "fragmentation_rate": 0,
+      "coherence_score": 1,
+      "pass": true
+    },
+    {
+      "dataset_id": "live-replay-sample",
+      "topic_id": "topic-live-sample",
+      "total_docs": 5,
+      "total_bundles": 3,
+      "total_events": 3,
+      "contamination_docs": 0,
+      "fragmentation_splits": 0,
+      "contamination_rate": 0,
+      "fragmentation_rate": 0,
+      "coherence_score": 1,
+      "pass": true
+    }
+  ],
+  "overall": {
+    "pass": true,
+    "avg_coherence_score": 1,
+    "max_contamination_rate": 0,
+    "max_fragmentation_rate": 0,
+    "failed_dataset_ids": []
+  }
+}
+
+ ✓ src/coherenceAudit.test.ts > runStoryClusterCoherenceAudit > passes deterministic fixture + live-replay coherence audits
+ ✓ src/coherenceAudit.test.ts > runStoryClusterCoherenceAudit > is metric-deterministic for reversed input ordering
+ ✓ src/coherenceAudit.test.ts > runStoryClusterCoherenceAudit > flags contamination, fragmentation, and unmapped-source regressions
+ ✓ src/coherenceAudit.test.ts > runStoryClusterCoherenceAudit > validates datasets and threshold ranges
+ ✓ src/coherenceAudit.test.ts > runStoryClusterCoherenceAudit > falls back to an empty bundle list when contract runner returns malformed bundles
+ ✓ src/coherenceAudit.test.ts > coherenceAuditInternal > clamps and ratios numerically
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  19:33:55
+   Duration  294ms (transform 70ms, setup 0ms, collect 75ms, tests 14ms, environment 0ms, prepare 60ms)
+

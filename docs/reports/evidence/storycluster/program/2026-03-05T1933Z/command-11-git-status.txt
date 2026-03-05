@@ -1,0 +1,10 @@
+timestamp_utc=2026-03-05T19:36:15Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=git status --short
+---
+ M docs/reports/STORYCLUSTER_CLUSTER_EXECUTION_STATUS_2026-03-04.md
+ M services/storycluster-engine/src/index.ts
+?? docs/reports/evidence/storycluster/program/2026-03-05T1932Z/
+?? docs/reports/evidence/storycluster/program/2026-03-05T1933Z/
+?? services/storycluster-engine/src/coherenceAudit.test.ts
+?? services/storycluster-engine/src/coherenceAudit.ts

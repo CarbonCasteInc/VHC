@@ -1,0 +1,91 @@
+timestamp_utc=2026-03-05T19:33:52Z
+cwd=/srv/trinity/worktrees/storycluster-prod
+command=pnpm --filter @vh/storycluster-engine test
+---
+
+> @vh/storycluster-engine@0.1.0 test /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+> vitest run --coverage --config ./vitest.config.ts
+
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-prod/services/storycluster-engine
+      Coverage enabled with v8
+
+ ✓ src/stageRunner.internal.test.ts (4 tests) 10ms
+stdout | src/coherenceAudit.test.ts > runStoryClusterCoherenceAudit > passes deterministic fixture + live-replay coherence audits
+storycluster-coherence-audit-report {
+  "schema_version": "storycluster-coherence-audit-v1",
+  "generated_at_ms": 1710299999000,
+  "dataset_count": 2,
+  "thresholds": {
+    "max_contamination_rate": 0.05,
+    "max_fragmentation_rate": 0.05,
+    "min_coherence_score": 0.95
+  },
+  "datasets": [
+    {
+      "dataset_id": "fixture-same-event-coherence",
+      "topic_id": "topic-port-market",
+      "total_docs": 5,
+      "total_bundles": 2,
+      "total_events": 2,
+      "contamination_docs": 0,
+      "fragmentation_splits": 0,
+      "contamination_rate": 0,
+      "fragmentation_rate": 0,
+      "coherence_score": 1,
+      "pass": true
+    },
+    {
+      "dataset_id": "live-replay-sample",
+      "topic_id": "topic-live-sample",
+      "total_docs": 5,
+      "total_bundles": 3,
+      "total_events": 3,
+      "contamination_docs": 0,
+      "fragmentation_splits": 0,
+      "contamination_rate": 0,
+      "fragmentation_rate": 0,
+      "coherence_score": 1,
+      "pass": true
+    }
+  ],
+  "overall": {
+    "pass": true,
+    "avg_coherence_score": 1,
+    "max_contamination_rate": 0,
+    "max_fragmentation_rate": 0,
+    "failed_dataset_ids": []
+  }
+}
+
+ ✓ src/stageRunner.pipeline.test.ts (7 tests) 14ms
+ ✓ src/remoteContract.test.ts (4 tests) 15ms
+ ✓ src/coherenceAudit.test.ts (6 tests) 18ms
+ ✓ src/remoteEngine.contract.test.ts (1 test) 38ms
+ ✓ src/server.test.ts (5 tests) 61ms
+
+ Test Files  6 passed (6)
+      Tests  27 passed (27)
+   Start at  19:33:52
+   Duration  456ms (transform 215ms, setup 0ms, collect 440ms, tests 155ms, environment 1ms, prepare 543ms)
+
+ % Coverage report from v8
+-------------------|---------|----------|---------|---------|-------------------
+File               | % Stmts | % Branch | % Funcs | % Lines | Uncovered Line #s 
+-------------------|---------|----------|---------|---------|-------------------
+All files          |     100 |      100 |     100 |     100 |                   
+ coherenceAudit.ts |     100 |      100 |     100 |     100 |                   
+ contracts.ts      |     100 |      100 |     100 |     100 |                   
+ remoteContract.ts |     100 |      100 |     100 |     100 |                   
+ server.ts         |     100 |      100 |     100 |     100 |                   
+ stageHandlers.ts  |     100 |      100 |     100 |     100 |                   
+ stageHelpers.ts   |     100 |      100 |     100 |     100 |                   
+ stageRunner.ts    |     100 |      100 |     100 |     100 |                   
+-------------------|---------|----------|---------|---------|-------------------
+
+=============================== Coverage summary ===============================
+Statements   : 100% ( 996/996 )
+Branches     : 100% ( 308/308 )
+Functions    : 100% ( 60/60 )
+Lines        : 100% ( 996/996 )
+================================================================================
