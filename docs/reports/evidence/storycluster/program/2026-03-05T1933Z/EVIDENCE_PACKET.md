@@ -7,7 +7,7 @@
   - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
 - Current lane branch: `coord/storycluster-sprint-a-prod-no-fallback`
 - Milestone branch head at run start: `d3ed5e16b0a8c18cc2c7c18a355ad9f85b86de10`
-- Milestone branch head after commit/push: `73b7b7c64eaaea2f4bfa98ffcb6b3b0a18789297`
+- Milestone branch head after commit/push: `b5abac80db34e6bdbdd1fc37e8485fe4180fd758`
 
 ## Exact commands executed
 

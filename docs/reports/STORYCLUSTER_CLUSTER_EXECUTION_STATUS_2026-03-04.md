@@ -878,7 +878,7 @@
   - PR head SHA: `a1774c8dc03432715cac06fcb302fc4cd465ec1d`
   - Merge commit on `main`: `d3d23965f41bb99cc971711a81b5a5ec71efe51c`
 - Lane head at milestone start: `d3ed5e16b0a8c18cc2c7c18a355ad9f85b86de10`
-- Lane head after milestone commit/push: `73b7b7c64eaaea2f4bfa98ffcb6b3b0a18789297`
+- Lane head after milestone commit/push: `b5abac80db34e6bdbdd1fc37e8485fe4180fd758`
 - Milestone advanced this run: **artifact completion** (Sprint B slice 3 deterministic same-event coherence audit harness + evidence)
 - Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-05T1933Z/EVIDENCE_PACKET.md`
 
