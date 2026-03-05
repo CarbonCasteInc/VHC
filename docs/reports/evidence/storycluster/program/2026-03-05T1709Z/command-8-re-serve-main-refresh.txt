@@ -1,0 +1,19 @@
+timestamp_utc=2026-03-05T17:10:54Z
+worktree=/srv/trinity/worktrees/storycluster-main-accept
+served_sha=d3d23965f41bb99cc971711a81b5a5ec71efe51c
+served_sha_short=d3d2396
+step=kill_existing_web_pwa
+killing_pids=446005 
+step=start_web_pwa_dev
+new_pid=449111
+step=process_check
+UID          PID    PPID  C STIME TTY          TIME CMD
+humble    449111  449102  3 17:10 ?        00:00:00 node /usr/bin/pnpm --filter @vh/web-pwa dev --port 2048 --strictPort
+449101 /bin/bash -c OUT=/srv/trinity/worktrees/storycluster-prod/docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-8-re-serve-main-refresh.txt; WORK=/srv/trinity/worktrees/storycluster-main-accept; { echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "worktree=$WORK"; echo "served_sha=$(git -C $WORK rev-parse HEAD)"; echo "served_sha_short=$(git -C $WORK rev-parse --short HEAD)"; echo "step=kill_existing_web_pwa"; PIDS=$(lsof -tiTCP:2048 -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true); if [ -n "$PIDS" ]; then echo "killing_pids=$PIDS"; kill $PIDS; sleep 1; else echo "killing_pids=none"; fi; echo "step=start_web_pwa_dev"; cd "$WORK"; nohup pnpm --filter @vh/web-pwa dev --port 2048 --strictPort >/tmp/storycluster-main-refresh-1709.log 2>&1 & NEWPID=$!; echo "new_pid=$NEWPID"; sleep 8; echo "step=process_check"; ps -fp "$NEWPID" || true; pgrep -af "vite.js --port 2048 --strictPort" || true; echo "step=http_checks"; LOCAL=$(curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:2048/ || true); TAILROOT=$(curl -ksS -o /dev/null -w "%{http_code}" https://ccibootstrap.tail6cc9b5.ts.net/ || true); TAILGUN=$(curl -ksS -o /dev/null -w "%{http_code}" https://ccibootstrap.tail6cc9b5.ts.net/gun || true); echo "local_root_http=$LOCAL"; echo "tailnet_root_http=$TAILROOT"; echo "tailnet_gun_http=$TAILGUN"; echo "step=done"; } | tee "$OUT"
+449102 /bin/bash -c OUT=/srv/trinity/worktrees/storycluster-prod/docs/reports/evidence/storycluster/program/2026-03-05T1709Z/command-8-re-serve-main-refresh.txt; WORK=/srv/trinity/worktrees/storycluster-main-accept; { echo "timestamp_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; echo "worktree=$WORK"; echo "served_sha=$(git -C $WORK rev-parse HEAD)"; echo "served_sha_short=$(git -C $WORK rev-parse --short HEAD)"; echo "step=kill_existing_web_pwa"; PIDS=$(lsof -tiTCP:2048 -sTCP:LISTEN 2>/dev/null | tr '\n' ' ' || true); if [ -n "$PIDS" ]; then echo "killing_pids=$PIDS"; kill $PIDS; sleep 1; else echo "killing_pids=none"; fi; echo "step=start_web_pwa_dev"; cd "$WORK"; nohup pnpm --filter @vh/web-pwa dev --port 2048 --strictPort >/tmp/storycluster-main-refresh-1709.log 2>&1 & NEWPID=$!; echo "new_pid=$NEWPID"; sleep 8; echo "step=process_check"; ps -fp "$NEWPID" || true; pgrep -af "vite.js --port 2048 --strictPort" || true; echo "step=http_checks"; LOCAL=$(curl -sS -o /dev/null -w "%{http_code}" http://127.0.0.1:2048/ || true); TAILROOT=$(curl -ksS -o /dev/null -w "%{http_code}" https://ccibootstrap.tail6cc9b5.ts.net/ || true); TAILGUN=$(curl -ksS -o /dev/null -w "%{http_code}" https://ccibootstrap.tail6cc9b5.ts.net/gun || true); echo "local_root_http=$LOCAL"; echo "tailnet_root_http=$TAILROOT"; echo "tailnet_gun_http=$TAILGUN"; echo "step=done"; } | tee "$OUT"
+449124 node /srv/trinity/worktrees/storycluster-main-accept/apps/web-pwa/node_modules/.bin/../vite/bin/vite.js --port 2048 --strictPort
+step=http_checks
+local_root_http=200
+tailnet_root_http=200
+tailnet_gun_http=200
+step=done
