@@ -41,14 +41,19 @@ export interface StoryClusterBundle {
   stage_version: 'storycluster-stage-runner-v1';
 }
 
+export type StoryClusterStageArtifactCounts = Record<string, number>;
+
 export interface StoryClusterStageTelemetry {
   stage_id: StoryClusterStageId;
   status: 'ok' | 'error';
   input_count: number;
   output_count: number;
+  gate_pass_rate: number;
   started_at_ms: number;
   ended_at_ms: number;
   latency_ms: number;
+  latency_per_item_ms: number;
+  artifact_counts: StoryClusterStageArtifactCounts;
   detail?: string;
 }
 

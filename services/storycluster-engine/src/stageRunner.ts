@@ -14,7 +14,10 @@ import {
   normalizeRequest,
   normalizeToken,
   resolveLanguage,
+  stageArtifactCounts,
+  stageGatePassRate,
   stageInputCount,
+  stageLatencyPerItemMs,
   stageOutputCount,
 } from './stageHelpers';
 import type { StageOverrideMap } from './stageState';
@@ -42,26 +45,38 @@ export function runStoryClusterStagePipeline(
     try {
       state = handlers[stageId](state);
       const endedAtMs = Math.floor(clock());
+      const outputCount = stageOutputCount(stageId, state);
+      const latencyMs = Math.max(0, endedAtMs - startedAtMs);
       stageTelemetry.push({
         stage_id: stageId,
         status: 'ok',
         input_count: inputCount,
-        output_count: stageOutputCount(stageId, state),
+        output_count: outputCount,
+        gate_pass_rate: stageGatePassRate(inputCount, outputCount),
         started_at_ms: startedAtMs,
         ended_at_ms: endedAtMs,
-        latency_ms: Math.max(0, endedAtMs - startedAtMs),
+        latency_ms: latencyMs,
+        latency_per_item_ms: stageLatencyPerItemMs(latencyMs, inputCount),
+        artifact_counts: stageArtifactCounts(stageId, state, inputCount, outputCount),
       });
     } catch (error) {
       const endedAtMs = Math.floor(clock());
       const detail = error instanceof Error ? error.message : String(error);
+      const latencyMs = Math.max(0, endedAtMs - startedAtMs);
       stageTelemetry.push({
         stage_id: stageId,
         status: 'error',
         input_count: inputCount,
         output_count: 0,
+        gate_pass_rate: 0,
         started_at_ms: startedAtMs,
         ended_at_ms: endedAtMs,
-        latency_ms: Math.max(0, endedAtMs - startedAtMs),
+        latency_ms: latencyMs,
+        latency_per_item_ms: stageLatencyPerItemMs(latencyMs, inputCount),
+        artifact_counts: {
+          failed_stage: 1,
+          retained_docs_before_error: state.documents.length,
+        },
         detail,
       });
       throw new StoryClusterStageError(
@@ -93,6 +108,9 @@ export const stageRunnerInternal = {
   resolveLanguage,
   normalizeRequest,
   hashToHex,
+  stageArtifactCounts,
+  stageGatePassRate,
   stageInputCount,
+  stageLatencyPerItemMs,
   stageOutputCount,
 };

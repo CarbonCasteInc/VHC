@@ -139,6 +139,18 @@ describe('stageRunnerInternal', () => {
     expect(stageRunnerInternal.stageOutputCount('summarize_publish_payloads', bareState)).toBe(1);
     expect(stageRunnerInternal.stageOutputCount('language_translation', bareState)).toBe(0);
 
+    expect(stageRunnerInternal.stageGatePassRate(0, 0)).toBe(1);
+    expect(stageRunnerInternal.stageGatePassRate(6, 5)).toBe(0.833);
+    expect(stageRunnerInternal.stageLatencyPerItemMs(10, 0)).toBe(10);
+    expect(stageRunnerInternal.stageLatencyPerItemMs(10, 4)).toBe(2.5);
+    expect(
+      stageRunnerInternal.stageArtifactCounts('summarize_publish_payloads', bareState, 1, 1),
+    ).toEqual({
+      bundle_count: 1,
+      total_bundle_sources: 0,
+      max_bundle_sources: 0,
+    });
+
     const emptyTelemetry = stageRunnerInternal.buildTelemetry('topic-x', 0, [], 5000);
     expect(emptyTelemetry.total_latency_ms).toBe(0);
     expect(emptyTelemetry.generated_at_ms).toBe(5000);

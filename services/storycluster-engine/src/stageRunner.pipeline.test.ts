@@ -75,6 +75,10 @@ describe('runStoryClusterStagePipeline', () => {
     expect(response.telemetry.stage_count).toBe(STORYCLUSTER_STAGE_SEQUENCE.length);
     expect(response.telemetry.stages.map((stage) => stage.stage_id)).toEqual(STORYCLUSTER_STAGE_SEQUENCE);
     expect(response.telemetry.stages.every((stage) => stage.status === 'ok')).toBe(true);
+    expect(response.telemetry.stages.every((stage) => stage.gate_pass_rate >= 0)).toBe(true);
+    expect(response.telemetry.stages.every((stage) => stage.gate_pass_rate <= 1)).toBe(true);
+    expect(response.telemetry.stages.every((stage) => stage.latency_per_item_ms >= 0)).toBe(true);
+    expect(response.telemetry.stages.every((stage) => Object.keys(stage.artifact_counts).length > 0)).toBe(true);
     expect(response.telemetry.request_doc_count).toBe(BASE_DOCS.length);
 
     const dedupeStage = response.telemetry.stages.find(
@@ -82,6 +86,17 @@ describe('runStoryClusterStagePipeline', () => {
     );
     expect(dedupeStage?.input_count).toBe(6);
     expect(dedupeStage?.output_count).toBe(5);
+    expect(dedupeStage?.gate_pass_rate).toBe(0.833);
+    expect(dedupeStage?.artifact_counts).toEqual({
+      retained_docs: 5,
+      dropped_docs: 1,
+    });
+
+    const adjudicationStage = response.telemetry.stages.find(
+      (stage) => stage.stage_id === 'llm_adjudication',
+    );
+    expect(adjudicationStage?.artifact_counts.accepted_docs).toBeGreaterThanOrEqual(1);
+    expect(adjudicationStage?.artifact_counts.review_docs).toBeGreaterThanOrEqual(0);
 
     expect(response.bundles.length).toBeGreaterThan(0);
     expect(response.bundles.every((bundle) => bundle.stage_version === 'storycluster-stage-runner-v1')).toBe(true);
@@ -168,6 +183,8 @@ describe('runStoryClusterStagePipeline', () => {
     expect(response.telemetry.stage_count).toBe(STORYCLUSTER_STAGE_SEQUENCE.length);
     expect(response.telemetry.stages.every((stage) => stage.input_count === 0)).toBe(true);
     expect(response.telemetry.stages.every((stage) => stage.output_count === 0)).toBe(true);
+    expect(response.telemetry.stages.every((stage) => stage.gate_pass_rate === 1)).toBe(true);
+    expect(response.telemetry.stages.every((stage) => stage.latency_per_item_ms >= 0)).toBe(true);
   });
 
   it('throws validation errors for invalid request inputs', () => {
@@ -224,6 +241,8 @@ describe('runStoryClusterStagePipeline', () => {
       const stageError = error as StoryClusterStageError;
       expect(stageError.stageId).toBe('hybrid_scoring');
       expect(stageError.telemetry.stages.at(-1)?.status).toBe('error');
+      expect(stageError.telemetry.stages.at(-1)?.gate_pass_rate).toBe(0);
+      expect(stageError.telemetry.stages.at(-1)?.artifact_counts.failed_stage).toBe(1);
       expect(stageError.telemetry.stages.at(-1)?.detail).toContain('synthetic stage failure');
     }
 
