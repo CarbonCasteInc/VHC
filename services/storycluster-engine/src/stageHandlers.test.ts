@@ -17,7 +17,10 @@ function makeProvider(overrides: Partial<StoryClusterModelProvider>): StoryClust
     async analyzeDocuments() {
       return [];
     },
-    async judgePairs() {
+    async rerankPairs() {
+      return [];
+    },
+    async adjudicatePairs() {
       return [];
     },
     async summarize() {

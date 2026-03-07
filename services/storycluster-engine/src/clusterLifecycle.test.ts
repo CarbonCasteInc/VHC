@@ -247,7 +247,10 @@ describe('clusterLifecycle', () => {
       async analyzeDocuments() {
         return [];
       },
-      async judgePairs(items) {
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs(items) {
         return items.map((item) => ({
           pair_id: item.pair_id,
           score: item.pair_id.startsWith('doc-2::') ? 0.83 : 0.21,
@@ -319,7 +322,10 @@ describe('clusterLifecycle', () => {
       async analyzeDocuments() {
         return [];
       },
-      async judgePairs() {
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs() {
         return [];
       },
       async summarize() {
@@ -369,7 +375,10 @@ describe('clusterLifecycle', () => {
       async analyzeDocuments() {
         return [];
       },
-      async judgePairs() {
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs() {
         return [];
       },
       async summarize() {
@@ -409,8 +418,11 @@ describe('clusterLifecycle', () => {
       async analyzeDocuments() {
         return [];
       },
-      async judgePairs() {
-        throw new Error('judgePairs should not be called');
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs() {
+        throw new Error('adjudicatePairs should not be called');
       },
       async summarize() {
         return [];
@@ -467,7 +479,10 @@ describe('clusterLifecycle', () => {
       async analyzeDocuments() {
         return [];
       },
-      async judgePairs() {
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs() {
         return [];
       },
       async summarize() {
@@ -523,7 +538,10 @@ describe('clusterLifecycle', () => {
       async analyzeDocuments() {
         return [];
       },
-      async judgePairs() {
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs() {
         return [];
       },
       async summarize() {
@@ -556,7 +574,10 @@ describe('clusterLifecycle', () => {
       async analyzeDocuments() {
         return [];
       },
-      async judgePairs() {
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs() {
         return [];
       },
       async summarize() {

@@ -61,6 +61,11 @@ export interface PairJudgementWorkResult {
   decision: 'accepted' | 'rejected' | 'abstain';
 }
 
+export interface PairRerankWorkResult {
+  pair_id: string;
+  score: number;
+}
+
 export interface SummaryWorkItem {
   cluster_id: string;
   headline: string;
@@ -78,6 +83,7 @@ export interface StoryClusterModelProvider {
   translate(items: TranslationWorkItem[]): Promise<TranslationWorkResult[]>;
   embed(items: EmbeddingWorkItem[], dimensions: number): Promise<EmbeddingWorkResult[]>;
   analyzeDocuments(items: DocumentAnalysisWorkItem[]): Promise<DocumentAnalysisWorkResult[]>;
-  judgePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]>;
+  rerankPairs(items: PairJudgementWorkItem[]): Promise<PairRerankWorkResult[]>;
+  adjudicatePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]>;
   summarize(items: SummaryWorkItem[]): Promise<SummaryWorkResult[]>;
 }

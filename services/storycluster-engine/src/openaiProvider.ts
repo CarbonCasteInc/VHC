@@ -1,16 +1,4 @@
-import {
-  type DocumentAnalysisWorkItem,
-  type DocumentAnalysisWorkResult,
-  type EmbeddingWorkItem,
-  type EmbeddingWorkResult,
-  type PairJudgementWorkItem,
-  type PairJudgementWorkResult,
-  type StoryClusterModelProvider,
-  type SummaryWorkItem,
-  type SummaryWorkResult,
-  type TranslationWorkItem,
-  type TranslationWorkResult,
-} from './modelProvider';
+import { type DocumentAnalysisWorkItem, type DocumentAnalysisWorkResult, type EmbeddingWorkItem, type EmbeddingWorkResult, type PairJudgementWorkItem, type PairJudgementWorkResult, type PairRerankWorkResult, type StoryClusterModelProvider, type SummaryWorkItem, type SummaryWorkResult, type TranslationWorkItem, type TranslationWorkResult } from './modelProvider';
 import { OpenAIClient, type OpenAIClientOptions } from './openaiClient';
 import { ensureSentence, normalizeText } from './textSignals';
 export interface OpenAIStoryClusterProviderOptions extends OpenAIClientOptions {
@@ -18,15 +6,7 @@ export interface OpenAIStoryClusterProviderOptions extends OpenAIClientOptions {
   embeddingModel?: string;
 }
 const DEFAULT_TEXT_MODEL = 'gpt-4o-mini', DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
-const VALID_DOCUMENT_TYPES = new Set([
-  'breaking_update',
-  'wire_report',
-  'hard_news',
-  'liveblog',
-  'analysis',
-  'opinion',
-  'explainer_recap',
-] as const);
+const VALID_DOCUMENT_TYPES = new Set(['breaking_update', 'wire_report', 'hard_news', 'liveblog', 'analysis', 'opinion', 'explainer_recap'] as const);
 function chunkBySize<T>(values: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < values.length; index += size) {
@@ -63,7 +43,6 @@ function normalizeDocType(value: unknown): DocumentAnalysisWorkResult['doc_type'
 function normalizeMaybeText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
 }
-
 function normalizeEventTuple(value: unknown): DocumentAnalysisWorkResult['event_tuple'] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null;
@@ -80,7 +59,6 @@ function normalizeEventTuple(value: unknown): DocumentAnalysisWorkResult['event_
     outcome: normalizeMaybeText(tuple.outcome),
   };
 }
-
 async function collectWithRetry<TRequest, TResult>(
   chunk: readonly TRequest[],
   request: (items: readonly TRequest[]) => Promise<TResult[]>,
@@ -99,7 +77,6 @@ async function collectWithRetry<TRequest, TResult>(
   }
   return chunk.map((item) => resultsById.get(requestId(item)) ?? fallback(item));
 }
-
 function defaultAnalysisResult(item: DocumentAnalysisWorkItem): DocumentAnalysisWorkResult {
   const entityHints = normalizeKeyList(item.entity_hints);
   return {
@@ -120,20 +97,16 @@ function defaultAnalysisResult(item: DocumentAnalysisWorkItem): DocumentAnalysis
     },
   };
 }
-
 export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
   readonly providerId = 'openai-storycluster';
-
   private readonly client: OpenAIClient;
   private readonly textModel: string;
   private readonly embeddingModel: string;
-
   constructor(options: OpenAIStoryClusterProviderOptions) {
     this.client = new OpenAIClient(options);
     this.textModel = options.textModel?.trim() || DEFAULT_TEXT_MODEL;
     this.embeddingModel = options.embeddingModel?.trim() || DEFAULT_EMBEDDING_MODEL;
   }
-
   async translate(items: TranslationWorkItem[]): Promise<TranslationWorkResult[]> {
     if (items.length === 0) {
       return [];
@@ -146,11 +119,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
         async (pending) => {
           const response = await this.client.chatJson<{ translations?: TranslationWorkResult[] }>({
             model: this.textModel,
-            system: [
-              'You translate news text into concise, faithful English.',
-              'Return strict JSON: {"translations":[{"doc_id":"...","translated_text":"..."}]}.',
-              'Preserve proper nouns, dates, locations, and event wording. No commentary.',
-            ].join(' '),
+            system: ['You translate news text into concise, faithful English.', 'Return strict JSON: {"translations":[{"doc_id":"...","translated_text":"..."}]}.', 'Preserve proper nouns, dates, locations, and event wording. No commentary.'].join(' '),
             user: JSON.stringify({ translations: pending }),
             temperature: 0,
             maxTokens: 4_000,
@@ -170,7 +139,6 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
     }
     return output;
   }
-
   async embed(items: EmbeddingWorkItem[], dimensions: number): Promise<EmbeddingWorkResult[]> {
     if (items.length === 0) {
       return [];
@@ -192,7 +160,6 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
     }
     return output;
   }
-
   async analyzeDocuments(items: DocumentAnalysisWorkItem[]): Promise<DocumentAnalysisWorkResult[]> {
     if (items.length === 0) {
       return [];
@@ -216,12 +183,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
             }>;
           }>({
             model: this.textModel,
-            system: [
-              'You analyze news documents for event clustering.',
-              'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire_report|hard_news|liveblog|analysis|opinion|explainer_recap","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.',
-              'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.',
-              'Use doc_type=analysis for analytical reporting, opinion for commentary, wire_report for wire copy, hard_news for straight reports.',
-            ].join(' '),
+            system: ['You analyze news documents for event clustering.', 'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire_report|hard_news|liveblog|analysis|opinion|explainer_recap","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.', 'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.', 'Use doc_type=analysis for analytical reporting, opinion for commentary, wire_report for wire copy, hard_news for straight reports.'].join(' '),
             user: JSON.stringify({ documents: pending }),
             temperature: 0,
             maxTokens: 4_000,
@@ -248,8 +210,39 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
     }
     return output;
   }
-
-  async judgePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]> {
+  async rerankPairs(items: PairJudgementWorkItem[]): Promise<PairRerankWorkResult[]> {
+    if (items.length === 0) {
+      return [];
+    }
+    const chunks = chunkBySize(items, 8);
+    const output: PairRerankWorkResult[] = [];
+    for (const chunk of chunks) {
+      output.push(...await collectWithRetry<PairJudgementWorkItem, PairRerankWorkResult>(
+        chunk,
+        async (pending) => {
+          const response = await this.client.chatJson<{ reranks?: Array<{ pair_id: string; score: number }> }>({
+            model: this.textModel,
+            system: ['You rerank document-to-cluster candidate pairs for same-event news clustering.', 'Return strict JSON: {"reranks":[{"pair_id":"...","score":0.0}]}.', 'score must be a calibrated 0..1 same-event similarity score.', 'Do not make final acceptance decisions here. Use the score only for ordering and margin comparison.'].join(' '),
+            user: JSON.stringify({ rerank_pairs: pending }),
+            temperature: 0,
+            maxTokens: 4_000,
+          });
+          return (response.reranks ?? []).map((item) => ({
+            pair_id: item.pair_id,
+            score: clampScore(item.score),
+          }));
+        },
+        (item) => item.pair_id,
+        (item) => item.pair_id,
+        (item) => ({
+          pair_id: item.pair_id,
+          score: 0,
+        }),
+      ));
+    }
+    return output;
+  }
+  async adjudicatePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]> {
     if (items.length === 0) {
       return [];
     }
@@ -261,15 +254,8 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
         async (pending) => {
           const response = await this.client.chatJson<{ judgements?: Array<{ pair_id: string; score: number; decision: string }> }>({
             model: this.textModel,
-            system: [
-              'You evaluate whether a news document belongs to an existing event cluster.',
-              'Use these decisions only: accepted, rejected, abstain.',
-              'Return strict JSON: {"judgements":[{"pair_id":"...","score":0.0,"decision":"accepted|rejected|abstain"}]}.',
-              'accepted means the same discrete event or its direct, time-bounded consequences are being covered.',
-              'reject topic-only links such as background explainers, opinion, analysis-only framing, or commentary that is not reporting the same event.',
-              'abstain means the items are near the same topic but event identity is still ambiguous.',
-            ].join(' '),
-            user: JSON.stringify({ pairs: pending }),
+            system: ['You evaluate whether a news document belongs to an existing event cluster.', 'Use these decisions only: accepted, rejected, abstain.', 'Return strict JSON: {"judgements":[{"pair_id":"...","score":0.0,"decision":"accepted|rejected|abstain"}]}.', 'accepted means the same discrete event or its direct, time-bounded consequences are being covered.', 'reject topic-only links such as background explainers, opinion, analysis-only framing, or commentary that is not reporting the same event.', 'abstain means the items are near the same topic but event identity is still ambiguous.'].join(' '),
+            user: JSON.stringify({ adjudication_pairs: pending }),
             temperature: 0,
             maxTokens: 4_000,
           });
@@ -290,7 +276,6 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
     }
     return output;
   }
-
   async summarize(items: SummaryWorkItem[]): Promise<SummaryWorkResult[]> {
     if (items.length === 0) {
       return [];
@@ -303,11 +288,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
         async (pending) => {
           const response = await this.client.chatJson<{ summaries?: SummaryWorkResult[] }>({
             model: this.textModel,
-            system: [
-              'You write canonical event summaries for a news clustering system.',
-              'Each summary must be 2-3 sentences, factual, neutral, and specific to the event.',
-              'Return strict JSON: {"summaries":[{"cluster_id":"...","summary":"..."}]}.',
-            ].join(' '),
+            system: ['You write canonical event summaries for a news clustering system.', 'Each summary must be 2-3 sentences, factual, neutral, and specific to the event.', 'Return strict JSON: {"summaries":[{"cluster_id":"...","summary":"..."}]}.'].join(' '),
             user: JSON.stringify({ clusters: pending }),
             temperature: 0.1,
             maxTokens: 4_000,
@@ -328,7 +309,6 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
     return output;
   }
 }
-
 export function createOpenAIStoryClusterProviderFromEnv(
   options: Omit<OpenAIStoryClusterProviderOptions, 'apiKey'> = {},
 ): OpenAIStoryClusterProvider {

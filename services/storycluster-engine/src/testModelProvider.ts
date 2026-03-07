@@ -5,6 +5,7 @@ import type {
   EmbeddingWorkResult,
   PairJudgementWorkItem,
   PairJudgementWorkResult,
+  PairRerankWorkResult,
   StoryClusterModelProvider,
   SummaryWorkItem,
   SummaryWorkResult,
@@ -32,6 +33,18 @@ function pairDecision(item: PairJudgementWorkItem): PairJudgementWorkResult {
     pair_id: item.pair_id,
     score: decision === 'accepted' ? 0.92 : decision === 'abstain' ? 0.58 : 0.12,
     decision,
+  };
+}
+
+function rerankScore(item: PairJudgementWorkItem): PairRerankWorkResult {
+  const entityOverlap = item.document_entities.filter((entity) => item.cluster_entities.includes(entity)).length;
+  const triggerMatch = item.document_trigger && item.cluster_triggers.some((trigger) =>
+    trigger === item.document_trigger || triggerCategory(trigger) === triggerCategory(item.document_trigger),
+  );
+  const score = entityOverlap > 0 && triggerMatch ? 0.92 : entityOverlap > 0 ? 0.58 : 0.12;
+  return {
+    pair_id: item.pair_id,
+    score,
   };
 }
 
@@ -69,7 +82,10 @@ export function createDeterministicTestModelProvider(): StoryClusterModelProvide
         };
       });
     },
-    async judgePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]> {
+    async rerankPairs(items: PairJudgementWorkItem[]): Promise<PairRerankWorkResult[]> {
+      return items.map(rerankScore);
+    },
+    async adjudicatePairs(items: PairJudgementWorkItem[]): Promise<PairJudgementWorkResult[]> {
       return items.map(pairDecision);
     },
     async summarize(items: SummaryWorkItem[]): Promise<SummaryWorkResult[]> {

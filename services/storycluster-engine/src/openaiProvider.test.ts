@@ -216,7 +216,22 @@ describe('OpenAIStoryClusterProvider', () => {
     const fetchFn = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
       const userPayload = JSON.parse(String(body.messages?.[1]?.content ?? '{}'));
-      if (userPayload.pairs) {
+      if (userPayload.rerank_pairs) {
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                reranks: [
+                  { pair_id: 'pair-accepted', score: 1.8 },
+                  { pair_id: 'pair-rejected', score: -4 },
+                  { pair_id: 'pair-fallback', score: null },
+                ],
+              }),
+            },
+          }],
+        });
+      }
+      if (userPayload.adjudication_pairs) {
         return jsonResponse({
           choices: [{
             message: {
@@ -250,8 +265,26 @@ describe('OpenAIStoryClusterProvider', () => {
     });
     const provider = new OpenAIStoryClusterProvider({ apiKey: 'key', fetchFn });
 
-    expect(await provider.judgePairs([])).toEqual([]);
-    const judgements = await provider.judgePairs(Array.from({ length: 10 }, (_, index) => ({
+    expect(await provider.rerankPairs([])).toEqual([]);
+    const reranks = await provider.rerankPairs(Array.from({ length: 10 }, (_, index) => ({
+      pair_id: ['pair-accepted', 'pair-rejected', 'pair-fallback'][index % 3]!,
+      document_title: 'Doc',
+      document_text: 'Text',
+      document_entities: ['entity'],
+      document_trigger: 'attack',
+      cluster_headline: 'Headline',
+      cluster_summary: 'Summary',
+      cluster_entities: ['entity'],
+      cluster_triggers: ['attack'],
+    })));
+    expect(reranks.slice(0, 3)).toEqual([
+      { pair_id: 'pair-accepted', score: 1 },
+      { pair_id: 'pair-rejected', score: 0 },
+      { pair_id: 'pair-fallback', score: 0 },
+    ]);
+
+    expect(await provider.adjudicatePairs([])).toEqual([]);
+    const judgements = await provider.adjudicatePairs(Array.from({ length: 10 }, (_, index) => ({
       pair_id: ['pair-accepted', 'pair-rejected', 'pair-abstain', 'pair-fallback'][index % 4]!,
       document_title: 'Doc',
       document_text: 'Text',
@@ -317,7 +350,21 @@ describe('OpenAIStoryClusterProvider', () => {
         outcome: 'Summary',
       },
     }]);
-    await expect(provider.judgePairs([{
+    await expect(provider.rerankPairs([{
+      pair_id: 'pair-1',
+      document_title: 'Doc',
+      document_text: 'Text',
+      document_entities: ['entity'],
+      document_trigger: 'attack',
+      cluster_headline: 'Headline',
+      cluster_summary: 'Summary',
+      cluster_entities: ['entity'],
+      cluster_triggers: ['attack'],
+    }])).resolves.toEqual([{
+      pair_id: 'pair-1',
+      score: 0,
+    }]);
+    await expect(provider.adjudicatePairs([{
       pair_id: 'pair-1',
       document_title: 'Doc',
       document_text: 'Text',
@@ -351,7 +398,7 @@ describe('OpenAIStoryClusterProvider', () => {
         callCount += 1;
         const body = JSON.parse(String(init?.body));
         const userPayload = JSON.parse(String(body.messages?.[1]?.content ?? '{}'));
-        const pending = userPayload.pairs as Array<{ pair_id: string }>;
+        const pending = userPayload.adjudication_pairs as Array<{ pair_id: string }>;
         if (callCount === 1) {
           return jsonResponse({
             choices: [{
@@ -375,7 +422,7 @@ describe('OpenAIStoryClusterProvider', () => {
       },
     });
 
-    await expect(provider.judgePairs([
+    await expect(provider.adjudicatePairs([
       {
         pair_id: 'pair-1',
         document_title: 'Doc 1',

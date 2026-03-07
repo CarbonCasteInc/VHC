@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { createDeterministicTestModelProvider } from './testModelProvider';
 
 describe('createDeterministicTestModelProvider', () => {
-  it('returns deterministic translations, embeddings, pair judgements, and summaries', async () => {
+  it('returns deterministic translations, embeddings, reranks, adjudications, and summaries', async () => {
     const provider = createDeterministicTestModelProvider();
 
     await expect(provider.translate([{ doc_id: 'doc-1', language: 'es', text: 'texto' }])).resolves.toEqual([
@@ -30,7 +30,22 @@ describe('createDeterministicTestModelProvider', () => {
       trigger: null,
     })]);
 
-    await expect(provider.judgePairs([{
+    await expect(provider.rerankPairs([{
+      pair_id: 'accepted',
+      document_title: 'Port attack update',
+      document_text: 'Port attack update',
+      document_entities: ['port_attack'],
+      document_trigger: 'attack',
+      cluster_headline: 'Port attack expands',
+      cluster_summary: 'Summary',
+      cluster_entities: ['port_attack'],
+      cluster_triggers: ['attack'],
+    }])).resolves.toEqual([{
+      pair_id: 'accepted',
+      score: 0.92,
+    }]);
+
+    await expect(provider.adjudicatePairs([{
       pair_id: 'accepted',
       document_title: 'Port attack update',
       document_text: 'Port attack update',
@@ -46,7 +61,22 @@ describe('createDeterministicTestModelProvider', () => {
       decision: 'accepted',
     }]);
 
-    await expect(provider.judgePairs([{
+    await expect(provider.rerankPairs([{
+      pair_id: 'abstain',
+      document_title: 'Port update',
+      document_text: 'Port update',
+      document_entities: ['port_attack'],
+      document_trigger: null,
+      cluster_headline: 'Port attack expands',
+      cluster_summary: 'Summary',
+      cluster_entities: ['port_attack'],
+      cluster_triggers: ['attack'],
+    }])).resolves.toEqual([{
+      pair_id: 'abstain',
+      score: 0.58,
+    }]);
+
+    await expect(provider.adjudicatePairs([{
       pair_id: 'abstain',
       document_title: 'Port update',
       document_text: 'Port update',
@@ -62,7 +92,22 @@ describe('createDeterministicTestModelProvider', () => {
       decision: 'abstain',
     }]);
 
-    await expect(provider.judgePairs([{
+    await expect(provider.rerankPairs([{
+      pair_id: 'rejected',
+      document_title: 'Market slump update',
+      document_text: 'Market slump update',
+      document_entities: ['market_slump'],
+      document_trigger: 'inflation',
+      cluster_headline: 'Port attack expands',
+      cluster_summary: 'Summary',
+      cluster_entities: ['port_attack'],
+      cluster_triggers: ['attack'],
+    }])).resolves.toEqual([{
+      pair_id: 'rejected',
+      score: 0.12,
+    }]);
+
+    await expect(provider.adjudicatePairs([{
       pair_id: 'rejected',
       document_title: 'Market slump update',
       document_text: 'Market slump update',

@@ -11,6 +11,7 @@ import {
 import { clusterScoringConfig, buildCandidateMatch, candidateEligible, shouldMergeClusters, shouldSplitPair } from './clusterScoring';
 import { projectStoryBundles } from './bundleProjection';
 import {
+  applyPairReranks,
   applyPairJudgements,
   buildPairId,
   pairWorkItem,
@@ -99,10 +100,10 @@ export async function rerankCandidates(
       return pairWorkItem(document, cluster);
     }),
   );
-  const reranks = await requireClusterProvider(provider, 'cross_encoder_rerank').judgePairs(rerankItems);
+  const reranks = await requireClusterProvider(provider, 'cross_encoder_rerank').rerankPairs(rerankItems);
   const rerankById = new Map(reranks.map((item) => [item.pair_id, item]));
   const documents = state.documents.map((document) => {
-    const candidateMatches = applyPairJudgements(document, document.candidate_matches, rerankById);
+    const candidateMatches = applyPairReranks(document, document.candidate_matches, rerankById);
     return {
       ...document,
       candidate_matches: candidateMatches,
@@ -150,7 +151,7 @@ export async function adjudicateCandidates(
     return pairWorkItem(document, cluster);
   });
   const adjudications = adjudicationItems.length > 0
-    ? await requireClusterProvider(provider, 'llm_adjudication').judgePairs(adjudicationItems)
+    ? await requireClusterProvider(provider, 'llm_adjudication').adjudicatePairs(adjudicationItems)
     : [];
   const adjudicationById = new Map(adjudications.map((item) => [item.pair_id, item]));
   const documents = state.documents.map((document) => {
@@ -206,7 +207,7 @@ export async function assignClusters(
           document,
           candidateMatches,
           new Map(
-            (await requireClusterProvider(provider, 'dynamic_cluster_assignment').judgePairs(
+            (await requireClusterProvider(provider, 'dynamic_cluster_assignment').adjudicatePairs(
               candidateMatches
                 .slice(0, 3)
                 .map((match) => pairWorkItem(document, clusters.get(match.story_id)!)),

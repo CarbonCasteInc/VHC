@@ -1,6 +1,6 @@
 import { clusterScoringConfig } from './clusterScoring';
 import type { StoryClusterStageId } from './contracts';
-import type { PairJudgementWorkResult, StoryClusterModelProvider } from './modelProvider';
+import type { PairJudgementWorkResult, PairRerankWorkResult, StoryClusterModelProvider } from './modelProvider';
 import type { CandidateMatch, StoredClusterRecord, WorkingDocument } from './stageState';
 
 const JUDGEMENT_ACCEPT_FLOOR = Math.min(0.95, Number((clusterScoringConfig.acceptThreshold + 0.08).toFixed(6)));
@@ -55,6 +55,32 @@ function normalizeJudgementScore(
     );
   }
   return Math.min(fallbackScore, judgement.score || 0, JUDGEMENT_REJECT_CEILING);
+}
+
+function normalizeRerankScore(score: number, fallbackScore: number): number {
+  if (!Number.isFinite(score)) {
+    return fallbackScore;
+  }
+  return Math.max(0, Math.min(1, Number(score.toFixed(6))));
+}
+
+export function applyPairReranks(
+  document: WorkingDocument,
+  candidateMatches: readonly CandidateMatch[],
+  reranksById: ReadonlyMap<string, PairRerankWorkResult>,
+): CandidateMatch[] {
+  return candidateMatches
+    .map((match) => {
+      const rerank = reranksById.get(buildPairId(document.doc_id, match.story_id));
+      if (!rerank) {
+        return match;
+      }
+      return {
+        ...match,
+        rerank_score: normalizeRerankScore(rerank.score, match.rerank_score),
+      };
+    })
+    .sort((left, right) => right.rerank_score - left.rerank_score || left.story_id.localeCompare(right.story_id));
 }
 
 export function applyPairJudgements(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyPairJudgements, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
+import { applyPairJudgements, applyPairReranks, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
 import type { CandidateMatch, StoredTopicState, WorkingDocument } from './stageState';
 
@@ -75,7 +75,15 @@ describe('clusterJudgement', () => {
     expect(() => requireClusterProvider(undefined, 'dynamic_cluster_assignment')).toThrow(
       'storycluster model provider is required for dynamic_cluster_assignment',
     );
-    const provider = { providerId: 'provider', translate: async () => [], embed: async () => [], analyzeDocuments: async () => [], judgePairs: async () => [], summarize: async () => [] };
+    const provider = {
+      providerId: 'provider',
+      translate: async () => [],
+      embed: async () => [],
+      analyzeDocuments: async () => [],
+      rerankPairs: async () => [],
+      adjudicatePairs: async () => [],
+      summarize: async () => [],
+    };
     expect(requireClusterProvider(provider, 'dynamic_cluster_assignment')).toBe(provider);
 
     const topicState: StoredTopicState = {
@@ -125,6 +133,62 @@ describe('clusterJudgement', () => {
     expect(next[1]).toMatchObject({ story_id: 'story-b', adjudication: 'abstain', rerank_score: 0.679 });
     expect(next[2]).toMatchObject({ story_id: 'story-c', adjudication: 'rejected', rerank_score: 0.48 });
     expect(next[3]).toMatchObject({ story_id: 'story-d', adjudication: 'rejected', rerank_score: 0 });
+  });
+
+  it('leaves candidate matches unchanged when the provider omits a judgement', () => {
+    const original = makeMatch('story-a', {
+      rerank_score: 0.62,
+      adjudication: 'abstain',
+      reason: 'ambiguous-same-topic',
+    });
+    const document = makeDocument({
+      candidate_matches: [original],
+    });
+
+    const next = applyPairJudgements(document, document.candidate_matches, new Map());
+
+    expect(next).toEqual([original]);
+  });
+
+  it('applies rerank scores without overwriting missing pairs', () => {
+    const document = makeDocument({
+      candidate_matches: [
+        makeMatch('story-a', { rerank_score: 0.2 }),
+        makeMatch('story-b', { rerank_score: 0.7 }),
+      ],
+    });
+
+    const next = applyPairReranks(
+      document,
+      document.candidate_matches,
+      new Map([
+        [buildPairId('doc-1', 'story-a'), { pair_id: buildPairId('doc-1', 'story-a'), score: 0.91 }],
+        [buildPairId('doc-1', 'story-b'), { pair_id: buildPairId('doc-1', 'story-b'), score: Number.NaN }],
+      ]),
+    );
+
+    expect(next[0]).toMatchObject({ story_id: 'story-a', rerank_score: 0.91 });
+    expect(next[1]).toMatchObject({ story_id: 'story-b', rerank_score: 0.7 });
+  });
+
+  it('sorts reranked ties deterministically by story id', () => {
+    const document = makeDocument({
+      candidate_matches: [
+        makeMatch('story-b', { rerank_score: 0.2 }),
+        makeMatch('story-a', { rerank_score: 0.2 }),
+      ],
+    });
+
+    const next = applyPairReranks(
+      document,
+      document.candidate_matches,
+      new Map([
+        [buildPairId('doc-1', 'story-b'), { pair_id: buildPairId('doc-1', 'story-b'), score: 0.91 }],
+        [buildPairId('doc-1', 'story-a'), { pair_id: buildPairId('doc-1', 'story-a'), score: 0.91 }],
+      ]),
+    );
+
+    expect(next.map((match) => match.story_id)).toEqual(['story-a', 'story-b']);
   });
 
   it('requests pair judgement only for ambiguous or near-threshold candidates', () => {
