@@ -85,7 +85,7 @@ describe('news daemon production wiring', () => {
     expect(config.headers).toEqual({
       authorization: 'Bearer token-123',
     });
-    expect(config.timeoutMs).toBe(8000);
+    expect(config.timeoutMs).toBe(90000);
   });
 
   it('verifies StoryCluster health and normalizes timeout failures', async () => {
@@ -148,7 +148,7 @@ describe('news daemon production wiring', () => {
         productionMode: true,
         allowHeuristicFallback: false,
         remoteClusterEndpoint: 'https://storycluster.example.com/cluster',
-        remoteClusterTimeoutMs: 8000,
+        remoteClusterTimeoutMs: 90000,
         remoteClusterHeaders: {
           authorization: 'Bearer token-123',
         },

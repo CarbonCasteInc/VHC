@@ -1,0 +1,141 @@
+import { defineConfig, devices, type TestConfig } from '@playwright/test';
+
+process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
+
+const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT ?? '8777');
+const baseUrl = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2148/';
+const gunPeerUrl = `http://localhost:${gunPort}/gun`;
+const runId = process.env.VH_DAEMON_FEED_RUN_ID;
+
+type DevFeedSource = {
+  id: string;
+  name: string;
+  displayName: string;
+  rssUrl: string;
+  perspectiveTag: string;
+  iconKey: string;
+  enabled: true;
+};
+
+const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
+  'fox-latest': {
+    id: 'fox-latest',
+    name: 'Fox News',
+    displayName: 'Fox News',
+    rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml',
+    perspectiveTag: 'conservative',
+    iconKey: 'fox',
+    enabled: true,
+  },
+  'nypost-politics': {
+    id: 'nypost-politics',
+    name: 'New York Post Politics',
+    displayName: 'New York Post',
+    rssUrl: 'https://nypost.com/politics/feed/',
+    perspectiveTag: 'conservative',
+    iconKey: 'nypost',
+    enabled: true,
+  },
+  'guardian-us': {
+    id: 'guardian-us',
+    name: 'The Guardian US',
+    displayName: 'The Guardian',
+    rssUrl: 'https://www.theguardian.com/us-news/rss',
+    perspectiveTag: 'progressive',
+    iconKey: 'guardian',
+    enabled: true,
+  },
+  'cbs-politics': {
+    id: 'cbs-politics',
+    name: 'CBS News Politics',
+    displayName: 'CBS News',
+    rssUrl: 'https://www.cbsnews.com/latest/rss/politics',
+    perspectiveTag: 'progressive',
+    iconKey: 'cbs',
+    enabled: true,
+  },
+  'bbc-general': {
+    id: 'bbc-general',
+    name: 'BBC News',
+    displayName: 'BBC News',
+    rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'bbc',
+    enabled: true,
+  },
+};
+
+const DEFAULT_SOURCE_IDS = ['fox-latest', 'nypost-politics', 'guardian-us', 'cbs-politics', 'bbc-general'];
+
+function extractPort(url: string): number {
+  try {
+    return Number(new URL(url).port) || 2148;
+  } catch {
+    return 2148;
+  }
+}
+
+function resolveDevFeedSourcesJson(): string {
+  if (typeof process.env.VITE_NEWS_FEED_SOURCES === 'string' && process.env.VITE_NEWS_FEED_SOURCES.trim().length > 0) {
+    return process.env.VITE_NEWS_FEED_SOURCES;
+  }
+
+  const requestedIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_SOURCE_IDS.join(','))
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  const resolved = requestedIds
+    .map((id) => DEV_FEED_CATALOG[id])
+    .filter((source): source is DevFeedSource => Boolean(source));
+  const fallback = DEFAULT_SOURCE_IDS
+    .map((id) => DEV_FEED_CATALOG[id])
+    .filter((source): source is DevFeedSource => Boolean(source));
+  return JSON.stringify(resolved.length > 0 ? resolved : fallback);
+}
+
+const localWebServers: TestConfig['webServer'] = [
+  {
+    command: [
+      `mkdir -p ../../.tmp/e2e-daemon-feed/${runId}/relay`,
+      `cd ../../.tmp/e2e-daemon-feed/${runId}/relay`,
+      `GUN_PORT=${gunPort} node ../../../../infra/relay/server.js`,
+    ].join(' && '),
+    url: `http://127.0.0.1:${gunPort}`,
+    reuseExistingServer: false,
+    timeout: 30_000,
+  },
+  {
+    command: `pnpm --filter @vh/web-pwa dev --port ${extractPort(baseUrl)} --strictPort`,
+    url: baseUrl,
+    reuseExistingServer: false,
+    timeout: 60_000,
+    env: {
+      VITE_E2E_MODE: 'false',
+      VITE_VH_ANALYSIS_PIPELINE: 'true',
+      VITE_NEWS_BRIDGE_ENABLED: 'true',
+      VITE_NEWS_RUNTIME_ENABLED: 'false',
+      VITE_NEWS_RUNTIME_ROLE: 'consumer',
+      VITE_GUN_PEERS: `["${gunPeerUrl}"]`,
+      VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
+    },
+  },
+];
+
+export default defineConfig({
+  testDir: './src/live',
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: 0,
+  workers: 1,
+  reporter: 'list',
+  use: {
+    trace: 'retain-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+  webServer: localWebServers,
+});

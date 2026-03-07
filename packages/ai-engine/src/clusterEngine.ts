@@ -29,7 +29,7 @@ export interface AutoEngineOptions<TInput, TOutput> {
   onRemoteFailure?: (error: unknown) => void;
 }
 
-const DEFAULT_REMOTE_TIMEOUT_MS = 8_000;
+const DEFAULT_REMOTE_TIMEOUT_MS = 90_000;
 
 function isPromiseLike<T>(value: unknown): value is Promise<T> {
   return (

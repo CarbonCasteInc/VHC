@@ -340,7 +340,7 @@ describe('clusterEngine', () => {
   });
 
   it('internal guards validate timeout and payload helpers', () => {
-    expect(clusterEngineInternal.normalizeRemoteTimeoutMs(undefined)).toBe(8000);
+    expect(clusterEngineInternal.normalizeRemoteTimeoutMs(undefined)).toBe(90000);
     expect(clusterEngineInternal.normalizeRemoteTimeoutMs(1500.9)).toBe(1500);
     expect(() => clusterEngineInternal.normalizeRemoteTimeoutMs(0)).toThrow(
       'timeoutMs must be a positive finite number',

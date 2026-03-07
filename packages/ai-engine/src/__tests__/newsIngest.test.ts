@@ -28,13 +28,37 @@ const atomXml = `
   </feed>
 `;
 
+const multiItemRssXml = `
+  <rss>
+    <channel>
+      <item>
+        <title>Newest headline</title>
+        <link>https://example.com/news/newest</link>
+        <pubDate>Mon, 05 Feb 2024 14:00:00 GMT</pubDate>
+      </item>
+      <item>
+        <title>Middle headline</title>
+        <link>https://example.com/news/middle</link>
+        <pubDate>Mon, 05 Feb 2024 13:00:00 GMT</pubDate>
+      </item>
+      <item>
+        <title>Oldest headline</title>
+        <link>https://example.com/news/oldest</link>
+        <pubDate>Mon, 05 Feb 2024 12:00:00 GMT</pubDate>
+      </item>
+    </channel>
+  </rss>
+`;
+
 describe('newsIngest', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -70,19 +94,19 @@ describe('newsIngest', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(items).toHaveLength(2);
     expect(items[0]).toMatchObject({
+      sourceId: 'src-atom',
+      title: 'Policy update released',
+      url: 'https://atom.example.com/story/42',
+      summary: 'Atom summary',
+    });
+    expect(items[1]).toMatchObject({
       sourceId: 'src-rss',
       title: 'Markets rally & recover',
       url: 'https://example.com/news?id=1',
       summary: 'Detailed summary',
       author: 'Reporter One',
     });
-    expect(items[1]).toMatchObject({
-      sourceId: 'src-atom',
-      title: 'Policy update released',
-      url: 'https://atom.example.com/story/42',
-      summary: 'Atom summary',
-    });
-    expect(items[1]?.publishedAt).toBeTypeOf('number');
+    expect(items[0]?.publishedAt).toBeTypeOf('number');
   });
 
   it('skips invalid feed sources and handles fetch failures with warnings', async () => {
@@ -176,5 +200,66 @@ describe('newsIngest', () => {
       },
     );
     expect(skipped).toHaveLength(0);
+  });
+
+  it('applies per-source and total item budgets using recency ordering', async () => {
+    vi.stubEnv('VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE', '2');
+    vi.stubEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL', '3');
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(multiItemRssXml),
+    } as unknown as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(multiItemRssXml.replaceAll('example.com/news', 'example.com/second')),
+    } as unknown as Response);
+
+    const items = await ingestFeeds([
+      {
+        id: 'source-a',
+        name: 'Source A',
+        rssUrl: 'https://example.com/a.xml',
+        enabled: true,
+      },
+      {
+        id: 'source-b',
+        name: 'Source B',
+        rssUrl: 'https://example.com/b.xml',
+        enabled: true,
+      },
+    ]);
+
+    expect(items).toHaveLength(3);
+    expect(items.map((item) => item.url)).toEqual([
+      'https://example.com/news/newest',
+      'https://example.com/second/newest',
+      'https://example.com/news/middle',
+    ]);
+  });
+
+  it('parses ingest env helpers and stable recency sort tie-breakers', () => {
+    expect(newsIngestInternal.readPositiveIntEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBeUndefined();
+
+    vi.stubEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL', '12');
+    expect(newsIngestInternal.readEnvVar('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBe('12');
+    expect(newsIngestInternal.readPositiveIntEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBe(12);
+
+    vi.stubEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL', '0');
+    expect(newsIngestInternal.readPositiveIntEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBeUndefined();
+
+    expect(newsIngestInternal.sortByPublishedDesc(
+      {
+        sourceId: 'b',
+        url: 'https://example.com/b',
+        title: 'B',
+      } as RawFeedItem,
+      {
+        sourceId: 'a',
+        url: 'https://example.com/a',
+        title: 'A',
+      } as RawFeedItem,
+    )).toBeGreaterThan(0);
   });
 });

@@ -8,6 +8,41 @@ import {
 const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
 
+function readEnvVar(name: string): string | undefined {
+  const viteValue = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.[name];
+  const processValue =
+    typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>)[name] : undefined;
+  const value = viteValue ?? processValue;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readPositiveIntEnv(...names: string[]): number | undefined {
+  for (const name of names) {
+    const value = readEnvVar(name)?.trim();
+    if (!value) {
+      continue;
+    }
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      continue;
+    }
+    return Math.floor(parsed);
+  }
+  return undefined;
+}
+
+function sortByPublishedDesc(left: RawFeedItem, right: RawFeedItem): number {
+  const publishedDelta = (right.publishedAt ?? 0) - (left.publishedAt ?? 0);
+  if (publishedDelta !== 0) {
+    return publishedDelta;
+  }
+  const sourceDelta = left.sourceId.localeCompare(right.sourceId);
+  if (sourceDelta !== 0) {
+    return sourceDelta;
+  }
+  return left.url.localeCompare(right.url);
+}
+
 function stripCdata(input: string): string {
   return input
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -116,6 +151,15 @@ function readErrorMessage(error: unknown): string {
 }
 
 export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]> {
+  const maxItemsPerSource = readPositiveIntEnv(
+    'VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE',
+    'VITE_NEWS_FEED_MAX_ITEMS_PER_SOURCE',
+  );
+  const maxItemsTotal = readPositiveIntEnv(
+    'VH_NEWS_FEED_MAX_ITEMS_TOTAL',
+    'VITE_NEWS_FEED_MAX_ITEMS_TOTAL',
+  );
+
   // Validate and filter sources synchronously before fetching.
   const validSources: FeedSource[] = [];
   for (const sourceInput of sources) {
@@ -148,7 +192,8 @@ export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]>
       }
 
       const xml = await response.text();
-      return parseFeedXml(xml, source);
+      const parsedItems = parseFeedXml(xml, source).sort(sortByPublishedDesc);
+      return maxItemsPerSource ? parsedItems.slice(0, maxItemsPerSource) : parsedItems;
     }),
   );
 
@@ -164,10 +209,14 @@ export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]>
     }
   }
 
-  return items;
+  items.sort(sortByPublishedDesc);
+  return maxItemsTotal ? items.slice(0, maxItemsTotal) : items;
 }
 
 export const newsIngestInternal = {
+  readEnvVar,
+  readPositiveIntEnv,
+  sortByPublishedDesc,
   decodeXmlEntities,
   extractLink,
   extractTagText,
