@@ -1,0 +1,12 @@
+> pnpm exec vitest run apps/web-pwa/src/store/discovery/ranking.test.ts
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-dod-final
+
+ ✓ apps/web-pwa/src/store/discovery/ranking.test.ts (40 tests) 19ms
+
+ Test Files  1 passed (1)
+      Tests  40 passed (40)
+   Start at  23:13:21
+   Duration  501ms (transform 138ms, setup 0ms, collect 190ms, tests 19ms, environment 0ms, prepare 62ms)
+

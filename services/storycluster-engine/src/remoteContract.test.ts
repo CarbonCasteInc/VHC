@@ -62,7 +62,8 @@ describe('runStoryClusterRemoteContract', () => {
     expect(response.bundles.length).toBeGreaterThan(0);
     for (const bundle of response.bundles) {
       expect(bundle.schemaVersion).toBe('story-bundle-v0');
-      expect(bundle.topic_id).toBe('topic-world');
+      expect(bundle.topic_id).toBe(remoteContractInternal.deriveNewsTopicId(bundle.story_id));
+      expect(bundle.topic_id).toMatch(/^[a-f0-9]{64}$/);
       expect(bundle.sources.length).toBeGreaterThan(0);
       expect(bundle.cluster_features.entity_keys.length).toBeGreaterThan(0);
       expect(bundle.cluster_features.time_bucket).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
@@ -143,6 +144,9 @@ describe('runStoryClusterRemoteContract', () => {
 
     expect(remoteContractInternal.buildDocId(normalized.items[0]!, 5)).toBe('wire-a:hash-a:5');
     expect(remoteContractInternal.buildTimeBucket(1_710_000_000_000)).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
+    expect(remoteContractInternal.deriveNewsTopicId('story-1')).toBe(
+      '55c2855fd1ea9425d3f10ae6b6746f12114fa8bdb929931f85c4ee102bc3a660',
+    );
 
     const defaultEntityKeys = remoteContractInternal.deriveEntityKeys(
       {

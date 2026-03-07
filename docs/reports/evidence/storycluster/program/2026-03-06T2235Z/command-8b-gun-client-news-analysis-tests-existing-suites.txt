@@ -1,0 +1,89 @@
+> pnpm --dir packages/gun-client exec vitest run src/newsAdapters.test.ts src/analysisAdapters.test.ts src/aggregateAdapters.test.ts
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-dod-final/packages/gun-client
+
+stdout | src/aggregateAdapters.test.ts > aggregateAdapters > writeVoterNode validates payload and writes to voter sub-node path
+[vh:aggregate:voter-write] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 4,
+  voter_id: 'voter-1',
+  point_id: 'point-1',
+  acknowledged: true,
+  timed_out: false,
+  latency_ms: 0,
+  path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/'
+}
+
+stdout | src/aggregateAdapters.test.ts > aggregateAdapters > writePointAggregateSnapshot validates schema and writes to canonical points path
+[vh:aggregate:point-snapshot-write] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 4,
+  point_id: 'point-1',
+  acknowledged: true,
+  timed_out: false,
+  latency_ms: 0,
+  path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1/',
+  agree: 3,
+  disagree: 1,
+  participants: 4,
+  weight: 4,
+  version: 99
+}
+
+ ✓ src/analysisAdapters.test.ts (14 tests) 43ms
+ ✓ src/newsAdapters.test.ts (44 tests) 61ms
+stderr | src/aggregateAdapters.test.ts > aggregateAdapters > writeVoterNode rejects sensitive fields and ack errors
+[vh:aggregate:voter-write] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 4,
+  voter_id: 'voter-1',
+  point_id: 'point-1',
+  acknowledged: false,
+  timed_out: undefined,
+  latency_ms: undefined,
+  path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/',
+  error: 'boom'
+}
+
+stderr | src/aggregateAdapters.test.ts > aggregateAdapters > writeVoterNode rejects when put callback never arrives (strict ack)
+[vh:aggregate:voter-write] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 4,
+  voter_id: 'voter-1',
+  point_id: 'point-1',
+  acknowledged: false,
+  timed_out: true,
+  latency_ms: undefined,
+  path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/',
+  error: 'aggregate-put-ack-timeout'
+}
+
+stdout | src/aggregateAdapters.test.ts > aggregateAdapters > writeVoterNode ignores timeout/late ack callbacks after successful settlement
+[vh:aggregate:voter-write] {
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-1',
+  epoch: 4,
+  voter_id: 'voter-1',
+  point_id: 'point-1',
+  acknowledged: true,
+  timed_out: false,
+  latency_ms: 0,
+  path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1/'
+}
+
+ ✓ src/aggregateAdapters.test.ts (24 tests) 4065ms
+   ✓ aggregateAdapters > writePointAggregateSnapshot rejects when put callback never arrives (strict ack timeout) 1004ms
+   ✓ aggregateAdapters > writeVoterNode rejects when put callback never arrives (strict ack) 1003ms
+   ✓ aggregateAdapters > readAggregateVoterRows recovers leaf rows when voters root only contains relation pointers 404ms
+   ✓ aggregateAdapters > readAggregateVoterRows recovers leaf rows from map voter IDs when root once returns null 404ms
+   ✓ aggregateAdapters > readAggregates returns zeroed stats when no data exists 403ms
+
+ Test Files  3 passed (3)
+      Tests  82 passed (82)
+   Start at  23:13:23
+   Duration  4.63s (transform 386ms, setup 0ms, collect 765ms, tests 4.17s, environment 1ms, prepare 274ms)
+

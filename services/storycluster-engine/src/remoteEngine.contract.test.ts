@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
 import { StoryClusterRemoteEngine } from '../../../packages/ai-engine/src/clusterEngine';
@@ -62,7 +63,9 @@ describe('storycluster-engine remote invocation contract', () => {
 
       expect(bundles).toHaveLength(1);
       expect(bundles[0]?.schemaVersion).toBe('story-bundle-v0');
-      expect(bundles[0]?.topic_id).toBe('topic-contract');
+      expect(bundles[0]?.topic_id).toBe(
+        createHash('sha256').update(`news:${bundles[0]?.story_id}`).digest('hex'),
+      );
       expect(bundles[0]?.sources).toHaveLength(1);
       expect(bundles[0]?.cluster_features.entity_keys.length).toBeGreaterThan(0);
     } finally {

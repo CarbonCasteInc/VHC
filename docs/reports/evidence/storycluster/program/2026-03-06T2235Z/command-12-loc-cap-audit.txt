@@ -1,0 +1,8 @@
+> bash -lc wc -l services/storycluster-engine/src/stageHandlers.ts services/storycluster-engine/src/remoteContract.ts services/storycluster-engine/src/stageRunner.pipeline.test.ts services/storycluster-engine/src/remoteContract.test.ts services/storycluster-engine/src/remoteEngine.contract.test.ts services/storycluster-engine/src/server.test.ts
+  240 services/storycluster-engine/src/stageHandlers.ts
+  309 services/storycluster-engine/src/remoteContract.ts
+  340 services/storycluster-engine/src/stageRunner.pipeline.test.ts
+  257 services/storycluster-engine/src/remoteContract.test.ts
+   83 services/storycluster-engine/src/remoteEngine.contract.test.ts
+  350 services/storycluster-engine/src/server.test.ts
+ 1579 total

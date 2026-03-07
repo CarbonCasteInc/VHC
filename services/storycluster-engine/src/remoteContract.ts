@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import type { StoryClusterTelemetryEnvelope } from './contracts';
 import {
   runStoryClusterStagePipeline,
@@ -178,6 +179,10 @@ function buildTimeBucket(clusterWindowEnd: number): string {
   return new Date(clusterWindowEnd).toISOString().slice(0, 13);
 }
 
+function deriveNewsTopicId(storyId: string): string {
+  return createHash('sha256').update(`news:${storyId}`).digest('hex');
+}
+
 function deriveEntityKeys(bundle: StoryClusterRemoteBundle, sourceItems: StoryClusterRemoteItem[]): string[] {
   const keys = new Set<string>();
 
@@ -258,7 +263,7 @@ export function runStoryClusterRemoteContract(
     const projected: StoryClusterRemoteBundle = {
       schemaVersion: 'story-bundle-v0',
       story_id: bundle.story_id,
-      topic_id: bundle.topic_id,
+      topic_id: deriveNewsTopicId(bundle.story_id),
       headline: bundle.headline,
       summary_hint: bundle.summary_hint,
       cluster_window_start: bundle.cluster_window_start,
@@ -295,6 +300,7 @@ export const remoteContractInternal = {
   buildDocId,
   buildTimeBucket,
   deriveEntityKeys,
+  deriveNewsTopicId,
   normalizeRequest,
   readEntityKeys,
   readOptionalPublishedAt,
