@@ -128,6 +128,9 @@ jobs:
       - name: Unit Tests
         run: pnpm test:quick
 
+      - name: StoryCluster Quality Gate
+        run: pnpm test:storycluster:quality
+
       - name: Diff-aware Coverage Gate (pull requests only)
         if: github.event_name == 'pull_request'
         run: node tools/scripts/check-diff-coverage.mjs
