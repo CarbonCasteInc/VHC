@@ -23,12 +23,44 @@ import {
 } from './contentSignals';
 import { createHashedVector, ensureSentence } from './textSignals';
 
-function pairDecision(item: PairJudgementWorkItem): PairJudgementWorkResult {
-  const entityOverlap = item.document_entities.filter((entity) => item.cluster_entities.includes(entity)).length;
+const NON_SUBSTANTIVE_ENTITIES = new Set(['summary', 'story', 'update', 'updates', 'officials', 'leaders']);
+
+function canonicalEntities(values: readonly string[]): string[] {
+  return values.filter((value) => value.includes('_'));
+}
+
+function substantiveEntities(values: readonly string[]): string[] {
+  return values.filter((value) => value.includes('_') || (value.length >= 6 && !NON_SUBSTANTIVE_ENTITIES.has(value)));
+}
+
+function overlapCount(left: readonly string[], right: readonly string[]): number {
+  const rightSet = new Set(right);
+  return new Set(left).size === 0 ? 0 : [...new Set(left)].filter((value) => rightSet.has(value)).length;
+}
+
+function pairScore(item: PairJudgementWorkItem): PairJudgementWorkResult['decision'] {
+  const canonicalOverlap = overlapCount(canonicalEntities(item.document_entities), canonicalEntities(item.cluster_entities));
+  const substantiveOverlap = overlapCount(substantiveEntities(item.document_entities), substantiveEntities(item.cluster_entities));
   const triggerMatch = item.document_trigger && item.cluster_triggers.some((trigger) =>
     trigger === item.document_trigger || triggerCategory(trigger) === triggerCategory(item.document_trigger),
   );
-  const decision = entityOverlap > 0 && triggerMatch ? 'accepted' : entityOverlap > 0 ? 'abstain' : 'rejected';
+  if (canonicalOverlap > 0 && triggerMatch) {
+    return 'accepted';
+  }
+  if (canonicalOverlap > 0) {
+    return 'abstain';
+  }
+  if (substantiveOverlap >= 2 && triggerMatch) {
+    return 'accepted';
+  }
+  if (substantiveOverlap >= 2 || (substantiveOverlap >= 1 && triggerMatch)) {
+    return 'abstain';
+  }
+  return 'rejected';
+}
+
+function pairDecision(item: PairJudgementWorkItem): PairJudgementWorkResult {
+  const decision = pairScore(item);
   return {
     pair_id: item.pair_id,
     score: decision === 'accepted' ? 0.92 : decision === 'abstain' ? 0.58 : 0.12,
@@ -37,11 +69,8 @@ function pairDecision(item: PairJudgementWorkItem): PairJudgementWorkResult {
 }
 
 function rerankScore(item: PairJudgementWorkItem): PairRerankWorkResult {
-  const entityOverlap = item.document_entities.filter((entity) => item.cluster_entities.includes(entity)).length;
-  const triggerMatch = item.document_trigger && item.cluster_triggers.some((trigger) =>
-    trigger === item.document_trigger || triggerCategory(trigger) === triggerCategory(item.document_trigger),
-  );
-  const score = entityOverlap > 0 && triggerMatch ? 0.92 : entityOverlap > 0 ? 0.58 : 0.12;
+  const decision = pairScore(item);
+  const score = decision === 'accepted' ? 0.92 : decision === 'abstain' ? 0.58 : 0.12;
   return {
     pair_id: item.pair_id,
     score,

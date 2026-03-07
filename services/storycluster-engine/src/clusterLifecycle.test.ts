@@ -553,6 +553,68 @@ describe('clusterLifecycle', () => {
     expect(next.stage_metrics.llm_adjudication?.adjudication_rejects).toBe(1);
   });
 
+  it('applies returned adjudication decisions to ambiguous candidates', async () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const existing = makeWorkingDocument('doc-1', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
+    topicState.clusters = [
+      deriveClusterRecord(topicState, 'topic-news', [toStoredSource(existing, existing.source_variants[0]!)], 'story-a'),
+    ];
+
+    const next = await adjudicateCandidates({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [{
+        ...makeWorkingDocument('doc-9', 'Port attack update', 'port_attack', 'attack', [1, 0]),
+        candidate_matches: [{
+          story_id: 'story-a',
+          candidate_score: 0.6,
+          hybrid_score: 0.6,
+          rerank_score: 0.6,
+          adjudication: 'abstain',
+          reason: 'ambiguous-same-topic',
+        }],
+        rerank_score: 0.6,
+      }],
+      clusters: [],
+      bundles: [],
+      topic_state: topicState,
+      stage_metrics: {},
+    }, {
+      providerId: 'accepted-adjudication-provider',
+      async translate() {
+        return [];
+      },
+      async embed() {
+        return [];
+      },
+      async analyzeDocuments() {
+        return [];
+      },
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs(items) {
+        return items.map((item) => ({
+          pair_id: item.pair_id,
+          score: 0.92,
+          decision: 'accepted' as const,
+        }));
+      },
+      async summarize() {
+        return [];
+      },
+    });
+
+    expect(next.documents[0]?.adjudication).toBe('accepted');
+    expect(next.stage_metrics.llm_adjudication?.adjudicated_docs).toBe(1);
+    expect(next.stage_metrics.llm_adjudication?.adjudication_accepts).toBe(1);
+  });
+
   it('fails bundling when the provider omits a required summary', async () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',

@@ -116,7 +116,7 @@ describe('runStoryClusterCoherenceAudit', () => {
     expect(report.datasets.every((dataset) => dataset.pass)).toBe(true);
   });
 
-  it('keeps a same-topic trap regression dataset explicit until separation improves', async () => {
+  it('separates same-topic different-event traps in the actual pipeline audit', async () => {
     const report = await runStoryClusterCoherenceAudit([SAME_TOPIC_TRAP_REGRESSION_DATASET], {
       now: () => 1_710_299_999_000,
       thresholds: {
@@ -130,12 +130,11 @@ describe('runStoryClusterCoherenceAudit', () => {
       }),
     });
 
-    expect(report.overall.pass).toBe(false);
-    expect(report.overall.failed_dataset_ids).toEqual(['same-topic-trap-separation']);
-    expect(
-      (report.datasets[0]?.contamination_rate ?? 0) > 0 ||
-      (report.datasets[0]?.fragmentation_rate ?? 0) > 0,
-    ).toBe(true);
+    expect(report.overall.pass).toBe(true);
+    expect(report.overall.failed_dataset_ids).toEqual([]);
+    expect(report.datasets[0]?.pass).toBe(true);
+    expect(report.datasets[0]?.contamination_rate).toBe(0);
+    expect(report.datasets[0]?.fragmentation_rate).toBe(0);
   });
 
   it('is metric-deterministic for reversed input ordering', async () => {

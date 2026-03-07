@@ -123,6 +123,54 @@ describe('createDeterministicTestModelProvider', () => {
       decision: 'rejected',
     }]);
 
+    await expect(provider.adjudicatePairs([{
+      pair_id: 'weak-overlap-rejected',
+      document_title: 'Ceasefire vote scheduled after weekend attacks',
+      document_text: 'Ceasefire vote scheduled after weekend attacks',
+      document_entities: ['summary', 'ceasefire_vote'],
+      document_trigger: 'attacks',
+      cluster_headline: 'Stocks slide after the overnight strike',
+      cluster_summary: 'Summary',
+      cluster_entities: ['summary', 'market_aftershock'],
+      cluster_triggers: ['strike'],
+    }])).resolves.toEqual([{
+      pair_id: 'weak-overlap-rejected',
+      score: 0.12,
+      decision: 'rejected',
+    }]);
+
+    await expect(provider.adjudicatePairs([{
+      pair_id: 'substantive-accepted',
+      document_title: 'Shipping insurers extend losses after overnight attack',
+      document_text: 'Shipping insurers extend losses after overnight attack',
+      document_entities: ['shipping', 'insurers'],
+      document_trigger: 'attack',
+      cluster_headline: 'Stocks slide after overnight strike',
+      cluster_summary: 'Summary',
+      cluster_entities: ['shipping', 'insurers'],
+      cluster_triggers: ['strike'],
+    }])).resolves.toEqual([{
+      pair_id: 'substantive-accepted',
+      score: 0.92,
+      decision: 'accepted',
+    }]);
+
+    await expect(provider.adjudicatePairs([{
+      pair_id: 'substantive-abstain',
+      document_title: 'Shipping outlook changes after overnight attack',
+      document_text: 'Shipping outlook changes after overnight attack',
+      document_entities: ['shipping'],
+      document_trigger: 'attack',
+      cluster_headline: 'Stocks slide after overnight strike',
+      cluster_summary: 'Summary',
+      cluster_entities: ['shipping', 'insurers'],
+      cluster_triggers: ['strike'],
+    }])).resolves.toEqual([{
+      pair_id: 'substantive-abstain',
+      score: 0.58,
+      decision: 'abstain',
+    }]);
+
     await expect(provider.summarize([
       {
         cluster_id: 'cluster-1',
