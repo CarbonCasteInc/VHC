@@ -40,3 +40,12 @@ export {
   type StoryClusterCoherenceDatasetResult,
   type StoryClusterCoherenceThresholds,
 } from './coherenceAudit';
+
+export {
+  MemoryVectorBackend,
+  resolveVectorBackend,
+  vectorBackendInternal,
+  type ClusterVectorBackend,
+  type ClusterVectorHit,
+  type ClusterVectorQuery,
+} from './vectorBackend';

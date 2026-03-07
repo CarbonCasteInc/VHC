@@ -16,7 +16,6 @@ import {
   stageInputCount,
   stageLatencyPerItemMs,
   stageOutputCount,
-  storeReadiness,
 } from './stageHelpers';
 import type { StageOverrideMap } from './stageState';
 import { classifyDocumentType, resolveLanguage } from './contentSignals';
@@ -25,12 +24,14 @@ import type { StoryClusterModelProvider } from './modelProvider';
 import { createOpenAIStoryClusterProviderFromEnv } from './openaiProvider';
 import { createDeterministicTestModelProvider } from './testModelProvider';
 import { normalizeText } from './textSignals';
+import { type ClusterVectorBackend, resolveVectorBackend } from './vectorBackend';
 
 export interface StoryClusterStageRunnerOptions {
   clock?: () => number;
   stageOverrides?: StageOverrideMap;
   store?: ClusterStore;
   modelProvider?: StoryClusterModelProvider;
+  vectorBackend?: ClusterVectorBackend;
 }
 
 function resolveModelProvider(
@@ -51,14 +52,19 @@ export async function runStoryClusterStagePipeline(
 ): Promise<StoryClusterPipelineResponse> {
   const clock = options.clock ?? Date.now;
   const store = options.store ?? getDefaultClusterStore();
+  const vectorBackend = resolveVectorBackend(options.vectorBackend);
   const modelProvider = resolveModelProvider(options.modelProvider);
-  const readiness = storeReadiness(store);
-  if (!readiness.ok) {
-    throw new Error(`storycluster store is not ready: ${readiness.detail}`);
+  const storeReadiness = store.readiness();
+  if (!storeReadiness.ok) {
+    throw new Error(`storycluster store is not ready: ${storeReadiness.detail}`);
+  }
+  const vectorReadiness = await vectorBackend.readiness();
+  if (!vectorReadiness.ok) {
+    throw new Error(`storycluster vector backend is not ready: ${vectorReadiness.detail}`);
   }
 
   const normalized = normalizeRequest(request, Math.floor(clock()));
-  const handlers = resolveStageHandlers(options.stageOverrides, modelProvider);
+  const handlers = resolveStageHandlers(options.stageOverrides, modelProvider, vectorBackend);
   let state = createInitialState(normalized, store);
   const stageTelemetry: StoryClusterStageTelemetry[] = [];
 
@@ -112,6 +118,7 @@ export async function runStoryClusterStagePipeline(
   }
 
   store.saveTopic(state.topic_state);
+  await vectorBackend.replaceTopicClusters(normalized.topicId, state.topic_state.clusters);
   const generatedAtMs = Math.floor(clock());
   return {
     bundles: state.bundles,
@@ -134,6 +141,7 @@ export const stageRunnerInternal = {
   normalizeToken: normalizeText,
   resolveLanguage: (document: { title: string; summary?: string; language_hint?: string }) =>
     resolveLanguage(`${document.title} ${document.summary ?? ''}`.trim(), document.language_hint),
+  resolveVectorBackend,
   stageArtifactCounts,
   stageGatePassRate,
   stageInputCount,

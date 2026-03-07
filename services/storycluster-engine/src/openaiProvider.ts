@@ -256,7 +256,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
     const chunks = chunkBySize(items, 8);
     const output: PairJudgementWorkResult[] = [];
     for (const chunk of chunks) {
-      output.push(...await collectWithRetry(
+      output.push(...await collectWithRetry<PairJudgementWorkItem, PairJudgementWorkResult>(
         chunk,
         async (pending) => {
           const response = await this.client.chatJson<{ judgements?: Array<{ pair_id: string; score: number; decision: string }> }>({
@@ -284,7 +284,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
         (item) => ({
           pair_id: item.pair_id,
           score: 0,
-          decision: 'abstain',
+          decision: 'abstain' as const,
         }),
       ));
     }

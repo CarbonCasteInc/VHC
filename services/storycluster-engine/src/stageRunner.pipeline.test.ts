@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MemoryClusterStore } from './clusterStore';
 import { StoryClusterStageError, STORYCLUSTER_STAGE_SEQUENCE, type StoryClusterInputDocument } from './contracts';
 import { runStoryClusterStagePipeline } from './stageRunner';
+import type { ClusterVectorBackend } from './vectorBackend';
 
 function makeDoc(docId: string, title: string, publishedAt: number, overrides: Partial<StoryClusterInputDocument> = {}): StoryClusterInputDocument {
   return {
@@ -157,5 +158,22 @@ describe('runStoryClusterStagePipeline', () => {
         { store: new MemoryClusterStore(), stageOverrides: { hybrid_scoring: () => { throw 'boom-string'; } } as any },
       ),
     ).rejects.toThrow('boom-string');
+
+    const brokenVectorBackend: ClusterVectorBackend = {
+      async queryTopic() {
+        return new Map();
+      },
+      async readiness() {
+        return { ok: false, detail: 'vector-offline' };
+      },
+      async replaceTopicClusters() {},
+    };
+
+    await expect(
+      runStoryClusterStagePipeline(
+        { topic_id: 'topic-vector-fail', documents: [makeDoc('doc-1', 'Port attack', 100)] },
+        { store: new MemoryClusterStore(), vectorBackend: brokenVectorBackend },
+      ),
+    ).rejects.toThrow('storycluster vector backend is not ready: vector-offline');
   });
 });

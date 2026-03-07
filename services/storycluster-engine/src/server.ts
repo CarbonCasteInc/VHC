@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
 import { STORYCLUSTER_STAGE_SEQUENCE } from './contracts';
 import { runStoryClusterRemoteContract } from './remoteContract';
+import { type ClusterVectorBackend, resolveVectorBackend } from './vectorBackend';
 
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4310;
@@ -15,6 +16,18 @@ export interface StoryClusterServerOptions {
   authScheme?: string;
   now?: () => number;
   store?: ClusterStore;
+  vectorBackend?: ClusterVectorBackend;
+}
+
+async function runtimeReadiness(
+  store: ClusterStore,
+  vectorBackend: ClusterVectorBackend,
+): Promise<{ ok: boolean; detail: string }> {
+  const storeStatus = store.readiness();
+  if (!storeStatus.ok) {
+    return storeStatus;
+  }
+  return vectorBackend.readiness();
 }
 
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -130,7 +143,8 @@ async function handleRequest(
       return;
     }
 
-    const readiness = (options.store ?? getDefaultClusterStore()).readiness();
+    const store = options.store ?? getDefaultClusterStore();
+    const readiness = await runtimeReadiness(store, resolveVectorBackend(options.vectorBackend));
     sendJson(res, readiness.ok ? 200 : 503, {
       ok: readiness.ok,
       service: 'storycluster-engine',
@@ -150,8 +164,19 @@ async function handleRequest(
   }
 
   try {
+    const store = options.store ?? getDefaultClusterStore();
+    const vectorBackend = resolveVectorBackend(options.vectorBackend);
+    const readiness = await runtimeReadiness(store, vectorBackend);
+    if (!readiness.ok) {
+      sendJson(res, 503, { error: readiness.detail });
+      return;
+    }
     const payload = await readJsonBody(req);
-    const result = await runStoryClusterRemoteContract(payload, { clock: options.now, store: options.store });
+    const result = await runStoryClusterRemoteContract(payload, {
+      clock: options.now,
+      store,
+      vectorBackend,
+    });
     sendJson(res, 200, result);
   } catch (error) {
     sendJson(res, 400, {
@@ -162,7 +187,11 @@ async function handleRequest(
 
 export function createStoryClusterServer(options: StoryClusterServerOptions = {}) {
   return createServer((req, res) => {
-    void handleRequest(req, res, options);
+    void handleRequest(req, res, options).catch((error) => {
+      sendJson(res, 503, {
+        error: error instanceof Error ? error.message : 'storycluster runtime failed',
+      });
+    });
   });
 }
 
@@ -183,4 +212,5 @@ export const serverInternal = {
   parseUrl,
   readHeaderValue,
   readJsonBody,
+  runtimeReadiness,
 };

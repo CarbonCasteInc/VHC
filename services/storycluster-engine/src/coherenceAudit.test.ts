@@ -64,6 +64,20 @@ const ACTUAL_PIPELINE_DATASETS: StoryClusterCoherenceAuditDataset[] = [
   },
 ];
 
+const SAME_TOPIC_TRAP_REGRESSION_DATASET: StoryClusterCoherenceAuditDataset = {
+  dataset_id: 'same-topic-trap-separation',
+  topic_id: 'topic-traps',
+  items: [
+    makeItem('market_aftershock', 'wire-j', 'Stocks slide after the overnight strike jolts shipping insurers', 'h1', 1_710_300_000_000),
+    makeItem('market_aftershock', 'wire-k', 'Brokers cut shipping forecasts as markets absorb the strike', 'h2', 1_710_300_020_000),
+    makeItem('opinion_commentary', 'desk-l', 'Opinion: how to think clearly before forming views on the conflict', 'i1', 1_710_300_040_000),
+    makeItem('ceasefire_vote', 'wire-m', 'Parliament schedules a ceasefire vote after the weekend attacks', 'j1', 1_710_300_060_000),
+    makeItem('ceasefire_vote', 'wire-n', 'Coalition leaders whip support ahead of the ceasefire vote', 'j2', 1_710_300_080_000),
+    makeItem('protest_crackdown', 'wire-o', 'Police detain protest leaders after the capital march turns violent', 'k1', 1_710_300_100_000),
+    makeItem('protest_crackdown', 'wire-p', 'Capital courts review charges after protest arrests', 'k2', 1_710_300_120_000),
+  ],
+};
+
 function makeTelemetry(topicId: string) {
   return {
     schema_version: 'storycluster-stage-telemetry-v1' as const,
@@ -100,6 +114,28 @@ describe('runStoryClusterCoherenceAudit', () => {
     expect(report.overall.pass).toBe(true);
     expect(report.overall.failed_dataset_ids).toEqual([]);
     expect(report.datasets.every((dataset) => dataset.pass)).toBe(true);
+  });
+
+  it('keeps a same-topic trap regression dataset explicit until separation improves', async () => {
+    const report = await runStoryClusterCoherenceAudit([SAME_TOPIC_TRAP_REGRESSION_DATASET], {
+      now: () => 1_710_299_999_000,
+      thresholds: {
+        max_contamination_rate: 0.02,
+        max_fragmentation_rate: 0.05,
+        min_coherence_score: 0.93,
+      },
+      contractRunner: (payload) => runStoryClusterRemoteContract(payload, {
+        store: new MemoryClusterStore(),
+        clock: () => 1_710_299_999_000,
+      }),
+    });
+
+    expect(report.overall.pass).toBe(false);
+    expect(report.overall.failed_dataset_ids).toEqual(['same-topic-trap-separation']);
+    expect(
+      (report.datasets[0]?.contamination_rate ?? 0) > 0 ||
+      (report.datasets[0]?.fragmentation_rate ?? 0) > 0,
+    ).toBe(true);
   });
 
   it('is metric-deterministic for reversed input ordering', async () => {

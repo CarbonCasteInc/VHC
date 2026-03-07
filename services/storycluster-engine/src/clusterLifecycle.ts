@@ -1,5 +1,7 @@
 import type { ClusterBucket, PipelineState } from './stageState';
 import type { StoryClusterModelProvider, SummaryWorkItem } from './modelProvider';
+import type { ClusterVectorBackend } from './vectorBackend';
+import { MemoryVectorBackend } from './vectorBackend';
 import {
   connectedComponents,
   deriveClusterRecord,
@@ -15,20 +17,33 @@ import {
   requireClusterProvider,
   shouldRequestPairJudgement,
 } from './clusterJudgement';
-
-export function retrieveCandidates(state: PipelineState): PipelineState {
+export async function retrieveCandidates(
+  state: PipelineState,
+  vectorBackend: ClusterVectorBackend = new MemoryVectorBackend(),
+): Promise<PipelineState> {
   const clusters = state.topic_state.clusters;
+  const clusterLookup = new Map(clusters.map((cluster) => [cluster.story_id, cluster]));
+  await vectorBackend.replaceTopicClusters(state.topicId, clusters);
+  const retrievals = await vectorBackend.queryTopic(
+    state.topicId,
+    state.documents.map((document) => ({
+      doc_id: document.doc_id,
+      vector: document.coarse_vector,
+    })),
+    12,
+  );
   let candidatesConsidered = 0;
   let candidatesRetained = 0;
   let prefilterHits = 0;
-
   const documents = state.documents.map((document) => {
-    const candidateMatches = clusters
+    const candidateMatches = (retrievals.get(document.doc_id) ?? [])
+      .map((hit) => clusterLookup.get(hit.story_id))
+      .filter((cluster): cluster is NonNullable<typeof cluster> => Boolean(cluster))
       .filter((cluster) => candidateEligible(document, cluster))
       .map((cluster) => buildCandidateMatch(document, cluster))
       .sort((left, right) => right.candidate_score - left.candidate_score || left.story_id.localeCompare(right.story_id))
       .slice(0, 8);
-    candidatesConsidered += clusters.length;
+    candidatesConsidered += retrievals.get(document.doc_id)?.length ?? 0;
     candidatesRetained += candidateMatches.length;
     if (candidateMatches.length > 0) {
       prefilterHits += 1;
@@ -39,7 +54,6 @@ export function retrieveCandidates(state: PipelineState): PipelineState {
       candidate_score: candidateMatches[0]?.candidate_score ?? 0,
     };
   });
-
   return {
     ...state,
     documents,
@@ -53,7 +67,6 @@ export function retrieveCandidates(state: PipelineState): PipelineState {
     },
   };
 }
-
 export function scoreCandidates(state: PipelineState): PipelineState {
   const documents = state.documents.map((document) => ({
     ...document,
@@ -72,7 +85,6 @@ export function scoreCandidates(state: PipelineState): PipelineState {
     },
   };
 }
-
 export async function rerankCandidates(
   state: PipelineState,
   provider: StoryClusterModelProvider | undefined,
@@ -110,7 +122,6 @@ export async function rerankCandidates(
     },
   };
 }
-
 export async function adjudicateCandidates(
   state: PipelineState,
   provider: StoryClusterModelProvider | undefined,
@@ -171,7 +182,6 @@ export async function adjudicateCandidates(
     },
   };
 }
-
 export async function assignClusters(
   state: PipelineState,
   provider: StoryClusterModelProvider | undefined,
@@ -183,7 +193,6 @@ export async function assignClusters(
   let providerJudgementPairs = 0;
   let providerAssignedDocs = 0;
   let providerRejectedDocs = 0;
-
   for (const document of state.documents) {
     let accepted = document.candidate_matches.find((match) => match.adjudication === 'accepted');
     if (!accepted) {
@@ -232,7 +241,6 @@ export async function assignClusters(
     changedStoryIds.add(updated.story_id);
     document.assigned_story_id = updated.story_id;
   }
-
   const ordered = [...clusters.values()].sort((left, right) => left.created_at - right.created_at || left.story_id.localeCompare(right.story_id));
   for (let index = 0; index < ordered.length; index += 1) {
     for (let otherIndex = index + 1; otherIndex < ordered.length; otherIndex += 1) {
@@ -250,7 +258,6 @@ export async function assignClusters(
       changedStoryIds.add(next.story_id);
     }
   }
-
   for (const cluster of [...clusters.values()]) {
     const components = connectedComponents(cluster.source_documents, shouldSplitPair);
     if (components.length <= 1 || components[1]!.length < 2) {
@@ -265,7 +272,6 @@ export async function assignClusters(
       changedStoryIds.add(splitCluster.story_id);
     }
   }
-
   topicState.clusters = [...clusters.values()].sort((left, right) => left.created_at - right.created_at || left.story_id.localeCompare(right.story_id));
   const changedClusters = topicState.clusters.filter((cluster) => changedStoryIds.has(cluster.story_id));
   const buckets: ClusterBucket[] = changedClusters.map((record) => ({
@@ -273,7 +279,6 @@ export async function assignClusters(
     record,
     docs: state.documents.filter((document) => document.assigned_story_id === record.story_id),
   }));
-
   return {
     ...state,
     topic_state: topicState,
@@ -295,7 +300,6 @@ export async function assignClusters(
     },
   };
 }
-
 export async function bundleClusters(
   state: PipelineState,
   provider: StoryClusterModelProvider | undefined,

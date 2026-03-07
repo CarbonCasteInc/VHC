@@ -3,6 +3,7 @@ import { adjudicateCandidates, assignClusters, bundleClusters, rerankCandidates,
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
 import type { StoryClusterModelProvider } from './modelProvider';
 import type { PipelineState, StoredTopicState, WorkingDocument } from './stageState';
+import type { ClusterVectorBackend } from './vectorBackend';
 
 function makeWorkingDocument(
   docId: string,
@@ -67,7 +68,7 @@ function makeWorkingDocument(
 }
 
 describe('clusterLifecycle', () => {
-  it('orders equal-score candidate matches deterministically by story id', () => {
+  it('orders equal-score candidate matches deterministically by story id', async () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
       topic_id: 'topic-news',
@@ -81,7 +82,7 @@ describe('clusterLifecycle', () => {
       deriveClusterRecord(topicState, 'topic-news', [toStoredSource(peer, peer.source_variants[0]!)], 'story-a'),
     ];
 
-    const candidateState = retrieveCandidates({
+    const candidateState = await retrieveCandidates({
       topicId: 'topic-news',
       referenceNowMs: 1000,
       documents: [makeWorkingDocument('doc-9', 'Port attack expands further', 'port_attack', 'attack', [1, 0])],
@@ -92,6 +93,36 @@ describe('clusterLifecycle', () => {
     });
 
     expect(candidateState.documents[0]?.candidate_matches.map((match) => match.story_id)).toEqual(['story-a', 'story-b']);
+  });
+
+  it('handles missing retrieval hits without fabricating candidate matches', async () => {
+    const emptyVectorBackend: ClusterVectorBackend = {
+      async queryTopic() {
+        return new Map();
+      },
+      async readiness() {
+        return { ok: true, detail: 'memory' };
+      },
+      async replaceTopicClusters() {},
+    };
+
+    const candidateState = await retrieveCandidates({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [makeWorkingDocument('doc-9', 'Port attack expands further', 'port_attack', 'attack', [1, 0])],
+      clusters: [],
+      bundles: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [],
+      },
+      stage_metrics: {},
+    }, emptyVectorBackend);
+
+    expect(candidateState.documents[0]?.candidate_matches).toEqual([]);
+    expect(candidateState.stage_metrics.qdrant_candidate_retrieval?.candidates_considered).toBe(0);
   });
 
   it('splits disconnected source groups out of an existing cluster', async () => {

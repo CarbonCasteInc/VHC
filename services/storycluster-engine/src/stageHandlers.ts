@@ -6,6 +6,7 @@ import {
 } from './contentSignals';
 import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
 import type { StoryClusterModelProvider } from './modelProvider';
+import type { ClusterVectorBackend } from './vectorBackend';
 import {
   adjudicateCandidates,
   assignClusters,
@@ -28,6 +29,7 @@ import {
 } from './textSignals';
 import type { NormalizedPipelineRequest } from './stageHelpers';
 import { extractStageMetrics, mergedKeys, sourceVariantsForDocument } from './stageDocumentHelpers';
+import { MemoryVectorBackend } from './vectorBackend';
 
 export function createInitialState(
   normalized: NormalizedPipelineRequest,
@@ -287,14 +289,17 @@ function withEmbeddings(provider: StoryClusterModelProvider | undefined): StoryC
   };
 }
 
-function defaultHandlers(provider: StoryClusterModelProvider | undefined): Record<StoryClusterStageId, StoryClusterStageHandler> {
+function defaultHandlers(
+  provider: StoryClusterModelProvider | undefined,
+  vectorBackend: ClusterVectorBackend,
+): Record<StoryClusterStageId, StoryClusterStageHandler> {
   return {
   language_translation: withLanguageTranslation(provider),
   near_duplicate_collapse: collapseNearDuplicates,
   document_classification: withDocumentClassification(provider),
   matryoshka_embeddings: withEmbeddings(provider),
   me_ner_temporal: extractStageMetrics,
-  qdrant_candidate_retrieval: retrieveCandidates,
+  qdrant_candidate_retrieval: (state) => retrieveCandidates(state, vectorBackend),
   hybrid_scoring: scoreCandidates,
   cross_encoder_rerank: (state) => rerankCandidates(state, provider),
   llm_adjudication: (state) => adjudicateCandidates(state, provider),
@@ -306,9 +311,10 @@ function defaultHandlers(provider: StoryClusterModelProvider | undefined): Recor
 export function resolveStageHandlers(
   overrides: StageOverrideMap | undefined,
   provider?: StoryClusterModelProvider,
+  vectorBackend: ClusterVectorBackend = new MemoryVectorBackend(),
 ): Record<StoryClusterStageId, StoryClusterStageHandler> {
   return {
-    ...defaultHandlers(provider),
+    ...defaultHandlers(provider, vectorBackend),
     ...overrides,
   };
 }

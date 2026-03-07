@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryClusterStore } from './clusterStore';
 import { runStoryClusterStagePipeline } from './stageRunner';
 import { createDeterministicTestModelProvider } from './testModelProvider';
+import { MemoryVectorBackend } from './vectorBackend';
 
 function makeDoc(docId: string, title: string, publishedAt: number) {
   return {
@@ -104,7 +105,7 @@ describe.sequential('stageRunner provider resolution', () => {
         topic_id: 'topic-env-provider',
         documents: [makeDoc('doc-1', 'Port attack disrupts terminals overnight', 100)],
       },
-      { store: new MemoryClusterStore() },
+      { store: new MemoryClusterStore(), vectorBackend: new MemoryVectorBackend() },
     );
 
     expect(response.bundles).toHaveLength(1);
