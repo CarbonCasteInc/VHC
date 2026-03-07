@@ -14,6 +14,7 @@
     "vh": "pnpm --filter \"@vh/cli\" exec tsx src/index.ts",
     "test:quick": "vitest run",
     "test:storycluster:quality": "pnpm --filter @vh/storycluster-engine exec vitest run src/vectorBackend.test.ts src/server.test.ts src/stageRunner.pipeline.test.ts src/coherenceAudit.test.ts src/storyclusterQualityGate.test.ts --config ./vitest.config.ts --reporter=verbose",
+    "test:storycluster:live-benchmark": "pnpm --filter @vh/storycluster-engine exec vitest run src/liveBenchmark.integration.test.ts --config ./vitest.config.ts --reporter=verbose",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "pnpm --filter @vh/e2e test",
     "test:workflow": "act -j build-and-test",

@@ -42,6 +42,22 @@ export {
 } from './coherenceAudit';
 
 export {
+  liveBenchmarkInternal,
+  runStoryClusterLiveBenchmark,
+  type StoryClusterFixtureBenchmarkResult,
+  type StoryClusterLiveBenchmarkOptions,
+  type StoryClusterLiveBenchmarkReport,
+  type StoryClusterReplayBenchmarkResult,
+  type StoryClusterReplayScenario,
+} from './liveBenchmark';
+
+export {
+  renderStoryClusterLiveBenchmarkMarkdown,
+  writeStoryClusterLiveBenchmarkArtifacts,
+  type StoryClusterLiveBenchmarkArtifactPaths,
+} from './liveBenchmarkArtifacts';
+
+export {
   MemoryVectorBackend,
   resolveVectorBackend,
   vectorBackendInternal,

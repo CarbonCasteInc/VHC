@@ -1,0 +1,169 @@
+{
+  "fixtureThresholds": {
+    "max_contamination_rate": 0.02,
+    "max_fragmentation_rate": 0.05,
+    "min_coherence_score": 0.93
+  },
+  "replayThresholds": {
+    "max_contamination_rate": 0.05,
+    "max_fragmentation_rate": 0.08,
+    "min_coherence_score": 0.88
+  },
+  "fixtureDatasets": [
+    {
+      "dataset_id": "live-multilingual-port-market",
+      "topic_id": "live-multilingual-port-market",
+      "items": [
+        { "expected_event_id": "port_attack", "sourceId": "wire-a", "publisher": "WIRE-A", "url": "https://example.com/a1", "canonicalUrl": "https://example.com/a1", "title": "Port attack disrupts terminals overnight", "publishedAt": 1710100000000, "summary": "Port attack disrupts terminals overnight summary.", "url_hash": "a1", "language": "en", "translation_applied": false, "entity_keys": ["port_attack"] },
+        { "expected_event_id": "port_attack", "sourceId": "wire-b", "publisher": "WIRE-B", "url": "https://example.com/a2", "canonicalUrl": "https://example.com/a2", "title": "Officials say recovery talks begin Friday after port attack", "publishedAt": 1710100020000, "summary": "Officials say recovery talks begin Friday after port attack summary.", "url_hash": "a2", "language": "en", "translation_applied": false, "entity_keys": ["port_attack"] },
+        { "expected_event_id": "port_attack", "sourceId": "wire-c", "publisher": "WIRE-C", "url": "https://example.com/a3", "canonicalUrl": "https://example.com/a3", "title": "El gobierno confirmó nuevas sanciones tras el ataque al puerto", "publishedAt": 1710100040000, "summary": "El gobierno confirmó nuevas sanciones tras el ataque al puerto summary.", "url_hash": "a3", "language": "es", "translation_applied": false, "entity_keys": ["port_attack"] },
+        { "expected_event_id": "market_reaction", "sourceId": "wire-d", "publisher": "WIRE-D", "url": "https://example.com/b1", "canonicalUrl": "https://example.com/b1", "title": "Stocks slide after Tehran strike rattles insurers", "publishedAt": 1710100060000, "summary": "Stocks slide after Tehran strike rattles insurers summary.", "url_hash": "b1", "language": "en", "translation_applied": false, "entity_keys": ["market_reaction"] },
+        { "expected_event_id": "market_reaction", "sourceId": "wire-e", "publisher": "WIRE-E", "url": "https://example.com/b2", "canonicalUrl": "https://example.com/b2", "title": "Brokers revise shipping forecasts after the regional strike", "publishedAt": 1710100080000, "summary": "Brokers revise shipping forecasts after the regional strike summary.", "url_hash": "b2", "language": "en", "translation_applied": false, "entity_keys": ["market_reaction"] },
+        { "expected_event_id": "diplomatic_followup", "sourceId": "wire-f", "publisher": "WIRE-F", "url": "https://example.com/b3", "canonicalUrl": "https://example.com/b3", "title": "Summit aides prepare another round of sanctions talks", "publishedAt": 1710100100000, "summary": "Summit aides prepare another round of sanctions talks summary.", "url_hash": "b3", "language": "en", "translation_applied": false, "entity_keys": ["diplomatic_followup"] }
+      ]
+    },
+    {
+      "dataset_id": "live-same-topic-trap-separation",
+      "topic_id": "live-same-topic-trap-separation",
+      "items": [
+        { "expected_event_id": "market_aftershock", "sourceId": "wire-g", "publisher": "WIRE-G", "url": "https://example.com/h1", "canonicalUrl": "https://example.com/h1", "title": "Stocks slide after the overnight strike jolts shipping insurers", "publishedAt": 1710300000000, "summary": "Stocks slide after the overnight strike jolts shipping insurers summary.", "url_hash": "h1", "language": "en", "translation_applied": false, "entity_keys": ["market_aftershock"] },
+        { "expected_event_id": "market_aftershock", "sourceId": "wire-h", "publisher": "WIRE-H", "url": "https://example.com/h2", "canonicalUrl": "https://example.com/h2", "title": "Brokers cut shipping forecasts as markets absorb the strike", "publishedAt": 1710300020000, "summary": "Brokers cut shipping forecasts as markets absorb the strike summary.", "url_hash": "h2", "language": "en", "translation_applied": false, "entity_keys": ["market_aftershock"] },
+        { "expected_event_id": "opinion_commentary", "sourceId": "desk-i", "publisher": "DESK-I", "url": "https://example.com/i1", "canonicalUrl": "https://example.com/i1", "title": "Opinion: how to think clearly before forming views on the conflict", "publishedAt": 1710300040000, "summary": "Opinion: how to think clearly before forming views on the conflict summary.", "url_hash": "i1", "language": "en", "translation_applied": false, "entity_keys": ["opinion_commentary"] },
+        { "expected_event_id": "ceasefire_vote", "sourceId": "wire-j", "publisher": "WIRE-J", "url": "https://example.com/j1", "canonicalUrl": "https://example.com/j1", "title": "Parliament schedules a ceasefire vote after the weekend attacks", "publishedAt": 1710300060000, "summary": "Parliament schedules a ceasefire vote after the weekend attacks summary.", "url_hash": "j1", "language": "en", "translation_applied": false, "entity_keys": ["ceasefire_vote"] },
+        { "expected_event_id": "ceasefire_vote", "sourceId": "wire-k", "publisher": "WIRE-K", "url": "https://example.com/j2", "canonicalUrl": "https://example.com/j2", "title": "Coalition leaders whip support ahead of the ceasefire vote", "publishedAt": 1710300080000, "summary": "Coalition leaders whip support ahead of the ceasefire vote summary.", "url_hash": "j2", "language": "en", "translation_applied": false, "entity_keys": ["ceasefire_vote"] },
+        { "expected_event_id": "protest_crackdown", "sourceId": "wire-l", "publisher": "WIRE-L", "url": "https://example.com/k1", "canonicalUrl": "https://example.com/k1", "title": "Police detain protest leaders after the capital march turns violent", "publishedAt": 1710300100000, "summary": "Police detain protest leaders after the capital march turns violent summary.", "url_hash": "k1", "language": "en", "translation_applied": false, "entity_keys": ["protest_crackdown"] },
+        { "expected_event_id": "protest_crackdown", "sourceId": "wire-m", "publisher": "WIRE-M", "url": "https://example.com/k2", "canonicalUrl": "https://example.com/k2", "title": "Capital courts review charges after protest arrests", "publishedAt": 1710300120000, "summary": "Capital courts review charges after protest arrests summary.", "url_hash": "k2", "language": "en", "translation_applied": false, "entity_keys": ["protest_crackdown"] }
+      ]
+    },
+    {
+      "dataset_id": "live-liveblog-recap-contamination",
+      "topic_id": "live-liveblog-recap-contamination",
+      "items": [
+        { "expected_event_id": "liveblog_port_attack", "sourceId": "live-a", "publisher": "LIVE-A", "url": "https://example.com/l1", "canonicalUrl": "https://example.com/l1", "title": "Live updates: port attack response minute by minute", "publishedAt": 1710400000000, "summary": "Live updates and wire snippets from the port attack response.", "url_hash": "l1", "language": "en", "translation_applied": false, "entity_keys": ["liveblog_port_attack"] },
+        { "expected_event_id": "liveblog_port_attack", "sourceId": "live-b", "publisher": "LIVE-B", "url": "https://example.com/l2", "canonicalUrl": "https://example.com/l2", "title": "Live blog: emergency crews respond at the port overnight", "publishedAt": 1710400010000, "summary": "Rolling live coverage from the port attack response.", "url_hash": "l2", "language": "en", "translation_applied": false, "entity_keys": ["liveblog_port_attack"] },
+        { "expected_event_id": "ceasefire_vote", "sourceId": "wire-n", "publisher": "WIRE-N", "url": "https://example.com/l3", "canonicalUrl": "https://example.com/l3", "title": "Parliament schedules a ceasefire vote after the attacks", "publishedAt": 1710400030000, "summary": "Parliament schedules a ceasefire vote after the attacks summary.", "url_hash": "l3", "language": "en", "translation_applied": false, "entity_keys": ["ceasefire_vote"] },
+        { "expected_event_id": "ceasefire_vote", "sourceId": "wire-o", "publisher": "WIRE-O", "url": "https://example.com/l4", "canonicalUrl": "https://example.com/l4", "title": "Coalition whips support before the ceasefire vote", "publishedAt": 1710400050000, "summary": "Coalition whips support before the ceasefire vote summary.", "url_hash": "l4", "language": "en", "translation_applied": false, "entity_keys": ["ceasefire_vote"] },
+        { "expected_event_id": "explainer_recap", "sourceId": "desk-p", "publisher": "DESK-P", "url": "https://example.com/l5", "canonicalUrl": "https://example.com/l5", "title": "Explainer: what the weekend attacks mean for regional diplomacy", "publishedAt": 1710400070000, "summary": "Explainer: what the weekend attacks mean for regional diplomacy summary.", "url_hash": "l5", "language": "en", "translation_applied": false, "entity_keys": ["explainer_recap"] }
+      ]
+    },
+    {
+      "dataset_id": "live-entity-overlap-distinct",
+      "topic_id": "live-entity-overlap-distinct",
+      "items": [
+        { "expected_event_id": "capital_budget", "sourceId": "wire-q", "publisher": "WIRE-Q", "url": "https://example.com/m1", "canonicalUrl": "https://example.com/m1", "title": "Capital council approves the budget after an overnight session", "publishedAt": 1710500000000, "summary": "Capital council approves the budget after an overnight session summary.", "url_hash": "m1", "language": "en", "translation_applied": false, "entity_keys": ["capital_budget", "capital"] },
+        { "expected_event_id": "capital_budget", "sourceId": "wire-r", "publisher": "WIRE-R", "url": "https://example.com/m2", "canonicalUrl": "https://example.com/m2", "title": "Mayor signs the new capital budget after the council vote", "publishedAt": 1710500020000, "summary": "Mayor signs the new capital budget after the council vote summary.", "url_hash": "m2", "language": "en", "translation_applied": false, "entity_keys": ["capital_budget", "capital"] },
+        { "expected_event_id": "capital_protest", "sourceId": "wire-s", "publisher": "WIRE-S", "url": "https://example.com/m3", "canonicalUrl": "https://example.com/m3", "title": "Capital police detain march organizers after protest clashes", "publishedAt": 1710500040000, "summary": "Capital police detain march organizers after protest clashes summary.", "url_hash": "m3", "language": "en", "translation_applied": false, "entity_keys": ["capital_protest", "capital"] },
+        { "expected_event_id": "capital_protest", "sourceId": "wire-t", "publisher": "WIRE-T", "url": "https://example.com/m4", "canonicalUrl": "https://example.com/m4", "title": "Capital courts review charges after protest arrests", "publishedAt": 1710500060000, "summary": "Capital courts review charges after protest arrests summary.", "url_hash": "m4", "language": "en", "translation_applied": false, "entity_keys": ["capital_protest", "capital"] }
+      ]
+    },
+    {
+      "dataset_id": "live-recap-vs-breaking",
+      "topic_id": "live-recap-vs-breaking",
+      "items": [
+        { "expected_event_id": "relief_convoy", "sourceId": "wire-u", "publisher": "WIRE-U", "url": "https://example.com/n1", "canonicalUrl": "https://example.com/n1", "title": "Relief convoy reaches the border crossing before dawn", "publishedAt": 1710600000000, "summary": "Relief convoy reaches the border crossing before dawn summary.", "url_hash": "n1", "language": "en", "translation_applied": false, "entity_keys": ["relief_convoy"] },
+        { "expected_event_id": "relief_convoy", "sourceId": "wire-v", "publisher": "WIRE-V", "url": "https://example.com/n2", "canonicalUrl": "https://example.com/n2", "title": "Aid groups confirm the convoy crossed before sunrise", "publishedAt": 1710600020000, "summary": "Aid groups confirm the convoy crossed before sunrise summary.", "url_hash": "n2", "language": "en", "translation_applied": false, "entity_keys": ["relief_convoy"] },
+        { "expected_event_id": "policy_recap", "sourceId": "desk-w", "publisher": "DESK-W", "url": "https://example.com/n3", "canonicalUrl": "https://example.com/n3", "title": "Recap: how governments argued over border aid access this week", "publishedAt": 1710600050000, "summary": "Recap: how governments argued over border aid access this week summary.", "url_hash": "n3", "language": "en", "translation_applied": false, "entity_keys": ["policy_recap"] },
+        { "expected_event_id": "policy_recap", "sourceId": "desk-x", "publisher": "DESK-X", "url": "https://example.com/n4", "canonicalUrl": "https://example.com/n4", "title": "Explainer recap: the policy fight behind the border aid dispute", "publishedAt": 1710600070000, "summary": "Explainer recap: the policy fight behind the border aid dispute summary.", "url_hash": "n4", "language": "en", "translation_applied": false, "entity_keys": ["policy_recap"] }
+      ]
+    },
+    {
+      "dataset_id": "live-geo-similar-distinct",
+      "topic_id": "live-geo-similar-distinct",
+      "items": [
+        { "expected_event_id": "osaka_quake_response", "sourceId": "wire-y", "publisher": "WIRE-Y", "url": "https://example.com/o1", "canonicalUrl": "https://example.com/o1", "title": "Osaka rescue teams clear roads after the quake", "publishedAt": 1710700000000, "summary": "Osaka rescue teams clear roads after the quake summary.", "url_hash": "o1", "language": "en", "translation_applied": false, "entity_keys": ["osaka_quake_response", "osaka"] },
+        { "expected_event_id": "osaka_quake_response", "sourceId": "wire-z", "publisher": "WIRE-Z", "url": "https://example.com/o2", "canonicalUrl": "https://example.com/o2", "title": "After the quake, Osaka officials reopen key roads", "publishedAt": 1710700020000, "summary": "After the quake, Osaka officials reopen key roads summary.", "url_hash": "o2", "language": "en", "translation_applied": false, "entity_keys": ["osaka_quake_response", "osaka"] },
+        { "expected_event_id": "osaka_drill", "sourceId": "wire-aa", "publisher": "WIRE-AA", "url": "https://example.com/o3", "canonicalUrl": "https://example.com/o3", "title": "Osaka hospitals run a citywide earthquake drill", "publishedAt": 1710700050000, "summary": "Osaka hospitals run a citywide earthquake drill summary.", "url_hash": "o3", "language": "en", "translation_applied": false, "entity_keys": ["osaka_drill", "osaka"] },
+        { "expected_event_id": "osaka_drill", "sourceId": "wire-ab", "publisher": "WIRE-AB", "url": "https://example.com/o4", "canonicalUrl": "https://example.com/o4", "title": "City officials review the Osaka emergency drill results", "publishedAt": 1710700070000, "summary": "City officials review the Osaka emergency drill results summary.", "url_hash": "o4", "language": "en", "translation_applied": false, "entity_keys": ["osaka_drill", "osaka"] }
+      ]
+    },
+    {
+      "dataset_id": "live-image-reuse-distinct",
+      "topic_id": "live-image-reuse-distinct",
+      "items": [
+        { "expected_event_id": "port_attack", "sourceId": "wire-ac", "publisher": "WIRE-AC", "url": "https://example.com/p1", "canonicalUrl": "https://example.com/p1", "title": "Port attack disrupts container traffic overnight", "publishedAt": 1710800000000, "summary": "Port attack disrupts container traffic overnight summary.", "url_hash": "p1", "image_hash": "shared-image", "language": "en", "translation_applied": false, "entity_keys": ["port_attack"] },
+        { "expected_event_id": "port_attack", "sourceId": "wire-ad", "publisher": "WIRE-AD", "url": "https://example.com/p2", "canonicalUrl": "https://example.com/p2", "title": "Recovery talks begin after the port attack", "publishedAt": 1710800020000, "summary": "Recovery talks begin after the port attack summary.", "url_hash": "p2", "image_hash": "shared-image", "language": "en", "translation_applied": false, "entity_keys": ["port_attack"] },
+        { "expected_event_id": "protest_crackdown", "sourceId": "wire-ae", "publisher": "WIRE-AE", "url": "https://example.com/p3", "canonicalUrl": "https://example.com/p3", "title": "Police detain protest leaders after the capital march", "publishedAt": 1710800040000, "summary": "Police detain protest leaders after the capital march summary.", "url_hash": "p3", "image_hash": "shared-image", "language": "en", "translation_applied": false, "entity_keys": ["protest_crackdown"] },
+        { "expected_event_id": "protest_crackdown", "sourceId": "wire-af", "publisher": "WIRE-AF", "url": "https://example.com/p4", "canonicalUrl": "https://example.com/p4", "title": "Capital courts review charges after protest arrests", "publishedAt": 1710800060000, "summary": "Capital courts review charges after protest arrests summary.", "url_hash": "p4", "image_hash": "shared-image", "language": "en", "translation_applied": false, "entity_keys": ["protest_crackdown"] }
+      ]
+    },
+    {
+      "dataset_id": "live-url-canonical-drift",
+      "topic_id": "live-url-canonical-drift",
+      "items": [
+        { "expected_event_id": "ship_delays", "sourceId": "wire-ag", "publisher": "WIRE-AG", "url": "https://example.com/q1", "canonicalUrl": "https://example.com/shipping-live", "title": "Shipping delays deepen after the overnight strike", "publishedAt": 1710900000000, "summary": "Shipping delays deepen after the overnight strike summary.", "url_hash": "q1", "language": "en", "translation_applied": false, "entity_keys": ["ship_delays"] },
+        { "expected_event_id": "ship_delays", "sourceId": "wire-ah", "publisher": "WIRE-AH", "url": "https://example.com/q2", "canonicalUrl": "https://example.com/shipping-live", "title": "Carriers warn of longer shipping delays after the strike", "publishedAt": 1710900020000, "summary": "Carriers warn of longer shipping delays after the strike summary.", "url_hash": "q2", "language": "en", "translation_applied": false, "entity_keys": ["ship_delays"] },
+        { "expected_event_id": "ship_delays", "sourceId": "wire-ai", "publisher": "WIRE-AI", "url": "https://example.com/q3", "canonicalUrl": "https://example.com/shipping-followup", "title": "Insurers warn delays will continue after the port attack", "publishedAt": 1710900040000, "summary": "Insurers warn delays will continue after the port attack summary.", "url_hash": "q3", "language": "en", "translation_applied": false, "entity_keys": ["ship_delays"] },
+        { "expected_event_id": "fuel_spike", "sourceId": "wire-aj", "publisher": "WIRE-AJ", "url": "https://example.com/q4", "canonicalUrl": "https://example.com/q4", "title": "Fuel prices jump as traders price in the conflict risk", "publishedAt": 1710900070000, "summary": "Fuel prices jump as traders price in the conflict risk summary.", "url_hash": "q4", "language": "en", "translation_applied": false, "entity_keys": ["fuel_spike"] },
+        { "expected_event_id": "fuel_spike", "sourceId": "wire-ak", "publisher": "WIRE-AK", "url": "https://example.com/q5", "canonicalUrl": "https://example.com/q5", "title": "Energy desks raise price forecasts after the overnight strike", "publishedAt": 1710900090000, "summary": "Energy desks raise price forecasts after the overnight strike summary.", "url_hash": "q5", "language": "en", "translation_applied": false, "entity_keys": ["fuel_spike"] }
+      ]
+    }
+  ],
+  "replayScenarios": [
+    {
+      "scenario_id": "replay-port-attack-expansion-live",
+      "topic_id": "replay-port-attack-expansion-live",
+      "ticks": [
+        [
+          { "expected_event_id": "port_attack", "sourceId": "replay-a", "publisher": "REPLAY-A", "url": "https://example.com/ra1", "canonicalUrl": "https://example.com/ra1", "title": "Port attack disrupts terminals overnight", "publishedAt": 1712000000000, "summary": "Port attack disrupts terminals overnight summary.", "url_hash": "ra1", "language": "en", "translation_applied": false, "entity_keys": ["port_attack"] },
+          { "expected_event_id": "port_attack", "sourceId": "replay-b", "publisher": "REPLAY-B", "url": "https://example.com/ra2", "canonicalUrl": "https://example.com/ra2", "title": "Officials say recovery talks begin Friday after port attack", "publishedAt": 1712000020000, "summary": "Officials say recovery talks begin Friday after port attack summary.", "url_hash": "ra2", "language": "en", "translation_applied": false, "entity_keys": ["port_attack"] }
+        ],
+        [
+          { "expected_event_id": "port_attack", "sourceId": "replay-c", "publisher": "REPLAY-C", "url": "https://example.com/ra3", "canonicalUrl": "https://example.com/ra3", "title": "El gobierno confirmó nuevas sanciones tras el ataque al puerto", "publishedAt": 1712000040000, "summary": "El gobierno confirmó nuevas sanciones tras el ataque al puerto summary.", "url_hash": "ra3", "language": "es", "translation_applied": false, "entity_keys": ["port_attack"] }
+        ],
+        [
+          { "expected_event_id": "port_attack", "sourceId": "replay-d", "publisher": "REPLAY-D", "url": "https://example.com/ra4", "canonicalUrl": "https://example.com/ra4", "title": "Insurers warn delays will continue after port attack", "publishedAt": 1712000060000, "summary": "Insurers warn delays will continue after port attack summary.", "url_hash": "ra4", "language": "en", "translation_applied": false, "entity_keys": ["port_attack"] }
+        ]
+      ]
+    },
+    {
+      "scenario_id": "replay-market-opinion-separation-live",
+      "topic_id": "replay-market-opinion-separation-live",
+      "ticks": [
+        [
+          { "expected_event_id": "market_aftershock", "sourceId": "replay-e", "publisher": "REPLAY-E", "url": "https://example.com/rb1", "canonicalUrl": "https://example.com/rb1", "title": "Stocks slide after the overnight strike jolts shipping insurers", "publishedAt": 1712100000000, "summary": "Stocks slide after the overnight strike jolts shipping insurers summary.", "url_hash": "rb1", "language": "en", "translation_applied": false, "entity_keys": ["market_aftershock"] },
+          { "expected_event_id": "market_aftershock", "sourceId": "replay-f", "publisher": "REPLAY-F", "url": "https://example.com/rb2", "canonicalUrl": "https://example.com/rb2", "title": "Brokers cut shipping forecasts as markets absorb the strike", "publishedAt": 1712100020000, "summary": "Brokers cut shipping forecasts as markets absorb the strike summary.", "url_hash": "rb2", "language": "en", "translation_applied": false, "entity_keys": ["market_aftershock"] }
+        ],
+        [
+          { "expected_event_id": "opinion_commentary", "sourceId": "replay-g", "publisher": "REPLAY-G", "url": "https://example.com/rb3", "canonicalUrl": "https://example.com/rb3", "title": "Opinion: how to think clearly before forming views on the conflict", "publishedAt": 1712100040000, "summary": "Opinion: how to think clearly before forming views on the conflict summary.", "url_hash": "rb3", "language": "en", "translation_applied": false, "entity_keys": ["opinion_commentary"] }
+        ],
+        [
+          { "expected_event_id": "market_aftershock", "sourceId": "replay-h", "publisher": "REPLAY-H", "url": "https://example.com/rb4", "canonicalUrl": "https://example.com/rb4", "title": "Insurers hedge against prolonged shipping disruption after the strike", "publishedAt": 1712100060000, "summary": "Insurers hedge against prolonged shipping disruption after the strike summary.", "url_hash": "rb4", "language": "en", "translation_applied": false, "entity_keys": ["market_aftershock"] }
+        ]
+      ]
+    },
+    {
+      "scenario_id": "replay-ceasefire-protest-separation-live",
+      "topic_id": "replay-ceasefire-protest-separation-live",
+      "ticks": [
+        [
+          { "expected_event_id": "ceasefire_vote", "sourceId": "replay-i", "publisher": "REPLAY-I", "url": "https://example.com/rc1", "canonicalUrl": "https://example.com/rc1", "title": "Parliament schedules a ceasefire vote after the weekend attacks", "publishedAt": 1712200000000, "summary": "Parliament schedules a ceasefire vote after the weekend attacks summary.", "url_hash": "rc1", "language": "en", "translation_applied": false, "entity_keys": ["ceasefire_vote"] },
+          { "expected_event_id": "ceasefire_vote", "sourceId": "replay-j", "publisher": "REPLAY-J", "url": "https://example.com/rc2", "canonicalUrl": "https://example.com/rc2", "title": "Coalition leaders whip support ahead of the ceasefire vote", "publishedAt": 1712200020000, "summary": "Coalition leaders whip support ahead of the ceasefire vote summary.", "url_hash": "rc2", "language": "en", "translation_applied": false, "entity_keys": ["ceasefire_vote"] }
+        ],
+        [
+          { "expected_event_id": "protest_crackdown", "sourceId": "replay-k", "publisher": "REPLAY-K", "url": "https://example.com/rc3", "canonicalUrl": "https://example.com/rc3", "title": "Police detain protest leaders after the capital march turns violent", "publishedAt": 1712200040000, "summary": "Police detain protest leaders after the capital march turns violent summary.", "url_hash": "rc3", "language": "en", "translation_applied": false, "entity_keys": ["protest_crackdown"] },
+          { "expected_event_id": "protest_crackdown", "sourceId": "replay-l", "publisher": "REPLAY-L", "url": "https://example.com/rc4", "canonicalUrl": "https://example.com/rc4", "title": "Capital courts review charges after protest arrests", "publishedAt": 1712200060000, "summary": "Capital courts review charges after protest arrests summary.", "url_hash": "rc4", "language": "en", "translation_applied": false, "entity_keys": ["protest_crackdown"] }
+        ],
+        [
+          { "expected_event_id": "ceasefire_vote", "sourceId": "replay-m", "publisher": "REPLAY-M", "url": "https://example.com/rc5", "canonicalUrl": "https://example.com/rc5", "title": "Lawmakers prepare final amendments before the ceasefire vote", "publishedAt": 1712200080000, "summary": "Lawmakers prepare final amendments before the ceasefire vote summary.", "url_hash": "rc5", "language": "en", "translation_applied": false, "entity_keys": ["ceasefire_vote"] }
+        ]
+      ]
+    },
+    {
+      "scenario_id": "replay-url-drift-energy-split-live",
+      "topic_id": "replay-url-drift-energy-split-live",
+      "ticks": [
+        [
+          { "expected_event_id": "ship_delays", "sourceId": "replay-n", "publisher": "REPLAY-N", "url": "https://example.com/rd1", "canonicalUrl": "https://example.com/shipping-live", "title": "Shipping delays deepen after the overnight strike", "publishedAt": 1712300000000, "summary": "Shipping delays deepen after the overnight strike summary.", "url_hash": "rd1", "language": "en", "translation_applied": false, "entity_keys": ["ship_delays"] },
+          { "expected_event_id": "ship_delays", "sourceId": "replay-o", "publisher": "REPLAY-O", "url": "https://example.com/rd2", "canonicalUrl": "https://example.com/shipping-live", "title": "Carriers warn of longer shipping delays after the strike", "publishedAt": 1712300020000, "summary": "Carriers warn of longer shipping delays after the strike summary.", "url_hash": "rd2", "language": "en", "translation_applied": false, "entity_keys": ["ship_delays"] }
+        ],
+        [
+          { "expected_event_id": "fuel_spike", "sourceId": "replay-p", "publisher": "REPLAY-P", "url": "https://example.com/rd3", "canonicalUrl": "https://example.com/rd3", "title": "Fuel prices jump as traders price in the conflict risk", "publishedAt": 1712300040000, "summary": "Fuel prices jump as traders price in the conflict risk summary.", "url_hash": "rd3", "language": "en", "translation_applied": false, "entity_keys": ["fuel_spike"] },
+          { "expected_event_id": "fuel_spike", "sourceId": "replay-q", "publisher": "REPLAY-Q", "url": "https://example.com/rd4", "canonicalUrl": "https://example.com/rd4", "title": "Energy desks raise price forecasts after the overnight strike", "publishedAt": 1712300060000, "summary": "Energy desks raise price forecasts after the overnight strike summary.", "url_hash": "rd4", "language": "en", "translation_applied": false, "entity_keys": ["fuel_spike"] }
+        ],
+        [
+          { "expected_event_id": "ship_delays", "sourceId": "replay-r", "publisher": "REPLAY-R", "url": "https://example.com/rd5", "canonicalUrl": "https://example.com/shipping-followup", "title": "Insurers warn delays will continue after the port attack", "publishedAt": 1712300080000, "summary": "Insurers warn delays will continue after the port attack summary.", "url_hash": "rd5", "language": "en", "translation_applied": false, "entity_keys": ["ship_delays"] }
+        ]
+      ]
+    }
+  ]
+}
