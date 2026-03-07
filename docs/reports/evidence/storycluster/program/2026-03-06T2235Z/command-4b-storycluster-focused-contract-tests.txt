@@ -1,0 +1,23 @@
+> pnpm --filter @vh/storycluster-engine exec vitest run src/stageRunner.pipeline.test.ts src/remoteContract.test.ts src/remoteEngine.contract.test.ts --reporter=verbose
+
+ RUN  v2.1.9 /srv/trinity/worktrees/storycluster-dod-final/services/storycluster-engine
+
+ ✓ src/remoteContract.test.ts > runStoryClusterRemoteContract > projects remote request payload into deterministic StoryBundle-shaped response
+ ✓ src/remoteContract.test.ts > runStoryClusterRemoteContract > falls back to normalized headline tokens when entity keys are missing
+ ✓ src/remoteContract.test.ts > runStoryClusterRemoteContract > covers helper internals for string parsing and fallback reference-now behavior
+ ✓ src/remoteContract.test.ts > runStoryClusterRemoteContract > fails closed on invalid payload shapes
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > runs all mandatory stages and emits deterministic telemetry envelope
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > is deterministic for a fixed request regardless of input order
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > keeps story_id stable when source coverage expands inside the same event cluster
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > covers rerank tie-break branches for published_at and doc_id ordering
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > handles empty document batches and falls back to clock-based reference time
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > throws validation errors for invalid request inputs
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > fails closed on stage errors with telemetry
+ ✓ src/stageRunner.pipeline.test.ts > runStoryClusterStagePipeline > covers punctuation-token fallback in clustering and untitled summary fallback
+ ✓ src/remoteEngine.contract.test.ts > storycluster-engine remote invocation contract > is consumable by ai-engine StoryClusterRemoteEngine (daemon production path contract)
+
+ Test Files  3 passed (3)
+      Tests  13 passed (13)
+   Start at  23:13:18
+   Duration  457ms (transform 218ms, setup 0ms, collect 309ms, tests 77ms, environment 1ms, prepare 293ms)
+

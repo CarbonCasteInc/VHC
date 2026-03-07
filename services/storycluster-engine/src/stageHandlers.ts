@@ -202,7 +202,7 @@ function withSummaryBundles(state: PipelineState): PipelineState {
       const acceptedCount = cluster.docs.filter((document) => document.adjudication === 'accepted').length;
       const clusterWindowStart = Math.min(...cluster.docs.map((document) => document.published_at));
       const clusterWindowEnd = Math.max(...cluster.docs.map((document) => document.published_at));
-      const storyIdHash = hashToHex(`${state.topicId}:${cluster.key}:${sourceDocIds.join(',')}`);
+      const storyIdHash = hashToHex(`storycluster-v1:${state.topicId}:${cluster.key}`);
 
       return {
         story_id: `story-${storyIdHash}`,

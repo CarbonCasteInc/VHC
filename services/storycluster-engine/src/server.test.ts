@@ -24,8 +24,11 @@ async function withServer<T>(
   }
 }
 
-async function waitForListening(server: { once: (event: 'listening', cb: () => void) => void }) {
-  await new Promise<void>((resolve) => server.once('listening', resolve));
+async function waitForListening(server: { once: (event: 'listening' | 'error', cb: (error?: Error) => void) => void }) {
+  await new Promise<void>((resolve, reject) => {
+    server.once('listening', () => resolve());
+    server.once('error', (error) => reject(error));
+  });
 }
 
 async function closeServer(server: { close: (cb: (error?: Error | null) => void) => void }) {
@@ -40,6 +43,9 @@ async function closeServer(server: { close: (cb: (error?: Error | null) => void)
   });
 }
 
+async function closeServerQuietly(server: { close: (cb: (error?: Error | null) => void) => void }) {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
 describe('storycluster server', () => {
   it('serves health and cluster endpoints with auth gate', async () => {
     await withServer(
@@ -298,8 +304,16 @@ describe('storycluster server', () => {
     await closeServer(ephemeralServer);
 
     const defaultPortServer = startStoryClusterServer({ host: '127.0.0.1' });
-    await waitForListening(defaultPortServer);
-    await closeServer(defaultPortServer);
+    try {
+      await waitForListening(defaultPortServer);
+      await closeServer(defaultPortServer);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('EADDRINUSE')) {
+        throw error;
+      }
+      await closeServerQuietly(defaultPortServer);
+    }
 
     const defaultHostServer = startStoryClusterServer({ port: 0 });
     await waitForListening(defaultHostServer);

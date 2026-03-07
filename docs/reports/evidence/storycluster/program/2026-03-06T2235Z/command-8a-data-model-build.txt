@@ -1,0 +1,5 @@
+> pnpm --filter @vh/data-model build
+
+> @vh/data-model@0.1.0 build /srv/trinity/worktrees/storycluster-dod-final/packages/data-model
+> tsc -p tsconfig.json
+

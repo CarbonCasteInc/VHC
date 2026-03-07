@@ -128,6 +128,46 @@ describe('runStoryClusterStagePipeline', () => {
     );
   });
 
+  it('keeps story_id stable when source coverage expands inside the same event cluster', () => {
+    const makeDoc = (docId: string, sourceId: string, publishedAt: number) => ({
+      doc_id: docId,
+      source_id: sourceId,
+      title: 'Breaking: Market halt expands overnight',
+      published_at: publishedAt,
+      url: `https://example.com/${docId}`,
+    });
+
+    const base = runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-stability',
+        documents: [
+          makeDoc('stable-1', 'wire-a', 1_709_100_000_000),
+          makeDoc('stable-2', 'wire-b', 1_709_100_010_000),
+        ],
+        reference_now_ms: 1_709_100_020_000,
+      },
+      { clock: makeClock(5_000) },
+    );
+
+    const expanded = runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-stability',
+        documents: [
+          makeDoc('stable-1', 'wire-a', 1_709_100_000_000),
+          makeDoc('stable-2', 'wire-b', 1_709_100_010_000),
+          makeDoc('stable-3', 'wire-c', 1_709_100_030_000),
+        ],
+        reference_now_ms: 1_709_100_040_000,
+      },
+      { clock: makeClock(6_000) },
+    );
+
+    expect(base.bundles).toHaveLength(1);
+    expect(expanded.bundles).toHaveLength(1);
+    expect(expanded.bundles[0]?.story_id).toBe(base.bundles[0]?.story_id);
+    expect(expanded.bundles[0]?.cluster_window_end).toBeGreaterThan(base.bundles[0]!.cluster_window_end);
+  });
+
   it('covers rerank tie-break branches for published_at and doc_id ordering', () => {
     let observedOrder: string[] = [];
 

@@ -1,0 +1,2 @@
+> node tools/scripts/check-diff-coverage.mjs
+Diff Coverage: PASS - no coverage-eligible source files changed.

@@ -938,3 +938,22 @@
 1. Telemetry-richness changes are confined to clustering-stage metadata and do not alter StoryBundle publish vs async enrichment queue boundaries.
 2. Analysis relay default behavior and bias-table precompute coupling remain unchanged under canonical no-fallback wiring.
 3. No blocking dependency was introduced between telemetry enrichment and analysis/bias-table generation; headline publication remains non-blocking relative to enrichment lanes.
+
+## Program Track — Final StoryCluster DoD Closure (2026-03-06T2235Z)
+
+- Lane branch: `coord/storycluster-dod-final`
+- Baseline commit: `3aa6f052869747be7ee4e8f848d2ee967868bb7c`
+- Closure artifact: `docs/reports/STORYCLUSTER_FINAL_DOD_CLOSURE_2026-03-06.md`
+- Evidence packet: `docs/reports/evidence/storycluster/program/2026-03-06T2235Z/EVIDENCE_PACKET.md`
+
+### State of Play
+
+1. StoryCluster identity semantics closed: stable `story_id` across source expansion and `topic_id = sha256Hex("news:" + story_id)` enforced in StoryCluster remote output.
+2. Deterministic coherence + telemetry gates remain green; storycluster-engine maintains 100% coverage.
+3. Production no-fallback wiring verified via ai-engine and news-daemon production suites.
+4. Ranking determinism + diversification verified via PWA ranking suite.
+5. Non-blocking enrichment invariants verified via newsRuntime suite.
+
+### Final Closure Decision
+
+All §16.7 release-gate items are simultaneously **PASS** with deterministic evidence. StoryCluster is now the authoritative production bundler and sorter for VHC.

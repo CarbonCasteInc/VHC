@@ -1,0 +1,7 @@
+> bash -lc rg -n 'heuristic fallback is disallowed in production mode|storycluster remote endpoint is required in production mode|deriveNewsTopicId|storycluster-v1' packages/ai-engine/src/newsOrchestrator.ts services/storycluster-engine/src/remoteContract.ts services/storycluster-engine/src/stageHandlers.ts
+packages/ai-engine/src/newsOrchestrator.ts:65:    throw new Error('heuristic fallback is disallowed in production mode');
+packages/ai-engine/src/newsOrchestrator.ts:74:      throw new Error('storycluster remote endpoint is required in production mode');
+services/storycluster-engine/src/remoteContract.ts:182:function deriveNewsTopicId(storyId: string): string {
+services/storycluster-engine/src/remoteContract.ts:266:      topic_id: deriveNewsTopicId(bundle.story_id),
+services/storycluster-engine/src/remoteContract.ts:303:  deriveNewsTopicId,
+services/storycluster-engine/src/stageHandlers.ts:205:      const storyIdHash = hashToHex(`storycluster-v1:${state.topicId}:${cluster.key}`);
