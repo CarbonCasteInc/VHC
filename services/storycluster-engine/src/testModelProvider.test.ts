@@ -1,0 +1,99 @@
+import { describe, expect, it } from 'vitest';
+import { createDeterministicTestModelProvider } from './testModelProvider';
+
+describe('createDeterministicTestModelProvider', () => {
+  it('returns deterministic translations, embeddings, pair judgements, and summaries', async () => {
+    const provider = createDeterministicTestModelProvider();
+
+    await expect(provider.translate([{ doc_id: 'doc-1', language: 'es', text: 'texto' }])).resolves.toEqual([
+      { doc_id: 'doc-1', translated_text: 'texto' },
+    ]);
+
+    const embeddings = await provider.embed([{ item_id: 'item-1', text: 'port attack update' }], 8);
+    expect(embeddings[0]?.item_id).toBe('item-1');
+    expect(embeddings[0]?.vector).toHaveLength(8);
+
+    await expect(provider.analyzeDocuments([{
+      doc_id: 'doc-1',
+      title: 'Opinion: how to think about the widening Iran conflict',
+      summary: 'Commentary on framing the conflict.',
+      publisher: 'Opinion Desk',
+      language: 'en',
+      text: 'Opinion: how to think about the widening Iran conflict. Commentary on framing the conflict.',
+      published_at: 100,
+      entity_hints: ['iran_conflict'],
+    }])).resolves.toEqual([expect.objectContaining({
+      doc_id: 'doc-1',
+      doc_type: 'opinion',
+      entities: expect.arrayContaining(['iran_conflict']),
+      linked_entities: expect.arrayContaining(['iran_conflict']),
+      trigger: null,
+    })]);
+
+    await expect(provider.judgePairs([{
+      pair_id: 'accepted',
+      document_title: 'Port attack update',
+      document_text: 'Port attack update',
+      document_entities: ['port_attack'],
+      document_trigger: 'attack',
+      cluster_headline: 'Port attack expands',
+      cluster_summary: 'Summary',
+      cluster_entities: ['port_attack'],
+      cluster_triggers: ['attack'],
+    }])).resolves.toEqual([{
+      pair_id: 'accepted',
+      score: 0.92,
+      decision: 'accepted',
+    }]);
+
+    await expect(provider.judgePairs([{
+      pair_id: 'abstain',
+      document_title: 'Port update',
+      document_text: 'Port update',
+      document_entities: ['port_attack'],
+      document_trigger: null,
+      cluster_headline: 'Port attack expands',
+      cluster_summary: 'Summary',
+      cluster_entities: ['port_attack'],
+      cluster_triggers: ['attack'],
+    }])).resolves.toEqual([{
+      pair_id: 'abstain',
+      score: 0.58,
+      decision: 'abstain',
+    }]);
+
+    await expect(provider.judgePairs([{
+      pair_id: 'rejected',
+      document_title: 'Market slump update',
+      document_text: 'Market slump update',
+      document_entities: ['market_slump'],
+      document_trigger: 'inflation',
+      cluster_headline: 'Port attack expands',
+      cluster_summary: 'Summary',
+      cluster_entities: ['port_attack'],
+      cluster_triggers: ['attack'],
+    }])).resolves.toEqual([{
+      pair_id: 'rejected',
+      score: 0.12,
+      decision: 'rejected',
+    }]);
+
+    await expect(provider.summarize([
+      {
+        cluster_id: 'cluster-1',
+        headline: 'Fallback headline',
+        source_titles: ['Title'],
+        source_summaries: ['Port attack expands overnight'],
+      },
+      {
+        cluster_id: 'cluster-2',
+        headline: 'Use headline instead',
+        source_titles: ['Title'],
+        source_summaries: [],
+      },
+    ])).resolves.toEqual([
+      { cluster_id: 'cluster-1', summary: 'Port attack expands overnight.' },
+      { cluster_id: 'cluster-2', summary: 'Use headline instead.' },
+    ]);
+  });
+});

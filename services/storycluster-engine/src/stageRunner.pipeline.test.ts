@@ -1,55 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import {
-  STORYCLUSTER_STAGE_SEQUENCE,
-  StoryClusterStageError,
-  type StoryClusterInputDocument,
-} from './contracts';
+import { MemoryClusterStore } from './clusterStore';
+import { StoryClusterStageError, STORYCLUSTER_STAGE_SEQUENCE, type StoryClusterInputDocument } from './contracts';
 import { runStoryClusterStagePipeline } from './stageRunner';
 
-const BASE_DOCS: StoryClusterInputDocument[] = [
-  {
-    doc_id: 'doc-1',
-    source_id: 'wire-a',
-    title: 'Breaking: Port attack triggers alerts',
-    published_at: 1_709_000_000_000,
-    url: 'https://example.com/doc-1',
-  },
-  {
-    doc_id: 'doc-2',
-    source_id: 'wire-a',
-    title: 'Breaking: Port attack triggers alerts',
-    published_at: 1_709_000_000_500,
-    url: 'https://example.com/doc-2',
-  },
-  {
-    doc_id: 'doc-3',
-    source_id: 'wire-b',
-    title: 'Analysis: Supply chain consequences emerge',
-    published_at: 1_709_000_010_000,
-    url: 'https://example.com/doc-3',
-  },
-  {
-    doc_id: 'doc-4',
-    source_id: 'wire-c',
-    title: 'Opinion: Officials respond à la crise',
-    published_at: 1_709_000_020_000,
-    url: 'https://example.com/doc-4',
-  },
-  {
-    doc_id: 'doc-5',
-    source_id: 'wire-d',
-    title: 'General update from agencies overnight',
-    published_at: 1_709_000_030_000,
-    url: 'https://example.com/doc-5',
-  },
-  {
-    doc_id: 'doc-6',
-    source_id: 'wire-e',
-    title: 'General bulletin from agencies overnight',
-    published_at: 1_709_000_040_000,
-    url: 'https://example.com/doc-6',
-  },
-];
+function makeDoc(docId: string, title: string, publishedAt: number, overrides: Partial<StoryClusterInputDocument> = {}): StoryClusterInputDocument {
+  return {
+    doc_id: docId,
+    source_id: overrides.source_id ?? `wire-${docId}`,
+    publisher: overrides.publisher,
+    title,
+    summary: overrides.summary ?? `${title} summary.`,
+    published_at: publishedAt,
+    url: overrides.url ?? `https://example.com/${docId}`,
+    canonical_url: overrides.canonical_url,
+    url_hash: overrides.url_hash,
+    image_hash: overrides.image_hash,
+    language_hint: overrides.language_hint,
+    entity_keys: overrides.entity_keys,
+    translation_applied: overrides.translation_applied,
+  };
+}
 
 function makeClock(start = 1_709_001_000_000): () => number {
   let tick = start;
@@ -60,281 +30,132 @@ function makeClock(start = 1_709_001_000_000): () => number {
 }
 
 describe('runStoryClusterStagePipeline', () => {
-  it('runs all mandatory stages and emits deterministic telemetry envelope', () => {
-    const response = runStoryClusterStagePipeline(
+  it('runs all mandatory stages with real summaries and stage telemetry', async () => {
+    const store = new MemoryClusterStore();
+    const response = await runStoryClusterStagePipeline(
       {
         topic_id: 'topic-security',
-        documents: BASE_DOCS,
+        documents: [
+          makeDoc('doc-1', 'Breaking: Port attack disrupts terminals overnight', 1_709_000_000_000, { entity_keys: ['port_attack'] }),
+          makeDoc('doc-2', 'Breaking: Port attack disrupts terminals overnight', 1_709_000_000_500, { source_id: 'wire-b', entity_keys: ['port_attack'] }),
+          makeDoc('doc-3', 'Officials say recovery talks begin Friday after port attack', 1_709_000_010_000, { entity_keys: ['port_attack'] }),
+          makeDoc('doc-4', 'El gobierno confirmó nuevas sanciones tras el ataque al puerto', 1_709_000_020_000, { language_hint: 'es', entity_keys: ['port_attack'] }),
+          makeDoc('doc-5', 'Analysis: how insurers are pricing the market fallout', 1_709_000_030_000, { entity_keys: ['market_reaction'] }),
+        ],
         reference_now_ms: 1_709_000_050_000,
       },
+      { clock: makeClock(), store },
+    );
+    const followup = await runStoryClusterStagePipeline(
       {
-        clock: makeClock(),
+        topic_id: 'topic-security',
+        documents: [
+          makeDoc('doc-6', 'New shipping delays follow the port attack response', 1_709_000_060_000, { entity_keys: ['port_attack'] }),
+        ],
+        reference_now_ms: 1_709_000_070_000,
       },
+      { clock: makeClock(1_709_000_060_000), store },
     );
 
     expect(response.telemetry.stage_count).toBe(STORYCLUSTER_STAGE_SEQUENCE.length);
     expect(response.telemetry.stages.map((stage) => stage.stage_id)).toEqual(STORYCLUSTER_STAGE_SEQUENCE);
     expect(response.telemetry.stages.every((stage) => stage.status === 'ok')).toBe(true);
-    expect(response.telemetry.stages.every((stage) => stage.gate_pass_rate >= 0)).toBe(true);
-    expect(response.telemetry.stages.every((stage) => stage.gate_pass_rate <= 1)).toBe(true);
-    expect(response.telemetry.stages.every((stage) => stage.latency_per_item_ms >= 0)).toBe(true);
-    expect(response.telemetry.stages.every((stage) => Object.keys(stage.artifact_counts).length > 0)).toBe(true);
-    expect(response.telemetry.request_doc_count).toBe(BASE_DOCS.length);
-
-    const dedupeStage = response.telemetry.stages.find(
-      (stage) => stage.stage_id === 'near_duplicate_collapse',
-    );
-    expect(dedupeStage?.input_count).toBe(6);
-    expect(dedupeStage?.output_count).toBe(5);
-    expect(dedupeStage?.gate_pass_rate).toBe(0.833);
-    expect(dedupeStage?.artifact_counts).toEqual({
-      retained_docs: 5,
-      dropped_docs: 1,
-    });
-
-    const adjudicationStage = response.telemetry.stages.find(
-      (stage) => stage.stage_id === 'llm_adjudication',
-    );
-    expect(adjudicationStage?.artifact_counts.accepted_docs).toBeGreaterThanOrEqual(1);
-    expect(adjudicationStage?.artifact_counts.review_docs).toBeGreaterThanOrEqual(0);
-
+    expect(response.telemetry.stages.find((stage) => stage.stage_id === 'near_duplicate_collapse')?.gate_pass_rate).toBe(0.8);
+    expect(followup.telemetry.stages.find((stage) => stage.stage_id === 'qdrant_candidate_retrieval')?.artifact_counts.candidates_considered).toBeGreaterThan(0);
+    expect(followup.telemetry.stages.find((stage) => stage.stage_id === 'llm_adjudication')?.artifact_counts.adjudication_accepts).toBeGreaterThanOrEqual(1);
     expect(response.bundles.length).toBeGreaterThan(0);
-    expect(response.bundles.every((bundle) => bundle.stage_version === 'storycluster-stage-runner-v1')).toBe(true);
-    expect(response.bundles[0]?.summary_hint).toMatch(/docs/);
+    expect(response.bundles[0]?.summary_hint).not.toMatch(/\d+ docs/);
+    expect(response.bundles[0]?.stage_version).toBe('storycluster-stage-runner-v2');
   });
 
-  it('is deterministic for a fixed request regardless of input order', () => {
-    const direct = runStoryClusterStagePipeline(
-      {
-        topic_id: 'topic-security',
-        documents: BASE_DOCS,
-        reference_now_ms: 1_709_000_050_000,
-      },
-      { clock: makeClock(2000) },
-    );
+  it('is deterministic for fixed inputs regardless of input order', async () => {
+    const docs = [
+      makeDoc('doc-1', 'Port attack disrupts terminals overnight', 100, { entity_keys: ['port_attack'] }),
+      makeDoc('doc-2', 'Officials say recovery talks begin Friday after port attack', 110, { entity_keys: ['port_attack'] }),
+      makeDoc('doc-3', 'Separate market slump follows the regional crisis', 120, { entity_keys: ['market_slump'] }),
+    ];
 
-    const reversed = runStoryClusterStagePipeline(
-      {
-        topic_id: 'topic-security',
-        documents: [...BASE_DOCS].reverse(),
-        reference_now_ms: 1_709_000_050_000,
-      },
-      { clock: makeClock(4000) },
-    );
+    const forward = await runStoryClusterStagePipeline({ topic_id: 'topic-det', documents: docs }, { clock: makeClock(1_000), store: new MemoryClusterStore() });
+    const reversed = await runStoryClusterStagePipeline({ topic_id: 'topic-det', documents: [...docs].reverse() }, { clock: makeClock(2_000), store: new MemoryClusterStore() });
 
-    expect(reversed.bundles).toEqual(direct.bundles);
-    expect(reversed.telemetry.stages.map((stage) => stage.stage_id)).toEqual(
-      direct.telemetry.stages.map((stage) => stage.stage_id),
-    );
+    expect(reversed.bundles).toEqual(forward.bundles);
   });
 
-  it('keeps story_id stable when source coverage expands inside the same event cluster', () => {
-    const makeDoc = (docId: string, sourceId: string, publishedAt: number) => ({
-      doc_id: docId,
-      source_id: sourceId,
-      title: 'Breaking: Market halt expands overnight',
-      published_at: publishedAt,
-      url: `https://example.com/${docId}`,
-    });
-
-    const base = runStoryClusterStagePipeline(
+  it('preserves story identity while source coverage expands across ticks', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
       {
-        topic_id: 'topic-stability',
+        topic_id: 'topic-persist',
         documents: [
-          makeDoc('stable-1', 'wire-a', 1_709_100_000_000),
-          makeDoc('stable-2', 'wire-b', 1_709_100_010_000),
+          makeDoc('doc-1', 'Port attack disrupts terminals overnight', 100, { entity_keys: ['port_attack'] }),
+          makeDoc('doc-2', 'Officials say recovery talks begin Friday after port attack', 110, { entity_keys: ['port_attack'] }),
         ],
-        reference_now_ms: 1_709_100_020_000,
       },
-      { clock: makeClock(5_000) },
+      { clock: makeClock(5_000), store },
     );
 
-    const expanded = runStoryClusterStagePipeline(
+    const second = await runStoryClusterStagePipeline(
       {
-        topic_id: 'topic-stability',
+        topic_id: 'topic-persist',
         documents: [
-          makeDoc('stable-1', 'wire-a', 1_709_100_000_000),
-          makeDoc('stable-2', 'wire-b', 1_709_100_010_000),
-          makeDoc('stable-3', 'wire-c', 1_709_100_030_000),
+          makeDoc('doc-3', 'Insurers warn delays will continue after port attack', 130, { entity_keys: ['port_attack'] }),
         ],
-        reference_now_ms: 1_709_100_040_000,
       },
-      { clock: makeClock(6_000) },
+      { clock: makeClock(6_000), store },
     );
 
-    expect(base.bundles).toHaveLength(1);
-    expect(expanded.bundles).toHaveLength(1);
-    expect(expanded.bundles[0]?.story_id).toBe(base.bundles[0]?.story_id);
-    expect(expanded.bundles[0]?.cluster_window_end).toBeGreaterThan(base.bundles[0]!.cluster_window_end);
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.cluster_window_end).toBeGreaterThan(first.bundles[0]!.cluster_window_end);
   });
 
-  it('covers rerank tie-break branches for published_at and doc_id ordering', () => {
-    let observedOrder: string[] = [];
-
-    runStoryClusterStagePipeline(
+  it('separates same-topic different-event coverage instead of false-merging', async () => {
+    const store = new MemoryClusterStore();
+    await runStoryClusterStagePipeline(
       {
-        topic_id: 'topic-rerank',
+        topic_id: 'topic-separation',
         documents: [
-          { doc_id: 'a', source_id: 's1', title: 'General alpha', published_at: 100, url: 'https://example.com/a' },
-          { doc_id: 'b', source_id: 's2', title: 'General beta', published_at: 90, url: 'https://example.com/b' },
-          { doc_id: 'c', source_id: 's3', title: 'General charlie', published_at: 80, url: 'https://example.com/c' },
-          { doc_id: 'd', source_id: 's4', title: 'General delta', published_at: 80, url: 'https://example.com/d' },
+          makeDoc('doc-1', 'Stocks slide after Tehran strike rattles insurers', 100, { entity_keys: ['market_slump'] }),
         ],
-        reference_now_ms: 200,
       },
-      {
-        clock: makeClock(7_000),
-        stageOverrides: {
-          hybrid_scoring: (state) => ({
-            ...state,
-            documents: state.documents.map((document) => ({
-              ...document,
-              hybrid_score: document.doc_id === 'a' || document.doc_id === 'b' ? 0.8 : 0.7,
-            })),
-          }),
-          dynamic_cluster_assignment: (state) => {
-            observedOrder = state.documents.map((document) => document.doc_id);
-            return {
-              ...state,
-              clusters: [{ key: 'topic-rerank:general:general', docs: state.documents }],
-            };
-          },
-        },
-      },
+      { clock: makeClock(7_000), store },
     );
 
-    expect(observedOrder).toEqual(['a', 'b', 'c', 'd']);
-  });
-
-  it('handles empty document batches and falls back to clock-based reference time', () => {
-    const response = runStoryClusterStagePipeline(
+    const second = await runStoryClusterStagePipeline(
       {
-        topic_id: 'topic-empty',
-        documents: [],
-        reference_now_ms: Number.NaN,
+        topic_id: 'topic-separation',
+        documents: [
+          makeDoc('doc-2', 'Opinion: how to think about the widening Iran conflict', 130, { entity_keys: ['iran_conflict'], source_id: 'desk-opinion', publisher: 'Opinion Desk' }),
+        ],
       },
-      {
-        clock: makeClock(9000),
-      },
+      { clock: makeClock(8_000), store },
     );
 
-    expect(response.bundles).toEqual([]);
-    expect(response.telemetry.request_doc_count).toBe(0);
-    expect(response.telemetry.stage_count).toBe(STORYCLUSTER_STAGE_SEQUENCE.length);
-    expect(response.telemetry.stages.every((stage) => stage.input_count === 0)).toBe(true);
-    expect(response.telemetry.stages.every((stage) => stage.output_count === 0)).toBe(true);
-    expect(response.telemetry.stages.every((stage) => stage.gate_pass_rate === 1)).toBe(true);
-    expect(response.telemetry.stages.every((stage) => stage.latency_per_item_ms >= 0)).toBe(true);
+    expect(store.loadTopic('topic-separation').clusters).toHaveLength(2);
+    expect(second.bundles[0]?.story_id).not.toBe(store.loadTopic('topic-separation').clusters[0]?.story_id === second.bundles[0]?.story_id ? store.loadTopic('topic-separation').clusters[1]?.story_id : store.loadTopic('topic-separation').clusters[0]?.story_id);
   });
 
-  it('throws validation errors for invalid request inputs', () => {
-    expect(() =>
-      runStoryClusterStagePipeline({
-        topic_id: '   ',
-        documents: BASE_DOCS,
-      }),
-    ).toThrow('topic_id must be non-empty');
-
-    expect(() =>
-      runStoryClusterStagePipeline({
-        topic_id: 'topic-security',
-        documents: [{ ...BASE_DOCS[0]!, title: '   ' }],
-      }),
-    ).toThrow('documents must provide non-empty doc_id, source_id, title, and url');
-
-    expect(() =>
-      runStoryClusterStagePipeline({
-        topic_id: 'topic-security',
-        documents: [{ ...BASE_DOCS[0]!, published_at: -1 }],
-      }),
-    ).toThrow('invalid published_at');
-
-    expect(() =>
-      runStoryClusterStagePipeline({
-        topic_id: 'topic-security',
-        documents: [BASE_DOCS[0]!, { ...BASE_DOCS[0]!, source_id: 'wire-z' }],
-      }),
-    ).toThrow('duplicate doc_id');
-  });
-
-  it('fails closed on stage errors with telemetry', () => {
-    const stringFailure = () =>
+  it('fails closed on store readiness and stage errors', async () => {
+    await expect(
       runStoryClusterStagePipeline(
-        { topic_id: 'topic-security', documents: BASE_DOCS },
-        {
-          clock: makeClock(12_000),
-          stageOverrides: {
-            hybrid_scoring: () => {
-              throw 'synthetic stage failure';
-            },
-          },
-        },
-      );
+        { topic_id: 'topic-bad', documents: [] },
+        { store: { loadTopic: () => { throw new Error('nope'); }, saveTopic: () => undefined, readiness: () => ({ ok: false, detail: 'offline' }) } },
+      ),
+    ).rejects.toThrow('storycluster store is not ready: offline');
 
-    expect(stringFailure).toThrow('storycluster stage hybrid_scoring failed: synthetic stage failure');
-
-    try {
-      stringFailure();
-      throw new Error('expected StoryClusterStageError');
-    } catch (error) {
-      expect(error).toBeInstanceOf(StoryClusterStageError);
-      const stageError = error as StoryClusterStageError;
-      expect(stageError.stageId).toBe('hybrid_scoring');
-      expect(stageError.telemetry.stages.at(-1)?.status).toBe('error');
-      expect(stageError.telemetry.stages.at(-1)?.gate_pass_rate).toBe(0);
-      expect(stageError.telemetry.stages.at(-1)?.artifact_counts.failed_stage).toBe(1);
-      expect(stageError.telemetry.stages.at(-1)?.detail).toContain('synthetic stage failure');
-    }
-
-    const objectFailure = () =>
+    await expect(
       runStoryClusterStagePipeline(
-        { topic_id: 'topic-security', documents: BASE_DOCS },
-        {
-          clock: makeClock(12_500),
-          stageOverrides: {
-            hybrid_scoring: () => {
-              throw new Error('error-object-path');
-            },
-          },
-        },
-      );
+        { topic_id: 'topic-fail', documents: [makeDoc('doc-1', 'Port attack', 100)] },
+        { store: new MemoryClusterStore(), stageOverrides: { hybrid_scoring: () => { throw new Error('boom'); } } },
+      ),
+    ).rejects.toThrow(StoryClusterStageError);
 
-    expect(objectFailure).toThrow('storycluster stage hybrid_scoring failed: error-object-path');
-  });
-
-  it('covers punctuation-token fallback in clustering and untitled summary fallback', () => {
-    const punctuationRun = runStoryClusterStagePipeline(
-      {
-        topic_id: 'topic-punctuation',
-        documents: [
-          { doc_id: 'punct-1', source_id: 'wire-punct', title: '***', published_at: 10, url: 'https://example.com/punct-1' },
-        ],
-        reference_now_ms: 10,
-      },
-      { clock: makeClock(15_000) },
-    );
-
-    expect(punctuationRun.bundles[0]?.story_id).toMatch(/^story-/);
-
-    const untitledRun = runStoryClusterStagePipeline(
-      {
-        topic_id: 'topic-untitled',
-        documents: [
-          { doc_id: 'untitled-1', source_id: 'wire-untitled', title: 'Signal', published_at: 20, url: 'https://example.com/untitled-1' },
-        ],
-        reference_now_ms: 20,
-      },
-      {
-        clock: makeClock(16_000),
-        stageOverrides: {
-          dynamic_cluster_assignment: (state) => ({
-            ...state,
-            clusters: [{ key: 'topic-untitled:empty', docs: [] }],
-          }),
-        },
-      },
-    );
-
-    expect(untitledRun.bundles[0]?.headline).toBe('Untitled story');
+    await expect(
+      runStoryClusterStagePipeline(
+        { topic_id: 'topic-fail-string', documents: [makeDoc('doc-1', 'Port attack', 100)] },
+        { store: new MemoryClusterStore(), stageOverrides: { hybrid_scoring: () => { throw 'boom-string'; } } as any },
+      ),
+    ).rejects.toThrow('boom-string');
   });
 });

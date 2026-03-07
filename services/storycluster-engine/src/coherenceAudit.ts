@@ -56,7 +56,7 @@ type StoryClusterContractRunner = (
   options?: {
     now?: () => number;
   },
-) => StoryClusterRemoteResponse;
+) => Promise<StoryClusterRemoteResponse> | StoryClusterRemoteResponse;
 
 const DEFAULT_THRESHOLDS: StoryClusterCoherenceThresholds = {
   max_contamination_rate: 0.1,
@@ -269,14 +269,14 @@ function createEmptyTelemetry(topicId: string): StoryClusterTelemetryEnvelope {
   };
 }
 
-export function runStoryClusterCoherenceAudit(
+export async function runStoryClusterCoherenceAudit(
   datasets: StoryClusterCoherenceAuditDataset[],
   options: {
     now?: () => number;
     thresholds?: Partial<StoryClusterCoherenceThresholds>;
     contractRunner?: StoryClusterContractRunner;
   } = {},
-): StoryClusterCoherenceAuditReport {
+): Promise<StoryClusterCoherenceAuditReport> {
   if (!Array.isArray(datasets) || datasets.length === 0) {
     throw new Error('datasets must be a non-empty array');
   }
@@ -285,10 +285,10 @@ export function runStoryClusterCoherenceAudit(
   const now = options.now ?? Date.now;
   const contractRunner = options.contractRunner ?? runStoryClusterRemoteContract;
 
-  const results = datasets.map((dataset, index) => {
+  const results = await Promise.all(datasets.map(async (dataset, index) => {
     assertDataset(dataset, index);
 
-    const response = contractRunner(
+    const response = await contractRunner(
       {
         topic_id: dataset.topic_id,
         items: toRemoteRequestItems(dataset.items),
@@ -303,7 +303,7 @@ export function runStoryClusterCoherenceAudit(
     }
 
     return computeDatasetResult(dataset, response, thresholds);
-  });
+  }));
 
   const failedDatasetIds = results.filter((result) => !result.pass).map((result) => result.dataset_id);
   const avgCoherenceScore = toRatio(

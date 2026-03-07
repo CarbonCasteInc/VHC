@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
 import { STORYCLUSTER_STAGE_SEQUENCE } from './contracts';
 import { runStoryClusterRemoteContract } from './remoteContract';
 
@@ -13,6 +14,7 @@ export interface StoryClusterServerOptions {
   authHeader?: string;
   authScheme?: string;
   now?: () => number;
+  store?: ClusterStore;
 }
 
 function sendJson(res: ServerResponse, statusCode: number, payload: unknown): void {
@@ -87,6 +89,10 @@ function isClusterPath(pathname: string): boolean {
   return pathname === '/cluster' || pathname === '/api/cluster';
 }
 
+function isReadyPath(pathname: string): boolean {
+  return pathname === '/ready' || pathname === '/api/ready';
+}
+
 async function handleRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -118,6 +124,21 @@ async function handleRequest(
     return;
   }
 
+  if (isReadyPath(parsed.pathname)) {
+    if (method !== 'GET') {
+      sendJson(res, 405, { error: 'Method not allowed' });
+      return;
+    }
+
+    const readiness = (options.store ?? getDefaultClusterStore()).readiness();
+    sendJson(res, readiness.ok ? 200 : 503, {
+      ok: readiness.ok,
+      service: 'storycluster-engine',
+      detail: readiness.detail,
+    });
+    return;
+  }
+
   if (!isClusterPath(parsed.pathname)) {
     sendJson(res, 404, { error: 'Not found' });
     return;
@@ -130,7 +151,7 @@ async function handleRequest(
 
   try {
     const payload = await readJsonBody(req);
-    const result = runStoryClusterRemoteContract(payload, { now: options.now });
+    const result = await runStoryClusterRemoteContract(payload, { clock: options.now, store: options.store });
     sendJson(res, 200, result);
   } catch (error) {
     sendJson(res, 400, {
@@ -158,6 +179,7 @@ export const serverInternal = {
   isAuthorized,
   isClusterPath,
   isHealthPath,
+  isReadyPath,
   parseUrl,
   readHeaderValue,
   readJsonBody,
