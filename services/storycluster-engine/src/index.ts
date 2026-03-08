@@ -65,3 +65,16 @@ export {
   type ClusterVectorHit,
   type ClusterVectorQuery,
 } from './vectorBackend';
+
+export {
+  LIVE_SEMANTIC_AUDIT_LABELS,
+  buildCanonicalSourcePairs,
+  classifyCanonicalSourcePairs,
+  hasRelatedTopicOnlyPair,
+  type LiveSemanticAuditBundleLike,
+  type LiveSemanticAuditClassifierOptions,
+  type LiveSemanticAuditLabel,
+  type LiveSemanticAuditPair,
+  type LiveSemanticAuditPairResult,
+  type LiveSemanticAuditSource,
+} from './liveSemanticAudit';
