@@ -55,6 +55,24 @@ export interface StoryClusterBundle {
     published_at: number;
     title: string;
   }>;
+  primary_sources: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    canonical_url: string;
+    url_hash: string;
+    published_at: number;
+    title: string;
+  }>;
+  secondary_assets: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    canonical_url: string;
+    url_hash: string;
+    published_at: number;
+    title: string;
+  }>;
   entity_keys: string[];
   time_bucket: string;
   semantic_signature: string;

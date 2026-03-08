@@ -1,4 +1,5 @@
 import { STORYCLUSTER_BENCHMARK_CORPUS } from './benchmarkCorpus';
+import { projectBundleSources } from './bundleProjection';
 import { MemoryClusterStore, type ClusterStore } from './clusterStore';
 import {
   coherenceAuditInternal,
@@ -73,7 +74,18 @@ export interface StoryClusterLiveBenchmarkOptions {
 const defaultCorpus = STORYCLUSTER_BENCHMARK_CORPUS;
 
 function bundleFromCluster(cluster: StoredClusterRecord): StoryClusterRemoteBundle {
-  const sources = cluster.source_documents
+  const projected = projectBundleSources(cluster.source_documents);
+  const sources = projected.primary_sources
+    .map((source) => ({
+      source_id: source.source_id,
+      publisher: source.publisher,
+      url: source.canonical_url,
+      url_hash: source.url_hash,
+      published_at: source.published_at,
+      title: source.title,
+    }))
+    .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
+  const secondaryAssets = projected.secondary_assets
     .map((source) => ({
       source_id: source.source_id,
       publisher: source.publisher,
@@ -92,6 +104,8 @@ function bundleFromCluster(cluster: StoredClusterRecord): StoryClusterRemoteBund
     cluster_window_start: cluster.cluster_window_start,
     cluster_window_end: cluster.cluster_window_end,
     sources,
+    primary_sources: sources,
+    secondary_assets: secondaryAssets,
     cluster_features: {
       entity_keys: Object.keys(cluster.entity_scores).sort(),
       time_bucket: new Date(cluster.cluster_window_end).toISOString().slice(0, 13),
@@ -120,7 +134,7 @@ function eventStoryIdsFromBundles(
 ): Map<string, Set<string>> {
   const mapping = new Map<string, Set<string>>();
   for (const bundle of bundles) {
-    for (const source of bundle.sources) {
+    for (const source of coherenceAuditInternal.bundleSources(bundle)) {
       const eventId = expectedByKey.get(
         coherenceAuditInternal.sourceEventKey({
           source_id: source.source_id,

@@ -132,6 +132,13 @@ function sourceEventKey(source: { source_id: string; url_hash: string }): string
   return `${source.source_id}::${source.url_hash}`;
 }
 
+function bundleSources(bundle: StoryClusterRemoteResponse['bundles'][number]): Array<{ source_id: string; url_hash: string }> {
+  return [
+    ...(bundle.primary_sources ?? bundle.sources),
+    ...(bundle.secondary_assets ?? []),
+  ];
+}
+
 function dominantEventFromCounts(counts: Map<string, number>): string {
   if (counts.size === 0) return 'unmapped';
   const sorted = [...counts.entries()].sort((left, right) => {
@@ -171,7 +178,7 @@ function computeDatasetResult(
     const bundleId = `${bundle.story_id}:${bundleIndex}`;
     const counts = new Map<string, number>();
 
-    for (const source of bundle.sources) {
+    for (const source of bundleSources(bundle)) {
       const sourceKey = sourceEventKey(source);
       const eventId = expectedByKey.get(sourceKey);
       if (!eventId) {
@@ -318,6 +325,7 @@ export async function runStoryClusterCoherenceAudit(
 }
 
 export const coherenceAuditInternal = {
+  bundleSources,
   clamp01,
   computeDatasetResult,
   createEmptyTelemetry,

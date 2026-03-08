@@ -34,7 +34,7 @@ function aggregateResults(results: readonly StoryClusterCoherenceDatasetResult[]
 function sourceStoryMap(bundles: readonly StoryClusterRemoteBundle[]): Map<string, string> {
   const mapping = new Map<string, string>();
   for (const bundle of bundles) {
-    for (const source of bundle.sources) {
+    for (const source of coherenceAuditInternal.bundleSources(bundle)) {
       mapping.set(source.source_id, bundle.story_id);
     }
   }

@@ -41,6 +41,22 @@ export interface StoryClusterRemoteBundle {
     published_at?: number;
     title: string;
   }>;
+  primary_sources?: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    url_hash: string;
+    published_at?: number;
+    title: string;
+  }>;
+  secondary_assets?: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    url_hash: string;
+    published_at?: number;
+    title: string;
+  }>;
   cluster_features: {
     entity_keys: string[];
     time_bucket: string;
@@ -202,7 +218,17 @@ export async function runStoryClusterRemoteContract(
   );
 
   const bundles = stageResult.bundles.map((bundle) => {
-    const sources = bundle.sources
+    const primarySources = bundle.primary_sources
+      .map((source) => ({
+        source_id: source.source_id,
+        publisher: source.publisher,
+        url: source.canonical_url,
+        url_hash: source.url_hash,
+        published_at: source.published_at,
+        title: source.title,
+      }))
+      .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
+    const secondaryAssets = bundle.secondary_assets
       .map((source) => ({
         source_id: source.source_id,
         publisher: source.publisher,
@@ -221,7 +247,9 @@ export async function runStoryClusterRemoteContract(
       summary_hint: bundle.summary_hint,
       cluster_window_start: bundle.cluster_window_start,
       cluster_window_end: bundle.cluster_window_end,
-      sources,
+      sources: primarySources,
+      primary_sources: primarySources,
+      secondary_assets: secondaryAssets,
       cluster_features: {
         entity_keys: deriveEntityKeys(bundle.headline, bundle.entity_keys),
         time_bucket: bundle.time_bucket,
@@ -232,7 +260,7 @@ export async function runStoryClusterRemoteContract(
         primary_language: bundle.primary_language,
         translation_applied: bundle.translation_applied,
       },
-      provenance_hash: provenanceHash(sources),
+      provenance_hash: provenanceHash(primarySources),
       created_at: bundle.created_at,
     };
   });

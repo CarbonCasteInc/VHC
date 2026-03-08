@@ -90,6 +90,8 @@ export const StoryBundleSchema = z
     cluster_window_start: z.number().int().nonnegative(),
     cluster_window_end: z.number().int().nonnegative(),
     sources: z.array(StoryBundleSourceSchema).min(1),
+    primary_sources: z.array(StoryBundleSourceSchema).min(1).optional(),
+    secondary_assets: z.array(StoryBundleSourceSchema).optional(),
     cluster_features: z
       .object({
         entity_keys: z.array(z.string().min(1)).min(1),
@@ -180,10 +182,11 @@ export type StoryBundleInputCandidate = z.infer<
 export function toStoryBundleInputCandidate(
   bundle: StoryBundle,
 ): StoryBundleInputCandidate {
+  const sources = bundle.primary_sources ?? bundle.sources;
   return StoryBundleInputCandidateSchema.parse({
     story_id: bundle.story_id,
     topic_id: bundle.topic_id,
-    sources: bundle.sources.map((source) => ({
+    sources: sources.map((source) => ({
       source_id: source.source_id,
       url: source.url,
       publisher: source.publisher,

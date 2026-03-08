@@ -123,6 +123,46 @@ describe('clusterScoring', () => {
     expect(shouldSplitPair(left.source_documents[0]!, separate.source_documents[0]!)).toBe(false);
   });
 
+  it('does not merge topic-adjacent clusters without event support', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const shipDelaysDoc = makeWorkingDocument({
+      doc_id: 'doc-ship',
+      source_id: 'wire-ship',
+      title: 'Shipping delays deepen after the overnight strike',
+      summary: 'Carriers warn delays will continue after the strike.',
+      raw_text: 'Shipping delays deepen after the overnight strike. Carriers warn delays will continue after the strike.',
+      normalized_text: 'shipping delays deepen after the overnight strike carriers warn delays will continue after the strike',
+      entities: ['ship_delays', 'shipping', 'strike'],
+      linked_entities: ['ship_delays', 'shipping', 'strike'],
+      trigger: 'strike',
+      coarse_vector: [1, 0],
+      full_vector: [1, 0],
+    });
+    const fuelSpikeDoc = makeWorkingDocument({
+      doc_id: 'doc-fuel',
+      source_id: 'wire-fuel',
+      title: 'Energy desks raise price forecasts after the overnight strike',
+      summary: 'Fuel prices jump as traders price in the conflict risk.',
+      raw_text: 'Energy desks raise price forecasts after the overnight strike. Fuel prices jump as traders price in the conflict risk.',
+      normalized_text: 'energy desks raise price forecasts after the overnight strike fuel prices jump as traders price in the conflict risk',
+      entities: ['fuel_spike', 'energy', 'price', 'strike'],
+      linked_entities: ['fuel_spike', 'energy', 'price', 'strike'],
+      trigger: 'strike',
+      coarse_vector: [0.98, 0.02],
+      full_vector: [0.98, 0.02],
+    });
+    const shipCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(shipDelaysDoc, shipDelaysDoc.source_variants[0]!)]);
+    const fuelCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(fuelSpikeDoc, fuelSpikeDoc.source_variants[0]!)]);
+
+    expect(clusterMergeScore(shipCluster, fuelCluster)).toBe(0);
+    expect(shouldMergeClusters(shipCluster, fuelCluster)).toBe(false);
+  });
+
   it('covers canonical-entity, abstain, and eligibility branches', () => {
     const cluster = makeCluster();
 
@@ -215,15 +255,32 @@ describe('clusterScoring', () => {
       normalized_text: 'generic bulletin',
       translated_title: 'Generic bulletin',
       translated_text: 'Generic bulletin.',
-      entities: ['other'],
-      linked_entities: ['port_attack'],
+      entities: ['port_attack'],
+      linked_entities: ['other'],
       trigger: 'attack',
-      coarse_vector: [1, 0],
-      full_vector: [1, 0],
+      coarse_vector: [0.74, 0.26],
+      full_vector: [0.62, 0.38],
       published_at: 216_000_100,
       temporal_ms: 216_000_100,
     }), cluster);
     expect(abstain.adjudication).toBe('abstain');
+
+    const eventConflict = buildCandidateMatch(makeWorkingDocument({
+      title: 'Trump news at a glance: Iran latest',
+      summary: 'A broad roundup of the Iran conflict and White House messaging.',
+      raw_text: 'Trump news at a glance: Iran latest. A broad roundup of the Iran conflict and White House messaging.',
+      normalized_text: 'trump news at a glance iran latest broad roundup of the iran conflict and white house messaging',
+      entities: ['iran', 'trump'],
+      linked_entities: ['iran'],
+      locations: ['washington'],
+      trigger: 'talks',
+      coarse_vector: [0.72, 0.28],
+      full_vector: [0.69, 0.31],
+      published_at: 216_000_100,
+      temporal_ms: 216_000_100,
+    }), cluster);
+    expect(eventConflict.reason).toBe('event-conflict');
+    expect(eventConflict.adjudication).toBe('rejected');
 
     expect(candidateEligible(makeWorkingDocument({
       entities: ['port_attack'],
@@ -239,5 +296,190 @@ describe('clusterScoring', () => {
       full_vector: [0, 0],
       published_at: 110,
     }), cluster)).toBe(true);
+
+    const hardRejectDoc = makeWorkingDocument({
+      title: 'Diplomatic talks resume after sanctions dispute',
+      summary: 'Diplomatic talks resume after sanctions dispute.',
+      raw_text: 'Diplomatic talks resume after sanctions dispute.',
+      normalized_text: 'diplomatic talks resume after sanctions dispute',
+      translated_title: 'Diplomatic talks resume after sanctions dispute',
+      translated_text: 'Diplomatic talks resume after sanctions dispute.',
+      entities: ['sanctions'],
+      linked_entities: ['sanctions'],
+      locations: ['brussels'],
+      trigger: 'talks',
+      event_tuple: {
+        description: 'Diplomatic talks resume after sanctions dispute',
+        trigger: 'talks',
+        who: [],
+        where: ['Brussels'],
+        when_ms: 216_000_100,
+        outcome: 'Talks resume.',
+      },
+      coarse_vector: [1, 0],
+      full_vector: [1, 0],
+      published_at: 216_000_100,
+      temporal_ms: 216_000_100,
+    });
+    expect(buildCandidateMatch(hardRejectDoc, cluster).reason).toBe('event-frame-conflict');
+    expect(candidateEligible(hardRejectDoc, cluster)).toBe(false);
+
+    const signalLessDoc = makeWorkingDocument({
+      title: 'Generic bulletin',
+      summary: 'Generic bulletin.',
+      raw_text: 'Generic bulletin.',
+      normalized_text: 'generic bulletin',
+      translated_title: 'Generic bulletin',
+      translated_text: 'Generic bulletin.',
+      entities: ['generic'],
+      linked_entities: ['generic'],
+      trigger: null,
+      locations: [],
+      event_tuple: null,
+      coarse_vector: [0, 1],
+      full_vector: [0, 1],
+      published_at: 216_000_100,
+      temporal_ms: null,
+    });
+    expect(buildCandidateMatch(signalLessDoc, cluster).reason).not.toBe('event-frame-conflict');
+
+    const temporalSignalDoc = makeWorkingDocument({
+      title: 'Generic bulletin',
+      summary: 'Generic bulletin.',
+      raw_text: 'Generic bulletin.',
+      normalized_text: 'generic bulletin',
+      translated_title: 'Generic bulletin',
+      translated_text: 'Generic bulletin.',
+      entities: ['generic'],
+      linked_entities: ['generic'],
+      trigger: null,
+      locations: [],
+      event_tuple: {
+        description: 'Generic bulletin',
+        trigger: null,
+        who: [],
+        where: [],
+        when_ms: 216_000_100,
+        outcome: null,
+      },
+      coarse_vector: [0, 1],
+      full_vector: [0, 1],
+      published_at: 216_000_100,
+      temporal_ms: null,
+    });
+    expect(buildCandidateMatch(temporalSignalDoc, cluster).reason).toBe('below-threshold');
+  });
+
+  it('returns zero merge score for category-conflicting clusters without support', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const conflictDoc = makeWorkingDocument({
+      doc_id: 'doc-conflict',
+      source_id: 'wire-conflict',
+      title: 'Port attack expands overnight',
+      entities: ['port_attack'],
+      linked_entities: ['port_attack'],
+      trigger: 'attack',
+      published_at: 100,
+      temporal_ms: 100,
+    });
+    const diplomacyDoc = makeWorkingDocument({
+      doc_id: 'doc-diplomacy',
+      source_id: 'wire-diplomacy',
+      title: 'Diplomatic talks resume after sanctions dispute',
+      summary: 'Summit aides prepare another round of sanctions talks.',
+      raw_text: 'Diplomatic talks resume after sanctions dispute. Summit aides prepare another round of sanctions talks.',
+      normalized_text: 'diplomatic talks resume after sanctions dispute summit aides prepare another round of sanctions talks',
+      entities: ['sanctions'],
+      linked_entities: ['sanctions'],
+      trigger: 'talks',
+      locations: ['brussels'],
+      published_at: 400_000_000,
+      temporal_ms: 400_000_000,
+      coarse_vector: [1, 0],
+      full_vector: [1, 0],
+    });
+    const conflictCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(conflictDoc, conflictDoc.source_variants[0]!)]);
+    const diplomacyCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(diplomacyDoc, diplomacyDoc.source_variants[0]!)]);
+
+    expect(clusterMergeScore(conflictCluster, diplomacyCluster)).toBe(0);
+  });
+
+  it('allows merge support from shared event location when trigger overlap is weak', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const leftDoc = makeWorkingDocument({
+      doc_id: 'doc-left-location',
+      source_id: 'wire-left-location',
+      title: 'Emergency crews reopen roads around the capital',
+      entities: ['road_closure', 'capital', 'roads'],
+      linked_entities: ['road_closure', 'capital', 'roads'],
+      trigger: null,
+      locations: ['capital'],
+      published_at: 100,
+      temporal_ms: 100,
+    });
+    const rightDoc = makeWorkingDocument({
+      doc_id: 'doc-right-location',
+      source_id: 'wire-right-location',
+      title: 'Officials keep capital checkpoints open overnight',
+      entities: ['checkpoint_updates', 'capital', 'roads'],
+      linked_entities: ['checkpoint_updates', 'capital', 'roads'],
+      trigger: null,
+      locations: ['capital'],
+      published_at: 120,
+      temporal_ms: 120,
+      coarse_vector: [0.98, 0.02],
+      full_vector: [0.98, 0.02],
+    });
+    const leftCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(leftDoc, leftDoc.source_variants[0]!)]);
+    const rightCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(rightDoc, rightDoc.source_variants[0]!)]);
+
+    expect(clusterMergeScore(leftCluster, rightCluster)).toBeGreaterThan(0);
+  });
+
+  it('allows merge support from shared trigger family when location overlap is absent', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const leftDoc = makeWorkingDocument({
+      doc_id: 'doc-left-trigger',
+      source_id: 'wire-left-trigger',
+      title: 'Shipping insurers extend losses after the overnight strike',
+      entities: ['shipping', 'insurers', 'market_aftershock'],
+      linked_entities: ['shipping', 'insurers', 'market_aftershock'],
+      trigger: 'strike',
+      locations: [],
+      published_at: 100,
+      temporal_ms: 100,
+    });
+    const rightDoc = makeWorkingDocument({
+      doc_id: 'doc-right-trigger',
+      source_id: 'wire-right-trigger',
+      title: 'Shipping markets absorb the strike as insurers revise forecasts',
+      entities: ['shipping', 'insurers', 'forecasts'],
+      linked_entities: ['shipping', 'insurers', 'forecasts'],
+      trigger: 'strike',
+      locations: [],
+      published_at: 120,
+      temporal_ms: 120,
+      coarse_vector: [0.98, 0.02],
+      full_vector: [0.98, 0.02],
+    });
+    const leftCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(leftDoc, leftDoc.source_variants[0]!)]);
+    const rightCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(rightDoc, rightDoc.source_variants[0]!)]);
+
+    expect(clusterMergeScore(leftCluster, rightCluster)).toBeGreaterThan(0);
   });
 });

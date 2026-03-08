@@ -78,7 +78,7 @@ describe('clusterLifecycle', () => {
       clusters: [],
     };
     const base = makeWorkingDocument('doc-1', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
-    const peer = makeWorkingDocument('doc-2', 'Port attack expands again', 'port_attack', 'attack', [1, 0]);
+    const peer = makeWorkingDocument('doc-2', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
     topicState.clusters = [
       deriveClusterRecord(topicState, 'topic-news', [toStoredSource(base, base.source_variants[0]!)], 'story-b'),
       deriveClusterRecord(topicState, 'topic-news', [toStoredSource(peer, peer.source_variants[0]!)], 'story-a'),

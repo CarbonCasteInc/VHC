@@ -92,6 +92,22 @@ describe('createDeterministicTestModelProvider', () => {
       decision: 'abstain',
     }]);
 
+    await expect(provider.adjudicatePairs([{
+      pair_id: 'canonical-substantive-accepted',
+      document_title: 'Coalition leaders whip support ahead of the ceasefire vote',
+      document_text: 'Coalition leaders whip support ahead of the ceasefire vote',
+      document_entities: ['ceasefire_vote', 'ceasefire', 'leaders'],
+      document_trigger: 'vote',
+      cluster_headline: 'Parliament schedules a ceasefire vote after the weekend attacks',
+      cluster_summary: 'Summary',
+      cluster_entities: ['ceasefire_vote', 'ceasefire', 'parliament'],
+      cluster_triggers: ['attacks'],
+    }])).resolves.toEqual([{
+      pair_id: 'canonical-substantive-accepted',
+      score: 0.92,
+      decision: 'accepted',
+    }]);
+
     await expect(provider.rerankPairs([{
       pair_id: 'rejected',
       document_title: 'Market slump update',

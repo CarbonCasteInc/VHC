@@ -35,6 +35,8 @@ describe('runStoryClusterRemoteContract', () => {
     expect(bundle.schemaVersion).toBe('story-bundle-v0');
     expect(bundle.topic_id).toBe(remoteContractInternal.deriveNewsTopicId(bundle.story_id));
     expect(bundle.sources).toHaveLength(1);
+    expect(bundle.primary_sources).toHaveLength(1);
+    expect(bundle.secondary_assets).toEqual([]);
     expect(bundle.cluster_features.entity_keys).toContain('port_attack');
     expect(bundle.cluster_features.time_bucket).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
     expect(bundle.created_at).toBe(bundle.cluster_window_start);
@@ -100,6 +102,40 @@ describe('runStoryClusterRemoteContract', () => {
 
     expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
     expect(second.bundles[0]?.sources.map((source) => source.source_id)).toEqual(['wire-a', 'wire-b', 'wire-c']);
+  });
+
+  it('projects same-publisher derivative assets into secondary assets only', async () => {
+    const response = await runStoryClusterRemoteContract({
+      topic_id: 'topic-assets',
+      items: [
+        {
+          sourceId: 'cbs-article',
+          publisher: 'CBS',
+          url: 'https://example.com/article',
+          canonicalUrl: 'https://example.com/article',
+          title: 'Jan. 6 plaque honoring police officers displayed at the Capitol after delay',
+          publishedAt: 100,
+          summary: 'The plaque was installed after a delay.',
+          url_hash: 'hash-article',
+          entity_keys: ['jan6_plaque_display'],
+        },
+        {
+          sourceId: 'cbs-video',
+          publisher: 'CBS',
+          url: 'https://example.com/video/plaque',
+          canonicalUrl: 'https://example.com/video/plaque',
+          title: 'Video: Jan. 6 plaque honoring police officers displayed at the Capitol',
+          publishedAt: 110,
+          summary: undefined,
+          url_hash: 'hash-video',
+          entity_keys: ['jan6_plaque_display'],
+        },
+      ],
+    }, { clock: () => 200, store: new MemoryClusterStore() });
+
+    expect(response.bundles[0]?.sources.map((source) => source.source_id)).toEqual(['cbs-article']);
+    expect(response.bundles[0]?.primary_sources?.map((source) => source.source_id)).toEqual(['cbs-article']);
+    expect(response.bundles[0]?.secondary_assets?.map((source) => source.source_id)).toEqual(['cbs-video']);
   });
 
   it('covers helper internals and fallback reference-now behavior', () => {

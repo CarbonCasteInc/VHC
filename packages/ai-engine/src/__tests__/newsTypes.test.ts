@@ -107,6 +107,24 @@ describe('newsTypes', () => {
             title: 'Story title',
           },
         ],
+        primary_sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'src-1',
+            url: 'https://example.com/story',
+            url_hash: 'deadbeef',
+            title: 'Story title',
+          },
+        ],
+        secondary_assets: [
+          {
+            source_id: 'src-video',
+            publisher: 'src-1',
+            url: 'https://example.com/story/video',
+            url_hash: 'deadbeef-video',
+            title: 'Video: Story title',
+          },
+        ],
         cluster_features: {
           entity_keys: ['story'],
           time_bucket: '2024-02-05T12',
@@ -147,6 +165,15 @@ describe('newsTypes', () => {
       cluster_window_start: 10,
       cluster_window_end: 20,
       sources: [
+        {
+          source_id: 'src-1',
+          publisher: 'src-1',
+          url: 'https://example.com/story',
+          url_hash: 'hash-1',
+          title: 'Title',
+        },
+      ],
+      primary_sources: [
         {
           source_id: 'src-1',
           publisher: 'src-1',

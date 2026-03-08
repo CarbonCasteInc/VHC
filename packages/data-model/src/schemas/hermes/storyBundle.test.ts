@@ -59,6 +59,8 @@ const validStoryBundle = {
   cluster_window_start: 1700000000000,
   cluster_window_end: 1700003600000,
   sources: [validBundleSource],
+  primary_sources: [validBundleSource],
+  secondary_assets: [{ ...validBundleSource, source_id: 'src-video', title: 'Video: markets rise' }],
   cluster_features: validClusterFeatures,
   provenance_hash: 'prov-hash-xyz',
   created_at: 1700003600001,

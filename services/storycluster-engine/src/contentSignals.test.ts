@@ -36,6 +36,7 @@ describe('contentSignals', () => {
     expect(classifyDocumentType('Opinion: Why this matters', undefined, 'Desk')).toBe('opinion');
     expect(classifyDocumentType('Analysis: Market fallout', undefined, 'Desk')).toBe('analysis');
     expect(classifyDocumentType('Explainer: What we know', undefined, 'Desk')).toBe('explainer_recap');
+    expect(classifyDocumentType('Trump news at a glance: latest updates', undefined, 'Desk')).toBe('explainer_recap');
     expect(classifyDocumentType('Breaking: Port attack', undefined, 'Desk')).toBe('breaking_update');
     expect(classifyDocumentType('Port attack expands', undefined, 'Reuters')).toBe('wire_report');
     expect(classifyDocumentType('Port attack expands', undefined, 'Desk')).toBe('hard_news');
@@ -54,9 +55,15 @@ describe('contentSignals', () => {
     expect(extractLocations(text)).toEqual(expect.arrayContaining(['tehran', 'new_york']));
     expect(extractTrigger(text)).toBe('attack');
     expect(triggerCategory('attack')).toBe('conflict');
+    expect(triggerCategory('detain')).toBe('legal');
+    expect(triggerCategory('schedules')).toBe('politics');
     expect(triggerCategory('unknown')).toBeNull();
     expect(triggerCategory(null)).toBeNull();
     expect(extractTemporalMs(text, Date.UTC(2026, 2, 5))).toBeTypeOf('number');
+    expect(extractTemporalMs('   ', Date.UTC(2026, 2, 5))).toBeNull();
+    expect(extractTemporalMs('Police detain protest leaders after the capital march turns violent.', Date.UTC(2026, 2, 5))).toBeNull();
+    expect(extractTemporalMs('Parliament schedules a ceasefire vote after the weekend attacks.', Date.UTC(2026, 2, 5))).toBeNull();
+    expect(extractTemporalMs('Officials say voting continues today.', Date.UTC(2026, 2, 5))).toBeTypeOf('number');
     expect(extractEntities('a an the', [])).toEqual([]);
   });
 

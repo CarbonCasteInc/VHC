@@ -134,6 +134,56 @@ describe('summaryBuilder', () => {
     expect(buildClusterSummary(cluster)).toContain('1 source across Reuters');
   });
 
+  it('mentions a singular same-publisher asset tail when applicable', () => {
+    const cluster = makeCluster('Ports remained shut after the overnight attack.');
+    cluster.source_documents.push({
+      ...cluster.source_documents[0]!,
+      source_key: 'wire-a-video:hash-c',
+      source_id: 'wire-a-video',
+      url: 'https://example.com/video/a',
+      canonical_url: 'https://example.com/video/a',
+      url_hash: 'hash-c',
+      title: 'Video: port attack aftermath',
+      published_at: 121,
+      text: 'Video: port attack aftermath',
+      doc_ids: ['doc-c'],
+    });
+
+    expect(buildClusterSummary(cluster)).toContain('with 1 additional same-publisher asset');
+  });
+
+  it('uses plural same-publisher asset wording when applicable', () => {
+    const cluster = makeCluster('Ports remained shut after the overnight attack.');
+    cluster.source_documents.push(
+      {
+        ...cluster.source_documents[0]!,
+        source_key: 'wire-a-video:hash-c',
+        source_id: 'wire-a-video',
+        url: 'https://example.com/video/a',
+        canonical_url: 'https://example.com/video/a',
+        url_hash: 'hash-c',
+        title: 'Video: port attack aftermath',
+        published_at: 121,
+        text: 'Video: port attack aftermath',
+        doc_ids: ['doc-c'],
+      },
+      {
+        ...cluster.source_documents[0]!,
+        source_key: 'wire-a-photos:hash-d',
+        source_id: 'wire-a-photos',
+        url: 'https://example.com/photos/a',
+        canonical_url: 'https://example.com/photos/a',
+        url_hash: 'hash-d',
+        title: 'Photos: port attack aftermath',
+        published_at: 122,
+        text: 'Photos: port attack aftermath',
+        doc_ids: ['doc-d'],
+      },
+    );
+
+    expect(buildClusterSummary(cluster)).toContain('with 2 additional same-publisher assets');
+  });
+
   it('uses plural hour wording when the cluster spans multiple hours', () => {
     const cluster = makeCluster('Ports remained shut after the overnight attack.');
     cluster.cluster_window_end = cluster.cluster_window_start + 3 * 60 * 60 * 1000;

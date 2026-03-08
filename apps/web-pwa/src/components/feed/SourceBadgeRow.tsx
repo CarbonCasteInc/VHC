@@ -25,10 +25,11 @@ export const SourceBadgeRow: React.FC<SourceBadgeRowProps> = ({
     const deduped: Array<{ source_id: string; publisher: string; url: string }> = [];
 
     for (const source of sources) {
-      if (seen.has(source.source_id)) {
+      const publisherKey = source.publisher.trim().toLowerCase().replace(/\s+/g, ' ') || source.source_id;
+      if (seen.has(publisherKey)) {
         continue;
       }
-      seen.add(source.source_id);
+      seen.add(publisherKey);
       deduped.push(source);
     }
 

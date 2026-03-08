@@ -88,6 +88,7 @@ export interface StoredSourceDocument {
   locations: string[];
   trigger: string | null;
   temporal_ms: number | null;
+  event_tuple?: EventTuple | null;
   coarse_vector: number[];
   full_vector: number[];
   semantic_signature: string;

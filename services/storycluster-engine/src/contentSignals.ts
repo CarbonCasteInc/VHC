@@ -28,10 +28,14 @@ const LANGUAGE_MAP: Record<string, string> = {
 const ACTION_CATEGORIES = new Map<string, string>([
   ['attack', 'conflict'], ['attacks', 'conflict'], ['strike', 'conflict'], ['strikes', 'conflict'],
   ['bombing', 'conflict'], ['raid', 'conflict'], ['clash', 'conflict'], ['invasion', 'conflict'],
-  ['election', 'politics'], ['elections', 'politics'], ['vote', 'politics'], ['resigns', 'politics'],
-  ['arrest', 'legal'], ['charged', 'legal'], ['trial', 'legal'], ['lawsuit', 'legal'],
+  ['election', 'politics'], ['elections', 'politics'], ['vote', 'politics'], ['votes', 'politics'],
+  ['schedule', 'politics'], ['schedules', 'politics'], ['scheduled', 'politics'], ['resigns', 'politics'],
+  ['arrest', 'legal'], ['arrests', 'legal'], ['arrested', 'legal'], ['charged', 'legal'],
+  ['charges', 'legal'], ['detain', 'legal'], ['detains', 'legal'], ['detained', 'legal'],
+  ['detention', 'legal'], ['review', 'legal'], ['reviews', 'legal'], ['trial', 'legal'], ['lawsuit', 'legal'],
   ['earthquake', 'disaster'], ['flood', 'disaster'], ['wildfire', 'disaster'], ['storm', 'disaster'],
-  ['market', 'economic'], ['stocks', 'economic'], ['tariff', 'economic'], ['inflation', 'economic'],
+  ['market', 'economic'], ['stocks', 'economic'], ['slide', 'economic'], ['slides', 'economic'],
+  ['cut', 'economic'], ['cuts', 'economic'], ['tariff', 'economic'], ['inflation', 'economic'],
   ['talks', 'diplomacy'], ['summit', 'diplomacy'], ['sanctions', 'diplomacy'], ['ceasefire', 'diplomacy'],
 ]);
 
@@ -117,7 +121,7 @@ export function classifyDocumentType(title: string, summary: string | undefined,
   if (/\blive\b|live updates|liveblog|minute by minute/.test(text)) return 'liveblog';
   if (/\bopinion\b|editorial|column|guest essay|analysis opinion/.test(text)) return 'opinion';
   if (/\banalysis\b|what it means|why it matters|takeaways|inside the/.test(text)) return 'analysis';
-  if (/\bexplainer\b|what we know|timeline|recap|key moments/.test(text)) return 'explainer_recap';
+  if (/\bexplainer\b|what we know|timeline|recap|key moments|at a glance|roundup|what to know/.test(text)) return 'explainer_recap';
   if (/\bbreaking\b|developing|alert|just in/.test(text)) return 'breaking_update';
   if (/reuters|associated press|ap\b|afp|upi|wire/.test(text)) return 'wire_report';
   return 'hard_news';
@@ -191,9 +195,47 @@ export function triggerCategory(trigger: string | null): string | null {
   return trigger ? ACTION_CATEGORIES.get(trigger) ?? null : null;
 }
 
+const WEEKDAY_TEMPORAL_TOKENS = new Set([
+  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
+]);
+
+const RELATIVE_TEMPORAL_PHRASES = [
+  'today',
+  'yesterday',
+  'tomorrow',
+  'tonight',
+  'overnight',
+  'this morning',
+  'this afternoon',
+  'this evening',
+  'last night',
+  'next week',
+  'last week',
+  'this week',
+];
+
+function hasCalendarDigits(text: string): boolean {
+  return /\b\d{1,4}\b/.test(text);
+}
+
+function isUsableTemporalPhrase(text: string): boolean {
+  const normalized = normalizeText(text);
+  if (hasCalendarDigits(normalized)) {
+    return true;
+  }
+  if (RELATIVE_TEMPORAL_PHRASES.some((phrase) => normalized.includes(phrase))) {
+    return true;
+  }
+  if (WEEKDAY_TEMPORAL_TOKENS.has(normalized)) {
+    return true;
+  }
+  return false;
+}
+
 export function extractTemporalMs(text: string, publishedAtMs: number): number | null {
   const parsed = chrono.parse(text, new Date(publishedAtMs));
-  const candidate = parsed[0]?.start?.date();
+  const match = parsed[0];
+  const candidate = match && isUsableTemporalPhrase(match.text) ? match.start?.date() : null;
   return candidate ? candidate.getTime() : null;
 }
 

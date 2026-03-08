@@ -135,6 +135,7 @@ export function toStoredSource(document: WorkingDocument, variant: SourceVariant
     locations: document.locations,
     trigger: document.trigger,
     temporal_ms: document.temporal_ms,
+    event_tuple: document.event_tuple,
     coarse_vector: document.coarse_vector,
     full_vector: document.full_vector,
     semantic_signature: document.semantic_signature,

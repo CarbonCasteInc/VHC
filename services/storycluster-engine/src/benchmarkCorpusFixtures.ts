@@ -124,7 +124,11 @@ export const STORYCLUSTER_FIXTURE_DATASETS: StoryClusterCoherenceAuditDataset[] 
     items: [
       makeBenchmarkItem('iran_drone_strike', 'cbs-drone-strike', 'Armed Iranian opposition group says its camp was hit with drone strike', 'iran1', 1_711_200_000_000, { publisher: 'CBS', entity_keys: ['iran_drone_strike', 'iran', 'drone_strike'] }),
       makeBenchmarkItem('iran_drone_strike', 'wire-drone-followup', 'Opposition group says drone strike hit camp as regional fighting escalates', 'iran2', 1_711_200_040_000, { publisher: 'WIRE-IRAN', entity_keys: ['iran_drone_strike', 'iran', 'drone_strike'] }),
-      makeBenchmarkItem('iran_conflict_roundup', 'guardian-roundup', 'Trump news at a glance: US leader says Iran being decimated; admits US troop deployment not off the table', 'iran3', 1_711_200_080_000, { publisher: 'Guardian', entity_keys: ['iran_conflict_roundup', 'iran', 'trump'] }),
+      makeBenchmarkItem('iran_conflict_roundup', 'guardian-roundup', 'Trump news at a glance: US leader says Iran being decimated; admits US troop deployment not off the table', 'iran3', 1_711_200_080_000, {
+        publisher: 'Guardian',
+        entity_keys: ['iran_conflict_roundup', 'iran', 'trump'],
+        coverage_role: 'related',
+      }),
     ],
   },
 ];

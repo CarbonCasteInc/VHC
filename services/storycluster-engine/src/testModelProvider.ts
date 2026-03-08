@@ -47,6 +47,9 @@ function pairScore(item: PairJudgementWorkItem): PairJudgementWorkResult['decisi
   if (canonicalOverlap > 0 && triggerMatch) {
     return 'accepted';
   }
+  if (canonicalOverlap > 0 && substantiveOverlap >= 2) {
+    return 'accepted';
+  }
   if (canonicalOverlap > 0) {
     return 'abstain';
   }
