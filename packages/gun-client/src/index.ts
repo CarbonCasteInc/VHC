@@ -32,6 +32,10 @@ function resolveNodeGunFile(): string | undefined {
   return undefined;
 }
 
+function shouldDisableNodeGunDisk(): boolean {
+  return typeof window === 'undefined' && typeof process !== 'undefined';
+}
+
 function createNamespace<T>(
   chain: ChainLike<T>,
   barrier: HydrationBarrier,
@@ -89,13 +93,26 @@ export function createClient(config: VennClientConfig = {}): VennClient {
   const storage = config.storage ?? createStorageAdapter(hydrationBarrier);
   const guard = config.topologyGuard ?? new TopologyGuard();
   const nodeGunFile = resolveNodeGunFile();
-  // Disable Gun's localStorage adapter to avoid quota crashes in long-lived
-  // browser sessions. VHC persists app data through its own IndexedDB adapter.
-  const gun = Gun({
+  const gunFileOption =
+    nodeGunFile !== undefined
+      ? nodeGunFile
+      : shouldDisableNodeGunDisk()
+        ? false
+        : undefined;
+  const gunConfig: Record<string, unknown> = {
     peers,
     localStorage: false,
-    ...(nodeGunFile ? { file: nodeGunFile } : {}),
-  }) as IGunInstance;
+  };
+  if (shouldDisableNodeGunDisk()) {
+    gunConfig.radisk = false;
+    gunConfig.axe = false;
+  }
+  if (gunFileOption !== undefined) {
+    gunConfig.file = gunFileOption;
+  }
+  // Disable Gun's localStorage adapter to avoid quota crashes in long-lived
+  // browser sessions. VHC persists app data through its own IndexedDB adapter.
+  const gun = Gun(gunConfig as never) as IGunInstance;
   let sessionReady = false;
 
   storage
@@ -184,4 +201,5 @@ export { default as SEA } from 'gun/sea';
 export const __internal = {
   normalizePeers,
   resolveNodeGunFile,
+  shouldDisableNodeGunDisk,
 };

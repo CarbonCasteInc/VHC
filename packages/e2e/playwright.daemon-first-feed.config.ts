@@ -128,6 +128,8 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 const localWebServers: TestConfig['webServer'] = [
   {
     command: [
+      `pids=$(lsof -ti tcp:${gunPort} || true)`,
+      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
       `rm -rf ../../.tmp/e2e-daemon-feed/${runId}`,
       `mkdir -p ../../.tmp/e2e-daemon-feed/${runId}/relay`,
       `cd ../../.tmp/e2e-daemon-feed/${runId}/relay`,

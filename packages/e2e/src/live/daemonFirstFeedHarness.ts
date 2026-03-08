@@ -1,4 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test';
@@ -41,8 +43,36 @@ export function repoRootDir(): string {
   return path.resolve(process.cwd(), '..', '..');
 }
 
+function runArtifactDir(): string {
+  return path.join(repoRootDir(), `.tmp/e2e-daemon-feed/${RUN_ID}`);
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function killPortOccupants(port: number): void {
+  try {
+    const output = execFileSync('lsof', ['-ti', `tcp:${port}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (!output) {
+      return;
+    }
+    const pids = output
+      .split(/\r?\n/)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0);
+    if (pids.length === 0) {
+      return;
+    }
+    execFileSync('kill', ['-9', ...pids], {
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+  } catch {
+    // Port already free or lsof unavailable.
+  }
 }
 
 function resolveDaemonFeedSourcesJson(): string {
@@ -76,6 +106,8 @@ export function spawnLoggedProcess(
   args: readonly string[],
   env: NodeJS.ProcessEnv,
 ): LoggedProcess {
+  mkdirSync(runArtifactDir(), { recursive: true });
+  const logFile = path.join(runArtifactDir(), `${name}.log`);
   const proc = spawn(command, [...args], {
     cwd: repoRootDir(),
     env,
@@ -85,7 +117,11 @@ export function spawnLoggedProcess(
   const onData = (chunk: Buffer) => {
     for (const line of chunk.toString('utf8').split(/\r?\n/)) {
       const trimmed = line.trim();
-      if (trimmed) output.push(trimmed);
+      if (!trimmed) {
+        continue;
+      }
+      output.push(trimmed);
+      appendFileSync(logFile, `${trimmed}\n`, 'utf8');
     }
   };
   proc.stdout?.on('data', onData);
@@ -164,7 +200,6 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_STORYCLUSTER_SERVER_PORT: String(STORYCLUSTER_PORT),
     VH_STORYCLUSTER_SERVER_AUTH_TOKEN: STORYCLUSTER_TOKEN,
     VH_GUN_PEERS: `["${GUN_PEER_URL}"]`,
-    VH_GUN_FILE: path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/daemon-radata`),
     VITE_NEWS_FEED_SOURCES: resolveDaemonFeedSourcesJson(),
     VITE_NEWS_TOPIC_MAPPING: '{"defaultTopicId":"topic-news","sourceTopics":{}}',
     VITE_NEWS_POLL_INTERVAL_MS: '15000',
@@ -183,6 +218,7 @@ function commonEnv(): NodeJS.ProcessEnv {
 export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
   const root = repoRootDir();
   const env = commonEnv();
+  killPortOccupants(STORYCLUSTER_PORT);
   const storyclusterDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/server.js')).href;
   const clusterStoreDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/clusterStore.js')).href;
   const esmLoaderPath = env.VH_STORYCLUSTER_ESM_LOADER_PATH!;

@@ -53,7 +53,10 @@ describe('createClient', () => {
     const client = createClient({ peers: ['http://host:7777'] });
     expect(mockGun).toHaveBeenCalledWith({
       peers: ['http://host:7777/gun'],
-      localStorage: false
+      localStorage: false,
+      radisk: false,
+      axe: false,
+      file: false,
     });
     expect(client.config.peers[0]).toBe('http://host:7777/gun');
     expect(client.user).toBeDefined();
@@ -74,6 +77,8 @@ describe('createClient', () => {
     expect(mockGun).toHaveBeenCalledWith({
       peers: ['http://host:7777/gun'],
       localStorage: false,
+      radisk: false,
+      axe: false,
       file: '/tmp/vh-gun-run',
     });
     expect(__internal.resolveNodeGunFile()).toBe('/tmp/vh-gun-run');
@@ -83,6 +88,20 @@ describe('createClient', () => {
     process.env.VITE_VH_GUN_FILE = '/tmp/vh-gun-run-vite';
 
     expect(__internal.resolveNodeGunFile()).toBe('/tmp/vh-gun-run-vite');
+  });
+
+  it('disables Gun disk persistence by default in node runtimes', () => {
+    expect(__internal.shouldDisableNodeGunDisk()).toBe(true);
+
+    createClient({ peers: ['http://host:7777'] });
+
+    expect(mockGun).toHaveBeenCalledWith({
+      peers: ['http://host:7777/gun'],
+      localStorage: false,
+      radisk: false,
+      axe: false,
+      file: false,
+    });
   });
 
   it('shutdown closes storage and marks ready', async () => {
