@@ -133,8 +133,12 @@ describe('runStoryClusterStagePipeline', () => {
       { clock: makeClock(8_000), store },
     );
 
-    expect(store.loadTopic('topic-separation').clusters).toHaveLength(2);
-    expect(second.bundles[0]?.story_id).not.toBe(store.loadTopic('topic-separation').clusters[0]?.story_id === second.bundles[0]?.story_id ? store.loadTopic('topic-separation').clusters[1]?.story_id : store.loadTopic('topic-separation').clusters[0]?.story_id);
+    expect(store.loadTopic('topic-separation').clusters).toHaveLength(1);
+    expect(second.bundles).toEqual([]);
+    expect(
+      second.telemetry.stages.find((stage) => stage.stage_id === 'dynamic_cluster_assignment')
+        ?.artifact_counts.related_docs_deferred,
+    ).toBe(1);
   });
 
   it('fails closed on store readiness and stage errors', async () => {

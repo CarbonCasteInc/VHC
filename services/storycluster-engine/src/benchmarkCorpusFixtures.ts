@@ -32,7 +32,7 @@ export const STORYCLUSTER_FIXTURE_DATASETS: StoryClusterCoherenceAuditDataset[] 
     items: [
       makeBenchmarkItem('market_aftershock', 'wire-j', 'Stocks slide after the overnight strike jolts shipping insurers', 'h1', 1_710_300_000_000),
       makeBenchmarkItem('market_aftershock', 'wire-k', 'Brokers cut shipping forecasts as markets absorb the strike', 'h2', 1_710_300_020_000),
-      makeBenchmarkItem('opinion_commentary', 'desk-l', 'Opinion: how to think clearly before forming views on the conflict', 'i1', 1_710_300_040_000),
+      makeBenchmarkItem('opinion_commentary', 'desk-l', 'Opinion: how to think clearly before forming views on the conflict', 'i1', 1_710_300_040_000, { coverage_role: 'related' }),
       makeBenchmarkItem('ceasefire_vote', 'wire-m', 'Parliament schedules a ceasefire vote after the weekend attacks', 'j1', 1_710_300_060_000),
       makeBenchmarkItem('ceasefire_vote', 'wire-n', 'Coalition leaders whip support ahead of the ceasefire vote', 'j2', 1_710_300_080_000),
       makeBenchmarkItem('protest_crackdown', 'wire-o', 'Police detain protest leaders after the capital march turns violent', 'k1', 1_710_300_100_000),
@@ -43,11 +43,11 @@ export const STORYCLUSTER_FIXTURE_DATASETS: StoryClusterCoherenceAuditDataset[] 
     dataset_id: 'fixture-liveblog-contamination',
     topic_id: 'fixture-liveblog-contamination',
     items: [
-      makeBenchmarkItem('liveblog_port_attack', 'live-a', 'Live updates: port attack response minute by minute', 'l1', 1_710_400_000_000, { publisher: 'Live Desk', summary: 'Live updates and wire snippets from the port attack response.' }),
-      makeBenchmarkItem('liveblog_port_attack', 'live-b', 'Live blog: emergency crews respond at the port overnight', 'l2', 1_710_400_010_000, { publisher: 'Live Desk', summary: 'Rolling live coverage from the port attack response.' }),
+      makeBenchmarkItem('liveblog_port_attack', 'live-a', 'Live updates: port attack response minute by minute', 'l1', 1_710_400_000_000, { publisher: 'Live Desk', summary: 'Live updates and wire snippets from the port attack response.', coverage_role: 'related' }),
+      makeBenchmarkItem('liveblog_port_attack', 'live-b', 'Live blog: emergency crews respond at the port overnight', 'l2', 1_710_400_010_000, { publisher: 'Live Desk', summary: 'Rolling live coverage from the port attack response.', coverage_role: 'related' }),
       makeBenchmarkItem('ceasefire_vote', 'wire-q', 'Parliament schedules a ceasefire vote after the attacks', 'l3', 1_710_400_030_000),
       makeBenchmarkItem('ceasefire_vote', 'wire-r', 'Coalition whips support before the ceasefire vote', 'l4', 1_710_400_050_000),
-      makeBenchmarkItem('explainer_recap', 'desk-s', 'Explainer: what the weekend attacks mean for regional diplomacy', 'l5', 1_710_400_070_000),
+      makeBenchmarkItem('explainer_recap', 'desk-s', 'Explainer: what the weekend attacks mean for regional diplomacy', 'l5', 1_710_400_070_000, { coverage_role: 'related' }),
     ],
   },
   {
@@ -66,8 +66,8 @@ export const STORYCLUSTER_FIXTURE_DATASETS: StoryClusterCoherenceAuditDataset[] 
     items: [
       makeBenchmarkItem('relief_convoy', 'wire-x', 'Relief convoy reaches the border crossing before dawn', 'n1', 1_710_600_000_000),
       makeBenchmarkItem('relief_convoy', 'wire-y', 'Aid groups confirm the convoy crossed before sunrise', 'n2', 1_710_600_020_000),
-      makeBenchmarkItem('policy_recap', 'desk-z', 'Recap: how governments argued over border aid access this week', 'n3', 1_710_600_050_000),
-      makeBenchmarkItem('policy_recap', 'desk-aa', 'Explainer recap: the policy fight behind the border aid dispute', 'n4', 1_710_600_070_000),
+      makeBenchmarkItem('policy_recap', 'desk-z', 'Recap: how governments argued over border aid access this week', 'n3', 1_710_600_050_000, { coverage_role: 'related' }),
+      makeBenchmarkItem('policy_recap', 'desk-aa', 'Explainer recap: the policy fight behind the border aid dispute', 'n4', 1_710_600_070_000, { coverage_role: 'related' }),
     ],
   },
   {
@@ -142,7 +142,7 @@ export const STORYCLUSTER_FIXTURE_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairEx
     dataset_id: 'fixture-same-topic-trap-separation',
     left_source_id: 'wire-j',
     right_source_id: 'desk-l',
-    expected_label: 'related_topic_only',
+    expected_label: 'commentary_on_event',
   },
   {
     case_id: 'verified-jan6-plaque-article-video',

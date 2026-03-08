@@ -19,6 +19,7 @@ export function sourceVariantsForDocument(
     summary: document.summary,
     language,
     translation_applied: document.translation_applied === true,
+    coverage_role: 'canonical' as const,
   }];
 }
 

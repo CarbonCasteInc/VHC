@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { adjudicateCandidates, assignClusters, bundleClusters, rerankCandidates, retrieveCandidates } from './clusterLifecycle';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
+import { coverageRoleForDocumentType } from './documentPolicy';
 import type { StoryClusterModelProvider } from './modelProvider';
 import type { PipelineState, StoredTopicState, WorkingDocument } from './stageState';
 import type { ClusterVectorBackend } from './vectorBackend';
@@ -47,6 +48,7 @@ function makeWorkingDocument(
     translated_text: `${title}. ${title} summary.`,
     translation_gate: false,
     doc_type: 'hard_news',
+    coverage_role: coverageRoleForDocumentType('hard_news'),
     doc_weight: 1,
     minhash_signature: [1, 2, 3],
     coarse_vector: vector,
@@ -233,6 +235,8 @@ describe('clusterLifecycle', () => {
     const opinion = makeWorkingDocument('doc-3', 'Opinion: how to think about the Iran conflict', 'opinion', null, [0.1, 0.9]);
     second.linked_entities = ['insurers', 'shipping'];
     second.entities = ['shipping'];
+    opinion.doc_type = 'opinion';
+    opinion.coverage_role = coverageRoleForDocumentType('opinion');
     opinion.linked_entities = ['opinion'];
     opinion.entities = ['opinion'];
 
@@ -277,11 +281,12 @@ describe('clusterLifecycle', () => {
       stage_metrics: {},
     }, provider);
 
-    expect(next.topic_state.clusters).toHaveLength(2);
+    expect(next.topic_state.clusters).toHaveLength(1);
     expect(next.documents.find((document) => document.doc_id === 'doc-2')?.assigned_story_id)
       .toBe(next.documents.find((document) => document.doc_id === 'doc-1')?.assigned_story_id);
     expect(next.documents.find((document) => document.doc_id === 'doc-3')?.assigned_story_id)
-      .not.toBe(next.documents.find((document) => document.doc_id === 'doc-1')?.assigned_story_id);
+      .toBeUndefined();
+    expect(next.stage_metrics.dynamic_cluster_assignment?.related_docs_deferred).toBe(1);
   });
 
   it('throws when adjudication references a cluster that no longer exists', async () => {

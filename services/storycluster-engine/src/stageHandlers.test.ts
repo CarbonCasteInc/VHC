@@ -220,6 +220,7 @@ describe('stageHandlers', () => {
     })).document_classification(state);
 
     expect(next.documents[0]?.doc_type).toBe('analysis');
+    expect(next.documents[0]?.coverage_role).toBe('related');
     expect(next.documents[0]?.event_tuple).toBeNull();
     expect(next.documents[0]?.linked_entities).toEqual(['sanctions_dispute']);
   });

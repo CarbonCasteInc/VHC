@@ -1,13 +1,10 @@
 import type { StoryClusterTelemetryEnvelope } from './contracts';
-import {
-  runStoryClusterRemoteContract,
-  type StoryClusterRemoteBundle,
-  type StoryClusterRemoteItem,
-  type StoryClusterRemoteResponse,
-} from './remoteContract';
+import type { StoryClusterCoverageRole } from './documentPolicy';
+import { runStoryClusterRemoteContract, type StoryClusterRemoteBundle, type StoryClusterRemoteItem, type StoryClusterRemoteResponse } from './remoteContract';
 
 export interface StoryClusterCoherenceAuditItem extends StoryClusterRemoteItem {
   expected_event_id: string;
+  coverage_role?: StoryClusterCoverageRole;
 }
 
 export interface StoryClusterCoherenceAuditDataset {
@@ -65,22 +62,13 @@ const DEFAULT_THRESHOLDS: StoryClusterCoherenceThresholds = {
 };
 
 function clamp01(value: number): number {
-  if (value <= 0) {
-    return 0;
-  }
-
-  if (value >= 1) {
-    return 1;
-  }
-
+  if (value <= 0) return 0;
+  if (value >= 1) return 1;
   return value;
 }
 
 function toRatio(numerator: number, denominator: number): number {
-  if (denominator <= 0) {
-    return 0;
-  }
-
+  if (denominator <= 0) return 0;
   return Number((numerator / denominator).toFixed(6));
 }
 
@@ -130,6 +118,12 @@ function normalizeExpectedEvent(value: string, path: string): string {
   return normalized;
 }
 
+function normalizeCoverageRole(
+  value: StoryClusterCoverageRole | undefined,
+): StoryClusterCoverageRole {
+  return value === 'related' ? 'related' : 'canonical';
+}
+
 function itemEventKey(item: Pick<StoryClusterRemoteItem, 'sourceId' | 'url_hash'>): string {
   return `${item.sourceId}::${item.url_hash}`;
 }
@@ -139,18 +133,11 @@ function sourceEventKey(source: { source_id: string; url_hash: string }): string
 }
 
 function dominantEventFromCounts(counts: Map<string, number>): string {
-  if (counts.size === 0) {
-    return 'unmapped';
-  }
-
+  if (counts.size === 0) return 'unmapped';
   const sorted = [...counts.entries()].sort((left, right) => {
-    if (left[1] !== right[1]) {
-      return right[1] - left[1];
-    }
-
+    if (left[1] !== right[1]) return right[1] - left[1];
     return left[0].localeCompare(right[0]);
   });
-
   return sorted[0]![0];
 }
 
@@ -160,12 +147,17 @@ function computeDatasetResult(
   thresholds: StoryClusterCoherenceThresholds,
 ): StoryClusterCoherenceDatasetResult {
   const expectedByKey = new Map<string, string>();
+  const coverageRoleByKey = new Map<string, StoryClusterCoverageRole>();
   const uniqueEvents = new Set<string>();
 
   dataset.items.forEach((item, index) => {
     const eventId = normalizeExpectedEvent(item.expected_event_id, `dataset.items[${index}]`);
+    const coverageRole = normalizeCoverageRole(item.coverage_role);
     expectedByKey.set(itemEventKey(item), eventId);
-    uniqueEvents.add(eventId);
+    coverageRoleByKey.set(itemEventKey(item), coverageRole);
+    if (coverageRole === 'canonical') {
+      uniqueEvents.add(eventId);
+    }
   });
 
   const eventBundleMap = new Map<string, Set<string>>();
@@ -180,8 +172,13 @@ function computeDatasetResult(
     const counts = new Map<string, number>();
 
     for (const source of bundle.sources) {
-      const eventId = expectedByKey.get(sourceEventKey(source));
+      const sourceKey = sourceEventKey(source);
+      const eventId = expectedByKey.get(sourceKey);
       if (!eventId) {
+        contaminationDocs += 1;
+        continue;
+      }
+      if (coverageRoleByKey.get(sourceKey) !== 'canonical') {
         contaminationDocs += 1;
         continue;
       }
@@ -237,15 +234,9 @@ function computeDatasetResult(
 
 function assertDataset(dataset: StoryClusterCoherenceAuditDataset, index: number): void {
   const datasetId = dataset.dataset_id.trim();
-  if (!datasetId) {
-    throw new Error(`datasets[${index}].dataset_id must be non-empty`);
-  }
-
+  if (!datasetId) throw new Error(`datasets[${index}].dataset_id must be non-empty`);
   const topicId = dataset.topic_id.trim();
-  if (!topicId) {
-    throw new Error(`datasets[${index}].topic_id must be non-empty`);
-  }
-
+  if (!topicId) throw new Error(`datasets[${index}].topic_id must be non-empty`);
   if (!Array.isArray(dataset.items) || dataset.items.length === 0) {
     throw new Error(`datasets[${index}].items must be a non-empty array`);
   }
@@ -277,10 +268,7 @@ export async function runStoryClusterCoherenceAudit(
     contractRunner?: StoryClusterContractRunner;
   } = {},
 ): Promise<StoryClusterCoherenceAuditReport> {
-  if (!Array.isArray(datasets) || datasets.length === 0) {
-    throw new Error('datasets must be a non-empty array');
-  }
-
+  if (!Array.isArray(datasets) || datasets.length === 0) throw new Error('datasets must be a non-empty array');
   const thresholds = resolveThresholds(options.thresholds);
   const now = options.now ?? Date.now;
   const contractRunner = options.contractRunner ?? runStoryClusterRemoteContract;

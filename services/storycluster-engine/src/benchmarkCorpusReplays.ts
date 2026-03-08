@@ -28,7 +28,7 @@ export const STORYCLUSTER_REPLAY_SCENARIOS: StoryClusterReplayScenario[] = [
         makeBenchmarkItem('market_aftershock', 'replay-e', 'Stocks slide after the overnight strike jolts shipping insurers', 'rb1', 1_712_100_000_000),
         makeBenchmarkItem('market_aftershock', 'replay-f', 'Brokers cut shipping forecasts as markets absorb the strike', 'rb2', 1_712_100_020_000),
       ],
-      [makeBenchmarkItem('opinion_commentary', 'replay-g', 'Opinion: how to think clearly before forming views on the conflict', 'rb3', 1_712_100_040_000)],
+      [makeBenchmarkItem('opinion_commentary', 'replay-g', 'Opinion: how to think clearly before forming views on the conflict', 'rb3', 1_712_100_040_000, { coverage_role: 'related' })],
       [makeBenchmarkItem('market_aftershock', 'replay-h', 'Insurers hedge against prolonged shipping disruption after the strike', 'rb4', 1_712_100_060_000)],
     ],
   },

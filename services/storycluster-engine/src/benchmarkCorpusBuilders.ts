@@ -1,4 +1,5 @@
 import type { StoryClusterCoherenceAuditItem } from './coherenceAudit';
+import type { StoryClusterCoverageRole } from './documentPolicy';
 
 export function makeBenchmarkItem(
   expectedEventId: string,
@@ -6,10 +7,13 @@ export function makeBenchmarkItem(
   title: string,
   urlHash: string,
   publishedAt: number,
-  overrides: Partial<StoryClusterCoherenceAuditItem> = {},
+  overrides: Partial<StoryClusterCoherenceAuditItem> & {
+    coverage_role?: StoryClusterCoverageRole;
+  } = {},
 ): StoryClusterCoherenceAuditItem {
   return {
     expected_event_id: expectedEventId,
+    coverage_role: overrides.coverage_role ?? 'canonical',
     sourceId,
     publisher: overrides.publisher ?? sourceId.toUpperCase(),
     url: overrides.url ?? `https://example.com/${urlHash}`,

@@ -2,22 +2,11 @@ import type { ClusterBucket, PipelineState } from './stageState';
 import type { StoryClusterModelProvider, SummaryWorkItem } from './modelProvider';
 import type { ClusterVectorBackend } from './vectorBackend';
 import { MemoryVectorBackend } from './vectorBackend';
-import {
-  connectedComponents,
-  deriveClusterRecord,
-  toStoredSource,
-  upsertClusterRecord,
-} from './clusterRecords';
+import { canParticipateInCanonicalCluster } from './documentPolicy';
+import { connectedComponents, deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
 import { clusterScoringConfig, buildCandidateMatch, candidateEligible, shouldMergeClusters, shouldSplitPair } from './clusterScoring';
 import { projectStoryBundles } from './bundleProjection';
-import {
-  applyPairReranks,
-  applyPairJudgements,
-  buildPairId,
-  pairWorkItem,
-  requireClusterProvider,
-  shouldRequestPairJudgement,
-} from './clusterJudgement';
+import { applyPairReranks, applyPairJudgements, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
 export async function retrieveCandidates(
   state: PipelineState,
   vectorBackend: ClusterVectorBackend = new MemoryVectorBackend(),
@@ -37,6 +26,9 @@ export async function retrieveCandidates(
   let candidatesRetained = 0;
   let prefilterHits = 0;
   const documents = state.documents.map((document) => {
+    if (!canParticipateInCanonicalCluster(document.doc_type)) {
+      return { ...document, candidate_matches: [], candidate_score: 0 };
+    }
     const candidateMatches = (retrievals.get(document.doc_id) ?? [])
       .map((hit) => clusterLookup.get(hit.story_id))
       .filter((cluster): cluster is NonNullable<typeof cluster> => Boolean(cluster))
@@ -69,10 +61,7 @@ export async function retrieveCandidates(
   };
 }
 export function scoreCandidates(state: PipelineState): PipelineState {
-  const documents = state.documents.map((document) => ({
-    ...document,
-    hybrid_score: document.candidate_matches[0]?.hybrid_score ?? 0,
-  }));
+  const documents = state.documents.map((document) => ({ ...document, hybrid_score: document.candidate_matches[0]?.hybrid_score ?? 0 }));
   return {
     ...state,
     documents,
@@ -194,7 +183,13 @@ export async function assignClusters(
   let providerJudgementPairs = 0;
   let providerAssignedDocs = 0;
   let providerRejectedDocs = 0;
+  let relatedDocsDeferred = 0;
   for (const document of state.documents) {
+    if (!canParticipateInCanonicalCluster(document.doc_type)) {
+      document.assigned_story_id = undefined;
+      relatedDocsDeferred += 1;
+      continue;
+    }
     let accepted = document.candidate_matches.find((match) => match.adjudication === 'accepted');
     if (!accepted) {
       const candidateMatches = [...clusters.values()]
@@ -297,6 +292,7 @@ export async function assignClusters(
         provider_judgement_pairs: providerJudgementPairs,
         provider_assigned_docs: providerAssignedDocs,
         provider_rejected_docs: providerRejectedDocs,
+        related_docs_deferred: relatedDocsDeferred,
       },
     },
   };

@@ -6,6 +6,7 @@ import {
   type StoryClusterCoherenceAuditDataset,
   type StoryClusterCoherenceAuditItem,
 } from './coherenceAudit';
+import type { StoryClusterCoverageRole } from './documentPolicy';
 import { runStoryClusterRemoteContract, type StoryClusterRemoteResponse } from './remoteContract';
 
 function makeItem(
@@ -15,9 +16,11 @@ function makeItem(
   urlHash: string,
   publishedAt: number,
   language = 'en',
+  coverageRole: StoryClusterCoverageRole = 'canonical',
 ): StoryClusterCoherenceAuditItem {
   return {
     expected_event_id: eventId,
+    coverage_role: coverageRole,
     sourceId,
     publisher: sourceId.toUpperCase(),
     url: `https://example.com/${urlHash}`,
@@ -70,7 +73,7 @@ const SAME_TOPIC_TRAP_REGRESSION_DATASET: StoryClusterCoherenceAuditDataset = {
   items: [
     makeItem('market_aftershock', 'wire-j', 'Stocks slide after the overnight strike jolts shipping insurers', 'h1', 1_710_300_000_000),
     makeItem('market_aftershock', 'wire-k', 'Brokers cut shipping forecasts as markets absorb the strike', 'h2', 1_710_300_020_000),
-    makeItem('opinion_commentary', 'desk-l', 'Opinion: how to think clearly before forming views on the conflict', 'i1', 1_710_300_040_000),
+    makeItem('opinion_commentary', 'desk-l', 'Opinion: how to think clearly before forming views on the conflict', 'i1', 1_710_300_040_000, 'en', 'related'),
     makeItem('ceasefire_vote', 'wire-m', 'Parliament schedules a ceasefire vote after the weekend attacks', 'j1', 1_710_300_060_000),
     makeItem('ceasefire_vote', 'wire-n', 'Coalition leaders whip support ahead of the ceasefire vote', 'j2', 1_710_300_080_000),
     makeItem('protest_crackdown', 'wire-o', 'Police detain protest leaders after the capital march turns violent', 'k1', 1_710_300_100_000),
@@ -160,7 +163,7 @@ describe('runStoryClusterCoherenceAudit', () => {
       topic_id: 'topic-regression',
       items: [
         makeItem('event_alpha', 'src-a', 'Alpha event line one', 'ra', 1_700_000_000_000),
-        makeItem('event_beta', 'src-b', 'Beta event line one', 'rb', 1_700_000_010_000),
+        makeItem('event_beta', 'src-b', 'Beta event line one', 'rb', 1_700_000_010_000, 'en', 'related'),
         makeItem('event_alpha', 'src-c', 'Alpha event line two', 'rc', 1_700_000_020_000),
         makeItem('event_gamma', 'src-d', 'Gamma event line one', 'rd', 1_700_000_030_000),
       ],

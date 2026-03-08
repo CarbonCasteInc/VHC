@@ -130,6 +130,7 @@ export function toStoredSource(document: WorkingDocument, variant: SourceVariant
     language: variant.language,
     translation_applied: variant.translation_applied,
     doc_type: document.doc_type,
+    coverage_role: document.coverage_role,
     entities: document.entities,
     locations: document.locations,
     trigger: document.trigger,

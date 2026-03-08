@@ -5,6 +5,7 @@ import {
   shouldTranslate,
 } from './contentSignals';
 import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
+import { coverageRoleForDocumentType } from './documentPolicy';
 import type { StoryClusterModelProvider } from './modelProvider';
 import type { ClusterVectorBackend } from './vectorBackend';
 import {
@@ -57,6 +58,7 @@ export function createInitialState(
         translation_applied: document.translation_applied === true,
         translation_gate: false,
         doc_type: 'hard_news',
+        coverage_role: 'canonical',
         doc_weight: 1,
         minhash_signature: [],
         coarse_vector: [],
@@ -194,6 +196,7 @@ function withDocumentClassification(provider: StoryClusterModelProvider | undefi
       return {
         ...document,
         doc_type: docType,
+        coverage_role: coverageRoleForDocumentType(docType),
         doc_weight: documentTypeWeight(docType),
         entities,
         linked_entities: linkedEntities,

@@ -4,6 +4,7 @@ import type {
   StoryClusterStageId,
 } from './contracts';
 import type { DocumentType, EventTuple } from './contentSignals';
+import type { StoryClusterCoverageRole } from './documentPolicy';
 
 export type AdjudicationDecision = 'accepted' | 'rejected' | 'abstain';
 
@@ -20,6 +21,7 @@ export interface SourceVariant {
   summary?: string;
   language: string;
   translation_applied: boolean;
+  coverage_role: StoryClusterCoverageRole;
 }
 
 export interface CandidateMatch {
@@ -46,6 +48,7 @@ export interface WorkingDocument extends StoryClusterInputDocument {
   translation_applied: boolean;
   translation_gate: boolean;
   doc_type: DocumentType;
+  coverage_role: StoryClusterCoverageRole;
   doc_weight: number;
   minhash_signature: number[];
   coarse_vector: number[];
@@ -80,6 +83,7 @@ export interface StoredSourceDocument {
   language: string;
   translation_applied: boolean;
   doc_type: DocumentType;
+  coverage_role: StoryClusterCoverageRole;
   entities: string[];
   locations: string[];
   trigger: string | null;
