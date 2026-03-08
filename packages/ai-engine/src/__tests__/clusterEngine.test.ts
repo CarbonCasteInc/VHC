@@ -189,7 +189,20 @@ describe('clusterEngine', () => {
       fetchFn: vi.fn(async () => new Response('nope', { status: 500 })),
     });
 
-    await expect(runClusterBatch(http500, input())).rejects.toThrow('HTTP 500');
+    await expect(runClusterBatch(http500, input())).rejects.toThrow('HTTP 500 - nope');
+
+    const http400 = new StoryClusterRemoteEngine({
+      endpointUrl: 'https://storycluster.example.com/cluster',
+      fetchFn: vi.fn(async () =>
+        new Response(JSON.stringify({ error: 'invalid normalized item' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })),
+    });
+
+    await expect(runClusterBatch(http400, input())).rejects.toThrow(
+      'HTTP 400 - {"error":"invalid normalized item"}',
+    );
 
     const badPayload = new StoryClusterRemoteEngine({
       endpointUrl: 'https://storycluster.example.com/cluster',
@@ -358,6 +371,14 @@ describe('clusterEngine', () => {
       clusterEngineInternal.normalizeStoryClusterInput({ topicId: ' topic ', items: [sampleItem()] })
         .topicId,
     ).toBe('topic');
+  });
+
+  it('describeRemoteFailure truncates oversized response bodies', async () => {
+    const body = 'x'.repeat(520);
+    const response = new Response(body, { status: 502 });
+    await expect(clusterEngineInternal.describeRemoteFailure(response)).resolves.toBe(
+      `remote cluster request failed: HTTP 502 - ${'x'.repeat(500)}...`,
+    );
   });
 
   it('remote engine constructor validates required inputs', () => {

@@ -73,6 +73,17 @@ function parseRemoteBundles(payload: unknown): StoryBundle[] {
   return bundles.map((bundle) => StoryBundleSchema.parse(bundle));
 }
 
+async function describeRemoteFailure(response: Response): Promise<string> {
+  const bodyText = (await response.text()).trim();
+  if (!bodyText) {
+    return `remote cluster request failed: HTTP ${response.status}`;
+  }
+
+  const truncated =
+    bodyText.length > 500 ? `${bodyText.slice(0, 500)}...` : bodyText;
+  return `remote cluster request failed: HTTP ${response.status} - ${truncated}`;
+}
+
 function normalizeStoryClusterInput(input: StoryClusterBatchInput): StoryClusterBatchInput {
   const topicId = input.topicId.trim();
   if (!topicId) {
@@ -173,7 +184,7 @@ export class StoryClusterRemoteEngine
       });
 
       if (!response.ok) {
-        throw new Error(`remote cluster request failed: HTTP ${response.status}`);
+        throw new Error(await describeRemoteFailure(response));
       }
 
       const payload = await response.json();
@@ -236,6 +247,7 @@ export function readStoryClusterRemoteEndpoint(): string | undefined {
 }
 
 export const clusterEngineInternal = {
+  describeRemoteFailure,
   isPromiseLike,
   normalizeRemoteTimeoutMs,
   normalizeStoryClusterInput,
