@@ -215,3 +215,10 @@ export const useNewsStore: StoreApi<NewsState> = isE2E
   ? createMockNewsStore()
   : createNewsStore();
 /* v8 ignore stop */
+
+if (
+  typeof window !== 'undefined' &&
+  (window as { __VH_EXPOSE_NEWS_STORE__?: boolean }).__VH_EXPOSE_NEWS_STORE__ === true
+) {
+  (window as { __VH_NEWS_STORE__?: StoreApi<NewsState> }).__VH_NEWS_STORE__ = useNewsStore;
+}

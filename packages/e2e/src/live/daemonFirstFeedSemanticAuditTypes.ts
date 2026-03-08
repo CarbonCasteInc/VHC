@@ -36,13 +36,6 @@ export interface SemanticAuditBundleCandidate {
   readonly story_id: string;
   readonly topic_id: string;
   readonly headline: string;
-  readonly sourceBadgeCount: number;
-  readonly sourceOverflowCount: number;
-  readonly sources: Array<{
-    readonly source_id: string;
-    readonly publisher: string;
-    readonly url: string;
-  }>;
 }
 
 export interface DaemonFeedSemanticAuditOptions {

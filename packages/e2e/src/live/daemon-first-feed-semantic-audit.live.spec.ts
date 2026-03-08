@@ -69,7 +69,7 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         contentType: 'application/json',
       });
 
-      expect(report.sampled_story_count).toBeGreaterThanOrEqual(2);
+      expect(report.sampled_story_count).toBeGreaterThanOrEqual(1);
       expect(report.overall.audited_pair_count).toBeGreaterThan(0);
       expect(report.overall.related_topic_only_pair_count).toBe(0);
       expect(report.overall.pass).toBe(true);

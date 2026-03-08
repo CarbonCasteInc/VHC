@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import * as path from 'node:path';
 import type { Page } from '@playwright/test';
 import { LIVE_BASE_URL, headlineRows, waitForHeadlines } from './daemonFirstFeedHarness';
 import type {
@@ -8,15 +9,12 @@ import type {
   LiveSemanticAuditBundleLike,
   LiveSemanticAuditPair,
   LiveSemanticAuditPairResult,
-  SemanticAuditBundleCandidate,
   StoryBundleSource,
 } from './daemonFirstFeedSemanticAuditTypes';
 
 const ARTICLE_TEXT_TIMEOUT_MS = 20_000;
 const DEFAULT_SAMPLE_COUNT = 2;
 const SAMPLE_TIMEOUT_MS = 180_000;
-const MIN_CANONICAL_SOURCES = 2;
-
 const runtimeImport = new Function(
   'modulePath',
   'return import(modulePath);',
@@ -52,10 +50,6 @@ function articleTextUrl(baseUrl: string, targetUrl: string): string {
   return resolved.toString();
 }
 
-function urlHash(value: string): string {
-  return createHash('sha256').update(value).digest('hex');
-}
-
 async function fetchArticlePayload(baseUrl: string, url: string, sourceId: string): Promise<{ title: string; text: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ARTICLE_TEXT_TIMEOUT_MS);
@@ -83,59 +77,74 @@ async function fetchArticlePayload(baseUrl: string, url: string, sourceId: strin
   }
 }
 
-async function visibleBundleCandidates(page: Page): Promise<SemanticAuditBundleCandidate[]> {
-  const candidates = await page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>('article[data-testid^="news-card-"]'))
-    .map((card) => {
-      const headlineNode = card.querySelector<HTMLElement>('[data-testid^="news-card-headline-"]');
-      if (!headlineNode) return null;
-      const topicId = (headlineNode.getAttribute('data-testid') ?? '').replace('news-card-headline-', '');
-      const storyId = headlineNode.getAttribute('data-story-id') ?? '';
-      const headline = (headlineNode.textContent ?? '').trim();
-      if (!topicId || !storyId || !headline) return null;
-
-      const sources = Array.from(card.querySelectorAll<HTMLAnchorElement>('[data-testid^="source-badge-"]'))
-        .map((anchor) => {
-          const sourceId = (anchor.getAttribute('data-testid') ?? '').replace('source-badge-', '');
-          const publisher = (anchor.textContent ?? '').trim();
-          const url = anchor.href ?? '';
-          if (!sourceId || !publisher || !url) return null;
-          return {
-            source_id: sourceId,
-            publisher,
-            url,
-          };
-        })
-        .filter((source): source is { source_id: string; publisher: string; url: string } => Boolean(source));
-
-      const overflowNode = card.querySelector<HTMLElement>('[data-testid="source-badge-overflow"]');
-      const overflowText = (overflowNode?.textContent ?? '').trim();
-      const overflowMatch = overflowText.match(/\+(\d+)/);
-
-      return {
-        story_id: storyId,
-        topic_id: topicId,
-        headline,
-        sourceBadgeCount: sources.length,
-        sourceOverflowCount: Number.parseInt(overflowMatch?.[1] ?? '0', 10) || 0,
-        sources,
+async function visibleAuditableBundles(page: Page): Promise<LiveSemanticAuditBundleLike[]> {
+  return page.evaluate(() => {
+    const visibleStoryIds = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-testid^="news-card-headline-"]'),
+    )
+      .map((node) => node.getAttribute('data-story-id')?.trim() ?? '')
+      .filter((storyId) => storyId.length > 0);
+    const order = new Map(visibleStoryIds.map((storyId, index) => [storyId, index]));
+    const newsStore = (window as {
+      __VH_NEWS_STORE__?: {
+        getState?: () => {
+          stories?: Array<{
+            story_id: string;
+            topic_id: string;
+            headline: string;
+            sources: Array<{
+              source_id: string;
+              publisher: string;
+              url: string;
+              url_hash: string;
+              published_at?: number;
+              title: string;
+            }>;
+            primary_sources?: Array<{
+              source_id: string;
+              publisher: string;
+              url: string;
+              url_hash: string;
+              published_at?: number;
+              title: string;
+            }>;
+            secondary_assets?: Array<{
+              source_id: string;
+              publisher: string;
+              url: string;
+              url_hash: string;
+              published_at?: number;
+              title: string;
+            }>;
+          }>;
+        };
       };
-    })
-    .filter((candidate): candidate is NonNullable<typeof candidate> => Boolean(candidate)));
-  return candidates;
+    }).__VH_NEWS_STORE__;
+    const stories = newsStore?.getState?.().stories ?? [];
+    return stories
+      .filter((story) => order.has(story.story_id))
+      .filter((story) => (story.primary_sources?.length ?? story.sources.length) >= 2)
+      .map((story) => ({
+        story_id: story.story_id,
+        topic_id: story.topic_id,
+        headline: story.headline,
+        sources: story.sources,
+        primary_sources: story.primary_sources,
+        secondary_assets: story.secondary_assets,
+      }))
+      .sort((left, right) => (order.get(left.story_id) ?? 0) - (order.get(right.story_id) ?? 0));
+  });
 }
 
 async function waitForSampledBundles(
   page: Page,
   sampleCount: number,
   timeoutMs: number,
-): Promise<SemanticAuditBundleCandidate[]> {
+): Promise<LiveSemanticAuditBundleLike[]> {
   const deadline = Date.now() + timeoutMs;
   let loadOlderAttempts = 0;
   while (Date.now() < deadline) {
-    const visible = await visibleBundleCandidates(page);
-    const auditable = visible
-      .filter((bundle) => bundle.sourceBadgeCount >= MIN_CANONICAL_SOURCES)
-      .filter((bundle) => bundle.sourceOverflowCount === 0);
+    const auditable = await visibleAuditableBundles(page);
     if (auditable.length >= sampleCount) {
       return auditable.slice(0, sampleCount);
     }
@@ -144,10 +153,7 @@ async function waitForSampledBundles(
     if (await sentinel.count().catch(() => 0)) {
       await sentinel.scrollIntoViewIfNeeded().catch(() => {});
       await page.waitForTimeout(1_500);
-      const expanded = await visibleBundleCandidates(page);
-      const expandedAuditable = expanded
-        .filter((bundle) => bundle.sourceBadgeCount >= MIN_CANONICAL_SOURCES)
-        .filter((bundle) => bundle.sourceOverflowCount === 0);
+      const expandedAuditable = await visibleAuditableBundles(page);
       if (expandedAuditable.length >= sampleCount) {
         return expandedAuditable.slice(0, sampleCount);
       }
@@ -196,6 +202,21 @@ function groupPairResults(pairs: readonly LiveSemanticAuditPair[], results: read
   return grouped;
 }
 
+async function persistSemanticAuditReport(report: DaemonFeedSemanticAuditReport): Promise<void> {
+  const runId = process.env.VH_DAEMON_FEED_RUN_ID?.trim();
+  if (!runId) {
+    return;
+  }
+
+  const artifactDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId);
+  await mkdir(artifactDir, { recursive: true });
+  await writeFile(
+    path.join(artifactDir, 'semantic-audit-report.json'),
+    JSON.stringify(report, null, 2),
+    'utf8',
+  );
+}
+
 export async function runDaemonFirstFeedSemanticAudit(
   page: Page,
   options: DaemonFeedSemanticAuditOptions,
@@ -210,40 +231,25 @@ export async function runDaemonFirstFeedSemanticAudit(
   } = await loadSemanticAuditModule();
 
   const visibleStoryIds = (await headlineRows(page)).map((row) => row.storyId);
-  const candidates = await waitForSampledBundles(page, sampleCount, timeoutMs);
+  const hydratedBundles = await waitForSampledBundles(
+    page,
+    sampleCount,
+    timeoutMs,
+  );
   const allPairs: LiveSemanticAuditPair[] = [];
-  const hydratedBundles: LiveSemanticAuditBundleLike[] = [];
 
-  for (const candidate of candidates) {
-    const primarySources: StoryBundleSource[] = [];
+  for (const bundle of hydratedBundles) {
+    const primarySources = [...(bundle.primary_sources ?? bundle.sources)];
     const sourceTexts = new Map<string, string>();
 
-    for (const source of candidate.sources) {
+    for (const source of primarySources) {
       const payload = articleTextCache.get(source.url)
         ?? await fetchArticlePayload(LIVE_BASE_URL, source.url, source.source_id);
       articleTextCache.set(source.url, payload);
 
-      const hydratedSource: StoryBundleSource = {
-        source_id: source.source_id,
-        publisher: source.publisher,
-        url: source.url,
-        url_hash: urlHash(source.url),
-        title: payload.title || source.publisher,
-      };
-      primarySources.push(hydratedSource);
-      sourceTexts.set(`${hydratedSource.source_id}:${hydratedSource.url_hash}`, payload.text);
+      sourceTexts.set(`${source.source_id}:${source.url_hash}`, payload.text);
     }
 
-    const bundle: LiveSemanticAuditBundleLike = {
-      story_id: candidate.story_id,
-      topic_id: candidate.topic_id,
-      headline: candidate.headline,
-      sources: primarySources,
-      primary_sources: primarySources,
-      secondary_assets: [],
-    };
-
-    hydratedBundles.push(bundle);
     allPairs.push(...buildCanonicalSourcePairs(
       bundle,
       (source) => sourceTexts.get(`${source.source_id}:${source.url_hash}`) ?? '',
@@ -276,7 +282,7 @@ export async function runDaemonFirstFeedSemanticAudit(
     0,
   );
 
-  return {
+  const report: DaemonFeedSemanticAuditReport = {
     schema_version: 'daemon-first-feed-semantic-audit-v1',
     base_url: LIVE_BASE_URL,
     requested_sample_count: sampleCount,
@@ -289,4 +295,7 @@ export async function runDaemonFirstFeedSemanticAudit(
       pass: reports.length >= sampleCount && relatedTopicOnlyPairCount === 0,
     },
   };
+
+  await persistSemanticAuditReport(report);
+  return report;
 }

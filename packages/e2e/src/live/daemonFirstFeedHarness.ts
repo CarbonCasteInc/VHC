@@ -182,6 +182,7 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
     content: `
       window.__VH_NEWS_RUNTIME_ROLE = 'consumer';
       window.__VH_TEST_SESSION = false;
+      window.__VH_EXPOSE_NEWS_STORE__ = true;
     `,
   });
 }
