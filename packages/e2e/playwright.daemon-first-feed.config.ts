@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import { defineConfig, devices, type TestConfig } from '@playwright/test';
 
 process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
@@ -14,6 +15,9 @@ process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, ru
 const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
 const baseUrl = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2148/';
 const gunPeerUrl = `http://localhost:${gunPort}/gun`;
+const relayRootDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId, 'relay');
+const relayDataPath = path.join(relayRootDir, 'data');
+const relayServerPath = path.resolve(process.cwd(), '../../infra/relay/server.js');
 
 type DevFeedSource = {
   id: string;
@@ -131,9 +135,8 @@ const localWebServers: TestConfig['webServer'] = [
       `pids=$(lsof -ti tcp:${gunPort} || true)`,
       `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
       `rm -rf ../../.tmp/e2e-daemon-feed/${runId}`,
-      `mkdir -p ../../.tmp/e2e-daemon-feed/${runId}/relay`,
-      `cd ../../.tmp/e2e-daemon-feed/${runId}/relay`,
-      `GUN_PORT=${gunPort} node ../../../../infra/relay/server.js`,
+      `mkdir -p ${JSON.stringify(relayRootDir)}`,
+      `GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
     ].join(' && '),
     url: `http://127.0.0.1:${gunPort}`,
     reuseExistingServer: false,
