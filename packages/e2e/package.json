@@ -1,23 +1,23 @@
 {
-    "name": "@vh/e2e",
-    "version": "0.0.0",
-    "private": true,
+  "name": "@vh/e2e",
+  "version": "0.0.0",
+  "private": true,
   "scripts": {
-        "test": "VITE_E2E_MODE=true pnpm --filter @vh/web-pwa build && VITE_E2E_MODE=true playwright test",
-        "test:ui": "playwright test --ui",
-        "test:debug": "playwright test --debug",
-        "test:live:matrix": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=false playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
-        "test:live:matrix:strict": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=true playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
-        "test:live:matrix:strict:stability": "node ./src/live/live-matrix-stability-gate.mjs",
-        "test:live:matrix:strict:stability:dev-small": "env $(grep -v '^#' .env.dev-small | xargs) node ./src/live/live-matrix-stability-gate.mjs",
-        "test:live:matrix:strict:stability:beta-scale": "env $(grep -v '^#' .env.beta-scale | xargs) node ./src/live/live-matrix-stability-gate.mjs",
-        "test:live:daemon-feed": "pnpm --filter @vh/ai-engine build && pnpm --filter @vh/storycluster-engine build && pnpm --filter @vh/news-aggregator exec tsc -p tsconfig.json && VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed.live.spec.ts",
-        "codegen": "playwright codegen",
-        "typecheck": "tsc --noEmit"
-    },
-    "devDependencies": {
-        "@playwright/test": "^1.42.1",
-        "@types/node": "^20.11.30",
-        "typescript": "^5.4.5"
-    }
+    "test": "VITE_E2E_MODE=true pnpm --filter @vh/web-pwa build && VITE_E2E_MODE=true playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "test:live:matrix": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=false playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
+    "test:live:matrix:strict": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=true playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
+    "test:live:matrix:strict:stability": "node ./src/live/live-matrix-stability-gate.mjs",
+    "test:live:matrix:strict:stability:dev-small": "env $(grep -v '^#' .env.dev-small | xargs) node ./src/live/live-matrix-stability-gate.mjs",
+    "test:live:matrix:strict:stability:beta-scale": "env $(grep -v '^#' .env.beta-scale | xargs) node ./src/live/live-matrix-stability-gate.mjs",
+    "test:live:daemon-feed": "pnpm --filter @vh/ai-engine build && pnpm --filter @vh/storycluster-engine build && pnpm --filter @vh/news-aggregator exec tsc -p tsconfig.json && VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed*.live.spec.ts",
+    "codegen": "playwright codegen",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.42.1",
+    "@types/node": "^20.11.30",
+    "typescript": "^5.4.5"
+  }
 }

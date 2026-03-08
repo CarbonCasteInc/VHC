@@ -93,6 +93,34 @@ function resolveDevFeedSourcesJson(): string {
   return JSON.stringify(resolved.length > 0 ? resolved : fallback);
 }
 
+function resolveAnalysisRelayEnv(): Record<string, string> {
+  const upstreamUrl =
+    process.env.ANALYSIS_RELAY_UPSTREAM_URL?.trim()
+    || (process.env.OPENAI_API_KEY?.trim() ? 'https://api.openai.com/v1/chat/completions' : '');
+  const apiKey =
+    process.env.ANALYSIS_RELAY_API_KEY?.trim()
+    || process.env.OPENAI_API_KEY?.trim()
+    || '';
+
+  if (!upstreamUrl || !apiKey) {
+    return {};
+  }
+
+  return {
+    ANALYSIS_RELAY_UPSTREAM_URL: upstreamUrl,
+    ANALYSIS_RELAY_API_KEY: apiKey,
+    ...(process.env.ANALYSIS_RELAY_MODEL?.trim()
+      ? { ANALYSIS_RELAY_MODEL: process.env.ANALYSIS_RELAY_MODEL.trim() }
+      : {}),
+    ...(process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS?.trim()
+      ? {
+          ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS:
+            process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS.trim(),
+        }
+      : {}),
+  };
+}
+
 const localWebServers: TestConfig['webServer'] = [
   {
     command: [
@@ -117,6 +145,7 @@ const localWebServers: TestConfig['webServer'] = [
       VITE_NEWS_RUNTIME_ROLE: 'consumer',
       VITE_GUN_PEERS: `["${gunPeerUrl}"]`,
       VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
+      ...resolveAnalysisRelayEnv(),
     },
   },
 ];
