@@ -1,14 +1,21 @@
-import corpusJson from './liveBenchmarkCorpus.json';
+import { STORYCLUSTER_BENCHMARK_CORPUS } from './benchmarkCorpus';
 import { MemoryClusterStore, type ClusterStore } from './clusterStore';
-import { coherenceAuditInternal, type StoryClusterCoherenceAuditDataset, type StoryClusterCoherenceAuditItem, type StoryClusterCoherenceThresholds, type StoryClusterCoherenceDatasetResult } from './coherenceAudit';
-import { runStoryClusterRemoteContract, type StoryClusterRemoteBundle, type StoryClusterRemoteResponse } from './remoteContract';
+import {
+  coherenceAuditInternal,
+  type StoryClusterCoherenceAuditDataset,
+  type StoryClusterCoherenceAuditItem,
+  type StoryClusterCoherenceThresholds,
+  type StoryClusterCoherenceDatasetResult,
+} from './coherenceAudit';
+import {
+  runStoryClusterRemoteContract,
+  type StoryClusterRemoteBundle,
+  type StoryClusterRemoteResponse,
+} from './remoteContract';
 import type { StoredClusterRecord } from './stageState';
+import type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
 
-export interface StoryClusterReplayScenario {
-  scenario_id: string;
-  topic_id: string;
-  ticks: StoryClusterCoherenceAuditItem[][];
-}
+export type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
 
 export interface StoryClusterFixtureBenchmarkResult extends StoryClusterCoherenceDatasetResult {
   run_latency_ms: number;
@@ -63,14 +70,7 @@ export interface StoryClusterLiveBenchmarkOptions {
   storeFactory?: () => ClusterStore;
 }
 
-type CorpusConfig = {
-  fixtureThresholds: StoryClusterCoherenceThresholds;
-  replayThresholds: StoryClusterCoherenceThresholds;
-  fixtureDatasets: StoryClusterCoherenceAuditDataset[];
-  replayScenarios: StoryClusterReplayScenario[];
-};
-
-const defaultCorpus = corpusJson as CorpusConfig;
+const defaultCorpus = STORYCLUSTER_BENCHMARK_CORPUS;
 
 function bundleFromCluster(cluster: StoredClusterRecord): StoryClusterRemoteBundle {
   const sources = cluster.source_documents
@@ -121,10 +121,12 @@ function eventStoryIdsFromBundles(
   const mapping = new Map<string, Set<string>>();
   for (const bundle of bundles) {
     for (const source of bundle.sources) {
-      const eventId = expectedByKey.get(coherenceAuditInternal.sourceEventKey({
-        source_id: source.source_id,
-        url_hash: source.url_hash,
-      }));
+      const eventId = expectedByKey.get(
+        coherenceAuditInternal.sourceEventKey({
+          source_id: source.source_id,
+          url_hash: source.url_hash,
+        }),
+      );
       if (!eventId) {
         continue;
       }
@@ -139,7 +141,12 @@ function eventStoryIdsFromBundles(
 function aggregateResults(results: readonly StoryClusterCoherenceDatasetResult[]) {
   return {
     pass: results.every((result) => result.pass),
-    avg_coherence_score: Number((results.reduce((total, result) => total + result.coherence_score, 0) / Math.max(1, results.length)).toFixed(6)),
+    avg_coherence_score: Number(
+      (
+        results.reduce((total, result) => total + result.coherence_score, 0) /
+        Math.max(1, results.length)
+      ).toFixed(6),
+    ),
     max_contamination_rate: Math.max(0, ...results.map((result) => result.contamination_rate)),
     max_fragmentation_rate: Math.max(0, ...results.map((result) => result.fragmentation_rate)),
     failed_dataset_ids: results.filter((result) => !result.pass).map((result) => result.dataset_id),
@@ -238,21 +245,30 @@ export async function runStoryClusterLiveBenchmark(
     const startedAt = now();
     const response = toResponse(
       dataset.topic_id,
-      await remoteRunner({ topic_id: dataset.topic_id, items: toRemoteItems(dataset.items) }, { store: storeFactory(), clock: now }),
+      await remoteRunner(
+        { topic_id: dataset.topic_id, items: toRemoteItems(dataset.items) },
+        { store: storeFactory(), clock: now },
+      ),
     );
     const result = coherenceAuditInternal.computeDatasetResult(dataset, response, fixtureThresholds);
     fixtureResults.push({ ...result, run_latency_ms: Math.max(0, now() - startedAt) });
   }
 
-  const replayResults = [];
+  const replayResults: StoryClusterReplayBenchmarkResult[] = [];
   for (const scenario of replayScenarios) {
     replayResults.push(await runReplayScenario(scenario, replayThresholds, now, remoteRunner, storeFactory));
   }
 
   const fixtureOverall = aggregateResults(fixtureResults);
   const replayAggregate = aggregateResults(replayResults);
-  const persistenceObservations = replayResults.reduce((total, result) => total + result.persistence_observations, 0);
-  const persistenceRetained = replayResults.reduce((total, result) => total + result.persistence_retained, 0);
+  const persistenceObservations = replayResults.reduce(
+    (total, result) => total + result.persistence_observations,
+    0,
+  );
+  const persistenceRetained = replayResults.reduce(
+    (total, result) => total + result.persistence_retained,
+    0,
+  );
 
   return {
     schema_version: 'storycluster-live-benchmark-v1',
