@@ -5,6 +5,10 @@ Owner: Core Engineering
 Last Updated: 2026-03-08
 Branch Baseline: `coord/storycluster-takeover`
 
+Companion execution backlog:
+
+1. `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_IMPLEMENTATION_TICKET_STACK.md`
+
 ## 1. Mission
 
 Build a production-grade StoryCluster service that is the sole authoritative news bundler for VHC.
