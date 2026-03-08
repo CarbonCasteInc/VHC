@@ -7,7 +7,7 @@ import {
   type TopicMapping,
 } from '@vh/ai-engine';
 import {
-  createClient,
+  createNodeMeshClient,
   readNewsIngestionLease,
   removeNewsBundle,
   writeNewsIngestionLease,
@@ -287,7 +287,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   });
 
   const gunPeers = parseGunPeers(readEnvVar('VH_GUN_PEERS') ?? readEnvVar('VITE_GUN_PEERS'));
-  const client = createClient({
+  const client = createNodeMeshClient({
     peers: gunPeers.length > 0 ? gunPeers : undefined,
     requireSession: false,
   });

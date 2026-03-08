@@ -182,6 +182,7 @@ export { HydrationBarrier } from './sync/barrier';
 export { createStorageAdapter } from './storage/adapter';
 export type { StorageAdapter, StorageRecord } from './storage/types';
 export type { VennClient, VennClientConfig, Namespace } from './types';
+export { createNodeMeshClient } from './nodeMeshClient';
 export { createSession } from './auth';
 export * from './hermesAdapters';
 export * from './hermesCrypto';

@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   startNewsRuntime: vi.fn(),
-  createClient: vi.fn(),
+  createNodeMeshClient: vi.fn(),
   readNewsIngestionLease: vi.fn(),
+  removeNewsBundle: vi.fn(),
   writeNewsIngestionLease: vi.fn(),
   writeStoryBundle: vi.fn(),
 }));
@@ -20,8 +21,9 @@ vi.mock('@vh/gun-client', async () => {
   const actual = await vi.importActual<typeof import('@vh/gun-client')>('@vh/gun-client');
   return {
     ...actual,
-    createClient: mocks.createClient,
+    createNodeMeshClient: mocks.createNodeMeshClient,
     readNewsIngestionLease: mocks.readNewsIngestionLease,
+    removeNewsBundle: mocks.removeNewsBundle,
     writeNewsIngestionLease: mocks.writeNewsIngestionLease,
     writeStoryBundle: mocks.writeStoryBundle,
   };
@@ -50,9 +52,10 @@ describe('news daemon production wiring', () => {
     });
 
     mocks.readNewsIngestionLease.mockResolvedValue(null);
+    mocks.removeNewsBundle.mockResolvedValue(undefined);
     mocks.writeNewsIngestionLease.mockImplementation(async (_client: unknown, lease: unknown) => lease);
     mocks.writeStoryBundle.mockResolvedValue(undefined);
-    mocks.createClient.mockReturnValue({
+    mocks.createNodeMeshClient.mockReturnValue({
       id: 'mock-client',
       shutdown: vi.fn().mockResolvedValue(undefined),
     });
@@ -127,7 +130,7 @@ describe('news daemon production wiring', () => {
       'storycluster health check failed: HTTP 503',
     );
 
-    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.createNodeMeshClient).not.toHaveBeenCalled();
     expect(mocks.startNewsRuntime).not.toHaveBeenCalled();
   });
 
@@ -137,7 +140,7 @@ describe('news daemon production wiring', () => {
 
     const handle = await startNewsAggregatorDaemonFromEnv();
     try {
-      expect(mocks.createClient).toHaveBeenCalledTimes(1);
+      expect(mocks.createNodeMeshClient).toHaveBeenCalledTimes(1);
       expect(mocks.startNewsRuntime).toHaveBeenCalledTimes(1);
 
       const runtimeConfig = mocks.startNewsRuntime.mock.calls[0]?.[0] as {
@@ -165,7 +168,7 @@ describe('news daemon production wiring', () => {
 
     const handle = await startNewsAggregatorDaemonFromEnv();
     try {
-      expect(mocks.createClient).toHaveBeenCalledWith({
+      expect(mocks.createNodeMeshClient).toHaveBeenCalledWith({
         peers: ['https://peer-a.example/gun', 'https://peer-b.example/gun'],
         requireSession: false,
       });
