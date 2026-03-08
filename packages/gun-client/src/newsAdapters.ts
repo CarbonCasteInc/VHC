@@ -1,4 +1,9 @@
-import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
+import {
+  assertCanonicalNewsTopicId,
+  isCanonicalNewsTopicIdShape,
+  StoryBundleSchema,
+  type StoryBundle,
+} from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
@@ -340,7 +345,10 @@ function parseStoryBundle(data: unknown): StoryBundle | null {
     return null;
   }
   const parsed = StoryBundleSchema.safeParse(payload);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success || !isCanonicalNewsTopicIdShape(parsed.data.topic_id)) {
+    return null;
+  }
+  return parsed.data;
 }
 
 function sanitizeStoryBundle(data: unknown): StoryBundle {
@@ -535,7 +543,16 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
   if (raw === null) {
     return null;
   }
-  return parseStoryBundle(raw);
+  const parsed = parseStoryBundle(raw);
+  if (!parsed) {
+    return null;
+  }
+  try {
+    await assertCanonicalNewsTopicId(parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -546,6 +563,7 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
  */
 export async function writeNewsStory(client: VennClient, story: unknown): Promise<StoryBundle> {
   const sanitized = sanitizeStoryBundle(story);
+  await assertCanonicalNewsTopicId(sanitized);
   const normalized = await enforceCreatedAtFirstWriteWins(client, sanitized);
   const encoded = encodeStoryBundleForGun(normalized);
   await putWithAck(

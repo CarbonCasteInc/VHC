@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { buildCandidateMatch, candidateEligible, clusterMergeScore, clusterScoringConfig, representativeDocuments, shouldMergeClusters, shouldSplitPair, splitPairScore } from './clusterScoring';
+import { buildCandidateMatch, candidateEligible, clusterMergeScore, clusterScoringConfig, shouldMergeClusters, shouldSplitPair, splitPairScore } from './clusterScoring';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
+import { representativeDocuments } from './clusterSignals';
 import type { StoredTopicState, WorkingDocument } from './stageState';
 
 function makeWorkingDocument(overrides: Partial<WorkingDocument> = {}): WorkingDocument {

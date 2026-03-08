@@ -1,4 +1,8 @@
-import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
+import {
+  isCanonicalNewsTopicIdShape,
+  StoryBundleSchema,
+  type StoryBundle,
+} from '@vh/data-model';
 import {
   getNewsHotIndexChain,
   getNewsLatestIndexChain,
@@ -100,7 +104,10 @@ function parseStory(data: unknown): StoryBundle | null {
   }
 
   const parsed = StoryBundleSchema.safeParse(decoded);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success || !isCanonicalNewsTopicIdShape(parsed.data.topic_id)) {
+    return null;
+  }
+  return parsed.data;
 }
 
 function canSubscribe<T>(chain: ChainWithGet<T>): chain is ChainWithGet<T> & Required<Pick<ChainWithGet<T>, 'map' | 'on'>> {

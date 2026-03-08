@@ -2,10 +2,18 @@ import { defineConfig, devices, type TestConfig } from '@playwright/test';
 
 process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
 
-const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT ?? '8777');
+function stablePort(base: number, span: number, seed: string): number {
+  const offset = [...seed].reduce((total, char) => total + char.charCodeAt(0), 0) % span;
+  return base + offset;
+}
+
+const runId = process.env.VH_DAEMON_FEED_RUN_ID;
+process.env.VH_DAEMON_FEED_GUN_PORT ??= String(stablePort(8700, 200, runId));
+process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, runId));
+
+const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
 const baseUrl = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2148/';
 const gunPeerUrl = `http://localhost:${gunPort}/gun`;
-const runId = process.env.VH_DAEMON_FEED_RUN_ID;
 
 type DevFeedSource = {
   id: string;
@@ -76,10 +84,6 @@ function extractPort(url: string): number {
 }
 
 function resolveDevFeedSourcesJson(): string {
-  if (typeof process.env.VITE_NEWS_FEED_SOURCES === 'string' && process.env.VITE_NEWS_FEED_SOURCES.trim().length > 0) {
-    return process.env.VITE_NEWS_FEED_SOURCES;
-  }
-
   const requestedIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_SOURCE_IDS.join(','))
     .split(',')
     .map((value) => value.trim())
@@ -124,6 +128,7 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 const localWebServers: TestConfig['webServer'] = [
   {
     command: [
+      `rm -rf ../../.tmp/e2e-daemon-feed/${runId}`,
       `mkdir -p ../../.tmp/e2e-daemon-feed/${runId}/relay`,
       `cd ../../.tmp/e2e-daemon-feed/${runId}/relay`,
       `GUN_PORT=${gunPort} node ../../../../infra/relay/server.js`,

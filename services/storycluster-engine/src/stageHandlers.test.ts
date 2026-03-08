@@ -273,4 +273,84 @@ describe('stageHandlers', () => {
 
     expect(extracted.documents[0]?.linked_entities).toEqual(['sanctions_dispute']);
   });
+
+  it('downgrades provider-misclassified at-a-glance coverage to related-only', async () => {
+    const state = createInitialState(normalizeRequest({
+      topic_id: 'topic-roundup-override',
+      documents: [{
+        doc_id: 'doc-1',
+        source_id: 'guardian-us',
+        publisher: 'Guardian',
+        title: 'Trump news at a glance: US leader says Iran being decimated',
+        summary: 'A roundup of Iran developments and Trump remarks.',
+        published_at: 100,
+        url: 'https://example.com/roundup',
+      }],
+    } as any, 200), new MemoryClusterStore());
+
+    const next = await resolveStageHandlers(undefined, makeProvider({
+      async analyzeDocuments(items) {
+        return items.map((item) => ({
+          doc_id: item.doc_id,
+          doc_type: 'breaking_update',
+          entities: ['trump', 'iran'],
+          linked_entities: ['donald_trump', 'iran'],
+          locations: ['iran'],
+          temporal_ms: null,
+          trigger: 'strike',
+          event_tuple: {
+            description: item.title,
+            trigger: 'strike',
+            who: ['Donald Trump'],
+            where: ['Iran'],
+            when_ms: null,
+            outcome: 'Roundup coverage',
+          },
+        }));
+      },
+    })).document_classification(state);
+
+    expect(next.documents[0]?.doc_type).toBe('explainer_recap');
+    expect(next.documents[0]?.coverage_role).toBe('related');
+  });
+
+  it('downgrades provider-misclassified video pages to related-only video clips', async () => {
+    const state = createInitialState(normalizeRequest({
+      topic_id: 'topic-video-override',
+      documents: [{
+        doc_id: 'doc-1',
+        source_id: 'cbs-politics',
+        publisher: 'CBS News',
+        title: 'Armed Iranian opposition group says its camp was hit with drone strike',
+        summary: 'Video coverage of the reported drone strike.',
+        published_at: 100,
+        url: 'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
+      }],
+    } as any, 200), new MemoryClusterStore());
+
+    const next = await resolveStageHandlers(undefined, makeProvider({
+      async analyzeDocuments(items) {
+        return items.map((item) => ({
+          doc_id: item.doc_id,
+          doc_type: 'hard_news',
+          entities: ['iran'],
+          linked_entities: ['iran'],
+          locations: ['iran'],
+          temporal_ms: null,
+          trigger: 'strike',
+          event_tuple: {
+            description: item.title,
+            trigger: 'strike',
+            who: ['Iran'],
+            where: ['Iran'],
+            when_ms: null,
+            outcome: 'Video clip',
+          },
+        }));
+      },
+    })).document_classification(state);
+
+    expect(next.documents[0]?.doc_type).toBe('video_clip');
+    expect(next.documents[0]?.coverage_role).toBe('related');
+  });
 });

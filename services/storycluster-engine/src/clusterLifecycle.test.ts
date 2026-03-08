@@ -289,6 +289,32 @@ describe('clusterLifecycle', () => {
     expect(next.stage_metrics.dynamic_cluster_assignment?.related_docs_deferred).toBe(1);
   });
 
+  it('defers unattached video clips instead of seeding new canonical clusters', async () => {
+    const video = makeWorkingDocument('doc-7', 'Drone strike video', 'iranian_opposition_group', 'strike', [0.8, 0.2]);
+    video.doc_type = 'video_clip';
+    video.coverage_role = coverageRoleForDocumentType('video_clip');
+    video.candidate_matches = [];
+
+    const next = await assignClusters({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [video],
+      clusters: [],
+      bundles: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [],
+      },
+      stage_metrics: {},
+    }, undefined);
+
+    expect(next.topic_state.clusters).toHaveLength(0);
+    expect(next.documents[0]?.assigned_story_id).toBeUndefined();
+    expect(next.stage_metrics.dynamic_cluster_assignment?.related_docs_deferred).toBe(1);
+  });
+
   it('throws when adjudication references a cluster that no longer exists', async () => {
     const state: PipelineState = {
       topicId: 'topic-news',

@@ -45,6 +45,27 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function resolveDaemonFeedSourcesJson(): string {
+  const catalog = {
+    'fox-latest': { id: 'fox-latest', name: 'Fox News', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
+    'nypost-politics': { id: 'nypost-politics', name: 'New York Post Politics', displayName: 'New York Post', rssUrl: 'https://nypost.com/politics/feed/', perspectiveTag: 'conservative', iconKey: 'nypost', enabled: true },
+    'guardian-us': { id: 'guardian-us', name: 'The Guardian US', displayName: 'The Guardian', rssUrl: 'https://www.theguardian.com/us-news/rss', perspectiveTag: 'progressive', iconKey: 'guardian', enabled: true },
+    'cbs-politics': { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },
+    'bbc-general': { id: 'bbc-general', name: 'BBC News', displayName: 'BBC News', rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
+  } as const;
+
+  const sourceIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? 'fox-latest,nypost-politics,guardian-us,cbs-politics,bbc-general')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  const sources = sourceIds
+    .map((sourceId) => catalog[sourceId as keyof typeof catalog])
+    .filter(Boolean);
+
+  return JSON.stringify(sources.length > 0 ? sources : Object.values(catalog));
+}
+
 export function logText(message: ConsoleMessage): string {
   return `[${message.type()}] ${message.text()}`;
 }
@@ -143,13 +164,8 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_STORYCLUSTER_SERVER_PORT: String(STORYCLUSTER_PORT),
     VH_STORYCLUSTER_SERVER_AUTH_TOKEN: STORYCLUSTER_TOKEN,
     VH_GUN_PEERS: `["${GUN_PEER_URL}"]`,
-    VITE_NEWS_FEED_SOURCES: process.env.VITE_NEWS_FEED_SOURCES ?? JSON.stringify([
-      { id: 'fox-latest', name: 'Fox News', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
-      { id: 'nypost-politics', name: 'New York Post Politics', displayName: 'New York Post', rssUrl: 'https://nypost.com/politics/feed/', perspectiveTag: 'conservative', iconKey: 'nypost', enabled: true },
-      { id: 'guardian-us', name: 'The Guardian US', displayName: 'The Guardian', rssUrl: 'https://www.theguardian.com/us-news/rss', perspectiveTag: 'progressive', iconKey: 'guardian', enabled: true },
-      { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },
-      { id: 'bbc-general', name: 'BBC News', displayName: 'BBC News', rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
-    ]),
+    VH_GUN_FILE: path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/daemon-radata`),
+    VITE_NEWS_FEED_SOURCES: resolveDaemonFeedSourcesJson(),
     VITE_NEWS_TOPIC_MAPPING: '{"defaultTopicId":"topic-news","sourceTopics":{}}',
     VITE_NEWS_POLL_INTERVAL_MS: '15000',
     VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: '3',
@@ -168,6 +184,7 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
   const root = repoRootDir();
   const env = commonEnv();
   const storyclusterDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/server.js')).href;
+  const clusterStoreDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/clusterStore.js')).href;
   const esmLoaderPath = env.VH_STORYCLUSTER_ESM_LOADER_PATH!;
 
   const storycluster = spawnLoggedProcess(
@@ -179,15 +196,18 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
       '--input-type=module',
       '-e',
       `import { startStoryClusterServer } from ${JSON.stringify(storyclusterDistUrl)};
+       import { FileClusterStore } from ${JSON.stringify(clusterStoreDistUrl)};
+       const stateDir = process.env.VH_STORYCLUSTER_STATE_DIR;
        const server = startStoryClusterServer({
          host: '127.0.0.1',
          port: Number(process.env.VH_STORYCLUSTER_SERVER_PORT),
          authToken: process.env.VH_STORYCLUSTER_SERVER_AUTH_TOKEN,
+         store: stateDir ? new FileClusterStore(stateDir) : undefined,
        });
        const shutdown = () => server.close(() => process.exit(0));
        process.on('SIGINT', shutdown);
        process.on('SIGTERM', shutdown);
-       console.log('[vh:e2e-storycluster] started');`,
+       console.log('[vh:e2e-storycluster] started', { stateDir });`,
     ],
     env,
   );

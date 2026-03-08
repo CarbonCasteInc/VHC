@@ -190,4 +190,17 @@ describe('summaryBuilder', () => {
 
     expect(buildClusterSummary(cluster)).toContain('about 3 hours');
   });
+
+  it('falls back to source id when a publisher name is blank', () => {
+    const cluster = makeCluster('Ports remained shut after the overnight attack.');
+    cluster.source_documents = [
+      {
+        ...cluster.source_documents[0]!,
+        publisher: '',
+        source_id: 'wire-a',
+      },
+    ];
+
+    expect(buildClusterSummary(cluster)).toContain('1 source across');
+  });
 });

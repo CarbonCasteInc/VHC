@@ -61,17 +61,12 @@ describe('index.html content security policy', () => {
     expect(directivesWithUnsafeInline).toEqual(['style-src']);
 
     expect(connectSrc).toContain("'self'");
-    expect(connectSrc).toContain('http://localhost:7777');
-    expect(connectSrc).toContain('ws://localhost:7777');
-    expect(connectSrc).toContain('http://127.0.0.1:7777');
-    expect(connectSrc).toContain('ws://127.0.0.1:7777');
-    expect(connectSrc).toContain('http://localhost:8777');
-    expect(connectSrc).toContain('ws://localhost:8777');
-    expect(connectSrc).toContain('http://127.0.0.1:8777');
-    expect(connectSrc).toContain('ws://127.0.0.1:8777');
+    expect(connectSrc).toContain('http://localhost:*');
+    expect(connectSrc).toContain('ws://localhost:*');
+    expect(connectSrc).toContain('http://127.0.0.1:*');
+    expect(connectSrc).toContain('ws://127.0.0.1:*');
     expect(connectSrc).toContain('http://100.75.18.26:7777');
     expect(connectSrc).toContain('ws://100.75.18.26:7777');
-    expect(connectSrc).not.toContain('*');
     expect(connectSrc).not.toContain('https:');
     expect(connectSrc).not.toContain('wss:');
   });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createClient } from './index';
+import { __internal, createClient } from './index';
 
 function makeChain() {
   const chain: any = {
@@ -44,6 +44,8 @@ beforeEach(() => {
   mockGun.mockClear();
   mockGet.mockClear();
   mockUser.mockClear();
+  delete process.env.VH_GUN_FILE;
+  delete process.env.VITE_VH_GUN_FILE;
 });
 
 describe('createClient', () => {
@@ -62,6 +64,25 @@ describe('createClient', () => {
   it('falls back to default peer', () => {
     const client = createClient();
     expect(client.config.peers[0]).toContain('/gun');
+  });
+
+  it('uses a run-scoped Gun file path when configured through env', () => {
+    process.env.VH_GUN_FILE = '/tmp/vh-gun-run';
+
+    createClient({ peers: ['http://host:7777'] });
+
+    expect(mockGun).toHaveBeenCalledWith({
+      peers: ['http://host:7777/gun'],
+      localStorage: false,
+      file: '/tmp/vh-gun-run',
+    });
+    expect(__internal.resolveNodeGunFile()).toBe('/tmp/vh-gun-run');
+  });
+
+  it('supports the vite-prefixed Gun file env fallback', () => {
+    process.env.VITE_VH_GUN_FILE = '/tmp/vh-gun-run-vite';
+
+    expect(__internal.resolveNodeGunFile()).toBe('/tmp/vh-gun-run-vite');
   });
 
   it('shutdown closes storage and marks ready', async () => {

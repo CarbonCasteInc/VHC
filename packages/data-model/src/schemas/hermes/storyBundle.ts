@@ -1,9 +1,12 @@
+import { sha256 } from '@vh/crypto';
 import { z } from 'zod';
 
 /**
  * Schema version tag for StoryBundle — frozen at v0 for Season 0.
  */
 export const STORY_BUNDLE_VERSION = 'story-bundle-v0' as const;
+export const NEWS_TOPIC_PREFIX = 'news:' as const;
+export const NEWS_TOPIC_ID_HEX_PATTERN = /^[a-f0-9]{64}$/;
 
 /**
  * A configured RSS/feed source.
@@ -84,3 +87,32 @@ export const StoryBundleSchema = z.object({
   created_at: z.number(),
 });
 export type StoryBundle = z.infer<typeof StoryBundleSchema>;
+
+export function isCanonicalNewsTopicIdShape(topicId: string): boolean {
+  return NEWS_TOPIC_ID_HEX_PATTERN.test(topicId.trim());
+}
+
+export async function deriveNewsTopicId(storyId: string): Promise<string> {
+  const normalizedStoryId = storyId.trim();
+  if (!normalizedStoryId) {
+    throw new Error('story_id is required to derive a news topic id');
+  }
+  return sha256(`${NEWS_TOPIC_PREFIX}${normalizedStoryId}`);
+}
+
+export async function hasCanonicalNewsTopicId(
+  bundle: Pick<StoryBundle, 'story_id' | 'topic_id'>,
+): Promise<boolean> {
+  const expectedTopicId = await deriveNewsTopicId(bundle.story_id);
+  return bundle.topic_id.trim() === expectedTopicId;
+}
+
+export async function assertCanonicalNewsTopicId(
+  bundle: Pick<StoryBundle, 'story_id' | 'topic_id'>,
+): Promise<void> {
+  if (await hasCanonicalNewsTopicId(bundle)) {
+    return;
+  }
+
+  throw new Error(`story bundle topic_id must equal sha256(\"news:\" + story_id) for ${bundle.story_id}`);
+}

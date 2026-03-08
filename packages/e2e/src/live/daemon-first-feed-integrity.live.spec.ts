@@ -20,6 +20,8 @@ const ANALYSIS_READY_TIMEOUT_MS = 90_000;
 const IDENTITY_BOOTSTRAP_TIMEOUT_MS = 120_000;
 const SORT_SAMPLE_SIZE = 6;
 const HOTTEST_WINDOW_SIZE = 8;
+const ZERO_BASELINE_SETTLE_WINDOW_MS = 5_000;
+const ZERO_BASELINE_SETTLE_STEP_MS = 500;
 
 interface VisibleCard extends HeadlineRow {
   readonly hotness: number;
@@ -201,6 +203,50 @@ async function firstPointId(card: Locator, preferredPointId?: string): Promise<s
   return testId.replace('cell-vote-agree-', '');
 }
 
+async function zeroBaselinePointId(card: Locator, preferredPointId?: string): Promise<string> {
+  if (preferredPointId) {
+    const preferred = card.getByTestId(`cell-vote-agree-${preferredPointId}`);
+    if (await preferred.count()) {
+      const counts = await stableZeroBaselineCounts(card, preferredPointId);
+      if (counts) {
+        return preferredPointId;
+      }
+    }
+  }
+
+  const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
+  const count = await buttons.count();
+  for (let index = 0; index < count; index += 1) {
+    const testId = await buttons.nth(index).getAttribute('data-testid');
+    if (!testId) {
+      continue;
+    }
+    const pointId = testId.replace('cell-vote-agree-', '');
+    const counts = await stableZeroBaselineCounts(card, pointId);
+    if (counts) {
+      return pointId;
+    }
+  }
+
+  throw new Error('no-zero-baseline-point-found');
+}
+
+async function stableZeroBaselineCounts(card: Locator, pointId: string): Promise<VoteCounts | null> {
+  const deadline = Date.now() + ZERO_BASELINE_SETTLE_WINDOW_MS;
+  let lastCounts: VoteCounts | null = null;
+
+  while (Date.now() < deadline) {
+    const counts = await voteCounts(card, pointId);
+    if (counts.agree !== 0 || counts.disagree !== 0) {
+      return null;
+    }
+    lastCounts = counts;
+    await sleep(ZERO_BASELINE_SETTLE_STEP_MS);
+  }
+
+  return lastCounts;
+}
+
 async function voteCounts(card: Locator, pointId: string): Promise<VoteCounts> {
   const agreeText = (await card.getByTestId(`cell-vote-agree-${pointId}`).textContent()) ?? '';
   const disagreeText = (await card.getByTestId(`cell-vote-disagree-${pointId}`).textContent()) ?? '';
@@ -278,7 +324,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         if (summaries.length >= 2) {
           expect(new Set(summaries.map((value) => value.split(':', 1)[0]?.trim() ?? '')).size).toBeGreaterThanOrEqual(2);
         }
-        const selectedPointId = await firstPointId(card);
+        const selectedPointId = await zeroBaselinePointId(card);
         await attachJson(testInfo, 'daemon-first-feed-analysis-a', {
           bundledStory,
           provider,

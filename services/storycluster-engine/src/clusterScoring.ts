@@ -1,6 +1,23 @@
 import type { CandidateMatch, StoredClusterRecord, StoredSourceDocument, WorkingDocument } from './stageState';
 import { cosineSimilarity, jaccardSimilarity, overlapRatio, tokenizeWords } from './textSignals';
 import { triggerCategory } from './contentSignals';
+import {
+  canonicalEntities,
+  clusterEntities,
+  clusterEventActors,
+  clusterEventLocations,
+  clusterLocations,
+  clusterTemporalAnchors,
+  clusterTriggers,
+  documentEventActors,
+  documentEventLocations,
+  isRelatedCoverageAttachmentConflict,
+  isRelatedCoverageMergeConflict,
+  isSecondaryAssetAttachmentConflict,
+  representativeDocuments,
+  representativeTriggerCategories,
+  sourceNovelty,
+} from './clusterSignals';
 
 const CANDIDATE_VECTOR_THRESHOLD = 0.32;
 const TIME_WINDOW_MS = 72 * 60 * 60 * 1000;
@@ -9,87 +26,6 @@ const REVIEW_THRESHOLD = 0.52;
 const MERGE_THRESHOLD = 0.84;
 const SPLIT_SIMILARITY_THRESHOLD = 0.57;
 const HYBRID_SCORING_VERSION = 'storycluster-hybrid-v2';
-
-function clusterEntities(cluster: StoredClusterRecord): string[] {
-  return Object.entries(cluster.entity_scores)
-    .filter(([, score]) => score > 0)
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .map(([entity]) => entity)
-    .slice(0, 12);
-}
-
-function canonicalEntities(values: readonly string[]): string[] {
-  return values.filter((value) => value.includes('_'));
-}
-
-function clusterLocations(cluster: StoredClusterRecord): string[] {
-  return Object.entries(cluster.location_scores)
-    .filter(([, score]) => score > 0)
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .map(([location]) => location)
-    .slice(0, 8);
-}
-
-function clusterTriggers(cluster: StoredClusterRecord): string[] {
-  return Object.entries(cluster.trigger_scores)
-    .filter(([, score]) => score > 0)
-    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
-    .map(([trigger]) => trigger)
-    .slice(0, 6);
-}
-
-function normalizedEventKeys(values: readonly string[]): string[] {
-  return [...new Set(values
-    .map((value) => value.trim().toLowerCase().replace(/\s+/g, '_'))
-    .filter(Boolean))]
-    .sort();
-}
-
-function normalizedCanonicalEventKeys(values: readonly string[]): string[] {
-  return normalizedEventKeys(values).filter((value) => value.includes('_'));
-}
-
-function documentEventActors(document: WorkingDocument): string[] {
-  return normalizedCanonicalEventKeys([
-    ...(document.event_tuple?.who ?? []),
-    ...canonicalEntities(document.linked_entities),
-  ]).slice(0, 10);
-}
-
-function clusterEventActors(cluster: StoredClusterRecord): string[] {
-  return normalizedCanonicalEventKeys([
-    ...cluster.source_documents.flatMap((document) => document.event_tuple?.who ?? []),
-    ...canonicalEntities(clusterEntities(cluster)),
-  ]).slice(0, 12);
-}
-
-function documentEventLocations(document: WorkingDocument): string[] {
-  return normalizedEventKeys([
-    ...(document.event_tuple?.where ?? []),
-    ...document.locations,
-  ]).slice(0, 8);
-}
-
-function clusterEventLocations(cluster: StoredClusterRecord): string[] {
-  return normalizedEventKeys([
-    ...cluster.source_documents.flatMap((document) => document.event_tuple?.where ?? []),
-    ...clusterLocations(cluster),
-  ]).slice(0, 8);
-}
-
-function clusterTemporalAnchors(cluster: StoredClusterRecord): number[] {
-  return cluster.source_documents
-    .map((document) => document.event_tuple?.when_ms ?? document.temporal_ms ?? document.published_at)
-    .filter((value): value is number => Number.isFinite(value));
-}
-
-function representativeTriggerCategories(cluster: StoredClusterRecord): Set<string> {
-  return new Set(
-    cluster.source_documents
-      .map((document) => triggerCategory(document.event_tuple?.trigger ?? document.trigger))
-      .filter((value): value is string => Boolean(value)),
-  );
-}
 
 function timeScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
   const anchor = document.event_tuple?.when_ms ?? document.temporal_ms ?? document.published_at;
@@ -200,14 +136,11 @@ function eventFrameScore(document: WorkingDocument, cluster: StoredClusterRecord
   ).toFixed(6));
   return {
     score,
-    hardReject: hardEventFrameConflict(document, cluster, canonical, lexical, trigger, actor, location, time),
+    hardReject:
+      hardEventFrameConflict(document, cluster, canonical, lexical, trigger, actor, location, time) ||
+      isRelatedCoverageAttachmentConflict(document, cluster) ||
+      isSecondaryAssetAttachmentConflict(document, cluster),
   };
-}
-
-function sourceNovelty(document: WorkingDocument, cluster: StoredClusterRecord): number {
-  const knownSources = new Set(cluster.source_documents.map((source) => `${source.source_id}:${source.url_hash}`));
-  const overlapCount = document.source_variants.filter((variant) => knownSources.has(`${variant.source_id}:${variant.url_hash}`)).length;
-  return overlapCount > 0 ? 0 : 1;
 }
 
 export function buildCandidateMatch(document: WorkingDocument, cluster: StoredClusterRecord): CandidateMatch {
@@ -244,7 +177,11 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
 
   let adjudication: CandidateMatch['adjudication'] = 'rejected';
   let reason = 'below-threshold';
-  if (eventFrame.hardReject) {
+  if (isSecondaryAssetAttachmentConflict(document, cluster)) {
+    reason = 'secondary-asset-conflict';
+  } else if (isRelatedCoverageAttachmentConflict(document, cluster)) {
+    reason = 'related-coverage-conflict';
+  } else if (eventFrame.hardReject) {
     reason = 'event-frame-conflict';
   } else if (rerank >= ACCEPT_THRESHOLD && eventFrame.score >= 0.42) {
     adjudication = 'accepted';
@@ -288,19 +225,15 @@ export function candidateEligible(document: WorkingDocument, cluster: StoredClus
   const entityScore = overlapRatio(document.entities, clusterEntities(cluster));
   const canonicalScore = canonicalEntityScore(document, cluster);
   const eventFrame = eventFrameScore(document, cluster);
-  if (eventFrame.hardReject) {
+  if (eventFrame.hardReject ||
+      isRelatedCoverageAttachmentConflict(document, cluster) ||
+      isSecondaryAssetAttachmentConflict(document, cluster)) {
     return false;
   }
   if (canonicalScore > 0 || entityScore > 0) {
     return true;
   }
   return vectorScore >= CANDIDATE_VECTOR_THRESHOLD && eventFrame.score >= 0.2;
-}
-
-export function representativeDocuments(cluster: StoredClusterRecord): StoredSourceDocument[] {
-  return [...cluster.source_documents]
-    .sort((left, right) => right.published_at - left.published_at || left.source_key.localeCompare(right.source_key))
-    .slice(0, 3);
 }
 
 export function clusterMergeScore(left: StoredClusterRecord, right: StoredClusterRecord): number {
@@ -324,6 +257,9 @@ export function clusterMergeScore(left: StoredClusterRecord, right: StoredCluste
     canonical >= 0.5 ||
     actors >= 0.3 ||
     overlapSupport;
+  if (isRelatedCoverageMergeConflict(left, right)) {
+    return 0;
+  }
   if (categoryConflict && actors < 0.2 && canonical < 0.5 && locations < 0.2 && time < 0.7) {
     return 0;
   }

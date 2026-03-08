@@ -9,6 +9,7 @@ import type { Namespace, VennClient, VennClientConfig } from './types';
 import { TopologyGuard } from './topology';
 
 const DEFAULT_PEERS = ['http://localhost:7777/gun'];
+const NODE_GUN_FILE_ENV_VARS = ['VH_GUN_FILE', 'VITE_VH_GUN_FILE'] as const;
 
 function normalizePeers(peers?: string[]): string[] {
   const list = peers !== undefined ? peers : DEFAULT_PEERS;
@@ -19,6 +20,16 @@ function normalizePeers(peers?: string[]): string[] {
     }
     return `${trimmed.replace(/\/+$/, '')}/gun`;
   });
+}
+
+function resolveNodeGunFile(): string | undefined {
+  for (const envVar of NODE_GUN_FILE_ENV_VARS) {
+    const value = process.env[envVar]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
 }
 
 function createNamespace<T>(
@@ -77,11 +88,13 @@ export function createClient(config: VennClientConfig = {}): VennClient {
   const peers = normalizePeers(config.peers);
   const storage = config.storage ?? createStorageAdapter(hydrationBarrier);
   const guard = config.topologyGuard ?? new TopologyGuard();
+  const nodeGunFile = resolveNodeGunFile();
   // Disable Gun's localStorage adapter to avoid quota crashes in long-lived
   // browser sessions. VHC persists app data through its own IndexedDB adapter.
   const gun = Gun({
     peers,
-    localStorage: false
+    localStorage: false,
+    ...(nodeGunFile ? { file: nodeGunFile } : {}),
   }) as IGunInstance;
   let sessionReady = false;
 
@@ -168,3 +181,7 @@ export * from './sentimentAdapters';
 export * from './bridgeAdapters';
 export type { ChainWithGet } from './chain';
 export { default as SEA } from 'gun/sea';
+export const __internal = {
+  normalizePeers,
+  resolveNodeGunFile,
+};

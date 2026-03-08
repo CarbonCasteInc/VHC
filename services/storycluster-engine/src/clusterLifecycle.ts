@@ -2,7 +2,7 @@ import type { ClusterBucket, PipelineState } from './stageState';
 import type { StoryClusterModelProvider, SummaryWorkItem } from './modelProvider';
 import type { ClusterVectorBackend } from './vectorBackend';
 import { MemoryVectorBackend } from './vectorBackend';
-import { canParticipateInCanonicalCluster } from './documentPolicy';
+import { canDocumentAttachToExistingCluster, canDocumentParticipateInCanonicalCluster } from './documentPolicy';
 import { connectedComponents, deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
 import { clusterScoringConfig, buildCandidateMatch, candidateEligible, shouldMergeClusters, shouldSplitPair } from './clusterScoring';
 import { projectStoryBundles } from './bundleProjection';
@@ -26,7 +26,7 @@ export async function retrieveCandidates(
   let candidatesRetained = 0;
   let prefilterHits = 0;
   const documents = state.documents.map((document) => {
-    if (!canParticipateInCanonicalCluster(document.doc_type)) {
+    if (!canDocumentAttachToExistingCluster(document)) {
       return { ...document, candidate_matches: [], candidate_score: 0 };
     }
     const candidateMatches = (retrievals.get(document.doc_id) ?? [])
@@ -185,7 +185,7 @@ export async function assignClusters(
   let providerRejectedDocs = 0;
   let relatedDocsDeferred = 0;
   for (const document of state.documents) {
-    if (!canParticipateInCanonicalCluster(document.doc_type)) {
+    if (!canDocumentAttachToExistingCluster(document)) {
       document.assigned_story_id = undefined;
       relatedDocsDeferred += 1;
       continue;
@@ -226,6 +226,11 @@ export async function assignClusters(
     }
     const sourceDocuments = document.source_variants.map((variant) => toStoredSource(document, variant));
     if (!accepted) {
+      if (!canDocumentParticipateInCanonicalCluster(document)) {
+        document.assigned_story_id = undefined;
+        relatedDocsDeferred += 1;
+        continue;
+      }
       const created = deriveClusterRecord(topicState, state.topicId, sourceDocuments);
       clusters.set(created.story_id, created);
       changedStoryIds.add(created.story_id);

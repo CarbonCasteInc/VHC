@@ -1,11 +1,12 @@
 import type { StoryClusterStageId } from './contracts';
 import {
   documentTypeWeight,
+  refineDocumentType,
   resolveLanguage,
   shouldTranslate,
 } from './contentSignals';
 import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
-import { coverageRoleForDocumentType } from './documentPolicy';
+import { coverageRoleForDocument } from './documentPolicy';
 import type { StoryClusterModelProvider } from './modelProvider';
 import type { ClusterVectorBackend } from './vectorBackend';
 import {
@@ -182,7 +183,13 @@ function withDocumentClassification(provider: StoryClusterModelProvider | undefi
       }
       const entities = mergedKeys(document.entities, analysis.entities);
       const linkedEntities = mergedKeys(document.linked_entities, analysis.linked_entities, entities);
-      const docType = analysis.doc_type;
+      const docType = refineDocumentType(
+        analysis.doc_type,
+        document.translated_title,
+        document.summary,
+        document.publisher,
+        document.url,
+      );
       const eventTuple = analysis.event_tuple
         ? {
           ...analysis.event_tuple,
@@ -196,7 +203,13 @@ function withDocumentClassification(provider: StoryClusterModelProvider | undefi
       return {
         ...document,
         doc_type: docType,
-        coverage_role: coverageRoleForDocumentType(docType),
+        coverage_role: coverageRoleForDocument({
+          doc_type: docType,
+          translated_title: document.translated_title,
+          summary: document.summary,
+          publisher: document.publisher,
+          url: document.url,
+        }),
         doc_weight: documentTypeWeight(docType),
         entities,
         linked_entities: linkedEntities,

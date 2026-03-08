@@ -14,6 +14,7 @@ const DOCUMENT_TYPE_KEYS: DocumentType[] = [
   'breaking_update',
   'wire_report',
   'hard_news',
+  'video_clip',
   'liveblog',
   'analysis',
   'opinion',

@@ -159,7 +159,7 @@ const DIGEST: TopicDigest = {
 const STORY: StoryBundle = {
   schemaVersion: 'story-bundle-v0',
   story_id: 'story-1',
-  topic_id: 'topic-1',
+  topic_id: '55c2855fd1ea9425d3f10ae6b6746f12114fa8bdb929931f85c4ee102bc3a660',
   headline: 'Headline',
   summary_hint: 'Summary',
   cluster_window_start: 1700000000000,

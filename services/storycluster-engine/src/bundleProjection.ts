@@ -42,6 +42,7 @@ const DOCUMENT_PRIORITY: Record<StoredSourceDocument['doc_type'], number> = {
   breaking_update: 5,
   hard_news: 4,
   wire_report: 3,
+  video_clip: 2,
   liveblog: 2,
   explainer_recap: 1,
   analysis: 1,
@@ -50,6 +51,10 @@ const DOCUMENT_PRIORITY: Record<StoredSourceDocument['doc_type'], number> = {
 
 function documentPriority(document: StoredSourceDocument): number {
   return DOCUMENT_PRIORITY[document.doc_type];
+}
+
+function coverageRolePriority(document: StoredSourceDocument): number {
+  return document.coverage_role === 'canonical' ? 1 : 0;
 }
 
 function toBundleSource(document: StoredSourceDocument): StoryClusterBundle['sources'][number] {
@@ -80,6 +85,7 @@ export function projectBundleSources(
 
   for (const group of [...grouped.values()]) {
     const ordered = [...group].sort((left, right) =>
+      coverageRolePriority(right) - coverageRolePriority(left) ||
       Number(isLikelySecondaryAsset(left)) - Number(isLikelySecondaryAsset(right)) ||
       documentPriority(right) - documentPriority(left) ||
       Number(Boolean(right.summary)) - Number(Boolean(left.summary)) ||

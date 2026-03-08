@@ -667,7 +667,7 @@ describe('aggregateAdapters', () => {
     ]);
   });
 
-  it('readAggregates prefers materialized points snapshot when present', async () => {
+  it('readAggregates falls back to materialized points snapshot when voter rows are unavailable', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
       schema_version: 'point-aggregate-snapshot-v1',
@@ -683,17 +683,7 @@ describe('aggregateAdapters', () => {
       computed_at: 42,
       source_window: { from_seq: 1, to_seq: 42 },
     });
-    // fallback voters path intentionally has conflicting totals; higher snapshot totals should still win.
-    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
-      voterA: {
-        pointA: {
-          point_id: 'pointA',
-          agreement: 1,
-          weight: 1,
-          updated_at: '2026-02-18T22:20:00.000Z',
-        },
-      },
-    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);
 
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
@@ -704,6 +694,53 @@ describe('aggregateAdapters', () => {
       disagree: 4,
       weight: 10,
       participants: 10,
+    });
+  });
+
+  it('readAggregates prefers authoritative voter rows over stale snapshot totals', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 6,
+      disagree: 4,
+      weight: 10,
+      participants: 10,
+      version: 42,
+      computed_at: 42,
+      source_window: { from_seq: 1, to_seq: 42 },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:20:00.000Z',
+        },
+      },
+      voterB: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: -1,
+          weight: 0.75,
+          updated_at: '2026-02-18T22:21:00.000Z',
+        },
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agree: 1,
+      disagree: 1,
+      weight: 1.75,
+      participants: 2,
     });
   });
 

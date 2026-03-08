@@ -768,12 +768,18 @@ export async function readAggregates(
     return rowSummary;
   }
 
+  // Voter rows are the authoritative state when available. The materialized
+  // snapshot is only a fallback for sparse/partial mesh reads.
+  if (rows.length > 0) {
+    return rowSummary;
+  }
+
   return {
     point_id: materializedSnapshot.point_id,
-    agree: Math.max(materializedSnapshot.agree, rowSummary.agree),
-    disagree: Math.max(materializedSnapshot.disagree, rowSummary.disagree),
-    weight: Math.max(materializedSnapshot.weight, rowSummary.weight),
-    participants: Math.max(materializedSnapshot.participants, rowSummary.participants),
+    agree: materializedSnapshot.agree,
+    disagree: materializedSnapshot.disagree,
+    weight: materializedSnapshot.weight,
+    participants: materializedSnapshot.participants,
   };
 }
 

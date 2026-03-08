@@ -6,7 +6,7 @@ export interface OpenAIStoryClusterProviderOptions extends OpenAIClientOptions {
   embeddingModel?: string;
 }
 const DEFAULT_TEXT_MODEL = 'gpt-4o-mini', DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
-const VALID_DOCUMENT_TYPES = new Set(['breaking_update', 'wire_report', 'hard_news', 'liveblog', 'analysis', 'opinion', 'explainer_recap'] as const);
+const VALID_DOCUMENT_TYPES = new Set(['breaking_update', 'wire_report', 'hard_news', 'video_clip', 'liveblog', 'analysis', 'opinion', 'explainer_recap'] as const);
 function chunkBySize<T>(values: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < values.length; index += size) {
@@ -183,7 +183,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
             }>;
           }>({
             model: this.textModel,
-            system: ['You analyze news documents for event clustering.', 'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire_report|hard_news|liveblog|analysis|opinion|explainer_recap","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.', 'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.', 'Use doc_type=analysis for analytical reporting, opinion for commentary, wire_report for wire copy, hard_news for straight reports.'].join(' '),
+            system: ['You analyze news documents for event clustering.', 'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire_report|hard_news|video_clip|liveblog|analysis|opinion|explainer_recap","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.', 'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.', 'Use doc_type=video_clip for video pages or clips, analysis for analytical reporting, opinion for commentary, wire_report for wire copy, hard_news for straight reports.'].join(' '),
             user: JSON.stringify({ documents: pending }),
             temperature: 0,
             maxTokens: 4_000,

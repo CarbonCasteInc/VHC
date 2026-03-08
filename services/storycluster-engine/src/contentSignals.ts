@@ -6,6 +6,7 @@ export type DocumentType =
   | 'breaking_update'
   | 'wire_report'
   | 'hard_news'
+  | 'video_clip'
   | 'liveblog'
   | 'analysis'
   | 'opinion'
@@ -67,6 +68,14 @@ const TITLE_TRANSLATION_LEXICON: Record<string, Record<string, string>> = {
   },
 };
 
+const LIVEBLOG_PATTERN = /\blive\b|live updates|liveblog|minute by minute/;
+const VIDEO_PATTERN = /\bvideo\b|\bwatch\b|\bclip\b|\/video(s)?\//;
+const OPINION_PATTERN = /\bopinion\b|editorial|column|guest essay|analysis opinion/;
+const ANALYSIS_PATTERN = /\banalysis\b|what it means|why it matters|takeaways|inside the/;
+const EXPLAINER_PATTERN = /\bexplainer\b|what we know|timeline|recap|key moments|at a glance|roundup|what to know/;
+const BREAKING_PATTERN = /\bbreaking\b|developing|alert|just in/;
+const WIRE_PATTERN = /reuters|associated press|ap\b|afp|upi|wire/;
+
 function capitalizePhrase(phrase: string): string {
   return phrase
     .split(/\s+/)
@@ -116,15 +125,45 @@ export function translateLexicon(text: string, language: string): { text: string
   return { text: translated || text, applied };
 }
 
-export function classifyDocumentType(title: string, summary: string | undefined, publisher: string): DocumentType {
-  const text = `${title} ${summary ?? ''} ${publisher}`.toLowerCase();
-  if (/\blive\b|live updates|liveblog|minute by minute/.test(text)) return 'liveblog';
-  if (/\bopinion\b|editorial|column|guest essay|analysis opinion/.test(text)) return 'opinion';
-  if (/\banalysis\b|what it means|why it matters|takeaways|inside the/.test(text)) return 'analysis';
-  if (/\bexplainer\b|what we know|timeline|recap|key moments|at a glance|roundup|what to know/.test(text)) return 'explainer_recap';
-  if (/\bbreaking\b|developing|alert|just in/.test(text)) return 'breaking_update';
-  if (/reuters|associated press|ap\b|afp|upi|wire/.test(text)) return 'wire_report';
+export function classifyDocumentType(
+  title: string,
+  summary: string | undefined,
+  publisher: string,
+  url = '',
+): DocumentType {
+  const text = `${title} ${summary ?? ''} ${publisher} ${url}`.toLowerCase();
+  if (VIDEO_PATTERN.test(text)) return 'video_clip';
+  if (LIVEBLOG_PATTERN.test(text)) return 'liveblog';
+  if (OPINION_PATTERN.test(text)) return 'opinion';
+  if (ANALYSIS_PATTERN.test(text)) return 'analysis';
+  if (EXPLAINER_PATTERN.test(text)) return 'explainer_recap';
+  if (BREAKING_PATTERN.test(text)) return 'breaking_update';
+  if (WIRE_PATTERN.test(text)) return 'wire_report';
   return 'hard_news';
+}
+
+export function isRelatedCoverageText(title: string, summary: string | undefined, publisher = '', url = ''): boolean {
+  const text = `${title} ${summary ?? ''} ${publisher} ${url}`.toLowerCase();
+  return VIDEO_PATTERN.test(text) ||
+    LIVEBLOG_PATTERN.test(text) ||
+    OPINION_PATTERN.test(text) ||
+    ANALYSIS_PATTERN.test(text) ||
+    EXPLAINER_PATTERN.test(text);
+}
+
+function isRelatedOnlyDocumentType(type: DocumentType): boolean {
+  return type === 'video_clip' || type === 'liveblog' || type === 'analysis' || type === 'opinion' || type === 'explainer_recap';
+}
+
+export function refineDocumentType(
+  providerType: DocumentType,
+  title: string,
+  summary: string | undefined,
+  publisher: string,
+  url = '',
+): DocumentType {
+  const heuristicType = classifyDocumentType(title, summary, publisher, url);
+  return isRelatedOnlyDocumentType(heuristicType) ? heuristicType : providerType;
 }
 
 export function documentTypeWeight(type: DocumentType): number {
@@ -132,6 +171,7 @@ export function documentTypeWeight(type: DocumentType): number {
     case 'breaking_update': return 1.3;
     case 'wire_report': return 1.15;
     case 'hard_news': return 1;
+    case 'video_clip': return 0.35;
     case 'liveblog': return 0.85;
     case 'explainer_recap': return 0.55;
     case 'analysis': return 0.45;

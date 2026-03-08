@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import * as dataModel from '@vh/data-model';
 import type { StoryBundle } from '@vh/data-model';
 import {
   LEGACY_LATEST_INDEX_EXPECTED_FIXTURE,
@@ -134,7 +135,7 @@ function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
 const STORY: StoryBundle = {
   schemaVersion: 'story-bundle-v0',
   story_id: 'story-123',
-  topic_id: 'topic-abc',
+  topic_id: '3db5ddabd0febe73154dec0a3d8fd767ba246c543c8bd857fdfcab932fc7aa2a',
   headline: 'Major policy shift announced',
   summary_hint: 'Summary',
   cluster_window_start: 1_700_000_000_000,
@@ -305,6 +306,7 @@ describe('newsAdapters', () => {
   it('writeNewsStory resolves when put ack times out', async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const identityGuard = vi.spyOn(dataModel, 'assertCanonicalNewsTopicId').mockResolvedValue();
 
     try {
       const mesh = createFakeMesh();
@@ -317,6 +319,7 @@ describe('newsAdapters', () => {
       await expect(writePromise).resolves.toEqual(STORY);
       expect(warning).toHaveBeenCalledWith('[vh:news] put ack timed out, proceeding without ack');
     } finally {
+      identityGuard.mockRestore();
       warning.mockRestore();
       vi.useRealTimers();
     }
@@ -326,6 +329,7 @@ describe('newsAdapters', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2100-01-01T00:00:00.000Z'));
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const identityGuard = vi.spyOn(dataModel, 'assertCanonicalNewsTopicId').mockResolvedValue();
 
     try {
       const mesh = createFakeMesh();
@@ -335,9 +339,21 @@ describe('newsAdapters', () => {
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard);
 
-      const storyOne: StoryBundle = { ...STORY, story_id: 'story-timeout-1' };
-      const storyTwo: StoryBundle = { ...STORY, story_id: 'story-timeout-2' };
-      const storyThree: StoryBundle = { ...STORY, story_id: 'story-timeout-3' };
+      const storyOne: StoryBundle = {
+        ...STORY,
+        story_id: 'story-timeout-1',
+        topic_id: 'bee15dc887ea2c232fdf4a970583f91a4c42c67543e522f815d6c3fe4aad420a',
+      };
+      const storyTwo: StoryBundle = {
+        ...STORY,
+        story_id: 'story-timeout-2',
+        topic_id: 'd347b837a7aa169d530aa193f0cdeb0c7fab3bba7ff019ead32592c0a99afb4b',
+      };
+      const storyThree: StoryBundle = {
+        ...STORY,
+        story_id: 'story-timeout-3',
+        topic_id: '59512f69ced0a62872ec237f8f7ddbe3c33b407fca881e92b0829d9493ae79ff',
+      };
 
       const firstWrite = writeNewsStory(client, storyOne);
       await vi.advanceTimersByTimeAsync(1000);
@@ -358,6 +374,7 @@ describe('newsAdapters', () => {
         '[vh:news] put ack timed out, proceeding without ack (suppressed 1 repeats)',
       );
     } finally {
+      identityGuard.mockRestore();
       warning.mockRestore();
       vi.useRealTimers();
     }
