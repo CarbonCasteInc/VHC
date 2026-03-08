@@ -13,6 +13,18 @@ import {
 } from './daemonFirstFeedHarness';
 import { runDaemonFirstFeedSemanticAudit } from './daemonFirstFeedSemanticAudit';
 
+function readPositiveIntEnv(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer. Received: ${raw}`);
+  }
+  return parsed;
+}
+
 function requireOpenAIApiKey(): string {
   const apiKey = process.env.OPENAI_API_KEY?.trim() ?? '';
   if (!apiKey) {
@@ -48,6 +60,8 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
       const report = await runDaemonFirstFeedSemanticAudit(page, {
         openAIApiKey: requireOpenAIApiKey(),
         openAIModel: process.env.VH_STORYCLUSTER_AUDIT_MODEL?.trim() || undefined,
+        sampleCount: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT'),
+        timeoutMs: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS'),
       });
 
       await testInfo.attach('daemon-first-feed-semantic-audit', {
@@ -70,4 +84,3 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
     }
   });
 });
-
