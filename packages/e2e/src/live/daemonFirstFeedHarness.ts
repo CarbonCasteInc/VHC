@@ -16,7 +16,7 @@ export const QDRANT_URL = process.env.VH_STORYCLUSTER_QDRANT_URL ?? process.env.
 export const GUN_PEER_URL = `http://localhost:${GUN_PORT}/gun`;
 export const NAV_TIMEOUT_MS = 90_000;
 export const FEED_READY_TIMEOUT_MS = 240_000;
-export const MIN_HEADLINES = 3;
+export const MIN_HEADLINES = 4;
 
 export type LoggedProcess = {
   readonly name: string;
@@ -81,11 +81,12 @@ function resolveDaemonFeedSourcesJson(): string {
     'fox-latest': { id: 'fox-latest', name: 'Fox News', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
     'nypost-politics': { id: 'nypost-politics', name: 'New York Post Politics', displayName: 'New York Post', rssUrl: 'https://nypost.com/politics/feed/', perspectiveTag: 'conservative', iconKey: 'nypost', enabled: true },
     'guardian-us': { id: 'guardian-us', name: 'The Guardian US', displayName: 'The Guardian', rssUrl: 'https://www.theguardian.com/us-news/rss', perspectiveTag: 'progressive', iconKey: 'guardian', enabled: true },
+    'huffpost-us': { id: 'huffpost-us', name: 'HuffPost US', displayName: 'HuffPost', rssUrl: 'https://www.huffpost.com/section/front-page/feed', perspectiveTag: 'progressive', iconKey: 'huffpost', enabled: true },
     'cbs-politics': { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },
     'bbc-general': { id: 'bbc-general', name: 'BBC News', displayName: 'BBC News', rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
   } as const;
 
-  const sourceIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? 'fox-latest,nypost-politics,guardian-us,cbs-politics,bbc-general')
+  const sourceIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? 'fox-latest,nypost-politics,guardian-us,huffpost-us,cbs-politics,bbc-general')
     .split(',')
     .map((value) => value.trim())
     .filter((value) => value.length > 0);
@@ -191,8 +192,8 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
 function commonEnv(): NodeJS.ProcessEnv {
   const root = repoRootDir();
   const esmLoaderPath = path.join(root, 'tools/node/esm-resolve-loader.mjs');
-  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '5';
-  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '20';
+  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '8';
+  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '40';
   return {
     ...process.env,
     NODE_ENV: 'production',

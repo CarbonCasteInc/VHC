@@ -18,6 +18,7 @@ import {
   type HeadlineRow,
 } from './daemonFirstFeedHarness';
 import { readVisibleAuditableBundles } from './browserNewsStore';
+import { waitForMinimumCount } from './feedReadiness';
 import type { LiveSemanticAuditBundleLike } from './daemonFirstFeedSemanticAuditTypes';
 
 const ANALYSIS_READY_TIMEOUT_MS = 90_000;
@@ -373,6 +374,12 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       await requireAnalysisRelay(pageA);
       await pageA.evaluate(() => window.scrollTo(0, 0));
       const { latestCards, hottestCards } = await test.step('validate latest and hottest ordering', async () => {
+        await waitForMinimumCount({
+          page: pageA,
+          minCount: 4,
+          timeoutMs: FEED_READY_TIMEOUT_MS,
+          readCount: async () => (await visibleCards(pageA)).length,
+        });
         const latest = (await visibleCards(pageA)).slice(0, SORT_SAMPLE_SIZE);
         expect(latest.length).toBeGreaterThanOrEqual(4);
         for (let i = 1; i < latest.length; i += 1) {
@@ -381,6 +388,12 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
 
         await pageA.getByTestId('sort-mode-HOTTEST').click();
         await sleep(750);
+        await waitForMinimumCount({
+          page: pageA,
+          minCount: 4,
+          timeoutMs: FEED_READY_TIMEOUT_MS,
+          readCount: async () => (await visibleCards(pageA)).length,
+        });
         const hottest = (await visibleCards(pageA)).slice(0, HOTTEST_WINDOW_SIZE);
         expect(hottest.length).toBeGreaterThanOrEqual(4);
         const firstHalf = hottest.slice(0, Math.ceil(hottest.length / 2));

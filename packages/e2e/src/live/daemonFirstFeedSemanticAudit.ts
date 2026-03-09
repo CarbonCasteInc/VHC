@@ -1,8 +1,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Page } from '@playwright/test';
-import { readVisibleAuditableBundles } from './browserNewsStore';
+import { readAuditableBundles } from './browserNewsStore';
 import { LIVE_BASE_URL, headlineRows, waitForHeadlines } from './daemonFirstFeedHarness';
+import { nudgeFeed } from './feedReadiness';
 import type {
   AuditedBundlePairResult,
   DaemonFeedSemanticAuditOptions,
@@ -84,29 +85,13 @@ async function waitForSampledBundles(
   timeoutMs: number,
 ): Promise<LiveSemanticAuditBundleLike[]> {
   const deadline = Date.now() + timeoutMs;
-  let loadOlderAttempts = 0;
   while (Date.now() < deadline) {
-    const auditable = await readVisibleAuditableBundles(page);
+    const auditable = await readAuditableBundles(page);
     if (auditable.length >= sampleCount) {
       return auditable.slice(0, sampleCount);
     }
 
-    const sentinel = page.getByTestId('feed-load-sentinel');
-    if (await sentinel.count().catch(() => 0)) {
-      await sentinel.scrollIntoViewIfNeeded().catch(() => {});
-      await page.waitForTimeout(1_500);
-      const expandedAuditable = await readVisibleAuditableBundles(page);
-      if (expandedAuditable.length >= sampleCount) {
-        return expandedAuditable.slice(0, sampleCount);
-      }
-      loadOlderAttempts += 1;
-      if (loadOlderAttempts % 2 === 0) {
-        await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
-      }
-    }
-
-    await page.getByTestId('feed-refresh-button').click().catch(() => {});
-    await page.waitForTimeout(1_000);
+    await nudgeFeed(page);
     await waitForHeadlines(page);
   }
 
