@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test';
 import { readVisibleAuditableBundles } from './browserNewsStore';
+import { resolveDaemonFeedSourcesJson } from './daemonFeedSources';
 
 export const SHOULD_RUN = process.env.VH_RUN_DAEMON_FIRST_FEED === 'true';
 export const GUN_PORT = Number(process.env.VH_DAEMON_FEED_GUN_PORT ?? '8777');
@@ -74,28 +75,6 @@ function killPortOccupants(port: number): void {
   } catch {
     // Port already free or lsof unavailable.
   }
-}
-
-function resolveDaemonFeedSourcesJson(): string {
-  const catalog = {
-    'fox-latest': { id: 'fox-latest', name: 'Fox News', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
-    'nypost-politics': { id: 'nypost-politics', name: 'New York Post Politics', displayName: 'New York Post', rssUrl: 'https://nypost.com/politics/feed/', perspectiveTag: 'conservative', iconKey: 'nypost', enabled: true },
-    'guardian-us': { id: 'guardian-us', name: 'The Guardian US', displayName: 'The Guardian', rssUrl: 'https://www.theguardian.com/us-news/rss', perspectiveTag: 'progressive', iconKey: 'guardian', enabled: true },
-    'huffpost-us': { id: 'huffpost-us', name: 'HuffPost US', displayName: 'HuffPost', rssUrl: 'https://www.huffpost.com/section/front-page/feed', perspectiveTag: 'progressive', iconKey: 'huffpost', enabled: true },
-    'cbs-politics': { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },
-    'bbc-general': { id: 'bbc-general', name: 'BBC News', displayName: 'BBC News', rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
-  } as const;
-
-  const sourceIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? 'fox-latest,nypost-politics,guardian-us,huffpost-us,cbs-politics,bbc-general')
-    .split(',')
-    .map((value) => value.trim())
-    .filter((value) => value.length > 0);
-
-  const sources = sourceIds
-    .map((sourceId) => catalog[sourceId as keyof typeof catalog])
-    .filter(Boolean);
-
-  return JSON.stringify(sources.length > 0 ? sources : Object.values(catalog));
 }
 
 export function logText(message: ConsoleMessage): string {
@@ -192,8 +171,8 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
 function commonEnv(): NodeJS.ProcessEnv {
   const root = repoRootDir();
   const esmLoaderPath = path.join(root, 'tools/node/esm-resolve-loader.mjs');
-  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '8';
-  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '40';
+  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '12';
+  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '72';
   return {
     ...process.env,
     NODE_ENV: 'production',

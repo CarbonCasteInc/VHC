@@ -1,7 +1,11 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Page } from '@playwright/test';
-import { readAuditableBundles } from './browserNewsStore';
+import {
+  readAuditableBundleDiagnostics,
+  readAuditableBundles,
+  refreshNewsStoreLatest,
+} from './browserNewsStore';
 import { LIVE_BASE_URL, headlineRows, waitForHeadlines } from './daemonFirstFeedHarness';
 import { nudgeFeed } from './feedReadiness';
 import type {
@@ -15,8 +19,10 @@ import type {
 } from './daemonFirstFeedSemanticAuditTypes';
 
 const ARTICLE_TEXT_TIMEOUT_MS = 20_000;
+const ARTICLE_FETCH_CONCURRENCY = 4;
 const DEFAULT_SAMPLE_COUNT = 2;
-const SAMPLE_TIMEOUT_MS = 180_000;
+const SAMPLE_TIMEOUT_MS = 240_000;
+const SEMANTIC_AUDIT_REFRESH_LIMIT = 120;
 const runtimeImport = new Function(
   'modulePath',
   'return import(modulePath);',
@@ -79,23 +85,55 @@ async function fetchArticlePayload(baseUrl: string, url: string, sourceId: strin
   }
 }
 
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+  const safeConcurrency = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  async function run(): Promise<void> {
+    while (true) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      if (currentIndex >= items.length) {
+        return;
+      }
+      results[currentIndex] = await worker(items[currentIndex]!, currentIndex);
+    }
+  }
+
+  await Promise.all(Array.from({ length: safeConcurrency }, () => run()));
+  return results;
+}
+
 async function waitForSampledBundles(
   page: Page,
   sampleCount: number,
   timeoutMs: number,
 ): Promise<LiveSemanticAuditBundleLike[]> {
   const deadline = Date.now() + timeoutMs;
+  let lastDiagnostics = await readAuditableBundleDiagnostics(page);
   while (Date.now() < deadline) {
     const auditable = await readAuditableBundles(page);
     if (auditable.length >= sampleCount) {
       return auditable.slice(0, sampleCount);
     }
 
+    await refreshNewsStoreLatest(page, SEMANTIC_AUDIT_REFRESH_LIMIT).catch(() => {});
     await nudgeFeed(page);
     await waitForHeadlines(page);
+    lastDiagnostics = await readAuditableBundleDiagnostics(page);
   }
 
-  throw new Error(`semantic-audit-insufficient-bundles:${sampleCount}`);
+  throw new Error(
+    `semantic-audit-insufficient-bundles:${sampleCount}:stories=${lastDiagnostics.storyCount}:auditable=${lastDiagnostics.auditableCount}:top=${lastDiagnostics.topStoryIds.join(',')}:auditableTop=${lastDiagnostics.topAuditableStoryIds.join(',')}`,
+  );
 }
 
 function groupPairResults(pairs: readonly LiveSemanticAuditPair[], results: readonly LiveSemanticAuditPairResult[]) {
@@ -163,6 +201,25 @@ export async function runDaemonFirstFeedSemanticAudit(
     sampleCount,
     timeoutMs,
   );
+  const canonicalSources = Array.from(
+    new Map(
+      hydratedBundles.flatMap((bundle) => (bundle.primary_sources ?? bundle.sources).map((source) => [
+        source.url,
+        source,
+      ])),
+    ).values(),
+  );
+  const payloadEntries = await mapWithConcurrency(
+    canonicalSources,
+    ARTICLE_FETCH_CONCURRENCY,
+    async (source) => {
+      const payload = articleTextCache.get(source.url)
+        ?? await fetchArticlePayload(LIVE_BASE_URL, source.url, source.source_id);
+      articleTextCache.set(source.url, payload);
+      return [source.url, payload] as const;
+    },
+  );
+  const payloadByUrl = new Map(payloadEntries);
   const allPairs: LiveSemanticAuditPair[] = [];
 
   for (const bundle of hydratedBundles) {
@@ -170,9 +227,10 @@ export async function runDaemonFirstFeedSemanticAudit(
     const sourceTexts = new Map<string, string>();
 
     for (const source of primarySources) {
-      const payload = articleTextCache.get(source.url)
-        ?? await fetchArticlePayload(LIVE_BASE_URL, source.url, source.source_id);
-      articleTextCache.set(source.url, payload);
+      const payload = payloadByUrl.get(source.url);
+      if (!payload) {
+        throw new Error(`missing-audit-payload:${source.source_id}`);
+      }
 
       sourceTexts.set(`${source.source_id}:${source.url_hash}`, payload.text);
     }

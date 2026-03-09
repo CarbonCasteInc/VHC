@@ -257,4 +257,129 @@ describe('liveSemanticAudit classifier', () => {
       },
     ]);
   });
+
+  it('classifies batches concurrently while preserving input order', async () => {
+    const gate = Promise.withResolvers<void>();
+    let callCount = 0;
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const responses = [
+      {
+        pair_labels: [
+          {
+            pair_id: 'story-1::wire-a:hash-a::wire-b:hash-b',
+            label: 'same_incident',
+            confidence: 0.8,
+            rationale: 'ok',
+          },
+          {
+            pair_id: 'story-1::wire-a:hash-a::wire-c:hash-c',
+            label: 'same_developing_episode',
+            confidence: 0.8,
+            rationale: 'ok',
+          },
+          {
+            pair_id: 'story-1::wire-a:hash-a::wire-d:hash-d',
+            label: 'same_incident',
+            confidence: 0.8,
+            rationale: 'ok',
+          },
+          {
+            pair_id: 'story-1::wire-a:hash-a::wire-e:hash-e',
+            label: 'same_developing_episode',
+            confidence: 0.8,
+            rationale: 'ok',
+          },
+        ],
+      },
+      {
+        pair_labels: [
+          {
+            pair_id: 'story-1::wire-a:hash-a::wire-f:hash-f',
+            label: 'same_incident',
+            confidence: 0.8,
+            rationale: 'ok',
+          },
+        ],
+      },
+    ];
+
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      callCount += 1;
+      const currentCall = callCount;
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      if (currentCall === 1) {
+        await Promise.race([
+          gate.promise,
+          new Promise((resolve) => setTimeout(resolve, 50)),
+        ]);
+      }
+      if (currentCall === 2) {
+        gate.resolve();
+      }
+      void init;
+      const payload = responses[currentCall - 1]!;
+      inFlight -= 1;
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(payload) } }],
+      }), { status: 200 });
+    });
+
+    const pairs = [
+      makePair(),
+      makePair({
+        pair_id: 'story-1::wire-a:hash-a::wire-c:hash-c',
+        right: {
+          source_id: 'wire-c',
+          publisher: 'Wire C',
+          url: 'https://example.com/c',
+          url_hash: 'hash-c',
+          title: 'C',
+          text: 'C text',
+        },
+      }),
+      makePair({
+        pair_id: 'story-1::wire-a:hash-a::wire-d:hash-d',
+        right: {
+          source_id: 'wire-d',
+          publisher: 'Wire D',
+          url: 'https://example.com/d',
+          url_hash: 'hash-d',
+          title: 'D',
+          text: 'D text',
+        },
+      }),
+      makePair({
+        pair_id: 'story-1::wire-a:hash-a::wire-e:hash-e',
+        right: {
+          source_id: 'wire-e',
+          publisher: 'Wire E',
+          url: 'https://example.com/e',
+          url_hash: 'hash-e',
+          title: 'E',
+          text: 'E text',
+        },
+      }),
+      makePair({
+        pair_id: 'story-1::wire-a:hash-a::wire-f:hash-f',
+        right: {
+          source_id: 'wire-f',
+          publisher: 'Wire F',
+          url: 'https://example.com/f',
+          url_hash: 'hash-f',
+          title: 'F',
+          text: 'F text',
+        },
+      }),
+    ];
+
+    const results = await classifyCanonicalSourcePairs(pairs, {
+      apiKey: 'test-key',
+      fetchFn,
+    });
+
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(results.map((result) => result.pair_id)).toEqual(pairs.map((pair) => pair.pair_id));
+  });
 });

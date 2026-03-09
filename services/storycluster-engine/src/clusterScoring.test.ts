@@ -164,6 +164,80 @@ describe('clusterScoring', () => {
     expect(shouldMergeClusters(shipCluster, fuelCluster)).toBe(false);
   });
 
+  it('rejects sports stories that share only broad topic similarity', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const dartsDocument = makeWorkingDocument({
+      doc_id: 'doc-darts',
+      source_id: 'bbc-general',
+      publisher: 'BBC Sport',
+      title: "Littler 'digs deep' to go back-to-back at UK Open",
+      translated_title: "Littler 'digs deep' to go back-to-back at UK Open",
+      summary: 'Luke Littler wins the UK Open darts title after a tense final.',
+      raw_text: 'Luke Littler wins the UK Open darts title after a tense final.',
+      normalized_text: 'luke littler wins the uk open darts title after a tense final',
+      entities: ['luke_littler', 'uk_open', 'darts'],
+      linked_entities: ['luke_littler', 'uk_open', 'darts'],
+      event_tuple: {
+        description: 'Luke Littler wins the UK Open darts title.',
+        trigger: null,
+        who: ['Luke Littler'],
+        where: [],
+        when_ms: 200,
+        outcome: 'Won the final.',
+      },
+      trigger: '',
+      locations: [],
+      temporal_ms: 200,
+      published_at: 200,
+      coarse_vector: [0.84, 0.16],
+      full_vector: [0.84, 0.16],
+    });
+    const golfDocument = makeWorkingDocument({
+      doc_id: 'doc-golf',
+      source_id: 'guardian-us',
+      publisher: 'The Guardian',
+      title: 'Akshay Bhatia denies Berger in playoff to win Arnold Palmer Invitational',
+      translated_title: 'Akshay Bhatia denies Berger in playoff to win Arnold Palmer Invitational',
+      summary: 'Akshay Bhatia edges Daniel Berger in a playoff to win the Arnold Palmer Invitational.',
+      raw_text: 'Akshay Bhatia edges Daniel Berger in a playoff to win the Arnold Palmer Invitational.',
+      normalized_text: 'akshay bhatia edges daniel berger in a playoff to win the arnold palmer invitational',
+      entities: ['akshay_bhatia', 'daniel_berger', 'arnold_palmer_invitational', 'golf'],
+      linked_entities: ['akshay_bhatia', 'daniel_berger', 'arnold_palmer_invitational', 'golf'],
+      event_tuple: {
+        description: 'Akshay Bhatia wins the Arnold Palmer Invitational.',
+        trigger: null,
+        who: ['Akshay Bhatia', 'Daniel Berger'],
+        where: [],
+        when_ms: 230,
+        outcome: 'Won in a playoff.',
+      },
+      trigger: '',
+      locations: [],
+      temporal_ms: 230,
+      published_at: 230,
+      coarse_vector: [0.83, 0.17],
+      full_vector: [0.83, 0.17],
+    });
+    const dartsCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(dartsDocument, dartsDocument.source_variants[0]!),
+    ]);
+    const golfCluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(golfDocument, golfDocument.source_variants[0]!),
+    ]);
+
+    const match = buildCandidateMatch(golfDocument, dartsCluster);
+
+    expect(match.adjudication).toBe('rejected');
+    expect(candidateEligible(golfDocument, dartsCluster)).toBe(false);
+    expect(clusterMergeScore(dartsCluster, golfCluster)).toBe(0);
+    expect(shouldMergeClusters(dartsCluster, golfCluster)).toBe(false);
+  });
+
   it('covers canonical-entity, abstain, and eligibility branches', () => {
     const cluster = makeCluster();
 

@@ -121,8 +121,16 @@ function hardEventFrameConflict(
       ? overlapRatio(documentLocations, clusterLocations)
       : 0;
   const conflictActorSupport = Math.max(actor, strictActorOverlap);
+  const sparseEventSignalConflict =
+    (document.linked_entities.length > 0 || documentActors.length > 0 || documentLocations.length > 0) &&
+    specificCanonicalScore < 0.2 &&
+    lexical < 0.14 &&
+    conflictActorSupport < 0.35 &&
+    strictLocationOverlap < 0.35 &&
+    trigger <= 0.5;
   return documentSignalsPresent &&
     (
+      sparseEventSignalConflict ||
       (
         categoryConflict &&
         specificCanonicalScore < 0.5 &&
@@ -250,10 +258,11 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     reason,
   };
 }
-
 export function candidateEligible(document: WorkingDocument, cluster: StoredClusterRecord): boolean {
-  if (Math.abs(document.published_at - cluster.cluster_window_end) > TIME_WINDOW_MS &&
-      Math.abs(document.published_at - cluster.cluster_window_start) > TIME_WINDOW_MS) {
+  if (
+    Math.abs(document.published_at - cluster.cluster_window_end) > TIME_WINDOW_MS &&
+    Math.abs(document.published_at - cluster.cluster_window_start) > TIME_WINDOW_MS
+  ) {
     return false;
   }
   const vectorScore = cosineSimilarity(document.coarse_vector, cluster.centroid_coarse);
@@ -261,14 +270,19 @@ export function candidateEligible(document: WorkingDocument, cluster: StoredClus
   const canonicalScore = canonicalEntityScore(document, cluster);
   const specificCanonicalScore = specificCanonicalEntityScore(document, cluster);
   const eventFrame = eventFrameScore(document, cluster);
-  if (eventFrame.hardReject ||
-      isRelatedCoverageAttachmentConflict(document, cluster) ||
-      isSecondaryAssetAttachmentConflict(document, cluster)) {
+  if (
+    eventFrame.hardReject ||
+    isRelatedCoverageAttachmentConflict(document, cluster) ||
+    isSecondaryAssetAttachmentConflict(document, cluster)
+  ) {
     return false;
   }
-  if (specificCanonicalScore > 0 || canonicalScore > 0 || entityScore > 0) {
-    return true;
-  }
+  const structuredEventSupport = triggerScore(document, cluster) > 0.5 ||
+    overlapRatio(documentEventActors(document), clusterEventActors(cluster)) >= 0.35 ||
+    overlapRatio(documentEventLocations(document), clusterEventLocations(cluster)) >= 0.35;
+  if (specificCanonicalScore > 0) return true;
+  if (!structuredEventSupport) return false;
+  if (canonicalScore > 0 || entityScore > 0) return true;
   return vectorScore >= CANDIDATE_VECTOR_THRESHOLD && eventFrame.score >= 0.2;
 }
 

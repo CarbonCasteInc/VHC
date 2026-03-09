@@ -239,6 +239,64 @@ describe('newsIngest', () => {
     ]);
   });
 
+  it('retries transient feed fetch failures before succeeding', async () => {
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('VH_NEWS_FEED_FETCH_ATTEMPTS', '3');
+    vi.stubEnv('VH_NEWS_FEED_FETCH_RETRY_BACKOFF_MS', '1');
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock
+      .mockRejectedValueOnce(new Error('transient network'))
+      .mockResolvedValueOnce({
+        ok: true,
+        text: vi.fn().mockResolvedValue(rssXml),
+      } as unknown as Response);
+
+    const items = await ingestFeeds([
+      {
+        id: 'source-a',
+        name: 'Source A',
+        rssUrl: 'https://example.com/a.xml',
+        enabled: true,
+      },
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(items).toHaveLength(1);
+    expect(warningSpy).toHaveBeenCalledWith(
+      "[newsIngest] Fetch attempt 1/3 failed for 'source-a'; retrying",
+      'transient network',
+    );
+  });
+
+  it('surfaces the final fetch failure after retries are exhausted', async () => {
+    const warningSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('VH_NEWS_FEED_FETCH_ATTEMPTS', '2');
+    vi.stubEnv('VH_NEWS_FEED_FETCH_RETRY_BACKOFF_MS', '1');
+
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockRejectedValue(new Error('still broken'));
+
+    const items = await ingestFeeds([
+      {
+        id: 'source-a',
+        name: 'Source A',
+        rssUrl: 'https://example.com/a.xml',
+        enabled: true,
+      },
+    ]);
+
+    expect(items).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(warningSpy).toHaveBeenCalledWith(
+      "[newsIngest] Fetch attempt 1/2 failed for 'source-a'; retrying",
+      'still broken',
+    );
+    expect(warningSpy).toHaveBeenCalledWith(
+      "[newsIngest] Failed to fetch feed 'source-a': still broken",
+    );
+  });
+
   it('parses ingest env helpers and stable recency sort tie-breakers', () => {
     expect(newsIngestInternal.readPositiveIntEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBeUndefined();
 
@@ -248,6 +306,10 @@ describe('newsIngest', () => {
 
     vi.stubEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL', '0');
     expect(newsIngestInternal.readPositiveIntEnv('VH_NEWS_FEED_MAX_ITEMS_TOTAL')).toBeUndefined();
+    vi.stubEnv('VH_NEWS_FEED_FETCH_ATTEMPTS', '5');
+    vi.stubEnv('VH_NEWS_FEED_FETCH_RETRY_BACKOFF_MS', '7');
+    expect(newsIngestInternal.readFeedFetchAttempts()).toBe(5);
+    expect(newsIngestInternal.readFeedFetchRetryBackoffMs()).toBe(7);
 
     expect(newsIngestInternal.sortByPublishedDesc(
       {

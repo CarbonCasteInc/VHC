@@ -31,6 +31,20 @@ function readPositiveIntEnv(...names: string[]): number | undefined {
   return undefined;
 }
 
+function readFeedFetchAttempts(): number {
+  return readPositiveIntEnv(
+    'VH_NEWS_FEED_FETCH_ATTEMPTS',
+    'VITE_NEWS_FEED_FETCH_ATTEMPTS',
+  ) ?? 3;
+}
+
+function readFeedFetchRetryBackoffMs(): number {
+  return readPositiveIntEnv(
+    'VH_NEWS_FEED_FETCH_RETRY_BACKOFF_MS',
+    'VITE_NEWS_FEED_FETCH_RETRY_BACKOFF_MS',
+  ) ?? 250;
+}
+
 function sortByPublishedDesc(left: RawFeedItem, right: RawFeedItem): number {
   const publishedDelta = (right.publishedAt ?? 0) - (left.publishedAt ?? 0);
   if (publishedDelta !== 0) {
@@ -150,6 +164,39 @@ function readErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchFeedItems(source: FeedSource): Promise<RawFeedItem[]> {
+  const feedFetchAttempts = readFeedFetchAttempts();
+  const feedFetchRetryBackoffMs = readFeedFetchRetryBackoffMs();
+  let lastError: unknown = null;
+
+  for (let attempt = 1; attempt <= feedFetchAttempts; attempt += 1) {
+    try {
+      const response = await fetch(source.rssUrl);
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      const xml = await response.text();
+      return parseFeedXml(xml, source).sort(sortByPublishedDesc);
+    } catch (error) {
+      lastError = error;
+      if (attempt < feedFetchAttempts) {
+        console.warn(
+          `[newsIngest] Fetch attempt ${attempt}/${feedFetchAttempts} failed for '${source.id}'; retrying`,
+          readErrorMessage(error),
+        );
+        await sleep(feedFetchRetryBackoffMs * attempt);
+      }
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(readErrorMessage(lastError));
+}
+
 export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]> {
   const maxItemsPerSource = readPositiveIntEnv(
     'VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE',
@@ -183,16 +230,7 @@ export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]>
   // each through the Vite CORS proxy would otherwise take 18-45s).
   const results = await Promise.allSettled(
     validSources.map(async (source) => {
-      const response = await fetch(source.rssUrl);
-      if (!response.ok) {
-        console.warn(
-          `[newsIngest] Failed to fetch feed '${source.id}': HTTP ${response.status}`,
-        );
-        return [];
-      }
-
-      const xml = await response.text();
-      const parsedItems = parseFeedXml(xml, source).sort(sortByPublishedDesc);
+      const parsedItems = await fetchFeedItems(source);
       return maxItemsPerSource ? parsedItems.slice(0, maxItemsPerSource) : parsedItems;
     }),
   );
@@ -214,6 +252,9 @@ export async function ingestFeeds(sources: FeedSource[]): Promise<RawFeedItem[]>
 }
 
 export const newsIngestInternal = {
+  fetchFeedItems,
+  readFeedFetchAttempts,
+  readFeedFetchRetryBackoffMs,
   readEnvVar,
   readPositiveIntEnv,
   sortByPublishedDesc,

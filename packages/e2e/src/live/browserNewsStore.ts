@@ -1,6 +1,13 @@
 import type { Page } from '@playwright/test';
 import type { LiveSemanticAuditBundleLike } from './daemonFirstFeedSemanticAuditTypes';
 
+export interface AuditableBundleDiagnostics {
+  readonly storyCount: number;
+  readonly auditableCount: number;
+  readonly topStoryIds: ReadonlyArray<string>;
+  readonly topAuditableStoryIds: ReadonlyArray<string>;
+}
+
 async function readStoreStories(
   page: Page,
 ): Promise<LiveSemanticAuditBundleLike[]> {
@@ -60,4 +67,26 @@ export async function readVisibleAuditableBundles(
   page: Page,
 ): Promise<LiveSemanticAuditBundleLike[]> {
   return readAuditableBundles(page, { restrictToDomStoryIds: true });
+}
+
+export async function refreshNewsStoreLatest(page: Page, limit: number): Promise<void> {
+  await page.evaluate(async (refreshLimit: number) => {
+    const newsStore = (window as {
+      __VH_NEWS_STORE__?: { getState?: () => { refreshLatest?: (limit?: number) => Promise<void> } };
+    }).__VH_NEWS_STORE__;
+    await newsStore?.getState?.().refreshLatest?.(refreshLimit);
+  }, limit);
+}
+
+export async function readAuditableBundleDiagnostics(
+  page: Page,
+): Promise<AuditableBundleDiagnostics> {
+  const stories = await readStoreStories(page);
+  const auditable = stories.filter((story) => (story.primary_sources?.length ?? story.sources.length) >= 2);
+  return {
+    storyCount: stories.length,
+    auditableCount: auditable.length,
+    topStoryIds: stories.slice(0, 5).map((story) => story.story_id),
+    topAuditableStoryIds: auditable.slice(0, 5).map((story) => story.story_id),
+  };
 }
