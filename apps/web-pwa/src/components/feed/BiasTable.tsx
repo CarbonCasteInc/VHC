@@ -71,8 +71,8 @@ function ExpandableRow({
     (analysis?.justifyBiasClaims?.length ?? 0) > 0;
 
   const showVoting = !!(votingEnabled && topicId && synthesisId && epoch !== undefined);
-  const resolvedFramePointId = framePointId ?? synthesisFramePointId;
-  const resolvedReframePointId = reframePointId ?? synthesisReframePointId;
+  const resolvedFramePointId = synthesisFramePointId ?? framePointId;
+  const resolvedReframePointId = synthesisReframePointId ?? reframePointId;
 
   return (
     <>

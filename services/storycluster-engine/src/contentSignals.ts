@@ -1,5 +1,21 @@
 import * as chrono from 'chrono-node';
 import { franc } from 'franc-min';
+import {
+  ACTION_CATEGORIES,
+  ANALYSIS_PATTERN,
+  BREAKING_PATTERN,
+  CONTRAST_CLAUSES,
+  EXPLAINER_PATTERN,
+  LANGUAGE_MAP,
+  LIVEBLOG_PATTERN,
+  LOCATION_LEXICON,
+  OPINION_PATTERN,
+  TITLE_TRANSLATION_LEXICON,
+  TRIGGER_PRIORITY,
+  VIDEO_PATTERN,
+  WEEKDAY_TEMPORAL_TOKENS,
+  WIRE_PATTERN,
+} from './contentSignals.constants.js';
 import { normalizeText, splitSentences, tokenizeWords } from './textSignals';
 
 export type DocumentType =
@@ -20,61 +36,6 @@ export interface EventTuple {
   when_ms: number | null;
   outcome: string | null;
 }
-
-const LANGUAGE_MAP: Record<string, string> = {
-  eng: 'en', spa: 'es', fra: 'fr', deu: 'de', ita: 'it', por: 'pt', nld: 'nl', rus: 'ru',
-  ukr: 'uk', arb: 'ar', cmn: 'zh', jpn: 'ja', kor: 'ko', hin: 'hi', tur: 'tr',
-};
-
-const ACTION_CATEGORIES = new Map<string, string>([
-  ['attack', 'conflict'], ['attacks', 'conflict'], ['strike', 'conflict'], ['strikes', 'conflict'],
-  ['bombing', 'conflict'], ['raid', 'conflict'], ['clash', 'conflict'], ['invasion', 'conflict'],
-  ['election', 'politics'], ['elections', 'politics'], ['vote', 'politics'], ['votes', 'politics'],
-  ['schedule', 'politics'], ['schedules', 'politics'], ['scheduled', 'politics'], ['resigns', 'politics'],
-  ['arrest', 'legal'], ['arrests', 'legal'], ['arrested', 'legal'], ['charged', 'legal'],
-  ['charges', 'legal'], ['detain', 'legal'], ['detains', 'legal'], ['detained', 'legal'],
-  ['detention', 'legal'], ['review', 'legal'], ['reviews', 'legal'], ['trial', 'legal'], ['lawsuit', 'legal'],
-  ['earthquake', 'disaster'], ['flood', 'disaster'], ['wildfire', 'disaster'], ['storm', 'disaster'],
-  ['market', 'economic'], ['stocks', 'economic'], ['slide', 'economic'], ['slides', 'economic'],
-  ['cut', 'economic'], ['cuts', 'economic'], ['tariff', 'economic'], ['inflation', 'economic'],
-  ['talks', 'diplomacy'], ['summit', 'diplomacy'], ['sanctions', 'diplomacy'], ['ceasefire', 'diplomacy'],
-]);
-
-const TRIGGER_PRIORITY = new Map<string, number>([
-  ['conflict', 6],
-  ['disaster', 5],
-  ['legal', 4],
-  ['economic', 3],
-  ['politics', 2],
-  ['diplomacy', 1],
-]);
-
-const LOCATION_LEXICON = new Set([
-  'iran', 'israel', 'gaza', 'ukraine', 'russia', 'china', 'taiwan', 'tehran', 'jerusalem', 'kyiv',
-  'washington', 'london', 'paris', 'berlin', 'tokyo', 'beijing', 'moscow', 'brussels', 'cairo',
-  'mexico', 'canada', 'california', 'texas', 'new york', 'los angeles', 'europe', 'asia', 'africa',
-]);
-
-const TITLE_TRANSLATION_LEXICON: Record<string, Record<string, string>> = {
-  es: {
-    ataque: 'attack', ataques: 'attacks', puerto: 'port', mercado: 'market', guerra: 'war',
-    elecciones: 'elections', incendio: 'fire', terremoto: 'earthquake', huelga: 'strike',
-    rescate: 'rescue', gobierno: 'government', explosión: 'explosion', crisis: 'crisis',
-  },
-  fr: {
-    attaque: 'attack', attaques: 'attacks', port: 'port', marche: 'market', guerre: 'war',
-    elections: 'elections', incendie: 'fire', seisme: 'earthquake', greve: 'strike',
-    secours: 'rescue', gouvernement: 'government', explosion: 'explosion', crise: 'crisis',
-  },
-};
-
-const LIVEBLOG_PATTERN = /\blive\b|live updates|liveblog|minute by minute/;
-const VIDEO_PATTERN = /\bvideo\b|\bwatch\b|\bclip\b|\/video(s)?\//;
-const OPINION_PATTERN = /\bopinion\b|editorial|column|guest essay|analysis opinion/;
-const ANALYSIS_PATTERN = /\banalysis\b|what it means|why it matters|takeaways|inside the/;
-const EXPLAINER_PATTERN = /\bexplainer\b|what we know|timeline|recap|key moments|at a glance|roundup|what to know/;
-const BREAKING_PATTERN = /\bbreaking\b|developing|alert|just in/;
-const WIRE_PATTERN = /reuters|associated press|ap\b|afp|upi|wire/;
 
 function capitalizePhrase(phrase: string): string {
   return phrase
@@ -211,9 +172,47 @@ export function extractLocations(text: string): string[] {
 }
 
 export function extractTrigger(text: string): string | null {
+  for (const candidateText of triggerCandidateTexts(text)) {
+    const candidate = extractLeadTrigger(candidateText);
+    if (candidate) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+export function triggerCategory(trigger: string | null): string | null {
+  return trigger ? ACTION_CATEGORIES.get(trigger) ?? null : null;
+}
+
+function triggerCandidateTexts(text: string): string[] {
+  const normalized = normalizeText(text);
+  if (!normalized) {
+    return [];
+  }
+
+  const candidates = new Set<string>([normalized]);
+  for (const marker of CONTRAST_CLAUSES) {
+    const markerIndex = normalized.indexOf(marker);
+    if (markerIndex > 0) {
+      const lead = normalized.slice(0, markerIndex).trim();
+      if (lead.length > 0) {
+        candidates.add(lead);
+      }
+    }
+  }
+
+  return [...candidates].sort((left, right) => left.length - right.length);
+}
+
+function extractLeadTrigger(text: string): string | null {
+  const phraseTrigger = extractPhraseTrigger(text);
+  if (phraseTrigger) {
+    return phraseTrigger;
+  }
   let bestToken: string | null = null;
   let bestPriority = -1;
-  let bestIndex = -1;
+  let bestIndex = Number.POSITIVE_INFINITY;
   const tokens = tokenizeWords(text, 3);
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index]!;
@@ -221,8 +220,9 @@ export function extractTrigger(text: string): string | null {
     if (!category) {
       continue;
     }
-    const priority = TRIGGER_PRIORITY.get(category)!;
-    if (priority > bestPriority || (priority === bestPriority && index > bestIndex)) {
+    /* v8 ignore next -- ACTION_CATEGORIES and TRIGGER_PRIORITY are intentionally kept in lockstep */
+    const priority = TRIGGER_PRIORITY.get(category) ?? 0;
+    if (priority > bestPriority || (priority === bestPriority && index < bestIndex)) {
       bestToken = token;
       bestPriority = priority;
       bestIndex = index;
@@ -231,13 +231,15 @@ export function extractTrigger(text: string): string | null {
   return bestToken;
 }
 
-export function triggerCategory(trigger: string | null): string | null {
-  return trigger ? ACTION_CATEGORIES.get(trigger) ?? null : null;
+function extractPhraseTrigger(text: string): string | null {
+  if (/\bdrill(s)?\b/.test(text)) {
+    return 'drill';
+  }
+  if (/\bexercise(s)?\b/.test(text)) {
+    return 'exercise';
+  }
+  return null;
 }
-
-const WEEKDAY_TEMPORAL_TOKENS = new Set([
-  'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday',
-]);
 
 const RELATIVE_TEMPORAL_PHRASES = [
   'today',

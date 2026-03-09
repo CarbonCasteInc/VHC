@@ -21,6 +21,7 @@ import {
   extractTrigger,
   triggerCategory,
 } from './contentSignals';
+import { LOW_SIGNAL_CANONICAL_ENTITIES } from './storyclusterEntitySignals.js';
 import { createHashedVector, ensureSentence } from './textSignals';
 
 const NON_SUBSTANTIVE_ENTITIES = new Set(['summary', 'story', 'update', 'updates', 'officials', 'leaders']);
@@ -39,11 +40,27 @@ function overlapCount(left: readonly string[], right: readonly string[]): number
 }
 
 function pairScore(item: PairJudgementWorkItem): PairJudgementWorkResult['decision'] {
-  const canonicalOverlap = overlapCount(canonicalEntities(item.document_entities), canonicalEntities(item.cluster_entities));
+  const documentCanonical = canonicalEntities(item.document_entities);
+  const clusterCanonical = canonicalEntities(item.cluster_entities);
+  const canonicalOverlapValues = documentCanonical.filter((value) => clusterCanonical.includes(value));
+  const canonicalOverlap = overlapCount(documentCanonical, clusterCanonical);
   const substantiveOverlap = overlapCount(substantiveEntities(item.document_entities), substantiveEntities(item.cluster_entities));
+  const documentTriggerCategory = triggerCategory(item.document_trigger);
   const triggerMatch = item.document_trigger && item.cluster_triggers.some((trigger) =>
     trigger === item.document_trigger || triggerCategory(trigger) === triggerCategory(item.document_trigger),
   );
+  const triggerCategoryConflict = Boolean(
+    item.document_trigger &&
+    documentTriggerCategory &&
+    item.cluster_triggers.length > 0 &&
+    item.cluster_triggers.every((trigger) => triggerCategory(trigger) !== documentTriggerCategory),
+  );
+  const overlapIsLowSignal =
+    canonicalOverlapValues.length > 0 &&
+    canonicalOverlapValues.every((value) => LOW_SIGNAL_CANONICAL_ENTITIES.has(value));
+  if (triggerCategoryConflict && overlapIsLowSignal) {
+    return 'rejected';
+  }
   if (canonicalOverlap > 0 && triggerMatch) {
     return 'accepted';
   }

@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Page } from '@playwright/test';
+import { readVisibleAuditableBundles } from './browserNewsStore';
 import { LIVE_BASE_URL, headlineRows, waitForHeadlines } from './daemonFirstFeedHarness';
 import type {
   AuditedBundlePairResult,
@@ -77,65 +78,6 @@ async function fetchArticlePayload(baseUrl: string, url: string, sourceId: strin
   }
 }
 
-async function visibleAuditableBundles(page: Page): Promise<LiveSemanticAuditBundleLike[]> {
-  return page.evaluate(() => {
-    const visibleStoryIds = Array.from(
-      document.querySelectorAll<HTMLElement>('[data-testid^="news-card-headline-"]'),
-    )
-      .map((node) => node.getAttribute('data-story-id')?.trim() ?? '')
-      .filter((storyId) => storyId.length > 0);
-    const order = new Map(visibleStoryIds.map((storyId, index) => [storyId, index]));
-    const newsStore = (window as {
-      __VH_NEWS_STORE__?: {
-        getState?: () => {
-          stories?: Array<{
-            story_id: string;
-            topic_id: string;
-            headline: string;
-            sources: Array<{
-              source_id: string;
-              publisher: string;
-              url: string;
-              url_hash: string;
-              published_at?: number;
-              title: string;
-            }>;
-            primary_sources?: Array<{
-              source_id: string;
-              publisher: string;
-              url: string;
-              url_hash: string;
-              published_at?: number;
-              title: string;
-            }>;
-            secondary_assets?: Array<{
-              source_id: string;
-              publisher: string;
-              url: string;
-              url_hash: string;
-              published_at?: number;
-              title: string;
-            }>;
-          }>;
-        };
-      };
-    }).__VH_NEWS_STORE__;
-    const stories = newsStore?.getState?.().stories ?? [];
-    return stories
-      .filter((story) => order.has(story.story_id))
-      .filter((story) => (story.primary_sources?.length ?? story.sources.length) >= 2)
-      .map((story) => ({
-        story_id: story.story_id,
-        topic_id: story.topic_id,
-        headline: story.headline,
-        sources: story.sources,
-        primary_sources: story.primary_sources,
-        secondary_assets: story.secondary_assets,
-      }))
-      .sort((left, right) => (order.get(left.story_id) ?? 0) - (order.get(right.story_id) ?? 0));
-  });
-}
-
 async function waitForSampledBundles(
   page: Page,
   sampleCount: number,
@@ -144,7 +86,7 @@ async function waitForSampledBundles(
   const deadline = Date.now() + timeoutMs;
   let loadOlderAttempts = 0;
   while (Date.now() < deadline) {
-    const auditable = await visibleAuditableBundles(page);
+    const auditable = await readVisibleAuditableBundles(page);
     if (auditable.length >= sampleCount) {
       return auditable.slice(0, sampleCount);
     }
@@ -153,7 +95,7 @@ async function waitForSampledBundles(
     if (await sentinel.count().catch(() => 0)) {
       await sentinel.scrollIntoViewIfNeeded().catch(() => {});
       await page.waitForTimeout(1_500);
-      const expandedAuditable = await visibleAuditableBundles(page);
+      const expandedAuditable = await readVisibleAuditableBundles(page);
       if (expandedAuditable.length >= sampleCount) {
         return expandedAuditable.slice(0, sampleCount);
       }

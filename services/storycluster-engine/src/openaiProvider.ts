@@ -183,7 +183,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
             }>;
           }>({
             model: this.textModel,
-            system: ['You analyze news documents for event clustering.', 'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire_report|hard_news|video_clip|liveblog|analysis|opinion|explainer_recap","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.', 'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.', 'Use doc_type=video_clip for video pages or clips, analysis for analytical reporting, opinion for commentary, wire_report for wire copy, hard_news for straight reports.'].join(' '),
+            system: ['You analyze news documents for event clustering.', 'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire_report|hard_news|video_clip|liveblog|analysis|opinion|explainer_recap","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.', 'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.', 'linked_entities should prefer multi-word canonical keys for the main actors and event anchors, not just generic countries.', 'trigger must reflect the lead action of the report, not a background clause introduced by phrases like "even as", "while", or "amid".', 'Use doc_type=video_clip for video pages or clips, analysis for analytical reporting, opinion for commentary, wire_report for wire copy, hard_news for straight reports.'].join(' '),
             user: JSON.stringify({ documents: pending }),
             temperature: 0,
             maxTokens: 4_000,
@@ -254,7 +254,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
         async (pending) => {
           const response = await this.client.chatJson<{ judgements?: Array<{ pair_id: string; score: number; decision: string }> }>({
             model: this.textModel,
-            system: ['You evaluate whether a news document belongs to an existing event cluster.', 'Use these decisions only: accepted, rejected, abstain.', 'Return strict JSON: {"judgements":[{"pair_id":"...","score":0.0,"decision":"accepted|rejected|abstain"}]}.', 'accepted means the same discrete event or its direct, time-bounded consequences are being covered.', 'reject topic-only links such as background explainers, opinion, analysis-only framing, or commentary that is not reporting the same event.', 'abstain means the items are near the same topic but event identity is still ambiguous.'].join(' '),
+            system: ['You evaluate whether a news document belongs to an existing event cluster.', 'Use these decisions only: accepted, rejected, abstain.', 'Return strict JSON: {"judgements":[{"pair_id":"...","score":0.0,"decision":"accepted|rejected|abstain"}]}.', 'accepted means the same discrete event or its direct, time-bounded consequences are being covered.', 'reject topic-only links such as background explainers, opinion, analysis-only framing, or commentary that is not reporting the same event.', 'Different lead actions involving the same politician, country, or conflict should be rejected unless both documents clearly report the same incident or tightly bounded follow-up.', 'abstain means the items are near the same topic but event identity is still ambiguous.'].join(' '),
             user: JSON.stringify({ adjudication_pairs: pending }),
             temperature: 0,
             maxTokens: 4_000,
@@ -309,6 +309,14 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
     return output;
   }
 }
+function envTimeoutMs(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
+}
 export function createOpenAIStoryClusterProviderFromEnv(
   options: Omit<OpenAIStoryClusterProviderOptions, 'apiKey'> = {},
 ): OpenAIStoryClusterProvider {
@@ -322,5 +330,6 @@ export function createOpenAIStoryClusterProviderFromEnv(
     textModel: options.textModel ?? process.env.VH_STORYCLUSTER_TEXT_MODEL,
     embeddingModel: options.embeddingModel ?? process.env.VH_STORYCLUSTER_EMBEDDING_MODEL,
     baseUrl: options.baseUrl ?? process.env.VH_STORYCLUSTER_OPENAI_BASE_URL,
+    timeoutMs: options.timeoutMs ?? envTimeoutMs('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS'),
   });
 }

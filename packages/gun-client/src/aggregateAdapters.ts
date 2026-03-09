@@ -152,14 +152,27 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 }
 
 const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
-  ['VITE_VH_GUN_PUT_ACK_TIMEOUT_MS', 'VH_GUN_PUT_ACK_TIMEOUT_MS'],
-  1_000,
+  [
+    'VITE_VH_GUN_AGGREGATE_PUT_ACK_TIMEOUT_MS',
+    'VH_GUN_AGGREGATE_PUT_ACK_TIMEOUT_MS',
+    'VITE_VH_GUN_PUT_ACK_TIMEOUT_MS',
+    'VH_GUN_PUT_ACK_TIMEOUT_MS',
+  ],
+  2_500,
 );
+const WRITE_READBACK_ATTEMPTS = 8;
+const WRITE_READBACK_RETRY_MS = 500;
 
 interface PutAckResult {
   readonly acknowledged: boolean;
   readonly timedOut: boolean;
   readonly latencyMs: number;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
@@ -194,6 +207,36 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckRe
       });
     });
   });
+}
+
+function aggregateVoterNodeMatches(left: AggregateVoterNode, right: AggregateVoterNode): boolean {
+  return (
+    left.point_id === right.point_id &&
+    left.agreement === right.agreement &&
+    left.weight === right.weight &&
+    left.updated_at === right.updated_at
+  );
+}
+
+function aggregateSnapshotMatches(
+  left: PointAggregateSnapshotV1,
+  right: PointAggregateSnapshotV1,
+): boolean {
+  return (
+    left.schema_version === right.schema_version &&
+    left.topic_id === right.topic_id &&
+    left.synthesis_id === right.synthesis_id &&
+    left.epoch === right.epoch &&
+    left.point_id === right.point_id &&
+    left.agree === right.agree &&
+    left.disagree === right.disagree &&
+    left.weight === right.weight &&
+    left.participants === right.participants &&
+    left.version === right.version &&
+    left.computed_at === right.computed_at &&
+    left.source_window.from_seq === right.source_window.from_seq &&
+    left.source_window.to_seq === right.source_window.to_seq
+  );
 }
 
 function parseUpdatedAtMs(value: string): number {
@@ -535,6 +578,34 @@ export async function writeVoterNode(
       sanitized,
     );
   } catch (error) {
+    const timedOut = error instanceof Error && error.message === 'aggregate-put-ack-timeout';
+    if (timedOut) {
+      const recovered = await confirmAggregateVoterNodeReadback(
+        client,
+        normalizedTopicId,
+        normalizedSynthesisId,
+        Number(normalizedEpoch),
+        normalizedVoterId,
+        normalizedPointId,
+        sanitized,
+      );
+      if (recovered) {
+        console.info('[vh:aggregate:voter-write]', {
+          topic_id: normalizedTopicId,
+          synthesis_id: normalizedSynthesisId,
+          epoch: Number(normalizedEpoch),
+          voter_id: normalizedVoterId,
+          point_id: normalizedPointId,
+          acknowledged: false,
+          timed_out: true,
+          latency_ms: undefined,
+          path,
+          readback_confirmed: true,
+        });
+        return recovered;
+      }
+    }
+
     console.warn('[vh:aggregate:voter-write]', {
       topic_id: normalizedTopicId,
       synthesis_id: normalizedSynthesisId,
@@ -542,10 +613,7 @@ export async function writeVoterNode(
       voter_id: normalizedVoterId,
       point_id: normalizedPointId,
       acknowledged: false,
-      timed_out:
-        error instanceof Error && error.message === 'aggregate-put-ack-timeout'
-          ? true
-          : undefined,
+      timed_out: timedOut ? true : undefined,
       latency_ms: undefined,
       path,
       /* c8 ignore next */
@@ -594,16 +662,44 @@ export async function writePointAggregateSnapshot(
       sanitized,
     );
   } catch (error) {
+    const timedOut = error instanceof Error && error.message === 'aggregate-put-ack-timeout';
+    if (timedOut) {
+      const recovered = await confirmPointAggregateSnapshotReadback(
+        client,
+        normalizedTopicId,
+        normalizedSynthesisId,
+        Number(normalizedEpoch),
+        normalizedPointId,
+        sanitized,
+      );
+      if (recovered) {
+        console.info('[vh:aggregate:point-snapshot-write]', {
+          topic_id: normalizedTopicId,
+          synthesis_id: normalizedSynthesisId,
+          epoch: Number(normalizedEpoch),
+          point_id: normalizedPointId,
+          acknowledged: false,
+          timed_out: true,
+          latency_ms: undefined,
+          path,
+          agree: recovered.agree,
+          disagree: recovered.disagree,
+          participants: recovered.participants,
+          weight: recovered.weight,
+          version: recovered.version,
+          readback_confirmed: true,
+        });
+        return recovered;
+      }
+    }
+
     console.warn('[vh:aggregate:point-snapshot-write]', {
       topic_id: normalizedTopicId,
       synthesis_id: normalizedSynthesisId,
       epoch: Number(normalizedEpoch),
       point_id: normalizedPointId,
       acknowledged: false,
-      timed_out:
-        error instanceof Error && error.message === 'aggregate-put-ack-timeout'
-          ? true
-          : undefined,
+      timed_out: timedOut ? true : undefined,
       latency_ms: undefined,
       path,
       /* c8 ignore next */
@@ -657,6 +753,34 @@ export async function readAggregateVoterNode(
   const raw = await readOnce(chain);
   const parsed = AggregateVoterNodeSchema.safeParse(stripGunMetadata(raw));
   return parsed.success ? parsed.data : null;
+}
+
+async function confirmAggregateVoterNodeReadback(
+  client: VennClient,
+  topicId: string,
+  synthesisId: string,
+  epoch: number,
+  voterId: string,
+  pointId: string,
+  expected: AggregateVoterNode,
+): Promise<AggregateVoterNode | null> {
+  for (let attempt = 0; attempt < WRITE_READBACK_ATTEMPTS; attempt += 1) {
+    const recovered = await readAggregateVoterNode(
+      client,
+      topicId,
+      synthesisId,
+      epoch,
+      voterId,
+      pointId,
+    );
+    if (recovered && aggregateVoterNodeMatches(recovered, expected)) {
+      return recovered;
+    }
+    if (attempt < WRITE_READBACK_ATTEMPTS - 1) {
+      await sleep(WRITE_READBACK_RETRY_MS);
+    }
+  }
+  return null;
 }
 
 export async function readAggregateVoterRows(
@@ -733,6 +857,32 @@ export async function readPointAggregateSnapshot(
   }
 
   return parsed.data;
+}
+
+async function confirmPointAggregateSnapshotReadback(
+  client: VennClient,
+  topicId: string,
+  synthesisId: string,
+  epoch: number,
+  pointId: string,
+  expected: PointAggregateSnapshotV1,
+): Promise<PointAggregateSnapshotV1 | null> {
+  for (let attempt = 0; attempt < WRITE_READBACK_ATTEMPTS; attempt += 1) {
+    const recovered = await readPointAggregateSnapshot(
+      client,
+      topicId,
+      synthesisId,
+      epoch,
+      pointId,
+    );
+    if (recovered && aggregateSnapshotMatches(recovered, expected)) {
+      return recovered;
+    }
+    if (attempt < WRITE_READBACK_ATTEMPTS - 1) {
+      await sleep(WRITE_READBACK_RETRY_MS);
+    }
+  }
+  return null;
 }
 
 export async function readAggregates(

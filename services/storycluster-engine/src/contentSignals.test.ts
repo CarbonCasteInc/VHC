@@ -85,6 +85,24 @@ describe('contentSignals', () => {
     expect(extractEntities('a an the', [])).toEqual([]);
   });
 
+  it('prefers lead-clause triggers over background conflict context', () => {
+    expect(
+      extractTrigger('Trump tells Starmer help not needed even as US uses UK bases for Iran strikes'),
+    ).toBe('tells');
+    expect(
+      extractTrigger("Trump doesn't rule out sending American troops to Iran"),
+    ).toBe('troops');
+    expect(
+      extractTrigger('Trump tells Starmer Britain need not join Iran campaign as US uses UK bases'),
+    ).toBe('tells');
+    expect(
+      extractTrigger('Osaka hospitals run a citywide earthquake drill'),
+    ).toBe('drill');
+    expect(triggerCategory('tells')).toBe('diplomacy');
+    expect(triggerCategory('troops')).toBe('military_posture');
+    expect(triggerCategory('drill')).toBe('preparedness');
+  });
+
   it('builds event tuples', () => {
     const tuple = buildEventTuple(
       'Port attack disrupts terminals overnight',

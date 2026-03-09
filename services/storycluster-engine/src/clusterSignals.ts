@@ -129,8 +129,17 @@ function isSpecificCanonicalDocument(document: CoverageDocument): boolean {
     hasSpecificEventSignal(document);
 }
 
+function isSpecificEventDocument(document: CoverageDocument): boolean {
+  return !isBroadRelatedCoverage(document) &&
+    hasSpecificEventSignal(document);
+}
+
 export function clusterHasSpecificCanonicalDocument(cluster: StoredClusterRecord): boolean {
   return representativeDocuments(cluster).some((document) => isSpecificCanonicalDocument(document));
+}
+
+export function clusterHasSpecificEventDocument(cluster: StoredClusterRecord): boolean {
+  return representativeDocuments(cluster).some((document) => isSpecificEventDocument(document));
 }
 
 function clusterIsBroadRelated(cluster: StoredClusterRecord): boolean {
@@ -142,7 +151,7 @@ export function isRelatedCoverageConflict(
   document: WorkingDocument,
   cluster: StoredClusterRecord,
 ): boolean {
-  return isBroadRelatedCoverage(document) && clusterHasSpecificCanonicalDocument(cluster);
+  return isBroadRelatedCoverage(document) && clusterHasSpecificEventDocument(cluster);
 }
 
 export function isRelatedCoverageAttachmentConflict(
@@ -157,7 +166,7 @@ export function isSecondaryAssetAttachmentConflict(
   document: WorkingDocument,
   cluster: StoredClusterRecord,
 ): boolean {
-  return document.doc_type === 'video_clip' && !clusterHasSpecificCanonicalDocument(cluster);
+  return document.doc_type === 'video_clip' && !clusterHasSpecificEventDocument(cluster);
 }
 
 export function isRelatedCoverageMergeConflict(
@@ -165,14 +174,15 @@ export function isRelatedCoverageMergeConflict(
   right: StoredClusterRecord,
 ): boolean {
   return (
-    (clusterIsBroadRelated(left) && clusterHasSpecificCanonicalDocument(right)) ||
-    (clusterIsBroadRelated(right) && clusterHasSpecificCanonicalDocument(left))
+    (clusterIsBroadRelated(left) && clusterHasSpecificEventDocument(right)) ||
+    (clusterIsBroadRelated(right) && clusterHasSpecificEventDocument(left))
   );
 }
 
 export const clusterSignalsInternal = {
   hasSpecificEventSignal,
   isBroadRelatedCoverage,
+  isSpecificEventDocument,
   isSpecificCanonicalDocument,
   isVideoClipDocument,
 };

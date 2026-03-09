@@ -1,12 +1,9 @@
 import type { StoryClusterStageId } from './contracts';
 import {
-  documentTypeWeight,
-  refineDocumentType,
   resolveLanguage,
   shouldTranslate,
 } from './contentSignals';
 import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
-import { coverageRoleForDocument } from './documentPolicy';
 import type { StoryClusterModelProvider } from './modelProvider';
 import type { ClusterVectorBackend } from './vectorBackend';
 import {
@@ -30,7 +27,11 @@ import {
   normalizeText,
 } from './textSignals';
 import type { NormalizedPipelineRequest } from './stageHelpers';
-import { extractStageMetrics, mergedKeys, sourceVariantsForDocument } from './stageDocumentHelpers';
+import {
+  applyDocumentAnalysis,
+  extractStageMetrics,
+  sourceVariantsForDocument,
+} from './stageDocumentHelpers';
 import { MemoryVectorBackend } from './vectorBackend';
 
 export function createInitialState(
@@ -181,43 +182,7 @@ function withDocumentClassification(provider: StoryClusterModelProvider | undefi
       if (!analysis) {
         throw new Error(`missing document analysis for ${document.doc_id}`);
       }
-      const entities = mergedKeys(document.entities, analysis.entities);
-      const linkedEntities = mergedKeys(document.linked_entities, analysis.linked_entities, entities);
-      const docType = refineDocumentType(
-        analysis.doc_type,
-        document.translated_title,
-        document.summary,
-        document.publisher,
-        document.url,
-      );
-      const eventTuple = analysis.event_tuple
-        ? {
-          ...analysis.event_tuple,
-          when_ms: analysis.temporal_ms ?? analysis.event_tuple.when_ms,
-          who: analysis.event_tuple.who.length > 0 ? analysis.event_tuple.who : linkedEntities,
-          where: analysis.event_tuple.where.length > 0 ? analysis.event_tuple.where : analysis.locations,
-          trigger: analysis.event_tuple.trigger ?? analysis.trigger,
-        }
-        : null;
-      const trigger = analysis.trigger ?? eventTuple?.trigger ?? null;
-      return {
-        ...document,
-        doc_type: docType,
-        coverage_role: coverageRoleForDocument({
-          doc_type: docType,
-          translated_title: document.translated_title,
-          summary: document.summary,
-          publisher: document.publisher,
-          url: document.url,
-        }),
-        doc_weight: documentTypeWeight(docType),
-        entities,
-        linked_entities: linkedEntities,
-        locations: analysis.locations,
-        temporal_ms: analysis.temporal_ms,
-        trigger,
-        event_tuple: eventTuple,
-      };
+      return applyDocumentAnalysis(document, analysis);
     });
 
     return {

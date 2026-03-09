@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { deriveAnalysisKey, derivePointId } from '@vh/data-model';
+import { deriveAnalysisKey, derivePointId, deriveSynthesisPointId } from '@vh/data-model';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
@@ -55,6 +55,44 @@ async function deriveExpectedPointIds(): Promise<{
   const reframe0 = await derivePointId({ analysisKey, column: 'reframe', text: FRAMES[0]!.reframe });
   const frame1 = await derivePointId({ analysisKey, column: 'frame', text: FRAMES[1]!.frame });
   const reframe1 = await derivePointId({ analysisKey, column: 'reframe', text: FRAMES[1]!.reframe });
+
+  return { frame0, reframe0, frame1, reframe1 };
+}
+
+async function deriveExpectedSynthesisPointIds(): Promise<{
+  frame0: string;
+  reframe0: string;
+  frame1: string;
+  reframe1: string;
+}> {
+  const frame0 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'frame',
+    text: FRAMES[0]!.frame,
+  });
+  const reframe0 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'reframe',
+    text: FRAMES[0]!.reframe,
+  });
+  const frame1 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'frame',
+    text: FRAMES[1]!.frame,
+  });
+  const reframe1 = await deriveSynthesisPointId({
+    topic_id: TOPIC_ID,
+    synthesis_id: SYNTHESIS_ID,
+    epoch: EPOCH,
+    column: 'reframe',
+    text: FRAMES[1]!.reframe,
+  });
 
   return { frame0, reframe0, frame1, reframe1 };
 }
@@ -164,7 +202,7 @@ describe('BiasTable', () => {
   });
 
   it('votingEnabled=true renders CellVoteControls in each cell', async () => {
-    const pointIds = await deriveExpectedPointIds();
+    const pointIds = await deriveExpectedSynthesisPointIds();
     render(
       <BiasTable
         analyses={[makeAnalysis()]}
@@ -181,6 +219,25 @@ describe('BiasTable', () => {
     expect(await screen.findByTestId(`cell-vote-${pointIds.reframe0}`)).toBeInTheDocument();
     expect(await screen.findByTestId(`cell-vote-${pointIds.frame1}`)).toBeInTheDocument();
     expect(await screen.findByTestId(`cell-vote-${pointIds.reframe1}`)).toBeInTheDocument();
+  });
+
+  it('prefers synthesis point IDs over legacy analysis point IDs when both exist', async () => {
+    const legacyPointIds = await deriveExpectedPointIds();
+    const synthesisPointIds = await deriveExpectedSynthesisPointIds();
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
+        votingEnabled
+      />,
+    );
+
+    expect(await screen.findByTestId(`cell-vote-${synthesisPointIds.frame0}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`cell-vote-${legacyPointIds.frame0}`)).not.toBeInTheDocument();
   });
 
   it('votingEnabled=false renders no vote controls', () => {
@@ -226,7 +283,7 @@ describe('BiasTable', () => {
   });
 
   it('point IDs are stable content hashes across rerender', async () => {
-    const pointIds = await deriveExpectedPointIds();
+    const pointIds = await deriveExpectedSynthesisPointIds();
     const { rerender } = render(
       <BiasTable
         analyses={[makeAnalysis()]}
@@ -261,7 +318,7 @@ describe('BiasTable', () => {
   });
 
   it('frame and reframe voting controls are independent', async () => {
-    const pointIds = await deriveExpectedPointIds();
+    const pointIds = await deriveExpectedSynthesisPointIds();
     render(
       <BiasTable
         analyses={[makeAnalysis()]}

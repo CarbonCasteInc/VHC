@@ -132,6 +132,7 @@ describe('news daemon coverage guards', () => {
     const readLease = vi.fn().mockResolvedValue(expiredLease);
     const writeLease = vi.fn().mockResolvedValue(expiredLease);
     const writeBundle = vi.fn().mockResolvedValue(undefined);
+    const removeBundle = vi.fn().mockResolvedValue(undefined);
 
     const daemon = createNewsAggregatorDaemon({
       client: { id: 'client-expired' } as VennClient,
@@ -141,6 +142,7 @@ describe('news daemon coverage guards', () => {
       readLease,
       writeLease,
       writeBundle,
+      removeBundle,
       logger,
       setIntervalFn: timers.setIntervalFn,
       clearIntervalFn: timers.clearIntervalFn,
@@ -158,11 +160,18 @@ describe('news daemon coverage guards', () => {
       runtimeConfig.writeStoryBundle?.({ id: 'client-expired' }, { story_id: 'story-1' } as any),
     ).rejects.toThrow('news daemon lease expired');
     expect(writeBundle).not.toHaveBeenCalled();
+    await expect(
+      runtimeConfig.removeStoryBundle?.({ id: 'client-expired' }, 'story-1'),
+    ).rejects.toThrow('news daemon lease expired');
+    expect(removeBundle).not.toHaveBeenCalled();
 
     await daemon.stop();
 
     await expect(
       runtimeConfig.writeStoryBundle?.({ id: 'client-expired' }, { story_id: 'story-1' } as any),
+    ).rejects.toThrow('news daemon lease not acquired');
+    await expect(
+      runtimeConfig.removeStoryBundle?.({ id: 'client-expired' }, 'story-1'),
     ).rejects.toThrow('news daemon lease not acquired');
 
     expect(logger.warn).toHaveBeenCalledWith('[vh:news-daemon] runtime tick failed', expect.any(Error));

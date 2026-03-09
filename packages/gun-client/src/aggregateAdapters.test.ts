@@ -325,6 +325,77 @@ describe('aggregateAdapters', () => {
     }
   }, 10000);
 
+  it('writePointAggregateSnapshot resolves on ack timeout once readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      const path = 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1';
+      const mesh = createFakeMesh();
+      mesh.setPutHang(path);
+      mesh.setRead(path, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const pending = writePointAggregateSnapshot(client, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(pending).resolves.toEqual({
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:aggregate:point-snapshot-write]',
+        expect.objectContaining({
+          point_id: 'point-1',
+          timed_out: true,
+          readback_confirmed: true,
+        }),
+      );
+    } finally {
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('writePointAggregateSnapshot surfaces non-timeout put errors', async () => {
     const mesh = createFakeMesh();
     mesh.setPutError('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1', 'boom');
@@ -404,6 +475,53 @@ describe('aggregateAdapters', () => {
 
     await expect(writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node)).rejects.toThrow('aggregate-put-ack-timeout');
   }, 10000);
+
+  it('writeVoterNode resolves on ack timeout once readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      const path = 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1';
+      const mesh = createFakeMesh();
+      mesh.setPutHang(path);
+      mesh.setRead(path, {
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const pending = writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', {
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(pending).resolves.toEqual({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:aggregate:voter-write]',
+        expect.objectContaining({
+          point_id: 'point-1',
+          timed_out: true,
+          readback_confirmed: true,
+        }),
+      );
+    } finally {
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 
   it('writeVoterNode ignores timeout/late ack callbacks after successful settlement', async () => {
     vi.useFakeTimers();

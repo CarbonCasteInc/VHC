@@ -5,6 +5,9 @@ import { cosineSimilarity } from './textSignals';
 const DEFAULT_COLLECTION = 'storycluster_coarse_vectors';
 const DEFAULT_DIMENSION = 192;
 const DEFAULT_TIMEOUT_MS = 5_000;
+const DEFAULT_SCROLL_LIMIT = 1_024;
+const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
+const REQUEST_RETRY_DELAYS_MS = [150, 400];
 
 export interface ClusterVectorHit {
   story_id: string;
@@ -28,10 +31,7 @@ export interface ClusterVectorBackend {
 
 type FetchFn = typeof fetch;
 
-interface MemoryPoint {
-  story_id: string;
-  vector: number[];
-}
+interface MemoryPoint { story_id: string; vector: number[]; }
 
 interface QdrantVectorBackendOptions {
   apiKey?: string;
@@ -127,15 +127,41 @@ class QdrantVectorBackend implements ClusterVectorBackend {
 
   constructor(private readonly options: QdrantVectorBackendOptions) {}
 
+  private async pause(delayMs: number): Promise<void> {
+    await new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    });
+  }
+
   private async request(path: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers ?? {});
     if (this.options.apiKey) headers.set('api-key', this.options.apiKey);
     if (init.body && !headers.has('content-type')) headers.set('content-type', 'application/json');
-    return (this.options.fetchFn ?? fetch)(`${this.options.baseUrl}${path}`, {
-      ...init,
-      headers,
-      signal: AbortSignal.timeout(this.options.timeoutMs),
-    });
+    let attempt = 0;
+    while (true) {
+      try {
+        const response = await (this.options.fetchFn ?? fetch)(`${this.options.baseUrl}${path}`, {
+          ...init,
+          headers,
+          signal: AbortSignal.timeout(this.options.timeoutMs),
+        });
+        if (
+          RETRYABLE_STATUS_CODES.has(response.status) &&
+          attempt < REQUEST_RETRY_DELAYS_MS.length
+        ) {
+          await this.pause(REQUEST_RETRY_DELAYS_MS[attempt]!);
+          continue;
+        }
+        return response;
+      } catch (error) {
+        if (attempt >= REQUEST_RETRY_DELAYS_MS.length) {
+          const detail = error instanceof Error ? error.message : String(error);
+          throw new Error(`qdrant request failed for ${path}: ${detail}`);
+        }
+        await this.pause(REQUEST_RETRY_DELAYS_MS[attempt]!);
+        attempt += 1;
+      }
+    }
   }
 
   private async ensureCollection(): Promise<void> {
@@ -169,10 +195,13 @@ class QdrantVectorBackend implements ClusterVectorBackend {
     limit: number,
   ): Promise<Map<string, ClusterVectorHit[]>> {
     await this.ensureCollection();
-    const results = await Promise.all(queries.map(async (query) => {
-      const response = await this.request(`/collections/${this.options.collection}/points/search`, {
-        method: 'POST',
-        body: JSON.stringify({
+    if (queries.length === 0) {
+      return new Map();
+    }
+    const response = await this.request(`/collections/${this.options.collection}/points/search/batch`, {
+      method: 'POST',
+      body: JSON.stringify({
+        searches: queries.map((query) => ({
           vector: cloneVector(query.vector, this.options.dimension),
           limit,
           with_payload: true,
@@ -180,24 +209,24 @@ class QdrantVectorBackend implements ClusterVectorBackend {
           filter: {
             must: [{ key: 'topic_id', match: { value: topicId } }],
           },
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`qdrant search failed: ${response.status}`);
-      }
-      const payload = await response.json() as {
-        result?: Array<{ score?: number; payload?: { story_id?: string } }>;
-      };
-      return [
-        query.doc_id,
-        (payload.result ?? [])
-          .map((item) => ({
-            story_id: item.payload?.story_id ?? '',
-            score: Number((item.score ?? 0).toFixed(6)),
-          }))
-          .filter((item) => item.story_id),
-      ] as const;
-    }));
+        })),
+      }),
+    });
+    if (!response.ok) {
+      throw new Error(`qdrant search batch failed: ${response.status}`);
+    }
+    const payload = await response.json() as {
+      result?: Array<Array<{ score?: number; payload?: { story_id?: string } }>>;
+    };
+    const results = queries.map((query, index) => [
+      query.doc_id,
+      (payload.result?.[index] ?? [])
+        .map((item) => ({
+          story_id: item.payload?.story_id ?? '',
+          score: Number((item.score ?? 0).toFixed(6)),
+        }))
+        .filter((item) => item.story_id),
+    ] as const);
     return new Map(results);
   }
 
@@ -210,36 +239,73 @@ class QdrantVectorBackend implements ClusterVectorBackend {
     }
   }
 
+  private buildTopicPoints(topicId: string, clusters: readonly StoredClusterRecord[]) {
+    return clusters.map((cluster) => ({
+      id: qdrantPointId(topicId, cluster.story_id),
+      vector: cloneVector(cluster.centroid_coarse, this.options.dimension),
+      payload: { story_id: cluster.story_id, topic_id: topicId },
+    }));
+  }
+
+  private async scrollTopicPointIds(topicId: string): Promise<string[]> {
+    const ids: string[] = [];
+    let offset: string | number | null | undefined = null;
+    do {
+      const response = await this.request(`/collections/${this.options.collection}/points/scroll`, {
+        method: 'POST',
+        body: JSON.stringify({
+          limit: DEFAULT_SCROLL_LIMIT,
+          with_payload: false,
+          with_vector: false,
+          filter: {
+            must: [{ key: 'topic_id', match: { value: topicId } }],
+          },
+          offset,
+        }),
+      });
+      if (!response.ok) {
+        throw new Error(`qdrant topic scroll failed: ${response.status}`);
+      }
+      const payload = await response.json() as { result?: { points?: Array<{ id?: number | string }>; next_page_offset?: number | string | null } };
+      for (const point of payload.result?.points ?? []) {
+        if (point.id !== undefined && point.id !== null) {
+          ids.push(String(point.id));
+        }
+      }
+      offset = payload.result?.next_page_offset ?? null;
+    } while (offset !== null && offset !== undefined);
+    return ids;
+  }
+
+  private async deletePointIds(pointIds: readonly string[]): Promise<void> {
+    if (pointIds.length === 0) return;
+    const response = await this.request(`/collections/${this.options.collection}/points/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ points: pointIds }),
+    });
+    if (!response.ok) {
+      throw new Error(`qdrant topic delete failed: ${response.status}`);
+    }
+  }
+
+  private async upsertPoints(points: readonly ReturnType<QdrantVectorBackend['buildTopicPoints']>[number][]): Promise<void> {
+    if (points.length === 0) return;
+    const response = await this.request(`/collections/${this.options.collection}/points`, {
+      method: 'PUT',
+      body: JSON.stringify({ points }),
+    });
+    if (!response.ok) {
+      throw new Error(`qdrant upsert failed: ${response.status}`);
+    }
+  }
+
   async replaceTopicClusters(topicId: string, clusters: readonly StoredClusterRecord[]): Promise<void> {
     await this.ensureCollection();
-    const deleted = await this.request(`/collections/${this.options.collection}/points/delete`, {
-      method: 'POST',
-      body: JSON.stringify({
-        filter: {
-          must: [{ key: 'topic_id', match: { value: topicId } }],
-        },
-      }),
-    });
-    if (!deleted.ok) {
-      throw new Error(`qdrant topic delete failed: ${deleted.status}`);
-    }
-    if (clusters.length === 0) return;
-    const upserted = await this.request(`/collections/${this.options.collection}/points`, {
-      method: 'PUT',
-      body: JSON.stringify({
-        points: clusters.map((cluster) => ({
-          id: qdrantPointId(topicId, cluster.story_id),
-          vector: cloneVector(cluster.centroid_coarse, this.options.dimension),
-          payload: {
-            story_id: cluster.story_id,
-            topic_id: topicId,
-          },
-        })),
-      }),
-    });
-    if (!upserted.ok) {
-      throw new Error(`qdrant upsert failed: ${upserted.status}`);
-    }
+    const points = this.buildTopicPoints(topicId, clusters);
+    await this.upsertPoints(points);
+    const desiredPointIds = new Set(points.map((point) => String(point.id)));
+    const stalePointIds = (await this.scrollTopicPointIds(topicId)).filter((pointId) => !desiredPointIds.has(pointId));
+    await this.deletePointIds(stalePointIds);
   }
 }
 

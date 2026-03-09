@@ -241,4 +241,120 @@ describe('clusterScoring related coverage guardrails', () => {
     expect(match.adjudication).toBe('rejected');
     expect(candidateEligible(videoDocument, broadCluster)).toBe(false);
   });
+
+  it('rejects same-topic canonical coverage when lead actions diverge', () => {
+    const troopCluster = makeCluster(makeWorkingDocument({
+      doc_id: 'doc-troops',
+      source_id: 'nypost-politics',
+      publisher: 'New York Post',
+      title: "Trump doesn't rule out sending American troops to Iran",
+      translated_title: "Trump doesn't rule out sending American troops to Iran",
+      summary: 'Trump does not rule out sending American troops to Iran as tensions escalate.',
+      doc_type: 'hard_news',
+      coverage_role: 'canonical',
+      event_tuple: {
+        description: 'Trump does not rule out sending American troops to Iran as tensions escalate.',
+        trigger: 'troops',
+        who: ['Donald Trump'],
+        where: ['Iran'],
+        when_ms: 216_000_300,
+        outcome: 'Potential deployment of American troops to Iran.',
+      },
+      trigger: 'troops',
+      linked_entities: ['donald_trump', 'american_troops', 'iran'],
+      entities: ['donald_trump', 'american_troops', 'iran'],
+      locations: ['iran'],
+      coarse_vector: [0.71, 0.29],
+      full_vector: [0.7, 0.3],
+      published_at: 216_000_300,
+      temporal_ms: 216_000_300,
+    }));
+    const starmerDocument = makeWorkingDocument({
+      doc_id: 'doc-starmer',
+      source_id: 'guardian-us',
+      publisher: 'Guardian',
+      title: 'Trump tells Starmer help not needed even as US uses UK bases for Iran strikes',
+      translated_title: 'Trump tells Starmer help not needed even as US uses UK bases for Iran strikes',
+      summary: 'Trump tells Starmer British help is not needed even as the US uses UK bases for Iran strikes.',
+      doc_type: 'hard_news',
+      coverage_role: 'canonical',
+      event_tuple: {
+        description: 'Trump tells Starmer British help is not needed even as the US uses UK bases for Iran strikes.',
+        trigger: 'tells',
+        who: ['Donald Trump', 'Keir Starmer'],
+        where: ['Iran', 'UK'],
+        when_ms: 216_000_330,
+        outcome: 'US continues to use UK bases for military actions.',
+      },
+      trigger: 'tells',
+      linked_entities: ['donald_trump', 'keir_starmer', 'uk_bases', 'iran'],
+      entities: ['donald_trump', 'keir_starmer', 'uk_bases', 'iran'],
+      locations: ['iran', 'uk'],
+      coarse_vector: [0.72, 0.28],
+      full_vector: [0.7, 0.3],
+      published_at: 216_000_330,
+      temporal_ms: 216_000_330,
+    });
+
+    const match = buildCandidateMatch(starmerDocument, troopCluster);
+
+    expect(match.reason).toBe('event-frame-conflict');
+    expect(match.adjudication).toBe('rejected');
+    expect(candidateEligible(starmerDocument, troopCluster)).toBe(false);
+  });
+
+  it('rejects broad roundup coverage against a specific event video cluster', () => {
+    const videoCluster = makeCluster(makeWorkingDocument({
+      doc_id: 'doc-video',
+      source_id: 'cbs-video',
+      publisher: 'CBS News',
+      title: 'Armed Iranian opposition group says its camp was hit with drone strike',
+      translated_title: 'Armed Iranian opposition group says its camp was hit with drone strike',
+      summary: 'CBS video report on the drone strike.',
+      url: 'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
+      canonical_url: 'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
+      doc_type: 'video_clip',
+      coverage_role: 'related',
+      event_tuple: {
+        description: 'Drone strike hits opposition camp',
+        trigger: 'strike',
+        who: ['Iranian opposition group'],
+        where: ['Northern Iraq'],
+        when_ms: 216_000_300,
+        outcome: 'Camp was hit in the strike.',
+      },
+      trigger: 'strike',
+      linked_entities: ['iranian_opposition_group'],
+      entities: ['iranian_opposition_group', 'drone', 'strike'],
+      locations: ['northern_iraq'],
+      coarse_vector: [0.68, 0.32],
+      full_vector: [0.66, 0.34],
+      published_at: 216_000_300,
+      temporal_ms: 216_000_300,
+    }));
+    const roundupDocument = makeWorkingDocument({
+      doc_id: 'doc-roundup-video-conflict',
+      source_id: 'guardian-roundup',
+      publisher: 'The Guardian',
+      title: 'Trump news at a glance: Iran latest',
+      translated_title: 'Trump news at a glance: Iran latest',
+      summary: 'A broad roundup of the Iran conflict and White House messaging.',
+      coverage_role: 'canonical',
+      event_tuple: null,
+      trigger: 'talks',
+      linked_entities: ['iran'],
+      entities: ['iran', 'trump'],
+      locations: ['washington'],
+      coarse_vector: [0.72, 0.28],
+      full_vector: [0.69, 0.31],
+      published_at: 216_000_100,
+      temporal_ms: 216_000_100,
+    });
+
+    const match = buildCandidateMatch(roundupDocument, videoCluster);
+
+    expect(match.reason).toBe('related-coverage-conflict');
+    expect(match.adjudication).toBe('rejected');
+    expect(candidateEligible(roundupDocument, videoCluster)).toBe(false);
+  });
 });

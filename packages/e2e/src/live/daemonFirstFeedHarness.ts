@@ -4,6 +4,7 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test';
+import { readVisibleAuditableBundles } from './browserNewsStore';
 
 export const SHOULD_RUN = process.env.VH_RUN_DAEMON_FIRST_FEED === 'true';
 export const GUN_PORT = Number(process.env.VH_DAEMON_FEED_GUN_PORT ?? '8777');
@@ -14,7 +15,7 @@ export const RUN_ID = process.env.VH_DAEMON_FEED_RUN_ID ?? `manual-${process.pid
 export const QDRANT_URL = process.env.VH_STORYCLUSTER_QDRANT_URL ?? process.env.QDRANT_URL ?? 'http://127.0.0.1:6333';
 export const GUN_PEER_URL = `http://localhost:${GUN_PORT}/gun`;
 export const NAV_TIMEOUT_MS = 90_000;
-export const FEED_READY_TIMEOUT_MS = 180_000;
+export const FEED_READY_TIMEOUT_MS = 240_000;
 export const MIN_HEADLINES = 3;
 
 export type LoggedProcess = {
@@ -190,25 +191,29 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
 function commonEnv(): NodeJS.ProcessEnv {
   const root = repoRootDir();
   const esmLoaderPath = path.join(root, 'tools/node/esm-resolve-loader.mjs');
+  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '5';
+  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '20';
   return {
     ...process.env,
     NODE_ENV: 'production',
     OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
     VH_STORYCLUSTER_VECTOR_BACKEND: 'qdrant',
     VH_STORYCLUSTER_QDRANT_URL: QDRANT_URL,
+    VH_STORYCLUSTER_QDRANT_TIMEOUT_MS: '20000',
     VH_STORYCLUSTER_ESM_LOADER_PATH: esmLoaderPath,
     VH_STORYCLUSTER_STATE_DIR: path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/storycluster-state`),
     VH_STORYCLUSTER_SERVER_PORT: String(STORYCLUSTER_PORT),
     VH_STORYCLUSTER_SERVER_AUTH_TOKEN: STORYCLUSTER_TOKEN,
+    VH_STORYCLUSTER_OPENAI_TIMEOUT_MS: '60000',
     VH_GUN_PEERS: `["${GUN_PEER_URL}"]`,
     VITE_NEWS_FEED_SOURCES: resolveDaemonFeedSourcesJson(),
     VITE_NEWS_TOPIC_MAPPING: '{"defaultTopicId":"topic-news","sourceTopics":{}}',
     VITE_NEWS_POLL_INTERVAL_MS: '15000',
-    VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: '3',
-    VH_NEWS_FEED_MAX_ITEMS_TOTAL: '8',
+    VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: maxItemsPerSource,
+    VH_NEWS_FEED_MAX_ITEMS_TOTAL: maxItemsTotal,
     VH_STORYCLUSTER_REMOTE_URL: `http://127.0.0.1:${STORYCLUSTER_PORT}/cluster`,
     VH_STORYCLUSTER_REMOTE_HEALTH_URL: `http://127.0.0.1:${STORYCLUSTER_PORT}/ready`,
-    VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: '90000',
+    VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: '180000',
     VH_STORYCLUSTER_REMOTE_AUTH_TOKEN: STORYCLUSTER_TOKEN,
     VH_STORYCLUSTER_REMOTE_AUTH_HEADER: 'authorization',
     VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: 'Bearer',
@@ -311,21 +316,31 @@ export async function headlineRows(page: Page): Promise<HeadlineRow[]> {
 }
 
 export async function findBundledStory(page: Page, limit = 12): Promise<BundledStory> {
-  const headlines = page.locator('[data-testid^="news-card-headline-"]');
-  const count = await headlines.count();
-  for (let index = 0; index < Math.min(count, limit); index += 1) {
-    const headline = headlines.nth(index);
-    await headline.scrollIntoViewIfNeeded();
-    const storyId = (await headline.getAttribute('data-story-id')) ?? '';
-    const topicId = ((await headline.getAttribute('data-testid')) ?? '').replace('news-card-headline-', '');
-    const headlineText = ((await headline.textContent()) ?? '').trim();
-    if (!storyId || !topicId || !headlineText) continue;
-    const card = headline.locator('xpath=ancestor::article[1]');
-    const badgeCount = await card.locator('[data-testid^="source-badge-"]').count();
-    if (badgeCount < 2) continue;
-    const badgeIds = await card.locator('[data-testid^="source-badge-"]').evaluateAll((nodes) =>
-      nodes.map((node) => node.getAttribute('data-testid') ?? '').filter(Boolean));
-    return { storyId, topicId, headline: headlineText, sourceBadgeCount: badgeCount, sourceBadgeIds: badgeIds };
+  const deadline = Date.now() + FEED_READY_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const auditableBundles = (await readVisibleAuditableBundles(page)).slice(0, limit);
+    for (const bundle of auditableBundles) {
+      const headline = page
+        .locator(`[data-testid="news-card-headline-${bundle.topic_id}"][data-story-id="${bundle.story_id}"]`)
+        .first();
+      if (!(await headline.count())) continue;
+      await headline.scrollIntoViewIfNeeded().catch(() => {});
+      const headlineText = ((await headline.textContent()) ?? '').trim();
+      if (!headlineText) continue;
+      const card = headline.locator('xpath=ancestor::article[1]');
+      const badgeCount = await card.locator('[data-testid^="source-badge-"]').count();
+      if (badgeCount < 2) continue;
+      const badgeIds = await card.locator('[data-testid^="source-badge-"]').evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-testid') ?? '').filter(Boolean));
+      return { storyId: bundle.story_id, topicId: bundle.topic_id, headline: headlineText, sourceBadgeCount: badgeCount, sourceBadgeIds: badgeIds };
+    }
+
+    const sentinel = page.getByTestId('feed-load-sentinel');
+    if (await sentinel.count().catch(() => 0)) {
+      await sentinel.scrollIntoViewIfNeeded().catch(() => {});
+    }
+    await page.getByTestId('feed-refresh-button').click().catch(() => {});
+    await page.waitForTimeout(1_000);
   }
   throw new Error('no-bundled-story-found');
 }

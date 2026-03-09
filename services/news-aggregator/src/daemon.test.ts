@@ -192,6 +192,7 @@ describe('news aggregator daemon', () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();
     const timers = makeTimerControls();
+    let nowMs = Date.now();
 
     const startRuntime = vi.fn(() => runtimeHandle);
     const readLease = vi
@@ -205,6 +206,7 @@ describe('news aggregator daemon', () => {
       );
     const writeLease = vi.fn(async () => makeLease());
     const writeBundle = vi.fn().mockResolvedValue(undefined);
+    const removeBundle = vi.fn().mockResolvedValue(undefined);
 
     const daemon = createNewsAggregatorDaemon({
       client: { id: 'client-2' } as VennClient,
@@ -214,19 +216,76 @@ describe('news aggregator daemon', () => {
       readLease,
       writeLease,
       writeBundle,
+      removeBundle,
       logger,
       setIntervalFn: timers.setIntervalFn,
       clearIntervalFn: timers.clearIntervalFn,
       leaseHolderId: 'vh-news-daemon:test',
+      now: () => nowMs,
     });
 
     await daemon.start();
+    nowMs += 6_000;
 
     const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
     await expect(runtimeConfig.writeStoryBundle?.({ id: 'client-2' }, { story_id: 'story-1' } as any)).rejects.toThrow(
       'news daemon lease not held',
     );
     expect(writeBundle).not.toHaveBeenCalled();
+    await expect(runtimeConfig.removeStoryBundle?.({ id: 'client-2' }, 'story-1')).rejects.toThrow(
+      'news daemon lease not held',
+    );
+    expect(removeBundle).not.toHaveBeenCalled();
+
+    await daemon.stop();
+  });
+
+  it('uses the recently written local lease for immediate publish and stale-removal calls', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    let nowMs = 1_700_000_000_000;
+
+    const heldLease = makeLease({
+      holder_id: 'vh-news-daemon:test',
+      acquired_at: nowMs,
+      heartbeat_at: nowMs,
+      expires_at: nowMs + 60_000,
+    });
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null);
+    const writeLease = vi.fn(async () => heldLease);
+    const writeBundle = vi.fn().mockResolvedValue(undefined);
+    const removeBundle = vi.fn().mockResolvedValue(undefined);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-cached' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      removeBundle,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+      now: () => nowMs,
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    await expect(
+      runtimeConfig.writeStoryBundle?.({ id: 'client-cached' }, { story_id: 'story-1' } as any),
+    ).resolves.toBeUndefined();
+    await expect(runtimeConfig.removeStoryBundle?.({ id: 'client-cached' }, 'story-1')).resolves.toBeUndefined();
+
+    expect(readLease).toHaveBeenCalledTimes(1);
+    expect(writeBundle).toHaveBeenCalledTimes(1);
+    expect(removeBundle).toHaveBeenCalledTimes(1);
 
     await daemon.stop();
   });

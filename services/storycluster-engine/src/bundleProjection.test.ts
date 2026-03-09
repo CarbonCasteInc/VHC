@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { projectBundleSources } from './bundleProjection';
-import type { StoredSourceDocument } from './stageState';
+import { projectBundleSources, projectStoryBundles } from './bundleProjection';
+import type { ClusterBucket, StoredClusterRecord, StoredSourceDocument } from './stageState';
 
 function makeSource(overrides: Partial<StoredSourceDocument> = {}): StoredSourceDocument {
   return {
@@ -189,5 +189,105 @@ describe('bundleProjection', () => {
     expect(projected.primary_sources[0]?.source_id).toBe('wire-a');
     expect(projected.primary_sources[0]?.title).toBe('Bravo bulletin');
     expect(projected.secondary_assets.map((source) => source.title)).toEqual(['Alpha bulletin']);
+  });
+
+  it('does not promote related-only coverage to primary sources', () => {
+    const projected = projectBundleSources([
+      makeSource({
+        source_key: 'guardian-us:hash-roundup',
+        source_id: 'guardian-us',
+        url_hash: 'hash-roundup',
+        title: 'Trump news at a glance: latest Iran developments',
+        url: 'https://example.com/roundup',
+        canonical_url: 'https://example.com/roundup',
+        doc_type: 'explainer_recap',
+        coverage_role: 'related',
+        published_at: 200,
+      }),
+      makeSource({
+        source_key: 'cbs-politics:hash-video',
+        source_id: 'cbs-politics',
+        publisher: 'CBS News',
+        url_hash: 'hash-video',
+        title: 'Video: Armed opposition group says camp hit by drone strike',
+        url: 'https://example.com/video',
+        canonical_url: 'https://example.com/video',
+        doc_type: 'video_clip',
+        coverage_role: 'related',
+        published_at: 150,
+      }),
+    ]);
+
+    expect(projected.primary_sources).toEqual([]);
+    expect(projected.sources).toEqual([]);
+    expect(projected.secondary_assets.map((source) => source.title)).toEqual([
+      'Video: Armed opposition group says camp hit by drone strike',
+      'Trump news at a glance: latest Iran developments',
+    ]);
+  });
+
+  it('omits related-only clusters from published StoryBundles', () => {
+    const relatedOnlyRecord: StoredClusterRecord = {
+      story_id: 'story-related-only',
+      topic_key: 'topic-news',
+      created_at: 100,
+      updated_at: 110,
+      cluster_window_start: 100,
+      cluster_window_end: 110,
+      headline: 'Roundup headline',
+      summary_hint: 'Roundup summary',
+      primary_language: 'en',
+      translation_applied: false,
+      semantic_signature: 'sig-related',
+      entity_scores: { iran: 2 },
+      location_scores: { iran: 1 },
+      trigger_scores: {},
+      document_type_counts: {
+        breaking_update: 0,
+        wire_report: 0,
+        hard_news: 0,
+        video_clip: 1,
+        liveblog: 0,
+        analysis: 0,
+        opinion: 0,
+        explainer_recap: 1,
+      },
+      centroid_coarse: [1, 0],
+      centroid_full: [1, 0],
+      source_documents: [
+        makeSource({
+          source_key: 'guardian-us:hash-roundup',
+          source_id: 'guardian-us',
+          url_hash: 'hash-roundup',
+          title: 'Trump news at a glance: latest Iran developments',
+          url: 'https://example.com/roundup',
+          canonical_url: 'https://example.com/roundup',
+          doc_type: 'explainer_recap',
+          coverage_role: 'related',
+        }),
+        makeSource({
+          source_key: 'cbs-politics:hash-video',
+          source_id: 'cbs-politics',
+          publisher: 'CBS News',
+          url_hash: 'hash-video',
+          title: 'Video: Armed opposition group says camp hit by drone strike',
+          url: 'https://example.com/video',
+          canonical_url: 'https://example.com/video',
+          doc_type: 'video_clip',
+          coverage_role: 'related',
+        }),
+      ],
+      lineage: {
+        merged_from: [],
+      },
+    };
+
+    const bundles = projectStoryBundles('topic-news', [{
+      key: relatedOnlyRecord.story_id,
+      record: relatedOnlyRecord,
+      docs: [],
+    } satisfies ClusterBucket]);
+
+    expect(bundles).toEqual([]);
   });
 });

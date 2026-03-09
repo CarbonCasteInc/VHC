@@ -131,6 +131,56 @@ export const STORYCLUSTER_FIXTURE_DATASETS: StoryClusterCoherenceAuditDataset[] 
       }),
     ],
   },
+  {
+    dataset_id: 'fixture-verified-trump-iran-posture-separation',
+    topic_id: 'fixture-verified-trump-iran-posture-separation',
+    items: [
+      makeBenchmarkItem(
+        'trump_starmer_bases_call',
+        'guardian-starmer-call',
+        'Trump tells Starmer help not needed even as US uses UK bases for Iran strikes',
+        'iran4',
+        1_711_300_000_000,
+        {
+          publisher: 'Guardian',
+          entity_keys: ['trump_starmer_bases_call', 'donald_trump', 'keir_starmer', 'uk_bases', 'iran'],
+        },
+      ),
+      makeBenchmarkItem(
+        'trump_starmer_bases_call',
+        'wire-starmer-followup',
+        'Trump tells Starmer Britain need not join Iran campaign as US uses UK bases',
+        'iran5',
+        1_711_300_030_000,
+        {
+          publisher: 'WIRE-UK',
+          entity_keys: ['trump_starmer_bases_call', 'donald_trump', 'keir_starmer', 'uk_bases', 'iran'],
+        },
+      ),
+      makeBenchmarkItem(
+        'trump_troops_option',
+        'nypost-troops-option',
+        "Trump doesn't rule out sending American troops to Iran",
+        'iran6',
+        1_711_300_060_000,
+        {
+          publisher: 'New York Post',
+          entity_keys: ['trump_troops_option', 'donald_trump', 'american_troops', 'iran'],
+        },
+      ),
+      makeBenchmarkItem(
+        'trump_troops_option',
+        'wire-troops-followup',
+        'White House says Trump has not ruled out sending US troops to Iran',
+        'iran7',
+        1_711_300_090_000,
+        {
+          publisher: 'WIRE-US',
+          entity_keys: ['trump_troops_option', 'donald_trump', 'american_troops', 'iran'],
+        },
+      ),
+    ],
+  },
 ];
 
 export const STORYCLUSTER_FIXTURE_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairExpectation[] = [
@@ -168,5 +218,26 @@ export const STORYCLUSTER_FIXTURE_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairEx
     left_source_id: 'cbs-drone-strike',
     right_source_id: 'wire-drone-followup',
     expected_label: 'same_incident',
+  },
+  {
+    case_id: 'verified-trump-iran-posture-separation',
+    dataset_id: 'fixture-verified-trump-iran-posture-separation',
+    left_source_id: 'guardian-starmer-call',
+    right_source_id: 'nypost-troops-option',
+    expected_label: 'related_topic_only',
+  },
+  {
+    case_id: 'verified-trump-starmer-followup-bundle',
+    dataset_id: 'fixture-verified-trump-iran-posture-separation',
+    left_source_id: 'guardian-starmer-call',
+    right_source_id: 'wire-starmer-followup',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'verified-trump-troops-followup-bundle',
+    dataset_id: 'fixture-verified-trump-iran-posture-separation',
+    left_source_id: 'nypost-troops-option',
+    right_source_id: 'wire-troops-followup',
+    expected_label: 'same_developing_episode',
   },
 ];

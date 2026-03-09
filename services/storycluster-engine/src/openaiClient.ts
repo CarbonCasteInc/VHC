@@ -20,6 +20,7 @@ export interface OpenAIClientOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_RETRIES = 2;
 const CHAT_COMPLETIONS_PATH = '/chat/completions';
 const EMBEDDINGS_PATH = '/embeddings';
 
@@ -61,6 +62,22 @@ function resolveTokenParam(model: string): 'max_completion_tokens' | 'max_tokens
   return /^(gpt-5|o1|o3)/i.test(model) ? 'max_completion_tokens' : 'max_tokens';
 }
 
+function retryBackoffMs(attempt: number): number {
+  return 250 * (attempt + 1);
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+function isRetryableFetchError(error: unknown): boolean {
+  return error instanceof TypeError || (error instanceof Error && error.message.includes('fetch failed'));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function parseJsonResponse(response: Response): Promise<unknown> {
   try {
     return await response.json();
@@ -97,97 +114,124 @@ export class OpenAIClient {
   }
 
   async chatJson<T>(options: ChatJsonOptions): Promise<T> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    const tokenParam = resolveTokenParam(options.model);
+    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    try {
-      const tokenParam = resolveTokenParam(options.model);
-      const response = await this.fetchFn(`${this.baseUrl}${CHAT_COMPLETIONS_PATH}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: options.model,
-          messages: [
-            { role: 'system', content: options.system },
-            { role: 'user', content: options.user },
-          ],
-          temperature: options.temperature ?? 0,
-          [tokenParam]: options.maxTokens ?? 2_000,
-          response_format: { type: 'json_object' },
-        }),
-        signal: controller.signal,
-      });
+      try {
+        const response = await this.fetchFn(`${this.baseUrl}${CHAT_COMPLETIONS_PATH}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: options.model,
+            messages: [
+              { role: 'system', content: options.system },
+              { role: 'user', content: options.user },
+            ],
+            temperature: options.temperature ?? 0,
+            [tokenParam]: options.maxTokens ?? 2_000,
+            response_format: { type: 'json_object' },
+          }),
+          signal: controller.signal,
+        });
 
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new Error(`OpenAI chat request failed: HTTP ${response.status} ${text.slice(0, 240)}`);
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          if (attempt < DEFAULT_MAX_RETRIES && isRetryableStatus(response.status)) {
+            clearTimeout(timer);
+            await sleep(retryBackoffMs(attempt));
+            continue;
+          }
+          clearTimeout(timer);
+          throw new Error(`OpenAI chat request failed: HTTP ${response.status} ${text.slice(0, 240)}`);
+        }
+
+        const result = extractJsonContent(await parseJsonResponse(response)) as T;
+        clearTimeout(timer);
+        return result;
+      } catch (error) {
+        clearTimeout(timer);
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error(`OpenAI chat request timed out after ${this.timeoutMs}ms`);
+        }
+        if (attempt < DEFAULT_MAX_RETRIES && isRetryableFetchError(error)) {
+          await sleep(retryBackoffMs(attempt));
+          continue;
+        }
+        throw error;
       }
-
-      const result = extractJsonContent(await parseJsonResponse(response)) as T;
-      clearTimeout(timer);
-      return result;
-    } catch (error) {
-      clearTimeout(timer);
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`OpenAI chat request timed out after ${this.timeoutMs}ms`);
-      }
-      throw error;
     }
+    throw new Error('unreachable-openai-chat-retry-exhausted');
   }
 
   async embed(options: EmbeddingOptions): Promise<number[][]> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.timeoutMs);
+    for (let attempt = 0; attempt <= DEFAULT_MAX_RETRIES; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
-    try {
-      const response = await this.fetchFn(`${this.baseUrl}${EMBEDDINGS_PATH}`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: options.model,
-          input: options.texts,
-          dimensions: options.dimensions,
-          encoding_format: 'float',
-        }),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const text = await response.text().catch(() => '');
-        throw new Error(`OpenAI embedding request failed: HTTP ${response.status} ${text.slice(0, 240)}`);
-      }
-
-      const payload = await parseJsonResponse(response) as { data?: Array<{ embedding?: unknown }> };
-      const vectors = payload.data?.map((entry, index) => {
-        if (!Array.isArray(entry.embedding)) {
-          throw new Error(`OpenAI embedding response missing vector at index ${index}`);
-        }
-        return entry.embedding.map((value, valueIndex) => {
-          if (typeof value !== 'number' || !Number.isFinite(value)) {
-            throw new Error(`OpenAI embedding vector contains invalid value at ${index}:${valueIndex}`);
-          }
-          return Number(value);
+      try {
+        const response = await this.fetchFn(`${this.baseUrl}${EMBEDDINGS_PATH}`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${this.apiKey}`,
+          },
+          body: JSON.stringify({
+            model: options.model,
+            input: options.texts,
+            dimensions: options.dimensions,
+            encoding_format: 'float',
+          }),
+          signal: controller.signal,
         });
-      });
 
-      if (!vectors || vectors.length !== options.texts.length) {
-        throw new Error('OpenAI embedding response length mismatch');
-      }
+        if (!response.ok) {
+          const text = await response.text().catch(() => '');
+          if (attempt < DEFAULT_MAX_RETRIES && isRetryableStatus(response.status)) {
+            clearTimeout(timer);
+            await sleep(retryBackoffMs(attempt));
+            continue;
+          }
+          clearTimeout(timer);
+          throw new Error(`OpenAI embedding request failed: HTTP ${response.status} ${text.slice(0, 240)}`);
+        }
 
-      clearTimeout(timer);
-      return vectors;
-    } catch (error) {
-      clearTimeout(timer);
-      if (error instanceof Error && error.name === 'AbortError') {
-        throw new Error(`OpenAI embedding request timed out after ${this.timeoutMs}ms`);
+        const payload = await parseJsonResponse(response) as { data?: Array<{ embedding?: unknown }> };
+        const vectors = payload.data?.map((entry, index) => {
+          if (!Array.isArray(entry.embedding)) {
+            throw new Error(`OpenAI embedding response missing vector at index ${index}`);
+          }
+          return entry.embedding.map((value, valueIndex) => {
+            if (typeof value !== 'number' || !Number.isFinite(value)) {
+              throw new Error(`OpenAI embedding vector contains invalid value at ${index}:${valueIndex}`);
+            }
+            return Number(value);
+          });
+        });
+
+        if (!vectors || vectors.length !== options.texts.length) {
+          clearTimeout(timer);
+          throw new Error('OpenAI embedding response length mismatch');
+        }
+
+        clearTimeout(timer);
+        return vectors;
+      } catch (error) {
+        clearTimeout(timer);
+        if (error instanceof Error && error.name === 'AbortError') {
+          throw new Error(`OpenAI embedding request timed out after ${this.timeoutMs}ms`);
+        }
+        if (attempt < DEFAULT_MAX_RETRIES && isRetryableFetchError(error)) {
+          await sleep(retryBackoffMs(attempt));
+          continue;
+        }
+        throw error;
       }
-      throw error;
     }
+    throw new Error('unreachable-openai-embed-retry-exhausted');
   }
 }

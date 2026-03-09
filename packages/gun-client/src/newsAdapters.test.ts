@@ -28,6 +28,10 @@ import {
   readNewsLatestIndex,
   readNewsRemoval,
   readNewsStory,
+  removeNewsBundle,
+  removeNewsHotIndexEntry,
+  removeNewsLatestIndexEntry,
+  removeNewsStory,
   writeNewsBundle,
   writeNewsHotIndexEntry,
   writeNewsIngestionLease,
@@ -41,6 +45,7 @@ interface FakeMesh {
   setRead: (path: string, value: unknown) => void;
   setReadHang: (path: string) => void;
   setReadDelay: (path: string, delayMs: number) => void;
+  setOnSequence: (path: string, values: Array<{ value: unknown; delayMs?: number }>) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
   setPutDoubleAck: (path: string) => void;
@@ -50,6 +55,7 @@ function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
   const readHangs = new Set<string>();
   const readDelays = new Map<string, number>();
+  const onSequences = new Map<string, Array<{ value: unknown; delayMs?: number }>>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
   const putDoubleAcks = new Set<string>();
@@ -71,6 +77,33 @@ function createFakeMesh(): FakeMesh {
         }
         cb?.(reads.get(path));
       }),
+      on: vi.fn((cb?: (data: unknown, key?: string) => void) => {
+        const sequence = onSequences.get(path);
+        if (!cb) {
+          return;
+        }
+        if (!sequence) {
+          if (readHangs.has(path)) {
+            return;
+          }
+          const readDelayMs = readDelays.get(path);
+          if (typeof readDelayMs === 'number' && readDelayMs > 0) {
+            setTimeout(() => {
+              cb(reads.get(path), segments[segments.length - 1]);
+            }, readDelayMs);
+            return;
+          }
+          cb(reads.get(path), segments[segments.length - 1]);
+          return;
+        }
+        for (const entry of sequence) {
+          const delayMs = entry.delayMs ?? 0;
+          setTimeout(() => {
+            cb(entry.value, segments[segments.length - 1]);
+          }, delayMs);
+        }
+      }),
+      off: vi.fn(),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         if (putHangs.has(path)) {
@@ -98,6 +131,9 @@ function createFakeMesh(): FakeMesh {
     },
     setReadDelay(path: string, delayMs: number) {
       readDelays.set(path, delayMs);
+    },
+    setOnSequence(path: string, values: Array<{ value: unknown; delayMs?: number }>) {
+      onSequences.set(path, values);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -227,6 +263,52 @@ describe('newsAdapters', () => {
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
     ).toEqual(STORY);
+  });
+
+  it('removeNewsStory clears a story node', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await removeNewsStory(client, 'story-123');
+
+    expect(mesh.writes).toEqual([
+      { path: 'news/stories', value: { 'story-123': null } },
+      { path: 'news/stories/story-123', value: null },
+    ]);
+  });
+
+  it('removeNewsLatestIndexEntry and removeNewsHotIndexEntry clear index entries', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await removeNewsLatestIndexEntry(client, 'story-123');
+    await removeNewsHotIndexEntry(client, 'story-123');
+
+    expect(mesh.writes).toEqual([
+      { path: 'news/index/latest', value: { 'story-123': null } },
+      { path: 'news/index/latest/story-123', value: null },
+      { path: 'news/index/hot', value: { 'story-123': null } },
+      { path: 'news/index/hot/story-123', value: null },
+    ]);
+  });
+
+  it('removeNewsBundle clears story and both indexes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await removeNewsBundle(client, 'story-123');
+
+    expect(mesh.writes).toEqual([
+      { path: 'news/stories', value: { 'story-123': null } },
+      { path: 'news/stories/story-123', value: null },
+      { path: 'news/index/latest', value: { 'story-123': null } },
+      { path: 'news/index/latest/story-123', value: null },
+      { path: 'news/index/hot', value: { 'story-123': null } },
+      { path: 'news/index/hot/story-123', value: null },
+    ]);
   });
 
   it('writeNewsStory preserves created_at immutability expectation at adapter boundary', async () => {
@@ -567,6 +649,32 @@ describe('newsAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(readNewsLatestIndex(client)).resolves.toEqual({});
+  });
+
+  it('readNewsLatestIndex waits for settled root updates before parsing', async () => {
+    const mesh = createFakeMesh();
+    mesh.setOnSequence('news/index/latest', [
+      { value: { _: { '#': 'vh/news/index/latest', '>': { 'story-a': 123 } } } },
+      { value: { _: { '#': 'vh/news/index/latest', '>': { 'story-a': 123 } }, 'story-a': 123 }, delayMs: 25 },
+    ]);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({ 'story-a': 123 });
+  });
+
+  it('readNewsLatestIndex hydrates child entries from root metadata keys when the root payload is sparse', async () => {
+    const mesh = createFakeMesh();
+    mesh.setOnSequence('news/index/latest', [
+      { value: { _: { '#': 'vh/news/index/latest', '>': { 'story-a': 123 } } } },
+    ]);
+    mesh.setRead('news/index/latest/story-a', 123);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({ 'story-a': 123 });
   });
 
   it('readNewsHotIndex parses numeric/string/object payloads and drops invalid entries', async () => {

@@ -89,13 +89,24 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
     error: null,
     setStories: vi.fn(),
     upsertStory: vi.fn(),
+    removeStory: vi.fn((storyId: string) => {
+      state.stories = state.stories.filter((story) => story.story_id !== storyId);
+      delete (state.latestIndex as Record<string, number>)[storyId];
+      delete (state.hotIndex as Record<string, number>)[storyId];
+    }),
     setLatestIndex: vi.fn(),
     upsertLatestIndex: vi.fn((storyId: string, latestActivityAt: number) => {
       (state.latestIndex as Record<string, number>)[storyId] = latestActivityAt;
     }),
+    removeLatestIndex: vi.fn((storyId: string) => {
+      delete (state.latestIndex as Record<string, number>)[storyId];
+    }),
     setHotIndex: vi.fn(),
     upsertHotIndex: vi.fn((storyId: string, hotness: number) => {
       (state.hotIndex as Record<string, number>)[storyId] = hotness;
+    }),
+    removeHotIndex: vi.fn((storyId: string) => {
+      delete (state.hotIndex as Record<string, number>)[storyId];
     }),
     refreshLatest: vi.fn(),
     startHydration: vi.fn(),
@@ -181,6 +192,45 @@ describe('hydrateNewsStore', () => {
 
     storyChain.emit(story({ story_id: 's1', created_at: 999, cluster_window_end: 888 }), 's1');
     expect(state.upsertLatestIndex).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes stories when Gun clears the story node', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore({ s1: 100 });
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(null, 's1');
+
+    expect(state.removeStory).toHaveBeenCalledWith('s1');
+  });
+
+  it('removes cleared latest/hot index entries', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore({ s1: 100 });
+    (state.hotIndex as Record<string, number>).s1 = 0.9;
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    latestChain.emit(null, 's1');
+    hotChain.emit(null, 's1');
+
+    expect(state.removeLatestIndex).toHaveBeenCalledWith('s1');
+    expect(state.removeHotIndex).toHaveBeenCalledWith('s1');
   });
 
   it('prefers StoryBundle.story_id over Gun map key when backfilling latest index', async () => {

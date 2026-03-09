@@ -1,0 +1,15 @@
+export const LOW_SIGNAL_CANONICAL_ENTITIES = new Set([
+  'donald_trump',
+  'iran',
+  'united_states',
+  'united_kingdom',
+  'uk',
+  'us',
+  'israel',
+  'russia',
+  'ukraine',
+  'gaza',
+  'tehran',
+  'washington',
+  'london',
+]);

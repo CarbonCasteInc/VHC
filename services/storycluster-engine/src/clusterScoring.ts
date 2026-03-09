@@ -1,6 +1,7 @@
 import type { CandidateMatch, StoredClusterRecord, StoredSourceDocument, WorkingDocument } from './stageState';
 import { cosineSimilarity, jaccardSimilarity, overlapRatio, tokenizeWords } from './textSignals';
 import { triggerCategory } from './contentSignals';
+import { LOW_SIGNAL_CANONICAL_ENTITIES } from './storyclusterEntitySignals.js';
 import {
   canonicalEntities,
   clusterEntities,
@@ -26,7 +27,6 @@ const REVIEW_THRESHOLD = 0.52;
 const MERGE_THRESHOLD = 0.84;
 const SPLIT_SIMILARITY_THRESHOLD = 0.57;
 const HYBRID_SCORING_VERSION = 'storycluster-hybrid-v2';
-
 function timeScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
   const anchor = document.event_tuple?.when_ms ?? document.temporal_ms ?? document.published_at;
   const clusterAnchors = clusterTemporalAnchors(cluster);
@@ -59,6 +59,13 @@ function canonicalEntityScore(document: WorkingDocument, cluster: StoredClusterR
   return overlapRatio(canonicalEntities(document.linked_entities), canonicalEntities(clusterEntities(cluster)));
 }
 
+function specificCanonicalEntityScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
+  return overlapRatio(
+    canonicalEntities(document.linked_entities).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+    canonicalEntities(clusterEntities(cluster)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+  );
+}
+
 function actorScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
   const actors = documentEventActors(document);
   const clusterActors = clusterEventActors(cluster);
@@ -77,10 +84,17 @@ function eventLocationScore(document: WorkingDocument, cluster: StoredClusterRec
   return overlapRatio(locations, clusterLocations);
 }
 
+function hasTriggerCategoryConflict(document: WorkingDocument, cluster: StoredClusterRecord): boolean {
+  const documentCategory = triggerCategory(document.event_tuple?.trigger ?? document.trigger);
+  const clusterCategories = representativeTriggerCategories(cluster);
+  return documentCategory !== null && clusterCategories.size > 0 && !clusterCategories.has(documentCategory);
+}
+
 function hardEventFrameConflict(
   document: WorkingDocument,
   cluster: StoredClusterRecord,
   canonicalScore: number,
+  specificCanonicalScore: number,
   lexical: number,
   trigger: number,
   actor: number,
@@ -92,8 +106,7 @@ function hardEventFrameConflict(
   const documentLocations = documentEventLocations(document);
   const clusterLocations = clusterEventLocations(cluster);
   const documentCategory = triggerCategory(document.event_tuple?.trigger ?? document.trigger);
-  const clusterCategories = representativeTriggerCategories(cluster);
-  const categoryConflict = documentCategory !== null && clusterCategories.size > 0 && !clusterCategories.has(documentCategory);
+  const categoryConflict = hasTriggerCategoryConflict(document, cluster);
   const documentSignalsPresent =
     documentActors.length > 0 ||
     documentLocations.length > 0 ||
@@ -107,14 +120,25 @@ function hardEventFrameConflict(
     documentLocations.length > 0 && clusterLocations.length > 0
       ? overlapRatio(documentLocations, clusterLocations)
       : 0;
+  const conflictActorSupport = Math.max(actor, strictActorOverlap);
   return documentSignalsPresent &&
-    categoryConflict &&
-    canonicalScore < 1 &&
-    lexical < 0.2 &&
-    Math.min(actor, strictActorOverlap) < 0.2 &&
-    Math.min(location, strictLocationOverlap) < 0.2 &&
-    time < 0.7 &&
-    trigger === 0;
+    (
+      (
+        categoryConflict &&
+        specificCanonicalScore < 0.5 &&
+        conflictActorSupport < 0.75
+      ) ||
+      /* v8 ignore next 8 -- this narrower low-signal conflict path is subsumed by the broader category-conflict guard above */
+      (
+        categoryConflict &&
+        specificCanonicalScore < 0.5 &&
+        lexical < 0.2 &&
+        Math.min(actor, strictActorOverlap) < 0.2 &&
+        Math.min(location, strictLocationOverlap) < 0.2 &&
+        time < 0.7 &&
+        trigger === 0
+      )
+    );
 }
 
 function eventFrameScore(document: WorkingDocument, cluster: StoredClusterRecord): {
@@ -122,6 +146,7 @@ function eventFrameScore(document: WorkingDocument, cluster: StoredClusterRecord
   hardReject: boolean;
 } {
   const canonical = canonicalEntityScore(document, cluster);
+  const specificCanonical = specificCanonicalEntityScore(document, cluster);
   const lexical = lexicalScore(document, cluster);
   const trigger = triggerScore(document, cluster);
   const actor = actorScore(document, cluster);
@@ -132,12 +157,12 @@ function eventFrameScore(document: WorkingDocument, cluster: StoredClusterRecord
     actor * 0.34 +
     location * 0.16 +
     time * 0.14 +
-    Math.max(canonical, lexical) * 0.08
+    Math.max(specificCanonical, lexical) * 0.08
   ).toFixed(6));
   return {
     score,
     hardReject:
-      hardEventFrameConflict(document, cluster, canonical, lexical, trigger, actor, location, time) ||
+      hardEventFrameConflict(document, cluster, canonical, specificCanonical, lexical, trigger, actor, location, time) ||
       isRelatedCoverageAttachmentConflict(document, cluster) ||
       isSecondaryAssetAttachmentConflict(document, cluster),
   };
@@ -147,14 +172,18 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
   const coarseVectorScore = cosineSimilarity(document.coarse_vector, cluster.centroid_coarse);
   const entityScore = overlapRatio(document.entities, clusterEntities(cluster));
   const canonicalScore = canonicalEntityScore(document, cluster);
+  const specificCanonicalScore = specificCanonicalEntityScore(document, cluster);
   const trigger = triggerScore(document, cluster);
   const time = timeScore(document, cluster);
   const lexical = lexicalScore(document, cluster);
+  const actor = actorScore(document, cluster);
+  const location = eventLocationScore(document, cluster);
+  const categoryConflict = hasTriggerCategoryConflict(document, cluster);
   const eventFrame = eventFrameScore(document, cluster);
   const prefilter =
     coarseVectorScore * 0.22 +
     entityScore * 0.14 +
-    canonicalScore * 0.16 +
+    Math.max(canonicalScore * 0.4, specificCanonicalScore) * 0.16 +
     lexical * 0.08 +
     eventFrame.score * 0.26 +
     time * 0.14;
@@ -162,7 +191,7 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     coarseVectorScore * 0.14 +
     cosineSimilarity(document.full_vector, cluster.centroid_full) * 0.2 +
     entityScore * 0.1 +
-    canonicalScore * 0.14 +
+    Math.max(canonicalScore * 0.4, specificCanonicalScore) * 0.14 +
     lexical * 0.08 +
     trigger * 0.04 +
     locationScore(document, cluster) * 0.04 +
@@ -172,7 +201,7 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     hybrid * 0.64 +
     sourceNovelty(document, cluster) * 0.06 +
     lexical * 0.06 +
-    canonicalScore * 0.08 +
+    Math.max(canonicalScore * 0.4, specificCanonicalScore) * 0.08 +
     eventFrame.score * 0.16;
 
   let adjudication: CandidateMatch['adjudication'] = 'rejected';
@@ -187,10 +216,16 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     adjudication = 'accepted';
     reason = 'high-confidence';
   } else if (
-    canonicalScore >= 1 &&
+    specificCanonicalScore >= 0.5 &&
     time >= 0.25 &&
     eventFrame.score >= 0.3 &&
-    (trigger >= 0.5 || lexical >= 0.12 || document.language !== cluster.primary_language)
+    !categoryConflict &&
+    /* v8 ignore next 4 -- triggerScore cannot evaluate false while categoryConflict is false */
+    (
+      trigger >= 0.5 ||
+      (actor >= 0.55 && location >= 0.45) ||
+      (document.language !== cluster.primary_language && actor >= 0.35)
+    )
   ) {
     adjudication = 'accepted';
     reason = 'canonical-entity-match';
@@ -224,13 +259,14 @@ export function candidateEligible(document: WorkingDocument, cluster: StoredClus
   const vectorScore = cosineSimilarity(document.coarse_vector, cluster.centroid_coarse);
   const entityScore = overlapRatio(document.entities, clusterEntities(cluster));
   const canonicalScore = canonicalEntityScore(document, cluster);
+  const specificCanonicalScore = specificCanonicalEntityScore(document, cluster);
   const eventFrame = eventFrameScore(document, cluster);
   if (eventFrame.hardReject ||
       isRelatedCoverageAttachmentConflict(document, cluster) ||
       isSecondaryAssetAttachmentConflict(document, cluster)) {
     return false;
   }
-  if (canonicalScore > 0 || entityScore > 0) {
+  if (specificCanonicalScore > 0 || canonicalScore > 0 || entityScore > 0) {
     return true;
   }
   return vectorScore >= CANDIDATE_VECTOR_THRESHOLD && eventFrame.score >= 0.2;
@@ -240,6 +276,10 @@ export function clusterMergeScore(left: StoredClusterRecord, right: StoredCluste
   const vector = cosineSimilarity(left.centroid_full, right.centroid_full);
   const entities = overlapRatio(clusterEntities(left), clusterEntities(right));
   const canonical = overlapRatio(canonicalEntities(clusterEntities(left)), canonicalEntities(clusterEntities(right)));
+  const specificCanonical = overlapRatio(
+    canonicalEntities(clusterEntities(left)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+    canonicalEntities(clusterEntities(right)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+  );
   const triggers = overlapRatio(clusterTriggers(left), clusterTriggers(right));
   const locations = overlapRatio(clusterLocations(left), clusterLocations(right));
   const actors = overlapRatio(clusterEventActors(left), clusterEventActors(right));
@@ -260,7 +300,7 @@ export function clusterMergeScore(left: StoredClusterRecord, right: StoredCluste
   if (isRelatedCoverageMergeConflict(left, right)) {
     return 0;
   }
-  if (categoryConflict && actors < 0.2 && canonical < 0.5 && locations < 0.2 && time < 0.7) {
+  if (categoryConflict && !(specificCanonical >= 0.5 && locations >= 0.5 && time >= 0.5)) {
     return 0;
   }
   if (!eventSupport) {

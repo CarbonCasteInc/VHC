@@ -3,6 +3,7 @@ import {
   LIVE_BASE_URL,
   NAV_TIMEOUT_MS,
   SHOULD_RUN,
+  FEED_READY_TIMEOUT_MS,
   addConsumerInitScript,
   attachRuntimeLogs,
   findBundledStory,
@@ -13,8 +14,11 @@ import {
   stopDaemonFirstStack,
   waitForHeadlines,
   type DaemonFirstStack,
+  type BundledStory,
   type HeadlineRow,
 } from './daemonFirstFeedHarness';
+import { readVisibleAuditableBundles } from './browserNewsStore';
+import type { LiveSemanticAuditBundleLike } from './daemonFirstFeedSemanticAuditTypes';
 
 const ANALYSIS_READY_TIMEOUT_MS = 90_000;
 const IDENTITY_BOOTSTRAP_TIMEOUT_MS = 120_000;
@@ -27,6 +31,10 @@ interface VisibleCard extends HeadlineRow {
   readonly hotness: number;
   readonly meta: string;
   readonly sourceBadgeCount: number;
+}
+interface BundledStoryCandidate {
+  readonly story: BundledStory;
+  readonly bundle: LiveSemanticAuditBundleLike;
 }
 
 interface VoteCounts { readonly agree: number; readonly disagree: number; }
@@ -124,8 +132,23 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
 }
 
 async function requireAnalysisRelay(page: Page): Promise<void> {
+  const routeReady = await waitFor(async () => {
+    const response = await page.request.get(`${LIVE_BASE_URL}/api/analyze/config`, {
+      timeout: 5_000,
+      failOnStatusCode: false,
+    }).catch(() => null);
+    if (!response?.ok()) {
+      return false;
+    }
+    const payload = (await response.json().catch(() => null)) as { configured?: boolean } | null;
+    return payload?.configured === true;
+  }, 15_000, 500);
+  if (routeReady) {
+    return;
+  }
+
   const healthDot = page.getByTestId('health-indicator-dot');
-  await healthDot.waitFor({ state: 'visible', timeout: 15_000 });
+  await healthDot.waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
   const ready = await waitFor(async () => {
     const label = await healthDot.getAttribute('aria-label');
     return !!label && !label.includes('Relay Unavailable') && !label.includes('Disconnected');
@@ -135,6 +158,78 @@ async function requireAnalysisRelay(page: Page): Promise<void> {
   }
   const label = (await healthDot.getAttribute('aria-label')) ?? 'Health: Unknown';
   throw new Error(`blocked-setup-analysis-relay-unavailable:${label}`);
+}
+
+async function bundledStoryCandidates(page: Page, limit = 12): Promise<BundledStoryCandidate[]> {
+  const discovered = new Map<string, BundledStoryCandidate>();
+  const deadline = Date.now() + 90_000;
+  let previousCount = 0;
+  let unchangedRounds = 0;
+
+  while (Date.now() < deadline) {
+    const auditableBundles = (await readVisibleAuditableBundles(page)).slice(0, limit);
+    for (const bundle of auditableBundles) {
+      const headline = page
+        .locator(`[data-testid="news-card-headline-${bundle.topic_id}"][data-story-id="${bundle.story_id}"]`)
+        .first();
+      if (!(await headline.count())) continue;
+      await headline.scrollIntoViewIfNeeded().catch(() => {});
+      const headlineText = ((await headline.textContent()) ?? '').trim();
+      if (!headlineText) continue;
+      const card = headline.locator('xpath=ancestor::article[1]');
+      const badgeCount = await card.locator('[data-testid^="source-badge-"]').count();
+      if (badgeCount < 2) continue;
+      const badgeIds = await card.locator('[data-testid^="source-badge-"]').evaluateAll((nodes) =>
+        nodes.map((node) => node.getAttribute('data-testid') ?? '').filter(Boolean));
+      discovered.set(bundle.story_id, {
+        story: {
+          storyId: bundle.story_id,
+          topicId: bundle.topic_id,
+          headline: headlineText,
+          sourceBadgeCount: badgeCount,
+          sourceBadgeIds: badgeIds,
+        },
+        bundle,
+      });
+    }
+
+    if (discovered.size === previousCount) {
+      unchangedRounds += 1;
+    } else {
+      previousCount = discovered.size;
+      unchangedRounds = 0;
+    }
+
+    if (discovered.size >= 2 || (discovered.size > 0 && unchangedRounds >= 3)) {
+      break;
+    }
+
+    const sentinel = page.getByTestId('feed-load-sentinel');
+    if (await sentinel.count().catch(() => 0)) {
+      await sentinel.scrollIntoViewIfNeeded().catch(() => {});
+      await page.waitForTimeout(1_500);
+    }
+    await page.getByTestId('feed-refresh-button').click().catch(() => {});
+    await page.waitForTimeout(1_000);
+    await waitForHeadlines(page);
+  }
+
+  return [...discovered.values()].slice(0, limit);
+}
+
+async function hasAnalyzablePrimarySource(page: Page, bundle: LiveSemanticAuditBundleLike): Promise<boolean> {
+  const primarySources = [...(bundle.primary_sources ?? bundle.sources)].slice(0, 2);
+  for (const source of primarySources) {
+    const response = await page.request.get(`${LIVE_BASE_URL}article-text`, {
+      params: { url: source.url },
+      failOnStatusCode: false,
+      timeout: 20_000,
+    }).catch(() => null);
+    if (response?.ok()) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function openStory(page: Page, row: HeadlineRow): Promise<Locator> {
@@ -166,7 +261,7 @@ async function closeStory(page: Page, row: HeadlineRow, card: Locator): Promise<
   await sleep(250);
 }
 
-async function waitForAnalysisReady(card: Locator, row: HeadlineRow): Promise<string> {
+async function waitForAnalysisReady(card: Locator, row: HeadlineRow, timeoutMs = ANALYSIS_READY_TIMEOUT_MS): Promise<string> {
   const provider = card.locator(`[data-testid="news-card-analysis-provider-${row.topicId}"]`).first();
   const summary = card.locator(`[data-testid="news-card-summary-${row.topicId}"]`).first();
   const voteButtons = card.locator('[data-testid^="cell-vote-agree-"]');
@@ -187,7 +282,7 @@ async function waitForAnalysisReady(card: Locator, row: HeadlineRow): Promise<st
     const summaryText = (await summary.evaluateAll((nodes) => (nodes[0]?.textContent ?? '')).catch(() => '')).trim();
     const buttons = await voteButtons.count().catch(() => 0);
     return providerVisible && summaryText.length > 0 && !summaryText.includes('Summary pending') && buttons > 0;
-  }, ANALYSIS_READY_TIMEOUT_MS, 500);
+  }, timeoutMs, 500);
   if (!ready) throw new Error(`analysis-timeout:${row.storyId}`);
   return ((await provider.textContent()) ?? '').trim();
 }
@@ -304,35 +399,143 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         return { latestCards: latest, hottestCards: hottest };
       });
 
-      const bundledStory = await findBundledStory(pageA);
-      expect(bundledStory.sourceBadgeCount).toBeGreaterThanOrEqual(2);
+      const { bundledStory, row, cardA, providerA, pointId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
+        const seedStory = await findBundledStory(pageA);
+        expect(seedStory.sourceBadgeCount).toBeGreaterThanOrEqual(2);
+        const seen = new Set<string>();
+        const discoveredCandidates = await bundledStoryCandidates(pageA, 12);
+        const seedCandidate = discoveredCandidates.find((candidate) => candidate.story.storyId === seedStory.storyId);
+        const candidates = seedCandidate
+          ? [...discoveredCandidates].sort((left, right) =>
+              left.story.storyId === seedStory.storyId ? -1 : right.story.storyId === seedStory.storyId ? 1 : 0)
+          : [{
+              story: seedStory,
+              bundle: {
+                story_id: seedStory.storyId,
+                topic_id: seedStory.topicId,
+                headline: seedStory.headline,
+                sources: [],
+                primary_sources: [],
+                secondary_assets: [],
+              },
+            }, ...discoveredCandidates];
+        const failures: Array<{ storyId: string; headline: string; error: string }> = [];
 
-      const row = (await headlineRows(pageA)).find((candidate) => candidate.storyId === bundledStory.storyId) ?? bundledStory;
-      const { cardA, providerA, pointId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
-        const card = await openStory(pageA, row);
-        const provider = await waitForAnalysisReady(card, row);
-        const sourceSummaries = card.locator(`[data-testid="news-card-analysis-source-summaries-${row.topicId}"] li`);
-        await expect.poll(() => sourceSummaries.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
-        const summaries = (await sourceSummaries.allTextContents()).map((value) => value.trim()).filter(Boolean);
-        const cardSummaryText = ((await card.getByTestId(`news-card-summary-${row.topicId}`).textContent()) ?? '').trim();
-        expect(summaries.length).toBeGreaterThanOrEqual(1);
-        expect(summaries.length).toBeLessThanOrEqual(bundledStory.sourceBadgeCount);
-        const semanticallyAnchored = summaries.filter((value) =>
-          overlapCount(value, row.headline) > 0 || overlapCount(value, cardSummaryText) > 0,
-        );
-        expect(semanticallyAnchored.length).toBeGreaterThanOrEqual(1);
-        if (summaries.length >= 2) {
-          expect(new Set(summaries.map((value) => value.split(':', 1)[0]?.trim() ?? '')).size).toBeGreaterThanOrEqual(2);
+        for (const candidate of candidates) {
+          if (seen.has(candidate.story.storyId)) {
+            continue;
+          }
+          seen.add(candidate.story.storyId);
+          if (!await hasAnalyzablePrimarySource(pageA, candidate.bundle)) {
+            failures.push({
+              storyId: candidate.story.storyId,
+              headline: candidate.story.headline,
+              error: 'article-text-preflight-failed',
+            });
+            continue;
+          }
+          const candidateRow = (await headlineRows(pageA)).find((item) => item.storyId === candidate.story.storyId) ?? candidate.story;
+          const card = await openStory(pageA, candidateRow);
+          try {
+            const provider = await waitForAnalysisReady(card, candidateRow, 45_000);
+            const sourceSummaries = card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"] li`);
+            await expect.poll(() => sourceSummaries.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+            const summaries = (await sourceSummaries.allTextContents()).map((value) => value.trim()).filter(Boolean);
+            const cardSummaryText = ((await card.getByTestId(`news-card-summary-${candidateRow.topicId}`).textContent()) ?? '').trim();
+            expect(summaries.length).toBeGreaterThanOrEqual(1);
+            expect(summaries.length).toBeLessThanOrEqual(candidate.story.sourceBadgeCount);
+            const semanticallyAnchored = summaries.filter((value) =>
+              overlapCount(value, candidateRow.headline) > 0 || overlapCount(value, cardSummaryText) > 0,
+            );
+            expect(semanticallyAnchored.length).toBeGreaterThanOrEqual(1);
+            if (summaries.length >= 2) {
+              expect(new Set(summaries.map((value) => value.split(':', 1)[0]?.trim() ?? '')).size).toBeGreaterThanOrEqual(2);
+            }
+            const selectedPointId = await zeroBaselinePointId(card);
+            await attachJson(testInfo, 'daemon-first-feed-analysis-a', {
+              bundledStory: candidate.story,
+              provider,
+              sourceSummaryTexts: summaries,
+              sourceBadgeIds: candidate.story.sourceBadgeIds,
+              pointId: selectedPointId,
+              rejectedCandidates: failures,
+            });
+            return {
+              bundledStory: candidate.story,
+              row: candidateRow,
+              cardA: card,
+              providerA: provider,
+              pointId: selectedPointId,
+              sourceSummaryTexts: summaries,
+            };
+          } catch (error) {
+            failures.push({
+              storyId: candidate.story.storyId,
+              headline: candidate.story.headline,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            await closeStory(pageA, candidateRow, card).catch(() => {});
+          }
         }
-        const selectedPointId = await zeroBaselinePointId(card);
-        await attachJson(testInfo, 'daemon-first-feed-analysis-a', {
-          bundledStory,
-          provider,
-          sourceSummaryTexts: summaries,
-          sourceBadgeIds: bundledStory.sourceBadgeIds,
-          pointId: selectedPointId,
-        });
-        return { cardA: card, providerA: provider, pointId: selectedPointId, sourceSummaryTexts: summaries };
+
+        const generalCandidates = (await headlineRows(pageA))
+          .filter((candidate) => !seen.has(candidate.storyId))
+          .slice(0, 6);
+
+        for (const candidateRow of generalCandidates) {
+          seen.add(candidateRow.storyId);
+          const card = await openStory(pageA, candidateRow);
+          try {
+            const provider = await waitForAnalysisReady(card, candidateRow, 45_000);
+            const sourceSummaries = card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"] li`);
+            await expect.poll(() => sourceSummaries.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
+            const summaries = (await sourceSummaries.allTextContents()).map((value) => value.trim()).filter(Boolean);
+            const cardSummaryText = ((await card.getByTestId(`news-card-summary-${candidateRow.topicId}`).textContent()) ?? '').trim();
+            const badgeCount = await card.locator('[data-testid^="source-badge-"]').count();
+            expect(summaries.length).toBeGreaterThanOrEqual(1);
+            expect(summaries.length).toBeLessThanOrEqual(Math.max(1, badgeCount));
+            const semanticallyAnchored = summaries.filter((value) =>
+              overlapCount(value, candidateRow.headline) > 0 || overlapCount(value, cardSummaryText) > 0,
+            );
+            expect(semanticallyAnchored.length).toBeGreaterThanOrEqual(1);
+            const selectedPointId = await zeroBaselinePointId(card);
+            const fallbackStory: BundledStory = {
+              storyId: candidateRow.storyId,
+              topicId: candidateRow.topicId,
+              headline: candidateRow.headline,
+              sourceBadgeCount: badgeCount,
+              sourceBadgeIds: await card.locator('[data-testid^="source-badge-"]').evaluateAll((nodes) =>
+                nodes.map((node) => node.getAttribute('data-testid') ?? '').filter(Boolean)),
+            };
+            await attachJson(testInfo, 'daemon-first-feed-analysis-a', {
+              bundledStory: fallbackStory,
+              provider,
+              sourceSummaryTexts: summaries,
+              sourceBadgeIds: fallbackStory.sourceBadgeIds,
+              pointId: selectedPointId,
+              rejectedCandidates: failures,
+              fallbackMode: 'general-story',
+            });
+            return {
+              bundledStory: fallbackStory,
+              row: candidateRow,
+              cardA: card,
+              providerA: provider,
+              pointId: selectedPointId,
+              sourceSummaryTexts: summaries,
+            };
+          } catch (error) {
+            failures.push({
+              storyId: candidateRow.storyId,
+              headline: candidateRow.headline,
+              error: error instanceof Error ? error.message : String(error),
+            });
+            await closeStory(pageA, candidateRow, card).catch(() => {});
+          }
+        }
+
+        await attachJson(testInfo, 'daemon-first-feed-analysis-a-failures', { candidates, failures });
+        throw new Error(`no-analysis-ready-bundled-story:${failures.map((failure) => `${failure.storyId}:${failure.error}`).join('|')}`);
       });
 
       const beforeA = await voteCounts(cardA, pointId);

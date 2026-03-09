@@ -68,6 +68,7 @@ const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
 );
+const ROOT_INDEX_SETTLE_MS = 150;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -174,6 +175,122 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
+function readSettledRoot<T>(
+  chain: ChainWithGet<T>,
+  canSettle: (value: T | null) => boolean,
+): Promise<T | null> {
+  const subscribe = chain.on;
+  const unsubscribe = chain.off;
+  if (typeof subscribe !== 'function' || typeof unsubscribe !== 'function') {
+    return readOnce(chain);
+  }
+
+  return new Promise<T | null>((resolve) => {
+    let settled = false;
+    let latest: T | null = null;
+    let settleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const finish = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
+      if (settleTimer) {
+        clearTimeout(settleTimer);
+      }
+      unsubscribe.call(chain, onData);
+      resolve(latest);
+    };
+
+    const onData = (data: T | undefined) => {
+      latest = (data ?? null) as T | null;
+      if (canSettle(latest)) {
+        if (settleTimer) {
+          clearTimeout(settleTimer);
+        }
+        settleTimer = setTimeout(finish, ROOT_INDEX_SETTLE_MS);
+      }
+    };
+
+    const timeout = setTimeout(finish, READ_ONCE_TIMEOUT_MS);
+    subscribe.call(chain, onData);
+  });
+}
+
+function hasSettledLatestIndexPayload(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    Object.entries(value).some(([storyId, entry]) => storyId !== '_' && parseLatestTimestamp(entry) !== null) ||
+    extractIndexChildKeys(value).length > 0
+  );
+}
+
+function hasSettledHotIndexPayload(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    Object.entries(value).some(([storyId, entry]) => storyId !== '_' && parseHotnessScore(entry) !== null) ||
+    extractIndexChildKeys(value).length > 0
+  );
+}
+
+function extractIndexChildKeys(value: unknown): string[] {
+  if (!isRecord(value)) {
+    return [];
+  }
+
+  const keys = new Set<string>();
+  for (const key of Object.keys(value)) {
+    if (key !== '_') {
+      keys.add(key);
+    }
+  }
+
+  const metadata = value._;
+  if (isRecord(metadata)) {
+    const fieldState = metadata['>'];
+    if (isRecord(fieldState)) {
+      for (const key of Object.keys(fieldState)) {
+        if (key !== '_') {
+          keys.add(key);
+        }
+      }
+    }
+  }
+
+  return [...keys].sort();
+}
+
+async function readIndexedEntries(
+  chain: ChainWithGet<unknown>,
+  raw: unknown,
+  parseEntry: (value: unknown) => number | null,
+): Promise<Record<string, number>> {
+  const keys = extractIndexChildKeys(raw);
+  if (keys.length === 0) {
+    return {};
+  }
+
+  const entries = await Promise.all(keys.map(async (storyId) => {
+    const value = await readOnce(chain.get(storyId) as unknown as ChainWithGet<unknown>);
+    const parsed = parseEntry(value);
+    return parsed === null ? null : ([storyId, parsed] as const);
+  }));
+
+  const output: Record<string, number> = {};
+  for (const entry of entries) {
+    if (!entry) {
+      continue;
+    }
+    output[entry[0]] = entry[1];
+  }
+  return output;
+}
+
 const NEWS_PUT_ACK_TIMEOUT_MS = 1000;
 const NEWS_ACK_WARN_INTERVAL_MS = 15_000;
 let lastNewsAckWarnAt = Number.NEGATIVE_INFINITY;
@@ -218,6 +335,17 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
       resolve();
     });
   });
+}
+
+async function clearWithAck<T>(chain: ChainWithGet<T>): Promise<void> {
+  await putWithAck(chain as unknown as ChainWithGet<T | null>, null as T | null);
+}
+
+async function clearMapEntryWithAck(
+  chain: ChainWithGet<Record<string, unknown>>,
+  storyId: string,
+): Promise<void> {
+  await putWithAck(chain, { [storyId]: null });
 }
 
 /**
@@ -574,6 +702,23 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
 }
 
 /**
+ * Remove a StoryBundle node from `vh/news/stories/<storyId>`.
+ */
+export async function removeNewsStory(client: VennClient, storyId: string): Promise<void> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    throw new Error('storyId is required');
+  }
+  await clearMapEntryWithAck(
+    getNewsStoriesChain(client) as unknown as ChainWithGet<Record<string, unknown>>,
+    normalizedId,
+  );
+  await clearWithAck(
+    getNewsStoryChain(client, normalizedId) as unknown as ChainWithGet<Record<string, unknown>>,
+  );
+}
+
+/**
  * Read `vh/news/index/latest/*` and coerce to `{ [storyId]: latestActivityMs }`.
  *
  * Compatibility contract:
@@ -581,7 +726,11 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
  * - legacy semantics: `{ created_at: ... }` payloads remain readable
  */
 export async function readNewsLatestIndex(client: VennClient): Promise<NewsLatestIndex> {
-  const raw = await readOnce(getNewsLatestIndexChain(client) as unknown as ChainWithGet<unknown>);
+  const latestChain = getNewsLatestIndexChain(client) as unknown as ChainWithGet<unknown>;
+  const raw = await readSettledRoot(
+    latestChain,
+    hasSettledLatestIndexPayload,
+  );
   if (!isRecord(raw)) {
     return {};
   }
@@ -596,14 +745,21 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
       index[storyId] = timestamp;
     }
   }
-  return index;
+  if (Object.keys(index).length > 0) {
+    return index;
+  }
+  return readIndexedEntries(latestChain, raw, parseLatestTimestamp);
 }
 
 /**
  * Read `vh/news/index/hot/*` and coerce to `{ [storyId]: hotness }`.
  */
 export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex> {
-  const raw = await readOnce(getNewsHotIndexChain(client) as unknown as ChainWithGet<unknown>);
+  const hotChain = getNewsHotIndexChain(client) as unknown as ChainWithGet<unknown>;
+  const raw = await readSettledRoot(
+    hotChain,
+    hasSettledHotIndexPayload,
+  );
   if (!isRecord(raw)) {
     return {};
   }
@@ -618,8 +774,10 @@ export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex
       index[storyId] = hotness;
     }
   }
-
-  return index;
+  if (Object.keys(index).length > 0) {
+    return index;
+  }
+  return readIndexedEntries(hotChain, raw, parseHotnessScore);
 }
 
 /**
@@ -636,6 +794,24 @@ export async function writeNewsLatestIndexEntry(
   }
   const normalizedLatestTimestamp = Math.max(0, Math.floor(latestTimestamp));
   await putWithAck(getNewsLatestIndexChain(client).get(normalizedId), normalizedLatestTimestamp);
+}
+
+/**
+ * Remove latest-index entry for a story.
+ */
+export async function removeNewsLatestIndexEntry(
+  client: VennClient,
+  storyId: string,
+): Promise<void> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    throw new Error('storyId is required');
+  }
+  await clearMapEntryWithAck(
+    getNewsLatestIndexChain(client) as unknown as ChainWithGet<Record<string, unknown>>,
+    normalizedId,
+  );
+  await clearWithAck(getNewsLatestIndexChain(client).get(normalizedId));
 }
 
 /**
@@ -657,6 +833,24 @@ export async function writeNewsHotIndexEntry(
 }
 
 /**
+ * Remove hot-index entry for a story.
+ */
+export async function removeNewsHotIndexEntry(
+  client: VennClient,
+  storyId: string,
+): Promise<void> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    throw new Error('storyId is required');
+  }
+  await clearMapEntryWithAck(
+    getNewsHotIndexChain(client) as unknown as ChainWithGet<Record<string, unknown>>,
+    normalizedId,
+  );
+  await clearWithAck(getNewsHotIndexChain(client).get(normalizedId));
+}
+
+/**
  * Convenience writer for publishing bundle + latest index atomically at app level.
  *
  * PR1 semantics: latest index is activity-based and keyed by `cluster_window_end`.
@@ -667,6 +861,20 @@ export async function writeNewsBundle(client: VennClient, story: unknown): Promi
   await writeNewsLatestIndexEntry(client, sanitized.story_id, sanitized.cluster_window_end);
   await writeNewsHotIndexEntry(client, sanitized.story_id, computeStoryHotness(sanitized));
   return sanitized;
+}
+
+/**
+ * Remove a published story bundle and its discovery indexes.
+ */
+export async function removeNewsBundle(client: VennClient, storyId: string): Promise<void> {
+  const normalizedId = storyId.trim();
+  if (!normalizedId) {
+    throw new Error('storyId is required');
+  }
+
+  await removeNewsStory(client, normalizedId);
+  await removeNewsLatestIndexEntry(client, normalizedId);
+  await removeNewsHotIndexEntry(client, normalizedId);
 }
 
 // ---- Removal ledger adapters ----

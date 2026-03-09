@@ -1,6 +1,14 @@
-import { sha256Hex } from './hashUtils';
+import {
+  buildEventTuple,
+  documentTypeWeight,
+  refineDocumentType,
+} from './contentSignals';
+import { coverageRoleForDocument } from './documentPolicy';
 import type { PipelineState } from './stageState';
+import type { DocumentAnalysisWorkResult } from './modelProvider';
 import type { NormalizedPipelineRequest } from './stageHelpers';
+import type { WorkingDocument } from './stageState';
+import { sha256Hex } from './hashUtils';
 
 export function sourceVariantsForDocument(
   document: NormalizedPipelineRequest['documents'][number],
@@ -25,6 +33,61 @@ export function sourceVariantsForDocument(
 
 export function mergedKeys(...groups: readonly string[][]): string[] {
   return [...new Set(groups.flat().filter(Boolean))].sort();
+}
+
+export function applyDocumentAnalysis(
+  document: WorkingDocument,
+  analysis: DocumentAnalysisWorkResult,
+): WorkingDocument {
+  const entities = mergedKeys(document.entities, analysis.entities);
+  const linkedEntities = mergedKeys(document.linked_entities, analysis.linked_entities, entities);
+  const docType = refineDocumentType(
+    analysis.doc_type,
+    document.translated_title,
+    document.summary,
+    document.publisher,
+    document.url,
+  );
+  const coverageRole = coverageRoleForDocument({
+    doc_type: docType,
+    translated_title: document.translated_title,
+    summary: document.summary,
+    publisher: document.publisher,
+    url: document.url,
+  });
+  const heuristicEventTuple = buildEventTuple(
+    document.translated_title,
+    document.summary,
+    linkedEntities,
+    analysis.locations,
+    document.published_at,
+  );
+  const eventTuple = analysis.event_tuple
+    ? {
+      ...analysis.event_tuple,
+      when_ms: analysis.temporal_ms ?? analysis.event_tuple.when_ms ?? heuristicEventTuple.when_ms,
+      who: analysis.event_tuple.who.length > 0 ? analysis.event_tuple.who : linkedEntities,
+      where: analysis.event_tuple.where.length > 0
+        ? analysis.event_tuple.where
+        : analysis.locations,
+      trigger: analysis.event_tuple.trigger ?? analysis.trigger ?? (coverageRole === 'canonical' ? heuristicEventTuple.trigger : null),
+      outcome: analysis.event_tuple.outcome ?? (coverageRole === 'canonical' ? heuristicEventTuple.outcome : null),
+    }
+    : (coverageRole === 'canonical' ? heuristicEventTuple : null);
+  const trigger = analysis.trigger ?? eventTuple?.trigger ?? (coverageRole === 'canonical' ? heuristicEventTuple.trigger : null);
+
+  return {
+    ...document,
+    doc_type: docType,
+    coverage_role: coverageRole,
+    doc_weight: documentTypeWeight(docType),
+    entities,
+    linked_entities: linkedEntities,
+    locations: analysis.locations,
+    temporal_ms: analysis.temporal_ms,
+    trigger,
+    event_tuple: eventTuple,
+  };
 }
 
 export function extractStageMetrics(state: PipelineState): PipelineState {

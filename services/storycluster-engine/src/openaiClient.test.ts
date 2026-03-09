@@ -154,6 +154,24 @@ describe('OpenAIClient', () => {
     })).rejects.toBe('chat-string-error');
   });
 
+  it('retries transient chat failures before succeeding', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse({
+        choices: [{ message: { content: '{"ok":true}' } }],
+      }));
+
+    const client = new OpenAIClient({ apiKey: 'key', fetchFn });
+    await expect(client.chatJson<{ ok: boolean }>({
+      model: 'gpt-4o-mini',
+      system: 'sys',
+      user: 'usr',
+    })).resolves.toEqual({ ok: true });
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+  });
+
   it('returns embeddings and fails on malformed responses, http errors, and timeouts', async () => {
     const successClient = new OpenAIClient({
       apiKey: 'key',
@@ -241,6 +259,46 @@ describe('OpenAIClient', () => {
       texts: ['a'],
       dimensions: 2,
     })).rejects.toBe('embed-string-error');
+  });
+
+  it('retries transient embedding failures before succeeding', async () => {
+    const fetchFn = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(new Response('retry later', { status: 429 }))
+      .mockResolvedValueOnce(jsonResponse({ data: [{ embedding: [1, 2] }] }));
+
+    const client = new OpenAIClient({ apiKey: 'key', fetchFn });
+    await expect(client.embed({
+      model: 'text-embedding-3-small',
+      texts: ['a'],
+      dimensions: 2,
+    })).resolves.toEqual([[1, 2]]);
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+  });
+
+  it('throws retryable fetch errors after exhausting chat and embedding retries', async () => {
+    const chatFetchFn = vi.fn(async () => {
+      throw new Error('fetch failed: socket closed');
+    });
+    const chatClient = new OpenAIClient({ apiKey: 'key', fetchFn: chatFetchFn });
+    await expect(chatClient.chatJson({
+      model: 'gpt-4o-mini',
+      system: 'sys',
+      user: 'usr',
+    })).rejects.toThrow('fetch failed: socket closed');
+    expect(chatFetchFn).toHaveBeenCalledTimes(3);
+
+    const embedFetchFn = vi.fn(async () => {
+      throw new Error('fetch failed: socket closed');
+    });
+    const embedClient = new OpenAIClient({ apiKey: 'key', fetchFn: embedFetchFn });
+    await expect(embedClient.embed({
+      model: 'text-embedding-3-small',
+      texts: ['a'],
+      dimensions: 2,
+    })).rejects.toThrow('fetch failed: socket closed');
+    expect(embedFetchFn).toHaveBeenCalledTimes(3);
   });
 
   it('falls back to empty response text when the upstream body cannot be read', async () => {

@@ -460,6 +460,7 @@ describe('OpenAIStoryClusterProvider', () => {
     vi.stubEnv('VH_STORYCLUSTER_TEXT_MODEL', 'env-text-model');
     vi.stubEnv('VH_STORYCLUSTER_EMBEDDING_MODEL', 'env-embed-model');
     vi.stubEnv('VH_STORYCLUSTER_OPENAI_BASE_URL', 'https://proxy.example/v1/');
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS', '45000');
 
     const fetchFn = vi.fn(async (url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -485,11 +486,23 @@ describe('OpenAIStoryClusterProvider', () => {
     });
 
     const provider = createOpenAIStoryClusterProviderFromEnv({ fetchFn });
+    expect((provider as unknown as { client: { timeoutMs: number } }).client.timeoutMs).toBe(45000);
     await expect(provider.translate([{ doc_id: 'doc-1', language: 'es', text: 'texto' }])).resolves.toEqual([
       { doc_id: 'doc-1', translated_text: 'translated' },
     ]);
     await expect(provider.embed([{ item_id: 'item-1', text: 'text' }], 2)).resolves.toEqual([
       { item_id: 'item-1', vector: [1, 2] },
     ]);
+  });
+
+  it('ignores invalid env timeout values when creating a provider from environment', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'env-key');
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS', 'not-a-number');
+
+    const provider = createOpenAIStoryClusterProviderFromEnv({
+      fetchFn: vi.fn(),
+    });
+
+    expect((provider as unknown as { client: { timeoutMs: number } }).client.timeoutMs).toBe(30000);
   });
 });

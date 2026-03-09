@@ -380,6 +380,46 @@ describe('news store', () => {
     expect(store.getState().hydrated).toBe(true);
   });
 
+  it('removeStory prunes story and both indexes', async () => {
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => null });
+
+    const seeded = story({ story_id: 'story-remove', cluster_window_end: 50 });
+    store.getState().setStories([seeded]);
+    store.getState().upsertLatestIndex('story-remove', 50);
+    store.getState().upsertHotIndex('story-remove', 0.75);
+
+    store.getState().removeStory('story-remove');
+
+    expect(store.getState().stories).toEqual([]);
+    expect(store.getState().latestIndex).toEqual({});
+    expect(store.getState().hotIndex).toEqual({});
+  });
+
+  it('removeLatestIndex drops only the targeted latest entry', async () => {
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => null });
+
+    store.getState().upsertLatestIndex('story-a', 10);
+    store.getState().upsertLatestIndex('story-b', 20);
+
+    store.getState().removeLatestIndex('story-a');
+
+    expect(store.getState().latestIndex).toEqual({ 'story-b': 20 });
+  });
+
+  it('removeHotIndex drops only the targeted hot entry', async () => {
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => null });
+
+    store.getState().upsertHotIndex('story-a', 0.5);
+    store.getState().upsertHotIndex('story-b', 0.7);
+
+    store.getState().removeHotIndex('story-a');
+
+    expect(store.getState().hotIndex).toEqual({ 'story-b': 0.7 });
+  });
+
   it('refreshLatest no-ops when client is missing', async () => {
     const { createNewsStore } = await import('./index');
     const store = createNewsStore({ resolveClient: () => null });

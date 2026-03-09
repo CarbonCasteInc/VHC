@@ -175,6 +175,66 @@ describe('newsRuntime', () => {
     expect(handle.isRunning()).toBe(false);
   });
 
+  it('prunes stale published stories after a non-empty refresh shrinks the bundle set', async () => {
+    const storyTwo: StoryBundle = {
+      ...STORY_BUNDLE,
+      story_id: 'story-2',
+      topic_id: 'topic-2',
+      headline: 'Second story',
+      provenance_hash: 'provhash-2',
+      created_at: STORY_BUNDLE.created_at + 1,
+    };
+    orchestrateNewsPipelineMock
+      .mockResolvedValueOnce([STORY_BUNDLE, storyTwo])
+      .mockResolvedValueOnce([STORY_BUNDLE]);
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const removeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      removeStoryBundle,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, STORY_BUNDLE);
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, storyTwo);
+    expect(removeStoryBundle).toHaveBeenCalledTimes(1);
+    expect(removeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, 'story-2');
+
+    handle.stop();
+  });
+
+  it('does not prune previously published stories when a refresh returns no bundles', async () => {
+    orchestrateNewsPipelineMock
+      .mockResolvedValueOnce([STORY_BUNDLE])
+      .mockResolvedValueOnce([]);
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const removeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      removeStoryBundle,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+    await vi.advanceTimersByTimeAsync(10);
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledTimes(1);
+    expect(removeStoryBundle).not.toHaveBeenCalled();
+
+    handle.stop();
+  });
+
   it('reports missing write adapter via onError callback', async () => {
     orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
 

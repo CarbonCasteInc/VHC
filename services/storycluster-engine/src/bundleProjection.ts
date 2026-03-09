@@ -53,10 +53,6 @@ function documentPriority(document: StoredSourceDocument): number {
   return DOCUMENT_PRIORITY[document.doc_type];
 }
 
-function coverageRolePriority(document: StoredSourceDocument): number {
-  return document.coverage_role === 'canonical' ? 1 : 0;
-}
-
 function toBundleSource(document: StoredSourceDocument): StoryClusterBundle['sources'][number] {
   return {
     source_id: document.source_id,
@@ -72,8 +68,10 @@ function toBundleSource(document: StoredSourceDocument): StoryClusterBundle['sou
 export function projectBundleSources(
   documents: readonly StoredSourceDocument[],
 ): Pick<StoryClusterBundle, 'sources' | 'primary_sources' | 'secondary_assets'> {
+  const canonicalDocuments = documents.filter((document) => document.coverage_role === 'canonical');
+  const relatedDocuments = documents.filter((document) => document.coverage_role !== 'canonical');
   const grouped = new Map<string, StoredSourceDocument[]>();
-  for (const document of documents) {
+  for (const document of canonicalDocuments) {
     const key = publisherKey(document);
     const bucket = grouped.get(key) ?? [];
     bucket.push(document);
@@ -85,7 +83,6 @@ export function projectBundleSources(
 
   for (const group of [...grouped.values()]) {
     const ordered = [...group].sort((left, right) =>
-      coverageRolePriority(right) - coverageRolePriority(left) ||
       Number(isLikelySecondaryAsset(left)) - Number(isLikelySecondaryAsset(right)) ||
       documentPriority(right) - documentPriority(left) ||
       Number(Boolean(right.summary)) - Number(Boolean(left.summary)) ||
@@ -99,6 +96,8 @@ export function projectBundleSources(
     secondaryAssets.push(...secondary.map(toBundleSource));
   }
 
+  secondaryAssets.push(...relatedDocuments.map(toBundleSource));
+
   primarySources.sort((left, right) => `${left.publisher}:${left.source_id}:${left.url_hash}`.localeCompare(`${right.publisher}:${right.source_id}:${right.url_hash}`));
   secondaryAssets.sort((left, right) => `${left.publisher}:${left.source_id}:${left.url_hash}`.localeCompare(`${right.publisher}:${right.source_id}:${right.url_hash}`));
 
@@ -110,9 +109,12 @@ export function projectBundleSources(
 }
 
 export function projectStoryBundles(topicId: string, clusters: readonly ClusterBucket[]): StoryClusterBundle[] {
-  return clusters.map(({ record }) => {
+  return clusters.flatMap(({ record }) => {
     const projectedSources = projectBundleSources(record.source_documents);
     const primarySourceCount = projectedSources.primary_sources.length;
+    if (primarySourceCount === 0) {
+      return [];
+    }
     return {
       ...projectedSources,
       story_id: record.story_id,

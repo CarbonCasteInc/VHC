@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
 import {
   clusterHasSpecificCanonicalDocument,
+  clusterHasSpecificEventDocument,
   clusterSignalsInternal,
   isRelatedCoverageConflict,
   isRelatedCoverageMergeConflict,
@@ -359,5 +360,69 @@ describe('clusterSignals', () => {
       trigger: 'strike',
       url: 'https://www.cbsnews.com/video/drone-strike/',
     })).toBe(false);
+    expect(clusterSignalsInternal.isSpecificEventDocument({
+      doc_type: 'video_clip',
+      coverage_role: 'related',
+      translated_title: 'Video clip',
+      summary: 'CBS video report.',
+      publisher: 'CBS News',
+      event_tuple: {
+        description: 'Video clip',
+        trigger: 'strike',
+        who: ['Iranian opposition group'],
+        where: ['Northern Iraq'],
+        when_ms: 100,
+        outcome: 'Camp hit.',
+      },
+      trigger: 'strike',
+      url: 'https://www.cbsnews.com/video/drone-strike/',
+    })).toBe(true);
+  });
+
+  it('blocks broad related coverage from attaching to a video-only event cluster', () => {
+    const videoOnlyCluster = makeCluster(makeWorkingDocument({
+      doc_id: 'doc-video',
+      source_id: 'cbs-video',
+      publisher: 'CBS News',
+      title: 'Armed Iranian opposition group says its camp was hit with drone strike',
+      translated_title: 'Armed Iranian opposition group says its camp was hit with drone strike',
+      summary: 'CBS video report on the drone strike.',
+      url: 'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
+      canonical_url: 'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
+      doc_type: 'video_clip',
+      coverage_role: 'related',
+      event_tuple: {
+        description: 'Drone strike hits opposition camp',
+        trigger: 'strike',
+        who: ['Iranian opposition group'],
+        where: ['Northern Iraq'],
+        when_ms: 216_000_300,
+        outcome: 'Camp was hit in the strike.',
+      },
+      trigger: 'strike',
+      linked_entities: ['iranian_opposition_group'],
+      entities: ['iranian_opposition_group', 'drone', 'strike'],
+      locations: ['northern_iraq'],
+    }));
+    const roundupDocument = makeWorkingDocument({
+      doc_id: 'doc-roundup-video-conflict',
+      source_id: 'guardian-roundup',
+      publisher: 'The Guardian',
+      title: 'Trump news at a glance: Iran latest',
+      translated_title: 'Trump news at a glance: Iran latest',
+      summary: 'A broad roundup of the latest Iran conflict developments.',
+      coverage_role: 'canonical',
+      event_tuple: null,
+      trigger: 'talks',
+      linked_entities: ['iran'],
+      entities: ['iran'],
+      locations: ['washington'],
+    });
+    const broadCluster = makeCluster(roundupDocument);
+
+    expect(clusterHasSpecificCanonicalDocument(videoOnlyCluster)).toBe(false);
+    expect(clusterHasSpecificEventDocument(videoOnlyCluster)).toBe(true);
+    expect(isRelatedCoverageConflict(roundupDocument, videoOnlyCluster)).toBe(true);
+    expect(isRelatedCoverageMergeConflict(videoOnlyCluster, broadCluster)).toBe(true);
   });
 });

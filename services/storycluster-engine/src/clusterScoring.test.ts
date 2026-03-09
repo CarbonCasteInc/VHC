@@ -217,8 +217,8 @@ describe('clusterScoring', () => {
       full_vector: [0, 1],
       published_at: 110,
     }), cluster);
-    expect(lexicalCanonicalAccepted.adjudication).toBe('accepted');
-    expect(lexicalCanonicalAccepted.reason).toBe('canonical-entity-match');
+    expect(lexicalCanonicalAccepted.adjudication).toBe('rejected');
+    expect(lexicalCanonicalAccepted.reason).toBe('below-threshold');
 
     const languageCanonicalAccepted = buildCandidateMatch(makeWorkingDocument({
       title: 'Generic bulletin',
@@ -235,8 +235,8 @@ describe('clusterScoring', () => {
       full_vector: [0, 1],
       published_at: 110,
     }), cluster);
-    expect(languageCanonicalAccepted.adjudication).toBe('accepted');
-    expect(languageCanonicalAccepted.reason).toBe('canonical-entity-match');
+    expect(languageCanonicalAccepted.adjudication).toBe('rejected');
+    expect(languageCanonicalAccepted.reason).toBe('below-threshold');
 
     const lexicalAccepted = buildCandidateMatch(makeWorkingDocument({
       entities: ['attack', 'overnight', 'port_attack'],
@@ -280,7 +280,7 @@ describe('clusterScoring', () => {
       published_at: 216_000_100,
       temporal_ms: 216_000_100,
     }), cluster);
-    expect(eventConflict.reason).toBe('event-conflict');
+    expect(eventConflict.reason).toBe('related-coverage-conflict');
     expect(eventConflict.adjudication).toBe('rejected');
 
     expect(candidateEligible(makeWorkingDocument({
