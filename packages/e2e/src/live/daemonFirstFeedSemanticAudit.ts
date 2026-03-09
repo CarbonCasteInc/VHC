@@ -52,6 +52,14 @@ function articleTextUrl(baseUrl: string, targetUrl: string): string {
   return resolved.toString();
 }
 
+function canonicalSources(bundle: LiveSemanticAuditBundleLike): ReadonlyArray<StoryBundleSource> {
+  return bundle.primary_sources ?? bundle.sources;
+}
+
+function sourceTextKey(source: Pick<StoryBundleSource, 'source_id' | 'url_hash'>): string {
+  return `${source.source_id}:${source.url_hash}`;
+}
+
 async function fetchArticlePayload(baseUrl: string, url: string, sourceId: string): Promise<{ title: string; text: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ARTICLE_TEXT_TIMEOUT_MS);
@@ -77,6 +85,27 @@ async function fetchArticlePayload(baseUrl: string, url: string, sourceId: strin
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function fetchCanonicalSourceTexts(
+  baseUrl: string,
+  bundles: readonly LiveSemanticAuditBundleLike[],
+): Promise<Map<string, string>> {
+  const sourceTexts = new Map<string, string>();
+  const payloadsByUrl = new Map<string, Promise<{ title: string; text: string }>>();
+  const sources = bundles.flatMap((bundle) => canonicalSources(bundle));
+
+  await Promise.all(sources.map(async (source) => {
+    let payloadPromise = payloadsByUrl.get(source.url);
+    if (!payloadPromise) {
+      payloadPromise = fetchArticlePayload(baseUrl, source.url, source.source_id);
+      payloadsByUrl.set(source.url, payloadPromise);
+    }
+    const payload = await payloadPromise;
+    sourceTexts.set(sourceTextKey(source), payload.text);
+  }));
+
+  return sourceTexts;
 }
 
 async function waitForSampledBundles(
@@ -150,7 +179,6 @@ export async function runDaemonFirstFeedSemanticAudit(
 ): Promise<DaemonFeedSemanticAuditReport> {
   const sampleCount = options.sampleCount ?? DEFAULT_SAMPLE_COUNT;
   const timeoutMs = options.timeoutMs ?? SAMPLE_TIMEOUT_MS;
-  const articleTextCache = new Map<string, { title: string; text: string }>();
   const {
     buildCanonicalSourcePairs,
     classifyCanonicalSourcePairs,
@@ -163,23 +191,13 @@ export async function runDaemonFirstFeedSemanticAudit(
     sampleCount,
     timeoutMs,
   );
+  const sourceTexts = await fetchCanonicalSourceTexts(LIVE_BASE_URL, hydratedBundles);
   const allPairs: LiveSemanticAuditPair[] = [];
 
   for (const bundle of hydratedBundles) {
-    const primarySources = [...(bundle.primary_sources ?? bundle.sources)];
-    const sourceTexts = new Map<string, string>();
-
-    for (const source of primarySources) {
-      const payload = articleTextCache.get(source.url)
-        ?? await fetchArticlePayload(LIVE_BASE_URL, source.url, source.source_id);
-      articleTextCache.set(source.url, payload);
-
-      sourceTexts.set(`${source.source_id}:${source.url_hash}`, payload.text);
-    }
-
     allPairs.push(...buildCanonicalSourcePairs(
       bundle,
-      (source) => sourceTexts.get(`${source.source_id}:${source.url_hash}`) ?? '',
+      (source) => sourceTexts.get(sourceTextKey(source)) ?? '',
     ));
   }
 
