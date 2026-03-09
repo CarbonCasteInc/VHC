@@ -64,6 +64,13 @@ function normalizeEpoch(epoch: number): string {
   return String(Math.floor(epoch));
 }
 
+function normalizeNonNegativeInt(value: number): number {
+  if (!Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.floor(value);
+}
+
 function aggregateVotersPath(topicId: string, synthesisId: string, epoch: string): string {
   return `vh/aggregates/topics/${topicId}/syntheses/${synthesisId}/epochs/${epoch}/voters/`;
 }
@@ -275,6 +282,24 @@ function summarizeRows(pointId: string, rows: readonly AggregateVoterPointRow[])
     weight,
     participants,
   };
+}
+
+function snapshotToAggregate(snapshot: PointAggregateSnapshotV1): PointAggregate {
+  return {
+    point_id: snapshot.point_id,
+    agree: snapshot.agree,
+    disagree: snapshot.disagree,
+    weight: snapshot.weight,
+    participants: snapshot.participants,
+  };
+}
+
+function rowsContainWritesNewerThanSnapshot(
+  rows: readonly AggregateVoterPointRow[],
+  snapshot: PointAggregateSnapshotV1,
+): boolean {
+  const snapshotToSeq = normalizeNonNegativeInt(snapshot.source_window.to_seq);
+  return rows.some((row) => row.updated_at_ms > snapshotToSeq);
 }
 
 function parseVoterPointRow(
@@ -918,19 +943,18 @@ export async function readAggregates(
     return rowSummary;
   }
 
-  // Voter rows are the authoritative state when available. The materialized
-  // snapshot is only a fallback for sparse/partial mesh reads.
-  if (rows.length > 0) {
-    return rowSummary;
+  if (rows.length === 0) {
+    return snapshotToAggregate(materializedSnapshot);
   }
 
-  return {
-    point_id: materializedSnapshot.point_id,
-    agree: materializedSnapshot.agree,
-    disagree: materializedSnapshot.disagree,
-    weight: materializedSnapshot.weight,
-    participants: materializedSnapshot.participants,
-  };
+  // Materialized snapshots are the best-known complete view for a point. Only
+  // let live voter rows override them when the row fan-in proves it contains a
+  // write newer than the snapshot window.
+  if (!rowsContainWritesNewerThanSnapshot(rows, materializedSnapshot)) {
+    return snapshotToAggregate(materializedSnapshot);
+  }
+
+  return rowSummary;
 }
 
 export const aggregateAdapterInternal = {
