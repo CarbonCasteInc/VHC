@@ -14,6 +14,7 @@ process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, ru
 
 const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
 const baseUrl = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2148/';
+const basePort = extractPort(baseUrl);
 const gunPeerUrl = `http://localhost:${gunPort}/gun`;
 const relayRootDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId, 'relay');
 const relayDataPath = path.join(relayRootDir, 'data');
@@ -75,9 +76,34 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'bbc',
     enabled: true,
   },
+  'bbc-us-canada': {
+    id: 'bbc-us-canada',
+    name: 'BBC US & Canada',
+    displayName: 'BBC',
+    rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'bbc',
+    enabled: true,
+  },
+  'yahoo-world': {
+    id: 'yahoo-world',
+    name: 'Yahoo News World',
+    displayName: 'Yahoo News',
+    rssUrl: 'https://news.yahoo.com/rss/world',
+    perspectiveTag: 'international-wire',
+    iconKey: 'yahoo',
+    enabled: true,
+  },
 };
 
-const DEFAULT_SOURCE_IDS = ['fox-latest', 'nypost-politics', 'guardian-us', 'cbs-politics', 'bbc-general'];
+const DEFAULT_SOURCE_IDS = [
+  'fox-latest',
+  'guardian-us',
+  'cbs-politics',
+  'bbc-general',
+  'bbc-us-canada',
+  'yahoo-world',
+];
 
 function extractPort(url: string): number {
   try {
@@ -143,7 +169,11 @@ const localWebServers: TestConfig['webServer'] = [
     timeout: 30_000,
   },
   {
-    command: `pnpm --filter @vh/web-pwa dev --port ${extractPort(baseUrl)} --strictPort`,
+    command: [
+      `pids=$(lsof -ti tcp:${basePort} || true)`,
+      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+      `pnpm --filter @vh/web-pwa dev --port ${basePort} --strictPort`,
+    ].join(' && '),
     url: baseUrl,
     reuseExistingServer: false,
     timeout: 60_000,

@@ -20,7 +20,14 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'yahoo-world': { id: 'yahoo-world', name: 'Yahoo News World', displayName: 'Yahoo News', rssUrl: 'https://news.yahoo.com/rss/world', perspectiveTag: 'international-wire', iconKey: 'yahoo', enabled: true },
 };
 
-const DEFAULT_SOURCE_IDS = Object.keys(STARTER_FEED_SOURCE_CATALOG);
+const DEFAULT_SOURCE_IDS = [
+  'fox-latest',
+  'guardian-us',
+  'cbs-politics',
+  'bbc-general',
+  'bbc-us-canada',
+  'yahoo-world',
+];
 
 export function resolveDaemonFeedSourcesJson(): string {
   const sourceIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_SOURCE_IDS.join(','))

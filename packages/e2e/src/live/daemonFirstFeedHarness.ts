@@ -171,8 +171,8 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
 function commonEnv(): NodeJS.ProcessEnv {
   const root = repoRootDir();
   const esmLoaderPath = path.join(root, 'tools/node/esm-resolve-loader.mjs');
-  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '12';
-  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '72';
+  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '4';
+  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '24';
   return {
     ...process.env,
     NODE_ENV: 'production',
