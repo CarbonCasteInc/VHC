@@ -815,6 +815,48 @@ describe('aggregateAdapters', () => {
     });
   });
 
+  it('readAggregates keeps the materialized snapshot when voter rows do not prove a newer write', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 2,
+      disagree: 1,
+      weight: 3,
+      participants: 3,
+      version: Date.parse('2026-02-18T22:30:00.000Z'),
+      computed_at: Date.parse('2026-02-18T22:30:00.000Z'),
+      source_window: {
+        from_seq: Date.parse('2026-02-18T22:20:00.000Z'),
+        to_seq: Date.parse('2026-02-18T22:30:00.000Z'),
+      },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:20:00.000Z',
+        },
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agree: 2,
+      disagree: 1,
+      weight: 3,
+      participants: 3,
+    });
+  });
+
   it('readAggregates prefers authoritative voter rows over stale snapshot totals', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
