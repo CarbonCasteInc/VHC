@@ -201,8 +201,8 @@ describe('BiasTable', () => {
     expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('0 sources analyzed');
   });
 
-  it('votingEnabled=true renders CellVoteControls in each cell', async () => {
-    const pointIds = await deriveExpectedSynthesisPointIds();
+  it('votingEnabled=true renders CellVoteControls in each cell using stable legacy display IDs', async () => {
+    const pointIds = await deriveExpectedPointIds();
     render(
       <BiasTable
         analyses={[makeAnalysis()]}
@@ -221,7 +221,7 @@ describe('BiasTable', () => {
     expect(await screen.findByTestId(`cell-vote-${pointIds.reframe1}`)).toBeInTheDocument();
   });
 
-  it('prefers synthesis point IDs over legacy analysis point IDs when both exist', async () => {
+  it('keeps legacy display point IDs stable even when synthesis point IDs exist', async () => {
     const legacyPointIds = await deriveExpectedPointIds();
     const synthesisPointIds = await deriveExpectedSynthesisPointIds();
     render(
@@ -236,8 +236,8 @@ describe('BiasTable', () => {
       />,
     );
 
-    expect(await screen.findByTestId(`cell-vote-${synthesisPointIds.frame0}`)).toBeInTheDocument();
-    expect(screen.queryByTestId(`cell-vote-${legacyPointIds.frame0}`)).not.toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-${legacyPointIds.frame0}`)).toBeInTheDocument();
+    expect(screen.queryByTestId(`cell-vote-${synthesisPointIds.frame0}`)).not.toBeInTheDocument();
   });
 
   it('votingEnabled=false renders no vote controls', () => {
@@ -282,8 +282,8 @@ describe('BiasTable', () => {
     expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
   });
 
-  it('point IDs are stable content hashes across rerender', async () => {
-    const pointIds = await deriveExpectedSynthesisPointIds();
+  it('point IDs stay stable across rerender even when synthesis context changes', async () => {
+    const legacyPointIds = await deriveExpectedPointIds();
     const { rerender } = render(
       <BiasTable
         analyses={[makeAnalysis()]}
@@ -296,10 +296,10 @@ describe('BiasTable', () => {
       />,
     );
 
-    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.frame0}`)).toBeInTheDocument();
-    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.frame1}`)).toBeInTheDocument();
-    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.reframe0}`)).toBeInTheDocument();
-    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.reframe1}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.frame0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.frame1}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.reframe0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.reframe1}`)).toBeInTheDocument();
 
     rerender(
       <BiasTable
@@ -307,18 +307,18 @@ describe('BiasTable', () => {
         frames={FRAMES}
         topicId={TOPIC_ID}
         analysisId={ANALYSIS_ID}
-        synthesisId={SYNTHESIS_ID}
-        epoch={EPOCH}
+        synthesisId="synth-2"
+        epoch={EPOCH + 1}
         votingEnabled
       />,
     );
 
-    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.frame0}`)).toBeInTheDocument();
-    expect(await screen.findByTestId(`cell-vote-agree-${pointIds.reframe0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.frame0}`)).toBeInTheDocument();
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.reframe0}`)).toBeInTheDocument();
   });
 
   it('frame and reframe voting controls are independent', async () => {
-    const pointIds = await deriveExpectedSynthesisPointIds();
+    const pointIds = await deriveExpectedPointIds();
     render(
       <BiasTable
         analyses={[makeAnalysis()]}
