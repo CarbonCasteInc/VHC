@@ -71,8 +71,8 @@ function ExpandableRow({
     (analysis?.justifyBiasClaims?.length ?? 0) > 0;
 
   const showVoting = !!(votingEnabled && topicId && synthesisId && epoch !== undefined);
-  const resolvedFramePointId = synthesisFramePointId ?? framePointId;
-  const resolvedReframePointId = synthesisReframePointId ?? reframePointId;
+  const voteFramePointId = framePointId ?? synthesisFramePointId;
+  const voteReframePointId = reframePointId ?? synthesisReframePointId;
 
   return (
     <>
@@ -84,10 +84,10 @@ function ExpandableRow({
       >
         <td className="border border-slate-200 px-2 py-1 text-slate-800">
           {frame}
-          {showVoting && resolvedFramePointId && (
+          {showVoting && voteFramePointId && (
             <CellVoteControls
               topicId={topicId!}
-              pointId={resolvedFramePointId}
+              pointId={voteFramePointId}
               synthesisPointId={synthesisFramePointId}
               synthesisId={synthesisId!}
               epoch={epoch!}
@@ -97,10 +97,10 @@ function ExpandableRow({
         </td>
         <td className="border border-slate-200 px-2 py-1 text-slate-700">
           {reframe}
-          {showVoting && resolvedReframePointId && (
+          {showVoting && voteReframePointId && (
             <CellVoteControls
               topicId={topicId!}
-              pointId={resolvedReframePointId}
+              pointId={voteReframePointId}
               synthesisPointId={synthesisReframePointId}
               synthesisId={synthesisId!}
               epoch={epoch!}
