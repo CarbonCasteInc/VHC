@@ -21,12 +21,12 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
 };
 
 const DEFAULT_SOURCE_IDS = [
-  'fox-latest',
   'guardian-us',
   'cbs-politics',
-  'bbc-general',
   'bbc-us-canada',
-  'yahoo-world',
+  'huffpost-us',
+  'nypost-politics',
+  'fox-latest',
 ];
 
 export function resolveDaemonFeedSourcesJson(): string {

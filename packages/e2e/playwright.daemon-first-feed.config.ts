@@ -97,12 +97,12 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
 };
 
 const DEFAULT_SOURCE_IDS = [
-  'fox-latest',
   'guardian-us',
   'cbs-politics',
-  'bbc-general',
   'bbc-us-canada',
-  'yahoo-world',
+  'huffpost-us',
+  'nypost-politics',
+  'fox-latest',
 ];
 
 function extractPort(url: string): number {
