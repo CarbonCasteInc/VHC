@@ -17,7 +17,7 @@ import {
   type BundledStory,
   type HeadlineRow,
 } from './daemonFirstFeedHarness';
-import { readVisibleAuditableBundles } from './browserNewsStore';
+import { readAuditableBundles, refreshNewsStoreLatest } from './browserNewsStore';
 import { waitForMinimumCount } from './feedReadiness';
 import type { LiveSemanticAuditBundleLike } from './daemonFirstFeedSemanticAuditTypes';
 
@@ -168,7 +168,7 @@ async function bundledStoryCandidates(page: Page, limit = 12): Promise<BundledSt
   let unchangedRounds = 0;
 
   while (Date.now() < deadline) {
-    const auditableBundles = (await readVisibleAuditableBundles(page)).slice(0, limit);
+    const auditableBundles = (await readAuditableBundles(page)).slice(0, limit);
     for (const bundle of auditableBundles) {
       const headline = page
         .locator(`[data-testid="news-card-headline-${bundle.topic_id}"][data-story-id="${bundle.story_id}"]`)
@@ -205,12 +205,13 @@ async function bundledStoryCandidates(page: Page, limit = 12): Promise<BundledSt
       break;
     }
 
+    await refreshNewsStoreLatest(page, 120).catch(() => {});
+    await page.getByTestId('feed-refresh-button').click().catch(() => {});
     const sentinel = page.getByTestId('feed-load-sentinel');
     if (await sentinel.count().catch(() => 0)) {
       await sentinel.scrollIntoViewIfNeeded().catch(() => {});
       await page.waitForTimeout(1_500);
     }
-    await page.getByTestId('feed-refresh-button').click().catch(() => {});
     await page.waitForTimeout(1_000);
     await waitForHeadlines(page);
   }

@@ -4,7 +4,8 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test';
-import { readVisibleAuditableBundles } from './browserNewsStore';
+import { readAuditableBundles, refreshNewsStoreLatest } from './browserNewsStore';
+import { nudgeFeed } from './feedReadiness';
 import { resolveDaemonFeedSourcesJson } from './daemonFeedSources';
 
 export const SHOULD_RUN = process.env.VH_RUN_DAEMON_FIRST_FEED === 'true';
@@ -34,6 +35,11 @@ export type HeadlineRow = {
 export type BundledStory = HeadlineRow & {
   readonly sourceBadgeCount: number;
   readonly sourceBadgeIds: string[];
+};
+
+type AuditableStoryRef = {
+  readonly story_id: string;
+  readonly topic_id: string;
 };
 
 export type DaemonFirstStack = {
@@ -292,35 +298,54 @@ export async function headlineRows(page: Page): Promise<HeadlineRow[]> {
       storyId: node.getAttribute('data-story-id') ?? '',
       headline: (node.textContent ?? '').trim(),
     }))
-    .filter((row) => row.topicId && row.storyId && row.headline));
+	    .filter((row) => row.topicId && row.storyId && row.headline));
+}
+
+async function materializeBundledStory(
+  page: Page,
+  story: AuditableStoryRef,
+): Promise<BundledStory | null> {
+  const headline = page
+    .locator(`[data-testid="news-card-headline-${story.topic_id}"][data-story-id="${story.story_id}"]`)
+    .first();
+  if (!(await headline.count())) {
+    return null;
+  }
+  await headline.scrollIntoViewIfNeeded().catch(() => {});
+  const headlineText = ((await headline.textContent()) ?? '').trim();
+  if (!headlineText) {
+    return null;
+  }
+  const card = headline.locator('xpath=ancestor::article[1]');
+  const badgeCount = await card.locator('[data-testid^="source-badge-"]').count();
+  if (badgeCount < 2) {
+    return null;
+  }
+  const badgeIds = await card.locator('[data-testid^="source-badge-"]').evaluateAll((nodes) =>
+    nodes.map((node) => node.getAttribute('data-testid') ?? '').filter(Boolean));
+  return {
+    storyId: story.story_id,
+    topicId: story.topic_id,
+    headline: headlineText,
+    sourceBadgeCount: badgeCount,
+    sourceBadgeIds: badgeIds,
+  };
 }
 
 export async function findBundledStory(page: Page, limit = 12): Promise<BundledStory> {
   const deadline = Date.now() + FEED_READY_TIMEOUT_MS;
   while (Date.now() < deadline) {
-    const auditableBundles = (await readVisibleAuditableBundles(page)).slice(0, limit);
+    const auditableBundles = (await readAuditableBundles(page)).slice(0, limit);
     for (const bundle of auditableBundles) {
-      const headline = page
-        .locator(`[data-testid="news-card-headline-${bundle.topic_id}"][data-story-id="${bundle.story_id}"]`)
-        .first();
-      if (!(await headline.count())) continue;
-      await headline.scrollIntoViewIfNeeded().catch(() => {});
-      const headlineText = ((await headline.textContent()) ?? '').trim();
-      if (!headlineText) continue;
-      const card = headline.locator('xpath=ancestor::article[1]');
-      const badgeCount = await card.locator('[data-testid^="source-badge-"]').count();
-      if (badgeCount < 2) continue;
-      const badgeIds = await card.locator('[data-testid^="source-badge-"]').evaluateAll((nodes) =>
-        nodes.map((node) => node.getAttribute('data-testid') ?? '').filter(Boolean));
-      return { storyId: bundle.story_id, topicId: bundle.topic_id, headline: headlineText, sourceBadgeCount: badgeCount, sourceBadgeIds: badgeIds };
+      const materialized = await materializeBundledStory(page, bundle);
+      if (materialized) {
+        return materialized;
+      }
     }
 
-    const sentinel = page.getByTestId('feed-load-sentinel');
-    if (await sentinel.count().catch(() => 0)) {
-      await sentinel.scrollIntoViewIfNeeded().catch(() => {});
-    }
-    await page.getByTestId('feed-refresh-button').click().catch(() => {});
-    await page.waitForTimeout(1_000);
+    await refreshNewsStoreLatest(page, 120).catch(() => {});
+    await nudgeFeed(page);
+    await waitForHeadlines(page);
   }
   throw new Error('no-bundled-story-found');
 }
