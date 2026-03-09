@@ -51,6 +51,7 @@ export interface LiveSemanticAuditClassifierOptions extends OpenAIClientOptions 
 const DEFAULT_AUDIT_MODEL = 'gpt-4o-mini';
 const MAX_TEXT_CHARS = 6_000;
 const MAX_PAIRS_PER_REQUEST = 4;
+const MAX_CONCURRENT_AUDIT_REQUESTS = 3;
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
   const output: T[][] = [];
@@ -58,6 +59,26 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
     output.push(items.slice(index, index + size));
   }
   return output;
+}
+
+async function mapWithConcurrency<T, TResult>(
+  items: readonly T[],
+  concurrency: number,
+  iteratee: (item: T, index: number) => Promise<TResult>,
+): Promise<TResult[]> {
+  const results = new Array<TResult>(items.length);
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  let nextIndex = 0;
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await iteratee(items[currentIndex]!, currentIndex);
+    }
+  }));
+
+  return results;
 }
 
 function normalizeAuditLabel(value: unknown, path: string): LiveSemanticAuditLabel {
@@ -209,37 +230,40 @@ export async function classifyCanonicalSourcePairs(
 
   const client = new OpenAIClient(options);
   const model = options.model?.trim() || DEFAULT_AUDIT_MODEL;
-  const output: LiveSemanticAuditPairResult[] = [];
+  const batches = chunk(pairs, MAX_PAIRS_PER_REQUEST);
+  const batchResults = await mapWithConcurrency(
+    batches,
+    MAX_CONCURRENT_AUDIT_REQUESTS,
+    async (batch) => {
+      const payload = await client.chatJson<{
+        pair_labels?: Array<{
+          pair_id?: string;
+          label?: string;
+          confidence?: number;
+          rationale?: string;
+        }>;
+      }>({
+        model,
+        system: [
+          'You audit whether two publisher reports belong in the same canonical news event bundle.',
+          `Use only these labels: ${LIVE_SEMANTIC_AUDIT_LABELS.join(', ')}.`,
+          'duplicate = same facts or same asset republished with minimal new reporting.',
+          'same_incident = the same discrete incident covered by different publishers.',
+          'same_developing_episode = direct follow-up within the same bounded event sequence.',
+          'related_topic_only = same broader topic, conflict, politician, or narrative, but not the same discrete event/episode.',
+          'Be conservative: when uncertain, choose related_topic_only.',
+          'Broad roundups, explainers, opinion, and commentary paired with a specific incident report are usually related_topic_only.',
+          'Return strict JSON: {"pair_labels":[{"pair_id":"...","label":"duplicate|same_incident|same_developing_episode|related_topic_only","confidence":0.0,"rationale":"..."}]}.',
+        ].join(' '),
+        user: JSON.stringify({ pair_labels: batch.map(requestPayload) }),
+        temperature: 0,
+        maxTokens: 4_000,
+      });
+      return parsePairResults(payload, batch);
+    },
+  );
 
-  for (const batch of chunk(pairs, MAX_PAIRS_PER_REQUEST)) {
-    const payload = await client.chatJson<{
-      pair_labels?: Array<{
-        pair_id?: string;
-        label?: string;
-        confidence?: number;
-        rationale?: string;
-      }>;
-    }>({
-      model,
-      system: [
-        'You audit whether two publisher reports belong in the same canonical news event bundle.',
-        `Use only these labels: ${LIVE_SEMANTIC_AUDIT_LABELS.join(', ')}.`,
-        'duplicate = same facts or same asset republished with minimal new reporting.',
-        'same_incident = the same discrete incident covered by different publishers.',
-        'same_developing_episode = direct follow-up within the same bounded event sequence.',
-        'related_topic_only = same broader topic, conflict, politician, or narrative, but not the same discrete event/episode.',
-        'Be conservative: when uncertain, choose related_topic_only.',
-        'Broad roundups, explainers, opinion, and commentary paired with a specific incident report are usually related_topic_only.',
-        'Return strict JSON: {"pair_labels":[{"pair_id":"...","label":"duplicate|same_incident|same_developing_episode|related_topic_only","confidence":0.0,"rationale":"..."}]}.',
-      ].join(' '),
-      user: JSON.stringify({ pair_labels: batch.map(requestPayload) }),
-      temperature: 0,
-      maxTokens: 4_000,
-    });
-    output.push(...parsePairResults(payload, batch));
-  }
-
-  return output;
+  return batchResults.flat();
 }
 
 export function hasRelatedTopicOnlyPair(results: readonly LiveSemanticAuditPairResult[]): boolean {
