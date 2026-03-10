@@ -31,7 +31,7 @@ const articles = {
   'geneva-guardian': {
     title: 'Geneva ceasefire talks open after overnight missile strike',
     description: 'Mediators convened in Geneva after an overnight missile strike prompted emergency diplomacy.',
-    publishedAt: '2026-03-09T15:00:00Z',
+    publishedAt: '2026-03-09T16:30:00Z',
     html: articleHtml('Geneva ceasefire talks open after overnight missile strike', [
       'Mediators from three countries opened emergency ceasefire talks in Geneva on Monday morning after an overnight missile strike damaged fuel depots near the capital.',
       'Diplomats said the same negotiating table will address the overnight strike, the release of detainees and guarantees for shipping lanes during the truce window.',
@@ -41,7 +41,7 @@ const articles = {
   'geneva-cbs': {
     title: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
     description: 'Delegations opened emergency Geneva talks after the overnight strike hit fuel depots and forced a diplomatic response.',
-    publishedAt: '2026-03-09T15:06:00Z',
+    publishedAt: '2026-03-09T16:32:00Z',
     html: articleHtml('Emergency Geneva talks begin after overnight missile strike hits fuel depots', [
       'Emergency ceasefire talks began in Geneva after an overnight missile strike hit fuel depots and forced negotiators back to the table.',
       'Officials said the Geneva session is focused on the overnight strike, protection for shipping routes and a staged ceasefire backed by mediators.',
@@ -151,7 +151,7 @@ const articles = {
   'port-bbc': {
     title: 'Dockworkers extend strike as cargo backlog grows at Atlantic ports',
     description: 'Dockworkers extended a strike at Atlantic ports as cargo backlogs and shipping delays worsened.',
-    publishedAt: '2026-03-09T15:50:00Z',
+    publishedAt: '2026-03-09T16:24:00Z',
     html: articleHtml('Dockworkers extend strike as cargo backlog grows at Atlantic ports', [
       'Dockworkers extended a strike at several Atlantic ports as cargo backlogs deepened and shipping schedules slipped into a second day.',
       'Port authorities said containers were piling up while negotiators continued talks over staffing rules and overtime guarantees.',
@@ -161,7 +161,7 @@ const articles = {
   'port-cbs': {
     title: 'Atlantic port strike enters second day, delaying container traffic',
     description: 'Container traffic slowed further as the Atlantic port strike entered a second day and negotiations continued.',
-    publishedAt: '2026-03-09T15:53:00Z',
+    publishedAt: '2026-03-09T16:26:00Z',
     html: articleHtml('Atlantic port strike enters second day, delaying container traffic', [
       'Container traffic slowed further as the Atlantic port strike entered a second day, leaving cargo stacked at multiple terminals.',
       'Negotiators met again after talks over overtime and staffing rules failed to produce a settlement overnight.',
@@ -171,7 +171,7 @@ const articles = {
   'blackout-guardian': {
     title: 'Grid failure leaves capital neighborhoods without power for second night',
     description: 'A grid failure left neighborhoods in the capital without power for a second night as repair crews worked across the city.',
-    publishedAt: '2026-03-09T15:56:00Z',
+    publishedAt: '2026-03-09T16:36:00Z',
     html: articleHtml('Grid failure leaves capital neighborhoods without power for second night', [
       'A grid failure left several capital neighborhoods without power for a second night after a substation outage cut electricity to homes and businesses.',
       'Utility officials said repair crews were replacing damaged switching gear while hospitals and transit hubs relied on backup generators.',
@@ -181,27 +181,57 @@ const articles = {
   'blackout-bbc-es': {
     title: 'Apagón en la capital entra en su segunda noche tras falla de subestación',
     description: 'El apagón en la capital continuó una segunda noche después de una falla en la subestación principal.',
-    publishedAt: '2026-03-09T15:59:00Z',
+    publishedAt: '2026-03-09T16:38:00Z',
     html: articleHtml('Apagón en la capital entra en su segunda noche tras falla de subestación', [
       'El apagón en varios barrios de la capital continuó una segunda noche después de que una falla en la subestación principal dejara sin servicio a hogares y comercios.',
       'Las autoridades eléctricas informaron que equipos de reparación trabajaban para sustituir equipos dañados mientras hospitales y estaciones de transporte seguían con generadores de respaldo.',
       'Los funcionarios indicaron que se trata del mismo evento de apagón urbano que comenzó el domingo por la noche con la avería de la subestación.',
     ]),
   },
+  'blackout-recap-cbs': {
+    title: 'Explainer: what we know about the capital blackout and the repair timeline',
+    description: 'A recap of what caused the capital blackout and how long repairs may take.',
+    publishedAt: '2026-03-09T16:40:00Z',
+    html: articleHtml('Explainer: what we know about the capital blackout and the repair timeline', [
+      'This explainer recaps what officials have said about the capital blackout, the damaged substation and the expected repair timeline for neighborhoods still without electricity.',
+      'It brings together earlier reporting on hospitals using backup generators, commuter disruption and the broader strain on the city grid after the outage began on Sunday night.',
+      'Editors said the piece is intended as background and service journalism, not as a fresh report on a new blackout incident.',
+    ]),
+  },
+  'geneva-analysis-bbc': {
+    title: 'Analysis: why the Geneva truce push may reshape the next diplomatic round',
+    description: 'An analysis of what the Geneva talks could mean for the wider diplomatic contest after the strike.',
+    publishedAt: '2026-03-09T16:34:00Z',
+    html: articleHtml('Analysis: why the Geneva truce push may reshape the next diplomatic round', [
+      'This analysis examines why the Geneva truce push could reshape the next diplomatic round after the overnight strike and the pressure now facing regional mediators.',
+      'It reviews the leverage each side hopes to gain, the diplomatic sequencing around detainees and shipping lanes and the broader strategic stakes for future talks.',
+      'Editors said the piece is analytical background rather than a report on a new strike, negotiation session or battlefield development.',
+    ]),
+  },
   'geneva-recap-nypost': {
     title: 'What to know about the Geneva truce push after the latest strike',
     description: 'A recap of the Geneva truce effort, the latest strike and the wider diplomatic picture.',
-    publishedAt: '2026-03-09T16:02:00Z',
+    publishedAt: '2026-03-09T16:33:00Z',
     html: articleHtml('What to know about the Geneva truce push after the latest strike', [
       'Here is what to know about the Geneva truce push after the latest strike, including the main players, the diplomatic timeline and what could happen next.',
       'The recap pulls together prior reporting on the overnight strike, earlier ceasefire efforts and broader regional pressure on negotiators.',
       'Officials said the situation remains fluid, but this explainer is intended as background rather than a report on a new incident.',
     ]),
   },
+  'port-recap-fox': {
+    title: 'What to know about the Atlantic port strike as delays spread',
+    description: 'A recap of the Atlantic port strike, stalled talks and the effect on cargo delays.',
+    publishedAt: '2026-03-09T16:28:00Z',
+    html: articleHtml('What to know about the Atlantic port strike as delays spread', [
+      'This recap explains how the Atlantic port strike began, why negotiations over staffing and overtime stalled and what officials are saying about the growing cargo backlog.',
+      'It combines earlier reporting on the first day of the stoppage, the bargaining positions of both sides and the broader supply-chain implications for importers.',
+      'Editors described the piece as background for readers following the strike, not a report on a new port closure or settlement event.',
+    ]),
+  },
   'port-commentary-guardian': {
     title: 'Why the port strike is becoming a test of industrial policy',
     description: 'Commentary on what the Atlantic port strike means for industrial policy and labour politics.',
-    publishedAt: '2026-03-09T16:05:00Z',
+    publishedAt: '2026-03-09T16:29:00Z',
     html: articleHtml('Why the port strike is becoming a test of industrial policy', [
       'The Atlantic port strike is quickly becoming a test of industrial policy, labour leverage and the political limits of emergency intervention.',
       'This commentary examines what the strike could mean for inflation, supply chains and party strategy rather than reporting a new operational development.',
@@ -212,32 +242,35 @@ const articles = {
 
 const feeds = {
   'guardian-us': [
+    { articleId: 'blackout-guardian' },
     { articleId: 'geneva-guardian' },
+    { articleId: 'port-commentary-guardian' },
     { articleId: 'school-noise-guardian' },
     { articleId: 'mayor-guardian' },
     { articleId: 'hospital-guardian' },
-    { articleId: 'blackout-guardian' },
-    { articleId: 'port-commentary-guardian' },
   ],
   'cbs-politics': [
+    { articleId: 'blackout-recap-cbs' },
     { articleId: 'geneva-cbs' },
-    { articleId: 'fraud-cbs' },
     { articleId: 'port-cbs' },
+    { articleId: 'fraud-cbs' },
   ],
   'bbc-us-canada': [
+    { articleId: 'blackout-bbc-es' },
+    { articleId: 'geneva-analysis-bbc' },
+    { articleId: 'port-bbc' },
     { articleId: 'tsa-bbc' },
     { articleId: 'mayor-bbc' },
-    { articleId: 'port-bbc' },
-    { articleId: 'blackout-bbc-es' },
   ],
   'fox-latest': [
+    { articleId: 'port-recap-fox' },
     { articleId: 'tsa-fox' },
     { articleId: 'hospital-fox' },
   ],
   'nypost-politics': [
+    { articleId: 'geneva-recap-nypost' },
     { articleId: 'iran-roundup-nypost' },
     { articleId: 'fraud-nypost' },
-    { articleId: 'geneva-recap-nypost' },
   ],
 };
 
