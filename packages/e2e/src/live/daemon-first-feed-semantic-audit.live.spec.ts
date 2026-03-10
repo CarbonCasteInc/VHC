@@ -1,3 +1,5 @@
+import { readFile } from 'node:fs/promises';
+import * as path from 'node:path';
 import { expect, test, type BrowserContext } from '@playwright/test';
 import {
   LIVE_BASE_URL,
@@ -31,6 +33,48 @@ function requireOpenAIApiKey(): string {
     throw new Error('blocked-setup-openai-api-key-missing');
   }
   return apiKey;
+}
+
+function semanticAuditArtifactDir(): string | null {
+  const runId = process.env.VH_DAEMON_FEED_RUN_ID?.trim();
+  if (!runId) {
+    return null;
+  }
+  return path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId);
+}
+
+async function attachSemanticAuditArtifacts(
+  testInfo: {
+    attach: (name: string, options: { body: string; contentType: string }) => Promise<void>;
+  },
+): Promise<void> {
+  const artifactDir = semanticAuditArtifactDir();
+  if (!artifactDir) {
+    return;
+  }
+
+  const attachments = [
+    {
+      name: 'daemon-first-feed-semantic-audit',
+      fileName: 'semantic-audit-report.json',
+    },
+    {
+      name: 'daemon-first-feed-semantic-audit-failure-snapshot',
+      fileName: 'semantic-audit-store-snapshot.json',
+    },
+  ];
+
+  for (const attachment of attachments) {
+    try {
+      const body = await readFile(path.join(artifactDir, attachment.fileName), 'utf8');
+      await testInfo.attach(attachment.name, {
+        body,
+        contentType: 'application/json',
+      });
+    } catch {
+      // Artifact not produced in this run.
+    }
+  }
 }
 
 test.describe('daemon-first StoryCluster live semantic audit', () => {
@@ -74,6 +118,7 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
       expect(report.overall.related_topic_only_pair_count).toBe(0);
       expect(report.overall.pass).toBe(true);
     } catch (error) {
+      await attachSemanticAuditArtifacts(testInfo);
       if (stack) {
         await attachRuntimeLogs(testInfo, browserLogs, stack);
       }

@@ -14,6 +14,7 @@ const PLAYWRIGHT_ARGS = [
   '--reporter=json',
 ];
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
+const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
 
 function readPositiveInt(name, fallback) {
   const raw = process.env[name]?.trim();
@@ -83,7 +84,16 @@ function summarizeLabelCounts(report) {
   return counts;
 }
 
-function summarizeRun(report, procStatus, reportPath, reportParseError, auditPath, auditError) {
+function summarizeRun(
+  report,
+  failureSnapshot,
+  procStatus,
+  reportPath,
+  reportParseError,
+  auditPath,
+  auditError,
+  failureSnapshotPath,
+) {
   const labelCounts = summarizeLabelCounts(report);
   const failingBundles = (report?.bundles ?? [])
     .filter((bundle) => bundle?.has_related_topic_only_pair)
@@ -110,11 +120,16 @@ function summarizeRun(report, procStatus, reportPath, reportParseError, auditPat
     reportParseError,
     auditPath,
     auditError,
+    failureSnapshotPath,
     requestedSampleCount: report?.requested_sample_count ?? null,
     sampledStoryCount: report?.sampled_story_count ?? null,
     visibleStoryCount: Array.isArray(report?.visible_story_ids) ? report.visible_story_ids.length : null,
     auditedPairCount: report?.overall?.audited_pair_count ?? null,
     relatedTopicOnlyPairCount: report?.overall?.related_topic_only_pair_count ?? null,
+    failureStoryCount: failureSnapshot?.story_count ?? null,
+    failureAuditableCount: failureSnapshot?.auditable_count ?? null,
+    failureTopStoryIds: failureSnapshot?.top_story_ids ?? [],
+    failureTopAuditableStoryIds: failureSnapshot?.top_auditable_story_ids ?? [],
     labelCounts,
     failingBundles,
     storyIds: (report?.bundles ?? []).map((bundle) => bundle.story_id),
@@ -208,6 +223,8 @@ async function main() {
     let audit = null;
     let auditError = null;
     let auditPath = null;
+    let failureSnapshot = null;
+    let failureSnapshotPath = null;
 
     try {
       audit = primaryResult ? decodeAttachment(primaryResult, ATTACHMENT_NAME) : null;
@@ -223,15 +240,42 @@ async function main() {
       writeFileSync(auditPath, JSON.stringify(audit, null, 2), 'utf8');
     }
 
+    try {
+      failureSnapshot = primaryResult
+        ? decodeAttachment(primaryResult, FAILURE_SNAPSHOT_ATTACHMENT_NAME)
+        : null;
+    } catch (error) {
+      if (!auditError) {
+        auditError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    if (failureSnapshot) {
+      failureSnapshotPath = path.join(artifactDir, `run-${run}.semantic-audit-failure-snapshot.json`);
+      writeFileSync(failureSnapshotPath, JSON.stringify(failureSnapshot, null, 2), 'utf8');
+    }
+
     const result = {
       run,
-      ...summarizeRun(audit, proc.status, reportPath, reportParseError, auditPath, auditError),
+      ...summarizeRun(
+        audit,
+        failureSnapshot,
+        proc.status,
+        reportPath,
+        reportParseError,
+        auditPath,
+        auditError,
+        failureSnapshotPath,
+      ),
     };
     results.push(result);
 
+    const detail = result.failureAuditableCount !== null
+      ? `, storeStories=${result.failureStoryCount}, storeAuditable=${result.failureAuditableCount}`
+      : '';
     const state = result.pass
       ? `PASS (stories=${result.sampledStoryCount}, pairs=${result.auditedPairCount})`
-      : `FAIL (stories=${result.sampledStoryCount ?? 'n/a'}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'})`;
+      : `FAIL (stories=${result.sampledStoryCount ?? 'n/a'}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'}${detail})`;
     console.log(`[vh:daemon-soak] run ${run}/${runCount} ${state}`);
 
     if (run < runCount && pauseMs > 0) {

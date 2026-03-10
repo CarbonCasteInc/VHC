@@ -88,24 +88,68 @@ const articles = {
       'Teacher groups said the results should inform staffing and retention plans before the next school year.',
     ]),
   },
+  'mayor-guardian': {
+    title: 'City hall attack injures mayor and top aide before budget vote',
+    description: 'Investigators said the mayor and a senior aide were injured in a blast outside city hall before a budget vote.',
+    publishedAt: '2026-03-09T15:26:00Z',
+    html: articleHtml('City hall attack injures mayor and top aide before budget vote', [
+      'The mayor and a senior aide were injured in a blast outside city hall hours before a scheduled budget vote, according to investigators.',
+      'Police said the attack damaged official vehicles and forced lawmakers to evacuate the surrounding block while bomb technicians secured the area.',
+      'Officials described the explosion as a targeted attack tied to the city hall complex and said the mayor was taken to hospital in stable condition.',
+    ]),
+  },
+  'mayor-bbc': {
+    title: 'Mayor hospitalised after blast outside city hall ahead of budget session',
+    description: 'A blast outside city hall injured the mayor before a budget session and triggered an emergency security response.',
+    publishedAt: '2026-03-09T15:31:00Z',
+    html: articleHtml('Mayor hospitalised after blast outside city hall ahead of budget session', [
+      'The mayor was hospitalised after a blast outside city hall ahead of a budget session, with officials saying a senior aide was also hurt.',
+      'Security forces cleared the area around city hall and suspended the scheduled vote while investigators examined damaged vehicles and debris.',
+      'Authorities said the explosion targeted the city hall entrance and launched a major emergency response across the district.',
+    ]),
+  },
+  'fraud-cbs': {
+    title: 'Brothers convicted in luxury condo fraud trial after six-week case',
+    description: 'A jury convicted two brothers in a luxury condo fraud trial tied to investor losses and forged records.',
+    publishedAt: '2026-03-09T15:36:00Z',
+    html: articleHtml('Brothers convicted in luxury condo fraud trial after six-week case', [
+      'A jury convicted two brothers in a luxury condo fraud trial after prosecutors said they forged records and diverted investor money.',
+      'Jurors returned guilty verdicts on fraud and conspiracy counts after a six-week case focused on losses tied to a downtown tower project.',
+      'Prosecutors said sentencing will address the multimillion-dollar investor losses and restitution claims raised during the trial.',
+    ]),
+  },
+  'fraud-nypost': {
+    title: 'Luxury tower brothers found guilty in multimillion-dollar fraud case',
+    description: 'Two brothers were found guilty in a multimillion-dollar fraud case involving a luxury tower project and investor money.',
+    publishedAt: '2026-03-09T15:40:00Z',
+    html: articleHtml('Luxury tower brothers found guilty in multimillion-dollar fraud case', [
+      'Two brothers were found guilty in a multimillion-dollar fraud case tied to a luxury tower project after prosecutors detailed forged records and missing investor funds.',
+      'The jury convicted the pair on fraud and conspiracy counts at the end of a six-week trial centered on the downtown condominium development.',
+      'Sentencing is expected later this spring as prosecutors seek restitution for investors caught up in the tower scheme.',
+    ]),
+  },
 };
 
 const feeds = {
   'guardian-us': [
     { articleId: 'geneva-guardian' },
     { articleId: 'school-noise-guardian' },
+    { articleId: 'mayor-guardian' },
   ],
   'cbs-politics': [
     { articleId: 'geneva-cbs' },
+    { articleId: 'fraud-cbs' },
   ],
   'bbc-us-canada': [
     { articleId: 'tsa-bbc' },
+    { articleId: 'mayor-bbc' },
   ],
   'fox-latest': [
     { articleId: 'tsa-fox' },
   ],
   'nypost-politics': [
     { articleId: 'iran-roundup-nypost' },
+    { articleId: 'fraud-nypost' },
   ],
 };
 
