@@ -136,6 +136,9 @@ describe('runStoryClusterLiveBenchmark persistence accounting', () => {
     expect(report.replay_overall.persistence_observations).toBe(1);
     expect(report.replay_overall.persistence_retained).toBe(0);
     expect(report.replay_overall.persistence_rate).toBe(0);
+    expect(report.replay_overall.reappearance_observations).toBe(0);
+    expect(report.replay_overall.reappearance_retained).toBe(0);
+    expect(report.replay_overall.reappearance_rate).toBe(0);
   });
 
   it('surfaces merge and split lineage counts in replay results', async () => {
@@ -257,6 +260,9 @@ describe('runStoryClusterLiveBenchmark persistence accounting', () => {
 
     expect(report.replay_results[0]?.merge_lineage_count).toBe(1);
     expect(report.replay_results[0]?.split_lineage_count).toBe(1);
+    expect(report.replay_results[0]?.reappearance_observations).toBe(0);
+    expect(report.replay_results[0]?.reappearance_retained).toBe(0);
+    expect(report.replay_results[0]?.reappearance_rate).toBe(0);
     expect(report.replay_overall.merge_lineage_count).toBe(1);
     expect(report.replay_overall.split_lineage_count).toBe(1);
   });

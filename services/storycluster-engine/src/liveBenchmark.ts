@@ -13,6 +13,12 @@ import {
   type StoryClusterRemoteBundle,
   type StoryClusterRemoteResponse,
 } from './remoteContract';
+import {
+  aggregateReplayContinuity,
+  createReplayContinuityTracker,
+  observeReplayContinuityTick,
+  summarizeReplayContinuity,
+} from './liveBenchmarkReplayMetrics';
 import type { StoredClusterRecord } from './stageState';
 import type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
 
@@ -28,6 +34,9 @@ export interface StoryClusterReplayBenchmarkResult extends StoryClusterCoherence
   persistence_rate: number;
   persistence_observations: number;
   persistence_retained: number;
+  reappearance_rate: number;
+  reappearance_observations: number;
+  reappearance_retained: number;
   merge_lineage_count: number;
   split_lineage_count: number;
   run_latency_ms: number;
@@ -56,6 +65,9 @@ export interface StoryClusterLiveBenchmarkReport {
     persistence_rate: number;
     persistence_observations: number;
     persistence_retained: number;
+    reappearance_rate: number;
+    reappearance_observations: number;
+    reappearance_retained: number;
     merge_lineage_count: number;
     split_lineage_count: number;
   };
@@ -199,11 +211,9 @@ async function runReplayScenario(
   const startedAt = now();
   const store = storeFactory();
   const expectedByKey = new Map<string, string>();
-  const previousStoryByEvent = new Map<string, string | null>();
+  const continuity = createReplayContinuityTracker();
   const mergeLineage = new Set<string>();
   const splitLineage = new Set<string>();
-  let persistenceObservations = 0;
-  let persistenceRetained = 0;
 
   for (const tick of scenario.ticks) {
     tick.forEach((item) => {
@@ -224,21 +234,7 @@ async function runReplayScenario(
     for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, expectedByKey)) {
       currentStoryByEvent.set(eventId, singleStoryId(storyIds));
     }
-    const observedEventIds = new Set<string>([
-      ...previousStoryByEvent.keys(),
-      ...currentStoryByEvent.keys(),
-    ]);
-    for (const eventId of observedEventIds) {
-      const previous = previousStoryByEvent.get(eventId);
-      const current = currentStoryByEvent.get(eventId) ?? null;
-      if (previous !== undefined) {
-        persistenceObservations += 1;
-        if (previous !== null && current !== null && previous === current) {
-          persistenceRetained += 1;
-        }
-      }
-      previousStoryByEvent.set(eventId, current);
-    }
+    observeReplayContinuityTick(continuity, currentStoryByEvent);
   }
 
   const finalState = store.loadTopic(scenario.topic_id);
@@ -254,14 +250,13 @@ async function runReplayScenario(
     },
     thresholds,
   );
+  const continuityTotals = summarizeReplayContinuity(continuity);
 
   return {
     ...result,
     scenario_id: scenario.scenario_id,
     tick_count: scenario.ticks.length,
-    persistence_rate: Number((persistenceRetained / Math.max(1, persistenceObservations)).toFixed(6)),
-    persistence_observations: persistenceObservations,
-    persistence_retained: persistenceRetained,
+    ...continuityTotals,
     merge_lineage_count: mergeLineage.size,
     split_lineage_count: splitLineage.size,
     run_latency_ms: Math.max(0, now() - startedAt),
@@ -300,14 +295,7 @@ export async function runStoryClusterLiveBenchmark(
 
   const fixtureOverall = aggregateResults(fixtureResults);
   const replayAggregate = aggregateResults(replayResults);
-  const persistenceObservations = replayResults.reduce(
-    (total, result) => total + result.persistence_observations,
-    0,
-  );
-  const persistenceRetained = replayResults.reduce(
-    (total, result) => total + result.persistence_retained,
-    0,
-  );
+  const continuityTotals = aggregateReplayContinuity(replayResults);
   const mergeLineageCount = replayResults.reduce((total, result) => total + result.merge_lineage_count, 0);
   const splitLineageCount = replayResults.reduce((total, result) => total + result.split_lineage_count, 0);
 
@@ -321,9 +309,7 @@ export async function runStoryClusterLiveBenchmark(
     fixture_overall: fixtureOverall,
     replay_overall: {
       ...replayAggregate,
-      persistence_rate: Number((persistenceRetained / Math.max(1, persistenceObservations)).toFixed(6)),
-      persistence_observations: persistenceObservations,
-      persistence_retained: persistenceRetained,
+      ...continuityTotals,
       merge_lineage_count: mergeLineageCount,
       split_lineage_count: splitLineageCount,
     },
