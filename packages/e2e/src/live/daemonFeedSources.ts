@@ -28,6 +28,27 @@ const DEFAULT_SOURCE_IDS = [
   'fox-latest',
 ];
 
+function fixtureFeedBaseUrl(): string {
+  return process.env.VH_DAEMON_FEED_FIXTURE_BASE_URL?.trim()
+    || `http://127.0.0.1:${process.env.VH_DAEMON_FEED_FIXTURE_PORT?.trim() || '8788'}`;
+}
+
+function resolveFixtureFeedSourcesJson(sourceIds: readonly string[]): string {
+  const baseUrl = fixtureFeedBaseUrl();
+  const sources = sourceIds.map((sourceId) => {
+    const source = STARTER_FEED_SOURCE_CATALOG[sourceId];
+    if (!source) {
+      return null;
+    }
+    return {
+      ...source,
+      rssUrl: `${baseUrl}/rss/${sourceId}`,
+    };
+  }).filter(Boolean);
+
+  return JSON.stringify(sources);
+}
+
 export function resolveDaemonFeedSourcesJson(): string {
   const sourceIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_SOURCE_IDS.join(','))
     .split(',')
@@ -37,6 +58,12 @@ export function resolveDaemonFeedSourcesJson(): string {
   const sources = sourceIds
     .map((sourceId) => STARTER_FEED_SOURCE_CATALOG[sourceId])
     .filter(Boolean);
+
+  if (process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
+    return resolveFixtureFeedSourcesJson(
+      sourceIds.length > 0 ? sourceIds : DEFAULT_SOURCE_IDS,
+    );
+  }
 
   return JSON.stringify(sources.length > 0 ? sources : Object.values(STARTER_FEED_SOURCE_CATALOG));
 }

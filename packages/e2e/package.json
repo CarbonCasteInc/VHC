@@ -12,7 +12,9 @@
     "test:live:matrix:strict:stability:dev-small": "env $(grep -v '^#' .env.dev-small | xargs) node ./src/live/live-matrix-stability-gate.mjs",
     "test:live:matrix:strict:stability:beta-scale": "env $(grep -v '^#' .env.beta-scale | xargs) node ./src/live/live-matrix-stability-gate.mjs",
     "test:live:daemon-feed:build": "pnpm --filter @vh/crypto build && pnpm --filter @vh/data-model build && pnpm --filter @vh/gun-client build && pnpm --filter @vh/ai-engine build && pnpm --filter @vh/storycluster-engine build && pnpm --filter @vh/news-aggregator exec tsc -p tsconfig.json",
-    "test:live:daemon-feed": "pnpm test:live:daemon-feed:build && VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed.live.spec.ts && VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed-integrity.live.spec.ts && VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed-semantic-audit.live.spec.ts",
+    "test:live:daemon-feed": "pnpm test:live:daemon-feed:build && VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed.live.spec.ts && VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed-integrity.live.spec.ts && pnpm test:live:daemon-feed:semantic-gate",
+    "test:live:daemon-feed:semantic-gate": "VH_RUN_DAEMON_FIRST_FEED=true VH_DAEMON_FEED_USE_FIXTURE_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed-semantic-audit.live.spec.ts",
+    "test:live:daemon-feed:semantic-public": "VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed-semantic-audit.live.spec.ts",
     "test:live:daemon-feed:semantic-soak": "node ./src/live/daemon-feed-semantic-soak.mjs",
     "codegen": "playwright codegen",
     "typecheck": "tsc --noEmit"

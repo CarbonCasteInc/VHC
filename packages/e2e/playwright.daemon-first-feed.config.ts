@@ -11,14 +11,19 @@ function stablePort(base: number, span: number, seed: string): number {
 const runId = process.env.VH_DAEMON_FEED_RUN_ID;
 process.env.VH_DAEMON_FEED_GUN_PORT ??= String(stablePort(8700, 200, runId));
 process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, runId));
+process.env.VH_DAEMON_FEED_FIXTURE_PORT ??= String(stablePort(8900, 100, runId));
 
 const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
 const baseUrl = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2148/';
 const basePort = extractPort(baseUrl);
 const gunPeerUrl = `http://localhost:${gunPort}/gun`;
+const fixtureFeedPort = Number(process.env.VH_DAEMON_FEED_FIXTURE_PORT);
+const fixtureFeedBaseUrl = `http://127.0.0.1:${fixtureFeedPort}`;
+const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
 const relayRootDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId, 'relay');
 const relayDataPath = path.join(relayRootDir, 'data');
 const relayServerPath = path.resolve(process.cwd(), '../../infra/relay/server.js');
+const fixtureServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-fixtures.mjs');
 
 type DevFeedSource = {
   id: string;
@@ -155,6 +160,18 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 }
 
 const localWebServers: TestConfig['webServer'] = [
+  ...(useFixtureFeed
+    ? [{
+        command: [
+          `pids=$(lsof -ti tcp:${fixtureFeedPort} || true)`,
+          `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+          `VH_DAEMON_FEED_FIXTURE_PORT=${fixtureFeedPort} node ${JSON.stringify(fixtureServerPath)}`,
+        ].join(' && '),
+        url: `${fixtureFeedBaseUrl}/health`,
+        reuseExistingServer: false,
+        timeout: 30_000,
+      }]
+    : []),
   {
     command: [
       `pids=$(lsof -ti tcp:${gunPort} || true)`,
@@ -182,6 +199,8 @@ const localWebServers: TestConfig['webServer'] = [
       VITE_NEWS_BRIDGE_ENABLED: 'true',
       VITE_NEWS_RUNTIME_ENABLED: 'false',
       VITE_NEWS_RUNTIME_ROLE: 'consumer',
+      VH_DAEMON_FEED_USE_FIXTURE_FEED: useFixtureFeed ? 'true' : 'false',
+      VH_DAEMON_FEED_FIXTURE_BASE_URL: fixtureFeedBaseUrl,
       VITE_GUN_PEERS: `["${gunPeerUrl}"]`,
       VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
       ...resolveAnalysisRelayEnv(),
