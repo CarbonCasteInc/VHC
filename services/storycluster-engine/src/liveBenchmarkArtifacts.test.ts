@@ -8,6 +8,7 @@ import {
   buildStoryClusterLiveBenchmarkArtifactIndex,
   renderStoryClusterLiveBenchmarkMarkdown,
   resolveStoryClusterLiveBenchmarkOutputDir,
+  splitReplayCorrectionCycles,
   splitReplayContinuity,
   writeStoryClusterLiveBenchmarkArtifacts,
 } from './liveBenchmarkArtifacts';
@@ -170,6 +171,35 @@ describe('live benchmark artifacts', () => {
     });
   });
 
+  it('summarizes correction cycles from replay lineage counts', () => {
+    const report = makeReport();
+    report.replay_results = [
+      report.replay_results[0]!,
+      {
+        ...report.replay_results[1]!,
+        scenario_id: 'replay-correction-a',
+        merge_lineage_count: 2,
+        split_lineage_count: 3,
+      },
+      {
+        ...report.replay_results[1]!,
+        scenario_id: 'replay-correction-b',
+        merge_lineage_count: 1,
+        split_lineage_count: 1,
+      },
+    ];
+
+    expect(splitReplayCorrectionCycles(report)).toEqual({
+      scenario_count: 2,
+      scenario_ids: ['replay-correction-a', 'replay-correction-b'],
+      total_merge_lineage_count: 3,
+      total_split_lineage_count: 4,
+      total_cycle_count: 3,
+      repeated_cycle_scenario_count: 1,
+      repeated_cycle_scenario_ids: ['replay-correction-a'],
+    });
+  });
+
   it('renders and writes markdown and json artifacts', () => {
     const successReport = makeReport();
     const failedReport = makeReport(['fixture-a']);
@@ -202,6 +232,18 @@ describe('live benchmark artifacts', () => {
     expect(index.replay_continuity.reappearance.scenario_count).toBe(1);
     expect(index.replay_continuity.reappearance.min_reappearance_rate).toBe(1);
     expect(index.replay_continuity.reappearance.total_observations).toBe(1);
+    expect((index as {
+      replay_correction_cycles: {
+        total_cycle_count: number;
+        repeated_cycle_scenario_count: number;
+      };
+    }).replay_correction_cycles.total_cycle_count).toBe(1);
+    expect((index as {
+      replay_correction_cycles: {
+        total_cycle_count: number;
+        repeated_cycle_scenario_count: number;
+      };
+    }).replay_correction_cycles.repeated_cycle_scenario_count).toBe(0);
   });
 
   it('builds a release artifact index with replay continuity split', () => {

@@ -16,6 +16,7 @@ export interface StoryClusterLiveBenchmarkArtifactIndex {
   fixture_overall: StoryClusterLiveBenchmarkReport['fixture_overall'];
   replay_overall: StoryClusterLiveBenchmarkReport['replay_overall'];
   replay_continuity: ReturnType<typeof splitReplayContinuity>;
+  replay_correction_cycles: ReturnType<typeof splitReplayCorrectionCycles>;
 }
 
 const repoRootDir = fileURLToPath(new URL('../../..', import.meta.url));
@@ -43,6 +44,27 @@ export function splitReplayContinuity(report: StoryClusterLiveBenchmarkReport) {
   };
 }
 
+export function splitReplayCorrectionCycles(report: StoryClusterLiveBenchmarkReport) {
+  const correctionScenarios = report.replay_results.filter(
+    (result) => result.merge_lineage_count > 0 || result.split_lineage_count > 0,
+  );
+  const repeatedCycleScenarios = correctionScenarios.filter(
+    (result) => Math.min(result.merge_lineage_count, result.split_lineage_count) > 1,
+  );
+  return {
+    scenario_count: correctionScenarios.length,
+    scenario_ids: correctionScenarios.map((result) => result.scenario_id),
+    total_merge_lineage_count: correctionScenarios.reduce((sum, result) => sum + result.merge_lineage_count, 0),
+    total_split_lineage_count: correctionScenarios.reduce((sum, result) => sum + result.split_lineage_count, 0),
+    total_cycle_count: correctionScenarios.reduce(
+      (sum, result) => sum + Math.min(result.merge_lineage_count, result.split_lineage_count),
+      0,
+    ),
+    repeated_cycle_scenario_count: repeatedCycleScenarios.length,
+    repeated_cycle_scenario_ids: repeatedCycleScenarios.map((result) => result.scenario_id),
+  };
+}
+
 export function buildStoryClusterLiveBenchmarkArtifactIndex(
   report: StoryClusterLiveBenchmarkReport,
   artifactPaths: Partial<StoryClusterLiveBenchmarkArtifactPaths>,
@@ -54,6 +76,7 @@ export function buildStoryClusterLiveBenchmarkArtifactIndex(
     fixture_overall: report.fixture_overall,
     replay_overall: report.replay_overall,
     replay_continuity: splitReplayContinuity(report),
+    replay_correction_cycles: splitReplayCorrectionCycles(report),
   };
 }
 

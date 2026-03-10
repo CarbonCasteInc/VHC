@@ -44,6 +44,7 @@ describe('StoryCluster live benchmark', () => {
       fixture_overall: report.fixture_overall,
       replay_overall: report.replay_overall,
       replay_continuity: releaseArtifactIndex.replay_continuity,
+      replay_correction_cycles: releaseArtifactIndex.replay_correction_cycles,
       artifact_paths: artifactPaths,
       release_artifact_index: releaseArtifactIndex,
     }, null, 2));

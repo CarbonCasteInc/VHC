@@ -221,6 +221,18 @@ describe('StoryCluster replay evidence', () => {
     expect(new Set(shadowStoryIds).size).toBe(3);
   });
 
+  it('keeps the anchor story stable when the same shadow event class re-enters after prior separation', async () => {
+    const snapshots = await collectReplaySnapshots('replay-harbor-fire-repeated-shadow-return');
+    const anchorStoryIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('harbor_fire_repeated_shadow') ?? null);
+    const shadowStoryIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('pipeline_blast_shadow') ?? null);
+
+    expect(anchorStoryIds[0]).toBeTruthy();
+    expect(new Set(anchorStoryIds.filter(Boolean))).toEqual(new Set([anchorStoryIds[0]]));
+    expect(new Set(shadowStoryIds.filter(Boolean)).size).toBe(1);
+    expect(shadowStoryIds.some((storyId) => storyId !== null)).toBe(true);
+    expect(new Set([...anchorStoryIds.filter(Boolean), ...shadowStoryIds.filter(Boolean)]).size).toBe(2);
+  });
+
   it('records deterministic merge and split lineage when replayed states reconcile', async () => {
     const mergeTopicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',

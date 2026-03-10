@@ -122,4 +122,55 @@ export const STORYCLUSTER_REPLAY_LONG_WINDOW_SCENARIOS: StoryClusterReplayScenar
       ],
     ],
   },
+  {
+    scenario_id: 'replay-harbor-fire-repeated-shadow-return',
+    topic_id: 'replay-harbor-fire-repeated-shadow-return',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'harbor_fire_repeated_shadow',
+          'replay-shadow-cycle-a',
+          'Chemical fire at harbor terminal triggers midnight evacuations',
+          'rk1',
+          1_712_176_400_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'pipeline_blast_shadow',
+          'replay-shadow-cycle-b',
+          'Pipeline blast disrupts refinery fuel shipments',
+          'rk3',
+          1_712_176_420_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'harbor_fire_repeated_shadow',
+          'replay-shadow-cycle-c',
+          'Inspectors return to harbor terminal after fire is contained',
+          'rk4',
+          1_712_176_440_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'pipeline_blast_shadow',
+          'replay-shadow-cycle-d',
+          'Refinery fuel shipments stay disrupted after the pipeline blast',
+          'rk5',
+          1_712_176_460_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'harbor_fire_repeated_shadow',
+          'replay-shadow-cycle-e',
+          'Harbor terminal crews reopen docks after fire cleanup',
+          'rk6',
+          1_712_176_480_000,
+        ),
+      ],
+    ],
+  },
 ];
