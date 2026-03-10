@@ -14,6 +14,12 @@ import {
   type StoryClusterRemoteResponse,
 } from './remoteContract';
 import {
+  aggregateReplayTopologyCycles,
+  createReplayTopologyCycleTracker,
+  observeReplayTopologyTick,
+  summarizeReplayTopologyCycles,
+} from './liveBenchmarkReplayTopology';
+import {
   aggregateReplayContinuity,
   createReplayContinuityTracker,
   observeReplayContinuityTick,
@@ -21,13 +27,10 @@ import {
 } from './liveBenchmarkReplayMetrics';
 import type { StoredClusterRecord } from './stageState';
 import type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
-
 export type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
-
 export interface StoryClusterFixtureBenchmarkResult extends StoryClusterCoherenceDatasetResult {
   run_latency_ms: number;
 }
-
 export interface StoryClusterReplayBenchmarkResult extends StoryClusterCoherenceDatasetResult {
   scenario_id: string;
   tick_count: number;
@@ -39,6 +42,8 @@ export interface StoryClusterReplayBenchmarkResult extends StoryClusterCoherence
   reappearance_retained: number;
   merge_lineage_count: number;
   split_lineage_count: number;
+  correction_cycle_count: number;
+  split_child_reuse_cycle_count: number;
   run_latency_ms: number;
 }
 
@@ -70,13 +75,14 @@ export interface StoryClusterLiveBenchmarkReport {
     reappearance_retained: number;
     merge_lineage_count: number;
     split_lineage_count: number;
+    correction_cycle_count: number;
+    split_child_reuse_cycle_count: number;
   };
   corpus: {
     fixture_dataset_count: number;
     replay_scenario_count: number;
   };
 }
-
 export interface StoryClusterLiveBenchmarkOptions {
   now?: () => number;
   fixtureDatasets?: StoryClusterCoherenceAuditDataset[];
@@ -86,9 +92,7 @@ export interface StoryClusterLiveBenchmarkOptions {
   remoteRunner?: typeof runStoryClusterRemoteContract;
   storeFactory?: () => ClusterStore;
 }
-
 const defaultCorpus = STORYCLUSTER_BENCHMARK_CORPUS;
-
 function bundleFromCluster(cluster: StoredClusterRecord): StoryClusterRemoteBundle {
   const projected = projectBundleSources(cluster.source_documents);
   const sources = projected.primary_sources
@@ -136,14 +140,9 @@ function bundleFromCluster(cluster: StoredClusterRecord): StoryClusterRemoteBund
     created_at: cluster.created_at,
   };
 }
-
 function singleStoryId(stories: Set<string> | undefined): string | null {
-  if (!stories || stories.size !== 1) {
-    return null;
-  }
-  return [...stories][0] as string;
+  return !stories || stories.size !== 1 ? null : [...stories][0] as string;
 }
-
 function eventStoryIdsFromBundles(
   bundles: readonly StoryClusterRemoteBundle[],
   expectedByKey: Map<string, string>,
@@ -167,7 +166,6 @@ function eventStoryIdsFromBundles(
   }
   return mapping;
 }
-
 function aggregateResults(results: readonly StoryClusterCoherenceDatasetResult[]) {
   return {
     pass: results.every((result) => result.pass),
@@ -182,25 +180,21 @@ function aggregateResults(results: readonly StoryClusterCoherenceDatasetResult[]
     failed_dataset_ids: results.filter((result) => !result.pass).map((result) => result.dataset_id),
   };
 }
-
 function resolveThresholds(
   base: StoryClusterCoherenceThresholds,
   overrides: Partial<StoryClusterCoherenceThresholds> | undefined,
 ): StoryClusterCoherenceThresholds {
   return coherenceAuditInternal.resolveThresholds({ ...base, ...overrides });
 }
-
 function toRemoteItems(items: readonly StoryClusterCoherenceAuditItem[]) {
   return items.map(({ expected_event_id: _expectedEventId, ...item }) => item);
 }
-
 function toResponse(topicId: string, response: StoryClusterRemoteResponse): StoryClusterRemoteResponse {
   if (Array.isArray(response.bundles)) {
     return response;
   }
   return { bundles: [], telemetry: coherenceAuditInternal.createEmptyTelemetry(topicId) };
 }
-
 async function runReplayScenario(
   scenario: StoryClusterReplayScenario,
   thresholds: StoryClusterCoherenceThresholds,
@@ -212,6 +206,7 @@ async function runReplayScenario(
   const store = storeFactory();
   const expectedByKey = new Map<string, string>();
   const continuity = createReplayContinuityTracker();
+  const topologyCycles = createReplayTopologyCycleTracker();
   const mergeLineage = new Set<string>();
   const splitLineage = new Set<string>();
 
@@ -239,6 +234,7 @@ async function runReplayScenario(
         splitLineage.add(`${cluster.story_id}->${cluster.lineage.split_from}`);
       }
     }
+    observeReplayTopologyTick(topologyCycles, topicState.clusters);
     const bundles = response.bundles;
     const currentStoryByEvent = new Map<string, string | null>();
     for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, expectedByKey)) {
@@ -261,12 +257,14 @@ async function runReplayScenario(
     thresholds,
   );
   const continuityTotals = summarizeReplayContinuity(continuity);
+  const topologyCycleTotals = summarizeReplayTopologyCycles(topologyCycles);
 
   return {
     ...result,
     scenario_id: scenario.scenario_id,
     tick_count: scenario.ticks.length,
     ...continuityTotals,
+    ...topologyCycleTotals,
     merge_lineage_count: mergeLineage.size,
     split_lineage_count: splitLineage.size,
     run_latency_ms: Math.max(0, now() - startedAt),
@@ -306,6 +304,7 @@ export async function runStoryClusterLiveBenchmark(
   const fixtureOverall = aggregateResults(fixtureResults);
   const replayAggregate = aggregateResults(replayResults);
   const continuityTotals = aggregateReplayContinuity(replayResults);
+  const topologyCycleTotals = aggregateReplayTopologyCycles(replayResults);
   const mergeLineageCount = replayResults.reduce((total, result) => total + result.merge_lineage_count, 0);
   const splitLineageCount = replayResults.reduce((total, result) => total + result.split_lineage_count, 0);
 
@@ -320,6 +319,7 @@ export async function runStoryClusterLiveBenchmark(
     replay_overall: {
       ...replayAggregate,
       ...continuityTotals,
+      ...topologyCycleTotals,
       merge_lineage_count: mergeLineageCount,
       split_lineage_count: splitLineageCount,
     },

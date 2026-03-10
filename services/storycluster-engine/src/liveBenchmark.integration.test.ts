@@ -38,6 +38,7 @@ describe('StoryCluster live benchmark', () => {
       artifactPaths ?? {},
     );
     expect(releaseArtifactIndex.replay_correction_cycles.total_cycle_count).toBeGreaterThan(0);
+    expect(releaseArtifactIndex.replay_correction_cycles.total_split_child_reuse_cycle_count).toBeGreaterThan(0);
     expect(releaseArtifactIndex.replay_correction_cycles.repeated_cycle_scenario_count).toBeGreaterThan(0);
 
     console.log(JSON.stringify({

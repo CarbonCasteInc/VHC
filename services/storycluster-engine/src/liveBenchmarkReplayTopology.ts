@@ -6,6 +6,18 @@ import { sha256Hex } from './hashUtils';
 import type { StoredClusterRecord, StoredSourceDocument, StoredTopicState } from './stageState';
 import { createHashedVector, ensureSentence } from './textSignals';
 
+export interface ReplayTopologyCycleCounts {
+  correction_cycle_count: number;
+  split_child_reuse_cycle_count: number;
+}
+
+interface ReplayTopologyCycleTracker {
+  active_pairs: Set<string>;
+  seen_pairs: Set<string>;
+  correction_cycle_count: number;
+  split_child_reuse_cycle_count: number;
+}
+
 export interface ReplaySeedSourceSpec {
   source_id: string;
   title: string;
@@ -28,6 +40,13 @@ export interface ReplaySeedClusterSpec {
   story_id: string;
   lineage?: StoredClusterRecord['lineage'];
   sources: ReplaySeedSourceSpec[];
+}
+
+function splitPairKey(cluster: StoredClusterRecord): string | null {
+  if (!cluster.lineage.split_from) {
+    return null;
+  }
+  return `${cluster.lineage.split_from}|${cluster.story_id}`;
 }
 
 function buildEventTuple(spec: ReplaySeedSourceSpec): EventTuple | null {
@@ -97,4 +116,53 @@ export function replaceReplayTopicWithSeedClusters(
   );
   topicState.next_cluster_seq = nextClusterSeq;
   store.saveTopic(topicState);
+}
+
+export function createReplayTopologyCycleTracker(): ReplayTopologyCycleTracker {
+  return {
+    active_pairs: new Set<string>(),
+    seen_pairs: new Set<string>(),
+    correction_cycle_count: 0,
+    split_child_reuse_cycle_count: 0,
+  };
+}
+
+export function observeReplayTopologyTick(
+  tracker: ReplayTopologyCycleTracker,
+  clusters: readonly StoredClusterRecord[],
+): void {
+  const nextActivePairs = new Set(
+    clusters.map(splitPairKey).filter((pair): pair is string => pair !== null),
+  );
+
+  for (const pair of nextActivePairs) {
+    if (tracker.active_pairs.has(pair)) {
+      continue;
+    }
+    tracker.correction_cycle_count += 1;
+    if (tracker.seen_pairs.has(pair)) {
+      tracker.split_child_reuse_cycle_count += 1;
+    }
+    tracker.seen_pairs.add(pair);
+  }
+
+  tracker.active_pairs = nextActivePairs;
+}
+
+export function summarizeReplayTopologyCycles(
+  tracker: ReplayTopologyCycleTracker,
+): ReplayTopologyCycleCounts {
+  return {
+    correction_cycle_count: tracker.correction_cycle_count,
+    split_child_reuse_cycle_count: tracker.split_child_reuse_cycle_count,
+  };
+}
+
+export function aggregateReplayTopologyCycles<
+  T extends ReplayTopologyCycleCounts,
+>(results: readonly T[]): ReplayTopologyCycleCounts {
+  return {
+    correction_cycle_count: results.reduce((sum, result) => sum + result.correction_cycle_count, 0),
+    split_child_reuse_cycle_count: results.reduce((sum, result) => sum + result.split_child_reuse_cycle_count, 0),
+  };
 }

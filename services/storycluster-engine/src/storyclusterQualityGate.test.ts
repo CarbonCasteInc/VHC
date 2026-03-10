@@ -132,6 +132,7 @@ describe('StoryCluster quality gate', () => {
     expect(report.replay_overall.merge_lineage_count).toBeGreaterThan(0);
     expect(report.replay_overall.split_lineage_count).toBeGreaterThan(0);
     expect(artifactIndex.replay_correction_cycles.total_cycle_count).toBeGreaterThan(0);
+    expect(artifactIndex.replay_correction_cycles.total_split_child_reuse_cycle_count).toBeGreaterThan(0);
     expect(artifactIndex.replay_correction_cycles.repeated_cycle_scenario_count).toBeGreaterThan(0);
 
     console.log(

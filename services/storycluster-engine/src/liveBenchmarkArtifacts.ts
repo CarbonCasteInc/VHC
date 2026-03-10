@@ -46,18 +46,22 @@ export function splitReplayContinuity(report: StoryClusterLiveBenchmarkReport) {
 
 export function splitReplayCorrectionCycles(report: StoryClusterLiveBenchmarkReport) {
   const correctionScenarios = report.replay_results.filter(
-    (result) => result.merge_lineage_count > 0 || result.split_lineage_count > 0,
+    (result) =>
+      result.merge_lineage_count > 0 ||
+      result.split_lineage_count > 0 ||
+      result.correction_cycle_count > 0,
   );
   const repeatedCycleScenarios = correctionScenarios.filter(
-    (result) => Math.min(result.merge_lineage_count, result.split_lineage_count) > 1,
+    (result) => result.split_child_reuse_cycle_count > 0 || result.correction_cycle_count > 1,
   );
   return {
     scenario_count: correctionScenarios.length,
     scenario_ids: correctionScenarios.map((result) => result.scenario_id),
     total_merge_lineage_count: correctionScenarios.reduce((sum, result) => sum + result.merge_lineage_count, 0),
     total_split_lineage_count: correctionScenarios.reduce((sum, result) => sum + result.split_lineage_count, 0),
-    total_cycle_count: correctionScenarios.reduce(
-      (sum, result) => sum + Math.min(result.merge_lineage_count, result.split_lineage_count),
+    total_cycle_count: correctionScenarios.reduce((sum, result) => sum + result.correction_cycle_count, 0),
+    total_split_child_reuse_cycle_count: correctionScenarios.reduce(
+      (sum, result) => sum + result.split_child_reuse_cycle_count,
       0,
     ),
     repeated_cycle_scenario_count: repeatedCycleScenarios.length,
@@ -117,6 +121,7 @@ export function renderStoryClusterLiveBenchmarkMarkdown(
     '',
     `- scenario_count: ${replayCorrectionCycles.scenario_count}`,
     `- total_cycle_count: ${replayCorrectionCycles.total_cycle_count}`,
+    `- total_split_child_reuse_cycle_count: ${replayCorrectionCycles.total_split_child_reuse_cycle_count}`,
     `- repeated_cycle_scenario_count: ${replayCorrectionCycles.repeated_cycle_scenario_count}`,
     `- scenario_ids: ${replayCorrectionCycles.scenario_ids.join(', ') || 'none'}`,
     `- repeated_cycle_scenario_ids: ${replayCorrectionCycles.repeated_cycle_scenario_ids.join(', ') || 'none'}`,

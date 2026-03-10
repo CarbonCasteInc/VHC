@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryClusterStore } from './clusterStore';
-import { replaceReplayTopicWithSeedClusters } from './liveBenchmarkReplayTopology';
+import {
+  createReplayTopologyCycleTracker,
+  observeReplayTopologyTick,
+  replaceReplayTopicWithSeedClusters,
+  summarizeReplayTopologyCycles,
+} from './liveBenchmarkReplayTopology';
 
 describe('StoryCluster replay topology seeding', () => {
   it('creates stored sources without event tuples when a trigger is absent', () => {
@@ -95,5 +100,23 @@ describe('StoryCluster replay topology seeding', () => {
     const source = store.loadTopic('topic-title-fallback').clusters[0]?.source_documents[0];
 
     expect(source?.text).toBe('Markets slide after the overnight strike. Markets slide after the overnight strike');
+  });
+
+  it('tracks repeated split-child reuse cycles without double-counting unchanged active pairs', () => {
+    const tracker = createReplayTopologyCycleTracker();
+    const clusters = [
+      { story_id: 'story-anchor', lineage: { merged_from: [] } },
+      { story_id: 'story-market-child', lineage: { split_from: 'story-anchor', merged_from: [] } },
+    ] as const;
+
+    observeReplayTopologyTick(tracker, clusters as never);
+    observeReplayTopologyTick(tracker, clusters as never);
+    observeReplayTopologyTick(tracker, [] as never);
+    observeReplayTopologyTick(tracker, clusters as never);
+
+    expect(summarizeReplayTopologyCycles(tracker)).toEqual({
+      correction_cycle_count: 2,
+      split_child_reuse_cycle_count: 1,
+    });
   });
 });
