@@ -7,8 +7,8 @@
 
 
 **Last Updated:** 2026-03-10
-**Version:** 0.7.3 (StoryCluster precision hardening + gate split)
-**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates and public-feed smoke-only soak lanes.
+**Version:** 0.7.4 (StoryCluster semantic-gate fixture expansion + identity hardening next)
+**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates, public-feed smoke-only soak lanes, and `story_id` persistence hardening as the next implementation lane.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -62,8 +62,20 @@ Current truth for the news bundler and feed hardening lane:
   - `secondary_assets` = same-publisher derivatives such as video clips
 - `created_at` is immutable by `story_id`; `cluster_window_end` is the latest-activity source of truth.
 - `Latest` is activity-based and `Hot` remains deterministic/config-versioned.
+- The fixture-backed daemon-first release gates are green on `main` after the latest semantic-fixture expansion:
+  - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
+  - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
+- The deterministic fixture corpus now covers multilingual same-incident, recap-vs-incident, and commentary contamination pressure in addition to the earlier same-event / false-merge traps.
 - Storyline grouping is planned in the canonical execution plan, but `storyline_id` is not yet a first-class published runtime contract.
 - Vote convergence and analysis persistence are validated on the fixture-backed daemon-first integrity gate; public-feed smoke remains supplementary evidence only.
+
+### StoryCluster Next Steps (Active)
+
+1. Harden `story_id` persistence under repeated ticks, source growth, and merge/split replay.
+2. Promote merge/split lineage from internal behavior to release-gated evidence.
+3. Continue expanding the deterministic semantic fixture corpus before widening the live public semantic blocker.
+4. Implement the missing `StorylineGroup` publication contract only after event identity stability is stronger.
+5. Keep public semantic soak as smoke/evidence until live public bundle density is stable enough to support a deterministic blocker.
 
 ---
 
