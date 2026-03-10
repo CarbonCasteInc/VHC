@@ -4,6 +4,7 @@ import type { Page } from '@playwright/test';
 import {
   readAuditableBundleDiagnostics,
   readAuditableBundles,
+  readSemanticAuditStoreSnapshot,
   refreshNewsStoreLatest,
 } from './browserNewsStore';
 import { LIVE_BASE_URL, headlineRows, waitForHeadlines } from './daemonFirstFeedHarness';
@@ -15,6 +16,7 @@ import type {
   LiveSemanticAuditBundleLike,
   LiveSemanticAuditPair,
   LiveSemanticAuditPairResult,
+  SemanticAuditStoreSnapshot,
   StoryBundleSource,
 } from './daemonFirstFeedSemanticAuditTypes';
 
@@ -131,8 +133,11 @@ async function waitForSampledBundles(
     lastDiagnostics = await readAuditableBundleDiagnostics(page);
   }
 
+  const storeSnapshot = await readSemanticAuditStoreSnapshot(page);
+  await persistSemanticAuditFailureSnapshot(storeSnapshot);
+
   throw new Error(
-    `semantic-audit-insufficient-bundles:${sampleCount}:stories=${lastDiagnostics.storyCount}:auditable=${lastDiagnostics.auditableCount}:top=${lastDiagnostics.topStoryIds.join(',')}:auditableTop=${lastDiagnostics.topAuditableStoryIds.join(',')}`,
+    `semantic-audit-insufficient-bundles:${sampleCount}:stories=${lastDiagnostics.storyCount}:auditable=${lastDiagnostics.auditableCount}:top=${lastDiagnostics.topStoryIds.join(',')}:auditableTop=${lastDiagnostics.topAuditableStoryIds.join(',')}:snapshot=${storeSnapshot.stories.length}`,
   );
 }
 
@@ -178,6 +183,23 @@ async function persistSemanticAuditReport(report: DaemonFeedSemanticAuditReport)
   await writeFile(
     path.join(artifactDir, 'semantic-audit-report.json'),
     JSON.stringify(report, null, 2),
+    'utf8',
+  );
+}
+
+async function persistSemanticAuditFailureSnapshot(
+  snapshot: SemanticAuditStoreSnapshot,
+): Promise<void> {
+  const runId = process.env.VH_DAEMON_FEED_RUN_ID?.trim();
+  if (!runId) {
+    return;
+  }
+
+  const artifactDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId);
+  await mkdir(artifactDir, { recursive: true });
+  await writeFile(
+    path.join(artifactDir, 'semantic-audit-store-snapshot.json'),
+    JSON.stringify(snapshot, null, 2),
     'utf8',
   );
 }

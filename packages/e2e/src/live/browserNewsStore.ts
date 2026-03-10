@@ -1,5 +1,8 @@
 import type { Page } from '@playwright/test';
-import type { LiveSemanticAuditBundleLike } from './daemonFirstFeedSemanticAuditTypes';
+import type {
+  LiveSemanticAuditBundleLike,
+  SemanticAuditStoreSnapshot,
+} from './daemonFirstFeedSemanticAuditTypes';
 
 export interface AuditableBundleDiagnostics {
   readonly storyCount: number;
@@ -88,5 +91,34 @@ export async function readAuditableBundleDiagnostics(
     auditableCount: auditable.length,
     topStoryIds: stories.slice(0, 5).map((story) => story.story_id),
     topAuditableStoryIds: auditable.slice(0, 5).map((story) => story.story_id),
+  };
+}
+
+export async function readSemanticAuditStoreSnapshot(
+  page: Page,
+): Promise<SemanticAuditStoreSnapshot> {
+  const [stories, domStoryIds] = await Promise.all([readStoreStories(page), readDomStoryIds(page)]);
+  const visibleStoryIds = domStoryIds.filter((storyId, index, values) => values.indexOf(storyId) === index);
+  const visibleStoryIdSet = new Set(visibleStoryIds);
+  const auditableStories = stories.filter(
+    (story) => (story.primary_sources?.length ?? story.sources.length) >= 2,
+  );
+
+  return {
+    story_count: stories.length,
+    auditable_count: auditableStories.length,
+    visible_story_ids: visibleStoryIds,
+    top_story_ids: stories.slice(0, 5).map((story) => story.story_id),
+    top_auditable_story_ids: auditableStories.slice(0, 5).map((story) => story.story_id),
+    stories: stories.map((story) => ({
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      headline: story.headline,
+      source_count: story.sources.length,
+      primary_source_count: story.primary_sources?.length ?? story.sources.length,
+      secondary_asset_count: story.secondary_assets?.length ?? 0,
+      is_auditable: (story.primary_sources?.length ?? story.sources.length) >= 2,
+      is_dom_visible: visibleStoryIdSet.has(story.story_id),
+    })),
   };
 }

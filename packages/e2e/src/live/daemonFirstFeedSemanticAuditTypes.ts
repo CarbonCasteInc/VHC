@@ -38,6 +38,26 @@ export interface SemanticAuditBundleCandidate {
   readonly headline: string;
 }
 
+export interface SemanticAuditStoreStorySnapshot {
+  readonly story_id: string;
+  readonly topic_id: string;
+  readonly headline: string;
+  readonly source_count: number;
+  readonly primary_source_count: number;
+  readonly secondary_asset_count: number;
+  readonly is_auditable: boolean;
+  readonly is_dom_visible: boolean;
+}
+
+export interface SemanticAuditStoreSnapshot {
+  readonly story_count: number;
+  readonly auditable_count: number;
+  readonly visible_story_ids: ReadonlyArray<string>;
+  readonly top_story_ids: ReadonlyArray<string>;
+  readonly top_auditable_story_ids: ReadonlyArray<string>;
+  readonly stories: ReadonlyArray<SemanticAuditStoreStorySnapshot>;
+}
+
 export interface DaemonFeedSemanticAuditOptions {
   readonly sampleCount?: number;
   readonly timeoutMs?: number;
