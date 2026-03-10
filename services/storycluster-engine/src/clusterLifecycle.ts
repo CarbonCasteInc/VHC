@@ -3,7 +3,7 @@ import type { StoryClusterModelProvider, SummaryWorkItem } from './modelProvider
 import type { ClusterVectorBackend } from './vectorBackend';
 import { MemoryVectorBackend } from './vectorBackend';
 import { canDocumentAttachToExistingCluster, canDocumentParticipateInCanonicalCluster } from './documentPolicy';
-import { connectedComponents, deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
+import { connectedComponents, deriveClusterRecord, preserveClusterIdentityWatermarks, toStoredSource, upsertClusterRecord } from './clusterRecords';
 import { clusterScoringConfig, buildCandidateMatch, candidateEligible, shouldMergeClusters, shouldSplitPair } from './clusterScoring';
 import { projectStoryBundles } from './bundleProjection';
 import { applyPairReranks, applyPairJudgements, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
@@ -265,7 +265,11 @@ export async function assignClusters(
       continue;
     }
     const [primary, ...secondary] = components;
-    clusters.set(cluster.story_id, deriveClusterRecord(topicState, state.topicId, primary!, cluster.story_id, cluster.lineage));
+    const retained = preserveClusterIdentityWatermarks(
+      cluster,
+      deriveClusterRecord(topicState, state.topicId, primary!, cluster.story_id, cluster.lineage),
+    );
+    clusters.set(cluster.story_id, retained);
     changedStoryIds.add(cluster.story_id);
     for (const component of secondary) {
       const splitCluster = deriveClusterRecord(topicState, state.topicId, component, undefined, { merged_from: [], split_from: cluster.story_id });

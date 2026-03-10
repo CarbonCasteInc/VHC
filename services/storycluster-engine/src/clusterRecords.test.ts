@@ -128,6 +128,33 @@ describe('clusterRecords', () => {
     expect(tieCluster.headline).toBe('Alpha');
   });
 
+  it('preserves story identity watermarks when re-ingest backfills an older source timestamp', () => {
+    const topicState = makeTopicState();
+    const firstDocument = makeWorkingDocument('doc-7');
+    firstDocument.published_at = 120;
+    firstDocument.source_variants[0]!.published_at = 120;
+    const initial = deriveClusterRecord(
+      topicState,
+      'topic-news',
+      [toStoredSource(firstDocument, firstDocument.source_variants[0]!)],
+      'story-stable',
+    );
+
+    const olderBackfillDocument = makeWorkingDocument('doc-7');
+    olderBackfillDocument.published_at = 100;
+    olderBackfillDocument.source_variants[0]!.published_at = 100;
+    const updated = upsertClusterRecord(initial, [
+      toStoredSource(olderBackfillDocument, olderBackfillDocument.source_variants[0]!),
+    ]);
+
+    expect(updated.story_id).toBe('story-stable');
+    expect(updated.created_at).toBe(120);
+    expect(updated.updated_at).toBe(120);
+    expect(updated.cluster_window_start).toBe(100);
+    expect(updated.cluster_window_end).toBe(120);
+    expect(updated.source_documents[0]?.published_at).toBe(100);
+  });
+
   it('computes confidence and connected components', () => {
     const sourceA: StoredSourceDocument = toStoredSource(makeWorkingDocument('doc-1'), makeWorkingDocument('doc-1').source_variants[0]!);
     const sourceB: StoredSourceDocument = toStoredSource(makeWorkingDocument('doc-2'), makeWorkingDocument('doc-2').source_variants[0]!);

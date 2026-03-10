@@ -104,6 +104,49 @@ describe('runStoryClusterRemoteContract', () => {
     expect(second.bundles[0]?.sources.map((source) => source.source_id)).toEqual(['wire-a', 'wire-b', 'wire-c']);
   });
 
+  it('keeps created_at immutable and cluster_window_end monotonic across older re-ingest payloads', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterRemoteContract({
+      topic_id: 'topic-reingest',
+      items: [
+        {
+          sourceId: 'wire-a',
+          publisher: 'Reuters',
+          url: 'https://example.com/a',
+          canonicalUrl: 'https://example.com/a',
+          title: 'Port attack disrupts terminals overnight',
+          publishedAt: 120,
+          summary: 'Officials say recovery talks begin Friday.',
+          url_hash: 'hash-a',
+          entity_keys: ['port_attack'],
+        },
+      ],
+    }, { clock: () => 200, store });
+
+    const second = await runStoryClusterRemoteContract({
+      topic_id: 'topic-reingest',
+      items: [
+        {
+          sourceId: 'wire-a',
+          publisher: 'Reuters',
+          url: 'https://example.com/a',
+          canonicalUrl: 'https://example.com/a',
+          title: 'Port attack disrupts terminals overnight',
+          publishedAt: 100,
+          summary: 'Officials say recovery talks begin Friday.',
+          url_hash: 'hash-a',
+          entity_keys: ['port_attack'],
+        },
+      ],
+    }, { clock: () => 300, store });
+
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.cluster_window_end).toBe(first.bundles[0]?.cluster_window_end);
+    expect(second.bundles[0]?.cluster_window_start).toBe(100);
+    expect(second.bundles[0]?.sources[0]?.published_at).toBe(100);
+  });
+
   it('projects same-publisher derivative assets into secondary assets only', async () => {
     const response = await runStoryClusterRemoteContract({
       topic_id: 'topic-assets',

@@ -145,6 +145,19 @@ export function toStoredSource(document: WorkingDocument, variant: SourceVariant
   };
 }
 
+export function preserveClusterIdentityWatermarks(
+  cluster: StoredClusterRecord,
+  next: StoredClusterRecord,
+): StoredClusterRecord {
+  return {
+    ...next,
+    story_id: cluster.story_id,
+    created_at: cluster.created_at,
+    updated_at: Math.max(cluster.updated_at, next.updated_at),
+    cluster_window_end: Math.max(cluster.cluster_window_end, next.cluster_window_end),
+  };
+}
+
 export function upsertClusterRecord(cluster: StoredClusterRecord, documents: readonly StoredSourceDocument[]): StoredClusterRecord {
   const sources = new Map(cluster.source_documents.map((document) => [document.source_key, document]));
   for (const document of documents) {
@@ -161,12 +174,15 @@ export function upsertClusterRecord(cluster: StoredClusterRecord, documents: rea
     }
     sources.set(document.source_key, document);
   }
-  return deriveClusterRecord(
-    { schema_version: 'storycluster-state-v1', topic_id: cluster.topic_key, next_cluster_seq: 1, clusters: [] },
-    cluster.topic_key,
-    [...sources.values()],
-    cluster.story_id,
-    cluster.lineage,
+  return preserveClusterIdentityWatermarks(
+    cluster,
+    deriveClusterRecord(
+      { schema_version: 'storycluster-state-v1', topic_id: cluster.topic_key, next_cluster_seq: 1, clusters: [] },
+      cluster.topic_key,
+      [...sources.values()],
+      cluster.story_id,
+      cluster.lineage,
+    ),
   );
 }
 

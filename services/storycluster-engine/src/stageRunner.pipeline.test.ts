@@ -111,6 +111,42 @@ describe('runStoryClusterStagePipeline', () => {
     expect(second.bundles[0]?.cluster_window_end).toBeGreaterThan(first.bundles[0]!.cluster_window_end);
   });
 
+  it('keeps created_at first-write-wins and cluster_window_end monotonic on older re-ingest metadata', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-reingest',
+        documents: [
+          makeDoc('doc-1', 'Port attack disrupts terminals overnight', 120, {
+            source_id: 'wire-a',
+            url_hash: 'stable-hash',
+            entity_keys: ['port_attack'],
+          }),
+        ],
+      },
+      { clock: makeClock(9_000), store },
+    );
+
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-reingest',
+        documents: [
+          makeDoc('doc-2', 'Port attack disrupts terminals overnight', 100, {
+            source_id: 'wire-a',
+            url_hash: 'stable-hash',
+            entity_keys: ['port_attack'],
+          }),
+        ],
+      },
+      { clock: makeClock(10_000), store },
+    );
+
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.cluster_window_end).toBe(first.bundles[0]?.cluster_window_end);
+    expect(second.bundles[0]?.cluster_window_start).toBe(100);
+  });
+
   it('separates same-topic different-event coverage instead of false-merging', async () => {
     const store = new MemoryClusterStore();
     await runStoryClusterStagePipeline(

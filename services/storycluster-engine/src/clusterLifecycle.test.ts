@@ -167,6 +167,52 @@ describe('clusterLifecycle', () => {
     expect(next.stage_metrics.dynamic_cluster_assignment?.splits).toBe(1);
   });
 
+  it('preserves story watermarks on the retained story id after a split', async () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const attackA = makeWorkingDocument('doc-1', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
+    const attackB = makeWorkingDocument('doc-2', 'Port attack response grows', 'port_attack', 'attack', [1, 0]);
+    const marketA = makeWorkingDocument('doc-3', 'Market slump widens', 'market_slump', 'inflation', [0, 1]);
+    const marketB = makeWorkingDocument('doc-4', 'Market slump deepens', 'market_slump', 'inflation', [0, 1]);
+    attackA.published_at = 100;
+    attackA.source_variants[0]!.published_at = 100;
+    attackB.published_at = 110;
+    attackB.source_variants[0]!.published_at = 110;
+    marketA.published_at = 200;
+    marketA.source_variants[0]!.published_at = 200;
+    marketB.published_at = 210;
+    marketB.source_variants[0]!.published_at = 210;
+    topicState.clusters = [
+      deriveClusterRecord(
+        topicState,
+        'topic-news',
+        [attackA, attackB, marketA, marketB].flatMap((document) => document.source_variants.map((variant) => toStoredSource(document, variant))),
+        'story-stable',
+      ),
+    ];
+    const original = topicState.clusters[0]!;
+
+    const next = await assignClusters({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [],
+      clusters: [],
+      bundles: [],
+      topic_state: topicState,
+      stage_metrics: {},
+    }, undefined);
+
+    const retained = next.topic_state.clusters.find((cluster) => cluster.story_id === 'story-stable');
+    expect(retained?.source_documents.map((document) => document.source_id)).toEqual(['source-doc-1', 'source-doc-2']);
+    expect(retained?.created_at).toBe(original.created_at);
+    expect(retained?.cluster_window_end).toBe(original.cluster_window_end);
+    expect(next.topic_state.clusters.find((cluster) => cluster.lineage.split_from === 'story-stable')).toBeDefined();
+  });
+
   it('merges equivalent clusters and keeps the oldest survivor', async () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
@@ -644,6 +690,57 @@ describe('clusterLifecycle', () => {
     expect(next.documents[0]?.adjudication).toBe('accepted');
     expect(next.stage_metrics.llm_adjudication?.adjudicated_docs).toBe(1);
     expect(next.stage_metrics.llm_adjudication?.adjudication_accepts).toBe(1);
+  });
+
+  it('counts provider-reviewed but rejected candidates in assignment metrics', async () => {
+    const first = makeWorkingDocument('doc-1', 'Stocks slide after Tehran strike', 'insurers', 'strike', [1, 0]);
+    const second = makeWorkingDocument('doc-2', 'Brokers cut shipping forecasts after Iran attack', 'shipping', 'attack', [0.72, 0.28]);
+    second.linked_entities = ['insurers', 'shipping'];
+    second.entities = ['shipping'];
+
+    const next = await assignClusters({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [first, second],
+      clusters: [],
+      bundles: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [],
+      },
+      stage_metrics: {},
+    }, {
+      providerId: 'rejecting-provider',
+      async translate() {
+        return [];
+      },
+      async embed() {
+        return [];
+      },
+      async analyzeDocuments() {
+        return [];
+      },
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs(items) {
+        return items.map((item) => ({
+          pair_id: item.pair_id,
+          score: 0.1,
+          decision: 'rejected' as const,
+        }));
+      },
+      async summarize() {
+        return [];
+      },
+    });
+
+    expect(next.stage_metrics.dynamic_cluster_assignment?.provider_adjudicated_docs).toBe(1);
+    expect(next.stage_metrics.dynamic_cluster_assignment?.provider_rejected_docs).toBe(1);
+    expect(next.documents[1]?.assigned_story_id).not.toBe(next.documents[0]?.assigned_story_id);
+    expect(next.topic_state.clusters).toHaveLength(2);
   });
 
   it('fails bundling when the provider omits a required summary', async () => {

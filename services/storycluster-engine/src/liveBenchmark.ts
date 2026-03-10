@@ -205,9 +205,17 @@ async function runReplayScenario(
     });
     await remoteRunner({ topic_id: scenario.topic_id, items: toRemoteItems(tick) }, { store, clock: now });
     const bundles = store.loadTopic(scenario.topic_id).clusters.map(bundleFromCluster);
+    const currentStoryByEvent = new Map<string, string | null>();
     for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, expectedByKey)) {
+      currentStoryByEvent.set(eventId, singleStoryId(storyIds));
+    }
+    const observedEventIds = new Set<string>([
+      ...previousStoryByEvent.keys(),
+      ...currentStoryByEvent.keys(),
+    ]);
+    for (const eventId of observedEventIds) {
       const previous = previousStoryByEvent.get(eventId);
-      const current = singleStoryId(storyIds);
+      const current = currentStoryByEvent.get(eventId) ?? null;
       if (previous !== undefined) {
         persistenceObservations += 1;
         if (previous !== null && current !== null && previous === current) {

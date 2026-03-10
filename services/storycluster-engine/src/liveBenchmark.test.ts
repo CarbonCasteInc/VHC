@@ -288,6 +288,139 @@ describe('runStoryClusterLiveBenchmark', () => {
     expect(report.replay_overall.persistence_rate).toBe(0);
   });
 
+  it('counts replay disappearance as a persistence failure', async () => {
+    let invocation = 0;
+    const disappearingRunner = async (
+      payload: unknown,
+      options?: { store?: { saveTopic(state: StoredTopicState): void } },
+    ) => {
+      invocation += 1;
+      const request = payload as {
+        topic_id: string;
+        items: Array<{
+          sourceId: string;
+          publisher: string;
+          canonicalUrl: string;
+          url_hash: string;
+          publishedAt?: number;
+          title: string;
+          entity_keys: string[];
+        }>;
+      };
+      if (invocation === 1) {
+        const item = request.items[0]!;
+        options?.store?.saveTopic({
+          schema_version: 'storycluster-state-v1',
+          topic_id: request.topic_id,
+          next_cluster_seq: 2,
+          clusters: [{
+            story_id: 'story-stable',
+            topic_key: request.topic_id,
+            created_at: item.publishedAt ?? 1,
+            updated_at: item.publishedAt ?? 1,
+            cluster_window_start: item.publishedAt ?? 1,
+            cluster_window_end: item.publishedAt ?? 1,
+            headline: item.title,
+            summary_hint: item.title,
+            primary_language: 'en',
+            translation_applied: false,
+            semantic_signature: 'sig-stable',
+            entity_scores: { [item.entity_keys[0] ?? 'event']: 1 },
+            location_scores: {},
+            trigger_scores: {},
+            document_type_counts: {
+              breaking_update: 0,
+              wire_report: 1,
+              hard_news: 0,
+              liveblog: 0,
+              analysis: 0,
+              opinion: 0,
+              explainer_recap: 0,
+            },
+            centroid_coarse: [1, 0],
+            centroid_full: [1, 0, 0],
+            source_documents: [{
+              source_key: `${item.sourceId}:${item.url_hash}`,
+              source_id: item.sourceId,
+              publisher: item.publisher,
+              url: item.canonicalUrl,
+              canonical_url: item.canonicalUrl,
+              url_hash: item.url_hash,
+              published_at: item.publishedAt ?? 1,
+              title: item.title,
+              language: 'en',
+              translation_applied: false,
+              doc_type: 'wire_report',
+              coverage_role: 'canonical',
+              entities: item.entity_keys,
+              locations: [],
+              trigger: null,
+              temporal_ms: null,
+              coarse_vector: [1, 0],
+              full_vector: [1, 0, 0],
+              semantic_signature: 'sig-stable',
+              text: item.title,
+              doc_ids: ['doc-1'],
+            }],
+            lineage: { merged_from: [] },
+          }],
+        });
+      } else {
+        options?.store?.saveTopic({
+          schema_version: 'storycluster-state-v1',
+          topic_id: request.topic_id,
+          next_cluster_seq: 2,
+          clusters: [],
+        });
+      }
+      return { bundles: [], telemetry: { topic_id: request.topic_id } as never };
+    };
+
+    const report = await runStoryClusterLiveBenchmark({
+      now: () => 900,
+      fixtureDatasets: [],
+      replayScenarios: [{
+        scenario_id: 'replay-disappear',
+        topic_id: 'replay-disappear',
+        ticks: [
+          [{
+            expected_event_id: 'same-event',
+            sourceId: 'wire-a',
+            publisher: 'WIRE-A',
+            url: 'https://example.com/d1',
+            canonicalUrl: 'https://example.com/d1',
+            title: 'Same event first tick',
+            publishedAt: 1,
+            summary: 'Same event first tick summary.',
+            url_hash: 'd1',
+            language: 'en',
+            translation_applied: false,
+            entity_keys: ['same-event'],
+          }],
+          [{
+            expected_event_id: 'same-event',
+            sourceId: 'wire-b',
+            publisher: 'WIRE-B',
+            url: 'https://example.com/d2',
+            canonicalUrl: 'https://example.com/d2',
+            title: 'Same event second tick',
+            publishedAt: 2,
+            summary: 'Same event second tick summary.',
+            url_hash: 'd2',
+            language: 'en',
+            translation_applied: false,
+            entity_keys: ['same-event'],
+          }],
+        ],
+      }],
+      remoteRunner: disappearingRunner as typeof runStoryClusterRemoteContract,
+    });
+
+    expect(report.replay_overall.persistence_observations).toBe(1);
+    expect(report.replay_overall.persistence_retained).toBe(0);
+    expect(report.replay_overall.persistence_rate).toBe(0);
+  });
+
   it('projects secondary assets when building bundles from stored clusters', () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
@@ -344,10 +477,34 @@ describe('runStoryClusterLiveBenchmark', () => {
         text: 'Video coverage of the plaque installation.',
         doc_ids: ['doc-b'],
       } satisfies StoredSourceDocument,
+      {
+        source_key: 'cbs-photos:hash-c',
+        source_id: 'cbs-photos',
+        publisher: 'CBS',
+        url: 'https://example.com/photos/plaque',
+        canonical_url: 'https://example.com/photos/plaque',
+        url_hash: 'hash-c',
+        published_at: 102,
+        title: 'Photos: Jan. 6 plaque honoring police officers displayed',
+        summary: undefined,
+        language: 'en',
+        translation_applied: false,
+        doc_type: 'hard_news',
+        coverage_role: 'canonical',
+        entities: ['jan6_plaque_display'],
+        locations: ['washington'],
+        trigger: 'vote',
+        temporal_ms: 102,
+        coarse_vector: [1, 0],
+        full_vector: [1, 0, 0],
+        semantic_signature: 'sig-c',
+        text: 'Photo coverage of the plaque installation.',
+        doc_ids: ['doc-c'],
+      } satisfies StoredSourceDocument,
     ]);
 
     const bundle = liveBenchmarkInternal.bundleFromCluster(cluster);
     expect(bundle.primary_sources?.map((source) => source.source_id)).toEqual(['cbs-article']);
-    expect(bundle.secondary_assets?.map((source) => source.source_id)).toEqual(['cbs-video']);
+    expect(bundle.secondary_assets?.map((source) => source.source_id)).toEqual(['cbs-photos', 'cbs-video']);
   });
 });
