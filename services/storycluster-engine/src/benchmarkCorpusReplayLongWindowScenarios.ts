@@ -1,4 +1,4 @@
-import type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
+import type { StoryClusterReplayScenario } from './benchmarkCorpusReplayTypes';
 import { makeBenchmarkItem } from './benchmarkCorpusBuilders';
 
 export const STORYCLUSTER_REPLAY_LONG_WINDOW_SCENARIOS: StoryClusterReplayScenario[] = [

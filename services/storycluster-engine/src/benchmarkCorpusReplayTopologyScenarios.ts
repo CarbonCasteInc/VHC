@@ -1,4 +1,4 @@
-import type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
+import type { StoryClusterReplayScenario } from './benchmarkCorpusReplayTypes';
 import { replaceReplayTopicWithSeedClusters } from './liveBenchmarkReplayTopology';
 
 export const STORYCLUSTER_REPLAY_TOPOLOGY_SCENARIOS: StoryClusterReplayScenario[] = [

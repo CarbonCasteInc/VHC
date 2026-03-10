@@ -26,8 +26,8 @@ import {
   summarizeReplayContinuity,
 } from './liveBenchmarkReplayMetrics';
 import type { StoredClusterRecord } from './stageState';
-import type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
-export type { StoryClusterReplayScenario } from './benchmarkCorpusReplays';
+import type { StoryClusterReplayScenario } from './benchmarkCorpusReplayTypes';
+export type { StoryClusterReplayScenario } from './benchmarkCorpusReplayTypes';
 export interface StoryClusterFixtureBenchmarkResult extends StoryClusterCoherenceDatasetResult {
   run_latency_ms: number;
 }
@@ -218,7 +218,7 @@ async function runReplayScenario(
       store,
       remoteRunner,
     });
-    tick.forEach((item) => {
+    tick.forEach((item: StoryClusterCoherenceAuditItem) => {
       expectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
     });
     const response = toResponse(
