@@ -150,6 +150,7 @@ class QdrantVectorBackend implements ClusterVectorBackend {
           attempt < REQUEST_RETRY_DELAYS_MS.length
         ) {
           await this.pause(REQUEST_RETRY_DELAYS_MS[attempt]!);
+          attempt += 1;
           continue;
         }
         return response;
