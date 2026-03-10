@@ -233,6 +233,18 @@ describe('StoryCluster replay evidence', () => {
     expect(new Set([...anchorStoryIds.filter(Boolean), ...shadowStoryIds.filter(Boolean)]).size).toBe(2);
   });
 
+  it('keeps anchor and non-shadow contamination identities stable when the same contamination class re-enters', async () => {
+    const snapshots = await collectReplaySnapshots('replay-port-attack-market-reentry');
+    const anchorStoryIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('port_attack_market_anchor') ?? null);
+    const contaminationStoryIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('market_slump_reentry') ?? null);
+
+    expect(anchorStoryIds[0]).toBeTruthy();
+    expect(new Set(anchorStoryIds.filter(Boolean))).toEqual(new Set([anchorStoryIds[0]]));
+    expect(new Set(contaminationStoryIds.filter(Boolean)).size).toBe(1);
+    expect(contaminationStoryIds.some((storyId) => storyId !== null)).toBe(true);
+    expect(new Set([...anchorStoryIds.filter(Boolean), ...contaminationStoryIds.filter(Boolean)]).size).toBe(2);
+  });
+
   it('records deterministic merge and split lineage when replayed states reconcile', async () => {
     const mergeTopicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',

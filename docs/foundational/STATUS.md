@@ -66,6 +66,16 @@ Current truth for the news bundler and feed hardening lane:
   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
 - The deterministic fixture corpus now covers multilingual same-incident, recap-vs-incident, and commentary contamination pressure in addition to the earlier same-event / false-merge traps.
+- StoryCluster release evidence now exposes two distinct replay identity signals:
+  - `replay_continuity`
+    - `continuous`: scenarios that never drop out of emitted bundles and must preserve `persistence_rate`
+    - `reappearance`: scenarios that intentionally disappear and return and must preserve `reappearance_rate`
+  - `replay_correction_cycles`
+    - counts replay scenarios where merge/split lineage is observed
+    - tracks total merge lineage, split lineage, and repeated correction-cycle scenarios separately from continuity
+- Release reviewers should not collapse these into one number:
+  - low overall `persistence_rate` is expected in gap-return scenarios and must be read together with `reappearance_rate`
+  - correction-cycle counts measure topology repair pressure, not semantic bundle precision by themselves
 - Storyline grouping is planned in the canonical execution plan, but `storyline_id` is not yet a first-class published runtime contract.
 - Vote convergence and analysis persistence are validated on the fixture-backed daemon-first integrity gate; public-feed smoke remains supplementary evidence only.
 

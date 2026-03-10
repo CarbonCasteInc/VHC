@@ -173,4 +173,55 @@ export const STORYCLUSTER_REPLAY_LONG_WINDOW_SCENARIOS: StoryClusterReplayScenar
       ],
     ],
   },
+  {
+    scenario_id: 'replay-port-attack-market-reentry',
+    topic_id: 'replay-port-attack-market-reentry',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'port_attack_market_anchor',
+          'replay-market-cycle-a',
+          'Port attack disrupts terminals overnight',
+          'rl1',
+          1_712_176_500_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'market_slump_reentry',
+          'replay-market-cycle-b',
+          'Stocks slide after the overnight strike jolts shipping insurers',
+          'rl2',
+          1_712_176_520_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'port_attack_market_anchor',
+          'replay-market-cycle-c',
+          'Recovery talks begin Friday after the port attack',
+          'rl3',
+          1_712_176_540_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'market_slump_reentry',
+          'replay-market-cycle-d',
+          'Brokers cut shipping forecasts as markets absorb the strike',
+          'rl4',
+          1_712_176_560_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'port_attack_market_anchor',
+          'replay-market-cycle-e',
+          'Insurers warn delays will continue after the port attack',
+          'rl5',
+          1_712_176_580_000,
+        ),
+      ],
+    ],
+  },
 ];

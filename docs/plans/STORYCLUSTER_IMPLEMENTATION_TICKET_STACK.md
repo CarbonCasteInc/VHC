@@ -52,6 +52,10 @@ Active next implementation lane:
 2. immediate focus:
    - `story_id` persistence under source growth and repeated ticks
    - merge/split replay evidence
+   - release evidence that separates:
+     - continuous persistence
+     - gap-return reappearance
+     - merge/split correction-cycle pressure
    - immutable `created_at`
    - monotonic `cluster_window_end`
 

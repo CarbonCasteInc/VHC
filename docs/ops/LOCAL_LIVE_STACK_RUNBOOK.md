@@ -86,6 +86,18 @@ Current release-gate split for StoryCluster and feed correctness:
 5. Public smoke failures caused by insufficient auditable live bundles do not block merge/release by themselves; they must still be reviewed as evidence artifacts.
 6. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
 
+### StoryCluster Replay Evidence Interpretation
+
+When reviewing StoryCluster release evidence:
+
+1. Read `replay_continuity.continuous` as the uninterrupted identity signal.
+2. Read `replay_continuity.reappearance` as the gap-return identity signal.
+3. Read `replay_correction_cycles` separately:
+   - it reports replay scenarios that exercised merge/split lineage
+   - it is the topology-repair pressure signal, not a substitute for semantic precision
+4. Do not treat low aggregate `persistence_rate` as a failure by itself if the affected scenarios are gap-return reappearance scenarios and `reappearance_rate` remains within threshold.
+5. Do not treat zero correction cycles as success by itself; it may simply mean the active replay corpus did not hit topology-repair pressure in that run.
+
 ## Notes
 
 - Logs:
