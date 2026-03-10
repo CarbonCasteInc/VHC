@@ -546,7 +546,7 @@ describe('analysisRelay config + success paths', () => {
     expect(body.model).toBe('claude-3-haiku');
   });
 
-  it('reads timeout from env at module load and uses default when process is unavailable', async () => {
+  it('reads timeout from env and uses model-aware defaults when process is unavailable', async () => {
     const originalProcess = globalThis.process;
     const abortError = new DOMException('The operation was aborted.', 'AbortError');
 
@@ -573,7 +573,7 @@ describe('analysisRelay config + success paths', () => {
       },
     );
     expect(result.status).toBe(502);
-    expect(result.payload.error).toBe('Upstream request timed out after 30000ms');
+    expect(result.payload.error).toBe('Upstream request timed out after 60000ms');
 
     vi.stubGlobal('process', originalProcess);
   });

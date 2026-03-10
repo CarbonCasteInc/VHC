@@ -15,7 +15,7 @@ export const DEFAULT_TOPIC_MAPPING: TopicMapping = {
 };
 
 export const DEFAULT_LEASE_TTL_MS = 2 * 60 * 1000;
-export const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = 8_000;
+export const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = 90_000;
 
 export type LoggerLike = Pick<Console, 'info' | 'warn' | 'error'>;
 

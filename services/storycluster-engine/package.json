@@ -20,5 +20,9 @@
     "@types/node": "^20.11.30",
     "typescript": "^5.4.5",
     "vitest": "^2.1.9"
+  },
+  "dependencies": {
+    "chrono-node": "^2.9.0",
+    "franc-min": "^6.2.0"
   }
 }

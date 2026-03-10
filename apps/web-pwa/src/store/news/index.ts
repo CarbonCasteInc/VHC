@@ -79,6 +79,31 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       });
     },
 
+    removeStory(storyId: string) {
+      const normalizedStoryId = storyId.trim();
+      if (!normalizedStoryId) {
+        return;
+      }
+
+      set((state) => {
+        const stories = state.stories.filter((story) => story.story_id !== normalizedStoryId);
+        if (stories.length === state.stories.length) {
+          return {};
+        }
+
+        const nextLatestIndex = { ...state.latestIndex };
+        delete nextLatestIndex[normalizedStoryId];
+        const nextHotIndex = { ...state.hotIndex };
+        delete nextHotIndex[normalizedStoryId];
+
+        return {
+          stories: sortStories(stories, nextLatestIndex),
+          latestIndex: nextLatestIndex,
+          hotIndex: nextHotIndex,
+        };
+      });
+    },
+
     setLatestIndex(index: Record<string, number>) {
       const sanitized = sanitizeLatestIndex(index);
       set((state) => ({
@@ -106,6 +131,26 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       });
     },
 
+    removeLatestIndex(storyId: string) {
+      const normalizedStoryId = storyId.trim();
+      if (!normalizedStoryId) {
+        return;
+      }
+
+      set((state) => {
+        if (!(normalizedStoryId in state.latestIndex)) {
+          return {};
+        }
+
+        const nextIndex = { ...state.latestIndex };
+        delete nextIndex[normalizedStoryId];
+        return {
+          latestIndex: nextIndex,
+          stories: sortStories([...state.stories], nextIndex),
+        };
+      });
+    },
+
     setHotIndex(index: Record<string, number>) {
       const sanitized = sanitizeHotIndex(index);
       set({
@@ -126,6 +171,23 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           [normalizedStoryId]: Math.round(hotness * 1_000_000) / 1_000_000,
         },
       }));
+    },
+
+    removeHotIndex(storyId: string) {
+      const normalizedStoryId = storyId.trim();
+      if (!normalizedStoryId) {
+        return;
+      }
+
+      set((state) => {
+        if (!(normalizedStoryId in state.hotIndex)) {
+          return {};
+        }
+
+        const nextHotIndex = { ...state.hotIndex };
+        delete nextHotIndex[normalizedStoryId];
+        return { hotIndex: nextHotIndex };
+      });
     },
 
     async refreshLatest(limit = 50) {
@@ -215,3 +277,10 @@ export const useNewsStore: StoreApi<NewsState> = isE2E
   ? createMockNewsStore()
   : createNewsStore();
 /* v8 ignore stop */
+
+if (
+  typeof window !== 'undefined' &&
+  (window as { __VH_EXPOSE_NEWS_STORE__?: boolean }).__VH_EXPOSE_NEWS_STORE__ === true
+) {
+  (window as { __VH_NEWS_STORE__?: StoreApi<NewsState> }).__VH_NEWS_STORE__ = useNewsStore;
+}

@@ -41,6 +41,7 @@ export interface NewsRuntimeConfig {
   runOnStart?: boolean;
   enabled?: boolean;
   writeStoryBundle?: (client: unknown, bundle: StoryBundle) => Promise<unknown>;
+  removeStoryBundle?: (client: unknown, storyId: string) => Promise<unknown>;
   createAnalysisPrompt?: (bundle: StoryBundle) => string;
   createAdvancedArtifact?: (bundle: StoryBundle) => StoryAdvancedArtifact;
   onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void | Promise<void>;
@@ -101,6 +102,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   let running = false;
   let inFlight = false;
   let lastRunAt: Date | null = null;
+  let publishedStoryIds = new Set<string>();
 
   const runTick = async (): Promise<void> => {
     if (!running || inFlight) {
@@ -122,15 +124,20 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       if (!writeStoryBundle) {
         throw new Error('writeStoryBundle adapter is required');
       }
+      const removeStoryBundle = config.removeStoryBundle;
 
       const createPrompt = config.createAnalysisPrompt ?? defaultPrompt;
       const createAdvancedArtifact =
         config.createAdvancedArtifact ?? ((bundle: StoryBundle) => buildStoryAdvancedArtifact(bundle));
 
+      const nextPublishedStoryIds = new Set<string>();
+
       for (const bundle of bundles) {
         const request = buildRemoteRequest(createPrompt(bundle));
 
         await writeStoryBundle(config.gunClient, bundle);
+        nextPublishedStoryIds.add(bundle.story_id);
+        publishedStoryIds.add(bundle.story_id);
 
         let advancedArtifact: StoryAdvancedArtifact | undefined;
         try {
@@ -155,6 +162,17 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
           void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
             config.onError?.(error);
           });
+        }
+      }
+
+      if (removeStoryBundle && nextPublishedStoryIds.size > 0) {
+        const staleStoryIds = [...publishedStoryIds]
+          .filter((storyId) => !nextPublishedStoryIds.has(storyId))
+          .sort();
+
+        for (const staleStoryId of staleStoryIds) {
+          await removeStoryBundle(config.gunClient, staleStoryId);
+          publishedStoryIds.delete(staleStoryId);
         }
       }
 

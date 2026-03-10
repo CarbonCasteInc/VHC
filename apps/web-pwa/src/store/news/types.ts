@@ -27,10 +27,13 @@ export interface NewsState {
 
   setStories(stories: StoryBundle[]): void;
   upsertStory(story: StoryBundle): void;
+  removeStory(storyId: string): void;
   setLatestIndex(index: Record<string, number>): void;
   upsertLatestIndex(storyId: string, createdAt: number): void;
+  removeLatestIndex(storyId: string): void;
   setHotIndex(index: Record<string, number>): void;
   upsertHotIndex(storyId: string, hotness: number): void;
+  removeHotIndex(storyId: string): void;
   refreshLatest(limit?: number): Promise<void>;
   startHydration(): void;
   setLoading(loading: boolean): void;

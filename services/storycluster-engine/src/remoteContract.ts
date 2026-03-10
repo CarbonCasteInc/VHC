@@ -1,9 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { StoryClusterTelemetryEnvelope } from './contracts';
-import {
-  runStoryClusterStagePipeline,
-  stageRunnerInternal,
-} from './stageRunner';
+import { runStoryClusterStagePipeline, type StoryClusterStageRunnerOptions } from './stageRunner';
+import { tokenizeWords } from './textSignals';
 
 export interface StoryClusterRemoteItem {
   sourceId: string;
@@ -14,9 +12,11 @@ export interface StoryClusterRemoteItem {
   publishedAt?: number;
   summary?: string;
   url_hash: string;
+  image_hash?: string;
   language?: string;
   translation_applied?: boolean;
   entity_keys: string[];
+  cluster_text?: string;
 }
 
 export interface StoryClusterRemoteRequest {
@@ -34,6 +34,22 @@ export interface StoryClusterRemoteBundle {
   cluster_window_start: number;
   cluster_window_end: number;
   sources: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    url_hash: string;
+    published_at?: number;
+    title: string;
+  }>;
+  primary_sources?: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    url_hash: string;
+    published_at?: number;
+    title: string;
+  }>;
+  secondary_assets?: Array<{
     source_id: string;
     publisher: string;
     url: string;
@@ -64,39 +80,30 @@ function asRecord(value: unknown, message: string): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(message);
   }
-
   return value as Record<string, unknown>;
 }
 
 function readRequiredString(record: Record<string, unknown>, key: string, path: string): string {
   const value = record[key];
-  if (typeof value !== 'string' || value.trim().length === 0) {
+  if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`${path}.${key} must be a non-empty string`);
   }
-
   return value.trim();
 }
 
 function readOptionalString(record: Record<string, unknown>, key: string): string | undefined {
   const value = record[key];
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
-function readOptionalPublishedAt(record: Record<string, unknown>, path: string): number | undefined {
-  const value = record.publishedAt;
+function readOptionalNumber(record: Record<string, unknown>, key: string, path: string): number | undefined {
+  const value = record[key];
   if (value === undefined || value === null) {
     return undefined;
   }
-
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    throw new Error(`${path}.publishedAt must be a non-negative finite number when provided`);
+    throw new Error(`${path}.${key} must be a non-negative finite number when provided`);
   }
-
   return Math.floor(value);
 }
 
@@ -105,35 +112,18 @@ function readEntityKeys(record: Record<string, unknown>, path: string): string[]
   if (!Array.isArray(value)) {
     throw new Error(`${path}.entity_keys must be an array`);
   }
-
-  const normalized: string[] = [];
-  for (const [entryIndex, entry] of value.entries()) {
+  return value.map((entry, index) => {
     if (typeof entry !== 'string') {
-      throw new Error(`${path}.entity_keys[${entryIndex}] must be a string`);
+      throw new Error(`${path}.entity_keys[${index}] must be a string`);
     }
-
-    const token = entry.trim().toLowerCase();
-    if (token) {
-      normalized.push(token);
-    }
-  }
-
-  return normalized;
+    return entry.trim().toLowerCase();
+  }).filter(Boolean);
 }
 
-function readBoolean(record: Record<string, unknown>, key: string): boolean | undefined {
-  const value = record[key];
-  return typeof value === 'boolean' ? value : undefined;
-}
-
-function normalizeRequest(
-  payload: unknown,
-  nowMs: number,
-): StoryClusterRemoteRequest & { reference_now_ms: number } {
+function normalizeRequest(payload: unknown, nowMs: number): StoryClusterRemoteRequest & { reference_now_ms: number } {
   const record = asRecord(payload, 'storycluster remote payload must be an object');
   const topicId = readRequiredString(record, 'topic_id', 'payload');
   const rawItems = record.items;
-
   if (!Array.isArray(rawItems)) {
     throw new Error('payload.items must be an array');
   }
@@ -142,27 +132,26 @@ function normalizeRequest(
     const path = `payload.items[${index}]`;
     const item = asRecord(rawItem, `${path} must be an object`);
     const url = readRequiredString(item, 'url', path);
-
     return {
       sourceId: readRequiredString(item, 'sourceId', path),
       publisher: readRequiredString(item, 'publisher', path),
       url,
       canonicalUrl: readOptionalString(item, 'canonicalUrl') ?? url,
       title: readRequiredString(item, 'title', path),
-      publishedAt: readOptionalPublishedAt(item, path),
+      publishedAt: readOptionalNumber(item, 'publishedAt', path),
       summary: readOptionalString(item, 'summary'),
       url_hash: readRequiredString(item, 'url_hash', path),
+      image_hash: readOptionalString(item, 'image_hash'),
       language: readOptionalString(item, 'language'),
-      translation_applied: readBoolean(item, 'translation_applied'),
+      translation_applied: item.translation_applied === true,
       entity_keys: readEntityKeys(item, path),
+      cluster_text: readOptionalString(item, 'cluster_text'),
     };
   });
 
-  const rawReferenceNow = record.reference_now_ms;
-  const referenceNowMs =
-    typeof rawReferenceNow === 'number' && Number.isFinite(rawReferenceNow) && rawReferenceNow > 0
-      ? Math.floor(rawReferenceNow)
-      : items.reduce((max, item) => Math.max(max, item.publishedAt ?? 0), Math.floor(nowMs));
+  const latestPublishedAt = items.reduce((max, item) => Math.max(max, item.publishedAt ?? 0), 0);
+  const referenceNowMs = readOptionalNumber(record, 'reference_now_ms', 'payload') ??
+    (latestPublishedAt || nowMs);
 
   return {
     topic_id: topicId,
@@ -175,124 +164,108 @@ function buildDocId(item: StoryClusterRemoteItem, index: number): string {
   return `${item.sourceId}:${item.url_hash}:${index}`;
 }
 
-function buildTimeBucket(clusterWindowEnd: number): string {
-  return new Date(clusterWindowEnd).toISOString().slice(0, 13);
+function buildTimeBucket(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 13);
+}
+
+function deriveEntityKeys(headline: string, existing: readonly string[]): string[] {
+  if (existing.length > 0) {
+    return [...existing].sort();
+  }
+  return [...new Set(tokenizeWords(headline, 4))].slice(0, 8);
 }
 
 function deriveNewsTopicId(storyId: string): string {
   return createHash('sha256').update(`news:${storyId}`).digest('hex');
 }
 
-function deriveEntityKeys(bundle: StoryClusterRemoteBundle, sourceItems: StoryClusterRemoteItem[]): string[] {
-  const keys = new Set<string>();
-
-  for (const item of sourceItems) {
-    for (const entity of item.entity_keys) {
-      keys.add(entity);
-    }
-  }
-
-  if (keys.size === 0) {
-    for (const token of stageRunnerInternal.normalizeToken(bundle.headline).split(' ')) {
-      if (token.length >= 4) {
-        keys.add(token);
-      }
-    }
-  }
-
-  if (keys.size === 0) {
-    keys.add('general');
-  }
-
-  return [...keys].sort().slice(0, 8);
+function provenanceHash(bundle: StoryClusterRemoteBundle['sources']): string {
+  return createHash('sha256')
+    .update(bundle.map((source) => `${source.source_id}:${source.url_hash}`).sort().join('|'))
+    .digest('hex');
 }
 
-function toSourceProjection(item: StoryClusterRemoteItem, clusterWindowStart: number) {
-  return {
+export async function runStoryClusterRemoteContract(
+  payload: unknown,
+  options: StoryClusterStageRunnerOptions = {},
+): Promise<StoryClusterRemoteResponse> {
+  const now = options.clock ?? Date.now;
+  const normalized = normalizeRequest(payload, now());
+  const documents = normalized.items.map((item, index) => ({
+    doc_id: buildDocId(item, index),
     source_id: item.sourceId,
     publisher: item.publisher,
-    url: item.canonicalUrl,
-    url_hash: item.url_hash,
-    published_at: item.publishedAt ?? clusterWindowStart,
     title: item.title,
-  };
-}
+    summary: item.summary,
+    body: item.cluster_text ?? item.summary,
+    published_at: item.publishedAt ?? normalized.reference_now_ms,
+    url: item.url,
+    canonical_url: item.canonicalUrl,
+    url_hash: item.url_hash,
+    image_hash: item.image_hash,
+    language_hint: item.language,
+    entity_keys: item.entity_keys,
+    translation_applied: item.translation_applied,
+  }));
 
-export function runStoryClusterRemoteContract(
-  payload: unknown,
-  options: {
-    now?: () => number;
-  } = {},
-): StoryClusterRemoteResponse {
-  const now = options.now ?? Date.now;
-  const normalized = normalizeRequest(payload, now());
+  const stageResult = await runStoryClusterStagePipeline(
+    {
+      topic_id: normalized.topic_id,
+      documents,
+      reference_now_ms: normalized.reference_now_ms,
+    },
+    options,
+  );
 
-  const docToItem = new Map<string, StoryClusterRemoteItem>();
-  const documents = normalized.items.map((item, index) => {
-    const docId = buildDocId(item, index);
-    docToItem.set(docId, item);
+  const bundles = stageResult.bundles.map((bundle) => {
+    const primarySources = bundle.primary_sources
+      .map((source) => ({
+        source_id: source.source_id,
+        publisher: source.publisher,
+        url: source.canonical_url,
+        url_hash: source.url_hash,
+        published_at: source.published_at,
+        title: source.title,
+      }))
+      .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
+    const secondaryAssets = bundle.secondary_assets
+      .map((source) => ({
+        source_id: source.source_id,
+        publisher: source.publisher,
+        url: source.canonical_url,
+        url_hash: source.url_hash,
+        published_at: source.published_at,
+        title: source.title,
+      }))
+      .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
 
     return {
-      doc_id: docId,
-      source_id: item.sourceId,
-      title: item.title,
-      body: item.summary,
-      published_at: item.publishedAt ?? normalized.reference_now_ms,
-      url: item.canonicalUrl,
-      language_hint: item.language,
-    };
-  });
-
-  const stageResult = runStoryClusterStagePipeline({
-    topic_id: normalized.topic_id,
-    documents,
-    reference_now_ms: normalized.reference_now_ms,
-  });
-
-  const bundles: StoryClusterRemoteBundle[] = stageResult.bundles.map((bundle) => {
-    const sourceItems = bundle.source_doc_ids
-      .map((docId) => docToItem.get(docId))
-      .filter((item): item is StoryClusterRemoteItem => Boolean(item));
-
-    const sourceHashes = sourceItems.map((item) => item.url_hash).sort();
-    const coverageScore = stageRunnerInternal.clamp01(sourceItems.length / 6);
-    const velocitySpan = Math.max(0, bundle.cluster_window_end - bundle.cluster_window_start);
-    const velocityScore = stageRunnerInternal.clamp01(velocitySpan / (6 * 60 * 60 * 1000));
-    const confidenceScore = stageRunnerInternal.clamp01(0.45 + coverageScore * 0.35 + velocityScore * 0.2);
-
-    const projected: StoryClusterRemoteBundle = {
-      schemaVersion: 'story-bundle-v0',
+      schemaVersion: 'story-bundle-v0' as const,
       story_id: bundle.story_id,
       topic_id: deriveNewsTopicId(bundle.story_id),
       headline: bundle.headline,
       summary_hint: bundle.summary_hint,
       cluster_window_start: bundle.cluster_window_start,
       cluster_window_end: bundle.cluster_window_end,
-      sources: sourceItems.map((item) => toSourceProjection(item, bundle.cluster_window_start)),
+      sources: primarySources,
+      primary_sources: primarySources,
+      secondary_assets: secondaryAssets,
       cluster_features: {
-        entity_keys: ['general'],
-        time_bucket: buildTimeBucket(bundle.cluster_window_end),
-        semantic_signature: stageRunnerInternal.hashToHex(`${bundle.story_id}:${sourceHashes.join(',')}`),
-        coverage_score: coverageScore,
-        velocity_score: velocityScore,
-        confidence_score: confidenceScore,
-        primary_language: sourceItems.find((item) => item.language)?.language,
-        translation_applied: sourceItems.some((item) => item.translation_applied),
+        entity_keys: deriveEntityKeys(bundle.headline, bundle.entity_keys),
+        time_bucket: bundle.time_bucket,
+        semantic_signature: bundle.semantic_signature,
+        coverage_score: bundle.coverage_score,
+        velocity_score: bundle.velocity_score,
+        confidence_score: bundle.confidence_score,
+        primary_language: bundle.primary_language,
+        translation_applied: bundle.translation_applied,
       },
-      provenance_hash: stageRunnerInternal.hashToHex(
-        `${bundle.story_id}:${bundle.topic_id}:${sourceHashes.join('|')}`,
-      ),
-      created_at: bundle.cluster_window_start,
+      provenance_hash: provenanceHash(primarySources),
+      created_at: bundle.created_at,
     };
-
-    projected.cluster_features.entity_keys = deriveEntityKeys(projected, sourceItems);
-    return projected;
   });
 
-  return {
-    bundles,
-    telemetry: stageResult.telemetry,
-  };
+  return { bundles, telemetry: stageResult.telemetry };
 }
 
 export const remoteContractInternal = {
@@ -303,7 +276,8 @@ export const remoteContractInternal = {
   deriveNewsTopicId,
   normalizeRequest,
   readEntityKeys,
-  readOptionalPublishedAt,
+  readOptionalPublishedAt: (record: Record<string, unknown>, path: string) =>
+    readOptionalNumber(record, 'publishedAt', path),
   readOptionalString,
   readRequiredString,
 };

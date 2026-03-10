@@ -5,15 +5,12 @@ import {
   type StoryClusterPipelineResponse,
   type StoryClusterStageTelemetry,
 } from './contracts';
+import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
 import { createInitialState, resolveStageHandlers } from './stageHandlers';
 import {
   buildTelemetry,
   clamp01,
-  classifyDocument,
-  hashToHex,
   normalizeRequest,
-  normalizeToken,
-  resolveLanguage,
   stageArtifactCounts,
   stageGatePassRate,
   stageInputCount,
@@ -21,21 +18,54 @@ import {
   stageOutputCount,
 } from './stageHelpers';
 import type { StageOverrideMap } from './stageState';
+import { classifyDocumentType, resolveLanguage } from './contentSignals';
+import { sha256Hex } from './hashUtils';
+import type { StoryClusterModelProvider } from './modelProvider';
+import { createOpenAIStoryClusterProviderFromEnv } from './openaiProvider';
+import { createDeterministicTestModelProvider } from './testModelProvider';
+import { normalizeText } from './textSignals';
+import { type ClusterVectorBackend, resolveVectorBackend } from './vectorBackend';
 
 export interface StoryClusterStageRunnerOptions {
   clock?: () => number;
   stageOverrides?: StageOverrideMap;
+  store?: ClusterStore;
+  modelProvider?: StoryClusterModelProvider;
+  vectorBackend?: ClusterVectorBackend;
 }
 
-export function runStoryClusterStagePipeline(
+function resolveModelProvider(
+  provider: StoryClusterModelProvider | undefined,
+): StoryClusterModelProvider {
+  if (provider) {
+    return provider;
+  }
+  if (process.env.NODE_ENV === 'test') {
+    return createDeterministicTestModelProvider();
+  }
+  return createOpenAIStoryClusterProviderFromEnv();
+}
+
+export async function runStoryClusterStagePipeline(
   request: StoryClusterPipelineRequest,
   options: StoryClusterStageRunnerOptions = {},
-): StoryClusterPipelineResponse {
+): Promise<StoryClusterPipelineResponse> {
   const clock = options.clock ?? Date.now;
-  const normalized = normalizeRequest(request, Math.floor(clock()));
-  const handlers = resolveStageHandlers(options.stageOverrides);
+  const store = options.store ?? getDefaultClusterStore();
+  const vectorBackend = resolveVectorBackend(options.vectorBackend);
+  const modelProvider = resolveModelProvider(options.modelProvider);
+  const storeReadiness = store.readiness();
+  if (!storeReadiness.ok) {
+    throw new Error(`storycluster store is not ready: ${storeReadiness.detail}`);
+  }
+  const vectorReadiness = await vectorBackend.readiness();
+  if (!vectorReadiness.ok) {
+    throw new Error(`storycluster vector backend is not ready: ${vectorReadiness.detail}`);
+  }
 
-  let state = createInitialState(normalized);
+  const normalized = normalizeRequest(request, Math.floor(clock()));
+  const handlers = resolveStageHandlers(options.stageOverrides, modelProvider, vectorBackend);
+  let state = createInitialState(normalized, store);
   const stageTelemetry: StoryClusterStageTelemetry[] = [];
 
   for (const stageId of STORYCLUSTER_STAGE_SEQUENCE) {
@@ -43,7 +73,7 @@ export function runStoryClusterStagePipeline(
     const inputCount = stageInputCount(stageId, state);
 
     try {
-      state = handlers[stageId](state);
+      state = await handlers[stageId](state);
       const endedAtMs = Math.floor(clock());
       const outputCount = stageOutputCount(stageId, state);
       const latencyMs = Math.max(0, endedAtMs - startedAtMs);
@@ -87,27 +117,31 @@ export function runStoryClusterStagePipeline(
     }
   }
 
+  store.saveTopic(state.topic_state);
+  await vectorBackend.replaceTopicClusters(normalized.topicId, state.topic_state.clusters);
   const generatedAtMs = Math.floor(clock());
-
   return {
     bundles: state.bundles,
-    telemetry: buildTelemetry(
-      normalized.topicId,
-      normalized.documents.length,
-      stageTelemetry,
-      generatedAtMs,
-    ),
+    telemetry: buildTelemetry(normalized.topicId, normalized.documents.length, stageTelemetry, generatedAtMs),
   };
 }
 
 export const stageRunnerInternal = {
   buildTelemetry,
   clamp01,
-  classifyDocument,
-  normalizeToken,
-  resolveLanguage,
+  classifyDocument: (title: string) => {
+    const type = classifyDocumentType(title, undefined, '');
+    if (type === 'breaking_update') return 'breaking';
+    if (type === 'analysis') return 'analysis';
+    if (type === 'opinion') return 'opinion';
+    return 'general';
+  },
+  hashToHex: sha256Hex,
   normalizeRequest,
-  hashToHex,
+  normalizeToken: normalizeText,
+  resolveLanguage: (document: { title: string; summary?: string; language_hint?: string }) =>
+    resolveLanguage(`${document.title} ${document.summary ?? ''}`.trim(), document.language_hint),
+  resolveVectorBackend,
   stageArtifactCounts,
   stageGatePassRate,
   stageInputCount,

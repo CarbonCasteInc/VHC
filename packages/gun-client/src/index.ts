@@ -9,6 +9,7 @@ import type { Namespace, VennClient, VennClientConfig } from './types';
 import { TopologyGuard } from './topology';
 
 const DEFAULT_PEERS = ['http://localhost:7777/gun'];
+const NODE_GUN_FILE_ENV_VARS = ['VH_GUN_FILE', 'VITE_VH_GUN_FILE'] as const;
 
 function normalizePeers(peers?: string[]): string[] {
   const list = peers !== undefined ? peers : DEFAULT_PEERS;
@@ -19,6 +20,20 @@ function normalizePeers(peers?: string[]): string[] {
     }
     return `${trimmed.replace(/\/+$/, '')}/gun`;
   });
+}
+
+function resolveNodeGunFile(): string | undefined {
+  for (const envVar of NODE_GUN_FILE_ENV_VARS) {
+    const value = process.env[envVar]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function shouldDisableNodeGunDisk(): boolean {
+  return typeof window === 'undefined' && typeof process !== 'undefined';
 }
 
 function createNamespace<T>(
@@ -77,12 +92,27 @@ export function createClient(config: VennClientConfig = {}): VennClient {
   const peers = normalizePeers(config.peers);
   const storage = config.storage ?? createStorageAdapter(hydrationBarrier);
   const guard = config.topologyGuard ?? new TopologyGuard();
+  const nodeGunFile = resolveNodeGunFile();
+  const gunFileOption =
+    nodeGunFile !== undefined
+      ? nodeGunFile
+      : shouldDisableNodeGunDisk()
+        ? false
+        : undefined;
+  const gunConfig: Record<string, unknown> = {
+    peers,
+    localStorage: false,
+  };
+  if (shouldDisableNodeGunDisk()) {
+    gunConfig.radisk = false;
+    gunConfig.axe = false;
+  }
+  if (gunFileOption !== undefined) {
+    gunConfig.file = gunFileOption;
+  }
   // Disable Gun's localStorage adapter to avoid quota crashes in long-lived
   // browser sessions. VHC persists app data through its own IndexedDB adapter.
-  const gun = Gun({
-    peers,
-    localStorage: false
-  }) as IGunInstance;
+  const gun = Gun(gunConfig as never) as IGunInstance;
   let sessionReady = false;
 
   storage
@@ -152,6 +182,7 @@ export { HydrationBarrier } from './sync/barrier';
 export { createStorageAdapter } from './storage/adapter';
 export type { StorageAdapter, StorageRecord } from './storage/types';
 export type { VennClient, VennClientConfig, Namespace } from './types';
+export { createNodeMeshClient } from './nodeMeshClient';
 export { createSession } from './auth';
 export * from './hermesAdapters';
 export * from './hermesCrypto';
@@ -168,3 +199,8 @@ export * from './sentimentAdapters';
 export * from './bridgeAdapters';
 export type { ChainWithGet } from './chain';
 export { default as SEA } from 'gun/sea';
+export const __internal = {
+  normalizePeers,
+  resolveNodeGunFile,
+  shouldDisableNodeGunDisk,
+};

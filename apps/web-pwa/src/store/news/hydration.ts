@@ -1,9 +1,14 @@
-import { StoryBundleSchema, type StoryBundle } from '@vh/data-model';
+import {
+  isCanonicalNewsTopicIdShape,
+  StoryBundleSchema,
+  type StoryBundle,
+} from '@vh/data-model';
 import {
   getNewsHotIndexChain,
   getNewsLatestIndexChain,
   getNewsStoriesChain,
   hasForbiddenNewsPayloadFields,
+  readNewsStory,
   type ChainWithGet,
   type VennClient
 } from '@vh/gun-client';
@@ -100,7 +105,10 @@ function parseStory(data: unknown): StoryBundle | null {
   }
 
   const parsed = StoryBundleSchema.safeParse(decoded);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success || !isCanonicalNewsTopicIdShape(parsed.data.topic_id)) {
+    return null;
+  }
+  return parsed.data;
 }
 
 function canSubscribe<T>(chain: ChainWithGet<T>): chain is ChainWithGet<T> & Required<Pick<ChainWithGet<T>, 'map' | 'on'>> {
@@ -133,21 +141,27 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
   hydratedStores.add(store);
 
   storiesChain.map!().on!((data: unknown, key?: string) => {
+    const normalizedKey = typeof key === 'string' ? key.trim() : '';
     const story = parseStory(data);
     if (!story) {
+      if (data === null && normalizedKey) {
+        store.getState().removeStory(normalizedKey);
+      }
       return;
     }
 
-    const normalizedKey = typeof key === 'string' ? key.trim() : '';
     const storyId = story.story_id.trim() || normalizedKey;
     if (!storyId) {
       return;
     }
 
-    store.getState().upsertStory(story);
-    if (!(storyId in store.getState().latestIndex)) {
-      store.getState().upsertLatestIndex(storyId, story.cluster_window_end);
+    const latestIndex = store.getState().latestIndex;
+    const hasAuthoritativeLatestIndex = Object.keys(latestIndex).length > 0;
+    if (hasAuthoritativeLatestIndex && !(storyId in latestIndex)) {
+      return;
     }
+
+    store.getState().upsertStory(story);
   });
 
   latestChain.map!().on!((data: unknown, key?: string) => {
@@ -156,9 +170,23 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
     }
     const timestamp = parseLatestTimestamp(data);
     if (timestamp === null) {
+      if (data === null) {
+        store.getState().removeLatestIndex(key);
+      }
       return;
     }
     store.getState().upsertLatestIndex(key, timestamp);
+    const storyExists = store.getState().stories.some((story) => story.story_id === key);
+    if (storyExists) {
+      return;
+    }
+    void readNewsStory(client, key)
+      .then((story) => {
+        if (story) {
+          store.getState().upsertStory(story);
+        }
+      })
+      .catch(() => {});
   });
 
   hotChain.map!().on!((data: unknown, key?: string) => {
@@ -167,6 +195,9 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
     }
     const hotness = parseHotnessScore(data);
     if (hotness === null) {
+      if (data === null) {
+        store.getState().removeHotIndex(key);
+      }
       return;
     }
     store.getState().upsertHotIndex(key, hotness);

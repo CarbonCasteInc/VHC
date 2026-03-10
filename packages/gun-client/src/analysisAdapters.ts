@@ -221,6 +221,8 @@ const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_PUT_ACK_TIMEOUT_MS', 'VH_GUN_PUT_ACK_TIMEOUT_MS'],
   1_000,
 );
+const WRITE_READBACK_ATTEMPTS = 6;
+const WRITE_READBACK_RETRY_MS = 250;
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
   return new Promise<PutAckResult>((resolve, reject) => {
@@ -253,6 +255,31 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckRe
       });
     });
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function confirmAnalysisArtifactReadback(
+  client: VennClient,
+  artifact: StoryAnalysisArtifact,
+): Promise<boolean> {
+  for (let attempt = 1; attempt <= WRITE_READBACK_ATTEMPTS; attempt += 1) {
+    const observed = await readAnalysis(client, artifact.story_id, artifact.analysisKey);
+    if (
+      observed
+      && observed.analysisKey === artifact.analysisKey
+      && observed.provenance_hash === artifact.provenance_hash
+      && observed.model_scope === artifact.model_scope
+    ) {
+      return true;
+    }
+    if (attempt < WRITE_READBACK_ATTEMPTS) {
+      await sleep(WRITE_READBACK_RETRY_MS);
+    }
+  }
+  return false;
 }
 
 export function getStoryAnalysisRootChain(
@@ -326,10 +353,16 @@ export async function writeAnalysis(
   const normalizedAnalysisKey = normalizeRequiredId(sanitized.analysisKey, 'analysisKey');
 
   const encoded = encodeStoryAnalysisArtifact(sanitized);
-  await putWithAck(
+  const artifactWrite = await putWithAck(
     getStoryAnalysisChain(client, normalizedStoryId, normalizedAnalysisKey) as unknown as ChainWithGet<EncodedStoryAnalysisArtifact>,
     encoded,
   );
+  if (artifactWrite.timedOut) {
+    const confirmed = await confirmAnalysisArtifactReadback(client, sanitized);
+    if (!confirmed) {
+      throw new Error('analysis artifact write timed out and readback did not confirm persistence');
+    }
+  }
 
   const pointer: StoryAnalysisLatestPointer = {
     analysisKey: sanitized.analysisKey,

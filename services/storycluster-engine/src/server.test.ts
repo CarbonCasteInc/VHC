@@ -1,11 +1,12 @@
 import type { AddressInfo } from 'node:net';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   createStoryClusterServer,
   serverInternal,
   startStoryClusterServer,
   type StoryClusterServerOptions,
 } from './server';
+import type { ClusterVectorBackend } from './vectorBackend';
 
 async function withServer<T>(
   options: StoryClusterServerOptions,
@@ -47,6 +48,10 @@ async function closeServerQuietly(server: { close: (cb: (error?: Error | null) =
   await new Promise<void>((resolve) => server.close(() => resolve()));
 }
 describe('storycluster server', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('serves health and cluster endpoints with auth gate', async () => {
     await withServer(
       {
@@ -156,6 +161,74 @@ describe('storycluster server', () => {
         });
       },
     );
+  });
+
+  it('reports readiness failures from the vector backend and blocks cluster requests', async () => {
+    const brokenVectorBackend: ClusterVectorBackend = {
+      async queryTopic() {
+        return new Map();
+      },
+      async readiness() {
+        return { ok: false, detail: 'vector-backend-down' };
+      },
+      async replaceTopicClusters() {},
+    };
+
+    await withServer(
+      { vectorBackend: brokenVectorBackend },
+      async (baseUrl) => {
+        const ready = await fetch(`${baseUrl}/ready`);
+        expect(ready.status).toBe(503);
+        await expect(ready.json()).resolves.toEqual({
+          ok: false,
+          service: 'storycluster-engine',
+          detail: 'vector-backend-down',
+        });
+
+        const cluster = await fetch(`${baseUrl}/cluster`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ topic_id: 'topic-world', items: [] }),
+        });
+        expect(cluster.status).toBe(503);
+        await expect(cluster.json()).resolves.toEqual({
+          error: 'vector-backend-down',
+        });
+      },
+    );
+  });
+
+  it('returns 503 when runtime dependency resolution throws before the request handler completes', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('VH_STORYCLUSTER_QDRANT_URL', '');
+
+    await withServer({}, async (baseUrl) => {
+      const ready = await fetch(`${baseUrl}/ready`);
+      expect(ready.status).toBe(503);
+      await expect(ready.json()).resolves.toEqual({
+        error: 'storycluster production requires VH_STORYCLUSTER_QDRANT_URL or QDRANT_URL',
+      });
+    });
+  });
+
+  it('uses the generic runtime error message when the top-level server catch receives a non-Error value', async () => {
+    const throwingVectorBackend: ClusterVectorBackend = {
+      async queryTopic() {
+        return new Map();
+      },
+      async readiness() {
+        throw 'boom-string';
+      },
+      async replaceTopicClusters() {},
+    };
+
+    await withServer({ vectorBackend: throwingVectorBackend }, async (baseUrl) => {
+      const ready = await fetch(`${baseUrl}/ready`);
+      expect(ready.status).toBe(503);
+      await expect(ready.json()).resolves.toEqual({
+        error: 'storycluster runtime failed',
+      });
+    });
   });
 
   it('rejects invalid payloads, invalid JSON, unknown paths, and malformed URLs', async () => {

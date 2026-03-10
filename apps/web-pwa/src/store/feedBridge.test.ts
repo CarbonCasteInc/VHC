@@ -22,11 +22,22 @@ import {
   synthesisToFeedItem,
 } from './feedBridge';
 
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
+const SECOND_CANONICAL_TOPIC_ID = 'b'.repeat(64);
+const THIRD_CANONICAL_TOPIC_ID = 'c'.repeat(64);
+const SHARED_CANONICAL_TOPIC_ID = 'd'.repeat(64);
+const FOURTH_CANONICAL_TOPIC_ID = 'e'.repeat(64);
+const FIFTH_CANONICAL_TOPIC_ID = 'f'.repeat(64);
+const SIXTH_CANONICAL_TOPIC_ID = '1'.repeat(64);
+const SEVENTH_CANONICAL_TOPIC_ID = '2'.repeat(64);
+const EIGHTH_CANONICAL_TOPIC_ID = '3'.repeat(64);
+const NINTH_CANONICAL_TOPIC_ID = '4'.repeat(64);
+
 function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-1',
-    topic_id: 'topic-1',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'News headline',
     summary_hint: 'summary',
     cluster_window_start: 100,
@@ -111,7 +122,7 @@ describe('storyBundleToFeedItem', () => {
   it('converts StoryBundle to FeedItem with kind=NEWS_STORY', () => {
     const item = storyBundleToFeedItem(
       makeStoryBundle({
-        topic_id: 'topic-news',
+        topic_id: CANONICAL_TOPIC_ID,
         headline: 'Breaking update',
         created_at: 100.9,
         cluster_window_end: 222.4,
@@ -137,7 +148,7 @@ describe('storyBundleToFeedItem', () => {
 
     expect(item).toEqual({
       story_id: 'story-1',
-      topic_id: 'topic-news',
+      topic_id: CANONICAL_TOPIC_ID,
       kind: 'NEWS_STORY',
       title: 'Breaking update',
       created_at: 100,
@@ -231,10 +242,10 @@ describe('startNewsBridge', () => {
   });
 
   it('initial sync pushes existing stories to discovery store', async () => {
-    const valid = makeStoryBundle({ story_id: 'story-valid', topic_id: 'topic-valid' });
+    const valid = makeStoryBundle({ story_id: 'story-valid', topic_id: SECOND_CANONICAL_TOPIC_ID });
     const invalid = makeStoryBundle({
       story_id: 'story-invalid',
-      topic_id: 'topic-invalid',
+      topic_id: THIRD_CANONICAL_TOPIC_ID,
       headline: '',
     }) as StoryBundle;
 
@@ -250,7 +261,7 @@ describe('startNewsBridge', () => {
 
     const discoveryItems = useDiscoveryStore.getState().items;
     expect(discoveryItems).toHaveLength(1);
-    expect(discoveryItems[0]?.topic_id).toBe('topic-valid');
+    expect(discoveryItems[0]?.topic_id).toBe(SECOND_CANONICAL_TOPIC_ID);
     expect(discoveryItems[0]?.kind).toBe('NEWS_STORY');
     expect(discoveryItems[0]?.hotness).toBe(0.88);
   });
@@ -259,8 +270,8 @@ describe('startNewsBridge', () => {
     await startNewsBridge();
     await startNewsBridge(); // idempotent guard
 
-    const s1 = makeStoryBundle({ story_id: 'story-1', topic_id: 'topic-1' });
-    const s2 = makeStoryBundle({ story_id: 'story-2', topic_id: 'topic-2' });
+    const s1 = makeStoryBundle({ story_id: 'story-1', topic_id: CANONICAL_TOPIC_ID });
+    const s2 = makeStoryBundle({ story_id: 'story-2', topic_id: SECOND_CANONICAL_TOPIC_ID });
 
     useNewsStore.getState().setStories([s1]);
     expect(useDiscoveryStore.getState().items).toHaveLength(1);
@@ -274,13 +285,13 @@ describe('startNewsBridge', () => {
 
     useNewsStore.getState().setStories([s1, s2]);
     const topics = useDiscoveryStore.getState().items.map((item) => item.topic_id).sort();
-    expect(topics).toEqual(['topic-1', 'topic-2']);
+    expect(topics).toEqual([CANONICAL_TOPIC_ID, SECOND_CANONICAL_TOPIC_ID]);
   });
 
   it('ignores empty story snapshots emitted by subscription updates', async () => {
     await startNewsBridge();
 
-    const s1 = makeStoryBundle({ story_id: 'story-non-empty', topic_id: 'topic-non-empty' });
+    const s1 = makeStoryBundle({ story_id: 'story-non-empty', topic_id: THIRD_CANONICAL_TOPIC_ID });
     useNewsStore.getState().setStories([s1]);
     expect(useDiscoveryStore.getState().items).toHaveLength(1);
 
@@ -293,7 +304,7 @@ describe('startNewsBridge', () => {
 
     const base = makeStoryBundle({
       story_id: 'story-same',
-      topic_id: 'topic-same',
+      topic_id: FOURTH_CANONICAL_TOPIC_ID,
       headline: 'Initial headline',
       cluster_window_end: 100,
     });
@@ -321,7 +332,7 @@ describe('startNewsBridge', () => {
 
     const story = makeStoryBundle({
       story_id: 'story-hot',
-      topic_id: 'topic-hot',
+      topic_id: FIFTH_CANONICAL_TOPIC_ID,
       headline: 'Hotness update story',
     });
 
@@ -340,13 +351,13 @@ describe('startNewsBridge', () => {
 
     const first = makeStoryBundle({
       story_id: 'story-a',
-      topic_id: 'topic-dup',
+      topic_id: SHARED_CANONICAL_TOPIC_ID,
       headline: 'first headline',
       created_at: 100,
     });
     const second = makeStoryBundle({
       story_id: 'story-b',
-      topic_id: 'topic-dup',
+      topic_id: SHARED_CANONICAL_TOPIC_ID,
       headline: 'second headline',
       created_at: 200,
     });
@@ -475,7 +486,7 @@ describe('stopBridges', () => {
     stopBridges();
 
     useNewsStore.getState().setStories([
-      makeStoryBundle({ story_id: 'story-after-stop', topic_id: 'topic-after-stop' }),
+      makeStoryBundle({ story_id: 'story-after-stop', topic_id: SIXTH_CANONICAL_TOPIC_ID }),
     ]);
     useSynthesisStore.getState().setTopicSynthesis(
       'topic-after-stop',
@@ -499,7 +510,7 @@ describe('bootstrapFeedBridges', () => {
     vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
 
     useNewsStore.getState().setStories([
-      makeStoryBundle({ story_id: 'story-news-only', topic_id: 'topic-news-only' }),
+      makeStoryBundle({ story_id: 'story-news-only', topic_id: SIXTH_CANONICAL_TOPIC_ID }),
     ]);
     useSynthesisStore.getState().setTopicSynthesis(
       'topic-synth-only',
@@ -520,7 +531,7 @@ describe('bootstrapFeedBridges', () => {
     vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
 
     useNewsStore.getState().setStories([
-      makeStoryBundle({ story_id: 'story-news-2', topic_id: 'topic-news-2' }),
+      makeStoryBundle({ story_id: 'story-news-2', topic_id: SEVENTH_CANONICAL_TOPIC_ID }),
     ]);
     useSynthesisStore.getState().setTopicSynthesis(
       'topic-synth-2',
@@ -554,7 +565,7 @@ describe('bootstrapFeedBridges', () => {
     vi.stubEnv('VITE_LINKED_SOCIAL_ENABLED', 'false');
 
     useNewsStore.getState().setStories([
-      makeStoryBundle({ story_id: 'false-story', topic_id: 'false-topic' }),
+      makeStoryBundle({ story_id: 'false-story', topic_id: EIGHTH_CANONICAL_TOPIC_ID }),
     ]);
     useSynthesisStore.getState().setTopicSynthesis(
       'false-topic',
@@ -564,7 +575,7 @@ describe('bootstrapFeedBridges', () => {
     await bootstrapFeedBridges();
 
     useNewsStore.getState().setStories([
-      makeStoryBundle({ story_id: 'false-story-2', topic_id: 'false-topic-2' }),
+      makeStoryBundle({ story_id: 'false-story-2', topic_id: NINTH_CANONICAL_TOPIC_ID }),
     ]);
     useSynthesisStore.getState().setTopicSynthesis(
       'false-topic-2',
@@ -582,7 +593,7 @@ describe('bootstrapFeedBridges', () => {
     vi.stubGlobal('process', undefined);
 
     useNewsStore.getState().setStories([
-      makeStoryBundle({ story_id: 'absent-story', topic_id: 'absent-topic' }),
+      makeStoryBundle({ story_id: 'absent-story', topic_id: SIXTH_CANONICAL_TOPIC_ID }),
     ]);
     useSynthesisStore.getState().setTopicSynthesis(
       'absent-topic',

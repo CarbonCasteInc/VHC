@@ -4,20 +4,12 @@ import { buildLegacyVhcArticlePrompt } from './legacyPrompt';
 
 const DEFAULT_ANALYSES_LIMIT = 25;
 const DEFAULT_ANALYSES_PER_TOPIC_LIMIT = 5;
+const DEFAULT_UPSTREAM_FETCH_TIMEOUT_MS = 30_000;
+const SLOW_MODEL_UPSTREAM_FETCH_TIMEOUT_MS = 60_000;
+const MIN_UPSTREAM_FETCH_TIMEOUT_MS = 5_000;
 const TOPIC_ID_LINE_PATTERN = /^Topic ID:\s*(.+)$/im;
 const ARTICLE_DELIMITER = '--- ARTICLE START ---';
 const UPSTREAM_EMPTY_CONTENT_RETRIES = 2;
-const UPSTREAM_FETCH_TIMEOUT_MS = (() => {
-  const raw =
-    typeof process !== 'undefined'
-      ? process.env?.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS
-      : undefined;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) {
-    return 30_000;
-  }
-  return Math.max(5_000, Math.floor(parsed));
-})();
 
 type AnalysisProvider = {
   provider_id: string;
@@ -208,6 +200,19 @@ function shouldSendTemperature(model: string): boolean {
 function shouldSendReasoningEffort(model: string): boolean {
   return /^gpt-5/i.test(model);
 }
+
+function resolveUpstreamFetchTimeoutMs(
+  model: string,
+  env: Record<string, string | undefined>,
+): number {
+  const parsed = Number(env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS);
+  if (Number.isFinite(parsed)) {
+    return Math.max(MIN_UPSTREAM_FETCH_TIMEOUT_MS, Math.floor(parsed));
+  }
+  return /^(gpt-5|o1|o3)/i.test(model)
+    ? SLOW_MODEL_UPSTREAM_FETCH_TIMEOUT_MS
+    : DEFAULT_UPSTREAM_FETCH_TIMEOUT_MS;
+}
 /**
  * Split a prompt into system + user messages when an article delimiter is present.
  * System instructions go in the system role; the article content goes in the user role.
@@ -365,12 +370,13 @@ export async function relayAnalysis(
       ...upstreamRequest,
       reasoningEffort: config.reasoningEffort,
     });
+    const upstreamFetchTimeoutMs = resolveUpstreamFetchTimeoutMs(upstreamRequest.model, env);
     const maxAttempts = 1 + UPSTREAM_EMPTY_CONTENT_RETRIES;
     let lastUpstreamBody: unknown = null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), UPSTREAM_FETCH_TIMEOUT_MS);
+      const timer = setTimeout(() => controller.abort(), upstreamFetchTimeoutMs);
 
       let upstream: Response;
       try {
@@ -435,11 +441,12 @@ export async function relayAnalysis(
     return { status: 502, payload: { error: 'Upstream response missing content' } };
   } catch (error) {
     const isTimeout = error instanceof DOMException && error.name === 'AbortError';
+    const upstreamFetchTimeoutMs = resolveUpstreamFetchTimeoutMs(upstreamRequest.model, env);
     return {
       status: 502,
       payload: {
         error: isTimeout
-          ? `Upstream request timed out after ${UPSTREAM_FETCH_TIMEOUT_MS}ms`
+          ? `Upstream request timed out after ${upstreamFetchTimeoutMs}ms`
           : error instanceof Error ? error.message : 'Relay request failed',
       },
     };

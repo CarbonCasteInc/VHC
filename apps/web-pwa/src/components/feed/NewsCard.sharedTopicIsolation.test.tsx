@@ -31,10 +31,12 @@ const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
 
 const NOW = 1_700_000_000_000;
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 
 function makeNewsItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
     topic_id: 'topic-news',
+    story_id: 'story-baseline',
     kind: 'NEWS_STORY',
     title: 'Baseline Story',
     created_at: NOW - 3_600_000,
@@ -51,7 +53,7 @@ function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-baseline',
-    topic_id: 'topic-news',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'Baseline Story',
     summary_hint: 'Baseline summary hint.',
     cluster_window_start: NOW - 7_200_000,
@@ -124,11 +126,13 @@ describe('NewsCard shared-topic isolation', () => {
 
   it('expands only the clicked card and runs one analysis when topic_id is shared', async () => {
     const firstItem = makeNewsItem({
+      story_id: 'story-one',
       title: 'Story One',
       created_at: NOW - 2_000,
       latest_activity_at: NOW - 1_000,
     });
     const secondItem = makeNewsItem({
+      story_id: 'story-two',
       title: 'Story Two',
       created_at: NOW - 4_000,
       latest_activity_at: NOW - 3_000,

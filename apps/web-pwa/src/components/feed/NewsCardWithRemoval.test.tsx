@@ -31,10 +31,12 @@ vi.mock('./newsCardAnalysis', () => ({
 }));
 
 const NOW = 1_700_000_000_000;
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 
 function makeNewsItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
     topic_id: 'news-1',
+    story_id: 'story-1',
     kind: 'NEWS_STORY',
     title: 'Test headline',
     created_at: NOW - 3_600_000,
@@ -51,7 +53,7 @@ function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-1',
-    topic_id: 'news-1',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'Test headline',
     summary_hint: 'Summary hint.',
     cluster_window_start: NOW - 7_200_000,

@@ -19,9 +19,16 @@ export interface StoryClusterInputDocument {
   source_id: string;
   title: string;
   body?: string;
+  summary?: string;
   published_at: number;
   url: string;
+  canonical_url?: string;
+  publisher?: string;
+  url_hash?: string;
+  image_hash?: string;
   language_hint?: string;
+  entity_keys?: string[];
+  translation_applied?: boolean;
 }
 
 export interface StoryClusterPipelineRequest {
@@ -35,10 +42,46 @@ export interface StoryClusterBundle {
   topic_id: string;
   headline: string;
   summary_hint: string;
+  created_at: number;
   cluster_window_start: number;
   cluster_window_end: number;
   source_doc_ids: string[];
-  stage_version: 'storycluster-stage-runner-v1';
+  sources: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    canonical_url: string;
+    url_hash: string;
+    published_at: number;
+    title: string;
+  }>;
+  primary_sources: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    canonical_url: string;
+    url_hash: string;
+    published_at: number;
+    title: string;
+  }>;
+  secondary_assets: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    canonical_url: string;
+    url_hash: string;
+    published_at: number;
+    title: string;
+  }>;
+  entity_keys: string[];
+  time_bucket: string;
+  semantic_signature: string;
+  coverage_score: number;
+  velocity_score: number;
+  confidence_score: number;
+  primary_language?: string;
+  translation_applied?: boolean;
+  stage_version: 'storycluster-stage-runner-v2';
 }
 
 export type StoryClusterStageArtifactCounts = Record<string, number>;

@@ -46,6 +46,7 @@ Gun.obj.del = Gun.obj.del || ((obj, key) => {
 gunRequire('gun/lib/ws');
 
 const port = process.env.GUN_PORT || 7777;
+const gunFile = process.env.GUN_FILE || 'data';
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -56,7 +57,7 @@ const server = http.createServer((req, res) => {
 Gun({
   web: server,
   radisk: true,
-  file: 'data',
+  file: gunFile,
   axe: false,
   peers: [] // explicit empty list to keep ws adapter happy
 });

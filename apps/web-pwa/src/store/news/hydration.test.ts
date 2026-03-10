@@ -14,21 +14,25 @@ const gunMocks = vi.hoisted(() => ({
   getNewsStoriesChain: vi.fn(),
   getNewsLatestIndexChain: vi.fn(),
   getNewsHotIndexChain: vi.fn(),
-  hasForbiddenNewsPayloadFields: vi.fn<(payload: unknown) => boolean>()
+  hasForbiddenNewsPayloadFields: vi.fn<(payload: unknown) => boolean>(),
+  readNewsStory: vi.fn(),
 }));
 
 vi.mock('@vh/gun-client', () => ({
   getNewsStoriesChain: gunMocks.getNewsStoriesChain,
   getNewsLatestIndexChain: gunMocks.getNewsLatestIndexChain,
   getNewsHotIndexChain: gunMocks.getNewsHotIndexChain,
-  hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields
+  hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields,
+  readNewsStory: gunMocks.readNewsStory,
 }));
+
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 
 function story(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-1',
-    topic_id: 'topic-1',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'Hydrated Story',
     summary_hint: 'Summary',
     cluster_window_start: 1,
@@ -89,13 +93,24 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
     error: null,
     setStories: vi.fn(),
     upsertStory: vi.fn(),
+    removeStory: vi.fn((storyId: string) => {
+      state.stories = state.stories.filter((story) => story.story_id !== storyId);
+      delete (state.latestIndex as Record<string, number>)[storyId];
+      delete (state.hotIndex as Record<string, number>)[storyId];
+    }),
     setLatestIndex: vi.fn(),
     upsertLatestIndex: vi.fn((storyId: string, latestActivityAt: number) => {
       (state.latestIndex as Record<string, number>)[storyId] = latestActivityAt;
     }),
+    removeLatestIndex: vi.fn((storyId: string) => {
+      delete (state.latestIndex as Record<string, number>)[storyId];
+    }),
     setHotIndex: vi.fn(),
     upsertHotIndex: vi.fn((storyId: string, hotness: number) => {
       (state.hotIndex as Record<string, number>)[storyId] = hotness;
+    }),
+    removeHotIndex: vi.fn((storyId: string) => {
+      delete (state.hotIndex as Record<string, number>)[storyId];
     }),
     refreshLatest: vi.fn(),
     startHydration: vi.fn(),
@@ -117,7 +132,9 @@ describe('hydrateNewsStore', () => {
     gunMocks.getNewsLatestIndexChain.mockReset();
     gunMocks.getNewsHotIndexChain.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReset();
+    gunMocks.readNewsStory.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReturnValue(false);
+    gunMocks.readNewsStory.mockResolvedValue(null);
     vi.resetModules();
   });
 
@@ -158,7 +175,7 @@ describe('hydrateNewsStore', () => {
     expect(hotChain.onSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('hydrates stories and backfills latest index when missing', async () => {
+  it('hydrates stories without synthesizing latest-index entries from story updates', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -177,13 +194,96 @@ describe('hydrateNewsStore', () => {
     );
 
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 's1' }));
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('s1', 654);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
 
     storyChain.emit(story({ story_id: 's1', created_at: 999, cluster_window_end: 888 }), 's1');
-    expect(state.upsertLatestIndex).toHaveBeenCalledTimes(1);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
-  it('prefers StoryBundle.story_id over Gun map key when backfilling latest index', async () => {
+  it('drops story updates excluded by an authoritative latest index', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore({ 'keep-story': 500 });
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(story({ story_id: 'drop-story' }), 'drop-story');
+
+    expect(state.upsertStory).not.toHaveBeenCalled();
+  });
+
+  it('removes stories when Gun clears the story node', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore({ s1: 100 });
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(null, 's1');
+
+    expect(state.removeStory).toHaveBeenCalledWith('s1');
+  });
+
+  it('removes cleared latest/hot index entries', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore({ s1: 100 });
+    (state.hotIndex as Record<string, number>).s1 = 0.9;
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    latestChain.emit(null, 's1');
+    hotChain.emit(null, 's1');
+
+    expect(state.removeLatestIndex).toHaveBeenCalledWith('s1');
+    expect(state.removeHotIndex).toHaveBeenCalledWith('s1');
+  });
+
+  it('skips fetching stories already present and hydrates missing stories from latest-index updates', async () => {
+    const client = { id: 'client-latest-fetch' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.readNewsStory.mockResolvedValue(story({ story_id: 'story-missing' }));
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+    state.stories = [story({ story_id: 'story-present' })];
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit(123, 'story-present');
+    expect(gunMocks.readNewsStory).not.toHaveBeenCalled();
+
+    latestChain.emit(456, 'story-missing');
+    await Promise.resolve();
+
+    expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-missing');
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-missing' }));
+  });
+
+  it('prefers StoryBundle.story_id over Gun map key when hydrating story updates', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -198,8 +298,8 @@ describe('hydrateNewsStore', () => {
 
     storyChain.emit(story({ story_id: 'canonical-story', cluster_window_end: 901 }), 'legacy-map-key');
 
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('canonical-story', 901);
-    expect(state.upsertLatestIndex).not.toHaveBeenCalledWith('legacy-map-key', expect.any(Number));
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'canonical-story' }));
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('falls back to Gun map key when payload story_id is blank', async () => {
@@ -218,7 +318,7 @@ describe('hydrateNewsStore', () => {
     storyChain.emit(story({ story_id: '   ', cluster_window_end: 902 }), 'fallback-key');
 
     expect(state.upsertStory).toHaveBeenCalledTimes(1);
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('fallback-key', 902);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('uses payload story_id when map key is missing or non-string', async () => {
@@ -237,7 +337,7 @@ describe('hydrateNewsStore', () => {
     storyChain.emit(story({ story_id: 'payload-only-id', cluster_window_end: 902 }));
 
     expect(state.upsertStory).toHaveBeenCalledTimes(1);
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('payload-only-id', 902);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('drops story updates when both payload story_id and map key are blank', async () => {
@@ -276,7 +376,7 @@ describe('hydrateNewsStore', () => {
     storyChain.emit({ __story_bundle_json: JSON.stringify(s), story_id: s.story_id }, s.story_id);
 
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: s.story_id }));
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith(s.story_id, 777);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('drops encoded story payloads with invalid JSON', async () => {

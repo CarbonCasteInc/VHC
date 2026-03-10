@@ -1,4 +1,9 @@
-import { StoryBundleSchema, type FeedItem, type StoryBundle } from '@vh/data-model';
+import {
+  isCanonicalNewsTopicIdShape,
+  StoryBundleSchema,
+  type FeedItem,
+  type StoryBundle,
+} from '@vh/data-model';
 import { hasForbiddenNewsPayloadFields } from '@vh/gun-client';
 
 function readConfiguredFeedSourceIds(): Set<string> | null {
@@ -63,7 +68,10 @@ export function parseStory(story: unknown): StoryBundle | null {
     return null;
   }
   const parsed = StoryBundleSchema.safeParse(story);
-  return parsed.success ? parsed.data : null;
+  if (!parsed.success || !isCanonicalNewsTopicIdShape(parsed.data.topic_id)) {
+    return null;
+  }
+  return parsed.data;
 }
 
 export function parseStories(stories: unknown[]): StoryBundle[] {

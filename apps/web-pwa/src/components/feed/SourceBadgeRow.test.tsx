@@ -128,4 +128,32 @@ describe('SourceBadgeRow', () => {
     expect(screen.getAllByTestId('source-badge-fox-latest')).toHaveLength(1);
     expect(screen.getAllByTestId('source-badge-guardian-us')).toHaveLength(1);
   });
+
+  it('deduplicates repeated publishers even when source ids differ', () => {
+    render(
+      <SourceBadgeRow
+        sources={[
+          {
+            source_id: 'cbs-article',
+            publisher: 'CBS News',
+            url: 'https://example.com/article',
+          },
+          {
+            source_id: 'cbs-video',
+            publisher: 'CBS News',
+            url: 'https://example.com/video',
+          },
+          {
+            source_id: 'guardian-us',
+            publisher: 'The Guardian',
+            url: 'https://example.com/guardian',
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByLabelText('2 sources')).toBeTruthy();
+    expect(screen.getAllByTestId('source-badge-cbs-article')).toHaveLength(1);
+    expect(screen.queryByTestId('source-badge-cbs-video')).toBeNull();
+  });
 });

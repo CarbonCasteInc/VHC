@@ -6,9 +6,9 @@
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-02-24
-**Version:** 0.7.2 (Post-PR345 stability-gate hardening)
-**Assessment:** Pre-production prototype. Wave 4 closed; active work is FPD production wiring with explicit no-ship guardrails until hard gates pass.
+**Last Updated:** 2026-03-10
+**Version:** 0.7.3 (StoryCluster precision hardening + gate split)
+**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates and public-feed smoke-only soak lanes.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -22,13 +22,13 @@
 |-------|--------|------------------|
 | **LUMA (Identity)** | 🟡 Hardened (trust constants, session lifecycle, constituency proof — flag-gated) | ❌ No |
 | **GWC (Economics)** | 🟡 Contracts ready, Sepolia deployed | ⚠️ Partial |
-| **VENN (Analysis)** | 🟡 Pipeline end-to-end, V2 synthesis + re-synthesis + feed-enriched TopicCard | ❌ No |
+| **VENN (Analysis)** | 🟡 Pipeline end-to-end; live profile defaults to relay-backed analysis, local-first remains target-state default | ❌ No |
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, receipt-in-feed | ❌ No |
-| **News Aggregator** | 🟢 Implemented (ingest/normalize/cluster/provenance) | ⚠️ Partial |
-| **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) + synthesis-enriched TopicCard | ⚠️ Partial |
+| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path; event-precision hardening and storyline follow-on still active | ⚠️ Partial |
+| **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) with fixture-backed integrity/semantic release gates; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
 
@@ -41,6 +41,29 @@ Current policy state:
 - Transitional proof shims are dev/staging only and must be removed before ship.
 - Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
+- StoryCluster is the authoritative production bundler in the daemon-first path; precision-first event hardening is still in progress.
+- Blocking feed-release evidence now comes from fixture-backed daemon-first gates:
+  - `pnpm test:storycluster:gates`
+  - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
+  - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
+- Public-feed daemon semantic runs remain smoke/soak only:
+  - `pnpm test:storycluster:smoke`
+  - these runs are evidence-bearing, but live public-feed bundle scarcity is not currently stable enough to be the sole semantic blocker.
+- Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
+
+## StoryCluster Program Snapshot (2026-03-10)
+
+Current truth for the news bundler and feed hardening lane:
+
+- StoryCluster is no longer treated as a generic topic clusterer; the active program is `EventCluster`-first and precision-biased.
+- Canonical bundle membership is limited to same-incident / same-developing-episode coverage.
+- Canonical source projection is publisher-normalized:
+  - `primary_sources` = one canonical source per publisher
+  - `secondary_assets` = same-publisher derivatives such as video clips
+- `created_at` is immutable by `story_id`; `cluster_window_end` is the latest-activity source of truth.
+- `Latest` is activity-based and `Hot` remains deterministic/config-versioned.
+- Storyline grouping is planned in the canonical execution plan, but `storyline_id` is not yet a first-class published runtime contract.
+- Vote convergence and analysis persistence are validated on the fixture-backed daemon-first integrity gate; public-feed smoke remains supplementary evidence only.
 
 ---
 
@@ -370,32 +393,37 @@ Operational live profiles intentionally override selected flags to enable the fu
 
 ### News Aggregator
 
-**Status:** 🟢 **Implemented** (Wave 1)
+**Status:** 🟡 **Implemented, with active StoryCluster hardening**
 
 | Feature | Implementation |
 |---------|----------------|
-| RSS/Atom ingest | ✅ `ingest.ts` |
-| HTML normalization | ✅ `normalize.ts` |
-| TF-IDF story clustering | ✅ `cluster.ts` |
-| Provenance tracking | ✅ `provenance.ts` |
-| News store (Zustand) | ✅ `store/news/` |
-| Gun news adapters | ✅ `newsAdapters.ts` |
+| RSS/Atom ingest | ✅ `packages/ai-engine/src/newsIngest.ts` |
+| HTML normalization and source dedupe | ✅ `packages/ai-engine/src/newsNormalize.ts` |
+| Daemon-first StoryCluster production path | ✅ `services/news-aggregator/src/daemon.ts`, `packages/ai-engine/src/clusterEngine.ts` |
+| Stable `story_id` + canonical news `topic_id` contract | ✅ `services/storycluster-engine/src/remoteContract.ts`, `packages/gun-client/src/newsAdapters.ts` |
+| Publisher-normalized canonical source projection | ✅ `services/storycluster-engine/src/bundleProjection.ts` |
+| Fixture-backed semantic gate | ✅ `packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts` |
+| Public semantic soak | 🟡 Non-blocking smoke only |
 
 ---
 
 ### Discovery Feed
 
-**Status:** 🟢 **Implemented** (Wave 1 + Wave 2 extensions)
+**Status:** 🟢 **Implemented, with release-gated daemon-first validation**
 
 | Feature | Implementation |
 |---------|----------------|
 | Feed shell + filter chips | ✅ `FeedShell.tsx` |
 | Sort controls | ✅ `SortControls.tsx` |
-| Hotness ranker | ✅ `HotnessRanker.ts` |
+| Latest by activity (`cluster_window_end`) | ✅ `apps/web-pwa/src/store/feedBridge.ts`, `apps/web-pwa/src/store/news/storeHelpers.ts` |
+| Deterministic hotness wiring | ✅ `packages/gun-client/src/newsAdapters.ts` |
 | TopicCard / NewsCard | ✅ Wave 1 |
 | SocialNotificationCard (real data) | ✅ Wave 2 |
 | ArticleFeedCard | ✅ Wave 2 |
 | Discovery store + ranking | ✅ `store/discovery/` |
+| Fixture-backed integrity gate | ✅ `packages/e2e/src/live/daemon-first-feed-integrity.live.spec.ts` |
+| Fixture-backed semantic gate | ✅ `packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts` |
+| Public semantic soak | 🟡 Evidence-bearing smoke only |
 
 ---
 

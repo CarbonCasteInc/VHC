@@ -7,8 +7,9 @@ import {
   type TopicMapping,
 } from '@vh/ai-engine';
 import {
-  createClient,
+  createNodeMeshClient,
   readNewsIngestionLease,
+  removeNewsBundle,
   writeNewsIngestionLease,
   writeStoryBundle,
   type NewsIngestionLease,
@@ -30,6 +31,7 @@ import {
   type EnrichmentWorker,
   type LoggerLike,
 } from './daemonUtils';
+import { createLeaseGuard } from './leaseGuard';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 export interface NewsAggregatorDaemonConfig {
   client: VennClient;
@@ -43,6 +45,7 @@ export interface NewsAggregatorDaemonConfig {
   readLease?: (client: VennClient) => Promise<NewsIngestionLease | null>;
   writeLease?: (client: VennClient, lease: unknown) => Promise<NewsIngestionLease>;
   writeBundle?: (client: VennClient, bundle: unknown) => Promise<unknown>;
+  removeBundle?: (client: VennClient, storyId: string) => Promise<unknown>;
   enrichmentWorker?: EnrichmentWorker;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
@@ -64,22 +67,21 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const readLease = config.readLease ?? readNewsIngestionLease;
   const writeLease = config.writeLease ?? writeNewsIngestionLease;
   const writeBundle = config.writeBundle ?? writeStoryBundle;
+  const removeBundle = config.removeBundle ?? removeNewsBundle;
   const nowFn = config.now ?? Date.now;
   const randomFn = config.random ?? Math.random;
   const setIntervalFn = config.setIntervalFn ?? setInterval;
   const clearIntervalFn = config.clearIntervalFn ?? clearInterval;
   const leaseTtlMs = config.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
   const leaseRenewIntervalMs = Math.max(5_000, Math.floor(leaseTtlMs / 2));
+  const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
-  const queue = createAsyncEnrichmentQueue(
-    config.enrichmentWorker ?? (() => undefined),
-    logger,
-  );
+  const queue = createAsyncEnrichmentQueue(config.enrichmentWorker ?? (() => undefined), logger);
   let running = false;
   let runtimeHandle: NewsRuntimeHandle | null = null;
-  let lease: NewsIngestionLease | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let leadershipTickPromise: Promise<void> | null = null;
+  const leaseGuard = createLeaseGuard({ client: config.client, readLease, verificationWindowMs: leaseVerificationWindowMs });
   const stopRuntime = () => {
     if (!runtimeHandle) {
       return;
@@ -87,28 +89,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     runtimeHandle.stop();
     runtimeHandle = null;
   };
-  const assertLeaseHeld = async (): Promise<void> => {
-    if (!lease) {
-      throw new Error('news daemon lease not acquired');
-    }
-    const nowMs = nowFn();
-    if (lease.expires_at <= nowMs) {
-      throw new Error('news daemon lease expired');
-    }
-    const current = await readLease(config.client);
-    if (
-      !current ||
-      current.holder_id !== lease.holder_id ||
-      current.lease_token !== lease.lease_token ||
-      current.expires_at <= nowMs
-    ) {
-      throw new Error('news daemon lease not held');
-    }
-  };
   const startRuntimeIfNeeded = () => {
     if (runtimeHandle?.isRunning()) {
+      logger.info('[vh:news-daemon] runtime already running', { holder_id: holderId });
       return;
     }
+    logger.info('[vh:news-daemon] starting runtime', { holder_id: holderId });
     runtimeHandle = startRuntime({
       enabled: true,
       feedSources: config.feedSources,
@@ -116,8 +102,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       gunClient: config.client,
       pollIntervalMs: config.pollIntervalMs,
       writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
-        await assertLeaseHeld();
+        await leaseGuard.assertHeld(nowFn());
         return writeBundle(runtimeClient as VennClient, bundle);
+      },
+      removeStoryBundle: async (runtimeClient: unknown, storyId: string) => {
+        await leaseGuard.assertHeld(nowFn());
+        return removeBundle(runtimeClient as VennClient, storyId);
       },
       onSynthesisCandidate(candidate) {
         queue.enqueue(candidate);
@@ -143,8 +133,19 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     }
     const nowMs = nowFn();
     const currentLease = await readLease(config.client);
+    logger.info('[vh:news-daemon] leadership tick', {
+      holder_id: holderId,
+      observed_lease_holder_id: currentLease?.holder_id ?? null,
+      observed_lease_expires_at: currentLease?.expires_at ?? null,
+      now_ms: nowMs,
+    });
     if (currentLease && currentLease.holder_id !== holderId && currentLease.expires_at > nowMs) {
-      lease = null;
+      logger.warn('[vh:news-daemon] lease held by another writer; runtime stays stopped', {
+        holder_id: holderId,
+        observed_lease_holder_id: currentLease.holder_id,
+        observed_lease_expires_at: currentLease.expires_at,
+      });
+      leaseGuard.clear();
       stopRuntime();
       return;
     }
@@ -155,7 +156,14 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       leaseTtlMs,
       randomFn,
     );
-    lease = await writeLease(config.client, nextLease);
+    const lease = await writeLease(config.client, nextLease);
+    leaseGuard.accept(lease, nowMs);
+    logger.info('[vh:news-daemon] lease acquired', {
+      holder_id: holderId,
+      lease_holder_id: lease.holder_id,
+      lease_token: lease.lease_token,
+      expires_at: lease.expires_at,
+    });
     startRuntimeIfNeeded();
   };
   const runLeadershipTick = async (): Promise<void> => {
@@ -175,20 +183,17 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     });
   };
   const releaseLease = async (): Promise<void> => {
-    if (!lease) {
+    const nowMs = nowFn();
+    const releaseLease = leaseGuard.releasePayload(nowMs);
+    if (!releaseLease) {
       return;
     }
-    const nowMs = nowFn();
     try {
-      await writeLease(config.client, {
-        ...lease,
-        heartbeat_at: nowMs,
-        expires_at: nowMs,
-      });
+      await writeLease(config.client, releaseLease);
     } catch (error) {
       logger.warn('[vh:news-daemon] failed to release lease', error);
     } finally {
-      lease = null;
+      leaseGuard.clear();
     }
   };
   return {
@@ -228,7 +233,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       return running;
     },
     currentLease() {
-      return lease;
+      return leaseGuard.current();
     },
     enrichmentQueueDepth() {
       return queue.size();
@@ -257,7 +262,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   });
 
   const gunPeers = parseGunPeers(readEnvVar('VH_GUN_PEERS') ?? readEnvVar('VITE_GUN_PEERS'));
-  const client = createClient({
+  const client = createNodeMeshClient({
     peers: gunPeers.length > 0 ? gunPeers : undefined,
     requireSession: false,
   });

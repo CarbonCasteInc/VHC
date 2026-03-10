@@ -1,438 +1,673 @@
-# StoryCluster Integration Execution Plan (Refined)
+# StoryCluster Integration Execution Plan (Canonical)
 
-Status: Final Draft for Engineering Handoff  
-Owner: Core Engineering  
-Last Updated: 2026-03-04  
-Branch Baseline: `main` @ `37ca998`
+Status: Canonical execution plan
+Owner: Core Engineering
+Last Updated: 2026-03-08
+Branch Baseline: `coord/storycluster-takeover`
 
-## 1. Purpose
+Companion execution backlog:
 
-This plan defines the production-path integration of StoryCluster into VHC without mid-flight re-architecture.
+1. `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_IMPLEMENTATION_TICKET_STACK.md`
 
-Primary goals:
+## 1. Mission
 
-1. Fix feed correctness and stability first (identity, ordering, single-writer behavior).
-2. Introduce StoryCluster behind a clean engine contract.
-3. Move ingestion authority to a daemonized writer.
-4. Deliver deterministic, explainable `Latest` and `Hot` ranking with narrative diversification.
+Build a production-grade StoryCluster service that is the sole authoritative news bundler for VHC.
 
-## 2. Canonical Invariants (Must Hold)
+The bundler must:
 
-1. Unified feed has two distinct headline surfaces: `NEWS_STORY` and `USER_TOPIC`.
-2. Topic/thread semantics are preserved:
-   - user-thread topic IDs remain deterministic and thread-derived (`sha256("thread:" + threadId)`).
-   - news story topic IDs are story-derived and stable.
-3. News publication contract remains `StoryBundle`-first.
-4. `Latest` ordering must use latest activity, not first-seen timestamp.
-5. `created_at` for a story is immutable after first publish.
-6. Ingestion writes are single-writer at runtime (lease-enforced).
-7. API relay remains default analysis path until local-agent capability thresholds are met.
-8. Full analysis and bias-table generation must run as asynchronous enrichment and must not block StoryBundle publication, indexing, or headline renderability.
+1. place reports about the same discrete story or event together across publishers;
+2. keep same-topic but different-event coverage apart;
+3. prevent roundups, explainers, opinion, liveblogs, and same-publisher derivative assets from polluting canonical event bundles;
+4. preserve VHC production invariants:
+   - remote-only, fail-closed StoryCluster in production;
+   - daemon-first writer topology;
+   - stable `story_id`;
+   - `topic_id = sha256Hex("news:" + story_id)` for news stories;
+   - `created_at` immutability;
+   - monotonic `cluster_window_end`;
+   - non-blocking analysis and bias-table enrichment.
 
-## 3. Current State of Play (Validated Against Code)
+This replaces the earlier broad pipeline-first plan as the canonical execution path.
 
-The following are true at baseline and directly inform sequencing:
+## 2. Problem Statement
 
-1. `created_at` is currently regenerated in both clustering paths.
-2. Latest index currently behaves as `created_at` index, not activity index.
-3. No single-writer lease exists in runtime write path.
-4. Feed/news card identity still depends on volatile fields (`created_at`, title), contributing to remount risk.
-5. There are two clustering stacks (`services/news-aggregator` and `packages/ai-engine`) that must be unified behind one interface.
-6. `BiasTable` is already always-on in current production wiring.
-7. Default analysis model is `gpt-5-nano`; override UI can still change model.
+The repo already has strong production-path wiring, but the current bundler still behaves too much like a topic clusterer.
 
-## 4. Target Architecture (VHC-Correct)
+Validated live failure mode:
 
-Components and responsibilities:
+1. a Jan. 6 plaque article and a related CBS video were correctly bundled as the same incident;
+2. a CBS report on a specific drone strike was incorrectly bundled with a broad Guardian Iran roundup.
 
-1. StoryCluster Engine (new service): authoritative clustering intelligence.
-2. News Aggregator Daemon (canonical writer): ingest/normalize/extract -> cluster engine -> publish StoryBundles and indexes.
-3. Web PWA (consumer-first): hydrate/read/render unified feed; no default ingestion authority.
-4. Gun adapters/topology: authoritative mesh path contracts for stories and ranking indexes.
+That second case is the core defect.
 
-## 5. Identity and Linking Contracts
+The system must optimize for event precision, not generic topic similarity.
 
-### 5.1 Story identity
+## 3. Canonical Principles
 
-1. `story_id`: stable event cluster ID (authoritative).
-2. `created_at`: first-seen timestamp for that `story_id` (immutable).
-3. `cluster_window_end`: latest activity timestamp for that story (moves forward).
+1. Canonical bundle membership is for the same incident or the same developing episode only.
+2. Broader storyline grouping is a separate layer and must not determine `story_id`.
+3. Precision is more important than aggressive bundling.
+4. Under-bundling is preferable to false merges in the canonical feed.
+5. Document type is authoritative for bundle seeding and attachment.
+6. Event structure is required; embeddings alone are insufficient.
+7. Release claims must be backed by live and fixture evidence.
 
-### 5.2 Topic identity
+## 4. Core Architecture
 
-1. User threads: unchanged thread-derived topic ID.
-2. News stories: `topic_id = sha256Hex("news:" + story_id)`.
-3. Storyline identity is separate from `topic_id`; it remains a feature, not a replacement.
+StoryCluster must have two first-class clustering layers.
 
-## 6. Mesh Publication Contract
+### 4.1 EventCluster
 
-### 6.1 Required
+This is the canonical feed bundle.
 
-1. `vh/news/stories/<story_id>` -> canonical `StoryBundle`.
-2. `vh/news/index/latest/<story_id>` -> `cluster_window_end` (activity index).
-3. `vh/news/index/hot/<story_id>` -> deterministic hotness score.
+Definition:
 
-### 6.2 Optional enrichment artifacts
+1. one discrete incident; or
+2. one tightly coupled developing event sequence.
 
-Keep StoryBundle lean; publish deep analysis as separate artifacts keyed by `story_id`.
+This layer owns:
 
-### 6.3 Async enrichment lane (required behavior)
+1. `story_id`;
+2. canonical bundle membership;
+3. canonical source list;
+4. `created_at`;
+5. `cluster_window_end`;
+6. coverage, velocity, confidence, and ranking features.
 
-1. StoryBundle publication path is the blocking lane and must remain independent of LLM enrichment latency/failure.
-2. Full analysis + bias-table artifacts are generated in a background lane after StoryBundle publish.
-3. Precompute policy (minimum required):
-   - all newly published stories.
-   - stories whose source set changed materially.
-   - a rolling top window (`Latest`/`Hot`) for fast card-open UX.
-4. Enrichment execution contract:
-   - queue-based scheduling with bounded concurrency.
-   - retry with backoff and dead-letter capture for persistent failures.
-   - explicit daily/per-topic budget controls.
-5. Enrichment identity contract:
-   - stable analysis identity per story context.
-   - stable point IDs for unchanged semantic points across refreshes.
-   - alias/migration behavior when regenerated output changes wording but not point semantics.
+### 4.2 StorylineGroup
 
-## 7. Ranking Design
+This is the broader narrative layer.
 
-### 7.1 Modes
+Definition:
 
-1. `Latest`: sorted by `cluster_window_end` descending.
-2. `Hot`: deterministic score from coverage, velocity, diversity, confidence, and optional impact signals.
-3. `Top` (optional later): long-horizon importance.
+1. the broader topic or narrative that may contain multiple discrete events.
 
-### 7.2 Deterministic hotness contract
+This layer owns:
 
-Use a config-versioned function in writer path and make it reproducible in client diagnostics.
+1. `storyline_id`;
+2. related coverage grouping;
+3. diversification inputs;
+4. browse-related and "more on this storyline" UX.
 
-### 7.3 Diversification
+`StorylineGroup` must never replace or override `EventCluster` identity.
 
-Post-sort diversification for top-N:
+## 5. Canonical Pair Ontology
 
-1. storyline cap per top window.
-2. adjacent entity-overlap penalty.
+Every document-to-document or document-to-cluster decision must resolve to one of these labels:
 
-## 8. Delivery Sequencing (No Mid-Flight Re-architecture)
+1. `duplicate`
+2. `same_incident`
+3. `same_developing_episode`
+4. `related_topic_only`
+5. `commentary_on_event`
+6. `unrelated`
 
-## PR0 (Contract Freeze and Test Harness Alignment)
+Canonical `EventCluster` membership may only accept:
 
-Goal: lock interfaces before behavior changes.
+1. `duplicate`
+2. `same_incident`
+3. `same_developing_episode`
 
-1. Freeze `StoryBundle` and discovery identity contracts for NEWS_STORY.
-2. Add implementation notes for latest-index migration shape.
-   - Notes: `docs/plans/STORYCLUSTER_PR0_CONTRACT_FREEZE_NOTES.md`
-3. Add migration test fixtures for old index payloads.
+Canonical `EventCluster` membership must reject:
+
+1. `related_topic_only`
+2. `commentary_on_event`
+3. `unrelated`
+
+This ontology is mandatory in code, tests, metrics, and live audits.
+
+## 6. Source Model
+
+StoryCluster must stop treating all URLs as equal bundle members.
+
+### 6.1 Primary sources
+
+Canonical event-bundle sources.
+
+Rules:
+
+1. at most one canonical primary source per publisher in `StoryBundle.sources`;
+2. only event-valid members may appear here;
+3. these are the sources used for event-bundle analysis and feed presentation.
+
+### 6.2 Secondary assets
+
+Same-publisher derivative assets.
+
+Examples:
+
+1. video clip of the same report;
+2. alternate URL for the same article;
+3. live page fragment;
+4. mobile or AMP variant.
+
+Rules:
+
+1. these do not count as distinct corroborating bundle members;
+2. they may be retained as secondary metadata, not as separate canonical primary sources.
+
+### 6.3 Related coverage
+
+Coverage related to the storyline but not canonical event membership.
+
+Examples:
+
+1. roundups;
+2. explainers;
+3. opinion;
+4. analysis;
+5. liveblogs;
+6. broad topic summaries.
+
+Rules:
+
+1. these must not be published into canonical event bundle membership;
+2. they may attach to `storyline_id` or a separate related-coverage artifact.
+
+## 7. Authoritative Document Types
+
+Document type is a hard production signal, not a soft hint.
+
+Required document classes:
+
+1. `wire`
+2. `hard_news`
+3. `breaking_update`
+4. `liveblog`
+5. `roundup`
+6. `explainer`
+7. `analysis`
+8. `opinion`
+9. `video_clip`
+
+Implementation taxonomy note:
+
+1. the canonical planning vocabulary is the list above;
+2. the current codebase still uses a small number of implementation aliases:
+   - `wire_report` = canonical `wire`
+   - `explainer_recap` = canonical `explainer`
+3. docs, benchmark reports, and release gates should normalize to the canonical vocabulary unless they are discussing the code enum directly;
+4. no additional aliasing should be introduced without updating this section and the fixture corpus.
+
+Seeding rules:
+
+1. only `wire`, `hard_news`, and `breaking_update` may seed new `EventCluster`s;
+2. `liveblog`, `roundup`, `explainer`, `analysis`, `opinion`, and low-information `video_clip` must not seed canonical event bundles.
+
+Attachment rules:
+
+1. `video_clip` may attach as a secondary asset when it is clearly the same incident and same publisher;
+2. `roundup`, `explainer`, `analysis`, `opinion`, and `liveblog` may attach as related coverage only;
+3. these classes must incur strong negative scoring against canonical event membership.
+
+## 8. Pipeline Design
+
+## 8.1 Ingest normalization
+
+For every article:
+
+1. normalize URL and canonical URL;
+2. normalize publisher identity;
+3. normalize pub date;
+4. extract headline, lede, and article body;
+5. preserve original text and metadata.
+
+## 8.2 Language detection and translation
+
+Implement real language detection and selective translation.
+
+Requirements:
+
+1. preserve original text;
+2. preserve translated text separately;
+3. translation is gated, not unconditional;
+4. translated text may be used for retrieval and scoring, but original text remains available for evidence.
+
+Telemetry:
+
+1. `input_count`
+2. `language_distribution`
+3. `translated_doc_count`
+4. `gate_pass_rate`
+5. `latency_ms`
+
+## 8.3 Duplicate detection
+
+Implement duplicate detection before event clustering.
+
+Signals:
+
+1. normalized text near-duplicate signal;
+2. lead-image duplicate signal when available;
+3. canonical URL and publisher signal;
+4. same-publisher derivative-asset signal.
+
+Outputs:
+
+1. duplicate groups;
+2. primary-source candidate selection;
+3. secondary-asset attachment.
+
+Rules:
+
+1. near-duplicates collapse before event assignment;
+2. same-publisher article plus video must not inflate canonical corroboration count.
+
+## 8.4 Event-frame extraction
+
+Event-frame extraction is mandatory.
+
+Per document, extract:
+
+1. trigger or action;
+2. primary actors;
+3. actor roles;
+4. target or object;
+5. normalized location;
+6. normalized date and time;
+7. event type;
+8. optional magnitude fields such as casualties or quantities.
+
+This frame must be used in retrieval, scoring, adjudication, and audits.
+
+## 8.5 Candidate retrieval
+
+Candidate retrieval must combine semantic and symbolic constraints.
+
+Required retrieval steps:
+
+1. multilingual vector ANN retrieval using Qdrant;
+2. time-window prefilter;
+3. event-type compatibility prefilter;
+4. actor overlap prefilter where available;
+5. location compatibility prefilter where available.
+
+A document must not become an event candidate solely because it shares a country, major actor, or war topic.
+
+## 8.6 Pair scoring
+
+Pair scoring must answer event sameness, not topic relatedness.
+
+Required scoring inputs:
+
+1. embedding similarity;
+2. event-frame similarity;
+3. actor-role alignment;
+4. location similarity;
+5. time proximity;
+6. document-type compatibility;
+7. duplicate pressure;
+8. broadness penalty;
+9. low-information penalty.
+
+The scorer must strongly penalize:
+
+1. broad roundups versus specific incident reports;
+2. explainers versus hard-news incident reports;
+3. opinion versus incident reports;
+4. liveblogs versus incident reports unless already attached to a known developing episode.
+
+## 8.7 Pair rerank
+
+Ambiguous candidate sets must go through a dedicated rerank stage.
+
+Requirements:
+
+1. a real pair model or cross-encoder must rerank hard cases;
+2. this stage must remain deterministic under fixed fixtures;
+3. it must output explicit pair labels from the canonical ontology.
+
+## 8.8 Adjudication lane
+
+The LLM is the bounded ambiguity resolver, not the primary bundler.
+
+Rules:
+
+1. only candidates in the uncertainty band enter adjudication;
+2. adjudication must output a canonical ontology label;
+3. hard negative rules may override a soft LLM merge.
+
+Targets:
+
+1. ambiguity lane should stay bounded and observable;
+2. routine traffic must resolve without LLM adjudication.
+
+## 8.9 Dynamic cluster assignment
+
+Cluster assignment must use persistent cluster state.
+
+Responsibilities:
+
+1. create new `EventCluster`s;
+2. update existing clusters;
+3. preserve stable identity under source growth;
+4. support merge and split operations with lineage;
+5. maintain confidence and representative event frame.
+
+A cluster may only grow through documents labeled:
+
+1. `duplicate`
+2. `same_incident`
+3. `same_developing_episode`
+
+## 8.10 Storyline assignment
+
+Storyline assignment happens after event clustering.
+
+Responsibilities:
+
+1. group related events into broader narratives;
+2. attach related coverage that is not canonical event membership;
+3. support feed diversification.
+
+`StorylineGroup` may use looser thresholds than `EventCluster`, but it must never rewrite event identity.
+
+## 8.11 Summary generation
+
+Canonical summaries must be generated from canonical event members only.
+
+Rules:
+
+1. `summary_hint` comes from the `EventCluster`, not the `StorylineGroup`;
+2. related coverage must not contaminate event summaries;
+3. generated summaries must be actual event summaries, not count text.
+
+## 9. State Model and Identity Contracts
+
+## 9.1 Event identity
+
+1. `story_id` is the durable `EventCluster` identifier;
+2. `created_at` is first-write-wins for that `story_id`;
+3. `cluster_window_end` is monotonic and reflects latest validated event activity.
+
+## 9.2 Topic identity
+
+1. news `topic_id = sha256Hex("news:" + story_id)`;
+2. user-thread topic IDs remain thread-derived and unchanged;
+3. storyline identity remains separate from topic identity.
+
+## 9.3 Cluster persistence
+
+Persistent cluster state must store:
+
+1. representative event frame;
+2. canonical primary sources;
+3. secondary assets;
+4. related coverage links;
+5. `storyline_id`;
+6. confidence;
+7. merge and split lineage;
+8. timestamps and activity fields.
+
+## 10. Publication Contract
+
+## 10.1 Canonical StoryBundle
+
+`StoryBundle` remains the authoritative published feed artifact.
+
+It must contain:
+
+1. stable `story_id`;
+2. stable `topic_id`;
+3. canonical event headline;
+4. canonical event summary;
+5. immutable `created_at`;
+6. monotonic `cluster_window_end`;
+7. canonical `sources` from distinct publishers only;
+8. deterministic provenance metadata.
+
+## 10.2 Separate related artifacts
+
+Related coverage, secondary assets, and storyline data must publish separately.
+
+At minimum, split out:
+
+1. secondary assets;
+2. related coverage;
+3. storyline metadata;
+4. enrichment artifacts.
+
+## 10.3 Non-blocking enrichment
+
+Analysis and bias-table generation remain asynchronous.
+
+Rules:
+
+1. StoryBundle publish must not wait on enrichment;
+2. missing enrichment must not block feed or card renderability;
+3. analysis for a story should be computed from canonical event members, not topic-only attachments.
+
+## 11. Ranking Contracts
+
+Ranking is downstream of event correctness.
+
+## 11.1 Latest
+
+1. sort strictly by `cluster_window_end` descending.
+
+## 11.2 Hot
+
+1. compute from event-cluster features only;
+2. use deterministic, config-versioned scoring;
+3. use publisher diversity, coverage, velocity, and confidence;
+4. do not treat topic-only roundups or commentary as event corroboration.
+
+## 11.3 Diversification
+
+Client diversification may use `storyline_id`, but only after event bundles are correct.
+
+## 12. Benchmark-First Refactor Program
+
+## Phase 0: Freeze ontology and benchmark corpus
+
+Deliverables:
+
+1. canonical pair ontology in code and docs;
+2. benchmark corpus containing:
+   - same-event cross-publisher pairs;
+   - same-topic different-event traps;
+   - roundup versus incident traps;
+   - explainer versus incident traps;
+   - opinion contamination traps;
+   - same-publisher article/video duplicate traps;
+   - multilingual same-event pairs;
+   - evolving follow-up ticks;
+   - verified live false merges;
+   - verified live true positives.
 
 Exit criteria:
 
-1. Contract tests pass with both legacy and target latest-index reads.
-2. Team has final approved API/adapter signatures for PR1.
+1. every future bundling change runs through this corpus;
+2. the Guardian Iran roundup versus CBS drone-strike case is a permanent regression fixture.
 
-## PR1 (Feed Correctness Hardening - Must Ship First)
+## Phase 1: Make document type authoritative
 
-Goal: eliminate instability and ordering drift.
+Deliverables:
 
-Scope:
+1. production doc-type classifier;
+2. canonical seeding rules;
+3. secondary-asset and related-coverage routing rules.
 
-1. Add NEWS_STORY identity field to discovery pipeline (`story_id`) and propagate end-to-end.
-2. Freeze `created_at` semantics (first-write-wins by `story_id`).
-3. Switch latest-index semantics to activity (`cluster_window_end`) with legacy read fallback.
-4. Introduce and enforce single-writer lease for ingestion writers.
-5. Re-key feed and card identity to stable story identity, not `created_at`.
+Exit criteria:
 
-Acceptance criteria:
+1. non-seeding document classes cannot create canonical event bundles;
+2. same-publisher article plus video does not count as distinct corroboration.
 
-1. Re-ingest same evolving story: `created_at` unchanged, `cluster_window_end` advances.
-2. Latest sort follows activity updates.
-3. Two ingesters started concurrently -> one lease holder writes.
-4. Open cards do not remount from timestamp churn.
+## Phase 2: Event-frame extraction and duplicate model
 
-## PR2 (ClusterEngine Abstraction + Dual-Stack Unification)
+Deliverables:
 
-Goal: remove duplicate clustering behavior paths.
+1. event-frame extractor;
+2. duplicate detector;
+3. primary-source and secondary-asset projection.
 
-1. Add `ClusterEngine` interface:
-   - `clusterBatch(normalizedItems) -> { bundles, features, indexes }`.
-2. Implement:
-   - `HeuristicClusterEngine` (current behavior).
-   - `StoryClusterRemoteEngine` (HTTP client).
-   - `AutoEngine` (remote preferred, heuristic fallback).
-3. Route runtime and service orchestration through this single interface.
+Exit criteria:
 
-Acceptance criteria:
+1. event-frame fields are present for benchmark fixtures where possible;
+2. duplicate collapse works before cluster assignment.
 
-1. Remote down -> deterministic fallback works.
-2. No duplicated clustering logic path remains active in production path.
+## Phase 3: Retrieval and pair scoring rewrite
 
-## PR3 (Aggregator Daemon Becomes Canonical Writer)
+Deliverables:
 
-Goal: move default ingest authority out of browser runtime.
+1. Qdrant retrieval with symbolic prefilters;
+2. pair scorer centered on event sameness;
+3. dedicated rerank stage;
+4. bounded LLM adjudication lane.
 
-1. Add daemon entrypoint in `services/news-aggregator` for scheduled ingest+publish.
-2. Daemon acquires lease before writes.
-3. Browser defaults to consumer mode for normal runs; explicit dev override remains for local testing only.
-4. Add daemon-managed async enrichment queue wiring (non-blocking from publish path).
+Exit criteria:
 
-Acceptance criteria:
+1. false-merge rate falls materially on benchmark corpus;
+2. related-topic-only traps no longer enter canonical event bundles.
 
-1. PWA shows live headlines without browser ingest authority.
-2. Daemon continuously updates StoryBundles and indexes.
-3. StoryBundle + index publish latency is not coupled to enrichment completion.
+## Phase 4: Persistent EventCluster state
 
-## PR4 (StoryCluster Engine Service - Phase 1)
+Deliverables:
 
-Goal: deploy stable clustering quality improvements quickly.
+1. durable cluster repository;
+2. merge and split lineage support;
+3. stable identity under repeated ticks and source growth.
 
-Implement first-phase StoryCluster capabilities:
+Exit criteria:
 
-1. language detect + selective translation gate.
-2. near-dup collapse (text + image where available).
-3. embeddings + retrieval + hybrid assignment.
-4. stable incremental cluster assignment.
-5. canonical 2-3 sentence summary generation.
-6. emit coverage/velocity/confidence features.
-7. emit enrichment work items for full analysis/bias-table generation without blocking cluster publish.
+1. `story_id` persistence target met;
+2. `created_at` and `cluster_window_end` contracts preserved.
 
-Acceptance criteria:
+## Phase 5: Storyline layer and clean bundle projection
 
-1. stable `story_id` across updates.
-2. duplicate collapse improves source grouping quality.
-3. generated summaries populate `summary_hint` reliably.
-4. enrichment failures/timeouts do not block story publication or ordering updates.
+Deliverables:
 
-## PR5 (SOTA Sorting: Hot Index + Diversification)
+1. separate storyline assignment;
+2. canonical event bundle projection;
+3. separate related-coverage artifacts.
 
-Goal: make hot feed behavior production-grade and editorially coherent.
+Exit criteria:
 
-1. Publish `vh/news/index/hot/<story_id>`.
-2. Compute deterministic hotness in writer path.
-3. Apply deterministic diversification in feed rendering.
+1. `StoryBundle.sources` contains canonical event members only;
+2. broad roundups and commentary move out of canonical bundle membership.
 
-Acceptance criteria:
+## Phase 6: Ranking retune and live feed validation
 
-1. Hot feed stable across refreshes.
-2. breaking stories rise quickly and decay predictably.
-3. top window is not monopolized by one storyline.
+Deliverables:
 
-## PR6+ (Advanced Pipeline Completion)
+1. event-correct `Latest` and `Hot` validation;
+2. deterministic replay tests;
+3. live daemon-first semantic audit over served feed.
 
-Roll in deeper StoryCluster features incrementally:
+Exit criteria:
 
-1. ME tuple extraction + entity linking + temporal normalization.
-2. rerank/adjudication gates.
-3. GDELT grounding and impact blending.
-4. periodic cluster refinement and drift metrics.
-5. timeline/sub-event graph outputs.
+1. no audited canonical bundle contains `related_topic_only` members;
+2. ranking remains deterministic and meaningful on corrected event clusters.
 
-## 9. PR1 Detailed File Scope (Immediate Team Start)
+## 13. Required Code Refactor Targets
 
-Required implementation touchpoints (initial target list):
+Primary modules to split or replace:
 
-1. `packages/data-model/src/schemas/hermes/discovery.ts`
-2. `apps/web-pwa/src/store/feedBridge.ts`
-3. `apps/web-pwa/src/store/discovery/index.ts`
-4. `apps/web-pwa/src/components/feed/FeedShell.tsx`
-5. `apps/web-pwa/src/components/feed/NewsCard.tsx`
-6. `packages/gun-client/src/newsAdapters.ts`
-7. `apps/web-pwa/src/store/news/index.ts`
-8. `apps/web-pwa/src/store/news/hydration.ts`
-9. `apps/web-pwa/src/store/newsRuntimeBootstrap.ts`
-10. `packages/gun-client/src/topology.ts`
+1. `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/stageHandlers.ts`
+2. `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/clusterLifecycle.ts`
+3. `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/clusterJudgement.ts`
+4. `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/stageRunner.ts`
+5. `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/remoteContract.ts`
+6. `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/openaiProvider.ts`
+7. `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/coherenceAudit.ts`
 
-Note: update tests in the same PR for any changed contract behavior.
+New engine modules expected:
 
-## 10. Test and Benchmark Gates
+1. `documentTypeClassifier.ts`
+2. `eventFrameExtractor.ts`
+3. `duplicateDetector.ts`
+4. `candidateRetriever.ts`
+5. `pairScorer.ts`
+6. `pairDecisionPolicy.ts`
+7. `clusterRepository.ts`
+8. `clusterAssignment.ts`
+9. `storylineAssignment.ts`
+10. `bundleProjection.ts`
+11. `semanticAudit.ts`
+12. benchmark corpus modules and replay harnesses.
 
-### 10.1 Unit gates
+Downstream integration targets:
 
-1. `created_at` immutability.
-2. latest index writes/reads use activity semantics.
-3. lease acquisition/renewal/expiry behavior.
-4. topic derivation non-collision (`thread:` vs `news:` prefixes).
-5. hotness determinism and monotonic sanity expectations.
+1. `/Users/bldt/Desktop/VHC/VHC/packages/ai-engine/src/clusterEngine.ts`
+2. `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/daemon.ts`
+3. `/Users/bldt/Desktop/VHC/VHC/packages/gun-client/src/newsAdapters.ts`
+4. `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/discovery/ranking.ts`
+5. daemon-first live e2e suites under `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/`
 
-### 10.2 Integration gates
+## 14. CI and Release Gates
 
-1. local stack: Gun + daemon + (optional) StoryCluster + web app.
-2. stable story IDs across multiple ticks.
-3. source list growth on same story without identity churn.
-4. hot index updates observed and consumed.
-5. UI `Latest` vs `Hot` behavioral differentiation.
+StoryCluster is not releasable unless all of the following are true.
 
-### 10.3 E2E strict lane
+### 14.1 Production path gates
 
-1. keep existing strict preflight hardening.
-2. add assertions for feed-empty recovery + stable identity behavior.
-3. ensure setup failures are classified as harness failures, not convergence failures.
+1. production mode cannot reach heuristic clustering;
+2. production mode requires remote StoryCluster health before ingest;
+3. daemon remains the sole default writer.
 
-### 10.4 Enrichment lane gates
+### 14.2 Identity gates
 
-1. Card-open on top-window stories resolves precomputed analysis in expected latency budget when artifacts exist.
-2. Missing/pending enrichment falls back gracefully without blocking interaction.
-3. StoryBundle publish SLO is unchanged under simulated enrichment provider failures.
-4. Vote context stability tests pass across enrichment refresh cycles (no point-ID churn regressions).
+1. `story_id` persistence rate >= `0.99` on replay suite;
+2. `created_at` immutability always holds;
+3. `cluster_window_end` monotonicity always holds;
+4. news `topic_id` derivation remains correct.
 
-## 11. Migration and Compatibility Rules
+### 14.3 Semantic bundling gates
 
-1. Latest-index readers must accept legacy `{created_at: ...}` entries during migration.
-2. Writers must emit only target activity value after PR1 cutover.
-3. Discovery/store code must preserve behavior when old stories lacking new fields are present.
-4. Old shared-topic story artifacts are tolerated read-time but new writes must follow story-derived topic IDs once cutover is enabled.
+1. fixture false-merge rate <= `0.01`;
+2. fixture false-split rate <= `0.05`;
+3. event-bundle precision >= `0.97`;
+4. replay coherence score >= `0.90`;
+5. live audited canonical bundles contain zero `related_topic_only` or `commentary_on_event` members.
 
-## 12. Risks and Controls
+### 14.4 Feed and enrichment gates
 
-1. Risk: mixed old/new identity keys cause duplicate cards.
-   - Control: explicit dual-read + canonical-write migration window and dedupe tests.
-2. Risk: lease starvation or stale holder lock.
-   - Control: heartbeat + TTL + failover test.
-3. Risk: hot ranking oscillation from noisy features.
-   - Control: config-versioned weights + bounded update cadence.
-4. Risk: daemon/browser dual-writer during rollout.
-   - Control: lease enforced in both paths with browser defaulting to consumer mode.
+1. `Latest` and `Hot` remain deterministic under fixed replay;
+2. StoryBundle publication remains non-blocking with enrichment failures;
+3. analysis and bias-table persistence and vote convergence continue to pass.
 
-## 13. Handoff Checklist for Dev Team
+### 14.5 Quality gates
 
-1. Start with PR0 contract updates and tests.
-2. Execute PR1 exactly before any StoryCluster service integration.
-3. Do not introduce new ranking/index paths before latest-index migration lands.
-4. Do not change thread/topic canonical derivation for user topics.
-5. Keep relay-default analysis behavior intact during all phases.
-6. Maintain strict e2e artifacts and setup-vs-convergence classification integrity.
+1. changed executable files stay under `350` LOC;
+2. changed executable files keep `100%` coverage;
+3. strict headless daemon-first feed audits are green.
 
-## 14. Definition of Done (Program-Level)
+## 15. Explicit De-Prioritization
 
-1. Headlines stable and lazily loaded with deterministic ordering.
-2. Pull-to-refresh and pagination behavior are stable and non-destructive.
-3. Story analyses persist and are reusable across sessions/users.
-4. Bias-table vote semantics remain strict tri-state and converge across users.
-5. Story identity and topic identity are deterministic and collision-safe.
-6. Single-writer ingestion authority enforced at runtime.
-7. `Latest` and `Hot` semantics match spec and are reproducible.
-8. Analysis/bias-table enrichment is precomputed opportunistically but never blocks headline publication, ordering, or card usability.
+The following are not the immediate blockers to production-grade event bundling and must not outrank the precision program above:
 
-## 15. State of Play (Validated 2026-03-05)
+1. GDELT grounding;
+2. Neo4j timeline graphing;
+3. Leiden refinement;
+4. active learning loop;
+5. broad SOTA ranking work before event coherence is strong.
 
-This section supersedes assumptions in Section 3 where code has diverged.
+These may be added later, but only after canonical event precision is proven.
 
-### 15.1 What is currently true in code
+## 16. Program Definition of Done
 
-1. The canonical daemon path still runs the ai-engine heuristic clustering runtime path by default.
-2. Remote StoryCluster is optional and only used when explicitly configured via orchestrator options; it is not the enforced default execution path.
-3. Heuristic clustering and same-event grouping are still active in production wiring (`storycluster-heuristic-engine`, token/entity overlap gates, heuristic action/location scoring).
-4. Language detection and translation are lightweight lexical heuristics, not the specified FastText + NLLB/SeaLLM pipeline.
-5. Embedding/similarity in clustering is lightweight local hashing math, not Matryoshka dimensions with ANN retrieval.
-6. Story topic assignment in active clustering path is still mapping-driven (`defaultTopicId`/`sourceTopics`) rather than strictly derived from stable story identity.
-7. The dedicated `services/storycluster-engine/` production service is not present in the repository state.
+StoryCluster reaches program DoD only when all of the following are simultaneously true:
 
-### 15.2 Why the original goal is not yet met
+1. the production ingest path uses StoryCluster only;
+2. canonical bundles contain only same-incident or same-developing-episode reports;
+3. same-topic different-event reports are kept out of canonical bundles;
+4. roundups, explainers, opinion, liveblogs, and same-publisher derivative assets do not pollute canonical bundle membership;
+5. `story_id` remains durable across repeated ticks and source growth;
+6. `Latest` and `Hot` operate on correct event bundles;
+7. StoryBundle publication remains independent of analysis and bias-table latency;
+8. live daemon-first semantic audits find no real false merges in sampled canonical bundles;
+9. CI blocks regression on all of the above.
 
-1. The SOTA pipeline is not the mandatory execution path; heuristic code remains the active path.
-2. Fallback behavior still exists in engine resolution (`AutoEngine` remote -> heuristic), which violates no-fallback production intent.
-3. Clustering quality and event coherence are constrained by heuristic merge logic, creating false merges/splits under real feeds.
+## 17. Hard Conclusion
 
-### 15.3 Hard conclusion
+The right path is not to keep adding more stages until the system looks sophisticated.
 
-Current system is improved and testable, but it is not yet the full StoryCluster end-to-end SOTA pipeline described in the research spec. Further implementation work is mandatory before claiming full completion.
+The right path is:
 
-## 16. Next Actionable Steps (No-Fallback Implementation Track)
-
-This is the execution sequence the dev team should run now. It is strict and production-path only.
-
-### 16.1 Non-negotiable guardrails
-
-1. No heuristic fallback in production path.
-2. No dual cluster authority in production path.
-3. No "best effort" downgrade when StoryCluster is unavailable; fail closed with explicit operational error.
-4. Analysis relay path remains default for card analysis generation until local-agent thresholds are explicitly met.
-
-### 16.2 Sprint A: Enforce single authoritative clustering path
-
-1. Remove `AutoEngine` fallback behavior from production runtime wiring.
-2. Require remote StoryCluster endpoint for daemon startup in production mode.
-3. Keep heuristic engine only for isolated test fixtures and explicit local debug mode (not default, not production flag path).
-4. Add startup hard-fail checks:
-   - StoryCluster endpoint reachable.
-   - required auth/config present.
-   - health endpoint green before ingestion starts.
-
-Acceptance criteria:
-
-1. Daemon refuses to run ingestion when StoryCluster is unavailable.
-2. No published StoryBundle can originate from heuristic engine in production mode.
-3. CI includes a test asserting production config rejects fallback.
-
-### 16.3 Sprint B: Implement mandatory 3.2 pipeline stages in StoryCluster service
-
-Implement these as required stages in the service, in order:
-
-1. Language detection + selective translation (FastText gate + model translation path).
-2. Near-duplicate collapse (MinHash + pHash fusion with explicit thresholds).
-3. Document-type classification and centroid weighting.
-4. Matryoshka embedding generation (192/384/768 outputs).
-5. ME tuple extraction + NER/entity linking + temporal normalization.
-6. Qdrant candidate retrieval with geo/time/entity pre-filters.
-7. Hybrid scoring with learned weights contract.
-8. Cross-encoder reranking gate.
-9. LLM adjudication gate (<5% ambiguity lane).
-10. Dynamic cluster assignment and centroid updates.
-11. Cluster summarization and artifact publication payloads.
-
-Acceptance criteria:
-
-1. Service emits deterministic bundle outputs for fixed fixtures.
-2. Service exposes per-stage telemetry (input counts, gate pass rates, latency).
-3. Service contract tests validate all mandatory stage artifacts are present.
-
-### 16.4 Sprint C: Correct identity semantics and topic derivation
-
-1. Enforce `story_id` stability from StoryCluster output.
-2. Enforce `topic_id = sha256Hex("news:" + story_id)` for news stories.
-3. Preserve user-thread topic derivation unchanged.
-4. Ensure `created_at` first-write-wins and immutable by `story_id`.
-
-Acceptance criteria:
-
-1. Re-ingest of evolving story keeps same `story_id` and `topic_id`.
-2. `created_at` remains unchanged while `cluster_window_end` advances.
-3. Collision tests pass across `thread:` and `news:` domains.
-
-### 16.5 Sprint D: Publish complete ranking inputs and deterministic indexes
-
-1. Publish required cluster features for hotness computation.
-2. Publish `latest` index from `cluster_window_end`.
-3. Publish `hot` index from deterministic writer-side function (versioned config).
-4. Keep client diversification deterministic and reproducible.
-
-Acceptance criteria:
-
-1. Hot/Latest order stable across refresh for same underlying data snapshot.
-2. Ranking reproducibility test passes with fixed clock + fixtures.
-3. Storyline over-concentration constraints hold in top window.
-
-### 16.6 Sprint E: Production wiring and CI enforcement
-
-1. Add CI gates that fail if heuristic engine is reachable in production configuration.
-2. Add integration tests that run daemon + StoryCluster + Gun and assert:
-   - multi-source same-event coherence;
-   - no cross-event false merges on curated fixtures;
-   - stable identity under repeated ticks.
-3. Add operational SLO alarms for:
-   - cluster service health;
-   - publish latency;
-   - merge quality regressions (fragmentation/contamination metrics).
-
-Acceptance criteria:
-
-1. CI has explicit no-fallback contract checks.
-2. Strict matrix includes story coherence checks, not only availability checks.
-3. Merge to main is blocked on these gates.
-
-### 16.7 Final release gate (before claiming full completion)
-
-All items below must be true simultaneously:
-
-1. Production ingestion path uses StoryCluster only.
-2. All mandatory 3.2 stages are implemented and telemetry-verified.
-3. Story bundles show high same-event coherence on live and fixture audits.
-4. Latest/Hot ranking semantics match spec under deterministic replay.
-5. Analysis and bias-table persistence/vote convergence behavior remains intact under this wiring.
+1. define the event ontology;
+2. freeze the trap corpus;
+3. make document type authoritative;
+4. extract event structure;
+5. score event sameness rather than topic relatedness;
+6. separate event clusters from storyline groups;
+7. publish only canonical event members into `StoryBundle`;
+8. block release on semantic precision, not on wiring completeness.

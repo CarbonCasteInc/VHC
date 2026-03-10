@@ -216,7 +216,31 @@ describe('analysisAdapters', () => {
     await expect(writeAnalysis(client, ARTIFACT)).rejects.toThrow('write failed');
   });
 
-  it('writeAnalysis resolves on ack timeout and ignores a late ack callback', async () => {
+  it('writeAnalysis resolves on ack timeout once readback confirms persistence and ignores a late ack callback', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    mesh.setPutDelay('news/stories/story-1/analysis/analysis-1', 1100);
+    setTimeout(() => {
+      mesh.setRead('news/stories/story-1/analysis/analysis-1', ARTIFACT);
+    }, 1200);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const writePromise = writeAnalysis(client, ARTIFACT);
+      await vi.advanceTimersByTimeAsync(2500);
+      await expect(writePromise).resolves.toEqual(ARTIFACT);
+
+      expect(mesh.writes).toHaveLength(2);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('writeAnalysis rejects when ack times out and readback never confirms persistence', async () => {
     vi.useFakeTimers();
     const mesh = createFakeMesh();
     mesh.setPutDelay('news/stories/story-1/analysis/analysis-1', 1100);
@@ -226,11 +250,11 @@ describe('analysisAdapters', () => {
 
     try {
       const writePromise = writeAnalysis(client, ARTIFACT);
-      await vi.advanceTimersByTimeAsync(1000);
-      await expect(writePromise).resolves.toEqual(ARTIFACT);
-      await vi.advanceTimersByTimeAsync(200);
-
-      expect(mesh.writes).toHaveLength(2);
+      const rejected = expect(writePromise).rejects.toThrow(
+        'analysis artifact write timed out and readback did not confirm persistence',
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      await rejected;
       expect(warnSpy).toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
     } finally {
       warnSpy.mockRestore();

@@ -1,0 +1,307 @@
+import { createServer } from 'node:http';
+
+const port = Number.parseInt(process.env.VH_DAEMON_FEED_FIXTURE_PORT ?? '8788', 10);
+const baseUrl = `http://127.0.0.1:${port}`;
+
+function rssDate(iso) {
+  return new Date(iso).toUTCString();
+}
+
+function articleHtml(title, paragraphs) {
+  const body = paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join('');
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${title}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    <main>
+      <article>
+        <h1>${title}</h1>
+        ${body}
+      </article>
+    </main>
+  </body>
+</html>`;
+}
+
+const articles = {
+  'geneva-guardian': {
+    title: 'Geneva ceasefire talks open after overnight missile strike',
+    description: 'Mediators convened in Geneva after an overnight missile strike prompted emergency diplomacy.',
+    publishedAt: '2026-03-09T15:00:00Z',
+    html: articleHtml('Geneva ceasefire talks open after overnight missile strike', [
+      'Mediators from three countries opened emergency ceasefire talks in Geneva on Monday morning after an overnight missile strike damaged fuel depots near the capital.',
+      'Diplomats said the same negotiating table will address the overnight strike, the release of detainees and guarantees for shipping lanes during the truce window.',
+      'Officials described the Geneva meeting as the first direct ceasefire session since the overnight strike escalated the conflict.',
+    ]),
+  },
+  'geneva-cbs': {
+    title: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+    description: 'Delegations opened emergency Geneva talks after the overnight strike hit fuel depots and forced a diplomatic response.',
+    publishedAt: '2026-03-09T15:06:00Z',
+    html: articleHtml('Emergency Geneva talks begin after overnight missile strike hits fuel depots', [
+      'Emergency ceasefire talks began in Geneva after an overnight missile strike hit fuel depots and forced negotiators back to the table.',
+      'Officials said the Geneva session is focused on the overnight strike, protection for shipping routes and a staged ceasefire backed by mediators.',
+      'Diplomats described the meeting as the first direct response to the missile strike and said additional talks are planned for Tuesday.',
+    ]),
+  },
+  'tsa-bbc': {
+    title: 'Staffing shortage leads to two-hour TSA lines at major US airports',
+    description: 'Travelers faced long lines after a staffing shortage slowed security checkpoints at major airports.',
+    publishedAt: '2026-03-09T15:10:00Z',
+    html: articleHtml('Staffing shortage leads to two-hour TSA lines at major US airports', [
+      'Travelers at major U.S. airports faced security lines of up to two hours after a staffing shortage reduced the number of open TSA checkpoints.',
+      'Airport managers in Atlanta, Chicago and Dallas said the delays began before sunrise and persisted through the morning departure bank.',
+      'Federal officials said they were reassigning staff and extending shifts to reduce the security backlog created by the shortage.',
+    ]),
+  },
+  'tsa-fox': {
+    title: 'Travelers face long TSA waits as staffing shortfall hits major airports',
+    description: 'Long TSA waits spread across major airports after a staffing shortfall disrupted checkpoint operations.',
+    publishedAt: '2026-03-09T15:14:00Z',
+    html: articleHtml('Travelers face long TSA waits as staffing shortfall hits major airports', [
+      'Long TSA waits spread across major airports after a staffing shortfall disrupted checkpoint operations during the morning travel rush.',
+      'Passengers in Atlanta, Chicago and Dallas reported lines nearing two hours as officials consolidated lanes and reassigned officers.',
+      'Transportation officials said they were deploying backup teams to relieve the backlog caused by the staffing problem.',
+    ]),
+  },
+  'iran-roundup-nypost': {
+    title: 'Trump says conflict could end soon while oil routes stay under pressure',
+    description: 'A roundup of statements on the conflict, shipping lanes and diplomatic pressure.',
+    publishedAt: '2026-03-09T15:18:00Z',
+    html: articleHtml('Trump says conflict could end soon while oil routes stay under pressure', [
+      'President Trump said the conflict could end soon as officials weighed diplomatic proposals and military options across the region.',
+      'The roundup also covered pressure on oil routes, public statements from allied governments and broader debate about the next phase of the conflict.',
+      'Officials did not tie the statements to a single incident, describing the situation instead as a fast-moving regional crisis.',
+    ]),
+  },
+  'school-noise-guardian': {
+    title: 'California teachers weigh whether to leave profession, survey finds',
+    description: 'A state survey found many teachers are considering leaving the profession within the decade.',
+    publishedAt: '2026-03-09T15:22:00Z',
+    html: articleHtml('California teachers weigh whether to leave profession, survey finds', [
+      'A new California survey found that many teachers are considering leaving the profession within the next decade because of workload and pay pressures.',
+      'Education officials said the survey was conducted statewide and was not tied to a single district or incident.',
+      'Teacher groups said the results should inform staffing and retention plans before the next school year.',
+    ]),
+  },
+  'mayor-guardian': {
+    title: 'City hall attack injures mayor and top aide before budget vote',
+    description: 'Investigators said the mayor and a senior aide were injured in a blast outside city hall before a budget vote.',
+    publishedAt: '2026-03-09T15:26:00Z',
+    html: articleHtml('City hall attack injures mayor and top aide before budget vote', [
+      'The mayor and a senior aide were injured in a blast outside city hall hours before a scheduled budget vote, according to investigators.',
+      'Police said the attack damaged official vehicles and forced lawmakers to evacuate the surrounding block while bomb technicians secured the area.',
+      'Officials described the explosion as a targeted attack tied to the city hall complex and said the mayor was taken to hospital in stable condition.',
+    ]),
+  },
+  'mayor-bbc': {
+    title: 'Mayor hospitalised after blast outside city hall ahead of budget session',
+    description: 'A blast outside city hall injured the mayor before a budget session and triggered an emergency security response.',
+    publishedAt: '2026-03-09T15:31:00Z',
+    html: articleHtml('Mayor hospitalised after blast outside city hall ahead of budget session', [
+      'The mayor was hospitalised after a blast outside city hall ahead of a budget session, with officials saying a senior aide was also hurt.',
+      'Security forces cleared the area around city hall and suspended the scheduled vote while investigators examined damaged vehicles and debris.',
+      'Authorities said the explosion targeted the city hall entrance and launched a major emergency response across the district.',
+    ]),
+  },
+  'fraud-cbs': {
+    title: 'Brothers convicted in luxury condo fraud trial after six-week case',
+    description: 'A jury convicted two brothers in a luxury condo fraud trial tied to investor losses and forged records.',
+    publishedAt: '2026-03-09T15:36:00Z',
+    html: articleHtml('Brothers convicted in luxury condo fraud trial after six-week case', [
+      'A jury convicted two brothers in a luxury condo fraud trial after prosecutors said they forged records and diverted investor money.',
+      'Jurors returned guilty verdicts on fraud and conspiracy counts after a six-week case focused on losses tied to a downtown tower project.',
+      'Prosecutors said sentencing will address the multimillion-dollar investor losses and restitution claims raised during the trial.',
+    ]),
+  },
+  'fraud-nypost': {
+    title: 'Luxury tower brothers found guilty in multimillion-dollar fraud case',
+    description: 'Two brothers were found guilty in a multimillion-dollar fraud case involving a luxury tower project and investor money.',
+    publishedAt: '2026-03-09T15:40:00Z',
+    html: articleHtml('Luxury tower brothers found guilty in multimillion-dollar fraud case', [
+      'Two brothers were found guilty in a multimillion-dollar fraud case tied to a luxury tower project after prosecutors detailed forged records and missing investor funds.',
+      'The jury convicted the pair on fraud and conspiracy counts at the end of a six-week trial centered on the downtown condominium development.',
+      'Sentencing is expected later this spring as prosecutors seek restitution for investors caught up in the tower scheme.',
+    ]),
+  },
+  'hospital-guardian': {
+    title: 'Cyberattack forces city hospital network to divert ambulances overnight',
+    description: 'A cyberattack forced a hospital network to divert ambulances after systems went down overnight.',
+    publishedAt: '2026-03-09T15:44:00Z',
+    html: articleHtml('Cyberattack forces city hospital network to divert ambulances overnight', [
+      'A cyberattack forced a major city hospital network to divert ambulances overnight after patient-record systems and phone lines failed.',
+      'Hospital officials said emergency departments remained open for walk-in patients while ambulances were redirected to neighboring facilities.',
+      'Authorities said investigators are treating the disruption as a coordinated ransomware attack on the hospital network.',
+    ]),
+  },
+  'hospital-fox': {
+    title: 'Ambulances rerouted after ransomware attack hits metro hospital system',
+    description: 'Ransomware disruption forced ambulances away from a metro hospital system after overnight system failures.',
+    publishedAt: '2026-03-09T15:47:00Z',
+    html: articleHtml('Ambulances rerouted after ransomware attack hits metro hospital system', [
+      'Ambulances were rerouted after a ransomware attack hit a metro hospital system and knocked out patient-record systems overnight.',
+      'Officials said emergency rooms stayed open but incoming ambulances were diverted while technicians worked to restore access to core systems.',
+      'Investigators said the ransomware disruption targeted the hospital network rather than a single clinic or outpatient site.',
+    ]),
+  },
+  'port-bbc': {
+    title: 'Dockworkers extend strike as cargo backlog grows at Atlantic ports',
+    description: 'Dockworkers extended a strike at Atlantic ports as cargo backlogs and shipping delays worsened.',
+    publishedAt: '2026-03-09T15:50:00Z',
+    html: articleHtml('Dockworkers extend strike as cargo backlog grows at Atlantic ports', [
+      'Dockworkers extended a strike at several Atlantic ports as cargo backlogs deepened and shipping schedules slipped into a second day.',
+      'Port authorities said containers were piling up while negotiators continued talks over staffing rules and overtime guarantees.',
+      'Officials described the disruption as the latest escalation in the same port strike that began before dawn on Sunday.',
+    ]),
+  },
+  'port-cbs': {
+    title: 'Atlantic port strike enters second day, delaying container traffic',
+    description: 'Container traffic slowed further as the Atlantic port strike entered a second day and negotiations continued.',
+    publishedAt: '2026-03-09T15:53:00Z',
+    html: articleHtml('Atlantic port strike enters second day, delaying container traffic', [
+      'Container traffic slowed further as the Atlantic port strike entered a second day, leaving cargo stacked at multiple terminals.',
+      'Negotiators met again after talks over overtime and staffing rules failed to produce a settlement overnight.',
+      'Port officials said the current delays are part of the same strike that shut down key Atlantic terminals on Sunday morning.',
+    ]),
+  },
+  'blackout-guardian': {
+    title: 'Grid failure leaves capital neighborhoods without power for second night',
+    description: 'A grid failure left neighborhoods in the capital without power for a second night as repair crews worked across the city.',
+    publishedAt: '2026-03-09T15:56:00Z',
+    html: articleHtml('Grid failure leaves capital neighborhoods without power for second night', [
+      'A grid failure left several capital neighborhoods without power for a second night after a substation outage cut electricity to homes and businesses.',
+      'Utility officials said repair crews were replacing damaged switching gear while hospitals and transit hubs relied on backup generators.',
+      'Authorities described the disruption as part of the same citywide blackout event that began late Sunday after the substation failed.',
+    ]),
+  },
+  'blackout-bbc-es': {
+    title: 'Apagón en la capital entra en su segunda noche tras falla de subestación',
+    description: 'El apagón en la capital continuó una segunda noche después de una falla en la subestación principal.',
+    publishedAt: '2026-03-09T15:59:00Z',
+    html: articleHtml('Apagón en la capital entra en su segunda noche tras falla de subestación', [
+      'El apagón en varios barrios de la capital continuó una segunda noche después de que una falla en la subestación principal dejara sin servicio a hogares y comercios.',
+      'Las autoridades eléctricas informaron que equipos de reparación trabajaban para sustituir equipos dañados mientras hospitales y estaciones de transporte seguían con generadores de respaldo.',
+      'Los funcionarios indicaron que se trata del mismo evento de apagón urbano que comenzó el domingo por la noche con la avería de la subestación.',
+    ]),
+  },
+  'geneva-recap-nypost': {
+    title: 'What to know about the Geneva truce push after the latest strike',
+    description: 'A recap of the Geneva truce effort, the latest strike and the wider diplomatic picture.',
+    publishedAt: '2026-03-09T16:02:00Z',
+    html: articleHtml('What to know about the Geneva truce push after the latest strike', [
+      'Here is what to know about the Geneva truce push after the latest strike, including the main players, the diplomatic timeline and what could happen next.',
+      'The recap pulls together prior reporting on the overnight strike, earlier ceasefire efforts and broader regional pressure on negotiators.',
+      'Officials said the situation remains fluid, but this explainer is intended as background rather than a report on a new incident.',
+    ]),
+  },
+  'port-commentary-guardian': {
+    title: 'Why the port strike is becoming a test of industrial policy',
+    description: 'Commentary on what the Atlantic port strike means for industrial policy and labour politics.',
+    publishedAt: '2026-03-09T16:05:00Z',
+    html: articleHtml('Why the port strike is becoming a test of industrial policy', [
+      'The Atlantic port strike is quickly becoming a test of industrial policy, labour leverage and the political limits of emergency intervention.',
+      'This commentary examines what the strike could mean for inflation, supply chains and party strategy rather than reporting a new operational development.',
+      'Analysts say the same dispute is now shaping a broader political debate about freight policy and organised labour.',
+    ]),
+  },
+};
+
+const feeds = {
+  'guardian-us': [
+    { articleId: 'geneva-guardian' },
+    { articleId: 'school-noise-guardian' },
+    { articleId: 'mayor-guardian' },
+    { articleId: 'hospital-guardian' },
+    { articleId: 'blackout-guardian' },
+    { articleId: 'port-commentary-guardian' },
+  ],
+  'cbs-politics': [
+    { articleId: 'geneva-cbs' },
+    { articleId: 'fraud-cbs' },
+    { articleId: 'port-cbs' },
+  ],
+  'bbc-us-canada': [
+    { articleId: 'tsa-bbc' },
+    { articleId: 'mayor-bbc' },
+    { articleId: 'port-bbc' },
+    { articleId: 'blackout-bbc-es' },
+  ],
+  'fox-latest': [
+    { articleId: 'tsa-fox' },
+    { articleId: 'hospital-fox' },
+  ],
+  'nypost-politics': [
+    { articleId: 'iran-roundup-nypost' },
+    { articleId: 'fraud-nypost' },
+    { articleId: 'geneva-recap-nypost' },
+  ],
+};
+
+function feedXml(sourceId) {
+  const items = (feeds[sourceId] ?? []).map(({ articleId }) => {
+    const article = articles[articleId];
+    return `      <item>
+        <title>${article.title}</title>
+        <link>${baseUrl}/article/${articleId}</link>
+        <description>${article.description}</description>
+        <pubDate>${rssDate(article.publishedAt)}</pubDate>
+      </item>`;
+  }).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>${sourceId}</title>
+${items}
+  </channel>
+</rss>`;
+}
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url ?? '/', baseUrl);
+
+  if (url.pathname === '/health') {
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({ ok: true }));
+    return;
+  }
+
+  if (url.pathname.startsWith('/rss/')) {
+    const sourceId = url.pathname.slice('/rss/'.length);
+    if (!(sourceId in feeds)) {
+      res.writeHead(404).end('not found');
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'application/rss+xml; charset=utf-8' });
+    res.end(feedXml(sourceId));
+    return;
+  }
+
+  if (url.pathname.startsWith('/article/')) {
+    const articleId = url.pathname.slice('/article/'.length);
+    const article = articles[articleId];
+    if (!article) {
+      res.writeHead(404).end('not found');
+      return;
+    }
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(article.html);
+    return;
+  }
+
+  res.writeHead(404).end('not found');
+});
+
+server.listen(port, '127.0.0.1', () => {
+  console.log(`[vh:e2e-fixture-feed] listening on ${baseUrl}`);
+});
+
+function shutdown() {
+  server.close(() => process.exit(0));
+}
+
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

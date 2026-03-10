@@ -100,6 +100,17 @@ describe('clusterEngine', () => {
     );
   });
 
+  it('runClusterBatchSync returns sync-engine results', () => {
+    const syncEngine = new HeuristicClusterEngine<StoryClusterBatchInput, StoryBundle>(
+      () => [sampleBundle({ story_id: 'story-sync-return' })],
+      'sync-engine',
+    );
+
+    expect(runClusterBatchSync(syncEngine, input())).toEqual([
+      sampleBundle({ story_id: 'story-sync-return' }),
+    ]);
+  });
+
   it('StoryClusterRemoteEngine posts topic_id/items and parses array payloads', async () => {
     const fetchFn = vi.fn(async () =>
       new Response(JSON.stringify([sampleBundle({ story_id: 'story-remote' })]), {
@@ -189,7 +200,20 @@ describe('clusterEngine', () => {
       fetchFn: vi.fn(async () => new Response('nope', { status: 500 })),
     });
 
-    await expect(runClusterBatch(http500, input())).rejects.toThrow('HTTP 500');
+    await expect(runClusterBatch(http500, input())).rejects.toThrow('HTTP 500 - nope');
+
+    const http400 = new StoryClusterRemoteEngine({
+      endpointUrl: 'https://storycluster.example.com/cluster',
+      fetchFn: vi.fn(async () =>
+        new Response(JSON.stringify({ error: 'invalid normalized item' }), {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        })),
+    });
+
+    await expect(runClusterBatch(http400, input())).rejects.toThrow(
+      'HTTP 400 - {"error":"invalid normalized item"}',
+    );
 
     const badPayload = new StoryClusterRemoteEngine({
       endpointUrl: 'https://storycluster.example.com/cluster',
@@ -340,7 +364,7 @@ describe('clusterEngine', () => {
   });
 
   it('internal guards validate timeout and payload helpers', () => {
-    expect(clusterEngineInternal.normalizeRemoteTimeoutMs(undefined)).toBe(8000);
+    expect(clusterEngineInternal.normalizeRemoteTimeoutMs(undefined)).toBe(90000);
     expect(clusterEngineInternal.normalizeRemoteTimeoutMs(1500.9)).toBe(1500);
     expect(() => clusterEngineInternal.normalizeRemoteTimeoutMs(0)).toThrow(
       'timeoutMs must be a positive finite number',
@@ -358,6 +382,21 @@ describe('clusterEngine', () => {
       clusterEngineInternal.normalizeStoryClusterInput({ topicId: ' topic ', items: [sampleItem()] })
         .topicId,
     ).toBe('topic');
+  });
+
+  it('describeRemoteFailure truncates oversized response bodies', async () => {
+    const body = 'x'.repeat(520);
+    const response = new Response(body, { status: 502 });
+    await expect(clusterEngineInternal.describeRemoteFailure(response)).resolves.toBe(
+      `remote cluster request failed: HTTP 502 - ${'x'.repeat(500)}...`,
+    );
+  });
+
+  it('describeRemoteFailure falls back to status-only output for empty bodies', async () => {
+    const response = new Response('', { status: 503 });
+    await expect(clusterEngineInternal.describeRemoteFailure(response)).resolves.toBe(
+      'remote cluster request failed: HTTP 503',
+    );
   });
 
   it('remote engine constructor validates required inputs', () => {

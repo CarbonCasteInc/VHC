@@ -278,6 +278,15 @@ describe('CellVoteControls', () => {
     );
   });
 
+  it('exposes canonical and display point IDs on vote controls for cross-context reconciliation', () => {
+    render(<CellVoteControls {...BASE_PROPS} synthesisPointId="synth-point-xyz" />);
+
+    expect(screen.getByTestId('cell-vote-point-abc')).toHaveAttribute('data-display-point-id', 'point-abc');
+    expect(screen.getByTestId('cell-vote-point-abc')).toHaveAttribute('data-canonical-point-id', 'synth-point-xyz');
+    expect(screen.getByTestId('cell-vote-agree-point-abc')).toHaveAttribute('data-canonical-point-id', 'synth-point-xyz');
+    expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveAttribute('data-canonical-point-id', 'synth-point-xyz');
+  });
+
   it('warns when partitioned point IDs still resolve to zero aggregate', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 

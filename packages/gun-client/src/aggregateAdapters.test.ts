@@ -325,6 +325,77 @@ describe('aggregateAdapters', () => {
     }
   }, 10000);
 
+  it('writePointAggregateSnapshot resolves on ack timeout once readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      const path = 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1';
+      const mesh = createFakeMesh();
+      mesh.setPutHang(path);
+      mesh.setRead(path, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const pending = writePointAggregateSnapshot(client, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(pending).resolves.toEqual({
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:aggregate:point-snapshot-write]',
+        expect.objectContaining({
+          point_id: 'point-1',
+          timed_out: true,
+          readback_confirmed: true,
+        }),
+      );
+    } finally {
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('writePointAggregateSnapshot surfaces non-timeout put errors', async () => {
     const mesh = createFakeMesh();
     mesh.setPutError('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1', 'boom');
@@ -404,6 +475,53 @@ describe('aggregateAdapters', () => {
 
     await expect(writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node)).rejects.toThrow('aggregate-put-ack-timeout');
   }, 10000);
+
+  it('writeVoterNode resolves on ack timeout once readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      const path = 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1';
+      const mesh = createFakeMesh();
+      mesh.setPutHang(path);
+      mesh.setRead(path, {
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const pending = writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', {
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(pending).resolves.toEqual({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:aggregate:voter-write]',
+        expect.objectContaining({
+          point_id: 'point-1',
+          timed_out: true,
+          readback_confirmed: true,
+        }),
+      );
+    } finally {
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
 
   it('writeVoterNode ignores timeout/late ack callbacks after successful settlement', async () => {
     vi.useFakeTimers();
@@ -667,7 +785,7 @@ describe('aggregateAdapters', () => {
     ]);
   });
 
-  it('readAggregates prefers materialized points snapshot when present', async () => {
+  it('readAggregates falls back to materialized points snapshot when voter rows are unavailable', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
       schema_version: 'point-aggregate-snapshot-v1',
@@ -683,7 +801,39 @@ describe('aggregateAdapters', () => {
       computed_at: 42,
       source_window: { from_seq: 1, to_seq: 42 },
     });
-    // fallback voters path intentionally has conflicting totals; higher snapshot totals should still win.
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', undefined);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agree: 6,
+      disagree: 4,
+      weight: 10,
+      participants: 10,
+    });
+  });
+
+  it('readAggregates keeps the materialized snapshot when voter rows do not prove a newer write', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 2,
+      disagree: 1,
+      weight: 3,
+      participants: 3,
+      version: Date.parse('2026-02-18T22:30:00.000Z'),
+      computed_at: Date.parse('2026-02-18T22:30:00.000Z'),
+      source_window: {
+        from_seq: Date.parse('2026-02-18T22:20:00.000Z'),
+        to_seq: Date.parse('2026-02-18T22:30:00.000Z'),
+      },
+    });
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
       voterA: {
         pointA: {
@@ -700,10 +850,57 @@ describe('aggregateAdapters', () => {
 
     await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
       point_id: 'pointA',
+      agree: 2,
+      disagree: 1,
+      weight: 3,
+      participants: 3,
+    });
+  });
+
+  it('readAggregates prefers authoritative voter rows over stale snapshot totals', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
       agree: 6,
       disagree: 4,
       weight: 10,
       participants: 10,
+      version: 42,
+      computed_at: 42,
+      source_window: { from_seq: 1, to_seq: 42 },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:20:00.000Z',
+        },
+      },
+      voterB: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: -1,
+          weight: 0.75,
+          updated_at: '2026-02-18T22:21:00.000Z',
+        },
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agree: 1,
+      disagree: 1,
+      weight: 1.75,
+      participants: 2,
     });
   });
 
@@ -837,6 +1034,9 @@ describe('aggregateAdapters', () => {
   });
 
   it('internal path helpers expose voter + points topology', () => {
+    expect(aggregateAdapterInternal.normalizeNonNegativeInt(Number.NaN)).toBe(0);
+    expect(aggregateAdapterInternal.normalizeNonNegativeInt(-5)).toBe(0);
+    expect(aggregateAdapterInternal.normalizeNonNegativeInt(3.9)).toBe(3);
     expect(aggregateAdapterInternal.aggregateVotersPath('topic-x', 'synth-y', '3')).toBe(
       'vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/voters/',
     );

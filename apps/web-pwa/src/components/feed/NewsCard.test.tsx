@@ -24,9 +24,11 @@ const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
 );
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
 const NOW = 1_700_000_000_000;
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 function makeNewsItem(overrides: Partial<FeedItem> = {}): FeedItem {
   return {
     topic_id: 'news-1',
+    story_id: 'story-news-1',
     kind: 'NEWS_STORY',
     title: 'City council votes on transit plan',
     created_at: NOW - 3_600_000,
@@ -42,7 +44,7 @@ function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-news-1',
-    topic_id: 'news-1',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'City council votes on transit plan',
     summary_hint: 'Transit vote split council members along budget priorities.',
     cluster_window_start: NOW - 7_200_000,
@@ -162,7 +164,7 @@ describe('NewsCard', () => {
   it('matches a story by topic + headline when created_at differs', () => {
     const storyWithDifferentCreatedAt = makeStoryBundle({ created_at: NOW - 1 });
     useNewsStore.getState().setStories([storyWithDifferentCreatedAt]);
-    render(<NewsCard item={makeNewsItem()} />);
+    render(<NewsCard item={makeNewsItem({ story_id: undefined })} />);
     expect(screen.getByTestId('source-badge-src-1')).toHaveAttribute(
       'href',
       'https://example.com/news-1',
@@ -171,7 +173,7 @@ describe('NewsCard', () => {
   it('matches by story_id even when topic/headline drift', () => {
     const canonical = makeStoryBundle({
       story_id: 'story-canonical',
-      topic_id: 'topic-canonical',
+      topic_id: CANONICAL_TOPIC_ID,
       headline: 'Canonical headline',
       sources: [
         {

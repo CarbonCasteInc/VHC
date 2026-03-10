@@ -1,0 +1,228 @@
+import * as path from 'node:path';
+import { defineConfig, devices, type TestConfig } from '@playwright/test';
+
+process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
+
+function stablePort(base: number, span: number, seed: string): number {
+  const offset = [...seed].reduce((total, char) => total + char.charCodeAt(0), 0) % span;
+  return base + offset;
+}
+
+const runId = process.env.VH_DAEMON_FEED_RUN_ID;
+process.env.VH_DAEMON_FEED_GUN_PORT ??= String(stablePort(8700, 200, runId));
+process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, runId));
+process.env.VH_DAEMON_FEED_FIXTURE_PORT ??= String(stablePort(8900, 100, runId));
+
+const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
+const baseUrl = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2148/';
+const basePort = extractPort(baseUrl);
+const gunPeerUrl = `http://localhost:${gunPort}/gun`;
+const fixtureFeedPort = Number(process.env.VH_DAEMON_FEED_FIXTURE_PORT);
+const fixtureFeedBaseUrl = `http://127.0.0.1:${fixtureFeedPort}`;
+const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
+const relayRootDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId, 'relay');
+const relayDataPath = path.join(relayRootDir, 'data');
+const relayServerPath = path.resolve(process.cwd(), '../../infra/relay/server.js');
+const fixtureServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-fixtures.mjs');
+
+type DevFeedSource = {
+  id: string;
+  name: string;
+  displayName: string;
+  rssUrl: string;
+  perspectiveTag: string;
+  iconKey: string;
+  enabled: true;
+};
+
+const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
+  'fox-latest': {
+    id: 'fox-latest',
+    name: 'Fox News',
+    displayName: 'Fox News',
+    rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml',
+    perspectiveTag: 'conservative',
+    iconKey: 'fox',
+    enabled: true,
+  },
+  'nypost-politics': {
+    id: 'nypost-politics',
+    name: 'New York Post Politics',
+    displayName: 'New York Post',
+    rssUrl: 'https://nypost.com/politics/feed/',
+    perspectiveTag: 'conservative',
+    iconKey: 'nypost',
+    enabled: true,
+  },
+  'guardian-us': {
+    id: 'guardian-us',
+    name: 'The Guardian US',
+    displayName: 'The Guardian',
+    rssUrl: 'https://www.theguardian.com/us-news/rss',
+    perspectiveTag: 'progressive',
+    iconKey: 'guardian',
+    enabled: true,
+  },
+  'cbs-politics': {
+    id: 'cbs-politics',
+    name: 'CBS News Politics',
+    displayName: 'CBS News',
+    rssUrl: 'https://www.cbsnews.com/latest/rss/politics',
+    perspectiveTag: 'progressive',
+    iconKey: 'cbs',
+    enabled: true,
+  },
+  'bbc-general': {
+    id: 'bbc-general',
+    name: 'BBC News',
+    displayName: 'BBC News',
+    rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'bbc',
+    enabled: true,
+  },
+  'bbc-us-canada': {
+    id: 'bbc-us-canada',
+    name: 'BBC US & Canada',
+    displayName: 'BBC',
+    rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'bbc',
+    enabled: true,
+  },
+  'yahoo-world': {
+    id: 'yahoo-world',
+    name: 'Yahoo News World',
+    displayName: 'Yahoo News',
+    rssUrl: 'https://news.yahoo.com/rss/world',
+    perspectiveTag: 'international-wire',
+    iconKey: 'yahoo',
+    enabled: true,
+  },
+};
+
+const DEFAULT_SOURCE_IDS = [
+  'guardian-us',
+  'cbs-politics',
+  'bbc-us-canada',
+  'nypost-politics',
+  'fox-latest',
+];
+
+function extractPort(url: string): number {
+  try {
+    return Number(new URL(url).port) || 2148;
+  } catch {
+    return 2148;
+  }
+}
+
+function resolveDevFeedSourcesJson(): string {
+  const requestedIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_SOURCE_IDS.join(','))
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  const resolved = requestedIds
+    .map((id) => DEV_FEED_CATALOG[id])
+    .filter((source): source is DevFeedSource => Boolean(source));
+  const fallback = DEFAULT_SOURCE_IDS
+    .map((id) => DEV_FEED_CATALOG[id])
+    .filter((source): source is DevFeedSource => Boolean(source));
+  return JSON.stringify(resolved.length > 0 ? resolved : fallback);
+}
+
+function resolveAnalysisRelayEnv(): Record<string, string> {
+  const upstreamUrl =
+    process.env.ANALYSIS_RELAY_UPSTREAM_URL?.trim()
+    || (process.env.OPENAI_API_KEY?.trim() ? 'https://api.openai.com/v1/chat/completions' : '');
+  const apiKey =
+    process.env.ANALYSIS_RELAY_API_KEY?.trim()
+    || process.env.OPENAI_API_KEY?.trim()
+    || '';
+
+  if (!upstreamUrl || !apiKey) {
+    return {};
+  }
+
+  return {
+    ANALYSIS_RELAY_UPSTREAM_URL: upstreamUrl,
+    ANALYSIS_RELAY_API_KEY: apiKey,
+    ...(process.env.ANALYSIS_RELAY_MODEL?.trim()
+      ? { ANALYSIS_RELAY_MODEL: process.env.ANALYSIS_RELAY_MODEL.trim() }
+      : {}),
+    ...(process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS?.trim()
+      ? {
+          ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS:
+            process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS.trim(),
+        }
+      : {}),
+  };
+}
+
+const localWebServers: TestConfig['webServer'] = [
+  ...(useFixtureFeed
+    ? [{
+        command: [
+          `pids=$(lsof -ti tcp:${fixtureFeedPort} || true)`,
+          `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+          `VH_DAEMON_FEED_FIXTURE_PORT=${fixtureFeedPort} node ${JSON.stringify(fixtureServerPath)}`,
+        ].join(' && '),
+        url: `${fixtureFeedBaseUrl}/health`,
+        reuseExistingServer: false,
+        timeout: 30_000,
+      }]
+    : []),
+  {
+    command: [
+      `pids=$(lsof -ti tcp:${gunPort} || true)`,
+      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+      `rm -rf ../../.tmp/e2e-daemon-feed/${runId}`,
+      `mkdir -p ${JSON.stringify(relayRootDir)}`,
+      `GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
+    ].join(' && '),
+    url: `http://127.0.0.1:${gunPort}`,
+    reuseExistingServer: false,
+    timeout: 30_000,
+  },
+  {
+    command: [
+      `pids=$(lsof -ti tcp:${basePort} || true)`,
+      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+      `pnpm --filter @vh/web-pwa dev --port ${basePort} --strictPort`,
+    ].join(' && '),
+    url: baseUrl,
+    reuseExistingServer: false,
+    timeout: 60_000,
+    env: {
+      VITE_E2E_MODE: 'false',
+      VITE_VH_ANALYSIS_PIPELINE: 'true',
+      VITE_NEWS_BRIDGE_ENABLED: 'true',
+      VITE_NEWS_RUNTIME_ENABLED: 'false',
+      VITE_NEWS_RUNTIME_ROLE: 'consumer',
+      VH_DAEMON_FEED_USE_FIXTURE_FEED: useFixtureFeed ? 'true' : 'false',
+      VH_DAEMON_FEED_FIXTURE_BASE_URL: fixtureFeedBaseUrl,
+      VITE_GUN_PEERS: `["${gunPeerUrl}"]`,
+      VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
+      ...resolveAnalysisRelayEnv(),
+    },
+  },
+];
+
+export default defineConfig({
+  testDir: './src/live',
+  fullyParallel: false,
+  forbidOnly: !!process.env.CI,
+  retries: 0,
+  workers: 1,
+  reporter: 'list',
+  use: {
+    trace: 'retain-on-failure',
+  },
+  projects: [
+    {
+      name: 'chromium',
+      use: { ...devices['Desktop Chrome'] },
+    },
+  ],
+  webServer: localWebServers,
+});
