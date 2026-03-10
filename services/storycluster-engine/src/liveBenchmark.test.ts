@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { deriveClusterRecord } from './clusterRecords';
 import { runStoryClusterRemoteContract } from './remoteContract';
 import { liveBenchmarkInternal, runStoryClusterLiveBenchmark } from './liveBenchmark';
-import type { StoredSourceDocument, StoredTopicState } from './stageState';
+import type { StoredTopicState } from './stageState';
 
 describe('runStoryClusterLiveBenchmark', () => {
   it('uses the default corpus and default clock when options are omitted', async () => {
@@ -240,7 +239,38 @@ describe('runStoryClusterLiveBenchmark', () => {
           lineage: { merged_from: [] },
         }],
       });
-      return { bundles: [], telemetry: { topic_id: request.topic_id } as never };
+      return {
+        bundles: [{
+          schemaVersion: 'story-bundle-v0',
+          story_id: `story-${invocation}`,
+          topic_id: request.topic_id,
+          headline: item.title,
+          summary_hint: item.title,
+          cluster_window_start: item.publishedAt ?? invocation,
+          cluster_window_end: item.publishedAt ?? invocation,
+          sources: [{
+            source_id: item.sourceId,
+            publisher: item.publisher,
+            url: item.canonicalUrl,
+            url_hash: item.url_hash,
+            published_at: item.publishedAt ?? invocation,
+            title: item.title,
+          }],
+          cluster_features: {
+            entity_keys: item.entity_keys,
+            time_bucket: '1970-01-01T00',
+            semantic_signature: `sig-${invocation}`,
+            coverage_score: 1,
+            velocity_score: 1,
+            confidence_score: 1,
+            primary_language: 'en',
+            translation_applied: false,
+          },
+          provenance_hash: `prov-${invocation}`,
+          created_at: item.publishedAt ?? invocation,
+        }],
+        telemetry: { topic_id: request.topic_id } as never,
+      };
     };
 
     const report = await runStoryClusterLiveBenchmark({
@@ -288,66 +318,4 @@ describe('runStoryClusterLiveBenchmark', () => {
     expect(report.replay_overall.persistence_rate).toBe(0);
   });
 
-  it('projects secondary assets when building bundles from stored clusters', () => {
-    const topicState: StoredTopicState = {
-      schema_version: 'storycluster-state-v1',
-      topic_id: 'topic-assets',
-      next_cluster_seq: 1,
-      clusters: [],
-    };
-    const cluster = deriveClusterRecord(topicState, 'topic-assets', [
-      {
-        source_key: 'cbs-article:hash-a',
-        source_id: 'cbs-article',
-        publisher: 'CBS',
-        url: 'https://example.com/article',
-        canonical_url: 'https://example.com/article',
-        url_hash: 'hash-a',
-        published_at: 100,
-        title: 'Jan. 6 plaque honoring police officers displayed at the Capitol after delay',
-        summary: 'The plaque was installed after months of delay.',
-        language: 'en',
-        translation_applied: false,
-        doc_type: 'hard_news',
-        coverage_role: 'canonical',
-        entities: ['jan6_plaque_display'],
-        locations: ['washington'],
-        trigger: 'vote',
-        temporal_ms: 100,
-        coarse_vector: [1, 0],
-        full_vector: [1, 0, 0],
-        semantic_signature: 'sig-a',
-        text: 'The plaque was installed after months of delay.',
-        doc_ids: ['doc-a'],
-      },
-      {
-        source_key: 'cbs-video:hash-b',
-        source_id: 'cbs-video',
-        publisher: 'CBS',
-        url: 'https://example.com/video/plaque',
-        canonical_url: 'https://example.com/video/plaque',
-        url_hash: 'hash-b',
-        published_at: 101,
-        title: 'Video: Jan. 6 plaque honoring police officers displayed at the Capitol',
-        summary: undefined,
-        language: 'en',
-        translation_applied: false,
-        doc_type: 'hard_news',
-        coverage_role: 'canonical',
-        entities: ['jan6_plaque_display'],
-        locations: ['washington'],
-        trigger: 'vote',
-        temporal_ms: 101,
-        coarse_vector: [1, 0],
-        full_vector: [1, 0, 0],
-        semantic_signature: 'sig-b',
-        text: 'Video coverage of the plaque installation.',
-        doc_ids: ['doc-b'],
-      } satisfies StoredSourceDocument,
-    ]);
-
-    const bundle = liveBenchmarkInternal.bundleFromCluster(cluster);
-    expect(bundle.primary_sources?.map((source) => source.source_id)).toEqual(['cbs-article']);
-    expect(bundle.secondary_assets?.map((source) => source.source_id)).toEqual(['cbs-video']);
-  });
 });

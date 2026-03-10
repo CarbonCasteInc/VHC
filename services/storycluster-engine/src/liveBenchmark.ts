@@ -219,7 +219,10 @@ async function runReplayScenario(
     tick.forEach((item) => {
       expectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
     });
-    await remoteRunner({ topic_id: scenario.topic_id, items: toRemoteItems(tick) }, { store, clock: now });
+    const response = toResponse(
+      scenario.topic_id,
+      await remoteRunner({ topic_id: scenario.topic_id, items: toRemoteItems(tick) }, { store, clock: now }),
+    );
     const topicState = store.loadTopic(scenario.topic_id);
     for (const cluster of topicState.clusters) {
       for (const mergedFrom of cluster.lineage.merged_from) {
@@ -229,7 +232,7 @@ async function runReplayScenario(
         splitLineage.add(`${cluster.story_id}->${cluster.lineage.split_from}`);
       }
     }
-    const bundles = topicState.clusters.map(bundleFromCluster);
+    const bundles = response.bundles;
     const currentStoryByEvent = new Map<string, string | null>();
     for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, expectedByKey)) {
       currentStoryByEvent.set(eventId, singleStoryId(storyIds));

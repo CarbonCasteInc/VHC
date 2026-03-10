@@ -82,15 +82,47 @@ describe('runStoryClusterLiveBenchmark persistence accounting', () => {
             lineage: { merged_from: [] },
           }],
         });
+        return {
+          bundles: [{
+            schemaVersion: 'story-bundle-v0',
+            story_id: 'story-stable',
+            topic_id: request.topic_id,
+            headline: item.title,
+            summary_hint: item.title,
+            cluster_window_start: item.publishedAt ?? 1,
+            cluster_window_end: item.publishedAt ?? 1,
+            sources: [{
+              source_id: item.sourceId,
+              publisher: item.publisher,
+              url: item.canonicalUrl,
+              url_hash: item.url_hash,
+              published_at: item.publishedAt ?? 1,
+              title: item.title,
+            }],
+            cluster_features: {
+              entity_keys: item.entity_keys,
+              time_bucket: '1970-01-01T00',
+              semantic_signature: 'sig-1',
+              coverage_score: 1,
+              velocity_score: 1,
+              confidence_score: 1,
+              primary_language: 'en',
+              translation_applied: false,
+            },
+            provenance_hash: 'prov-1',
+            created_at: 1,
+          }],
+          telemetry: { topic_id: request.topic_id } as never,
+        };
       } else {
         options?.store?.saveTopic({
           schema_version: 'storycluster-state-v1',
           topic_id: request.topic_id,
           next_cluster_seq: 2,
-          clusters: [],
+            clusters: [],
         });
+        return { bundles: [], telemetry: { topic_id: request.topic_id } as never };
       }
-      return { bundles: [], telemetry: { topic_id: request.topic_id } as never };
     };
 
     const report = await runStoryClusterLiveBenchmark({

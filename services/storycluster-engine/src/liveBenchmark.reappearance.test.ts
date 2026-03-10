@@ -90,7 +90,38 @@ describe('runStoryClusterLiveBenchmark reappearance continuity', () => {
           lineage: { merged_from: [] },
         }],
       });
-      return { bundles: [], telemetry: { topic_id: request.topic_id } as never };
+      return {
+        bundles: [{
+          schemaVersion: 'story-bundle-v0',
+          story_id: 'story-stable',
+          topic_id: request.topic_id,
+          headline: item.title,
+          summary_hint: item.title,
+          cluster_window_start: 1,
+          cluster_window_end: item.publishedAt ?? 1,
+          sources: [{
+            source_id: item.sourceId,
+            publisher: item.publisher,
+            url: item.canonicalUrl,
+            url_hash: item.url_hash,
+            published_at: item.publishedAt ?? 1,
+            title: item.title,
+          }],
+          cluster_features: {
+            entity_keys: item.entity_keys,
+            time_bucket: '1970-01-01T00',
+            semantic_signature: `sig-${invocation}`,
+            coverage_score: 1,
+            velocity_score: 1,
+            confidence_score: 1,
+            primary_language: 'en',
+            translation_applied: false,
+          },
+          provenance_hash: `prov-${invocation}`,
+          created_at: 1,
+        }],
+        telemetry: { topic_id: request.topic_id } as never,
+      };
     };
 
     const report = await runStoryClusterLiveBenchmark({

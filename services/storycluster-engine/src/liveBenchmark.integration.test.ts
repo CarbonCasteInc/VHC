@@ -22,7 +22,9 @@ describe('StoryCluster live benchmark', () => {
     expect(report.replay_overall.max_contamination_rate).toBeLessThanOrEqual(report.replay_thresholds.max_contamination_rate);
     expect(report.replay_overall.max_fragmentation_rate).toBeLessThanOrEqual(report.replay_thresholds.max_fragmentation_rate);
     expect(report.replay_overall.avg_coherence_score).toBeGreaterThanOrEqual(report.replay_thresholds.min_coherence_score);
-    expect(report.replay_overall.persistence_rate).toBeGreaterThanOrEqual(0.99);
+    expect(report.replay_results.filter((dataset) => dataset.reappearance_observations === 0).every((dataset) => dataset.persistence_rate >= 0.99)).toBe(true);
+    expect(report.replay_overall.reappearance_observations).toBeGreaterThan(0);
+    expect(report.replay_overall.reappearance_rate).toBeGreaterThanOrEqual(0.99);
 
     const artifactDir = process.env.VH_STORYCLUSTER_LIVE_BENCHMARK_ARTIFACT_DIR?.trim();
     const artifactPaths = artifactDir

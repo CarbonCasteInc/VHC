@@ -281,7 +281,6 @@ describe('StoryCluster identity replay hardening', () => {
     const split = await assignClusters(makeEmptyState(topicState));
     const survivor = split.topic_state.clusters.find((cluster) => cluster.story_id === 'story-anchor');
     const splitChild = split.topic_state.clusters.find((cluster) => cluster.lineage.split_from === 'story-anchor');
-
     expect(survivor).toBeDefined();
     expect(splitChild).toBeDefined();
 
@@ -299,5 +298,53 @@ describe('StoryCluster identity replay hardening', () => {
     expect(nextSplitChild?.story_id).toBe(splitChild?.story_id);
     expect(nextSplitChild?.lineage.split_from).toBe('story-anchor');
     expect(nextSplitChild?.cluster_window_end).toBe(150);
+  });
+
+  it('reuses the existing split-child story id when contamination recurs across a longer window', async () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-recurring-contamination',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const strikeA = makeWorkingDocument('doc-15', 'Port attack expands', 'port_attack', 'attack', [1, 0], 100);
+    const strikeB = makeWorkingDocument('doc-16', 'Port attack response grows', 'port_attack', 'attack', [1, 0], 110);
+    const marketA = makeWorkingDocument('doc-17', 'Market slump widens', 'market_slump', 'inflation', [0, 1], 120);
+    const marketB = makeWorkingDocument('doc-18', 'Market slump deepens', 'market_slump', 'inflation', [0, 1], 130);
+    const strikeC = makeWorkingDocument('doc-19', 'Port attack recovery slows', 'port_attack', 'attack', [1, 0], 140);
+    const marketC = makeWorkingDocument('doc-20', 'Late-session market selloff accelerates', 'market_slump', 'inflation', [0, 1], 150);
+    const marketD = makeWorkingDocument('doc-21', 'Analysts warn the market slump will spread', 'market_slump', 'inflation', [0, 1], 160);
+    topicState.clusters = [
+      deriveClusterRecord(
+        topicState,
+        topicState.topic_id,
+        [strikeA, strikeB, marketA, marketB].flatMap((document) => document.source_variants.map((variant) => toStoredSource(document, variant))),
+        'story-anchor',
+      ),
+    ];
+
+    const split = await assignClusters(makeEmptyState(topicState));
+    const survivor = split.topic_state.clusters.find((cluster) => cluster.story_id === 'story-anchor');
+    const splitChild = split.topic_state.clusters.find((cluster) => cluster.lineage.split_from === 'story-anchor');
+
+    expect(survivor).toBeDefined();
+    expect(splitChild).toBeDefined();
+
+    split.topic_state.clusters = [
+      upsertClusterRecord(survivor!, [
+        toStoredSource(strikeC, strikeC.source_variants[0]!),
+        toStoredSource(marketC, marketC.source_variants[0]!),
+        toStoredSource(marketD, marketD.source_variants[0]!),
+      ]),
+      splitChild!,
+    ];
+    const corrected = await assignClusters(makeEmptyState(split.topic_state));
+    const correctedSurvivor = corrected.topic_state.clusters.find((cluster) => cluster.story_id === 'story-anchor');
+    const correctedSplitChildren = corrected.topic_state.clusters.filter((cluster) => cluster.lineage.split_from === 'story-anchor');
+
+    expect(correctedSurvivor?.cluster_window_end).toBe(140);
+    expect(correctedSplitChildren).toHaveLength(1);
+    expect(correctedSplitChildren[0]?.story_id).toBe(splitChild?.story_id);
+    expect(correctedSplitChildren[0]?.cluster_window_end).toBe(160);
   });
 });

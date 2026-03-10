@@ -3,10 +3,11 @@ import type { StoryClusterModelProvider, SummaryWorkItem } from './modelProvider
 import type { ClusterVectorBackend } from './vectorBackend';
 import { MemoryVectorBackend } from './vectorBackend';
 import { canDocumentAttachToExistingCluster, canDocumentParticipateInCanonicalCluster } from './documentPolicy';
-import { connectedComponents, deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
-import { clusterScoringConfig, buildCandidateMatch, candidateEligible, shouldMergeClusters, shouldSplitPair } from './clusterScoring';
+import { deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
+import { clusterScoringConfig, buildCandidateMatch, candidateEligible } from './clusterScoring';
 import { projectStoryBundles } from './bundleProjection';
 import { applyPairReranks, applyPairJudgements, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
+import { reconcileClusterTopology } from './clusterTopology';
 export async function retrieveCandidates(
   state: PipelineState,
   vectorBackend: ClusterVectorBackend = new MemoryVectorBackend(),
@@ -242,37 +243,7 @@ export async function assignClusters(
     changedStoryIds.add(updated.story_id);
     document.assigned_story_id = updated.story_id;
   }
-  const ordered = [...clusters.values()].sort((left, right) => left.created_at - right.created_at || left.story_id.localeCompare(right.story_id));
-  for (let index = 0; index < ordered.length; index += 1) {
-    for (let otherIndex = index + 1; otherIndex < ordered.length; otherIndex += 1) {
-      const left = ordered[index]!;
-      const right = ordered[otherIndex]!;
-      if (!clusters.has(left.story_id) || !clusters.has(right.story_id) || !shouldMergeClusters(left, right)) {
-        continue;
-      }
-      const survivor = left;
-      const removed = right;
-      const next = upsertClusterRecord(survivor, removed.source_documents);
-      next.lineage = { merged_from: [...new Set([...next.lineage.merged_from, removed.story_id])].sort() };
-      clusters.set(next.story_id, next);
-      clusters.delete(removed.story_id);
-      changedStoryIds.add(next.story_id);
-    }
-  }
-  for (const cluster of [...clusters.values()]) {
-    const components = connectedComponents(cluster.source_documents, shouldSplitPair);
-    if (components.length <= 1 || components[1]!.length < 2) {
-      continue;
-    }
-    const [primary, ...secondary] = components;
-    clusters.set(cluster.story_id, deriveClusterRecord(topicState, state.topicId, primary!, cluster.story_id, cluster.lineage));
-    changedStoryIds.add(cluster.story_id);
-    for (const component of secondary) {
-      const splitCluster = deriveClusterRecord(topicState, state.topicId, component, undefined, { merged_from: [], split_from: cluster.story_id });
-      clusters.set(splitCluster.story_id, splitCluster);
-      changedStoryIds.add(splitCluster.story_id);
-    }
-  }
+  reconcileClusterTopology(topicState, state.topicId, clusters, changedStoryIds);
   topicState.clusters = [...clusters.values()].sort((left, right) => left.created_at - right.created_at || left.story_id.localeCompare(right.story_id));
   const changedClusters = topicState.clusters.filter((cluster) => changedStoryIds.has(cluster.story_id));
   const buckets: ClusterBucket[] = changedClusters.map((record) => ({
