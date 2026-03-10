@@ -1,5 +1,4 @@
 import { isRelatedCoverageText, type DocumentType } from './contentSignals';
-import type { StoredSourceDocument, WorkingDocument } from './stageState';
 
 export type StoryClusterCoverageRole = 'canonical' | 'related';
 
@@ -18,8 +17,20 @@ export function coverageRoleForDocumentType(
 }
 
 type CoverageDocument =
-  (Pick<WorkingDocument, 'doc_type' | 'translated_title' | 'summary' | 'publisher'> & { url?: string })
-  | (Pick<StoredSourceDocument, 'doc_type' | 'title' | 'summary' | 'publisher'> & { url?: string });
+  | {
+      doc_type: DocumentType;
+      translated_title: string;
+      summary?: string;
+      publisher: string;
+      url?: string;
+    }
+  | {
+      doc_type: DocumentType;
+      title: string;
+      summary?: string;
+      publisher: string;
+      url?: string;
+    };
 
 function documentTitle(document: CoverageDocument): string {
   return 'translated_title' in document ? document.translated_title : document.title;
