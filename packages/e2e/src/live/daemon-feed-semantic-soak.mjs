@@ -166,6 +166,26 @@ function artifactRootFromEnv() {
   return path.join(process.cwd(), '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
 }
 
+function buildReleaseArtifactIndex(artifactDir, summaryPath, results) {
+  return {
+    generatedAt: new Date().toISOString(),
+    artifactDir,
+    summaryPath,
+    build: {
+      stdoutPath: path.join(artifactDir, 'build.stdout.log'),
+      stderrPath: path.join(artifactDir, 'build.stderr.log'),
+    },
+    runs: results.map((result) => ({
+      run: result.run,
+      pass: result.pass,
+      reportPath: result.reportPath,
+      auditPath: result.auditPath,
+      failureSnapshotPath: result.failureSnapshotPath,
+      runtimeLogsPath: result.runtimeLogsPath,
+    })),
+  };
+}
+
 async function main() {
   const runCount = readPositiveInt('VH_DAEMON_FEED_SOAK_RUNS', 3);
   const pauseMs = readNonNegativeInt('VH_DAEMON_FEED_SOAK_PAUSE_MS', 30_000);
@@ -328,7 +348,14 @@ async function main() {
   };
 
   writeFileSync(summaryPath, JSON.stringify(summary, null, 2), 'utf8');
+  const artifactIndexPath = path.join(artifactDir, 'release-artifact-index.json');
+  writeFileSync(
+    artifactIndexPath,
+    JSON.stringify(buildReleaseArtifactIndex(artifactDir, summaryPath, results), null, 2),
+    'utf8',
+  );
   console.log(`[vh:daemon-soak] summary: ${summaryPath}`);
+  console.log(`[vh:daemon-soak] artifact-index: ${artifactIndexPath}`);
   console.log(JSON.stringify({
     strictSoakPass: summary.strictSoakPass,
     passCount: summary.passCount,

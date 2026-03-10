@@ -168,6 +168,46 @@ const articles = {
       'Port officials said the current delays are part of the same strike that shut down key Atlantic terminals on Sunday morning.',
     ]),
   },
+  'blackout-guardian': {
+    title: 'Grid failure leaves capital neighborhoods without power for second night',
+    description: 'A grid failure left neighborhoods in the capital without power for a second night as repair crews worked across the city.',
+    publishedAt: '2026-03-09T15:56:00Z',
+    html: articleHtml('Grid failure leaves capital neighborhoods without power for second night', [
+      'A grid failure left several capital neighborhoods without power for a second night after a substation outage cut electricity to homes and businesses.',
+      'Utility officials said repair crews were replacing damaged switching gear while hospitals and transit hubs relied on backup generators.',
+      'Authorities described the disruption as part of the same citywide blackout event that began late Sunday after the substation failed.',
+    ]),
+  },
+  'blackout-bbc-es': {
+    title: 'Apagón en la capital entra en su segunda noche tras falla de subestación',
+    description: 'El apagón en la capital continuó una segunda noche después de una falla en la subestación principal.',
+    publishedAt: '2026-03-09T15:59:00Z',
+    html: articleHtml('Apagón en la capital entra en su segunda noche tras falla de subestación', [
+      'El apagón en varios barrios de la capital continuó una segunda noche después de que una falla en la subestación principal dejara sin servicio a hogares y comercios.',
+      'Las autoridades eléctricas informaron que equipos de reparación trabajaban para sustituir equipos dañados mientras hospitales y estaciones de transporte seguían con generadores de respaldo.',
+      'Los funcionarios indicaron que se trata del mismo evento de apagón urbano que comenzó el domingo por la noche con la avería de la subestación.',
+    ]),
+  },
+  'geneva-recap-nypost': {
+    title: 'What to know about the Geneva truce push after the latest strike',
+    description: 'A recap of the Geneva truce effort, the latest strike and the wider diplomatic picture.',
+    publishedAt: '2026-03-09T16:02:00Z',
+    html: articleHtml('What to know about the Geneva truce push after the latest strike', [
+      'Here is what to know about the Geneva truce push after the latest strike, including the main players, the diplomatic timeline and what could happen next.',
+      'The recap pulls together prior reporting on the overnight strike, earlier ceasefire efforts and broader regional pressure on negotiators.',
+      'Officials said the situation remains fluid, but this explainer is intended as background rather than a report on a new incident.',
+    ]),
+  },
+  'port-commentary-guardian': {
+    title: 'Why the port strike is becoming a test of industrial policy',
+    description: 'Commentary on what the Atlantic port strike means for industrial policy and labour politics.',
+    publishedAt: '2026-03-09T16:05:00Z',
+    html: articleHtml('Why the port strike is becoming a test of industrial policy', [
+      'The Atlantic port strike is quickly becoming a test of industrial policy, labour leverage and the political limits of emergency intervention.',
+      'This commentary examines what the strike could mean for inflation, supply chains and party strategy rather than reporting a new operational development.',
+      'Analysts say the same dispute is now shaping a broader political debate about freight policy and organised labour.',
+    ]),
+  },
 };
 
 const feeds = {
@@ -176,6 +216,8 @@ const feeds = {
     { articleId: 'school-noise-guardian' },
     { articleId: 'mayor-guardian' },
     { articleId: 'hospital-guardian' },
+    { articleId: 'blackout-guardian' },
+    { articleId: 'port-commentary-guardian' },
   ],
   'cbs-politics': [
     { articleId: 'geneva-cbs' },
@@ -186,6 +228,7 @@ const feeds = {
     { articleId: 'tsa-bbc' },
     { articleId: 'mayor-bbc' },
     { articleId: 'port-bbc' },
+    { articleId: 'blackout-bbc-es' },
   ],
   'fox-latest': [
     { articleId: 'tsa-fox' },
@@ -194,6 +237,7 @@ const feeds = {
   'nypost-politics': [
     { articleId: 'iran-roundup-nypost' },
     { articleId: 'fraud-nypost' },
+    { articleId: 'geneva-recap-nypost' },
   ],
 };
 
