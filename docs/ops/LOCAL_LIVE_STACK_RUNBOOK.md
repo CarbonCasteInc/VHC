@@ -57,14 +57,15 @@ pnpm live:stack:down
 
 Use this checklist during manual browser validation:
 
-1. Feed loads with headlines visible.
-2. Scrolling loads older headlines (infinite list behavior).
-3. Pull-to-refresh / refresh button updates list.
-4. Opening a previously analyzed story shows existing analysis.
-5. Per-cell vote states are strictly tri-state per user: `+`, `-`, `none`.
-6. Switching `+` to `-` removes prior state and applies new state.
-7. Analysis persists across tabs/browsers.
-8. Vote aggregates update and persist across users.
+1. Before merge/release, run `pnpm test:storycluster:gates` from repo root and require a clean pass.
+2. Feed loads with headlines visible.
+3. Scrolling loads older headlines (infinite list behavior).
+4. Pull-to-refresh / refresh button updates list.
+5. Opening a previously analyzed story shows existing analysis.
+6. Per-cell vote states are strictly tri-state per user: `+`, `-`, `none`.
+7. Switching `+` to `-` removes prior state and applies new state.
+8. Analysis persists across tabs/browsers.
+9. Vote aggregates update and persist across users.
 
 ## Notes
 
@@ -73,5 +74,7 @@ Use this checklist during manual browser validation:
   - relay: `/tmp/vh-local-relay.log`
 - The launcher script is:
   - `tools/scripts/live-local-stack.sh`
+- Public semantic soak remains non-blocking smoke:
+  - `pnpm test:storycluster:smoke`
 - If you need a different profile:
   - `ENV_FILE=/path/to/.env pnpm live:stack:up`

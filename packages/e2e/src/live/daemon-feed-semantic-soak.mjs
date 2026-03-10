@@ -15,6 +15,7 @@ const PLAYWRIGHT_ARGS = [
 ];
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
+const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
 
 function readPositiveInt(name, fallback) {
   const raw = process.env[name]?.trim();
@@ -87,12 +88,14 @@ function summarizeLabelCounts(report) {
 function summarizeRun(
   report,
   failureSnapshot,
+  runtimeLogs,
   procStatus,
   reportPath,
   reportParseError,
   auditPath,
   auditError,
   failureSnapshotPath,
+  runtimeLogsPath,
 ) {
   const labelCounts = summarizeLabelCounts(report);
   const failingBundles = (report?.bundles ?? [])
@@ -121,6 +124,7 @@ function summarizeRun(
     auditPath,
     auditError,
     failureSnapshotPath,
+    runtimeLogsPath,
     requestedSampleCount: report?.requested_sample_count ?? null,
     sampledStoryCount: report?.sampled_story_count ?? null,
     visibleStoryCount: Array.isArray(report?.visible_story_ids) ? report.visible_story_ids.length : null,
@@ -130,6 +134,9 @@ function summarizeRun(
     failureAuditableCount: failureSnapshot?.auditable_count ?? null,
     failureTopStoryIds: failureSnapshot?.top_story_ids ?? [],
     failureTopAuditableStoryIds: failureSnapshot?.top_auditable_story_ids ?? [],
+    runtimeLogCount: Array.isArray(runtimeLogs?.browserLogs)
+      ? runtimeLogs.browserLogs.length
+      : null,
     labelCounts,
     failingBundles,
     storyIds: (report?.bundles ?? []).map((bundle) => bundle.story_id),
@@ -225,6 +232,8 @@ async function main() {
     let auditPath = null;
     let failureSnapshot = null;
     let failureSnapshotPath = null;
+    let runtimeLogs = null;
+    let runtimeLogsPath = null;
 
     try {
       audit = primaryResult ? decodeAttachment(primaryResult, ATTACHMENT_NAME) : null;
@@ -255,17 +264,34 @@ async function main() {
       writeFileSync(failureSnapshotPath, JSON.stringify(failureSnapshot, null, 2), 'utf8');
     }
 
+    try {
+      runtimeLogs = primaryResult
+        ? decodeAttachment(primaryResult, RUNTIME_LOG_ATTACHMENT_NAME)
+        : null;
+    } catch (error) {
+      if (!auditError) {
+        auditError = error instanceof Error ? error.message : String(error);
+      }
+    }
+
+    if (runtimeLogs) {
+      runtimeLogsPath = path.join(artifactDir, `run-${run}.runtime-logs.json`);
+      writeFileSync(runtimeLogsPath, JSON.stringify(runtimeLogs, null, 2), 'utf8');
+    }
+
     const result = {
       run,
       ...summarizeRun(
         audit,
         failureSnapshot,
+        runtimeLogs,
         proc.status,
         reportPath,
         reportParseError,
         auditPath,
         auditError,
         failureSnapshotPath,
+        runtimeLogsPath,
       ),
     };
     results.push(result);

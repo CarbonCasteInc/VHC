@@ -128,6 +128,46 @@ const articles = {
       'Sentencing is expected later this spring as prosecutors seek restitution for investors caught up in the tower scheme.',
     ]),
   },
+  'hospital-guardian': {
+    title: 'Cyberattack forces city hospital network to divert ambulances overnight',
+    description: 'A cyberattack forced a hospital network to divert ambulances after systems went down overnight.',
+    publishedAt: '2026-03-09T15:44:00Z',
+    html: articleHtml('Cyberattack forces city hospital network to divert ambulances overnight', [
+      'A cyberattack forced a major city hospital network to divert ambulances overnight after patient-record systems and phone lines failed.',
+      'Hospital officials said emergency departments remained open for walk-in patients while ambulances were redirected to neighboring facilities.',
+      'Authorities said investigators are treating the disruption as a coordinated ransomware attack on the hospital network.',
+    ]),
+  },
+  'hospital-fox': {
+    title: 'Ambulances rerouted after ransomware attack hits metro hospital system',
+    description: 'Ransomware disruption forced ambulances away from a metro hospital system after overnight system failures.',
+    publishedAt: '2026-03-09T15:47:00Z',
+    html: articleHtml('Ambulances rerouted after ransomware attack hits metro hospital system', [
+      'Ambulances were rerouted after a ransomware attack hit a metro hospital system and knocked out patient-record systems overnight.',
+      'Officials said emergency rooms stayed open but incoming ambulances were diverted while technicians worked to restore access to core systems.',
+      'Investigators said the ransomware disruption targeted the hospital network rather than a single clinic or outpatient site.',
+    ]),
+  },
+  'port-bbc': {
+    title: 'Dockworkers extend strike as cargo backlog grows at Atlantic ports',
+    description: 'Dockworkers extended a strike at Atlantic ports as cargo backlogs and shipping delays worsened.',
+    publishedAt: '2026-03-09T15:50:00Z',
+    html: articleHtml('Dockworkers extend strike as cargo backlog grows at Atlantic ports', [
+      'Dockworkers extended a strike at several Atlantic ports as cargo backlogs deepened and shipping schedules slipped into a second day.',
+      'Port authorities said containers were piling up while negotiators continued talks over staffing rules and overtime guarantees.',
+      'Officials described the disruption as the latest escalation in the same port strike that began before dawn on Sunday.',
+    ]),
+  },
+  'port-cbs': {
+    title: 'Atlantic port strike enters second day, delaying container traffic',
+    description: 'Container traffic slowed further as the Atlantic port strike entered a second day and negotiations continued.',
+    publishedAt: '2026-03-09T15:53:00Z',
+    html: articleHtml('Atlantic port strike enters second day, delaying container traffic', [
+      'Container traffic slowed further as the Atlantic port strike entered a second day, leaving cargo stacked at multiple terminals.',
+      'Negotiators met again after talks over overtime and staffing rules failed to produce a settlement overnight.',
+      'Port officials said the current delays are part of the same strike that shut down key Atlantic terminals on Sunday morning.',
+    ]),
+  },
 };
 
 const feeds = {
@@ -135,17 +175,21 @@ const feeds = {
     { articleId: 'geneva-guardian' },
     { articleId: 'school-noise-guardian' },
     { articleId: 'mayor-guardian' },
+    { articleId: 'hospital-guardian' },
   ],
   'cbs-politics': [
     { articleId: 'geneva-cbs' },
     { articleId: 'fraud-cbs' },
+    { articleId: 'port-cbs' },
   ],
   'bbc-us-canada': [
     { articleId: 'tsa-bbc' },
     { articleId: 'mayor-bbc' },
+    { articleId: 'port-bbc' },
   ],
   'fox-latest': [
     { articleId: 'tsa-fox' },
+    { articleId: 'hospital-fox' },
   ],
   'nypost-politics': [
     { articleId: 'iran-roundup-nypost' },
