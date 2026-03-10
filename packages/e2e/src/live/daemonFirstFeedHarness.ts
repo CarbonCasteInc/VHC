@@ -4,7 +4,11 @@ import { appendFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test';
-import { readAuditableBundles, refreshNewsStoreLatest } from './browserNewsStore';
+import {
+  readAuditableBundleDiagnostics,
+  readAuditableBundles,
+  refreshNewsStoreLatest,
+} from './browserNewsStore';
 import { nudgeFeed } from './feedReadiness';
 import { resolveDaemonFeedSourcesJson } from './daemonFeedSources';
 
@@ -279,16 +283,31 @@ export async function attachRuntimeLogs(
 
 export async function waitForHeadlines(page: Page, minHeadlines = MIN_HEADLINES): Promise<number> {
   const startedAt = Date.now();
+  let lastDomCount = 0;
+  let lastStoryCount = 0;
+  let lastAuditableCount = 0;
+  let reloadAttempted = false;
   while (Date.now() - startedAt < FEED_READY_TIMEOUT_MS) {
-    const count = await page.locator('[data-testid^="news-card-headline-"]').count();
-    if (count >= minHeadlines) return Date.now() - startedAt;
-    const refresh = page.getByTestId('feed-refresh-button');
-    if (await refresh.count()) {
-      await refresh.first().click().catch(() => {});
+    lastDomCount = await page.locator('[data-testid^="news-card-headline-"]').count();
+    if (lastDomCount >= minHeadlines) {
+      return Date.now() - startedAt;
     }
-    await page.waitForTimeout(1_000);
+
+    await refreshNewsStoreLatest(page, Math.max(120, minHeadlines * 4)).catch(() => {});
+    const diagnostics = await readAuditableBundleDiagnostics(page).catch(() => null);
+    lastStoryCount = diagnostics?.storyCount ?? 0;
+    lastAuditableCount = diagnostics?.auditableCount ?? 0;
+
+    if (!reloadAttempted && lastDomCount === 0 && lastStoryCount >= minHeadlines) {
+      reloadAttempted = true;
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS }).catch(() => {});
+    }
+
+    await nudgeFeed(page);
   }
-  throw new Error('feed-headlines-timeout');
+  throw new Error(
+    `feed-headlines-timeout:dom=${lastDomCount}:stories=${lastStoryCount}:auditable=${lastAuditableCount}`,
+  );
 }
 
 export async function headlineRows(page: Page): Promise<HeadlineRow[]> {
