@@ -141,6 +141,32 @@ describe('StoryCluster replay evidence', () => {
     ]);
   });
 
+  it('drops an event from emitted bundles during a gap tick and restores the same story id on return', async () => {
+    const scenario = scenarioById('replay-harbor-fire-gap-return');
+    const store = new MemoryClusterStore();
+    const emittedStoryIds: string[][] = [];
+    const storedStoryIds: string[][] = [];
+
+    for (let tickIndex = 0; tickIndex < scenario.ticks.length; tickIndex += 1) {
+      const tick = scenario.ticks[tickIndex]!;
+      const response = await runStoryClusterRemoteContract(
+        { topic_id: scenario.topic_id, items: tick.map(({ expected_event_id: _omit, ...item }) => item) },
+        { store, clock: () => 1_715_100_000_000 + tickIndex * 1_000 },
+      );
+      emittedStoryIds.push(response.bundles.map((bundle) => bundle.story_id));
+      storedStoryIds.push(store.loadTopic(scenario.topic_id).clusters.map((cluster) => cluster.story_id));
+    }
+
+    const stableStoryId = emittedStoryIds[0]?.[0];
+    expect(stableStoryId).toBeTruthy();
+    expect(emittedStoryIds).toEqual([[stableStoryId!], [], [stableStoryId!]]);
+    expect(storedStoryIds[1]).toContain(stableStoryId);
+    expect(store.loadTopic(scenario.topic_id).clusters[0]?.source_documents.map((document) => document.source_id)).toEqual([
+      'replay-gap-a',
+      'replay-gap-b',
+    ]);
+  });
+
   it('records deterministic merge and split lineage when replayed states reconcile', async () => {
     const mergeTopicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
