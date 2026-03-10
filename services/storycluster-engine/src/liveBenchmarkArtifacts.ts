@@ -9,6 +9,15 @@ export interface StoryClusterLiveBenchmarkArtifactPaths {
   index_path: string;
 }
 
+export interface StoryClusterLiveBenchmarkArtifactIndex {
+  schema_version: 'storycluster-live-benchmark-index-v1';
+  generated_at_ms: number;
+  artifact_paths: Partial<StoryClusterLiveBenchmarkArtifactPaths>;
+  fixture_overall: StoryClusterLiveBenchmarkReport['fixture_overall'];
+  replay_overall: StoryClusterLiveBenchmarkReport['replay_overall'];
+  replay_continuity: ReturnType<typeof splitReplayContinuity>;
+}
+
 const repoRootDir = fileURLToPath(new URL('../../..', import.meta.url));
 
 export function splitReplayContinuity(report: StoryClusterLiveBenchmarkReport) {
@@ -31,6 +40,20 @@ export function splitReplayContinuity(report: StoryClusterLiveBenchmarkReport) {
       total_observations: reappearance.reduce((sum, result) => sum + result.reappearance_observations, 0),
       total_retained: reappearance.reduce((sum, result) => sum + result.reappearance_retained, 0),
     },
+  };
+}
+
+export function buildStoryClusterLiveBenchmarkArtifactIndex(
+  report: StoryClusterLiveBenchmarkReport,
+  artifactPaths: Partial<StoryClusterLiveBenchmarkArtifactPaths>,
+): StoryClusterLiveBenchmarkArtifactIndex {
+  return {
+    schema_version: 'storycluster-live-benchmark-index-v1',
+    generated_at_ms: report.generated_at_ms,
+    artifact_paths: artifactPaths,
+    fixture_overall: report.fixture_overall,
+    replay_overall: report.replay_overall,
+    replay_continuity: splitReplayContinuity(report),
   };
 }
 
@@ -91,20 +114,14 @@ export function writeStoryClusterLiveBenchmarkArtifacts(
   const jsonPath = join(resolvedOutputDir, 'storycluster-live-benchmark.json');
   const markdownPath = join(resolvedOutputDir, 'storycluster-live-benchmark.md');
   const indexPath = join(resolvedOutputDir, 'release-artifact-index.json');
-  const continuity = splitReplayContinuity(report);
+  const artifactIndex = buildStoryClusterLiveBenchmarkArtifactIndex(report, {
+    json_path: jsonPath,
+    markdown_path: markdownPath,
+    index_path: indexPath,
+  });
   writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   writeFileSync(markdownPath, renderStoryClusterLiveBenchmarkMarkdown(report), 'utf8');
-  writeFileSync(indexPath, `${JSON.stringify({
-    schema_version: 'storycluster-live-benchmark-index-v1',
-    generated_at_ms: report.generated_at_ms,
-    artifact_paths: {
-      json_path: jsonPath,
-      markdown_path: markdownPath,
-    },
-    fixture_overall: report.fixture_overall,
-    replay_overall: report.replay_overall,
-    replay_continuity: continuity,
-  }, null, 2)}\n`, 'utf8');
+  writeFileSync(indexPath, `${JSON.stringify(artifactIndex, null, 2)}\n`, 'utf8');
   return {
     json_path: jsonPath,
     markdown_path: markdownPath,

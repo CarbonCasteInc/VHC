@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { StoryClusterLiveBenchmarkReport } from './liveBenchmark';
 import {
+  buildStoryClusterLiveBenchmarkArtifactIndex,
   renderStoryClusterLiveBenchmarkMarkdown,
   resolveStoryClusterLiveBenchmarkOutputDir,
   splitReplayContinuity,
@@ -201,6 +202,20 @@ describe('live benchmark artifacts', () => {
     expect(index.replay_continuity.reappearance.scenario_count).toBe(1);
     expect(index.replay_continuity.reappearance.min_reappearance_rate).toBe(1);
     expect(index.replay_continuity.reappearance.total_observations).toBe(1);
+  });
+
+  it('builds a release artifact index with replay continuity split', () => {
+    const report = makeReport();
+    const index = buildStoryClusterLiveBenchmarkArtifactIndex(report, {
+      json_path: '/tmp/storycluster-live-benchmark.json',
+      markdown_path: '/tmp/storycluster-live-benchmark.md',
+      index_path: '/tmp/release-artifact-index.json',
+    });
+
+    expect(index.schema_version).toBe('storycluster-live-benchmark-index-v1');
+    expect(index.artifact_paths.index_path).toBe('/tmp/release-artifact-index.json');
+    expect(index.replay_continuity.continuous.scenario_ids).toEqual(['replay-continuous']);
+    expect(index.replay_continuity.reappearance.scenario_ids).toEqual(['replay-a']);
   });
 
   it('resolves relative output directories against the repo root', () => {

@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { runStoryClusterLiveBenchmark } from './liveBenchmark';
-import { writeStoryClusterLiveBenchmarkArtifacts } from './liveBenchmarkArtifacts';
+import {
+  buildStoryClusterLiveBenchmarkArtifactIndex,
+  writeStoryClusterLiveBenchmarkArtifacts,
+} from './liveBenchmarkArtifacts';
 
 const shouldRun = process.env.VH_RUN_STORYCLUSTER_LIVE_BENCHMARK === '1';
 const runLiveBenchmark = shouldRun ? it : it.skip;
@@ -30,13 +33,19 @@ describe('StoryCluster live benchmark', () => {
     const artifactPaths = artifactDir
       ? writeStoryClusterLiveBenchmarkArtifacts(report, artifactDir)
       : null;
+    const releaseArtifactIndex = buildStoryClusterLiveBenchmarkArtifactIndex(
+      report,
+      artifactPaths ?? {},
+    );
 
     console.log(JSON.stringify({
       schema_version: report.schema_version,
       corpus: report.corpus,
       fixture_overall: report.fixture_overall,
       replay_overall: report.replay_overall,
+      replay_continuity: releaseArtifactIndex.replay_continuity,
       artifact_paths: artifactPaths,
+      release_artifact_index: releaseArtifactIndex,
     }, null, 2));
   }, 600000);
 });

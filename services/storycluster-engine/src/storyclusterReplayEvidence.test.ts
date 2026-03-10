@@ -196,6 +196,31 @@ describe('StoryCluster replay evidence', () => {
     expect(returnStoryId).toBe(firstStoryId);
   });
 
+  it('preserves the same story id across repeated shadow-event interference over more than two return cycles', async () => {
+    const snapshots = await collectReplaySnapshots('replay-harbor-fire-triple-shadow-return');
+    const observedStoryIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('harbor_fire_triple_shadow') ?? null);
+    const shadowStoryIds = [
+      snapshots[1]?.storyByEvent.get('pipeline_blast_shadow') ?? null,
+      snapshots[3]?.storyByEvent.get('rail_closure_shadow') ?? null,
+      snapshots[5]?.storyByEvent.get('tank_farm_shadow') ?? null,
+    ];
+
+    expect(observedStoryIds).toEqual([
+      observedStoryIds[0],
+      observedStoryIds[0],
+      observedStoryIds[0],
+      observedStoryIds[0],
+      observedStoryIds[0],
+      observedStoryIds[0],
+      observedStoryIds[0],
+    ]);
+    expect(observedStoryIds[0]).toBeTruthy();
+    expect(new Set(observedStoryIds.filter(Boolean))).toEqual(new Set([observedStoryIds[0]]));
+    expect(shadowStoryIds.every(Boolean)).toBe(true);
+    expect(shadowStoryIds.every((storyId) => storyId !== observedStoryIds[0])).toBe(true);
+    expect(new Set(shadowStoryIds).size).toBe(3);
+  });
+
   it('records deterministic merge and split lineage when replayed states reconcile', async () => {
     const mergeTopicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
