@@ -296,6 +296,6 @@ describe('live benchmark artifacts', () => {
       'docs/reports/evidence/storycluster/live/test-relative-output',
     );
 
-    expect(resolved).toContain('/Users/bldt/Desktop/VHC/VHC/docs/reports/evidence/storycluster/live/test-relative-output');
+    expect(resolved).toMatch(/\/docs\/reports\/evidence\/storycluster\/live\/test-relative-output$/);
   });
 });
