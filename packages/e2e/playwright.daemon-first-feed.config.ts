@@ -100,8 +100,8 @@ const DEFAULT_SOURCE_IDS = [
   'guardian-us',
   'cbs-politics',
   'bbc-us-canada',
-  'huffpost-us',
-  'nypost-politics',
+  'bbc-general',
+  'yahoo-world',
   'fox-latest',
 ];
 
