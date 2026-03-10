@@ -2,9 +2,9 @@
 
 Status: Canonical ticket stack
 Owner: Core Engineering
-Last Updated: 2026-03-08
+Last Updated: 2026-03-10
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `coord/storycluster-takeover`
+Branch Baseline: `main` @ `20a3edf`
 
 ## 1. Usage
 
@@ -30,6 +30,40 @@ Every PR in this stack must:
    - test results;
    - any benchmark deltas;
    - any live or replay artifacts added.
+
+## 2.1 Execution Snapshot (2026-03-10)
+
+Completed or functionally in-force:
+
+1. SC-00 benchmark corpus and ontology freeze
+2. SC-01 document-type authority and canonical seeding rules
+3. SC-02 duplicate collapse and `primary_sources` / `secondary_assets` split
+4. SC-04 candidate retrieval rewrite on real vector backend
+5. SC-05 pair scoring / canonical decision hard negatives
+6. SC-06 rerank and bounded adjudication lane
+7. SC-11 blocking daemon-first semantic verification, but with the current blocker split:
+   - fixture-backed integrity + semantic gates are blocking
+   - public semantic soak is smoke/evidence only
+8. SC-12 analysis and vote integrity, at the current fixture-backed gate scope
+
+Active next implementation lane:
+
+1. SC-07 persistent `EventCluster` repository hardening
+2. immediate focus:
+   - `story_id` persistence under source growth and repeated ticks
+   - merge/split replay evidence
+   - release evidence that separates:
+     - continuous persistence
+     - gap-return reappearance
+     - merge/split correction-cycle pressure
+   - immutable `created_at`
+   - monotonic `cluster_window_end`
+
+Queued after SC-07:
+
+1. SC-08 separate `StorylineGroup` publication contract
+2. SC-09 clean bundle projection and mesh publication follow-through
+3. further fixture-corpus expansion for public-smoke learnings that should become blocking later
 
 ## 3. Ticket Stack
 
