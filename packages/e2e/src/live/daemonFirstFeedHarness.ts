@@ -22,7 +22,7 @@ export const QDRANT_URL = process.env.VH_STORYCLUSTER_QDRANT_URL ?? process.env.
 export const GUN_PEER_URL = `http://localhost:${GUN_PORT}/gun`;
 export const NAV_TIMEOUT_MS = 90_000;
 export const FEED_READY_TIMEOUT_MS = 240_000;
-export const MIN_HEADLINES = 4;
+export const MIN_HEADLINES = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 3 : 4;
 
 export type LoggedProcess = {
   readonly name: string;

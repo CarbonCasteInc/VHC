@@ -4,6 +4,7 @@ import {
   NAV_TIMEOUT_MS,
   SHOULD_RUN,
   FEED_READY_TIMEOUT_MS,
+  MIN_HEADLINES,
   addConsumerInitScript,
   attachRuntimeLogs,
   findBundledStory,
@@ -27,6 +28,7 @@ const SORT_SAMPLE_SIZE = 6;
 const HOTTEST_WINDOW_SIZE = 8;
 const ZERO_BASELINE_SETTLE_WINDOW_MS = 5_000;
 const ZERO_BASELINE_SETTLE_STEP_MS = 500;
+const REQUIRED_CARD_COUNT = MIN_HEADLINES;
 
 interface VisibleCard extends HeadlineRow {
   readonly hotness: number;
@@ -377,12 +379,12 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       const { latestCards, hottestCards } = await test.step('validate latest and hottest ordering', async () => {
         await waitForMinimumCount({
           page: pageA,
-          minCount: 4,
+          minCount: REQUIRED_CARD_COUNT,
           timeoutMs: FEED_READY_TIMEOUT_MS,
           readCount: async () => (await visibleCards(pageA)).length,
         });
         const latest = (await visibleCards(pageA)).slice(0, SORT_SAMPLE_SIZE);
-        expect(latest.length).toBeGreaterThanOrEqual(4);
+        expect(latest.length).toBeGreaterThanOrEqual(REQUIRED_CARD_COUNT);
         for (let i = 1; i < latest.length; i += 1) {
           expect(parseIso(latest[i - 1]!.meta, 'Updated')).toBeGreaterThanOrEqual(parseIso(latest[i]!.meta, 'Updated'));
         }
@@ -391,12 +393,12 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         await sleep(750);
         await waitForMinimumCount({
           page: pageA,
-          minCount: 4,
+          minCount: REQUIRED_CARD_COUNT,
           timeoutMs: FEED_READY_TIMEOUT_MS,
           readCount: async () => (await visibleCards(pageA)).length,
         });
         const hottest = (await visibleCards(pageA)).slice(0, HOTTEST_WINDOW_SIZE);
-        expect(hottest.length).toBeGreaterThanOrEqual(4);
+        expect(hottest.length).toBeGreaterThanOrEqual(REQUIRED_CARD_COUNT);
         const firstHalf = hottest.slice(0, Math.ceil(hottest.length / 2));
         const secondHalf = hottest.slice(Math.ceil(hottest.length / 2));
         const avg = (items: VisibleCard[]) => items.reduce((sum, item) => sum + item.hotness, 0) / Math.max(1, items.length);
