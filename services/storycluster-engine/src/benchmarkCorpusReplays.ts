@@ -163,6 +163,39 @@ export const STORYCLUSTER_REPLAY_SCENARIOS: StoryClusterReplayScenario[] = [
     ],
   },
   {
+    scenario_id: 'replay-harbor-fire-gap-shadow',
+    topic_id: 'replay-harbor-fire-gap-shadow',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'harbor_fire_gap_shadow',
+          'replay-gap-shadow-a',
+          'Chemical fire at harbor terminal triggers midnight evacuations',
+          'rh1',
+          1_712_176_000_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'pipeline_blast_shadow',
+          'replay-gap-shadow-b',
+          'Pipeline blast disrupts refinery fuel shipments',
+          'rh2',
+          1_712_176_020_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'harbor_fire_gap_shadow',
+          'replay-gap-shadow-c',
+          'Inspectors return to harbor terminal after fire is contained',
+          'rh3',
+          1_712_176_040_000,
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-ceasefire-protest-separation',
     topic_id: 'replay-ceasefire-protest-separation',
     ticks: [

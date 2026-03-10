@@ -167,6 +167,35 @@ describe('StoryCluster replay evidence', () => {
     ]);
   });
 
+  it('restores the same story id on return even when a competing shadow event occupies the topic in between', async () => {
+    const scenario = scenarioById('replay-harbor-fire-gap-shadow');
+    const store = new MemoryClusterStore();
+    let firstStoryId: string | undefined;
+    let shadowStoryId: string | undefined;
+    let returnStoryId: string | undefined;
+
+    for (let tickIndex = 0; tickIndex < scenario.ticks.length; tickIndex += 1) {
+      const tick = scenario.ticks[tickIndex]!;
+      const response = await runStoryClusterRemoteContract(
+        { topic_id: scenario.topic_id, items: tick.map(({ expected_event_id: _omit, ...item }) => item) },
+        { store, clock: () => 1_715_110_000_000 + tickIndex * 1_000 },
+      );
+      if (tickIndex === 0) {
+        firstStoryId = response.bundles[0]?.story_id;
+      } else if (tickIndex === 1) {
+        shadowStoryId = response.bundles[0]?.story_id;
+        expect(store.loadTopic(scenario.topic_id).clusters.map((cluster) => cluster.story_id)).toContain(firstStoryId);
+      } else {
+        returnStoryId = response.bundles[0]?.story_id;
+      }
+    }
+
+    expect(firstStoryId).toBeTruthy();
+    expect(shadowStoryId).toBeTruthy();
+    expect(shadowStoryId).not.toBe(firstStoryId);
+    expect(returnStoryId).toBe(firstStoryId);
+  });
+
   it('records deterministic merge and split lineage when replayed states reconcile', async () => {
     const mergeTopicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
