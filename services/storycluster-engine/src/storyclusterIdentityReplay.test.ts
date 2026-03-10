@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveClusterRecord, toStoredSource } from './clusterRecords';
+import { deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
 import { assignClusters } from './clusterLifecycle';
 import { coverageRoleForDocumentType } from './documentPolicy';
 import { MemoryClusterStore } from './clusterStore';
@@ -162,6 +162,66 @@ describe('StoryCluster identity replay hardening', () => {
     expect(next.topic_state.clusters[0]?.story_id).toBe('story-old');
     expect(next.topic_state.clusters[0]?.created_at).toBe(100);
     expect(next.topic_state.clusters[0]?.lineage.merged_from).toEqual(['story-new']);
+  });
+
+  it('retains story identity through merge-split-merge pressure without leaking split window_end', async () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-merge-split-pressure',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const portA = makeWorkingDocument('doc-3', 'Port attack expands', 'port_attack', 'attack', [1, 0], 100);
+    const portB = makeWorkingDocument('doc-4', 'Port attack response grows', 'port_attack', 'attack', [1, 0], 110);
+    const portC = makeWorkingDocument('doc-5', 'Port attack recovery stalls', 'port_attack', 'attack', [1, 0], 120);
+    const pipelineA = makeWorkingDocument('doc-6', 'Pipeline blast disrupts refineries', 'pipeline_attack', 'bombing', [0, 1], 130);
+    const pipelineB = makeWorkingDocument('doc-7', 'Fuel shipments slow after pipeline blast', 'pipeline_attack', 'bombing', [0, 1], 140);
+    const portShadow = makeWorkingDocument('doc-8', 'Insurers brace for prolonged port attack disruption', 'port_attack', 'attack', [1, 0], 150);
+    topicState.clusters = [
+      deriveClusterRecord(
+        topicState,
+        topicState.topic_id,
+        [portA, portB].flatMap((document) => document.source_variants.map((variant) => toStoredSource(document, variant))),
+        'story-stable',
+      ),
+      deriveClusterRecord(topicState, topicState.topic_id, [toStoredSource(portC, portC.source_variants[0]!)], 'story-shadow'),
+    ];
+
+    const merged = await assignClusters(makeEmptyState(topicState));
+    const mergedSurvivor = merged.topic_state.clusters[0]!;
+    expect(merged.topic_state.clusters).toHaveLength(1);
+    expect(mergedSurvivor.story_id).toBe('story-stable');
+    expect(mergedSurvivor.cluster_window_end).toBe(120);
+    expect(mergedSurvivor.lineage.merged_from).toEqual(['story-shadow']);
+
+    topicState.clusters = [
+      upsertClusterRecord(mergedSurvivor, [
+        toStoredSource(pipelineA, pipelineA.source_variants[0]!),
+        toStoredSource(pipelineB, pipelineB.source_variants[0]!),
+      ]),
+    ];
+    const split = await assignClusters(makeEmptyState(topicState));
+    const splitSurvivor = split.topic_state.clusters.find((cluster) => cluster.story_id === 'story-stable');
+    const splitChild = split.topic_state.clusters.find((cluster) => cluster.lineage.split_from === 'story-stable');
+
+    expect(split.topic_state.clusters).toHaveLength(2);
+    expect(splitSurvivor?.source_documents.map((document) => document.source_id)).toEqual(['wire-doc-3', 'wire-doc-4', 'wire-doc-5']);
+    expect(splitSurvivor?.cluster_window_end).toBe(120);
+    expect(splitChild?.source_documents.map((document) => document.source_id)).toEqual(['wire-doc-6', 'wire-doc-7']);
+    expect(splitChild?.cluster_window_end).toBe(140);
+
+    split.topic_state.clusters.push(
+      deriveClusterRecord(split.topic_state, split.topicId, [toStoredSource(portShadow, portShadow.source_variants[0]!)], 'story-shadow-2'),
+    );
+    const remixed = await assignClusters(makeEmptyState(split.topic_state));
+    const remixedSurvivor = remixed.topic_state.clusters.find((cluster) => cluster.story_id === 'story-stable');
+    const remixedSplitChild = remixed.topic_state.clusters.find((cluster) => cluster.lineage.split_from === 'story-stable');
+
+    expect(remixedSurvivor?.story_id).toBe('story-stable');
+    expect(remixedSurvivor?.cluster_window_end).toBe(150);
+    expect(remixedSurvivor?.lineage.merged_from).toEqual(['story-shadow', 'story-shadow-2']);
+    expect(remixedSplitChild?.story_id).toBe(splitChild?.story_id);
+    expect(remixedSplitChild?.cluster_window_end).toBe(140);
   });
 
   it('records split lineage and keeps the surviving cluster window monotonic', async () => {
