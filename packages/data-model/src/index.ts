@@ -12,6 +12,7 @@ export * from './schemas/hermes/message';
 export * from './schemas/hermes/forum';
 export * from './schemas/hermes/directory';
 export * from './schemas/hermes/storyBundle';
+export * from './schemas/hermes/storylineGroup';
 export * from './schemas/hermes/synthesis';
 export * from './schemas/hermes/sentiment';
 export * from './schemas/hermes/notification';

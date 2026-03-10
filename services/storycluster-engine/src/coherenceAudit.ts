@@ -294,7 +294,7 @@ export async function runStoryClusterCoherenceAudit(
     );
 
     if (!Array.isArray(response.bundles)) {
-      return computeDatasetResult(dataset, { bundles: [], telemetry: createEmptyTelemetry(dataset.topic_id) }, thresholds);
+      return computeDatasetResult(dataset, { bundles: [], storylines: [], telemetry: createEmptyTelemetry(dataset.topic_id) }, thresholds);
     }
 
     return computeDatasetResult(dataset, response, thresholds);

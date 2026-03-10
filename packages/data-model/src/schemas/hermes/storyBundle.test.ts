@@ -54,6 +54,7 @@ const validStoryBundle = {
   schemaVersion: STORY_BUNDLE_VERSION,
   story_id: 'story-001',
   topic_id: 'topic-markets',
+  storyline_id: 'storyline-001',
   headline: 'Global markets surge on positive data',
   summary_hint: 'A brief summary hint.',
   cluster_window_start: 1700000000000,

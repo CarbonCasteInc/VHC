@@ -75,6 +75,7 @@ export const StoryBundleSchema = z.object({
   schemaVersion: z.literal(STORY_BUNDLE_VERSION),
   story_id: z.string().min(1),
   topic_id: z.string().min(1),
+  storyline_id: z.string().min(1).optional(),
   headline: z.string().min(1),
   summary_hint: z.string().optional(),
   cluster_window_start: z.number(),

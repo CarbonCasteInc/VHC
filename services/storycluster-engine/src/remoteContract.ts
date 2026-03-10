@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { StoryClusterTelemetryEnvelope } from './contracts';
+import { getDefaultClusterStore } from './clusterStore';
 import { runStoryClusterStagePipeline, type StoryClusterStageRunnerOptions } from './stageRunner';
 import { tokenizeWords } from './textSignals';
 
@@ -29,6 +30,7 @@ export interface StoryClusterRemoteBundle {
   schemaVersion: 'story-bundle-v0';
   story_id: string;
   topic_id: string;
+  storyline_id?: string;
   headline: string;
   summary_hint?: string;
   cluster_window_start: number;
@@ -71,8 +73,31 @@ export interface StoryClusterRemoteBundle {
   created_at: number;
 }
 
+export interface StoryClusterRemoteStorylineGroup {
+  schemaVersion: 'storyline-group-v0';
+  storyline_id: string;
+  topic_id: string;
+  canonical_story_id: string;
+  story_ids: string[];
+  headline: string;
+  summary_hint?: string;
+  related_coverage: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    url_hash: string;
+    published_at?: number;
+    title: string;
+  }>;
+  entity_keys: string[];
+  time_bucket: string;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface StoryClusterRemoteResponse {
   bundles: StoryClusterRemoteBundle[];
+  storylines: StoryClusterRemoteStorylineGroup[];
   telemetry: StoryClusterTelemetryEnvelope;
 }
 
@@ -214,7 +239,10 @@ export async function runStoryClusterRemoteContract(
       documents,
       reference_now_ms: normalized.reference_now_ms,
     },
-    options,
+    { ...options, store: options.store ?? getDefaultClusterStore() },
+  );
+  const storylineIdByStoryId = new Map(
+    (stageResult.storylines ?? []).map((storyline) => [storyline.canonical_story_id, storyline.storyline_id]),
   );
 
   const bundles = stageResult.bundles.map((bundle) => {
@@ -243,6 +271,7 @@ export async function runStoryClusterRemoteContract(
       schemaVersion: 'story-bundle-v0' as const,
       story_id: bundle.story_id,
       topic_id: deriveNewsTopicId(bundle.story_id),
+      storyline_id: storylineIdByStoryId.get(bundle.story_id),
       headline: bundle.headline,
       summary_hint: bundle.summary_hint,
       cluster_window_start: bundle.cluster_window_start,
@@ -265,7 +294,31 @@ export async function runStoryClusterRemoteContract(
     };
   });
 
-  return { bundles, telemetry: stageResult.telemetry };
+  return {
+    bundles,
+    storylines: (stageResult.storylines ?? []).map((storyline) => ({
+      schemaVersion: storyline.schemaVersion,
+      storyline_id: storyline.storyline_id,
+      topic_id: storyline.topic_id,
+      canonical_story_id: storyline.canonical_story_id,
+      story_ids: storyline.story_ids,
+      headline: storyline.headline,
+      summary_hint: storyline.summary_hint,
+      related_coverage: storyline.related_coverage.map((source) => ({
+        source_id: source.source_id,
+        publisher: source.publisher,
+        url: source.canonical_url,
+        url_hash: source.url_hash,
+        published_at: source.published_at,
+        title: source.title,
+      })),
+      entity_keys: storyline.entity_keys,
+      time_bucket: storyline.time_bucket,
+      created_at: storyline.created_at,
+      updated_at: storyline.updated_at,
+    })),
+    telemetry: stageResult.telemetry,
+  };
 }
 
 export const remoteContractInternal = {

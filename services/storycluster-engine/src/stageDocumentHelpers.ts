@@ -78,6 +78,10 @@ export function applyDocumentAnalysis(
 
   return {
     ...document,
+    source_variants: document.source_variants.map((variant) => ({
+      ...variant,
+      coverage_role: coverageRole,
+    })),
     doc_type: docType,
     coverage_role: coverageRole,
     doc_weight: documentTypeWeight(docType),

@@ -37,6 +37,8 @@ describe('runStoryClusterRemoteContract', () => {
     expect(bundle.sources).toHaveLength(1);
     expect(bundle.primary_sources).toHaveLength(1);
     expect(bundle.secondary_assets).toEqual([]);
+    expect(bundle.storyline_id).toBeUndefined();
+    expect(response.storylines).toEqual([]);
     expect(bundle.cluster_features.entity_keys).toContain('port_attack');
     expect(bundle.cluster_features.time_bucket).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}$/);
     expect(bundle.created_at).toBe(bundle.cluster_window_start);
@@ -138,6 +140,42 @@ describe('runStoryClusterRemoteContract', () => {
     expect(response.bundles[0]?.secondary_assets?.map((source) => source.source_id)).toEqual(['cbs-video']);
   });
 
+  it('publishes storyline groups for related coverage without widening canonical bundle membership', async () => {
+    const response = await runStoryClusterRemoteContract({
+      topic_id: 'topic-storyline',
+      items: [
+        {
+          sourceId: 'wire-a',
+          publisher: 'Reuters',
+          url: 'https://example.com/article',
+          canonicalUrl: 'https://example.com/article',
+          title: 'Port attack disrupts terminals overnight',
+          publishedAt: 100,
+          summary: 'Officials say recovery talks begin Friday.',
+          url_hash: 'hash-article',
+          entity_keys: ['port_attack'],
+        },
+        {
+          sourceId: 'guardian-roundup',
+          publisher: 'The Guardian',
+          url: 'https://example.com/roundup',
+          canonicalUrl: 'https://example.com/roundup',
+          title: 'Explainer: latest port attack developments at a glance',
+          publishedAt: 120,
+          summary: 'A recap of the wider fallout.',
+          url_hash: 'hash-roundup',
+          entity_keys: ['port_attack'],
+        },
+      ],
+    }, { clock: () => 200, store: new MemoryClusterStore() });
+
+    expect(response.bundles[0]?.primary_sources?.map((source) => source.source_id)).toEqual(['wire-a']);
+    expect(response.bundles[0]?.storyline_id).toBeTruthy();
+    expect(response.storylines).toHaveLength(1);
+    expect(response.storylines[0]?.storyline_id).toBe(response.bundles[0]?.storyline_id);
+    expect(response.storylines[0]?.related_coverage.map((source) => source.source_id)).toEqual(['guardian-roundup']);
+  });
+
   it('covers helper internals and fallback reference-now behavior', () => {
     const normalized = remoteContractInternal.normalizeRequest(makePayload(), 200);
     expect(normalized.reference_now_ms).toBe(100);
@@ -170,6 +208,9 @@ describe('runStoryClusterRemoteContract', () => {
     expect(() => remoteContractInternal.readEntityKeys({ entity_keys: 'bad' }, 'payload.items[0]')).toThrow('payload.items[0].entity_keys must be an array');
     expect(() => remoteContractInternal.readRequiredString({ topic_id: '' }, 'topic_id', 'payload')).toThrow('payload.topic_id must be a non-empty string');
     expect(() => remoteContractInternal.readOptionalPublishedAt({ publishedAt: -1 }, 'payload.items[0]')).toThrow('payload.items[0].publishedAt must be a non-negative finite number when provided');
+    await expect(
+      runStoryClusterRemoteContract({ topic_id: 'topic-news', items: 'bad-items' }, { store: new MemoryClusterStore() }),
+    ).rejects.toThrow('payload.items must be an array');
     await expect(
       runStoryClusterRemoteContract({
         topic_id: 'topic-news',

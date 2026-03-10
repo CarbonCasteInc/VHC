@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjudicateCandidates } from './clusterLifecycle';
+import { adjudicateCandidates, recordProviderFallbackOutcome } from './clusterLifecycle';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
 import { coverageRoleForDocumentType } from './documentPolicy';
 import type { PipelineState, StoredTopicState, WorkingDocument } from './stageState';
@@ -135,5 +135,20 @@ describe('clusterLifecycle adjudication coverage', () => {
 
     expect(next.stage_metrics.llm_adjudication?.adjudicated_docs).toBe(0);
     expect(next.documents[0]?.adjudication).toBe('accepted');
+  });
+
+  it('tracks assigned, rejected, and empty provider fallback outcomes', () => {
+    expect(recordProviderFallbackOutcome(0, 0, 1, true)).toEqual({
+      providerAssignedDocs: 1,
+      providerRejectedDocs: 0,
+    });
+    expect(recordProviderFallbackOutcome(1, 0, 1, false)).toEqual({
+      providerAssignedDocs: 1,
+      providerRejectedDocs: 1,
+    });
+    expect(recordProviderFallbackOutcome(1, 1, 0, false)).toEqual({
+      providerAssignedDocs: 1,
+      providerRejectedDocs: 1,
+    });
   });
 });
