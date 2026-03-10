@@ -1034,6 +1034,9 @@ describe('aggregateAdapters', () => {
   });
 
   it('internal path helpers expose voter + points topology', () => {
+    expect(aggregateAdapterInternal.normalizeNonNegativeInt(Number.NaN)).toBe(0);
+    expect(aggregateAdapterInternal.normalizeNonNegativeInt(-5)).toBe(0);
+    expect(aggregateAdapterInternal.normalizeNonNegativeInt(3.9)).toBe(3);
     expect(aggregateAdapterInternal.aggregateVotersPath('topic-x', 'synth-y', '3')).toBe(
       'vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/voters/',
     );

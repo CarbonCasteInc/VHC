@@ -200,6 +200,24 @@ describe('hydrateNewsStore', () => {
     expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
+  it('drops story updates excluded by an authoritative latest index', async () => {
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore({ 'keep-story': 500 });
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(story({ story_id: 'drop-story' }), 'drop-story');
+
+    expect(state.upsertStory).not.toHaveBeenCalled();
+  });
+
   it('removes stories when Gun clears the story node', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
@@ -237,6 +255,32 @@ describe('hydrateNewsStore', () => {
 
     expect(state.removeLatestIndex).toHaveBeenCalledWith('s1');
     expect(state.removeHotIndex).toHaveBeenCalledWith('s1');
+  });
+
+  it('skips fetching stories already present and hydrates missing stories from latest-index updates', async () => {
+    const client = { id: 'client-latest-fetch' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.readNewsStory.mockResolvedValue(story({ story_id: 'story-missing' }));
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+    state.stories = [story({ story_id: 'story-present' })];
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit(123, 'story-present');
+    expect(gunMocks.readNewsStory).not.toHaveBeenCalled();
+
+    latestChain.emit(456, 'story-missing');
+    await Promise.resolve();
+
+    expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-missing');
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-missing' }));
   });
 
   it('prefers StoryBundle.story_id over Gun map key when hydrating story updates', async () => {

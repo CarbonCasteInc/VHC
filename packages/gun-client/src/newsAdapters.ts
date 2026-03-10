@@ -934,3 +934,11 @@ export async function readLatestStoryIds(client: VennClient, limit = 50): Promis
     .slice(0, Math.floor(limit))
     .map(([storyId]) => storyId);
 }
+
+export const newsAdapterInternal = {
+  readSettledRoot,
+  hasSettledLatestIndexPayload,
+  hasSettledHotIndexPayload,
+  extractIndexChildKeys,
+  readIndexedEntries,
+};

@@ -958,6 +958,7 @@ export async function readAggregates(
 }
 
 export const aggregateAdapterInternal = {
+  normalizeNonNegativeInt,
   aggregateVoterPointPath,
   aggregateVotersPath,
   aggregatePointPath,

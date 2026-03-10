@@ -19,6 +19,12 @@ describe('story bundle news topic identity', () => {
     );
   });
 
+  it('rejects blank story ids when deriving a news topic id', async () => {
+    await expect(deriveNewsTopicId('   ')).rejects.toThrow(
+      'story_id is required to derive a news topic id',
+    );
+  });
+
   it('detects whether a bundle carries the canonical news topic id', async () => {
     await expect(
       hasCanonicalNewsTopicId({

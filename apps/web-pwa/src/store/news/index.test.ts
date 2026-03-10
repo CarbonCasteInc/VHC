@@ -422,6 +422,26 @@ describe('news store', () => {
     expect(store.getState().hotIndex).toEqual({ 'story-b': 0.7 });
   });
 
+  it('remove helpers no-op on blank or missing ids', async () => {
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => null });
+
+    store.getState().setStories([story({ story_id: 'story-a' })]);
+    store.getState().upsertLatestIndex('story-a', 10);
+    store.getState().upsertHotIndex('story-a', 0.5);
+
+    store.getState().removeStory('   ');
+    store.getState().removeStory('story-missing');
+    store.getState().removeLatestIndex('   ');
+    store.getState().removeLatestIndex('story-missing');
+    store.getState().removeHotIndex('   ');
+    store.getState().removeHotIndex('story-missing');
+
+    expect(store.getState().stories.map((s) => s.story_id)).toEqual(['story-a']);
+    expect(store.getState().latestIndex).toEqual({ 'story-a': 10 });
+    expect(store.getState().hotIndex).toEqual({ 'story-a': 0.5 });
+  });
+
   it('refreshLatest no-ops when client is missing', async () => {
     const { createNewsStore } = await import('./index');
     const store = createNewsStore({ resolveClient: () => null });
@@ -606,6 +626,18 @@ describe('news store', () => {
       expect(useNewsStore.getState().hydrated).toBe(false);
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+
+  it('exposes the news store on window when requested', async () => {
+    vi.stubGlobal('window', { __VH_EXPOSE_NEWS_STORE__: true });
+
+    try {
+      vi.resetModules();
+      const module = await import('./index');
+      expect((window as { __VH_NEWS_STORE__?: unknown }).__VH_NEWS_STORE__).toBe(module.useNewsStore);
+    } finally {
+      vi.unstubAllGlobals();
     }
   });
 });

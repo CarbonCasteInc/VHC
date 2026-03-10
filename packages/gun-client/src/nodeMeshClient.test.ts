@@ -51,6 +51,19 @@ describe('createNodeMeshClient', () => {
     await expect(client.linkDevice('device-1')).rejects.toThrow(
       'Stateless node mesh client does not support device linking',
     );
+    await expect(client.user.write({ nope: true })).rejects.toThrow(
+      'Stateless node mesh client does not support namespace writes',
+    );
+    await expect(client.storage.read()).resolves.toBeNull();
+    client.markSessionReady();
     await expect(client.shutdown()).resolves.toBeUndefined();
+  });
+
+  it('normalizes default peers and preserves already-suffixed /gun peers', () => {
+    const defaultClient = createNodeMeshClient();
+    expect(defaultClient.config.peers).toEqual(['http://localhost:7777/gun']);
+
+    const suffixedClient = createNodeMeshClient({ peers: ['http://127.0.0.1:7777/gun'] });
+    expect(suffixedClient.config.peers).toEqual(['http://127.0.0.1:7777/gun']);
   });
 });

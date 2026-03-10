@@ -21,6 +21,7 @@ import {
   getNewsStoriesChain,
   getNewsRemovalChain,
   hasForbiddenNewsPayloadFields,
+  newsAdapterInternal,
   parseRemovalEntry,
   readLatestStoryIds,
   readNewsHotIndex,
@@ -363,6 +364,29 @@ describe('newsAdapters', () => {
     });
   });
 
+  it('writeNewsStory returns the incoming story when created_at already matches the stored bundle', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-123', {
+      __story_bundle_json: JSON.stringify({
+        ...STORY,
+        created_at: STORY.created_at,
+      }),
+      story_id: 'story-123',
+      created_at: STORY.created_at,
+      schemaVersion: STORY.schemaVersion,
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const incoming = {
+      ...STORY,
+      headline: 'same-created-at',
+      created_at: STORY.created_at,
+    };
+
+    await expect(writeNewsStory(client, incoming)).resolves.toEqual(incoming);
+  });
+
   it('writeNewsStory rejects forbidden identity/token payloads', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -547,6 +571,27 @@ describe('newsAdapters', () => {
     await expect(readNewsStory(client, 'forbidden')).resolves.toBeNull();
   });
 
+  it('readNewsStory returns null when the canonical topic guard rejects a parsed bundle', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/non-canonical', {
+      ...STORY,
+      story_id: 'non-canonical',
+      topic_id: 'b'.repeat(64),
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const identityGuard = vi
+      .spyOn(dataModel, 'assertCanonicalNewsTopicId')
+      .mockRejectedValue(new Error('topic mismatch'));
+
+    try {
+      await expect(readNewsStory(client, 'non-canonical')).resolves.toBeNull();
+    } finally {
+      identityGuard.mockRestore();
+    }
+  });
+
   it('readNewsStory returns null when read never resolves', async () => {
     vi.useFakeTimers();
     try {
@@ -677,6 +722,43 @@ describe('newsAdapters', () => {
     await expect(readNewsLatestIndex(client)).resolves.toEqual({ 'story-a': 123 });
   });
 
+  it('readNewsLatestIndex falls back to once() when root subscriptions are unavailable', async () => {
+    const chain = {
+      once: vi.fn((cb?: (data: unknown) => void) => cb?.({ 'story-a': 123 })),
+      get: vi.fn(() => chain),
+    };
+    const client = {
+      ...createClient(createFakeMesh(), { validateWrite: vi.fn() } as unknown as TopologyGuard),
+      mesh: {
+        get: vi.fn(() => chain),
+      },
+    } as unknown as VennClient;
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({ 'story-a': 123 });
+  });
+
+  it('readSettledRoot tolerates late timeout callbacks after early settlement', async () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi
+      .spyOn(globalThis, 'clearTimeout')
+      .mockImplementation((() => undefined) as typeof clearTimeout);
+
+    try {
+      const chain = {
+        on: vi.fn((cb?: (data: number) => void) => cb?.(123)),
+        off: vi.fn(),
+      } as unknown as Parameters<typeof newsAdapterInternal.readSettledRoot<number>>[0];
+
+      const promise = newsAdapterInternal.readSettledRoot(chain, () => true);
+      await vi.advanceTimersByTimeAsync(200);
+      await expect(promise).resolves.toBe(123);
+      await vi.advanceTimersByTimeAsync(3_000);
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('readNewsHotIndex parses numeric/string/object payloads and drops invalid entries', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/index/hot', {
@@ -708,6 +790,50 @@ describe('newsAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(readNewsHotIndex(client)).resolves.toEqual({});
+  });
+
+  it('readNewsHotIndex hydrates child entries from sparse metadata and drops invalid child values', async () => {
+    const mesh = createFakeMesh();
+    mesh.setOnSequence('news/index/hot', [
+      { value: { _: { '#': 'vh/news/index/hot', '>': { 'story-a': 123, 'story-b': 456 } } } },
+    ]);
+    mesh.setRead('news/index/hot/story-a', { hotness: 0.61 });
+    mesh.setRead('news/index/hot/story-b', { hotness: -1 });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readNewsHotIndex(client)).resolves.toEqual({ 'story-a': 0.61 });
+  });
+
+  it('news adapter internals expose sparse-index helper behavior', async () => {
+    expect(newsAdapterInternal.extractIndexChildKeys(null)).toEqual([]);
+    expect(
+      newsAdapterInternal.extractIndexChildKeys({
+        _: { '>': { 'story-a': 1 } },
+        'story-b': 2,
+      }),
+    ).toEqual(['story-a', 'story-b']);
+    expect(
+      newsAdapterInternal.hasSettledHotIndexPayload({
+        _: { '>': { 'story-a': 1 } },
+      }),
+    ).toBe(true);
+
+    const chain = {
+      get: vi.fn((storyId: string) => ({
+        once: (cb?: (data: unknown) => void) => cb?.(storyId === 'story-a' ? 12 : 'bad'),
+      })),
+    } as unknown as Parameters<typeof newsAdapterInternal.readIndexedEntries>[0];
+
+    await expect(newsAdapterInternal.readIndexedEntries(chain, { _: {} }, () => 1)).resolves.toEqual({});
+    await expect(
+      newsAdapterInternal.readIndexedEntries(
+        chain,
+        { _: { '>': { 'story-a': 1, 'story-b': 2 } } },
+        (value) => (typeof value === 'number' ? value : null),
+      ),
+    ).resolves.toEqual({ 'story-a': 12 });
   });
 
   it('computeStoryHotness is deterministic for fixed inputs', () => {
@@ -869,6 +995,17 @@ describe('newsAdapters', () => {
     await expect(readLatestStoryIds(client, 2)).resolves.toEqual(['story-a', 'story-z']);
     await expect(readLatestStoryIds(client, 0)).resolves.toEqual([]);
     await expect(readLatestStoryIds(client, Number.NaN)).resolves.toEqual([]);
+  });
+
+  it('remove helpers reject blank story ids', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(removeNewsStory(client, '   ')).rejects.toThrow('storyId is required');
+    await expect(removeNewsLatestIndexEntry(client, '   ')).rejects.toThrow('storyId is required');
+    await expect(removeNewsHotIndexEntry(client, '   ')).rejects.toThrow('storyId is required');
+    await expect(removeNewsBundle(client, '   ')).rejects.toThrow('storyId is required');
   });
 
   it('builds ingestion lease chain and guards writes', async () => {
