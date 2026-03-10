@@ -302,6 +302,40 @@ async function firstPointId(card: Locator, preferredPointId?: string): Promise<s
   return testId.replace('cell-vote-agree-', '');
 }
 
+async function canonicalPointId(card: Locator, pointId: string): Promise<string> {
+  const button = card.getByTestId(`cell-vote-agree-${pointId}`).first();
+  const canonical = await button.getAttribute('data-canonical-point-id');
+  if (!canonical) {
+    throw new Error(`missing-canonical-point-id:${pointId}`);
+  }
+  return canonical;
+}
+
+async function displayPointIdForCanonical(
+  card: Locator,
+  canonicalId: string,
+  preferredDisplayPointId?: string,
+): Promise<string> {
+  if (preferredDisplayPointId) {
+    const preferred = card.getByTestId(`cell-vote-agree-${preferredDisplayPointId}`).first();
+    if (
+      await preferred.count()
+      && (await preferred.getAttribute('data-canonical-point-id')) === canonicalId
+    ) {
+      return preferredDisplayPointId;
+    }
+  }
+
+  const button = card.locator(
+    `[data-testid^="cell-vote-agree-"][data-canonical-point-id="${canonicalId}"]`,
+  ).first();
+  const testId = await button.getAttribute('data-testid');
+  if (!testId) {
+    throw new Error(`missing-display-point-id:${canonicalId}`);
+  }
+  return testId.replace('cell-vote-agree-', '');
+}
+
 async function zeroBaselinePointId(card: Locator, preferredPointId?: string): Promise<string> {
   if (preferredPointId) {
     const preferred = card.getByTestId(`cell-vote-agree-${preferredPointId}`);
@@ -415,7 +449,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         return { latestCards: latest, hottestCards: hottest };
       });
 
-      const { bundledStory, row, cardA, providerA, pointId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
+      const { bundledStory, row, cardA, providerA, pointId, canonicalPointId: pointCanonicalId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
         const seedStory = await findBundledStory(pageA);
         expect(seedStory.sourceBadgeCount).toBeGreaterThanOrEqual(2);
         const seen = new Set<string>();
@@ -474,6 +508,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               sourceSummaryTexts: summaries,
               sourceBadgeIds: candidate.story.sourceBadgeIds,
               pointId: selectedPointId,
+              canonicalPointId: await canonicalPointId(card, selectedPointId),
               rejectedCandidates: failures,
             });
             return {
@@ -482,6 +517,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               cardA: card,
               providerA: provider,
               pointId: selectedPointId,
+              canonicalPointId: await canonicalPointId(card, selectedPointId),
               sourceSummaryTexts: summaries,
             };
           } catch (error) {
@@ -529,6 +565,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               sourceSummaryTexts: summaries,
               sourceBadgeIds: fallbackStory.sourceBadgeIds,
               pointId: selectedPointId,
+              canonicalPointId: await canonicalPointId(card, selectedPointId),
               rejectedCandidates: failures,
               fallbackMode: 'general-story',
             });
@@ -538,6 +575,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               cardA: card,
               providerA: provider,
               pointId: selectedPointId,
+              canonicalPointId: await canonicalPointId(card, selectedPointId),
               sourceSummaryTexts: summaries,
             };
           } catch (error) {
@@ -559,7 +597,12 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       await expect(cardA.getByTestId(`cell-vote-agree-${pointId}`)).toHaveAttribute('aria-pressed', 'true');
       await expect.poll(() => voteCounts(cardA, pointId).then((value) => value.agree), { timeout: 30_000 }).toBeGreaterThan(beforeA.agree);
       const afterA = await voteCounts(cardA, pointId);
-      await attachJson(testInfo, 'daemon-first-feed-vote-a', { pointId, beforeA, afterA });
+      await attachJson(testInfo, 'daemon-first-feed-vote-a', {
+        pointId,
+        canonicalPointId: pointCanonicalId,
+        beforeA,
+        afterA,
+      });
 
       contextB = await browser.newContext({ ignoreHTTPSErrors: true });
       await addConsumerInitScript(contextB);
@@ -570,23 +613,29 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       const cardB = await openStory(pageB, row);
       const providerB = await waitForAnalysisReady(cardB, row);
       expect(providerB).toBe(providerA);
-      const pointIdB = await firstPointId(cardB, pointId);
-      expect(pointIdB).toBe(pointId);
-      await expect.poll(() => voteCounts(cardB, pointId).then((value) => value.agree), { timeout: 30_000 }).toBeGreaterThanOrEqual(afterA.agree);
-      const beforeB = await voteCounts(cardB, pointId);
-      await cardB.getByTestId(`cell-vote-disagree-${pointId}`).click();
-      await expect(cardB.getByTestId(`cell-vote-disagree-${pointId}`)).toHaveAttribute('aria-pressed', 'true');
-      await expect.poll(() => voteCounts(cardB, pointId).then((value) => value.disagree), { timeout: 30_000 }).toBeGreaterThan(beforeB.disagree);
-      const afterB = await voteCounts(cardB, pointId);
-      await attachJson(testInfo, 'daemon-first-feed-vote-b', { pointId, beforeB, afterB });
+      const pointIdB = await displayPointIdForCanonical(cardB, pointCanonicalId, pointId);
+      expect(await canonicalPointId(cardB, pointIdB)).toBe(pointCanonicalId);
+      await expect.poll(() => voteCounts(cardB, pointIdB).then((value) => value.agree), { timeout: 30_000 }).toBeGreaterThanOrEqual(afterA.agree);
+      const beforeB = await voteCounts(cardB, pointIdB);
+      await cardB.getByTestId(`cell-vote-disagree-${pointIdB}`).click();
+      await expect(cardB.getByTestId(`cell-vote-disagree-${pointIdB}`)).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(() => voteCounts(cardB, pointIdB).then((value) => value.disagree), { timeout: 30_000 }).toBeGreaterThan(beforeB.disagree);
+      const afterB = await voteCounts(cardB, pointIdB);
+      await attachJson(testInfo, 'daemon-first-feed-vote-b', {
+        pointId: pointIdB,
+        canonicalPointId: pointCanonicalId,
+        beforeB,
+        afterB,
+      });
 
       await pageA.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
       await waitForHeadlines(pageA);
       const cardAReloaded = await openStory(pageA, row);
       const providerAReloaded = await waitForAnalysisReady(cardAReloaded, row);
       expect(providerAReloaded).toBe(providerA);
-      await expect(cardAReloaded.getByTestId(`cell-vote-agree-${pointId}`)).toHaveAttribute('aria-pressed', 'true');
-      await expect.poll(() => voteCounts(cardAReloaded, pointId), { timeout: 30_000 }).toEqual({
+      const pointIdAReloaded = await displayPointIdForCanonical(cardAReloaded, pointCanonicalId, pointId);
+      await expect(cardAReloaded.getByTestId(`cell-vote-agree-${pointIdAReloaded}`)).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(() => voteCounts(cardAReloaded, pointIdAReloaded), { timeout: 30_000 }).toEqual({
         agree: afterA.agree,
         disagree: afterB.disagree,
       });
@@ -594,7 +643,16 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       await attachJson(testInfo, 'daemon-first-feed-integrity-summary', {
         latestCards: latestCards.map((card) => ({ storyId: card.storyId, updatedAt: parseIso(card.meta, 'Updated') })),
         hottestCards: hottestCards.map((card) => ({ storyId: card.storyId, hotness: card.hotness, storyline: storylineKey(card.headline) })),
-        bundledStory: { storyId: row.storyId, topicId: row.topicId, providerA, pointId, sourceSummaryTexts },
+        bundledStory: {
+          storyId: row.storyId,
+          topicId: row.topicId,
+          providerA,
+          pointId,
+          canonicalPointId: pointCanonicalId,
+          pointIdB,
+          pointIdAReloaded,
+          sourceSummaryTexts,
+        },
         votes: { beforeA, afterA, beforeB, afterB },
       });
 

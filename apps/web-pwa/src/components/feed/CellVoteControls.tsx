@@ -193,7 +193,13 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     : null;
 
   return (
-    <div className="mt-1 flex flex-col gap-0.5" data-testid={`cell-vote-${pointId}`}>
+    <div
+      className="mt-1 flex flex-col gap-0.5"
+      data-testid={`cell-vote-${pointId}`}
+      data-display-point-id={pointId}
+      data-canonical-point-id={canonicalPointId}
+      data-legacy-point-id={legacyPointId ?? ''}
+    >
       <div className="flex items-center gap-1">
         <button
           type="button"
@@ -207,6 +213,9 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
           disabled={disabled}
           onClick={() => handleVote(1)}
           data-testid={`cell-vote-agree-${pointId}`}
+          data-display-point-id={pointId}
+          data-canonical-point-id={canonicalPointId}
+          data-legacy-point-id={legacyPointId ?? ''}
         >
           + {displayAgrees}
         </button>
@@ -222,6 +231,9 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
           disabled={disabled}
           onClick={() => handleVote(-1)}
           data-testid={`cell-vote-disagree-${pointId}`}
+          data-display-point-id={pointId}
+          data-canonical-point-id={canonicalPointId}
+          data-legacy-point-id={legacyPointId ?? ''}
         >
           - {displayDisagrees}
         </button>
