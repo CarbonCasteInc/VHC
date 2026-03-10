@@ -215,7 +215,14 @@ async function runReplayScenario(
   const mergeLineage = new Set<string>();
   const splitLineage = new Set<string>();
 
-  for (const tick of scenario.ticks) {
+  for (const [tickIndex, tick] of scenario.ticks.entries()) {
+    await scenario.before_tick?.({
+      scenario_id: scenario.scenario_id,
+      topic_id: scenario.topic_id,
+      tick_index: tickIndex,
+      store,
+      remoteRunner,
+    });
     tick.forEach((item) => {
       expectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
     });

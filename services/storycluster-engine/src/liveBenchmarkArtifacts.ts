@@ -87,6 +87,7 @@ export function resolveStoryClusterLiveBenchmarkOutputDir(outputDir: string): st
 export function renderStoryClusterLiveBenchmarkMarkdown(
   report: StoryClusterLiveBenchmarkReport,
 ): string {
+  const replayCorrectionCycles = splitReplayCorrectionCycles(report);
   const lines = [
     '# StoryCluster Live Benchmark Report',
     '',
@@ -111,6 +112,14 @@ export function renderStoryClusterLiveBenchmarkMarkdown(
     `- merge_lineage_count: ${report.replay_overall.merge_lineage_count}`,
     `- split_lineage_count: ${report.replay_overall.split_lineage_count}`,
     `- failed_dataset_ids: ${report.replay_overall.failed_dataset_ids.join(', ') || 'none'}`,
+    '',
+    '## Replay Correction Cycles',
+    '',
+    `- scenario_count: ${replayCorrectionCycles.scenario_count}`,
+    `- total_cycle_count: ${replayCorrectionCycles.total_cycle_count}`,
+    `- repeated_cycle_scenario_count: ${replayCorrectionCycles.repeated_cycle_scenario_count}`,
+    `- scenario_ids: ${replayCorrectionCycles.scenario_ids.join(', ') || 'none'}`,
+    `- repeated_cycle_scenario_ids: ${replayCorrectionCycles.repeated_cycle_scenario_ids.join(', ') || 'none'}`,
     '',
     '## Fixture Datasets',
     '',

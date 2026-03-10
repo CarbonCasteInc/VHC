@@ -37,6 +37,8 @@ describe('StoryCluster live benchmark', () => {
       report,
       artifactPaths ?? {},
     );
+    expect(releaseArtifactIndex.replay_correction_cycles.total_cycle_count).toBeGreaterThan(0);
+    expect(releaseArtifactIndex.replay_correction_cycles.repeated_cycle_scenario_count).toBeGreaterThan(0);
 
     console.log(JSON.stringify({
       schema_version: report.schema_version,

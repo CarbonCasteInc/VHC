@@ -96,7 +96,9 @@ When reviewing StoryCluster release evidence:
    - it reports replay scenarios that exercised merge/split lineage
    - it is the topology-repair pressure signal, not a substitute for semantic precision
 4. Do not treat low aggregate `persistence_rate` as a failure by itself if the affected scenarios are gap-return reappearance scenarios and `reappearance_rate` remains within threshold.
-5. Do not treat zero correction cycles as success by itself; it may simply mean the active replay corpus did not hit topology-repair pressure in that run.
+5. The active deterministic replay corpus now includes explicit topology-pressure scenarios:
+   - zero `replay_correction_cycles.total_cycle_count` is a regression in replay coverage
+   - zero `replay_correction_cycles.repeated_cycle_scenario_count` means repeated correction pressure was not exercised and should be treated as a release-evidence failure
 
 ## Notes
 

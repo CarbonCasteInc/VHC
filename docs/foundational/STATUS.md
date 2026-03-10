@@ -73,6 +73,9 @@ Current truth for the news bundler and feed hardening lane:
   - `replay_correction_cycles`
     - counts replay scenarios where merge/split lineage is observed
     - tracks total merge lineage, split lineage, and repeated correction-cycle scenarios separately from continuity
+- The active deterministic replay corpus now includes explicit topology-pressure scenarios, so:
+  - zero `replay_correction_cycles.total_cycle_count` is now a replay-coverage regression
+  - repeated-cycle scenarios are expected to appear in release evidence, not just isolated lifecycle tests
 - Release reviewers should not collapse these into one number:
   - low overall `persistence_rate` is expected in gap-return scenarios and must be read together with `reappearance_rate`
   - correction-cycle counts measure topology repair pressure, not semantic bundle precision by themselves

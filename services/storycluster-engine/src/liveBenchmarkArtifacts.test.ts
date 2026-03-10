@@ -246,6 +246,16 @@ describe('live benchmark artifacts', () => {
     }).replay_correction_cycles.repeated_cycle_scenario_count).toBe(0);
   });
 
+  it('renders none markers when no correction-cycle scenarios are present', () => {
+    const report = makeReport();
+    report.replay_results = [report.replay_results[0]!];
+
+    const markdown = renderStoryClusterLiveBenchmarkMarkdown(report);
+
+    expect(markdown).toContain('scenario_ids: none');
+    expect(markdown).toContain('repeated_cycle_scenario_ids: none');
+  });
+
   it('builds a release artifact index with replay continuity split', () => {
     const report = makeReport();
     const index = buildStoryClusterLiveBenchmarkArtifactIndex(report, {
