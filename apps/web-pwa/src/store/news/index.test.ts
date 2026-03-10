@@ -20,11 +20,13 @@ vi.mock('@vh/gun-client', () => ({
   readNewsStory: readNewsStoryMock
 }));
 
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
+
 function story(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-1',
-    topic_id: 'topic-1',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'Headline',
     summary_hint: 'Summary',
     cluster_window_start: 10,

@@ -14,21 +14,25 @@ const gunMocks = vi.hoisted(() => ({
   getNewsStoriesChain: vi.fn(),
   getNewsLatestIndexChain: vi.fn(),
   getNewsHotIndexChain: vi.fn(),
-  hasForbiddenNewsPayloadFields: vi.fn<(payload: unknown) => boolean>()
+  hasForbiddenNewsPayloadFields: vi.fn<(payload: unknown) => boolean>(),
+  readNewsStory: vi.fn(),
 }));
 
 vi.mock('@vh/gun-client', () => ({
   getNewsStoriesChain: gunMocks.getNewsStoriesChain,
   getNewsLatestIndexChain: gunMocks.getNewsLatestIndexChain,
   getNewsHotIndexChain: gunMocks.getNewsHotIndexChain,
-  hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields
+  hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields,
+  readNewsStory: gunMocks.readNewsStory,
 }));
+
+const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 
 function story(overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: 'story-1',
-    topic_id: 'topic-1',
+    topic_id: CANONICAL_TOPIC_ID,
     headline: 'Hydrated Story',
     summary_hint: 'Summary',
     cluster_window_start: 1,
@@ -128,7 +132,9 @@ describe('hydrateNewsStore', () => {
     gunMocks.getNewsLatestIndexChain.mockReset();
     gunMocks.getNewsHotIndexChain.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReset();
+    gunMocks.readNewsStory.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReturnValue(false);
+    gunMocks.readNewsStory.mockResolvedValue(null);
     vi.resetModules();
   });
 
@@ -169,7 +175,7 @@ describe('hydrateNewsStore', () => {
     expect(hotChain.onSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('hydrates stories and backfills latest index when missing', async () => {
+  it('hydrates stories without synthesizing latest-index entries from story updates', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -188,10 +194,10 @@ describe('hydrateNewsStore', () => {
     );
 
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 's1' }));
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('s1', 654);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
 
     storyChain.emit(story({ story_id: 's1', created_at: 999, cluster_window_end: 888 }), 's1');
-    expect(state.upsertLatestIndex).toHaveBeenCalledTimes(1);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('removes stories when Gun clears the story node', async () => {
@@ -233,7 +239,7 @@ describe('hydrateNewsStore', () => {
     expect(state.removeHotIndex).toHaveBeenCalledWith('s1');
   });
 
-  it('prefers StoryBundle.story_id over Gun map key when backfilling latest index', async () => {
+  it('prefers StoryBundle.story_id over Gun map key when hydrating story updates', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -248,8 +254,8 @@ describe('hydrateNewsStore', () => {
 
     storyChain.emit(story({ story_id: 'canonical-story', cluster_window_end: 901 }), 'legacy-map-key');
 
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('canonical-story', 901);
-    expect(state.upsertLatestIndex).not.toHaveBeenCalledWith('legacy-map-key', expect.any(Number));
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'canonical-story' }));
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('falls back to Gun map key when payload story_id is blank', async () => {
@@ -268,7 +274,7 @@ describe('hydrateNewsStore', () => {
     storyChain.emit(story({ story_id: '   ', cluster_window_end: 902 }), 'fallback-key');
 
     expect(state.upsertStory).toHaveBeenCalledTimes(1);
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('fallback-key', 902);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('uses payload story_id when map key is missing or non-string', async () => {
@@ -287,7 +293,7 @@ describe('hydrateNewsStore', () => {
     storyChain.emit(story({ story_id: 'payload-only-id', cluster_window_end: 902 }));
 
     expect(state.upsertStory).toHaveBeenCalledTimes(1);
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith('payload-only-id', 902);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('drops story updates when both payload story_id and map key are blank', async () => {
@@ -326,7 +332,7 @@ describe('hydrateNewsStore', () => {
     storyChain.emit({ __story_bundle_json: JSON.stringify(s), story_id: s.story_id }, s.story_id);
 
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: s.story_id }));
-    expect(state.upsertLatestIndex).toHaveBeenCalledWith(s.story_id, 777);
+    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
   it('drops encoded story payloads with invalid JSON', async () => {
