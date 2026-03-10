@@ -276,3 +276,7 @@ export async function classifyCanonicalSourcePairs(
 export function hasRelatedTopicOnlyPair(results: readonly LiveSemanticAuditPairResult[]): boolean {
   return results.some((result) => result.label === 'related_topic_only');
 }
+
+export const liveSemanticAuditInternal = {
+  mapWithConcurrency,
+};

@@ -289,6 +289,59 @@ describe('clusterLifecycle', () => {
     expect(next.stage_metrics.dynamic_cluster_assignment?.related_docs_deferred).toBe(1);
   });
 
+  it('counts provider-reviewed candidates that remain rejected after adjudication fallback', async () => {
+    const first = makeWorkingDocument('doc-1', 'Stocks slide after Tehran strike', 'insurers', 'strike', [1, 0]);
+    const second = makeWorkingDocument('doc-2', 'Brokers cut shipping forecasts after Iran attack', 'shipping', 'attack', [0.72, 0.28]);
+    second.linked_entities = ['insurers', 'shipping'];
+    second.entities = ['shipping'];
+
+    const provider: StoryClusterModelProvider = {
+      providerId: 'rejecting-adjudication-provider',
+      async translate() {
+        return [];
+      },
+      async embed() {
+        return [];
+      },
+      async analyzeDocuments() {
+        return [];
+      },
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs(items) {
+        return items.map((item) => ({
+          pair_id: item.pair_id,
+          score: 0.12,
+          decision: 'rejected' as const,
+        }));
+      },
+      async summarize() {
+        return [];
+      },
+    };
+
+    const next = await assignClusters({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [first, second],
+      clusters: [],
+      bundles: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [],
+      },
+      stage_metrics: {},
+    }, provider);
+
+    expect(next.topic_state.clusters).toHaveLength(2);
+    expect(next.documents.find((document) => document.doc_id === 'doc-2')?.assigned_story_id)
+      .not.toBe(next.documents.find((document) => document.doc_id === 'doc-1')?.assigned_story_id);
+    expect(next.stage_metrics.dynamic_cluster_assignment?.provider_rejected_docs).toBe(1);
+  });
+
   it('defers unattached video clips instead of seeding new canonical clusters', async () => {
     const video = makeWorkingDocument('doc-7', 'Drone strike video', 'iranian_opposition_group', 'strike', [0.8, 0.2]);
     video.doc_type = 'video_clip';

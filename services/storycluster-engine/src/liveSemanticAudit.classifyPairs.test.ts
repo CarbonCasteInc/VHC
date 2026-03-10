@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { classifyCanonicalSourcePairs } from './liveSemanticAudit';
+import { classifyCanonicalSourcePairs, liveSemanticAuditInternal } from './liveSemanticAudit';
 
 function makePair(overrides: Record<string, unknown> = {}) {
   return {
@@ -28,6 +28,22 @@ function makePair(overrides: Record<string, unknown> = {}) {
 }
 
 describe('liveSemanticAudit classifier', () => {
+  it('returns an empty result without calling fetch when no pairs are supplied', async () => {
+    const fetchFn = vi.fn<typeof fetch>();
+
+    await expect(classifyCanonicalSourcePairs([], {
+      apiKey: 'test-key',
+      fetchFn,
+    })).resolves.toEqual([]);
+    expect(fetchFn).not.toHaveBeenCalled();
+
+    await expect(
+      liveSemanticAuditInternal.mapWithConcurrency([], 3, async () => {
+        throw new Error('worker should not run');
+      }),
+    ).resolves.toEqual([]);
+  });
+
   it('classifies canonical source pairs and preserves input order', async () => {
     const fetchFn = vi.fn<typeof fetch>(async () => new Response(JSON.stringify({
       choices: [

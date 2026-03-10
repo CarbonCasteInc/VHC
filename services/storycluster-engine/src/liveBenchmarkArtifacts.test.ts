@@ -1,7 +1,8 @@
 import { mkdtempSync, readFileSync } from 'node:fs';
 import { rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { StoryClusterLiveBenchmarkReport } from './liveBenchmark';
 import {
@@ -93,6 +94,8 @@ afterEach(() => {
   }
 });
 
+const repoRootDir = fileURLToPath(new URL('../../..', import.meta.url));
+
 describe('live benchmark artifacts', () => {
   it('renders and writes markdown and json artifacts', () => {
     const successReport = makeReport();
@@ -113,10 +116,9 @@ describe('live benchmark artifacts', () => {
   });
 
   it('resolves relative output directories against the repo root', () => {
-    const resolved = resolveStoryClusterLiveBenchmarkOutputDir(
-      'docs/reports/evidence/storycluster/live/test-relative-output',
-    );
+    const relativeOutputDir = 'docs/reports/evidence/storycluster/live/test-relative-output';
+    const resolved = resolveStoryClusterLiveBenchmarkOutputDir(relativeOutputDir);
 
-    expect(resolved).toContain('/Users/bldt/Desktop/VHC/VHC/docs/reports/evidence/storycluster/live/test-relative-output');
+    expect(resolved).toBe(resolve(repoRootDir, relativeOutputDir));
   });
 });

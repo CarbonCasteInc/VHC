@@ -201,6 +201,7 @@ describe('storycluster server', () => {
   it('returns 503 when runtime dependency resolution throws before the request handler completes', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     vi.stubEnv('VH_STORYCLUSTER_QDRANT_URL', '');
+    vi.stubEnv('QDRANT_URL', '');
 
     await withServer({}, async (baseUrl) => {
       const ready = await fetch(`${baseUrl}/ready`);

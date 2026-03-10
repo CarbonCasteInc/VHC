@@ -136,4 +136,77 @@ describe('clusterLifecycle adjudication coverage', () => {
     expect(next.stage_metrics.llm_adjudication?.adjudicated_docs).toBe(0);
     expect(next.documents[0]?.adjudication).toBe('accepted');
   });
+
+  it('counts provider-reviewed candidates that remain rejected after adjudication fallback', async () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const primary = makeWorkingDocument('doc-1', 'Port attack expands', 'port_attack', 'attack', [1, 0]);
+    const secondary = makeWorkingDocument('doc-2', 'Port attack response widens', 'port_attack', 'attack', [0.92, 0.08]);
+    topicState.clusters = [
+      deriveClusterRecord(topicState, 'topic-news', [toStoredSource(primary, primary.source_variants[0]!)], 'story-a'),
+      deriveClusterRecord(topicState, 'topic-news', [toStoredSource(secondary, secondary.source_variants[0]!)], 'story-b'),
+    ];
+
+    const next = await adjudicateCandidates({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [{
+        ...makeWorkingDocument('doc-9', 'Port attack market fallout', 'port_attack', 'attack', [0.95, 0.05]),
+        candidate_matches: [
+          {
+            story_id: 'story-a',
+            candidate_score: 0.52,
+            hybrid_score: 0.52,
+            rerank_score: 0.52,
+            adjudication: 'abstain',
+            reason: 'ambiguous-same-topic',
+          },
+          {
+            story_id: 'story-b',
+            candidate_score: 0.47,
+            hybrid_score: 0.47,
+            rerank_score: 0.45,
+            adjudication: 'abstain',
+            reason: 'ambiguous-same-topic',
+          },
+        ],
+        rerank_score: 0.52,
+      }],
+      clusters: [],
+      bundles: [],
+      topic_state: topicState,
+      stage_metrics: {},
+    }, {
+      providerId: 'rejecting-provider',
+      async translate() {
+        return [];
+      },
+      async embed() {
+        return [];
+      },
+      async analyzeDocuments() {
+        return [];
+      },
+      async rerankPairs() {
+        return [];
+      },
+      async adjudicatePairs(items) {
+        return items.map((item) => ({
+          pair_id: item.pair_id,
+          score: 0.1,
+          decision: 'rejected' as const,
+        }));
+      },
+      async summarize() {
+        return [];
+      },
+    });
+
+    expect(next.documents[0]?.adjudication).toBe('rejected');
+    expect(next.stage_metrics.llm_adjudication?.adjudication_rejects).toBe(1);
+  });
 });

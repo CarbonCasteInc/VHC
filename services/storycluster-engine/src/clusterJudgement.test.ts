@@ -191,7 +191,25 @@ describe('clusterJudgement', () => {
     expect(next.map((match) => match.story_id)).toEqual(['story-a', 'story-b']);
   });
 
-  it('requests pair judgement only for ambiguous or near-threshold candidates', () => {
+  it('sorts adjudicated ties deterministically by story id and requests review for narrow rerank margins', () => {
+    const document = makeDocument({
+      candidate_matches: [
+        makeMatch('story-b', { rerank_score: 0.41, adjudication: 'abstain' }),
+        makeMatch('story-a', { rerank_score: 0.41, adjudication: 'abstain' }),
+      ],
+    });
+
+    const next = applyPairJudgements(
+      document,
+      document.candidate_matches,
+      new Map([
+        [buildPairId('doc-1', 'story-b'), { pair_id: buildPairId('doc-1', 'story-b'), score: 0.4, decision: 'abstain' as const }],
+        [buildPairId('doc-1', 'story-a'), { pair_id: buildPairId('doc-1', 'story-a'), score: 0.4, decision: 'abstain' as const }],
+      ]),
+    );
+
+    expect(next.map((match) => match.story_id)).toEqual(['story-a', 'story-b']);
+
     expect(shouldRequestPairJudgement([])).toBe(false);
     expect(shouldRequestPairJudgement([makeMatch('story-a', { adjudication: 'accepted', rerank_score: 0.9 })])).toBe(false);
     expect(shouldRequestPairJudgement([
@@ -199,5 +217,9 @@ describe('clusterJudgement', () => {
       makeMatch('story-b', { adjudication: 'rejected', rerank_score: 0.82 }),
     ])).toBe(true);
     expect(shouldRequestPairJudgement([makeMatch('story-a', { adjudication: 'rejected', hybrid_score: 0.48, candidate_score: 0.44 })])).toBe(true);
+    expect(shouldRequestPairJudgement([
+      makeMatch('story-a', { adjudication: 'rejected', hybrid_score: 0.3, candidate_score: 0.3, rerank_score: 0.51 }),
+      makeMatch('story-b', { adjudication: 'rejected', hybrid_score: 0.2, candidate_score: 0.2, rerank_score: 0.45 }),
+    ])).toBe(true);
   });
 });
