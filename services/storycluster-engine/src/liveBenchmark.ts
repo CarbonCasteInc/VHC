@@ -28,6 +28,8 @@ export interface StoryClusterReplayBenchmarkResult extends StoryClusterCoherence
   persistence_rate: number;
   persistence_observations: number;
   persistence_retained: number;
+  merge_lineage_count: number;
+  split_lineage_count: number;
   run_latency_ms: number;
 }
 
@@ -54,6 +56,8 @@ export interface StoryClusterLiveBenchmarkReport {
     persistence_rate: number;
     persistence_observations: number;
     persistence_retained: number;
+    merge_lineage_count: number;
+    split_lineage_count: number;
   };
   corpus: {
     fixture_dataset_count: number;
@@ -196,6 +200,8 @@ async function runReplayScenario(
   const store = storeFactory();
   const expectedByKey = new Map<string, string>();
   const previousStoryByEvent = new Map<string, string | null>();
+  const mergeLineage = new Set<string>();
+  const splitLineage = new Set<string>();
   let persistenceObservations = 0;
   let persistenceRetained = 0;
 
@@ -204,7 +210,16 @@ async function runReplayScenario(
       expectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
     });
     await remoteRunner({ topic_id: scenario.topic_id, items: toRemoteItems(tick) }, { store, clock: now });
-    const bundles = store.loadTopic(scenario.topic_id).clusters.map(bundleFromCluster);
+    const topicState = store.loadTopic(scenario.topic_id);
+    for (const cluster of topicState.clusters) {
+      for (const mergedFrom of cluster.lineage.merged_from) {
+        mergeLineage.add(`${cluster.story_id}<-${mergedFrom}`);
+      }
+      if (cluster.lineage.split_from) {
+        splitLineage.add(`${cluster.story_id}->${cluster.lineage.split_from}`);
+      }
+    }
+    const bundles = topicState.clusters.map(bundleFromCluster);
     const currentStoryByEvent = new Map<string, string | null>();
     for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, expectedByKey)) {
       currentStoryByEvent.set(eventId, singleStoryId(storyIds));
@@ -247,6 +262,8 @@ async function runReplayScenario(
     persistence_rate: Number((persistenceRetained / Math.max(1, persistenceObservations)).toFixed(6)),
     persistence_observations: persistenceObservations,
     persistence_retained: persistenceRetained,
+    merge_lineage_count: mergeLineage.size,
+    split_lineage_count: splitLineage.size,
     run_latency_ms: Math.max(0, now() - startedAt),
   };
 }
@@ -291,6 +308,8 @@ export async function runStoryClusterLiveBenchmark(
     (total, result) => total + result.persistence_retained,
     0,
   );
+  const mergeLineageCount = replayResults.reduce((total, result) => total + result.merge_lineage_count, 0);
+  const splitLineageCount = replayResults.reduce((total, result) => total + result.split_lineage_count, 0);
 
   return {
     schema_version: 'storycluster-live-benchmark-v1',
@@ -305,6 +324,8 @@ export async function runStoryClusterLiveBenchmark(
       persistence_rate: Number((persistenceRetained / Math.max(1, persistenceObservations)).toFixed(6)),
       persistence_observations: persistenceObservations,
       persistence_retained: persistenceRetained,
+      merge_lineage_count: mergeLineageCount,
+      split_lineage_count: splitLineageCount,
     },
     corpus: {
       fixture_dataset_count: fixtureDatasets.length,

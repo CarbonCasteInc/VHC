@@ -60,6 +60,8 @@ function makeReport(failedDatasetIds: string[] = []): StoryClusterLiveBenchmarkR
         persistence_rate: 1,
         persistence_observations: 1,
         persistence_retained: 1,
+        merge_lineage_count: 1,
+        split_lineage_count: 1,
         run_latency_ms: 25,
       },
     ],
@@ -79,6 +81,8 @@ function makeReport(failedDatasetIds: string[] = []): StoryClusterLiveBenchmarkR
       persistence_rate: 1,
       persistence_observations: 1,
       persistence_retained: 1,
+      merge_lineage_count: 1,
+      split_lineage_count: 1,
     },
     corpus: {
       fixture_dataset_count: 1,
@@ -103,6 +107,8 @@ describe('live benchmark artifacts', () => {
     expect(successMarkdown).toContain('failed_dataset_ids: none');
     expect(failedMarkdown).toContain('failed_dataset_ids: fixture-a');
     expect(successMarkdown).toContain('persistence_rate: 1');
+    expect(successMarkdown).toContain('merge_lineage_count: 1');
+    expect(successMarkdown).toContain('splits=1');
 
     const outputDir = mkdtempSync(join(tmpdir(), 'storycluster-live-benchmark-'));
     tempDirs.push(outputDir);

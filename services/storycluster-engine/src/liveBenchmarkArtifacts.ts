@@ -37,6 +37,8 @@ export function renderStoryClusterLiveBenchmarkMarkdown(
     `- max_contamination_rate: ${report.replay_overall.max_contamination_rate}`,
     `- max_fragmentation_rate: ${report.replay_overall.max_fragmentation_rate}`,
     `- persistence_rate: ${report.replay_overall.persistence_rate}`,
+    `- merge_lineage_count: ${report.replay_overall.merge_lineage_count}`,
+    `- split_lineage_count: ${report.replay_overall.split_lineage_count}`,
     `- failed_dataset_ids: ${report.replay_overall.failed_dataset_ids.join(', ') || 'none'}`,
     '',
     '## Fixture Datasets',
@@ -48,7 +50,7 @@ export function renderStoryClusterLiveBenchmarkMarkdown(
     '## Replay Scenarios',
     '',
     ...report.replay_results.flatMap((result) => [
-      `- ${result.scenario_id}: ticks=${result.tick_count}, contamination=${result.contamination_rate}, fragmentation=${result.fragmentation_rate}, coherence=${result.coherence_score}, persistence=${result.persistence_rate}, latency_ms=${result.run_latency_ms}`,
+      `- ${result.scenario_id}: ticks=${result.tick_count}, contamination=${result.contamination_rate}, fragmentation=${result.fragmentation_rate}, coherence=${result.coherence_score}, persistence=${result.persistence_rate}, merges=${result.merge_lineage_count}, splits=${result.split_lineage_count}, latency_ms=${result.run_latency_ms}`,
     ]),
     '',
   ];
