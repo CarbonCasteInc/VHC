@@ -196,6 +196,57 @@ export const STORYCLUSTER_REPLAY_SCENARIOS: StoryClusterReplayScenario[] = [
     ],
   },
   {
+    scenario_id: 'replay-harbor-fire-double-shadow-return',
+    topic_id: 'replay-harbor-fire-double-shadow-return',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'harbor_fire_double_shadow',
+          'replay-gap-double-a',
+          'Chemical fire at harbor terminal triggers midnight evacuations',
+          'ri1',
+          1_712_176_100_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'pipeline_blast_shadow',
+          'replay-gap-double-b',
+          'Pipeline blast disrupts refinery fuel shipments',
+          'ri2',
+          1_712_176_120_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'harbor_fire_double_shadow',
+          'replay-gap-double-c',
+          'Inspectors return to harbor terminal after fire is contained',
+          'ri3',
+          1_712_176_140_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'rail_closure_shadow',
+          'replay-gap-double-d',
+          'Freight rail closure slows chemical deliveries inland',
+          'ri4',
+          1_712_176_160_000,
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'harbor_fire_double_shadow',
+          'replay-gap-double-e',
+          'Harbor terminal crews reopen docks after fire cleanup',
+          'ri5',
+          1_712_176_180_000,
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-ceasefire-protest-separation',
     topic_id: 'replay-ceasefire-protest-separation',
     ticks: [

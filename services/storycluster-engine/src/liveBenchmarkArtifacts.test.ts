@@ -7,6 +7,7 @@ import type { StoryClusterLiveBenchmarkReport } from './liveBenchmark';
 import {
   renderStoryClusterLiveBenchmarkMarkdown,
   resolveStoryClusterLiveBenchmarkOutputDir,
+  splitReplayContinuity,
   writeStoryClusterLiveBenchmarkArtifacts,
 } from './liveBenchmarkArtifacts';
 
@@ -43,6 +44,30 @@ function makeReport(failedDatasetIds: string[] = []): StoryClusterLiveBenchmarkR
       },
     ],
     replay_results: [
+      {
+        dataset_id: 'replay-continuous',
+        scenario_id: 'replay-continuous',
+        topic_id: 'topic-c',
+        total_docs: 2,
+        total_bundles: 1,
+        total_events: 1,
+        contamination_docs: 0,
+        fragmentation_splits: 0,
+        contamination_rate: 0,
+        fragmentation_rate: 0,
+        coherence_score: 1,
+        pass: failedDatasetIds.length === 0,
+        tick_count: 2,
+        persistence_rate: 1,
+        persistence_observations: 2,
+        persistence_retained: 2,
+        reappearance_rate: 0,
+        reappearance_observations: 0,
+        reappearance_retained: 0,
+        merge_lineage_count: 0,
+        split_lineage_count: 0,
+        run_latency_ms: 20,
+      },
       {
         dataset_id: 'replay-a',
         scenario_id: 'replay-a',
@@ -82,8 +107,8 @@ function makeReport(failedDatasetIds: string[] = []): StoryClusterLiveBenchmarkR
       max_fragmentation_rate: 0,
       failed_dataset_ids: failedDatasetIds,
       persistence_rate: 1,
-      persistence_observations: 1,
-      persistence_retained: 1,
+      persistence_observations: 3,
+      persistence_retained: 3,
       reappearance_rate: 1,
       reappearance_observations: 1,
       reappearance_retained: 1,
@@ -104,6 +129,46 @@ afterEach(() => {
 });
 
 describe('live benchmark artifacts', () => {
+  it('splits replay continuity for continuous-only reports', () => {
+    const report = makeReport();
+    report.replay_results = [report.replay_results[0]!];
+
+    expect(splitReplayContinuity(report)).toEqual({
+      continuous: {
+        scenario_count: 1,
+        scenario_ids: ['replay-continuous'],
+        min_persistence_rate: 1,
+      },
+      reappearance: {
+        scenario_count: 0,
+        scenario_ids: [],
+        min_reappearance_rate: null,
+        total_observations: 0,
+        total_retained: 0,
+      },
+    });
+  });
+
+  it('splits replay continuity for reappearance-only reports', () => {
+    const report = makeReport();
+    report.replay_results = [report.replay_results[1]!];
+
+    expect(splitReplayContinuity(report)).toEqual({
+      continuous: {
+        scenario_count: 0,
+        scenario_ids: [],
+        min_persistence_rate: null,
+      },
+      reappearance: {
+        scenario_count: 1,
+        scenario_ids: ['replay-a'],
+        min_reappearance_rate: 1,
+        total_observations: 1,
+        total_retained: 1,
+      },
+    });
+  });
+
   it('renders and writes markdown and json artifacts', () => {
     const successReport = makeReport();
     const failedReport = makeReport(['fixture-a']);
@@ -120,9 +185,22 @@ describe('live benchmark artifacts', () => {
     const outputDir = mkdtempSync(join(tmpdir(), 'storycluster-live-benchmark-'));
     tempDirs.push(outputDir);
     const paths = writeStoryClusterLiveBenchmarkArtifacts(successReport, outputDir);
+    const index = JSON.parse(readFileSync(paths.index_path, 'utf8')) as {
+      schema_version: string;
+      replay_continuity: {
+        continuous: { scenario_count: number; min_persistence_rate: number | null };
+        reappearance: { scenario_count: number; min_reappearance_rate: number | null; total_observations: number };
+      };
+    };
 
     expect(readFileSync(paths.json_path, 'utf8')).toContain('storycluster-live-benchmark-v1');
     expect(readFileSync(paths.markdown_path, 'utf8')).toContain('# StoryCluster Live Benchmark Report');
+    expect(index.schema_version).toBe('storycluster-live-benchmark-index-v1');
+    expect(index.replay_continuity.continuous.scenario_count).toBe(1);
+    expect(index.replay_continuity.continuous.min_persistence_rate).toBe(1);
+    expect(index.replay_continuity.reappearance.scenario_count).toBe(1);
+    expect(index.replay_continuity.reappearance.min_reappearance_rate).toBe(1);
+    expect(index.replay_continuity.reappearance.total_observations).toBe(1);
   });
 
   it('resolves relative output directories against the repo root', () => {
