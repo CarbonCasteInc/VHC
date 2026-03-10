@@ -193,7 +193,7 @@ function toResponse(topicId: string, response: StoryClusterRemoteResponse): Stor
   if (Array.isArray(response.bundles)) {
     return response;
   }
-  return { bundles: [], telemetry: coherenceAuditInternal.createEmptyTelemetry(topicId) };
+  return { bundles: [], storylines: [], telemetry: coherenceAuditInternal.createEmptyTelemetry(topicId) };
 }
 async function runReplayScenario(
   scenario: StoryClusterReplayScenario,
@@ -252,6 +252,7 @@ async function runReplayScenario(
     },
     {
       bundles: finalState.clusters.map(bundleFromCluster),
+      storylines: [],
       telemetry: coherenceAuditInternal.createEmptyTelemetry(scenario.topic_id),
     },
     thresholds,

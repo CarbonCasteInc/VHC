@@ -8,6 +8,23 @@ import { clusterScoringConfig, buildCandidateMatch, candidateEligible } from './
 import { projectStoryBundles } from './bundleProjection';
 import { applyPairReranks, applyPairJudgements, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
 import { reconcileClusterTopology } from './clusterTopology';
+import { projectStorylineGroups } from './storylineProjection';
+
+export function recordProviderFallbackOutcome(
+  providerAssignedDocs: number,
+  providerRejectedDocs: number,
+  fallbackMatchesLength: number,
+  accepted: boolean,
+): { providerAssignedDocs: number; providerRejectedDocs: number } {
+  if (fallbackMatchesLength === 0) {
+    return { providerAssignedDocs, providerRejectedDocs };
+  }
+  if (accepted) {
+    return { providerAssignedDocs: providerAssignedDocs + 1, providerRejectedDocs };
+  }
+  return { providerAssignedDocs, providerRejectedDocs: providerRejectedDocs + 1 };
+}
+
 export async function retrieveCandidates(
   state: PipelineState,
   vectorBackend: ClusterVectorBackend = new MemoryVectorBackend(),
@@ -218,11 +235,12 @@ export async function assignClusters(
       document.candidate_matches = fallbackMatches;
       accepted = fallbackMatches.find((match) => match.adjudication === 'accepted');
       if (provider && fallbackMatches !== candidateMatches) {
-        if (accepted) {
-          providerAssignedDocs += 1;
-        } else if (fallbackMatches.length > 0) {
-          providerRejectedDocs += 1;
-        }
+        ({ providerAssignedDocs, providerRejectedDocs } = recordProviderFallbackOutcome(
+          providerAssignedDocs,
+          providerRejectedDocs,
+          fallbackMatches.length,
+          Boolean(accepted),
+        ));
       }
     }
     const sourceDocuments = document.source_variants.map((variant) => toStoredSource(document, variant));
@@ -309,6 +327,7 @@ export async function bundleClusters(
     topic_state: topicState,
     clusters: updatedClusters,
     bundles: projectStoryBundles(state.topicId, updatedClusters),
+    storylines: projectStorylineGroups(state.topicId, updatedClusters, state.documents),
     stage_metrics: {
       ...state.stage_metrics,
       summarize_publish_payloads: {

@@ -40,6 +40,7 @@ export interface StoryClusterPipelineRequest {
 export interface StoryClusterBundle {
   story_id: string;
   topic_id: string;
+  storyline_id?: string;
   headline: string;
   summary_hint: string;
   created_at: number;
@@ -84,6 +85,29 @@ export interface StoryClusterBundle {
   stage_version: 'storycluster-stage-runner-v2';
 }
 
+export interface StoryClusterStorylineGroup {
+  schemaVersion: 'storyline-group-v0';
+  storyline_id: string;
+  topic_id: string;
+  canonical_story_id: string;
+  story_ids: string[];
+  headline: string;
+  summary_hint?: string;
+  related_coverage: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    canonical_url: string;
+    url_hash: string;
+    published_at: number;
+    title: string;
+  }>;
+  entity_keys: string[];
+  time_bucket: string;
+  created_at: number;
+  updated_at: number;
+}
+
 export type StoryClusterStageArtifactCounts = Record<string, number>;
 
 export interface StoryClusterStageTelemetry {
@@ -112,6 +136,7 @@ export interface StoryClusterTelemetryEnvelope {
 
 export interface StoryClusterPipelineResponse {
   bundles: StoryClusterBundle[];
+  storylines?: StoryClusterStorylineGroup[];
   telemetry: StoryClusterTelemetryEnvelope;
 }
 

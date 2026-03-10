@@ -122,6 +122,7 @@ export async function runStoryClusterStagePipeline(
   const generatedAtMs = Math.floor(clock());
   return {
     bundles: state.bundles,
+    storylines: state.storylines,
     telemetry: buildTelemetry(normalized.topicId, normalized.documents.length, stageTelemetry, generatedAtMs),
   };
 }
@@ -139,6 +140,7 @@ export const stageRunnerInternal = {
   hashToHex: sha256Hex,
   normalizeRequest,
   normalizeToken: normalizeText,
+  resolveModelProvider,
   resolveLanguage: (document: { title: string; summary?: string; language_hint?: string }) =>
     resolveLanguage(`${document.title} ${document.summary ?? ''}`.trim(), document.language_hint),
   resolveVectorBackend,

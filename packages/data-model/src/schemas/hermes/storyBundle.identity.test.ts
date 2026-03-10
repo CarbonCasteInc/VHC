@@ -49,4 +49,13 @@ describe('story bundle news topic identity', () => {
       }),
     ).rejects.toThrow('story bundle topic_id must equal sha256("news:" + story_id)');
   });
+
+  it('accepts when a bundle already carries the canonical news topic id', async () => {
+    await expect(
+      assertCanonicalNewsTopicId({
+        story_id: 'story-123',
+        topic_id: '3db5ddabd0febe73154dec0a3d8fd767ba246c543c8bd857fdfcab932fc7aa2a',
+      }),
+    ).resolves.toBeUndefined();
+  });
 });

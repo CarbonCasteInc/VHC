@@ -82,6 +82,7 @@ export function createInitialState(
     }),
     clusters: [],
     bundles: [],
+    storylines: [],
     topic_state: topicState,
     stage_metrics: {},
   };

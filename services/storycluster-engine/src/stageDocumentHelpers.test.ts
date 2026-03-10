@@ -115,6 +115,7 @@ describe('applyDocumentAnalysis', () => {
     const merged = applyDocumentAnalysis(document, analysis);
 
     expect(merged.coverage_role).toBe('related');
+    expect(merged.source_variants.map((variant) => variant.coverage_role)).toEqual(['related']);
     expect(merged.event_tuple).toBeNull();
     expect(merged.trigger).toBeNull();
   });

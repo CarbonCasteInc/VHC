@@ -1,6 +1,7 @@
 import type {
   StoryClusterBundle,
   StoryClusterInputDocument,
+  StoryClusterStorylineGroup,
   StoryClusterStageId,
 } from './contracts';
 import type { DocumentType, EventTuple } from './contentSignals';
@@ -140,6 +141,7 @@ export interface PipelineState {
   documents: WorkingDocument[];
   clusters: ClusterBucket[];
   bundles: StoryClusterBundle[];
+  storylines?: StoryClusterStorylineGroup[];
   topic_state: StoredTopicState;
   stage_metrics: Partial<Record<StoryClusterStageId, Record<string, number>>>;
 }

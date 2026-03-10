@@ -3,6 +3,7 @@ import { MemoryClusterStore } from './clusterStore';
 import { StoryClusterStageError, STORYCLUSTER_STAGE_SEQUENCE, type StoryClusterInputDocument } from './contracts';
 import { runStoryClusterStagePipeline } from './stageRunner';
 import type { ClusterVectorBackend } from './vectorBackend';
+import { createDeterministicTestModelProvider } from './testModelProvider';
 
 function makeDoc(docId: string, title: string, publishedAt: number, overrides: Partial<StoryClusterInputDocument> = {}): StoryClusterInputDocument {
   return {
@@ -179,5 +180,17 @@ describe('runStoryClusterStagePipeline', () => {
         { store: new MemoryClusterStore(), vectorBackend: brokenVectorBackend },
       ),
     ).rejects.toThrow('storycluster vector backend is not ready: vector-offline');
+  });
+
+  it('uses the default store path when no store override is supplied', async () => {
+    const response = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-default-store',
+        documents: [makeDoc('doc-1', 'Port attack disrupts terminals overnight', 100, { entity_keys: ['port_attack'] })],
+      },
+      { clock: makeClock(9_000), modelProvider: createDeterministicTestModelProvider() },
+    );
+
+    expect(response.bundles).toHaveLength(1);
   });
 });
