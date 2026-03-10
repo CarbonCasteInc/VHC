@@ -233,16 +233,30 @@ describe('StoryCluster replay evidence', () => {
     expect(new Set([...anchorStoryIds.filter(Boolean), ...shadowStoryIds.filter(Boolean)]).size).toBe(2);
   });
 
-  it('keeps anchor and non-shadow contamination identities stable when the same contamination class re-enters', async () => {
-    const snapshots = await collectReplaySnapshots('replay-port-attack-market-reentry');
+  it('reuses the same split-child story id when non-shadow contamination re-enters under real replay pressure', async () => {
+    const snapshots = await collectReplaySnapshots('replay-port-attack-market-split-reuse');
     const anchorStoryIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('port_attack_market_anchor') ?? null);
     const contaminationStoryIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('market_slump_reentry') ?? null);
+    const firstContaminationStoryId = contaminationStoryIds[1];
+    const secondContaminationStoryId = contaminationStoryIds[3];
+    const finalContaminationStoryId = contaminationStoryIds[4];
+    const firstAnchorStoryId = anchorStoryIds[0];
+    const firstContaminationCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === firstContaminationStoryId);
+    const secondContaminationCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === secondContaminationStoryId);
+    const finalContaminationCluster = snapshots[4]?.clusters.find((cluster) => cluster.story_id === finalContaminationStoryId);
 
-    expect(anchorStoryIds[0]).toBeTruthy();
-    expect(new Set(anchorStoryIds.filter(Boolean))).toEqual(new Set([anchorStoryIds[0]]));
+    expect(firstAnchorStoryId).toBeTruthy();
+    expect(new Set(anchorStoryIds.filter(Boolean))).toEqual(new Set([firstAnchorStoryId]));
     expect(new Set(contaminationStoryIds.filter(Boolean)).size).toBe(1);
     expect(contaminationStoryIds.some((storyId) => storyId !== null)).toBe(true);
-    expect(new Set([...anchorStoryIds.filter(Boolean), ...contaminationStoryIds.filter(Boolean)]).size).toBe(2);
+    expect(firstContaminationStoryId).toBe(secondContaminationStoryId);
+    expect(secondContaminationStoryId).toBe(finalContaminationStoryId);
+    expect(firstContaminationCluster?.lineage.split_from).toBe(firstAnchorStoryId);
+    expect(secondContaminationCluster?.lineage.split_from).toBe(firstAnchorStoryId);
+    expect(finalContaminationCluster?.lineage.split_from).toBe(firstAnchorStoryId);
+    expect(new Set([...anchorStoryIds.filter(Boolean), ...contaminationStoryIds.filter(Boolean)])).toEqual(
+      new Set([firstAnchorStoryId, firstContaminationStoryId]),
+    );
   });
 
   it('records deterministic merge and split lineage when replayed states reconcile', async () => {

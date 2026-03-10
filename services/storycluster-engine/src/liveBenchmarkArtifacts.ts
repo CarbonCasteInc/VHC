@@ -16,7 +16,7 @@ export interface StoryClusterLiveBenchmarkArtifactIndex {
   fixture_overall: StoryClusterLiveBenchmarkReport['fixture_overall'];
   replay_overall: StoryClusterLiveBenchmarkReport['replay_overall'];
   replay_continuity: ReturnType<typeof splitReplayContinuity>;
-  replay_correction_cycles: ReturnType<typeof splitReplayCorrectionCycles>;
+  replay_topology_pressure: ReturnType<typeof splitReplayTopologyPressure>;
 }
 
 const repoRootDir = fileURLToPath(new URL('../../..', import.meta.url));
@@ -44,28 +44,31 @@ export function splitReplayContinuity(report: StoryClusterLiveBenchmarkReport) {
   };
 }
 
-export function splitReplayCorrectionCycles(report: StoryClusterLiveBenchmarkReport) {
-  const correctionScenarios = report.replay_results.filter(
+export function splitReplayTopologyPressure(report: StoryClusterLiveBenchmarkReport) {
+  const topologyPressureScenarios = report.replay_results.filter(
     (result) =>
       result.merge_lineage_count > 0 ||
       result.split_lineage_count > 0 ||
-      result.correction_cycle_count > 0,
+      result.split_pair_activation_count > 0,
   );
-  const repeatedCycleScenarios = correctionScenarios.filter(
-    (result) => result.split_child_reuse_cycle_count > 0 || result.correction_cycle_count > 1,
+  const reactivatedScenarios = topologyPressureScenarios.filter(
+    (result) => result.split_pair_reactivation_count > 0 || result.split_pair_activation_count > 1,
   );
   return {
-    scenario_count: correctionScenarios.length,
-    scenario_ids: correctionScenarios.map((result) => result.scenario_id),
-    total_merge_lineage_count: correctionScenarios.reduce((sum, result) => sum + result.merge_lineage_count, 0),
-    total_split_lineage_count: correctionScenarios.reduce((sum, result) => sum + result.split_lineage_count, 0),
-    total_cycle_count: correctionScenarios.reduce((sum, result) => sum + result.correction_cycle_count, 0),
-    total_split_child_reuse_cycle_count: correctionScenarios.reduce(
-      (sum, result) => sum + result.split_child_reuse_cycle_count,
+    scenario_count: topologyPressureScenarios.length,
+    scenario_ids: topologyPressureScenarios.map((result) => result.scenario_id),
+    total_merge_lineage_count: topologyPressureScenarios.reduce((sum, result) => sum + result.merge_lineage_count, 0),
+    total_split_lineage_count: topologyPressureScenarios.reduce((sum, result) => sum + result.split_lineage_count, 0),
+    total_split_pair_activation_count: topologyPressureScenarios.reduce(
+      (sum, result) => sum + result.split_pair_activation_count,
       0,
     ),
-    repeated_cycle_scenario_count: repeatedCycleScenarios.length,
-    repeated_cycle_scenario_ids: repeatedCycleScenarios.map((result) => result.scenario_id),
+    total_split_pair_reactivation_count: topologyPressureScenarios.reduce(
+      (sum, result) => sum + result.split_pair_reactivation_count,
+      0,
+    ),
+    reactivated_scenario_count: reactivatedScenarios.length,
+    reactivated_scenario_ids: reactivatedScenarios.map((result) => result.scenario_id),
   };
 }
 
@@ -80,7 +83,7 @@ export function buildStoryClusterLiveBenchmarkArtifactIndex(
     fixture_overall: report.fixture_overall,
     replay_overall: report.replay_overall,
     replay_continuity: splitReplayContinuity(report),
-    replay_correction_cycles: splitReplayCorrectionCycles(report),
+    replay_topology_pressure: splitReplayTopologyPressure(report),
   };
 }
 
@@ -91,7 +94,7 @@ export function resolveStoryClusterLiveBenchmarkOutputDir(outputDir: string): st
 export function renderStoryClusterLiveBenchmarkMarkdown(
   report: StoryClusterLiveBenchmarkReport,
 ): string {
-  const replayCorrectionCycles = splitReplayCorrectionCycles(report);
+  const replayTopologyPressure = splitReplayTopologyPressure(report);
   const lines = [
     '# StoryCluster Live Benchmark Report',
     '',
@@ -117,14 +120,14 @@ export function renderStoryClusterLiveBenchmarkMarkdown(
     `- split_lineage_count: ${report.replay_overall.split_lineage_count}`,
     `- failed_dataset_ids: ${report.replay_overall.failed_dataset_ids.join(', ') || 'none'}`,
     '',
-    '## Replay Correction Cycles',
+    '## Replay Topology Pressure',
     '',
-    `- scenario_count: ${replayCorrectionCycles.scenario_count}`,
-    `- total_cycle_count: ${replayCorrectionCycles.total_cycle_count}`,
-    `- total_split_child_reuse_cycle_count: ${replayCorrectionCycles.total_split_child_reuse_cycle_count}`,
-    `- repeated_cycle_scenario_count: ${replayCorrectionCycles.repeated_cycle_scenario_count}`,
-    `- scenario_ids: ${replayCorrectionCycles.scenario_ids.join(', ') || 'none'}`,
-    `- repeated_cycle_scenario_ids: ${replayCorrectionCycles.repeated_cycle_scenario_ids.join(', ') || 'none'}`,
+    `- scenario_count: ${replayTopologyPressure.scenario_count}`,
+    `- total_split_pair_activation_count: ${replayTopologyPressure.total_split_pair_activation_count}`,
+    `- total_split_pair_reactivation_count: ${replayTopologyPressure.total_split_pair_reactivation_count}`,
+    `- reactivated_scenario_count: ${replayTopologyPressure.reactivated_scenario_count}`,
+    `- scenario_ids: ${replayTopologyPressure.scenario_ids.join(', ') || 'none'}`,
+    `- reactivated_scenario_ids: ${replayTopologyPressure.reactivated_scenario_ids.join(', ') || 'none'}`,
     '',
     '## Fixture Datasets',
     '',

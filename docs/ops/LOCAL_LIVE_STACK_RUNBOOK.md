@@ -92,13 +92,13 @@ When reviewing StoryCluster release evidence:
 
 1. Read `replay_continuity.continuous` as the uninterrupted identity signal.
 2. Read `replay_continuity.reappearance` as the gap-return identity signal.
-3. Read `replay_correction_cycles` separately:
+3. Read `replay_topology_pressure` separately:
    - it reports replay scenarios that exercised merge/split lineage
    - it is the topology-repair pressure signal, not a substitute for semantic precision
 4. Do not treat low aggregate `persistence_rate` as a failure by itself if the affected scenarios are gap-return reappearance scenarios and `reappearance_rate` remains within threshold.
 5. The active deterministic replay corpus now includes explicit topology-pressure scenarios:
-   - zero `replay_correction_cycles.total_cycle_count` is a regression in replay coverage
-   - zero `replay_correction_cycles.repeated_cycle_scenario_count` means repeated correction pressure was not exercised and should be treated as a release-evidence failure
+   - zero `replay_topology_pressure.total_split_pair_activation_count` is a regression in replay coverage
+   - zero `replay_topology_pressure.reactivated_scenario_count` means repeated split-pair pressure was not exercised and should be treated as a release-evidence failure
 
 ## Notes
 

@@ -8,7 +8,7 @@ import {
   buildStoryClusterLiveBenchmarkArtifactIndex,
   renderStoryClusterLiveBenchmarkMarkdown,
   resolveStoryClusterLiveBenchmarkOutputDir,
-  splitReplayCorrectionCycles,
+  splitReplayTopologyPressure,
   splitReplayContinuity,
   writeStoryClusterLiveBenchmarkArtifacts,
 } from './liveBenchmarkArtifacts';
@@ -68,8 +68,8 @@ function makeReport(failedDatasetIds: string[] = []): StoryClusterLiveBenchmarkR
         reappearance_retained: 0,
         merge_lineage_count: 0,
         split_lineage_count: 0,
-        correction_cycle_count: 0,
-        split_child_reuse_cycle_count: 0,
+        split_pair_activation_count: 0,
+        split_pair_reactivation_count: 0,
         run_latency_ms: 20,
       },
       {
@@ -94,8 +94,8 @@ function makeReport(failedDatasetIds: string[] = []): StoryClusterLiveBenchmarkR
         reappearance_retained: 1,
         merge_lineage_count: 1,
         split_lineage_count: 1,
-        correction_cycle_count: 1,
-        split_child_reuse_cycle_count: 0,
+        split_pair_activation_count: 1,
+        split_pair_reactivation_count: 0,
         run_latency_ms: 25,
       },
     ],
@@ -120,8 +120,8 @@ function makeReport(failedDatasetIds: string[] = []): StoryClusterLiveBenchmarkR
       reappearance_retained: 1,
       merge_lineage_count: 1,
       split_lineage_count: 1,
-      correction_cycle_count: 1,
-      split_child_reuse_cycle_count: 0,
+      split_pair_activation_count: 1,
+      split_pair_reactivation_count: 0,
     },
     corpus: {
       fixture_dataset_count: 1,
@@ -177,7 +177,7 @@ describe('live benchmark artifacts', () => {
     });
   });
 
-  it('summarizes correction cycles from replay lineage counts', () => {
+  it('summarizes topology pressure from replay lineage counts', () => {
     const report = makeReport();
     report.replay_results = [
       report.replay_results[0]!,
@@ -186,28 +186,28 @@ describe('live benchmark artifacts', () => {
         scenario_id: 'replay-correction-a',
         merge_lineage_count: 2,
         split_lineage_count: 3,
-        correction_cycle_count: 3,
-        split_child_reuse_cycle_count: 1,
+        split_pair_activation_count: 3,
+        split_pair_reactivation_count: 1,
       },
       {
         ...report.replay_results[1]!,
         scenario_id: 'replay-correction-b',
         merge_lineage_count: 1,
         split_lineage_count: 1,
-        correction_cycle_count: 1,
-        split_child_reuse_cycle_count: 0,
+        split_pair_activation_count: 1,
+        split_pair_reactivation_count: 0,
       },
     ];
 
-    expect(splitReplayCorrectionCycles(report)).toEqual({
+    expect(splitReplayTopologyPressure(report)).toEqual({
       scenario_count: 2,
       scenario_ids: ['replay-correction-a', 'replay-correction-b'],
       total_merge_lineage_count: 3,
       total_split_lineage_count: 4,
-      total_cycle_count: 4,
-      total_split_child_reuse_cycle_count: 1,
-      repeated_cycle_scenario_count: 1,
-      repeated_cycle_scenario_ids: ['replay-correction-a'],
+      total_split_pair_activation_count: 4,
+      total_split_pair_reactivation_count: 1,
+      reactivated_scenario_count: 1,
+      reactivated_scenario_ids: ['replay-correction-a'],
     });
   });
 
@@ -222,7 +222,7 @@ describe('live benchmark artifacts', () => {
     expect(successMarkdown).toContain('persistence_rate: 1');
     expect(successMarkdown).toContain('reappearance_rate: 1');
     expect(successMarkdown).toContain('merge_lineage_count: 1');
-    expect(successMarkdown).toContain('total_split_child_reuse_cycle_count: 0');
+    expect(successMarkdown).toContain('total_split_pair_reactivation_count: 0');
     expect(successMarkdown).toContain('splits=1');
 
     const outputDir = mkdtempSync(join(tmpdir(), 'storycluster-live-benchmark-'));
@@ -245,36 +245,36 @@ describe('live benchmark artifacts', () => {
     expect(index.replay_continuity.reappearance.min_reappearance_rate).toBe(1);
     expect(index.replay_continuity.reappearance.total_observations).toBe(1);
     expect((index as {
-      replay_correction_cycles: {
-        total_cycle_count: number;
-        total_split_child_reuse_cycle_count: number;
-        repeated_cycle_scenario_count: number;
+      replay_topology_pressure: {
+        total_split_pair_activation_count: number;
+        total_split_pair_reactivation_count: number;
+        reactivated_scenario_count: number;
       };
-    }).replay_correction_cycles.total_cycle_count).toBe(1);
+    }).replay_topology_pressure.total_split_pair_activation_count).toBe(1);
     expect((index as {
-      replay_correction_cycles: {
-        total_cycle_count: number;
-        total_split_child_reuse_cycle_count: number;
-        repeated_cycle_scenario_count: number;
+      replay_topology_pressure: {
+        total_split_pair_activation_count: number;
+        total_split_pair_reactivation_count: number;
+        reactivated_scenario_count: number;
       };
-    }).replay_correction_cycles.total_split_child_reuse_cycle_count).toBe(0);
+    }).replay_topology_pressure.total_split_pair_reactivation_count).toBe(0);
     expect((index as {
-      replay_correction_cycles: {
-        total_cycle_count: number;
-        total_split_child_reuse_cycle_count: number;
-        repeated_cycle_scenario_count: number;
+      replay_topology_pressure: {
+        total_split_pair_activation_count: number;
+        total_split_pair_reactivation_count: number;
+        reactivated_scenario_count: number;
       };
-    }).replay_correction_cycles.repeated_cycle_scenario_count).toBe(0);
+    }).replay_topology_pressure.reactivated_scenario_count).toBe(0);
   });
 
-  it('renders none markers when no correction-cycle scenarios are present', () => {
+  it('renders none markers when no topology-pressure scenarios are present', () => {
     const report = makeReport();
     report.replay_results = [report.replay_results[0]!];
 
     const markdown = renderStoryClusterLiveBenchmarkMarkdown(report);
 
     expect(markdown).toContain('scenario_ids: none');
-    expect(markdown).toContain('repeated_cycle_scenario_ids: none');
+    expect(markdown).toContain('reactivated_scenario_ids: none');
   });
 
   it('builds a release artifact index with replay continuity split', () => {

@@ -70,11 +70,11 @@ Current truth for the news bundler and feed hardening lane:
   - `replay_continuity`
     - `continuous`: scenarios that never drop out of emitted bundles and must preserve `persistence_rate`
     - `reappearance`: scenarios that intentionally disappear and return and must preserve `reappearance_rate`
-  - `replay_correction_cycles`
+  - `replay_topology_pressure`
     - counts replay scenarios where merge/split lineage is observed
     - tracks total merge lineage, split lineage, and repeated correction-cycle scenarios separately from continuity
 - The active deterministic replay corpus now includes explicit topology-pressure scenarios, so:
-  - zero `replay_correction_cycles.total_cycle_count` is now a replay-coverage regression
+  - zero `replay_topology_pressure.total_split_pair_activation_count` is now a replay-coverage regression
   - repeated-cycle scenarios are expected to appear in release evidence, not just isolated lifecycle tests
 - Release reviewers should not collapse these into one number:
   - low overall `persistence_rate` is expected in gap-return scenarios and must be read together with `reappearance_rate`

@@ -14,10 +14,10 @@ import {
   type StoryClusterRemoteResponse,
 } from './remoteContract';
 import {
-  aggregateReplayTopologyCycles,
-  createReplayTopologyCycleTracker,
-  observeReplayTopologyTick,
-  summarizeReplayTopologyCycles,
+  aggregateReplayTopologyPressure,
+  createReplayTopologyPressureTracker,
+  observeReplayTopologyPressureTick,
+  summarizeReplayTopologyPressure,
 } from './liveBenchmarkReplayTopology';
 import {
   aggregateReplayContinuity,
@@ -42,8 +42,8 @@ export interface StoryClusterReplayBenchmarkResult extends StoryClusterCoherence
   reappearance_retained: number;
   merge_lineage_count: number;
   split_lineage_count: number;
-  correction_cycle_count: number;
-  split_child_reuse_cycle_count: number;
+  split_pair_activation_count: number;
+  split_pair_reactivation_count: number;
   run_latency_ms: number;
 }
 
@@ -75,8 +75,8 @@ export interface StoryClusterLiveBenchmarkReport {
     reappearance_retained: number;
     merge_lineage_count: number;
     split_lineage_count: number;
-    correction_cycle_count: number;
-    split_child_reuse_cycle_count: number;
+    split_pair_activation_count: number;
+    split_pair_reactivation_count: number;
   };
   corpus: {
     fixture_dataset_count: number;
@@ -206,7 +206,7 @@ async function runReplayScenario(
   const store = storeFactory();
   const expectedByKey = new Map<string, string>();
   const continuity = createReplayContinuityTracker();
-  const topologyCycles = createReplayTopologyCycleTracker();
+  const topologyPressure = createReplayTopologyPressureTracker();
   const mergeLineage = new Set<string>();
   const splitLineage = new Set<string>();
 
@@ -234,7 +234,7 @@ async function runReplayScenario(
         splitLineage.add(`${cluster.story_id}->${cluster.lineage.split_from}`);
       }
     }
-    observeReplayTopologyTick(topologyCycles, topicState.clusters);
+    observeReplayTopologyPressureTick(topologyPressure, topicState.clusters);
     const bundles = response.bundles;
     const currentStoryByEvent = new Map<string, string | null>();
     for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, expectedByKey)) {
@@ -257,14 +257,14 @@ async function runReplayScenario(
     thresholds,
   );
   const continuityTotals = summarizeReplayContinuity(continuity);
-  const topologyCycleTotals = summarizeReplayTopologyCycles(topologyCycles);
+  const topologyPressureTotals = summarizeReplayTopologyPressure(topologyPressure);
 
   return {
     ...result,
     scenario_id: scenario.scenario_id,
     tick_count: scenario.ticks.length,
     ...continuityTotals,
-    ...topologyCycleTotals,
+    ...topologyPressureTotals,
     merge_lineage_count: mergeLineage.size,
     split_lineage_count: splitLineage.size,
     run_latency_ms: Math.max(0, now() - startedAt),
@@ -304,7 +304,7 @@ export async function runStoryClusterLiveBenchmark(
   const fixtureOverall = aggregateResults(fixtureResults);
   const replayAggregate = aggregateResults(replayResults);
   const continuityTotals = aggregateReplayContinuity(replayResults);
-  const topologyCycleTotals = aggregateReplayTopologyCycles(replayResults);
+  const topologyPressureTotals = aggregateReplayTopologyPressure(replayResults);
   const mergeLineageCount = replayResults.reduce((total, result) => total + result.merge_lineage_count, 0);
   const splitLineageCount = replayResults.reduce((total, result) => total + result.split_lineage_count, 0);
 
@@ -319,7 +319,7 @@ export async function runStoryClusterLiveBenchmark(
     replay_overall: {
       ...replayAggregate,
       ...continuityTotals,
-      ...topologyCycleTotals,
+      ...topologyPressureTotals,
       merge_lineage_count: mergeLineageCount,
       split_lineage_count: splitLineageCount,
     },

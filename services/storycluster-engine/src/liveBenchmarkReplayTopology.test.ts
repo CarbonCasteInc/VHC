@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryClusterStore } from './clusterStore';
 import {
-  createReplayTopologyCycleTracker,
-  observeReplayTopologyTick,
+  createReplayTopologyPressureTracker,
+  observeReplayTopologyPressureTick,
   replaceReplayTopicWithSeedClusters,
-  summarizeReplayTopologyCycles,
+  summarizeReplayTopologyPressure,
 } from './liveBenchmarkReplayTopology';
 
 describe('StoryCluster replay topology seeding', () => {
@@ -102,21 +102,21 @@ describe('StoryCluster replay topology seeding', () => {
     expect(source?.text).toBe('Markets slide after the overnight strike. Markets slide after the overnight strike');
   });
 
-  it('tracks repeated split-child reuse cycles without double-counting unchanged active pairs', () => {
-    const tracker = createReplayTopologyCycleTracker();
+  it('tracks repeated split-pair reactivations without double-counting unchanged active pairs', () => {
+    const tracker = createReplayTopologyPressureTracker();
     const clusters = [
       { story_id: 'story-anchor', lineage: { merged_from: [] } },
       { story_id: 'story-market-child', lineage: { split_from: 'story-anchor', merged_from: [] } },
     ] as const;
 
-    observeReplayTopologyTick(tracker, clusters as never);
-    observeReplayTopologyTick(tracker, clusters as never);
-    observeReplayTopologyTick(tracker, [] as never);
-    observeReplayTopologyTick(tracker, clusters as never);
+    observeReplayTopologyPressureTick(tracker, clusters as never);
+    observeReplayTopologyPressureTick(tracker, clusters as never);
+    observeReplayTopologyPressureTick(tracker, [] as never);
+    observeReplayTopologyPressureTick(tracker, clusters as never);
 
-    expect(summarizeReplayTopologyCycles(tracker)).toEqual({
-      correction_cycle_count: 2,
-      split_child_reuse_cycle_count: 1,
+    expect(summarizeReplayTopologyPressure(tracker)).toEqual({
+      split_pair_activation_count: 2,
+      split_pair_reactivation_count: 1,
     });
   });
 });

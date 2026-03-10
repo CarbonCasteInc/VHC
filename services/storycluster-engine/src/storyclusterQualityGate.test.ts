@@ -113,7 +113,6 @@ describe('StoryCluster quality gate', () => {
       (dataset) => dataset.reappearance_observations === 0 && dataset.persistence_observations > 0,
     );
     const reappearanceReplayResults = report.replay_results.filter((dataset) => dataset.reappearance_observations > 0);
-
     expect(report.replay_overall.failed_dataset_ids).toEqual([]);
     expect(report.replay_overall.max_contamination_rate).toBeLessThanOrEqual(
       STORYCLUSTER_BENCHMARK_CORPUS.replayThresholds.max_contamination_rate,
@@ -129,18 +128,21 @@ describe('StoryCluster quality gate', () => {
     expect(reappearanceReplayResults.length).toBeGreaterThan(0);
     expect(report.replay_overall.reappearance_observations).toBeGreaterThan(0);
     expect(report.replay_overall.reappearance_rate).toBeGreaterThanOrEqual(0.99);
+    expect(
+      report.replay_results.find((dataset) => dataset.scenario_id === 'replay-port-attack-market-split-reuse')?.split_lineage_count,
+    ).toBeGreaterThan(0);
     expect(report.replay_overall.merge_lineage_count).toBeGreaterThan(0);
     expect(report.replay_overall.split_lineage_count).toBeGreaterThan(0);
-    expect(artifactIndex.replay_correction_cycles.total_cycle_count).toBeGreaterThan(0);
-    expect(artifactIndex.replay_correction_cycles.total_split_child_reuse_cycle_count).toBeGreaterThan(0);
-    expect(artifactIndex.replay_correction_cycles.repeated_cycle_scenario_count).toBeGreaterThan(0);
+    expect(artifactIndex.replay_topology_pressure.total_split_pair_activation_count).toBeGreaterThan(0);
+    expect(artifactIndex.replay_topology_pressure.total_split_pair_reactivation_count).toBeGreaterThan(0);
+    expect(artifactIndex.replay_topology_pressure.reactivated_scenario_count).toBeGreaterThan(0);
 
     console.log(
       JSON.stringify(
         {
           benchmark: 'replay-suite',
           aggregate: report.replay_overall,
-          replay_correction_cycles: artifactIndex.replay_correction_cycles,
+          replay_topology_pressure: artifactIndex.replay_topology_pressure,
           datasets: report.replay_results.map((dataset) => ({
             dataset_id: dataset.dataset_id,
             contamination_rate: dataset.contamination_rate,

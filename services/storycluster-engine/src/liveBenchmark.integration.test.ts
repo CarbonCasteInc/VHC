@@ -37,9 +37,9 @@ describe('StoryCluster live benchmark', () => {
       report,
       artifactPaths ?? {},
     );
-    expect(releaseArtifactIndex.replay_correction_cycles.total_cycle_count).toBeGreaterThan(0);
-    expect(releaseArtifactIndex.replay_correction_cycles.total_split_child_reuse_cycle_count).toBeGreaterThan(0);
-    expect(releaseArtifactIndex.replay_correction_cycles.repeated_cycle_scenario_count).toBeGreaterThan(0);
+    expect(releaseArtifactIndex.replay_topology_pressure.total_split_pair_activation_count).toBeGreaterThan(0);
+    expect(releaseArtifactIndex.replay_topology_pressure.total_split_pair_reactivation_count).toBeGreaterThan(0);
+    expect(releaseArtifactIndex.replay_topology_pressure.reactivated_scenario_count).toBeGreaterThan(0);
 
     console.log(JSON.stringify({
       schema_version: report.schema_version,
@@ -47,7 +47,7 @@ describe('StoryCluster live benchmark', () => {
       fixture_overall: report.fixture_overall,
       replay_overall: report.replay_overall,
       replay_continuity: releaseArtifactIndex.replay_continuity,
-      replay_correction_cycles: releaseArtifactIndex.replay_correction_cycles,
+      replay_topology_pressure: releaseArtifactIndex.replay_topology_pressure,
       artifact_paths: artifactPaths,
       release_artifact_index: releaseArtifactIndex,
     }, null, 2));

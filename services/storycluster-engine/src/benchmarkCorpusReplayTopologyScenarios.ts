@@ -3,8 +3,8 @@ import { replaceReplayTopicWithSeedClusters } from './liveBenchmarkReplayTopolog
 
 export const STORYCLUSTER_REPLAY_TOPOLOGY_SCENARIOS: StoryClusterReplayScenario[] = [
   {
-    scenario_id: 'replay-topology-correction-cycles',
-    topic_id: 'replay-topology-correction-cycles',
+    scenario_id: 'replay-topology-pressure-port-attack',
+    topic_id: 'replay-topology-pressure-port-attack',
     ticks: [[], [], [], []],
     before_tick: async ({ tick_index, store, topic_id }) => {
       if (tick_index === 0) {
@@ -190,8 +190,8 @@ export const STORYCLUSTER_REPLAY_TOPOLOGY_SCENARIOS: StoryClusterReplayScenario[
     },
   },
   {
-    scenario_id: 'replay-topology-market-reentry-cycles',
-    topic_id: 'replay-topology-market-reentry-cycles',
+    scenario_id: 'replay-topology-pressure-market-shadow',
+    topic_id: 'replay-topology-pressure-market-shadow',
     ticks: [[], [], [], []],
     before_tick: async ({ tick_index, store, topic_id }) => {
       if (tick_index === 0) {

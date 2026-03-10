@@ -6,16 +6,16 @@ import { sha256Hex } from './hashUtils';
 import type { StoredClusterRecord, StoredSourceDocument, StoredTopicState } from './stageState';
 import { createHashedVector, ensureSentence } from './textSignals';
 
-export interface ReplayTopologyCycleCounts {
-  correction_cycle_count: number;
-  split_child_reuse_cycle_count: number;
+export interface ReplayTopologyPressureCounts {
+  split_pair_activation_count: number;
+  split_pair_reactivation_count: number;
 }
 
-interface ReplayTopologyCycleTracker {
+interface ReplayTopologyPressureTracker {
   active_pairs: Set<string>;
   seen_pairs: Set<string>;
-  correction_cycle_count: number;
-  split_child_reuse_cycle_count: number;
+  split_pair_activation_count: number;
+  split_pair_reactivation_count: number;
 }
 
 export interface ReplaySeedSourceSpec {
@@ -118,17 +118,17 @@ export function replaceReplayTopicWithSeedClusters(
   store.saveTopic(topicState);
 }
 
-export function createReplayTopologyCycleTracker(): ReplayTopologyCycleTracker {
+export function createReplayTopologyPressureTracker(): ReplayTopologyPressureTracker {
   return {
     active_pairs: new Set<string>(),
     seen_pairs: new Set<string>(),
-    correction_cycle_count: 0,
-    split_child_reuse_cycle_count: 0,
+    split_pair_activation_count: 0,
+    split_pair_reactivation_count: 0,
   };
 }
 
-export function observeReplayTopologyTick(
-  tracker: ReplayTopologyCycleTracker,
+export function observeReplayTopologyPressureTick(
+  tracker: ReplayTopologyPressureTracker,
   clusters: readonly StoredClusterRecord[],
 ): void {
   const nextActivePairs = new Set(
@@ -139,9 +139,9 @@ export function observeReplayTopologyTick(
     if (tracker.active_pairs.has(pair)) {
       continue;
     }
-    tracker.correction_cycle_count += 1;
+    tracker.split_pair_activation_count += 1;
     if (tracker.seen_pairs.has(pair)) {
-      tracker.split_child_reuse_cycle_count += 1;
+      tracker.split_pair_reactivation_count += 1;
     }
     tracker.seen_pairs.add(pair);
   }
@@ -149,20 +149,20 @@ export function observeReplayTopologyTick(
   tracker.active_pairs = nextActivePairs;
 }
 
-export function summarizeReplayTopologyCycles(
-  tracker: ReplayTopologyCycleTracker,
-): ReplayTopologyCycleCounts {
+export function summarizeReplayTopologyPressure(
+  tracker: ReplayTopologyPressureTracker,
+): ReplayTopologyPressureCounts {
   return {
-    correction_cycle_count: tracker.correction_cycle_count,
-    split_child_reuse_cycle_count: tracker.split_child_reuse_cycle_count,
+    split_pair_activation_count: tracker.split_pair_activation_count,
+    split_pair_reactivation_count: tracker.split_pair_reactivation_count,
   };
 }
 
-export function aggregateReplayTopologyCycles<
-  T extends ReplayTopologyCycleCounts,
->(results: readonly T[]): ReplayTopologyCycleCounts {
+export function aggregateReplayTopologyPressure<
+  T extends ReplayTopologyPressureCounts,
+>(results: readonly T[]): ReplayTopologyPressureCounts {
   return {
-    correction_cycle_count: results.reduce((sum, result) => sum + result.correction_cycle_count, 0),
-    split_child_reuse_cycle_count: results.reduce((sum, result) => sum + result.split_child_reuse_cycle_count, 0),
+    split_pair_activation_count: results.reduce((sum, result) => sum + result.split_pair_activation_count, 0),
+    split_pair_reactivation_count: results.reduce((sum, result) => sum + result.split_pair_reactivation_count, 0),
   };
 }
