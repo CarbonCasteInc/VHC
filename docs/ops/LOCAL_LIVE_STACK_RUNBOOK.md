@@ -67,6 +67,25 @@ Use this checklist during manual browser validation:
 8. Analysis persists across tabs/browsers.
 9. Vote aggregates update and persist across users.
 
+## Release Gate Wiring
+
+Current release-gate split for StoryCluster and feed correctness:
+
+1. Blocking pre-merge / pre-release gate:
+   - `pnpm test:storycluster:gates`
+2. The blocking gate is sequential and fixture-backed:
+   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
+   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
+3. These gates still exercise the production stack shape:
+   - daemon
+   - relay
+   - StoryCluster
+   - web app
+4. Public semantic validation remains non-blocking smoke:
+   - `pnpm test:storycluster:smoke`
+5. Public smoke failures caused by insufficient auditable live bundles do not block merge/release by themselves; they must still be reviewed as evidence artifacts.
+6. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
+
 ## Notes
 
 - Logs:

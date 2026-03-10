@@ -488,15 +488,27 @@ Scope:
 
 1. run full benchmark suite;
 2. run replay suite;
-3. run daemon-first live semantic audit;
-4. run analysis and vote persistence suite;
-5. publish final evidence packet and strict requirement matrix.
+3. run the blocking fixture-backed daemon-first gates via `pnpm test:storycluster:gates`;
+4. run the public semantic smoke lane via `pnpm test:storycluster:smoke`;
+5. run analysis and vote persistence suite;
+6. publish final evidence packet and strict requirement matrix.
+
+Workflow notes:
+
+1. the authoritative pre-merge / pre-release gate is the fixture-backed daemon-first pair:
+   - integrity gate
+   - semantic gate
+2. public-feed semantic soak is required evidence, but not the sole blocker while live public bundle density remains volatile;
+3. if CI cannot execute the live daemon-first gate stack in a provisioned environment, the release owner must run `pnpm test:storycluster:gates` manually and attach the resulting artifact paths.
 
 Acceptance:
 
 1. all gates in the canonical execution plan pass;
 2. closure packet maps requirement -> file -> test -> artifact -> PASS/FAIL;
-3. no docs overstate completion.
+3. no docs overstate completion;
+4. the release packet explicitly distinguishes:
+   - blocking fixture-backed gate evidence
+   - non-blocking public smoke/soak evidence
 
 Dependencies:
 

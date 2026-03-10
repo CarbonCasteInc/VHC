@@ -180,6 +180,15 @@ Required document classes:
 8. `opinion`
 9. `video_clip`
 
+Implementation taxonomy note:
+
+1. the canonical planning vocabulary is the list above;
+2. the current codebase still uses a small number of implementation aliases:
+   - `wire_report` = canonical `wire`
+   - `explainer_recap` = canonical `explainer`
+3. docs, benchmark reports, and release gates should normalize to the canonical vocabulary unless they are discussing the code enum directly;
+4. no additional aliasing should be introduced without updating this section and the fixture corpus.
+
 Seeding rules:
 
 1. only `wire`, `hard_news`, and `breaking_update` may seed new `EventCluster`s;
