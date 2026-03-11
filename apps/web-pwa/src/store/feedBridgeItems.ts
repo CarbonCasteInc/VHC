@@ -49,7 +49,9 @@ export function storyBundleToFeedItem(
 ): FeedItem {
   const normalizedStorylineId = bundle.storyline_id?.trim();
   const storylineEntityKeys =
-    (normalizedStorylineId && storylinesById[normalizedStorylineId]?.entity_keys) ??
+    (normalizedStorylineId
+      ? storylinesById[normalizedStorylineId]?.entity_keys
+      : undefined) ??
     bundle.cluster_features.entity_keys;
 
   return {

@@ -162,7 +162,9 @@ function storyToDiscoveryItem(
 ): FeedItem {
   const normalizedStorylineId = story.storyline_id?.trim();
   const entityKeys =
-    (normalizedStorylineId && storylinesById[normalizedStorylineId]?.entity_keys) ??
+    (normalizedStorylineId
+      ? storylinesById[normalizedStorylineId]?.entity_keys
+      : undefined) ??
     story.cluster_features.entity_keys;
 
   return {
