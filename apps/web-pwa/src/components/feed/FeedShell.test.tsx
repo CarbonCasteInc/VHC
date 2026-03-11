@@ -8,7 +8,10 @@ import { FeedShell } from './FeedShell';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import type { FeedItem } from '@vh/data-model';
 
-// Mock @tanstack/react-router Link to avoid needing full router context
+const mockNavigate = vi.fn();
+let mockSearch: Record<string, unknown> = {};
+
+// Mock @tanstack/react-router hooks to avoid needing full router context
 vi.mock('@tanstack/react-router', () => ({
   Link: React.forwardRef<HTMLAnchorElement, any>(
     ({ children, to, params, ...rest }, ref) => (
@@ -17,6 +20,13 @@ vi.mock('@tanstack/react-router', () => ({
       </a>
     ),
   ),
+  useRouter: () => ({ navigate: mockNavigate }),
+  useRouterState: () => ({
+    location: {
+      pathname: '/',
+      search: mockSearch,
+    },
+  }),
 }));
 
 // Mock useStoryRemoval so NewsCardWithRemoval doesn't need a real Gun client
@@ -73,7 +83,11 @@ function makeFeedResult(
 }
 
 describe('FeedShell', () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    mockNavigate.mockReset();
+    mockSearch = {};
+  });
 
   // ---- Rendering structure ----
 

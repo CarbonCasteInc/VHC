@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useRouterState } from '@tanstack/react-router';
 import { useStore } from 'zustand';
 import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
@@ -13,6 +14,36 @@ import { StorylineFocusPanel } from './StorylineFocusPanel';
 
 const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
+
+function normalizeStorylineSearchValue(search: unknown): string | null {
+  if (!search || typeof search !== 'object') {
+    return null;
+  }
+
+  const candidate = (search as { storyline?: unknown }).storyline;
+  if (typeof candidate !== 'string') {
+    return null;
+  }
+
+  const normalized = candidate.trim();
+  return normalized ? normalized : null;
+}
+
+function buildStorylineSearch(
+  search: unknown,
+  selectedStorylineId: string | null,
+): Record<string, unknown> {
+  const nextSearch =
+    search && typeof search === 'object' ? { ...(search as Record<string, unknown>) } : {};
+
+  if (selectedStorylineId) {
+    nextSearch.storyline = selectedStorylineId;
+    return nextSearch;
+  }
+
+  delete nextSearch.storyline;
+  return nextSearch;
+}
 
 export interface FeedShellProps {
   /** Discovery feed hook result (injected for testability). */
@@ -29,6 +60,8 @@ export interface FeedShellProps {
  * Spec: docs/specs/spec-topic-discovery-ranking-v0.md §2
  */
 export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
+  const router = useRouter();
+  const { location } = useRouterState();
   const {
     feed,
     selectedStorylineId,
@@ -37,6 +70,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     loading,
     error,
     setFilter,
+    focusStoryline,
     clearStorylineFocus,
     setSortMode,
   } = feedResult;
@@ -54,9 +88,12 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const lastModeRef = useRef<{ filter: typeof filter; sortMode: typeof sortMode } | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const pullTriggeredRef = useRef(false);
+  const previousSearchStorylineIdRef = useRef<string | null>(null);
+  const hydratingFromRouteRef = useRef(false);
   const [isNearTop, setIsNearTop] = useState(true);
   const [hasDeferredUpdates, setHasDeferredUpdates] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const searchStorylineId = normalizeStorylineSearchValue(location.search);
   const focusedStoryline = selectedStorylineId
     ? storylinesById[selectedStorylineId] ?? null
     : null;
@@ -95,6 +132,49 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       setRefreshing(false);
     }
   }, [applyDeferredFeed, refreshLatest, refreshing]);
+
+  useEffect(() => {
+    const previousSearchStorylineId = previousSearchStorylineIdRef.current;
+    previousSearchStorylineIdRef.current = searchStorylineId;
+
+    if (searchStorylineId === selectedStorylineId) {
+      hydratingFromRouteRef.current = false;
+      return;
+    }
+
+    const searchChanged = previousSearchStorylineId !== searchStorylineId;
+    if (!searchChanged) {
+      return;
+    }
+
+    hydratingFromRouteRef.current = true;
+    if (searchStorylineId) {
+      focusStoryline(searchStorylineId);
+      return;
+    }
+
+    clearStorylineFocus();
+  }, [clearStorylineFocus, focusStoryline, searchStorylineId, selectedStorylineId]);
+
+  useEffect(() => {
+    if (hydratingFromRouteRef.current) {
+      if (searchStorylineId === selectedStorylineId) {
+        hydratingFromRouteRef.current = false;
+      }
+      return;
+    }
+
+    if (searchStorylineId === selectedStorylineId) {
+      return;
+    }
+
+    const nextSearch = buildStorylineSearch(location.search, selectedStorylineId);
+    void router.navigate({
+      to: location.pathname,
+      search: nextSearch as never,
+      replace: true,
+    });
+  }, [location.pathname, location.search, router, searchStorylineId, selectedStorylineId]);
 
   useEffect(() => {
     const updateNearTop = () => {

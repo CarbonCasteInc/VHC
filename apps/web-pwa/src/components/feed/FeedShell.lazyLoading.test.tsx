@@ -9,7 +9,10 @@ import { FEED_PAGE_SIZE, useFeedStore } from '../../hooks/useFeedStore';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { FeedShell } from './FeedShell';
 
-// Mock @tanstack/react-router Link to avoid needing full router context
+const mockNavigate = vi.fn();
+let mockSearch: Record<string, unknown> = {};
+
+// Mock @tanstack/react-router hooks to avoid needing full router context
 vi.mock('@tanstack/react-router', () => ({
   Link: React.forwardRef<HTMLAnchorElement, any>(
     ({ children, to, params, ...rest }, ref) => (
@@ -18,6 +21,13 @@ vi.mock('@tanstack/react-router', () => ({
       </a>
     ),
   ),
+  useRouter: () => ({ navigate: mockNavigate }),
+  useRouterState: () => ({
+    location: {
+      pathname: '/',
+      search: mockSearch,
+    },
+  }),
 }));
 
 // Mock useStoryRemoval so NewsCardWithRemoval doesn't need a real Gun client
@@ -102,6 +112,8 @@ describe('FeedShell lazy loading', () => {
     vi.unstubAllGlobals();
     vi.useRealTimers();
     intersectionCallback = null;
+    mockNavigate.mockReset();
+    mockSearch = {};
   });
 
   it('renders first page, then appends on sentinel intersection', () => {
