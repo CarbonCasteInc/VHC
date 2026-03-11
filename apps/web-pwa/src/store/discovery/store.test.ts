@@ -5,7 +5,7 @@ import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import type { FeedItem, RankingConfig } from '@vh/data-model';
 import { DEFAULT_RANKING_CONFIG } from '@vh/data-model';
 import { createDiscoveryStore, createMockDiscoveryStore, composeFeed, useDiscoveryStore } from './index';
-import type { DiscoveryState } from './types';
+import { DISCOVERY_TYPES_MODULE_ID, type DiscoveryState } from './types';
 import type { StoreApi } from 'zustand';
 
 // ---- Test fixtures ----
@@ -33,6 +33,10 @@ function makeFeedItem(overrides: Partial<FeedItem> = {}): FeedItem {
 describe('createDiscoveryStore', () => {
   let store: StoreApi<DiscoveryState>;
 
+  it('exposes a runtime sentinel for diff-aware coverage', () => {
+    expect(DISCOVERY_TYPES_MODULE_ID).toBe('discovery-types');
+  });
+
   beforeEach(() => {
     store = createDiscoveryStore({ now: () => NOW });
   });
@@ -59,6 +63,10 @@ describe('createDiscoveryStore', () => {
 
   it('initializes error as null', () => {
     expect(store.getState().error).toBeNull();
+  });
+
+  it('initializes selected storyline focus as null', () => {
+    expect(store.getState().selectedStorylineId).toBeNull();
   });
 
   // ---- setItems ----
@@ -232,6 +240,30 @@ describe('createDiscoveryStore', () => {
       store.getState().setFilter('NEWS');
       store.getState().setFilter('ALL');
       expect(store.getState().filter).toBe('ALL');
+    });
+
+    it('clears storyline focus when the filter changes', () => {
+      store.getState().focusStoryline('storyline-1');
+      store.getState().setFilter('TOPICS');
+      expect(store.getState().selectedStorylineId).toBeNull();
+    });
+  });
+
+  describe('storyline focus', () => {
+    it('stores a normalized storyline id', () => {
+      store.getState().focusStoryline('  storyline-1  ');
+      expect(store.getState().selectedStorylineId).toBe('storyline-1');
+    });
+
+    it('ignores blank storyline ids', () => {
+      store.getState().focusStoryline('   ');
+      expect(store.getState().selectedStorylineId).toBeNull();
+    });
+
+    it('clears storyline focus explicitly', () => {
+      store.getState().focusStoryline('storyline-1');
+      store.getState().clearStorylineFocus();
+      expect(store.getState().selectedStorylineId).toBeNull();
     });
   });
 

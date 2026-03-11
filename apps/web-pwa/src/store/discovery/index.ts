@@ -16,7 +16,13 @@ export { composeFeed, computeHotness, filterItems, sortItems } from './ranking';
 
 const INITIAL_STATE: Pick<
   DiscoveryState,
-  'items' | 'filter' | 'sortMode' | 'rankingConfig' | 'loading' | 'error'
+  | 'items'
+  | 'filter'
+  | 'sortMode'
+  | 'rankingConfig'
+  | 'loading'
+  | 'error'
+  | 'selectedStorylineId'
 > = {
   items: [],
   filter: 'ALL',
@@ -24,6 +30,7 @@ const INITIAL_STATE: Pick<
   rankingConfig: { ...DEFAULT_RANKING_CONFIG },
   loading: false,
   error: null,
+  selectedStorylineId: null,
 };
 
 // ---- Helpers ----
@@ -98,7 +105,19 @@ export function createDiscoveryStore(
     },
 
     setFilter(filter: FilterChip) {
-      set({ filter });
+      set({ filter, selectedStorylineId: null });
+    },
+
+    focusStoryline(storylineId: string) {
+      const normalizedStorylineId = storylineId.trim();
+      if (!normalizedStorylineId) {
+        return;
+      }
+      set({ selectedStorylineId: normalizedStorylineId, error: null });
+    },
+
+    clearStorylineFocus() {
+      set({ selectedStorylineId: null });
     },
 
     setSortMode(mode: SortMode) {

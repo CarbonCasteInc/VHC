@@ -5,6 +5,7 @@ import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem, StoryBundle, StorylineGroup } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
+import { useDiscoveryStore } from '../../store/discovery';
 import { useSynthesisStore } from '../../store/synthesis';
 import { NewsCard } from './NewsCard';
 
@@ -88,6 +89,7 @@ function makeStoryline(overrides: Partial<StorylineGroup> = {}): StorylineGroup 
 describe('NewsCard related coverage', () => {
   beforeEach(() => {
     useNewsStore.getState().reset();
+    useDiscoveryStore.getState().reset();
     useSynthesisStore.getState().reset();
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
   });
@@ -96,6 +98,7 @@ describe('NewsCard related coverage', () => {
     cleanup();
     vi.unstubAllEnvs();
     useNewsStore.getState().reset();
+    useDiscoveryStore.getState().reset();
     useSynthesisStore.getState().reset();
   });
 
@@ -123,6 +126,18 @@ describe('NewsCard related coverage', () => {
       'href',
       'https://example.com/news-1',
     );
+  });
+
+  it('focuses discovery on the storyline from the front label without opening the back', () => {
+    useNewsStore.getState().setStories([makeStory()]);
+    useNewsStore.getState().setStorylines([makeStoryline()]);
+
+    render(<NewsCard item={makeItem()} />);
+
+    fireEvent.click(screen.getByTestId('news-card-storyline-news-1'));
+
+    expect(useDiscoveryStore.getState().selectedStorylineId).toBe('storyline-transit');
+    expect(screen.queryByTestId('news-card-back-news-1')).not.toBeInTheDocument();
   });
 
   it('opens from the card shell and closes with Escape without changing canonical source links', async () => {

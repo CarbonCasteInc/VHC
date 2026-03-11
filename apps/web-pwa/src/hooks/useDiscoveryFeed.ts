@@ -20,6 +20,8 @@ import {
 export interface UseDiscoveryFeedResult {
   /** The composed, filtered, sorted feed. */
   readonly feed: ReadonlyArray<FeedItem>;
+  /** Active storyline focus, if any. */
+  readonly selectedStorylineId: string | null;
   /** Active filter chip. */
   readonly filter: FilterChip;
   /** Active sort mode. */
@@ -30,6 +32,10 @@ export interface UseDiscoveryFeedResult {
   readonly error: string | null;
   /** Change filter chip. */
   setFilter: (filter: FilterChip) => void;
+  /** Focus a specific storyline in discovery. */
+  focusStoryline: (storylineId: string) => void;
+  /** Clear storyline focus. */
+  clearStorylineFocus: () => void;
   /** Change sort mode. */
   setSortMode: (mode: SortMode) => void;
 }
@@ -39,9 +45,12 @@ const selectItems = (s: DiscoveryState) => s.items;
 const selectFilter = (s: DiscoveryState) => s.filter;
 const selectSortMode = (s: DiscoveryState) => s.sortMode;
 const selectRankingConfig = (s: DiscoveryState) => s.rankingConfig;
+const selectSelectedStorylineId = (s: DiscoveryState) => s.selectedStorylineId;
 const selectLoading = (s: DiscoveryState) => s.loading;
 const selectError = (s: DiscoveryState) => s.error;
 const selectSetFilter = (s: DiscoveryState) => s.setFilter;
+const selectFocusStoryline = (s: DiscoveryState) => s.focusStoryline;
+const selectClearStorylineFocus = (s: DiscoveryState) => s.clearStorylineFocus;
 const selectSetSortMode = (s: DiscoveryState) => s.setSortMode;
 
 export function useDiscoveryFeed(): UseDiscoveryFeedResult {
@@ -49,15 +58,29 @@ export function useDiscoveryFeed(): UseDiscoveryFeedResult {
   const filter = useStore(useDiscoveryStore, selectFilter);
   const sortMode = useStore(useDiscoveryStore, selectSortMode);
   const rankingConfig = useStore(useDiscoveryStore, selectRankingConfig);
+  const selectedStorylineId = useStore(useDiscoveryStore, selectSelectedStorylineId);
   const loading = useStore(useDiscoveryStore, selectLoading);
   const error = useStore(useDiscoveryStore, selectError);
   const setFilter = useStore(useDiscoveryStore, selectSetFilter);
+  const focusStoryline = useStore(useDiscoveryStore, selectFocusStoryline);
+  const clearStorylineFocus = useStore(useDiscoveryStore, selectClearStorylineFocus);
   const setSortMode = useStore(useDiscoveryStore, selectSetSortMode);
 
   const feed = useMemo(
-    () => composeFeed(items, filter, sortMode, rankingConfig, Date.now()),
-    [items, filter, sortMode, rankingConfig],
+    () => composeFeed(items, filter, sortMode, rankingConfig, Date.now(), selectedStorylineId),
+    [items, filter, sortMode, rankingConfig, selectedStorylineId],
   );
 
-  return { feed, filter, sortMode, loading, error, setFilter, setSortMode };
+  return {
+    feed,
+    selectedStorylineId,
+    filter,
+    sortMode,
+    loading,
+    error,
+    setFilter,
+    focusStoryline,
+    clearStorylineFocus,
+    setSortMode,
+  };
 }

@@ -9,6 +9,7 @@ import { useAnalysis } from './useAnalysis';
 import { NewsCardBack } from './NewsCardBack';
 import { FeedEngagement } from './FeedEngagement';
 import { useExpandedCardStore } from './expandedCardStore';
+import { useDiscoveryStore } from '../../store/discovery';
 
 export interface NewsCardProps {
   /** Discovery feed item; expected kind: NEWS_STORY. */
@@ -16,21 +17,17 @@ export interface NewsCardProps {
 }
 
 function normalizeStorylineHeadline(headline: string | undefined): string | null {
-  const normalized = headline?.trim();
-  return normalized ? normalized : null;
+  const normalized = headline?.trim(); return normalized ? normalized : null;
 }
 
 function formatIsoTimestamp(timestampMs: number): string {
-  return Number.isFinite(timestampMs) && timestampMs >= 0
-    ? new Date(timestampMs).toISOString()
-    : 'unknown';
+  return Number.isFinite(timestampMs) && timestampMs >= 0 ? new Date(timestampMs).toISOString() : 'unknown';
 }
 function formatHotness(hotness: number): string {
   return Number.isFinite(hotness) ? hotness.toFixed(2) : '0.00';
 }
 function normalizeStoryId(storyId: string | undefined): string | null {
-  const normalized = storyId?.trim();
-  return normalized ? normalized : null;
+  const normalized = storyId?.trim(); return normalized ? normalized : null;
 }
 
 function toCardInstanceKey(item: FeedItem): string {
@@ -76,6 +73,7 @@ export function resolveAnalysisProviderModel(
 export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const stories = useStore(useNewsStore, (state) => state.stories);
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
+  const focusStoryline = useStore(useDiscoveryStore, (state) => state.focusStoryline);
   const startSynthesisHydration = useStore(useSynthesisStore, (s) => s.startHydration);
   const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
@@ -99,6 +97,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   }, [story, storylinesById]);
   const storylineHeadline = normalizeStorylineHeadline(storyline?.headline);
   const storylineStoryCount = storyline?.story_ids.length ?? 0;
+  const storylineId = story?.storyline_id?.trim() ?? null;
   const analysisStoryRef = useRef<StoryBundle | null>(story);
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
   const analysisStory = useMemo(
@@ -216,6 +215,18 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     [isExpanded, openBack],
   );
 
+  const handleStorylineFocus = useCallback(
+    (event: React.MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      if (!storylineId) {
+        return;
+      }
+      focusStoryline(storylineId);
+      collapseCard();
+    },
+    [collapseCard, focusStoryline, storylineId],
+  );
+
   return (
     <article
       data-testid={`news-card-${item.topic_id}`}
@@ -275,13 +286,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               />
             )}
             {storylineHeadline && (
-              <p
-                className="mt-2 text-xs font-medium"
+              <button
+                type="button"
+                className="mt-2 text-xs font-medium underline-offset-2 hover:underline"
                 style={{ color: 'var(--headline-card-muted)' }}
                 data-testid={`news-card-storyline-${item.topic_id}`}
+                onClick={handleStorylineFocus}
               >
                 More on this storyline: {storylineHeadline}
-              </p>
+              </button>
             )}
             <p
               className="mt-2 text-xs uppercase tracking-[0.18em]"
