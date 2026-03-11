@@ -3,6 +3,12 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import {
+  accumulateStoryCoverage,
+  buildReleaseArtifactIndex,
+  buildSoakTrend,
+  summarizeLabelCounts,
+} from './daemon-feed-semantic-soak-report.mjs';
 
 const BUILD_ARGS = ['test:live:daemon-feed:build'];
 const PLAYWRIGHT_ARGS = [
@@ -66,25 +72,6 @@ function decodeAttachment(primaryResult, name) {
   return JSON.parse(Buffer.from(attachment.body, 'base64').toString('utf8'));
 }
 
-function summarizeLabelCounts(report) {
-  const counts = {
-    duplicate: 0,
-    same_incident: 0,
-    same_developing_episode: 0,
-    related_topic_only: 0,
-  };
-
-  for (const bundle of report?.bundles ?? []) {
-    for (const pair of bundle?.pairs ?? []) {
-      if (pair?.label && pair.label in counts) {
-        counts[pair.label] += 1;
-      }
-    }
-  }
-
-  return counts;
-}
-
 function summarizeRun(
   report,
   failureSnapshot,
@@ -143,47 +130,12 @@ function summarizeRun(
   };
 }
 
-function accumulateStoryCoverage(results) {
-  const byStory = new Map();
-
-  for (const result of results) {
-    for (const storyId of result.storyIds ?? []) {
-      const existing = byStory.get(storyId) ?? { story_id: storyId, run_count: 0, runs: [] };
-      existing.run_count += 1;
-      existing.runs.push(result.run);
-      byStory.set(storyId, existing);
-    }
-  }
-
-  return [...byStory.values()].sort((left, right) => right.run_count - left.run_count);
-}
-
 function artifactRootFromEnv() {
   const explicit = process.env.VH_DAEMON_FEED_SOAK_ARTIFACT_DIR?.trim();
   if (explicit) {
     return explicit;
   }
   return path.join(process.cwd(), '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
-}
-
-function buildReleaseArtifactIndex(artifactDir, summaryPath, results) {
-  return {
-    generatedAt: new Date().toISOString(),
-    artifactDir,
-    summaryPath,
-    build: {
-      stdoutPath: path.join(artifactDir, 'build.stdout.log'),
-      stderrPath: path.join(artifactDir, 'build.stderr.log'),
-    },
-    runs: results.map((result) => ({
-      run: result.run,
-      pass: result.pass,
-      reportPath: result.reportPath,
-      auditPath: result.auditPath,
-      failureSnapshotPath: result.failureSnapshotPath,
-      runtimeLogsPath: result.runtimeLogsPath,
-    })),
-  };
 }
 
 async function main() {
@@ -330,6 +282,8 @@ async function main() {
   }
 
   const storyCoverage = accumulateStoryCoverage(results);
+  const trendPath = path.join(artifactDir, 'semantic-soak-trend.json');
+  const trend = buildSoakTrend(results);
   const summary = {
     generatedAt: new Date().toISOString(),
     runCount,
@@ -348,13 +302,15 @@ async function main() {
   };
 
   writeFileSync(summaryPath, JSON.stringify(summary, null, 2), 'utf8');
+  writeFileSync(trendPath, JSON.stringify(trend, null, 2), 'utf8');
   const artifactIndexPath = path.join(artifactDir, 'release-artifact-index.json');
   writeFileSync(
     artifactIndexPath,
-    JSON.stringify(buildReleaseArtifactIndex(artifactDir, summaryPath, results), null, 2),
+    JSON.stringify(buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results), null, 2),
     'utf8',
   );
   console.log(`[vh:daemon-soak] summary: ${summaryPath}`);
+  console.log(`[vh:daemon-soak] trend: ${trendPath}`);
   console.log(`[vh:daemon-soak] artifact-index: ${artifactIndexPath}`);
   console.log(JSON.stringify({
     strictSoakPass: summary.strictSoakPass,
