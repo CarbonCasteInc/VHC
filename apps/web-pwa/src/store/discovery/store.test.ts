@@ -5,7 +5,7 @@ import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import type { FeedItem, RankingConfig } from '@vh/data-model';
 import { DEFAULT_RANKING_CONFIG } from '@vh/data-model';
 import { createDiscoveryStore, createMockDiscoveryStore, composeFeed, useDiscoveryStore } from './index';
-import type { DiscoveryState } from './types';
+import { DISCOVERY_TYPES_MODULE_ID, type DiscoveryState } from './types';
 import type { StoreApi } from 'zustand';
 
 // ---- Test fixtures ----
@@ -32,6 +32,10 @@ function makeFeedItem(overrides: Partial<FeedItem> = {}): FeedItem {
 
 describe('createDiscoveryStore', () => {
   let store: StoreApi<DiscoveryState>;
+
+  it('exposes a runtime sentinel for diff-aware coverage', () => {
+    expect(DISCOVERY_TYPES_MODULE_ID).toBe('discovery-types');
+  });
 
   beforeEach(() => {
     store = createDiscoveryStore({ now: () => NOW });

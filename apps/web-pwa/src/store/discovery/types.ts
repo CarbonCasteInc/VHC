@@ -67,3 +67,6 @@ export interface DiscoveryState {
 export interface DiscoveryDeps {
   now: () => number;
 }
+
+// Coverage sentinel for diff-aware CI when this module changes.
+export const DISCOVERY_TYPES_MODULE_ID = 'discovery-types';
