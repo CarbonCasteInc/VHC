@@ -79,6 +79,17 @@ describe('FeedItemSchema', () => {
     expect(parsed.story_id).toBe('story-abc-123');
   });
 
+  it('accepts optional storyline and entity metadata for storyline-aware ranking', () => {
+    const parsed = FeedItemSchema.parse({
+      ...validFeedItem,
+      story_id: 'story-abc-123',
+      storyline_id: 'storyline-abc-123',
+      entity_keys: ['budget vote', 'city council'],
+    });
+    expect(parsed.storyline_id).toBe('storyline-abc-123');
+    expect(parsed.entity_keys).toEqual(['budget vote', 'city council']);
+  });
+
   it('accepts NEWS_STORY item without story_id during migration', () => {
     const parsed = FeedItemSchema.parse(validFeedItem);
     expect(parsed.story_id).toBeUndefined();
@@ -86,6 +97,16 @@ describe('FeedItemSchema', () => {
 
   it('rejects empty story_id when provided', () => {
     expect(FeedItemSchema.safeParse({ ...validFeedItem, story_id: '' }).success).toBe(false);
+  });
+
+  it('rejects empty storyline_id when provided', () => {
+    expect(FeedItemSchema.safeParse({ ...validFeedItem, storyline_id: '' }).success).toBe(false);
+  });
+
+  it('rejects blank entity keys when provided', () => {
+    expect(
+      FeedItemSchema.safeParse({ ...validFeedItem, entity_keys: ['valid', ''] }).success,
+    ).toBe(false);
   });
 
   it('accepts item with optional my_activity_score', () => {

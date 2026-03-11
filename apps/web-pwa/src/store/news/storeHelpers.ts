@@ -3,6 +3,7 @@ import {
   StoryBundleSchema,
   type FeedItem,
   type StoryBundle,
+  type StorylineGroup,
 } from '@vh/data-model';
 import { hasForbiddenNewsPayloadFields } from '@vh/gun-client';
 
@@ -154,12 +155,25 @@ export function buildSeedIndex(stories: StoryBundle[]): Record<string, number> {
   return index;
 }
 
-function storyToDiscoveryItem(story: StoryBundle, hotIndex: Readonly<Record<string, number>>): FeedItem {
+function storyToDiscoveryItem(
+  story: StoryBundle,
+  hotIndex: Readonly<Record<string, number>>,
+  storylinesById: Readonly<Record<string, StorylineGroup>>,
+): FeedItem {
+  const normalizedStorylineId = story.storyline_id?.trim();
+  const entityKeys =
+    (normalizedStorylineId
+      ? storylinesById[normalizedStorylineId]?.entity_keys
+      : undefined) ??
+    story.cluster_features.entity_keys;
+
   return {
     story_id: story.story_id,
+    storyline_id: normalizedStorylineId || undefined,
     topic_id: story.topic_id,
     kind: 'NEWS_STORY',
     title: story.headline,
+    entity_keys: entityKeys,
     created_at: Math.max(0, Math.floor(story.created_at)),
     latest_activity_at: Math.max(0, Math.floor(story.cluster_window_end)),
     hotness: Math.max(0, hotIndex[story.story_id] ?? 0),
@@ -172,11 +186,18 @@ function storyToDiscoveryItem(story: StoryBundle, hotIndex: Readonly<Record<stri
 export async function mirrorStoriesIntoDiscovery(
   stories: StoryBundle[],
   hotIndex: Readonly<Record<string, number>>,
+  storylinesById: Readonly<Record<string, StorylineGroup>>,
 ): Promise<void> {
   try {
     const { useDiscoveryStore } = await import('../discovery');
-    useDiscoveryStore.getState().mergeItems(stories.map((story) => storyToDiscoveryItem(story, hotIndex)));
+    useDiscoveryStore
+      .getState()
+      .mergeItems(stories.map((story) => storyToDiscoveryItem(story, hotIndex, storylinesById)));
   } catch (error) {
     console.warn('[vh:news] failed to mirror stories into discovery store', error);
   }
 }
+
+export const newsStoreHelpersInternal = {
+  storyToDiscoveryItem,
+};

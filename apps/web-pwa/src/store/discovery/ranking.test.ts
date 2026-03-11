@@ -260,21 +260,25 @@ describe('sortItems', () => {
     const alpha1 = makeFeedItem({
       topic_id: 'alpha-1',
       title: 'Alpha policy update one',
+      storyline_id: 'storyline-alpha',
       hotness: 1.0,
     });
     const alpha2 = makeFeedItem({
       topic_id: 'alpha-2',
       title: 'Alpha policy update two',
+      storyline_id: 'storyline-alpha',
       hotness: 0.95,
     });
     const alpha3 = makeFeedItem({
       topic_id: 'alpha-3',
       title: 'Alpha policy update three',
+      storyline_id: 'storyline-alpha',
       hotness: 0.9,
     });
     const alpha4 = makeFeedItem({
       topic_id: 'alpha-4',
       title: 'Alpha policy update four',
+      storyline_id: 'storyline-alpha',
       hotness: 0.85,
     });
     const budget = makeFeedItem({
@@ -300,6 +304,64 @@ describe('sortItems', () => {
 
     expect(alphaCount).toBeLessThanOrEqual(2);
     expect(topFour).toEqual(['alpha-1', 'budget', 'alpha-2', 'wildfire']);
+  });
+
+  it('HOTTEST uses storyline_id authority even when titles do not overlap lexically', () => {
+    const storylineOne = makeFeedItem({
+      topic_id: 'storyline-1-a',
+      title: 'Markets brace for tariff vote',
+      storyline_id: 'storyline-1',
+      hotness: 1.0,
+    });
+    const storylineTwo = makeFeedItem({
+      topic_id: 'storyline-1-b',
+      title: 'Central bank officials face criticism',
+      storyline_id: 'storyline-1',
+      hotness: 0.95,
+    });
+    const other = makeFeedItem({
+      topic_id: 'wildfire-1',
+      title: 'Wildfire alert expands overnight',
+      storyline_id: 'storyline-2',
+      hotness: 0.9,
+    });
+
+    const result = sortItems([storylineOne, storylineTwo, other], 'HOTTEST', CONFIG, NOW);
+
+    expect(result.map((item) => item.topic_id).slice(0, 3)).toEqual([
+      'storyline-1-a',
+      'wildfire-1',
+      'storyline-1-b',
+    ]);
+  });
+
+  it('HOTTEST prefers entity_keys over title tokens for overlap penalties', () => {
+    const first = makeFeedItem({
+      topic_id: 'flood-1',
+      title: 'Update one',
+      entity_keys: ['river flood', 'emergency shelter'],
+      hotness: 1.0,
+    });
+    const second = makeFeedItem({
+      topic_id: 'flood-2',
+      title: 'Update two',
+      entity_keys: ['river flood', 'evacuation zone'],
+      hotness: 0.98,
+    });
+    const third = makeFeedItem({
+      topic_id: 'tech-1',
+      title: 'Chipmaker releases earnings',
+      entity_keys: ['earnings report', 'chipmaker'],
+      hotness: 0.97,
+    });
+
+    const result = sortItems([first, second, third], 'HOTTEST', CONFIG, NOW);
+
+    expect(result.map((item) => item.topic_id).slice(0, 3)).toEqual([
+      'flood-1',
+      'tech-1',
+      'flood-2',
+    ]);
   });
 
   it('MY_ACTIVITY sorts by my_activity_score descending', () => {

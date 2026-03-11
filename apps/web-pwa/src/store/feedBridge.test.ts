@@ -2,6 +2,7 @@ import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import {
   FeedItemSchema,
   type StoryBundle,
+  type StorylineGroup,
   type TopicSynthesisV2,
 } from '@vh/data-model';
 import { useNewsStore } from './news';
@@ -59,6 +60,24 @@ function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
     },
     provenance_hash: 'prov-hash',
     created_at: 150,
+    ...overrides,
+  };
+}
+
+function makeStoryline(overrides: Partial<StorylineGroup> = {}): StorylineGroup {
+  return {
+    schemaVersion: 'storyline-group-v0',
+    storyline_id: 'storyline-1',
+    topic_id: CANONICAL_TOPIC_ID,
+    canonical_story_id: 'story-1',
+    story_ids: ['story-1'],
+    headline: 'Transit storyline',
+    summary_hint: 'Related transit coverage.',
+    related_coverage: [],
+    entity_keys: ['city council', 'transit expansion'],
+    time_bucket: '2026-02-16T10',
+    created_at: 100,
+    updated_at: 200,
     ...overrides,
   };
 }
@@ -123,6 +142,7 @@ describe('storyBundleToFeedItem', () => {
     const item = storyBundleToFeedItem(
       makeStoryBundle({
         topic_id: CANONICAL_TOPIC_ID,
+        storyline_id: 'storyline-1',
         headline: 'Breaking update',
         created_at: 100.9,
         cluster_window_end: 222.4,
@@ -144,13 +164,16 @@ describe('storyBundleToFeedItem', () => {
         ],
       }),
       { 'story-1': 0.87654321 },
+      { 'storyline-1': makeStoryline() },
     );
 
     expect(item).toEqual({
       story_id: 'story-1',
+      storyline_id: 'storyline-1',
       topic_id: CANONICAL_TOPIC_ID,
       kind: 'NEWS_STORY',
       title: 'Breaking update',
+      entity_keys: ['city council', 'transit expansion'],
       created_at: 100,
       latest_activity_at: 222,
       hotness: 0.87654321,
@@ -171,6 +194,24 @@ describe('storyBundleToFeedItem', () => {
     expect(FeedItemSchema.safeParse(item).success).toBe(true);
     expect(item.created_at).toBe(0);
     expect(item.latest_activity_at).toBe(0);
+  });
+
+  it('falls back to cluster feature entity keys when storyline group is unavailable', () => {
+    const item = storyBundleToFeedItem(
+      makeStoryBundle({
+        storyline_id: 'storyline-missing',
+        cluster_features: {
+          entity_keys: ['fallback entity'],
+          time_bucket: 'bucket-1',
+          semantic_signature: 'signature-1',
+        },
+      }),
+      {},
+      {},
+    );
+
+    expect(item.storyline_id).toBe('storyline-missing');
+    expect(item.entity_keys).toEqual(['fallback entity']);
   });
 });
 

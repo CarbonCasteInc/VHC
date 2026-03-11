@@ -47,9 +47,11 @@ export const FeedItemSchema = z.object({
    * - when present for NEWS_STORY items, this is the canonical story identity
    */
   story_id: z.string().min(1).optional(),
+  storyline_id: z.string().min(1).optional(),
   topic_id: z.string().min(1),
   kind: FeedKindSchema,
   title: z.string().min(1),
+  entity_keys: z.array(z.string().min(1)).optional(),
   created_at: z.number().int().nonnegative(),
   latest_activity_at: z.number().int().nonnegative(),
   hotness: z.number().finite(),
