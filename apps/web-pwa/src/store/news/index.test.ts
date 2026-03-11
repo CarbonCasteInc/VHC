@@ -7,6 +7,7 @@ const readLatestStoryIdsMock = vi.fn<(client: unknown, limit?: number) => Promis
 const readNewsLatestIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
 const readNewsHotIndexMock = vi.fn<(client: unknown) => Promise<Record<string, number>>>();
 const readNewsStoryMock = vi.fn<(client: unknown, storyId: string) => Promise<StoryBundle | null>>();
+const readNewsStorylineMock = vi.fn<(client: unknown, storylineId: string) => Promise<unknown>>();
 
 vi.mock('./hydration', () => ({
   hydrateNewsStore: hydrateNewsStoreMock
@@ -17,7 +18,8 @@ vi.mock('@vh/gun-client', () => ({
   readLatestStoryIds: readLatestStoryIdsMock,
   readNewsHotIndex: readNewsHotIndexMock,
   readNewsLatestIndex: readNewsLatestIndexMock,
-  readNewsStory: readNewsStoryMock
+  readNewsStory: readNewsStoryMock,
+  readNewsStoryline: readNewsStorylineMock,
 }));
 
 const CANONICAL_TOPIC_ID = 'a'.repeat(64);
@@ -65,6 +67,7 @@ describe('news store', () => {
     readNewsLatestIndexMock.mockReset();
     readNewsHotIndexMock.mockReset();
     readNewsStoryMock.mockReset();
+    readNewsStorylineMock.mockReset();
 
     hydrateNewsStoreMock.mockReturnValue(false);
     hasForbiddenNewsPayloadFieldsMock.mockReturnValue(false);
@@ -72,6 +75,7 @@ describe('news store', () => {
     readNewsLatestIndexMock.mockResolvedValue({});
     readNewsHotIndexMock.mockResolvedValue({});
     readNewsStoryMock.mockResolvedValue(null);
+    readNewsStorylineMock.mockResolvedValue(null);
 
     vi.resetModules();
   });

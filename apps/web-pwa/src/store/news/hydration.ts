@@ -1,12 +1,15 @@
 import {
   isCanonicalNewsTopicIdShape,
   StoryBundleSchema,
+  StorylineGroupSchema,
   type StoryBundle,
+  type StorylineGroup,
 } from '@vh/data-model';
 import {
   getNewsHotIndexChain,
   getNewsLatestIndexChain,
   getNewsStoriesChain,
+  getNewsStorylinesChain,
   hasForbiddenNewsPayloadFields,
   readNewsStory,
   type ChainWithGet,
@@ -14,9 +17,11 @@ import {
 } from '@vh/gun-client';
 import type { StoreApi } from 'zustand';
 import type { NewsState } from './types';
+import { loadStorylinesForStories } from './storylines';
 
 const hydratedStores = new WeakSet<StoreApi<NewsState>>();
 const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
+const STORYLINE_GROUP_JSON_KEY = '__storyline_group_json';
 
 /**
  * Latest-index migration parser.
@@ -111,6 +116,29 @@ function parseStory(data: unknown): StoryBundle | null {
   return parsed.data;
 }
 
+function decodeStorylinePayload(payload: Record<string, unknown>): unknown {
+  const encoded = payload[STORYLINE_GROUP_JSON_KEY];
+  if (typeof encoded !== 'string') {
+    return payload;
+  }
+
+  try {
+    return JSON.parse(encoded);
+  } catch {
+    return null;
+  }
+}
+
+function parseStoryline(data: unknown): StorylineGroup | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const { _, ...clean } = data as Record<string, unknown> & { _?: unknown };
+  const parsed = StorylineGroupSchema.safeParse(decodeStorylinePayload(clean));
+  return parsed.success ? parsed.data : null;
+}
+
 function canSubscribe<T>(chain: ChainWithGet<T>): chain is ChainWithGet<T> & Required<Pick<ChainWithGet<T>, 'map' | 'on'>> {
   const mapped = chain.map?.();
   return Boolean(mapped && typeof mapped.on === 'function');
@@ -133,8 +161,14 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
   const storiesChain = getNewsStoriesChain(client);
   const latestChain = getNewsLatestIndexChain(client);
   const hotChain = getNewsHotIndexChain(client);
+  const storylinesChain = getNewsStorylinesChain(client);
 
-  if (!canSubscribe(storiesChain) || !canSubscribe(latestChain) || !canSubscribe(hotChain)) {
+  if (
+    !canSubscribe(storiesChain) ||
+    !canSubscribe(latestChain) ||
+    !canSubscribe(hotChain) ||
+    !canSubscribe(storylinesChain)
+  ) {
     return false;
   }
 
@@ -162,6 +196,13 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
     }
 
     store.getState().upsertStory(story);
+    void loadStorylinesForStories(client, [story])
+      .then((storylines) => {
+        for (const storyline of storylines) {
+          store.getState().upsertStoryline(storyline);
+        }
+      })
+      .catch(() => {});
   });
 
   latestChain.map!().on!((data: unknown, key?: string) => {
@@ -182,8 +223,18 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
     }
     void readNewsStory(client, key)
       .then((story) => {
-        if (story) {
-          store.getState().upsertStory(story);
+        if (!story) {
+          return;
+        }
+        store.getState().upsertStory(story);
+        return loadStorylinesForStories(client, [story]);
+      })
+      .then((storylines) => {
+        if (!storylines) {
+          return;
+        }
+        for (const storyline of storylines) {
+          store.getState().upsertStoryline(storyline);
         }
       })
       .catch(() => {});
@@ -201,6 +252,19 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
       return;
     }
     store.getState().upsertHotIndex(key, hotness);
+  });
+
+  storylinesChain.map!().on!((data: unknown, key?: string) => {
+    const normalizedKey = typeof key === 'string' ? key.trim() : '';
+    const storyline = parseStoryline(data);
+    if (!storyline) {
+      if (data === null && normalizedKey) {
+        store.getState().removeStoryline(normalizedKey);
+      }
+      return;
+    }
+
+    store.getState().upsertStoryline(storyline);
   });
 
   return true;

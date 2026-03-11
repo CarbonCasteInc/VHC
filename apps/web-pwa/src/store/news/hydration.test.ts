@@ -12,6 +12,7 @@ import type { NewsState } from './index';
 
 const gunMocks = vi.hoisted(() => ({
   getNewsStoriesChain: vi.fn(),
+  getNewsStorylinesChain: vi.fn(),
   getNewsLatestIndexChain: vi.fn(),
   getNewsHotIndexChain: vi.fn(),
   hasForbiddenNewsPayloadFields: vi.fn<(payload: unknown) => boolean>(),
@@ -20,6 +21,7 @@ const gunMocks = vi.hoisted(() => ({
 
 vi.mock('@vh/gun-client', () => ({
   getNewsStoriesChain: gunMocks.getNewsStoriesChain,
+  getNewsStorylinesChain: gunMocks.getNewsStorylinesChain,
   getNewsLatestIndexChain: gunMocks.getNewsLatestIndexChain,
   getNewsHotIndexChain: gunMocks.getNewsHotIndexChain,
   hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields,
@@ -88,13 +90,14 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
     stories: [],
     latestIndex: { ...initialLatestIndex },
     hotIndex: {},
+    storylinesById: {},
     hydrated: false,
     loading: false,
     error: null,
     setStories: vi.fn(),
     upsertStory: vi.fn(),
     removeStory: vi.fn((storyId: string) => {
-      state.stories = state.stories.filter((story) => story.story_id !== storyId);
+      (state as { stories: StoryBundle[] }).stories = state.stories.filter((story) => story.story_id !== storyId);
       delete (state.latestIndex as Record<string, number>)[storyId];
       delete (state.hotIndex as Record<string, number>)[storyId];
     }),
@@ -111,6 +114,13 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
     }),
     removeHotIndex: vi.fn((storyId: string) => {
       delete (state.hotIndex as Record<string, number>)[storyId];
+    }),
+    setStorylines: vi.fn(),
+    upsertStoryline: vi.fn((storyline) => {
+      (state.storylinesById as Record<string, unknown>)[storyline.storyline_id] = storyline;
+    }),
+    removeStoryline: vi.fn((storylineId: string) => {
+      delete (state.storylinesById as Record<string, unknown>)[storylineId];
     }),
     refreshLatest: vi.fn(),
     startHydration: vi.fn(),
@@ -129,12 +139,14 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
 describe('hydrateNewsStore', () => {
   beforeEach(() => {
     gunMocks.getNewsStoriesChain.mockReset();
+    gunMocks.getNewsStorylinesChain.mockReset();
     gunMocks.getNewsLatestIndexChain.mockReset();
     gunMocks.getNewsHotIndexChain.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReset();
     gunMocks.readNewsStory.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReturnValue(false);
     gunMocks.readNewsStory.mockResolvedValue(null);
+    gunMocks.getNewsStorylinesChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
     vi.resetModules();
   });
 
@@ -147,6 +159,7 @@ describe('hydrateNewsStore', () => {
 
   it('returns false when subscriptions are unsupported', async () => {
     gunMocks.getNewsStoriesChain.mockReturnValue({ map: undefined });
+    gunMocks.getNewsStorylinesChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
     gunMocks.getNewsLatestIndexChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
     gunMocks.getNewsHotIndexChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
 
@@ -160,7 +173,9 @@ describe('hydrateNewsStore', () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
+    const storylineChain = createSubscribableChain();
     gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsStorylinesChain.mockReturnValue(storylineChain.chain);
     gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
     gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
 
@@ -171,6 +186,7 @@ describe('hydrateNewsStore', () => {
     expect(hydrateNewsStore(() => ({}) as never, store)).toBe(true);
 
     expect(storyChain.onSpy).toHaveBeenCalledTimes(1);
+    expect(storylineChain.onSpy).toHaveBeenCalledTimes(1);
     expect(latestChain.onSpy).toHaveBeenCalledTimes(1);
     expect(hotChain.onSpy).toHaveBeenCalledTimes(1);
   });

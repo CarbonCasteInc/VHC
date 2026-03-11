@@ -1,8 +1,11 @@
 import {
   NormalizedItemSchema,
   StoryBundleSchema,
+  StorylineGroupSchema,
   type NormalizedItem,
   type StoryBundle,
+  type StoryClusterBatchResult,
+  type StorylineGroup,
 } from './newsTypes';
 
 export interface ClusterEngine<TInput, TOutput> {
@@ -20,6 +23,13 @@ export interface StoryClusterRemoteEngineOptions {
   timeoutMs?: number;
   headers?: Record<string, string>;
   fetchFn?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+}
+
+export interface StoryClusterBatchCapableEngine
+  extends ClusterEngine<StoryClusterBatchInput, StoryBundle> {
+  clusterStoryBatch?(
+    input: StoryClusterBatchInput,
+  ): StoryClusterBatchResult | Promise<StoryClusterBatchResult>;
 }
 
 export interface AutoEngineOptions<TInput, TOutput> {
@@ -59,6 +69,14 @@ function normalizeRemoteTimeoutMs(timeoutMs: number | undefined): number {
 }
 
 function parseRemoteBundles(payload: unknown): StoryBundle[] {
+  return parseRemoteBatchResult(payload).bundles;
+}
+
+function parseRemoteStorylines(payload: unknown): StorylineGroup[] {
+  return parseRemoteBatchResult(payload).storylines;
+}
+
+function parseRemoteBatchResult(payload: unknown): StoryClusterBatchResult {
   const bundles =
     Array.isArray(payload)
       ? payload
@@ -70,7 +88,15 @@ function parseRemoteBundles(payload: unknown): StoryBundle[] {
     throw new Error('remote cluster response must be an array or an object with bundles[]');
   }
 
-  return bundles.map((bundle) => StoryBundleSchema.parse(bundle));
+  const storylines =
+    payload && typeof payload === 'object' && Array.isArray((payload as { storylines?: unknown }).storylines)
+      ? (payload as { storylines: unknown[] }).storylines
+      : [];
+
+  return {
+    bundles: bundles.map((bundle) => StoryBundleSchema.parse(bundle)),
+    storylines: storylines.map((storyline) => StorylineGroupSchema.parse(storyline)),
+  };
 }
 
 async function describeRemoteFailure(response: Response): Promise<string> {
@@ -131,7 +157,7 @@ export class HeuristicClusterEngine<TInput, TOutput>
 }
 
 export class StoryClusterRemoteEngine
-  implements ClusterEngine<StoryClusterBatchInput, StoryBundle>
+  implements StoryClusterBatchCapableEngine
 {
   public readonly engineId = 'storycluster-remote-engine';
 
@@ -163,6 +189,12 @@ export class StoryClusterRemoteEngine
   }
 
   async clusterBatch(input: StoryClusterBatchInput): Promise<StoryBundle[]> {
+    return (await this.clusterStoryBatch(input)).bundles;
+  }
+
+  async clusterStoryBatch(
+    input: StoryClusterBatchInput,
+  ): Promise<StoryClusterBatchResult> {
     const normalized = normalizeStoryClusterInput(input);
     const controller = new AbortController();
     const timer = setTimeout(() => {
@@ -189,7 +221,7 @@ export class StoryClusterRemoteEngine
 
       const payload = await response.json();
       clearTimeout(timer);
-      return parseRemoteBundles(payload);
+      return parseRemoteBatchResult(payload);
     } catch (error) {
       clearTimeout(timer);
       if (error instanceof Error && error.name === 'AbortError') {
@@ -198,6 +230,21 @@ export class StoryClusterRemoteEngine
       throw error;
     }
   }
+}
+
+export async function runStoryClusterBatch(
+  engine: StoryClusterBatchCapableEngine,
+  input: StoryClusterBatchInput,
+): Promise<StoryClusterBatchResult> {
+  if (typeof engine.clusterStoryBatch === 'function') {
+    const result = engine.clusterStoryBatch(input);
+    return isPromiseLike<StoryClusterBatchResult>(result) ? await result : result;
+  }
+
+  return {
+    bundles: await runClusterBatch(engine, input),
+    storylines: [],
+  };
 }
 
 export class AutoEngine<TInput, TOutput>
@@ -251,5 +298,7 @@ export const clusterEngineInternal = {
   isPromiseLike,
   normalizeRemoteTimeoutMs,
   normalizeStoryClusterInput,
+  parseRemoteBatchResult,
   parseRemoteBundles,
+  parseRemoteStorylines,
 };

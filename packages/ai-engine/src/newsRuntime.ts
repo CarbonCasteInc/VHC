@@ -8,7 +8,7 @@ import {
   orchestrateNewsPipeline,
   type NewsOrchestratorOptions,
 } from './newsOrchestrator';
-import type { FeedSource, StoryBundle, TopicMapping } from './newsTypes';
+import type { FeedSource, StoryBundle, StorylineGroup, TopicMapping } from './newsTypes';
 
 const DEFAULT_POLL_INTERVAL_MS = 30 * 60 * 1000;
 const REMOTE_PROVIDER_ID = 'remote-analysis';
@@ -42,6 +42,8 @@ export interface NewsRuntimeConfig {
   enabled?: boolean;
   writeStoryBundle?: (client: unknown, bundle: StoryBundle) => Promise<unknown>;
   removeStoryBundle?: (client: unknown, storyId: string) => Promise<unknown>;
+  writeStorylineGroup?: (client: unknown, storyline: StorylineGroup) => Promise<unknown>;
+  removeStorylineGroup?: (client: unknown, storylineId: string) => Promise<unknown>;
   createAnalysisPrompt?: (bundle: StoryBundle) => string;
   createAdvancedArtifact?: (bundle: StoryBundle) => StoryAdvancedArtifact;
   onSynthesisCandidate?: (candidate: NewsRuntimeSynthesisCandidate) => void | Promise<void>;
@@ -103,6 +105,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   let inFlight = false;
   let lastRunAt: Date | null = null;
   let publishedStoryIds = new Set<string>();
+  let publishedStorylineIds = new Set<string>();
 
   const runTick = async (): Promise<void> => {
     if (!running || inFlight) {
@@ -112,25 +115,37 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
     inFlight = true;
 
     try {
-      const bundles = await orchestrateNewsPipeline(
+      const result = await orchestrateNewsPipeline(
         {
           feedSources: config.feedSources,
           topicMapping: config.topicMapping,
         },
         config.orchestratorOptions,
       );
+      const { bundles, storylines } = result;
 
       const writeStoryBundle = config.writeStoryBundle;
       if (!writeStoryBundle) {
         throw new Error('writeStoryBundle adapter is required');
       }
       const removeStoryBundle = config.removeStoryBundle;
+      const writeStorylineGroup = config.writeStorylineGroup;
+      const removeStorylineGroup = config.removeStorylineGroup;
 
       const createPrompt = config.createAnalysisPrompt ?? defaultPrompt;
       const createAdvancedArtifact =
         config.createAdvancedArtifact ?? ((bundle: StoryBundle) => buildStoryAdvancedArtifact(bundle));
 
       const nextPublishedStoryIds = new Set<string>();
+      const nextPublishedStorylineIds = new Set<string>();
+
+      if (writeStorylineGroup) {
+        for (const storyline of storylines) {
+          await writeStorylineGroup(config.gunClient, storyline);
+          nextPublishedStorylineIds.add(storyline.storyline_id);
+          publishedStorylineIds.add(storyline.storyline_id);
+        }
+      }
 
       for (const bundle of bundles) {
         const request = buildRemoteRequest(createPrompt(bundle));
@@ -162,6 +177,17 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
           void Promise.resolve(config.onSynthesisCandidate(candidate)).catch((error) => {
             config.onError?.(error);
           });
+        }
+      }
+
+      if (removeStorylineGroup && bundles.length > 0) {
+        const staleStorylineIds = [...publishedStorylineIds]
+          .filter((storylineId) => !nextPublishedStorylineIds.has(storylineId))
+          .sort();
+
+        for (const staleStorylineId of staleStorylineIds) {
+          await removeStorylineGroup(config.gunClient, staleStorylineId);
+          publishedStorylineIds.delete(staleStorylineId);
         }
       }
 

@@ -5,8 +5,8 @@ import {
   AutoEngine,
   StoryClusterRemoteEngine,
   readStoryClusterRemoteEndpoint,
-  runClusterBatch,
-  type ClusterEngine,
+  runStoryClusterBatch,
+  type StoryClusterBatchCapableEngine,
   type StoryClusterBatchInput,
 } from './clusterEngine';
 import {
@@ -14,9 +14,11 @@ import {
   type NewsPipelineConfig,
   type NormalizedItem,
   type StoryBundle,
+  type StoryClusterBatchResult,
+  type StorylineGroup,
 } from './newsTypes';
 
-export type StoryClusterEngine = ClusterEngine<StoryClusterBatchInput, StoryBundle>;
+export type StoryClusterEngine = StoryClusterBatchCapableEngine;
 
 export interface NewsOrchestratorOptions {
   clusterEngine?: StoryClusterEngine;
@@ -91,13 +93,13 @@ function resolveClusterEngine(options: NewsOrchestratorOptions = {}): StoryClust
     heuristic: storyClusterHeuristicEngine,
     remote: remoteEngine,
     onRemoteFailure: options.onRemoteFailure ?? options.onRemoteFallback,
-  });
+  }) as StoryClusterEngine;
 }
 
 export async function orchestrateNewsPipeline(
   config: NewsPipelineConfig,
   options: NewsOrchestratorOptions = {},
-): Promise<StoryBundle[]> {
+): Promise<StoryClusterBatchResult> {
   const parsedConfig = NewsPipelineConfigSchema.parse(config);
   const clusterEngine = resolveClusterEngine(options);
 
@@ -105,27 +107,39 @@ export async function orchestrateNewsPipeline(
   const normalizedItems = normalizeAndDedup(rawItems, parsedConfig.normalize);
 
   if (normalizedItems.length === 0) {
-    return [];
+    return { bundles: [], storylines: [] };
   }
 
   const groupedByTopic = groupByTopic(normalizedItems, parsedConfig);
-  const output: StoryBundle[] = [];
+  const outputBundles: StoryBundle[] = [];
+  const outputStorylines = new Map<string, StorylineGroup>();
 
   for (const topicId of [...groupedByTopic.keys()].sort()) {
     const topicItems = groupedByTopic.get(topicId)!;
-    const clustered = await runClusterBatch(clusterEngine, {
+    const clustered = await runStoryClusterBatch(clusterEngine, {
       topicId,
       items: topicItems,
     });
-    output.push(...clustered);
+    outputBundles.push(...clustered.bundles);
+    for (const storyline of clustered.storylines) {
+      outputStorylines.set(storyline.storyline_id, storyline);
+    }
   }
 
-  return output.sort((left, right) => {
-    if (left.topic_id !== right.topic_id) {
-      return left.topic_id.localeCompare(right.topic_id);
-    }
-    return left.story_id.localeCompare(right.story_id);
-  });
+  return {
+    bundles: outputBundles.sort((left, right) => {
+      if (left.topic_id !== right.topic_id) {
+        return left.topic_id.localeCompare(right.topic_id);
+      }
+      return left.story_id.localeCompare(right.story_id);
+    }),
+    storylines: [...outputStorylines.values()].sort((left, right) => {
+      if (left.topic_id !== right.topic_id) {
+        return left.topic_id.localeCompare(right.topic_id);
+      }
+      return left.storyline_id.localeCompare(right.storyline_id);
+    }),
+  };
 }
 
 export const newsOrchestratorInternal = {

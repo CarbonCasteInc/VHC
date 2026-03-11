@@ -14,6 +14,12 @@ export interface NewsCardBackProps {
     publisher: string;
     summary: string;
   }>;
+  readonly relatedCoverage: ReadonlyArray<{
+    source_id: string;
+    publisher: string;
+    title: string;
+    url: string;
+  }>;
   readonly analysisFeedbackStatus:
     | 'loading'
     | 'timeout'
@@ -41,6 +47,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   frameRows,
   analysisProvider,
   perSourceSummaries,
+  relatedCoverage,
   analysisFeedbackStatus,
   analysisError,
   retryAnalysis,
@@ -102,6 +109,32 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
                 </li>
               ))}
             </ul>
+          )}
+
+          {relatedCoverage.length > 0 && (
+            <div
+              className="space-y-2 rounded-xl border border-slate-200 bg-slate-50 p-3"
+              data-testid={`news-card-related-coverage-${topicId}`}
+            >
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+                Related coverage
+              </h4>
+              <ul className="space-y-1 text-xs text-slate-600">
+                {relatedCoverage.map((entry) => (
+                  <li key={`${entry.source_id}|${entry.url}`}>
+                    <span className="font-medium text-slate-700">{entry.publisher}:</span>{' '}
+                    <a
+                      className="underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                      href={entry.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {entry.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </>
       )}

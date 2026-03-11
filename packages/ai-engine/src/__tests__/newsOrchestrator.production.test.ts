@@ -145,7 +145,7 @@ describe('newsOrchestrator production mode', () => {
       }),
     );
 
-    const bundles = await orchestrateNewsPipeline(
+    const result = await orchestrateNewsPipeline(
       {
         feedSources: [
           {
@@ -167,7 +167,7 @@ describe('newsOrchestrator production mode', () => {
       },
     );
 
-    expect(bundles).toEqual([remoteBundle]);
+    expect(result).toEqual({ bundles: [remoteBundle], storylines: [] });
     expect(remoteFetchFn).toHaveBeenCalledTimes(1);
   });
 });

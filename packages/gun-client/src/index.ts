@@ -192,6 +192,7 @@ export * from './docsAdapters';
 export * from './docsKeyManagement';
 export * from './synthesisAdapters';
 export * from './newsAdapters';
+export * from './storylineAdapters';
 export * from './analysisAdapters';
 export * from './sentimentEventAdapters';
 export * from './aggregateAdapters';

@@ -71,7 +71,7 @@ describe('newsOrchestrator', () => {
       text: vi.fn().mockResolvedValue(xmlForSourceB),
     } as unknown as Response);
 
-    const bundles = await orchestrateNewsPipeline({
+    const result = await orchestrateNewsPipeline({
       feedSources: [
         {
           id: 'source-a',
@@ -96,8 +96,9 @@ describe('newsOrchestrator', () => {
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(bundles).toHaveLength(2);
-    expect(bundles.map((bundle) => bundle.topic_id)).toEqual([
+    expect(result.bundles).toHaveLength(2);
+    expect(result.storylines).toEqual([]);
+    expect(result.bundles.map((bundle) => bundle.topic_id)).toEqual([
       'topic-finance',
       'topic-sports',
     ]);
@@ -109,7 +110,7 @@ describe('newsOrchestrator', () => {
     fetchMock.mockResolvedValueOnce({ ok: true, text: vi.fn().mockResolvedValue(xmlForSourceB) } as unknown as Response);
     fetchMock.mockResolvedValueOnce({ ok: true, text: vi.fn().mockResolvedValue(xmlForSourceC) } as unknown as Response);
 
-    const bundles = await orchestrateNewsPipeline({
+    const result = await orchestrateNewsPipeline({
       feedSources: [
         {
           id: 'source-a',
@@ -135,10 +136,11 @@ describe('newsOrchestrator', () => {
       },
     });
 
-    expect(bundles).toHaveLength(3);
-    expect(bundles.every((bundle) => bundle.topic_id === 'topic-general')).toBe(true);
+    expect(result.bundles).toHaveLength(3);
+    expect(result.storylines).toEqual([]);
+    expect(result.bundles.every((bundle) => bundle.topic_id === 'topic-general')).toBe(true);
 
-    const storyIds = bundles.map((bundle) => bundle.story_id);
+    const storyIds = result.bundles.map((bundle) => bundle.story_id);
     expect(storyIds).toEqual([...storyIds].sort());
   });
 
@@ -149,7 +151,7 @@ describe('newsOrchestrator', () => {
       text: vi.fn().mockResolvedValue('<rss><channel></channel></rss>'),
     } as unknown as Response);
 
-    const bundles = await orchestrateNewsPipeline({
+    const result = await orchestrateNewsPipeline({
       feedSources: [
         {
           id: 'source-empty',
@@ -166,7 +168,7 @@ describe('newsOrchestrator', () => {
       },
     });
 
-    expect(bundles).toEqual([]);
+    expect(result).toEqual({ bundles: [], storylines: [] });
   });
 
   it('validates config and exposes groupByTopic internal helper', async () => {
@@ -245,7 +247,7 @@ describe('newsOrchestrator', () => {
     );
     const fallbackSpy = vi.fn();
 
-    const bundles = await orchestrateNewsPipeline(
+    const result = await orchestrateNewsPipeline(
       {
         feedSources: [
           {
@@ -268,8 +270,9 @@ describe('newsOrchestrator', () => {
 
     expect(remoteFetchFn).toHaveBeenCalledTimes(1);
     expect(fallbackSpy).toHaveBeenCalledTimes(1);
-    expect(bundles).toHaveLength(1);
-    expect(bundles[0]?.topic_id).toBe('topic-finance');
+    expect(result.bundles).toHaveLength(1);
+    expect(result.storylines).toEqual([]);
+    expect(result.bundles[0]?.topic_id).toBe('topic-finance');
   });
 
   it('resolveClusterEngine can consume endpoint from env when enabled', async () => {

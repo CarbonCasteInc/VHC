@@ -10,7 +10,9 @@ import {
   createNodeMeshClient,
   readNewsIngestionLease,
   removeNewsBundle,
+  removeNewsStoryline,
   writeNewsIngestionLease,
+  writeNewsStoryline,
   writeStoryBundle,
   type NewsIngestionLease,
   type VennClient,
@@ -53,6 +55,7 @@ export interface NewsAggregatorDaemonConfig {
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
 }
+
 export interface NewsAggregatorDaemonHandle {
   readonly leaseHolderId: string;
   start(): Promise<void>;
@@ -109,6 +112,14 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
         await leaseGuard.assertHeld(nowFn());
         return removeBundle(runtimeClient as VennClient, storyId);
       },
+      writeStorylineGroup: async (runtimeClient: unknown, storyline: unknown) => {
+        await leaseGuard.assertHeld(nowFn());
+        return writeNewsStoryline(runtimeClient as VennClient, storyline);
+      },
+      removeStorylineGroup: async (runtimeClient: unknown, storylineId: string) => {
+        await leaseGuard.assertHeld(nowFn());
+        return removeNewsStoryline(runtimeClient as VennClient, storylineId);
+      },
       onSynthesisCandidate(candidate) {
         queue.enqueue(candidate);
       },
@@ -118,10 +129,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       orchestratorOptions: config.runtimeOrchestratorOptions,
     });
     if (runtimeHandle.isRunning()) {
-      logger.info('[vh:news-daemon] runtime started', {
-        holder_id: holderId,
-        poll_interval_ms: config.pollIntervalMs ?? null,
-      });
+      logger.info('[vh:news-daemon] runtime started', { holder_id: holderId, poll_interval_ms: config.pollIntervalMs ?? null });
       return;
     }
     runtimeHandle = null;
@@ -140,11 +148,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       now_ms: nowMs,
     });
     if (currentLease && currentLease.holder_id !== holderId && currentLease.expires_at > nowMs) {
-      logger.warn('[vh:news-daemon] lease held by another writer; runtime stays stopped', {
-        holder_id: holderId,
-        observed_lease_holder_id: currentLease.holder_id,
-        observed_lease_expires_at: currentLease.expires_at,
-      });
+      logger.warn('[vh:news-daemon] lease held by another writer; runtime stays stopped', { holder_id: holderId, observed_lease_holder_id: currentLease.holder_id, observed_lease_expires_at: currentLease.expires_at });
       leaseGuard.clear();
       stopRuntime();
       return;
@@ -158,12 +162,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     );
     const lease = await writeLease(config.client, nextLease);
     leaseGuard.accept(lease, nowMs);
-    logger.info('[vh:news-daemon] lease acquired', {
-      holder_id: holderId,
-      lease_holder_id: lease.holder_id,
-      lease_token: lease.lease_token,
-      expires_at: lease.expires_at,
-    });
+    logger.info('[vh:news-daemon] lease acquired', { holder_id: holderId, lease_holder_id: lease.holder_id, lease_token: lease.lease_token, expires_at: lease.expires_at });
     startRuntimeIfNeeded();
   };
   const runLeadershipTick = async (): Promise<void> => {
@@ -207,11 +206,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       leaseHeartbeatTimer = setIntervalFn(() => {
         void runLeadershipTick();
       }, leaseRenewIntervalMs);
-      logger.info('[vh:news-daemon] leadership loop started', {
-        holder_id: holderId,
-        lease_ttl_ms: leaseTtlMs,
-        lease_renew_interval_ms: leaseRenewIntervalMs,
-      });
+      logger.info('[vh:news-daemon] leadership loop started', { holder_id: holderId, lease_ttl_ms: leaseTtlMs, lease_renew_interval_ms: leaseRenewIntervalMs });
     },
     async stop() {
       if (!running) {
@@ -225,9 +220,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       queue.stop();
       stopRuntime();
       await releaseLease();
-      logger.info('[vh:news-daemon] stopped', {
-        holder_id: holderId,
-      });
+      logger.info('[vh:news-daemon] stopped', { holder_id: holderId });
     },
     isRunning() {
       return running;
@@ -245,6 +238,7 @@ export interface NewsAggregatorDaemonProcessHandle {
   client: VennClient;
   stop(): Promise<void>;
 }
+
 export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregatorDaemonProcessHandle> {
   const feedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
   const topicMapping = parseTopicMapping(readEnvVar('VITE_NEWS_TOPIC_MAPPING'));
@@ -291,6 +285,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     },
   };
 }
+
 function isDirectExecution(metaUrl: string): boolean {
   const argvPath = process.argv[1];
   if (!argvPath) {
@@ -340,5 +335,6 @@ export const __internal = {
   parseTopicMapping,
   resolveLeaseHolderId,
   runFromCli,
+  startNewsAggregatorDaemonFromEnv,
   verifyStoryClusterHealth,
 };

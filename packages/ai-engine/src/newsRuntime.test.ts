@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StoryBundle } from './newsOrchestrator';
+import type { StoryBundle, StorylineGroup } from './newsTypes';
 
 const { orchestrateNewsPipelineMock } = vi.hoisted(() => ({
   orchestrateNewsPipelineMock: vi.fn(),
@@ -38,6 +38,20 @@ const STORY_BUNDLE: StoryBundle = {
   created_at: 1_700_000_200_000,
 };
 
+const STORYLINE: StorylineGroup = {
+  schemaVersion: 'storyline-group-v0',
+  storyline_id: 'storyline-1',
+  topic_id: 'topic-1',
+  canonical_story_id: 'story-1',
+  story_ids: ['story-1'],
+  headline: 'Transit storyline',
+  related_coverage: [],
+  entity_keys: ['topic'],
+  time_bucket: '2026-02-15T14',
+  created_at: 1_700_000_200_000,
+  updated_at: 1_700_000_300_000,
+};
+
 const BASE_CONFIG = {
   feedSources: [
     {
@@ -59,13 +73,17 @@ async function flushTasks(): Promise<void> {
   await Promise.resolve();
 }
 
+function batch(bundles: StoryBundle[] = [], storylines: StorylineGroup[] = []) {
+  return { bundles, storylines };
+}
+
 describe('newsRuntime', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
     vi.stubEnv('VITE_ANALYSIS_MODEL', 'default-model');
     orchestrateNewsPipelineMock.mockReset();
-    orchestrateNewsPipelineMock.mockResolvedValue([]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch());
   });
 
   afterEach(() => {
@@ -130,7 +148,7 @@ describe('newsRuntime', () => {
 
   it('allows explicit enabled override for daemon callers', async () => {
     vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'false');
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const handle = startNewsRuntime({
@@ -151,7 +169,7 @@ describe('newsRuntime', () => {
   });
 
   it('runs periodic ticks, publishes bundles, and updates lastRun', async () => {
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const handle = startNewsRuntime({
@@ -185,8 +203,8 @@ describe('newsRuntime', () => {
       created_at: STORY_BUNDLE.created_at + 1,
     };
     orchestrateNewsPipelineMock
-      .mockResolvedValueOnce([STORY_BUNDLE, storyTwo])
-      .mockResolvedValueOnce([STORY_BUNDLE]);
+      .mockResolvedValueOnce(batch([STORY_BUNDLE, storyTwo]))
+      .mockResolvedValueOnce(batch([STORY_BUNDLE]));
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const removeStoryBundle = vi.fn().mockResolvedValue(undefined);
@@ -212,8 +230,8 @@ describe('newsRuntime', () => {
 
   it('does not prune previously published stories when a refresh returns no bundles', async () => {
     orchestrateNewsPipelineMock
-      .mockResolvedValueOnce([STORY_BUNDLE])
-      .mockResolvedValueOnce([]);
+      .mockResolvedValueOnce(batch([STORY_BUNDLE]))
+      .mockResolvedValueOnce(batch());
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const removeStoryBundle = vi.fn().mockResolvedValue(undefined);
@@ -236,7 +254,7 @@ describe('newsRuntime', () => {
   });
 
   it('reports missing write adapter via onError callback', async () => {
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const onError = vi.fn();
     const handle = startNewsRuntime({
@@ -255,7 +273,7 @@ describe('newsRuntime', () => {
 
   it('reports runtime errors via onError callback', async () => {
     const runtimeError = new Error('mesh write failed');
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const onError = vi.fn();
     const writeStoryBundle = vi.fn().mockRejectedValue(runtimeError);
@@ -276,10 +294,10 @@ describe('newsRuntime', () => {
   });
 
   it('skips overlapping ticks while a run is in flight', async () => {
-    let resolveRun: ((bundles: StoryBundle[]) => void) | null = null;
+    let resolveRun: ((result: ReturnType<typeof batch>) => void) | null = null;
     orchestrateNewsPipelineMock.mockImplementation(
       () =>
-        new Promise<StoryBundle[]>((resolve) => {
+        new Promise<ReturnType<typeof batch>>((resolve) => {
           resolveRun = resolve;
         }),
     );
@@ -293,14 +311,14 @@ describe('newsRuntime', () => {
     await vi.advanceTimersByTimeAsync(20);
     expect(orchestrateNewsPipelineMock).toHaveBeenCalledTimes(1);
 
-    resolveRun?.([STORY_BUNDLE]);
+    resolveRun?.(batch([STORY_BUNDLE]));
     await flushTasks();
 
     handle.stop();
   });
 
   it('stops future ticks after stop() is called', async () => {
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const handle = startNewsRuntime({
@@ -323,7 +341,7 @@ describe('newsRuntime', () => {
 
   it('propagates VITE_ANALYSIS_MODEL into synthesis candidate metadata', async () => {
     vi.stubEnv('VITE_ANALYSIS_MODEL', 'test-model-1');
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const onSynthesisCandidate = vi.fn();
@@ -371,7 +389,7 @@ describe('newsRuntime', () => {
   });
 
   it('does not block story publish when advanced artifact generation throws', async () => {
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const onError = vi.fn();
@@ -406,7 +424,7 @@ describe('newsRuntime', () => {
   });
 
   it('does not block story publish when enrichment callback fails asynchronously', async () => {
-    orchestrateNewsPipelineMock.mockResolvedValue([STORY_BUNDLE]);
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 
     const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
     const onError = vi.fn();
