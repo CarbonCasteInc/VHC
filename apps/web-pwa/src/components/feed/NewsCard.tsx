@@ -15,6 +15,11 @@ export interface NewsCardProps {
   readonly item: FeedItem;
 }
 
+function normalizeStorylineHeadline(headline: string | undefined): string | null {
+  const normalized = headline?.trim();
+  return normalized ? normalized : null;
+}
+
 function formatIsoTimestamp(timestampMs: number): string {
   return Number.isFinite(timestampMs) && timestampMs >= 0
     ? new Date(timestampMs).toISOString()
@@ -92,6 +97,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     const storylineId = story?.storyline_id?.trim();
     return storylineId ? storylinesById[storylineId] ?? null : null;
   }, [story, storylinesById]);
+  const storylineHeadline = normalizeStorylineHeadline(storyline?.headline);
+  const storylineStoryCount = storyline?.story_ids.length ?? 0;
   const analysisStoryRef = useRef<StoryBundle | null>(story);
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
   const analysisStory = useMemo(
@@ -267,6 +274,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
                 }))}
               />
             )}
+            {storylineHeadline && (
+              <p
+                className="mt-2 text-xs font-medium"
+                style={{ color: 'var(--headline-card-muted)' }}
+                data-testid={`news-card-storyline-${item.topic_id}`}
+              >
+                More on this storyline: {storylineHeadline}
+              </p>
+            )}
             <p
               className="mt-2 text-xs uppercase tracking-[0.18em]"
               style={{ color: 'var(--headline-card-muted)' }}
@@ -294,6 +310,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
                 analysisProvider={analysisProvider}
                 perSourceSummaries={perSourceSummaries}
                 relatedCoverage={storyline?.related_coverage ?? []}
+                storylineHeadline={storylineHeadline}
+                storylineStoryCount={storylineStoryCount}
                 analysisFeedbackStatus={analysisFeedbackStatus}
                 analysisError={analysisError}
                 retryAnalysis={retryAnalysis}

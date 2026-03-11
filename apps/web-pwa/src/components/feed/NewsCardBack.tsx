@@ -20,6 +20,8 @@ export interface NewsCardBackProps {
     title: string;
     url: string;
   }>;
+  readonly storylineHeadline: string | null;
+  readonly storylineStoryCount: number;
   readonly analysisFeedbackStatus:
     | 'loading'
     | 'timeout'
@@ -48,6 +50,8 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   analysisProvider,
   perSourceSummaries,
   relatedCoverage,
+  storylineHeadline,
+  storylineStoryCount,
   analysisFeedbackStatus,
   analysisError,
   retryAnalysis,
@@ -117,8 +121,19 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               data-testid={`news-card-related-coverage-${topicId}`}
             >
               <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-600">
-                Related coverage
+                More on this storyline
               </h4>
+              {storylineHeadline && (
+                <p
+                  className="text-xs text-slate-500"
+                  data-testid={`news-card-storyline-headline-${topicId}`}
+                >
+                  {storylineHeadline}
+                  {storylineStoryCount > 0
+                    ? ` • ${storylineStoryCount} ${storylineStoryCount === 1 ? 'story' : 'stories'}`
+                    : ''}
+                </p>
+              )}
               <ul className="space-y-1 text-xs text-slate-600">
                 {relatedCoverage.map((entry) => (
                   <li key={`${entry.source_id}|${entry.url}`}>

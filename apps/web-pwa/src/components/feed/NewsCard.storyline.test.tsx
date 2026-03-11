@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem, StoryBundle, StorylineGroup } from '@vh/data-model';
@@ -60,7 +60,7 @@ function makeStory(): StoryBundle {
   };
 }
 
-function makeStoryline(): StorylineGroup {
+function makeStoryline(overrides: Partial<StorylineGroup> = {}): StorylineGroup {
   return {
     schemaVersion: 'storyline-group-v0',
     storyline_id: 'storyline-transit',
@@ -81,6 +81,7 @@ function makeStoryline(): StorylineGroup {
     time_bucket: '2026-02-16T10',
     created_at: NOW - 3_600_000,
     updated_at: NOW,
+    ...overrides,
   };
 }
 
@@ -100,11 +101,21 @@ describe('NewsCard related coverage', () => {
 
   it('renders related coverage from the storyline separately from canonical sources', async () => {
     useNewsStore.getState().setStories([makeStory()]);
-    useNewsStore.getState().setStorylines([makeStoryline()]);
+    useNewsStore.getState().setStorylines([
+      makeStoryline({ story_ids: ['story-news-1', 'story-news-2'] }),
+    ]);
 
     render(<NewsCard item={makeItem()} />);
+
+    expect(screen.getByTestId('news-card-storyline-news-1')).toHaveTextContent(
+      'More on this storyline: Transit storyline',
+    );
+
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
+    expect(
+      await screen.findByTestId('news-card-storyline-headline-news-1'),
+    ).toHaveTextContent('Transit storyline • 2 stories');
     expect(await screen.findByTestId('news-card-related-coverage-news-1')).toHaveTextContent(
       'Budget Watch: Budget hawks resist broader rail push',
     );
@@ -112,5 +123,54 @@ describe('NewsCard related coverage', () => {
       'href',
       'https://example.com/news-1',
     );
+  });
+
+  it('opens from the card shell and closes with Escape without changing canonical source links', async () => {
+    useNewsStore.getState().setStories([makeStory()]);
+    useNewsStore.getState().setStorylines([makeStoryline()]);
+
+    render(<NewsCard item={makeItem()} />);
+
+    fireEvent.click(screen.getByTestId('source-badge-src-1'));
+    expect(screen.queryByTestId('news-card-back-news-1')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('news-card-news-1'));
+    expect(await screen.findByTestId('news-card-back-news-1')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(await screen.findByTestId('news-card-front-news-1')).toBeInTheDocument();
+  });
+
+  it('uses only card-shell Enter/Space presses to toggle expansion', async () => {
+    useNewsStore.getState().setStories([makeStory()]);
+    useNewsStore.getState().setStorylines([makeStoryline()]);
+
+    render(<NewsCard item={makeItem()} />);
+
+    fireEvent.keyDown(screen.getByTestId('news-card-headline-news-1'), { key: 'Enter' });
+    expect(screen.queryByTestId('news-card-back-news-1')).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('news-card-news-1'), { key: 'Tab' });
+    expect(screen.queryByTestId('news-card-back-news-1')).not.toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('news-card-news-1'), { key: 'Enter' });
+    expect(await screen.findByTestId('news-card-back-news-1')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('news-card-news-1'), { key: ' ' });
+    expect(await screen.findByTestId('news-card-front-news-1')).toBeInTheDocument();
+  });
+
+  it('captures a story that arrives after the card is already expanded', async () => {
+    render(<NewsCard item={makeItem()} />);
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('news-card-back-news-1')).toBeInTheDocument();
+
+    await act(async () => {
+      useNewsStore.getState().setStories([makeStory()]);
+      useNewsStore.getState().setStorylines([makeStoryline()]);
+    });
+
+    expect(await screen.findByTestId('news-card-related-coverage-news-1')).toBeInTheDocument();
   });
 });
