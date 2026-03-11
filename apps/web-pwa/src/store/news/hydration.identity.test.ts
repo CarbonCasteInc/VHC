@@ -3,6 +3,7 @@ import type { NewsState } from './index';
 
 const gunMocks = vi.hoisted(() => ({
   getNewsStoriesChain: vi.fn(),
+  getNewsStorylinesChain: vi.fn(),
   getNewsLatestIndexChain: vi.fn(),
   getNewsHotIndexChain: vi.fn(),
   hasForbiddenNewsPayloadFields: vi.fn<(payload: unknown) => boolean>(),
@@ -10,6 +11,7 @@ const gunMocks = vi.hoisted(() => ({
 
 vi.mock('@vh/gun-client', () => ({
   getNewsStoriesChain: gunMocks.getNewsStoriesChain,
+  getNewsStorylinesChain: gunMocks.getNewsStorylinesChain,
   getNewsLatestIndexChain: gunMocks.getNewsLatestIndexChain,
   getNewsHotIndexChain: gunMocks.getNewsHotIndexChain,
   hasForbiddenNewsPayloadFields: gunMocks.hasForbiddenNewsPayloadFields,
@@ -36,15 +38,22 @@ function createStore() {
     stories: [],
     latestIndex: {},
     hotIndex: {},
+    storylinesById: {},
     hydrated: false,
     loading: false,
     error: null,
     setStories: vi.fn(),
     upsertStory: vi.fn(),
+    removeStory: vi.fn(),
     setLatestIndex: vi.fn(),
     upsertLatestIndex: vi.fn(),
+    removeLatestIndex: vi.fn(),
     setHotIndex: vi.fn(),
     upsertHotIndex: vi.fn(),
+    removeHotIndex: vi.fn(),
+    setStorylines: vi.fn(),
+    upsertStoryline: vi.fn(),
+    removeStoryline: vi.fn(),
     refreshLatest: vi.fn(),
     startHydration: vi.fn(),
     setLoading: vi.fn(),
@@ -61,6 +70,7 @@ function createStore() {
 describe('hydrateNewsStore identity filtering', () => {
   beforeEach(() => {
     gunMocks.getNewsStoriesChain.mockReset();
+    gunMocks.getNewsStorylinesChain.mockReset();
     gunMocks.getNewsLatestIndexChain.mockReset();
     gunMocks.getNewsHotIndexChain.mockReset();
     gunMocks.hasForbiddenNewsPayloadFields.mockReset();
@@ -69,9 +79,11 @@ describe('hydrateNewsStore identity filtering', () => {
 
   it('ignores legacy topic-news story payloads', async () => {
     const stories = createSubscribableChain();
+    const storylines = createSubscribableChain();
     const latest = createSubscribableChain();
     const hot = createSubscribableChain();
     gunMocks.getNewsStoriesChain.mockReturnValue(stories.chain);
+    gunMocks.getNewsStorylinesChain.mockReturnValue(storylines.chain);
     gunMocks.getNewsLatestIndexChain.mockReturnValue(latest.chain);
     gunMocks.getNewsHotIndexChain.mockReturnValue(hot.chain);
 

@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const STORY_BUNDLE_SCHEMA_VERSION = 'story-bundle-v0' as const;
+export const STORYLINE_GROUP_SCHEMA_VERSION = 'storyline-group-v0' as const;
 export const DEFAULT_NEAR_DUPLICATE_WINDOW_MS = 60 * 60 * 1000;
 export const DEFAULT_CLUSTER_BUCKET_MS = 60 * 60 * 1000;
 
@@ -85,6 +86,7 @@ export const StoryBundleSchema = z
     schemaVersion: z.literal(STORY_BUNDLE_SCHEMA_VERSION),
     story_id: z.string().min(1),
     topic_id: z.string().min(1),
+    storyline_id: z.string().min(1).optional(),
     headline: z.string().min(1),
     summary_hint: z.string().min(1).optional(),
     cluster_window_start: z.number().int().nonnegative(),
@@ -110,6 +112,30 @@ export const StoryBundleSchema = z
   .strict();
 
 export type StoryBundle = z.infer<typeof StoryBundleSchema>;
+
+export const StorylineGroupSchema = z
+  .object({
+    schemaVersion: z.literal(STORYLINE_GROUP_SCHEMA_VERSION),
+    storyline_id: z.string().min(1),
+    topic_id: z.string().min(1),
+    canonical_story_id: z.string().min(1),
+    story_ids: z.array(z.string().min(1)).min(1),
+    headline: z.string().min(1),
+    summary_hint: z.string().min(1).optional(),
+    related_coverage: z.array(StoryBundleSourceSchema),
+    entity_keys: z.array(z.string().min(1)),
+    time_bucket: z.string().min(1),
+    created_at: z.number().int().nonnegative(),
+    updated_at: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export type StorylineGroup = z.infer<typeof StorylineGroupSchema>;
+
+export interface StoryClusterBatchResult {
+  readonly bundles: StoryBundle[];
+  readonly storylines: StorylineGroup[];
+}
 
 // --- Bundle Verification (separate entity, not embedded in StoryBundle) ---
 // CE decision: StoryBundle uses .strict(), embedding verification would break

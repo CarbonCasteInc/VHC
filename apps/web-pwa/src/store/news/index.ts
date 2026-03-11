@@ -5,9 +5,11 @@ import {
   readNewsLatestIndex,
   readNewsStory,
 } from '@vh/gun-client';
-import type { StoryBundle } from '@vh/data-model';
+import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 import { resolveClientFromAppStore } from '../clientResolver';
 import { hydrateNewsStore } from './hydration';
+import { loadStorylinesForStories } from './storylines';
+import { createStorylineRecord, removeOrphanedStoryline } from './storylineState';
 import type { NewsState, NewsDeps } from './types';
 import {
   buildSeedIndex,
@@ -24,10 +26,12 @@ import {
 
 export type { NewsState, NewsDeps } from './types';
 
-const INITIAL_STATE: Pick<NewsState, 'stories' | 'latestIndex' | 'hotIndex' | 'hydrated' | 'loading' | 'error'> = {
+const INITIAL_STATE: Pick<NewsState,
+  'stories' | 'latestIndex' | 'hotIndex' | 'storylinesById' | 'hydrated' | 'loading' | 'error'> = {
   stories: [],
   latestIndex: {},
   hotIndex: {},
+  storylinesById: {},
   hydrated: false,
   loading: false,
   error: null
@@ -60,6 +64,11 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         const deduped = dedupeStories(validated, state.stories);
         return {
           stories: sortStories(deduped, state.latestIndex),
+          storylinesById: createStorylineRecord(
+            Object.values(state.storylinesById).filter((storyline) =>
+              deduped.some((story) => story.storyline_id === storyline.storyline_id),
+            ),
+          ),
           error: null,
         };
       });
@@ -71,9 +80,15 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         return;
       }
       set((state) => {
+        const previousStory = state.stories.find((entry) => entry.story_id === validated.story_id);
         const deduped = dedupeStories([...state.stories, validated], state.stories);
         return {
           stories: sortStories(deduped, state.latestIndex),
+          storylinesById: removeOrphanedStoryline(
+            state.storylinesById,
+            deduped,
+            previousStory?.storyline_id,
+          ),
           error: null,
         };
       });
@@ -86,6 +101,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       }
 
       set((state) => {
+        const removedStory = state.stories.find((story) => story.story_id === normalizedStoryId);
         const stories = state.stories.filter((story) => story.story_id !== normalizedStoryId);
         if (stories.length === state.stories.length) {
           return {};
@@ -100,6 +116,11 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           stories: sortStories(stories, nextLatestIndex),
           latestIndex: nextLatestIndex,
           hotIndex: nextHotIndex,
+          storylinesById: removeOrphanedStoryline(
+            state.storylinesById,
+            stories,
+            removedStory?.storyline_id,
+          ),
         };
       });
     },
@@ -190,6 +211,39 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       });
     },
 
+    setStorylines(storylines: StorylineGroup[]) {
+      set({
+        storylinesById: createStorylineRecord(storylines),
+        error: null,
+      });
+    },
+
+    upsertStoryline(storyline: StorylineGroup) {
+      set((state) => ({
+        storylinesById: {
+          ...state.storylinesById,
+          [storyline.storyline_id]: storyline,
+        },
+      }));
+    },
+
+    removeStoryline(storylineId: string) {
+      const normalizedStorylineId = storylineId.trim();
+      if (!normalizedStorylineId) {
+        return;
+      }
+
+      set((state) => {
+        if (!(normalizedStorylineId in state.storylinesById)) {
+          return {};
+        }
+
+        const nextStorylines = { ...state.storylinesById };
+        delete nextStorylines[normalizedStorylineId];
+        return { storylinesById: nextStorylines };
+      });
+    },
+
     async refreshLatest(limit = 50) {
       const client = deps.resolveClient();
       if (!client) {
@@ -210,6 +264,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
         const validStories = parseStories(stories);
         const filteredStories = filterStoriesToConfiguredSources(validStories);
+        const storylines = await loadStorylinesForStories(client, filteredStories);
 
         let mergedStories: StoryBundle[] = [];
         set((state) => {
@@ -217,6 +272,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           return {
             latestIndex,
             hotIndex,
+            storylinesById: createStorylineRecord(storylines),
             stories: sortStories(mergedStories, latestIndex),
             loading: false,
             error: null,

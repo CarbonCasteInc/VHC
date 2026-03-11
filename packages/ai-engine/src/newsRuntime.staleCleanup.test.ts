@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StoryBundle } from './newsOrchestrator';
+import type { StoryBundle } from './newsTypes';
 
 const { orchestrateNewsPipelineMock } = vi.hoisted(() => ({
   orchestrateNewsPipelineMock: vi.fn(),
@@ -61,6 +61,10 @@ async function flushTasks(): Promise<void> {
   await Promise.resolve();
 }
 
+function batch(bundles: StoryBundle[] = []) {
+  return { bundles, storylines: [] };
+}
+
 describe('newsRuntime stale cleanup', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -81,8 +85,8 @@ describe('newsRuntime stale cleanup', () => {
     const runtimeError = new Error('second write failed');
 
     orchestrateNewsPipelineMock
-      .mockResolvedValueOnce([storyOne, storyTwo])
-      .mockResolvedValueOnce([storyThree]);
+      .mockResolvedValueOnce(batch([storyOne, storyTwo]))
+      .mockResolvedValueOnce(batch([storyThree]));
 
     const writeStoryBundle = vi.fn(async (_client: unknown, bundle: StoryBundle) => {
       if (bundle.story_id === 'story-2') {

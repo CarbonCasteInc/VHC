@@ -1,4 +1,4 @@
-import type { StoryBundle } from '@vh/data-model';
+import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 
 export const NEWS_STORE_TYPES_VERSION = 'storycluster-pr5-hot-index-v1';
 
@@ -15,6 +15,9 @@ export interface NewsState {
 
   /** Hot index from mesh: story_id -> deterministic hotness score. */
   readonly hotIndex: Readonly<Record<string, number>>;
+
+  /** Storyline groups keyed by storyline id for related coverage. */
+  readonly storylinesById: Readonly<Record<string, StorylineGroup>>;
 
   /** Whether real-time hydration has been attached. */
   readonly hydrated: boolean;
@@ -34,6 +37,9 @@ export interface NewsState {
   setHotIndex(index: Record<string, number>): void;
   upsertHotIndex(storyId: string, hotness: number): void;
   removeHotIndex(storyId: string): void;
+  setStorylines(storylines: StorylineGroup[]): void;
+  upsertStoryline(storyline: StorylineGroup): void;
+  removeStoryline(storylineId: string): void;
   refreshLatest(limit?: number): Promise<void>;
   startHydration(): void;
   setLoading(loading: boolean): void;

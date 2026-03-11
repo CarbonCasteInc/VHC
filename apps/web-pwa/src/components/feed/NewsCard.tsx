@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
-import type { FeedItem, StoryBundle } from '@vh/data-model';
+import type { FeedItem, StoryBundle, StorylineGroup } from '@vh/data-model';
 import { FlippableCard } from '../venn/FlippableCard';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
@@ -70,6 +70,7 @@ export function resolveAnalysisProviderModel(
 
 export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const stories = useStore(useNewsStore, (state) => state.stories);
+  const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
   const startSynthesisHydration = useStore(useSynthesisStore, (s) => s.startHydration);
   const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
@@ -87,6 +88,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     () => resolveStoryBundle(stories, item),
     [stories, item.story_id, item.title, item.topic_id],
   );
+  const storyline = useMemo<StorylineGroup | null>(() => {
+    const storylineId = story?.storyline_id?.trim();
+    return storylineId ? storylinesById[storylineId] ?? null : null;
+  }, [story, storylinesById]);
   const analysisStoryRef = useRef<StoryBundle | null>(story);
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
   const analysisStory = useMemo(
@@ -288,6 +293,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
                 frameRows={frameRows}
                 analysisProvider={analysisProvider}
                 perSourceSummaries={perSourceSummaries}
+                relatedCoverage={storyline?.related_coverage ?? []}
                 analysisFeedbackStatus={analysisFeedbackStatus}
                 analysisError={analysisError}
                 retryAnalysis={retryAnalysis}
