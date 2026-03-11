@@ -218,6 +218,21 @@ export function filterItems(
   );
 }
 
+function filterItemsByStoryline(
+  items: ReadonlyArray<FeedItem>,
+  selectedStorylineId: string | null,
+): FeedItem[] {
+  const normalizedStorylineId = selectedStorylineId?.trim();
+  if (!normalizedStorylineId) {
+    return [...items];
+  }
+
+  return items.filter(
+    (item) =>
+      item.kind === 'NEWS_STORY' && item.storyline_id?.trim() === normalizedStorylineId,
+  );
+}
+
 /**
  * Sort items by the selected sort mode.
  * Spec §4:
@@ -283,7 +298,9 @@ export function composeFeed(
   sortMode: SortMode,
   config: RankingConfig,
   nowMs: number,
+  selectedStorylineId: string | null = null,
 ): FeedItem[] {
   const filtered = filterItems(items, filter);
-  return sortItems(filtered, sortMode, config, nowMs);
+  const focused = filterItemsByStoryline(filtered, selectedStorylineId);
+  return sortItems(focused, sortMode, config, nowMs);
 }

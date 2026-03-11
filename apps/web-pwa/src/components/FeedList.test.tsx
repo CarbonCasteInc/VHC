@@ -20,11 +20,14 @@ vi.mock('@tanstack/react-router', () => ({
 vi.mock('../hooks/useDiscoveryFeed', () => ({
   useDiscoveryFeed: vi.fn(() => ({
     feed: [],
+    selectedStorylineId: null,
     filter: 'ALL',
     sortMode: 'LATEST',
     loading: false,
     error: null,
     setFilter: vi.fn(),
+    focusStoryline: vi.fn(),
+    clearStorylineFocus: vi.fn(),
     setSortMode: vi.fn(),
   })),
 }));
@@ -65,11 +68,14 @@ describe('FeedList', () => {
           comments: 0,
         },
       ],
+      selectedStorylineId: null,
       filter: 'ALL',
       sortMode: 'LATEST',
       loading: false,
       error: null,
       setFilter: vi.fn(),
+      focusStoryline: vi.fn(),
+      clearStorylineFocus: vi.fn(),
       setSortMode: vi.fn(),
     });
     render(<FeedList />);

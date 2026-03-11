@@ -179,6 +179,32 @@ describe('filterItems', () => {
   it('handles empty input', () => {
     expect(filterItems([], 'ALL')).toHaveLength(0);
   });
+
+  it('composeFeed can focus a single storyline within the filtered feed', () => {
+    const focused = makeFeedItem({
+      topic_id: 'storyline-a',
+      storyline_id: 'storyline-transit',
+      title: 'Transit vote advances',
+      hotness: 0.8,
+    });
+    const unfocused = makeFeedItem({
+      topic_id: 'storyline-b',
+      storyline_id: 'storyline-budget',
+      title: 'Budget talks stall',
+      hotness: 0.9,
+    });
+
+    const result = composeFeed(
+      [focused, unfocused],
+      'ALL',
+      'HOTTEST',
+      CONFIG,
+      NOW,
+      'storyline-transit',
+    );
+
+    expect(result).toEqual([focused]);
+  });
 });
 
 // ---- sortItems ----

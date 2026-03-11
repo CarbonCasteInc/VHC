@@ -1,45 +1,18 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { useFeedStore } from '../../hooks/useFeedStore';
-import { useIntersectionLoader } from '../../hooks/useIntersectionLoader';
+import { useDiscoveryStore } from '../../store/discovery';
 import { useNewsStore } from '../../store/news';
 import { FilterChips } from './FilterChips';
 import { SortControls } from './SortControls';
-import { NewsCardWithRemoval } from './NewsCardWithRemoval';
-import { TopicCard } from './TopicCard';
-import { SocialNotificationCard } from './SocialNotificationCard';
-import { ArticleFeedCard } from '../docs/ArticleFeedCard';
-import { ReceiptFeedCard } from './ReceiptFeedCard';
 import { useExpandedCardStore } from './expandedCardStore';
+import { FeedContent } from './FeedContent';
+import { StorylineFocusPanel } from './StorylineFocusPanel';
 
 const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
-
-function normalizeStoryId(storyId: string | undefined): string | null {
-  const normalized = storyId?.trim();
-  return normalized ? normalized : null;
-}
-
-function toFeedItemKey(item: FeedItem): string {
-  if (item.kind === 'NEWS_STORY') {
-    const storyId = normalizeStoryId(item.story_id);
-    if (storyId) {
-      return ['NEWS_STORY', storyId].join('|');
-    }
-
-    const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
-    return ['NEWS_STORY', item.topic_id, normalizedTitle].join('|');
-  }
-
-  return [item.kind, item.topic_id].join('|');
-}
-
-function toFeedItemTestIdSuffix(item: FeedItem): string {
-  return normalizeStoryId(item.story_id) ?? item.topic_id;
-}
 
 export interface FeedShellProps {
   /** Discovery feed hook result (injected for testability). */
@@ -56,15 +29,26 @@ export interface FeedShellProps {
  * Spec: docs/specs/spec-topic-discovery-ranking-v0.md §2
  */
 export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
-  const { feed, filter, sortMode, loading, error, setFilter, setSortMode } =
-    feedResult;
+  const {
+    feed,
+    selectedStorylineId,
+    filter,
+    sortMode,
+    loading,
+    error,
+    setFilter,
+    clearStorylineFocus,
+    setSortMode,
+  } = feedResult;
 
   const pagedFeed = useStore(useFeedStore, (state) => state.discoveryFeed);
   const hasMore = useStore(useFeedStore, (state) => state.hasMore);
   const loadMore = useStore(useFeedStore, (state) => state.loadMore);
   const loadingMore = useStore(useFeedStore, (state) => state.loading);
   const setDiscoveryFeed = useStore(useFeedStore, (state) => state.setDiscoveryFeed);
+  const discoveryItems = useStore(useDiscoveryStore, (state) => state.items);
   const refreshLatest = useStore(useNewsStore, (state) => state.refreshLatest);
+  const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
   const expandedStoryId = useStore(useExpandedCardStore, (state) => state.expandedStoryId);
   const deferredFeedRef = useRef<ReadonlyArray<FeedItem> | null>(null);
   const lastModeRef = useRef<{ filter: typeof filter; sortMode: typeof sortMode } | null>(null);
@@ -73,6 +57,19 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const [isNearTop, setIsNearTop] = useState(true);
   const [hasDeferredUpdates, setHasDeferredUpdates] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const focusedStoryline = selectedStorylineId
+    ? storylinesById[selectedStorylineId] ?? null
+    : null;
+  const focusedStoryCount = useMemo(
+    () =>
+      selectedStorylineId
+        ? discoveryItems.filter(
+            (item) =>
+              item.kind === 'NEWS_STORY' && item.storyline_id?.trim() === selectedStorylineId,
+          ).length
+        : 0,
+    [discoveryItems, selectedStorylineId],
+  );
 
   const applyDeferredFeed = useCallback(
     (resetPagination: boolean) => {
@@ -205,6 +202,14 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         </div>
       )}
 
+      {focusedStoryline && (
+        <StorylineFocusPanel
+          storyline={focusedStoryline}
+          visibleStoryCount={focusedStoryCount}
+          onClear={clearStorylineFocus}
+        />
+      )}
+
       {/* Feed content area */}
       <FeedContent
         feed={pagedFeed}
@@ -216,160 +221,6 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       />
     </div>
   );
-};
-
-// ---- Internal sub-components ----
-
-interface FeedContentProps {
-  readonly feed: ReadonlyArray<FeedItem>;
-  readonly loading: boolean;
-  readonly error: string | null;
-  readonly hasMore: boolean;
-  readonly loadingMore: boolean;
-  readonly loadMore: () => void;
-}
-
-const FeedContent: React.FC<FeedContentProps> = ({
-  feed,
-  loading,
-  error,
-  hasMore,
-  loadingMore,
-  loadMore,
-}) => {
-  const sentinelRef = useIntersectionLoader<HTMLLIElement>({
-    enabled: hasMore,
-    loading: loadingMore,
-    onLoadMore: loadMore,
-  });
-
-  if (error) {
-    return (
-      <div
-        role="alert"
-        data-testid="feed-error"
-        className="rounded bg-red-50 p-3 text-sm text-red-700"
-      >
-        {error}
-      </div>
-    );
-  }
-
-  if (loading) {
-    return (
-      <div
-        data-testid="feed-loading"
-        className="py-8 text-center text-sm text-slate-400"
-      >
-        Loading feed…
-      </div>
-    );
-  }
-
-  if (feed.length === 0) {
-    return (
-      <div
-        data-testid="feed-empty"
-        className="py-8 text-center text-sm text-slate-400"
-      >
-        No items to show.
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-2">
-      <ul data-testid="feed-list" className="space-y-3">
-        {feed.map((item) => (
-          <FeedItemRow
-            key={toFeedItemKey(item)}
-            item={item}
-          />
-        ))}
-
-        {hasMore && (
-          <li
-            ref={sentinelRef}
-            data-testid="feed-load-sentinel"
-            className="py-1 text-center text-xs text-slate-500"
-            aria-hidden="true"
-          >
-            Scroll for more…
-          </li>
-        )}
-      </ul>
-
-      {loadingMore && (
-        <p
-          data-testid="feed-loading-more"
-          className="text-center text-xs text-slate-500"
-          aria-live="polite"
-        >
-          Loading more…
-        </p>
-      )}
-    </div>
-  );
-};
-
-// ---- Feed item renderer ----
-
-interface FeedItemRowProps {
-  readonly item: FeedItem;
-}
-
-const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
-  const testIdSuffix = toFeedItemTestIdSuffix(item);
-
-  // NEWS_STORY cards own their click interaction (headline flip in-place).
-  if (item.kind === 'NEWS_STORY') {
-    return (
-      <li data-testid={`feed-item-${testIdSuffix}`}>
-        <FeedItemCard item={item} />
-      </li>
-    );
-  }
-
-  return (
-    <li data-testid={`feed-item-${testIdSuffix}`}>
-      <Link
-        to="/hermes/$threadId"
-        params={{ threadId: item.topic_id }}
-        className="block no-underline"
-        data-testid={`feed-link-${item.topic_id}`}
-      >
-        <FeedItemCard item={item} />
-      </Link>
-    </li>
-  );
-};
-
-interface FeedItemCardProps {
-  readonly item: FeedItem;
-}
-
-const FeedItemCard: React.FC<FeedItemCardProps> = ({ item }) => {
-  switch (item.kind) {
-    case 'NEWS_STORY':
-      return <NewsCardWithRemoval item={item} />;
-    case 'USER_TOPIC':
-      return <TopicCard item={item} />;
-    case 'SOCIAL_NOTIFICATION':
-      return <SocialNotificationCard item={item} />;
-    case 'ARTICLE':
-      return <ArticleFeedCard item={item} />;
-    case 'ACTION_RECEIPT':
-      return <ReceiptFeedCard item={item} />;
-    default:
-      return (
-        <article
-          data-testid={`feed-item-unknown-${item.topic_id}`}
-          className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
-        >
-          Unsupported feed item kind.
-        </article>
-      );
-  }
 };
 
 export default FeedShell;

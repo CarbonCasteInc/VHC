@@ -28,7 +28,7 @@ describe('useFeedStore', () => {
       hasMore: false,
       loading: false,
     });
-    useDiscoveryStore.getState().setItems([]);
+    useDiscoveryStore.getState().reset();
   });
 
   afterEach(() => {
@@ -48,6 +48,22 @@ describe('useFeedStore', () => {
     expect(state.items[0].id).toBe('disc-1');
     expect(state.page).toBe(1);
     expect(state.hasMore).toBe(false);
+  });
+
+  it('hydrates only the focused storyline when discovery focus is active', () => {
+    useDiscoveryStore.getState().setItems([
+      { ...makeDiscoveryItem('disc-1'), storyline_id: 'storyline-a' },
+      { ...makeDiscoveryItem('disc-2'), storyline_id: 'storyline-b' },
+    ]);
+    useDiscoveryStore.getState().mergeItems([
+      { ...makeDiscoveryItem('disc-3'), storyline_id: 'storyline-a' },
+    ]);
+    useDiscoveryStore.getState().focusStoryline('storyline-a');
+
+    useFeedStore.getState().hydrate();
+
+    const state = useFeedStore.getState();
+    expect(state.discoveryFeed.map((item) => item.topic_id)).toEqual(['disc-1', 'disc-3']);
   });
 
   it('hydrates to an empty state when discovery store has no items', () => {

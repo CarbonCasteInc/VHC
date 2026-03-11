@@ -28,6 +28,9 @@ export interface DiscoveryState {
   /** Last error message, if any. */
   readonly error: string | null;
 
+  /** Active storyline focus for grouped news-story discovery. */
+  readonly selectedStorylineId: string | null;
+
   // ---- Actions ----
 
   /** Replace the full item set (e.g. after fetch / hydration). */
@@ -38,6 +41,12 @@ export interface DiscoveryState {
 
   /** Change the active filter chip. */
   setFilter(filter: FilterChip): void;
+
+  /** Focus discovery on a specific storyline. */
+  focusStoryline(storylineId: string): void;
+
+  /** Clear the current storyline focus. */
+  clearStorylineFocus(): void;
 
   /** Change the active sort mode. */
   setSortMode(mode: SortMode): void;

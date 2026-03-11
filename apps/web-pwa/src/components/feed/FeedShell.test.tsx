@@ -59,11 +59,14 @@ function makeFeedResult(
 ): UseDiscoveryFeedResult {
   return {
     feed: [],
+    selectedStorylineId: null,
     filter: 'ALL',
     sortMode: 'LATEST',
     loading: false,
     error: null,
     setFilter: vi.fn(),
+    focusStoryline: vi.fn(),
+    clearStorylineFocus: vi.fn(),
     setSortMode: vi.fn(),
     ...overrides,
   };
