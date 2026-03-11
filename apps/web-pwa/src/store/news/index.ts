@@ -279,7 +279,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           };
         });
 
-        void mirrorStoriesIntoDiscovery(mergedStories, hotIndex);
+        void mirrorStoriesIntoDiscovery(mergedStories, hotIndex, createStorylineRecord(storylines));
       } catch (error: unknown) {
         set({
           loading: false,

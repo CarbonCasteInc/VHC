@@ -101,6 +101,11 @@ function storylineKey(item: FeedItem): string {
     return `${item.kind}:${item.topic_id}`;
   }
 
+  const normalizedStorylineId = item.storyline_id?.trim();
+  if (normalizedStorylineId) {
+    return `NEWS_STORY:${normalizedStorylineId}`;
+  }
+
   const terms = toEntityTerms(item.title);
   if (terms.length === 0) {
     return `NEWS_STORY:${item.topic_id}`;
@@ -110,7 +115,19 @@ function storylineKey(item: FeedItem): string {
 }
 
 function entityTermsForItem(item: FeedItem): ReadonlySet<string> {
-  const terms = new Set<string>(toEntityTerms(item.title));
+  const terms = new Set<string>();
+  for (const entityKey of item.entity_keys ?? []) {
+    for (const token of toEntityTerms(entityKey.replace(/[-_]+/g, ' '))) {
+      terms.add(token);
+    }
+  }
+
+  if (terms.size === 0) {
+    for (const token of toEntityTerms(item.title)) {
+      terms.add(token);
+    }
+  }
+
   for (const topicToken of toEntityTerms(item.topic_id.replace(/[-_]+/g, ' '))) {
     terms.add(topicToken);
   }
