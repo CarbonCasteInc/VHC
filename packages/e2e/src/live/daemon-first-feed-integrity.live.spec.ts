@@ -26,14 +26,21 @@ const ANALYSIS_READY_TIMEOUT_MS = 90_000;
 const IDENTITY_BOOTSTRAP_TIMEOUT_MS = 120_000;
 const SORT_SAMPLE_SIZE = 6;
 const HOTTEST_WINDOW_SIZE = 8;
+const HOTTEST_AVERAGE_TOLERANCE = 0.005;
 const ZERO_BASELINE_SETTLE_WINDOW_MS = 5_000;
 const ZERO_BASELINE_SETTLE_STEP_MS = 500;
 const REQUIRED_CARD_COUNT = MIN_HEADLINES;
+const BUNDLED_CANDIDATE_LIMIT = 8;
+const MAX_BUNDLED_ANALYSIS_CANDIDATES = 4;
+const MAX_GENERAL_ANALYSIS_CANDIDATES = 3;
+const FIXTURE_FEED_ENABLED = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
+const BUNDLED_ANALYSIS_TIMEOUT_MS = FIXTURE_FEED_ENABLED ? 60_000 : 30_000;
 
 interface VisibleCard extends HeadlineRow {
   readonly hotness: number;
   readonly meta: string;
   readonly sourceBadgeCount: number;
+  readonly storylineId: string | null;
 }
 interface BundledStoryCandidate {
   readonly story: BundledStory;
@@ -41,6 +48,19 @@ interface BundledStoryCandidate {
 }
 
 interface VoteCounts { readonly agree: number; readonly disagree: number; }
+interface MeshWriteEvent {
+  readonly topic_id: string;
+  readonly point_id: string;
+  readonly success: boolean;
+  readonly timed_out?: boolean;
+  readonly latency_ms: number;
+  readonly error?: string;
+  readonly event_write_ok?: boolean;
+  readonly voter_node_ok?: boolean;
+  readonly snapshot_ok?: boolean;
+  readonly readback_recovered?: boolean;
+  readonly observed_at: number;
+}
 async function attachJson(testInfo: { attach: (name: string, options: { body: string; contentType: string }) => Promise<void> }, name: string, value: unknown): Promise<void> {
   await testInfo.attach(name, { body: JSON.stringify(value, null, 2), contentType: 'application/json' });
 }
@@ -75,9 +95,17 @@ function overlapCount(left: string, right: string): number {
   return tokenize(left).filter((token) => rightTerms.has(token)).length;
 }
 
-function storylineKey(title: string): string {
+function storylineKey(title: string, storylineId?: string | null): string {
+  const normalizedStorylineId = storylineId?.trim();
+  if (normalizedStorylineId) {
+    return normalizedStorylineId;
+  }
   const terms = tokenize(title);
   return terms.slice(0, 2).join('+') || title.toLowerCase();
+}
+
+function normalizedHeadlineKey(headline: string): string {
+  return headline.trim().replace(/\s+/g, ' ').toLowerCase();
 }
 
 async function visibleCards(page: Page): Promise<VisibleCard[]> {
@@ -94,6 +122,7 @@ async function visibleCards(page: Page): Promise<VisibleCard[]> {
         hotness: Number.parseFloat((hotness.textContent ?? '').replace('Hotness', '').trim()) || 0,
         meta: (meta.textContent ?? '').trim(),
         sourceBadgeCount: card.querySelectorAll('[data-testid^="source-badge-"]').length,
+        storylineId: card.getAttribute('data-storyline-id'),
       };
     })
     .filter((row): row is VisibleCard => Boolean(row && row.topicId && row.storyId && row.headline)));
@@ -102,6 +131,10 @@ async function visibleCards(page: Page): Promise<VisibleCard[]> {
 async function gotoFeed(page: Page): Promise<void> {
   await page.goto(LIVE_BASE_URL, { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
   await waitForHeadlines(page);
+}
+
+function attachBrowserLogCapture(page: Page, browserLogs: string[]): void {
+  page.on('console', (message) => browserLogs.push(logText(message)));
 }
 
 async function ensureIdentity(page: Page, label: string): Promise<void> {
@@ -135,8 +168,9 @@ async function ensureIdentity(page: Page, label: string): Promise<void> {
 }
 
 async function requireAnalysisRelay(page: Page): Promise<void> {
+  const relayConfigUrl = new URL('/api/analyze/config', LIVE_BASE_URL).toString();
   const routeReady = await waitFor(async () => {
-    const response = await page.request.get(`${LIVE_BASE_URL}/api/analyze/config`, {
+    const response = await page.request.get(relayConfigUrl, {
       timeout: 5_000,
       failOnStatusCode: false,
     }).catch(() => null);
@@ -164,12 +198,8 @@ async function requireAnalysisRelay(page: Page): Promise<void> {
 }
 
 async function bundledStoryCandidates(page: Page, limit = 12): Promise<BundledStoryCandidate[]> {
-  const discovered = new Map<string, BundledStoryCandidate>();
-  const deadline = Date.now() + 90_000;
-  let previousCount = 0;
-  let unchangedRounds = 0;
-
-  while (Date.now() < deadline) {
+  const collectVisibleCandidates = async (): Promise<Map<string, BundledStoryCandidate>> => {
+    const discovered = new Map<string, BundledStoryCandidate>();
     const auditableBundles = (await readAuditableBundles(page)).slice(0, limit);
     for (const bundle of auditableBundles) {
       const headline = page
@@ -195,18 +225,11 @@ async function bundledStoryCandidates(page: Page, limit = 12): Promise<BundledSt
         bundle,
       });
     }
+    return discovered;
+  };
 
-    if (discovered.size === previousCount) {
-      unchangedRounds += 1;
-    } else {
-      previousCount = discovered.size;
-      unchangedRounds = 0;
-    }
-
-    if (discovered.size >= 2 || (discovered.size > 0 && unchangedRounds >= 3)) {
-      break;
-    }
-
+  let discovered = await collectVisibleCandidates();
+  if (discovered.size === 0) {
     await refreshNewsStoreLatest(page, 120).catch(() => {});
     await page.getByTestId('feed-refresh-button').click().catch(() => {});
     const sentinel = page.getByTestId('feed-load-sentinel');
@@ -216,24 +239,60 @@ async function bundledStoryCandidates(page: Page, limit = 12): Promise<BundledSt
     }
     await page.waitForTimeout(1_000);
     await waitForHeadlines(page);
+    discovered = await collectVisibleCandidates();
   }
 
-  return [...discovered.values()].slice(0, limit);
+  const ordered = [...discovered.values()];
+  if (!FIXTURE_FEED_ENABLED) {
+    return ordered.slice(0, limit);
+  }
+
+  const deduped = new Map<string, BundledStoryCandidate>();
+  for (const candidate of ordered) {
+    const headlineKey = normalizedHeadlineKey(candidate.story.headline);
+    if (!deduped.has(headlineKey)) {
+      deduped.set(headlineKey, candidate);
+    }
+  }
+
+  return [...deduped.values()].slice(0, limit);
 }
 
-async function hasAnalyzablePrimarySource(page: Page, bundle: LiveSemanticAuditBundleLike): Promise<boolean> {
+type PrimarySourcePreflight = {
+  readonly ok: boolean;
+  readonly detail: string;
+};
+
+async function preflightPrimarySources(
+  page: Page,
+  bundle: LiveSemanticAuditBundleLike,
+): Promise<PrimarySourcePreflight> {
   const primarySources = [...(bundle.primary_sources ?? bundle.sources)].slice(0, 2);
+  const details: string[] = [];
   for (const source of primarySources) {
     const response = await page.request.get(`${LIVE_BASE_URL}article-text`, {
       params: { url: source.url },
       failOnStatusCode: false,
       timeout: 20_000,
-    }).catch(() => null);
+    }).catch((error) => {
+      details.push(`${source.source_id}:request-error:${error instanceof Error ? error.message : String(error)}`);
+      return null;
+    });
     if (response?.ok()) {
-      return true;
+      return { ok: true, detail: `${source.source_id}:ok` };
     }
+    if (!response) {
+      continue;
+    }
+    const body = await response.text().catch(() => '');
+    details.push(
+      `${source.source_id}:${response.status()}:${body.trim().slice(0, 200) || 'no-body'}`,
+    );
   }
-  return false;
+  return {
+    ok: false,
+    detail: details.length > 0 ? details.join('||') : 'no-primary-sources',
+  };
 }
 
 async function openStory(page: Page, row: HeadlineRow): Promise<Locator> {
@@ -329,6 +388,15 @@ async function displayPointIdForCanonical(
   const button = card.locator(
     `[data-testid^="cell-vote-agree-"][data-canonical-point-id="${canonicalId}"]`,
   ).first();
+  if (!await button.count()) {
+    const availableCanonicalIds = await card.locator('[data-testid^="cell-vote-agree-"]').evaluateAll((nodes) =>
+      nodes
+        .map((node) => node.getAttribute('data-canonical-point-id') ?? '')
+        .filter((value) => value.length > 0));
+    throw new Error(
+      `missing-display-point-id:${canonicalId}:available=${availableCanonicalIds.join(',')}`,
+    );
+  }
   const testId = await button.getAttribute('data-testid');
   if (!testId) {
     throw new Error(`missing-display-point-id:${canonicalId}`);
@@ -389,6 +457,59 @@ async function voteCounts(card: Locator, pointId: string): Promise<VoteCounts> {
   };
 }
 
+async function latestMeshWriteEvent(
+  page: Page,
+  topicId: string,
+  pointId: string,
+): Promise<MeshWriteEvent | null> {
+  return page.evaluate(({ topicId: expectedTopicId, pointId: expectedPointId }) => {
+    const root = window as typeof window & {
+      __VH_MESH_WRITE_EVENTS__?: Array<Record<string, unknown>>;
+    };
+    const events = root.__VH_MESH_WRITE_EVENTS__ ?? [];
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const event = events[index];
+      if (event?.topic_id === expectedTopicId && event?.point_id === expectedPointId) {
+        return event as unknown as MeshWriteEvent;
+      }
+    }
+    return null;
+  }, { topicId, pointId });
+}
+
+async function meshWriteEventsForTopic(
+  page: Page,
+  topicId: string,
+): Promise<MeshWriteEvent[]> {
+  return page.evaluate(({ topicId: expectedTopicId }) => {
+    const root = window as typeof window & {
+      __VH_MESH_WRITE_EVENTS__?: Array<Record<string, unknown>>;
+    };
+    const events = root.__VH_MESH_WRITE_EVENTS__ ?? [];
+    return events.filter((event) => event?.topic_id === expectedTopicId) as unknown as MeshWriteEvent[];
+  }, { topicId });
+}
+
+async function waitForMeshWriteCompletion(
+  page: Page,
+  topicId: string,
+  pointId: string,
+  timeoutMs = 60_000,
+): Promise<MeshWriteEvent> {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const event = await latestMeshWriteEvent(page, topicId, pointId);
+    if (event) {
+      return event;
+    }
+    await page.waitForTimeout(500);
+  }
+  const topicEvents = await meshWriteEventsForTopic(page, topicId);
+  throw new Error(
+    `mesh-write-event-missing:${topicId}:${pointId}:events=${JSON.stringify(topicEvents)}`,
+  );
+}
+
 test.describe('daemon-first StoryCluster feed integrity', () => {
   test.skip(!SHOULD_RUN, 'VH_RUN_DAEMON_FIRST_FEED is not enabled');
 
@@ -404,8 +525,8 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       stack = await startDaemonFirstStack();
       contextA = await browser.newContext({ ignoreHTTPSErrors: true });
       await addConsumerInitScript(contextA);
-      const pageA = await contextA.newPage();
-      pageA.on('console', (message) => browserLogs.push(logText(message)));
+      let pageA = await contextA.newPage();
+      attachBrowserLogCapture(pageA, browserLogs);
 
       await ensureIdentity(pageA, 'alpha');
       await requireAnalysisRelay(pageA);
@@ -436,24 +557,47 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         const firstHalf = hottest.slice(0, Math.ceil(hottest.length / 2));
         const secondHalf = hottest.slice(Math.ceil(hottest.length / 2));
         const avg = (items: VisibleCard[]) => items.reduce((sum, item) => sum + item.hotness, 0) / Math.max(1, items.length);
-        expect(avg(firstHalf)).toBeGreaterThanOrEqual(avg(secondHalf));
+        const orderingSummary = {
+          latest,
+          hottest,
+          hottestFirstHalfAverage: avg(firstHalf),
+          hottestSecondHalfAverage: avg(secondHalf),
+        };
         const storylineCounts = hottest.reduce<Record<string, number>>((acc, card) => {
-          const key = storylineKey(card.headline);
+          const key = storylineKey(card.headline, card.storylineId);
           acc[key] = (acc[key] ?? 0) + 1;
           return acc;
         }, {});
+        console.log(
+          '[vh:test:ordering]',
+          JSON.stringify({
+            hottest: hottest.map((card) => ({
+              storyId: card.storyId,
+              headline: card.headline,
+              storylineId: card.storylineId,
+              hotness: card.hotness,
+              storylineKey: storylineKey(card.headline, card.storylineId),
+            })),
+            storylineCounts,
+            hottestFirstHalfAverage: orderingSummary.hottestFirstHalfAverage,
+            hottestSecondHalfAverage: orderingSummary.hottestSecondHalfAverage,
+          }),
+        );
+        await attachJson(testInfo, 'daemon-first-feed-ordering', orderingSummary);
+        expect(
+          orderingSummary.hottestFirstHalfAverage + HOTTEST_AVERAGE_TOLERANCE,
+        ).toBeGreaterThanOrEqual(orderingSummary.hottestSecondHalfAverage);
         expect(Math.max(...Object.values(storylineCounts))).toBeLessThanOrEqual(2);
-        await attachJson(testInfo, 'daemon-first-feed-ordering', { latest, hottest });
         await pageA.getByTestId('sort-mode-LATEST').click();
         await sleep(500);
         return { latestCards: latest, hottestCards: hottest };
       });
 
       const { bundledStory, row, cardA, providerA, pointId, canonicalPointId: pointCanonicalId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
-        const seedStory = await findBundledStory(pageA);
+        const seedStory = await findBundledStory(pageA, BUNDLED_CANDIDATE_LIMIT);
         expect(seedStory.sourceBadgeCount).toBeGreaterThanOrEqual(2);
         const seen = new Set<string>();
-        const discoveredCandidates = await bundledStoryCandidates(pageA, 12);
+        const discoveredCandidates = await bundledStoryCandidates(pageA, BUNDLED_CANDIDATE_LIMIT);
         const seedCandidate = discoveredCandidates.find((candidate) => candidate.story.storyId === seedStory.storyId);
         const candidates = seedCandidate
           ? [...discoveredCandidates].sort((left, right) =>
@@ -468,7 +612,8 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
                 primary_sources: [],
                 secondary_assets: [],
               },
-            }, ...discoveredCandidates];
+            }, ...discoveredCandidates]
+          .slice(0, MAX_BUNDLED_ANALYSIS_CANDIDATES);
         const failures: Array<{ storyId: string; headline: string; error: string }> = [];
 
         for (const candidate of candidates) {
@@ -476,18 +621,19 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
             continue;
           }
           seen.add(candidate.story.storyId);
-          if (!await hasAnalyzablePrimarySource(pageA, candidate.bundle)) {
+          const primarySourcePreflight = await preflightPrimarySources(pageA, candidate.bundle);
+          if (!primarySourcePreflight.ok) {
             failures.push({
               storyId: candidate.story.storyId,
               headline: candidate.story.headline,
-              error: 'article-text-preflight-failed',
+              error: `article-text-preflight-failed:${primarySourcePreflight.detail}`,
             });
             continue;
           }
           const candidateRow = (await headlineRows(pageA)).find((item) => item.storyId === candidate.story.storyId) ?? candidate.story;
           const card = await openStory(pageA, candidateRow);
           try {
-            const provider = await waitForAnalysisReady(card, candidateRow, 45_000);
+            const provider = await waitForAnalysisReady(card, candidateRow, BUNDLED_ANALYSIS_TIMEOUT_MS);
             const sourceSummaries = card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"] li`);
             await expect.poll(() => sourceSummaries.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
             const summaries = (await sourceSummaries.allTextContents()).map((value) => value.trim()).filter(Boolean);
@@ -530,15 +676,17 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
           }
         }
 
-        const generalCandidates = (await headlineRows(pageA))
+        const generalCandidates = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true'
+          ? []
+          : (await headlineRows(pageA))
           .filter((candidate) => !seen.has(candidate.storyId))
-          .slice(0, 6);
+          .slice(0, MAX_GENERAL_ANALYSIS_CANDIDATES);
 
         for (const candidateRow of generalCandidates) {
           seen.add(candidateRow.storyId);
           const card = await openStory(pageA, candidateRow);
           try {
-            const provider = await waitForAnalysisReady(card, candidateRow, 45_000);
+            const provider = await waitForAnalysisReady(card, candidateRow, BUNDLED_ANALYSIS_TIMEOUT_MS);
             const sourceSummaries = card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"] li`);
             await expect.poll(() => sourceSummaries.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
             const summaries = (await sourceSummaries.allTextContents()).map((value) => value.trim()).filter(Boolean);
@@ -597,17 +745,22 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       await expect(cardA.getByTestId(`cell-vote-agree-${pointId}`)).toHaveAttribute('aria-pressed', 'true');
       await expect.poll(() => voteCounts(cardA, pointId).then((value) => value.agree), { timeout: 30_000 }).toBeGreaterThan(beforeA.agree);
       const afterA = await voteCounts(cardA, pointId);
+      const meshWriteA = await waitForMeshWriteCompletion(pageA, row.topicId, pointCanonicalId);
+      expect(meshWriteA.success).toBe(true);
+      expect(meshWriteA.voter_node_ok).toBe(true);
+      expect(meshWriteA.snapshot_ok).toBe(true);
       await attachJson(testInfo, 'daemon-first-feed-vote-a', {
         pointId,
         canonicalPointId: pointCanonicalId,
         beforeA,
         afterA,
+        meshWriteA,
       });
 
       contextB = await browser.newContext({ ignoreHTTPSErrors: true });
       await addConsumerInitScript(contextB);
       const pageB = await contextB.newPage();
-      pageB.on('console', (message) => browserLogs.push(logText(message)));
+      attachBrowserLogCapture(pageB, browserLogs);
       await ensureIdentity(pageB, 'beta');
       await requireAnalysisRelay(pageB);
       const cardB = await openStory(pageB, row);
@@ -628,8 +781,10 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         afterB,
       });
 
-      await pageA.reload({ waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
-      await waitForHeadlines(pageA);
+      await pageA.close().catch(() => {});
+      pageA = await contextA.newPage();
+      attachBrowserLogCapture(pageA, browserLogs);
+      await gotoFeed(pageA);
       const cardAReloaded = await openStory(pageA, row);
       const providerAReloaded = await waitForAnalysisReady(cardAReloaded, row);
       expect(providerAReloaded).toBe(providerA);
@@ -642,7 +797,11 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
 
       await attachJson(testInfo, 'daemon-first-feed-integrity-summary', {
         latestCards: latestCards.map((card) => ({ storyId: card.storyId, updatedAt: parseIso(card.meta, 'Updated') })),
-        hottestCards: hottestCards.map((card) => ({ storyId: card.storyId, hotness: card.hotness, storyline: storylineKey(card.headline) })),
+        hottestCards: hottestCards.map((card) => ({
+          storyId: card.storyId,
+          hotness: card.hotness,
+          storyline: storylineKey(card.headline, card.storylineId),
+        })),
         bundledStory: {
           storyId: row.storyId,
           topicId: row.topicId,

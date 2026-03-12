@@ -12,6 +12,10 @@ export interface MeshWriteTelemetry {
   readonly timed_out?: boolean;
   readonly latency_ms: number;
   readonly error?: string;
+  readonly event_write_ok?: boolean;
+  readonly voter_node_ok?: boolean;
+  readonly snapshot_ok?: boolean;
+  readonly readback_recovered?: boolean;
 }
 
 function compactPayload<T extends object>(payload: T): Partial<T> {
@@ -75,6 +79,23 @@ export function logVoteAdmission(params: VoteAdmissionTelemetry): void {
 type MeshWriteListener = (params: MeshWriteTelemetry) => void;
 const meshWriteListeners: MeshWriteListener[] = [];
 
+type BrowserTelemetryWindow = typeof globalThis & {
+  __VH_LAST_MESH_WRITE__?: (MeshWriteTelemetry & { readonly observed_at: number }) | undefined;
+  __VH_MESH_WRITE_EVENTS__?: Array<MeshWriteTelemetry & { readonly observed_at: number }> | undefined;
+};
+
+function publishMeshWriteResult(params: MeshWriteTelemetry): void {
+  const root = globalThis as BrowserTelemetryWindow;
+  const event = {
+    ...params,
+    observed_at: Date.now(),
+  };
+  root.__VH_LAST_MESH_WRITE__ = event;
+  const history = root.__VH_MESH_WRITE_EVENTS__ ?? [];
+  history.push(event);
+  root.__VH_MESH_WRITE_EVENTS__ = history.slice(-25);
+}
+
 export function onMeshWriteResult(listener: MeshWriteListener): () => void {
   meshWriteListeners.push(listener);
   return () => {
@@ -87,6 +108,8 @@ export function logMeshWriteResult(params: MeshWriteTelemetry): void {
   const payload = compactPayload(params);
   const isExpectedUnavailable =
     params.error === 'client-unavailable' || params.error === 'sentiment-transport-unavailable';
+
+  publishMeshWriteResult(payload as MeshWriteTelemetry);
 
   if (params.success || isExpectedUnavailable) {
     console.info('[vh:vote:mesh-write]', payload);

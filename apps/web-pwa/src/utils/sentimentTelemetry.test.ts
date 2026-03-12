@@ -230,4 +230,37 @@ describe('sentimentTelemetry', () => {
     infoSpy.mockRestore();
     warnSpy.mockRestore();
   });
+
+  it('publishes mesh-write telemetry onto browser-visible globals', () => {
+    delete (globalThis as typeof globalThis & { __VH_LAST_MESH_WRITE__?: unknown }).__VH_LAST_MESH_WRITE__;
+    delete (globalThis as typeof globalThis & { __VH_MESH_WRITE_EVENTS__?: unknown }).__VH_MESH_WRITE_EVENTS__;
+
+    logMeshWriteResult({
+      topic_id: 'topic-1',
+      point_id: 'point-1',
+      success: true,
+      latency_ms: 12,
+      event_write_ok: true,
+      voter_node_ok: true,
+      snapshot_ok: true,
+    });
+
+    const root = globalThis as typeof globalThis & {
+      __VH_LAST_MESH_WRITE__?: Record<string, unknown>;
+      __VH_MESH_WRITE_EVENTS__?: Array<Record<string, unknown>>;
+    };
+    expect(root.__VH_LAST_MESH_WRITE__).toEqual(
+      expect.objectContaining({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        success: true,
+        event_write_ok: true,
+        voter_node_ok: true,
+        snapshot_ok: true,
+        observed_at: expect.any(Number),
+      }),
+    );
+    expect(root.__VH_MESH_WRITE_EVENTS__).toHaveLength(1);
+    expect(root.__VH_MESH_WRITE_EVENTS__?.[0]).toEqual(root.__VH_LAST_MESH_WRITE__);
+  });
 });

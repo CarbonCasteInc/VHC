@@ -6,9 +6,9 @@
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-11
-**Version:** 0.7.5 (StorylineGroup publication/ranking/presentation in force; shell navigation lane active)
-**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates, public-feed smoke-only soak lanes, and storyline-aware discovery/navigation hardening on top of the stricter event bundler.
+**Last Updated:** 2026-03-12
+**Version:** 0.7.6 (Storyline discovery/navigation lanes merged; public semantic-soak readiness lane active)
+**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates, public-feed smoke-only soak lanes, explicit promotion-readiness evidence for public semantic runs, and browser-driven verification discipline for feed/discovery changes.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -46,13 +46,15 @@ Current policy state:
   - `pnpm test:storycluster:gates`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
+- Feed/discovery/storyline changes are not considered distribution-ready on unit coverage alone:
+  - every such lane must run at least one relevant Playwright/browser validation command and record the exact command and result in its evidence note.
 - Public-feed daemon semantic runs remain smoke/soak only:
   - `pnpm test:storycluster:smoke`
   - these runs are evidence-bearing, but live public-feed bundle scarcity is not currently stable enough to be the sole semantic blocker.
   - soak artifacts now include a machine-readable promotion assessment with explicit readiness criteria and blocking reasons, so the lane can say "not ready to promote" concretely instead of relying on operator interpretation alone.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
-## StoryCluster Program Snapshot (2026-03-11)
+## StoryCluster Program Snapshot (2026-03-12)
 
 Current truth for the news bundler and feed hardening lane:
 
@@ -89,23 +91,39 @@ Current truth for the news bundler and feed hardening lane:
   - storyline publication and store hydration;
   - storyline-aware ranking/diversification;
   - minimal related-coverage presentation separated from canonical sources;
-  - route/search-param deep-link hydration for focused storyline state.
-- The current active lane adds explicit shell navigation semantics on top of that state:
+  - route/search-param deep-link hydration for focused storyline state;
+  - explicit shell `Back` / `Clear storyline` semantics;
+  - archive-parent diversification and archive-child deep-link state.
+- `main` now also includes richer public semantic-soak evidence:
+  - machine-readable density/trend summaries;
+  - explicit promotion-readiness assessment with blocking reasons;
+  - denser diagnostic artifacts for insufficient-bundle public runs.
+- The current active lane makes public semantic-soak readiness operational in the evidence path:
+  - promotion criteria are being hardened into explicit release-evidence semantics;
+  - no change to canonical bundle rules, canonical source basis, or fixture-backed blocking gates.
+- Storyline/discovery work is now expected to carry browser-driven verification, not only unit coverage:
   - local feed opens create history entries;
   - focused storyline panels distinguish `Back` from `Clear storyline`;
-  - route-driven storyline focus keeps only the clear action.
+  - route-driven storyline focus keeps only the clear action;
+  - archive-parent and archive-child navigation restore focused storyline state across route transitions.
 - Vote convergence and analysis persistence are validated on the fixture-backed daemon-first integrity gate; public-feed smoke remains supplementary evidence only.
 
 ### StoryCluster Next Steps (Active)
 
-1. Finish and merge actionable storyline shell navigation:
-   - explicit back/clear/open semantics;
-   - route-aware behavior across feed interactions;
-   - no change to canonical source basis or bias-table basis.
-2. Continue hardening event identity under repeated ticks, source growth, and merge/split replay.
-3. Continue expanding deterministic semantic fixtures and replay evidence before widening the live public semantic blocker.
-4. Improve live public semantic-soak density and trend interpretation until public-feed evidence is strong enough to promote beyond smoke-only status.
-5. Normalize StoryCluster document-type taxonomy across code, fixtures, telemetry, and docs so release evidence stays interpretable.
+1. Make public semantic-soak promotion/readiness criteria operational in the evidence path:
+   - explicit machine-readable readiness status;
+   - explicit blocking reasons;
+   - no change to fixture-backed blocking gates until the evidence supports promotion.
+2. Keep expanding deterministic semantic fixtures and replay evidence before widening the live public semantic blocker.
+3. Continue hardening event identity under repeated ticks, source growth, and merge/split replay.
+4. Make Playwright/browser validation a standard release discipline for feed/discovery/storyline changes:
+   - record exact browser commands run;
+   - treat fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof;
+   - treat public semantic smoke as non-blocking evidence.
+5. Stabilize local/provisioned daemon-first Playwright gate startup reliability:
+   - the latest local `pnpm test:storycluster:gates` run failed at `health-timeout:http://127.0.0.1:4302/ready`;
+   - this should be treated as an operational readiness issue, not ignored as test noise.
+6. Continue improving public semantic-soak density and trend interpretation until public-feed evidence is strong enough to promote beyond smoke-only status.
 
 ---
 

@@ -27,9 +27,9 @@ function proofFor(nullifier = 'n') {
 }
 
 async function flushProjection(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
+  for (let index = 0; index < 12; index += 1) {
+    await Promise.resolve();
+  }
 }
 
 describe('useSentimentState', () => {
@@ -65,6 +65,23 @@ describe('useSentimentState', () => {
       agreement: 1,
       weight: 1,
       updated_at: new Date(0).toISOString(),
+    });
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'readUserEvents').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'writePointAggregateSnapshot').mockResolvedValue({
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: TOPIC,
+      synthesis_id: 'synth-1',
+      epoch: 0,
+      point_id: POINT,
+      agree: 1,
+      disagree: 0,
+      weight: 1,
+      participants: 1,
+      version: 0,
+      computed_at: 0,
+      source_window: { from_seq: 0, to_seq: 0 },
     });
 
     useSentimentState.setState({
@@ -768,6 +785,50 @@ describe('useSentimentState', () => {
     infoSpy.mockRestore();
   });
 
+  it('publishes a point snapshot after a successful aggregate voter projection', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-snapshot');
+    vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+      point_id: POINT,
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(200).toISOString(),
+    });
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('snapshot-ok'),
+    });
+
+    await flushProjection();
+
+    expect(writeSnapshotSpy).toHaveBeenCalledWith(
+      fakeClient,
+      expect.objectContaining({
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        point_id: POINT,
+        agree: 1,
+        disagree: 0,
+        participants: 1,
+        weight: 1,
+      }),
+    );
+  });
+
 
   it('logs null readback fields when aggregate readback omits optional values', async () => {
     const fakeClient = {
@@ -893,6 +954,77 @@ describe('useSentimentState', () => {
     );
 
     warnSpy.mockRestore();
+  });
+
+  it('recovers aggregate timeout via readback and still publishes a point snapshot', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(250);
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-timeout-recovered');
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
+    vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
+      point_id: POINT,
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(250).toISOString(),
+    });
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('timeout-recovered'),
+    });
+
+    await flushProjection();
+
+    expect(writeSnapshotSpy).toHaveBeenCalledWith(
+      fakeClient,
+      expect.objectContaining({
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        point_id: POINT,
+        agree: 1,
+        participants: 1,
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:vote:voter-node-readback]',
+      expect.objectContaining({
+        voter_id: 'voter-timeout-recovered',
+        write_error: 'aggregate-put-ack-timeout',
+      }),
+    );
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      '[vh:sentiment] Failed to project aggregate voter node:',
+      expect.anything(),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:vote:mesh-write]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        point_id: POINT,
+        success: true,
+        voter_node_ok: true,
+        snapshot_ok: true,
+        readback_recovered: true,
+      }),
+    );
+
+    nowSpy.mockRestore();
+    infoSpy.mockRestore();
   });
 
   it('projection failures do not rollback local vote state', async () => {
@@ -1191,6 +1323,7 @@ describe('useSentimentState', () => {
   });
 
   it('marks mesh-write timeout as failed telemetry', async () => {
+    vi.useFakeTimers();
     const fakeClient = {
       gun: { user: () => ({}) },
       mesh: { get: () => ({}) },
@@ -1217,6 +1350,7 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+    await vi.runAllTimersAsync();
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1226,13 +1360,72 @@ describe('useSentimentState', () => {
         success: false,
         timed_out: true,
         error: 'sentiment-outbox-timeout',
+        event_write_ok: false,
       }),
     );
 
     warnSpy.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it('treats timed-out outbox writes as recovered when readback confirms persistence', async () => {
+    const fakeClient = {
+      gun: { user: () => ({}) },
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
+      eventId: 'evt-timeout',
+      event: {} as never,
+      ack: {
+        acknowledged: false,
+        timedOut: true,
+      },
+    });
+    vi.spyOn(GunClient, 'readUserEvents').mockResolvedValue([{
+      topic_id: TOPIC,
+      synthesis_id: 'synth-9',
+      epoch: 4,
+      point_id: POINT,
+      agreement: 1,
+      weight: 1,
+      constituency_proof: proofFor('telemetry-timeout-recovered'),
+      emitted_at: 1_717_171_717_000,
+    } as never]);
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_717_171_717_000);
+
+    useSentimentState.getState().setAgreement({
+      topicId: TOPIC,
+      pointId: POINT,
+      synthesisId: 'synth-9',
+      epoch: 4,
+      analysisId: ANALYSIS,
+      desired: 1,
+      constituency_proof: proofFor('telemetry-timeout-recovered'),
+    });
+
+    await flushProjection();
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:vote:mesh-write]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        point_id: POINT,
+        success: true,
+        event_write_ok: true,
+        voter_node_ok: true,
+        snapshot_ok: true,
+        readback_recovered: true,
+      }),
+    );
+
+    nowSpy.mockRestore();
+    infoSpy.mockRestore();
   });
 
   it('marks non-timeout non-acknowledged event writes as failed telemetry', async () => {
+    vi.useFakeTimers();
     const fakeClient = {
       gun: { user: () => ({}) },
       mesh: { get: () => ({}) },
@@ -1259,6 +1452,7 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+    await vi.runAllTimersAsync();
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1272,6 +1466,7 @@ describe('useSentimentState', () => {
     );
 
     warnSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it('emits successful mesh-write telemetry when projection succeeds', async () => {
@@ -1300,6 +1495,9 @@ describe('useSentimentState', () => {
         topic_id: TOPIC,
         point_id: POINT,
         success: true,
+        event_write_ok: true,
+        voter_node_ok: true,
+        snapshot_ok: true,
       }),
     );
 
