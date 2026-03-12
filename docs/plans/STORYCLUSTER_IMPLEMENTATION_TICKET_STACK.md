@@ -2,9 +2,9 @@
 
 Status: Canonical ticket stack
 Owner: Core Engineering
-Last Updated: 2026-03-10
+Last Updated: 2026-03-11
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `main` @ `20a3edf`
+Branch Baseline: `coord/storyline-shell-navigation` @ `6372a5c`
 
 ## 1. Usage
 
@@ -31,7 +31,7 @@ Every PR in this stack must:
    - any benchmark deltas;
    - any live or replay artifacts added.
 
-## 2.1 Execution Snapshot (2026-03-10)
+## 2.1 Execution Snapshot (2026-03-11)
 
 Completed or functionally in-force:
 
@@ -41,29 +41,35 @@ Completed or functionally in-force:
 4. SC-04 candidate retrieval rewrite on real vector backend
 5. SC-05 pair scoring / canonical decision hard negatives
 6. SC-06 rerank and bounded adjudication lane
-7. SC-11 blocking daemon-first semantic verification, but with the current blocker split:
+7. SC-07 persistent `EventCluster` repository hardening and replay evidence split:
+   - continuous persistence
+   - gap-return reappearance
+   - topology-pressure lineage evidence
+8. SC-08 separate `StorylineGroup` publication contract
+9. SC-09 clean bundle projection and mesh publication follow-through
+10. SC-10 storyline-aware ranking/diversification on canonical event bundles
+11. storyline-aware feed presentation and discovery state, currently in force on `main`:
+   - related coverage rendered separately from canonical sources
+   - focused storyline deep-link hydration via route/search state
+12. SC-11 blocking daemon-first semantic verification, but with the current blocker split:
    - fixture-backed integrity + semantic gates are blocking
    - public semantic soak is smoke/evidence only
-8. SC-12 analysis and vote integrity, at the current fixture-backed gate scope
+13. SC-12 analysis and vote integrity, at the current fixture-backed gate scope
 
 Active next implementation lane:
 
-1. SC-07 persistent `EventCluster` repository hardening
+1. storyline shell/navigation hardening on top of the published `StorylineGroup` layer
 2. immediate focus:
-   - `story_id` persistence under source growth and repeated ticks
-   - merge/split replay evidence
-   - release evidence that separates:
-     - continuous persistence
-     - gap-return reappearance
-     - merge/split correction-cycle pressure
-   - immutable `created_at`
-   - monotonic `cluster_window_end`
+   - explicit `Back` / `Clear storyline` semantics from the feed shell
+   - route-aware open-storyline transitions across feed interactions
+   - no change to canonical source basis
+   - no change to bias-table basis
 
-Queued after SC-07:
+Queued after the shell-navigation lane:
 
-1. SC-08 separate `StorylineGroup` publication contract
-2. SC-09 clean bundle projection and mesh publication follow-through
-3. further fixture-corpus expansion for public-smoke learnings that should become blocking later
+1. live public semantic-soak density and trend hardening, with the goal of eventually promoting public evidence beyond smoke-only status
+2. taxonomy normalization across docs, fixtures, telemetry, and code enums
+3. further fixture-corpus and replay-corpus expansion for hard negatives and long-window identity pressure
 
 ## 3. Ticket Stack
 

@@ -66,6 +66,9 @@ Use this checklist during manual browser validation:
 7. Switching `+` to `-` removes prior state and applies new state.
 8. Analysis persists across tabs/browsers.
 9. Vote aggregates update and persist across users.
+10. Opening storyline focus from the feed writes `?storyline=<id>` into route state and survives reload.
+11. Route-driven storyline focus shows a clear action only.
+12. Feed-opened storyline focus shows explicit `Back` and `Clear storyline` actions, and `Back` returns to the prior route state.
 
 ## Release Gate Wiring
 

@@ -6,9 +6,9 @@
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-10
-**Version:** 0.7.4 (StoryCluster semantic-gate fixture expansion + identity hardening next)
-**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates, public-feed smoke-only soak lanes, and `story_id` persistence hardening as the next implementation lane.
+**Last Updated:** 2026-03-11
+**Version:** 0.7.5 (StorylineGroup publication/ranking/presentation in force; shell navigation lane active)
+**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates, public-feed smoke-only soak lanes, and storyline-aware discovery/navigation hardening on top of the stricter event bundler.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,8 +27,8 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, receipt-in-feed | ❌ No |
-| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path; event-precision hardening and storyline follow-on still active | ⚠️ Partial |
-| **Discovery Feed** | 🟢 Implemented (shell/cards/ranking/wiring) with fixture-backed integrity/semantic release gates; public semantic soak remains smoke-only | ⚠️ Partial |
+| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path and `StorylineGroup` publication; event-precision and live-public evidence hardening still active | ⚠️ Partial |
+| **Discovery Feed** | 🟢 Implemented with fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
 
@@ -51,7 +51,7 @@ Current policy state:
   - these runs are evidence-bearing, but live public-feed bundle scarcity is not currently stable enough to be the sole semantic blocker.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
-## StoryCluster Program Snapshot (2026-03-10)
+## StoryCluster Program Snapshot (2026-03-11)
 
 Current truth for the news bundler and feed hardening lane:
 
@@ -79,16 +79,32 @@ Current truth for the news bundler and feed hardening lane:
 - Release reviewers should not collapse these into one number:
   - low overall `persistence_rate` is expected in gap-return scenarios and must be read together with `reappearance_rate`
   - correction-cycle counts measure topology repair pressure, not semantic bundle precision by themselves
-- Storyline grouping is planned in the canonical execution plan, but `storyline_id` is not yet a first-class published runtime contract.
+- `StorylineGroup` is now a first-class published runtime contract and read model:
+  - StoryCluster publishes `storylines` alongside canonical bundles;
+  - the daemon and Gun client hydrate storyline artifacts separately from canonical event bundles;
+  - the web store consumes `storyline_id` for ranking/diversification, related-coverage presentation, and focused storyline state;
+  - canonical source basis and bias-table basis remain event-bundle-only.
+- `main` now includes:
+  - storyline publication and store hydration;
+  - storyline-aware ranking/diversification;
+  - minimal related-coverage presentation separated from canonical sources;
+  - route/search-param deep-link hydration for focused storyline state.
+- The current active lane adds explicit shell navigation semantics on top of that state:
+  - local feed opens create history entries;
+  - focused storyline panels distinguish `Back` from `Clear storyline`;
+  - route-driven storyline focus keeps only the clear action.
 - Vote convergence and analysis persistence are validated on the fixture-backed daemon-first integrity gate; public-feed smoke remains supplementary evidence only.
 
 ### StoryCluster Next Steps (Active)
 
-1. Harden `story_id` persistence under repeated ticks, source growth, and merge/split replay.
-2. Promote merge/split lineage from internal behavior to release-gated evidence.
-3. Continue expanding the deterministic semantic fixture corpus before widening the live public semantic blocker.
-4. Implement the missing `StorylineGroup` publication contract only after event identity stability is stronger.
-5. Keep public semantic soak as smoke/evidence until live public bundle density is stable enough to support a deterministic blocker.
+1. Finish and merge actionable storyline shell navigation:
+   - explicit back/clear/open semantics;
+   - route-aware behavior across feed interactions;
+   - no change to canonical source basis or bias-table basis.
+2. Continue hardening event identity under repeated ticks, source growth, and merge/split replay.
+3. Continue expanding deterministic semantic fixtures and replay evidence before widening the live public semantic blocker.
+4. Improve live public semantic-soak density and trend interpretation until public-feed evidence is strong enough to promote beyond smoke-only status.
+5. Normalize StoryCluster document-type taxonomy across code, fixtures, telemetry, and docs so release evidence stays interpretable.
 
 ---
 
