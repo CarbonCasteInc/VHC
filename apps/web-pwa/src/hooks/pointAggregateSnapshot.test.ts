@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { AggregateVoterPointRow } from '@vh/gun-client';
 import {
   materializePointSnapshotFromRows,
@@ -109,5 +109,25 @@ describe('pointAggregateSnapshot', () => {
       computed_at: 0,
       source_window: { from_seq: 4, to_seq: 10 },
     });
+  });
+
+  it('falls back to Date.now when computedAtMs is omitted', () => {
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(4_242);
+
+    try {
+      const snapshot = materializePointSnapshotFromRows({
+        tuple: {
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 1,
+          point_id: 'point-1',
+        },
+        rows: [row('voter-a', 'point-1', 1, 1, 100)],
+      });
+
+      expect(snapshot.computed_at).toBe(4_242);
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 });

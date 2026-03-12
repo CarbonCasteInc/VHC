@@ -257,11 +257,10 @@ function sentimentEventMatches(signal: SentimentSignal, event: SentimentSignal):
   );
 }
 
-async function waitForSentimentOutboxReadback(client: ReturnType<typeof resolveClientFromAppStore>, signal: SentimentSignal): Promise<boolean> {
-  if (!client) {
-    return false;
-  }
-
+async function waitForSentimentOutboxReadback(
+  client: NonNullable<ReturnType<typeof resolveClientFromAppStore>>,
+  signal: SentimentSignal,
+): Promise<boolean> {
   for (let attempt = 0; attempt < OUTBOX_READBACK_ATTEMPTS; attempt += 1) {
     const events = await readUserEvents(client, signal.topic_id, signal.epoch);
     if (events.some((event) => sentimentEventMatches(signal, event))) {
