@@ -189,10 +189,10 @@ Required document classes:
 Implementation taxonomy note:
 
 1. the canonical planning vocabulary is the list above;
-2. the current codebase still uses a small number of implementation aliases:
+2. the current codebase normalizes a small number of historical aliases at provider/state boundaries:
    - `wire_report` = canonical `wire`
    - `explainer_recap` = canonical `explainer`
-3. docs, benchmark reports, and release gates should normalize to the canonical vocabulary unless they are discussing the code enum directly;
+3. internal engine state, benchmark reports, release gates, and fixtures should use the canonical vocabulary;
 4. no additional aliasing should be introduced without updating this section and the fixture corpus.
 
 Seeding rules:

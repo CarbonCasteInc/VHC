@@ -26,11 +26,11 @@ function makeCluster(storyId: string, vector: number[]): StoredClusterRecord {
     document_type_counts: {
       analysis: 0,
       breaking_update: 1,
-      explainer_recap: 0,
+      explainer: 0,
       hard_news: 0,
       liveblog: 0,
       opinion: 0,
-      wire_report: 0,
+      wire: 0,
     },
     centroid_coarse: [...vector, ...Array.from({ length: 192 - vector.length }, () => 0)],
     centroid_full: [...vector, ...Array.from({ length: 384 - vector.length }, () => 0)],

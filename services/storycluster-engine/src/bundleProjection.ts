@@ -41,10 +41,10 @@ function isLikelySecondaryAsset(document: Pick<StoredSourceDocument, 'title' | '
 const DOCUMENT_PRIORITY: Record<StoredSourceDocument['doc_type'], number> = {
   breaking_update: 5,
   hard_news: 4,
-  wire_report: 3,
+  wire: 3,
   video_clip: 2,
   liveblog: 2,
-  explainer_recap: 1,
+  explainer: 1,
   analysis: 1,
   opinion: 0,
 };

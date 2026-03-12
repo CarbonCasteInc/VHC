@@ -1,12 +1,12 @@
 import { type DocumentAnalysisWorkItem, type DocumentAnalysisWorkResult, type EmbeddingWorkItem, type EmbeddingWorkResult, type PairJudgementWorkItem, type PairJudgementWorkResult, type PairRerankWorkResult, type StoryClusterModelProvider, type SummaryWorkItem, type SummaryWorkResult, type TranslationWorkItem, type TranslationWorkResult } from './modelProvider';
 import { OpenAIClient, type OpenAIClientOptions } from './openaiClient';
+import { normalizeDocumentType } from './contentSignals';
 import { ensureSentence, normalizeText } from './textSignals';
 export interface OpenAIStoryClusterProviderOptions extends OpenAIClientOptions {
   textModel?: string;
   embeddingModel?: string;
 }
 const DEFAULT_TEXT_MODEL = 'gpt-4o-mini', DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
-const VALID_DOCUMENT_TYPES = new Set(['breaking_update', 'wire_report', 'hard_news', 'video_clip', 'liveblog', 'analysis', 'opinion', 'explainer_recap'] as const);
 function chunkBySize<T>(values: readonly T[], size: number): T[][] {
   const chunks: T[][] = [];
   for (let index = 0; index < values.length; index += size) {
@@ -34,11 +34,6 @@ function normalizeKeyList(values: unknown): string[] {
     .filter((value): value is string => typeof value === 'string')
     .map((value) => normalizeText(value).replace(/\s+/g, '_'))
     .filter(Boolean))].sort();
-}
-function normalizeDocType(value: unknown): DocumentAnalysisWorkResult['doc_type'] {
-  return typeof value === 'string' && VALID_DOCUMENT_TYPES.has(value as DocumentAnalysisWorkResult['doc_type'])
-    ? value as DocumentAnalysisWorkResult['doc_type']
-    : 'hard_news';
 }
 function normalizeMaybeText(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -183,7 +178,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
             }>;
           }>({
             model: this.textModel,
-            system: ['You analyze news documents for event clustering.', 'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire_report|hard_news|video_clip|liveblog|analysis|opinion|explainer_recap","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.', 'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.', 'linked_entities should prefer multi-word canonical keys for the main actors and event anchors, not just generic countries.', 'trigger must reflect the lead action of the report, not a background clause introduced by phrases like "even as", "while", or "amid".', 'Use doc_type=video_clip for video pages or clips, analysis for analytical reporting, opinion for commentary, wire_report for wire copy, hard_news for straight reports.'].join(' '),
+            system: ['You analyze news documents for event clustering.', 'Return strict JSON: {"documents":[{"doc_id":"...","doc_type":"breaking_update|wire|hard_news|video_clip|liveblog|analysis|opinion|explainer","entities":["..."],"linked_entities":["..."],"locations":["..."],"temporal_iso":"ISO-8601 or null","trigger":"token or null","event_tuple":{"description":"...","trigger":"...","who":["..."],"where":["..."],"when_iso":"ISO-8601 or null","outcome":"..."}}]}.', 'Entities, linked_entities, and locations must be concise canonical keys using lowercase words.', 'linked_entities should prefer multi-word canonical keys for the main actors and event anchors, not just generic countries.', 'trigger must reflect the lead action of the report, not a background clause introduced by phrases like "even as", "while", or "amid".', 'Use doc_type=video_clip for video pages or clips, analysis for analytical reporting, opinion for commentary, wire for wire copy, hard_news for straight reports.', 'If older internal examples mention wire_report or explainer_recap, normalize them to wire and explainer before returning JSON.'].join(' '),
             user: JSON.stringify({ documents: pending }),
             temperature: 0,
             maxTokens: 4_000,
@@ -193,7 +188,7 @@ export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
             const temporalMs = temporalIso ? Date.parse(temporalIso) : NaN;
             return {
               doc_id: item.doc_id,
-              doc_type: normalizeDocType(item.doc_type),
+              doc_type: normalizeDocumentType(item.doc_type),
               entities: normalizeKeyList(item.entities),
               linked_entities: normalizeKeyList(item.linked_entities),
               locations: normalizeKeyList(item.locations),

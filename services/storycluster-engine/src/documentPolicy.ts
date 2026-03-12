@@ -7,7 +7,7 @@ const RELATED_DOCUMENT_TYPES = new Set<DocumentType>([
   'liveblog',
   'analysis',
   'opinion',
-  'explainer_recap',
+  'explainer',
 ]);
 
 export function coverageRoleForDocumentType(

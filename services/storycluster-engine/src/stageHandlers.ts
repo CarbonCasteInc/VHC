@@ -193,11 +193,11 @@ function withDocumentClassification(provider: StoryClusterModelProvider | undefi
         ...state.stage_metrics,
         document_classification: {
           breaking_docs: documents.filter((document) => document.doc_type === 'breaking_update').length,
-          wire_docs: documents.filter((document) => document.doc_type === 'wire_report').length,
+          wire_docs: documents.filter((document) => document.doc_type === 'wire').length,
           liveblog_docs: documents.filter((document) => document.doc_type === 'liveblog').length,
           analysis_docs: documents.filter((document) => document.doc_type === 'analysis').length,
           opinion_docs: documents.filter((document) => document.doc_type === 'opinion').length,
-          explainer_docs: documents.filter((document) => document.doc_type === 'explainer_recap').length,
+          explainer_docs: documents.filter((document) => document.doc_type === 'explainer').length,
         },
       },
     };

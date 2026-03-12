@@ -47,7 +47,7 @@ export const STORYCLUSTER_FIXTURE_DATASETS: StoryClusterCoherenceAuditDataset[] 
       makeBenchmarkItem('liveblog_port_attack', 'live-b', 'Live blog: emergency crews respond at the port overnight', 'l2', 1_710_400_010_000, { publisher: 'Live Desk', summary: 'Rolling live coverage from the port attack response.', coverage_role: 'related' }),
       makeBenchmarkItem('ceasefire_vote', 'wire-q', 'Parliament schedules a ceasefire vote after the attacks', 'l3', 1_710_400_030_000),
       makeBenchmarkItem('ceasefire_vote', 'wire-r', 'Coalition whips support before the ceasefire vote', 'l4', 1_710_400_050_000),
-      makeBenchmarkItem('explainer_recap', 'desk-s', 'Explainer: what the weekend attacks mean for regional diplomacy', 'l5', 1_710_400_070_000, { coverage_role: 'related' }),
+      makeBenchmarkItem('explainer', 'desk-s', 'Explainer: what the weekend attacks mean for regional diplomacy', 'l5', 1_710_400_070_000, { coverage_role: 'related' }),
     ],
   },
   {
