@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   accumulateStoryCoverage,
+  assessPromotionReadiness,
   buildRunArtifactPaths,
   classifySoakRun,
+  PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
   summarizeLabelCounts,
   summarizeSoakDensity,
 } from './daemon-feed-semantic-soak-report.mjs';
@@ -171,5 +173,87 @@ describe('daemon-feed-semantic-soak-report', () => {
       { story_id: 'story-a', run_count: 2, runs: [1, 3] },
       { story_id: 'story-b', run_count: 1, runs: [1] },
     ]);
+  });
+
+  it('marks public soak as not promotable when density or pass criteria fail', () => {
+    expect(assessPromotionReadiness({
+      totalRuns: 4,
+      passRate: 0.5,
+      classifications: {
+        semantic_contamination: 1,
+        bundle_starvation: 1,
+        insufficient_auditable_supply: 1,
+      },
+      density: {
+        averageSampleFillRate: 0.5,
+        averageAuditedPairsPerSampledStory: 0.5,
+      },
+    })).toEqual({
+      promotable: false,
+      status: 'not_ready',
+      criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+      blockingReasons: [
+        'insufficient_run_count',
+        'pass_rate_below_threshold',
+        'semantic_contamination_present',
+        'supply_failures_present',
+        'insufficient_sample_fill_rate',
+        'insufficient_audited_pair_density',
+      ],
+    });
+  });
+
+  it('marks public soak as promotable only when all criteria pass', () => {
+    expect(assessPromotionReadiness({
+      totalRuns: 5,
+      passRate: 1,
+      classifications: {
+        semantic_contamination: 0,
+        bundle_starvation: 0,
+        insufficient_auditable_supply: 0,
+      },
+      density: {
+        averageSampleFillRate: 0.9,
+        averageAuditedPairsPerSampledStory: 1.5,
+      },
+    })).toEqual({
+      promotable: true,
+      status: 'promotable',
+      criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+      blockingReasons: [],
+    });
+  });
+
+  it('handles missing classifications and density fields when assessing promotion readiness', () => {
+    expect(assessPromotionReadiness({
+      totalRuns: 1,
+      passRate: null,
+      classifications: undefined,
+      density: undefined,
+    })).toEqual({
+      promotable: false,
+      status: 'not_ready',
+      criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+      blockingReasons: [
+        'insufficient_run_count',
+        'pass_rate_below_threshold',
+        'insufficient_sample_fill_rate',
+        'insufficient_audited_pair_density',
+      ],
+    });
+  });
+
+  it('treats an entirely missing trend as not ready for promotion', () => {
+    expect(assessPromotionReadiness()).toEqual({
+      promotable: false,
+      status: 'not_ready',
+      criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+      blockingReasons: [
+        'insufficient_run_count',
+        'pass_rate_below_threshold',
+        'insufficient_sample_fill_rate',
+        'insufficient_audited_pair_density',
+      ],
+    });
   });
 });

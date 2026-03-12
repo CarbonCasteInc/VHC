@@ -3,6 +3,7 @@ import {
   buildReleaseArtifactIndex,
   buildSoakTrend,
   PUBLIC_SEMANTIC_SOAK_POSTURE,
+  PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
 } from './daemon-feed-semantic-soak-report.mjs';
 
 function makeResult(overrides = {}) {
@@ -131,6 +132,19 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
     });
     expect(trend.averageFailureStoryCount).toBe(13);
     expect(trend.averageFailureAuditableCount).toBe(0.5);
+    expect(trend.promotionAssessment).toEqual({
+      promotable: false,
+      status: 'not_ready',
+      criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+      blockingReasons: [
+        'insufficient_run_count',
+        'pass_rate_below_threshold',
+        'semantic_contamination_present',
+        'supply_failures_present',
+        'insufficient_sample_fill_rate',
+        'insufficient_audited_pair_density',
+      ],
+    });
   });
 
   it('handles an empty trend window without density observations', () => {
@@ -143,6 +157,17 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
     expect(trend.latestFailureWithDiagnostics).toBeNull();
     expect(trend.averageFailureStoryCount).toBeNull();
     expect(trend.averageFailureAuditableCount).toBeNull();
+    expect(trend.promotionAssessment).toEqual({
+      promotable: false,
+      status: 'not_ready',
+      criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+      blockingReasons: [
+        'insufficient_run_count',
+        'pass_rate_below_threshold',
+        'insufficient_sample_fill_rate',
+        'insufficient_audited_pair_density',
+      ],
+    });
     expect(trend.artifactCoverage).toEqual({
       reportCount: 0,
       auditCount: 0,
@@ -173,6 +198,18 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
     ])).toMatchObject({
       schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v2',
       executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
+      promotionAssessment: {
+        promotable: false,
+        status: 'not_ready',
+        criteria: PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+        blockingReasons: [
+          'insufficient_run_count',
+          'pass_rate_below_threshold',
+          'supply_failures_present',
+          'insufficient_sample_fill_rate',
+          'insufficient_audited_pair_density',
+        ],
+      },
       artifactDir: '/tmp/artifacts',
       summaryPath: '/tmp/summary.json',
       trendPath: '/tmp/trend.json',
