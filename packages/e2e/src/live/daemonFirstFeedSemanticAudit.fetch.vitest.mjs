@@ -7,7 +7,7 @@ const waitForHeadlines = vi.fn();
 const nudgeFeed = vi.fn();
 const buildCanonicalSourcePairs = vi.fn();
 const classifyCanonicalSourcePairs = vi.fn();
-const hasRelatedTopicOnlyPair = vi.fn((results: Array<{ label: string }>) =>
+const hasRelatedTopicOnlyPair = vi.fn((results) =>
   results.some((result) => result.label === 'related_topic_only'));
 const fetchMock = vi.fn();
 
@@ -30,7 +30,7 @@ vi.mock('../../../../services/storycluster-engine/dist/index.js', () => ({
   hasRelatedTopicOnlyPair,
 }));
 
-function makeBundle(storyId: string) {
+function makeBundle(storyId) {
   return {
     story_id: storyId,
     topic_id: `topic-${storyId}`,
@@ -109,7 +109,7 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
         headline: 'Headline story-1',
         canonical_source_count: 2,
         secondary_asset_count: 0,
-        canonical_sources: sampledBundles[0]!.sources,
+        canonical_sources: sampledBundles[0].sources,
         pairs: [],
         has_related_topic_only_pair: false,
       }],
@@ -207,7 +207,7 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
     buildCanonicalSourcePairs.mockReturnValue([]);
     classifyCanonicalSourcePairs.mockResolvedValue([]);
 
-    const report = await runDaemonFirstFeedSemanticAudit({} as never, {
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
       openAIApiKey: 'test-key',
       sampleCount: 2,
       timeoutMs: 0,

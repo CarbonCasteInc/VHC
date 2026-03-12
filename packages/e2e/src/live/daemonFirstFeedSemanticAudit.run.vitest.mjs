@@ -9,7 +9,7 @@ const waitForHeadlines = vi.fn();
 const nudgeFeed = vi.fn();
 const buildCanonicalSourcePairs = vi.fn();
 const classifyCanonicalSourcePairs = vi.fn();
-const hasRelatedTopicOnlyPair = vi.fn((results: Array<{ label: string }>) =>
+const hasRelatedTopicOnlyPair = vi.fn((results) =>
   results.some((result) => result.label === 'related_topic_only'));
 const fetchMock = vi.fn();
 
@@ -32,7 +32,7 @@ vi.mock('../../../../services/storycluster-engine/dist/index.js', () => ({
   hasRelatedTopicOnlyPair,
 }));
 
-function makeBundle(storyId: string) {
+function makeBundle(storyId) {
   return {
     story_id: storyId,
     topic_id: `topic-${storyId}`,
@@ -68,7 +68,7 @@ function makeSnapshot(overrides = {}) {
   };
 }
 
-function makePair(bundle: ReturnType<typeof makeBundle>) {
+function makePair(bundle) {
   return {
     pair_id: `${bundle.story_id}-pair-1`,
     story_id: bundle.story_id,
@@ -79,7 +79,7 @@ function makePair(bundle: ReturnType<typeof makeBundle>) {
   };
 }
 
-function makeResult(pairId: string, label: 'same_incident' | 'related_topic_only' = 'same_incident') {
+function makeResult(pairId, label = 'same_incident') {
   return {
     pair_id: pairId,
     label,
@@ -88,7 +88,7 @@ function makeResult(pairId: string, label: 'same_incident' | 'related_topic_only
   };
 }
 
-function artifactDir(runId: string) {
+function artifactDir(runId) {
   return path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId);
 }
 
@@ -120,7 +120,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 0 }));
 
     const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
-    const report = await runDaemonFirstFeedSemanticAudit({} as never, {
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
       openAIApiKey: 'test-key',
       sampleCount: 2,
       timeoutMs: 0,
@@ -151,7 +151,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     classifyCanonicalSourcePairs.mockResolvedValue([]);
 
     const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
-    await expect(runDaemonFirstFeedSemanticAudit({} as never, {
+    await expect(runDaemonFirstFeedSemanticAudit({}, {
       openAIApiKey: 'test-key',
       sampleCount: 1,
       timeoutMs: 50,
@@ -179,7 +179,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     classifyCanonicalSourcePairs.mockResolvedValue([makeResult(pairA.pair_id)]);
 
     const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
-    const report = await runDaemonFirstFeedSemanticAudit({} as never, { openAIApiKey: 'test-key' });
+    const report = await runDaemonFirstFeedSemanticAudit({}, { openAIApiKey: 'test-key' });
 
     expect(report).toMatchObject({
       requested_sample_count: 2,
@@ -217,7 +217,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     process.env.VH_DAEMON_FEED_RUN_ID = `semantic-audit-test-${Date.now()}-full`;
 
     const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
-    const report = await runDaemonFirstFeedSemanticAudit({} as never, {
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
       openAIApiKey: 'test-key',
       sampleCount: 2,
       timeoutMs: 50,
@@ -268,7 +268,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     process.env.VH_DAEMON_FEED_RUN_ID = `semantic-audit-test-${Date.now()}-partial`;
 
     const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
-    const report = await runDaemonFirstFeedSemanticAudit({} as never, {
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
       openAIApiKey: 'test-key',
       sampleCount: 2,
       timeoutMs: 0,
