@@ -4,6 +4,7 @@ import type { StorylineGroup } from '@vh/data-model';
 export interface StorylineFocusPanelProps {
   readonly storyline: StorylineGroup;
   readonly visibleStoryCount: number;
+  readonly onBack?: () => void;
   readonly onClear: () => void;
 }
 
@@ -14,6 +15,7 @@ function formatStoryCount(count: number): string {
 export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
   storyline,
   visibleStoryCount,
+  onBack,
   onClear,
 }) => {
   return (
@@ -35,14 +37,26 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-white"
-          onClick={onClear}
-          data-testid={`storyline-focus-clear-${storyline.storyline_id}`}
-        >
-          Show full feed
-        </button>
+        <div className="flex items-center gap-2">
+          {onBack ? (
+            <button
+              type="button"
+              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-white"
+              onClick={onBack}
+              data-testid={`storyline-focus-back-${storyline.storyline_id}`}
+            >
+              ← Back
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-white"
+            onClick={onClear}
+            data-testid={`storyline-focus-clear-${storyline.storyline_id}`}
+          >
+            Clear storyline
+          </button>
+        </div>
       </div>
 
       {storyline.related_coverage.length > 0 && (
