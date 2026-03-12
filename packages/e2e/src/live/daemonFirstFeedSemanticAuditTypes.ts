@@ -82,16 +82,32 @@ export interface AuditedBundleReport {
   readonly has_related_topic_only_pair: boolean;
 }
 
+export type SemanticAuditSupplyStatus = 'full' | 'partial' | 'empty';
+
+export interface SemanticAuditSupplyDiagnostics {
+  readonly status: SemanticAuditSupplyStatus;
+  readonly story_count: number;
+  readonly auditable_count: number;
+  readonly visible_story_ids: ReadonlyArray<string>;
+  readonly top_story_ids: ReadonlyArray<string>;
+  readonly top_auditable_story_ids: ReadonlyArray<string>;
+  readonly sample_fill_rate: number;
+  readonly sample_shortfall: number;
+}
+
 export interface DaemonFeedSemanticAuditReport {
-  readonly schema_version: 'daemon-first-feed-semantic-audit-v1';
+  readonly schema_version: 'daemon-first-feed-semantic-audit-v2';
   readonly base_url: string;
   readonly requested_sample_count: number;
   readonly sampled_story_count: number;
   readonly visible_story_ids: ReadonlyArray<string>;
+  readonly supply: SemanticAuditSupplyDiagnostics;
   readonly bundles: ReadonlyArray<AuditedBundleReport>;
   readonly overall: {
     readonly audited_pair_count: number;
     readonly related_topic_only_pair_count: number;
+    readonly sample_fill_rate: number;
+    readonly sample_shortfall: number;
     readonly pass: boolean;
   };
 }

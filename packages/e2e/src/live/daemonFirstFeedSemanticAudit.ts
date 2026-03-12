@@ -2,12 +2,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import type { Page } from '@playwright/test';
 import {
-  readAuditableBundleDiagnostics,
   readAuditableBundles,
   readSemanticAuditStoreSnapshot,
   refreshNewsStoreLatest,
 } from './browserNewsStore';
-import { LIVE_BASE_URL, headlineRows, waitForHeadlines } from './daemonFirstFeedHarness';
+import { LIVE_BASE_URL, waitForHeadlines } from './daemonFirstFeedHarness';
 import { nudgeFeed } from './feedReadiness';
 import type {
   AuditedBundlePairResult,
@@ -17,6 +16,7 @@ import type {
   LiveSemanticAuditPair,
   LiveSemanticAuditPairResult,
   SemanticAuditStoreSnapshot,
+  SemanticAuditSupplyDiagnostics,
   StoryBundleSource,
 } from './daemonFirstFeedSemanticAuditTypes';
 
@@ -25,10 +25,7 @@ const ARTICLE_FETCH_CONCURRENCY = 4;
 const DEFAULT_SAMPLE_COUNT = 2;
 const SAMPLE_TIMEOUT_MS = 240_000;
 const SEMANTIC_AUDIT_REFRESH_LIMIT = 120;
-const runtimeImport = new Function(
-  'modulePath',
-  'return import(modulePath);',
-) as (modulePath: string) => Promise<unknown>;
+const runtimeImport = async (modulePath: string): Promise<unknown> => await import(modulePath);
 
 async function loadSemanticAuditModule(): Promise<{
   buildCanonicalSourcePairs: (
@@ -60,7 +57,7 @@ function articleTextUrl(baseUrl: string, targetUrl: string): string {
   return resolved.toString();
 }
 
-async function fetchArticlePayload(baseUrl: string, url: string, sourceId: string): Promise<{ title: string; text: string }> {
+export async function fetchArticlePayload(baseUrl: string, url: string, sourceId: string): Promise<{ title: string; text: string }> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ARTICLE_TEXT_TIMEOUT_MS);
   try {
@@ -75,15 +72,17 @@ async function fetchArticlePayload(baseUrl: string, url: string, sourceId: strin
     if (!text) {
       throw new Error(`article-text missing text for ${sourceId}`);
     }
-    const title = typeof payload.title === 'string' ? payload.title.trim() : '';
-    return { title, text };
+    clearTimeout(timeout);
+    return {
+      title: typeof payload.title === 'string' ? payload.title.trim() : '',
+      text,
+    };
   } catch (error) {
+    clearTimeout(timeout);
     if (error instanceof Error && error.name === 'AbortError') {
       throw new Error(`article-text timeout for ${sourceId}`);
     }
     throw error;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
@@ -118,27 +117,47 @@ async function waitForSampledBundles(
   page: Page,
   sampleCount: number,
   timeoutMs: number,
-): Promise<LiveSemanticAuditBundleLike[]> {
+): Promise<{
+  readonly bundles: ReadonlyArray<LiveSemanticAuditBundleLike>;
+  readonly storeSnapshot: SemanticAuditStoreSnapshot;
+}> {
   const deadline = Date.now() + timeoutMs;
-  let lastDiagnostics = await readAuditableBundleDiagnostics(page);
   while (Date.now() < deadline) {
     const auditable = await readAuditableBundles(page);
     if (auditable.length >= sampleCount) {
-      return auditable.slice(0, sampleCount);
+      return {
+        bundles: auditable.slice(0, sampleCount),
+        storeSnapshot: await readSemanticAuditStoreSnapshot(page),
+      };
     }
 
     await refreshNewsStoreLatest(page, SEMANTIC_AUDIT_REFRESH_LIMIT).catch(() => {});
     await nudgeFeed(page);
     await waitForHeadlines(page);
-    lastDiagnostics = await readAuditableBundleDiagnostics(page);
   }
 
+  const auditable = await readAuditableBundles(page);
   const storeSnapshot = await readSemanticAuditStoreSnapshot(page);
   await persistSemanticAuditFailureSnapshot(storeSnapshot);
+  return { bundles: auditable.slice(0, sampleCount), storeSnapshot };
+}
 
-  throw new Error(
-    `semantic-audit-insufficient-bundles:${sampleCount}:stories=${lastDiagnostics.storyCount}:auditable=${lastDiagnostics.auditableCount}:top=${lastDiagnostics.topStoryIds.join(',')}:auditableTop=${lastDiagnostics.topAuditableStoryIds.join(',')}:snapshot=${storeSnapshot.stories.length}`,
-  );
+export function summarizeSemanticAuditSupply(
+  sampleCount: number,
+  sampledBundles: readonly LiveSemanticAuditBundleLike[],
+  storeSnapshot: SemanticAuditStoreSnapshot,
+): SemanticAuditSupplyDiagnostics {
+  const sampledStoryCount = sampledBundles.length;
+  return {
+    status: sampledStoryCount >= sampleCount ? 'full' : sampledStoryCount > 0 ? 'partial' : 'empty',
+    story_count: storeSnapshot.story_count,
+    auditable_count: storeSnapshot.auditable_count,
+    visible_story_ids: storeSnapshot.visible_story_ids,
+    top_story_ids: storeSnapshot.top_story_ids,
+    top_auditable_story_ids: storeSnapshot.top_auditable_story_ids,
+    sample_fill_rate: sampledStoryCount / sampleCount,
+    sample_shortfall: Math.max(sampleCount - sampledStoryCount, 0),
+  };
 }
 
 function groupPairResults(pairs: readonly LiveSemanticAuditPair[], results: readonly LiveSemanticAuditPairResult[]) {
@@ -204,6 +223,31 @@ async function persistSemanticAuditFailureSnapshot(
   );
 }
 
+export function buildDaemonFeedSemanticAuditReport(
+  sampleCount: number,
+  reports: DaemonFeedSemanticAuditReport['bundles'],
+  auditedPairCount: number,
+  relatedTopicOnlyPairCount: number,
+  supply: SemanticAuditSupplyDiagnostics,
+): DaemonFeedSemanticAuditReport {
+  return {
+    schema_version: 'daemon-first-feed-semantic-audit-v2',
+    base_url: LIVE_BASE_URL,
+    requested_sample_count: sampleCount,
+    sampled_story_count: reports.length,
+    visible_story_ids: supply.visible_story_ids,
+    supply,
+    bundles: reports,
+    overall: {
+      audited_pair_count: auditedPairCount,
+      related_topic_only_pair_count: relatedTopicOnlyPairCount,
+      sample_fill_rate: supply.sample_fill_rate,
+      sample_shortfall: supply.sample_shortfall,
+      pass: reports.length >= sampleCount && relatedTopicOnlyPairCount === 0,
+    },
+  };
+}
+
 export async function runDaemonFirstFeedSemanticAudit(
   page: Page,
   options: DaemonFeedSemanticAuditOptions,
@@ -217,12 +261,8 @@ export async function runDaemonFirstFeedSemanticAudit(
     hasRelatedTopicOnlyPair,
   } = await loadSemanticAuditModule();
 
-  const visibleStoryIds = (await headlineRows(page)).map((row) => row.storyId);
-  const hydratedBundles = await waitForSampledBundles(
-    page,
-    sampleCount,
-    timeoutMs,
-  );
+  const { bundles: sampledBundles, storeSnapshot } = await waitForSampledBundles(page, sampleCount, timeoutMs);
+  const hydratedBundles = [...sampledBundles];
   const canonicalSources = Array.from(
     new Map(
       hydratedBundles.flatMap((bundle) => (bundle.primary_sources ?? bundle.sources).map((source) => [
@@ -249,12 +289,7 @@ export async function runDaemonFirstFeedSemanticAudit(
     const sourceTexts = new Map<string, string>();
 
     for (const source of primarySources) {
-      const payload = payloadByUrl.get(source.url);
-      if (!payload) {
-        throw new Error(`missing-audit-payload:${source.source_id}`);
-      }
-
-      sourceTexts.set(`${source.source_id}:${source.url_hash}`, payload.text);
+      sourceTexts.set(`${source.source_id}:${source.url_hash}`, payloadByUrl.get(source.url)!.text);
     }
 
     allPairs.push(...buildCanonicalSourcePairs(
@@ -263,11 +298,13 @@ export async function runDaemonFirstFeedSemanticAudit(
     ));
   }
 
-  const results = await classifyCanonicalSourcePairs(allPairs, {
-    apiKey: options.openAIApiKey,
-    baseUrl: options.openAIBaseUrl,
-    model: options.openAIModel,
-  });
+  const results = allPairs.length === 0
+    ? []
+    : await classifyCanonicalSourcePairs(allPairs, {
+      apiKey: options.openAIApiKey,
+      baseUrl: options.openAIBaseUrl,
+      model: options.openAIModel,
+    });
 
   const resultsByStory = groupPairResults(allPairs, results);
   const reports = hydratedBundles.map((bundle) => {
@@ -289,19 +326,13 @@ export async function runDaemonFirstFeedSemanticAudit(
     0,
   );
 
-  const report: DaemonFeedSemanticAuditReport = {
-    schema_version: 'daemon-first-feed-semantic-audit-v1',
-    base_url: LIVE_BASE_URL,
-    requested_sample_count: sampleCount,
-    sampled_story_count: reports.length,
-    visible_story_ids: visibleStoryIds,
-    bundles: reports,
-    overall: {
-      audited_pair_count: results.length,
-      related_topic_only_pair_count: relatedTopicOnlyPairCount,
-      pass: reports.length >= sampleCount && relatedTopicOnlyPairCount === 0,
-    },
-  };
+  const report = buildDaemonFeedSemanticAuditReport(
+    sampleCount,
+    reports,
+    results.length,
+    relatedTopicOnlyPairCount,
+    summarizeSemanticAuditSupply(sampleCount, hydratedBundles, storeSnapshot),
+  );
 
   await persistSemanticAuditReport(report);
   return report;
