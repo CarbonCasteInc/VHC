@@ -1,7 +1,16 @@
 import { create } from 'zustand';
 import type { SentimentSignal, ConstituencyProof } from '@vh/types';
 import { deriveAggregateVoterId, deriveVoteIntentId, type VoteAdmissionReceipt, type VoteIntentRecord } from '@vh/data-model';
-import { readAggregateVoterNode, writeSentimentEvent, writeVoterNode } from '@vh/gun-client';
+import {
+  readAggregateVoterNode,
+  readAggregateVoterRows,
+  readPointAggregateSnapshot,
+  readUserEvents,
+  writePointAggregateSnapshot,
+  writeSentimentEvent,
+  writeVoterNode,
+  type AggregateVoterPointRow,
+} from '@vh/gun-client';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { resolveClientFromAppStore } from '../store/clientResolver';
 import { useXpLedger } from '../store/xpLedger';
@@ -13,6 +22,11 @@ import {
 } from '../components/feed/voteSemantics';
 import { logMeshWriteResult, recordVoteTimestamp } from '../utils/sentimentTelemetry';
 import { createDenialReceipt, createAdmissionReceipt, deriveProofRef } from './voteAdmission';
+import {
+  materializePointSnapshotFromRows,
+  normalizeAggregateTimestampMs,
+  upsertAggregateRow,
+} from './pointAggregateSnapshot';
 import { enqueueIntent } from './voteIntentQueue';
 import { scheduleVoteIntentReplay } from './voteIntentMaterializer';
 
@@ -50,6 +64,8 @@ const AGREEMENTS_KEY = 'vh_sentiment_agreements_v1';
 const AGREEMENT_ALIASES_KEY = 'vh_sentiment_agreement_aliases_v1';
 const LIGHTBULB_KEY = 'vh_lightbulb_weights_v1';
 const EYE_KEY = 'vh_eye_weights_v1';
+const OUTBOX_READBACK_ATTEMPTS = 4;
+const OUTBOX_READBACK_RETRY_MS = 250;
 
 function loadNumberMap(key: string): Record<string, number> {
   try {
@@ -224,11 +240,50 @@ function asIsoTimestamp(emittedAt: number): string {
   return new Date(emittedAt).toISOString();
 }
 
+function isAggregateTimeoutError(message: string | null): boolean {
+  return Boolean(message && message.includes('aggregate-put-ack-timeout'));
+}
+
+function sentimentEventMatches(signal: SentimentSignal, event: SentimentSignal): boolean {
+  return (
+    signal.topic_id === event.topic_id &&
+    signal.synthesis_id === event.synthesis_id &&
+    signal.epoch === event.epoch &&
+    signal.point_id === event.point_id &&
+    signal.agreement === event.agreement &&
+    signal.weight === event.weight &&
+    signal.emitted_at === event.emitted_at &&
+    signal.constituency_proof.nullifier === event.constituency_proof.nullifier
+  );
+}
+
+async function waitForSentimentOutboxReadback(client: ReturnType<typeof resolveClientFromAppStore>, signal: SentimentSignal): Promise<boolean> {
+  if (!client) {
+    return false;
+  }
+
+  for (let attempt = 0; attempt < OUTBOX_READBACK_ATTEMPTS; attempt += 1) {
+    const events = await readUserEvents(client, signal.topic_id, signal.epoch);
+    if (events.some((event) => sentimentEventMatches(signal, event))) {
+      return true;
+    }
+    if (attempt < OUTBOX_READBACK_ATTEMPTS - 1) {
+      await new Promise((resolve) => setTimeout(resolve, OUTBOX_READBACK_RETRY_MS));
+    }
+  }
+
+  return false;
+}
+
 async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   const startedAt = Date.now();
   let success = true;
   let timedOut = false;
   let errorMessage: string | undefined;
+  let eventWriteOk = false;
+  let voterNodeOk = false;
+  let snapshotOk = false;
+  let readbackRecovered = false;
 
   const finalize = () => {
     logMeshWriteResult({
@@ -238,6 +293,10 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       timed_out: timedOut,
       latency_ms: Math.max(0, Date.now() - startedAt),
       error: errorMessage,
+      event_write_ok: eventWriteOk,
+      voter_node_ok: voterNodeOk,
+      snapshot_ok: snapshotOk,
+      readback_recovered: readbackRecovered,
     });
   };
 
@@ -272,11 +331,29 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
     });
 
     if (!eventWriteResult.ack.acknowledged) {
-      success = false;
-      timedOut = eventWriteResult.ack.timedOut;
-      errorMessage = eventWriteResult.ack.timedOut
-        ? 'sentiment-outbox-timeout'
-        : 'sentiment-outbox-not-acknowledged';
+      const readbackRecoveredEvent = await waitForSentimentOutboxReadback(client, {
+        topic_id: signal.topic_id,
+        synthesis_id: signal.synthesis_id,
+        epoch: signal.epoch,
+        analysis_id: signal.analysis_id,
+        point_id: signal.point_id,
+        agreement: signal.agreement,
+        weight: signal.weight,
+        constituency_proof: signal.constituency_proof,
+        emitted_at: signal.emitted_at,
+      });
+      if (readbackRecoveredEvent) {
+        eventWriteOk = true;
+        readbackRecovered = true;
+      } else {
+        success = false;
+        timedOut = eventWriteResult.ack.timedOut;
+        errorMessage = eventWriteResult.ack.timedOut
+          ? 'sentiment-outbox-timeout'
+          : 'sentiment-outbox-not-acknowledged';
+      }
+    } else {
+      eventWriteOk = true;
     }
   } catch (error) {
     success = false;
@@ -291,13 +368,19 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
     });
 
     let writeError: unknown = null;
+    let projectedRow: AggregateVoterPointRow | null = null;
     try {
-      await writeVoterNode(client, signal.topic_id, signal.synthesis_id, signal.epoch, voterId, {
+      const writtenNode = await writeVoterNode(client, signal.topic_id, signal.synthesis_id, signal.epoch, voterId, {
         point_id: signal.point_id,
         agreement: signal.agreement,
         weight: signal.weight,
         updated_at: asIsoTimestamp(signal.emitted_at),
       });
+      projectedRow = {
+        voter_id: voterId,
+        node: writtenNode,
+        updated_at_ms: signal.emitted_at,
+      };
     } catch (error) {
       writeError = error;
     }
@@ -336,6 +419,23 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
       } else {
         console.info('[vh:vote:voter-node-readback]', payload);
       }
+
+      if (
+        writeError &&
+        isAggregateTimeoutError(writeErrorMessage) &&
+        readBackNode &&
+        readBackNode.point_id === signal.point_id &&
+        readBackNode.agreement === signal.agreement &&
+        normalizeAggregateTimestampMs(readBackNode.updated_at) >= signal.emitted_at
+      ) {
+        readbackRecovered = true;
+        projectedRow = {
+          voter_id: voterId,
+          node: readBackNode,
+          updated_at_ms: normalizeAggregateTimestampMs(readBackNode.updated_at),
+        };
+        writeError = null;
+      }
     } catch (readBackError) {
       console.warn('[vh:vote:voter-node-readback]', {
         topic_id: signal.topic_id,
@@ -347,6 +447,37 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
         error: readBackError instanceof Error ? readBackError.message : String(readBackError),
         write_error: writeErrorMessage,
       });
+    }
+
+    if (projectedRow) {
+      voterNodeOk = true;
+      const currentRows = await readAggregateVoterRows(
+        client,
+        signal.topic_id,
+        signal.synthesis_id,
+        signal.epoch,
+        signal.point_id,
+      );
+      const previousSnapshot = await readPointAggregateSnapshot(
+        client,
+        signal.topic_id,
+        signal.synthesis_id,
+        signal.epoch,
+        signal.point_id,
+      );
+      const snapshot = materializePointSnapshotFromRows({
+        tuple: {
+          topic_id: signal.topic_id,
+          synthesis_id: signal.synthesis_id,
+          epoch: signal.epoch,
+          point_id: signal.point_id,
+        },
+        rows: upsertAggregateRow(currentRows, projectedRow),
+        previousSnapshot,
+        computedAtMs: Date.now(),
+      });
+      await writePointAggregateSnapshot(client, snapshot);
+      snapshotOk = true;
     }
 
     if (writeError) {

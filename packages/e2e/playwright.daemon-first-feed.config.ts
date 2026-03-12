@@ -12,18 +12,31 @@ const runId = process.env.VH_DAEMON_FEED_RUN_ID;
 process.env.VH_DAEMON_FEED_GUN_PORT ??= String(stablePort(8700, 200, runId));
 process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, runId));
 process.env.VH_DAEMON_FEED_FIXTURE_PORT ??= String(stablePort(8900, 100, runId));
+process.env.VH_DAEMON_FEED_QDRANT_PORT ??= String(stablePort(6300, 100, runId));
+process.env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT ??= String(stablePort(9100, 100, runId));
+process.env.VH_LIVE_BASE_URL ??= `http://127.0.0.1:${stablePort(2100, 200, runId)}/`;
 
 const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
-const baseUrl = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2148/';
+const baseUrl = process.env.VH_LIVE_BASE_URL;
 const basePort = extractPort(baseUrl);
 const gunPeerUrl = `http://localhost:${gunPort}/gun`;
 const fixtureFeedPort = Number(process.env.VH_DAEMON_FEED_FIXTURE_PORT);
 const fixtureFeedBaseUrl = `http://127.0.0.1:${fixtureFeedPort}`;
+const qdrantPort = Number(process.env.VH_DAEMON_FEED_QDRANT_PORT);
+const qdrantBaseUrl = `http://127.0.0.1:${qdrantPort}`;
+const analysisStubPort = Number(process.env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT);
+const analysisStubBaseUrl = `http://127.0.0.1:${analysisStubPort}`;
 const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
+const useFixtureAnalysisStub = useFixtureFeed && process.env.VH_DAEMON_FEED_USE_ANALYSIS_STUB !== 'false';
 const relayRootDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId, 'relay');
 const relayDataPath = path.join(relayRootDir, 'data');
 const relayServerPath = path.resolve(process.cwd(), '../../infra/relay/server.js');
 const fixtureServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-fixtures.mjs');
+const qdrantServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-qdrant-stub.mjs');
+const analysisStubServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-analysis-stub.mjs');
+
+process.env.VH_STORYCLUSTER_QDRANT_URL ??= qdrantBaseUrl;
+process.env.QDRANT_URL ??= qdrantBaseUrl;
 
 type DevFeedSource = {
   id: string;
@@ -132,6 +145,15 @@ function resolveDevFeedSourcesJson(): string {
 }
 
 function resolveAnalysisRelayEnv(): Record<string, string> {
+  if (useFixtureAnalysisStub) {
+    return {
+      ANALYSIS_RELAY_UPSTREAM_URL: `${analysisStubBaseUrl}/v1/chat/completions`,
+      ANALYSIS_RELAY_API_KEY: 'fixture-analysis-stub-key',
+      ANALYSIS_RELAY_MODEL: 'fixture-analysis-stub',
+      ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: '15000',
+    };
+  }
+
   const upstreamUrl =
     process.env.ANALYSIS_RELAY_UPSTREAM_URL?.trim()
     || (process.env.OPENAI_API_KEY?.trim() ? 'https://api.openai.com/v1/chat/completions' : '');
@@ -160,6 +182,16 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 }
 
 const localWebServers: TestConfig['webServer'] = [
+  {
+    command: [
+      `pids=$(lsof -ti tcp:${qdrantPort} || true)`,
+      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+      `VH_DAEMON_FEED_QDRANT_PORT=${qdrantPort} node ${JSON.stringify(qdrantServerPath)}`,
+    ].join(' && '),
+    url: `${qdrantBaseUrl}/readyz`,
+    reuseExistingServer: false,
+    timeout: 30_000,
+  },
   ...(useFixtureFeed
     ? [{
         command: [
@@ -168,6 +200,18 @@ const localWebServers: TestConfig['webServer'] = [
           `VH_DAEMON_FEED_FIXTURE_PORT=${fixtureFeedPort} node ${JSON.stringify(fixtureServerPath)}`,
         ].join(' && '),
         url: `${fixtureFeedBaseUrl}/health`,
+        reuseExistingServer: false,
+        timeout: 30_000,
+      }]
+    : []),
+  ...(useFixtureAnalysisStub
+    ? [{
+        command: [
+          `pids=$(lsof -ti tcp:${analysisStubPort} || true)`,
+          `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+          `VH_DAEMON_FEED_ANALYSIS_STUB_PORT=${analysisStubPort} node ${JSON.stringify(analysisStubServerPath)}`,
+        ].join(' && '),
+        url: `${analysisStubBaseUrl}/health`,
         reuseExistingServer: false,
         timeout: 30_000,
       }]

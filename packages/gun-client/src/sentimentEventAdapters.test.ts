@@ -24,6 +24,7 @@ interface FakeNode {
   root: any;
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
+  setReadHang: (path: string) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
   setPutLateAck: (path: string, delayMs: number) => void;
@@ -31,6 +32,7 @@ interface FakeNode {
 
 function createFakeNode(): FakeNode {
   const reads = new Map<string, unknown>();
+  const readHangs = new Set<string>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
   const putLateAcks = new Map<string, number>();
@@ -39,7 +41,12 @@ function createFakeNode(): FakeNode {
   const makeNode = (segments: string[]): any => {
     const path = segments.join('/');
     const node: any = {
-      once: vi.fn((cb?: (data: unknown) => void) => cb?.(reads.get(path))),
+      once: vi.fn((cb?: (data: unknown) => void) => {
+        if (readHangs.has(path)) {
+          return;
+        }
+        cb?.(reads.get(path));
+      }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         if (putHangs.has(path)) {
@@ -63,6 +70,9 @@ function createFakeNode(): FakeNode {
     writes,
     setRead(path: string, value: unknown) {
       reads.set(path, value);
+    },
+    setReadHang(path: string) {
+      readHangs.add(path);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -319,6 +329,23 @@ describe('sentimentEventAdapters', () => {
 
     userNode.setRead('outbox/sentiment', null);
     await expect(readUserEvents(withPubClient, 'topic-1', 2)).resolves.toEqual([]);
+  });
+
+  it('readUserEvents returns [] when the outbox once callback never resolves', async () => {
+    vi.useFakeTimers();
+    try {
+      const userNode = createFakeNode();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(userNode, guard, { withPub: true });
+      userNode.setReadHang('outbox/sentiment');
+
+      const pending = readUserEvents(client, 'topic-1', 2);
+      await vi.advanceTimersByTimeAsync(3000);
+
+      await expect(pending).resolves.toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('internal helper exposes deterministic outbox path builders', () => {

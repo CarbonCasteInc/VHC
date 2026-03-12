@@ -3,6 +3,8 @@ import type { Page } from '@playwright/test';
 const FEED_NUDGE_SCROLL_WAIT_MS = 1_500;
 const FEED_NUDGE_REFRESH_WAIT_MS = 1_000;
 const FEED_NUDGE_TOP_WAIT_MS = 300;
+const FEED_READY_SETTLE_MS = 500;
+const FEED_READY_STABLE_SAMPLE_COUNT = 3;
 
 async function applyDeferredFeed(page: Page): Promise<void> {
   const prompt = page.getByTestId('feed-refresh-prompt');
@@ -55,7 +57,7 @@ export async function waitForMinimumCount(params: {
 
   while (Date.now() < deadline) {
     lastCount = await params.readCount();
-    if (lastCount >= params.minCount) {
+    if (await confirmStableMinimumCount(params.readCount, params.minCount, params.page.waitForTimeout.bind(params.page))) {
       return lastCount;
     }
 
@@ -63,4 +65,21 @@ export async function waitForMinimumCount(params: {
   }
 
   throw new Error(`feed-count-timeout:${lastCount}/${params.minCount}`);
+}
+
+export async function confirmStableMinimumCount(
+  readCount: () => Promise<number>,
+  minCount: number,
+  waitForTimeout: (timeoutMs: number) => Promise<unknown>,
+): Promise<boolean> {
+  for (let sample = 0; sample < FEED_READY_STABLE_SAMPLE_COUNT; sample += 1) {
+    const count = await readCount();
+    if (count < minCount) {
+      return false;
+    }
+    if (sample < FEED_READY_STABLE_SAMPLE_COUNT - 1) {
+      await waitForTimeout(FEED_READY_SETTLE_MS);
+    }
+  }
+  return true;
 }
