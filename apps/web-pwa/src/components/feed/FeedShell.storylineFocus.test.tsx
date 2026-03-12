@@ -10,12 +10,22 @@ import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { useNewsStore } from '../../store/news';
 import { useDiscoveryStore } from '../../store/discovery';
 
+const mockNavigate = vi.fn();
+let mockSearch: Record<string, unknown> = {};
+
 vi.mock('@tanstack/react-router', () => ({
   Link: React.forwardRef<HTMLAnchorElement, any>(({ children, to, ...rest }, ref) => (
     <a ref={ref} href={typeof to === 'string' ? to : '#'} {...rest}>
       {children}
     </a>
   )),
+  useRouter: () => ({ navigate: mockNavigate }),
+  useRouterState: () => ({
+    location: {
+      pathname: '/',
+      search: mockSearch,
+    },
+  }),
 }));
 
 vi.mock('./useStoryRemoval', () => ({
@@ -93,6 +103,8 @@ function makeStoryline(): StorylineGroup {
 
 describe('FeedShell storyline focus', () => {
   beforeEach(() => {
+    mockSearch = {};
+    mockNavigate.mockReset();
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
     useNewsStore.getState().setStorylines([makeStoryline()]);
@@ -129,6 +141,72 @@ describe('FeedShell storyline focus', () => {
 
     fireEvent.click(screen.getByTestId('storyline-focus-clear-storyline-1'));
     expect(clearStorylineFocus).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrates storyline focus from the current search param', () => {
+    mockSearch = { storyline: 'storyline-1' };
+    const focusStoryline = vi.fn();
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          selectedStorylineId: null,
+          focusStoryline,
+        })}
+      />,
+    );
+
+    expect(focusStoryline).toHaveBeenCalledWith('storyline-1');
+    expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('writes storyline focus into search params while preserving unrelated query state', () => {
+    mockSearch = { view: 'grid' };
+
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/',
+      search: { view: 'grid', storyline: 'storyline-1' },
+      replace: true,
+    });
+  });
+
+  it('removes the storyline search param when focus is cleared', () => {
+    mockSearch = { storyline: 'storyline-1', view: 'grid' };
+    const { rerender } = render(<FeedShell feedResult={makeFeedResult()} />);
+
+    mockNavigate.mockClear();
+    rerender(
+      <FeedShell
+        feedResult={makeFeedResult({
+          selectedStorylineId: null,
+        })}
+      />,
+    );
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/',
+      search: { view: 'grid' },
+      replace: true,
+    });
+  });
+
+  it('does not navigate back over route-driven storyline changes', () => {
+    mockSearch = { storyline: 'storyline-2' };
+    const focusStoryline = vi.fn();
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          selectedStorylineId: 'storyline-1',
+          focusStoryline,
+        })}
+      />,
+    );
+
+    expect(focusStoryline).toHaveBeenCalledWith('storyline-2');
+    expect(mockNavigate).not.toHaveBeenCalled();
   });
 
   it('omits the related coverage list and formats singular counts when coverage is absent', () => {
