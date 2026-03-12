@@ -193,6 +193,45 @@ describe('FeedShell storyline focus', () => {
     });
   });
 
+  it('opens an archive child into the route search and preserves existing storyline focus', () => {
+    mockSearch = { view: 'grid', storyline: 'storyline-1' };
+
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    fireEvent.click(screen.getByTestId('storyline-archive-jump-story-2'));
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/',
+      search: { view: 'grid', storyline: 'storyline-1', story: 'story-2' },
+      replace: false,
+    });
+  });
+
+  it('hydrates and focuses the selected archive child from the current search params', () => {
+    mockSearch = { storyline: 'storyline-1', story: 'story-2' };
+    const target = document.createElement('article');
+    const scrollIntoView = vi.fn();
+    const focus = vi.fn();
+    target.setAttribute('data-story-id', 'story-2');
+    Object.defineProperty(target, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    Object.defineProperty(target, 'focus', {
+      configurable: true,
+      value: focus,
+    });
+    document.body.appendChild(target);
+
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    expect(screen.getByTestId('storyline-archive-selected-story-2')).toHaveTextContent(
+      'Focused in feed',
+    );
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'center', behavior: 'smooth' });
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
   it('goes back to the prior route state from the panel back action after a local open', () => {
     const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
     const { rerender } = render(<FeedShell feedResult={makeFeedResult()} />);

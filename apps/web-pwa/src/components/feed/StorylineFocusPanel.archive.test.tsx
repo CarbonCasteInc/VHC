@@ -175,6 +175,39 @@ describe('StorylineFocusPanel archive', () => {
     expect(HTMLElement.prototype.focus).toHaveBeenCalledWith({ preventScroll: true });
   });
 
+  it('marks the selected archive story and routes opens through the callback when provided', () => {
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem(),
+      makeFeedItem({
+        topic_id: 'topic-2',
+        story_id: 'story-2',
+        title: 'Transit route revision advances',
+      }),
+    ]);
+
+    const onOpenStory = vi.fn();
+
+    render(
+      <StorylineFocusPanel
+        storyline={makeStoryline()}
+        visibleStoryCount={2}
+        selectedStoryId="story-2"
+        onClear={vi.fn()}
+        onOpenStory={onOpenStory}
+      />,
+    );
+
+    expect(screen.getByTestId('storyline-archive-selected-story-2')).toHaveTextContent(
+      'Focused in feed',
+    );
+    expect(screen.getByTestId('storyline-archive-jump-story-2')).toHaveTextContent('View story');
+
+    fireEvent.click(screen.getByTestId('storyline-archive-jump-story-2'));
+
+    expect(onOpenStory).toHaveBeenCalledWith('story-2');
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+
   it('returns false when jump targets are unavailable', () => {
     expect(storylineFocusPanelInternal.jumpToStory(undefined, 'story-1')).toBe(false);
     expect(storylineFocusPanelInternal.jumpToStory(document, 'story-missing')).toBe(false);
