@@ -6,8 +6,10 @@ import { useDiscoveryStore } from '../../store/discovery';
 export interface StorylineFocusPanelProps {
   readonly storyline: StorylineGroup;
   readonly visibleStoryCount: number;
+  readonly selectedStoryId?: string | null;
   readonly onBack?: () => void;
   readonly onClear: () => void;
+  readonly onOpenStory?: (storyId: string) => void;
 }
 
 interface StorylineArchiveItem {
@@ -87,8 +89,10 @@ function jumpToStory(
 export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
   storyline,
   visibleStoryCount,
+  selectedStoryId = null,
   onBack,
   onClear,
+  onOpenStory,
 }) => {
   const discoveryItems = useStore(useDiscoveryStore, (state) => state.items);
   const archiveItems = useMemo(
@@ -100,6 +104,18 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
     /* v8 ignore next -- browser-only component; SSR guard is defensive only */
     jumpToStory(typeof document === 'undefined' ? undefined : document, storyId);
   }, []);
+
+  const handleOpenStory = useCallback(
+    (storyId: string) => {
+      if (onOpenStory) {
+        onOpenStory(storyId);
+        return;
+      }
+
+      handleJumpToStory(storyId);
+    },
+    [handleJumpToStory, onOpenStory],
+  );
 
   return (
     <section
@@ -186,15 +202,23 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
                       Canonical event bundle
                     </p>
                   ) : null}
+                  {entry.storyId === selectedStoryId ? (
+                    <p
+                      className="text-[11px] font-semibold uppercase tracking-[0.12em] text-sky-700"
+                      data-testid={`storyline-archive-selected-${entry.storyId}`}
+                    >
+                      Focused in feed
+                    </p>
+                  ) : null}
                 </div>
 
                 <button
                   type="button"
                   className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                  onClick={() => handleJumpToStory(entry.storyId)}
+                  onClick={() => handleOpenStory(entry.storyId)}
                   data-testid={`storyline-archive-jump-${entry.storyId}`}
                 >
-                  Jump to story
+                  {entry.storyId === selectedStoryId ? 'View story' : 'Open story'}
                 </button>
               </li>
             ))}
