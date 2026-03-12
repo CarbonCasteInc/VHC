@@ -53,6 +53,24 @@ Shutdown:
 pnpm live:stack:down
 ```
 
+## Browser Verification Policy
+
+Browser-driven validation is part of distribution-readiness, not an optional add-on.
+
+Rules:
+
+1. Any lane that changes feed, discovery, storyline navigation, related-coverage presentation, or public semantic evidence must run at least one relevant Playwright/browser command.
+2. StoryCluster semantic/integrity changes must continue to use the daemon-first Playwright gates as the blocking browser proof:
+   - `pnpm test:storycluster:gates`
+3. Public semantic changes must continue to run the non-blocking public smoke lane and retain the artifacts:
+   - `pnpm test:storycluster:smoke`
+4. Browser commands and outcomes must be recorded in the lane evidence note or PR summary.
+5. Unit coverage does not replace browser verification for user-facing feed/discovery/storyline changes.
+6. If a daemon-first Playwright gate fails before browser assertions begin, treat it as an operational readiness failure and capture:
+   - the exact failing command;
+   - the health-timeout or startup error;
+   - the trace/log paths from the failed run.
+
 ## DoD Validation Checklist
 
 Use this checklist during manual browser validation:
@@ -88,6 +106,7 @@ Current release-gate split for StoryCluster and feed correctness:
    - `pnpm test:storycluster:smoke`
 5. Public smoke failures caused by insufficient auditable live bundles do not block merge/release by themselves; they must still be reviewed as evidence artifacts.
 6. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
+7. Feed/discovery/storyline presentation or navigation changes must also carry at least one relevant Playwright/browser validation command in the lane evidence, even when the fixture-backed gates are unchanged.
 
 ### StoryCluster Replay Evidence Interpretation
 

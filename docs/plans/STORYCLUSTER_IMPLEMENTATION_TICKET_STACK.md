@@ -2,9 +2,9 @@
 
 Status: Canonical ticket stack
 Owner: Core Engineering
-Last Updated: 2026-03-11
+Last Updated: 2026-03-12
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `coord/storyline-shell-navigation` @ `6372a5c`
+Branch Baseline: `main` @ `e1ae978`
 
 ## 1. Usage
 
@@ -25,13 +25,14 @@ Every PR in this stack must:
 1. keep changed executable files under `350` LOC;
 2. keep changed executable files at `100%` coverage;
 3. pass local package tests for touched areas;
-4. attach an evidence note with:
+4. for feed, discovery, storyline, or public-soak changes, run at least one relevant Playwright/browser validation command and record it;
+5. attach an evidence note with:
    - commands run;
    - test results;
    - any benchmark deltas;
    - any live or replay artifacts added.
 
-## 2.1 Execution Snapshot (2026-03-11)
+## 2.1 Execution Snapshot (2026-03-12)
 
 Completed or functionally in-force:
 
@@ -51,26 +52,33 @@ Completed or functionally in-force:
 11. storyline-aware feed presentation and discovery state, currently in force on `main`:
    - related coverage rendered separately from canonical sources
    - focused storyline deep-link hydration via route/search state
+   - explicit shell `Back` / `Clear storyline` semantics
+   - archive-parent diversification and archive-child deep-link restoration
 12. SC-11 blocking daemon-first semantic verification, but with the current blocker split:
    - fixture-backed integrity + semantic gates are blocking
    - public semantic soak is smoke/evidence only
 13. SC-12 analysis and vote integrity, at the current fixture-backed gate scope
+14. public semantic-soak density/trend diagnostics and machine-readable promotion-assessment scaffolding are in force on `main`
+15. taxonomy normalization across StoryCluster code, fixtures, telemetry, and docs is in force on `main`
 
 Active next implementation lane:
 
-1. storyline shell/navigation hardening on top of the published `StorylineGroup` layer
+1. public semantic-soak readiness / promotion criteria operationalization
 2. immediate focus:
-   - explicit `Back` / `Clear storyline` semantics from the feed shell
-   - route-aware open-storyline transitions across feed interactions
-   - no change to canonical source basis
-   - no change to bias-table basis
+   - turn promotion readiness into explicit release evidence, not operator inference
+   - keep public semantic runs smoke-only until readiness criteria are truly met
+   - no change to canonical bundle rules, canonical source basis, or bias-table basis
 
-Queued after the shell-navigation lane:
+Queued after the readiness lane:
 
-1. live public semantic-soak density and trend hardening, with the goal of eventually promoting public evidence beyond smoke-only status
-   - public soak artifacts should emit an explicit machine-readable promotion assessment, including fixed readiness criteria and blocking reasons
-2. taxonomy normalization across docs, fixtures, telemetry, and code enums
+1. browser-first verification hardening for distribution readiness
+   - feed/discovery/storyline lanes should carry explicit Playwright/browser validation as part of the evidence contract
+   - keep fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof
+2. daemon-first browser-gate startup reliability
+   - treat `health-timeout:http://127.0.0.1:4302/ready` and similar startup failures as a production-readiness task, not incidental local noise
+   - capture traces/logs whenever a gate fails before browser assertions begin
 3. further fixture-corpus and replay-corpus expansion for hard negatives and long-window identity pressure
+4. continued public semantic-soak density/trend improvement until public-feed evidence is strong enough to promote beyond smoke-only status
 
 ## 3. Ticket Stack
 

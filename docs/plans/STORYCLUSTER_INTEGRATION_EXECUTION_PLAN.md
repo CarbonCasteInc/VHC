@@ -95,7 +95,9 @@ Implementation state note:
 
 1. `StorylineGroup` is now a published runtime contract in the codebase;
 2. `main` includes publication, Gun/store hydration, storyline-aware ranking/diversification, and separated related-coverage presentation;
-3. the active follow-on lane is shell/navigation semantics for focused storyline state, not bundle-membership widening.
+3. the active follow-on lane is public semantic-soak readiness/promotion hardening, not bundle-membership widening.
+4. storyline publication, ranking, presentation, focused deep-link state, shell navigation semantics, archive-parent diversification, and archive-child deep-link restoration are already in force on `main`.
+5. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes.
 
 ## 5. Canonical Pair Ontology
 
