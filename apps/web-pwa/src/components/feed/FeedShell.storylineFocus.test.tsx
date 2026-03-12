@@ -120,6 +120,7 @@ describe('FeedShell storyline focus', () => {
 
   afterEach(() => {
     cleanup();
+    vi.restoreAllMocks();
     useNewsStore.getState().reset();
     useDiscoveryStore.getState().reset();
   });
@@ -160,7 +161,7 @@ describe('FeedShell storyline focus', () => {
     expect(mockNavigate).not.toHaveBeenCalled();
   });
 
-  it('writes storyline focus into search params while preserving unrelated query state', () => {
+  it('opens storyline focus into search params while preserving unrelated query state', () => {
     mockSearch = { view: 'grid' };
 
     render(<FeedShell feedResult={makeFeedResult()} />);
@@ -168,7 +169,7 @@ describe('FeedShell storyline focus', () => {
     expect(mockNavigate).toHaveBeenCalledWith({
       to: '/',
       search: { view: 'grid', storyline: 'storyline-1' },
-      replace: true,
+      replace: false,
     });
   });
 
@@ -192,6 +193,17 @@ describe('FeedShell storyline focus', () => {
     });
   });
 
+  it('goes back to the prior route state from the panel back action after a local open', () => {
+    const backSpy = vi.spyOn(window.history, 'back').mockImplementation(() => {});
+    const { rerender } = render(<FeedShell feedResult={makeFeedResult()} />);
+
+    mockSearch = { storyline: 'storyline-1' };
+    rerender(<FeedShell feedResult={makeFeedResult()} />);
+
+    fireEvent.click(screen.getByTestId('storyline-focus-back-storyline-1'));
+    expect(backSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('does not navigate back over route-driven storyline changes', () => {
     mockSearch = { storyline: 'storyline-2' };
     const focusStoryline = vi.fn();
@@ -207,6 +219,15 @@ describe('FeedShell storyline focus', () => {
 
     expect(focusStoryline).toHaveBeenCalledWith('storyline-2');
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('keeps only the clear action for route-driven storyline state', () => {
+    mockSearch = { storyline: 'storyline-1' };
+
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    expect(screen.queryByTestId('storyline-focus-back-storyline-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('storyline-focus-clear-storyline-1')).toBeInTheDocument();
   });
 
   it('omits the related coverage list and formats singular counts when coverage is absent', () => {

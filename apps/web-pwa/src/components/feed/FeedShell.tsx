@@ -89,6 +89,8 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const touchStartYRef = useRef<number | null>(null);
   const pullTriggeredRef = useRef(false);
   const previousSearchStorylineIdRef = useRef<string | null>(null);
+  const storylineOpenedFromFeedRef = useRef(false);
+  const pendingStorylineOpenRouteSyncRef = useRef(false);
   const hydratingFromRouteRef = useRef(false);
   const [isNearTop, setIsNearTop] = useState(true);
   const [hasDeferredUpdates, setHasDeferredUpdates] = useState(false);
@@ -107,6 +109,10 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         : 0,
     [discoveryItems, selectedStorylineId],
   );
+  const showBackFromStoryline =
+    Boolean(selectedStorylineId) &&
+    searchStorylineId === selectedStorylineId &&
+    storylineOpenedFromFeedRef.current;
 
   const applyDeferredFeed = useCallback(
     (resetPagination: boolean) => {
@@ -121,6 +127,21 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     },
     [setDiscoveryFeed],
   );
+
+  const handleClearStoryline = useCallback(() => {
+    storylineOpenedFromFeedRef.current = false;
+    pendingStorylineOpenRouteSyncRef.current = false;
+    clearStorylineFocus();
+  }, [clearStorylineFocus]);
+
+  const handleBackFromStoryline = useCallback(() => {
+    if (typeof window === 'undefined') {
+      handleClearStoryline();
+      return;
+    }
+
+    window.history.back();
+  }, [handleClearStoryline]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
@@ -139,6 +160,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
 
     if (searchStorylineId === selectedStorylineId) {
       hydratingFromRouteRef.current = false;
+      pendingStorylineOpenRouteSyncRef.current = false;
       return;
     }
 
@@ -147,6 +169,8 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       return;
     }
 
+    storylineOpenedFromFeedRef.current = false;
+    pendingStorylineOpenRouteSyncRef.current = false;
     hydratingFromRouteRef.current = true;
     if (searchStorylineId) {
       focusStoryline(searchStorylineId);
@@ -164,15 +188,30 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       return;
     }
 
+    if (pendingStorylineOpenRouteSyncRef.current) {
+      if (searchStorylineId === selectedStorylineId) {
+        pendingStorylineOpenRouteSyncRef.current = false;
+      }
+      return;
+    }
+
     if (searchStorylineId === selectedStorylineId) {
       return;
+    }
+
+    const openingStoryline = Boolean(selectedStorylineId);
+    if (openingStoryline) {
+      storylineOpenedFromFeedRef.current = true;
+      pendingStorylineOpenRouteSyncRef.current = true;
+    } else {
+      storylineOpenedFromFeedRef.current = false;
     }
 
     const nextSearch = buildStorylineSearch(location.search, selectedStorylineId);
     void router.navigate({
       to: location.pathname,
       search: nextSearch as never,
-      replace: true,
+      replace: !openingStoryline,
     });
   }, [location.pathname, location.search, router, searchStorylineId, selectedStorylineId]);
 
@@ -286,7 +325,8 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         <StorylineFocusPanel
           storyline={focusedStoryline}
           visibleStoryCount={focusedStoryCount}
-          onClear={clearStorylineFocus}
+          onBack={showBackFromStoryline ? handleBackFromStoryline : undefined}
+          onClear={handleClearStoryline}
         />
       )}
 

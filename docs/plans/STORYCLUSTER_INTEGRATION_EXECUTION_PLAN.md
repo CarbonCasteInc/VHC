@@ -91,6 +91,12 @@ This layer owns:
 
 `StorylineGroup` must never replace or override `EventCluster` identity.
 
+Implementation state note:
+
+1. `StorylineGroup` is now a published runtime contract in the codebase;
+2. `main` includes publication, Gun/store hydration, storyline-aware ranking/diversification, and separated related-coverage presentation;
+3. the active follow-on lane is shell/navigation semantics for focused storyline state, not bundle-membership widening.
+
 ## 5. Canonical Pair Ontology
 
 Every document-to-document or document-to-cluster decision must resolve to one of these labels:
