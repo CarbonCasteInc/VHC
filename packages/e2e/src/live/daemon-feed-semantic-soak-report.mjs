@@ -6,6 +6,15 @@ export const PUBLIC_SEMANTIC_SOAK_POSTURE = Object.freeze({
   biasTableBasis: 'unchanged',
 });
 
+export const PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA = Object.freeze({
+  minimumRuns: 5,
+  minimumPassRate: 1,
+  minimumAverageSampleFillRate: 0.75,
+  minimumAverageAuditedPairsPerSampledStory: 1,
+  maximumSemanticContaminationRuns: 0,
+  maximumSupplyFailureRuns: 0,
+});
+
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
@@ -116,6 +125,40 @@ export function accumulateStoryCoverage(results) {
   return [...byStory.values()].sort((left, right) => right.run_count - left.run_count);
 }
 
+export function assessPromotionReadiness(trend) {
+  const criteria = PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA;
+  const blockingReasons = [];
+
+  if ((trend?.totalRuns ?? 0) < criteria.minimumRuns) {
+    blockingReasons.push('insufficient_run_count');
+  }
+  if ((trend?.passRate ?? 0) < criteria.minimumPassRate) {
+    blockingReasons.push('pass_rate_below_threshold');
+  }
+  if ((trend?.classifications?.semantic_contamination ?? 0) > criteria.maximumSemanticContaminationRuns) {
+    blockingReasons.push('semantic_contamination_present');
+  }
+
+  const supplyFailureRuns = (trend?.classifications?.bundle_starvation ?? 0)
+    + (trend?.classifications?.insufficient_auditable_supply ?? 0);
+  if (supplyFailureRuns > criteria.maximumSupplyFailureRuns) {
+    blockingReasons.push('supply_failures_present');
+  }
+  if ((trend?.density?.averageSampleFillRate ?? 0) < criteria.minimumAverageSampleFillRate) {
+    blockingReasons.push('insufficient_sample_fill_rate');
+  }
+  if ((trend?.density?.averageAuditedPairsPerSampledStory ?? 0) < criteria.minimumAverageAuditedPairsPerSampledStory) {
+    blockingReasons.push('insufficient_audited_pair_density');
+  }
+
+  return {
+    promotable: blockingReasons.length === 0,
+    status: blockingReasons.length === 0 ? 'promotable' : 'not_ready',
+    criteria,
+    blockingReasons,
+  };
+}
+
 export function buildSoakTrend(results) {
   const classes = {
     pass: 0,
@@ -180,7 +223,7 @@ export function buildSoakTrend(results) {
   const sampleFillRates = runs.map((run) => run.density.sampleFillRate);
   const failureAuditableDensities = runs.map((run) => run.density.failureAuditableDensity);
 
-  return {
+  const trend = {
     schemaVersion: 'daemon-feed-semantic-soak-trend-v2',
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
@@ -215,9 +258,16 @@ export function buildSoakTrend(results) {
     averageFailureAuditableCount: average(failureRuns.map((run) => run.failureAuditableCount)),
     runs,
   };
+
+  return {
+    ...trend,
+    promotionAssessment: assessPromotionReadiness(trend),
+  };
 }
 
 export function buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results) {
+  const trend = buildSoakTrend(results);
+
   const build = {
     stdoutPath: `${artifactDir}/build.stdout.log`,
     stderrPath: `${artifactDir}/build.stderr.log`,
@@ -227,6 +277,7 @@ export function buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, r
     schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v2',
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
+    promotionAssessment: trend.promotionAssessment,
     artifactDir,
     summaryPath,
     trendPath,

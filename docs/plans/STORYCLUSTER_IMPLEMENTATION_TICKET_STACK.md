@@ -68,6 +68,7 @@ Active next implementation lane:
 Queued after the shell-navigation lane:
 
 1. live public semantic-soak density and trend hardening, with the goal of eventually promoting public evidence beyond smoke-only status
+   - public soak artifacts should emit an explicit machine-readable promotion assessment, including fixed readiness criteria and blocking reasons
 2. taxonomy normalization across docs, fixtures, telemetry, and code enums
 3. further fixture-corpus and replay-corpus expansion for hard negatives and long-window identity pressure
 

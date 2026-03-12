@@ -49,6 +49,7 @@ Current policy state:
 - Public-feed daemon semantic runs remain smoke/soak only:
   - `pnpm test:storycluster:smoke`
   - these runs are evidence-bearing, but live public-feed bundle scarcity is not currently stable enough to be the sole semantic blocker.
+  - soak artifacts now include a machine-readable promotion assessment with explicit readiness criteria and blocking reasons, so the lane can say "not ready to promote" concretely instead of relying on operator interpretation alone.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
 ## StoryCluster Program Snapshot (2026-03-11)

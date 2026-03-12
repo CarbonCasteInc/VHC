@@ -112,5 +112,6 @@ When reviewing StoryCluster release evidence:
   - `tools/scripts/live-local-stack.sh`
 - Public semantic soak remains non-blocking smoke:
   - `pnpm test:storycluster:smoke`
+  - inspect the soak trend/report artifacts for the explicit promotion assessment before arguing that public-feed evidence is ready to move beyond smoke-only
 - If you need a different profile:
   - `ENV_FILE=/path/to/.env pnpm live:stack:up`
