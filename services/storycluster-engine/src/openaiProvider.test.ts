@@ -108,7 +108,7 @@ describe('OpenAIStoryClusterProvider', () => {
                     }
                     : {
                       doc_id: item.doc_id,
-                      doc_type: index === 1 ? 'mystery_type' : 'hard_news',
+                      doc_type: index === 1 ? 'explainer_recap' : 'hard_news',
                       entities: null,
                       linked_entities: null,
                       locations: null,
@@ -167,7 +167,7 @@ describe('OpenAIStoryClusterProvider', () => {
     ])).resolves.toEqual([
       {
         doc_id: 'doc-1',
-        doc_type: 'wire_report',
+        doc_type: 'wire',
         entities: ['port_attack', 'shipping_delays'],
         linked_entities: ['port_attack'],
         locations: ['new_york'],
@@ -184,7 +184,7 @@ describe('OpenAIStoryClusterProvider', () => {
       },
       {
         doc_id: 'doc-2',
-        doc_type: 'hard_news',
+        doc_type: 'explainer',
         entities: [],
         linked_entities: [],
         locations: [],
@@ -498,6 +498,17 @@ describe('OpenAIStoryClusterProvider', () => {
   it('ignores invalid env timeout values when creating a provider from environment', () => {
     vi.stubEnv('OPENAI_API_KEY', 'env-key');
     vi.stubEnv('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS', 'not-a-number');
+
+    const provider = createOpenAIStoryClusterProviderFromEnv({
+      fetchFn: vi.fn(),
+    });
+
+    expect((provider as unknown as { client: { timeoutMs: number } }).client.timeoutMs).toBe(30000);
+  });
+
+  it('ignores blank env timeout values when creating a provider from environment', () => {
+    vi.stubEnv('OPENAI_API_KEY', 'env-key');
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS', '   ');
 
     const provider = createOpenAIStoryClusterProviderFromEnv({
       fetchFn: vi.fn(),

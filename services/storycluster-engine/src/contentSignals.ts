@@ -20,13 +20,29 @@ import { normalizeText, splitSentences, tokenizeWords } from './textSignals';
 
 export type DocumentType =
   | 'breaking_update'
-  | 'wire_report'
+  | 'wire'
   | 'hard_news'
   | 'video_clip'
   | 'liveblog'
   | 'analysis'
   | 'opinion'
-  | 'explainer_recap';
+  | 'explainer';
+
+const DOCUMENT_TYPE_ALIASES = {
+  wire_report: 'wire',
+  explainer_recap: 'explainer',
+} as const satisfies Record<string, DocumentType>;
+
+const DOCUMENT_TYPE_VALUES = new Set<DocumentType>([
+  'breaking_update',
+  'wire',
+  'hard_news',
+  'video_clip',
+  'liveblog',
+  'analysis',
+  'opinion',
+  'explainer',
+]);
 
 export interface EventTuple {
   description: string;
@@ -97,10 +113,21 @@ export function classifyDocumentType(
   if (LIVEBLOG_PATTERN.test(text)) return 'liveblog';
   if (OPINION_PATTERN.test(text)) return 'opinion';
   if (ANALYSIS_PATTERN.test(text)) return 'analysis';
-  if (EXPLAINER_PATTERN.test(text)) return 'explainer_recap';
+  if (EXPLAINER_PATTERN.test(text)) return 'explainer';
   if (BREAKING_PATTERN.test(text)) return 'breaking_update';
-  if (WIRE_PATTERN.test(text)) return 'wire_report';
+  if (WIRE_PATTERN.test(text)) return 'wire';
   return 'hard_news';
+}
+
+export function normalizeDocumentType(value: unknown): DocumentType {
+  if (typeof value !== 'string') {
+    return 'hard_news';
+  }
+  const normalized = value.trim();
+  if (DOCUMENT_TYPE_VALUES.has(normalized as DocumentType)) {
+    return normalized as DocumentType;
+  }
+  return DOCUMENT_TYPE_ALIASES[normalized as keyof typeof DOCUMENT_TYPE_ALIASES] ?? 'hard_news';
 }
 
 export function isRelatedCoverageText(title: string, summary: string | undefined, publisher = '', url = ''): boolean {
@@ -113,7 +140,7 @@ export function isRelatedCoverageText(title: string, summary: string | undefined
 }
 
 function isRelatedOnlyDocumentType(type: DocumentType): boolean {
-  return type === 'video_clip' || type === 'liveblog' || type === 'analysis' || type === 'opinion' || type === 'explainer_recap';
+  return type === 'video_clip' || type === 'liveblog' || type === 'analysis' || type === 'opinion' || type === 'explainer';
 }
 
 export function refineDocumentType(
@@ -130,11 +157,11 @@ export function refineDocumentType(
 export function documentTypeWeight(type: DocumentType): number {
   switch (type) {
     case 'breaking_update': return 1.3;
-    case 'wire_report': return 1.15;
+    case 'wire': return 1.15;
     case 'hard_news': return 1;
     case 'video_clip': return 0.35;
     case 'liveblog': return 0.85;
-    case 'explainer_recap': return 0.55;
+    case 'explainer': return 0.55;
     case 'analysis': return 0.45;
     case 'opinion': return 0.25;
   }

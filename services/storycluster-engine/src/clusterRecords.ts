@@ -12,13 +12,13 @@ import { cosineSimilarity } from './textSignals';
 
 const DOCUMENT_TYPE_KEYS: DocumentType[] = [
   'breaking_update',
-  'wire_report',
+  'wire',
   'hard_news',
   'video_clip',
   'liveblog',
   'analysis',
   'opinion',
-  'explainer_recap',
+  'explainer',
 ];
 
 export function sourceKey(source: Pick<SourceVariant, 'source_id' | 'url_hash'>): string {

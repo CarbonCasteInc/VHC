@@ -1,7 +1,8 @@
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { normalizeDocumentType, type DocumentType } from './contentSignals';
 import { sha256Hex } from './hashUtils';
-import type { StoredClusterRecord, StoredTopicState } from './stageState';
+import type { StoredClusterRecord, StoredSourceDocument, StoredTopicState } from './stageState';
 
 const STATE_SCHEMA_VERSION = 'storycluster-state-v1' as const;
 
@@ -30,6 +31,54 @@ function cloneState(state: StoredTopicState): StoredTopicState {
     topic_id: state.topic_id,
     next_cluster_seq: state.next_cluster_seq,
     clusters: state.clusters.map(cloneCluster),
+  };
+}
+
+const DOCUMENT_TYPE_KEYS: readonly DocumentType[] = [
+  'breaking_update',
+  'wire',
+  'hard_news',
+  'video_clip',
+  'liveblog',
+  'analysis',
+  'opinion',
+  'explainer',
+];
+
+function normalizeDocumentTypeCounts(
+  counts: Record<string, number> | undefined,
+): Record<DocumentType, number> {
+  const normalized = Object.fromEntries(
+    DOCUMENT_TYPE_KEYS.map((type) => [type, 0]),
+  ) as Record<DocumentType, number>;
+  if (!counts) {
+    return normalized;
+  }
+  for (const [key, value] of Object.entries(counts)) {
+    normalized[normalizeDocumentType(key)] += typeof value === 'number' ? value : 0;
+  }
+  return normalized;
+}
+
+function normalizeSourceDocument(document: StoredSourceDocument): StoredSourceDocument {
+  return {
+    ...document,
+    doc_type: normalizeDocumentType(document.doc_type),
+  };
+}
+
+function normalizeCluster(cluster: StoredClusterRecord): StoredClusterRecord {
+  return {
+    ...cluster,
+    document_type_counts: normalizeDocumentTypeCounts(cluster.document_type_counts as Record<string, number>),
+    source_documents: cluster.source_documents.map(normalizeSourceDocument),
+  };
+}
+
+function normalizeTopicState(state: StoredTopicState): StoredTopicState {
+  return {
+    ...state,
+    clusters: state.clusters.map(normalizeCluster),
   };
 }
 
@@ -67,7 +116,7 @@ export class FileClusterStore implements ClusterStore {
       if (parsed.schema_version !== STATE_SCHEMA_VERSION || parsed.topic_id !== topicId) {
         return emptyTopicState(topicId);
       }
-      return cloneState(parsed);
+      return cloneState(normalizeTopicState(parsed));
     } catch {
       return emptyTopicState(topicId);
     }

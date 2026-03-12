@@ -50,13 +50,13 @@ function makeCluster(sourceDocuments: StoredSourceDocument[]): StoredClusterReco
     trigger_scores: { attack: 1 },
     document_type_counts: {
       breaking_update: 0,
-      wire_report: 0,
+      wire: 0,
       hard_news: 1,
       video_clip: 0,
       liveblog: 0,
       analysis: 0,
       opinion: 0,
-      explainer_recap: 1,
+      explainer: 1,
     },
     centroid_coarse: [1, 0],
     centroid_full: [1, 0],
@@ -101,7 +101,7 @@ function makeRelatedDocument(overrides: Partial<WorkingDocument> = {}): WorkingD
     translated_title: overrides.translated_title ?? 'Explainer: latest port attack developments at a glance',
     translated_text: overrides.translated_text ?? 'Explainer: latest port attack developments at a glance. A recap of the wider fallout.',
     translation_gate: overrides.translation_gate ?? false,
-    doc_type: overrides.doc_type ?? 'explainer_recap',
+    doc_type: overrides.doc_type ?? 'explainer',
     coverage_role: overrides.coverage_role ?? 'related',
     doc_weight: overrides.doc_weight ?? 0.55,
     minhash_signature: overrides.minhash_signature ?? [1, 2, 3],
@@ -140,7 +140,7 @@ describe('storylineProjection', () => {
         url_hash: 'hash-roundup',
         title: 'At a glance: latest developments after the port attack',
         coverage_role: 'related',
-        doc_type: 'explainer_recap',
+        doc_type: 'explainer',
       }),
     ];
     const projected = projectBundleSources(sources);

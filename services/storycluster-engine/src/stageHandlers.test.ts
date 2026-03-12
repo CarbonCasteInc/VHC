@@ -76,6 +76,22 @@ describe('stageHandlers', () => {
     expect(state.documents[0]?.linked_entities).toEqual(['port_attack']);
   });
 
+  it('initializes raw text with only the headline when summary and body are absent', () => {
+    const state = createInitialState(normalizeRequest({
+      topic_id: 'topic-init',
+      documents: [{
+        doc_id: 'doc-2',
+        source_id: 'wire-b',
+        title: 'Headline only',
+        published_at: 100,
+        url: 'https://example.com/b',
+      }],
+    } as any, 200), new MemoryClusterStore());
+
+    expect(state.documents[0]?.raw_text).toBe('Headline only.');
+    expect(state.documents[0]?.translated_text).toBe('Headline only.');
+  });
+
   it('reuses cached vectors for known sources', async () => {
     const store = new MemoryClusterStore();
     await runStoryClusterStagePipeline({
@@ -310,7 +326,7 @@ describe('stageHandlers', () => {
       },
     })).document_classification(state);
 
-    expect(next.documents[0]?.doc_type).toBe('explainer_recap');
+    expect(next.documents[0]?.doc_type).toBe('explainer');
     expect(next.documents[0]?.coverage_role).toBe('related');
   });
 

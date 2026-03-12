@@ -39,7 +39,7 @@ function makeWorkingDocument(overrides: Partial<WorkingDocument> = {}): WorkingD
     translated_title: overrides.translated_title ?? overrides.title ?? 'Port attack expands overnight',
     translated_text: overrides.translated_text ?? 'Port attack expands overnight. Officials describe the port attack response.',
     translation_gate: overrides.translation_gate ?? false,
-    doc_type: overrides.doc_type ?? 'wire_report',
+    doc_type: overrides.doc_type ?? 'wire',
     coverage_role: overrides.coverage_role ?? 'canonical',
     doc_weight: overrides.doc_weight ?? 1.15,
     minhash_signature: overrides.minhash_signature ?? [1, 2, 3],
