@@ -1,16 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   accumulateStoryCoverage,
-  buildReleaseArtifactIndex,
-  buildSoakTrend,
+  buildRunArtifactPaths,
   classifySoakRun,
   summarizeLabelCounts,
+  summarizeSoakDensity,
 } from './daemon-feed-semantic-soak-report.mjs';
 
 function makeResult(overrides = {}) {
   return {
     run: 1,
     pass: false,
+    requestedSampleCount: 8,
     sampledStoryCount: 0,
     auditedPairCount: 0,
     relatedTopicOnlyPairCount: 0,
@@ -72,6 +73,95 @@ describe('daemon-feed-semantic-soak-report', () => {
     expect(classifySoakRun(makeResult({ auditError: 'other failure' }))).toBe('runner_failure');
   });
 
+  it('builds coherent artifact paths with null fallbacks', () => {
+    expect(buildRunArtifactPaths(makeResult({
+      reportPath: '/tmp/run-1.playwright.json',
+      auditPath: undefined,
+      failureSnapshotPath: '/tmp/run-1.failure.json',
+      runtimeLogsPath: null,
+    }))).toEqual({
+      reportPath: '/tmp/run-1.playwright.json',
+      auditPath: null,
+      failureSnapshotPath: '/tmp/run-1.failure.json',
+      runtimeLogsPath: null,
+    });
+
+    expect(buildRunArtifactPaths(makeResult({
+      reportPath: undefined,
+      auditPath: '/tmp/run-2.audit.json',
+      failureSnapshotPath: undefined,
+      runtimeLogsPath: '/tmp/run-2.logs.json',
+    }))).toEqual({
+      reportPath: null,
+      auditPath: '/tmp/run-2.audit.json',
+      failureSnapshotPath: null,
+      runtimeLogsPath: '/tmp/run-2.logs.json',
+    });
+  });
+
+  it('summarizes per-run density metrics and guards invalid ratios', () => {
+    expect(summarizeSoakDensity(makeResult({
+      requestedSampleCount: 8,
+      sampledStoryCount: 6,
+      auditedPairCount: 12,
+      relatedTopicOnlyPairCount: 3,
+      failureStoryCount: 10,
+      failureAuditableCount: 2,
+    }))).toEqual({
+      requestedSampleCount: 8,
+      sampledStoryCount: 6,
+      sampleFillRate: 0.75,
+      sampleShortfall: 2,
+      auditedPairCount: 12,
+      auditedPairsPerSampledStory: 2,
+      relatedTopicOnlyPairCount: 3,
+      relatedTopicOnlyRate: 0.25,
+      failureStoryCount: 10,
+      failureAuditableCount: 2,
+      failureAuditableDensity: 0.2,
+    });
+
+    expect(summarizeSoakDensity(makeResult({
+      requestedSampleCount: 0,
+      sampledStoryCount: 0,
+      auditedPairCount: 0,
+      relatedTopicOnlyPairCount: 1,
+      failureStoryCount: 0,
+      failureAuditableCount: 0,
+    }))).toEqual({
+      requestedSampleCount: 0,
+      sampledStoryCount: 0,
+      sampleFillRate: null,
+      sampleShortfall: 0,
+      auditedPairCount: 0,
+      auditedPairsPerSampledStory: null,
+      relatedTopicOnlyPairCount: 1,
+      relatedTopicOnlyRate: null,
+      failureStoryCount: 0,
+      failureAuditableCount: 0,
+      failureAuditableDensity: null,
+    });
+
+    expect(summarizeSoakDensity(makeResult({
+      requestedSampleCount: undefined,
+      sampledStoryCount: undefined,
+      auditedPairCount: undefined,
+      relatedTopicOnlyPairCount: undefined,
+    }))).toEqual({
+      requestedSampleCount: null,
+      sampledStoryCount: null,
+      sampleFillRate: null,
+      sampleShortfall: null,
+      auditedPairCount: null,
+      auditedPairsPerSampledStory: null,
+      relatedTopicOnlyPairCount: null,
+      relatedTopicOnlyRate: null,
+      failureStoryCount: null,
+      failureAuditableCount: null,
+      failureAuditableDensity: null,
+    });
+  });
+
   it('accumulates repeated story coverage across runs', () => {
     expect(accumulateStoryCoverage([
       makeResult({ run: 1, storyIds: ['story-a', 'story-b'] }),
@@ -81,74 +171,5 @@ describe('daemon-feed-semantic-soak-report', () => {
       { story_id: 'story-a', run_count: 2, runs: [1, 3] },
       { story_id: 'story-b', run_count: 1, runs: [1] },
     ]);
-  });
-
-  it('builds a trend summary with classifications and streaks', () => {
-    const trend = buildSoakTrend([
-      makeResult({ run: 1, pass: true }),
-      makeResult({ run: 2, failureAuditableCount: 0, failureStoryCount: 12 }),
-      makeResult({ run: 3, failureAuditableCount: 1, failureStoryCount: 14 }),
-      makeResult({
-        run: 4,
-        relatedTopicOnlyPairCount: 1,
-        failureSnapshotPath: '/tmp/failure.json',
-        runtimeLogsPath: '/tmp/runtime.json',
-      }),
-    ]);
-
-    expect(trend.classifications).toEqual({
-      pass: 1,
-      semantic_contamination: 1,
-      bundle_starvation: 1,
-      insufficient_auditable_supply: 1,
-      artifact_missing: 0,
-      report_parse_error: 0,
-      runner_failure: 0,
-    });
-    expect(trend.longestFailureStreak).toBe(3);
-    expect(trend.longestSupplyFailureStreak).toBe(2);
-    expect(trend.latestFailure).toEqual({
-      run: 4,
-      pass: false,
-      classification: 'semantic_contamination',
-      sampledStoryCount: 0,
-      auditedPairCount: 0,
-      relatedTopicOnlyPairCount: 1,
-      failureStoryCount: null,
-      failureAuditableCount: null,
-      failureSnapshotPath: '/tmp/failure.json',
-      runtimeLogsPath: '/tmp/runtime.json',
-    });
-    expect(trend.averageFailureStoryCount).toBe(13);
-    expect(trend.averageFailureAuditableCount).toBe(0.5);
-  });
-
-  it('handles an empty trend window without density observations', () => {
-    const trend = buildSoakTrend([]);
-
-    expect(trend.totalRuns).toBe(0);
-    expect(trend.latestFailure).toBeNull();
-    expect(trend.averageFailureStoryCount).toBeNull();
-    expect(trend.averageFailureAuditableCount).toBeNull();
-    expect(trend.runs).toEqual([]);
-  });
-
-  it('builds a release artifact index with trend path and classifications', () => {
-    expect(buildReleaseArtifactIndex('/tmp/artifacts', '/tmp/summary.json', '/tmp/trend.json', [
-      makeResult({ run: 1, pass: true }),
-      makeResult({ run: 2, failureAuditableCount: 0 }),
-    ])).toMatchObject({
-      artifactDir: '/tmp/artifacts',
-      summaryPath: '/tmp/summary.json',
-      trendPath: '/tmp/trend.json',
-      build: {
-        stdoutPath: '/tmp/artifacts/build.stdout.log',
-        stderrPath: '/tmp/artifacts/build.stderr.log',
-      },
-      runs: [
-        { run: 1, pass: true, classification: 'pass' },
-        { run: 2, pass: false, classification: 'bundle_starvation' },
-      ],
-    });
   });
 });
