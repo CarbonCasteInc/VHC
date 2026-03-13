@@ -150,11 +150,20 @@ function assertNoForbiddenAggregateFields(payload: unknown): void {
   }
 }
 
+const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_GUN_AGGREGATE_READ_TIMEOUT_MS',
+    'VH_GUN_AGGREGATE_READ_TIMEOUT_MS',
+    'VITE_VH_GUN_READ_TIMEOUT_MS',
+    'VH_GUN_READ_TIMEOUT_MS',
+  ],
+  2_500,
+);
+
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
     let settled = false;
     const timeout = setTimeout(() => {
-      /* c8 ignore next 3 -- defensive guard for late-fired timer callbacks */
       if (settled) {
         return;
       }
@@ -163,7 +172,6 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
     }, READ_ONCE_TIMEOUT_MS);
 
     chain.once((data) => {
-      /* c8 ignore next 3 -- defensive guard for late read callbacks after timeout */
       if (settled) {
         return;
       }
@@ -173,12 +181,6 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
     });
   });
 }
-
-const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
-  ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
-  2_500,
-);
-
 const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   [
     'VITE_VH_GUN_AGGREGATE_PUT_ACK_TIMEOUT_MS',
@@ -188,8 +190,10 @@ const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   ],
   2_500,
 );
-const WRITE_READBACK_ATTEMPTS = 8;
-const WRITE_READBACK_RETRY_MS = 500;
+const WRITE_READBACK_ATTEMPTS = 4;
+const WRITE_READBACK_RETRY_MS = 250;
+const STALE_ZERO_READ_ATTEMPTS = 4;
+const STALE_ZERO_READ_RETRY_MS = 500;
 
 interface PutAckResult {
   readonly acknowledged: boolean;
@@ -313,6 +317,15 @@ function snapshotToAggregate(snapshot: PointAggregateSnapshotV1): PointAggregate
     weight: snapshot.weight,
     participants: snapshot.participants,
   };
+}
+
+function isZeroPointAggregate(aggregate: PointAggregate): boolean {
+  return (
+    aggregate.agree === 0 &&
+    aggregate.disagree === 0 &&
+    aggregate.weight === 0 &&
+    aggregate.participants === 0
+  );
 }
 
 function rowsContainWritesNewerThanSnapshot(
@@ -931,6 +944,58 @@ async function confirmPointAggregateSnapshotReadback(
   return null;
 }
 
+async function readAggregatesAttempt(
+  client: VennClient,
+  topicId: string,
+  synthesisId: string,
+  epoch: number,
+  pointId: string,
+  attempt: number,
+): Promise<PointAggregate> {
+  const materializedSnapshot = await readPointAggregateSnapshot(
+    client,
+    topicId,
+    synthesisId,
+    epoch,
+    pointId,
+  );
+
+  const rows = await readAggregateVoterRows(client, topicId, synthesisId, epoch, pointId);
+  const rowSummary = summarizeRows(pointId, rows);
+  const isFinalAttempt = attempt === STALE_ZERO_READ_ATTEMPTS - 1;
+
+  if (!materializedSnapshot) {
+    if (!isZeroPointAggregate(rowSummary) || isFinalAttempt) {
+      return rowSummary;
+    }
+    await sleep(STALE_ZERO_READ_RETRY_MS);
+    return readAggregatesAttempt(client, topicId, synthesisId, epoch, pointId, attempt + 1);
+  }
+
+  const snapshotAggregate = snapshotToAggregate(materializedSnapshot);
+
+  if (rows.length === 0) {
+    if (!isZeroPointAggregate(snapshotAggregate) || isFinalAttempt) {
+      return snapshotAggregate;
+    }
+    await sleep(STALE_ZERO_READ_RETRY_MS);
+    return readAggregatesAttempt(client, topicId, synthesisId, epoch, pointId, attempt + 1);
+  }
+
+  // Materialized snapshots are the best-known complete view for a point. Only
+  // let live voter rows override them when the row fan-in proves it contains a
+  // write newer than the snapshot window.
+  if (!rowsContainWritesNewerThanSnapshot(rows, materializedSnapshot)) {
+    if (!isZeroPointAggregate(snapshotAggregate) || isFinalAttempt) {
+      return snapshotAggregate;
+    }
+    await sleep(STALE_ZERO_READ_RETRY_MS);
+    return readAggregatesAttempt(client, topicId, synthesisId, epoch, pointId, attempt + 1);
+  }
+
+  return rowSummary;
+}
+
 export async function readAggregates(
   client: VennClient,
   topicId: string,
@@ -938,44 +1003,14 @@ export async function readAggregates(
   epoch: number,
   pointId: string,
 ): Promise<PointAggregate> {
-  const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
-  const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
-  const normalizedEpoch = Number(normalizeEpoch(epoch));
-  const normalizedPointId = normalizeRequiredId(pointId, 'pointId');
-
-  const materializedSnapshot = await readPointAggregateSnapshot(
+  return readAggregatesAttempt(
     client,
-    normalizedTopicId,
-    normalizedSynthesisId,
-    normalizedEpoch,
-    normalizedPointId,
+    normalizeRequiredId(topicId, 'topicId'),
+    normalizeRequiredId(synthesisId, 'synthesisId'),
+    Number(normalizeEpoch(epoch)),
+    normalizeRequiredId(pointId, 'pointId'),
+    0,
   );
-
-  const rows = await readAggregateVoterRows(
-    client,
-    normalizedTopicId,
-    normalizedSynthesisId,
-    normalizedEpoch,
-    normalizedPointId,
-  );
-  const rowSummary = summarizeRows(normalizedPointId, rows);
-
-  if (!materializedSnapshot) {
-    return rowSummary;
-  }
-
-  if (rows.length === 0) {
-    return snapshotToAggregate(materializedSnapshot);
-  }
-
-  // Materialized snapshots are the best-known complete view for a point. Only
-  // let live voter rows override them when the row fan-in proves it contains a
-  // write newer than the snapshot window.
-  if (!rowsContainWritesNewerThanSnapshot(rows, materializedSnapshot)) {
-    return snapshotToAggregate(materializedSnapshot);
-  }
-
-  return rowSummary;
 }
 
 export const aggregateAdapterInternal = {
@@ -984,4 +1019,5 @@ export const aggregateAdapterInternal = {
   aggregateVotersPath,
   aggregatePointPath,
   aggregatePointsPath,
+  readOnce,
 };
