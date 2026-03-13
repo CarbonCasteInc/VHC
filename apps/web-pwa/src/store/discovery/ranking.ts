@@ -38,6 +38,27 @@ const ENTITY_STOP_WORDS = new Set([
   'were',
 ]);
 
+const STORYLINE_GENERIC_TERMS = new Set([
+  'analysis',
+  'briefing',
+  'coverage',
+  'explainer',
+  'how',
+  'know',
+  'latest',
+  'live',
+  'need',
+  'overview',
+  'preview',
+  'recap',
+  'roundup',
+  'timeline',
+  'update',
+  'updates',
+  'what',
+  'why',
+]);
+
 interface ScoredFeedItem {
   readonly item: FeedItem;
   readonly score: number;
@@ -106,12 +127,27 @@ function storylineKey(item: FeedItem): string {
     return `NEWS_STORY:${normalizedStorylineId}`;
   }
 
-  const terms = toEntityTerms(item.title);
+  const terms = storylineFallbackTerms(item);
   if (terms.length === 0) {
     return `NEWS_STORY:${item.topic_id}`;
   }
 
   return `NEWS_STORY:${terms.slice(0, 2).join('+')}`;
+}
+
+function storylineFallbackTerms(item: FeedItem): string[] {
+  const entityTerms = (item.entity_keys ?? []).flatMap((entityKey) =>
+    toEntityTerms(entityKey.replace(/[-_]+/g, ' ')).filter(
+      (token) => !STORYLINE_GENERIC_TERMS.has(token),
+    ),
+  );
+  if (entityTerms.length > 0) {
+    return entityTerms;
+  }
+
+  return toEntityTerms(item.title).filter(
+    (token) => !STORYLINE_GENERIC_TERMS.has(token),
+  );
 }
 
 function entityTermsForItem(item: FeedItem): ReadonlySet<string> {
@@ -153,52 +189,72 @@ function compareScoredFeedItems(left: ScoredFeedItem, right: ScoredFeedItem): nu
   return right.score - left.score || left.item.topic_id.localeCompare(right.item.topic_id);
 }
 
+function adjustedHotWindowScore(
+  candidate: ScoredFeedItem,
+  previous: ScoredFeedItem | null,
+): number {
+  const overlap = previous ? overlapRatio(previous.entityTerms, candidate.entityTerms) : 0;
+  return candidate.score - overlap * HOTTEST_ADJACENT_ENTITY_OVERLAP_PENALTY;
+}
+
+function bestCandidateIndex(
+  entries: ReadonlyArray<ScoredFeedItem>,
+  previous: ScoredFeedItem | null,
+  storylineCounts: ReadonlyMap<string, number>,
+): number {
+  let bestIndex = -1;
+  let bestAdjustedScore = Number.NEGATIVE_INFINITY;
+
+  for (let index = 0; index < entries.length; index += 1) {
+    const candidate = entries[index]!;
+    const storylineCount = storylineCounts.get(candidate.storyline) ?? 0;
+    if (storylineCount >= HOTTEST_STORYLINE_CAP) {
+      continue;
+    }
+
+    const adjusted = adjustedHotWindowScore(candidate, previous);
+    if (adjusted > bestAdjustedScore) {
+      bestAdjustedScore = adjusted;
+      bestIndex = index;
+    }
+  }
+
+  return bestIndex;
+}
+
 function diversifyHottestWindow(sorted: ScoredFeedItem[]): ScoredFeedItem[] {
   const topWindowSize = Math.min(HOTTEST_DIVERSIFY_WINDOW, sorted.length);
   if (topWindowSize <= 1) {
     return sorted;
   }
 
+  const pool = sorted.slice(0, topWindowSize);
+  const tail = sorted.slice(topWindowSize);
+
   const selected: ScoredFeedItem[] = [];
-  const remaining = [...sorted];
   const storylineCounts = new Map<string, number>();
 
-  while (selected.length < topWindowSize && remaining.length > 0) {
+  while (selected.length < topWindowSize) {
     const previous = selected[selected.length - 1] ?? null;
+    let next: ScoredFeedItem | undefined;
 
-    let bestIndex = -1;
-    let bestAdjustedScore = Number.NEGATIVE_INFINITY;
-
-    for (let index = 0; index < remaining.length; index += 1) {
-      const candidate = remaining[index]!;
-      const storylineCount = storylineCounts.get(candidate.storyline) ?? 0;
-      if (storylineCount >= HOTTEST_STORYLINE_CAP) {
-        continue;
-      }
-
-      const overlap = previous
-        ? overlapRatio(previous.entityTerms, candidate.entityTerms)
-        : 0;
-      const adjusted =
-        candidate.score - overlap * HOTTEST_ADJACENT_ENTITY_OVERLAP_PENALTY;
-
-      if (adjusted > bestAdjustedScore) {
-        bestAdjustedScore = adjusted;
-        bestIndex = index;
-        continue;
+    const poolIndex = bestCandidateIndex(pool, previous, storylineCounts);
+    if (poolIndex >= 0) {
+      [next] = pool.splice(poolIndex, 1);
+    } else {
+      const tailIndex = bestCandidateIndex(tail, previous, storylineCounts);
+      if (tailIndex >= 0) {
+        [next] = tail.splice(tailIndex, 1);
+      } else {
+        [next] = pool.splice(0, 1);
       }
     }
 
-    if (bestIndex < 0) {
-      break;
-    }
-
-    const [next] = remaining.splice(bestIndex, 1);
     selected.push(next!);
     storylineCounts.set(next!.storyline, (storylineCounts.get(next!.storyline) ?? 0) + 1);
   }
 
-  return [...selected, ...remaining];
+  return [...selected, ...pool, ...tail];
 }
 
 /**

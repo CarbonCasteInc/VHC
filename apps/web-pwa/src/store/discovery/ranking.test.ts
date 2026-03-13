@@ -332,6 +332,92 @@ describe('sortItems', () => {
     expect(topFour).toEqual(['alpha-1', 'budget', 'alpha-2', 'wildfire']);
   });
 
+  it('HOTTEST promotes an eligible tail item before breaking the storyline cap', () => {
+    const alphaItems = Array.from({ length: 12 }, (_, index) =>
+      makeFeedItem({
+        topic_id: `alpha-${index + 1}`,
+        title: `Alpha policy update ${index + 1}`,
+        storyline_id: 'storyline-alpha',
+        hotness: 1 - index * 0.01,
+      }),
+    );
+    const tailItems = Array.from({ length: 10 }, (_, index) =>
+      makeFeedItem({
+        topic_id: `tail-${index + 1}`,
+        title: `Distinct developing story ${index + 1}`,
+        storyline_id: `storyline-tail-${index + 1}`,
+        hotness: 0.7 - index * 0.01,
+      }),
+    );
+
+    const result = sortItems([...alphaItems, ...tailItems], 'HOTTEST', CONFIG, NOW);
+    const topWindow = result.slice(0, 12);
+    const alphaCount = topWindow.filter((item) => item.storyline_id === 'storyline-alpha').length;
+    const promotedTailCount = topWindow.filter((item) => item.topic_id.startsWith('tail-')).length;
+
+    expect(alphaCount).toBeLessThanOrEqual(2);
+    expect(promotedTailCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it('HOTTEST does not over-group generic recap titles when entity keys distinguish storylines', () => {
+    const alpha1 = makeFeedItem({
+      topic_id: 'alpha-1',
+      title: 'What to know about the ceasefire talks',
+      entity_keys: ['geneva ceasefire', 'missile strike'],
+      hotness: 1.0,
+    });
+    const alpha2 = makeFeedItem({
+      topic_id: 'alpha-2',
+      title: 'What to know about the latest truce push',
+      entity_keys: ['geneva ceasefire', 'fuel depots'],
+      hotness: 0.98,
+    });
+    const alpha3 = makeFeedItem({
+      topic_id: 'alpha-3',
+      title: 'What to know about the next ceasefire session',
+      entity_keys: ['geneva ceasefire', 'shipping lanes'],
+      hotness: 0.97,
+    });
+    const blackout = makeFeedItem({
+      topic_id: 'blackout-1',
+      title: 'What to know about the capital blackout',
+      entity_keys: ['capital blackout', 'substation outage'],
+      hotness: 0.96,
+    });
+    const port = makeFeedItem({
+      topic_id: 'port-1',
+      title: 'What to know about the port strike',
+      entity_keys: ['port strike', 'cargo backlog'],
+      hotness: 0.95,
+    });
+    const hospital = makeFeedItem({
+      topic_id: 'hospital-1',
+      title: 'What to know about the hospital cyberattack',
+      entity_keys: ['hospital cyberattack', 'ambulance diversion'],
+      hotness: 0.94,
+    });
+
+    const result = sortItems(
+      [alpha1, alpha2, alpha3, blackout, port, hospital],
+      'HOTTEST',
+      CONFIG,
+      NOW,
+    );
+    const topFive = result.slice(0, 5).map((item) => item.topic_id);
+    const alphaCount = topFive.filter((topicId) =>
+      topicId.startsWith('alpha-'),
+    ).length;
+
+    expect(alphaCount).toBeLessThanOrEqual(2);
+    expect(topFive).toEqual([
+      'alpha-1',
+      'blackout-1',
+      'alpha-2',
+      'port-1',
+      'hospital-1',
+    ]);
+  });
+
   it('HOTTEST uses storyline_id authority even when titles do not overlap lexically', () => {
     const storylineOne = makeFeedItem({
       topic_id: 'storyline-1-a',

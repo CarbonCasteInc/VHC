@@ -124,6 +124,11 @@ function resetStores(): void {
   resetLinkedSocialStore();
 }
 
+const ORIGINAL_DISCOVERY_ACTIONS = {
+  mergeItems: useDiscoveryStore.getState().mergeItems,
+  syncNewsItems: useDiscoveryStore.getState().syncNewsItems,
+};
+
 beforeEach(() => {
   stopBridges();
   resetStores();
@@ -133,6 +138,10 @@ beforeEach(() => {
 afterEach(() => {
   stopBridges();
   resetStores();
+  useDiscoveryStore.setState({
+    mergeItems: ORIGINAL_DISCOVERY_ACTIONS.mergeItems,
+    syncNewsItems: ORIGINAL_DISCOVERY_ACTIONS.syncNewsItems,
+  });
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
 });
@@ -412,6 +421,54 @@ describe('startNewsBridge', () => {
       'first headline',
       'second headline',
     ]);
+  });
+
+  it('syncs the current news subset when story identities churn across refreshes', async () => {
+    await startNewsBridge();
+
+    const first = makeStoryBundle({
+      story_id: 'story-geneva-a',
+      topic_id: SHARED_CANONICAL_TOPIC_ID,
+      storyline_id: 'storyline-geneva',
+      headline: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+    });
+    const refreshed = makeStoryBundle({
+      story_id: 'story-geneva-b',
+      topic_id: SHARED_CANONICAL_TOPIC_ID,
+      storyline_id: 'storyline-geneva',
+      headline: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+    });
+
+    useNewsStore.getState().setStories([first]);
+    useNewsStore.getState().setStories([refreshed]);
+
+    const discoveryItems = useDiscoveryStore
+      .getState()
+      .items.filter((item) => item.kind === 'NEWS_STORY');
+    expect(discoveryItems).toHaveLength(1);
+    expect(discoveryItems[0]?.story_id).toBe('story-geneva-b');
+  });
+
+  it('falls back to mergeItems when discovery syncNewsItems is unavailable', async () => {
+    const originalSync = useDiscoveryStore.getState().syncNewsItems;
+    const originalMerge = useDiscoveryStore.getState().mergeItems;
+    const mergeSpy = vi.fn(originalMerge);
+    useDiscoveryStore.setState({
+      syncNewsItems: undefined as never,
+      mergeItems: mergeSpy,
+    });
+
+    await startNewsBridge();
+    useNewsStore
+      .getState()
+      .setStories([makeStoryBundle({ story_id: 'story-merge-only', topic_id: SIXTH_CANONICAL_TOPIC_ID })]);
+
+    expect(mergeSpy).toHaveBeenCalled();
+
+    useDiscoveryStore.setState({
+      syncNewsItems: originalSync as never,
+      mergeItems: originalMerge,
+    });
   });
 });
 
