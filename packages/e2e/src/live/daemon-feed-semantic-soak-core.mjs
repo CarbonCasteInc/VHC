@@ -5,6 +5,7 @@ import {
   accumulateStoryCoverage,
   buildReleaseArtifactIndex,
   buildSoakTrend,
+  PUBLIC_SEMANTIC_SOAK_POSTURE,
   summarizeLabelCounts,
 } from './daemon-feed-semantic-soak-report.mjs';
 
@@ -299,8 +300,10 @@ export async function runDaemonFeedSemanticSoak({
   const storyCoverage = accumulateStoryCoverage(results);
   const trendPath = path.join(artifactDir, 'semantic-soak-trend.json');
   const trend = buildSoakTrend(results);
+  const promotionAssessment = trend.promotionAssessment;
   const summary = {
     generatedAt: new Date().toISOString(),
+    executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
     runCount,
     pauseMs,
     sampleCount,
@@ -312,6 +315,9 @@ export async function runDaemonFeedSemanticSoak({
     totalRelatedTopicOnlyPairs: results.reduce((sum, result) => sum + (result.relatedTopicOnlyPairCount ?? 0), 0),
     totalSampledStories: results.reduce((sum, result) => sum + (result.sampledStoryCount ?? 0), 0),
     repeatedStoryCount: storyCoverage.filter((story) => story.run_count > 1).length,
+    readinessStatus: promotionAssessment.status,
+    promotionBlockingReasons: promotionAssessment.blockingReasons,
+    promotionAssessment,
     storyCoverage,
     results,
   };
@@ -335,6 +341,8 @@ export async function runDaemonFeedSemanticSoak({
     totalRelatedTopicOnlyPairs: summary.totalRelatedTopicOnlyPairs,
     totalSampledStories: summary.totalSampledStories,
     repeatedStoryCount: summary.repeatedStoryCount,
+    readinessStatus: summary.readinessStatus,
+    promotionBlockingReasons: summary.promotionBlockingReasons,
   }, null, 2));
 
   if (!summary.strictSoakPass) {
