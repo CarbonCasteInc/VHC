@@ -104,6 +104,12 @@ export function createDiscoveryStore(
       set({ items: dedupeFeedItems(merged), error: null });
     },
 
+    syncNewsItems(items: FeedItem[]) {
+      const validated = parseItems(items).filter((item) => item.kind === 'NEWS_STORY');
+      const nonNewsItems = get().items.filter((item) => item.kind !== 'NEWS_STORY');
+      set({ items: dedupeFeedItems([...nonNewsItems, ...validated]), error: null });
+    },
+
     setFilter(filter: FilterChip) {
       set({ filter, selectedStorylineId: null });
     },

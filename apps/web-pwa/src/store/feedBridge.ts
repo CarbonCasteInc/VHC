@@ -36,6 +36,7 @@ interface SynthesisBridgeState {
 
 interface DiscoveryBridgeState {
   mergeItems: (items: FeedItem[]) => void;
+  syncNewsItems?: (items: FeedItem[]) => void;
 }
 
 interface SocialFeedAdapterApi {
@@ -72,6 +73,15 @@ let socialBridgeActive = false;
 let newsUnsubscribe: (() => void) | null = null;
 let synthesisUnsubscribe: (() => void) | null = null;
 let clearSocialBridgeHandler: (() => void) | null = null;
+
+function syncNewsFeedItems(items: ReadonlyArray<FeedItem>, discoveryStore: DiscoveryStoreApi): void {
+  const discoveryState = discoveryStore.getState();
+  if (discoveryState.syncNewsItems) {
+    discoveryState.syncNewsItems([...items]);
+    return;
+  }
+  mergeIntoDiscovery(items, discoveryStore);
+}
 
 function readBridgeFlag(flag: BridgeFlag): boolean {
   const nodeValue = typeof process !== 'undefined' ? process.env?.[flag] : undefined;
@@ -160,7 +170,7 @@ export async function startNewsBridge(): Promise<void> {
 
   const currentNewsState = newsStore.getState();
   if (currentNewsState.stories.length > 0) {
-    mergeIntoDiscovery(
+    syncNewsFeedItems(
       currentNewsState.stories.map((story) =>
         storyBundleToFeedItem(story, currentNewsState.hotIndex, currentNewsState.storylinesById),
       ),
@@ -181,7 +191,7 @@ export async function startNewsBridge(): Promise<void> {
       return;
     }
 
-    mergeIntoDiscovery(
+    syncNewsFeedItems(
       state.stories.map((story) =>
         storyBundleToFeedItem(story, state.hotIndex, state.storylinesById),
       ),

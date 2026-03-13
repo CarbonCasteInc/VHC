@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoryBundle, StorylineGroup } from '@vh/data-model';
-import { newsStoreHelpersInternal } from './storeHelpers';
+import { useDiscoveryStore } from '../discovery';
+import { mirrorStoriesIntoDiscovery, newsStoreHelpersInternal } from './storeHelpers';
 
 const STORY: StoryBundle = {
   schemaVersion: 'story-bundle-v0',
@@ -54,6 +55,22 @@ const STORYLINE: StorylineGroup = {
   updated_at: 200,
 };
 
+const ORIGINAL_DISCOVERY_ACTIONS = {
+  mergeItems: useDiscoveryStore.getState().mergeItems,
+  syncNewsItems: useDiscoveryStore.getState().syncNewsItems,
+};
+
+beforeEach(() => {
+  useDiscoveryStore.getState().reset();
+});
+
+afterEach(() => {
+  useDiscoveryStore.setState({
+    mergeItems: ORIGINAL_DISCOVERY_ACTIONS.mergeItems,
+    syncNewsItems: ORIGINAL_DISCOVERY_ACTIONS.syncNewsItems,
+  });
+});
+
 describe('newsStoreHelpersInternal.storyToDiscoveryItem', () => {
   it('uses storyline entity keys when the storyline group is present', () => {
     const item = newsStoreHelpersInternal.storyToDiscoveryItem(
@@ -75,5 +92,41 @@ describe('newsStoreHelpersInternal.storyToDiscoveryItem', () => {
 
     expect(item.storyline_id).toBe('storyline-1');
     expect(item.entity_keys).toEqual(['cluster fallback']);
+  });
+});
+
+describe('mirrorStoriesIntoDiscovery', () => {
+  it('uses discovery syncNewsItems when available', async () => {
+    const syncNewsItems = vi.fn();
+    useDiscoveryStore.setState({ syncNewsItems });
+
+    await mirrorStoriesIntoDiscovery([STORY], { 'story-1': 0.7 }, { 'storyline-1': STORYLINE });
+
+    expect(syncNewsItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        story_id: 'story-1',
+        storyline_id: 'storyline-1',
+      }),
+    ]);
+  });
+
+  it('falls back to discovery mergeItems when syncNewsItems is unavailable', async () => {
+    const originalMerge = useDiscoveryStore.getState().mergeItems;
+    const mergeItems = vi.fn(originalMerge);
+    useDiscoveryStore.setState({
+      syncNewsItems: undefined as never,
+      mergeItems,
+    });
+
+    await mirrorStoriesIntoDiscovery([STORY], { 'story-1': 0.7 }, { 'storyline-1': STORYLINE });
+
+    expect(mergeItems).toHaveBeenCalledWith([
+      expect.objectContaining({
+        story_id: 'story-1',
+        storyline_id: 'storyline-1',
+      }),
+    ]);
+
+    useDiscoveryStore.setState({ mergeItems: originalMerge });
   });
 });

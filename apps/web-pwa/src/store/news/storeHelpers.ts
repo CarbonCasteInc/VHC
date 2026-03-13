@@ -190,9 +190,18 @@ export async function mirrorStoriesIntoDiscovery(
 ): Promise<void> {
   try {
     const { useDiscoveryStore } = await import('../discovery');
-    useDiscoveryStore
-      .getState()
-      .mergeItems(stories.map((story) => storyToDiscoveryItem(story, hotIndex, storylinesById)));
+    const items = stories.map((story) =>
+      storyToDiscoveryItem(story, hotIndex, storylinesById),
+    );
+    const discoveryState = useDiscoveryStore.getState() as {
+      mergeItems: (items: FeedItem[]) => void;
+      syncNewsItems?: (items: FeedItem[]) => void;
+    };
+    if (discoveryState.syncNewsItems) {
+      discoveryState.syncNewsItems(items);
+      return;
+    }
+    discoveryState.mergeItems(items);
   } catch (error) {
     console.warn('[vh:news] failed to mirror stories into discovery store', error);
   }
