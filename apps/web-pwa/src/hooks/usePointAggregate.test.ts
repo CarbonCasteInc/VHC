@@ -1174,6 +1174,51 @@ describe('usePointAggregate', () => {
     expect(readAggregatesMock).toHaveBeenCalledTimes(1);
   });
 
+  it('serves a fresh cached aggregate before the mesh read resolves', async () => {
+    const key = aggregateCacheKey({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+    const cachedAggregate = aggregateFixture({ agree: 5, disagree: 1, participants: 6, weight: 6 });
+    globalThis.localStorage.setItem(
+      AGGREGATE_CACHE_STORAGE_KEY,
+      JSON.stringify({
+        [key]: {
+          aggregate: cachedAggregate,
+          cachedAtMs: Date.now(),
+        },
+      }),
+    );
+
+    let resolveRead: ((value: ReturnType<typeof aggregateFixture>) => void) | null = null;
+    readAggregatesMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRead = resolve as (value: ReturnType<typeof aggregateFixture>) => void;
+        }),
+    );
+
+    renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await waitFor(() => {
+      expect(readHookResult()).toEqual({
+        aggregate: cachedAggregate,
+        status: 'success',
+        error: null,
+      });
+    });
+    expect(readAggregatesMock).toHaveBeenCalledTimes(1);
+
+    resolveRead?.(aggregateFixture({ agree: 7, disagree: 0, participants: 7, weight: 7 }));
+  });
+
   it('evicts expired cache entries before attempting mesh reads', async () => {
     const key = aggregateCacheKey({
       topicId: 'topic-1',

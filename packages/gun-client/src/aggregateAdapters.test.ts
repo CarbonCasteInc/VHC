@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { ChainWithGet } from './chain';
 import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
@@ -1132,6 +1133,81 @@ describe('aggregateAdapters', () => {
     }
   }, 15000);
 
+  it('readAggregates retries zero snapshots when voter rows are older than the snapshot window', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setReadSequence('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', [
+        {
+          schema_version: 'point-aggregate-snapshot-v1',
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'pointA',
+          agree: 0,
+          disagree: 0,
+          weight: 0,
+          participants: 0,
+          version: 1,
+          computed_at: 1,
+          source_window: { from_seq: 5, to_seq: 5 },
+        },
+        {
+          schema_version: 'point-aggregate-snapshot-v1',
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'pointA',
+          agree: 2,
+          disagree: 0,
+          weight: 2,
+          participants: 2,
+          version: 2,
+          computed_at: 2,
+          source_window: { from_seq: 5, to_seq: 6 },
+        },
+      ]);
+      mesh.setReadSequence('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', [
+        {
+          voterA: {
+            pointA: {
+              point_id: 'pointA',
+              agreement: 1,
+              weight: 1,
+              updated_at: '1970-01-01T00:00:00.001Z',
+            },
+          },
+        },
+        {
+          voterA: {
+            pointA: {
+              point_id: 'pointA',
+              agreement: 1,
+              weight: 1,
+              updated_at: '1970-01-01T00:00:00.001Z',
+            },
+          },
+        },
+      ]);
+
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const pending = readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA');
+
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      await expect(pending).resolves.toEqual({
+        point_id: 'pointA',
+        agree: 2,
+        disagree: 0,
+        weight: 2,
+        participants: 2,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
+
   it('detects forbidden aggregate payload fields recursively', () => {
     expect(hasForbiddenAggregatePayloadFields({ ok: true })).toBe(false);
     expect(hasForbiddenAggregatePayloadFields({ nullifier: 'bad' })).toBe(true);
@@ -1172,5 +1248,44 @@ describe('aggregateAdapters', () => {
     expect(aggregateAdapterInternal.aggregatePointPath('topic-x', 'synth-y', '3', 'point-z')).toBe(
       'vh/aggregates/topics/topic-x/syntheses/synth-y/epochs/3/points/point-z/',
     );
+  });
+
+  it('readOnce ignores late callbacks after timing out', async () => {
+    vi.useFakeTimers();
+    try {
+      let callback: ((data: unknown) => void) | undefined;
+      const chain = {
+        once(cb: (data: unknown) => void) {
+          callback = cb;
+        },
+      } as ChainWithGet<unknown>;
+
+      const pending = aggregateAdapterInternal.readOnce(chain);
+      await vi.advanceTimersByTimeAsync(2_500);
+      callback?.({ later: true });
+
+      await expect(pending).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('readOnce tolerates a timeout callback firing after the chain already settled', async () => {
+    vi.useFakeTimers();
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => undefined);
+    try {
+      const chain = {
+        once(cb: (data: unknown) => void) {
+          cb({ ok: true });
+        },
+      } as ChainWithGet<unknown>;
+
+      const pending = aggregateAdapterInternal.readOnce(chain);
+      await expect(pending).resolves.toEqual({ ok: true });
+      await vi.advanceTimersByTimeAsync(2_500);
+    } finally {
+      clearTimeoutSpy.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

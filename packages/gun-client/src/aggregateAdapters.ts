@@ -944,6 +944,58 @@ async function confirmPointAggregateSnapshotReadback(
   return null;
 }
 
+async function readAggregatesAttempt(
+  client: VennClient,
+  topicId: string,
+  synthesisId: string,
+  epoch: number,
+  pointId: string,
+  attempt: number,
+): Promise<PointAggregate> {
+  const materializedSnapshot = await readPointAggregateSnapshot(
+    client,
+    topicId,
+    synthesisId,
+    epoch,
+    pointId,
+  );
+
+  const rows = await readAggregateVoterRows(client, topicId, synthesisId, epoch, pointId);
+  const rowSummary = summarizeRows(pointId, rows);
+  const isFinalAttempt = attempt === STALE_ZERO_READ_ATTEMPTS - 1;
+
+  if (!materializedSnapshot) {
+    if (!isZeroPointAggregate(rowSummary) || isFinalAttempt) {
+      return rowSummary;
+    }
+    await sleep(STALE_ZERO_READ_RETRY_MS);
+    return readAggregatesAttempt(client, topicId, synthesisId, epoch, pointId, attempt + 1);
+  }
+
+  const snapshotAggregate = snapshotToAggregate(materializedSnapshot);
+
+  if (rows.length === 0) {
+    if (!isZeroPointAggregate(snapshotAggregate) || isFinalAttempt) {
+      return snapshotAggregate;
+    }
+    await sleep(STALE_ZERO_READ_RETRY_MS);
+    return readAggregatesAttempt(client, topicId, synthesisId, epoch, pointId, attempt + 1);
+  }
+
+  // Materialized snapshots are the best-known complete view for a point. Only
+  // let live voter rows override them when the row fan-in proves it contains a
+  // write newer than the snapshot window.
+  if (!rowsContainWritesNewerThanSnapshot(rows, materializedSnapshot)) {
+    if (!isZeroPointAggregate(snapshotAggregate) || isFinalAttempt) {
+      return snapshotAggregate;
+    }
+    await sleep(STALE_ZERO_READ_RETRY_MS);
+    return readAggregatesAttempt(client, topicId, synthesisId, epoch, pointId, attempt + 1);
+  }
+
+  return rowSummary;
+}
+
 export async function readAggregates(
   client: VennClient,
   topicId: string,
@@ -951,67 +1003,14 @@ export async function readAggregates(
   epoch: number,
   pointId: string,
 ): Promise<PointAggregate> {
-  const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
-  const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
-  const normalizedEpoch = Number(normalizeEpoch(epoch));
-  const normalizedPointId = normalizeRequiredId(pointId, 'pointId');
-
-  for (let attempt = 0; attempt < STALE_ZERO_READ_ATTEMPTS; attempt += 1) {
-    const materializedSnapshot = await readPointAggregateSnapshot(
-      client,
-      normalizedTopicId,
-      normalizedSynthesisId,
-      normalizedEpoch,
-      normalizedPointId,
-    );
-
-    const rows = await readAggregateVoterRows(
-      client,
-      normalizedTopicId,
-      normalizedSynthesisId,
-      normalizedEpoch,
-      normalizedPointId,
-    );
-    const rowSummary = summarizeRows(normalizedPointId, rows);
-    if (!materializedSnapshot) {
-      if (!isZeroPointAggregate(rowSummary) || attempt === STALE_ZERO_READ_ATTEMPTS - 1) {
-        return rowSummary;
-      }
-      await sleep(STALE_ZERO_READ_RETRY_MS);
-      continue;
-    }
-
-    const snapshotAggregate = snapshotToAggregate(materializedSnapshot);
-
-    if (rows.length === 0) {
-      if (!isZeroPointAggregate(snapshotAggregate) || attempt === STALE_ZERO_READ_ATTEMPTS - 1) {
-        return snapshotAggregate;
-      }
-      await sleep(STALE_ZERO_READ_RETRY_MS);
-      continue;
-    }
-
-    // Materialized snapshots are the best-known complete view for a point. Only
-    // let live voter rows override them when the row fan-in proves it contains a
-    // write newer than the snapshot window.
-    if (!rowsContainWritesNewerThanSnapshot(rows, materializedSnapshot)) {
-      if (!isZeroPointAggregate(snapshotAggregate) || attempt === STALE_ZERO_READ_ATTEMPTS - 1) {
-        return snapshotAggregate;
-      }
-      await sleep(STALE_ZERO_READ_RETRY_MS);
-      continue;
-    }
-
-    return rowSummary;
-  }
-
-  return {
-    point_id: normalizedPointId,
-    agree: 0,
-    disagree: 0,
-    weight: 0,
-    participants: 0,
-  };
+  return readAggregatesAttempt(
+    client,
+    normalizeRequiredId(topicId, 'topicId'),
+    normalizeRequiredId(synthesisId, 'synthesisId'),
+    Number(normalizeEpoch(epoch)),
+    normalizeRequiredId(pointId, 'pointId'),
+    0,
+  );
 }
 
 export const aggregateAdapterInternal = {
@@ -1020,4 +1019,5 @@ export const aggregateAdapterInternal = {
   aggregateVotersPath,
   aggregatePointPath,
   aggregatePointsPath,
+  readOnce,
 };
