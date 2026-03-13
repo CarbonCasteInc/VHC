@@ -17,6 +17,7 @@
     "test:storycluster:live-benchmark": "pnpm --filter @vh/storycluster-engine exec vitest run src/liveBenchmark.integration.test.ts --config ./vitest.config.ts --reporter=verbose",
     "test:storycluster:gates": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:gates",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
+    "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "pnpm --filter @vh/e2e test",
     "test:workflow": "act -j build-and-test",
