@@ -259,17 +259,13 @@ describe('useAnalysisMesh', () => {
     );
   });
 
-  it('falls back to latest pointer and allows cross-model reuse on matching provenance', async () => {
+  it('falls back to latest pointer when same-story latest provenance has advanced', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const story = makeStoryBundle();
 
-    mockReadAnalysis
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null);
+    mockReadAnalysis.mockResolvedValueOnce(null);
 
     mockReadLatestAnalysis
-      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({
         schemaVersion: 'story-analysis-v1',
         story_id: story.story_id,
@@ -283,7 +279,30 @@ describe('useAnalysisMesh', () => {
         analyses: [],
         provider: { provider_id: 'p', model: 'm' },
         created_at: '2026-02-18T22:00:00.000Z',
-      } as any)
+      } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toEqual({
+      summary: 'Mismatch provenance',
+      frames: [{ frame: 'f', reframe: 'r' }],
+      analyses: [],
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh]',
+      expect.objectContaining({
+        story_id: story.story_id,
+        read_path: 'latest-pointer',
+      }),
+    );
+  });
+
+  it('falls back to latest pointer and allows cross-model reuse on matching story id', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce(null);
+
+    mockReadLatestAnalysis
       .mockResolvedValueOnce({
         schemaVersion: 'story-analysis-v1',
         story_id: story.story_id,

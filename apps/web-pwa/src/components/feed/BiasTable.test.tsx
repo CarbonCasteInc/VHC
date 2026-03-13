@@ -59,7 +59,10 @@ async function deriveExpectedPointIds(): Promise<{
   return { frame0, reframe0, frame1, reframe1 };
 }
 
-async function deriveExpectedSynthesisPointIds(): Promise<{
+async function deriveExpectedSynthesisPointIds(
+  synthesisId = SYNTHESIS_ID,
+  epoch = EPOCH,
+): Promise<{
   frame0: string;
   reframe0: string;
   frame1: string;
@@ -67,29 +70,29 @@ async function deriveExpectedSynthesisPointIds(): Promise<{
 }> {
   const frame0 = await deriveSynthesisPointId({
     topic_id: TOPIC_ID,
-    synthesis_id: SYNTHESIS_ID,
-    epoch: EPOCH,
+    synthesis_id: synthesisId,
+    epoch,
     column: 'frame',
     text: FRAMES[0]!.frame,
   });
   const reframe0 = await deriveSynthesisPointId({
     topic_id: TOPIC_ID,
-    synthesis_id: SYNTHESIS_ID,
-    epoch: EPOCH,
+    synthesis_id: synthesisId,
+    epoch,
     column: 'reframe',
     text: FRAMES[0]!.reframe,
   });
   const frame1 = await deriveSynthesisPointId({
     topic_id: TOPIC_ID,
-    synthesis_id: SYNTHESIS_ID,
-    epoch: EPOCH,
+    synthesis_id: synthesisId,
+    epoch,
     column: 'frame',
     text: FRAMES[1]!.frame,
   });
   const reframe1 = await deriveSynthesisPointId({
     topic_id: TOPIC_ID,
-    synthesis_id: SYNTHESIS_ID,
-    epoch: EPOCH,
+    synthesis_id: synthesisId,
+    epoch,
     column: 'reframe',
     text: FRAMES[1]!.reframe,
   });
@@ -223,7 +226,7 @@ describe('BiasTable', () => {
 
   it('keeps legacy display point IDs stable even when synthesis point IDs exist', async () => {
     const legacyPointIds = await deriveExpectedPointIds();
-    const synthesisPointIds = await deriveExpectedSynthesisPointIds();
+    const synthesisPointIds = await deriveExpectedSynthesisPointIds(ANALYSIS_ID);
     render(
       <BiasTable
         analyses={[makeAnalysis()]}
@@ -238,6 +241,27 @@ describe('BiasTable', () => {
 
     expect(await screen.findByTestId(`cell-vote-${legacyPointIds.frame0}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`cell-vote-${synthesisPointIds.frame0}`)).not.toBeInTheDocument();
+  });
+
+  it('derives canonical vote ids from the explicit synthesis context when it exists', async () => {
+    const legacyPointIds = await deriveExpectedPointIds();
+    const stableSynthesisPointIds = await deriveExpectedSynthesisPointIds(SYNTHESIS_ID);
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
+        votingEnabled
+      />,
+    );
+
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.frame0}`)).toHaveAttribute(
+      'data-canonical-point-id',
+      stableSynthesisPointIds.frame0,
+    );
   });
 
   it('votingEnabled=false renders no vote controls', () => {
@@ -269,13 +293,32 @@ describe('BiasTable', () => {
     expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
   });
 
-  it('no vote controls when votingEnabled but missing synthesis context', () => {
-    const { container } = render(
+  it('renders vote controls when votingEnabled can fall back to analysis context', async () => {
+    const legacyPointIds = await deriveExpectedPointIds();
+    const fallbackSynthesisPointIds = await deriveExpectedSynthesisPointIds(ANALYSIS_ID, 0);
+    render(
       <BiasTable
         analyses={[makeAnalysis()]}
         frames={FRAMES}
         topicId={TOPIC_ID}
         analysisId={ANALYSIS_ID}
+        votingEnabled
+      />,
+    );
+
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.frame0}`)).toHaveAttribute(
+      'data-canonical-point-id',
+      fallbackSynthesisPointIds.frame0,
+    );
+    expect(await screen.findByTestId(`cell-vote-agree-${legacyPointIds.reframe0}`)).toBeInTheDocument();
+  });
+
+  it('no vote controls when votingEnabled but missing both synthesis and analysis context', () => {
+    const { container } = render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId={TOPIC_ID}
         votingEnabled
       />,
     );

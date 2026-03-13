@@ -159,20 +159,18 @@ function diversifyHottestWindow(sorted: ScoredFeedItem[]): ScoredFeedItem[] {
     return sorted;
   }
 
-  const pool = sorted.slice(0, topWindowSize);
-  const tail = sorted.slice(topWindowSize);
-
   const selected: ScoredFeedItem[] = [];
+  const remaining = [...sorted];
   const storylineCounts = new Map<string, number>();
 
-  while (pool.length > 0) {
+  while (selected.length < topWindowSize && remaining.length > 0) {
     const previous = selected[selected.length - 1] ?? null;
 
     let bestIndex = -1;
     let bestAdjustedScore = Number.NEGATIVE_INFINITY;
 
-    for (let index = 0; index < pool.length; index += 1) {
-      const candidate = pool[index]!;
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index]!;
       const storylineCount = storylineCounts.get(candidate.storyline) ?? 0;
       if (storylineCount >= HOTTEST_STORYLINE_CAP) {
         continue;
@@ -189,19 +187,18 @@ function diversifyHottestWindow(sorted: ScoredFeedItem[]): ScoredFeedItem[] {
         bestIndex = index;
         continue;
       }
-
     }
 
     if (bestIndex < 0) {
-      bestIndex = 0;
+      break;
     }
 
-    const [next] = pool.splice(bestIndex, 1);
+    const [next] = remaining.splice(bestIndex, 1);
     selected.push(next!);
     storylineCounts.set(next!.storyline, (storylineCounts.get(next!.storyline) ?? 0) + 1);
   }
 
-  return [...selected, ...tail];
+  return [...selected, ...remaining];
 }
 
 /**

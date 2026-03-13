@@ -3,48 +3,38 @@ import {
   type PointAggregateSnapshotV1,
   type VoteIntentRecord,
 } from '@vh/data-model';
-import {
-  readAggregateVoterNode,
-  readAggregateVoterRows,
-  readPointAggregateSnapshot,
-  writePointAggregateSnapshot,
-  writeVoterNode,
-  type AggregateVoterPointRow,
-  type VennClient,
-} from '@vh/gun-client';
+import type { VennClient } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
+import { logMeshWriteResult } from '../utils/sentimentTelemetry';
+import {
+  compareIntentLww,
+  pointTupleMatches,
+  projectIntentRecord,
+  toPointTuple,
+  type PointTuple,
+} from './voteIntentProjection';
 import { getPendingIntents, replayPendingIntents } from './voteIntentQueue';
 
-interface PointTuple {
-  topic_id: string;
-  synthesis_id: string;
-  epoch: number;
-  point_id: string;
-}
-
 const DEFAULT_REPLAY_LIMIT = 25;
+const REPLAY_RETRY_DELAY_MS = 1000;
 
 let replayInFlight = false;
 let replayRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
-const REPLAY_RETRY_DELAY_MS = 1000;
-
-function toPointTuple(record: VoteIntentRecord): PointTuple {
-  return {
-    topic_id: record.topic_id,
-    synthesis_id: record.synthesis_id,
-    epoch: record.epoch,
-    point_id: record.point_id,
-  };
+function clearReplayRetryTimer(): void {
+  if (!replayRetryTimer) {
+    return;
+  }
+  clearTimeout(replayRetryTimer);
+  replayRetryTimer = null;
 }
 
-function pointTupleMatches(tuple: PointTuple, record: VoteIntentRecord): boolean {
-  return (
-    record.topic_id === tuple.topic_id &&
-    record.synthesis_id === tuple.synthesis_id &&
-    record.epoch === tuple.epoch &&
-    record.point_id === tuple.point_id
-  );
+function armReplayRetryTimerForTest(callback: () => void, delayMs: number): void {
+  clearReplayRetryTimer();
+  replayRetryTimer = setTimeout(() => {
+    replayRetryTimer = null;
+    callback();
+  }, delayMs);
 }
 
 function normalizeNonNegativeInt(value: number): number {
@@ -52,69 +42,6 @@ function normalizeNonNegativeInt(value: number): number {
     return 0;
   }
   return Math.floor(value);
-}
-
-function normalizeMaybeTimestampMs(value: string): number {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return 0;
-  }
-  return Math.floor(parsed);
-}
-
-function isAckTimeoutError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.includes('aggregate-put-ack-timeout');
-}
-
-function matchesRecoveredIntentNode(params: {
-  readonly record: VoteIntentRecord;
-  readonly tuple: PointTuple;
-  readonly recovered: {
-    readonly point_id: string;
-    readonly agreement: number;
-    readonly weight: number;
-    readonly updated_at: string;
-  };
-}): boolean {
-  if (params.recovered.point_id !== params.tuple.point_id) {
-    return false;
-  }
-
-  if (params.recovered.agreement !== params.record.agreement) {
-    return false;
-  }
-
-  const recoveredUpdatedAtMs = normalizeMaybeTimestampMs(params.recovered.updated_at);
-  const incomingSeq = normalizeNonNegativeInt(params.record.seq);
-  return recoveredUpdatedAtMs >= incomingSeq;
-}
-
-function compareIntentLww(a: VoteIntentRecord, b: VoteIntentRecord): number {
-  if (a.seq !== b.seq) {
-    return a.seq - b.seq;
-  }
-  if (a.emitted_at !== b.emitted_at) {
-    return a.emitted_at - b.emitted_at;
-  }
-  return a.intent_id.localeCompare(b.intent_id);
-}
-
-function rowToIntent(row: AggregateVoterPointRow, tuple: PointTuple): VoteIntentRecord {
-  const normalizedSeq = normalizeNonNegativeInt(row.updated_at_ms);
-  return {
-    intent_id: `materialized:${tuple.topic_id}:${tuple.synthesis_id}:${tuple.epoch}:${tuple.point_id}:${row.voter_id}:${normalizedSeq}`,
-    voter_id: row.voter_id,
-    topic_id: tuple.topic_id,
-    synthesis_id: tuple.synthesis_id,
-    epoch: tuple.epoch,
-    point_id: tuple.point_id,
-    agreement: row.node.agreement,
-    weight: row.node.weight,
-    proof_ref: 'materialized',
-    seq: normalizedSeq,
-    emitted_at: normalizedSeq,
-  };
 }
 
 function computeAggregateFromWinners(records: readonly VoteIntentRecord[]): {
@@ -164,14 +91,12 @@ export function materializePointSnapshot(params: {
 
   const winners = [...lwwByVoter.values()].sort((a, b) => a.voter_id.localeCompare(b.voter_id));
   const aggregate = computeAggregateFromWinners(winners);
-
   const localFromSeq = winners.length > 0
     ? Math.min(...winners.map((record) => normalizeNonNegativeInt(record.seq)))
     : normalizeNonNegativeInt(params.previousSnapshot?.source_window.from_seq ?? 0);
   const localToSeq = winners.length > 0
     ? Math.max(...winners.map((record) => normalizeNonNegativeInt(record.seq)))
     : normalizeNonNegativeInt(params.previousSnapshot?.source_window.to_seq ?? 0);
-
   const sourceWindow = {
     from_seq: params.previousSnapshot
       ? Math.min(normalizeNonNegativeInt(params.previousSnapshot.source_window.from_seq), localFromSeq)
@@ -180,7 +105,6 @@ export function materializePointSnapshot(params: {
       ? Math.max(normalizeNonNegativeInt(params.previousSnapshot.source_window.to_seq), localToSeq)
       : localToSeq,
   };
-
   const version = Math.max(
     normalizeNonNegativeInt(params.previousSnapshot?.version ?? 0),
     sourceWindow.to_seq,
@@ -202,119 +126,6 @@ export function materializePointSnapshot(params: {
   };
 }
 
-async function projectIntentRecord(
-  client: VennClient,
-  record: VoteIntentRecord,
-  now: () => number,
-): Promise<void> {
-  const tuple = toPointTuple(record);
-  const currentRows = await readAggregateVoterRows(
-    client,
-    tuple.topic_id,
-    tuple.synthesis_id,
-    tuple.epoch,
-    tuple.point_id,
-  );
-
-  const existingRow = currentRows.find((row) => row.voter_id === record.voter_id);
-  const existingIntent = existingRow ? rowToIntent(existingRow, tuple) : null;
-
-  const incomingWins = !existingIntent || compareIntentLww(record, existingIntent) >= 0;
-  const nextRows = [...currentRows];
-
-  if (incomingWins) {
-    const updatedAtIso = new Date(normalizeNonNegativeInt(record.emitted_at)).toISOString();
-    let nextRow: AggregateVoterPointRow | null = null;
-
-    try {
-      await writeVoterNode(client, tuple.topic_id, tuple.synthesis_id, tuple.epoch, record.voter_id, {
-        point_id: tuple.point_id,
-        agreement: record.agreement,
-        weight: record.weight,
-        updated_at: updatedAtIso,
-      });
-
-      nextRow = {
-        voter_id: record.voter_id,
-        node: {
-          point_id: tuple.point_id,
-          agreement: record.agreement,
-          weight: record.weight,
-          updated_at: updatedAtIso,
-        },
-        updated_at_ms: normalizeNonNegativeInt(record.emitted_at),
-      };
-    } catch (error) {
-      if (!isAckTimeoutError(error)) {
-        throw error;
-      }
-
-      const recovered = await readAggregateVoterNode(
-        client,
-        tuple.topic_id,
-        tuple.synthesis_id,
-        tuple.epoch,
-        record.voter_id,
-        tuple.point_id,
-      );
-
-      if (!recovered || !matchesRecoveredIntentNode({
-        record,
-        tuple,
-        recovered,
-      })) {
-        throw error;
-      }
-
-      const recoveredUpdatedAtMs = normalizeMaybeTimestampMs(recovered.updated_at);
-      nextRow = {
-        voter_id: record.voter_id,
-        node: recovered,
-        updated_at_ms: recoveredUpdatedAtMs,
-      };
-
-      console.warn('[vh:vote:intent-replay:timeout-recovered]', {
-        topic_id: tuple.topic_id,
-        synthesis_id: tuple.synthesis_id,
-        epoch: tuple.epoch,
-        point_id: tuple.point_id,
-        voter_id: record.voter_id,
-        intent_id: record.intent_id,
-      });
-    }
-
-    /* c8 ignore next 3 */
-    if (!nextRow) {
-      throw new Error('intent-replay-next-row-missing');
-    }
-
-    const replaceIndex = nextRows.findIndex((row) => row.voter_id === record.voter_id);
-    if (replaceIndex >= 0) {
-      nextRows[replaceIndex] = nextRow;
-    } else {
-      nextRows.push(nextRow);
-    }
-  }
-
-  const previousSnapshot = await readPointAggregateSnapshot(
-    client,
-    tuple.topic_id,
-    tuple.synthesis_id,
-    tuple.epoch,
-    tuple.point_id,
-  );
-
-  const intentsForSnapshot = nextRows.map((row) => rowToIntent(row, tuple));
-  const snapshot = materializePointSnapshot({
-    tuple,
-    intents: intentsForSnapshot,
-    previousSnapshot,
-    computedAtMs: now(),
-  });
-
-  await writePointAggregateSnapshot(client, snapshot);
-}
-
 export async function replayVoteIntentQueue(options?: {
   limit?: number;
   client?: VennClient | null;
@@ -326,12 +137,42 @@ export async function replayVoteIntentQueue(options?: {
   }
 
   const now = options?.now ?? (() => Date.now());
-  return replayPendingIntents(
-    async (record) => {
-      await projectIntentRecord(client, record, now);
-    },
-    { limit: options?.limit ?? DEFAULT_REPLAY_LIMIT },
-  );
+  return replayPendingIntents(async (record) => {
+    const startedAt = now();
+    try {
+      const projection = await projectIntentRecord({
+        client,
+        record,
+        now,
+        materializePointSnapshot,
+      });
+      logMeshWriteResult({
+        topic_id: projection.topic_id,
+        point_id: projection.point_id,
+        success: true,
+        latency_ms: Math.max(0, now() - startedAt),
+        voter_node_ok: projection.voter_node_ok,
+        snapshot_ok: projection.snapshot_ok,
+        readback_recovered: projection.readback_recovered,
+        timed_out: projection.timed_out,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const needsReplay = message === 'aggregate-write-needs-replay';
+      logMeshWriteResult({
+        topic_id: record.topic_id,
+        point_id: record.point_id,
+        success: false,
+        latency_ms: Math.max(0, now() - startedAt),
+        error: message,
+        voter_node_ok: needsReplay ? true : undefined,
+        snapshot_ok: needsReplay ? true : undefined,
+        readback_recovered: needsReplay ? true : undefined,
+        timed_out: needsReplay || message.includes('aggregate-put-ack-timeout'),
+      });
+      throw error;
+    }
+  }, { limit: options?.limit ?? DEFAULT_REPLAY_LIMIT });
 }
 
 export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
@@ -339,11 +180,7 @@ export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
     return;
   }
 
-  if (replayRetryTimer) {
-    clearTimeout(replayRetryTimer);
-    replayRetryTimer = null;
-  }
-
+  clearReplayRetryTimer();
   replayInFlight = true;
   queueMicrotask(async () => {
     let replaySummary: { replayed: number; failed: number } | null = null;
@@ -360,7 +197,6 @@ export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
         failed: replaySummary.failed,
         retry_in_ms: REPLAY_RETRY_DELAY_MS,
       });
-
       replayRetryTimer = setTimeout(() => {
         replayRetryTimer = null;
         scheduleVoteIntentReplay(limit);
@@ -378,6 +214,8 @@ export function scheduleVoteIntentReplay(limit = DEFAULT_REPLAY_LIMIT): void {
 }
 
 export const voteIntentMaterializerInternal = {
+  armReplayRetryTimerForTest,
   compareIntentLww,
+  clearReplayRetryTimer,
   toPointTuple,
 };

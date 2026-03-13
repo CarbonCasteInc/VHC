@@ -15,9 +15,11 @@ import { stageRunnerInternal } from './stageRunner';
 
 describe('stageRunnerInternal', () => {
   const originalNodeEnv = process.env.NODE_ENV;
+  const originalUseTestProvider = process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER;
 
   afterEach(() => {
     process.env.NODE_ENV = originalNodeEnv;
+    process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER = originalUseTestProvider;
   });
 
   it('classifies exported feed labels and resolves language hints', () => {
@@ -45,5 +47,8 @@ describe('stageRunnerInternal', () => {
 
     process.env.NODE_ENV = 'production';
     expect(stageRunnerInternal.resolveModelProvider(undefined)).toBe(mockOpenAIProvider);
+
+    process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER = 'true';
+    expect(stageRunnerInternal.resolveModelProvider(undefined)).toBe(mockTestProvider);
   });
 });

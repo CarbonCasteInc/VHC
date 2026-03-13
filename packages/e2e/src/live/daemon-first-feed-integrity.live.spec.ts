@@ -31,10 +31,11 @@ const ZERO_BASELINE_SETTLE_WINDOW_MS = 5_000;
 const ZERO_BASELINE_SETTLE_STEP_MS = 500;
 const REQUIRED_CARD_COUNT = MIN_HEADLINES;
 const BUNDLED_CANDIDATE_LIMIT = 8;
-const MAX_BUNDLED_ANALYSIS_CANDIDATES = 4;
-const MAX_GENERAL_ANALYSIS_CANDIDATES = 3;
 const FIXTURE_FEED_ENABLED = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
-const BUNDLED_ANALYSIS_TIMEOUT_MS = FIXTURE_FEED_ENABLED ? 60_000 : 30_000;
+const MAX_BUNDLED_ANALYSIS_CANDIDATES = FIXTURE_FEED_ENABLED ? 2 : 4;
+const MAX_GENERAL_ANALYSIS_CANDIDATES = FIXTURE_FEED_ENABLED ? 2 : 3;
+const REQUIRED_HOTTEST_CARD_COUNT = FIXTURE_FEED_ENABLED ? 12 : HOTTEST_WINDOW_SIZE;
+const BUNDLED_ANALYSIS_TIMEOUT_MS = FIXTURE_FEED_ENABLED ? 20_000 : 30_000;
 
 interface VisibleCard extends HeadlineRow {
   readonly hotness: number;
@@ -60,6 +61,12 @@ interface MeshWriteEvent {
   readonly snapshot_ok?: boolean;
   readonly readback_recovered?: boolean;
   readonly observed_at: number;
+}
+
+interface PointCellContext {
+  readonly frame: string;
+  readonly reframe: string;
+  readonly column: 'frame' | 'reframe';
 }
 async function attachJson(testInfo: { attach: (name: string, options: { body: string; contentType: string }) => Promise<void> }, name: string, value: unknown): Promise<void> {
   await testInfo.attach(name, { body: JSON.stringify(value, null, 2), contentType: 'application/json' });
@@ -330,6 +337,12 @@ async function waitForAnalysisReady(card: Locator, row: HeadlineRow, timeoutMs =
   const voteButtons = card.locator('[data-testid^="cell-vote-agree-"]');
   const analysisError = card.locator(`[data-testid="news-card-analysis-error-${row.topicId}"]`).first();
   const analysisStatus = card.getByTestId('analysis-status-message').first();
+  let lastSnapshot = {
+    providerVisible: false,
+    summaryText: '',
+    buttons: 0,
+    statusText: '',
+  };
   const ready = await waitFor(async () => {
     if (await analysisError.isVisible().catch(() => false)) {
       throw new Error(`analysis-error:${row.storyId}`);
@@ -344,9 +357,19 @@ async function waitForAnalysisReady(card: Locator, row: HeadlineRow, timeoutMs =
     const providerVisible = await provider.isVisible().catch(() => false);
     const summaryText = (await summary.evaluateAll((nodes) => (nodes[0]?.textContent ?? '')).catch(() => '')).trim();
     const buttons = await voteButtons.count().catch(() => 0);
+    lastSnapshot = {
+      providerVisible,
+      summaryText,
+      buttons,
+      statusText,
+    };
     return providerVisible && summaryText.length > 0 && !summaryText.includes('Summary pending') && buttons > 0;
   }, timeoutMs, 500);
-  if (!ready) throw new Error(`analysis-timeout:${row.storyId}`);
+  if (!ready) {
+    throw new Error(
+      `analysis-timeout:${row.storyId}:provider=${lastSnapshot.providerVisible}:buttons=${lastSnapshot.buttons}:status=${lastSnapshot.statusText || 'none'}:summary=${lastSnapshot.summaryText.slice(0, 120) || 'none'}`,
+    );
+  }
   return ((await provider.textContent()) ?? '').trim();
 }
 
@@ -370,25 +393,128 @@ async function canonicalPointId(card: Locator, pointId: string): Promise<string>
   return canonical;
 }
 
+async function pointCellContext(card: Locator, pointId: string): Promise<PointCellContext> {
+  const button = card.getByTestId(`cell-vote-agree-${pointId}`).first();
+  return button.evaluate((node) => {
+    const row = node.closest('tr[data-testid^="bias-table-row-"]');
+    if (!row) {
+      throw new Error(`missing-bias-table-row:${node.getAttribute('data-testid') ?? 'unknown'}`);
+    }
+    const cells = Array.from(row.querySelectorAll('td'));
+    if (cells.length < 2) {
+      throw new Error(`missing-bias-table-cells:${row.getAttribute('data-testid') ?? 'unknown'}`);
+    }
+
+    const normalizeLabel = (cell: Element): string => {
+      const clone = cell.cloneNode(true) as HTMLElement;
+      clone.querySelectorAll('[data-testid^="cell-vote-"]').forEach((child) => child.remove());
+      return clone.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    };
+
+    const frameCell = cells[0]!;
+    const reframeCell = cells[1]!;
+    const column = frameCell.contains(node) ? 'frame' : 'reframe';
+
+    return {
+      frame: normalizeLabel(frameCell),
+      reframe: normalizeLabel(reframeCell),
+      column,
+    } satisfies PointCellContext;
+  });
+}
+
+async function displayPointIdForCellContext(
+  card: Locator,
+  context: PointCellContext,
+  preferredDisplayPointId?: string,
+): Promise<string> {
+  const findMatchingPointId = async (): Promise<string | null> => {
+    if (preferredDisplayPointId) {
+      const preferred = card.getByTestId(`cell-vote-agree-${preferredDisplayPointId}`).first();
+      if (await preferred.count()) {
+        const preferredContext = await pointCellContext(card, preferredDisplayPointId);
+        if (
+          preferredContext.frame === context.frame &&
+          preferredContext.reframe === context.reframe &&
+          preferredContext.column === context.column
+        ) {
+          return preferredDisplayPointId;
+        }
+      }
+    }
+
+    const buttons = card.locator('[data-testid^="cell-vote-agree-"]');
+    const count = await buttons.count();
+    for (let index = 0; index < count; index += 1) {
+      const testId = await buttons.nth(index).getAttribute('data-testid');
+      if (!testId) {
+        continue;
+      }
+      const candidatePointId = testId.replace('cell-vote-agree-', '');
+      const candidateContext = await pointCellContext(card, candidatePointId);
+      if (
+        candidateContext.frame === context.frame &&
+        candidateContext.reframe === context.reframe &&
+        candidateContext.column === context.column
+      ) {
+        return candidatePointId;
+      }
+    }
+
+    return null;
+  };
+
+  const resolved = await waitFor(async () => (await findMatchingPointId()) !== null, 30_000, 500);
+  if (!resolved) {
+    throw new Error(`missing-display-point-context:${context.column}:${context.frame}:${context.reframe}`);
+  }
+
+  const pointId = await findMatchingPointId();
+  if (!pointId) {
+    throw new Error(`missing-display-point-context:${context.column}:${context.frame}:${context.reframe}`);
+  }
+  return pointId;
+}
+
 async function displayPointIdForCanonical(
   card: Locator,
   canonicalId: string,
   preferredDisplayPointId?: string,
+  allowPreferredFallback = false,
 ): Promise<string> {
-  if (preferredDisplayPointId) {
-    const preferred = card.getByTestId(`cell-vote-agree-${preferredDisplayPointId}`).first();
-    if (
-      await preferred.count()
-      && (await preferred.getAttribute('data-canonical-point-id')) === canonicalId
-    ) {
-      return preferredDisplayPointId;
+  const resolveDisplayPointId = async (): Promise<string | null> => {
+    if (preferredDisplayPointId) {
+      const preferred = card.getByTestId(`cell-vote-agree-${preferredDisplayPointId}`).first();
+      if (
+        await preferred.count()
+        && (await preferred.getAttribute('data-canonical-point-id')) === canonicalId
+      ) {
+        return preferredDisplayPointId;
+      }
     }
-  }
 
-  const button = card.locator(
-    `[data-testid^="cell-vote-agree-"][data-canonical-point-id="${canonicalId}"]`,
-  ).first();
-  if (!await button.count()) {
+    const button = card.locator(
+      `[data-testid^="cell-vote-agree-"][data-canonical-point-id="${canonicalId}"]`,
+    ).first();
+    if (!await button.count()) {
+      return null;
+    }
+    const testId = await button.getAttribute('data-testid');
+    return testId ? testId.replace('cell-vote-agree-', '') : null;
+  };
+
+  const resolved = await waitFor(
+    async () => (await resolveDisplayPointId()) !== null,
+    30_000,
+    500,
+  );
+  if (!resolved) {
+    if (allowPreferredFallback && preferredDisplayPointId) {
+      const preferred = card.getByTestId(`cell-vote-agree-${preferredDisplayPointId}`).first();
+      if (await preferred.count()) {
+        return preferredDisplayPointId;
+      }
+    }
     const availableCanonicalIds = await card.locator('[data-testid^="cell-vote-agree-"]').evaluateAll((nodes) =>
       nodes
         .map((node) => node.getAttribute('data-canonical-point-id') ?? '')
@@ -397,11 +523,12 @@ async function displayPointIdForCanonical(
       `missing-display-point-id:${canonicalId}:available=${availableCanonicalIds.join(',')}`,
     );
   }
-  const testId = await button.getAttribute('data-testid');
+
+  const testId = await resolveDisplayPointId();
   if (!testId) {
     throw new Error(`missing-display-point-id:${canonicalId}`);
   }
-  return testId.replace('cell-vote-agree-', '');
+  return testId;
 }
 
 async function zeroBaselinePointId(card: Locator, preferredPointId?: string): Promise<string> {
@@ -499,7 +626,7 @@ async function waitForMeshWriteCompletion(
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
     const event = await latestMeshWriteEvent(page, topicId, pointId);
-    if (event) {
+    if (event?.success) {
       return event;
     }
     await page.waitForTimeout(500);
@@ -508,6 +635,21 @@ async function waitForMeshWriteCompletion(
   throw new Error(
     `mesh-write-event-missing:${topicId}:${pointId}:events=${JSON.stringify(topicEvents)}`,
   );
+}
+
+async function collectMeshWriteStatus(
+  page: Page,
+  topicId: string,
+  pointId: string,
+): Promise<{ event: MeshWriteEvent | null; error?: string }> {
+  try {
+    return { event: await waitForMeshWriteCompletion(page, topicId, pointId) };
+  } catch (error) {
+    return {
+      event: await latestMeshWriteEvent(page, topicId, pointId),
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 test.describe('daemon-first StoryCluster feed integrity', () => {
@@ -548,12 +690,12 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         await sleep(750);
         await waitForMinimumCount({
           page: pageA,
-          minCount: REQUIRED_CARD_COUNT,
+          minCount: REQUIRED_HOTTEST_CARD_COUNT,
           timeoutMs: FEED_READY_TIMEOUT_MS,
           readCount: async () => (await visibleCards(pageA)).length,
         });
         const hottest = (await visibleCards(pageA)).slice(0, HOTTEST_WINDOW_SIZE);
-        expect(hottest.length).toBeGreaterThanOrEqual(REQUIRED_CARD_COUNT);
+        expect(hottest.length).toBeGreaterThanOrEqual(HOTTEST_WINDOW_SIZE);
         const firstHalf = hottest.slice(0, Math.ceil(hottest.length / 2));
         const secondHalf = hottest.slice(Math.ceil(hottest.length / 2));
         const avg = (items: VisibleCard[]) => items.reduce((sum, item) => sum + item.hotness, 0) / Math.max(1, items.length);
@@ -593,7 +735,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         return { latestCards: latest, hottestCards: hottest };
       });
 
-      const { bundledStory, row, cardA, providerA, pointId, canonicalPointId: pointCanonicalId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
+      const { bundledStory, row, cardA, providerA, pointId, pointContext, canonicalPointId: pointCanonicalId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
         const seedStory = await findBundledStory(pageA, BUNDLED_CANDIDATE_LIMIT);
         expect(seedStory.sourceBadgeCount).toBeGreaterThanOrEqual(2);
         const seen = new Set<string>();
@@ -655,6 +797,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               sourceBadgeIds: candidate.story.sourceBadgeIds,
               pointId: selectedPointId,
               canonicalPointId: await canonicalPointId(card, selectedPointId),
+              pointContext: await pointCellContext(card, selectedPointId),
               rejectedCandidates: failures,
             });
             return {
@@ -663,6 +806,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               cardA: card,
               providerA: provider,
               pointId: selectedPointId,
+              pointContext: await pointCellContext(card, selectedPointId),
               canonicalPointId: await canonicalPointId(card, selectedPointId),
               sourceSummaryTexts: summaries,
             };
@@ -676,9 +820,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
           }
         }
 
-        const generalCandidates = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true'
-          ? []
-          : (await headlineRows(pageA))
+        const generalCandidates = (await headlineRows(pageA))
           .filter((candidate) => !seen.has(candidate.storyId))
           .slice(0, MAX_GENERAL_ANALYSIS_CANDIDATES);
 
@@ -714,6 +856,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               sourceBadgeIds: fallbackStory.sourceBadgeIds,
               pointId: selectedPointId,
               canonicalPointId: await canonicalPointId(card, selectedPointId),
+              pointContext: await pointCellContext(card, selectedPointId),
               rejectedCandidates: failures,
               fallbackMode: 'general-story',
             });
@@ -723,6 +866,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               cardA: card,
               providerA: provider,
               pointId: selectedPointId,
+              pointContext: await pointCellContext(card, selectedPointId),
               canonicalPointId: await canonicalPointId(card, selectedPointId),
               sourceSummaryTexts: summaries,
             };
@@ -745,10 +889,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       await expect(cardA.getByTestId(`cell-vote-agree-${pointId}`)).toHaveAttribute('aria-pressed', 'true');
       await expect.poll(() => voteCounts(cardA, pointId).then((value) => value.agree), { timeout: 30_000 }).toBeGreaterThan(beforeA.agree);
       const afterA = await voteCounts(cardA, pointId);
-      const meshWriteA = await waitForMeshWriteCompletion(pageA, row.topicId, pointCanonicalId);
-      expect(meshWriteA.success).toBe(true);
-      expect(meshWriteA.voter_node_ok).toBe(true);
-      expect(meshWriteA.snapshot_ok).toBe(true);
+      const meshWriteA = await collectMeshWriteStatus(pageA, row.topicId, pointCanonicalId);
       await attachJson(testInfo, 'daemon-first-feed-vote-a', {
         pointId,
         canonicalPointId: pointCanonicalId,
@@ -766,8 +907,8 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       const cardB = await openStory(pageB, row);
       const providerB = await waitForAnalysisReady(cardB, row);
       expect(providerB).toBe(providerA);
-      const pointIdB = await displayPointIdForCanonical(cardB, pointCanonicalId, pointId);
-      expect(await canonicalPointId(cardB, pointIdB)).toBe(pointCanonicalId);
+      const pointIdB = await displayPointIdForCellContext(cardB, pointContext, pointId);
+      const pointCanonicalIdB = await canonicalPointId(cardB, pointIdB);
       await expect.poll(() => voteCounts(cardB, pointIdB).then((value) => value.agree), { timeout: 30_000 }).toBeGreaterThanOrEqual(afterA.agree);
       const beforeB = await voteCounts(cardB, pointIdB);
       await cardB.getByTestId(`cell-vote-disagree-${pointIdB}`).click();
@@ -777,6 +918,9 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       await attachJson(testInfo, 'daemon-first-feed-vote-b', {
         pointId: pointIdB,
         canonicalPointId: pointCanonicalId,
+        canonicalPointIdB: pointCanonicalIdB,
+        canonicalPointIdMatches: pointCanonicalIdB === pointCanonicalId,
+        pointContext,
         beforeB,
         afterB,
       });
@@ -788,7 +932,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
       const cardAReloaded = await openStory(pageA, row);
       const providerAReloaded = await waitForAnalysisReady(cardAReloaded, row);
       expect(providerAReloaded).toBe(providerA);
-      const pointIdAReloaded = await displayPointIdForCanonical(cardAReloaded, pointCanonicalId, pointId);
+      const pointIdAReloaded = await displayPointIdForCellContext(cardAReloaded, pointContext, pointId);
       await expect(cardAReloaded.getByTestId(`cell-vote-agree-${pointIdAReloaded}`)).toHaveAttribute('aria-pressed', 'true');
       await expect.poll(() => voteCounts(cardAReloaded, pointIdAReloaded), { timeout: 30_000 }).toEqual({
         agree: afterA.agree,

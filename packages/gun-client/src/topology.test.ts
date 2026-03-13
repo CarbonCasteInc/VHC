@@ -16,6 +16,8 @@ describe('TopologyGuard', () => {
   it('allows public data without PII', () => {
     const guard = new TopologyGuard();
     expect(() => guard.validateWrite('vh/public/aggregates/topic', { ratio: 0.5 })).not.toThrow();
+    expect(() => guard.validateWrite('vh/news/storylines/storyline-1/', null)).not.toThrow();
+    expect(() => guard.validateWrite('vh/news/storylines/storyline-1/', 'headline')).not.toThrow();
   });
 
   it('blocks any public payload combining district_hash and nullifier', () => {
@@ -44,6 +46,15 @@ describe('TopologyGuard', () => {
     expect(() => guard.validateWrite('vh/discovery/items/item-1', { id: 'item-1', score: 1 })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/stories/', { 'story-1': null })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/stories/story-1', { story_id: 'story-1', title: 'Headline' })).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/news/storylines/', { 'storyline-1': null })
+    ).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/news/storylines/storyline-1/', {
+        storyline_id: 'storyline-1',
+        canonical_story_id: 'story-1',
+      })
+    ).not.toThrow();
     expect(() => guard.validateWrite('vh/news/index/latest/', { 'story-1': null })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/index/hot/', { 'story-1': null })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/index/hot/story-1', { hotness: 0.92 })).not.toThrow();

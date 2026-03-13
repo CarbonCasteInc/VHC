@@ -261,6 +261,35 @@ describe('newsCardAnalysis', () => {
     expect(result.summary).toContain('Publisher One: Metadata fallback still produced analysis.');
   });
 
+  it('skips article fetch entirely when metadata-only analysis is enabled', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_SKIP_ARTICLE_TEXT', 'true');
+    const story = makeStoryBundle({
+      sources: [makeStoryBundle().sources[0]!],
+    });
+    const fetchArticleText = vi.fn(async () => 'UNUSED ARTICLE TEXT');
+    const analysisInputs: string[] = [];
+
+    const result = await synthesizeStoryFromAnalysisPipeline(story, {
+      fetchArticleText,
+      runAnalysis: async (articleText: string) => {
+        analysisInputs.push(articleText);
+        return {
+          analysis: makeAnalysis({
+            summary: 'Metadata-only analysis completed immediately.',
+            biases: ['Metadata bias'],
+            counterpoints: ['Metadata counterpoint'],
+          }),
+        };
+      },
+    });
+
+    expect(newsCardAnalysisInternal.shouldSkipArticleTextFetch()).toBe(true);
+    expect(fetchArticleText).not.toHaveBeenCalled();
+    expect(analysisInputs).toHaveLength(1);
+    expect(analysisInputs[0]).toContain('ARTICLE BODY: unavailable; analyze available metadata only.');
+    expect(result.summary).toContain('Publisher One: Metadata-only analysis completed immediately.');
+  });
+
   it('throws when all source analyses fail', async () => {
     const story = makeStoryBundle();
 

@@ -1,9 +1,17 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import { execFileSync } from 'node:child_process';
-import { appendFileSync, mkdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { BrowserContext, ConsoleMessage, Page } from '@playwright/test';
+import {
+  killPortOccupants,
+  killStaleDaemonFirstProcesses,
+  repoRootDir,
+  runArtifactDir,
+  spawnLoggedProcess,
+  stopProcess,
+  type LoggedProcess,
+  waitForOutput,
+  sleep,
+} from './daemonFirstFeedProcesses';
 import {
   readAuditableBundleDiagnostics,
   readAuditableBundles,
@@ -23,12 +31,8 @@ export const GUN_PEER_URL = `http://localhost:${GUN_PORT}/gun`;
 export const NAV_TIMEOUT_MS = 90_000;
 export const FEED_READY_TIMEOUT_MS = 240_000;
 export const MIN_HEADLINES = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 3 : 4;
-
-export type LoggedProcess = {
-  readonly name: string;
-  readonly proc: ChildProcess;
-  readonly output: string[];
-};
+const FIXTURE_NEWS_POLL_INTERVAL_MS = String(30 * 60 * 1000);
+const DEFAULT_NEWS_POLL_INTERVAL_MS = '15000';
 
 export type HeadlineRow = {
   readonly storyId: string;
@@ -51,108 +55,11 @@ export type DaemonFirstStack = {
   readonly daemon: LoggedProcess;
 };
 
-export function repoRootDir(): string {
-  return path.resolve(process.cwd(), '..', '..');
-}
-
-function runArtifactDir(): string {
-  return path.join(repoRootDir(), `.tmp/e2e-daemon-feed/${RUN_ID}`);
-}
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function killPortOccupants(port: number): void {
-  try {
-    const output = execFileSync('lsof', ['-ti', `tcp:${port}`], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (!output) {
-      return;
-    }
-    const pids = output
-      .split(/\r?\n/)
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0);
-    if (pids.length === 0) {
-      return;
-    }
-    execFileSync('kill', ['-9', ...pids], {
-      stdio: ['ignore', 'ignore', 'ignore'],
-    });
-  } catch {
-    // Port already free or lsof unavailable.
-  }
-}
-
 export function logText(message: ConsoleMessage): string {
   return `[${message.type()}] ${message.text()}`;
 }
 
-export function spawnLoggedProcess(
-  name: string,
-  command: string,
-  args: readonly string[],
-  env: NodeJS.ProcessEnv,
-): LoggedProcess {
-  mkdirSync(runArtifactDir(), { recursive: true });
-  const logFile = path.join(runArtifactDir(), `${name}.log`);
-  const proc = spawn(command, [...args], {
-    cwd: repoRootDir(),
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  const output: string[] = [];
-  const onData = (chunk: Buffer) => {
-    for (const line of chunk.toString('utf8').split(/\r?\n/)) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        continue;
-      }
-      output.push(trimmed);
-      appendFileSync(logFile, `${trimmed}\n`, 'utf8');
-    }
-  };
-  proc.stdout?.on('data', onData);
-  proc.stderr?.on('data', onData);
-  return { name, proc, output };
-}
-
-export function waitForOutput(process: LoggedProcess, pattern: RegExp, timeoutMs: number): Promise<void> {
-  const startedAt = Date.now();
-  return new Promise((resolve, reject) => {
-    const timer = setInterval(() => {
-      if (process.output.some((line) => pattern.test(line))) {
-        clearInterval(timer);
-        resolve();
-        return;
-      }
-      if (process.proc.exitCode !== null) {
-        clearInterval(timer);
-        reject(new Error(`${process.name} exited before readiness`));
-        return;
-      }
-      if (Date.now() - startedAt >= timeoutMs) {
-        clearInterval(timer);
-        reject(new Error(`${process.name} readiness timeout`));
-      }
-    }, 250);
-  });
-}
-
-export async function stopProcess(process: LoggedProcess | null): Promise<void> {
-  if (!process || process.proc.exitCode !== null) return;
-  process.proc.kill('SIGTERM');
-  const startedAt = Date.now();
-  while (process.proc.exitCode === null && Date.now() - startedAt < 10_000) {
-    await sleep(100);
-  }
-  if (process.proc.exitCode === null) {
-    process.proc.kill('SIGKILL');
-  }
-}
+export { sleep } from './daemonFirstFeedProcesses';
 
 export async function waitForHealth(url: string, timeoutMs: number, init?: RequestInit): Promise<void> {
   const startedAt = Date.now();
@@ -174,9 +81,24 @@ export async function addConsumerInitScript(context: BrowserContext): Promise<vo
       window.__VH_NEWS_RUNTIME_ROLE = 'consumer';
       window.__VH_TEST_SESSION = false;
       window.__VH_EXPOSE_NEWS_STORE__ = true;
+      window.__VH_GUN_PEERS__ = [${JSON.stringify(GUN_PEER_URL)}];
     `,
   });
 }
+
+function resolveNewsPollIntervalMs(): string {
+  const configured = process.env.VITE_NEWS_POLL_INTERVAL_MS?.trim();
+  if (configured) {
+    return configured;
+  }
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true'
+    ? FIXTURE_NEWS_POLL_INTERVAL_MS
+    : DEFAULT_NEWS_POLL_INTERVAL_MS;
+}
+
+export const daemonFirstFeedHarnessInternal = {
+  resolveNewsPollIntervalMs,
+};
 
 function commonEnv(): NodeJS.ProcessEnv {
   const root = repoRootDir();
@@ -198,7 +120,7 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_GUN_PEERS: `["${GUN_PEER_URL}"]`,
     VITE_NEWS_FEED_SOURCES: resolveDaemonFeedSourcesJson(),
     VITE_NEWS_TOPIC_MAPPING: '{"defaultTopicId":"topic-news","sourceTopics":{}}',
-    VITE_NEWS_POLL_INTERVAL_MS: '15000',
+    VITE_NEWS_POLL_INTERVAL_MS: resolveNewsPollIntervalMs(),
     VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: maxItemsPerSource,
     VH_NEWS_FEED_MAX_ITEMS_TOTAL: maxItemsTotal,
     VH_STORYCLUSTER_REMOTE_URL: `http://127.0.0.1:${STORYCLUSTER_PORT}/cluster`,
@@ -214,6 +136,7 @@ function commonEnv(): NodeJS.ProcessEnv {
 export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
   const root = repoRootDir();
   const env = commonEnv();
+  killStaleDaemonFirstProcesses();
   killPortOccupants(STORYCLUSTER_PORT);
   const storyclusterDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/server.js')).href;
   const clusterStoreDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/clusterStore.js')).href;
@@ -242,6 +165,7 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
        console.log('[vh:e2e-storycluster] started', { stateDir });`,
     ],
     env,
+    RUN_ID,
   );
 
   await waitForOutput(storycluster, /\[vh:e2e-storycluster\] started/, 30_000);
@@ -254,6 +178,7 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
     'pnpm',
     ['--filter', '@vh/news-aggregator', 'daemon'],
     env,
+    RUN_ID,
   );
   await waitForOutput(daemon, /\[vh:news-daemon\] leadership loop started/, 90_000);
 

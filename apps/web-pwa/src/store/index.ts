@@ -97,6 +97,18 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
 }
 
 function resolveGunPeers(): string[] {
+  const globalOverride = (globalThis as { __VH_GUN_PEERS__?: unknown }).__VH_GUN_PEERS__;
+  if (Array.isArray(globalOverride) && globalOverride.length > 0) {
+    const peers = globalOverride
+      .filter((peer): peer is string => typeof peer === 'string')
+      .map((peer) => peer.trim())
+      .filter((peer) => peer.length > 0)
+      .map((peer) => (peer.endsWith('/gun') ? peer : `${peer.replace(/\/+$/, '')}/gun`));
+    if (peers.length > 0) {
+      return peers;
+    }
+  }
+
   const raw = (import.meta as any).env?.VITE_GUN_PEERS;
   if (raw && typeof raw === 'string') {
     try {

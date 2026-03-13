@@ -121,6 +121,10 @@ function isRelayEnabled(): boolean {
   return readEnvVar('VITE_VH_ANALYSIS_PIPELINE') === 'true';
 }
 
+function shouldSkipArticleTextFetch(): boolean {
+  return readEnvVar('VITE_VH_ANALYSIS_SKIP_ARTICLE_TEXT') === 'true';
+}
+
 async function runAnalysisViaRelay(text: string): Promise<Pick<PipelineResult, 'analysis'>> {
   const devModel = getDevModelOverride();
   const r = await fetch('/api/analyze', {
@@ -300,18 +304,21 @@ async function runSynthesis(
 ): Promise<NewsCardAnalysisSynthesis> {
   const selectedSources = selectSourcesForAnalysis(story, maxSourceAnalyses);
   const analyzed: NewsCardSourceAnalysis[] = [];
+  const skipArticleTextFetch = shouldSkipArticleTextFetch();
 
   for (const source of selectedSources) {
     try {
       let articleText: string | null = null;
-      try {
-        articleText = await fetchArticleText(source.url);
-      } catch (error) {
-        console.warn('[vh:news-card-analysis] article fetch failed; using metadata fallback', {
-          sourceId: source.source_id,
-          url: source.url,
-          error,
-        });
+      if (!skipArticleTextFetch) {
+        try {
+          articleText = await fetchArticleText(source.url);
+        } catch (error) {
+          console.warn('[vh:news-card-analysis] article fetch failed; using metadata fallback', {
+            sourceId: source.source_id,
+            url: source.url,
+            error,
+          });
+        }
       }
 
       const input = buildAnalysisInput(story, source, articleText);
@@ -391,6 +398,7 @@ export const newsCardAnalysisInternal = {
   getRuntimeMaxSourceAnalyses,
   runAnalysisViaRelay,
   selectSourcesForAnalysis,
+  shouldSkipArticleTextFetch,
   synthesizeSummary,
   toFrameRows,
   toSourceAnalysis,

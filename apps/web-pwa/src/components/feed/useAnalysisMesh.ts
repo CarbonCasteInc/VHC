@@ -440,16 +440,7 @@ export async function readMeshAnalysis(
           actual_model_scope: latestArtifact.model_scope,
         });
 
-        if (latestArtifact.provenance_hash !== story.provenance_hash) {
-          logMeshDebug('read-latest-pointer-provenance-mismatch', {
-            story_id: story.story_id,
-            attempt,
-            expected_provenance_hash: story.provenance_hash,
-            actual_provenance_hash: latestArtifact.provenance_hash,
-            analysis_key: latestArtifact.analysisKey,
-            model_scope: latestArtifact.model_scope,
-          });
-        } else if (
+        if (
           latestArtifact.model_scope !== modelScopeKey &&
           !CROSS_MODEL_REUSE_ENABLED
         ) {
@@ -462,6 +453,16 @@ export async function readMeshAnalysis(
             provenance_hash: latestArtifact.provenance_hash,
           });
         } else {
+          if (latestArtifact.provenance_hash !== story.provenance_hash) {
+            logMeshDebug('read-latest-pointer-provenance-drift-reuse', {
+              story_id: story.story_id,
+              attempt,
+              expected_provenance_hash: story.provenance_hash,
+              actual_provenance_hash: latestArtifact.provenance_hash,
+              analysis_key: latestArtifact.analysisKey,
+              model_scope: latestArtifact.model_scope,
+            });
+          }
           if (latestArtifact.model_scope !== modelScopeKey) {
             logMeshDebug('read-latest-pointer-cross-model-reuse', {
               story_id: story.story_id,
@@ -478,6 +479,10 @@ export async function readMeshAnalysis(
             analysis_key: latestArtifact.analysisKey,
             provenance_hash: latestArtifact.provenance_hash,
             model_scope: latestArtifact.model_scope,
+            provenance_mode:
+              latestArtifact.provenance_hash === story.provenance_hash
+                ? 'exact'
+                : 'drift-reuse',
           });
           emitTelemetry('latest-pointer');
           return toSynthesis(latestArtifact);

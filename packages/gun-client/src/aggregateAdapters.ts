@@ -152,11 +152,32 @@ function assertNoForbiddenAggregateFields(payload: unknown): void {
 
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      /* c8 ignore next 3 -- defensive guard for late-fired timer callbacks */
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(null);
+    }, READ_ONCE_TIMEOUT_MS);
+
     chain.once((data) => {
+      /* c8 ignore next 3 -- defensive guard for late read callbacks after timeout */
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
       resolve((data ?? null) as T | null);
     });
   });
 }
+
+const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
+  2_500,
+);
 
 const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   [
