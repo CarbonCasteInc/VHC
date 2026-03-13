@@ -35,6 +35,7 @@ function toCardInstanceKey(item: FeedItem): string {
   if (storyId) {
     return storyId;
   }
+
   const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
   return `${item.topic_id}|${normalizedTitle}`;
 }

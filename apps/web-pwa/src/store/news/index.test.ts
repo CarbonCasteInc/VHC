@@ -520,11 +520,11 @@ describe('news store', () => {
     const { createNewsStore } = await import('./index');
     const { useDiscoveryStore } = await import('../discovery');
 
-    const originalMergeItems = useDiscoveryStore.getState().mergeItems;
+    const originalSyncNewsItems = useDiscoveryStore.getState().syncNewsItems;
     useDiscoveryStore.setState({
-      mergeItems: (() => {
+      syncNewsItems: (() => {
         throw new Error('mirror unavailable');
-      }) as typeof originalMergeItems,
+      }) as typeof originalSyncNewsItems,
     });
 
     const store = createNewsStore({ resolveClient: () => client as never });
@@ -540,7 +540,7 @@ describe('news store', () => {
       expect.any(Error),
     );
 
-    useDiscoveryStore.setState({ mergeItems: originalMergeItems });
+    useDiscoveryStore.setState({ syncNewsItems: originalSyncNewsItems });
   });
 
   it('refreshLatest captures thrown errors', async () => {

@@ -110,12 +110,12 @@ describe('NewsCard related coverage', () => {
 
     render(<NewsCard item={makeItem()} />);
 
+    expect(screen.getByTestId('news-card-storyline-news-1')).toHaveTextContent(
+      'More on this storyline: Transit storyline',
+    );
     expect(screen.getByTestId('news-card-news-1')).toHaveAttribute(
       'data-storyline-id',
       'storyline-transit',
-    );
-    expect(screen.getByTestId('news-card-storyline-news-1')).toHaveTextContent(
-      'More on this storyline: Transit storyline',
     );
 
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));

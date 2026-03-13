@@ -39,6 +39,9 @@ export interface DiscoveryState {
   /** Add items without duplicates (merge by topic_id). */
   mergeItems(items: FeedItem[]): void;
 
+  /** Replace only the NEWS_STORY subset while preserving other feed kinds. */
+  syncNewsItems(items: FeedItem[]): void;
+
   /** Change the active filter chip. */
   setFilter(filter: FilterChip): void;
 
