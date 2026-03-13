@@ -4,12 +4,12 @@ import type { ClusterVectorBackend } from './vectorBackend';
 import { MemoryVectorBackend } from './vectorBackend';
 import { canDocumentAttachToExistingCluster, canDocumentParticipateInCanonicalCluster } from './documentPolicy';
 import { deriveClusterRecord, toStoredSource, upsertClusterRecord } from './clusterRecords';
+import { findExactSourceCluster } from './clusterSourceIdentity';
 import { clusterScoringConfig, buildCandidateMatch, candidateEligible } from './clusterScoring';
 import { projectStoryBundles } from './bundleProjection';
-import { applyPairReranks, applyPairJudgements, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
+import { applyPairJudgements, applyPairReranks, buildPairId, pairWorkItem, requireClusterProvider, shouldRequestPairJudgement } from './clusterJudgement';
 import { reconcileClusterTopology } from './clusterTopology';
 import { projectStorylineGroups } from './storylineProjection';
-
 export function recordProviderFallbackOutcome(
   providerAssignedDocs: number,
   providerRejectedDocs: number,
@@ -25,10 +25,7 @@ export function recordProviderFallbackOutcome(
   return { providerAssignedDocs, providerRejectedDocs: providerRejectedDocs + 1 };
 }
 
-export async function retrieveCandidates(
-  state: PipelineState,
-  vectorBackend: ClusterVectorBackend = new MemoryVectorBackend(),
-): Promise<PipelineState> {
+export async function retrieveCandidates(state: PipelineState, vectorBackend: ClusterVectorBackend = new MemoryVectorBackend()): Promise<PipelineState> {
   const clusters = state.topic_state.clusters;
   const clusterLookup = new Map(clusters.map((cluster) => [cluster.story_id, cluster]));
   await vectorBackend.replaceTopicClusters(state.topicId, clusters);
@@ -93,10 +90,7 @@ export function scoreCandidates(state: PipelineState): PipelineState {
     },
   };
 }
-export async function rerankCandidates(
-  state: PipelineState,
-  provider: StoryClusterModelProvider | undefined,
-): Promise<PipelineState> {
+export async function rerankCandidates(state: PipelineState, provider: StoryClusterModelProvider | undefined): Promise<PipelineState> {
   const clusterLookup = new Map(state.topic_state.clusters.map((cluster) => [cluster.story_id, cluster]));
   const rerankItems = state.documents.flatMap((document) =>
     document.candidate_matches.slice(0, 3).map((match) => {
@@ -202,7 +196,18 @@ export async function assignClusters(
   let providerAssignedDocs = 0;
   let providerRejectedDocs = 0;
   let relatedDocsDeferred = 0;
+  let exactSourceReuses = 0;
   for (const document of state.documents) {
+    const sourceDocuments = document.source_variants.map((variant) => toStoredSource(document, variant));
+    const exactSourceCluster = findExactSourceCluster(clusters.values(), document);
+    if (exactSourceCluster) {
+      const updated = upsertClusterRecord(exactSourceCluster, sourceDocuments);
+      clusters.set(updated.story_id, updated);
+      changedStoryIds.add(updated.story_id);
+      document.assigned_story_id = updated.story_id;
+      exactSourceReuses += 1;
+      continue;
+    }
     if (!canDocumentAttachToExistingCluster(document)) {
       document.assigned_story_id = undefined;
       relatedDocsDeferred += 1;
@@ -243,7 +248,6 @@ export async function assignClusters(
         ));
       }
     }
-    const sourceDocuments = document.source_variants.map((variant) => toStoredSource(document, variant));
     if (!accepted) {
       if (!canDocumentParticipateInCanonicalCluster(document)) {
         document.assigned_story_id = undefined;
@@ -287,6 +291,7 @@ export async function assignClusters(
         provider_assigned_docs: providerAssignedDocs,
         provider_rejected_docs: providerRejectedDocs,
         related_docs_deferred: relatedDocsDeferred,
+        exact_source_reuses: exactSourceReuses,
       },
     },
   };

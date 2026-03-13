@@ -64,6 +64,7 @@ function normalizeSourceDocument(document: StoredSourceDocument): StoredSourceDo
   return {
     ...document,
     doc_type: normalizeDocumentType(document.doc_type),
+    linked_entities: document.linked_entities ?? document.entities,
   };
 }
 

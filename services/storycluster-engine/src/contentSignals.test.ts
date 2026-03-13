@@ -123,6 +123,16 @@ describe('contentSignals', () => {
     expect(triggerCategory('drill')).toBe('preparedness');
   });
 
+  it('normalizes infrastructure-disruption and legal-verdict trigger families', () => {
+    expect(triggerCategory('forced')).toBe('infrastructure_disruption');
+    expect(triggerCategory('rerouted')).toBe('infrastructure_disruption');
+    expect(triggerCategory('continued')).toBe('infrastructure_disruption');
+    expect(triggerCategory('left')).toBe('infrastructure_disruption');
+    expect(triggerCategory('convicted')).toBe('legal_verdict');
+    expect(triggerCategory('guilty')).toBe('legal_verdict');
+    expect(triggerCategory('found')).toBe('legal_verdict');
+  });
+
   it('returns no trigger candidates for empty normalized text', () => {
     expect(extractTrigger('   ')).toBeNull();
   });

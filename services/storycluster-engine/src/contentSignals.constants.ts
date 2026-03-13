@@ -6,6 +6,11 @@ export const LANGUAGE_MAP: Record<string, string> = {
 export const ACTION_CATEGORIES = new Map<string, string>([
   ['attack', 'conflict'], ['attacks', 'conflict'], ['strike', 'conflict'], ['strikes', 'conflict'],
   ['bombing', 'conflict'], ['raid', 'conflict'], ['clash', 'conflict'], ['invasion', 'conflict'],
+  ['cyberattack', 'infrastructure_disruption'], ['ransomware', 'infrastructure_disruption'],
+  ['blackout', 'infrastructure_disruption'], ['outage', 'infrastructure_disruption'],
+  ['failure', 'infrastructure_disruption'], ['fails', 'infrastructure_disruption'], ['failed', 'infrastructure_disruption'],
+  ['forced', 'infrastructure_disruption'], ['rerouted', 'infrastructure_disruption'], ['reroute', 'infrastructure_disruption'],
+  ['left', 'infrastructure_disruption'], ['continued', 'infrastructure_disruption'], ['continues', 'infrastructure_disruption'],
   ['troop', 'military_posture'], ['troops', 'military_posture'], ['deploy', 'military_posture'],
   ['deploys', 'military_posture'], ['deployment', 'military_posture'], ['base', 'military_posture'],
   ['bases', 'military_posture'], ['carrier', 'military_posture'], ['missile', 'military_posture'],
@@ -22,6 +27,7 @@ export const ACTION_CATEGORIES = new Map<string, string>([
   ['market', 'economic'], ['stocks', 'economic'], ['slide', 'economic'], ['slides', 'economic'],
   ['cut', 'economic'], ['cuts', 'economic'], ['tariff', 'economic'], ['inflation', 'economic'],
   ['talks', 'diplomacy'], ['summit', 'diplomacy'], ['sanctions', 'diplomacy'], ['ceasefire', 'diplomacy'],
+  ['convicted', 'legal_verdict'], ['guilty', 'legal_verdict'], ['verdict', 'legal_verdict'], ['found', 'legal_verdict'],
 ]);
 
 export const TRIGGER_PRIORITY = new Map<string, number>([
@@ -30,6 +36,8 @@ export const TRIGGER_PRIORITY = new Map<string, number>([
   ['disaster', 5],
   ['preparedness', 5],
   ['legal', 4],
+  ['legal_verdict', 4],
+  ['infrastructure_disruption', 4],
   ['economic', 3],
   ['politics', 2],
   ['diplomacy', 1],

@@ -112,6 +112,37 @@ describe('runStoryClusterStagePipeline', () => {
     expect(second.bundles[0]?.cluster_window_end).toBeGreaterThan(first.bundles[0]!.cluster_window_end);
   });
 
+  it('does not mint a duplicate cluster when the same source document is reingested', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-repeat',
+        documents: [
+          makeDoc('doc-1', 'Port attack disrupts terminals overnight', 100, { entity_keys: ['port_attack'] }),
+        ],
+      },
+      { clock: makeClock(6_500), store },
+    );
+
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-repeat',
+        documents: [
+          makeDoc('doc-1', 'Port attack disrupts terminals overnight', 100, { entity_keys: ['port_attack'] }),
+        ],
+      },
+      { clock: makeClock(6_800), store },
+    );
+
+    const persisted = store.loadTopic('topic-repeat');
+    expect(persisted.clusters).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(
+      second.telemetry.stages.find((stage) => stage.stage_id === 'dynamic_cluster_assignment')?.artifact_counts.exact_source_reuses,
+    ).toBe(1);
+  });
+
   it('separates same-topic different-event coverage instead of false-merging', async () => {
     const store = new MemoryClusterStore();
     await runStoryClusterStagePipeline(

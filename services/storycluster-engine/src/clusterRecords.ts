@@ -33,6 +33,10 @@ function sumMap(items: readonly string[]): Record<string, number> {
   return scores;
 }
 
+function sourceEntityKeys(document: StoredSourceDocument): string[] {
+  return [...new Set([...document.entities, ...document.linked_entities].filter(Boolean))].sort();
+}
+
 function averageVectors(vectors: readonly number[][]): number[] {
   if (vectors.length === 0) {
     return [];
@@ -103,7 +107,7 @@ export function deriveClusterRecord(
     primary_language: sorted[0]?.language ?? 'en',
     translation_applied: sorted.some((document) => document.translation_applied),
     semantic_signature: sha256Hex(sorted.map((document) => document.semantic_signature).join('|'), 24),
-    entity_scores: sumMap(sorted.flatMap((document) => document.entities)),
+    entity_scores: sumMap(sorted.flatMap((document) => sourceEntityKeys(document))),
     location_scores: sumMap(sorted.flatMap((document) => document.locations)),
     trigger_scores: sumMap(sorted.flatMap((document) => (document.trigger ? [document.trigger] : []))),
     document_type_counts: docTypeCounts(sorted),
@@ -133,6 +137,7 @@ export function toStoredSource(document: WorkingDocument, variant: SourceVariant
     doc_type: document.doc_type,
     coverage_role: document.coverage_role,
     entities: document.entities,
+    linked_entities: document.linked_entities,
     locations: document.locations,
     trigger: document.trigger,
     temporal_ms: document.temporal_ms,

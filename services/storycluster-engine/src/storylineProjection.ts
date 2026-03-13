@@ -37,6 +37,7 @@ function relatedCoverageVariants(document: WorkingDocument): StoredSourceDocumen
       doc_type: document.doc_type,
       coverage_role: variant.coverage_role,
       entities: document.entities,
+      linked_entities: document.linked_entities,
       locations: document.locations,
       trigger: document.trigger,
       temporal_ms: document.temporal_ms,
