@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-03-13
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.1
+Version: 0.2
 Status: Canonical for Season 0
 Context: RSS ingest, normalization, clustering, and story bundle publication.
 
@@ -55,6 +55,7 @@ interface StoryBundle {
   schemaVersion: 'story-bundle-v0';
   story_id: string;
   topic_id: string;
+  storyline_id?: string;
   headline: string;
   summary_hint?: string;
   cluster_window_start: number;
@@ -67,10 +68,31 @@ interface StoryBundle {
     published_at?: number;
     title: string;
   }>;
+  primary_sources?: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    url_hash: string;
+    published_at?: number;
+    title: string;
+  }>;
+  secondary_assets?: Array<{
+    source_id: string;
+    publisher: string;
+    url: string;
+    url_hash: string;
+    published_at?: number;
+    title: string;
+  }>;
   cluster_features: {
     entity_keys: string[];
     time_bucket: string;
     semantic_signature: string;
+    coverage_score?: number;
+    velocity_score?: number;
+    confidence_score?: number;
+    primary_language?: string;
+    translation_applied?: boolean;
   };
   provenance_hash: string;
   created_at: number;
@@ -78,6 +100,7 @@ interface StoryBundle {
 ```
 
 `story_id` and `topic_id` must be stable for the same cluster window and feature set.
+`storyline_id`, when present, identifies a broader narrative grouping and must not widen canonical event-bundle membership.
 
 `created_at` contract:
 - `created_at` is the first-seen publish timestamp for a `story_id` and MUST remain immutable after initial publish.
@@ -96,12 +119,20 @@ Every story must preserve source-level provenance:
 - deterministic provenance hash over sorted source list
 
 No source URLs should be dropped from provenance if used in clustering/synthesis.
+Canonical event-bundle publication must remain strict even when related coverage is grouped elsewhere.
 
 ## 5. Mesh/storage paths
 
 - `vh/news/stories/<storyId>`
 - `vh/news/index/latest/<storyId>`
+- `vh/news/storylines/<storylineId>`
 - optional: `vh/news/source/<sourceId>/<itemId>` for debug snapshots
+
+Storyline publication contract:
+
+1. `StorylineGroup` objects may be published alongside canonical `StoryBundle`s;
+2. storyline groups are separate related-coverage artifacts and must not widen `StoryBundle.sources`;
+3. canonical source basis remains the `StoryBundle` event-bundle projection.
 
 ### 5.1 Latest-index migration contract (PR0 freeze)
 
@@ -129,3 +160,4 @@ Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest act
 2. Stable story ID generation for equivalent clusters.
 3. Provenance hash determinism.
 4. Multi-source cluster generation from overlapping feed items.
+5. Optional `storyline_id` and `StorylineGroup` publication do not widen canonical bundle membership.

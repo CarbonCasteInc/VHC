@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-03-13
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-12
-**Version:** 0.7.6 (Storyline discovery/navigation lanes merged; public semantic-soak readiness lane active)
-**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates, public-feed smoke-only soak lanes, explicit promotion-readiness evidence for public semantic runs, and browser-driven verification discipline for feed/discovery changes.
+**Last Updated:** 2026-03-13
+**Version:** 0.7.7 (Storyline shell/archive and public semantic-soak promotion scaffolding merged; promotion hardening still active)
+**Assessment:** Pre-production prototype. Wave 4 is closed; active work is precision-first StoryCluster hardening with fixture-backed blocking gates, public-feed smoke-only soak lanes, explicit readiness/promotion evidence for public semantic runs, and browser-driven verification discipline for feed/discovery/storyline changes.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -54,7 +54,7 @@ Current policy state:
   - soak artifacts now include a machine-readable promotion assessment with explicit readiness criteria and blocking reasons, so the lane can say "not ready to promote" concretely instead of relying on operator interpretation alone.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
-## StoryCluster Program Snapshot (2026-03-12)
+## StoryCluster Program Snapshot (2026-03-13)
 
 Current truth for the news bundler and feed hardening lane:
 
@@ -98,8 +98,10 @@ Current truth for the news bundler and feed hardening lane:
   - machine-readable density/trend summaries;
   - explicit promotion-readiness assessment with blocking reasons;
   - denser diagnostic artifacts for insufficient-bundle public runs.
-- The current active lane makes public semantic-soak readiness operational in the evidence path:
-  - promotion criteria are being hardened into explicit release-evidence semantics;
+- The current active lane is no longer basic readiness scaffolding. That scaffolding is already in force on `main`.
+- The current active work is public semantic-soak promotion hardening:
+  - make the readiness assessment operational as a release-evidence decision surface;
+  - keep public semantic runs smoke-only until the evidence actually justifies promotion;
   - no change to canonical bundle rules, canonical source basis, or fixture-backed blocking gates.
 - Storyline/discovery work is now expected to carry browser-driven verification, not only unit coverage:
   - local feed opens create history entries;
@@ -110,13 +112,13 @@ Current truth for the news bundler and feed hardening lane:
 
 ### StoryCluster Next Steps (Active)
 
-1. Make public semantic-soak promotion/readiness criteria operational in the evidence path:
-   - explicit machine-readable readiness status;
+1. Make public semantic-soak promotion criteria operational in the release evidence path:
+   - explicit readiness status;
    - explicit blocking reasons;
-   - no change to fixture-backed blocking gates until the evidence supports promotion.
+   - explicit threshold interpretation for promotion vs smoke-only posture.
 2. Keep expanding deterministic semantic fixtures and replay evidence before widening the live public semantic blocker.
-3. Continue hardening event identity under repeated ticks, source growth, and merge/split replay.
-4. Make Playwright/browser validation a standard release discipline for feed/discovery/storyline changes:
+3. Continue hardening event identity under repeated ticks, source growth, exact-source reuse, and merge/split replay.
+4. Keep Playwright/browser validation a standard release discipline for feed/discovery/storyline/vote changes:
    - record exact browser commands run;
    - treat fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof;
    - treat public semantic smoke as non-blocking evidence.
@@ -462,6 +464,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | Daemon-first StoryCluster production path | ✅ `services/news-aggregator/src/daemon.ts`, `packages/ai-engine/src/clusterEngine.ts` |
 | Stable `story_id` + canonical news `topic_id` contract | ✅ `services/storycluster-engine/src/remoteContract.ts`, `packages/gun-client/src/newsAdapters.ts` |
 | Publisher-normalized canonical source projection | ✅ `services/storycluster-engine/src/bundleProjection.ts` |
+| `StorylineGroup` publication | ✅ `services/news-aggregator/src/daemon.ts`, `packages/gun-client/src/storylineAdapters.ts` |
 | Fixture-backed semantic gate | ✅ `packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts` |
 | Public semantic soak | 🟡 Non-blocking smoke only |
 
@@ -481,6 +484,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | SocialNotificationCard (real data) | ✅ Wave 2 |
 | ArticleFeedCard | ✅ Wave 2 |
 | Discovery store + ranking | ✅ `store/discovery/` |
+| Storyline focus shell + archive presentation | ✅ `components/feed/FeedShell.tsx`, `components/feed/StorylineFocusPanel.tsx` |
 | Fixture-backed integrity gate | ✅ `packages/e2e/src/live/daemon-first-feed-integrity.live.spec.ts` |
 | Fixture-backed semantic gate | ✅ `packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts` |
 | Public semantic soak | 🟡 Evidence-bearing smoke only |

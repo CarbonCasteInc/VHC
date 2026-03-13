@@ -2,21 +2,23 @@
 
 > Status: Season Scope Contract
 > Owner: VHC Product + Architecture
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-03-13
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/System_Architecture.md
 
 
 **Purpose:** one **single tree** that gives **frontend + backend** devs the full picture (UX surfaces + contracts + privacy boundaries + gates).
 **Stance:** **Design & build for Synthesis V2**. Anything labeled V1 is **legacy/compat only**.
 **Legend:** ✅ Implemented · 🟡 Partial · 🔴 Stubbed · ⚪ Planned
-**Last updated:** 2026-02-15
+**Last updated:** 2026-03-13
+
+> Implementation-truth note: this document is season scope and target framing, not the current implementation ledger. For actual merged state and drift notes, use `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`.
 
 ---
 
 - **TRINITY Bio-Economic OS (Season 0)** - UX: "clean news + structured disagreement + legible recognition"; Tech: local-first identity + edge AI + mesh + economic rails
   - **Non-negotiables (Product / UX / Policy)**
     - **A - V2-first synthesis**: quorum + epochs + divergence; V1 is legacy/compat only
-    - **B - Topics feed has 3 surfaces**: **News**, **Topics/Threads**, **Linked-Social Notifications**
+    - **B - Unified feed spans the current Season 0 surfaces**: **News**, **Topics/Threads**, **Linked-Social Notifications**, **Articles**, and **Action Receipts** (All filter only)
     - **C - Elevation to projects**: News/Topics/Articles can be nominated; thresholds → auto-draft brief + proposal scaffold; users can forward to reps via email/phone
     - **D - Reddit-like thread mechanics**: sort New/Top; peer-votes affect visibility; Reply ≤ **240 chars**; overflow → "Convert to Article" (Docs)
     - **E - Collaborative docs**: multi-author E2EE P2P drafting; private iteration → publish to feed
@@ -50,11 +52,13 @@
 
   - **User-visible UI surfaces (front-end map)** 🟡
     - **App Shell / Navigation** ✅ - UX: stable app frame; boot/hydrate before high-impact actions
-    - **Unified Topics Feed (3 surfaces)** 🟡 - UX: one stream; filter chips: All / News / Topics / Social; sort: Latest / Hottest / My Activity
+    - **Unified Topics Feed** 🟡 - UX: one stream; filter chips: All / News / Topics / Social / Articles; sort: Latest / Hottest / My Activity
       - **TopicCard (shared)** 🟡 - UX: headline/title + category tags + 👁 Eye + 💡 Lightbulb + comment count
-      - **NewsCard (clustered story)** ⚪ - UX: **one headline = one story** synthesized across outlets; tap opens TopicDetail
+      - **NewsCard (clustered story)** 🟡 - UX: **one headline = one story** synthesized across outlets; tap opens TopicDetail
       - **TopicCard (user topic/thread)** 🟡 - UX: looks like news once discussion is rich enough (summary + frames + thread)
       - **SocialNotificationCard** 🟡 - UX: platform badge; tap expands to embedded platform view; swipe-left returns & dismisses card (real-data rendering landed Wave 2 Gamma P3)
+      - **ArticleFeedCard** 🟡 - UX: docs-backed longform in the same discovery stream
+      - **Action receipts** 🟡 - UX: civic-action confirmations appear in `All` only
     - **Topic Detail ("one object, two lenses")** 🟡 - UX: synthesis up top; conversation below; stable, readable, non-churny
       - **Synthesis Panel (V2)** ⚪/🟡 - UX: "just-the-reported-facts" + Frame/Reframe table; epoch badge; warnings if sources disagree
       - **Frame/Reframe Table (stance grid)** 🟡 - UX: per row: Agree (+1) / Neutral (0) / Disagree (-1); toggles are 3-state, no spam
@@ -87,8 +91,9 @@
       - `thread` (always present): Thread carries `{ topicId, isHeadline, sourceUrl?, urlHash? }` ✅
       - `synthesis` (latest): `{ schemaVersion:'topic-synthesis-v2', epoch, synthesisId }` ⚪
       - `metrics`: `{ eye, lightbulb, comments, hotness }` 🟡
-    - **News story clustering (Aggregator → StoryBundle)** ⚪ - Tech: 1 story = many sources; UX: 1 headline in feed
+    - **News story clustering (Aggregator → StoryBundle)** 🟡 - Tech: 1 story = many sources; UX: 1 headline in feed
       - RSS ingest → normalize → cluster → **StoryBundle** (sources + dedup)
+      - `StorylineGroup` is separate from canonical event bundles and supports related-coverage grouping/navigation
       - Synthesis input is **all reporting** on the story (not a single URL)
       - Frames/counterframes come from bias/perspective patterns *across outlets* (plus thread digest)
     - **Topic Synthesis V2 (epochal + quorum)** ⚪/🟡 - UX: stable "versioned" updates, not constant churn
@@ -162,6 +167,8 @@
 
   - **Implementation reality check (what exists today vs target)** 🟡
     - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
+    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; public semantic soak is still smoke-only
+    - **Discovery feed / storyline UX** 🟡 - storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)
     - **HERMES Docs** 🟡 — foundation + CollabEditor wired into ArticleEditor (flag-gated; Wave 2 Beta + Wave 3)  

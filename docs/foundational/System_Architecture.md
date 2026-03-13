@@ -2,7 +2,7 @@
 
 > Status: Architecture Contract
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-03-13
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/TRINITY_Season0_SoT.md
 
 
@@ -87,15 +87,17 @@ Functions:
 
 ### 3.1 Unified feed
 
-Feed contains three surfaces:
+Feed contains five source surfaces:
 
 1. News (clustered stories)
 2. Topics (user-born/evolving discussions)
 3. Linked-social notifications
+4. Articles (docs-backed long-form)
+5. Civic action receipts (All filter only)
 
 Feed controls:
 
-- filters: `All`, `News`, `Topics`, `Social`
+- filters: `All`, `News`, `Topics`, `Social`, `Articles`
 - sort modes: `Latest`, `Hottest`, `My Activity`
 
 ### 3.2 Topic detail (single object, two lenses)
@@ -148,7 +150,7 @@ type TopicId = string;
 
 interface TopicRef {
   topic_id: TopicId;
-  kind: 'NEWS_STORY' | 'USER_TOPIC' | 'SOCIAL_NOTIFICATION';
+  kind: 'NEWS_STORY' | 'USER_TOPIC' | 'SOCIAL_NOTIFICATION' | 'ARTICLE' | 'ACTION_RECEIPT';
 }
 ```
 
@@ -163,10 +165,25 @@ Notes:
 interface StoryBundle {
   story_id: string;
   topic_id: TopicId;
+  storyline_id?: string;
   headline: string;
-  canonical_window_start: number;
-  canonical_window_end: number;
+  cluster_window_start: number;
+  cluster_window_end: number;
   sources: Array<{
+    source_id: string;
+    url: string;
+    publisher: string;
+    published_at: number;
+    url_hash: string;
+  }>;
+  primary_sources?: Array<{
+    source_id: string;
+    url: string;
+    publisher: string;
+    published_at: number;
+    url_hash: string;
+  }>;
+  secondary_assets?: Array<{
     source_id: string;
     url: string;
     publisher: string;
@@ -177,6 +194,8 @@ interface StoryBundle {
   provenance_hash: string;
 }
 ```
+
+`StorylineGroup` is now a separate published runtime contract used for related coverage grouping and discovery diversification. It does not widen canonical `StoryBundle` membership.
 
 ### 5.3 Topic digest
 

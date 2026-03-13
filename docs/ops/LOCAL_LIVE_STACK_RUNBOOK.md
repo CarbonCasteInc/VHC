@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-03-13
 > Depends On: docs/foundational/STATUS.md, docs/CANON_MAP.md
 
 
@@ -87,6 +87,11 @@ Use this checklist during manual browser validation:
 10. Opening storyline focus from the feed writes `?storyline=<id>` into route state and survives reload.
 11. Route-driven storyline focus shows a clear action only.
 12. Feed-opened storyline focus shows explicit `Back` and `Clear storyline` actions, and `Back` returns to the prior route state.
+13. Archive-child selection inside the storyline archive writes route/search state and restores the selected child on reload.
+14. Review the latest public semantic-soak artifact for:
+   - `readinessStatus`
+   - `promotionBlockingReasons`
+   - `promotionAssessment`
 
 ## Release Gate Wiring
 

@@ -1,5 +1,12 @@
 # STORYCLUSTER Cluster Execution Status — 2026-03-04
 
+> Superseded historical execution report.
+> Do not use this document as current implementation truth or release status.
+> Current truth sources:
+> - `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`
+> - `/Users/bldt/Desktop/VHC/VHC/docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
+> - `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_IMPLEMENTATION_TICKET_STACK.md`
+
 ## Kickoff (PR0)
 
 - Branch: `coord/storycluster-pr0-contract-freeze`

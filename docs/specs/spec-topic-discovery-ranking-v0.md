@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-03-13
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.3
+Version: 0.5
 Status: Canonical for Season 0
 Context: Unified feed composition across News, Topics, Social, Articles, and Civic Action surfaces.
 
@@ -41,9 +41,11 @@ type FeedKind =
 
 interface FeedItem {
   story_id?: string; // NEWS_STORY canonical identity when available
+  storyline_id?: string;
   topic_id: string;
   kind: FeedKind;
   title: string;
+  entity_keys?: string[];
   created_at: number;
   latest_activity_at: number;
   hotness: number;
@@ -83,6 +85,10 @@ interface FeedItem {
 
 - sort by `hotness` desc
 - hotness should combine recency + engagement signals deterministically
+- apply deterministic storyline-aware diversification in the top window:
+  - cap same-`storyline_id` crowding in the hottest window;
+  - prefer promoting tail candidates rather than allowing one storyline to dominate adjacent slots;
+  - fallback grouping should prefer `storyline_id` and `entity_keys` over generic recap-title overlap.
 
 `My Activity`:
 
@@ -153,3 +159,4 @@ Cross-ref: `docs/specs/topic-synthesis-v2.md` for full `TopicSynthesisV2` schema
 | 0.2 | Wave 2 | Added `ARTICLE` kind, `ARTICLES` filter chip, `title` field on FeedItem |
 | 0.3 | Wave 3 | Added `ACTION_RECEIPT` kind (All filter only), documented filter-to-kind mapping |
 | 0.4 | Wave 3 | Added synthesis enrichment for USER_TOPIC cards (§8), viewport-aware hydration |
+| 0.5 | 2026-03-13 | Added optional `storyline_id`/`entity_keys` to `FeedItem` and documented storyline-aware HOTTEST diversification |

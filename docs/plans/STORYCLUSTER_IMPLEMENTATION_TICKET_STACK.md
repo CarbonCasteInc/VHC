@@ -2,9 +2,9 @@
 
 Status: Canonical ticket stack
 Owner: Core Engineering
-Last Updated: 2026-03-12
+Last Updated: 2026-03-13
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `main` @ `e1ae978`
+Branch Baseline: `main` @ `15e1599`
 
 ## 1. Usage
 
@@ -32,7 +32,7 @@ Every PR in this stack must:
    - any benchmark deltas;
    - any live or replay artifacts added.
 
-## 2.1 Execution Snapshot (2026-03-12)
+## 2.1 Execution Snapshot (2026-03-13)
 
 Completed or functionally in-force:
 
@@ -60,14 +60,16 @@ Completed or functionally in-force:
 13. SC-12 analysis and vote integrity, at the current fixture-backed gate scope
 14. public semantic-soak density/trend diagnostics and machine-readable promotion-assessment scaffolding are in force on `main`
 15. taxonomy normalization across StoryCluster code, fixtures, telemetry, and docs is in force on `main`
+16. vote aggregate live-refresh and stale-read hardening is in force on `main`
+17. discovery sync and HOTTEST storyline-cap diversification is in force on `main`
 
 Active next implementation lane:
 
-1. public semantic-soak readiness / promotion criteria operationalization
+1. public semantic-soak promotion/readiness criteria operationalization
 2. immediate focus:
-   - turn promotion readiness into explicit release evidence, not operator inference
+   - turn the current promotion assessment into an explicit release decision surface, not operator inference
    - keep public semantic runs smoke-only until readiness criteria are truly met
-   - no change to canonical bundle rules, canonical source basis, or bias-table basis
+   - keep canonical bundle rules, canonical source basis, and bias-table basis unchanged
 
 Queued after the readiness lane:
 
