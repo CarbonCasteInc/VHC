@@ -176,8 +176,10 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   votingEnabled = false,
 }) => {
   const hasExplicitSynthesisContext = synthesisId !== undefined && epoch !== undefined;
-  const fallbackSynthesisId = analysisId ?? topicId;
-  const effectiveSynthesisId = synthesisId ?? fallbackSynthesisId;
+  const stableVotingContextId = hasExplicitSynthesisContext
+    ? synthesisId
+    : analysisId;
+  const effectiveSynthesisId = stableVotingContextId;
   const effectiveEpoch = epoch ?? 0;
   const hasVotingContext = Boolean(
     votingEnabled &&
@@ -208,13 +210,14 @@ export const BiasTable: React.FC<BiasTableProps> = ({
       epoch: epoch ?? null,
       effective_synthesis_id: effectiveSynthesisId ?? null,
       effective_epoch: hasVotingContext ? effectiveEpoch : null,
+      stable_voting_context_id: stableVotingContextId ?? null,
       context_source: hasExplicitSynthesisContext
-        ? 'synthesis'
+        ? stableVotingContextId
+          ? 'synthesis'
+          : 'none'
         : analysisId
           ? 'analysis-fallback'
-          : topicId
-            ? 'topic-fallback'
-            : 'none',
+          : 'none',
       frame_rows: frames.length,
       expected_point_mappings: expectedPointMappings,
       legacy_point_mappings: Object.keys(legacyPointIds).length,
@@ -240,6 +243,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
     hasExplicitSynthesisContext,
     hasVotingContext,
     legacyPointIds,
+    stableVotingContextId,
     synthesisId,
     synthesisPointIds,
     topicId,

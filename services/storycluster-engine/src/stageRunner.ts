@@ -40,6 +40,9 @@ function resolveModelProvider(
   if (provider) {
     return provider;
   }
+  if (process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER === 'true') {
+    return createDeterministicTestModelProvider();
+  }
   if (process.env.NODE_ENV === 'test') {
     return createDeterministicTestModelProvider();
   }

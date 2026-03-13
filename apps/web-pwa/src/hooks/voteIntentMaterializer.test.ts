@@ -5,6 +5,7 @@ import { PointAggregateSnapshotV1Schema, type VoteIntentRecord } from '@vh/data-
 import type { VennClient } from '@vh/gun-client';
 import * as GunClient from '@vh/gun-client';
 import * as ClientResolver from '../store/clientResolver';
+import * as SentimentTelemetry from '../utils/sentimentTelemetry';
 import * as VoteIntentQueue from './voteIntentQueue';
 import { enqueueIntent, getPendingIntents } from './voteIntentQueue';
 import {
@@ -35,11 +36,13 @@ describe('voteIntentMaterializer', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+    voteIntentMaterializerInternal.clearReplayRetryTimer();
   });
 
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+    voteIntentMaterializerInternal.clearReplayRetryTimer();
   });
 
   it('materializePointSnapshot is deterministic for replay (order-independent)', () => {
@@ -216,6 +219,7 @@ describe('voteIntentMaterializer', () => {
   it('replayVoteIntentQueue replaces existing voter row when incoming record wins LWW', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const meshWriteSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
 
     vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([
       {
@@ -264,11 +268,55 @@ describe('voteIntentMaterializer', () => {
         source_window: { from_seq: 100, to_seq: 100 },
       }),
     );
+    expect(meshWriteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        success: true,
+        voter_node_ok: true,
+        snapshot_ok: true,
+      }),
+    );
   });
 
-  it('replayVoteIntentQueue recovers aggregate-put-ack-timeout when voter-node readback confirms persistence', async () => {
+  it('replayVoteIntentQueue normalizes negative emitted_at values during projection writes', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const meshWriteSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    const writeVoterNodeSpy = vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(0).toISOString(),
+    });
+    vi.spyOn(GunClient, 'writePointAggregateSnapshot')
+      .mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
+
+    enqueueIntent(makeIntent({
+      intent_id: 'negative-emitted-at',
+      seq: -10,
+      emitted_at: -10,
+    }));
+
+    await expect(replayVoteIntentQueue({ limit: 10, now: () => 500 })).resolves.toEqual({ replayed: 1, failed: 0 });
+    expect(writeVoterNodeSpy).toHaveBeenCalledWith(
+      client,
+      'topic-1',
+      'synth-1',
+      1,
+      'voter-1',
+      expect.objectContaining({ updated_at: new Date(0).toISOString() }),
+    );
+    expect(meshWriteSpy).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+  });
+
+  it('replayVoteIntentQueue keeps intent pending after timeout recovery until a later acknowledged replay', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const meshWriteSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
 
     vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
     vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
@@ -295,7 +343,7 @@ describe('voteIntentMaterializer', () => {
 
     const result = await replayVoteIntentQueue({ limit: 10, now: () => 500 });
 
-    expect(result).toEqual({ replayed: 1, failed: 0 });
+    expect(result).toEqual({ replayed: 0, failed: 1 });
     expect(writeSnapshotSpy).toHaveBeenCalledWith(
       client,
       expect.objectContaining({
@@ -304,6 +352,7 @@ describe('voteIntentMaterializer', () => {
         participants: 1,
       }),
     );
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-recovered']);
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:intent-replay:timeout-recovered]',
       expect.objectContaining({
@@ -313,6 +362,18 @@ describe('voteIntentMaterializer', () => {
         point_id: 'point-1',
         voter_id: 'voter-timeout',
         intent_id: 'timeout-recovered',
+      }),
+    );
+    expect(meshWriteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        success: false,
+        timed_out: true,
+        voter_node_ok: true,
+        snapshot_ok: true,
+        readback_recovered: true,
+        error: 'aggregate-write-needs-replay',
       }),
     );
   });
@@ -348,7 +409,7 @@ describe('voteIntentMaterializer', () => {
     expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-stale']);
   });
 
-  it('replayVoteIntentQueue treats string timeout errors as recoverable when readback matches', async () => {
+  it('replayVoteIntentQueue keeps string timeout recoveries pending until a later acknowledged replay', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
 
@@ -376,9 +437,9 @@ describe('voteIntentMaterializer', () => {
 
     const result = await replayVoteIntentQueue({ limit: 10, now: () => 501 });
 
-    expect(result).toEqual({ replayed: 1, failed: 0 });
+    expect(result).toEqual({ replayed: 0, failed: 1 });
     expect(writeSnapshotSpy).toHaveBeenCalledTimes(1);
-    expect(getPendingIntents()).toHaveLength(0);
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-string-recovered']);
   });
 
   it('replayVoteIntentQueue keeps intent pending when timeout readback point_id mismatches', async () => {
@@ -501,6 +562,32 @@ describe('voteIntentMaterializer', () => {
     expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['non-timeout-error']);
   });
 
+  it('replayVoteIntentQueue logs string failure payloads from projection errors', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const meshWriteSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
+
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue('string-write-fail');
+
+    enqueueIntent(makeIntent({
+      intent_id: 'string-hard-fail',
+      voter_id: 'voter-string-hard-fail',
+    }));
+
+    await expect(replayVoteIntentQueue({ limit: 10, now: () => 506 })).resolves.toEqual({ replayed: 0, failed: 1 });
+    expect(meshWriteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        success: false,
+        error: 'string-write-fail',
+        timed_out: false,
+      }),
+    );
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['string-hard-fail']);
+  });
+
   it('replayVoteIntentQueue uses default replay limit when none is provided', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
@@ -508,6 +595,36 @@ describe('voteIntentMaterializer', () => {
 
     await expect(replayVoteIntentQueue({ client, now: () => 1 })).resolves.toEqual({ replayed: 0, failed: 0 });
     expect(replaySpy).toHaveBeenCalledWith(expect.any(Function), { limit: 25 });
+  });
+
+  it('replayVoteIntentQueue falls back to Date.now when no now override is provided', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(100).toISOString(),
+    });
+    const writeSnapshotSpy = vi
+      .spyOn(GunClient, 'writePointAggregateSnapshot')
+      .mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(777);
+
+    try {
+      enqueueIntent(makeIntent({ intent_id: 'default-now', seq: 100, emitted_at: 100 }));
+      await expect(replayVoteIntentQueue({ client, limit: 10 })).resolves.toEqual({ replayed: 1, failed: 0 });
+      expect(writeSnapshotSpy).toHaveBeenCalledWith(
+        client,
+        expect.objectContaining({
+          computed_at: 777,
+        }),
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   it('scheduleVoteIntentReplay coalesces while replay is already in flight', async () => {
@@ -568,6 +685,34 @@ describe('voteIntentMaterializer', () => {
     } finally {
       warnSpy.mockRestore();
       infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('clearReplayRetryTimer cancels a pending retry timer', async () => {
+    vi.useFakeTimers();
+    const callback = vi.fn();
+
+    try {
+      voteIntentMaterializerInternal.armReplayRetryTimerForTest(callback, 1000);
+      voteIntentMaterializerInternal.clearReplayRetryTimer();
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(callback).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('armReplayRetryTimerForTest invokes the callback and clears its handle when allowed to fire', async () => {
+    vi.useFakeTimers();
+    const callback = vi.fn();
+
+    try {
+      voteIntentMaterializerInternal.armReplayRetryTimerForTest(callback, 1000);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(callback).toHaveBeenCalledTimes(1);
+      voteIntentMaterializerInternal.clearReplayRetryTimer();
+    } finally {
       vi.useRealTimers();
     }
   });

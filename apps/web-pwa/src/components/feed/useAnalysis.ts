@@ -18,7 +18,7 @@ import {
 } from '../dev/DevModelPicker';
 
 const ANALYSIS_TIMEOUT_MS = 60_000;
-const ANALYSIS_PENDING_WAIT_WINDOW_MS = 35_000;
+const ANALYSIS_PENDING_WAIT_WINDOW_DEFAULT_MS = 35_000;
 const ANALYSIS_PENDING_POLL_INTERVAL_MS = 1_500;
 const ANALYSIS_BUDGET_KEY = 'vh_analysis_budget';
 const DEFAULT_ANALYSIS_BUDGET_LIMIT = 20;
@@ -44,8 +44,28 @@ export interface UseAnalysisResult {
   retry: () => void;
 }
 
+function readEnvVar(name: string): string | undefined {
+  try {
+    const fromImportMeta = (import.meta as any).env?.[name];
+    if (typeof fromImportMeta === 'string') {
+      return fromImportMeta;
+    }
+  } catch {
+    // ignore import.meta env access failures
+  }
+
+  if (typeof process !== 'undefined') {
+    const fromProcess = process?.env?.[name];
+    if (typeof fromProcess === 'string') {
+      return fromProcess;
+    }
+  }
+
+  return undefined;
+}
+
 function isAnalysisPipelineEnabled(): boolean {
-  return import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
+  return readEnvVar('VITE_VH_ANALYSIS_PIPELINE') === 'true';
 }
 
 function todayIsoDate(): string {
@@ -58,7 +78,7 @@ function getModelScopeKey(): string {
 }
 
 function getAnalysisBudgetLimit(): number {
-  const rawLimit = import.meta.env.VITE_VH_ANALYSIS_DAILY_LIMIT;
+  const rawLimit = readEnvVar('VITE_VH_ANALYSIS_DAILY_LIMIT');
 
   if (!rawLimit || rawLimit.trim().length === 0) {
     return DEFAULT_ANALYSIS_BUDGET_LIMIT;
@@ -71,6 +91,28 @@ function getAnalysisBudgetLimit(): number {
 
   return Math.max(0, Math.floor(parsed));
 }
+
+function resolvePendingWaitWindowMs(): number {
+  let raw: unknown;
+  try {
+    raw = (import.meta as any).env?.VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS;
+  } catch {
+    raw = undefined;
+  }
+
+  if ((raw === undefined || raw === null || raw === '') && typeof process !== 'undefined') {
+    raw = process.env?.VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return ANALYSIS_PENDING_WAIT_WINDOW_DEFAULT_MS;
+  }
+
+  return Math.max(250, Math.floor(parsed));
+}
+
+const ANALYSIS_PENDING_WAIT_WINDOW_MS = resolvePendingWaitWindowMs();
 
 function readBudgetState(): AnalysisBudgetState {
   const today = todayIsoDate();
@@ -449,3 +491,8 @@ export function useAnalysis(story: StoryBundle | null, enabled: boolean): UseAna
     retry,
   };
 }
+
+export const useAnalysisInternal = {
+  resolvePendingWaitWindowMs,
+  remainingTimeoutBudgetMs,
+};

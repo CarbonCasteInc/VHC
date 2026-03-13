@@ -28,12 +28,14 @@ const analysisStubPort = Number(process.env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT);
 const analysisStubBaseUrl = `http://127.0.0.1:${analysisStubPort}`;
 const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
 const useFixtureAnalysisStub = useFixtureFeed && process.env.VH_DAEMON_FEED_USE_ANALYSIS_STUB !== 'false';
+process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER ??= useFixtureFeed ? 'true' : 'false';
 const relayRootDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId, 'relay');
 const relayDataPath = path.join(relayRootDir, 'data');
 const relayServerPath = path.resolve(process.cwd(), '../../infra/relay/server.js');
 const fixtureServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-fixtures.mjs');
 const qdrantServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-qdrant-stub.mjs');
 const analysisStubServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-analysis-stub.mjs');
+const cleanupServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-process-cleanup.mjs');
 
 process.env.VH_STORYCLUSTER_QDRANT_URL ??= qdrantBaseUrl;
 process.env.QDRANT_URL ??= qdrantBaseUrl;
@@ -222,6 +224,7 @@ const localWebServers: TestConfig['webServer'] = [
       `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
       `rm -rf ../../.tmp/e2e-daemon-feed/${runId}`,
       `mkdir -p ${JSON.stringify(relayRootDir)}`,
+      `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} || true`,
       `GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
     ].join(' && '),
     url: `http://127.0.0.1:${gunPort}`,
@@ -240,6 +243,10 @@ const localWebServers: TestConfig['webServer'] = [
     env: {
       VITE_E2E_MODE: 'false',
       VITE_VH_ANALYSIS_PIPELINE: 'true',
+      VITE_VH_ANALYSIS_SKIP_ARTICLE_TEXT:
+        useFixtureAnalysisStub ? 'true' : 'false',
+      VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS:
+        useFixtureAnalysisStub ? '1500' : process.env.VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS,
       VITE_NEWS_BRIDGE_ENABLED: 'true',
       VITE_NEWS_RUNTIME_ENABLED: 'false',
       VITE_NEWS_RUNTIME_ROLE: 'consumer',

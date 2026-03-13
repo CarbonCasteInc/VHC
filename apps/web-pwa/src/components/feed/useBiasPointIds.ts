@@ -60,13 +60,7 @@ export function useBiasPointIds({
     [analysisId],
   );
 
-  const shouldDeriveLegacyIds = !!(
-    votingEnabled &&
-    topicId &&
-    synthesisId &&
-    epoch !== undefined &&
-    analysisContext
-  );
+  const shouldDeriveLegacyIds = !!(votingEnabled && analysisContext);
 
   const shouldDeriveSynthesisIds = !!(
     votingEnabled &&

@@ -30,6 +30,8 @@ interface ImportMetaEnv {
   readonly VITE_IDB_ROOT_SECRET?: string;
   readonly VITE_IDB_ROOT_SALT?: string;
   readonly VITE_VH_ANALYSIS_PIPELINE?: 'true' | 'false';
+  readonly VITE_VH_ANALYSIS_SKIP_ARTICLE_TEXT?: 'true' | 'false';
+  readonly VITE_VH_ANALYSIS_PENDING_WAIT_WINDOW_MS?: string;
 }
 
 interface ImportMeta {

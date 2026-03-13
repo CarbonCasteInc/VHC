@@ -392,6 +392,7 @@ describe('useAnalysis', () => {
     expect(canAnalyze()).toBe(false);
     expect(localStorage.getItem('vh_analysis_budget')).not.toBeNull();
   });
+
   it('budget governor resets when stored date is stale or malformed', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-02-18T00:00:00Z'));
