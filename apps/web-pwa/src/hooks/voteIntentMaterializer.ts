@@ -1,5 +1,4 @@
 import {
-  POINT_AGGREGATE_SNAPSHOT_VERSION,
   type PointAggregateSnapshotV1,
   type VoteIntentRecord,
 } from '@vh/data-model';
@@ -13,6 +12,11 @@ import {
   type VennClient,
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
+import {
+  materializePointSnapshotFromRows,
+  normalizeAggregateNumber,
+  normalizeAggregateTimestampMs,
+} from './pointAggregateSnapshot';
 import { getPendingIntents, replayPendingIntents } from './voteIntentQueue';
 
 interface PointTuple {
@@ -47,21 +51,6 @@ function pointTupleMatches(tuple: PointTuple, record: VoteIntentRecord): boolean
   );
 }
 
-function normalizeNonNegativeInt(value: number): number {
-  if (!Number.isFinite(value) || value < 0) {
-    return 0;
-  }
-  return Math.floor(value);
-}
-
-function normalizeMaybeTimestampMs(value: string): number {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return 0;
-  }
-  return Math.floor(parsed);
-}
-
 function isAckTimeoutError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return message.includes('aggregate-put-ack-timeout');
@@ -85,8 +74,8 @@ function matchesRecoveredIntentNode(params: {
     return false;
   }
 
-  const recoveredUpdatedAtMs = normalizeMaybeTimestampMs(params.recovered.updated_at);
-  const incomingSeq = normalizeNonNegativeInt(params.record.seq);
+  const recoveredUpdatedAtMs = normalizeAggregateTimestampMs(params.recovered.updated_at);
+  const incomingSeq = normalizeAggregateNumber(params.record.seq);
   return recoveredUpdatedAtMs >= incomingSeq;
 }
 
@@ -101,7 +90,7 @@ function compareIntentLww(a: VoteIntentRecord, b: VoteIntentRecord): number {
 }
 
 function rowToIntent(row: AggregateVoterPointRow, tuple: PointTuple): VoteIntentRecord {
-  const normalizedSeq = normalizeNonNegativeInt(row.updated_at_ms);
+  const normalizedSeq = normalizeAggregateNumber(row.updated_at_ms);
   return {
     intent_id: `materialized:${tuple.topic_id}:${tuple.synthesis_id}:${tuple.epoch}:${tuple.point_id}:${row.voter_id}:${normalizedSeq}`,
     voter_id: row.voter_id,
@@ -115,35 +104,6 @@ function rowToIntent(row: AggregateVoterPointRow, tuple: PointTuple): VoteIntent
     seq: normalizedSeq,
     emitted_at: normalizedSeq,
   };
-}
-
-function computeAggregateFromWinners(records: readonly VoteIntentRecord[]): {
-  agree: number;
-  disagree: number;
-  participants: number;
-  weight: number;
-} {
-  let agree = 0;
-  let disagree = 0;
-  let participants = 0;
-  let weight = 0;
-
-  for (const record of records) {
-    if (record.agreement === 1) {
-      agree += 1;
-      participants += 1;
-      weight += record.weight;
-      continue;
-    }
-
-    if (record.agreement === -1) {
-      disagree += 1;
-      participants += 1;
-      weight += record.weight;
-    }
-  }
-
-  return { agree, disagree, participants, weight };
 }
 
 export function materializePointSnapshot(params: {
@@ -162,44 +122,28 @@ export function materializePointSnapshot(params: {
     }
   }
 
-  const winners = [...lwwByVoter.values()].sort((a, b) => a.voter_id.localeCompare(b.voter_id));
-  const aggregate = computeAggregateFromWinners(winners);
+  const winnerRows = [...lwwByVoter.values()]
+    .sort((a, b) => a.voter_id.localeCompare(b.voter_id))
+    .map((record) => {
+      const updatedAtMs = normalizeAggregateNumber(record.seq);
+      return {
+        voter_id: record.voter_id,
+        node: {
+          point_id: params.tuple.point_id,
+          agreement: record.agreement,
+          weight: record.weight,
+          updated_at: new Date(updatedAtMs).toISOString(),
+        },
+        updated_at_ms: updatedAtMs,
+      } satisfies AggregateVoterPointRow;
+    });
 
-  const localFromSeq = winners.length > 0
-    ? Math.min(...winners.map((record) => normalizeNonNegativeInt(record.seq)))
-    : normalizeNonNegativeInt(params.previousSnapshot?.source_window.from_seq ?? 0);
-  const localToSeq = winners.length > 0
-    ? Math.max(...winners.map((record) => normalizeNonNegativeInt(record.seq)))
-    : normalizeNonNegativeInt(params.previousSnapshot?.source_window.to_seq ?? 0);
-
-  const sourceWindow = {
-    from_seq: params.previousSnapshot
-      ? Math.min(normalizeNonNegativeInt(params.previousSnapshot.source_window.from_seq), localFromSeq)
-      : localFromSeq,
-    to_seq: params.previousSnapshot
-      ? Math.max(normalizeNonNegativeInt(params.previousSnapshot.source_window.to_seq), localToSeq)
-      : localToSeq,
-  };
-
-  const version = Math.max(
-    normalizeNonNegativeInt(params.previousSnapshot?.version ?? 0),
-    sourceWindow.to_seq,
-  );
-
-  return {
-    schema_version: POINT_AGGREGATE_SNAPSHOT_VERSION,
-    topic_id: params.tuple.topic_id,
-    synthesis_id: params.tuple.synthesis_id,
-    epoch: params.tuple.epoch,
-    point_id: params.tuple.point_id,
-    agree: aggregate.agree,
-    disagree: aggregate.disagree,
-    weight: aggregate.weight,
-    participants: aggregate.participants,
-    version,
-    computed_at: normalizeNonNegativeInt(params.computedAtMs ?? Date.now()),
-    source_window: sourceWindow,
-  };
+  return materializePointSnapshotFromRows({
+    tuple: params.tuple,
+    rows: winnerRows,
+    previousSnapshot: params.previousSnapshot,
+    computedAtMs: params.computedAtMs,
+  });
 }
 
 async function projectIntentRecord(
@@ -223,7 +167,7 @@ async function projectIntentRecord(
   const nextRows = [...currentRows];
 
   if (incomingWins) {
-    const updatedAtIso = new Date(normalizeNonNegativeInt(record.emitted_at)).toISOString();
+    const updatedAtIso = new Date(normalizeAggregateNumber(record.emitted_at)).toISOString();
     let nextRow: AggregateVoterPointRow | null = null;
 
     try {
@@ -242,7 +186,7 @@ async function projectIntentRecord(
           weight: record.weight,
           updated_at: updatedAtIso,
         },
-        updated_at_ms: normalizeNonNegativeInt(record.emitted_at),
+        updated_at_ms: normalizeAggregateNumber(record.emitted_at),
       };
     } catch (error) {
       if (!isAckTimeoutError(error)) {
@@ -266,7 +210,7 @@ async function projectIntentRecord(
         throw error;
       }
 
-      const recoveredUpdatedAtMs = normalizeMaybeTimestampMs(recovered.updated_at);
+      const recoveredUpdatedAtMs = normalizeAggregateTimestampMs(recovered.updated_at);
       nextRow = {
         voter_id: record.voter_id,
         node: recovered,

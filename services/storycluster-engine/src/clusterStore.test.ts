@@ -120,6 +120,7 @@ describe('clusterStore', () => {
     expect(loaded.clusters[0]?.document_type_counts.wire).toBe(1);
     expect(loaded.clusters[0]?.document_type_counts.explainer).toBe(2);
     expect(loaded.clusters[0]?.source_documents[0]?.doc_type).toBe('wire');
+    expect(loaded.clusters[0]?.source_documents[0]?.linked_entities).toEqual([]);
   });
 
   it('ignores non-numeric legacy document type counts while normalizing aliases', () => {

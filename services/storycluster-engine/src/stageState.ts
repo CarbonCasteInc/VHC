@@ -86,6 +86,7 @@ export interface StoredSourceDocument {
   doc_type: DocumentType;
   coverage_role: StoryClusterCoverageRole;
   entities: string[];
+  linked_entities: string[];
   locations: string[];
   trigger: string | null;
   temporal_ms: number | null;

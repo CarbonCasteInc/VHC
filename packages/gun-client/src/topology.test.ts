@@ -47,6 +47,14 @@ describe('TopologyGuard', () => {
     expect(() => guard.validateWrite('vh/news/index/latest/', { 'story-1': null })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/index/hot/', { 'story-1': null })).not.toThrow();
     expect(() => guard.validateWrite('vh/news/index/hot/story-1', { hotness: 0.92 })).not.toThrow();
+    expect(() => guard.validateWrite('vh/news/storylines/', { 'storyline-1': null })).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/news/storylines/storyline-1', {
+        storyline_id: 'storyline-1',
+        canonical_story_id: 'story-1',
+        topic_id: 'topic-news',
+      })
+    ).not.toThrow();
     expect(() =>
       guard.validateWrite('vh/news/runtime/lease/ingester', {
         holder_id: 'holder-1',

@@ -218,6 +218,58 @@ describe('createDiscoveryStore', () => {
     });
   });
 
+  describe('syncNewsItems', () => {
+    it('replaces the news subset while preserving non-news items', () => {
+      store.getState().setItems([
+        makeFeedItem({ topic_id: 'news-old', story_id: 'story-old' }),
+        makeFeedItem({ topic_id: 'topic-1', kind: 'USER_TOPIC' }),
+        makeFeedItem({ topic_id: 'social-1', kind: 'SOCIAL_NOTIFICATION' }),
+      ]);
+
+      store.getState().syncNewsItems([
+        makeFeedItem({ topic_id: 'news-new', story_id: 'story-new' }),
+      ]);
+
+      expect(store.getState().items.map((item) => item.topic_id).sort()).toEqual([
+        'news-new',
+        'social-1',
+        'topic-1',
+      ]);
+    });
+
+    it('deduplicates synced news items by story identity', () => {
+      store.getState().setItems([
+        makeFeedItem({ topic_id: 'news-old', story_id: 'story-old', eye: 1 }),
+      ]);
+
+      store.getState().syncNewsItems([
+        makeFeedItem({ topic_id: 'news-old', story_id: 'story-old', eye: 99 }),
+        makeFeedItem({ topic_id: 'news-fresh', story_id: 'story-fresh', eye: 5 }),
+      ]);
+
+      const items = store.getState().items.filter((item) => item.kind === 'NEWS_STORY');
+      expect(items).toHaveLength(2);
+      expect(items.find((item) => item.story_id === 'story-old')?.eye).toBe(99);
+      expect(items.find((item) => item.story_id === 'story-fresh')?.eye).toBe(5);
+    });
+
+    it('ignores non-news items passed to syncNewsItems', () => {
+      store.getState().setItems([
+        makeFeedItem({ topic_id: 'topic-1', kind: 'USER_TOPIC' }),
+      ]);
+
+      store.getState().syncNewsItems([
+        makeFeedItem({ topic_id: 'topic-2', kind: 'USER_TOPIC' }),
+        makeFeedItem({ topic_id: 'news-1', story_id: 'story-1' }),
+      ]);
+
+      expect(store.getState().items.map((item) => item.topic_id).sort()).toEqual([
+        'news-1',
+        'topic-1',
+      ]);
+    });
+  });
+
   // ---- setFilter ----
 
   describe('setFilter', () => {

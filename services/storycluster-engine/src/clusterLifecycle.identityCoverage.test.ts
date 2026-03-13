@@ -135,6 +135,103 @@ describe('clusterLifecycle identity coverage', () => {
     expect(next.documents[0]?.assigned_story_id).not.toBe('story-a');
   });
 
+  it('reuses an existing cluster when the exact source key reappears', async () => {
+    const topicState = makeTopicState('topic-exact-source');
+    const original = makeWorkingDocument('doc-repeat', 'Port attack expands', 'hard_news');
+    const existing = deriveClusterRecord(
+      topicState,
+      topicState.topic_id,
+      [toStoredSource(original, original.source_variants[0]!)],
+      'story-stable',
+    );
+    const repeated = makeWorkingDocument('doc-repeat', 'Opinion: Port attack expands', 'opinion');
+    repeated.doc_type = 'opinion';
+    repeated.coverage_role = coverageRoleForDocumentType('opinion');
+    repeated.coarse_vector = [0, 1];
+    repeated.full_vector = [0, 1, 0];
+    repeated.trigger = null;
+    repeated.entities = ['different_entity'];
+    repeated.linked_entities = ['different_entity'];
+
+    const next = await assignClusters(makeState(
+      { ...topicState, clusters: [existing] },
+      [repeated],
+    ), undefined);
+
+    expect(next.documents[0]?.assigned_story_id).toBe('story-stable');
+    expect(next.topic_state.clusters).toHaveLength(1);
+    expect(next.stage_metrics.dynamic_cluster_assignment?.exact_source_reuses).toBe(1);
+  });
+
+  it('attaches same-event cross-source coverage when canonical linked entities and trigger families align', async () => {
+    const topicState = makeTopicState('topic-cross-source-identity');
+    const original = makeWorkingDocument('doc-hospital-a', 'Cyberattack forces city hospital network to divert ambulances overnight', 'hard_news');
+    original.entities = ['ambulances', 'hospital', 'cyberattack'];
+    original.linked_entities = ['hospital_network_cyberattack'];
+    original.trigger = 'forced';
+    original.event_tuple = {
+      description: original.title,
+      trigger: 'forced',
+      who: ['hospital_network_cyberattack'],
+      where: ['hospital_network'],
+      when_ms: null,
+      outcome: 'ambulances diverted',
+    };
+    const existing = deriveClusterRecord(
+      topicState,
+      topicState.topic_id,
+      [toStoredSource(original, original.source_variants[0]!)],
+      'story-hospital',
+    );
+
+    const incoming = makeWorkingDocument('doc-hospital-b', 'Ambulances rerouted after ransomware attack hits metro hospital system', 'hard_news');
+    incoming.entities = ['ambulances', 'hospital', 'ransomware'];
+    incoming.linked_entities = ['hospital_network_cyberattack'];
+    incoming.trigger = 'rerouted';
+    incoming.event_tuple = {
+      description: incoming.title,
+      trigger: 'rerouted',
+      who: ['hospital_network_cyberattack'],
+      where: ['hospital_network'],
+      when_ms: null,
+      outcome: 'ambulances rerouted',
+    };
+
+    const next = await assignClusters(makeState(
+      { ...topicState, clusters: [existing] },
+      [incoming],
+    ), undefined);
+
+    expect(next.documents[0]?.assigned_story_id).toBe('story-hospital');
+    expect(next.topic_state.clusters).toHaveLength(1);
+    expect(next.topic_state.clusters[0]?.source_documents).toHaveLength(2);
+  });
+
+  it('merges duplicate clusters that share an exact source key', async () => {
+    const topicState = makeTopicState('topic-duplicate-source');
+    const shared = makeWorkingDocument('doc-shared', 'Port attack expands', 'hard_news');
+    const duplicate = toStoredSource(shared, shared.source_variants[0]!);
+    const left = deriveClusterRecord(topicState, topicState.topic_id, [duplicate], 'story-left');
+    const right = deriveClusterRecord(topicState, topicState.topic_id, [{
+      ...duplicate,
+      doc_type: 'opinion',
+      coverage_role: coverageRoleForDocumentType('opinion'),
+      entities: ['different_entity'],
+      full_vector: [0, 1, 0],
+      coarse_vector: [0, 1],
+      semantic_signature: 'sig-opinion',
+    }], 'story-right');
+
+    const next = await assignClusters(makeState(
+      { ...topicState, clusters: [left, right] },
+      [],
+    ), undefined);
+
+    expect(next.topic_state.clusters).toHaveLength(1);
+    expect(next.topic_state.clusters[0]?.story_id).toBe('story-left');
+    expect(next.topic_state.clusters[0]?.lineage.merged_from).toEqual(['story-right']);
+  });
+
   it('throws when a summary provider omits a changed cluster summary', async () => {
     const topicState = makeTopicState('topic-missing-summary');
     const document = makeWorkingDocument('doc-1', 'Port attack expands', 'hard_news');

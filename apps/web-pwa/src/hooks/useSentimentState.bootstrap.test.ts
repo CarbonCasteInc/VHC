@@ -68,6 +68,10 @@ describe('useSentimentState storage bootstrap/persist guards', () => {
     }));
 
     vi.doMock('@vh/gun-client', () => ({
+      readAggregateVoterNode: vi.fn().mockResolvedValue(null),
+      readAggregateVoterRows: vi.fn().mockResolvedValue([]),
+      readPointAggregateSnapshot: vi.fn().mockResolvedValue(null),
+      writePointAggregateSnapshot: vi.fn(),
       writeSentimentEvent: vi.fn(),
       writeVoterNode: vi.fn(),
     }));

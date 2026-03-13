@@ -1,16 +1,20 @@
 /* @vitest-environment jsdom */
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const readAggregatesMock = vi.hoisted(() => vi.fn());
+const getAggregatePointsChainMock = vi.hoisted(() => vi.fn());
+const getAggregateVotersChainMock = vi.hoisted(() => vi.fn());
 const resolveClientFromAppStoreMock = vi.hoisted(() => vi.fn());
 const consumeVoteTimestampMock = vi.hoisted(() => vi.fn());
 const logConvergenceLagMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@vh/gun-client', () => ({
   readAggregates: (...args: unknown[]) => readAggregatesMock(...args),
+  getAggregatePointsChain: (...args: unknown[]) => getAggregatePointsChainMock(...args),
+  getAggregateVotersChain: (...args: unknown[]) => getAggregateVotersChainMock(...args),
 }));
 
 vi.mock('../store/clientResolver', () => ({
@@ -75,14 +79,47 @@ function readHookResult(): { aggregate: any; status: string; error: string | nul
   return JSON.parse(screen.getByTestId('live-point-aggregate-result').textContent ?? '{}');
 }
 
+function createSignalChain() {
+  const handlers = new Set<(...args: unknown[]) => void>();
+  return {
+    get() {
+      return this;
+    },
+    map() {
+      return this;
+    },
+    on(handler: (...args: unknown[]) => void) {
+      handlers.add(handler);
+      return this;
+    },
+    off(handler: (...args: unknown[]) => void) {
+      handlers.delete(handler);
+      return this;
+    },
+    emit(...args: unknown[]) {
+      for (const handler of handlers) {
+        handler(...args);
+      }
+    },
+    handlerCount() {
+      return handlers.size;
+    },
+  };
+}
+
 describe('usePointAggregate live refresh', () => {
   beforeEach(() => {
     readAggregatesMock.mockReset();
+    getAggregatePointsChainMock.mockReset();
+    getAggregateVotersChainMock.mockReset();
     resolveClientFromAppStoreMock.mockReset();
     consumeVoteTimestampMock.mockReset();
     logConvergenceLagMock.mockReset();
     resolveClientFromAppStoreMock.mockReturnValue({} as any);
     consumeVoteTimestampMock.mockReturnValue(null);
+    getAggregatePointsChainMock.mockImplementation(() => createSignalChain());
+    getAggregateVotersChainMock.mockImplementation(() => createSignalChain());
+    globalThis.localStorage?.clear();
     vi.useFakeTimers();
   });
 
@@ -91,6 +128,7 @@ describe('usePointAggregate live refresh', () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     vi.unstubAllEnvs();
+    globalThis.localStorage?.clear();
     delete (globalThis as { __VH_FORCE_LIVE_AGGREGATE_REFRESH__?: boolean }).__VH_FORCE_LIVE_AGGREGATE_REFRESH__;
     delete (globalThis as { __VH_IMPORT_META_MODE__?: string }).__VH_IMPORT_META_MODE__;
   });
@@ -358,5 +396,69 @@ describe('usePointAggregate live refresh', () => {
     await Promise.resolve();
 
     expect(errorSpy).not.toHaveBeenCalled();
+  });
+
+  it('refreshes immediately when the aggregate point subscription signals a remote update', async () => {
+    const pointChain = createSignalChain();
+    const voterChain = createSignalChain();
+    getAggregatePointsChainMock.mockReturnValue(pointChain);
+    getAggregateVotersChainMock.mockReturnValue(voterChain);
+
+    let call = 0;
+    readAggregatesMock.mockImplementation(() => {
+      call += 1;
+      if (call <= 2) {
+        return Promise.resolve(aggregateFixture({ agree: 1, disagree: 0, participants: 1, weight: 1 }));
+      }
+      return Promise.resolve(aggregateFixture({ agree: 2, disagree: 0, participants: 2, weight: 2 }));
+    });
+
+    await renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const beforeSignalCalls = call;
+
+    await act(async () => {
+      pointChain.emit({ agree: 1 });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(call).toBeGreaterThan(beforeSignalCalls);
+    expect(readHookResult().aggregate?.agree).toBe(2);
+  });
+
+  it('removes point and voter subscriptions on unmount', async () => {
+    const pointChain = createSignalChain();
+    const voterChain = createSignalChain();
+    getAggregatePointsChainMock.mockReturnValue(pointChain);
+    getAggregateVotersChainMock.mockReturnValue(voterChain);
+    readAggregatesMock.mockResolvedValue(aggregateFixture());
+
+    const rendered = await renderHarness({
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(pointChain.handlerCount()).toBeGreaterThan(0);
+    expect(voterChain.handlerCount()).toBeGreaterThan(0);
+
+    rendered.unmount();
+
+    expect(pointChain.handlerCount()).toBe(0);
+    expect(voterChain.handlerCount()).toBe(0);
   });
 });

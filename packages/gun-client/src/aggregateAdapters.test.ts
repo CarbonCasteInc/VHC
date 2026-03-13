@@ -19,6 +19,7 @@ interface FakeMesh {
   root: any;
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
+  setReadSequence: (path: string, values: unknown[]) => void;
   setMapRead: (path: string, entries: Array<{ key: string; value: unknown }>) => void;
   setPutError: (path: string, err: string) => void;
   setPutHang: (path: string) => void;
@@ -27,6 +28,7 @@ interface FakeMesh {
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
+  const readSequences = new Map<string, unknown[]>();
   const mapReads = new Map<string, Array<{ key: string; value: unknown }>>();
   const putErrors = new Map<string, string>();
   const putHangs = new Set<string>();
@@ -50,7 +52,15 @@ function createFakeMesh(): FakeMesh {
   const makeNode = (segments: string[]): any => {
     const path = segments.join('/');
     const node: any = {
-      once: vi.fn((cb?: (data: unknown, key?: string) => void) => cb?.(reads.get(path), segments.at(-1))),
+      once: vi.fn((cb?: (data: unknown, key?: string) => void) => {
+        const sequence = readSequences.get(path);
+        if (sequence && sequence.length > 0) {
+          const next = sequence.shift();
+          cb?.(next, segments.at(-1));
+          return;
+        }
+        cb?.(reads.get(path), segments.at(-1));
+      }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         if (putHangs.has(path)) {
@@ -85,6 +95,9 @@ function createFakeMesh(): FakeMesh {
     writes,
     setRead(path: string, value: unknown) {
       reads.set(path, value);
+    },
+    setReadSequence(path: string, values: unknown[]) {
+      readSequences.set(path, [...values]);
     },
     setMapRead(path: string, entries: Array<{ key: string; value: unknown }>) {
       mapReads.set(path, entries);
@@ -1008,6 +1021,116 @@ describe('aggregateAdapters', () => {
       participants: 0,
     });
   });
+
+  it('readAggregates retries stale-zero snapshot reads until remote voter rows appear', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setReadSequence('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', [
+        {
+          schema_version: 'point-aggregate-snapshot-v1',
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'pointA',
+          agree: 0,
+          disagree: 0,
+          weight: 0,
+          participants: 0,
+          version: 1,
+          computed_at: 1,
+          source_window: { from_seq: 1, to_seq: 1 },
+        },
+        {
+          schema_version: 'point-aggregate-snapshot-v1',
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'pointA',
+          agree: 0,
+          disagree: 0,
+          weight: 0,
+          participants: 0,
+          version: 1,
+          computed_at: 1,
+          source_window: { from_seq: 1, to_seq: 1 },
+        },
+      ]);
+      mesh.setReadSequence('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', [
+        undefined,
+        {
+          voterA: {
+            pointA: {
+              point_id: 'pointA',
+              agreement: 1,
+              weight: 1,
+              updated_at: '2026-02-18T22:20:00.000Z',
+            },
+          },
+        },
+      ]);
+
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const pending = readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA');
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(pending).resolves.toEqual({
+        point_id: 'pointA',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
+
+  it('readAggregates retries empty reads until a non-zero snapshot appears', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setReadSequence('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', [
+        undefined,
+        {
+          schema_version: 'point-aggregate-snapshot-v1',
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'pointA',
+          agree: 2,
+          disagree: 0,
+          weight: 2,
+          participants: 2,
+          version: 2,
+          computed_at: 2,
+          source_window: { from_seq: 1, to_seq: 2 },
+        },
+      ]);
+      mesh.setReadSequence('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', [
+        undefined,
+        undefined,
+      ]);
+
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+      const pending = readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA');
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(pending).resolves.toEqual({
+        point_id: 'pointA',
+        agree: 2,
+        disagree: 0,
+        weight: 2,
+        participants: 2,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
 
   it('detects forbidden aggregate payload fields recursively', () => {
     expect(hasForbiddenAggregatePayloadFields({ ok: true })).toBe(false);

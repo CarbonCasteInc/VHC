@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { adjudicateCandidates, assignClusters, bundleClusters, rerankCandidates, retrieveCandidates } from './clusterLifecycle';
+import { adjudicateCandidates, assignClusters, bundleClusters, recordProviderFallbackOutcome, rerankCandidates, retrieveCandidates } from './clusterLifecycle';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
+import { clusterScoringConfig } from './clusterScoring';
 import { coverageRoleForDocumentType } from './documentPolicy';
 import type { StoryClusterModelProvider } from './modelProvider';
 import type { PipelineState, StoredTopicState, WorkingDocument } from './stageState';
@@ -70,6 +71,13 @@ function makeWorkingDocument(
 }
 
 describe('clusterLifecycle', () => {
+  it('records fallback provider outcomes without counting empty fallback matches', () => {
+    expect(recordProviderFallbackOutcome(1, 2, 0, false)).toEqual({
+      providerAssignedDocs: 1,
+      providerRejectedDocs: 2,
+    });
+  });
+
   it('orders equal-score candidate matches deterministically by story id', async () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',
@@ -227,6 +235,107 @@ describe('clusterLifecycle', () => {
     }, undefined);
 
     expect(next.documents[0]?.assigned_story_id).toBe('story-a');
+  });
+
+  it('skips adjudication when a lone accepted top candidate is already decisive', async () => {
+    const decisive = makeWorkingDocument('doc-decisive', 'Port attack expands further', 'port_attack', 'attack', [1, 0]);
+    decisive.candidate_matches = [{
+      story_id: 'story-a',
+      candidate_score: 0.9,
+      hybrid_score: 0.9,
+      rerank_score: clusterScoringConfig.acceptThreshold,
+      adjudication: 'accepted',
+      reason: 'high-confidence',
+    }];
+    decisive.rerank_score = clusterScoringConfig.acceptThreshold;
+    const provider: StoryClusterModelProvider = {
+      providerId: 'should-not-run-provider',
+      async translate() { return []; },
+      async embed() { return []; },
+      async analyzeDocuments() { return []; },
+      async rerankPairs() { return []; },
+      async adjudicatePairs() {
+        throw new Error('unexpected adjudication request');
+      },
+      async summarize() { return []; },
+    };
+
+    const next = await adjudicateCandidates({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [decisive],
+      clusters: [],
+      bundles: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [],
+      },
+      stage_metrics: {},
+    }, provider);
+
+    expect(next.documents[0]?.adjudication).toBe('accepted');
+    expect(next.stage_metrics.llm_adjudication?.adjudicated_docs).toBe(0);
+  });
+
+  it('requests adjudication when the accepted top candidate has a close runner-up', async () => {
+    const ambiguous = makeWorkingDocument('doc-ambiguous', 'Port attack expands further', 'port_attack', 'attack', [1, 0]);
+    ambiguous.candidate_matches = [
+      {
+        story_id: 'story-a',
+        candidate_score: 0.9,
+        hybrid_score: 0.9,
+        rerank_score: clusterScoringConfig.acceptThreshold,
+        adjudication: 'accepted',
+        reason: 'high-confidence',
+      },
+      {
+        story_id: 'story-b',
+        candidate_score: 0.89,
+        hybrid_score: 0.89,
+        rerank_score: clusterScoringConfig.acceptThreshold - 0.05,
+        adjudication: 'abstain',
+        reason: 'ambiguous-same-topic',
+      },
+    ];
+    ambiguous.rerank_score = clusterScoringConfig.acceptThreshold;
+    const provider: StoryClusterModelProvider = {
+      providerId: 'close-runner-provider',
+      async translate() { return []; },
+      async embed() { return []; },
+      async analyzeDocuments() { return []; },
+      async rerankPairs() { return []; },
+      async adjudicatePairs(items) {
+        expect(items).toHaveLength(1);
+        return [{ pair_id: items[0]!.pair_id, score: 0.74, decision: 'abstain' }];
+      },
+      async summarize() { return []; },
+    };
+    const cluster = deriveClusterRecord({
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    }, 'topic-news', [toStoredSource(makeWorkingDocument('doc-base', 'Port attack expands', 'port_attack', 'attack', [1, 0]), makeWorkingDocument('doc-base', 'Port attack expands', 'port_attack', 'attack', [1, 0]).source_variants[0]!)], 'story-a');
+
+    const next = await adjudicateCandidates({
+      topicId: 'topic-news',
+      referenceNowMs: 1000,
+      documents: [ambiguous],
+      clusters: [],
+      bundles: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [cluster],
+      },
+      stage_metrics: {},
+    }, provider);
+
+    expect(next.documents[0]?.adjudication).toBe('abstain');
+    expect(next.stage_metrics.llm_adjudication?.adjudicated_docs).toBe(1);
   });
 
   it('uses provider adjudication to attach same-batch documents to newly created clusters', async () => {
