@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { readAggregates, type PointAggregate } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../store/clientResolver';
 import { consumeVoteTimestamp, logConvergenceLag } from '../utils/sentimentTelemetry';
+import { subscribePointAggregateSignals } from './usePointAggregateSubscriptions';
 
 type PointAggregateStatus = 'idle' | 'loading' | 'success' | 'error';
 type PointAggregateTelemetryStatus = 'success' | 'error' | 'timeout';
@@ -645,10 +646,21 @@ export function usePointAggregate({
     const timer = setInterval(() => {
       void refreshLiveAggregate();
     }, LIVE_REFRESH_INTERVAL_MS);
+    const unsubscribe = subscribePointAggregateSignals({
+      client,
+      topicId,
+      synthesisId,
+      epoch,
+      pointId,
+      onSignal: () => {
+        void refreshLiveAggregate();
+      },
+    });
 
     return () => {
       cancelled = true;
       clearInterval(timer);
+      unsubscribe();
     };
   }, [aggregateCacheKey, effectiveFallbackPointId, enabled, epoch, pointId, synthesisId, topicId]);
 
