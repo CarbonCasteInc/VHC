@@ -99,4 +99,43 @@ describe('runDaemonFeedSemanticSoak attachment error branches', () => {
     expect(result.results[0].auditError).toContain('Unexpected token');
     expect(result.results[0].runtimeLogsPath).toBeNull();
   });
+
+  it('records non-Error report read failures and tolerates undefined stdout/stderr buffers', async () => {
+    const writes = new Map();
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: undefined, stderr: undefined })
+      .mockReturnValueOnce({ status: 1, stdout: undefined, stderr: undefined });
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        },
+        spawn,
+        mkdir: vi.fn(),
+        readFile: () => {
+          throw 'read-failed';
+        },
+        writeFile: (target, content) => writes.set(target, String(content)),
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    expect(writes.get('/repo/.tmp/out/build.stdout.log')).toBe('');
+    expect(writes.get('/repo/.tmp/out/build.stderr.log')).toBe('');
+    expect(writes.get('/repo/.tmp/out/run-1.playwright.json')).toBe('');
+    expect(writes.get('/repo/.tmp/out/semantic-soak-summary.json')).toContain('"reportParseError": "read-failed"');
+  });
 });

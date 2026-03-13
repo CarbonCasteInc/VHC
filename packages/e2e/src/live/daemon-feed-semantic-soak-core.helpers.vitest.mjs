@@ -71,6 +71,11 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(decodeAttachment(primaryResult, 'missing')).toBeNull();
   });
 
+  it('handles empty suites and missing primary results', () => {
+    expect(collectSpecs(undefined)).toEqual([]);
+    expect(findPrimaryResult({})).toBeNull();
+  });
+
   it('summarizes fallback supply diagnostics from the report when snapshot data is absent', () => {
     const summarized = summarizeRun(
       makeReport({
@@ -112,6 +117,35 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     });
   });
 
+  it('tolerates failing bundles that omit pairs', () => {
+    const summarized = summarizeRun(
+      makeReport({
+        bundles: [{
+          story_id: 'story-1',
+          topic_id: 'topic-1',
+          headline: 'Headline',
+          has_related_topic_only_pair: true,
+        }],
+      }),
+      null,
+      null,
+      1,
+      '/tmp/report.json',
+      null,
+      '/tmp/audit.json',
+      null,
+      null,
+      null,
+    );
+
+    expect(summarized.failingBundles).toEqual([{
+      story_id: 'story-1',
+      topic_id: 'topic-1',
+      headline: 'Headline',
+      related_topic_only_pair_count: 0,
+    }]);
+  });
+
   it('resolves artifact roots and sleep promises', async () => {
     expect(artifactRootFromEnv({ VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/tmp/out' }, '/repo')).toBe('/tmp/out');
     expect(artifactRootFromEnv({}, '/repo').startsWith('/repo/.tmp/daemon-feed-semantic-soak/')).toBe(true);
@@ -130,5 +164,18 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
 
     expect(errorLog).toHaveBeenNthCalledWith(1, expect.stringContaining('[vh:daemon-soak] fatal: Error: boom'));
     expect(errorLog).toHaveBeenNthCalledWith(2, '[vh:daemon-soak] fatal: plain-text');
+  });
+
+  it('falls back to the formatted error message when an Error has no stack', () => {
+    const errorLog = vi.fn();
+    const error = new Error('boom');
+    Object.defineProperty(error, 'stack', {
+      configurable: true,
+      value: undefined,
+    });
+
+    logDaemonFeedSemanticSoakFatal(error, errorLog);
+
+    expect(errorLog).toHaveBeenCalledWith('[vh:daemon-soak] fatal: boom');
   });
 });

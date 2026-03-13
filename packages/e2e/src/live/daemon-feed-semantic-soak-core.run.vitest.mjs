@@ -115,6 +115,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(spawn.mock.calls[1][2].env.VH_DAEMON_FEED_RUN_ID).toMatch(/^semantic-soak-/);
     expect(stderrWrites).toContain('warn');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"sampleFillRate": 0.5');
+    expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"readinessStatus": "not_ready"');
+    expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"promotionBlockingReasons"');
     expect(writes.get('/repo/.tmp/out/semantic-soak-trend.json')).toContain('"sampleFillRate": 0.5');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"promotionAssessment"');
     expect(logs.some((message) => message.includes('artifact-index'))).toBe(true);
@@ -206,6 +208,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     });
 
     expect(result.summary.strictSoakPass).toBe(true);
+    expect(result.summary.readinessStatus).toBe('not_ready');
+    expect(result.summary.promotionAssessment.blockingReasons).toContain('insufficient_run_count');
     expect(result.summary.repeatedStoryCount).toBe(1);
     expect(result.results).toHaveLength(2);
     expect(sleepImpl).toHaveBeenCalledWith(5);
