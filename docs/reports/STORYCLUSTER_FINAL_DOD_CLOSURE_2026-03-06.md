@@ -1,5 +1,12 @@
 # StoryCluster Final DoD Closure Report — 2026-03-06
 
+> Superseded historical report.
+> Do not use this document as current implementation truth or release status.
+> Current truth sources:
+> - `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`
+> - `/Users/bldt/Desktop/VHC/VHC/docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
+> - `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_IMPLEMENTATION_TICKET_STACK.md`
+
 **Owner:** Core Engineering (VHC)  
 **Branch:** `coord/storycluster-dod-final`  
 **Baseline commit:** `3aa6f052869747be7ee4e8f848d2ee967868bb7c`  

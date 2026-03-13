@@ -2,8 +2,8 @@
 
 Status: Canonical execution plan
 Owner: Core Engineering
-Last Updated: 2026-03-08
-Branch Baseline: `coord/storycluster-takeover`
+Last Updated: 2026-03-13
+Branch Baseline: `main` @ `15e1599`
 
 Companion execution backlog:
 
@@ -95,9 +95,10 @@ Implementation state note:
 
 1. `StorylineGroup` is now a published runtime contract in the codebase;
 2. `main` includes publication, Gun/store hydration, storyline-aware ranking/diversification, and separated related-coverage presentation;
-3. the active follow-on lane is public semantic-soak readiness/promotion hardening, not bundle-membership widening.
-4. storyline publication, ranking, presentation, focused deep-link state, shell navigation semantics, archive-parent diversification, and archive-child deep-link restoration are already in force on `main`.
-5. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes.
+3. storyline publication, ranking, presentation, focused deep-link state, shell navigation semantics, archive-parent diversification, and archive-child deep-link restoration are already in force on `main`;
+4. public semantic-soak density/trend diagnostics and promotion-assessment scaffolding are already in force on `main`;
+5. the active follow-on lane is public semantic-soak promotion/readiness hardening and browser/live evidence hardening, not bundle-membership widening;
+6. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes.
 
 ## 5. Canonical Pair Ontology
 
