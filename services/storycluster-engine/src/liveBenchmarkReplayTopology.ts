@@ -27,6 +27,7 @@ export interface ReplaySeedSourceSpec {
   url_hash: string;
   published_at: number;
   entities: string[];
+  linked_entities?: string[];
   locations?: string[];
   trigger?: string | null;
   temporal_ms?: number | null;
@@ -81,6 +82,7 @@ function buildStoredSource(spec: ReplaySeedSourceSpec): StoredSourceDocument {
     doc_type: spec.doc_type ?? 'hard_news',
     coverage_role: spec.coverage_role ?? 'canonical',
     entities: spec.entities,
+    linked_entities: spec.linked_entities ?? spec.entities,
     locations: spec.locations ?? [],
     trigger: spec.trigger ?? null,
     temporal_ms: spec.temporal_ms ?? spec.published_at,

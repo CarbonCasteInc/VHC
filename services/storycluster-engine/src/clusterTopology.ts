@@ -1,4 +1,5 @@
 import { connectedComponents, deriveClusterRecord, upsertClusterRecord } from './clusterRecords';
+import { clustersShareExactSourceKey } from './clusterSourceIdentity';
 import { shouldMergeClusters, shouldSplitPair } from './clusterScoring';
 import type { StoredClusterRecord, StoredTopicState } from './stageState';
 
@@ -41,7 +42,12 @@ export function reconcileClusterTopology(
     for (let otherIndex = index + 1; otherIndex < ordered.length; otherIndex += 1) {
       const left = ordered[index]!;
       const right = ordered[otherIndex]!;
-      if (!clusters.has(left.story_id) || !clusters.has(right.story_id) || isDirectSplitPair(left, right) || !shouldMergeClusters(left, right)) {
+      if (
+        !clusters.has(left.story_id) ||
+        !clusters.has(right.story_id) ||
+        isDirectSplitPair(left, right) ||
+        (!clustersShareExactSourceKey(left, right) && !shouldMergeClusters(left, right))
+      ) {
         continue;
       }
       const next = upsertClusterRecord(left, right.source_documents);

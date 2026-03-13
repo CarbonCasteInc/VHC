@@ -90,6 +90,8 @@ describe('clusterRecords', () => {
     const updated = upsertClusterRecord(cluster, [sourceB]);
     expect(updated.source_documents).toHaveLength(2);
     expect(updated.story_id).toBe(cluster.story_id);
+    expect(updated.source_documents[0]?.linked_entities).toContain('port_attack');
+    expect(updated.entity_scores.port_attack).toBeGreaterThan(0);
   });
 
   it('handles empty cluster inputs and merges duplicate source updates', () => {

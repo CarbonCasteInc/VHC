@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryClusterStore } from './clusterStore';
 import {
+  aggregateReplayTopologyPressure,
   createReplayTopologyPressureTracker,
   observeReplayTopologyPressureTick,
   replaceReplayTopicWithSeedClusters,
@@ -117,6 +118,18 @@ describe('StoryCluster replay topology seeding', () => {
     expect(summarizeReplayTopologyPressure(tracker)).toEqual({
       split_pair_activation_count: 2,
       split_pair_reactivation_count: 1,
+    });
+  });
+
+  it('aggregates topology-pressure counts across replay scenarios', () => {
+    expect(
+      aggregateReplayTopologyPressure([
+        { split_pair_activation_count: 2, split_pair_reactivation_count: 1 },
+        { split_pair_activation_count: 3, split_pair_reactivation_count: 2 },
+      ]),
+    ).toEqual({
+      split_pair_activation_count: 5,
+      split_pair_reactivation_count: 3,
     });
   });
 });
