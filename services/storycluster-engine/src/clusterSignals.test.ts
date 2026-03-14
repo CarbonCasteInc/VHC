@@ -5,8 +5,10 @@ import {
   clusterHasSpecificEventDocument,
   clusterSignalsInternal,
   clusterTemporalAnchors,
+  isRelatedCoverageAttachmentConflict,
   isRelatedCoverageConflict,
   isRelatedCoverageMergeConflict,
+  isSecondaryAssetAttachmentConflict,
   representativeDocuments,
   sourceNovelty,
 } from './clusterSignals';
@@ -512,5 +514,88 @@ describe('clusterSignals', () => {
     expect(clusterHasSpecificEventDocument(videoOnlyCluster)).toBe(true);
     expect(isRelatedCoverageConflict(roundupDocument, videoOnlyCluster)).toBe(true);
     expect(isRelatedCoverageMergeConflict(videoOnlyCluster, broadCluster)).toBe(true);
+  });
+
+  it('blocks specific canonical docs from attaching to broad related clusters', () => {
+    const broadCluster = makeCluster(makeWorkingDocument({
+      doc_id: 'doc-roundup-specific-conflict',
+      source_id: 'guardian-roundup-specific-conflict',
+      publisher: 'The Guardian',
+      title: 'Trump news at a glance: Iran latest',
+      translated_title: 'Trump news at a glance: Iran latest',
+      summary: 'A broad roundup of the latest Iran conflict developments.',
+      coverage_role: 'canonical',
+      event_tuple: null,
+      trigger: 'talks',
+      linked_entities: ['iran'],
+      entities: ['iran'],
+      locations: ['washington'],
+    }));
+    const specificDocument = makeWorkingDocument({
+      doc_id: 'doc-specific-attachment',
+      source_id: 'wire-specific-attachment',
+      publisher: 'AP',
+      title: 'Port authority confirms second overnight strike in Tehran',
+      translated_title: 'Port authority confirms second overnight strike in Tehran',
+      summary: 'Port authority confirms a second overnight strike in Tehran.',
+      coverage_role: 'canonical',
+      event_tuple: {
+        description: 'Port authority confirms a second overnight strike in Tehran.',
+        trigger: 'strike',
+        who: ['Port authority'],
+        where: ['Tehran'],
+        when_ms: 216_000_500,
+        outcome: 'Further damage reported.',
+      },
+      trigger: 'strike',
+      linked_entities: ['port_authority', 'tehran_strike'],
+      entities: ['port_authority', 'tehran_strike'],
+      locations: ['tehran'],
+    });
+
+    expect(isRelatedCoverageAttachmentConflict(specificDocument, broadCluster)).toBe(true);
+  });
+
+  it('blocks video clips from attaching to clusters with no specific event documents', () => {
+    const broadCluster = makeCluster(makeWorkingDocument({
+      doc_id: 'doc-roundup-video-attachment',
+      source_id: 'guardian-roundup-video-attachment',
+      publisher: 'The Guardian',
+      title: 'Trump news at a glance: Iran latest',
+      translated_title: 'Trump news at a glance: Iran latest',
+      summary: 'A broad roundup of the latest Iran conflict developments.',
+      coverage_role: 'canonical',
+      event_tuple: null,
+      trigger: 'talks',
+      linked_entities: ['iran'],
+      entities: ['iran'],
+      locations: ['washington'],
+    }));
+    const videoDocument = makeWorkingDocument({
+      doc_id: 'doc-video-attachment',
+      source_id: 'cbs-video-attachment',
+      publisher: 'CBS News',
+      title: 'Video: Tehran strike aftermath',
+      translated_title: 'Video: Tehran strike aftermath',
+      summary: 'CBS video report on the Tehran strike aftermath.',
+      url: 'https://www.cbsnews.com/video/tehran-strike-aftermath/',
+      canonical_url: 'https://www.cbsnews.com/video/tehran-strike-aftermath/',
+      doc_type: 'video_clip',
+      coverage_role: 'related',
+      event_tuple: {
+        description: 'Video report on the Tehran strike aftermath.',
+        trigger: 'strike',
+        who: ['Port authority'],
+        where: ['Tehran'],
+        when_ms: 216_000_600,
+        outcome: 'Damage surveyed.',
+      },
+      trigger: 'strike',
+      linked_entities: ['port_authority'],
+      entities: ['port_authority', 'strike'],
+      locations: ['tehran'],
+    });
+
+    expect(isSecondaryAssetAttachmentConflict(videoDocument, broadCluster)).toBe(true);
   });
 });

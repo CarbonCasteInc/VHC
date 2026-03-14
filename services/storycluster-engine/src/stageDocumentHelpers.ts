@@ -11,6 +11,8 @@ import type { NormalizedPipelineRequest } from './stageHelpers';
 import type { WorkingDocument } from './stageState';
 import { sha256Hex } from './hashUtils';
 
+const CANONICAL_TEMPORAL_FALLBACK_WINDOW_MS = 45 * 24 * 60 * 60 * 1000;
+
 export function sourceVariantsForDocument(
   document: NormalizedPipelineRequest['documents'][number],
   language: string,
@@ -34,6 +36,23 @@ export function sourceVariantsForDocument(
 
 export function mergedKeys(...groups: readonly string[][]): string[] {
   return [...new Set(groups.flat().filter(Boolean))].sort();
+}
+
+function normalizeCanonicalTemporalMs(
+  publishedAtMs: number,
+  coverageRole: WorkingDocument['coverage_role'],
+  ...candidates: Array<number | null | undefined>
+): number | null {
+  for (const candidate of candidates) {
+    if (
+      Number.isFinite(candidate) &&
+      Math.abs((candidate as number) - publishedAtMs) <= CANONICAL_TEMPORAL_FALLBACK_WINDOW_MS
+    ) {
+      return candidate as number;
+    }
+  }
+
+  return coverageRole === 'canonical' ? publishedAtMs : null;
 }
 
 export function applyDocumentAnalysis(
@@ -64,10 +83,17 @@ export function applyDocumentAnalysis(
     analysis.locations,
     document.published_at,
   );
+  const normalizedTemporalMs = normalizeCanonicalTemporalMs(
+    document.published_at,
+    coverageRole,
+    analysis.temporal_ms,
+    analysis.event_tuple?.when_ms,
+    heuristicEventTuple.when_ms,
+  );
   const eventTuple = analysis.event_tuple
     ? {
       ...analysis.event_tuple,
-      when_ms: analysis.temporal_ms ?? analysis.event_tuple.when_ms ?? heuristicEventTuple.when_ms,
+      when_ms: normalizedTemporalMs,
       who: analysis.event_tuple.who.length > 0 ? analysis.event_tuple.who : linkedEntities,
       where: analysis.event_tuple.where.length > 0
         ? analysis.event_tuple.where
@@ -90,7 +116,7 @@ export function applyDocumentAnalysis(
     entities,
     linked_entities: linkedEntities,
     locations: analysis.locations,
-    temporal_ms: analysis.temporal_ms,
+    temporal_ms: normalizedTemporalMs,
     trigger,
     event_tuple: eventTuple,
   };

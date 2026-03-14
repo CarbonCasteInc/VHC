@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCandidateMatch, clusterMergeScore } from './clusterScoring';
+import { buildCandidateMatch, candidateEligible, clusterMergeScore } from './clusterScoring';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
 import type { StoredTopicState, WorkingDocument } from './stageState';
 
@@ -339,5 +339,117 @@ describe('clusterScoring coverage', () => {
 
     expect(candidate.adjudication).toBe('rejected');
     expect(candidate.reason).toBe('below-threshold');
+  });
+
+  it('returns a secondary-asset conflict for video clips against broad roundup clusters', () => {
+    const broadCluster = makeCluster(makeWorkingDocument({
+      source_id: 'guardian-roundup',
+      publisher: 'The Guardian',
+      title: 'Trump news at a glance: Iran latest',
+      translated_title: 'Trump news at a glance: Iran latest',
+      summary: 'A broad roundup of the latest Iran conflict developments.',
+      raw_text: 'Trump news at a glance: Iran latest. A broad roundup of the latest Iran conflict developments.',
+      normalized_text: 'trump news at a glance iran latest broad roundup of the latest iran conflict developments',
+      translated_text: 'Trump news at a glance: Iran latest. A broad roundup of the latest Iran conflict developments.',
+      coverage_role: 'canonical',
+      entities: ['iran', 'trump'],
+      linked_entities: ['iran'],
+      locations: ['washington'],
+      trigger: 'talks',
+      event_tuple: null,
+      coarse_vector: [0.72, 0.28],
+      full_vector: [0.69, 0.31],
+      published_at: 216_000_100,
+      temporal_ms: 216_000_100,
+    }));
+
+    const videoDocument = makeWorkingDocument({
+      source_id: 'cbs-video',
+      publisher: 'CBS News',
+      title: 'Armed Iranian opposition group says its camp was hit with drone strike',
+      translated_title: 'Armed Iranian opposition group says its camp was hit with drone strike',
+      summary: 'CBS video report on the drone strike.',
+      raw_text: 'CBS video report on the drone strike.',
+      normalized_text: 'cbs video report on the drone strike',
+      translated_text: 'CBS video report on the drone strike.',
+      url: 'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
+      canonical_url: 'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
+      doc_type: 'video_clip',
+      coverage_role: 'related',
+      event_tuple: {
+        description: 'Drone strike hits opposition camp',
+        trigger: 'strike',
+        who: ['Iranian opposition group'],
+        where: ['Northern Iraq'],
+        when_ms: 216_000_300,
+        outcome: 'Camp was hit in the strike.',
+      },
+      trigger: 'strike',
+      linked_entities: ['iranian_opposition_group'],
+      entities: ['iranian_opposition_group', 'drone', 'strike'],
+      locations: ['northern_iraq'],
+      coarse_vector: [0.68, 0.32],
+      full_vector: [0.66, 0.34],
+      published_at: 216_000_300,
+      temporal_ms: 216_000_300,
+    });
+
+    const match = buildCandidateMatch(videoDocument, broadCluster);
+
+    expect(match.reason).toBe('secondary-asset-conflict');
+    expect(match.adjudication).toBe('rejected');
+    expect(candidateEligible(videoDocument, broadCluster)).toBe(false);
+  });
+
+  it('returns zero merge score when broad related coverage meets a specific event cluster', () => {
+    const broadCluster = makeCluster(makeWorkingDocument({
+      source_id: 'guardian-roundup-merge',
+      publisher: 'The Guardian',
+      title: 'Trump news at a glance: Iran latest',
+      translated_title: 'Trump news at a glance: Iran latest',
+      summary: 'A broad roundup of the latest Iran conflict developments.',
+      raw_text: 'Trump news at a glance: Iran latest. A broad roundup of the latest Iran conflict developments.',
+      normalized_text: 'trump news at a glance iran latest broad roundup of the latest iran conflict developments',
+      translated_text: 'Trump news at a glance: Iran latest. A broad roundup of the latest Iran conflict developments.',
+      coverage_role: 'canonical',
+      entities: ['iran', 'trump'],
+      linked_entities: ['iran'],
+      locations: ['washington'],
+      trigger: 'talks',
+      event_tuple: null,
+      coarse_vector: [0.72, 0.28],
+      full_vector: [0.69, 0.31],
+      published_at: 216_000_100,
+      temporal_ms: 216_000_100,
+    }));
+    const specificCluster = makeCluster(makeWorkingDocument({
+      source_id: 'ap-specific-merge',
+      publisher: 'AP',
+      title: 'Port authority confirms second overnight strike in Tehran',
+      translated_title: 'Port authority confirms second overnight strike in Tehran',
+      summary: 'Port authority confirms a second overnight strike in Tehran.',
+      raw_text: 'Port authority confirms a second overnight strike in Tehran.',
+      normalized_text: 'port authority confirms a second overnight strike in tehran',
+      translated_text: 'Port authority confirms a second overnight strike in Tehran.',
+      coverage_role: 'canonical',
+      entities: ['port_authority', 'tehran_strike'],
+      linked_entities: ['port_authority', 'tehran_strike'],
+      locations: ['tehran'],
+      trigger: 'strike',
+      event_tuple: {
+        description: 'Port authority confirms a second overnight strike in Tehran.',
+        trigger: 'strike',
+        who: ['Port authority'],
+        where: ['Tehran'],
+        when_ms: 216_000_500,
+        outcome: 'Further damage reported.',
+      },
+      coarse_vector: [0.74, 0.26],
+      full_vector: [0.72, 0.28],
+      published_at: 216_000_500,
+      temporal_ms: 216_000_500,
+    }));
+
+    expect(clusterMergeScore(broadCluster, specificCluster)).toBe(0);
   });
 });

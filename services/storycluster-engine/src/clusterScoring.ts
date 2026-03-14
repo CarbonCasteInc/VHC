@@ -4,6 +4,7 @@ import { triggerCategory } from './contentSignals';
 import { LOW_SIGNAL_CANONICAL_ENTITIES } from './storyclusterEntitySignals.js';
 import {
   canonicalEntities,
+  clusterCanonicalEntities,
   clusterEntities,
   clusterEventActors,
   clusterEventLocations,
@@ -56,13 +57,13 @@ function lexicalScore(document: WorkingDocument, cluster: StoredClusterRecord): 
 }
 
 function canonicalEntityScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
-  return overlapRatio(canonicalEntities(document.linked_entities), canonicalEntities(clusterEntities(cluster)));
+  return overlapRatio(canonicalEntities(document.linked_entities), clusterCanonicalEntities(cluster));
 }
 
 function specificCanonicalEntityScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
   return overlapRatio(
     canonicalEntities(document.linked_entities).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
-    canonicalEntities(clusterEntities(cluster)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+    clusterCanonicalEntities(cluster).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
   );
 }
 

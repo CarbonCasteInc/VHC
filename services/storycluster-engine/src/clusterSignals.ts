@@ -35,6 +35,13 @@ export function clusterEntities(cluster: StoredClusterRecord): string[] {
     .slice(0, 12);
 }
 
+export function clusterCanonicalEntities(cluster: StoredClusterRecord): string[] {
+  return Object.entries(cluster.entity_scores)
+    .filter(([entity, score]) => score > 0 && entity.includes('_'))
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([entity]) => entity);
+}
+
 export function clusterLocations(cluster: StoredClusterRecord): string[] {
   return Object.entries(cluster.location_scores)
     .filter(([, score]) => score > 0)

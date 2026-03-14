@@ -258,6 +258,38 @@ describe('applyDocumentAnalysis', () => {
     expect(merged.event_tuple?.when_ms).toBe(document.published_at);
   });
 
+  it('normalizes implausible canonical event times back to publication time', () => {
+    const document = makeWorkingDocument({
+      title: 'Prosecutor drops criminal charge against teen after teacher dies in prank mishap',
+      translated_title: 'Prosecutor drops criminal charge against teen after teacher dies in prank mishap',
+      summary: 'The teacher slipped and fell during a prank mishap.',
+      translated_text: 'Prosecutor drops criminal charge against teen after teacher dies in prank mishap. The teacher slipped and fell during a prank mishap.',
+      published_at: Date.UTC(2026, 2, 14),
+    });
+    const analysis: DocumentAnalysisWorkResult = {
+      doc_id: document.doc_id,
+      doc_type: 'hard_news',
+      entities: ['teacher', 'teen'],
+      linked_entities: ['teacher_prank_death_case'],
+      locations: [],
+      temporal_ms: null,
+      trigger: 'drops',
+      event_tuple: {
+        description: 'Criminal charge against a teen was dropped after a teacher died in a prank mishap.',
+        trigger: 'drops',
+        who: ['prosecutor'],
+        where: [],
+        when_ms: Date.UTC(2023, 10, 9),
+        outcome: 'charge dropped',
+      },
+    };
+
+    const merged = applyDocumentAnalysis(document, analysis);
+
+    expect(merged.temporal_ms).toBe(document.published_at);
+    expect(merged.event_tuple?.when_ms).toBe(document.published_at);
+  });
+
   it('extracts stage metrics and backfills empty linked entities from entities', () => {
     const state: PipelineState = {
       topicId: 'topic-news',
