@@ -37,6 +37,7 @@ const DEFAULT_SOURCE_IDS = [
 const LIVE_PROXY_SOURCE_IDS = new Set([
   'ap-politics',
   'cnn-politics',
+  'huffpost-us',
 ]);
 
 function fixtureFeedBaseUrl(): string {

@@ -78,6 +78,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'guardian',
     enabled: true,
   },
+  'huffpost-us': {
+    id: 'huffpost-us',
+    name: 'HuffPost',
+    displayName: 'HuffPost',
+    rssUrl: 'https://www.huffpost.com/section/us-news/feed',
+    perspectiveTag: 'progressive',
+    iconKey: 'huffpost',
+    enabled: true,
+  },
   'cbs-politics': {
     id: 'cbs-politics',
     name: 'CBS News Politics',
