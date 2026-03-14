@@ -4,6 +4,7 @@ import {
   refineDocumentType,
 } from './contentSignals';
 import { coverageRoleForDocument } from './documentPolicy';
+import { inferStoryclusterAliases } from './storyclusterAliasSignals.js';
 import type { PipelineState } from './stageState';
 import type { DocumentAnalysisWorkResult } from './modelProvider';
 import type { NormalizedPipelineRequest } from './stageHelpers';
@@ -40,7 +41,8 @@ export function applyDocumentAnalysis(
   analysis: DocumentAnalysisWorkResult,
 ): WorkingDocument {
   const entities = mergedKeys(document.entities, analysis.entities);
-  const linkedEntities = mergedKeys(document.linked_entities, analysis.linked_entities, entities);
+  const heuristicAliases = inferStoryclusterAliases(document.translated_title, document.summary);
+  const linkedEntities = mergedKeys(document.linked_entities, analysis.linked_entities, entities, heuristicAliases);
   const docType = refineDocumentType(
     analysis.doc_type,
     document.translated_title,

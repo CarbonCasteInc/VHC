@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyDocumentAnalysis } from './stageDocumentHelpers';
+import { applyDocumentAnalysis, extractStageMetrics, sourceVariantsForDocument } from './stageDocumentHelpers';
 import type { DocumentAnalysisWorkResult } from './modelProvider';
-import type { WorkingDocument } from './stageState';
+import type { PipelineState, WorkingDocument } from './stageState';
 
 function makeWorkingDocument(overrides: Partial<WorkingDocument> = {}): WorkingDocument {
   return {
@@ -62,6 +62,30 @@ function makeWorkingDocument(overrides: Partial<WorkingDocument> = {}): WorkingD
 }
 
 describe('applyDocumentAnalysis', () => {
+  it('builds canonical source variants from normalized documents', () => {
+    expect(sourceVariantsForDocument({
+      doc_id: 'doc-variant',
+      source_id: 'guardian-us',
+      publisher: 'Guardian',
+      title: 'Headline',
+      summary: 'Summary.',
+      body: undefined,
+      published_at: Date.UTC(2026, 2, 7),
+      url: 'https://example.com/story',
+      canonical_url: 'https://example.com/story',
+      url_hash: undefined,
+      image_hash: undefined,
+      language_hint: undefined,
+      entity_keys: [],
+      translation_applied: true,
+    }, 'en')).toEqual([expect.objectContaining({
+      source_id: 'guardian-us',
+      language: 'en',
+      translation_applied: true,
+      coverage_role: 'canonical',
+    })]);
+  });
+
   it('backfills a heuristic lead trigger when the provider omits one', () => {
     const document = makeWorkingDocument({
       title: 'Trump tells Starmer help not needed even as US uses UK bases for Iran strikes',
@@ -120,6 +144,38 @@ describe('applyDocumentAnalysis', () => {
     expect(merged.trigger).toBeNull();
   });
 
+  it('keeps related event tuples from inheriting heuristic trigger and outcome fields', () => {
+    const document = makeWorkingDocument({
+      title: 'Analysis: markets react to Powell probe fallout',
+      translated_title: 'Analysis: markets react to Powell probe fallout',
+      summary: 'Commentary on how markets reacted after the Powell probe ruling.',
+      translated_text: 'Analysis: markets react to Powell probe fallout. Commentary on how markets reacted after the Powell probe ruling.',
+    });
+    const analysis: DocumentAnalysisWorkResult = {
+      doc_id: document.doc_id,
+      doc_type: 'analysis',
+      entities: ['jerome_powell'],
+      linked_entities: ['jerome_powell'],
+      locations: ['united_states'],
+      temporal_ms: null,
+      trigger: null,
+      event_tuple: {
+        description: 'Commentary on the Powell probe ruling.',
+        trigger: null,
+        who: [],
+        where: [],
+        when_ms: null,
+        outcome: null,
+      },
+    };
+
+    const merged = applyDocumentAnalysis(document, analysis);
+
+    expect(merged.coverage_role).toBe('related');
+    expect(merged.event_tuple?.trigger).toBeNull();
+    expect(merged.event_tuple?.outcome).toBeNull();
+  });
+
   it('builds a heuristic event tuple when canonical analysis omits one entirely', () => {
     const document = makeWorkingDocument({
       title: 'Port officials say repairs continue after the attack',
@@ -144,5 +200,111 @@ describe('applyDocumentAnalysis', () => {
     expect(merged.event_tuple?.trigger).toBe('attack');
     expect(merged.event_tuple?.where).toEqual(['Tehran']);
     expect(merged.trigger).toBe('attack');
+  });
+
+  it('injects heuristic public-duplicate aliases into linked entities', () => {
+    const document = makeWorkingDocument({
+      title: "Judge says 'no evidence' to justify Federal Reserve probe",
+      translated_title: "Judge says 'no evidence' to justify Federal Reserve probe",
+      summary: 'A federal judge said there was no evidence for Justice Department subpoenas targeting Jerome Powell.',
+      translated_text: "Judge says 'no evidence' to justify Federal Reserve probe. A federal judge said there was no evidence for Justice Department subpoenas targeting Jerome Powell.",
+    });
+    const analysis: DocumentAnalysisWorkResult = {
+      doc_id: document.doc_id,
+      doc_type: 'hard_news',
+      entities: ['federal_judge', 'jerome_powell'],
+      linked_entities: ['federal_judge', 'jerome_powell'],
+      locations: [],
+      temporal_ms: null,
+      trigger: null,
+      event_tuple: null,
+    };
+
+    const merged = applyDocumentAnalysis(document, analysis);
+
+    expect(merged.linked_entities).toContain('jerome_powell_subpoena_case');
+  });
+
+  it('backfills missing event actors and locations from linked entities and analysis locations', () => {
+    const document = makeWorkingDocument({
+      title: 'DOJ drops case against veteran arrested after burning U.S. flag near White House',
+      translated_title: 'DOJ drops case against veteran arrested after burning U.S. flag near White House',
+      summary: 'The Jan Carey flag-burning case near the White House is being dropped.',
+      translated_text: 'DOJ drops case against veteran arrested after burning U.S. flag near White House. The Jan Carey flag-burning case near the White House is being dropped.',
+    });
+    const analysis: DocumentAnalysisWorkResult = {
+      doc_id: document.doc_id,
+      doc_type: 'hard_news',
+      entities: ['jan_carey'],
+      linked_entities: ['jan_carey'],
+      locations: ['white_house'],
+      temporal_ms: document.published_at,
+      trigger: null,
+      event_tuple: {
+        description: 'The Jan Carey flag-burning case near the White House is being dropped.',
+        trigger: null,
+        who: [],
+        where: [],
+        when_ms: null,
+        outcome: null,
+      },
+    };
+
+    const merged = applyDocumentAnalysis(document, analysis);
+
+    expect(merged.linked_entities).toContain('white_house_flag_burning_case');
+    expect(merged.event_tuple?.who).toContain('white_house_flag_burning_case');
+    expect(merged.event_tuple?.where).toEqual(['white_house']);
+    expect(merged.event_tuple?.when_ms).toBe(document.published_at);
+  });
+
+  it('extracts stage metrics and backfills empty linked entities from entities', () => {
+    const state: PipelineState = {
+      topicId: 'topic-news',
+      referenceNowMs: Date.UTC(2026, 2, 7),
+      documents: [
+        makeWorkingDocument({
+          entities: ['port_authority'],
+          linked_entities: [],
+          event_tuple: {
+            description: 'Port attack expands overnight.',
+            trigger: 'attack',
+            who: ['port_authority'],
+            where: ['tehran'],
+            when_ms: Date.UTC(2026, 2, 7),
+            outcome: 'response underway',
+          },
+          temporal_ms: Date.UTC(2026, 2, 7),
+        }),
+        makeWorkingDocument({
+          doc_id: 'doc-2',
+          entities: ['market'],
+          linked_entities: ['market'],
+          event_tuple: null,
+          temporal_ms: null,
+        }),
+      ],
+      clusters: [],
+      bundles: [],
+      storylines: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [],
+      },
+      stage_metrics: {},
+    };
+
+    const next = extractStageMetrics(state);
+
+    expect(next.documents[0]?.linked_entities).toEqual(['port_authority']);
+    expect(next.stage_metrics.me_ner_temporal).toEqual({
+      tuple_total: 1,
+      docs_with_tuples: 1,
+      entity_count: 2,
+      linked_entity_count: 1,
+      normalized_temporal_count: 1,
+    });
   });
 });
