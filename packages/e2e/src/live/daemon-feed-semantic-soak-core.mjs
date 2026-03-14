@@ -94,6 +94,57 @@ export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
   return path.join(cwd, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
 }
 
+export function stablePort(base, span, seed) {
+  const value = String(seed ?? '');
+  const offset = [...value].reduce((total, char) => total + char.charCodeAt(0), 0) % span;
+  return base + offset;
+}
+
+export function extractPort(url, fallback = 2148) {
+  try {
+    return Number(new URL(url).port) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export function resolveDaemonFirstFeedPortSet(env = process.env, runId = process.env.VH_DAEMON_FEED_RUN_ID ?? '') {
+  const seed = String(runId);
+  const baseUrl = env.VH_LIVE_BASE_URL?.trim()
+    || `http://127.0.0.1:${stablePort(2100, 200, seed)}/`;
+
+  return {
+    basePort: extractPort(baseUrl),
+    gunPort: Number.parseInt(env.VH_DAEMON_FEED_GUN_PORT?.trim() || `${stablePort(8700, 200, seed)}`, 10),
+    storyclusterPort: Number.parseInt(env.VH_DAEMON_FEED_STORYCLUSTER_PORT?.trim() || `${stablePort(4300, 200, seed)}`, 10),
+    fixturePort: Number.parseInt(env.VH_DAEMON_FEED_FIXTURE_PORT?.trim() || `${stablePort(8900, 100, seed)}`, 10),
+    qdrantPort: Number.parseInt(env.VH_DAEMON_FEED_QDRANT_PORT?.trim() || `${stablePort(6300, 100, seed)}`, 10),
+    analysisStubPort: Number.parseInt(env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT?.trim() || `${stablePort(9100, 100, seed)}`, 10),
+  };
+}
+
+export function preclearDaemonFirstFeedPorts({
+  cwd,
+  env = process.env,
+  runId,
+  spawn = spawnSync,
+} = {}) {
+  const ports = Object.values(resolveDaemonFirstFeedPortSet(env, runId)).filter(Number.isFinite);
+  const command = [
+    'for port in "$@"; do',
+    '  pids=$(lsof -ti tcp:"$port" || true)',
+    '  if [ -n "$pids" ]; then echo "$pids" | xargs kill -9; fi',
+    'done',
+  ].join(' ');
+
+  return spawn('bash', ['-lc', command, '--', ...ports.map((port) => String(port))], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+}
+
 function runPlaywrightSoakSubrun({
   artifactDir,
   cwd,
@@ -109,6 +160,7 @@ function runPlaywrightSoakSubrun({
 }) {
   const reportPath = path.join(artifactDir, `run-${run}.profile-${profileIndex}.playwright.json`);
   const runId = `semantic-soak-${Date.now()}-${run}-${profileIndex}`;
+  preclearDaemonFirstFeedPorts({ cwd, env, runId, spawn });
   const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
     cwd,
     env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, sourceIds),

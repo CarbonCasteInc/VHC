@@ -35,6 +35,26 @@ function makeReport(overrides = {}) {
   };
 }
 
+function makeSoakSpawn(buildResult, ...playwrightResults) {
+  let buildUsed = false;
+  let playwrightIndex = 0;
+
+  return vi.fn((command) => {
+    if (command === 'bash') {
+      return { status: 0, stdout: '', stderr: '' };
+    }
+    if (!buildUsed) {
+      buildUsed = true;
+      return buildResult;
+    }
+    return playwrightResults[playwrightIndex++];
+  });
+}
+
+function getPnpmCalls(spawn) {
+  return spawn.mock.calls.filter(([command]) => command === 'pnpm');
+}
+
 describe('runDaemonFeedSemanticSoak', () => {
   it('injects the smoke-only public source profile and limits when unset', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000);
@@ -118,9 +138,10 @@ describe('runDaemonFeedSemanticSoak', () => {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
 
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: 'warn' });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: 'warn' },
+    );
 
     try {
       await expect(runDaemonFeedSemanticSoak({
@@ -145,15 +166,16 @@ describe('runDaemonFeedSemanticSoak', () => {
       process.stderr.write = originalStderrWrite;
     }
 
-    expect(spawn).toHaveBeenNthCalledWith(2, 'pnpm', expect.arrayContaining(['exec', 'playwright', 'test']), expect.objectContaining({
+    const pnpmCalls = getPnpmCalls(spawn);
+    expect(pnpmCalls[1]).toEqual(['pnpm', expect.arrayContaining(['exec', 'playwright', 'test']), expect.objectContaining({
       env: expect.objectContaining({
         VH_RUN_DAEMON_FIRST_FEED: 'true',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: '2',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: '10',
         VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
       }),
-    }));
-    expect(spawn.mock.calls[1][2].env.VH_DAEMON_FEED_RUN_ID).toMatch(/^semantic-soak-/);
+    })]);
+    expect(pnpmCalls[1][2].env.VH_DAEMON_FEED_RUN_ID).toMatch(/^semantic-soak-/);
     expect(stderrWrites).toContain('warn');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"sampleFillRate": 0.5');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"readinessStatus": "not_ready"');
@@ -227,10 +249,11 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' })
-      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' },
+      { status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
 
     const result = await runDaemonFeedSemanticSoak({
       cwd: '/repo',
@@ -263,9 +286,10 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('records parse and attachment failures before exiting the failing soak run', async () => {
     const writes = new Map();
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: '{bad json', stderr: '' });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: '{bad json', stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -307,9 +331,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -352,9 +377,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -393,9 +419,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -474,12 +501,13 @@ describe('runDaemonFeedSemanticSoak', () => {
         }],
       }],
     });
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-1')), stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-2')), stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-3')), stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-4')), stderr: '' });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(makePlaywrightReport('story-1')), stderr: '' },
+      { status: 1, stdout: JSON.stringify(makePlaywrightReport('story-2')), stderr: '' },
+      { status: 1, stdout: JSON.stringify(makePlaywrightReport('story-3')), stderr: '' },
+      { status: 1, stdout: JSON.stringify(makePlaywrightReport('story-4')), stderr: '' },
+    );
 
     const result = await runDaemonFeedSemanticSoak({
       cwd: '/repo',
@@ -502,9 +530,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(result.summary.totalSampledStories).toBe(4);
     expect(result.summary.totalAuditedPairs).toBe(4);
     expect(result.results[0].storyIds).toEqual(['story-1', 'story-2', 'story-3', 'story-4']);
-    expect(spawn).toHaveBeenCalledTimes(5);
-    expect(spawn.mock.calls[1][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('a,b');
-    expect(spawn.mock.calls[4][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('g,h');
+    const pnpmCalls = getPnpmCalls(spawn);
+    expect(pnpmCalls).toHaveLength(5);
+    expect(pnpmCalls[1][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('a,b');
+    expect(pnpmCalls[4][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('g,h');
   });
 
   it('falls back to a single fixture-profile subrun and writes empty build/stdout defaults', async () => {
@@ -545,9 +574,10 @@ describe('runDaemonFeedSemanticSoak', () => {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
     const reportPath = '/repo/.tmp/out/run-1.profile-1.playwright.json';
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: undefined, stderr: undefined })
-      .mockReturnValueOnce({ status: 0, stdout: undefined, stderr: undefined });
+    const spawn = makeSoakSpawn(
+      { status: 0, stdout: undefined, stderr: undefined },
+      { status: 0, stdout: undefined, stderr: undefined },
+    );
 
     const result = await runDaemonFeedSemanticSoak({
       cwd: '/repo',
@@ -572,8 +602,9 @@ describe('runDaemonFeedSemanticSoak', () => {
     });
 
     expect(result.summary.strictSoakPass).toBe(true);
-    expect(spawn).toHaveBeenCalledTimes(2);
-    expect(spawn.mock.calls[1][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBeUndefined();
+    const pnpmCalls = getPnpmCalls(spawn);
+    expect(pnpmCalls).toHaveLength(2);
+    expect(pnpmCalls[1][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBeUndefined();
     expect(writes.get('/repo/.tmp/out/build.stdout.log')).toBe('');
     expect(writes.get('/repo/.tmp/out/build.stderr.log')).toBe('');
     expect(writes.get('/repo/.tmp/out/run-1.profile-1.playwright.json')).toBe('');

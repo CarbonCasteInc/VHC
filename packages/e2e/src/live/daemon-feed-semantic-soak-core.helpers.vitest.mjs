@@ -7,10 +7,14 @@ import {
   formatDaemonFeedSemanticSoakRunState,
   formatErrorMessage,
   logDaemonFeedSemanticSoakFatal,
+  preclearDaemonFirstFeedPorts,
   readNonNegativeInt,
   readPositiveInt,
+  resolveDaemonFirstFeedPortSet,
   sleep,
+  stablePort,
   summarizeRun,
+  extractPort,
 } from './daemon-feed-semantic-soak-core.mjs';
 
 function makeAttachment(name, body) {
@@ -181,6 +185,83 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(artifactRootFromEnv({ VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/tmp/out' }, '/repo')).toBe('/tmp/out');
     expect(artifactRootFromEnv({}, '/repo').startsWith('/repo/.tmp/daemon-feed-semantic-soak/')).toBe(true);
     await expect(sleep(0)).resolves.toBeUndefined();
+  });
+
+  it('derives the same daemon-first port set as the Playwright config defaults', () => {
+    const ports = resolveDaemonFirstFeedPortSet({}, 'semantic-soak-1-1');
+
+    expect(ports).toEqual({
+      basePort: stablePort(2100, 200, 'semantic-soak-1-1'),
+      gunPort: stablePort(8700, 200, 'semantic-soak-1-1'),
+      storyclusterPort: stablePort(4300, 200, 'semantic-soak-1-1'),
+      fixturePort: stablePort(8900, 100, 'semantic-soak-1-1'),
+      qdrantPort: stablePort(6300, 100, 'semantic-soak-1-1'),
+      analysisStubPort: stablePort(9100, 100, 'semantic-soak-1-1'),
+    });
+  });
+
+  it('falls back cleanly when the port helper inputs are omitted or lack explicit ports', () => {
+    expect(stablePort(2100, 200)).toBe(2100);
+    expect(extractPort('http://127.0.0.1/', 2999)).toBe(2999);
+    expect(resolveDaemonFirstFeedPortSet()).toEqual(expect.objectContaining({
+      basePort: expect.any(Number),
+      gunPort: expect.any(Number),
+      storyclusterPort: expect.any(Number),
+      fixturePort: expect.any(Number),
+      qdrantPort: expect.any(Number),
+      analysisStubPort: expect.any(Number),
+    }));
+  });
+
+  it('honors explicit port overrides when resolving the daemon-first port set', () => {
+    expect(resolveDaemonFirstFeedPortSet({
+      VH_LIVE_BASE_URL: 'http://127.0.0.1:2455/',
+      VH_DAEMON_FEED_GUN_PORT: '8755',
+      VH_DAEMON_FEED_STORYCLUSTER_PORT: '4355',
+      VH_DAEMON_FEED_FIXTURE_PORT: '8955',
+      VH_DAEMON_FEED_QDRANT_PORT: '6355',
+      VH_DAEMON_FEED_ANALYSIS_STUB_PORT: '9155',
+    }, 'ignored')).toEqual({
+      basePort: 2455,
+      gunPort: 8755,
+      storyclusterPort: 4355,
+      fixturePort: 8955,
+      qdrantPort: 6355,
+      analysisStubPort: 9155,
+    });
+  });
+
+  it('extracts ports from valid and invalid base urls', () => {
+    expect(extractPort('http://127.0.0.1:2455/')).toBe(2455);
+    expect(extractPort('not-a-url', 2999)).toBe(2999);
+  });
+
+  it('pre-clears the full daemon-first port set before a subrun starts', () => {
+    const spawn = vi.fn(() => ({ status: 0 }));
+
+    preclearDaemonFirstFeedPorts({
+      cwd: '/repo',
+      env: {},
+      runId: 'semantic-soak-2-1',
+      spawn,
+    });
+
+    const [[command, args, options]] = spawn.mock.calls;
+    const ports = resolveDaemonFirstFeedPortSet({}, 'semantic-soak-2-1');
+
+    expect(command).toBe('bash');
+    expect(args.slice(0, 4)).toEqual(['-lc', expect.stringContaining('lsof -ti tcp'), '--', String(ports.basePort)]);
+    expect(args.slice(4)).toEqual([
+      String(ports.gunPort),
+      String(ports.storyclusterPort),
+      String(ports.fixturePort),
+      String(ports.qdrantPort),
+      String(ports.analysisStubPort),
+    ]);
+    expect(options).toEqual(expect.objectContaining({
+      cwd: '/repo',
+      encoding: 'utf8',
+    }));
   });
 
   it('formats error objects and non-errors consistently', () => {
