@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { runDaemonFeedSemanticSoak } from './daemon-feed-semantic-soak-core.mjs';
+import {
+  resolvePublicSemanticSoakSpawnEnv,
+  runDaemonFeedSemanticSoak,
+} from './daemon-feed-semantic-soak-core.mjs';
 
 function makeAttachment(name, body) {
   return { name, body: Buffer.from(JSON.stringify(body)).toString('base64') };
@@ -33,6 +36,42 @@ function makeReport(overrides = {}) {
 }
 
 describe('runDaemonFeedSemanticSoak', () => {
+  it('injects the smoke-only public source profile and limits when unset', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000);
+
+    expect(env.VH_RUN_DAEMON_FIRST_FEED).toBe('true');
+    expect(env.VH_DAEMON_FEED_RUN_ID).toBe('run-1');
+    expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT).toBe('4');
+    expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS).toBe('180000');
+    expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
+      'guardian-us,cbs-politics,fox-latest,nytimes-politics,abc-politics',
+    );
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('20');
+  });
+
+  it('preserves explicit feed source and limit overrides', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,fox-latest',
+      VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE: '2',
+      VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '8',
+    }, 'run-2', 2, 1000);
+
+    expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('guardian-us,fox-latest');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('2');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('8');
+  });
+
+  it('does not inject smoke-only source defaults for fixture runs', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_USE_FIXTURE_FEED: 'true',
+    }, 'run-3', 2, 1000);
+
+    expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBeUndefined();
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBeUndefined();
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBeUndefined();
+  });
+
   it('injects the run id and persists summary, trend, and artifact index', async () => {
     const writes = new Map();
     const logs = [];

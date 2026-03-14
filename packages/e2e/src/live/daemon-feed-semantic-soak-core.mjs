@@ -21,6 +21,9 @@ const PLAYWRIGHT_ARGS = [
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
 const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
+const PUBLIC_SMOKE_SOURCE_IDS = 'guardian-us,cbs-politics,fox-latest,nytimes-politics,abc-politics';
+const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
+const PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '20';
 
 export function readPositiveInt(name, fallback, env = process.env) {
   const raw = env[name]?.trim();
@@ -158,6 +161,29 @@ export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
   return path.join(cwd, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
 }
 
+export function resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs) {
+  const nextEnv = {
+    ...env,
+    VH_RUN_DAEMON_FIRST_FEED: 'true',
+    VH_DAEMON_FEED_RUN_ID: runId,
+    VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: String(sampleCount),
+    VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: String(sampleTimeoutMs),
+  };
+
+  if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
+    return nextEnv;
+  }
+
+  nextEnv.VH_LIVE_DEV_FEED_SOURCE_IDS = env.VH_LIVE_DEV_FEED_SOURCE_IDS?.trim()
+    || PUBLIC_SMOKE_SOURCE_IDS;
+  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE = env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim()
+    || PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE;
+  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_TOTAL = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim()
+    || PUBLIC_SMOKE_MAX_ITEMS_TOTAL;
+
+  return nextEnv;
+}
+
 export async function runDaemonFeedSemanticSoak({
   cwd = process.cwd(),
   env = process.env,
@@ -206,13 +232,7 @@ export async function runDaemonFeedSemanticSoak({
     const runId = `semantic-soak-${Date.now()}-${run}`;
     const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
       cwd,
-      env: {
-        ...env,
-        VH_RUN_DAEMON_FIRST_FEED: 'true',
-        VH_DAEMON_FEED_RUN_ID: runId,
-        VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: String(sampleCount),
-        VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: String(sampleTimeoutMs),
-      },
+      env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });

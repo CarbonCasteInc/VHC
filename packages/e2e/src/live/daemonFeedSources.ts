@@ -18,6 +18,11 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'bbc-general': { id: 'bbc-general', name: 'BBC News', displayName: 'BBC News', rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
   'bbc-us-canada': { id: 'bbc-us-canada', name: 'BBC US & Canada', displayName: 'BBC', rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
   'yahoo-world': { id: 'yahoo-world', name: 'Yahoo News World', displayName: 'Yahoo News', rssUrl: 'https://news.yahoo.com/rss/world', perspectiveTag: 'international-wire', iconKey: 'yahoo', enabled: true },
+  'npr-news': { id: 'npr-news', name: 'NPR News', displayName: 'NPR', rssUrl: 'https://feeds.npr.org/1001/rss.xml', perspectiveTag: 'public-radio', iconKey: 'npr', enabled: true },
+  'npr-politics': { id: 'npr-politics', name: 'NPR Politics', displayName: 'NPR', rssUrl: 'https://feeds.npr.org/1014/rss.xml', perspectiveTag: 'public-radio', iconKey: 'npr', enabled: true },
+  'nytimes-home': { id: 'nytimes-home', name: 'New York Times Home', displayName: 'New York Times', rssUrl: 'https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml', perspectiveTag: 'national-paper', iconKey: 'nytimes', enabled: true },
+  'nytimes-politics': { id: 'nytimes-politics', name: 'New York Times Politics', displayName: 'New York Times', rssUrl: 'https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml', perspectiveTag: 'national-paper', iconKey: 'nytimes', enabled: true },
+  'abc-politics': { id: 'abc-politics', name: 'ABC News Politics', displayName: 'ABC News', rssUrl: 'https://abcnews.go.com/abcnews/politicsheadlines', perspectiveTag: 'broadcast-news', iconKey: 'abc', enabled: true },
 };
 
 const DEFAULT_SOURCE_IDS = [
