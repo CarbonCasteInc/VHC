@@ -147,6 +147,36 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     }]);
   });
 
+  it('returns empty/default diagnostics when the report is missing', () => {
+    const summarized = summarizeRun(
+      null,
+      null,
+      null,
+      1,
+      '/tmp/report.json',
+      'parse-error',
+      null,
+      'audit-error',
+      null,
+      null,
+    );
+
+    expect(summarized).toMatchObject({
+      pass: false,
+      requestedSampleCount: null,
+      sampledStoryCount: null,
+      sampleFillRate: null,
+      sampleShortfall: null,
+      visibleStoryCount: null,
+      auditedPairCount: null,
+      relatedTopicOnlyPairCount: null,
+      failureStoryCount: null,
+      failureAuditableCount: null,
+      storyIds: [],
+      failingBundles: [],
+    });
+  });
+
   it('resolves artifact roots and sleep promises', async () => {
     expect(artifactRootFromEnv({ VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/tmp/out' }, '/repo')).toBe('/tmp/out');
     expect(artifactRootFromEnv({}, '/repo').startsWith('/repo/.tmp/daemon-feed-semantic-soak/')).toBe(true);

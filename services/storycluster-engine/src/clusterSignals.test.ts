@@ -4,6 +4,7 @@ import {
   clusterHasSpecificCanonicalDocument,
   clusterHasSpecificEventDocument,
   clusterSignalsInternal,
+  clusterTemporalAnchors,
   isRelatedCoverageConflict,
   isRelatedCoverageMergeConflict,
   representativeDocuments,
@@ -228,6 +229,93 @@ describe('clusterSignals', () => {
         coverage_role: 'canonical',
       }],
     }), cluster)).toBe(0);
+  });
+
+  it('collects temporal anchors from event, temporal, and published timestamps', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const eventDocument = makeWorkingDocument({
+      doc_id: 'doc-event',
+      source_id: 'wire-event',
+      published_at: 100,
+      temporal_ms: 120,
+      event_tuple: {
+        description: 'Event anchored by explicit event time.',
+        trigger: 'attack',
+        who: ['Port officials'],
+        where: ['Tehran'],
+        when_ms: 140,
+        outcome: 'Response underway.',
+      },
+    });
+    const temporalDocument = makeWorkingDocument({
+      doc_id: 'doc-temporal',
+      source_id: 'wire-temporal',
+      published_at: 200,
+      temporal_ms: 220,
+      event_tuple: {
+        description: 'Event anchored by temporal fallback.',
+        trigger: 'attack',
+        who: ['Port officials'],
+        where: ['Tehran'],
+        when_ms: null,
+        outcome: 'Response underway.',
+      },
+      source_variants: [{
+        doc_id: 'doc-temporal',
+        source_id: 'wire-temporal',
+        publisher: 'Reuters',
+        url: 'https://example.com/temporal',
+        canonical_url: 'https://example.com/temporal',
+        url_hash: 'hash-temporal',
+        published_at: 200,
+        title: 'Temporal anchor fallback',
+        summary: 'Temporal anchor fallback.',
+        language: 'en',
+        translation_applied: false,
+        coverage_role: 'canonical',
+      }],
+    });
+    const publishedDocument = makeWorkingDocument({
+      doc_id: 'doc-published',
+      source_id: 'wire-published',
+      published_at: 300,
+      event_tuple: {
+        description: 'Event anchored by published fallback.',
+        trigger: 'attack',
+        who: ['Port officials'],
+        where: ['Tehran'],
+        when_ms: null,
+        outcome: 'Response underway.',
+      },
+      source_variants: [{
+        doc_id: 'doc-published',
+        source_id: 'wire-published',
+        publisher: 'Reuters',
+        url: 'https://example.com/published',
+        canonical_url: 'https://example.com/published',
+        url_hash: 'hash-published',
+        published_at: 300,
+        title: 'Published anchor fallback',
+        summary: 'Published anchor fallback.',
+        language: 'en',
+        translation_applied: false,
+        coverage_role: 'canonical',
+      }],
+    });
+    publishedDocument.temporal_ms = null;
+
+    const cluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(eventDocument, eventDocument.source_variants[0]!),
+      toStoredSource(temporalDocument, temporalDocument.source_variants[0]!),
+      toStoredSource(publishedDocument, publishedDocument.source_variants[0]!),
+    ]);
+
+    expect(clusterTemporalAnchors(cluster)).toEqual([140, 220, 300]);
   });
 
   it('treats time, location, and actor-only tuples as specific event signals', () => {

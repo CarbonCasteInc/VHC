@@ -1,5 +1,6 @@
 import type { StoredClusterRecord, StoredSourceDocument, WorkingDocument } from './stageState';
 import { isRelatedCoverageText, triggerCategory } from './contentSignals';
+import { LOW_SIGNAL_CANONICAL_ENTITIES } from './storyclusterEntitySignals.js';
 
 function normalizedEventKeys(values: readonly string[]): string[] {
   return [...new Set(values
@@ -14,6 +15,16 @@ export function canonicalEntities(values: readonly string[]): string[] {
 
 function normalizedCanonicalEventKeys(values: readonly string[]): string[] {
   return normalizedEventKeys(values).filter((value) => value.includes('_'));
+}
+
+function substantiveCanonicalEventKeys(values: readonly string[]): string[] {
+  return normalizedCanonicalEventKeys(values)
+    .filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value));
+}
+
+function substantiveEventLocations(values: readonly string[]): string[] {
+  return normalizedEventKeys(values)
+    .filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value));
 }
 
 export function clusterEntities(cluster: StoredClusterRecord): string[] {
@@ -41,28 +52,28 @@ export function clusterTriggers(cluster: StoredClusterRecord): string[] {
 }
 
 export function documentEventActors(document: WorkingDocument): string[] {
-  return normalizedCanonicalEventKeys([
+  return substantiveCanonicalEventKeys([
     ...(document.event_tuple?.who ?? []),
     ...canonicalEntities(document.linked_entities),
   ]).slice(0, 10);
 }
 
 export function clusterEventActors(cluster: StoredClusterRecord): string[] {
-  return normalizedCanonicalEventKeys([
+  return substantiveCanonicalEventKeys([
     ...cluster.source_documents.flatMap((document) => document.event_tuple?.who ?? []),
     ...canonicalEntities(clusterEntities(cluster)),
   ]).slice(0, 12);
 }
 
 export function documentEventLocations(document: WorkingDocument): string[] {
-  return normalizedEventKeys([
+  return substantiveEventLocations([
     ...(document.event_tuple?.where ?? []),
     ...document.locations,
   ]).slice(0, 8);
 }
 
 export function clusterEventLocations(cluster: StoredClusterRecord): string[] {
-  return normalizedEventKeys([
+  return substantiveEventLocations([
     ...cluster.source_documents.flatMap((document) => document.event_tuple?.where ?? []),
     ...clusterLocations(cluster),
   ]).slice(0, 8);

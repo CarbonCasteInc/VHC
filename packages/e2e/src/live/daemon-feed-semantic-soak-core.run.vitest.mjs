@@ -44,10 +44,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT).toBe('4');
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS).toBe('180000');
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
-      'guardian-us,cbs-politics,fox-latest,abc-politics,nbc-politics,pbs-politics',
+      'guardian-us,cbs-politics,ap-politics,cnn-politics,abc-politics,nbc-politics,pbs-politics',
     );
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('24');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('28');
   });
 
   it('preserves explicit feed source and limit overrides', () => {
@@ -132,6 +132,7 @@ describe('runDaemonFeedSemanticSoak', () => {
           VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
           VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
           VH_DAEMON_FEED_SOAK_SUMMARY_PATH: '/repo/.tmp/out/custom-summary.json',
+          VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
         },
         spawn,
         mkdir: vi.fn(),
@@ -149,6 +150,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         VH_RUN_DAEMON_FIRST_FEED: 'true',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: '2',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: '10',
+        VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
       }),
     }));
     expect(spawn.mock.calls[1][2].env.VH_DAEMON_FEED_RUN_ID).toMatch(/^semantic-soak-/);
@@ -172,6 +174,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         env: {
           VH_DAEMON_FEED_SOAK_RUNS: '1',
           VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+          VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
         },
         spawn,
         mkdir: vi.fn(),
@@ -237,6 +240,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
         VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
         VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
       },
       spawn,
       mkdir: vi.fn(),
@@ -253,7 +257,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(result.results).toHaveLength(2);
     expect(sleepImpl).toHaveBeenCalledWith(5);
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit.json')).toContain('"requested_sample_count": 1');
-    expect(writes.get('/repo/.tmp/out/run-1.semantic-audit-failure-snapshot.json')).toContain('"story_count": 4');
+    expect(writes.get('/repo/.tmp/out/run-1.semantic-audit-failure-snapshot.json')).toContain('"story_count": 2');
     expect(writes.get('/repo/.tmp/out/run-1.runtime-logs.json')).toContain('browser-log');
   });
 
@@ -276,6 +280,7 @@ describe('runDaemonFeedSemanticSoak', () => {
           VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
           VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
           VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+          VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
         },
         spawn,
         mkdir: vi.fn(),
@@ -319,6 +324,7 @@ describe('runDaemonFeedSemanticSoak', () => {
           VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
           VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
           VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+          VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
         },
         spawn,
         mkdir: vi.fn(),
@@ -335,6 +341,242 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(summary).toContain('Unexpected token');
     expect(summary).not.toContain('also-not-json');
     expect(summary).not.toContain('still-not-json');
+  });
+
+  it('records failure snapshot decode errors when the audit attachment is otherwise valid', async () => {
+    const writes = new Map();
+    const primaryResult = makePrimaryResult([
+      makeAttachment('daemon-first-feed-semantic-audit', makeReport()),
+      { name: 'daemon-first-feed-semantic-audit-failure-snapshot', body: Buffer.from('still-not-json').toString('base64') },
+    ]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '2',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+          VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
+        },
+        spawn,
+        mkdir: vi.fn(),
+        readFile: (target) => writes.get(target),
+        writeFile: (target, content) => writes.set(target, String(content)),
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    expect(writes.get('/repo/.tmp/out/semantic-soak-summary.json')).toContain('Unexpected token');
+  });
+
+  it('records runtime log decode errors when the audit attachment is otherwise valid', async () => {
+    const writes = new Map();
+    const primaryResult = makePrimaryResult([
+      makeAttachment('daemon-first-feed-semantic-audit', makeReport()),
+      { name: 'daemon-first-feed-runtime-logs', body: Buffer.from('still-not-json').toString('base64') },
+    ]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '2',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+          VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
+        },
+        spawn,
+        mkdir: vi.fn(),
+        readFile: (target) => writes.get(target),
+        writeFile: (target, content) => writes.set(target, String(content)),
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    expect(writes.get('/repo/.tmp/out/semantic-soak-summary.json')).toContain('Unexpected token');
+  });
+
+  it('aggregates multiple public smoke profiles into a passing run once the sample fills', async () => {
+    const writes = new Map();
+    const makeAudit = (storyId) => ({
+      requested_sample_count: 4,
+      sampled_story_count: 1,
+      visible_story_ids: [storyId],
+      supply: {
+        story_count: 1,
+        auditable_count: 1,
+        visible_story_ids: [storyId],
+        top_story_ids: [storyId],
+        top_auditable_story_ids: [storyId],
+        sample_fill_rate: 0.25,
+        sample_shortfall: 3,
+      },
+      bundles: [{
+        story_id: storyId,
+        topic_id: `${storyId}-topic`,
+        headline: storyId,
+        pairs: [{ label: 'same_incident' }],
+        has_related_topic_only_pair: false,
+      }],
+      overall: {
+        audited_pair_count: 1,
+        related_topic_only_pair_count: 0,
+        sample_fill_rate: 0.25,
+        sample_shortfall: 3,
+        pass: false,
+      },
+    });
+    const makePlaywrightReport = (storyId) => ({
+      suites: [{
+        specs: [{
+          tests: [{
+            results: [makePrimaryResult([
+              makeAttachment('daemon-first-feed-semantic-audit', makeAudit(storyId)),
+              makeAttachment('daemon-first-feed-semantic-audit-failure-snapshot', {
+                story_count: 1,
+                auditable_count: 1,
+                visible_story_ids: [storyId],
+                top_story_ids: [storyId],
+                top_auditable_story_ids: [storyId],
+              }),
+              makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: [`${storyId}-log`] }),
+            ])],
+          }],
+        }],
+      }],
+    });
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-1')), stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-2')), stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-3')), stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(makePlaywrightReport('story-4')), stderr: '' });
+
+    const result = await runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '4',
+        VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        VH_PUBLIC_SEMANTIC_SOAK_SOURCE_PROFILES: 'a,b;c,d;e,f;g,h',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      readFile: (target) => writes.get(target),
+      writeFile: (target, content) => writes.set(target, String(content)),
+      log: vi.fn(),
+      sleepImpl: vi.fn(),
+    });
+
+    expect(result.summary.strictSoakPass).toBe(true);
+    expect(result.summary.totalSampledStories).toBe(4);
+    expect(result.summary.totalAuditedPairs).toBe(4);
+    expect(result.results[0].storyIds).toEqual(['story-1', 'story-2', 'story-3', 'story-4']);
+    expect(spawn).toHaveBeenCalledTimes(5);
+    expect(spawn.mock.calls[1][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('a,b');
+    expect(spawn.mock.calls[4][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('g,h');
+  });
+
+  it('falls back to a single fixture-profile subrun and writes empty build/stdout defaults', async () => {
+    const writes = new Map();
+    const audit = makeReport({
+      requested_sample_count: 1,
+      sampled_story_count: 1,
+      visible_story_ids: ['story-1'],
+      supply: {
+        story_count: 1,
+        auditable_count: 1,
+        visible_story_ids: ['story-1'],
+        top_story_ids: ['story-1'],
+        top_auditable_story_ids: ['story-1'],
+        sample_fill_rate: 1,
+        sample_shortfall: 0,
+      },
+      bundles: [{
+        story_id: 'story-1',
+        topic_id: 'topic-1',
+        headline: 'Headline',
+        pairs: [{ label: 'duplicate' }],
+        has_related_topic_only_pair: false,
+      }],
+      overall: {
+        audited_pair_count: 1,
+        related_topic_only_pair_count: 0,
+        sample_fill_rate: 1,
+        sample_shortfall: 0,
+        pass: true,
+      },
+    });
+    const primaryResult = makePrimaryResult([
+      makeAttachment('daemon-first-feed-semantic-audit', audit),
+      makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: ['fixture-log'] }),
+    ]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const reportPath = '/repo/.tmp/out/run-1.profile-1.playwright.json';
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: undefined, stderr: undefined })
+      .mockReturnValueOnce({ status: 0, stdout: undefined, stderr: undefined });
+
+    const result = await runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+        VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        VH_DAEMON_FEED_USE_FIXTURE_FEED: 'true',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      readFile: (target) => {
+        if (target === reportPath) {
+          return JSON.stringify(playwrightReport);
+        }
+        return writes.get(target);
+      },
+      writeFile: (target, content) => writes.set(target, String(content)),
+      log: vi.fn(),
+      sleepImpl: vi.fn(),
+    });
+
+    expect(result.summary.strictSoakPass).toBe(true);
+    expect(spawn).toHaveBeenCalledTimes(2);
+    expect(spawn.mock.calls[1][2].env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBeUndefined();
+    expect(writes.get('/repo/.tmp/out/build.stdout.log')).toBe('');
+    expect(writes.get('/repo/.tmp/out/build.stderr.log')).toBe('');
+    expect(writes.get('/repo/.tmp/out/run-1.profile-1.playwright.json')).toBe('');
   });
 
 });

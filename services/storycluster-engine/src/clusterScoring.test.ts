@@ -324,12 +324,12 @@ describe('clusterScoring', () => {
     expect(lexicalAccepted.adjudication).toBe('accepted');
 
     const abstain = buildCandidateMatch(makeWorkingDocument({
-      title: 'Generic bulletin',
-      summary: 'Generic bulletin.',
-      raw_text: 'Generic bulletin.',
-      normalized_text: 'generic bulletin',
-      translated_title: 'Generic bulletin',
-      translated_text: 'Generic bulletin.',
+      title: 'Port attack bulletin',
+      summary: 'Port attack bulletin.',
+      raw_text: 'Port attack bulletin.',
+      normalized_text: 'port attack bulletin',
+      translated_title: 'Port attack bulletin',
+      translated_text: 'Port attack bulletin.',
       entities: ['port_attack'],
       linked_entities: ['other'],
       trigger: 'attack',
@@ -482,6 +482,198 @@ describe('clusterScoring', () => {
     const diplomacyCluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(diplomacyDoc, diplomacyDoc.source_variants[0]!)]);
 
     expect(clusterMergeScore(conflictCluster, diplomacyCluster)).toBe(0);
+  });
+
+  it('allows candidate eligibility from actor support without entity overlap', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const clusterDocument = makeWorkingDocument({
+      linked_entities: ['other_cluster_signal'],
+      entities: ['other_cluster_signal'],
+      locations: [],
+      trigger: 'attack',
+      event_tuple: {
+        description: 'Port authority responds to the attack.',
+        trigger: 'attack',
+        who: ['port_authority'],
+        where: [],
+        when_ms: 100,
+        outcome: 'Response underway.',
+      },
+    });
+    const cluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(clusterDocument, clusterDocument.source_variants[0]!)]);
+    const actorSupported = makeWorkingDocument({
+      entities: ['generic'],
+      linked_entities: ['generic'],
+      locations: [],
+      event_tuple: {
+        description: 'Port authority coordinates the response.',
+        trigger: null,
+        who: ['port_authority'],
+        where: [],
+        when_ms: 110,
+        outcome: 'Coordination continues.',
+      },
+      coarse_vector: [0.64, 0.36],
+      full_vector: [0.62, 0.38],
+    });
+    actorSupported.trigger = null;
+
+    expect(candidateEligible(actorSupported, cluster)).toBe(true);
+  });
+
+  it('allows candidate eligibility from location support without entity overlap', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const clusterDocument = makeWorkingDocument({
+      linked_entities: ['other_cluster_signal'],
+      entities: ['other_cluster_signal'],
+      locations: [],
+      trigger: 'attack',
+      event_tuple: {
+        description: 'Response continues at the port terminal.',
+        trigger: 'attack',
+        who: [],
+        where: ['port_terminal'],
+        when_ms: 100,
+        outcome: 'Terminal operations remain disrupted.',
+      },
+    });
+    const cluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(clusterDocument, clusterDocument.source_variants[0]!)]);
+    const locationSupported = makeWorkingDocument({
+      entities: ['generic'],
+      linked_entities: ['generic'],
+      locations: [],
+      event_tuple: {
+        description: 'Crews remain active at the port terminal.',
+        trigger: null,
+        who: [],
+        where: ['port_terminal'],
+        when_ms: 110,
+        outcome: 'Crews remain deployed.',
+      },
+      coarse_vector: [0.64, 0.36],
+      full_vector: [0.62, 0.38],
+    });
+    locationSupported.trigger = null;
+
+    expect(candidateEligible(locationSupported, cluster)).toBe(true);
+  });
+
+  it('uses neutral trigger support when one split candidate lacks a trigger', () => {
+    const leftDocument = makeWorkingDocument({
+      doc_id: 'doc-left',
+      source_id: 'wire-left',
+      trigger: 'attack',
+      published_at: 100,
+    });
+    const left = toStoredSource(leftDocument, leftDocument.source_variants[0]!);
+    const rightDocument = makeWorkingDocument({
+      doc_id: 'doc-right',
+      source_id: 'wire-right',
+      published_at: 101,
+    });
+    rightDocument.trigger = null;
+    const right = toStoredSource(rightDocument, rightDocument.source_variants[0]!);
+
+    expect(splitPairScore(left, right)).toBeGreaterThan(0.5);
+  });
+
+  it('abstains when only non-low-signal location support survives review', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const clusterDocument = makeWorkingDocument({
+      title: 'Terminal response bulletin',
+      summary: 'Terminal response bulletin.',
+      raw_text: 'Terminal response bulletin.',
+      normalized_text: 'terminal response bulletin',
+      translated_title: 'Terminal response bulletin',
+      translated_text: 'Terminal response bulletin.',
+      entities: ['terminal_response'],
+      linked_entities: ['terminal_response'],
+      locations: ['port_terminal'],
+      event_tuple: {
+        description: 'Response continues at the port terminal.',
+        trigger: 'attack',
+        who: [],
+        where: ['port_terminal'],
+        when_ms: 100,
+        outcome: 'Terminal response continues.',
+      },
+    });
+    const cluster = deriveClusterRecord(topicState, 'topic-news', [toStoredSource(clusterDocument, clusterDocument.source_variants[0]!)]);
+    const locationAbstain = makeWorkingDocument({
+      title: 'Generic bulletin',
+      summary: 'Generic bulletin.',
+      raw_text: 'Generic bulletin.',
+      normalized_text: 'generic bulletin',
+      translated_title: 'Generic bulletin',
+      translated_text: 'Generic bulletin.',
+      entities: ['terminal_response'],
+      linked_entities: ['generic'],
+      locations: ['port_terminal'],
+      trigger: 'attack',
+      coarse_vector: [0.74, 0.26],
+      full_vector: [0.62, 0.38],
+      published_at: 216_000_100,
+      temporal_ms: 216_000_100,
+      event_tuple: {
+        description: 'Crews remain active at the port terminal.',
+        trigger: 'attack',
+        who: [],
+        where: ['port_terminal'],
+        when_ms: 216_000_100,
+        outcome: 'Crews remain deployed.',
+      },
+    });
+
+    expect(buildCandidateMatch(locationAbstain, cluster).adjudication).toBe('abstain');
+  });
+
+  it('abstains on canonical overlap even when entity overlap is absent', () => {
+    const canonicalAbstain = buildCandidateMatch(makeWorkingDocument({
+      title: 'Generic bulletin',
+      summary: 'Generic bulletin.',
+      raw_text: 'Generic bulletin.',
+      normalized_text: 'generic bulletin',
+      translated_title: 'Generic bulletin',
+      translated_text: 'Generic bulletin.',
+      entities: ['generic'],
+      linked_entities: ['port_attack'],
+      trigger: 'attack',
+      coarse_vector: [0.62, 0.38],
+      full_vector: [0.48, 0.52],
+      published_at: 216_000_100,
+      temporal_ms: 216_000_100,
+    }), makeCluster());
+
+    expect(canonicalAbstain.adjudication).toBe('abstain');
+  });
+
+  it('rejects candidate eligibility without structured event support', () => {
+    const unsupported = makeWorkingDocument({
+      entities: ['generic'],
+      linked_entities: ['generic'],
+      locations: [],
+      event_tuple: null,
+      coarse_vector: [0.64, 0.36],
+      full_vector: [0.62, 0.38],
+    });
+    unsupported.trigger = null;
+
+    expect(candidateEligible(unsupported, makeCluster())).toBe(false);
   });
 
   it('allows merge support from shared event location when trigger overlap is weak', () => {

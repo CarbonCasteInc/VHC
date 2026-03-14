@@ -123,9 +123,10 @@ function hardEventFrameConflict(
   const conflictActorSupport = Math.max(actor, strictActorOverlap);
   const sparseEventSignalConflict =
     (document.linked_entities.length > 0 || documentActors.length > 0 || documentLocations.length > 0) &&
+    canonicalScore < 0.45 &&
     specificCanonicalScore < 0.2 &&
-    lexical < 0.14 &&
-    conflictActorSupport < 0.35 &&
+    lexical < 0.28 &&
+    conflictActorSupport < 0.45 &&
     strictLocationOverlap < 0.35 &&
     trigger <= 0.5;
   return documentSignalsPresent &&
@@ -174,6 +175,32 @@ function eventFrameScore(document: WorkingDocument, cluster: StoredClusterRecord
       isRelatedCoverageAttachmentConflict(document, cluster) ||
       isSecondaryAssetAttachmentConflict(document, cluster),
   };
+}
+
+function hasSubstantiveAbstainSupport(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  specificCanonicalScore: number,
+  lexical: number,
+  actor: number,
+  location: number,
+): boolean {
+  const documentActors = documentEventActors(document);
+  const clusterActors = clusterEventActors(cluster);
+  const documentLocations = documentEventLocations(document);
+  const clusterLocations = clusterEventLocations(cluster);
+  const strictActorSupport =
+    documentActors.length > 0 && clusterActors.length > 0
+      ? actor
+      : 0;
+  const strictLocationSupport =
+    documentLocations.length > 0 && clusterLocations.length > 0
+      ? location
+      : 0;
+  return specificCanonicalScore >= 0.2 ||
+    strictActorSupport >= 0.35 ||
+    strictLocationSupport >= 0.35 ||
+    lexical >= 0.3;
 }
 
 export function buildCandidateMatch(document: WorkingDocument, cluster: StoredClusterRecord): CandidateMatch {
@@ -241,6 +268,7 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     rerank >= REVIEW_THRESHOLD &&
     eventFrame.score >= 0.22 &&
     (entityScore >= 0.25 || canonicalScore >= 0.5) &&
+    hasSubstantiveAbstainSupport(document, cluster, specificCanonicalScore, lexical, actor, location) &&
     trigger > 0
   ) {
     adjudication = 'abstain';

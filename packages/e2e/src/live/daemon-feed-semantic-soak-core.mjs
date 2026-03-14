@@ -6,8 +6,19 @@ import {
   buildReleaseArtifactIndex,
   buildSoakTrend,
   PUBLIC_SEMANTIC_SOAK_POSTURE,
-  summarizeLabelCounts,
 } from './daemon-feed-semantic-soak-report.mjs';
+import {
+  aggregatePublicSemanticSoakSubruns,
+  resolvePublicSemanticSoakProfiles,
+  resolvePublicSemanticSoakSpawnEnv,
+} from './daemon-feed-semantic-soak-public.mjs';
+import {
+  formatDaemonFeedSemanticSoakRunState,
+  summarizeRun,
+} from './daemon-feed-semantic-soak-run-helpers.mjs';
+
+export { resolvePublicSemanticSoakProfiles, resolvePublicSemanticSoakSpawnEnv } from './daemon-feed-semantic-soak-public.mjs';
+export { formatDaemonFeedSemanticSoakRunState, summarizeRun } from './daemon-feed-semantic-soak-run-helpers.mjs';
 
 const BUILD_ARGS = ['test:live:daemon-feed:build'];
 const PLAYWRIGHT_ARGS = [
@@ -21,9 +32,6 @@ const PLAYWRIGHT_ARGS = [
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
 const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
-const PUBLIC_SMOKE_SOURCE_IDS = 'guardian-us,cbs-politics,fox-latest,abc-politics,nbc-politics,pbs-politics';
-const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
-const PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '24';
 
 export function readPositiveInt(name, fallback, env = process.env) {
   const raw = env[name]?.trim();
@@ -77,81 +85,6 @@ export function decodeAttachment(primaryResult, name) {
 export function formatErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
-export function summarizeRun(
-  report,
-  failureSnapshot,
-  runtimeLogs,
-  procStatus,
-  reportPath,
-  reportParseError,
-  auditPath,
-  auditError,
-  failureSnapshotPath,
-  runtimeLogsPath,
-) {
-  const labelCounts = summarizeLabelCounts(report);
-  const failingBundles = (report?.bundles ?? [])
-    .filter((bundle) => bundle?.has_related_topic_only_pair)
-    .map((bundle) => ({
-      story_id: bundle.story_id,
-      topic_id: bundle.topic_id,
-      headline: bundle.headline,
-      related_topic_only_pair_count: (bundle.pairs ?? []).filter((pair) => pair.label === 'related_topic_only').length,
-    }));
-
-  const pass = Boolean(
-    procStatus === 0
-      && report
-      && report.overall?.pass === true
-      && report.overall?.related_topic_only_pair_count === 0
-      && Number.isFinite(report.sampled_story_count)
-      && report.sampled_story_count >= report.requested_sample_count,
-  );
-
-  return {
-    status: procStatus,
-    pass,
-    reportPath,
-    reportParseError,
-    auditPath,
-    auditError,
-    failureSnapshotPath,
-    runtimeLogsPath,
-    requestedSampleCount: report?.requested_sample_count ?? null,
-    sampledStoryCount: report?.sampled_story_count ?? null,
-    sampleFillRate: report?.overall?.sample_fill_rate ?? null,
-    sampleShortfall: report?.overall?.sample_shortfall ?? null,
-    visibleStoryCount: Array.isArray(report?.visible_story_ids) ? report.visible_story_ids.length : null,
-    auditedPairCount: report?.overall?.audited_pair_count ?? null,
-    relatedTopicOnlyPairCount: report?.overall?.related_topic_only_pair_count ?? null,
-    failureStoryCount: failureSnapshot?.story_count ?? report?.supply?.story_count ?? null,
-    failureAuditableCount: failureSnapshot?.auditable_count ?? report?.supply?.auditable_count ?? null,
-    failureTopStoryIds: failureSnapshot?.top_story_ids ?? report?.supply?.top_story_ids ?? [],
-    failureTopAuditableStoryIds: failureSnapshot?.top_auditable_story_ids ?? report?.supply?.top_auditable_story_ids ?? [],
-    runtimeLogCount: Array.isArray(runtimeLogs?.browserLogs)
-      ? runtimeLogs.browserLogs.length
-      : null,
-    labelCounts,
-    failingBundles,
-    storyIds: (report?.bundles ?? []).map((bundle) => bundle.story_id),
-  };
-}
-
-export function formatDaemonFeedSemanticSoakRunState(result) {
-  const detail = result.failureAuditableCount !== null
-    ? `, storeStories=${result.failureStoryCount}, storeAuditable=${result.failureAuditableCount}`
-    : '';
-  const sampleDetail = result.requestedSampleCount === null
-    ? `${result.sampledStoryCount ?? 'n/a'}`
-    : `${result.sampledStoryCount ?? 'n/a'}/${result.requestedSampleCount}`;
-  const fillDetail = result.sampleFillRate === null ? 'n/a' : result.sampleFillRate;
-
-  if (result.pass) {
-    return `PASS (stories=${sampleDetail}, pairs=${result.auditedPairCount}, fill=${fillDetail})`;
-  }
-
-  return `FAIL (stories=${sampleDetail}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'}, fill=${fillDetail}${detail})`;
-}
 
 export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
   const explicit = env.VH_DAEMON_FEED_SOAK_ARTIFACT_DIR?.trim();
@@ -161,27 +94,108 @@ export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
   return path.join(cwd, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
 }
 
-export function resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs) {
-  const nextEnv = {
-    ...env,
-    VH_RUN_DAEMON_FIRST_FEED: 'true',
-    VH_DAEMON_FEED_RUN_ID: runId,
-    VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: String(sampleCount),
-    VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: String(sampleTimeoutMs),
-  };
+function runPlaywrightSoakSubrun({
+  artifactDir,
+  cwd,
+  env,
+  run,
+  profileIndex,
+  sampleCount,
+  sampleTimeoutMs,
+  sourceIds,
+  spawn,
+  readFile,
+  writeFile,
+}) {
+  const reportPath = path.join(artifactDir, `run-${run}.profile-${profileIndex}.playwright.json`);
+  const runId = `semantic-soak-${Date.now()}-${run}-${profileIndex}`;
+  const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
+    cwd,
+    env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, sourceIds),
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+  });
 
-  if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
-    return nextEnv;
+  writeFile(reportPath, proc.stdout ?? '', 'utf8');
+  if (proc.stderr) {
+    process.stderr.write(proc.stderr);
   }
 
-  nextEnv.VH_LIVE_DEV_FEED_SOURCE_IDS = env.VH_LIVE_DEV_FEED_SOURCE_IDS?.trim()
-    || PUBLIC_SMOKE_SOURCE_IDS;
-  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE = env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim()
-    || PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE;
-  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_TOTAL = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim()
-    || PUBLIC_SMOKE_MAX_ITEMS_TOTAL;
+  let report = null;
+  let reportParseError = null;
+  try {
+    report = JSON.parse(readFile(reportPath, 'utf8'));
+  } catch (error) {
+    reportParseError = formatErrorMessage(error);
+  }
 
-  return nextEnv;
+  const primaryResult = report ? findPrimaryResult(report) : null;
+  let audit = null;
+  let auditError = null;
+  let auditPath = null;
+  let failureSnapshot = null;
+  let failureSnapshotPath = null;
+  let runtimeLogs = null;
+  let runtimeLogsPath = null;
+
+  try {
+    audit = primaryResult ? decodeAttachment(primaryResult, ATTACHMENT_NAME) : null;
+    if (!audit) {
+      auditError = `${ATTACHMENT_NAME} attachment missing`;
+    }
+  } catch (error) {
+    auditError = formatErrorMessage(error);
+  }
+
+  if (audit) {
+    auditPath = path.join(artifactDir, `run-${run}.profile-${profileIndex}.semantic-audit.json`);
+    writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8');
+  }
+
+  try {
+    failureSnapshot = primaryResult
+      ? decodeAttachment(primaryResult, FAILURE_SNAPSHOT_ATTACHMENT_NAME)
+      : null;
+  } catch (error) {
+    if (!auditError) {
+      auditError = formatErrorMessage(error);
+    }
+  }
+
+  if (failureSnapshot) {
+    failureSnapshotPath = path.join(artifactDir, `run-${run}.profile-${profileIndex}.semantic-audit-failure-snapshot.json`);
+    writeFile(failureSnapshotPath, JSON.stringify(failureSnapshot, null, 2), 'utf8');
+  }
+
+  try {
+    runtimeLogs = primaryResult
+      ? decodeAttachment(primaryResult, RUNTIME_LOG_ATTACHMENT_NAME)
+      : null;
+  } catch (error) {
+    if (!auditError) {
+      auditError = formatErrorMessage(error);
+    }
+  }
+
+  if (runtimeLogs) {
+    runtimeLogsPath = path.join(artifactDir, `run-${run}.profile-${profileIndex}.runtime-logs.json`);
+    writeFile(runtimeLogsPath, JSON.stringify(runtimeLogs, null, 2), 'utf8');
+  }
+
+  return {
+    profileIndex,
+    sourceIds,
+    procStatus: proc.status,
+    reportPath,
+    reportParseError,
+    audit,
+    auditError,
+    auditPath,
+    failureSnapshot,
+    failureSnapshotPath,
+    runtimeLogs,
+    runtimeLogsPath,
+  };
 }
 
 export async function runDaemonFeedSemanticSoak({
@@ -228,92 +242,76 @@ export async function runDaemonFeedSemanticSoak({
 
   for (let run = 1; run <= runCount; run += 1) {
     log(`[vh:daemon-soak] run ${run}/${runCount} starting (sampleCount=${sampleCount})`);
+    const sourceProfiles = resolvePublicSemanticSoakProfiles(env);
+    const profileQueue = sourceProfiles.length > 0 ? sourceProfiles : [undefined];
+    const subruns = [];
+    let aggregate = null;
+
+    for (let profileIndex = 0; profileIndex < profileQueue.length; profileIndex += 1) {
+      const sourceIds = profileQueue[profileIndex];
+      const subrun = runPlaywrightSoakSubrun({
+        artifactDir,
+        cwd,
+        env,
+        run,
+        profileIndex: profileIndex + 1,
+        sampleCount,
+        sampleTimeoutMs,
+        sourceIds,
+        spawn,
+        readFile,
+        writeFile,
+      });
+      subruns.push(subrun);
+      aggregate = aggregatePublicSemanticSoakSubruns({
+        sampleCount,
+        sourceProfiles: profileQueue.slice(0, profileIndex + 1).filter(Boolean),
+        subruns,
+      });
+
+      const aggregateResult = summarizeRun(
+        aggregate.audit,
+        aggregate.failureSnapshot,
+        aggregate.runtimeLogs,
+        aggregate.status,
+        null,
+        aggregate.reportParseError,
+        null,
+        aggregate.auditError,
+        null,
+        null,
+      );
+
+      log(
+        `[vh:daemon-soak] run ${run}/${runCount} profile ${profileIndex + 1}/${profileQueue.length} `
+        + formatDaemonFeedSemanticSoakRunState(aggregateResult),
+      );
+
+      if (aggregateResult.pass) {
+        break;
+      }
+    }
+
     const reportPath = path.join(artifactDir, `run-${run}.playwright.json`);
-    const runId = `semantic-soak-${Date.now()}-${run}`;
-    const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
-      cwd,
-      env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs),
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    });
-
-    writeFile(reportPath, proc.stdout ?? '', 'utf8');
-    if (proc.stderr) {
-      process.stderr.write(proc.stderr);
-    }
-
-    let report = null;
-    let reportParseError = null;
-    try {
-      report = JSON.parse(readFile(reportPath, 'utf8'));
-    } catch (error) {
-      reportParseError = error instanceof Error ? error.message : String(error);
-    }
-
-    const primaryResult = report ? findPrimaryResult(report) : null;
-    let audit = null;
-    let auditError = null;
-    let auditPath = null;
-    let failureSnapshot = null;
-    let failureSnapshotPath = null;
-    let runtimeLogs = null;
-    let runtimeLogsPath = null;
-
-    try {
-      audit = primaryResult ? decodeAttachment(primaryResult, ATTACHMENT_NAME) : null;
-      if (!audit) {
-        auditError = `${ATTACHMENT_NAME} attachment missing`;
-      }
-    } catch (error) {
-      auditError = formatErrorMessage(error);
-    }
-
-    if (audit) {
-      auditPath = path.join(artifactDir, `run-${run}.semantic-audit.json`);
-      writeFile(auditPath, JSON.stringify(audit, null, 2), 'utf8');
-    }
-
-    try {
-      failureSnapshot = primaryResult
-        ? decodeAttachment(primaryResult, FAILURE_SNAPSHOT_ATTACHMENT_NAME)
-        : null;
-    } catch (error) {
-      if (!auditError) {
-        auditError = formatErrorMessage(error);
-      }
-    }
-
-    if (failureSnapshot) {
-      failureSnapshotPath = path.join(artifactDir, `run-${run}.semantic-audit-failure-snapshot.json`);
-      writeFile(failureSnapshotPath, JSON.stringify(failureSnapshot, null, 2), 'utf8');
-    }
-
-    try {
-      runtimeLogs = primaryResult
-        ? decodeAttachment(primaryResult, RUNTIME_LOG_ATTACHMENT_NAME)
-        : null;
-    } catch (error) {
-      if (!auditError) {
-        auditError = formatErrorMessage(error);
-      }
-    }
-
-    if (runtimeLogs) {
-      runtimeLogsPath = path.join(artifactDir, `run-${run}.runtime-logs.json`);
-      writeFile(runtimeLogsPath, JSON.stringify(runtimeLogs, null, 2), 'utf8');
-    }
+    const auditPath = path.join(artifactDir, `run-${run}.semantic-audit.json`);
+    const failureSnapshotPath = path.join(artifactDir, `run-${run}.semantic-audit-failure-snapshot.json`);
+    const runtimeLogsPath = path.join(artifactDir, `run-${run}.runtime-logs.json`);
+    writeFile(reportPath, JSON.stringify(aggregate.report, null, 2), 'utf8');
+    writeFile(auditPath, JSON.stringify(aggregate.audit, null, 2), 'utf8');
+    writeFile(failureSnapshotPath, JSON.stringify(aggregate.failureSnapshot, null, 2), 'utf8');
+    writeFile(runtimeLogsPath, JSON.stringify(aggregate.runtimeLogs, null, 2), 'utf8');
 
     const result = {
       run,
       ...summarizeRun(
-        audit,
-        failureSnapshot,
-        runtimeLogs,
-        proc.status,
+        aggregate.audit,
+        aggregate.failureSnapshot,
+        aggregate.runtimeLogs,
+        aggregate.status,
         reportPath,
-        reportParseError,
+        aggregate.reportParseError,
         auditPath,
-        auditError,
+        aggregate.auditError,
         failureSnapshotPath,
         runtimeLogsPath,
       ),
@@ -341,9 +339,9 @@ export async function runDaemonFeedSemanticSoak({
     strictSoakPass: results.every((result) => result.pass),
     passCount: results.filter((result) => result.pass).length,
     failCount: results.filter((result) => !result.pass).length,
-    totalAuditedPairs: results.reduce((sum, result) => sum + (result.auditedPairCount ?? 0), 0),
-    totalRelatedTopicOnlyPairs: results.reduce((sum, result) => sum + (result.relatedTopicOnlyPairCount ?? 0), 0),
-    totalSampledStories: results.reduce((sum, result) => sum + (result.sampledStoryCount ?? 0), 0),
+    totalAuditedPairs: results.reduce((sum, result) => sum + result.auditedPairCount, 0),
+    totalRelatedTopicOnlyPairs: results.reduce((sum, result) => sum + result.relatedTopicOnlyPairCount, 0),
+    totalSampledStories: results.reduce((sum, result) => sum + result.sampledStoryCount, 0),
     repeatedStoryCount: storyCoverage.filter((story) => story.run_count > 1).length,
     readinessStatus: promotionAssessment.status,
     promotionBlockingReasons: promotionAssessment.blockingReasons,

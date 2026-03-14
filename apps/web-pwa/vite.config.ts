@@ -4,6 +4,8 @@ import path from 'node:path';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { createApPoliticsFeedPlugin } from './src/server/apPoliticsFeed';
+import { createCnnPoliticsFeedPlugin } from './src/server/cnnPoliticsFeed';
 import { relayAnalysis, resolveAnalysisRelayConfig } from './src/server/analysisRelay';
 
 const ARTICLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -255,7 +257,13 @@ function createAnalysisRelayPlugin(): Plugin {
 export default defineConfig({
   // Keep article-text proxy available in all modes so feed source reliability
   // probing continues to work when analysis relay is enabled.
-  plugins: [react(), createArticleTextProxyPlugin(), createAnalysisRelayPlugin()],
+  plugins: [
+    react(),
+    createArticleTextProxyPlugin(),
+    createApPoliticsFeedPlugin(),
+    createCnnPoliticsFeedPlugin(),
+    createAnalysisRelayPlugin(),
+  ],
   server: {
     host: true,
     port: 2048,

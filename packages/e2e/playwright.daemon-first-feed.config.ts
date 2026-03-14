@@ -87,6 +87,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'cbs',
     enabled: true,
   },
+  'ap-politics': {
+    id: 'ap-politics',
+    name: 'AP Politics',
+    displayName: 'AP News',
+    rssUrl: 'https://apnews.com/politics',
+    perspectiveTag: 'wire',
+    iconKey: 'ap',
+    enabled: true,
+  },
   'bbc-general': {
     id: 'bbc-general',
     name: 'BBC News',
@@ -139,6 +148,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     rssUrl: 'https://abcnews.go.com/abcnews/politicsheadlines',
     perspectiveTag: 'broadcast-news',
     iconKey: 'abc',
+    enabled: true,
+  },
+  'cnn-politics': {
+    id: 'cnn-politics',
+    name: 'CNN Politics',
+    displayName: 'CNN Politics',
+    rssUrl: 'https://www.cnn.com/politics',
+    perspectiveTag: 'broadcast-news',
+    iconKey: 'cnn',
     enabled: true,
   },
   'nbc-politics': {

@@ -209,4 +209,135 @@ describe('clusterScoring coverage', () => {
 
     expect(clusterMergeScore(left, right)).toBeGreaterThan(0);
   });
+
+  it('rejects broad Trump-affordability coverage from a Kennedy Center leadership cluster', () => {
+    const cluster = makeCluster(makeWorkingDocument({
+      source_id: 'nbc-politics',
+      publisher: 'NBC News',
+      title: 'Trump loyalist Ric Grenell stepping down as head of Kennedy Center',
+      summary: 'Ric Grenell is stepping down as head of the Kennedy Center.',
+      raw_text: 'Trump loyalist Ric Grenell stepping down as head of Kennedy Center.',
+      normalized_text: 'trump loyalist ric grenell stepping down as head of kennedy center',
+      translated_text: 'Trump loyalist Ric Grenell stepping down as head of Kennedy Center.',
+      entities: ['grenell', 'kennedy_center', 'donald_trump'],
+      linked_entities: ['ric_grenell', 'kennedy_center', 'donald_trump'],
+      locations: ['united_states'],
+      trigger: 'stepping_down',
+      event_tuple: {
+        description: 'Ric Grenell is stepping down as head of the Kennedy Center.',
+        trigger: 'stepping_down',
+        who: ['ric_grenell', 'donald_trump'],
+        where: ['kennedy_center'],
+        when_ms: 100,
+        outcome: 'leadership change',
+      },
+      coarse_vector: [0.92, 0.08],
+      full_vector: [0.9, 0.1],
+    }));
+
+    const candidate = buildCandidateMatch(makeWorkingDocument({
+      source_id: 'guardian-us',
+      publisher: 'The Guardian',
+      title: 'Americans struggle with affordability despite Trump claims',
+      summary: 'US workers are struggling with affordability despite Trump claims about the economy.',
+      raw_text: 'US workers are struggling with affordability despite Trump claims about the economy.',
+      normalized_text: 'us workers are struggling with affordability despite trump claims about the economy',
+      translated_text: 'US workers are struggling with affordability despite Trump claims about the economy.',
+      entities: ['affordability', 'economy', 'donald_trump'],
+      linked_entities: ['us_workers', 'trump_administration', 'donald_trump'],
+      locations: ['united_states'],
+      trigger: 'struggling',
+      event_tuple: {
+        description: 'US workers are struggling with affordability.',
+        trigger: 'struggling',
+        who: ['us_workers'],
+        where: ['united_states'],
+        when_ms: 101,
+        outcome: 'economic strain',
+      },
+      coarse_vector: [0.92, 0.08],
+      full_vector: [0.9, 0.1],
+    }), cluster);
+
+    expect(candidate.adjudication).toBe('rejected');
+    expect(candidate.reason).toBe('event-frame-conflict');
+  });
+
+  it('rejects Justice Department topical overlap for unrelated public-safety coverage', () => {
+    const cluster = makeCluster(makeWorkingDocument({
+      source_id: 'cnn-politics',
+      publisher: 'CNN',
+      title: 'Federal judge quashes Justice Department subpoenas of Fed Chair Jerome Powell',
+      summary: 'Federal judge quashes Justice Department subpoenas of Jerome Powell.',
+      raw_text: 'Federal judge quashes Justice Department subpoenas of Fed Chair Jerome Powell.',
+      normalized_text: 'federal judge quashes justice department subpoenas of fed chair jerome powell',
+      translated_text: 'Federal judge quashes Justice Department subpoenas of Fed Chair Jerome Powell.',
+      entities: ['justice_department', 'jerome_powell', 'federal_judge'],
+      linked_entities: ['justice_department', 'jerome_powell', 'federal_judge'],
+      locations: [],
+      trigger: 'quashes',
+      event_tuple: {
+        description: 'Federal judge quashes Justice Department subpoenas of Jerome Powell.',
+        trigger: 'quashes',
+        who: ['federal_judge', 'jerome_powell'],
+        where: [],
+        when_ms: 100,
+        outcome: 'subpoenas quashed',
+      },
+      coarse_vector: [0.92, 0.08],
+      full_vector: [0.9, 0.1],
+    }));
+
+    const candidate = buildCandidateMatch(makeWorkingDocument({
+      source_id: 'ap-politics',
+      publisher: 'AP',
+      title: 'US faces elevated terrorism threats against backdrop of Iran war and cuts at FBI, Justice Department',
+      summary: 'US faces elevated terrorism threats amid cuts at FBI and Justice Department.',
+      raw_text: 'US faces elevated terrorism threats against backdrop of Iran war and cuts at FBI and Justice Department.',
+      normalized_text: 'us faces elevated terrorism threats against backdrop of iran war and cuts at fbi and justice department',
+      translated_text: 'US faces elevated terrorism threats against backdrop of Iran war and cuts at FBI and Justice Department.',
+      entities: ['justice_department', 'terrorism', 'iran'],
+      linked_entities: ['justice_department', 'united_states', 'iran'],
+      locations: ['united_states'],
+      trigger: 'faces',
+      event_tuple: {
+        description: 'US faces elevated terrorism threats.',
+        trigger: 'faces',
+        who: ['united_states'],
+        where: ['united_states'],
+        when_ms: 101,
+        outcome: 'elevated terrorism threats',
+      },
+      coarse_vector: [0.92, 0.08],
+      full_vector: [0.9, 0.1],
+    }), cluster);
+
+    expect(candidate.adjudication).toBe('rejected');
+    expect(['event-frame-conflict', 'below-threshold']).toContain(candidate.reason);
+  });
+
+  it('falls back to published timestamps when event anchors are missing and rejects stale pairs', () => {
+    const clusterDocument = makeWorkingDocument({
+      published_at: 100,
+      event_tuple: null,
+    });
+    clusterDocument.temporal_ms = null;
+    const cluster = makeCluster(clusterDocument);
+
+    const staleCandidate = makeWorkingDocument({
+      published_at: 100 + 80 * 60 * 60 * 1000,
+      event_tuple: null,
+      trigger: 'attack',
+      entities: ['generic'],
+      linked_entities: ['generic'],
+      locations: [],
+      coarse_vector: [0.74, 0.26],
+      full_vector: [0.62, 0.38],
+    });
+    staleCandidate.temporal_ms = null;
+    const candidate = buildCandidateMatch(staleCandidate, cluster);
+
+    expect(candidate.adjudication).toBe('rejected');
+    expect(candidate.reason).toBe('below-threshold');
+  });
 });

@@ -49,13 +49,13 @@ describe('playwright.daemon-first-feed.config', () => {
 
   it('passes custom source ids through to the web app env, including smoke-only sources', async () => {
     const config = await loadConfig('run-source-check', {
-      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,nbc-politics,pbs-politics',
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cnn-politics,pbs-politics',
     });
     const entries = config.webServer;
     const appServer = entries[entries.length - 1];
     const sourceIds = JSON.parse(appServer.env.VITE_NEWS_FEED_SOURCES).map((source) => source.id);
 
-    expect(sourceIds).toEqual(['guardian-us', 'nbc-politics', 'pbs-politics']);
+    expect(sourceIds).toEqual(['guardian-us', 'cnn-politics', 'pbs-politics']);
   });
 
   it('propagates analysis relay model and timeout overrides when the live relay is enabled', async () => {
