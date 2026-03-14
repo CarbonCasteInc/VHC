@@ -9,17 +9,18 @@ afterEach(() => {
 
 describe('resolveDaemonFeedSourcesJson', () => {
   it('resolves smoke-only sources that are not part of the starter default list', () => {
-    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'nytimes-politics,abc-politics,guardian-us';
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'abc-politics,nbc-politics,pbs-politics';
 
     const sources = JSON.parse(resolveDaemonFeedSourcesJson());
 
     expect(sources.map((source) => source.id)).toEqual([
-      'nytimes-politics',
       'abc-politics',
-      'guardian-us',
+      'nbc-politics',
+      'pbs-politics',
     ]);
-    expect(sources[0].rssUrl).toBe('https://rss.nytimes.com/services/xml/rss/nyt/Politics.xml');
-    expect(sources[1].rssUrl).toBe('https://abcnews.go.com/abcnews/politicsheadlines');
+    expect(sources[0].rssUrl).toBe('https://abcnews.go.com/abcnews/politicsheadlines');
+    expect(sources[1].rssUrl).toBe('https://feeds.nbcnews.com/feeds/nbcpolitics');
+    expect(sources[2].rssUrl).toBe('https://www.pbs.org/newshour/feeds/rss/politics');
   });
 
   it('falls back to the full catalog when all requested ids are unknown in live mode', () => {
@@ -39,16 +40,16 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'yahoo-world',
       'npr-news',
       'npr-politics',
-      'nytimes-home',
-      'nytimes-politics',
       'abc-politics',
+      'nbc-politics',
+      'pbs-politics',
     ]);
   });
 
   it('rewrites fixture feeds to the local fixture server and keeps only known sources', () => {
     process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED = 'true';
     process.env.VH_DAEMON_FEED_FIXTURE_BASE_URL = 'http://127.0.0.1:9988';
-    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'guardian-us,nytimes-home,missing-one';
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'guardian-us,pbs-politics,missing-one';
 
     const sources = JSON.parse(resolveDaemonFeedSourcesJson());
 
@@ -58,8 +59,8 @@ describe('resolveDaemonFeedSourcesJson', () => {
         rssUrl: 'http://127.0.0.1:9988/rss/guardian-us',
       }),
       expect.objectContaining({
-        id: 'nytimes-home',
-        rssUrl: 'http://127.0.0.1:9988/rss/nytimes-home',
+        id: 'pbs-politics',
+        rssUrl: 'http://127.0.0.1:9988/rss/pbs-politics',
       }),
     ]);
   });

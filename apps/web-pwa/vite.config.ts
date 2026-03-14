@@ -355,23 +355,23 @@ export default defineConfig({
         secure: true,
         rewrite: () => '/1014/rss.xml'
       },
-      '/rss/nytimes-home': {
-        target: 'https://rss.nytimes.com',
-        changeOrigin: true,
-        secure: true,
-        rewrite: () => '/services/xml/rss/nyt/HomePage.xml'
-      },
-      '/rss/nytimes-politics': {
-        target: 'https://rss.nytimes.com',
-        changeOrigin: true,
-        secure: true,
-        rewrite: () => '/services/xml/rss/nyt/Politics.xml'
-      },
       '/rss/abc-politics': {
         target: 'https://abcnews.go.com',
         changeOrigin: true,
         secure: true,
         rewrite: () => '/abcnews/politicsheadlines'
+      },
+      '/rss/nbc-politics': {
+        target: 'https://feeds.nbcnews.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/feeds/nbcpolitics'
+      },
+      '/rss/pbs-politics': {
+        target: 'https://www.pbs.org',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/newshour/feeds/rss/politics'
       }
     }
   },

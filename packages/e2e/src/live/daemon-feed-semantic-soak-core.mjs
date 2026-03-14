@@ -21,9 +21,9 @@ const PLAYWRIGHT_ARGS = [
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
 const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
-const PUBLIC_SMOKE_SOURCE_IDS = 'guardian-us,cbs-politics,fox-latest,nytimes-politics,abc-politics';
+const PUBLIC_SMOKE_SOURCE_IDS = 'guardian-us,cbs-politics,fox-latest,abc-politics,nbc-politics,pbs-politics';
 const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
-const PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '20';
+const PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '24';
 
 export function readPositiveInt(name, fallback, env = process.env) {
   const raw = env[name]?.trim();
