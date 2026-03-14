@@ -25,6 +25,7 @@ const ARTICLE_FETCH_CONCURRENCY = 4;
 const DEFAULT_SAMPLE_COUNT = 2;
 const SAMPLE_TIMEOUT_MS = 240_000;
 const SEMANTIC_AUDIT_REFRESH_LIMIT = 120;
+const SEMANTIC_AUDIT_POST_REFRESH_SETTLE_MS = 4_000;
 const runtimeImport = async (modulePath: string): Promise<unknown> => await import(modulePath);
 
 async function loadSemanticAuditModule(): Promise<{
@@ -113,6 +114,25 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
+function mergeObservedBundles(
+  observedByStoryId: Map<string, LiveSemanticAuditBundleLike>,
+  bundles: readonly LiveSemanticAuditBundleLike[],
+): void {
+  for (const bundle of bundles) {
+    const existing = observedByStoryId.get(bundle.story_id);
+    if (!existing) {
+      observedByStoryId.set(bundle.story_id, bundle);
+      continue;
+    }
+
+    const existingSourceCount = existing.primary_sources?.length ?? existing.sources.length;
+    const nextSourceCount = bundle.primary_sources?.length ?? bundle.sources.length;
+    if (nextSourceCount > existingSourceCount) {
+      observedByStoryId.set(bundle.story_id, bundle);
+    }
+  }
+}
+
 async function waitForSampledBundles(
   page: Page,
   sampleCount: number,
@@ -122,24 +142,48 @@ async function waitForSampledBundles(
   readonly storeSnapshot: SemanticAuditStoreSnapshot;
 }> {
   const deadline = Date.now() + timeoutMs;
+  const progressiveSampling = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true';
+  const observedByStoryId = new Map<string, LiveSemanticAuditBundleLike>();
+  let storeSnapshot = await readSemanticAuditStoreSnapshot(page);
   while (Date.now() < deadline) {
     const auditable = await readAuditableBundles(page);
-    if (auditable.length >= sampleCount) {
+    if (progressiveSampling) {
+      mergeObservedBundles(observedByStoryId, auditable);
+    }
+    storeSnapshot = await readSemanticAuditStoreSnapshot(page);
+    if (progressiveSampling && observedByStoryId.size >= sampleCount) {
+      return {
+        bundles: [...observedByStoryId.values()].slice(0, sampleCount),
+        storeSnapshot,
+      };
+    }
+    if (!progressiveSampling && auditable.length >= sampleCount) {
       return {
         bundles: auditable.slice(0, sampleCount),
-        storeSnapshot: await readSemanticAuditStoreSnapshot(page),
+        storeSnapshot,
       };
     }
 
-    await refreshNewsStoreLatest(page, SEMANTIC_AUDIT_REFRESH_LIMIT).catch(() => {});
-    await nudgeFeed(page);
+    await refreshNewsStoreLatest(page, Math.max(SEMANTIC_AUDIT_REFRESH_LIMIT, sampleCount * 60)).catch(() => {});
+    await nudgeFeed(
+      page,
+      progressiveSampling ? { finalSettleMs: SEMANTIC_AUDIT_POST_REFRESH_SETTLE_MS } : undefined,
+    );
     await waitForHeadlines(page);
   }
 
   const auditable = await readAuditableBundles(page);
-  const storeSnapshot = await readSemanticAuditStoreSnapshot(page);
+  if (progressiveSampling) {
+    mergeObservedBundles(observedByStoryId, auditable);
+  }
+  storeSnapshot = await readSemanticAuditStoreSnapshot(page);
   await persistSemanticAuditFailureSnapshot(storeSnapshot);
-  return { bundles: auditable.slice(0, sampleCount), storeSnapshot };
+  return {
+    bundles: progressiveSampling
+      ? [...observedByStoryId.values()].slice(0, sampleCount)
+      : auditable.slice(0, sampleCount),
+    storeSnapshot,
+  };
 }
 
 export function summarizeSemanticAuditSupply(

@@ -33,6 +33,10 @@ export const FEED_READY_TIMEOUT_MS = 240_000;
 export const MIN_HEADLINES = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 3 : 4;
 const FIXTURE_NEWS_POLL_INTERVAL_MS = String(30 * 60 * 1000);
 const DEFAULT_NEWS_POLL_INTERVAL_MS = '15000';
+const FIXTURE_MAX_ITEMS_PER_SOURCE = '5';
+const FIXTURE_MAX_ITEMS_TOTAL = '30';
+const LIVE_MAX_ITEMS_PER_SOURCE = '3';
+const LIVE_MAX_ITEMS_TOTAL = '15';
 
 export type HeadlineRow = {
   readonly storyId: string;
@@ -96,15 +100,37 @@ function resolveNewsPollIntervalMs(): string {
     : DEFAULT_NEWS_POLL_INTERVAL_MS;
 }
 
+function resolveNewsFeedMaxItemsPerSource(): string {
+  const configured = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim();
+  if (configured) {
+    return configured;
+  }
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true'
+    ? FIXTURE_MAX_ITEMS_PER_SOURCE
+    : LIVE_MAX_ITEMS_PER_SOURCE;
+}
+
+function resolveNewsFeedMaxItemsTotal(): string {
+  const configured = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim();
+  if (configured) {
+    return configured;
+  }
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true'
+    ? FIXTURE_MAX_ITEMS_TOTAL
+    : LIVE_MAX_ITEMS_TOTAL;
+}
+
 export const daemonFirstFeedHarnessInternal = {
   resolveNewsPollIntervalMs,
+  resolveNewsFeedMaxItemsPerSource,
+  resolveNewsFeedMaxItemsTotal,
 };
 
 function commonEnv(): NodeJS.ProcessEnv {
   const root = repoRootDir();
   const esmLoaderPath = path.join(root, 'tools/node/esm-resolve-loader.mjs');
-  const maxItemsPerSource = process.env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE ?? '5';
-  const maxItemsTotal = process.env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL ?? '30';
+  const maxItemsPerSource = resolveNewsFeedMaxItemsPerSource();
+  const maxItemsTotal = resolveNewsFeedMaxItemsTotal();
   return {
     ...process.env,
     NODE_ENV: 'production',

@@ -342,6 +342,36 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: () => '/rss/world'
+      },
+      '/rss/npr-news': {
+        target: 'https://feeds.npr.org',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/1001/rss.xml'
+      },
+      '/rss/npr-politics': {
+        target: 'https://feeds.npr.org',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/1014/rss.xml'
+      },
+      '/rss/abc-politics': {
+        target: 'https://abcnews.go.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/abcnews/politicsheadlines'
+      },
+      '/rss/nbc-politics': {
+        target: 'https://feeds.nbcnews.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/feeds/nbcpolitics'
+      },
+      '/rss/pbs-politics': {
+        target: 'https://www.pbs.org',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/newshour/feeds/rss/politics'
       }
     }
   },

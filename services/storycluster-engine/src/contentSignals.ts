@@ -259,6 +259,12 @@ function extractLeadTrigger(text: string): string | null {
 }
 
 function extractPhraseTrigger(text: string): string | null {
+  if (/\bransomware attack\b/.test(text)) {
+    return 'ransomware';
+  }
+  if (/\bcyberattack\b|\bcyber attack\b/.test(text)) {
+    return 'cyberattack';
+  }
   if (/\bdrill(s)?\b/.test(text)) {
     return 'drill';
   }

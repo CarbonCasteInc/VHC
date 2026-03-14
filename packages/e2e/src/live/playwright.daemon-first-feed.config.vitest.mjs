@@ -9,6 +9,10 @@ async function loadConfig(runId, envOverrides = {}) {
     VH_STORYCLUSTER_QDRANT_URL: process.env.VH_STORYCLUSTER_QDRANT_URL,
     QDRANT_URL: process.env.QDRANT_URL,
     VH_DAEMON_FEED_USE_FIXTURE_FEED: process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED,
+    VH_LIVE_DEV_FEED_SOURCE_IDS: process.env.VH_LIVE_DEV_FEED_SOURCE_IDS,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    ANALYSIS_RELAY_MODEL: process.env.ANALYSIS_RELAY_MODEL,
+    ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS,
   };
   Object.assign(process.env, {
     VH_DAEMON_FEED_RUN_ID: runId,
@@ -41,5 +45,33 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(entries[0].url).toMatch(/\/readyz$/);
     expect(entries[1].url).toMatch(/\/health$/);
     expect(entries[2].url).toMatch(/\/health$/);
+  });
+
+  it('passes custom source ids through to the web app env, including smoke-only sources', async () => {
+    const config = await loadConfig('run-source-check', {
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,nbc-politics,pbs-politics',
+    });
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+    const sourceIds = JSON.parse(appServer.env.VITE_NEWS_FEED_SOURCES).map((source) => source.id);
+
+    expect(sourceIds).toEqual(['guardian-us', 'nbc-politics', 'pbs-politics']);
+  });
+
+  it('propagates analysis relay model and timeout overrides when the live relay is enabled', async () => {
+    const config = await loadConfig('run-analysis-relay-check', {
+      OPENAI_API_KEY: 'test-openai-key',
+      ANALYSIS_RELAY_MODEL: 'gpt-test',
+      ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: '32100',
+    });
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(appServer.env.ANALYSIS_RELAY_UPSTREAM_URL).toBe(
+      'https://api.openai.com/v1/chat/completions',
+    );
+    expect(appServer.env.ANALYSIS_RELAY_API_KEY).toBe('test-openai-key');
+    expect(appServer.env.ANALYSIS_RELAY_MODEL).toBe('gpt-test');
+    expect(appServer.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS).toBe('32100');
   });
 });

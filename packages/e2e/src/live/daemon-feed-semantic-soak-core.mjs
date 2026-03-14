@@ -21,6 +21,9 @@ const PLAYWRIGHT_ARGS = [
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
 const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
+const PUBLIC_SMOKE_SOURCE_IDS = 'guardian-us,cbs-politics,fox-latest,abc-politics,nbc-politics,pbs-politics';
+const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
+const PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '24';
 
 export function readPositiveInt(name, fallback, env = process.env) {
   const raw = env[name]?.trim();
@@ -134,12 +137,51 @@ export function summarizeRun(
   };
 }
 
+export function formatDaemonFeedSemanticSoakRunState(result) {
+  const detail = result.failureAuditableCount !== null
+    ? `, storeStories=${result.failureStoryCount}, storeAuditable=${result.failureAuditableCount}`
+    : '';
+  const sampleDetail = result.requestedSampleCount === null
+    ? `${result.sampledStoryCount ?? 'n/a'}`
+    : `${result.sampledStoryCount ?? 'n/a'}/${result.requestedSampleCount}`;
+  const fillDetail = result.sampleFillRate === null ? 'n/a' : result.sampleFillRate;
+
+  if (result.pass) {
+    return `PASS (stories=${sampleDetail}, pairs=${result.auditedPairCount}, fill=${fillDetail})`;
+  }
+
+  return `FAIL (stories=${sampleDetail}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'}, fill=${fillDetail}${detail})`;
+}
+
 export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
   const explicit = env.VH_DAEMON_FEED_SOAK_ARTIFACT_DIR?.trim();
   if (explicit) {
     return explicit;
   }
   return path.join(cwd, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
+}
+
+export function resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs) {
+  const nextEnv = {
+    ...env,
+    VH_RUN_DAEMON_FIRST_FEED: 'true',
+    VH_DAEMON_FEED_RUN_ID: runId,
+    VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: String(sampleCount),
+    VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: String(sampleTimeoutMs),
+  };
+
+  if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
+    return nextEnv;
+  }
+
+  nextEnv.VH_LIVE_DEV_FEED_SOURCE_IDS = env.VH_LIVE_DEV_FEED_SOURCE_IDS?.trim()
+    || PUBLIC_SMOKE_SOURCE_IDS;
+  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE = env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim()
+    || PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE;
+  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_TOTAL = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim()
+    || PUBLIC_SMOKE_MAX_ITEMS_TOTAL;
+
+  return nextEnv;
 }
 
 export async function runDaemonFeedSemanticSoak({
@@ -190,13 +232,7 @@ export async function runDaemonFeedSemanticSoak({
     const runId = `semantic-soak-${Date.now()}-${run}`;
     const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
       cwd,
-      env: {
-        ...env,
-        VH_RUN_DAEMON_FIRST_FEED: 'true',
-        VH_DAEMON_FEED_RUN_ID: runId,
-        VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: String(sampleCount),
-        VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: String(sampleTimeoutMs),
-      },
+      env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -284,13 +320,7 @@ export async function runDaemonFeedSemanticSoak({
     };
     results.push(result);
 
-    const detail = result.failureAuditableCount !== null
-      ? `, storeStories=${result.failureStoryCount}, storeAuditable=${result.failureAuditableCount}`
-      : '';
-    const state = result.pass
-      ? `PASS (stories=${result.sampledStoryCount}, pairs=${result.auditedPairCount})`
-      : `FAIL (stories=${result.sampledStoryCount ?? 'n/a'}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'}${detail})`;
-    log(`[vh:daemon-soak] run ${run}/${runCount} ${state}`);
+    log(`[vh:daemon-soak] run ${run}/${runCount} ${formatDaemonFeedSemanticSoakRunState(result)}`);
 
     if (run < runCount && pauseMs > 0) {
       await sleepImpl(pauseMs);

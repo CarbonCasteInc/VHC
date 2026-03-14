@@ -44,6 +44,11 @@ describe('contentSignals', () => {
     expect(classifyDocumentType('Live updates: storm response', undefined, 'Desk')).toBe('liveblog');
     expect(classifyDocumentType('Opinion: Why this matters', undefined, 'Desk')).toBe('opinion');
     expect(classifyDocumentType('Analysis: Market fallout', undefined, 'Desk')).toBe('analysis');
+    expect(classifyDocumentType(
+      'Why the port strike is becoming a test of industrial policy',
+      'Commentary on what the Atlantic port strike means for industrial policy and labour politics.',
+      'Desk',
+    )).toBe('analysis');
     expect(classifyDocumentType('Explainer: What we know', undefined, 'Desk')).toBe('explainer');
     expect(classifyDocumentType('Trump news at a glance: latest updates', undefined, 'Desk')).toBe('explainer');
     expect(classifyDocumentType('Breaking: Port attack', undefined, 'Desk')).toBe('breaking_update');
@@ -59,6 +64,12 @@ describe('contentSignals', () => {
       'https://www.cbsnews.com/video/armed-iranian-opposition-group-says-camp-hit-drone-strike/',
     )).toBe('video_clip');
     expect(refineDocumentType('hard_news', 'Port attack expands', undefined, 'Reuters')).toBe('hard_news');
+    expect(refineDocumentType(
+      'hard_news',
+      'Why the port strike is becoming a test of industrial policy',
+      'Commentary on what the Atlantic port strike means for industrial policy and labour politics.',
+      'Desk',
+    )).toBe('analysis');
 
     expect(documentTypeWeight('wire')).toBe(1.15);
     expect(documentTypeWeight('hard_news')).toBe(1);
@@ -81,6 +92,11 @@ describe('contentSignals', () => {
   it('treats related-coverage text consistently with and without summaries', () => {
     expect(isRelatedCoverageText('Explainer: What we know', undefined, 'Desk')).toBe(true);
     expect(isRelatedCoverageText('Straight update', 'Opinion: this matters', 'Desk')).toBe(true);
+    expect(isRelatedCoverageText(
+      'Why the port strike is becoming a test of industrial policy',
+      'Commentary on what the Atlantic port strike means for industrial policy and labour politics.',
+      'Desk',
+    )).toBe(true);
     expect(isRelatedCoverageText('Straight update', 'Plain summary', 'Desk')).toBe(false);
   });
 
@@ -104,6 +120,12 @@ describe('contentSignals', () => {
 
   it('prefers lead-clause triggers over background conflict context', () => {
     expect(
+      extractTrigger('Ambulances rerouted after ransomware attack hits metro hospital system'),
+    ).toBe('ransomware');
+    expect(
+      extractTrigger('Cyber attack forces city hospital network offline'),
+    ).toBe('cyberattack');
+    expect(
       extractTrigger('Trump tells Starmer help not needed even as US uses UK bases for Iran strikes'),
     ).toBe('tells');
     expect(
@@ -121,6 +143,8 @@ describe('contentSignals', () => {
     expect(triggerCategory('tells')).toBe('diplomacy');
     expect(triggerCategory('troops')).toBe('military_posture');
     expect(triggerCategory('drill')).toBe('preparedness');
+    expect(triggerCategory('ransomware')).toBe('infrastructure_disruption');
+    expect(triggerCategory('cyberattack')).toBe('infrastructure_disruption');
   });
 
   it('normalizes infrastructure-disruption and legal-verdict trigger families', () => {
