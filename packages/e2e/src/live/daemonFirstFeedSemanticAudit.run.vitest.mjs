@@ -109,6 +109,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   const runId = process.env.VH_DAEMON_FEED_RUN_ID;
   delete process.env.VH_DAEMON_FEED_RUN_ID;
+  delete process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED;
   if (runId) {
     rmSync(artifactDir(runId), { recursive: true, force: true });
   }
@@ -297,6 +298,188 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     expect(JSON.parse(readFileSync(snapshotPath, 'utf8'))).toMatchObject({
       story_count: 4,
       auditable_count: 1,
+    });
+  });
+
+  it('accumulates distinct auditable bundles across refresh sweeps until the sample target is met', async () => {
+    const bundleA = makeBundle('story-1');
+    const bundleB = makeBundle('story-2');
+    const bundleC = makeBundle('story-3');
+    const pairA = makePair(bundleA);
+    const pairB = makePair(bundleB);
+    const pairC = makePair(bundleC);
+    readAuditableBundles
+      .mockResolvedValueOnce([bundleA])
+      .mockResolvedValueOnce([bundleB])
+      .mockResolvedValueOnce([bundleC]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 1 }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-1') return [pairA];
+      if (bundle.story_id === 'story-2') return [pairB];
+      return [pairC];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([
+      makeResult(pairA.pair_id),
+      makeResult(pairB.pair_id),
+      makeResult(pairC.pair_id),
+    ]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 3,
+      timeoutMs: 50,
+    });
+
+    expect(refreshNewsStoreLatest).toHaveBeenCalledTimes(2);
+    expect(waitForHeadlines).toHaveBeenCalledTimes(2);
+    expect(nudgeFeed).toHaveBeenCalledTimes(2);
+    expect(nudgeFeed).toHaveBeenCalledWith({}, { finalSettleMs: 4000 });
+    expect(report.bundles.map((bundle) => bundle.story_id)).toEqual(['story-1', 'story-2', 'story-3']);
+    expect(report).toMatchObject({
+      sampled_story_count: 3,
+      supply: {
+        status: 'full',
+        sample_fill_rate: 1,
+        sample_shortfall: 0,
+      },
+      overall: {
+        audited_pair_count: 3,
+        pass: true,
+      },
+    });
+  });
+
+  it('replaces an observed story when a later sweep exposes a richer primary-source snapshot', async () => {
+    const baseSources = makeBundle('story-1').sources;
+    const baseBundle = {
+      ...makeBundle('story-1'),
+      primary_sources: baseSources,
+    };
+    const upgradedBundle = {
+      ...baseBundle,
+      primary_sources: [
+        baseSources[0],
+        baseSources[1],
+        {
+          source_id: 'story-1-c',
+          publisher: 'Source C',
+          url: 'https://example.com/story-1/c',
+          url_hash: 'story-1-c',
+          title: 'Title story-1 C',
+        },
+      ],
+    };
+    const bundleB = makeBundle('story-2');
+    const pairA = makePair(upgradedBundle);
+    const pairB = makePair(bundleB);
+
+    readAuditableBundles
+      .mockResolvedValueOnce([baseBundle])
+      .mockResolvedValueOnce([upgradedBundle, bundleB]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 2 }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-1') return [pairA];
+      return [pairB];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([
+      makeResult(pairA.pair_id),
+      makeResult(pairB.pair_id),
+    ]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 2,
+      timeoutMs: 50,
+    });
+
+    expect(report.bundles[0]).toMatchObject({
+      story_id: 'story-1',
+      canonical_source_count: 3,
+      canonical_sources: upgradedBundle.primary_sources,
+    });
+  });
+
+  it('preserves instantaneous sampling for fixture-backed gates instead of accumulating across sweeps', async () => {
+    const bundleA = makeBundle('story-1');
+    const bundleB = makeBundle('story-2');
+    const pairB = makePair(bundleB);
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED = 'true';
+
+    readAuditableBundles
+      .mockResolvedValueOnce([bundleA])
+      .mockResolvedValueOnce([bundleB])
+      .mockResolvedValue([bundleB]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 1 }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-2') return [pairB];
+      return [];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([makeResult(pairB.pair_id)]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 2,
+      timeoutMs: 50,
+    });
+
+    expect(report).toMatchObject({
+      sampled_story_count: 1,
+      supply: {
+        status: 'partial',
+        sample_fill_rate: 0.5,
+        sample_shortfall: 1,
+      },
+      overall: {
+        audited_pair_count: 1,
+        pass: false,
+      },
+    });
+    expect(report.bundles.map((bundle) => bundle.story_id)).toEqual(['story-2']);
+    expect(nudgeFeed).toHaveBeenCalledWith({}, undefined);
+  });
+
+  it('returns the current auditable window immediately for fixture-backed gates when the sample is already full', async () => {
+    const bundleA = makeBundle('story-1');
+    const bundleB = makeBundle('story-2');
+    const pairA = makePair(bundleA);
+    const pairB = makePair(bundleB);
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED = 'true';
+
+    readAuditableBundles.mockResolvedValue([bundleA, bundleB]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 2 }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-1') return [pairA];
+      return [pairB];
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([
+      makeResult(pairA.pair_id),
+      makeResult(pairB.pair_id),
+    ]);
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 2,
+      timeoutMs: 50,
+    });
+
+    expect(refreshNewsStoreLatest).not.toHaveBeenCalled();
+    expect(nudgeFeed).not.toHaveBeenCalled();
+    expect(waitForHeadlines).not.toHaveBeenCalled();
+    expect(report).toMatchObject({
+      sampled_story_count: 2,
+      supply: {
+        status: 'full',
+        sample_fill_rate: 1,
+        sample_shortfall: 0,
+      },
+      overall: {
+        audited_pair_count: 2,
+        pass: true,
+      },
     });
   });
 });

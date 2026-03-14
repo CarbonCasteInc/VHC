@@ -4,6 +4,7 @@ import {
   collectSpecs,
   decodeAttachment,
   findPrimaryResult,
+  formatDaemonFeedSemanticSoakRunState,
   formatErrorMessage,
   logDaemonFeedSemanticSoakFatal,
   readNonNegativeInt,
@@ -155,6 +156,41 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
   it('formats error objects and non-errors consistently', () => {
     expect(formatErrorMessage(new Error('boom'))).toBe('boom');
     expect(formatErrorMessage('plain-text')).toBe('plain-text');
+  });
+
+  it('formats soak run state for both passing and failing density outcomes', () => {
+    expect(formatDaemonFeedSemanticSoakRunState({
+      pass: true,
+      requestedSampleCount: 2,
+      sampledStoryCount: 2,
+      auditedPairCount: 4,
+      sampleFillRate: 1,
+      failureAuditableCount: null,
+      failureStoryCount: null,
+      relatedTopicOnlyPairCount: 0,
+    })).toBe('PASS (stories=2/2, pairs=4, fill=1)');
+
+    expect(formatDaemonFeedSemanticSoakRunState({
+      pass: false,
+      requestedSampleCount: null,
+      sampledStoryCount: null,
+      auditedPairCount: 0,
+      sampleFillRate: null,
+      failureAuditableCount: 1,
+      failureStoryCount: 5,
+      relatedTopicOnlyPairCount: null,
+    })).toBe('FAIL (stories=n/a, related_topic_only=n/a, fill=n/a, storeStories=5, storeAuditable=1)');
+
+    expect(formatDaemonFeedSemanticSoakRunState({
+      pass: false,
+      requestedSampleCount: 3,
+      sampledStoryCount: null,
+      auditedPairCount: 0,
+      sampleFillRate: 0,
+      failureAuditableCount: null,
+      failureStoryCount: null,
+      relatedTopicOnlyPairCount: 0,
+    })).toBe('FAIL (stories=n/a/3, related_topic_only=0, fill=0)');
   });
 
   it('formats fatal logs for both Error and non-Error inputs', () => {

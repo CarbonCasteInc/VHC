@@ -134,6 +134,22 @@ export function summarizeRun(
   };
 }
 
+export function formatDaemonFeedSemanticSoakRunState(result) {
+  const detail = result.failureAuditableCount !== null
+    ? `, storeStories=${result.failureStoryCount}, storeAuditable=${result.failureAuditableCount}`
+    : '';
+  const sampleDetail = result.requestedSampleCount === null
+    ? `${result.sampledStoryCount ?? 'n/a'}`
+    : `${result.sampledStoryCount ?? 'n/a'}/${result.requestedSampleCount}`;
+  const fillDetail = result.sampleFillRate === null ? 'n/a' : result.sampleFillRate;
+
+  if (result.pass) {
+    return `PASS (stories=${sampleDetail}, pairs=${result.auditedPairCount}, fill=${fillDetail})`;
+  }
+
+  return `FAIL (stories=${sampleDetail}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'}, fill=${fillDetail}${detail})`;
+}
+
 export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
   const explicit = env.VH_DAEMON_FEED_SOAK_ARTIFACT_DIR?.trim();
   if (explicit) {
@@ -284,13 +300,7 @@ export async function runDaemonFeedSemanticSoak({
     };
     results.push(result);
 
-    const detail = result.failureAuditableCount !== null
-      ? `, storeStories=${result.failureStoryCount}, storeAuditable=${result.failureAuditableCount}`
-      : '';
-    const state = result.pass
-      ? `PASS (stories=${result.sampledStoryCount}, pairs=${result.auditedPairCount})`
-      : `FAIL (stories=${result.sampledStoryCount ?? 'n/a'}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'}${detail})`;
-    log(`[vh:daemon-soak] run ${run}/${runCount} ${state}`);
+    log(`[vh:daemon-soak] run ${run}/${runCount} ${formatDaemonFeedSemanticSoakRunState(result)}`);
 
     if (run < runCount && pauseMs > 0) {
       await sleepImpl(pauseMs);

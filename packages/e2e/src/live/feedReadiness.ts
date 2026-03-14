@@ -3,8 +3,16 @@ import type { Page } from '@playwright/test';
 const FEED_NUDGE_SCROLL_WAIT_MS = 1_500;
 const FEED_NUDGE_REFRESH_WAIT_MS = 1_000;
 const FEED_NUDGE_TOP_WAIT_MS = 300;
+const FEED_NUDGE_FINAL_SETTLE_MS = 0;
 const FEED_READY_SETTLE_MS = 500;
 const FEED_READY_STABLE_SAMPLE_COUNT = 3;
+
+export interface FeedNudgeOptions {
+  readonly scrollWaitMs?: number;
+  readonly refreshWaitMs?: number;
+  readonly topWaitMs?: number;
+  readonly finalSettleMs?: number;
+}
 
 async function applyDeferredFeed(page: Page): Promise<void> {
   const prompt = page.getByTestId('feed-refresh-prompt');
@@ -18,13 +26,18 @@ async function applyDeferredFeed(page: Page): Promise<void> {
   await loadNow.click().catch(() => {});
 }
 
-async function scrollFeedToTop(page: Page): Promise<void> {
+async function scrollFeedToTop(page: Page, topWaitMs: number): Promise<void> {
   await page.evaluate(() => window.scrollTo(0, 0)).catch(() => {});
-  await page.waitForTimeout(FEED_NUDGE_TOP_WAIT_MS);
+  await page.waitForTimeout(topWaitMs);
 }
 
-export async function nudgeFeed(page: Page): Promise<void> {
-  await scrollFeedToTop(page);
+export async function nudgeFeed(page: Page, options: FeedNudgeOptions = {}): Promise<void> {
+  const scrollWaitMs = options.scrollWaitMs ?? FEED_NUDGE_SCROLL_WAIT_MS;
+  const refreshWaitMs = options.refreshWaitMs ?? FEED_NUDGE_REFRESH_WAIT_MS;
+  const topWaitMs = options.topWaitMs ?? FEED_NUDGE_TOP_WAIT_MS;
+  const finalSettleMs = options.finalSettleMs ?? FEED_NUDGE_FINAL_SETTLE_MS;
+
+  await scrollFeedToTop(page, topWaitMs);
   await applyDeferredFeed(page);
 
   const refresh = page.getByTestId('feed-refresh-button');
@@ -32,18 +45,22 @@ export async function nudgeFeed(page: Page): Promise<void> {
     await refresh.first().click().catch(() => {});
   }
 
-  await page.waitForTimeout(FEED_NUDGE_REFRESH_WAIT_MS);
+  await page.waitForTimeout(refreshWaitMs);
   await applyDeferredFeed(page);
 
   const sentinel = page.getByTestId('feed-load-sentinel');
   if (await sentinel.count().catch(() => 0)) {
     await sentinel.scrollIntoViewIfNeeded().catch(() => {});
-    await page.waitForTimeout(FEED_NUDGE_SCROLL_WAIT_MS);
+    await page.waitForTimeout(scrollWaitMs);
   }
 
-  await scrollFeedToTop(page);
+  await scrollFeedToTop(page, topWaitMs);
   await applyDeferredFeed(page);
-  await page.waitForTimeout(FEED_NUDGE_REFRESH_WAIT_MS);
+  await page.waitForTimeout(refreshWaitMs);
+
+  if (finalSettleMs > 0) {
+    await page.waitForTimeout(finalSettleMs);
+  }
 }
 
 export async function waitForMinimumCount(params: {

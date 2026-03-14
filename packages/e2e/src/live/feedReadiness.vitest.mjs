@@ -70,6 +70,14 @@ describe('feedReadiness', () => {
     expect(page._locators.promptRoleLocator.click).not.toHaveBeenCalled();
   });
 
+  it('waits for an explicit final settle window when requested', async () => {
+    const page = createPage({ refreshCount: 1 });
+
+    await nudgeFeed(page, { finalSettleMs: 400 });
+
+    expect(page.waitForTimeout).toHaveBeenCalledWith(400);
+  });
+
   it('requires the feed count to remain above the minimum across the settle window', async () => {
     const counts = [3, 3, 0];
     const waitForTimeout = vi.fn().mockResolvedValue(undefined);
