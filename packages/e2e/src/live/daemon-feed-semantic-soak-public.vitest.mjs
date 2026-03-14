@@ -65,7 +65,9 @@ function makeSubrun(profileIndex, sourceIds, bundles, overrides = {}) {
 describe('daemon-feed-semantic-soak-public', () => {
   it('returns curated default public smoke profiles when unset', () => {
     expect(resolvePublicSemanticSoakProfiles({})).toEqual([
-      'guardian-us,cbs-politics,ap-politics,cnn-politics,abc-politics,nbc-politics,pbs-politics',
+      'abc-politics,pbs-politics',
+      'cbs-politics,guardian-us',
+      'bbc-us-canada,nbc-politics,pbs-politics',
     ]);
   });
 
@@ -94,7 +96,7 @@ describe('daemon-feed-semantic-soak-public', () => {
       VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: '180000',
       VH_LIVE_DEV_FEED_SOURCE_IDS: 'a,b',
       VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE: '4',
-      VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '28',
+      VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '20',
     }));
   });
 
@@ -104,7 +106,7 @@ describe('daemon-feed-semantic-soak-public', () => {
       VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '   ',
     }, 'run-blank', 3, 999, 'a,b')).toEqual(expect.objectContaining({
       VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE: '4',
-      VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '28',
+      VH_DAEMON_FEED_MAX_ITEMS_TOTAL: '20',
     }));
   });
 
@@ -118,8 +120,7 @@ describe('daemon-feed-semantic-soak-public', () => {
 
   it('falls back to the default public smoke profile when no direct or env source ids exist', () => {
     expect(resolvePublicSemanticSoakSpawnEnv({}, 'run-default', 3, 999)).toEqual(expect.objectContaining({
-      VH_LIVE_DEV_FEED_SOURCE_IDS:
-        'guardian-us,cbs-politics,ap-politics,cnn-politics,abc-politics,nbc-politics,pbs-politics',
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'abc-politics,pbs-politics',
     }));
   });
 

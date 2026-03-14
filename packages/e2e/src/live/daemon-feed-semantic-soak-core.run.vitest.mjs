@@ -64,10 +64,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT).toBe('4');
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS).toBe('180000');
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
-      'guardian-us,cbs-politics,ap-politics,cnn-politics,abc-politics,nbc-politics,pbs-politics',
+      'abc-politics,pbs-politics',
     );
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('28');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('20');
   });
 
   it('preserves explicit feed source and limit overrides', () => {

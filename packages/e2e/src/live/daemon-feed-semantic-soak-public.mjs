@@ -1,8 +1,10 @@
 const DEFAULT_PUBLIC_SMOKE_SOURCE_PROFILES = Object.freeze([
-  'guardian-us,cbs-politics,ap-politics,cnn-politics,abc-politics,nbc-politics,pbs-politics',
+  'abc-politics,pbs-politics',
+  'cbs-politics,guardian-us',
+  'bbc-us-canada,nbc-politics,pbs-politics',
 ]);
 const DEFAULT_PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
-const DEFAULT_PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '28';
+const DEFAULT_PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '20';
 
 function uniqueValues(values) {
   return [...new Set(values.filter((value) => typeof value === 'string' && value.length > 0))];
