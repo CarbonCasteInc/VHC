@@ -4,8 +4,36 @@ import { defineConfig, devices, type TestConfig } from '@playwright/test';
 process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
 
 function stablePort(base: number, span: number, seed: string): number {
-  const offset = [...seed].reduce((total, char) => total + char.charCodeAt(0), 0) % span;
-  return base + offset;
+  if (seed.length === 0) {
+    return base;
+  }
+
+  let hash = 2166136261;
+  for (const char of seed) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+
+  const semanticSoakMatch = /^semantic-soak-(.+)-(\d+)-(\d+)$/.exec(seed);
+  if (semanticSoakMatch) {
+    const [, seriesSeed, runRaw, profileRaw] = semanticSoakMatch;
+    const run = Number.parseInt(runRaw, 10);
+    const profile = Number.parseInt(profileRaw, 10);
+    const reservedWidth = Math.min(span, 40);
+    const ordinal = ((run - 1) * 8) + (profile - 1);
+    if (Number.isFinite(run) && Number.isFinite(profile) && ordinal >= 0 && ordinal < reservedWidth) {
+      let seriesHash = 2166136261;
+      for (const char of seriesSeed) {
+        seriesHash ^= char.charCodeAt(0);
+        seriesHash = Math.imul(seriesHash, 16777619) >>> 0;
+      }
+      const bucketCount = Math.max(1, Math.floor(span / reservedWidth));
+      const bucket = seriesHash % bucketCount;
+      return base + (bucket * reservedWidth) + ordinal;
+    }
+  }
+
+  return base + (hash % span);
 }
 
 const runId = process.env.VH_DAEMON_FEED_RUN_ID;

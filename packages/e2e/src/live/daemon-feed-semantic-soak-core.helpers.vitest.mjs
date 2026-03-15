@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   artifactRootFromEnv,
+  buildPortPreclearCommand,
   collectSpecs,
   decodeAttachment,
   findPrimaryResult,
@@ -250,7 +251,7 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     const ports = resolveDaemonFirstFeedPortSet({}, 'semantic-soak-2-1');
 
     expect(command).toBe('bash');
-    expect(args.slice(0, 4)).toEqual(['-lc', expect.stringContaining('lsof -ti tcp'), '--', String(ports.basePort)]);
+    expect(args.slice(0, 4)).toEqual(['-lc', buildPortPreclearCommand(), '--', String(ports.basePort)]);
     expect(args.slice(4)).toEqual([
       String(ports.gunPort),
       String(ports.storyclusterPort),
@@ -262,6 +263,21 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
       cwd: '/repo',
       encoding: 'utf8',
     }));
+    expect(args[1]).toContain('sleep 0.2');
+    expect(args[1]).toContain('port-still-busy:$port');
+  });
+
+  it('avoids qdrant port collisions across a representative 5x3 multi-run matrix', () => {
+    const seen = new Set();
+
+    for (let run = 1; run <= 5; run += 1) {
+      for (let profile = 1; profile <= 3; profile += 1) {
+        const seed = `semantic-soak-series-${run}-${profile}`;
+        const qdrantPort = resolveDaemonFirstFeedPortSet({}, seed).qdrantPort;
+        expect(seen.has(qdrantPort)).toBe(false);
+        seen.add(qdrantPort);
+      }
+    }
   });
 
   it('formats error objects and non-errors consistently', () => {

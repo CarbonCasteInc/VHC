@@ -96,8 +96,36 @@ export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
 
 export function stablePort(base, span, seed) {
   const value = String(seed ?? '');
-  const offset = [...value].reduce((total, char) => total + char.charCodeAt(0), 0) % span;
-  return base + offset;
+  if (value.length === 0) {
+    return base;
+  }
+
+  let hash = 2166136261;
+  for (const char of value) {
+    hash ^= char.charCodeAt(0);
+    hash = Math.imul(hash, 16777619) >>> 0;
+  }
+
+  const semanticSoakMatch = /^semantic-soak-(.+)-(\d+)-(\d+)$/.exec(value);
+  if (semanticSoakMatch) {
+    const [, seriesSeed, runRaw, profileRaw] = semanticSoakMatch;
+    const run = Number.parseInt(runRaw, 10);
+    const profile = Number.parseInt(profileRaw, 10);
+    const reservedWidth = Math.min(span, 40);
+    const ordinal = ((run - 1) * 8) + (profile - 1);
+    if (Number.isFinite(run) && Number.isFinite(profile) && ordinal >= 0 && ordinal < reservedWidth) {
+      let seriesHash = 2166136261;
+      for (const char of seriesSeed) {
+        seriesHash ^= char.charCodeAt(0);
+        seriesHash = Math.imul(seriesHash, 16777619) >>> 0;
+      }
+      const bucketCount = Math.max(1, Math.floor(span / reservedWidth));
+      const bucket = seriesHash % bucketCount;
+      return base + (bucket * reservedWidth) + ordinal;
+    }
+  }
+
+  return base + (hash % span);
 }
 
 export function extractPort(url, fallback = 2148) {
@@ -123,6 +151,25 @@ export function resolveDaemonFirstFeedPortSet(env = process.env, runId = process
   };
 }
 
+export function buildPortPreclearCommand() {
+  return [
+    'for port in "$@"; do',
+    '  attempts=0',
+    '  while [ "$attempts" -lt 10 ]; do',
+    '    pids=$(lsof -ti tcp:"$port" || true)',
+    '    if [ -z "$pids" ]; then break; fi',
+    '    echo "$pids" | xargs kill -9 || true',
+    '    sleep 0.2',
+    '    attempts=$((attempts + 1))',
+    '  done',
+    '  if lsof -ti tcp:"$port" >/dev/null 2>&1; then',
+    '    echo "port-still-busy:$port" >&2',
+    '    exit 1',
+    '  fi',
+    'done',
+  ].join(' ');
+}
+
 export function preclearDaemonFirstFeedPorts({
   cwd,
   env = process.env,
@@ -130,14 +177,8 @@ export function preclearDaemonFirstFeedPorts({
   spawn = spawnSync,
 } = {}) {
   const ports = Object.values(resolveDaemonFirstFeedPortSet(env, runId)).filter(Number.isFinite);
-  const command = [
-    'for port in "$@"; do',
-    '  pids=$(lsof -ti tcp:"$port" || true)',
-    '  if [ -n "$pids" ]; then echo "$pids" | xargs kill -9; fi',
-    'done',
-  ].join(' ');
 
-  return spawn('bash', ['-lc', command, '--', ...ports.map((port) => String(port))], {
+  return spawn('bash', ['-lc', buildPortPreclearCommand(), '--', ...ports.map((port) => String(port))], {
     cwd,
     env,
     encoding: 'utf8',
@@ -149,6 +190,7 @@ function runPlaywrightSoakSubrun({
   artifactDir,
   cwd,
   env,
+  seriesId,
   run,
   profileIndex,
   sampleCount,
@@ -159,7 +201,7 @@ function runPlaywrightSoakSubrun({
   writeFile,
 }) {
   const reportPath = path.join(artifactDir, `run-${run}.profile-${profileIndex}.playwright.json`);
-  const runId = `semantic-soak-${Date.now()}-${run}-${profileIndex}`;
+  const runId = `semantic-soak-${seriesId}-${run}-${profileIndex}`;
   preclearDaemonFirstFeedPorts({ cwd, env, runId, spawn });
   const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
     cwd,
@@ -291,6 +333,7 @@ export async function runDaemonFeedSemanticSoak({
   }
 
   const results = [];
+  const seriesId = env.VH_DAEMON_FEED_SOAK_SERIES_ID?.trim() || `${Date.now()}-${process.pid}`;
 
   for (let run = 1; run <= runCount; run += 1) {
     log(`[vh:daemon-soak] run ${run}/${runCount} starting (sampleCount=${sampleCount})`);
@@ -305,6 +348,7 @@ export async function runDaemonFeedSemanticSoak({
         artifactDir,
         cwd,
         env,
+        seriesId,
         run,
         profileIndex: profileIndex + 1,
         sampleCount,

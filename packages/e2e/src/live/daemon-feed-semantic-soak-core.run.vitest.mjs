@@ -153,6 +153,7 @@ describe('runDaemonFeedSemanticSoak', () => {
           VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
           VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
           VH_DAEMON_FEED_SOAK_SUMMARY_PATH: '/repo/.tmp/out/custom-summary.json',
+          VH_DAEMON_FEED_SOAK_SERIES_ID: 'series-fixed',
           VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
         },
         spawn,
@@ -172,10 +173,10 @@ describe('runDaemonFeedSemanticSoak', () => {
         VH_RUN_DAEMON_FIRST_FEED: 'true',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: '2',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: '10',
+        VH_DAEMON_FEED_RUN_ID: 'semantic-soak-series-fixed-1-1',
         VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
       }),
     })]);
-    expect(pnpmCalls[1][2].env.VH_DAEMON_FEED_RUN_ID).toMatch(/^semantic-soak-/);
     expect(stderrWrites).toContain('warn');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"sampleFillRate": 0.5');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"readinessStatus": "not_ready"');
@@ -279,6 +280,12 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(result.summary.repeatedStoryCount).toBe(1);
     expect(result.results).toHaveLength(2);
     expect(sleepImpl).toHaveBeenCalledWith(5);
+    const runIds = getPnpmCalls(spawn)
+      .slice(1)
+      .map(([, , options]) => options.env.VH_DAEMON_FEED_RUN_ID);
+    expect(runIds[0]).toMatch(/^semantic-soak-\d+-\d+-1-1$/);
+    expect(runIds[1]).toMatch(/^semantic-soak-\d+-\d+-2-1$/);
+    expect(runIds[0].replace(/-1-1$/, '')).toBe(runIds[1].replace(/-2-1$/, ''));
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit.json')).toContain('"requested_sample_count": 1');
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit-failure-snapshot.json')).toContain('"story_count": 2');
     expect(writes.get('/repo/.tmp/out/run-1.runtime-logs.json')).toContain('browser-log');
