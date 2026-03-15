@@ -88,6 +88,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'fox',
     enabled: true,
   },
+  'fox-politics': {
+    id: 'fox-politics',
+    name: 'Fox News Politics',
+    displayName: 'Fox News',
+    rssUrl: 'https://moxie.foxnews.com/google-publisher/politics.xml',
+    perspectiveTag: 'conservative',
+    iconKey: 'fox',
+    enabled: true,
+  },
   'nypost-politics': {
     id: 'nypost-politics',
     name: 'New York Post Politics',

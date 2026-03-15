@@ -10,6 +10,7 @@ type FeedSource = {
 
 const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'fox-latest': { id: 'fox-latest', name: 'Fox News', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
+  'fox-politics': { id: 'fox-politics', name: 'Fox News Politics', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/politics.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
   'nypost-politics': { id: 'nypost-politics', name: 'New York Post Politics', displayName: 'New York Post', rssUrl: 'https://nypost.com/politics/feed/', perspectiveTag: 'conservative', iconKey: 'nypost', enabled: true },
   federalist: { id: 'federalist', name: 'The Federalist', displayName: 'The Federalist', rssUrl: 'https://thefederalist.com/feed/', perspectiveTag: 'conservative', iconKey: 'federalist', enabled: true },
   'guardian-us': { id: 'guardian-us', name: 'The Guardian US', displayName: 'The Guardian', rssUrl: 'https://www.theguardian.com/us-news/rss', perspectiveTag: 'progressive', iconKey: 'guardian', enabled: true },
@@ -38,6 +39,7 @@ const DEFAULT_SOURCE_IDS = [
 const LIVE_PROXY_SOURCE_IDS = new Set([
   'ap-politics',
   'cnn-politics',
+  'fox-politics',
   'usatoday-politics',
   'huffpost-us',
 ]);

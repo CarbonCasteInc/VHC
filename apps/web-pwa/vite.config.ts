@@ -305,6 +305,12 @@ export default defineConfig({
         secure: true,
         rewrite: () => '/google-publisher/latest.xml'
       },
+      '/rss/fox-politics': {
+        target: 'https://moxie.foxnews.com',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/google-publisher/politics.xml'
+      },
       '/rss/nypost-politics': {
         target: 'https://nypost.com',
         changeOrigin: true,

@@ -49,7 +49,7 @@ describe('playwright.daemon-first-feed.config', () => {
 
   it('passes custom source ids through to the web app env, including smoke-only sources', async () => {
     const config = await loadConfig('run-source-check', {
-      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,huffpost-us,usatoday-politics,cnn-politics,pbs-politics',
+      VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,huffpost-us,fox-politics,cnn-politics,pbs-politics',
     });
     const entries = config.webServer;
     const appServer = entries[entries.length - 1];
@@ -58,7 +58,7 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(sourceIds).toEqual([
       'guardian-us',
       'huffpost-us',
-      'usatoday-politics',
+      'fox-politics',
       'cnn-politics',
       'pbs-politics',
     ]);
