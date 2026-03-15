@@ -94,6 +94,10 @@ export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
   return path.join(cwd, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
 }
 
+export function shouldSkipDaemonFeedSoakBuild(env = process.env) {
+  return env.VH_DAEMON_FEED_SOAK_SKIP_BUILD === 'true';
+}
+
 export function stablePort(base, span, seed) {
   const value = String(seed ?? '');
   if (value.length === 0) {
@@ -321,22 +325,26 @@ export async function runDaemonFeedSemanticSoak({
   mkdir(artifactDir, { recursive: true });
   mkdir(path.dirname(summaryPath), { recursive: true });
 
-  log('[vh:daemon-soak] build starting');
-  const build = spawn('pnpm', BUILD_ARGS, {
-    cwd,
-    env,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  if (shouldSkipDaemonFeedSoakBuild(env)) {
+    log('[vh:daemon-soak] build skipped');
+  } else {
+    log('[vh:daemon-soak] build starting');
+    const build = spawn('pnpm', BUILD_ARGS, {
+      cwd,
+      env,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
 
-  writeFile(path.join(artifactDir, 'build.stdout.log'), build.stdout ?? '', 'utf8');
-  writeFile(path.join(artifactDir, 'build.stderr.log'), build.stderr ?? '', 'utf8');
+    writeFile(path.join(artifactDir, 'build.stdout.log'), build.stdout ?? '', 'utf8');
+    writeFile(path.join(artifactDir, 'build.stderr.log'), build.stderr ?? '', 'utf8');
 
-  if (build.stderr) {
-    process.stderr.write(build.stderr);
-  }
-  if (build.status !== 0) {
-    throw new Error(`daemon-feed-build-failed:${build.status}`);
+    if (build.stderr) {
+      process.stderr.write(build.stderr);
+    }
+    if (build.status !== 0) {
+      throw new Error(`daemon-feed-build-failed:${build.status}`);
+    }
   }
 
   const results = [];

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   resolvePublicSemanticSoakSpawnEnv,
   runDaemonFeedSemanticSoak,
+  shouldSkipDaemonFeedSoakBuild,
 } from './daemon-feed-semantic-soak-core.mjs';
 
 function makeAttachment(name, body) {
@@ -56,6 +57,11 @@ function getPnpmCalls(spawn) {
 }
 
 describe('runDaemonFeedSemanticSoak', () => {
+  it('reads the explicit build-skip switch', () => {
+    expect(shouldSkipDaemonFeedSoakBuild({})).toBe(false);
+    expect(shouldSkipDaemonFeedSoakBuild({ VH_DAEMON_FEED_SOAK_SKIP_BUILD: 'true' })).toBe(true);
+  });
+
   it('injects the smoke-only public source profile and limits when unset', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000);
 
@@ -206,6 +212,64 @@ describe('runDaemonFeedSemanticSoak', () => {
     } finally {
       process.stderr.write = originalStderrWrite;
     }
+  });
+
+  it('skips the build step when explicitly requested', async () => {
+    const writes = new Map();
+    const logs = [];
+    const primaryResult = makePrimaryResult([
+      makeAttachment('daemon-first-feed-semantic-audit', makeReport({
+        bundles: [],
+        overall: {
+          audited_pair_count: 0,
+          related_topic_only_pair_count: 0,
+          sample_fill_rate: 0,
+          sample_shortfall: 1,
+          pass: false,
+        },
+        supply: {
+          status: 'empty',
+          story_count: 0,
+          auditable_count: 0,
+          visible_story_ids: [],
+          top_story_ids: [],
+          top_auditable_story_ids: [],
+          sample_fill_rate: 0,
+          sample_shortfall: 1,
+        },
+        sampled_story_count: 0,
+        visible_story_ids: [],
+      })),
+      makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: [] }),
+    ]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+
+    await expect(runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+        VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
+        VH_DAEMON_FEED_SOAK_SKIP_BUILD: 'true',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      readFile: (target) => writes.get(target),
+      writeFile: (target, content) => writes.set(target, String(content)),
+      log: (message) => logs.push(message),
+      sleepImpl: vi.fn(),
+    })).rejects.toThrow();
+
+    const pnpmCalls = getPnpmCalls(spawn);
+    expect(pnpmCalls).toHaveLength(1);
+    expect(logs).toContain('[vh:daemon-soak] build skipped');
   });
 
   it('fails fast when daemon-first port preclear fails', async () => {

@@ -120,10 +120,23 @@ function resolveNewsFeedMaxItemsTotal(): string {
     : LIVE_MAX_ITEMS_TOTAL;
 }
 
+function resolveFeedReadyTimeoutMs(): number {
+  const configured = process.env.VH_DAEMON_FEED_READY_TIMEOUT_MS?.trim();
+  if (!configured) {
+    return FEED_READY_TIMEOUT_MS;
+  }
+  const parsed = Number.parseInt(configured, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return FEED_READY_TIMEOUT_MS;
+  }
+  return parsed;
+}
+
 export const daemonFirstFeedHarnessInternal = {
   resolveNewsPollIntervalMs,
   resolveNewsFeedMaxItemsPerSource,
   resolveNewsFeedMaxItemsTotal,
+  resolveFeedReadyTimeoutMs,
 };
 
 function commonEnv(): NodeJS.ProcessEnv {
@@ -234,11 +247,12 @@ export async function attachRuntimeLogs(
 
 export async function waitForHeadlines(page: Page, minHeadlines = MIN_HEADLINES): Promise<number> {
   const startedAt = Date.now();
+  const timeoutMs = resolveFeedReadyTimeoutMs();
   let lastDomCount = 0;
   let lastStoryCount = 0;
   let lastAuditableCount = 0;
   let reloadAttempted = false;
-  while (Date.now() - startedAt < FEED_READY_TIMEOUT_MS) {
+  while (Date.now() - startedAt < timeoutMs) {
     lastDomCount = await page.locator('[data-testid^="news-card-headline-"]').count();
     if (lastDomCount >= minHeadlines) {
       return Date.now() - startedAt;
@@ -303,7 +317,7 @@ async function materializeBundledStory(
 }
 
 export async function findBundledStory(page: Page, limit = 12): Promise<BundledStory> {
-  const deadline = Date.now() + FEED_READY_TIMEOUT_MS;
+  const deadline = Date.now() + resolveFeedReadyTimeoutMs();
   while (Date.now() < deadline) {
     const auditableBundles = (await readAuditableBundles(page)).slice(0, limit);
     for (const bundle of auditableBundles) {

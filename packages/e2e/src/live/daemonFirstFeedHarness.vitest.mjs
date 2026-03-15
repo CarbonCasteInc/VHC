@@ -53,4 +53,15 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     expect(daemonFirstFeedHarnessInternal.resolveNewsFeedMaxItemsPerSource()).toBe('7');
     expect(daemonFirstFeedHarnessInternal.resolveNewsFeedMaxItemsTotal()).toBe('21');
   });
+
+  it('prefers an explicit feed-ready timeout override and falls back for invalid values', () => {
+    vi.stubEnv('VH_DAEMON_FEED_READY_TIMEOUT_MS', '45000');
+    expect(daemonFirstFeedHarnessInternal.resolveFeedReadyTimeoutMs()).toBe(45000);
+
+    vi.stubEnv('VH_DAEMON_FEED_READY_TIMEOUT_MS', '0');
+    expect(daemonFirstFeedHarnessInternal.resolveFeedReadyTimeoutMs()).toBe(240000);
+
+    vi.stubEnv('VH_DAEMON_FEED_READY_TIMEOUT_MS', 'not-a-number');
+    expect(daemonFirstFeedHarnessInternal.resolveFeedReadyTimeoutMs()).toBe(240000);
+  });
 });
