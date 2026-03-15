@@ -42,6 +42,8 @@ export interface SemanticAuditStoreStorySnapshot {
   readonly story_id: string;
   readonly topic_id: string;
   readonly headline: string;
+  readonly source_ids: ReadonlyArray<string>;
+  readonly primary_source_ids: ReadonlyArray<string>;
   readonly source_count: number;
   readonly primary_source_count: number;
   readonly secondary_asset_count: number;

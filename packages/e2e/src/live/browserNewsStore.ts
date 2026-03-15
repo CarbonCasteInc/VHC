@@ -47,7 +47,7 @@ export async function readAuditableBundles(
   if (options?.restrictToDomStoryIds) {
     return auditable
       .filter((story) => order.has(story.story_id))
-      .sort((left, right) => (order.get(left.story_id) ?? 0) - (order.get(right.story_id) ?? 0));
+      .sort((left, right) => order.get(left.story_id)! - order.get(right.story_id)!);
   }
 
   return [...auditable].sort((left, right) => {
@@ -114,6 +114,8 @@ export async function readSemanticAuditStoreSnapshot(
       story_id: story.story_id,
       topic_id: story.topic_id,
       headline: story.headline,
+      source_ids: story.sources.map((source) => source.source_id),
+      primary_source_ids: (story.primary_sources ?? story.sources).map((source) => source.source_id),
       source_count: story.sources.length,
       primary_source_count: story.primary_sources?.length ?? story.sources.length,
       secondary_asset_count: story.secondary_assets?.length ?? 0,
