@@ -82,6 +82,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   delete process.env.VH_DAEMON_FEED_RUN_ID;
+  delete process.env.VH_LIVE_DEV_FEED_SOURCE_IDS;
+  delete process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED;
 });
 
 describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
@@ -226,5 +228,162 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
         pass: false,
       },
     });
+  });
+
+  it('waits for a profile-matched auditable bundle instead of sampling an unrelated public bundle', async () => {
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'ap-politics,cnn-politics';
+
+    const unrelatedBundle = {
+      story_id: 'story-unrelated',
+      topic_id: 'topic-unrelated',
+      headline: 'Trump seeks to replace White House visitor screening center with underground facility',
+      sources: [
+        {
+          source_id: 'ap-politics',
+          publisher: 'AP Politics',
+          url: 'https://example.com/ap/unrelated',
+          url_hash: 'ap-unrelated',
+          title: 'Feds move to dismiss charges against Army veteran who burned American flag near White House',
+        },
+        {
+          source_id: 'cnn-politics',
+          publisher: 'CNN Politics',
+          url: 'https://example.com/cnn/unrelated',
+          url_hash: 'cnn-unrelated',
+          title: 'Trump seeks to replace White House visitor screening center with underground facility',
+        },
+      ],
+    };
+    const matchingBundle = {
+      story_id: 'story-extortion',
+      topic_id: 'topic-extortion',
+      headline: 'Lobbyist tied to pardon from Trump charged with attempted extortion',
+      sources: [
+        {
+          source_id: 'ap-politics',
+          publisher: 'AP Politics',
+          url: 'https://example.com/ap/extortion',
+          url_hash: 'ap-extortion',
+          title: 'A pardon lobbyist, $500,000 demand and alleged enforcer lead to extortion charge in New York',
+        },
+        {
+          source_id: 'cnn-politics',
+          publisher: 'CNN Politics',
+          url: 'https://example.com/cnn/extortion',
+          url_hash: 'cnn-extortion',
+          title: 'Lobbyist tied to pardon from Trump charged with attempted extortion',
+        },
+      ],
+    };
+
+    readAuditableBundles
+      .mockResolvedValueOnce([unrelatedBundle])
+      .mockResolvedValueOnce([matchingBundle])
+      .mockResolvedValueOnce([matchingBundle]);
+    readSemanticAuditStoreSnapshot
+      .mockResolvedValueOnce(makeSnapshot({
+        auditable_count: 1,
+        stories: [
+          {
+            story_id: 'story-cnn',
+            topic_id: 'topic-cnn',
+            headline: 'Lobbyist tied to pardon from Trump charged with attempted extortion',
+            source_ids: ['cnn-politics'],
+            primary_source_ids: ['cnn-politics'],
+            source_count: 1,
+            primary_source_count: 1,
+            secondary_asset_count: 0,
+            is_auditable: false,
+            is_dom_visible: true,
+          },
+          {
+            story_id: 'story-ap',
+            topic_id: 'topic-ap',
+            headline: 'A pardon lobbyist, $500,000 demand and alleged enforcer lead to extortion charge in New York',
+            source_ids: ['ap-politics'],
+            primary_source_ids: ['ap-politics'],
+            source_count: 1,
+            primary_source_count: 1,
+            secondary_asset_count: 0,
+            is_auditable: false,
+            is_dom_visible: true,
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(makeSnapshot({
+        auditable_count: 1,
+        stories: [
+          {
+            story_id: 'story-cnn',
+            topic_id: 'topic-cnn',
+            headline: 'Lobbyist tied to pardon from Trump charged with attempted extortion',
+            source_ids: ['cnn-politics'],
+            primary_source_ids: ['cnn-politics'],
+            source_count: 1,
+            primary_source_count: 1,
+            secondary_asset_count: 0,
+            is_auditable: false,
+            is_dom_visible: true,
+          },
+          {
+            story_id: 'story-ap',
+            topic_id: 'topic-ap',
+            headline: 'A pardon lobbyist, $500,000 demand and alleged enforcer lead to extortion charge in New York',
+            source_ids: ['ap-politics'],
+            primary_source_ids: ['ap-politics'],
+            source_count: 1,
+            primary_source_count: 1,
+            secondary_asset_count: 0,
+            is_auditable: false,
+            is_dom_visible: true,
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(makeSnapshot({
+        auditable_count: 1,
+        stories: [
+          {
+            story_id: 'story-extortion',
+            topic_id: 'topic-extortion',
+            headline: 'Lobbyist tied to pardon from Trump charged with attempted extortion',
+            source_ids: ['ap-politics', 'cnn-politics'],
+            primary_source_ids: ['ap-politics', 'cnn-politics'],
+            source_count: 2,
+            primary_source_count: 2,
+            secondary_asset_count: 0,
+            is_auditable: true,
+            is_dom_visible: true,
+          },
+        ],
+      }))
+      .mockResolvedValueOnce(makeSnapshot({
+        auditable_count: 1,
+        stories: [
+          {
+            story_id: 'story-extortion',
+            topic_id: 'topic-extortion',
+            headline: 'Lobbyist tied to pardon from Trump charged with attempted extortion',
+            source_ids: ['ap-politics', 'cnn-politics'],
+            primary_source_ids: ['ap-politics', 'cnn-politics'],
+            source_count: 2,
+            primary_source_count: 2,
+            secondary_asset_count: 0,
+            is_auditable: true,
+            is_dom_visible: true,
+          },
+        ],
+      }));
+    buildCanonicalSourcePairs.mockReturnValue([]);
+    classifyCanonicalSourcePairs.mockResolvedValue([]);
+
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 1,
+      timeoutMs: 100,
+    });
+
+    expect(report.bundles[0]?.story_id).toBe('story-extortion');
+    expect(refreshNewsStoreLatest).toHaveBeenCalled();
   });
 });

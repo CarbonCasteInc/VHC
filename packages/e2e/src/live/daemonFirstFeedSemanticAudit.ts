@@ -8,6 +8,10 @@ import {
 } from './browserNewsStore';
 import { LIVE_BASE_URL, waitForHeadlines } from './daemonFirstFeedHarness';
 import { nudgeFeed } from './feedReadiness';
+import {
+  readPublicSemanticProfileSourceIds,
+  selectProfileSpecificAuditableBundles,
+} from './daemonFirstFeedSemanticAuditSelection';
 import type {
   AuditedBundlePairResult,
   DaemonFeedSemanticAuditOptions,
@@ -143,12 +147,17 @@ async function waitForSampledBundles(
 }> {
   const deadline = Date.now() + timeoutMs;
   const progressiveSampling = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true';
+  const profileSourceIds = readPublicSemanticProfileSourceIds();
   const observedByStoryId = new Map<string, LiveSemanticAuditBundleLike>();
   let storeSnapshot = await readSemanticAuditStoreSnapshot(page);
   while (Date.now() < deadline) {
     const auditable = await readAuditableBundles(page);
+    const selection = progressiveSampling
+      ? selectProfileSpecificAuditableBundles(auditable, storeSnapshot, profileSourceIds)
+      : { bundles: auditable };
+
     if (progressiveSampling) {
-      mergeObservedBundles(observedByStoryId, auditable);
+      mergeObservedBundles(observedByStoryId, selection.bundles);
     }
     storeSnapshot = await readSemanticAuditStoreSnapshot(page);
     if (progressiveSampling && observedByStoryId.size >= sampleCount) {
@@ -173,8 +182,11 @@ async function waitForSampledBundles(
   }
 
   const auditable = await readAuditableBundles(page);
+  const selection = progressiveSampling
+    ? selectProfileSpecificAuditableBundles(auditable, storeSnapshot, profileSourceIds)
+    : { bundles: auditable };
   if (progressiveSampling) {
-    mergeObservedBundles(observedByStoryId, auditable);
+    mergeObservedBundles(observedByStoryId, selection.bundles);
   }
   storeSnapshot = await readSemanticAuditStoreSnapshot(page);
   await persistSemanticAuditFailureSnapshot(storeSnapshot);
