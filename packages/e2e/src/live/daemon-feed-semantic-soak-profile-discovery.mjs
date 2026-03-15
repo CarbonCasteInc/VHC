@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 
 export const DEFAULT_DISCOVERY_CENSUS_SOURCES = Object.freeze([
   'abc-politics',
+  'cnn-politics',
   'bbc-us-canada',
   'cbs-politics',
   'guardian-us',
