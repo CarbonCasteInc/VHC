@@ -214,6 +214,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'cnn',
     enabled: true,
   },
+  'independent-us-politics': {
+    id: 'independent-us-politics',
+    name: 'The Independent US Politics',
+    displayName: 'The Independent',
+    rssUrl: 'https://www.independent.co.uk/news/world/americas/us-politics/rss',
+    perspectiveTag: 'international-news',
+    iconKey: 'independent',
+    enabled: true,
+  },
   'nbc-politics': {
     id: 'nbc-politics',
     name: 'NBC News Politics',

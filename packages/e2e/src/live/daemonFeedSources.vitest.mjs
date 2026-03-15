@@ -9,7 +9,7 @@ afterEach(() => {
 
 describe('resolveDaemonFeedSourcesJson', () => {
   it('resolves smoke-only sources that are not part of the starter default list', () => {
-    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'abc-politics,huffpost-us,fox-politics,cnn-politics,pbs-politics';
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'abc-politics,huffpost-us,independent-us-politics,cnn-politics,pbs-politics';
     process.env.VH_LIVE_BASE_URL = 'http://127.0.0.1:2148/';
 
     const sources = JSON.parse(resolveDaemonFeedSourcesJson());
@@ -17,13 +17,13 @@ describe('resolveDaemonFeedSourcesJson', () => {
     expect(sources.map((source) => source.id)).toEqual([
       'abc-politics',
       'huffpost-us',
-      'fox-politics',
+      'independent-us-politics',
       'cnn-politics',
       'pbs-politics',
     ]);
     expect(sources[0].rssUrl).toBe('https://abcnews.go.com/abcnews/politicsheadlines');
     expect(sources[1].rssUrl).toBe('http://127.0.0.1:2148/rss/huffpost-us');
-    expect(sources[2].rssUrl).toBe('http://127.0.0.1:2148/rss/fox-politics');
+    expect(sources[2].rssUrl).toBe('http://127.0.0.1:2148/rss/independent-us-politics');
     expect(sources[3].rssUrl).toBe('http://127.0.0.1:2148/rss/cnn-politics');
     expect(sources[4].rssUrl).toBe('https://www.pbs.org/newshour/feeds/rss/politics');
   });
@@ -68,6 +68,7 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'npr-politics',
       'abc-politics',
       'cnn-politics',
+      'independent-us-politics',
       'nbc-politics',
       'pbs-politics',
     ]);

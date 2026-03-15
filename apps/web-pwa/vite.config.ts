@@ -388,6 +388,12 @@ export default defineConfig({
         changeOrigin: true,
         secure: true,
         rewrite: () => '/newshour/feeds/rss/politics'
+      },
+      '/rss/independent-us-politics': {
+        target: 'https://www.independent.co.uk',
+        changeOrigin: true,
+        secure: true,
+        rewrite: () => '/news/world/americas/us-politics/rss'
       }
     }
   },

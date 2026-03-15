@@ -25,6 +25,7 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'npr-politics': { id: 'npr-politics', name: 'NPR Politics', displayName: 'NPR', rssUrl: 'https://feeds.npr.org/1014/rss.xml', perspectiveTag: 'public-radio', iconKey: 'npr', enabled: true },
   'abc-politics': { id: 'abc-politics', name: 'ABC News Politics', displayName: 'ABC News', rssUrl: 'https://abcnews.go.com/abcnews/politicsheadlines', perspectiveTag: 'broadcast-news', iconKey: 'abc', enabled: true },
   'cnn-politics': { id: 'cnn-politics', name: 'CNN Politics', displayName: 'CNN Politics', rssUrl: 'https://www.cnn.com/politics', perspectiveTag: 'broadcast-news', iconKey: 'cnn', enabled: true },
+  'independent-us-politics': { id: 'independent-us-politics', name: 'The Independent US Politics', displayName: 'The Independent', rssUrl: 'https://www.independent.co.uk/news/world/americas/us-politics/rss', perspectiveTag: 'international-news', iconKey: 'independent', enabled: true },
   'nbc-politics': { id: 'nbc-politics', name: 'NBC News Politics', displayName: 'NBC News', rssUrl: 'https://feeds.nbcnews.com/feeds/nbcpolitics', perspectiveTag: 'broadcast-news', iconKey: 'nbc', enabled: true },
   'pbs-politics': { id: 'pbs-politics', name: 'PBS News Politics', displayName: 'PBS News', rssUrl: 'https://www.pbs.org/newshour/feeds/rss/politics', perspectiveTag: 'public-broadcast', iconKey: 'pbs', enabled: true },
 };
@@ -40,6 +41,7 @@ const LIVE_PROXY_SOURCE_IDS = new Set([
   'ap-politics',
   'cnn-politics',
   'fox-politics',
+  'independent-us-politics',
   'usatoday-politics',
   'huffpost-us',
 ]);
