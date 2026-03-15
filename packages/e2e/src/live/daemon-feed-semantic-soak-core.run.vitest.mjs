@@ -208,6 +208,60 @@ describe('runDaemonFeedSemanticSoak', () => {
     }
   });
 
+  it('fails fast when daemon-first port preclear fails', async () => {
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: '', stderr: 'port-still-busy:6300' });
+
+    await expect(runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      writeFile: vi.fn(),
+    })).rejects.toThrow('daemon-first-port-preclear-failed');
+  });
+
+  it('falls back to the preclear exit status when stderr is empty', async () => {
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
+      .mockReturnValueOnce({ status: 7, stdout: '', stderr: '' });
+
+    await expect(runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      writeFile: vi.fn(),
+    })).rejects.toThrow('daemon-first-port-preclear-failed:semantic-soak');
+  });
+
+  it('falls back to the preclear exit status when stderr is omitted', async () => {
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: '', stderr: '' })
+      .mockReturnValueOnce({ status: 9, stdout: '' });
+
+    await expect(runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        VH_LIVE_DEV_FEED_SOURCE_IDS: 'guardian-us,cbs-politics',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      writeFile: vi.fn(),
+    })).rejects.toThrow('daemon-first-port-preclear-failed:semantic-soak');
+  });
+
   it('returns a passing summary, persists attachments, and sleeps between successful runs', async () => {
     const writes = new Map();
     const sleepImpl = vi.fn();

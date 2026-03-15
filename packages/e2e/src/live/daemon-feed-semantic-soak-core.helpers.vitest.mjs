@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import {
   artifactRootFromEnv,
@@ -265,6 +266,15 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     }));
     expect(args[1]).toContain('sleep 0.2');
     expect(args[1]).toContain('port-still-busy:$port');
+  });
+
+  it('emits a bash-valid port preclear command', () => {
+    const proc = spawnSync('bash', ['-lc', buildPortPreclearCommand(), '--', '65535'], {
+      encoding: 'utf8',
+    });
+
+    expect(proc.status).toBe(0);
+    expect(proc.stderr).toBe('');
   });
 
   it('avoids qdrant port collisions across a representative 5x3 multi-run matrix', () => {

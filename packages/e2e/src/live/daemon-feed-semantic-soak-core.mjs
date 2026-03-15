@@ -167,7 +167,7 @@ export function buildPortPreclearCommand() {
     '    exit 1',
     '  fi',
     'done',
-  ].join(' ');
+  ].join('\n');
 }
 
 export function preclearDaemonFirstFeedPorts({
@@ -202,7 +202,14 @@ function runPlaywrightSoakSubrun({
 }) {
   const reportPath = path.join(artifactDir, `run-${run}.profile-${profileIndex}.playwright.json`);
   const runId = `semantic-soak-${seriesId}-${run}-${profileIndex}`;
-  preclearDaemonFirstFeedPorts({ cwd, env, runId, spawn });
+  const preclear = preclearDaemonFirstFeedPorts({ cwd, env, runId, spawn });
+  if (preclear.status !== 0) {
+    const preclearStderr = typeof preclear.stderr === 'string' ? preclear.stderr.trim() : '';
+    const preclearDetail = preclearStderr.length > 0 ? preclearStderr : String(preclear.status);
+    throw new Error(
+      `daemon-first-port-preclear-failed:${runId}:${preclearDetail}`,
+    );
+  }
   const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
     cwd,
     env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, sourceIds),
