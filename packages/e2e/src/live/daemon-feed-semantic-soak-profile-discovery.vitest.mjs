@@ -7,6 +7,7 @@ import {
   headlineTerms,
   readDiscoveryCensusSources,
   readDiscoveryProfiles,
+  readDiscoveryVisibleStoryLimit,
   runProfileDiscovery,
   splitDiscoveryProfiles,
   splitDiscoverySources,
@@ -28,6 +29,13 @@ describe('daemon-feed-semantic-soak-profile-discovery', () => {
     expect(readDiscoveryCensusSources({
       VH_PUBLIC_SEMANTIC_SOAK_DISCOVERY_SOURCES: 'abc-politics,pbs-politics',
     })).toEqual(['abc-politics', 'pbs-politics']);
+    expect(readDiscoveryVisibleStoryLimit({})).toBe(8);
+    expect(readDiscoveryVisibleStoryLimit({
+      VH_PUBLIC_SEMANTIC_SOAK_DISCOVERY_VISIBLE_STORY_LIMIT: '6',
+    })).toBe(6);
+    expect(readDiscoveryVisibleStoryLimit({
+      VH_PUBLIC_SEMANTIC_SOAK_DISCOVERY_VISIBLE_STORY_LIMIT: '0',
+    })).toBe(8);
   });
 
   it('derives artifact roots from env or cwd', () => {
@@ -112,6 +120,27 @@ describe('daemon-feed-semantic-soak-profile-discovery', () => {
 
   it('normalizes plural ies headline terms into a shared stem', () => {
     expect(headlineTerms('Policies stories')).toEqual(expect.arrayContaining(['policy', 'story']));
+  });
+
+  it('widens the visible-story window when discovery inspects overlaps', () => {
+    const stories = Array.from({ length: 8 }, (_, index) => ({
+      story_id: `story-${index + 1}`,
+      headline: index === 6
+        ? 'Kennedy Center board meeting dispute expands'
+        : index === 7
+          ? 'Kennedy Center board meeting fight escalates'
+          : `Unrelated headline ${index + 1}`,
+      source_ids: [`source-${index + 1}`],
+      primary_source_ids: [`source-${index + 1}`],
+      is_dom_visible: true,
+    }));
+
+    const overlaps = buildVisibleOverlapPairs(stories);
+
+    expect(overlaps).toContainEqual(expect.objectContaining({
+      left_story_id: 'story-7',
+      right_story_id: 'story-8',
+    }));
   });
 
   it('derives candidate profiles from census probes instead of guessed pairs', () => {

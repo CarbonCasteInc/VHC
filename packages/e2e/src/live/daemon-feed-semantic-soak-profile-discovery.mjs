@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 export const DEFAULT_DISCOVERY_CENSUS_SOURCES = Object.freeze([
+  'ap-politics',
   'abc-politics',
   'cnn-politics',
   'bbc-us-canada',
@@ -13,6 +14,7 @@ export const DEFAULT_DISCOVERY_CENSUS_SOURCES = Object.freeze([
   'nypost-politics',
   'pbs-politics',
 ]);
+const DEFAULT_DISCOVERY_VISIBLE_STORY_LIMIT = 8;
 
 const DISCOVERY_STOPWORDS = new Set([
   'a', 'an', 'and', 'are', 'as', 'at', 'after', 'against', 'amid', 'be', 'by', 'for', 'from',
@@ -58,6 +60,15 @@ export function discoveryArtifactRoot(env = process.env, cwd = process.cwd()) {
     return explicit;
   }
   return path.join(cwd, '.tmp', 'daemon-feed-semantic-soak', `profile-discovery-${Date.now()}`);
+}
+
+export function readDiscoveryVisibleStoryLimit(env = process.env) {
+  const raw = env.VH_PUBLIC_SEMANTIC_SOAK_DISCOVERY_VISIBLE_STORY_LIMIT?.trim();
+  const parsed = Number.parseInt(raw ?? '', 10);
+  if (!Number.isFinite(parsed) || parsed < 1) {
+    return DEFAULT_DISCOVERY_VISIBLE_STORY_LIMIT;
+  }
+  return parsed;
 }
 
 function normalizeToken(token) {
@@ -127,10 +138,10 @@ function compareStories(left, right) {
   };
 }
 
-export function buildVisibleOverlapPairs(stories) {
+export function buildVisibleOverlapPairs(stories, visibleStoryLimit = DEFAULT_DISCOVERY_VISIBLE_STORY_LIMIT) {
   const visibleStories = (stories ?? [])
     .filter((story) => story?.is_dom_visible)
-    .slice(0, 5);
+    .slice(0, visibleStoryLimit);
   const overlaps = [];
 
   for (let index = 0; index < visibleStories.length; index += 1) {
@@ -158,8 +169,8 @@ export function buildVisibleOverlapPairs(stories) {
   return overlaps.sort((left, right) => right.shared_terms.length - left.shared_terms.length);
 }
 
-function probeVisibleStories(snapshot) {
-  return snapshot?.stories?.filter((story) => story.is_dom_visible).slice(0, 5) ?? [];
+function probeVisibleStories(snapshot, visibleStoryLimit = DEFAULT_DISCOVERY_VISIBLE_STORY_LIMIT) {
+  return snapshot?.stories?.filter((story) => story.is_dom_visible).slice(0, visibleStoryLimit) ?? [];
 }
 
 export function buildDerivedCandidateProfiles(censusProbes, limit = DEFAULT_CANDIDATE_LIMIT) {
@@ -232,9 +243,10 @@ export function summarizeDiscoveryProbe({
   exitStatus,
   audit,
   snapshot,
+  visibleStoryLimit = DEFAULT_DISCOVERY_VISIBLE_STORY_LIMIT,
 }) {
-  const visibleStories = probeVisibleStories(snapshot);
-  const overlaps = buildVisibleOverlapPairs(visibleStories);
+  const visibleStories = probeVisibleStories(snapshot, visibleStoryLimit);
+  const overlaps = buildVisibleOverlapPairs(visibleStories, visibleStoryLimit);
   const auditableCount = snapshot?.auditable_count ?? audit?.supply?.auditable_count ?? 0;
   const sampledStoryCount = audit?.sampled_story_count ?? 0;
 
@@ -270,6 +282,7 @@ function runSemanticSoakProbe({
   mkdir,
   readFile,
   writeFile,
+  visibleStoryLimit,
 }) {
   mkdir(probeDir, { recursive: true });
   const probe = spawn('pnpm', ['--filter', '@vh/e2e', 'test:live:daemon-feed:semantic-soak'], {
@@ -303,6 +316,7 @@ function runSemanticSoakProbe({
     exitStatus: probe.status,
     audit,
     snapshot,
+    visibleStoryLimit,
   });
 }
 
@@ -319,6 +333,7 @@ export function runProfileDiscovery({
   const censusSources = readDiscoveryCensusSources(env);
   const explicitCandidateProfiles = readDiscoveryProfiles(env);
   const probeTimeoutMs = env.VH_PUBLIC_SEMANTIC_SOAK_DISCOVERY_TIMEOUT_MS?.trim() || '60000';
+  const visibleStoryLimit = readDiscoveryVisibleStoryLimit(env);
   mkdir(artifactRoot, { recursive: true });
 
   log(`[vh:daemon-soak:discover] build starting (${censusSources.length} census sources)`);
@@ -348,6 +363,7 @@ export function runProfileDiscovery({
       mkdir,
       readFile,
       writeFile,
+      visibleStoryLimit,
     }));
   }
 
@@ -370,6 +386,7 @@ export function runProfileDiscovery({
       mkdir,
       readFile,
       writeFile,
+      visibleStoryLimit,
     }));
   }
 
@@ -387,6 +404,7 @@ export function runProfileDiscovery({
     artifactRoot,
     censusSources,
     explicitCandidateProfiles,
+    visibleStoryLimit,
     derivedCandidates,
     candidateProfiles,
     recommendedProfiles,
