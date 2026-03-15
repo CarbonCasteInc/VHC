@@ -1,5 +1,6 @@
 const DEFAULT_PUBLIC_SMOKE_SOURCE_PROFILES = Object.freeze([
   'abc-politics,pbs-politics',
+  'ap-politics,cnn-politics',
   'cbs-politics,guardian-us',
   'bbc-us-canada,nbc-politics,pbs-politics',
 ]);

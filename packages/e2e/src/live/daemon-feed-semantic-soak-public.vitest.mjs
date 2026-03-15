@@ -66,6 +66,7 @@ describe('daemon-feed-semantic-soak-public', () => {
   it('returns curated default public smoke profiles when unset', () => {
     expect(resolvePublicSemanticSoakProfiles({})).toEqual([
       'abc-politics,pbs-politics',
+      'ap-politics,cnn-politics',
       'cbs-politics,guardian-us',
       'bbc-us-canada,nbc-politics,pbs-politics',
     ]);
