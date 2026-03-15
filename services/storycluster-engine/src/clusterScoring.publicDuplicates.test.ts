@@ -288,6 +288,65 @@ describe('clusterScoring public duplicate families', () => {
     expect(candidate.adjudication).toBe('accepted');
   });
 
+  it('matches the pardon-lobbyist extortion variants as one canonical incident', () => {
+    const cluster = makeCluster(makeWorkingDocument({
+      source_id: 'cnn-politics',
+      title: 'Lobbyist tied to pardon from Trump charged with attempted extortion',
+      summary: 'A lobbyist connected to a pardon effort was charged with attempted extortion.',
+      entities: ['lobbyist', 'donald_trump', 'extortion'],
+      linked_entities: ['pardon_lobbyist_extortion_case', 'lobbyist', 'donald_trump'],
+      locations: ['new_york'],
+      trigger: 'charged',
+      event_tuple: {
+        description: 'A lobbyist tied to a pardon effort was charged with attempted extortion.',
+        trigger: 'charged',
+        who: ['pardon_lobbyist_extortion_case'],
+        where: ['new_york'],
+        when_ms: 100,
+        outcome: 'attempted extortion charge filed',
+      },
+    }));
+
+    const candidate = buildCandidateMatch(makeWorkingDocument({
+      doc_id: 'doc-extortion-ap',
+      source_id: 'ap-politics',
+      title: 'A pardon lobbyist, $500,000 demand and alleged enforcer lead to extortion charge in New York',
+      summary: 'New York prosecutors filed an extortion case tied to a pardon lobbyist and alleged enforcer.',
+      entities: ['lobbyist', 'extortion', 'new_york'],
+      linked_entities: ['pardon_lobbyist_extortion_case', 'lobbyist'],
+      locations: ['new_york'],
+      trigger: 'lead',
+      event_tuple: {
+        description: 'Prosecutors filed an extortion case tied to a pardon lobbyist in New York.',
+        trigger: 'charged',
+        who: ['pardon_lobbyist_extortion_case'],
+        where: ['new_york'],
+        when_ms: 101,
+        outcome: 'extortion charge filed',
+      },
+    }), cluster);
+
+    expect(candidateEligible(makeWorkingDocument({
+      doc_id: 'doc-extortion-ap',
+      source_id: 'ap-politics',
+      title: 'A pardon lobbyist, $500,000 demand and alleged enforcer lead to extortion charge in New York',
+      summary: 'New York prosecutors filed an extortion case tied to a pardon lobbyist and alleged enforcer.',
+      entities: ['lobbyist', 'extortion', 'new_york'],
+      linked_entities: ['pardon_lobbyist_extortion_case', 'lobbyist'],
+      locations: ['new_york'],
+      trigger: 'lead',
+      event_tuple: {
+        description: 'Prosecutors filed an extortion case tied to a pardon lobbyist in New York.',
+        trigger: 'charged',
+        who: ['pardon_lobbyist_extortion_case'],
+        where: ['new_york'],
+        when_ms: 101,
+        outcome: 'extortion charge filed',
+      },
+    }), cluster)).toBe(true);
+    expect(candidate.adjudication).toBe('accepted');
+  });
+
   it('matches live prank-death variants even when the duplicate alias falls below the cluster top-k entity surface', () => {
     const cluster = makeCluster(makeWorkingDocument({
       source_id: 'huffpost-us',

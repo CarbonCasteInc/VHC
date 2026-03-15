@@ -46,6 +46,13 @@ const STORYCLUSTER_ALIAS_RULES: readonly AliasRule[] = [
       /\bprank\b/.test(text) &&
       (/\bdied\b/.test(text) || /\bdies\b/.test(text) || /\bdeath\b/.test(text)),
   },
+  {
+    aliases: ['pardon_lobbyist_extortion_case'],
+    matches: (text) =>
+      /\blobbyist\b/.test(text) &&
+      /\bpardon\b/.test(text) &&
+      containsAny(text, [/\bextortion\b/, /\benforcer\b/, /\bdemand\b/]),
+  },
 ] as const;
 
 export function inferStoryclusterAliases(title: string, summary?: string): string[] {

@@ -21,6 +21,9 @@ describe('inferStoryclusterAliases', () => {
     expect(
       inferStoryclusterAliases('Prosecutor Drops Criminal Charge Against Teen After Teacher Dies In Prank Mishap'),
     ).toContain('teacher_prank_death_case');
+    expect(
+      inferStoryclusterAliases('Lobbyist tied to pardon from Trump charged with attempted extortion'),
+    ).toContain('pardon_lobbyist_extortion_case');
   });
 
   it('matches alternate phrasing for the same duplicate families', () => {
@@ -42,6 +45,11 @@ describe('inferStoryclusterAliases', () => {
     expect(
       inferStoryclusterAliases('Teacher prank death charge dropped after fatal mishap'),
     ).toContain('teacher_prank_death_case');
+    expect(
+      inferStoryclusterAliases(
+        'A pardon lobbyist, $500,000 demand and alleged enforcer lead to extortion charge in New York',
+      ),
+    ).toContain('pardon_lobbyist_extortion_case');
   });
 
   it('does not add aliases for unrelated headlines', () => {
