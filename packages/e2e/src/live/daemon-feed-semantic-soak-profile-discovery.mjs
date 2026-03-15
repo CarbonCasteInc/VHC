@@ -6,6 +6,7 @@ export const DEFAULT_DISCOVERY_CENSUS_SOURCES = Object.freeze([
   'ap-politics',
   'abc-politics',
   'cnn-politics',
+  'usatoday-politics',
   'bbc-us-canada',
   'cbs-politics',
   'guardian-us',

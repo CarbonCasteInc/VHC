@@ -133,6 +133,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'ap',
     enabled: true,
   },
+  'usatoday-politics': {
+    id: 'usatoday-politics',
+    name: 'USA TODAY Politics',
+    displayName: 'USA TODAY',
+    rssUrl: 'https://www.usatoday.com/news/politics/',
+    perspectiveTag: 'national-news',
+    iconKey: 'usatoday',
+    enabled: true,
+  },
   'bbc-general': {
     id: 'bbc-general',
     name: 'BBC News',

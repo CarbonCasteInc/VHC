@@ -16,6 +16,7 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'huffpost-us': { id: 'huffpost-us', name: 'HuffPost', displayName: 'HuffPost', rssUrl: 'https://www.huffpost.com/section/us-news/feed', perspectiveTag: 'progressive', iconKey: 'huffpost', enabled: true },
   'cbs-politics': { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },
   'ap-politics': { id: 'ap-politics', name: 'AP Politics', displayName: 'AP News', rssUrl: 'https://apnews.com/politics', perspectiveTag: 'wire', iconKey: 'ap', enabled: true },
+  'usatoday-politics': { id: 'usatoday-politics', name: 'USA TODAY Politics', displayName: 'USA TODAY', rssUrl: 'https://www.usatoday.com/news/politics/', perspectiveTag: 'national-news', iconKey: 'usatoday', enabled: true },
   'bbc-general': { id: 'bbc-general', name: 'BBC News', displayName: 'BBC News', rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
   'bbc-us-canada': { id: 'bbc-us-canada', name: 'BBC US & Canada', displayName: 'BBC', rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
   'yahoo-world': { id: 'yahoo-world', name: 'Yahoo News World', displayName: 'Yahoo News', rssUrl: 'https://news.yahoo.com/rss/world', perspectiveTag: 'international-wire', iconKey: 'yahoo', enabled: true },
@@ -37,6 +38,7 @@ const DEFAULT_SOURCE_IDS = [
 const LIVE_PROXY_SOURCE_IDS = new Set([
   'ap-politics',
   'cnn-politics',
+  'usatoday-politics',
   'huffpost-us',
 ]);
 

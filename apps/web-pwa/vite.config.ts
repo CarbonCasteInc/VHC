@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createApPoliticsFeedPlugin } from './src/server/apPoliticsFeed';
 import { createCnnPoliticsFeedPlugin } from './src/server/cnnPoliticsFeed';
+import { createUsaTodayPoliticsFeedPlugin } from './src/server/usaTodayPoliticsFeed';
 import { relayAnalysis, resolveAnalysisRelayConfig } from './src/server/analysisRelay';
 
 const ARTICLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -262,6 +263,7 @@ export default defineConfig({
     createArticleTextProxyPlugin(),
     createApPoliticsFeedPlugin(),
     createCnnPoliticsFeedPlugin(),
+    createUsaTodayPoliticsFeedPlugin(),
     createAnalysisRelayPlugin(),
   ],
   server: {
