@@ -1255,4 +1255,314 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
       ],
     ],
   },
+  {
+    scenario_id: 'replay-known-event-key-bridge-collapse-arc',
+    topic_id: 'replay-known-event-key-bridge-collapse-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'key_bridge_collapse_episode',
+          'ap-key-bridge-collapse-replay',
+          'Major bridge in Baltimore collapses after being hit by cargo ship, sending vehicles into water',
+          'key-bridge-collapse-replay-a',
+          1_711_437_007_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/baltimore-bridge-collapse-ship-dali-bb60e1c41c7398379ee7caba104af265',
+            canonicalUrl:
+              'https://apnews.com/article/baltimore-bridge-collapse-ship-dali-bb60e1c41c7398379ee7caba104af265',
+            entity_keys: [
+              'key_bridge_collapse_episode',
+              'francis_scott_key_bridge',
+              'dali_cargo_ship',
+              'baltimore_harbor',
+              'recovery_and_clearance',
+            ],
+            cluster_text:
+              'The Francis Scott Key Bridge collapsed after the cargo ship Dali struck it, beginning the same disaster, recovery, and investigation episode that later covered salvage, channel reopening, and cleanup claims.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'key_bridge_collapse_episode',
+          'ap-key-bridge-salvage-replay',
+          'Salvage teams start removing containers from ship that hit Baltimore bridge before taking down span',
+          'key-bridge-salvage-replay-b',
+          1_712_539_418_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/baltimore-key-bridge-collapse-salvage-29748f3df97f82f6af35fa11c010e18b',
+            canonicalUrl:
+              'https://apnews.com/article/baltimore-key-bridge-collapse-salvage-29748f3df97f82f6af35fa11c010e18b',
+            entity_keys: [
+              'key_bridge_collapse_episode',
+              'francis_scott_key_bridge',
+              'dali_cargo_ship',
+              'baltimore_harbor',
+              'recovery_and_clearance',
+            ],
+            cluster_text:
+              'Salvage teams began removing containers from the Dali in the same Key Bridge collapse recovery episode before crews could cut away the fallen span.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'key_bridge_collapse_episode',
+          'ap-key-bridge-channel-reopens-replay',
+          'Fort McHenry Channel reopens in Baltimore, nearly 11 weeks after bridge collapse',
+          'key-bridge-channel-reopens-replay-c',
+          1_718_060_861_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/baltimore-key-bridge-collapse-channel-opens-6ff247b8fa51a8014824f56657e983a2',
+            canonicalUrl:
+              'https://apnews.com/article/baltimore-key-bridge-collapse-channel-opens-6ff247b8fa51a8014824f56657e983a2',
+            entity_keys: [
+              'key_bridge_collapse_episode',
+              'francis_scott_key_bridge',
+              'dali_cargo_ship',
+              'baltimore_harbor',
+              'recovery_and_clearance',
+            ],
+            cluster_text:
+              'The Fort McHenry Channel reopened after weeks of debris removal in the same Key Bridge collapse recovery episode caused by the Dali strike.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'key_bridge_collapse_episode',
+          'ap-key-bridge-cleanup-settlement-replay',
+          'Justice Department and owner of ship that caused Baltimore bridge collapse agree to $102 million settlement',
+          'key-bridge-cleanup-settlement-replay-d',
+          1_729_804_959_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/baltimore-bridge-collapse-dali-justice-department-settlement-77839dd93dbf640eb3d2a9d08de04425',
+            canonicalUrl:
+              'https://apnews.com/article/baltimore-bridge-collapse-dali-justice-department-settlement-77839dd93dbf640eb3d2a9d08de04425',
+            entity_keys: [
+              'key_bridge_collapse_episode',
+              'francis_scott_key_bridge',
+              'dali_cargo_ship',
+              'baltimore_harbor',
+              'recovery_and_clearance',
+            ],
+            cluster_text:
+              'The Justice Department reached a cleanup settlement with the Dali owner in the same Key Bridge collapse episode that began with the bridge strike and continued through recovery operations.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-dc-midair-collision-arc',
+    topic_id: 'replay-known-event-dc-midair-collision-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'dc_midair_collision_episode',
+          'ap-dc-midair-crash-replay',
+          'Passenger jet and Army helicopter collide midair near Reagan Airport, killing 67 people',
+          'dc-midair-crash-replay-a',
+          1_738_231_312_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/plane-crash-helicopter-reagan-airport-washington-dc-08c62ab8048d2f0d08391995bcecd33e',
+            canonicalUrl:
+              'https://apnews.com/article/plane-crash-helicopter-reagan-airport-washington-dc-08c62ab8048d2f0d08391995bcecd33e',
+            entity_keys: [
+              'dc_midair_collision_episode',
+              'reagan_national_airport',
+              'army_black_hawk',
+              'american_airlines_regional_jet',
+              'ntsb_investigation',
+              'potomac_river',
+            ],
+            cluster_text:
+              'A passenger jet and an Army Black Hawk helicopter collided near Reagan National Airport and crashed into the Potomac River, beginning the same crash, recovery, and investigation episode that later covered salvage, altitude data, and helicopter restrictions.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dc_midair_collision_episode',
+          'ap-dc-midair-salvage-replay',
+          'Crews to salvage remnants of deadly DC midair collision from the Potomac River as early as Monday',
+          'dc-midair-salvage-replay-b',
+          1_738_589_252_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/dc-plane-crash-salvage-black-boxes-77f663adef453c7b9f182e5b951f4882',
+            canonicalUrl:
+              'https://apnews.com/article/dc-plane-crash-salvage-black-boxes-77f663adef453c7b9f182e5b951f4882',
+            entity_keys: [
+              'dc_midair_collision_episode',
+              'reagan_national_airport',
+              'army_black_hawk',
+              'american_airlines_regional_jet',
+              'ntsb_investigation',
+              'potomac_river',
+            ],
+            cluster_text:
+              'Crews prepared to salvage wreckage from the Potomac River in the same Reagan Airport midair collision between the American Airlines regional jet and the Army Black Hawk helicopter.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dc_midair_collision_episode',
+          'ap-dc-midair-altitude-data-replay',
+          'All 67 victims have been recovered from the DC midair collision. Data reveals conflicting altitudes',
+          'dc-midair-altitude-data-replay-c',
+          1_738_682_882_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/plane-helicopter-crash-victims-black-boxes-reagan-b3d5d8e1266e7934ee94797dee8d87ab',
+            canonicalUrl:
+              'https://apnews.com/article/plane-helicopter-crash-victims-black-boxes-reagan-b3d5d8e1266e7934ee94797dee8d87ab',
+            entity_keys: [
+              'dc_midair_collision_episode',
+              'reagan_national_airport',
+              'army_black_hawk',
+              'american_airlines_regional_jet',
+              'ntsb_investigation',
+              'potomac_river',
+            ],
+            cluster_text:
+              'Recovery of all 67 victims and new altitude data became part of the same investigation into the Reagan Airport midair collision between the American Airlines regional jet and the Army Black Hawk helicopter in the Potomac River.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dc_midair_collision_episode',
+          'ap-dc-midair-helicopter-ban-replay',
+          'NTSB recommends ban on some helicopter flights around Reagan airport after deadly midair collision',
+          'dc-midair-helicopter-ban-replay-d',
+          1_741_718_065_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/reagan-airport-helicopter-ntsb-crash-90b09ea5dcaacedf6d4c6c1b45e83f66',
+            canonicalUrl:
+              'https://apnews.com/article/reagan-airport-helicopter-ntsb-crash-90b09ea5dcaacedf6d4c6c1b45e83f66',
+            entity_keys: [
+              'dc_midair_collision_episode',
+              'reagan_national_airport',
+              'army_black_hawk',
+              'american_airlines_regional_jet',
+              'ntsb_investigation',
+              'potomac_river',
+            ],
+            cluster_text:
+              'The NTSB later recommended banning some helicopter flights around Reagan Airport as a safety response to the same deadly midair collision between the American Airlines regional jet and the Army Black Hawk helicopter over the Potomac River.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-air-india-crash-arc',
+    topic_id: 'replay-known-event-air-india-crash-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'air_india_ahmedabad_crash_episode',
+          'ap-air-india-crash-replay',
+          'Air India plane with more than 240 aboard crashes after takeoff from Ahmedabad in India',
+          'air-india-crash-replay-a',
+          1_749_718_246_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/india-plane-crash-ahmedabad-air-india-b787-6177c3725324f0116f3953f5549f4bb9',
+            canonicalUrl:
+              'https://apnews.com/article/india-plane-crash-ahmedabad-air-india-b787-6177c3725324f0116f3953f5549f4bb9',
+            entity_keys: [
+              'air_india_ahmedabad_crash_episode',
+              'air_india',
+              'ahmedabad',
+              'boeing_787',
+              'crash_investigation',
+            ],
+            cluster_text:
+              'An Air India Boeing 787 crashed after takeoff from Ahmedabad, beginning the same fatal crash episode that later focused on black-box recovery, data extraction, and preliminary findings.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'air_india_ahmedabad_crash_episode',
+          'ap-air-india-black-box-recovered-replay',
+          'Black box recovered from Air India crash that killed at least 265 people, authorities say',
+          'air-india-black-box-recovered-replay-b',
+          1_749_790_553_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/india-plane-crash-air-india-black-box-1a34648c154dcee07b8ea3443fe5df73',
+            canonicalUrl:
+              'https://apnews.com/article/india-plane-crash-air-india-black-box-1a34648c154dcee07b8ea3443fe5df73',
+            entity_keys: [
+              'air_india_ahmedabad_crash_episode',
+              'air_india',
+              'ahmedabad',
+              'boeing_787',
+              'crash_investigation',
+            ],
+            cluster_text:
+              'Authorities recovered the black box in the same Air India crash investigation after the Ahmedabad Boeing 787 disaster.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'air_india_ahmedabad_crash_episode',
+          'ap-air-india-black-box-analysis-replay',
+          'Black boxes from Air India crash are being analyzed as aviation authorities look for cause',
+          'air-india-black-box-analysis-replay-c',
+          1_750_934_972_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/air-india-crash-black-boxes-cause-efe6ff7f6788f5d4fc3c4b75b2d88e72',
+            canonicalUrl:
+              'https://apnews.com/article/air-india-crash-black-boxes-cause-efe6ff7f6788f5d4fc3c4b75b2d88e72',
+            entity_keys: [
+              'air_india_ahmedabad_crash_episode',
+              'air_india',
+              'ahmedabad',
+              'boeing_787',
+              'crash_investigation',
+            ],
+            cluster_text:
+              'Investigators analyzed the black boxes in the same Air India Ahmedabad crash episode as authorities searched for the cause of the Boeing 787 disaster.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'air_india_ahmedabad_crash_episode',
+          'ap-air-india-prelim-report-replay',
+          'Report on Air India crash focuses on fuel switches, but raises more questions than answers',
+          'air-india-prelim-report-replay-d',
+          1_752_285_102_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/india-air-crash-fuel-switches-report-11d49f83998c7050aa823811711d7dde',
+            canonicalUrl:
+              'https://apnews.com/article/india-air-crash-fuel-switches-report-11d49f83998c7050aa823811711d7dde',
+            entity_keys: [
+              'air_india_ahmedabad_crash_episode',
+              'air_india',
+              'ahmedabad',
+              'boeing_787',
+              'crash_investigation',
+            ],
+            cluster_text:
+              'A preliminary report on fuel switches became the next investigation phase in the same Air India Ahmedabad crash episode.',
+          },
+        ),
+      ],
+    ],
+  },
 ];
