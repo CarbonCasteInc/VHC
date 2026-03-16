@@ -724,4 +724,229 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
       ],
     ],
   },
+  {
+    scenario_id: 'replay-known-event-voice-of-america-arc',
+    topic_id: 'replay-known-event-voice-of-america-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'voice_of_america_dismantling_episode',
+          'ap-voa-blocks-firings-replay',
+          'Voice of America wins in court, for now, as judge blocks Trump administration from firing staff',
+          'voa-blocks-firings-replay-a',
+          1_743_201_273_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/a1ed0ad37917055a1565da5325bd4fd8',
+            canonicalUrl: 'https://apnews.com/article/a1ed0ad37917055a1565da5325bd4fd8',
+            entity_keys: [
+              'voice_of_america_dismantling_episode',
+              'voice_of_america',
+              'us_agency_for_global_media',
+              'kari_lake',
+              'staff_firings',
+            ],
+            cluster_text:
+              'A judge blocked the Trump administration from firing Voice of America staff in the same ongoing effort to dismantle VOA that later brought restoration orders and renewed job-cut fights.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'voice_of_america_dismantling_episode',
+          'ap-voa-blocks-dismantling-replay',
+          'Federal judge blocks Trump administration from dismantling Voice of America',
+          'voa-blocks-dismantling-replay-b',
+          1_745_353_087_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/f30c48df0c16de622ec5fd99ee6c627c',
+            canonicalUrl: 'https://apnews.com/article/f30c48df0c16de622ec5fd99ee6c627c',
+            entity_keys: [
+              'voice_of_america_dismantling_episode',
+              'voice_of_america',
+              'us_agency_for_global_media',
+              'kari_lake',
+              'staff_firings',
+            ],
+            cluster_text:
+              'A federal judge blocked the broader dismantling of Voice of America in the same administration shutdown episode that began with staff cuts and continued through later compliance fights.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'voice_of_america_dismantling_episode',
+          'ap-voa-restore-order-ignored-replay',
+          "Judge orders Trump administration to explain why order to restore Voice of America wasn't followed",
+          'voa-restore-order-ignored-replay-c',
+          1_754_013_262_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/b60d40621f41b2ff4460803de4e0142f',
+            canonicalUrl: 'https://apnews.com/article/b60d40621f41b2ff4460803de4e0142f',
+            entity_keys: [
+              'voice_of_america_dismantling_episode',
+              'voice_of_america',
+              'us_agency_for_global_media',
+              'kari_lake',
+              'staff_firings',
+            ],
+            cluster_text:
+              'The judge later demanded an explanation for the government failure to restore Voice of America operations in the same dismantling lawsuit.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'voice_of_america_dismantling_episode',
+          'ap-voa-suspends-job-cuts-replay',
+          "Judge suspends Trump administration's plan to eliminate hundreds of Voice of America jobs",
+          'voa-suspends-job-cuts-replay-d',
+          1_759_190_759_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/253c1c08e767ab4a2340b58e896f88a8',
+            canonicalUrl: 'https://apnews.com/article/253c1c08e767ab4a2340b58e896f88a8',
+            entity_keys: [
+              'voice_of_america_dismantling_episode',
+              'voice_of_america',
+              'us_agency_for_global_media',
+              'kari_lake',
+              'staff_firings',
+            ],
+            cluster_text:
+              'A judge later suspended new mass job cuts at Voice of America in the same dismantling-and-restoration legal episode.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-harvard-foreign-students-arc',
+    topic_id: 'replay-known-event-harvard-foreign-students-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'harvard_foreign_students_sanctions_episode',
+          'ap-harvard-blocks-ban-replay',
+          'Federal judge blocks Trump administration from barring foreign student enrollment at Harvard',
+          'harvard-blocks-ban-replay-a',
+          1_748_092_422_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/94b65866c563e67a7a7a3c79e90144d6',
+            canonicalUrl: 'https://apnews.com/article/94b65866c563e67a7a7a3c79e90144d6',
+            entity_keys: [
+              'harvard_foreign_students_sanctions_episode',
+              'harvard_university',
+              'foreign_students',
+              'student_visa_sanctions',
+              'allison_burroughs',
+            ],
+            cluster_text:
+              'A judge blocked the Trump administration from barring Harvard from enrolling foreign students, starting the same legal episode over sanctions on Harvard international enrollment.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'harvard_foreign_students_sanctions_episode',
+          'ap-harvard-extends-block-replay',
+          "Judge extends order suspending Trump's block on Harvard's incoming foreign students",
+          'harvard-extends-block-replay-b',
+          1_750_097_522_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/e098ce93756fe51c476037b0ff52fabe',
+            canonicalUrl: 'https://apnews.com/article/e098ce93756fe51c476037b0ff52fabe',
+            entity_keys: [
+              'harvard_foreign_students_sanctions_episode',
+              'harvard_university',
+              'foreign_students',
+              'student_visa_sanctions',
+              'allison_burroughs',
+            ],
+            cluster_text:
+              'The court extended its hold on the Harvard foreign-student block in the same sanctions dispute over international enrollment.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'harvard_foreign_students_sanctions_episode',
+          'ap-harvard-blocks-hosting-effort-replay',
+          'Federal judge blocks Trump effort to keep Harvard from hosting foreign students',
+          'harvard-blocks-hosting-effort-replay-c',
+          1_750_449_434_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/9498074cfe5f1054a712b9c21d36c6c5',
+            canonicalUrl: 'https://apnews.com/article/9498074cfe5f1054a712b9c21d36c6c5',
+            entity_keys: [
+              'harvard_foreign_students_sanctions_episode',
+              'harvard_university',
+              'foreign_students',
+              'student_visa_sanctions',
+              'allison_burroughs',
+            ],
+            cluster_text:
+              'The court again blocked efforts to stop Harvard from hosting foreign students in the same continuing sanctions case over international enrollment.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-yunseo-chung-arc',
+    topic_id: 'replay-known-event-yunseo-chung-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'yunseo_chung_deportation_episode',
+          'ap-chung-sues-replay',
+          "Columbia student protester who's lived in the US since age 7 sues to stop deportation order",
+          'yunseo-chung-sues-replay-a',
+          1_742_840_024_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/052280bfe4e8d4d07e98a681058340fe',
+            canonicalUrl: 'https://apnews.com/article/052280bfe4e8d4d07e98a681058340fe',
+            entity_keys: [
+              'yunseo_chung_deportation_episode',
+              'yunseo_chung',
+              'columbia_student',
+              'deportation_order',
+              'ice_detention_fight',
+            ],
+            cluster_text:
+              'Yunseo Chung sued to stop her deportation in the same Columbia student deportation episode that immediately led to court rulings on whether ICE could detain her.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'yunseo_chung_deportation_episode',
+          'ap-chung-cant-be-detained-replay',
+          "Columbia student protester can't be detained for now as she fights deportation, judge rules",
+          'yunseo-chung-cant-be-detained-replay-b',
+          1_742_933_922_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/2d7bd689b013b8bb6300fd6ab54de933',
+            canonicalUrl: 'https://apnews.com/article/2d7bd689b013b8bb6300fd6ab54de933',
+            entity_keys: [
+              'yunseo_chung_deportation_episode',
+              'yunseo_chung',
+              'columbia_student',
+              'deportation_order',
+              'ice_detention_fight',
+            ],
+            cluster_text:
+              'A judge then barred immigration detention of Yunseo Chung while the same deportation challenge played out.',
+          },
+        ),
+      ],
+    ],
+  },
 ];

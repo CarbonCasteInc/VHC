@@ -20,6 +20,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-rumeysa-ozturk',
       'fixture-known-event-ongoing-mohsen-mahdawi',
       'fixture-known-event-ongoing-ras-baraka',
+      'fixture-known-event-ongoing-voice-of-america',
+      'fixture-known-event-ongoing-harvard-foreign-students',
+      'fixture-known-event-ongoing-yunseo-chung',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -46,6 +49,12 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-mahdawi-hearing-vs-release',
       'known-event-ongoing-baraka-arrest-vs-hearing',
       'known-event-ongoing-baraka-hearing-vs-lawsuit',
+      'known-event-ongoing-voa-firing-vs-dismantling',
+      'known-event-ongoing-voa-dismantling-vs-restore-order',
+      'known-event-ongoing-voa-restore-order-vs-job-cuts',
+      'known-event-ongoing-harvard-ban-vs-extension',
+      'known-event-ongoing-harvard-extension-vs-hosting-order',
+      'known-event-ongoing-chung-lawsuit-vs-detention-order',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -69,6 +78,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-rumeysa-ozturk-arc',
         'replay-known-event-mohsen-mahdawi-arc',
         'replay-known-event-ras-baraka-arc',
+        'replay-known-event-voice-of-america-arc',
+        'replay-known-event-harvard-foreign-students-arc',
+        'replay-known-event-yunseo-chung-arc',
       ]),
     );
   });
