@@ -1,12 +1,14 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
+  buildPublicSemanticSoakSecondaryTelemetry,
+  buildStoryClusterCorrectnessGate,
   PUBLIC_SEMANTIC_SOAK_POSTURE,
   PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
 } from './daemon-feed-semantic-soak-report.mjs';
 
 export const PUBLIC_SEMANTIC_SOAK_DECISION_SCHEMA_VERSION =
-  'daemon-feed-semantic-soak-promotion-decision-v1';
+  'daemon-feed-semantic-soak-promotion-decision-v2';
 
 function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
@@ -41,6 +43,14 @@ export function buildPromotionDecision({
     schemaVersion: PUBLIC_SEMANTIC_SOAK_DECISION_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     executionPosture: summary?.executionPosture ?? index?.executionPosture ?? PUBLIC_SEMANTIC_SOAK_POSTURE,
+    authoritativeCorrectnessGate:
+      summary?.authoritativeCorrectnessGate
+      ?? index?.authoritativeCorrectnessGate
+      ?? buildStoryClusterCorrectnessGate(process.cwd()),
+    secondaryDistributionTelemetry:
+      summary?.secondaryDistributionTelemetry
+      ?? index?.secondaryDistributionTelemetry
+      ?? buildPublicSemanticSoakSecondaryTelemetry(),
     readinessStatus,
     promotable,
     recommendedAction: promotable ? 'eligible_for_promotion_review' : 'remain_smoke_only',

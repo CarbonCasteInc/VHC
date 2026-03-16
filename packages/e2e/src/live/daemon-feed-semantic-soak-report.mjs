@@ -1,3 +1,5 @@
+import path from 'node:path';
+
 export const PUBLIC_SEMANTIC_SOAK_POSTURE = Object.freeze({
   lane: 'public_semantic_soak',
   evidenceTier: 'smoke_only',
@@ -5,6 +7,45 @@ export const PUBLIC_SEMANTIC_SOAK_POSTURE = Object.freeze({
   canonicalSourceBasis: 'unchanged',
   biasTableBasis: 'unchanged',
 });
+
+export function buildStoryClusterCorrectnessGate(repoRoot = process.cwd()) {
+  return {
+    gateId: 'storycluster-primary-correctness-gate-v1',
+    role: 'primary_correctness_proof',
+    blocking: true,
+    proofMode: 'deterministic_corpus_plus_daemon_first_semantic_gate',
+    authoritativeInputs: {
+      fixtureCorpusPath: path.join(
+        repoRoot,
+        'services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts',
+      ),
+      replayCorpusPath: path.join(
+        repoRoot,
+        'services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts',
+      ),
+      servedSemanticGateSpecPath: path.join(
+        repoRoot,
+        'packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts',
+      ),
+    },
+    commands: {
+      deterministicCorpusCommand:
+        'pnpm --filter @vh/storycluster-engine exec vitest run src/benchmarkCorpusKnownEventOngoingFixtures.test.ts src/storyclusterKnownEventOngoingReplay.test.ts src/storyclusterQualityGate.test.ts --config ./vitest.config.ts',
+      servedSemanticGateCommand:
+        'pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate',
+      combinedGateCommand:
+        'pnpm test:storycluster:correctness',
+    },
+  };
+}
+
+export function buildPublicSemanticSoakSecondaryTelemetry() {
+  return {
+    role: 'secondary_distribution_telemetry',
+    interpretation: 'non_blocking_public_supply_signal',
+    ...PUBLIC_SEMANTIC_SOAK_POSTURE,
+  };
+}
 
 export const PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA = Object.freeze({
   minimumRuns: 5,
@@ -265,8 +306,10 @@ export function buildSoakTrend(results) {
   };
 }
 
-export function buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results) {
+export function buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results, repoRoot = process.cwd()) {
   const trend = buildSoakTrend(results);
+  const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
+  const secondaryDistributionTelemetry = buildPublicSemanticSoakSecondaryTelemetry();
 
   const build = {
     stdoutPath: `${artifactDir}/build.stdout.log`,
@@ -274,9 +317,11 @@ export function buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, r
   };
 
   return {
-    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v2',
+    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v3',
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
+    authoritativeCorrectnessGate,
+    secondaryDistributionTelemetry,
     promotionAssessment: trend.promotionAssessment,
     artifactDir,
     summaryPath,

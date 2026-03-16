@@ -2,8 +2,8 @@
 
 Status: Canonical execution plan
 Owner: Core Engineering
-Last Updated: 2026-03-13
-Branch Baseline: `main` @ `15e1599`
+Last Updated: 2026-03-16
+Branch Baseline: `main` @ `d777683`
 
 Companion execution backlog:
 
@@ -50,7 +50,7 @@ The system must optimize for event precision, not generic topic similarity.
 4. Under-bundling is preferable to false merges in the canonical feed.
 5. Document type is authoritative for bundle seeding and attachment.
 6. Event structure is required; embeddings alone are insufficient.
-7. Release claims must be backed by live and fixture evidence.
+7. Release claims must be backed by deterministic corpus/replay evidence plus served semantic-gate evidence; live public semantic smoke is supplementary telemetry.
 
 ## 4. Core Architecture
 
@@ -97,8 +97,13 @@ Implementation state note:
 2. `main` includes publication, Gun/store hydration, storyline-aware ranking/diversification, and separated related-coverage presentation;
 3. storyline publication, ranking, presentation, focused deep-link state, shell navigation semantics, archive-parent diversification, and archive-child deep-link restoration are already in force on `main`;
 4. public semantic-soak density/trend diagnostics and promotion-assessment scaffolding are already in force on `main`;
-5. the active follow-on lane is public semantic-soak promotion/readiness hardening and browser/live evidence hardening, not bundle-membership widening;
-6. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes.
+5. the active follow-on lane is no longer corpus expansion; it is correctness-gate sufficiency codification and release-evidence hardening;
+6. the primary StoryCluster correctness proof is the deterministic known-event fixture corpus plus replay corpus, confirmed by the daemon-first semantic gate:
+   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
+   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
+   - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
+7. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes;
+8. public semantic soak remains secondary distribution telemetry, not the primary clustering proof.
 
 ## 5. Canonical Pair Ontology
 

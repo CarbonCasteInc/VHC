@@ -3,7 +3,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   accumulateStoryCoverage,
+  buildPublicSemanticSoakSecondaryTelemetry,
   buildReleaseArtifactIndex,
+  buildStoryClusterCorrectnessGate,
   buildSoakTrend,
   PUBLIC_SEMANTIC_SOAK_POSTURE,
   summarizeLabelCounts,
@@ -331,9 +333,13 @@ export async function runDaemonFeedSemanticSoak({
   const trendPath = path.join(artifactDir, 'semantic-soak-trend.json');
   const trend = buildSoakTrend(results);
   const promotionAssessment = trend.promotionAssessment;
+  const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(cwd);
+  const secondaryDistributionTelemetry = buildPublicSemanticSoakSecondaryTelemetry();
   const summary = {
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
+    authoritativeCorrectnessGate,
+    secondaryDistributionTelemetry,
     runCount,
     pauseMs,
     sampleCount,
@@ -357,7 +363,7 @@ export async function runDaemonFeedSemanticSoak({
   const artifactIndexPath = path.join(artifactDir, 'release-artifact-index.json');
   writeFile(
     artifactIndexPath,
-    JSON.stringify(buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results), null, 2),
+    JSON.stringify(buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results, cwd), null, 2),
     'utf8',
   );
   log(`[vh:daemon-soak] summary: ${summaryPath}`);
