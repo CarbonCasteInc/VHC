@@ -136,4 +136,34 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(storyIds[2]).toBe(storyIds[0]);
     expect(finalCluster?.source_documents).toHaveLength(2);
   });
+
+  it('preserves the Rumeysa Ozturk story id across transfer, return order, and release', async () => {
+    const snapshots = await runScenario('replay-known-event-rumeysa-ozturk-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('rumeysa_ozturk_detention_episode') ?? null);
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(3);
+  });
+
+  it('preserves the Mohsen Mahdawi story id across arrest, detention hearing, and release', async () => {
+    const snapshots = await runScenario('replay-known-event-mohsen-mahdawi-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('mohsen_mahdawi_detention_episode') ?? null);
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(3);
+  });
+
+  it('preserves the Ras Baraka Delaney Hall story id across arrest, court appearance, and lawsuit', async () => {
+    const snapshots = await runScenario('replay-known-event-ras-baraka-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('ras_baraka_delaney_hall_episode') ?? null);
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(3);
+  });
 });

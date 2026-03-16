@@ -482,6 +482,213 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS: StoryClusterCohe
       ),
     ],
   },
+  {
+    dataset_id: 'fixture-known-event-ongoing-rumeysa-ozturk',
+    topic_id: 'fixture-known-event-ongoing-rumeysa-ozturk',
+    items: [
+      makeBenchmarkItem(
+        'rumeysa_ozturk_detention_episode',
+        'ap-ozturk-transfer-paused',
+        "Appeals court pauses Tufts student's transfer to Vermont in immigration detention case",
+        'ozturk-transfer-paused-ap',
+        1_745_923_259_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/11369dd81ec5b95a7ad7c1d2a0c74f2d',
+          canonicalUrl: 'https://apnews.com/article/11369dd81ec5b95a7ad7c1d2a0c74f2d',
+          entity_keys: [
+            'rumeysa_ozturk_detention_episode',
+            'rumeysa_ozturk',
+            'tufts_student',
+            'immigration_detention',
+            'vermont_transfer_fight',
+          ],
+          cluster_text:
+            'A federal appeals court paused Rumeysa Ozturk transfer back to Vermont in the same detention-and-release legal fight over the Tufts student immigration case.',
+        },
+      ),
+      makeBenchmarkItem(
+        'rumeysa_ozturk_detention_episode',
+        'ap-ozturk-return-ordered',
+        'Appeals court orders ICE to return detained Turkish Tufts University student to Vermont',
+        'ozturk-return-ordered-ap',
+        1_746_631_464_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/709e6266f7bcebe5b281bdac3fb28e19',
+          canonicalUrl: 'https://apnews.com/article/709e6266f7bcebe5b281bdac3fb28e19',
+          entity_keys: [
+            'rumeysa_ozturk_detention_episode',
+            'rumeysa_ozturk',
+            'tufts_student',
+            'immigration_detention',
+            'vermont_transfer_fight',
+          ],
+          cluster_text:
+            'The appeals court then ordered ICE to return Rumeysa Ozturk to Vermont in the same detention challenge over her transfer and confinement in Louisiana.',
+        },
+      ),
+      makeBenchmarkItem(
+        'rumeysa_ozturk_detention_episode',
+        'ap-ozturk-released',
+        'Turkish Tufts University student released from Louisiana immigration detention center',
+        'ozturk-released-ap',
+        1_746_786_686_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/034d97a7e280c68a7d1fb6aa879ce87c',
+          canonicalUrl: 'https://apnews.com/article/034d97a7e280c68a7d1fb6aa879ce87c',
+          entity_keys: [
+            'rumeysa_ozturk_detention_episode',
+            'rumeysa_ozturk',
+            'tufts_student',
+            'immigration_detention',
+            'vermont_transfer_fight',
+          ],
+          cluster_text:
+            'Rumeysa Ozturk was released from detention as the latest development in the same detention-and-transfer episode involving the Tufts student and the Vermont court fight.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-mohsen-mahdawi',
+    topic_id: 'fixture-known-event-ongoing-mohsen-mahdawi',
+    items: [
+      makeBenchmarkItem(
+        'mohsen_mahdawi_detention_episode',
+        'ap-mahdawi-arrested',
+        'A Palestinian activist expecting a US citizenship interview is arrested instead by ICE in Vermont',
+        'mahdawi-arrested-ap',
+        1_744_664_841_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/fca7e73fe2cbd616c1eacf3bdececdbe',
+          canonicalUrl: 'https://apnews.com/article/fca7e73fe2cbd616c1eacf3bdececdbe',
+          entity_keys: [
+            'mohsen_mahdawi_detention_episode',
+            'mohsen_mahdawi',
+            'columbia_student',
+            'immigration_detention',
+            'citizenship_interview_arrest',
+          ],
+          cluster_text:
+            'Mohsen Mahdawi was arrested during a citizenship interview in Vermont, beginning the same detention episode that later brought court hearings and his release.',
+        },
+      ),
+      makeBenchmarkItem(
+        'mohsen_mahdawi_detention_episode',
+        'ap-mahdawi-hearing-set',
+        'Palestinian student remains detained in Vermont with a hearing set for next week',
+        'mahdawi-hearing-set-ap',
+        1_745_452_402_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/2078326229e424b722e837595a03a042',
+          canonicalUrl: 'https://apnews.com/article/2078326229e424b722e837595a03a042',
+          entity_keys: [
+            'mohsen_mahdawi_detention_episode',
+            'mohsen_mahdawi',
+            'columbia_student',
+            'immigration_detention',
+            'citizenship_interview_arrest',
+          ],
+          cluster_text:
+            'Mahdawi remained detained and got a court hearing date in the same Vermont detention episode that started with his arrest during the citizenship interview.',
+        },
+      ),
+      makeBenchmarkItem(
+        'mohsen_mahdawi_detention_episode',
+        'ap-mahdawi-released',
+        'A Palestinian student at Columbia is freed after his arrest at a citizenship interview',
+        'mahdawi-released-ap',
+        1_746_020_292_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/dd95ffff78464df1b485d5912f1b3fcb',
+          canonicalUrl: 'https://apnews.com/article/dd95ffff78464df1b485d5912f1b3fcb',
+          entity_keys: [
+            'mohsen_mahdawi_detention_episode',
+            'mohsen_mahdawi',
+            'columbia_student',
+            'immigration_detention',
+            'citizenship_interview_arrest',
+          ],
+          cluster_text:
+            'Mahdawi was released after a judge order in the same detention episode triggered by his arrest at the citizenship interview.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-ras-baraka',
+    topic_id: 'fixture-known-event-ongoing-ras-baraka',
+    items: [
+      makeBenchmarkItem(
+        'ras_baraka_delaney_hall_episode',
+        'ap-baraka-arrested',
+        'Newark mayor denies trespassing at immigration detention center following arrest',
+        'baraka-arrested-ap',
+        1_746_851_593_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/2b044ff4355240511e579275b8961270',
+          canonicalUrl: 'https://apnews.com/article/2b044ff4355240511e579275b8961270',
+          entity_keys: [
+            'ras_baraka_delaney_hall_episode',
+            'ras_baraka',
+            'delaney_hall',
+            'trespassing_charge',
+            'alina_habba',
+          ],
+          cluster_text:
+            'Ras Baraka denied trespassing after his arrest at Delaney Hall, beginning the same arrest-and-prosecution episode that later brought court proceedings and a lawsuit.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ras_baraka_delaney_hall_episode',
+        'ap-baraka-court-appearance',
+        "Newark Mayor Ras Baraka says officials fingerprinting him second time tried to 'humiliate' him",
+        'baraka-court-appearance-ap',
+        1_747_279_373_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/4490e7ef9bc88e6b9261a0e548632ecd',
+          canonicalUrl: 'https://apnews.com/article/4490e7ef9bc88e6b9261a0e548632ecd',
+          entity_keys: [
+            'ras_baraka_delaney_hall_episode',
+            'ras_baraka',
+            'delaney_hall',
+            'trespassing_charge',
+            'alina_habba',
+          ],
+          cluster_text:
+            'Baraka described being fingerprinted again after a court hearing in the same Delaney Hall arrest and trespassing case.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ras_baraka_delaney_hall_episode',
+        'ap-baraka-sues-habba',
+        "Newark mayor sues New Jersey's top federal prosecutor after arrest at immigration detention site",
+        'baraka-sues-habba-ap',
+        1_748_963_275_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/0d17f4adb136b9fefc02ea8b498124ed',
+          canonicalUrl: 'https://apnews.com/article/0d17f4adb136b9fefc02ea8b498124ed',
+          entity_keys: [
+            'ras_baraka_delaney_hall_episode',
+            'ras_baraka',
+            'delaney_hall',
+            'trespassing_charge',
+            'alina_habba',
+          ],
+          cluster_text:
+            'Baraka sued Alina Habba over the same Delaney Hall arrest and dropped trespassing case, extending that same arrest-and-prosecution episode into civil litigation.',
+        },
+      ),
+    ],
+  },
 ];
 
 export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairExpectation[] = [
@@ -609,6 +816,48 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBen
     dataset_id: 'fixture-known-event-ongoing-abrego-garcia',
     left_source_id: 'reuters-abrego-lawsuit-dismissal-bid',
     right_source_id: 'reuters-abrego-no-detention-before-trial',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ozturk-transfer-vs-return',
+    dataset_id: 'fixture-known-event-ongoing-rumeysa-ozturk',
+    left_source_id: 'ap-ozturk-transfer-paused',
+    right_source_id: 'ap-ozturk-return-ordered',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ozturk-return-vs-release',
+    dataset_id: 'fixture-known-event-ongoing-rumeysa-ozturk',
+    left_source_id: 'ap-ozturk-return-ordered',
+    right_source_id: 'ap-ozturk-released',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-mahdawi-arrest-vs-hearing',
+    dataset_id: 'fixture-known-event-ongoing-mohsen-mahdawi',
+    left_source_id: 'ap-mahdawi-arrested',
+    right_source_id: 'ap-mahdawi-hearing-set',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-mahdawi-hearing-vs-release',
+    dataset_id: 'fixture-known-event-ongoing-mohsen-mahdawi',
+    left_source_id: 'ap-mahdawi-hearing-set',
+    right_source_id: 'ap-mahdawi-released',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-baraka-arrest-vs-hearing',
+    dataset_id: 'fixture-known-event-ongoing-ras-baraka',
+    left_source_id: 'ap-baraka-arrested',
+    right_source_id: 'ap-baraka-court-appearance',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-baraka-hearing-vs-lawsuit',
+    dataset_id: 'fixture-known-event-ongoing-ras-baraka',
+    left_source_id: 'ap-baraka-court-appearance',
+    right_source_id: 'ap-baraka-sues-habba',
     expected_label: 'same_developing_episode',
   },
 ];
