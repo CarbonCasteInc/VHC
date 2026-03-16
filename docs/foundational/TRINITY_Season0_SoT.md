@@ -2,14 +2,14 @@
 
 > Status: Season Scope Contract
 > Owner: VHC Product + Architecture
-> Last Reviewed: 2026-03-13
+> Last Reviewed: 2026-03-16
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/System_Architecture.md
 
 
 **Purpose:** one **single tree** that gives **frontend + backend** devs the full picture (UX surfaces + contracts + privacy boundaries + gates).
 **Stance:** **Design & build for Synthesis V2**. Anything labeled V1 is **legacy/compat only**.
 **Legend:** ✅ Implemented · 🟡 Partial · 🔴 Stubbed · ⚪ Planned
-**Last updated:** 2026-03-13
+**Last updated:** 2026-03-16
 
 > Implementation-truth note: this document is season scope and target framing, not the current implementation ledger. For actual merged state and drift notes, use `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`.
 
@@ -54,7 +54,7 @@
     - **App Shell / Navigation** ✅ - UX: stable app frame; boot/hydrate before high-impact actions
     - **Unified Topics Feed** 🟡 - UX: one stream; filter chips: All / News / Topics / Social / Articles; sort: Latest / Hottest / My Activity
       - **TopicCard (shared)** 🟡 - UX: headline/title + category tags + 👁 Eye + 💡 Lightbulb + comment count
-      - **NewsCard (clustered story)** 🟡 - UX: **one headline = one story** synthesized across outlets; tap opens TopicDetail
+      - **NewsCard (clustered story)** 🟡 - UX: **one headline = one story** when readable reporting exists; single-source stories are allowed, and later outlet coverage should accumulate into the same story when it is the same incident or developing episode; tap opens TopicDetail
       - **TopicCard (user topic/thread)** 🟡 - UX: looks like news once discussion is rich enough (summary + frames + thread)
       - **SocialNotificationCard** 🟡 - UX: platform badge; tap expands to embedded platform view; swipe-left returns & dismisses card (real-data rendering landed Wave 2 Gamma P3)
       - **ArticleFeedCard** 🟡 - UX: docs-backed longform in the same discovery stream
@@ -91,7 +91,7 @@
       - `thread` (always present): Thread carries `{ topicId, isHeadline, sourceUrl?, urlHash? }` ✅
       - `synthesis` (latest): `{ schemaVersion:'topic-synthesis-v2', epoch, synthesisId }` ⚪
       - `metrics`: `{ eye, lightbulb, comments, hotness }` 🟡
-    - **News story clustering (Aggregator → StoryBundle)** 🟡 - Tech: 1 story = many sources; UX: 1 headline in feed
+    - **News story clustering (Aggregator → StoryBundle)** 🟡 - Tech: 1 story may begin with 1 readable source and later grow across sources; UX: 1 headline in feed
       - RSS ingest → normalize → cluster → **StoryBundle** (sources + dedup)
       - `StorylineGroup` is separate from canonical event bundles and supports related-coverage grouping/navigation
       - Synthesis input is **all reporting** on the story (not a single URL)
@@ -167,7 +167,7 @@
 
   - **Implementation reality check (what exists today vs target)** 🟡
     - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
-    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; public semantic soak is still smoke-only
+    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; public semantic soak is still smoke-only; source-readability admission and distribution-ready source breadth remain the active blocker
     - **Discovery feed / storyline UX** 🟡 - storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)

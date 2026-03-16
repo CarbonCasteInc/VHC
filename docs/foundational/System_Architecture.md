@@ -2,7 +2,7 @@
 
 > Status: Architecture Contract
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-13
+> Last Reviewed: 2026-03-16
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/TRINITY_Season0_SoT.md
 
 
@@ -100,6 +100,12 @@ Feed controls:
 - filters: `All`, `News`, `Topics`, `Social`, `Articles`
 - sort modes: `Latest`, `Hottest`, `My Activity`
 
+News-feed publication note:
+
+- a readable news story may appear in the feed with a single canonical source;
+- later corroborating coverage may attach to the same story when it is the same incident or same developing episode;
+- broader storyline grouping remains separate from canonical bundle identity.
+
 ### 3.2 Topic detail (single object, two lenses)
 
 Topic detail always presents:
@@ -196,6 +202,13 @@ interface StoryBundle {
 ```
 
 `StorylineGroup` is now a separate published runtime contract used for related coverage grouping and discovery diversification. It does not widen canonical `StoryBundle` membership.
+
+Publication discipline:
+
+1. under-bundling is preferable to false canonical merges;
+2. `StoryBundle` may begin as a single-source canonical story;
+3. later source growth should preserve `story_id` when corroborating coverage belongs to the same incident or same developing episode;
+4. production-ready source breadth depends on onboarded readable, accessible, extraction-safe sources rather than arbitrary feed ingestion.
 
 ### 5.3 Topic digest
 

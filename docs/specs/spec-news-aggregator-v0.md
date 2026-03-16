@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-13
+> Last Reviewed: 2026-03-16
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.2
+Version: 0.3
 Status: Canonical for Season 0
 Context: RSS ingest, normalization, clustering, and story bundle publication.
 
@@ -20,6 +20,14 @@ Pipeline:
 2. normalization and dedupe
 3. story clustering
 4. `StoryBundle` publish with provenance
+
+Season 0 source contract:
+
+1. the production-ready feed promise applies only to onboarded readable, accessible, extraction-safe sources;
+2. source admission/removal is governed operationally by `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`;
+3. a single readable article may publish as a valid story even when no corroborating outlet exists yet;
+4. later same-incident / same-developing-episode coverage should attach under stable story identity as source coverage grows;
+5. under-bundling is preferable to false canonical merges.
 
 ## 2. Inputs and ingest
 
@@ -47,6 +55,12 @@ Normalization requirements:
 - canonicalize URLs and hash to `url_hash`
 - strip tracking params
 - dedupe exact URL and near-duplicate title+time windows
+
+Readable-article eligibility requirements:
+
+- sources are admitted from an explicit onboarded source set, not arbitrary feed URLs
+- article extraction must clear the readable-text quality bar
+- paywalled, truncated, robots-blocked, empty, or chronically unreadable article paths must not count toward production-ready source coverage
 
 ## 3. Story clustering contract
 
@@ -101,6 +115,11 @@ interface StoryBundle {
 
 `story_id` and `topic_id` must be stable for the same cluster window and feature set.
 `storyline_id`, when present, identifies a broader narrative grouping and must not widen canonical event-bundle membership.
+
+Canonical publication contract:
+- `StoryBundle` publication may represent a single-source story when only one readable canonical report exists;
+- later corroborating coverage may widen the bundle if and only if it is the same incident or same developing episode;
+- adding later sources must not churn the existing `story_id`.
 
 `created_at` contract:
 - `created_at` is the first-seen publish timestamp for a `story_id` and MUST remain immutable after initial publish.
@@ -159,5 +178,7 @@ Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest act
 1. URL normalization and dedupe behavior.
 2. Stable story ID generation for equivalent clusters.
 3. Provenance hash determinism.
-4. Multi-source cluster generation from overlapping feed items.
-5. Optional `storyline_id` and `StorylineGroup` publication do not widen canonical bundle membership.
+4. Single-source publication remains valid when only one readable report exists.
+5. Multi-source cluster generation from overlapping feed items.
+6. Later source growth attaches to an existing story without changing `story_id` when coverage belongs to the same incident or same developing episode.
+7. Optional `storyline_id` and `StorylineGroup` publication do not widen canonical bundle membership.
