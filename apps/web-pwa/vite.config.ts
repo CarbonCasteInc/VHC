@@ -5,6 +5,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { relayAnalysis, resolveAnalysisRelayConfig } from './src/server/analysisRelay';
+import { applyNewsSourceHealthEnv } from './src/server/newsSourceHealthEnv';
 
 const ARTICLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const ARTICLE_TEXT_MAX_CHARS = 24_000;
@@ -22,6 +23,23 @@ const articleTextCache = new Map<
   }
 >();
 const execFileAsync = promisify(execFile);
+const sourceHealthEnv =
+  process.env.VITEST === 'true'
+    ? {
+        reportJson: null,
+        reportPath: null,
+        reportSource: null,
+        autoloaded: false,
+      }
+    : applyNewsSourceHealthEnv({
+        appRoot: __dirname,
+        env: process.env as Record<string, string | undefined>,
+      });
+if (sourceHealthEnv.autoloaded) {
+  console.info('[vh:web-pwa] auto-loaded source health report', {
+    reportPath: sourceHealthEnv.reportPath,
+  });
+}
 
 function sendJson(res: ServerResponse, status: number, payload: unknown): void {
   res.statusCode = status;

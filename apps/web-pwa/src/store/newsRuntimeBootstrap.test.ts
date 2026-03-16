@@ -967,8 +967,47 @@ describe('ensureNewsRuntimeStarted', () => {
       expect.objectContaining({
         readinessStatus: null,
         recommendedAction: null,
+        reportSource: 'env:VITE_NEWS_SOURCE_HEALTH_REPORT_JSON',
         watchSourceIds: ['source-b'],
         removedConfiguredSourceIds: ['source-c'],
+      }),
+    );
+  });
+
+  it('surfaces the artifact source label when health policy arrives through env injection', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_SOURCE_HEALTH_REPORT_JSON',
+      JSON.stringify({
+        readinessStatus: 'ready',
+        recommendedAction: 'starter_surface_ready',
+        runtimePolicy: {
+          enabledSourceIds: ['source-a'],
+          watchSourceIds: [],
+          removeSourceIds: [],
+        },
+      }),
+    );
+    vi.stubEnv(
+      'VITE_NEWS_SOURCE_HEALTH_REPORT_SOURCE',
+      'artifact:/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json',
+    );
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-source-label-client' } as any);
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health ready',
+      expect.objectContaining({
+        reportSource:
+          'artifact:/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json',
       }),
     );
   });
