@@ -98,4 +98,42 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(3);
   });
+
+  it('preserves the Eric Adams dismissal story id across DOJ motion, court review, and dismissal', async () => {
+    const snapshots = await runScenario('replay-known-event-eric-adams-dismissal-arc');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('eric_adams_corruption_dismissal_episode') ?? null,
+    );
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(storyIds[2]).toBeNull();
+    expect(storyIds[3]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(3);
+  });
+
+  it('restores the Mahmoud Khalil story id across deportation ruling and later detention venue challenge', async () => {
+    const snapshots = await runScenario('replay-known-event-mahmoud-khalil-gap-return');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('mahmoud_khalil_detention_episode') ?? null);
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBeNull();
+    expect(storyIds[2]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+  });
+
+  it('restores the Abrego Garcia story id across deportation lawsuit and later pretrial detention ruling', async () => {
+    const snapshots = await runScenario('replay-known-event-abrego-garcia-gap-return');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('abrego_garcia_wrongful_deportation_episode') ?? null,
+    );
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBeNull();
+    expect(storyIds[2]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+  });
 });

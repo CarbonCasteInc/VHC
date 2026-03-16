@@ -14,6 +14,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-flag-burn-order-fallout',
       'fixture-known-event-ongoing-teacher-prank-fallout',
       'fixture-known-event-ongoing-fani-willis-fallout',
+      'fixture-known-event-ongoing-eric-adams-dismissal',
+      'fixture-known-event-ongoing-mahmoud-khalil',
+      'fixture-known-event-ongoing-abrego-garcia',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -29,6 +32,11 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-willis-fees-vs-bills',
       'known-event-ongoing-willis-bills-vs-wade-hearing',
       'known-event-ongoing-willis-fees-vs-wade-hearing',
+      'known-event-ongoing-adams-doj-vs-hearing',
+      'known-event-ongoing-adams-doj-vs-dismissed',
+      'known-event-ongoing-adams-hearing-vs-dismissed',
+      'known-event-ongoing-khalil-detention-vs-deportation-ruling',
+      'known-event-ongoing-abrego-lawsuit-vs-pretrial-detention',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -46,6 +54,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-flag-burn-order-gap-return',
         'replay-known-event-teacher-prank-charge-drop',
         'replay-known-event-fani-willis-postdismissal-arc',
+        'replay-known-event-eric-adams-dismissal-arc',
+        'replay-known-event-mahmoud-khalil-gap-return',
+        'replay-known-event-abrego-garcia-gap-return',
       ]),
     );
   });
