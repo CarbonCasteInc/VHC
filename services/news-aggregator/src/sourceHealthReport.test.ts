@@ -156,6 +156,11 @@ describe('sourceHealthReport', () => {
     expect(report.keepSourceIds).toEqual(['fox-latest']);
     expect(report.watchSourceIds).toEqual(['guardian-us']);
     expect(report.removeSourceIds).toEqual(['cbs-politics']);
+    expect(report.runtimePolicy).toEqual({
+      enabledSourceIds: ['fox-latest', 'guardian-us'],
+      watchSourceIds: ['guardian-us'],
+      removeSourceIds: ['cbs-politics'],
+    });
     expect(report.paths.sourceHealthReportPath).toBe(
       '/repo/.tmp/news-source-admission/run-a/source-health-report.json',
     );
@@ -228,6 +233,9 @@ describe('sourceHealthReport', () => {
     );
     expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
       '"keepSourceIds"',
+    );
+    expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
+      '"runtimePolicy"',
     );
 
     rmSync(artifactDir, { recursive: true, force: true });
@@ -350,5 +358,55 @@ describe('sourceHealthReport', () => {
     expect(sourceHealthReportInternal.isDirectExecution()).toBe(true);
 
     process.argv[1] = originalArgv1;
+  });
+
+  it('builds a runtime policy summary directly from source decisions', () => {
+    expect(
+      sourceHealthReportInternal.buildSourceHealthRuntimePolicy([
+        {
+          sourceId: 'fox-latest',
+          sourceName: 'Fox News',
+          rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml',
+          admissionStatus: 'admitted',
+          decision: 'keep',
+          recommendedAction: 'keep_in_starter_surface',
+          reasons: [],
+          readableSampleRate: 1,
+          readableSampleCount: 4,
+          sampleLinkCount: 4,
+          unstableLifecycleDomains: [],
+        },
+        {
+          sourceId: 'guardian-us',
+          sourceName: 'The Guardian US',
+          rssUrl: 'https://www.theguardian.com/us-news/rss',
+          admissionStatus: 'admitted',
+          decision: 'watch',
+          recommendedAction: 'review_manually',
+          reasons: ['admitted_with_instability'],
+          readableSampleRate: 0.75,
+          readableSampleCount: 3,
+          sampleLinkCount: 4,
+          unstableLifecycleDomains: ['www.theguardian.com'],
+        },
+        {
+          sourceId: 'cbs-politics',
+          sourceName: 'CBS News Politics',
+          rssUrl: 'https://www.cbsnews.com/latest/rss/politics',
+          admissionStatus: 'rejected',
+          decision: 'remove',
+          recommendedAction: 'remove_from_starter_surface',
+          reasons: ['access-denied'],
+          readableSampleRate: 0,
+          readableSampleCount: 0,
+          sampleLinkCount: 4,
+          unstableLifecycleDomains: [],
+        },
+      ]),
+    ).toEqual({
+      enabledSourceIds: ['fox-latest', 'guardian-us'],
+      watchSourceIds: ['guardian-us'],
+      removeSourceIds: ['cbs-politics'],
+    });
   });
 });

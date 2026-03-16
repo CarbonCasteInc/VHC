@@ -149,6 +149,7 @@ export type {
   SourceHealthDecision,
   SourceHealthReadinessStatus,
   SourceHealthReport,
+  SourceHealthRuntimePolicy,
   SourceHealthSourceReport,
 } from './sourceHealthReport';
 
