@@ -32,6 +32,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-helene-i40-recovery',
       'fixture-known-event-ongoing-ruidoso-flood-recovery',
       'fixture-known-event-ongoing-lahaina-wildfire-recovery',
+      'fixture-known-event-ongoing-iran-us-nuclear-talks',
+      'fixture-known-event-ongoing-gaza-ceasefire-episode',
+      'fixture-known-event-ongoing-ukraine-istanbul-talks',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -91,6 +94,15 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-lahaina-debris-site-vs-housing-hotels',
       'known-event-ongoing-lahaina-housing-vs-fema-extension',
       'known-event-ongoing-lahaina-fema-extension-vs-debris-haul',
+      'known-event-ongoing-iran-talks-announced-vs-first-round',
+      'known-event-ongoing-iran-first-round-vs-rome',
+      'known-event-ongoing-iran-rome-vs-not-imminent',
+      'known-event-ongoing-gaza-draft-vs-holding',
+      'known-event-ongoing-gaza-holding-vs-extension-dispute',
+      'known-event-ongoing-gaza-extension-vs-breakdown',
+      'known-event-ongoing-ukraine-first-talks-vs-none-scheduled',
+      'known-event-ongoing-ukraine-none-scheduled-vs-bodies',
+      'known-event-ongoing-ukraine-bodies-vs-fresh-talks',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -126,6 +138,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-helene-i40-recovery-arc',
         'replay-known-event-ruidoso-flood-recovery-arc',
         'replay-known-event-lahaina-wildfire-recovery-arc',
+        'replay-known-event-iran-us-nuclear-talks-arc',
+        'replay-known-event-gaza-ceasefire-2025-arc',
+        'replay-known-event-ukraine-istanbul-talks-arc',
       ]),
     );
   });

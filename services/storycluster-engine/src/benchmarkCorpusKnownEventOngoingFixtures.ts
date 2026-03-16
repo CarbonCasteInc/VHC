@@ -1750,6 +1750,310 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS: StoryClusterCohe
       ),
     ],
   },
+  {
+    dataset_id: 'fixture-known-event-ongoing-iran-us-nuclear-talks',
+    topic_id: 'fixture-known-event-ongoing-iran-us-nuclear-talks',
+    items: [
+      makeBenchmarkItem(
+        'iran_us_nuclear_talks_episode',
+        'ap-iran-us-direct-talks-announced',
+        'Trump says direct talks are underway with Iran over its nuclear program. Iran says they’ll be indirect',
+        'iran-us-direct-talks-announced-ap',
+        1_744_037_084_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/iran-us-trump-nuclear-direct-talks-negotiations-333965bef4f092fbc7e023c6c4a376a4',
+          canonicalUrl:
+            'https://apnews.com/article/iran-us-trump-nuclear-direct-talks-negotiations-333965bef4f092fbc7e023c6c4a376a4',
+          entity_keys: [
+            'iran_us_nuclear_talks_episode',
+            'iran',
+            'united_states',
+            'abbas_araghchi',
+            'steve_witkoff',
+            'oman_talks',
+            'iran_nuclear_program',
+            'nuclear_negotiations',
+          ],
+          summary:
+            'Trump said Steve Witkoff and Iran foreign minister Abbas Araghchi would enter a new Oman-mediated negotiation over Iran nuclear limits.',
+          cluster_text:
+            'Trump said Steve Witkoff and Abbas Araghchi were starting a new Oman-mediated negotiation over Iran nuclear limits, beginning the same 2025 Iran-US talks episode that later moved through Oman and Rome and into later bargaining over a possible deal.',
+        },
+      ),
+      makeBenchmarkItem(
+        'iran_us_nuclear_talks_episode',
+        'ap-iran-us-first-round',
+        "Iran and US conclude 1st round of negotiations over Tehran's nuclear program in Oman",
+        'iran-us-first-round-ap',
+        1_744_451_130_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/iran-us-talks-oman-nuclear-program-10c7a5e301e1ca6ef35964302b1d0ebc',
+          canonicalUrl:
+            'https://apnews.com/article/iran-us-talks-oman-nuclear-program-10c7a5e301e1ca6ef35964302b1d0ebc',
+          entity_keys: [
+            'iran_us_nuclear_talks_episode',
+            'iran',
+            'united_states',
+            'abbas_araghchi',
+            'steve_witkoff',
+            'oman_talks',
+            'iran_nuclear_program',
+            'nuclear_negotiations',
+          ],
+          summary:
+            'Iran and the United States finished a first Oman round between Abbas Araghchi and Steve Witkoff over limits on Tehran nuclear program.',
+          cluster_text:
+            'Iran and the United States completed the first Oman round between Abbas Araghchi and Steve Witkoff in the same 2025 nuclear-negotiation episode over Tehran nuclear limits.',
+        },
+      ),
+      makeBenchmarkItem(
+        'iran_us_nuclear_talks_episode',
+        'ap-iran-us-next-round-rome',
+        'Iran says next round of negotiations with US over its nuclear program will be in Rome',
+        'iran-us-next-round-rome-ap',
+        1_746_001_440_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/iran-us-talks-nuclear-program-rome-sanctions-f14ecb6c0cb50a19c52357162c3a8f9d',
+          canonicalUrl:
+            'https://apnews.com/article/iran-us-talks-nuclear-program-rome-sanctions-f14ecb6c0cb50a19c52357162c3a8f9d',
+          entity_keys: [
+            'iran_us_nuclear_talks_episode',
+            'iran',
+            'united_states',
+            'abbas_araghchi',
+            'steve_witkoff',
+            'oman_talks',
+            'rome_talks',
+            'iran_nuclear_program',
+            'nuclear_negotiations',
+          ],
+          summary:
+            'Iran said the same Abbas Araghchi and Steve Witkoff nuclear talks would continue in Rome after the first Oman round.',
+          cluster_text:
+            'Iran said the next round of the same Abbas Araghchi-Steve Witkoff nuclear negotiations would move from Oman to Rome, extending the same 2025 talks episode.',
+        },
+      ),
+      makeBenchmarkItem(
+        'iran_us_nuclear_talks_episode',
+        'ap-iran-us-deal-not-imminent',
+        'Iran’s foreign minister says no date and no time for next US nuclear talks, says deal not imminent',
+        'iran-us-deal-not-imminent-ap',
+        1_748_542_933_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/iran-us-nuclear-talks-trump-oman-04ad18cb1815187f4d18f5af2d25cf75',
+          canonicalUrl:
+            'https://apnews.com/article/iran-us-nuclear-talks-trump-oman-04ad18cb1815187f4d18f5af2d25cf75',
+          entity_keys: [
+            'iran_us_nuclear_talks_episode',
+            'iran',
+            'united_states',
+            'abbas_araghchi',
+            'steve_witkoff',
+            'oman_talks',
+            'rome_talks',
+            'iran_nuclear_program',
+            'nuclear_negotiations',
+          ],
+          summary:
+            'Abbas Araghchi said no new date was set for the same Oman-Rome nuclear talks with US envoy Steve Witkoff and no deal was imminent.',
+          cluster_text:
+            'Abbas Araghchi said no new date was set and no deal was imminent in the same Oman-and-Rome nuclear talks episode with Steve Witkoff over Iran nuclear limits.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-gaza-ceasefire-episode',
+    topic_id: 'fixture-known-event-ongoing-gaza-ceasefire-episode',
+    items: [
+      makeBenchmarkItem(
+        'gaza_ceasefire_2025_episode',
+        'ap-gaza-draft-deal',
+        'Israel and Hamas are still hammering out details of ceasefire deal as Israeli strikes continue',
+        'gaza-draft-deal-ap',
+        1_736_819_169_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/israel-palestinians-hamas-war-news-01-14-2025-29ca4f67de4a59ea7d0d91b308f1db17',
+          canonicalUrl:
+            'https://apnews.com/article/israel-palestinians-hamas-war-news-01-14-2025-29ca4f67de4a59ea7d0d91b308f1db17',
+          entity_keys: [
+            'gaza_ceasefire_2025_episode',
+            'gaza',
+            'israel',
+            'hamas',
+            'hostage_ceasefire_negotiations',
+          ],
+          cluster_text:
+            'Israel and Hamas were still finalizing the same 2025 Gaza ceasefire-and-hostage agreement, starting the same negotiation and implementation episode that later brought disputes over extensions and eventually renewed strikes.',
+        },
+      ),
+      makeBenchmarkItem(
+        'gaza_ceasefire_2025_episode',
+        'ap-gaza-ceasefire-holding',
+        'Hamas names 3 hostages to be freed as part of Gaza ceasefire agreement',
+        'gaza-ceasefire-holding-ap',
+        1_739_543_059_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/israel-palestinians-hamas-war-news-ceasefire-hostages-february-14-16c9073d4cace9bd5559604f8ee2bb5f',
+          canonicalUrl:
+            'https://apnews.com/article/israel-palestinians-hamas-war-news-ceasefire-hostages-february-14-16c9073d4cace9bd5559604f8ee2bb5f',
+          entity_keys: [
+            'gaza_ceasefire_2025_episode',
+            'gaza',
+            'israel',
+            'hamas',
+            'hostage_ceasefire_negotiations',
+          ],
+          cluster_text:
+            'Hamas named hostages for release while the same 2025 Gaza ceasefire agreement was being implemented, part of the same hostage-for-ceasefire episode.',
+        },
+      ),
+      makeBenchmarkItem(
+        'gaza_ceasefire_2025_episode',
+        'ap-gaza-phase-extension-dispute',
+        'Israel backs what it says is a new US proposal to extend the Gaza ceasefire. Hamas rejects it',
+        'gaza-phase-extension-dispute-ap',
+        1_740_825_956_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/israel-palestinians-hamas-war-ceasefire-hostages-caf2f1ac4ead0f3b8a31fe52eb0a31e2',
+          canonicalUrl:
+            'https://apnews.com/article/israel-palestinians-hamas-war-ceasefire-hostages-caf2f1ac4ead0f3b8a31fe52eb0a31e2',
+          entity_keys: [
+            'gaza_ceasefire_2025_episode',
+            'gaza',
+            'israel',
+            'hamas',
+            'hostage_ceasefire_negotiations',
+          ],
+          cluster_text:
+            'Israel backed a proposal to extend the same 2025 Gaza ceasefire while Hamas rejected it, continuing the same hostages-and-truce negotiation episode.',
+        },
+      ),
+      makeBenchmarkItem(
+        'gaza_ceasefire_2025_episode',
+        'ap-gaza-ceasefire-breakdown',
+        'Israeli strikes kill more than 400 Palestinians and shatter weeks of relative calm in Gaza',
+        'gaza-ceasefire-breakdown-ap',
+        1_742_244_990_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/israel-palestinians-hamas-war-news-ceasefire-hostages-03-17-2025-b0fd9732f1c74092b23fd01e3bfb922c',
+          canonicalUrl:
+            'https://apnews.com/article/israel-palestinians-hamas-war-news-ceasefire-hostages-03-17-2025-b0fd9732f1c74092b23fd01e3bfb922c',
+          entity_keys: [
+            'gaza_ceasefire_2025_episode',
+            'gaza',
+            'israel',
+            'hamas',
+            'hostage_ceasefire_negotiations',
+          ],
+          cluster_text:
+            'Israeli strikes shattered the relative calm in the same 2025 Gaza ceasefire episode after weeks of implementation disputes and stalled hostage negotiations.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-ukraine-istanbul-talks',
+    topic_id: 'fixture-known-event-ongoing-ukraine-istanbul-talks',
+    items: [
+      makeBenchmarkItem(
+        'ukraine_istanbul_talks_episode',
+        'ap-ukraine-istanbul-first-talks',
+        'First direct Russia-Ukraine peace talks since early weeks of war end after less than 2 hours',
+        'ukraine-istanbul-first-talks-ap',
+        1_747_382_938_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/russia-ukraine-war-talks-istanbul-putin-zelenskyy-trump-6cb5845a50fb6ba9a151eadd5bdbce18',
+          canonicalUrl:
+            'https://apnews.com/article/russia-ukraine-war-talks-istanbul-putin-zelenskyy-trump-6cb5845a50fb6ba9a151eadd5bdbce18',
+          entity_keys: [
+            'ukraine_istanbul_talks_episode',
+            'russia',
+            'ukraine',
+            'istanbul_talks',
+            'ceasefire_negotiations',
+          ],
+          cluster_text:
+            'Russia and Ukraine held the first direct Istanbul peace talks of the 2025 negotiation drive, beginning the same talks episode that later covered scheduling disputes, humanitarian exchanges, and fresh proposals.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ukraine_istanbul_talks_episode',
+        'ap-ukraine-no-new-talks',
+        'No new direct Russia-Ukraine talks are scheduled, Kremlin says',
+        'ukraine-no-new-talks-ap',
+        1_747_915_338_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/russia-ukraine-war-prisoners-pow-exchange-istanbul-b04e31f74d6f0de83fa773c759f04bde',
+          canonicalUrl:
+            'https://apnews.com/article/russia-ukraine-war-prisoners-pow-exchange-istanbul-b04e31f74d6f0de83fa773c759f04bde',
+          entity_keys: [
+            'ukraine_istanbul_talks_episode',
+            'russia',
+            'ukraine',
+            'istanbul_talks',
+            'ceasefire_negotiations',
+          ],
+          cluster_text:
+            'The Kremlin said no new direct talks were scheduled in the same Istanbul peace-process episode even as negotiation follow-up and prisoner issues remained active.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ukraine_istanbul_talks_episode',
+        'ap-ukraine-bodies-repatriated',
+        'Russia and Ukraine say more bodies have been repatriated, in line with an agreement reached at talks in Istanbul',
+        'ukraine-bodies-repatriated-ap',
+        1_749_834_600_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/russia-ukraine-war-bodies-repatriated-istanbul-talks-3ec950056d00554207c26138ff4e2c8d',
+          canonicalUrl:
+            'https://apnews.com/article/russia-ukraine-war-bodies-repatriated-istanbul-talks-3ec950056d00554207c26138ff4e2c8d',
+          entity_keys: [
+            'ukraine_istanbul_talks_episode',
+            'russia',
+            'ukraine',
+            'istanbul_talks',
+            'ceasefire_negotiations',
+          ],
+          cluster_text:
+            'Russia and Ukraine repatriated more bodies under the same Istanbul agreement, extending the same 2025 direct-talks episode into humanitarian follow-through.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ukraine_istanbul_talks_episode',
+        'ap-ukraine-ready-fresh-talks',
+        'Putin says Russia is ready for fresh round of direct peace talks with Ukraine',
+        'ukraine-ready-fresh-talks-ap',
+        1_751_019_358_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/russia-ukraine-war-putin-peace-talks-492f81d93f860a179278fdc0ecf2a93f',
+          canonicalUrl:
+            'https://apnews.com/article/russia-ukraine-war-putin-peace-talks-492f81d93f860a179278fdc0ecf2a93f',
+          entity_keys: [
+            'ukraine_istanbul_talks_episode',
+            'russia',
+            'ukraine',
+            'istanbul_talks',
+            'ceasefire_negotiations',
+          ],
+          cluster_text:
+            'Putin said Russia was ready for another direct round in the same Istanbul peace-talks episode, continuing the 2025 ceasefire-and-negotiation track.',
+        },
+      ),
+    ],
+  },
 ];
 
 export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairExpectation[] = [
@@ -2150,6 +2454,69 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBen
     dataset_id: 'fixture-known-event-ongoing-lahaina-wildfire-recovery',
     left_source_id: 'ap-lahaina-fema-housing-extension',
     right_source_id: 'ap-lahaina-debris-haul',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-iran-talks-announced-vs-first-round',
+    dataset_id: 'fixture-known-event-ongoing-iran-us-nuclear-talks',
+    left_source_id: 'ap-iran-us-direct-talks-announced',
+    right_source_id: 'ap-iran-us-first-round',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-iran-first-round-vs-rome',
+    dataset_id: 'fixture-known-event-ongoing-iran-us-nuclear-talks',
+    left_source_id: 'ap-iran-us-first-round',
+    right_source_id: 'ap-iran-us-next-round-rome',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-iran-rome-vs-not-imminent',
+    dataset_id: 'fixture-known-event-ongoing-iran-us-nuclear-talks',
+    left_source_id: 'ap-iran-us-next-round-rome',
+    right_source_id: 'ap-iran-us-deal-not-imminent',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-gaza-draft-vs-holding',
+    dataset_id: 'fixture-known-event-ongoing-gaza-ceasefire-episode',
+    left_source_id: 'ap-gaza-draft-deal',
+    right_source_id: 'ap-gaza-ceasefire-holding',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-gaza-holding-vs-extension-dispute',
+    dataset_id: 'fixture-known-event-ongoing-gaza-ceasefire-episode',
+    left_source_id: 'ap-gaza-ceasefire-holding',
+    right_source_id: 'ap-gaza-phase-extension-dispute',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-gaza-extension-vs-breakdown',
+    dataset_id: 'fixture-known-event-ongoing-gaza-ceasefire-episode',
+    left_source_id: 'ap-gaza-phase-extension-dispute',
+    right_source_id: 'ap-gaza-ceasefire-breakdown',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ukraine-first-talks-vs-none-scheduled',
+    dataset_id: 'fixture-known-event-ongoing-ukraine-istanbul-talks',
+    left_source_id: 'ap-ukraine-istanbul-first-talks',
+    right_source_id: 'ap-ukraine-no-new-talks',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ukraine-none-scheduled-vs-bodies',
+    dataset_id: 'fixture-known-event-ongoing-ukraine-istanbul-talks',
+    left_source_id: 'ap-ukraine-no-new-talks',
+    right_source_id: 'ap-ukraine-bodies-repatriated',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ukraine-bodies-vs-fresh-talks',
+    dataset_id: 'fixture-known-event-ongoing-ukraine-istanbul-talks',
+    left_source_id: 'ap-ukraine-bodies-repatriated',
+    right_source_id: 'ap-ukraine-ready-fresh-talks',
     expected_label: 'same_developing_episode',
   },
 ];
