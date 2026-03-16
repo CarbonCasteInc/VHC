@@ -55,6 +55,9 @@ export interface SourceHealthReport {
     readonly artifactDir: string;
     readonly admissionReportPath: string;
     readonly sourceHealthReportPath: string;
+    readonly latestArtifactDir: string;
+    readonly latestAdmissionReportPath: string;
+    readonly latestSourceHealthReportPath: string;
   };
 }
 
@@ -144,6 +147,9 @@ export function buildSourceHealthReport(
     readonly artifactDir?: string;
     readonly admissionReportPath?: string;
     readonly sourceHealthReportPath?: string;
+    readonly latestArtifactDir?: string;
+    readonly latestAdmissionReportPath?: string;
+    readonly latestSourceHealthReportPath?: string;
     readonly now?: () => number;
   } = {},
 ): SourceHealthReport {
@@ -154,6 +160,15 @@ export function buildSourceHealthReport(
   const sourceHealthReportPath =
     options.sourceHealthReportPath
     ?? path.join(artifactDir, 'source-health-report.json');
+  const latestArtifactDir =
+    options.latestArtifactDir
+    ?? path.join(path.dirname(artifactDir), 'latest');
+  const latestAdmissionReportPath =
+    options.latestAdmissionReportPath
+    ?? path.join(latestArtifactDir, 'source-admission-report.json');
+  const latestSourceHealthReportPath =
+    options.latestSourceHealthReportPath
+    ?? path.join(latestArtifactDir, 'source-health-report.json');
   const sources = admissionReport.sources.map(buildDecision);
   const keepSourceIds = sources
     .filter((source) => source.decision === 'keep')
@@ -189,6 +204,9 @@ export function buildSourceHealthReport(
       artifactDir,
       admissionReportPath,
       sourceHealthReportPath,
+      latestArtifactDir,
+      latestAdmissionReportPath,
+      latestSourceHealthReportPath,
     },
   };
 }
@@ -196,6 +214,9 @@ export function buildSourceHealthReport(
 export async function writeSourceHealthArtifact(
   options: SourceHealthArtifactOptions = {},
 ): Promise<{
+  latestArtifactDir: string;
+  latestAdmissionReportPath: string;
+  latestSourceHealthReportPath: string;
   artifactDir: string;
   admissionReportPath: string;
   sourceHealthReportPath: string;
@@ -231,6 +252,18 @@ export async function writeSourceHealthArtifact(
       'utf8',
     );
   }
+  const latestArtifactDir = path.join(
+    path.dirname(admissionArtifact.artifactDir),
+    'latest',
+  );
+  const latestAdmissionReportPath = path.join(
+    latestArtifactDir,
+    'source-admission-report.json',
+  );
+  const latestSourceHealthReportPath = path.join(
+    latestArtifactDir,
+    'source-health-report.json',
+  );
   const sourceHealthReport = buildSourceHealthReport(admissionArtifact.report, {
     artifactDir: admissionArtifact.artifactDir,
     admissionReportPath: admissionArtifact.reportPath,
@@ -238,6 +271,9 @@ export async function writeSourceHealthArtifact(
       admissionArtifact.artifactDir,
       'source-health-report.json',
     ),
+    latestArtifactDir,
+    latestAdmissionReportPath,
+    latestSourceHealthReportPath,
     now: options.now,
   });
 
@@ -246,8 +282,22 @@ export async function writeSourceHealthArtifact(
     `${JSON.stringify(sourceHealthReport, null, 2)}\n`,
     'utf8',
   );
+  mkdirSync(latestArtifactDir, { recursive: true });
+  writeFileSync(
+    latestAdmissionReportPath,
+    `${JSON.stringify(admissionArtifact.report, null, 2)}\n`,
+    'utf8',
+  );
+  writeFileSync(
+    latestSourceHealthReportPath,
+    `${JSON.stringify(sourceHealthReport, null, 2)}\n`,
+    'utf8',
+  );
 
   return {
+    latestArtifactDir,
+    latestAdmissionReportPath,
+    latestSourceHealthReportPath,
     artifactDir: admissionArtifact.artifactDir,
     admissionReportPath: admissionArtifact.reportPath,
     sourceHealthReportPath: sourceHealthReport.paths.sourceHealthReportPath,
@@ -271,6 +321,8 @@ async function main(): Promise<void> {
     artifactDir: artifact.artifactDir,
     admissionReportPath: artifact.admissionReportPath,
     sourceHealthReportPath: artifact.sourceHealthReportPath,
+    latestArtifactDir: artifact.latestArtifactDir,
+    latestSourceHealthReportPath: artifact.latestSourceHealthReportPath,
     readinessStatus: artifact.sourceHealthReport.readinessStatus,
     enabledSourceIds: artifact.sourceHealthReport.runtimePolicy.enabledSourceIds,
     keepSourceIds: artifact.sourceHealthReport.keepSourceIds,

@@ -33,6 +33,7 @@ interface RuntimeSourceHealthPolicy {
 interface RuntimeSourceHealthReport {
   readonly readinessStatus: string | null;
   readonly recommendedAction: string | null;
+  readonly reportSource: string | null;
   readonly runtimePolicy: RuntimeSourceHealthPolicy;
 }
 
@@ -40,6 +41,7 @@ interface RuntimeSourceHealthSummary {
   readonly enforcement: SourceHealthEnforcementMode;
   readonly readinessStatus: string | null;
   readonly recommendedAction: string | null;
+  readonly reportSource: string | null;
   readonly retainedSourceIds: readonly string[];
   readonly watchSourceIds: readonly string[];
   readonly removedConfiguredSourceIds: readonly string[];
@@ -443,6 +445,11 @@ function parseSourceHealthReport(): RuntimeSourceHealthReport | null {
       typeof parsed.readinessStatus === 'string' ? parsed.readinessStatus : null,
     recommendedAction:
       typeof parsed.recommendedAction === 'string' ? parsed.recommendedAction : null,
+    reportSource:
+      typeof globalOverride !== 'undefined'
+        ? 'global:__VH_NEWS_SOURCE_HEALTH_REPORT'
+        : readEnvVar('VITE_NEWS_SOURCE_HEALTH_REPORT_SOURCE')
+          ?? 'env:VITE_NEWS_SOURCE_HEALTH_REPORT_JSON',
     runtimePolicy: {
       enabledSourceIds,
       watchSourceIds,
@@ -494,6 +501,7 @@ function applySourceHealthPolicy(feedSources: FeedSource[]): {
     enforcement,
     readinessStatus: report.readinessStatus,
     recommendedAction: report.recommendedAction,
+    reportSource: report.reportSource,
     retainedSourceIds,
     watchSourceIds: retainedSourceIds.filter((sourceId) => watchSet.has(sourceId)),
     removedConfiguredSourceIds,

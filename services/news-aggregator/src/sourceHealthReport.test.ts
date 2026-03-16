@@ -164,6 +164,13 @@ describe('sourceHealthReport', () => {
     expect(report.paths.sourceHealthReportPath).toBe(
       '/repo/.tmp/news-source-admission/run-a/source-health-report.json',
     );
+    expect(report.paths.latestArtifactDir).toBe('/repo/.tmp/news-source-admission/latest');
+    expect(report.paths.latestAdmissionReportPath).toBe(
+      '/repo/.tmp/news-source-admission/latest/source-admission-report.json',
+    );
+    expect(report.paths.latestSourceHealthReportPath).toBe(
+      '/repo/.tmp/news-source-admission/latest/source-health-report.json',
+    );
   });
 
   it('builds a review status when only watchlist sources remain', () => {
@@ -237,6 +244,12 @@ describe('sourceHealthReport', () => {
     expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
       '"runtimePolicy"',
     );
+    expect(readFileSync(artifact.latestSourceHealthReportPath, 'utf8')).toContain(
+      '"runtimePolicy"',
+    );
+    expect(readFileSync(artifact.latestAdmissionReportPath, 'utf8')).toContain(
+      '"schemaVersion": "news-source-admission-report-v1"',
+    );
 
     rmSync(artifactDir, { recursive: true, force: true });
   });
@@ -284,9 +297,15 @@ describe('sourceHealthReport', () => {
     expect(artifact.artifactDir).toBe(
       path.join(cwd, '.tmp', 'news-source-admission', String(now)),
     );
+    expect(artifact.latestArtifactDir).toBe(
+      path.join(cwd, '.tmp', 'news-source-admission', 'latest'),
+    );
     expect(artifact.sourceHealthReport.readinessStatus).toBe('ready');
     expect(readFileSync(artifact.admissionReportPath, 'utf8')).toContain('"admittedSourceIds"');
     expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain('"readinessStatus": "ready"');
+    expect(readFileSync(artifact.latestSourceHealthReportPath, 'utf8')).toContain(
+      '"readinessStatus": "ready"',
+    );
 
     rmSync(cwd, { recursive: true, force: true });
   });
@@ -336,6 +355,9 @@ describe('sourceHealthReport', () => {
 
     expect(artifact.artifactDir).toBe(
       path.join(resolvedCwd, '.tmp', 'news-source-admission', String(Date.now())),
+    );
+    expect(artifact.latestArtifactDir).toBe(
+      path.join(resolvedCwd, '.tmp', 'news-source-admission', 'latest'),
     );
 
     process.chdir(originalCwd);
