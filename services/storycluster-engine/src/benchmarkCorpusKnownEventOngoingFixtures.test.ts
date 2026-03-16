@@ -29,6 +29,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-key-bridge-collapse',
       'fixture-known-event-ongoing-dc-midair-collision',
       'fixture-known-event-ongoing-air-india-crash',
+      'fixture-known-event-ongoing-helene-i40-recovery',
+      'fixture-known-event-ongoing-ruidoso-flood-recovery',
+      'fixture-known-event-ongoing-lahaina-wildfire-recovery',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -79,6 +82,15 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-air-india-crash-vs-black-box',
       'known-event-ongoing-air-india-black-box-vs-analysis',
       'known-event-ongoing-air-india-analysis-vs-prelim-report',
+      'known-event-ongoing-helene-i40-delay-vs-march-reopen',
+      'known-event-ongoing-helene-i40-march-vs-about-to-reopen',
+      'known-event-ongoing-helene-i40-about-to-reopen-vs-rockslide-reopen',
+      'known-event-ongoing-ruidoso-flood-impact-vs-cleanup',
+      'known-event-ongoing-ruidoso-flood-cleanup-vs-homes-damaged',
+      'known-event-ongoing-ruidoso-homes-damaged-vs-disaster-relief',
+      'known-event-ongoing-lahaina-debris-site-vs-housing-hotels',
+      'known-event-ongoing-lahaina-housing-vs-fema-extension',
+      'known-event-ongoing-lahaina-fema-extension-vs-debris-haul',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -111,6 +123,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-key-bridge-collapse-arc',
         'replay-known-event-dc-midair-collision-arc',
         'replay-known-event-air-india-crash-arc',
+        'replay-known-event-helene-i40-recovery-arc',
+        'replay-known-event-ruidoso-flood-recovery-arc',
+        'replay-known-event-lahaina-wildfire-recovery-arc',
       ]),
     );
   });
