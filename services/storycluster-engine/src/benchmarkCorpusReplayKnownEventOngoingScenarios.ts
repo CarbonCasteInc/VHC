@@ -310,4 +310,193 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
       ],
     ],
   },
+  {
+    scenario_id: 'replay-known-event-eric-adams-dismissal-arc',
+    topic_id: 'replay-known-event-eric-adams-dismissal-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'eric_adams_corruption_dismissal_episode',
+          'reuters-adams-doj-dismissal-replay',
+          'US Justice Department seeks dismissal of corruption case against New York Mayor Eric Adams',
+          'eric-adams-doj-dismissal-replay-a',
+          1_739_201_400_000,
+          {
+            publisher: 'Reuters',
+            url: 'https://www.reuters.com/world/us/us-justice-department-seeks-dismissal-corruption-case-against-new-york-mayor-eric-adams-2025-02-14/',
+            canonicalUrl:
+              'https://www.reuters.com/world/us/us-justice-department-seeks-dismissal-corruption-case-against-new-york-mayor-eric-adams-2025-02-14/',
+            entity_keys: [
+              'eric_adams_corruption_dismissal_episode',
+              'eric_adams',
+              'corruption_case',
+              'doj_dismissal_motion',
+              'new_york_mayor',
+            ],
+            cluster_text:
+              'The Justice Department moved to dismiss the corruption case against Eric Adams, beginning the same legal-dismissal episode that later brought court scrutiny and a formal dismissal.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'eric_adams_corruption_dismissal_episode',
+          'reuters-adams-judge-weighs-dismissal-replay',
+          'Judge cancels Eric Adams trial, weighs DOJ request to dismiss charges',
+          'eric-adams-judge-weighs-dismissal-replay-b',
+          1_739_883_600_000,
+          {
+            publisher: 'Reuters',
+            url: 'https://www.reuters.com/world/us/judge-cancels-eric-adams-trial-weighs-doj-request-dismiss-charges-2025-02-21/',
+            canonicalUrl:
+              'https://www.reuters.com/world/us/judge-cancels-eric-adams-trial-weighs-doj-request-dismiss-charges-2025-02-21/',
+            entity_keys: [
+              'eric_adams_corruption_dismissal_episode',
+              'eric_adams',
+              'corruption_case',
+              'doj_dismissal_motion',
+              'new_york_mayor',
+            ],
+            cluster_text:
+              'A federal judge paused Eric Adams trial proceedings while weighing the same Justice Department dismissal request in the corruption case.',
+          },
+        ),
+      ],
+      [],
+      [
+        makeBenchmarkItem(
+          'eric_adams_corruption_dismissal_episode',
+          'reuters-adams-case-dismissed-replay',
+          'Judge dismisses corruption case against New York Mayor Eric Adams',
+          'eric-adams-case-dismissed-replay-c',
+          1_743_249_600_000,
+          {
+            publisher: 'Reuters',
+            url: 'https://www.reuters.com/world/us/judge-dismisses-corruption-case-against-new-york-mayor-eric-adams-2025-04-02/',
+            canonicalUrl:
+              'https://www.reuters.com/world/us/judge-dismisses-corruption-case-against-new-york-mayor-eric-adams-2025-04-02/',
+            entity_keys: [
+              'eric_adams_corruption_dismissal_episode',
+              'eric_adams',
+              'corruption_case',
+              'doj_dismissal_motion',
+              'new_york_mayor',
+            ],
+            cluster_text:
+              'The judge formally dismissed the corruption case against Eric Adams, closing the same dismissal episode that started with the Justice Department motion and court review.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-mahmoud-khalil-gap-return',
+    topic_id: 'replay-known-event-mahmoud-khalil-gap-return',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'mahmoud_khalil_detention_episode',
+          'reuters-khalil-can-be-deported-replay',
+          'US judge says Trump administration can deport Columbia activist Mahmoud Khalil',
+          'mahmoud-khalil-can-be-deported-replay-a',
+          1_749_945_600_000,
+          {
+            publisher: 'Reuters',
+            url: 'https://www.reuters.com/world/us/us-judge-says-trump-administration-can-deport-columbia-activist-mahmoud-khalil-2025-06-13/',
+            canonicalUrl:
+              'https://www.reuters.com/world/us/us-judge-says-trump-administration-can-deport-columbia-activist-mahmoud-khalil-2025-06-13/',
+            entity_keys: [
+              'mahmoud_khalil_detention_episode',
+              'mahmoud_khalil',
+              'columbia_activist',
+              'deportation_case',
+              'immigration_detention',
+            ],
+            cluster_text:
+              'A judge said the Trump administration could deport Mahmoud Khalil in the same legal episode over the Columbia activist detention and deportation fight.',
+          },
+        ),
+      ],
+      [],
+      [
+        makeBenchmarkItem(
+          'mahmoud_khalil_detention_episode',
+          'reuters-khalil-new-jersey-challenge-replay',
+          'Mahmoud Khalil can challenge detention in New Jersey, appeals court says',
+          'mahmoud-khalil-new-jersey-challenge-replay-b',
+          1_754_409_600_000,
+          {
+            publisher: 'Reuters',
+            url: 'https://www.reuters.com/world/us/mahmoud-khalil-can-challenge-detention-new-jersey-appeals-court-says-2025-08-04/',
+            canonicalUrl:
+              'https://www.reuters.com/world/us/mahmoud-khalil-can-challenge-detention-new-jersey-appeals-court-says-2025-08-04/',
+            entity_keys: [
+              'mahmoud_khalil_detention_episode',
+              'mahmoud_khalil',
+              'columbia_activist',
+              'deportation_case',
+              'immigration_detention',
+            ],
+            cluster_text:
+              'An appeals court said Mahmoud Khalil could challenge his detention in New Jersey in the same deportation-and-detention legal episode arising from the Trump administration case against the Columbia activist.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-abrego-garcia-gap-return',
+    topic_id: 'replay-known-event-abrego-garcia-gap-return',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'abrego_garcia_wrongful_deportation_episode',
+          'reuters-abrego-lawsuit-dismissal-replay',
+          "Trump administration seeks to dismiss Kilmar Abrego Garcia's lawsuit over deportation",
+          'abrego-lawsuit-dismissal-replay-a',
+          1_749_859_200_000,
+          {
+            publisher: 'Reuters',
+            url: 'https://www.reuters.com/world/us/trump-administration-seeks-dismiss-kilmar-abrego-garcias-lawsuit-over-deportation-2025-06-12/',
+            canonicalUrl:
+              'https://www.reuters.com/world/us/trump-administration-seeks-dismiss-kilmar-abrego-garcias-lawsuit-over-deportation-2025-06-12/',
+            entity_keys: [
+              'abrego_garcia_wrongful_deportation_episode',
+              'kilmar_abrego_garcia',
+              'wrongful_deportation_case',
+              'pretrial_detention',
+              'el_salvador_return',
+            ],
+            cluster_text:
+              'The Trump administration sought to dismiss Kilmar Abrego Garcia lawsuit over his deportation in the same continuing legal episode that later reached pretrial-detention rulings after his return.',
+          },
+        ),
+      ],
+      [],
+      [
+        makeBenchmarkItem(
+          'abrego_garcia_wrongful_deportation_episode',
+          'reuters-abrego-no-detention-replay',
+          'Judge says wrongfully deported Abrego Garcia should not be detained before trial',
+          'abrego-no-detention-replay-b',
+          1_755_446_400_000,
+          {
+            publisher: 'Reuters',
+            url: 'https://www.reuters.com/world/us/judge-says-wrongfully-deported-abrego-garcia-should-not-be-detained-before-trial-2025-08-16/',
+            canonicalUrl:
+              'https://www.reuters.com/world/us/judge-says-wrongfully-deported-abrego-garcia-should-not-be-detained-before-trial-2025-08-16/',
+            entity_keys: [
+              'abrego_garcia_wrongful_deportation_episode',
+              'kilmar_abrego_garcia',
+              'wrongful_deportation_case',
+              'pretrial_detention',
+              'el_salvador_return',
+            ],
+            cluster_text:
+              'A judge said Kilmar Abrego Garcia should not be detained before trial in the same wrongful-deportation episode that followed his return and criminal case.',
+          },
+        ),
+      ],
+    ],
+  },
 ];

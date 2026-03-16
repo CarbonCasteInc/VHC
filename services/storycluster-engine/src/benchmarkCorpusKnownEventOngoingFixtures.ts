@@ -310,6 +310,178 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS: StoryClusterCohe
       ),
     ],
   },
+  {
+    dataset_id: 'fixture-known-event-ongoing-eric-adams-dismissal',
+    topic_id: 'fixture-known-event-ongoing-eric-adams-dismissal',
+    items: [
+      makeBenchmarkItem(
+        'eric_adams_corruption_dismissal_episode',
+        'reuters-adams-doj-dismissal',
+        'US Justice Department seeks dismissal of corruption case against New York Mayor Eric Adams',
+        'eric-adams-doj-dismissal-reuters',
+        1_739_201_400_000,
+        {
+          publisher: 'Reuters',
+          url: 'https://www.reuters.com/world/us/us-justice-department-seeks-dismissal-corruption-case-against-new-york-mayor-eric-adams-2025-02-14/',
+          canonicalUrl:
+            'https://www.reuters.com/world/us/us-justice-department-seeks-dismissal-corruption-case-against-new-york-mayor-eric-adams-2025-02-14/',
+          entity_keys: [
+            'eric_adams_corruption_dismissal_episode',
+            'eric_adams',
+            'corruption_case',
+            'doj_dismissal_motion',
+            'new_york_mayor',
+          ],
+          cluster_text:
+            'The Justice Department moved to dismiss the corruption case against Eric Adams, beginning the same legal-dismissal episode that later brought court scrutiny and a formal dismissal.',
+        },
+      ),
+      makeBenchmarkItem(
+        'eric_adams_corruption_dismissal_episode',
+        'reuters-adams-judge-weighs-dismissal',
+        'Judge cancels Eric Adams trial, weighs DOJ request to dismiss charges',
+        'eric-adams-judge-weighs-dismissal-reuters',
+        1_739_883_600_000,
+        {
+          publisher: 'Reuters',
+          url: 'https://www.reuters.com/world/us/judge-cancels-eric-adams-trial-weighs-doj-request-dismiss-charges-2025-02-21/',
+          canonicalUrl:
+            'https://www.reuters.com/world/us/judge-cancels-eric-adams-trial-weighs-doj-request-dismiss-charges-2025-02-21/',
+          entity_keys: [
+            'eric_adams_corruption_dismissal_episode',
+            'eric_adams',
+            'corruption_case',
+            'doj_dismissal_motion',
+            'new_york_mayor',
+          ],
+          cluster_text:
+            'A federal judge paused Eric Adams trial proceedings while weighing the same Justice Department dismissal request in the corruption case.',
+        },
+      ),
+      makeBenchmarkItem(
+        'eric_adams_corruption_dismissal_episode',
+        'reuters-adams-case-dismissed',
+        'Judge dismisses corruption case against New York Mayor Eric Adams',
+        'eric-adams-case-dismissed-reuters',
+        1_743_249_600_000,
+        {
+          publisher: 'Reuters',
+          url: 'https://www.reuters.com/world/us/judge-dismisses-corruption-case-against-new-york-mayor-eric-adams-2025-04-02/',
+          canonicalUrl:
+            'https://www.reuters.com/world/us/judge-dismisses-corruption-case-against-new-york-mayor-eric-adams-2025-04-02/',
+          entity_keys: [
+            'eric_adams_corruption_dismissal_episode',
+            'eric_adams',
+            'corruption_case',
+            'doj_dismissal_motion',
+            'new_york_mayor',
+          ],
+          cluster_text:
+            'The judge formally dismissed the corruption case against Eric Adams, closing the same dismissal episode that started with the Justice Department motion and court review.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-mahmoud-khalil',
+    topic_id: 'fixture-known-event-ongoing-mahmoud-khalil',
+    items: [
+      makeBenchmarkItem(
+        'mahmoud_khalil_detention_episode',
+        'reuters-khalil-new-jersey-challenge',
+        'Mahmoud Khalil can challenge detention in New Jersey, appeals court says',
+        'mahmoud-khalil-new-jersey-challenge-reuters',
+        1_754_409_600_000,
+        {
+          publisher: 'Reuters',
+          url: 'https://www.reuters.com/world/us/mahmoud-khalil-can-challenge-detention-new-jersey-appeals-court-says-2025-08-04/',
+          canonicalUrl:
+            'https://www.reuters.com/world/us/mahmoud-khalil-can-challenge-detention-new-jersey-appeals-court-says-2025-08-04/',
+          entity_keys: [
+            'mahmoud_khalil_detention_episode',
+            'mahmoud_khalil',
+            'columbia_activist',
+            'deportation_case',
+            'immigration_detention',
+          ],
+          cluster_text:
+            'An appeals court said Mahmoud Khalil could challenge his detention in New Jersey in the same deportation-and-detention legal episode arising from the Trump administration case against the Columbia activist.',
+        },
+      ),
+      makeBenchmarkItem(
+        'mahmoud_khalil_detention_episode',
+        'reuters-khalil-can-be-deported',
+        'US judge says Trump administration can deport Columbia activist Mahmoud Khalil',
+        'mahmoud-khalil-can-be-deported-reuters',
+        1_749_945_600_000,
+        {
+          publisher: 'Reuters',
+          url: 'https://www.reuters.com/world/us/us-judge-says-trump-administration-can-deport-columbia-activist-mahmoud-khalil-2025-06-13/',
+          canonicalUrl:
+            'https://www.reuters.com/world/us/us-judge-says-trump-administration-can-deport-columbia-activist-mahmoud-khalil-2025-06-13/',
+          entity_keys: [
+            'mahmoud_khalil_detention_episode',
+            'mahmoud_khalil',
+            'columbia_activist',
+            'deportation_case',
+            'immigration_detention',
+          ],
+          cluster_text:
+            'A judge said the Trump administration could deport Mahmoud Khalil in the same legal episode over the Columbia activist detention and deportation fight.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-abrego-garcia',
+    topic_id: 'fixture-known-event-ongoing-abrego-garcia',
+    items: [
+      makeBenchmarkItem(
+        'abrego_garcia_wrongful_deportation_episode',
+        'reuters-abrego-no-detention-before-trial',
+        'Judge says wrongfully deported Abrego Garcia should not be detained before trial',
+        'abrego-no-detention-before-trial-reuters',
+        1_755_446_400_000,
+        {
+          publisher: 'Reuters',
+          url: 'https://www.reuters.com/world/us/judge-says-wrongfully-deported-abrego-garcia-should-not-be-detained-before-trial-2025-08-16/',
+          canonicalUrl:
+            'https://www.reuters.com/world/us/judge-says-wrongfully-deported-abrego-garcia-should-not-be-detained-before-trial-2025-08-16/',
+          entity_keys: [
+            'abrego_garcia_wrongful_deportation_episode',
+            'kilmar_abrego_garcia',
+            'wrongful_deportation_case',
+            'pretrial_detention',
+            'el_salvador_return',
+          ],
+          cluster_text:
+            'A judge said Kilmar Abrego Garcia should not be detained before trial in the same wrongful-deportation episode that followed his return and criminal case.',
+        },
+      ),
+      makeBenchmarkItem(
+        'abrego_garcia_wrongful_deportation_episode',
+        'reuters-abrego-lawsuit-dismissal-bid',
+        "Trump administration seeks to dismiss Kilmar Abrego Garcia's lawsuit over deportation",
+        'abrego-lawsuit-dismissal-bid-reuters',
+        1_749_859_200_000,
+        {
+          publisher: 'Reuters',
+          url: 'https://www.reuters.com/world/us/trump-administration-seeks-dismiss-kilmar-abrego-garcias-lawsuit-over-deportation-2025-06-12/',
+          canonicalUrl:
+            'https://www.reuters.com/world/us/trump-administration-seeks-dismiss-kilmar-abrego-garcias-lawsuit-over-deportation-2025-06-12/',
+          entity_keys: [
+            'abrego_garcia_wrongful_deportation_episode',
+            'kilmar_abrego_garcia',
+            'wrongful_deportation_case',
+            'pretrial_detention',
+            'el_salvador_return',
+          ],
+          cluster_text:
+            'The Trump administration sought to dismiss Kilmar Abrego Garcia lawsuit over his deportation in the same continuing legal episode that later reached pretrial-detention rulings after his return.',
+        },
+      ),
+    ],
+  },
 ];
 
 export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairExpectation[] = [
@@ -402,6 +574,41 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBen
     dataset_id: 'fixture-known-event-ongoing-fani-willis-fallout',
     left_source_id: 'ap-willis-legal-fees',
     right_source_id: 'ap-wade-hearing',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-adams-doj-vs-hearing',
+    dataset_id: 'fixture-known-event-ongoing-eric-adams-dismissal',
+    left_source_id: 'reuters-adams-doj-dismissal',
+    right_source_id: 'reuters-adams-judge-weighs-dismissal',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-adams-doj-vs-dismissed',
+    dataset_id: 'fixture-known-event-ongoing-eric-adams-dismissal',
+    left_source_id: 'reuters-adams-doj-dismissal',
+    right_source_id: 'reuters-adams-case-dismissed',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-adams-hearing-vs-dismissed',
+    dataset_id: 'fixture-known-event-ongoing-eric-adams-dismissal',
+    left_source_id: 'reuters-adams-judge-weighs-dismissal',
+    right_source_id: 'reuters-adams-case-dismissed',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-khalil-detention-vs-deportation-ruling',
+    dataset_id: 'fixture-known-event-ongoing-mahmoud-khalil',
+    left_source_id: 'reuters-khalil-new-jersey-challenge',
+    right_source_id: 'reuters-khalil-can-be-deported',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-abrego-lawsuit-vs-pretrial-detention',
+    dataset_id: 'fixture-known-event-ongoing-abrego-garcia',
+    left_source_id: 'reuters-abrego-lawsuit-dismissal-bid',
+    right_source_id: 'reuters-abrego-no-detention-before-trial',
     expected_label: 'same_developing_episode',
   },
 ];
