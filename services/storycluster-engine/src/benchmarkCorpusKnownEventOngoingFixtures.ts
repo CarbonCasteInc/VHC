@@ -143,6 +143,173 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS: StoryClusterCohe
       ),
     ],
   },
+  {
+    dataset_id: 'fixture-known-event-ongoing-flag-burn-order-fallout',
+    topic_id: 'fixture-known-event-ongoing-flag-burn-order-fallout',
+    items: [
+      makeBenchmarkItem(
+        'white_house_flag_burning_episode',
+        'ap-flag-ban-order',
+        'Trump moves to ban flag burning despite Supreme Court ruling that Constitution allows it',
+        'flag-ban-order-ap',
+        1_768_995_600_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/flag-burning-trump-order-ban',
+          canonicalUrl: 'https://apnews.com/article/flag-burning-trump-order-ban',
+          entity_keys: [
+            'white_house_flag_burning_episode',
+            'white_house_flag_burning_case',
+            'american_flag',
+            'white_house',
+            'jan_carey',
+            'flag_burning_order',
+          ],
+          cluster_text:
+            'Trump announced a new push to ban flag burning after the Jan. Carey White House flag-burning case, setting the policy and legal crackdown that later collapsed in court.',
+        },
+      ),
+      makeBenchmarkItem(
+        'white_house_flag_burning_episode',
+        'ap-flag-case-dismissal',
+        'Feds move to dismiss charges against Army veteran who burned American flag near White House',
+        'flag-case-dismissal-ap',
+        1_771_258_400_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/flag-burning-carey-case-dismissed',
+          canonicalUrl: 'https://apnews.com/article/flag-burning-carey-case-dismissed',
+          entity_keys: [
+            'white_house_flag_burning_episode',
+            'white_house_flag_burning_case',
+            'american_flag',
+            'white_house',
+            'jan_carey',
+            'flag_burning_order',
+          ],
+          cluster_text:
+            'Federal prosecutors moved to dismiss the Jan. Carey White House flag-burning case, direct legal fallout from the same Trump-backed flag-burning crackdown.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-teacher-prank-fallout',
+    topic_id: 'fixture-known-event-ongoing-teacher-prank-fallout',
+    items: [
+      makeBenchmarkItem(
+        'teacher_prank_death_episode',
+        'ap-prank-adult-charge',
+        "Georgia teen charged as an adult in death of teacher hit by car after 'senior prank'",
+        'teacher-prank-adult-charge-ap',
+        1_746_720_000_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/georgia-teacher-prank-adult-charge',
+          canonicalUrl: 'https://apnews.com/article/georgia-teacher-prank-adult-charge',
+          entity_keys: [
+            'teacher_prank_death_episode',
+            'teacher_prank_death_case',
+            'adrianne_hutcherson',
+            'senior_prank',
+            'criminal_charge',
+          ],
+          cluster_text:
+            'Georgia prosecutors charged a teen as an adult after teacher Adrianne Hutcherson was struck and killed during the same senior-prank case.',
+        },
+      ),
+      makeBenchmarkItem(
+        'teacher_prank_death_episode',
+        'ap-prank-charges-dropped',
+        'Charges dropped against teens whose teacher died during toilet paper prank',
+        'teacher-prank-charges-dropped-ap',
+        1_757_116_800_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/georgia-teacher-prank-charges-dropped',
+          canonicalUrl: 'https://apnews.com/article/georgia-teacher-prank-charges-dropped',
+          entity_keys: [
+            'teacher_prank_death_episode',
+            'teacher_prank_death_case',
+            'adrianne_hutcherson',
+            'senior_prank',
+            'criminal_charge',
+          ],
+          cluster_text:
+            'Prosecutors later dropped charges in the same Georgia teacher-prank death case after the earlier adult-charge decision and public scrutiny.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-fani-willis-fallout',
+    topic_id: 'fixture-known-event-ongoing-fani-willis-fallout',
+    items: [
+      makeBenchmarkItem(
+        'fani_willis_postdismissal_episode',
+        'ap-willis-legal-fees',
+        "Trump seeks $6.2 million in legal fees from Fani Willis' office over election interference case",
+        'fani-willis-legal-fees-ap',
+        1_772_726_400_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/trump-fani-willis-legal-fees',
+          canonicalUrl: 'https://apnews.com/article/trump-fani-willis-legal-fees',
+          entity_keys: [
+            'fani_willis_postdismissal_episode',
+            'georgia_trump_election_case',
+            'fani_willis',
+            'nathan_wade',
+            'postdismissal_fallout',
+          ],
+          cluster_text:
+            'Trump sought legal fees from Fani Willis after the collapse of the Georgia election interference case, part of the same post-dismissal fallout episode that later brought legislative pressure and hearings about Nathan Wade.',
+        },
+      ),
+      makeBenchmarkItem(
+        'fani_willis_postdismissal_episode',
+        'ap-willis-gop-bills',
+        'Georgia Republicans push more bills aimed at Fulton County DA Fani Willis',
+        'fani-willis-gop-bills-ap',
+        1_772_899_200_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/fani-willis-georgia-republicans-bills',
+          canonicalUrl: 'https://apnews.com/article/fani-willis-georgia-republicans-bills',
+          entity_keys: [
+            'fani_willis_postdismissal_episode',
+            'georgia_trump_election_case',
+            'fani_willis',
+            'nathan_wade',
+            'postdismissal_fallout',
+          ],
+          cluster_text:
+            'Georgia Republicans advanced new bills targeting Fani Willis as part of the same post-dismissal fallout from the Georgia Trump election case.',
+        },
+      ),
+      makeBenchmarkItem(
+        'fani_willis_postdismissal_episode',
+        'ap-wade-hearing',
+        'State lawmakers grill former special prosecutor Nathan Wade over Georgia Trump election case',
+        'nathan-wade-hearing-ap',
+        1_773_249_600_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/nathan-wade-hearing-georgia-trump-case',
+          canonicalUrl: 'https://apnews.com/article/nathan-wade-hearing-georgia-trump-case',
+          entity_keys: [
+            'fani_willis_postdismissal_episode',
+            'georgia_trump_election_case',
+            'fani_willis',
+            'nathan_wade',
+            'postdismissal_fallout',
+          ],
+          cluster_text:
+            'Lawmakers questioned former special prosecutor Nathan Wade during the same post-dismissal fallout around the Georgia Trump election case and pressure on Fani Willis.',
+        },
+      ),
+    ],
+  },
 ];
 
 export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairExpectation[] = [
@@ -201,5 +368,40 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBen
     left_source_id: 'ap-fed-what-we-know',
     right_source_id: 'ap-fed-judge-quash',
     expected_label: 'commentary_on_event',
+  },
+  {
+    case_id: 'known-event-ongoing-flag-ban-vs-dismissal',
+    dataset_id: 'fixture-known-event-ongoing-flag-burn-order-fallout',
+    left_source_id: 'ap-flag-ban-order',
+    right_source_id: 'ap-flag-case-dismissal',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-prank-charge-vs-dismissal',
+    dataset_id: 'fixture-known-event-ongoing-teacher-prank-fallout',
+    left_source_id: 'ap-prank-adult-charge',
+    right_source_id: 'ap-prank-charges-dropped',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-willis-fees-vs-bills',
+    dataset_id: 'fixture-known-event-ongoing-fani-willis-fallout',
+    left_source_id: 'ap-willis-legal-fees',
+    right_source_id: 'ap-willis-gop-bills',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-willis-bills-vs-wade-hearing',
+    dataset_id: 'fixture-known-event-ongoing-fani-willis-fallout',
+    left_source_id: 'ap-willis-gop-bills',
+    right_source_id: 'ap-wade-hearing',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-willis-fees-vs-wade-hearing',
+    dataset_id: 'fixture-known-event-ongoing-fani-willis-fallout',
+    left_source_id: 'ap-willis-legal-fees',
+    right_source_id: 'ap-wade-hearing',
+    expected_label: 'same_developing_episode',
   },
 ];
