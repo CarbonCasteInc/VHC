@@ -140,6 +140,19 @@ export type {
 } from './sourceAdmissionReport';
 
 export {
+  SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
+  buildSourceHealthReport,
+  writeSourceHealthArtifact,
+} from './sourceHealthReport';
+export type {
+  SourceHealthArtifactOptions,
+  SourceHealthDecision,
+  SourceHealthReadinessStatus,
+  SourceHealthReport,
+  SourceHealthSourceReport,
+} from './sourceHealthReport';
+
+export {
   createArticleTextServer,
   startArticleTextServer,
 } from './server';
