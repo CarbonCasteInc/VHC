@@ -1,5 +1,6 @@
 import * as path from 'node:path';
 import { defineConfig, devices, type TestConfig } from '@playwright/test';
+import { buildPortClearShellCommand } from './src/live/daemonFirstFeedProcesses';
 
 process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
 
@@ -231,8 +232,7 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 const localWebServers: TestConfig['webServer'] = [
   {
     command: [
-      `pids=$(lsof -ti tcp:${qdrantPort} || true)`,
-      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+      buildPortClearShellCommand(qdrantPort),
       `VH_DAEMON_FEED_QDRANT_PORT=${qdrantPort} node ${JSON.stringify(qdrantServerPath)}`,
     ].join(' && '),
     url: `${qdrantBaseUrl}/readyz`,
@@ -242,8 +242,7 @@ const localWebServers: TestConfig['webServer'] = [
   ...(useFixtureFeed
     ? [{
         command: [
-          `pids=$(lsof -ti tcp:${fixtureFeedPort} || true)`,
-          `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+          buildPortClearShellCommand(fixtureFeedPort),
           `VH_DAEMON_FEED_FIXTURE_PORT=${fixtureFeedPort} node ${JSON.stringify(fixtureServerPath)}`,
         ].join(' && '),
         url: `${fixtureFeedBaseUrl}/health`,
@@ -254,8 +253,7 @@ const localWebServers: TestConfig['webServer'] = [
   ...(useFixtureAnalysisStub
     ? [{
         command: [
-          `pids=$(lsof -ti tcp:${analysisStubPort} || true)`,
-          `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+          buildPortClearShellCommand(analysisStubPort),
           `VH_DAEMON_FEED_ANALYSIS_STUB_PORT=${analysisStubPort} node ${JSON.stringify(analysisStubServerPath)}`,
         ].join(' && '),
         url: `${analysisStubBaseUrl}/health`,
@@ -265,8 +263,7 @@ const localWebServers: TestConfig['webServer'] = [
     : []),
   {
     command: [
-      `pids=$(lsof -ti tcp:${gunPort} || true)`,
-      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+      buildPortClearShellCommand(gunPort),
       `rm -rf ../../.tmp/e2e-daemon-feed/${runId}`,
       `mkdir -p ${JSON.stringify(relayRootDir)}`,
       `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} || true`,
@@ -278,8 +275,7 @@ const localWebServers: TestConfig['webServer'] = [
   },
   {
     command: [
-      `pids=$(lsof -ti tcp:${basePort} || true)`,
-      `if [ -n \"$pids\" ]; then echo \"$pids\" | xargs kill -9; fi`,
+      buildPortClearShellCommand(basePort),
       `pnpm --filter @vh/web-pwa dev --port ${basePort} --strictPort`,
     ].join(' && '),
     url: baseUrl,
