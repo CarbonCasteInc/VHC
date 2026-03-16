@@ -200,4 +200,36 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(2);
   });
+
+  it('preserves the AP White House access story id across the curtailment, reinstatement, enforcement, and appeals phases', async () => {
+    const snapshots = await runScenario('replay-known-event-ap-access-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('associated_press_access_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the CFPB dismantling story id across chaos, injunction, layoffs, and defunding phases', async () => {
+    const snapshots = await runScenario('replay-known-event-cfpb-dismantling-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('cfpb_dismantling_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the birthright-citizenship order story id across injunction and appeals phases', async () => {
+    const snapshots = await runScenario('replay-known-event-birthright-citizenship-order-arc');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('birthright_citizenship_order_episode') ?? null,
+    );
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
 });
