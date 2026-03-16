@@ -1464,6 +1464,292 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS: StoryClusterCohe
       ),
     ],
   },
+  {
+    dataset_id: 'fixture-known-event-ongoing-helene-i40-recovery',
+    topic_id: 'fixture-known-event-ongoing-helene-i40-recovery',
+    items: [
+      makeBenchmarkItem(
+        'helene_i40_recovery_episode',
+        'ap-helene-i40-delay',
+        'New damage delays I-40 reopening in North Carolina closed by Helene',
+        'helene-i40-delay-ap',
+        1_734_741_250_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/hurricane-helene-interstate-40-tennessee-north-carolina-b374045724088f421f6d1f54fc58cfa6',
+          canonicalUrl:
+            'https://apnews.com/article/hurricane-helene-interstate-40-tennessee-north-carolina-b374045724088f421f6d1f54fc58cfa6',
+          entity_keys: [
+            'helene_i40_recovery_episode',
+            'hurricane_helene',
+            'interstate_40',
+            'pigeon_river_gorge',
+            'transportation_recovery',
+          ],
+          cluster_text:
+            'New slide damage delayed reopening of the same Interstate 40 corridor in the Pigeon River Gorge that Hurricane Helene had already destroyed, part of the same long-running recovery episode.',
+        },
+      ),
+      makeBenchmarkItem(
+        'helene_i40_recovery_episode',
+        'ap-helene-i40-march-reopen',
+        'Stretch of North Carolina interstate that collapsed during Helene to reopen by March 1',
+        'helene-i40-march-reopen-ap',
+        1_739_222_342_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/hurricane-helene-interstate-40-tennessee-north-carolina-8a5d2efe3c3592266fe1cb9fe25790e9',
+          canonicalUrl:
+            'https://apnews.com/article/hurricane-helene-interstate-40-tennessee-north-carolina-8a5d2efe3c3592266fe1cb9fe25790e9',
+          entity_keys: [
+            'helene_i40_recovery_episode',
+            'hurricane_helene',
+            'interstate_40',
+            'pigeon_river_gorge',
+            'transportation_recovery',
+          ],
+          cluster_text:
+            'Officials said the same Helene-damaged stretch of Interstate 40 would reopen by March 1, another phase in the ongoing repair of the washed-out Pigeon River Gorge corridor.',
+        },
+      ),
+      makeBenchmarkItem(
+        'helene_i40_recovery_episode',
+        'ap-helene-i40-about-to-reopen',
+        'A stretch of a North Carolina highway that collapsed during Helene is about to reopen',
+        'helene-i40-about-to-reopen-ap',
+        1_740_758_348_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/hurricane-helene-interstate-40-tennessee-north-carolina-85c84cb1fcfcbf263f3c6313976d1d33',
+          canonicalUrl:
+            'https://apnews.com/article/hurricane-helene-interstate-40-tennessee-north-carolina-85c84cb1fcfcbf263f3c6313976d1d33',
+          entity_keys: [
+            'helene_i40_recovery_episode',
+            'hurricane_helene',
+            'interstate_40',
+            'pigeon_river_gorge',
+            'transportation_recovery',
+          ],
+          cluster_text:
+            'Crews were about to reopen the same Helene-collapsed section of Interstate 40 in North Carolina after months of repairs in the Pigeon River Gorge.',
+        },
+      ),
+      makeBenchmarkItem(
+        'helene_i40_recovery_episode',
+        'ap-helene-i40-rockslide-reopen',
+        'Interstate 40 in the Smoky Mountains reopens faster than expected after rock slide and flooding',
+        'helene-i40-rockslide-reopen-ap',
+        1_751_046_641_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/helene-i40-rock-slide-flooding-smoky-mountains-658368d310f4e94fc2d121e72d6e8d7c',
+          canonicalUrl:
+            'https://apnews.com/article/helene-i40-rock-slide-flooding-smoky-mountains-658368d310f4e94fc2d121e72d6e8d7c',
+          entity_keys: [
+            'helene_i40_recovery_episode',
+            'hurricane_helene',
+            'interstate_40',
+            'pigeon_river_gorge',
+            'transportation_recovery',
+          ],
+          cluster_text:
+            'Interstate 40 reopened again after a rock slide and flooding in the same Helene recovery episode affecting the damaged Smoky Mountains corridor.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-ruidoso-flood-recovery',
+    topic_id: 'fixture-known-event-ongoing-ruidoso-flood-recovery',
+    items: [
+      makeBenchmarkItem(
+        'ruidoso_flood_recovery_episode',
+        'ap-ruidoso-flood-missing',
+        '3 missing, house swept away as flash flooding hits mountain village in New Mexico',
+        'ruidoso-flood-missing-ap',
+        1_752_023_050_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/new-mexico-flash-flooding-ruidoso-rio-ruidoso-189b3133c9407f0164a8726b6522f3f3',
+          canonicalUrl:
+            'https://apnews.com/article/new-mexico-flash-flooding-ruidoso-rio-ruidoso-189b3133c9407f0164a8726b6522f3f3',
+          entity_keys: [
+            'ruidoso_flood_recovery_episode',
+            'ruidoso',
+            'rio_ruidoso',
+            'new_mexico_flooding',
+            'burn_scar_flooding',
+          ],
+          cluster_text:
+            'Flash flooding hit Ruidoso and swept away a house, beginning the same mountain-village flood and recovery episode that later covered cleanup, home-damage counts, and disaster relief.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ruidoso_flood_recovery_episode',
+        'ap-ruidoso-flood-cleanup',
+        'Flash flooding that killed 3 leaves New Mexico village heartbroken, anxious as cleanup begins',
+        'ruidoso-flood-cleanup-ap',
+        1_752_057_230_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/new-mexico-ruidoso-flooding-35b6427b581745f84dba09f06b38bc2d',
+          canonicalUrl:
+            'https://apnews.com/article/new-mexico-ruidoso-flooding-35b6427b581745f84dba09f06b38bc2d',
+          entity_keys: [
+            'ruidoso_flood_recovery_episode',
+            'ruidoso',
+            'rio_ruidoso',
+            'new_mexico_flooding',
+            'burn_scar_flooding',
+          ],
+          cluster_text:
+            'Cleanup began in Ruidoso after the same deadly flash flood, continuing the same local disaster-and-recovery episode around the Rio Ruidoso.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ruidoso_flood_recovery_episode',
+        'ap-ruidoso-flood-homes-damaged',
+        'As many as 200 homes damaged as officials survey the aftermath of a deadly New Mexico flood',
+        'ruidoso-flood-homes-damaged-ap',
+        1_752_120_995_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/new-mexico-flood-ruidoso-river-homes-damaged-350c4fd2de85d4eb7f9a8f89c994ddc0',
+          canonicalUrl:
+            'https://apnews.com/article/new-mexico-flood-ruidoso-river-homes-damaged-350c4fd2de85d4eb7f9a8f89c994ddc0',
+          entity_keys: [
+            'ruidoso_flood_recovery_episode',
+            'ruidoso',
+            'rio_ruidoso',
+            'new_mexico_flooding',
+            'burn_scar_flooding',
+          ],
+          cluster_text:
+            'Officials counted heavy home damage after the same Ruidoso flood, another phase of the same village recovery episode following the deadly surge on the Rio Ruidoso.',
+        },
+      ),
+      makeBenchmarkItem(
+        'ruidoso_flood_recovery_episode',
+        'ap-ruidoso-flood-disaster-relief',
+        'Trump approves disaster relief for New Mexico mountain town battered by back-to-back floods',
+        'ruidoso-flood-disaster-relief-ap',
+        1_753_733_521_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/new-mexico-floods-ruidoso-disaster-relief-f791ff86b1540ff36afee34ccc53f9f1',
+          canonicalUrl:
+            'https://apnews.com/article/new-mexico-floods-ruidoso-disaster-relief-f791ff86b1540ff36afee34ccc53f9f1',
+          entity_keys: [
+            'ruidoso_flood_recovery_episode',
+            'ruidoso',
+            'rio_ruidoso',
+            'new_mexico_flooding',
+            'burn_scar_flooding',
+          ],
+          cluster_text:
+            'Federal disaster relief followed back-to-back floods in Ruidoso as the same flood-recovery episode expanded from immediate damage into long-tail aid and rebuilding.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-lahaina-wildfire-recovery',
+    topic_id: 'fixture-known-event-ongoing-lahaina-wildfire-recovery',
+    items: [
+      makeBenchmarkItem(
+        'lahaina_wildfire_recovery_episode',
+        'ap-lahaina-debris-site',
+        "Maui's mayor says Lahaina debris site will be used temporarily until a permanent spot is found",
+        'lahaina-debris-site-ap',
+        1_704_425_051_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/lahaina-wildfire-recovery-hawaii-maui-98cd9c85afce2ec23cd6d64de4d5e0c1',
+          canonicalUrl:
+            'https://apnews.com/article/lahaina-wildfire-recovery-hawaii-maui-98cd9c85afce2ec23cd6d64de4d5e0c1',
+          entity_keys: [
+            'lahaina_wildfire_recovery_episode',
+            'lahaina',
+            'maui',
+            'wildfire_recovery',
+            'survivor_housing',
+            'debris_cleanup',
+          ],
+          cluster_text:
+            'Officials said Lahaina wildfire debris would use a temporary Maui site while a permanent solution was found, part of the same long recovery episode after the wildfire destroyed Lahaina.',
+        },
+      ),
+      makeBenchmarkItem(
+        'lahaina_wildfire_recovery_episode',
+        'ap-lahaina-housing-hotels',
+        'Hawaii says 30 Lahaina fire survivors are moving into housing daily but 3,000 are still in hotels',
+        'lahaina-housing-hotels-ap',
+        1_711_588_638_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/maui-fires-housing-hotels-lahaina-5ad15a8aab54fb4509a59c9f1ee101df',
+          canonicalUrl:
+            'https://apnews.com/article/maui-fires-housing-hotels-lahaina-5ad15a8aab54fb4509a59c9f1ee101df',
+          entity_keys: [
+            'lahaina_wildfire_recovery_episode',
+            'lahaina',
+            'maui',
+            'wildfire_recovery',
+            'survivor_housing',
+            'debris_cleanup',
+          ],
+          cluster_text:
+            'Housing placements for Lahaina fire survivors and thousands still living in hotels marked another recovery phase in the same Lahaina wildfire episode.',
+        },
+      ),
+      makeBenchmarkItem(
+        'lahaina_wildfire_recovery_episode',
+        'ap-lahaina-fema-housing-extension',
+        'Maui wildfire survivors will get an additional year of housing help from FEMA',
+        'lahaina-fema-housing-extension-ap',
+        1_729_020_755_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/maui-wildfire-survivors-fema-housing-assistance-43d0769d714a2e665749cdd8f1e4d4b0',
+          canonicalUrl:
+            'https://apnews.com/article/maui-wildfire-survivors-fema-housing-assistance-43d0769d714a2e665749cdd8f1e4d4b0',
+          entity_keys: [
+            'lahaina_wildfire_recovery_episode',
+            'lahaina',
+            'maui',
+            'wildfire_recovery',
+            'survivor_housing',
+            'debris_cleanup',
+          ],
+          cluster_text:
+            'FEMA extended housing help for survivors in the same Lahaina wildfire recovery episode as families continued navigating long-term displacement.',
+        },
+      ),
+      makeBenchmarkItem(
+        'lahaina_wildfire_recovery_episode',
+        'ap-lahaina-debris-haul',
+        '50 trucks will spend 5 months transporting Lahaina wildfire debris to a Maui landfill',
+        'lahaina-debris-haul-ap',
+        1_749_507_228_000,
+        {
+          publisher: 'AP News',
+          url: 'https://apnews.com/article/lahaina-wildfire-debris-landfill-d7229f8c6b294192fa33b25f4cbfae24',
+          canonicalUrl:
+            'https://apnews.com/article/lahaina-wildfire-debris-landfill-d7229f8c6b294192fa33b25f4cbfae24',
+          entity_keys: [
+            'lahaina_wildfire_recovery_episode',
+            'lahaina',
+            'maui',
+            'wildfire_recovery',
+            'survivor_housing',
+            'debris_cleanup',
+          ],
+          cluster_text:
+            'Large-scale debris hauling to a Maui landfill continued the same Lahaina wildfire recovery episode as cleanup stretched far beyond the initial disaster.',
+        },
+      ),
+    ],
+  },
 ];
 
 export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairExpectation[] = [
@@ -1801,6 +2087,69 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBen
     dataset_id: 'fixture-known-event-ongoing-air-india-crash',
     left_source_id: 'ap-air-india-black-box-analysis',
     right_source_id: 'ap-air-india-prelim-report',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-helene-i40-delay-vs-march-reopen',
+    dataset_id: 'fixture-known-event-ongoing-helene-i40-recovery',
+    left_source_id: 'ap-helene-i40-delay',
+    right_source_id: 'ap-helene-i40-march-reopen',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-helene-i40-march-vs-about-to-reopen',
+    dataset_id: 'fixture-known-event-ongoing-helene-i40-recovery',
+    left_source_id: 'ap-helene-i40-march-reopen',
+    right_source_id: 'ap-helene-i40-about-to-reopen',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-helene-i40-about-to-reopen-vs-rockslide-reopen',
+    dataset_id: 'fixture-known-event-ongoing-helene-i40-recovery',
+    left_source_id: 'ap-helene-i40-about-to-reopen',
+    right_source_id: 'ap-helene-i40-rockslide-reopen',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ruidoso-flood-impact-vs-cleanup',
+    dataset_id: 'fixture-known-event-ongoing-ruidoso-flood-recovery',
+    left_source_id: 'ap-ruidoso-flood-missing',
+    right_source_id: 'ap-ruidoso-flood-cleanup',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ruidoso-flood-cleanup-vs-homes-damaged',
+    dataset_id: 'fixture-known-event-ongoing-ruidoso-flood-recovery',
+    left_source_id: 'ap-ruidoso-flood-cleanup',
+    right_source_id: 'ap-ruidoso-flood-homes-damaged',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-ruidoso-homes-damaged-vs-disaster-relief',
+    dataset_id: 'fixture-known-event-ongoing-ruidoso-flood-recovery',
+    left_source_id: 'ap-ruidoso-flood-homes-damaged',
+    right_source_id: 'ap-ruidoso-flood-disaster-relief',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-lahaina-debris-site-vs-housing-hotels',
+    dataset_id: 'fixture-known-event-ongoing-lahaina-wildfire-recovery',
+    left_source_id: 'ap-lahaina-debris-site',
+    right_source_id: 'ap-lahaina-housing-hotels',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-lahaina-housing-vs-fema-extension',
+    dataset_id: 'fixture-known-event-ongoing-lahaina-wildfire-recovery',
+    left_source_id: 'ap-lahaina-housing-hotels',
+    right_source_id: 'ap-lahaina-fema-housing-extension',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-lahaina-fema-extension-vs-debris-haul',
+    dataset_id: 'fixture-known-event-ongoing-lahaina-wildfire-recovery',
+    left_source_id: 'ap-lahaina-fema-housing-extension',
+    right_source_id: 'ap-lahaina-debris-haul',
     expected_label: 'same_developing_episode',
   },
 ];

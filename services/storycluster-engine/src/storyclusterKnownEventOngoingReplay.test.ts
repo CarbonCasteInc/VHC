@@ -264,4 +264,36 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(4);
   });
+
+  it('preserves the Helene I-40 recovery story id across delayed reopening, reopening, and post-slide recovery', async () => {
+    const snapshots = await runScenario('replay-known-event-helene-i40-recovery-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('helene_i40_recovery_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the Ruidoso flood recovery story id across impact, cleanup, home-damage surveys, and disaster relief', async () => {
+    const snapshots = await runScenario('replay-known-event-ruidoso-flood-recovery-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('ruidoso_flood_recovery_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the Lahaina wildfire recovery story id across debris, housing, and long-tail cleanup phases', async () => {
+    const snapshots = await runScenario('replay-known-event-lahaina-wildfire-recovery-arc');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('lahaina_wildfire_recovery_episode') ?? null,
+    );
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
 });
