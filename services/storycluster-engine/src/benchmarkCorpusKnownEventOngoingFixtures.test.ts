@@ -17,6 +17,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-eric-adams-dismissal',
       'fixture-known-event-ongoing-mahmoud-khalil',
       'fixture-known-event-ongoing-abrego-garcia',
+      'fixture-known-event-ongoing-rumeysa-ozturk',
+      'fixture-known-event-ongoing-mohsen-mahdawi',
+      'fixture-known-event-ongoing-ras-baraka',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -37,6 +40,12 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-adams-hearing-vs-dismissed',
       'known-event-ongoing-khalil-detention-vs-deportation-ruling',
       'known-event-ongoing-abrego-lawsuit-vs-pretrial-detention',
+      'known-event-ongoing-ozturk-transfer-vs-return',
+      'known-event-ongoing-ozturk-return-vs-release',
+      'known-event-ongoing-mahdawi-arrest-vs-hearing',
+      'known-event-ongoing-mahdawi-hearing-vs-release',
+      'known-event-ongoing-baraka-arrest-vs-hearing',
+      'known-event-ongoing-baraka-hearing-vs-lawsuit',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -57,6 +66,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-eric-adams-dismissal-arc',
         'replay-known-event-mahmoud-khalil-gap-return',
         'replay-known-event-abrego-garcia-gap-return',
+        'replay-known-event-rumeysa-ozturk-arc',
+        'replay-known-event-mohsen-mahdawi-arc',
+        'replay-known-event-ras-baraka-arc',
       ]),
     );
   });
