@@ -3,7 +3,7 @@
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
 > Last Reviewed: 2026-03-16
-> Depends On: docs/foundational/STATUS.md, docs/CANON_MAP.md
+> Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/CANON_MAP.md
 
 
 This runbook locks local manual testing to the same production-like wiring used by live headless gates.
@@ -99,6 +99,14 @@ Use this checklist during manual browser validation:
    - `readinessStatus`
    - `promotionBlockingReasons`
    - `promotionAssessment`
+16. If the lane changes source onboarding, extraction, or source reliability behavior, review `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` and confirm the source contract still holds.
+17. Confirm any newly admitted source is accessible and readable in practice:
+   - no paywall-dependent article path;
+   - no persistent truncation/robots-blocked behavior;
+   - extraction succeeds at the required quality bar.
+18. Confirm singleton-first publication remains acceptable for the changed lane:
+   - single-source stories may appear in feed;
+   - later same-incident / same-developing-episode coverage still attaches without identity churn where covered by the evidence set.
 
 ## Release Gate Wiring
 
@@ -124,6 +132,20 @@ Current release-gate split for StoryCluster and feed correctness:
 6. Public smoke failures caused by insufficient auditable live bundles do not block merge/release by themselves; they must still be reviewed as secondary distribution telemetry artifacts.
 7. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
 8. Feed/discovery/storyline presentation or navigation changes must also carry at least one relevant Playwright/browser validation command in the lane evidence, even when the fixture-backed gates are unchanged.
+9. Distribution-ready feed claims also require readable-source review:
+   - use `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` for source admission, source-health review, and removal criteria;
+   - do not treat public semantic smoke scarcity by itself as proof of semantic failure when the source surface is the limiting factor.
+
+## Source Admission Review
+
+Source operations are now a first-class release-readiness concern.
+
+Rules:
+
+1. The production-grade feed promise applies only to onboarded readable, accessible, extraction-safe sources.
+2. Source admission and removal are governed by `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
+3. If a lane changes `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceRegistry.ts`, `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/articleTextService.ts`, `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/fullTextFetcher.ts`, or `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceLifecycle.ts`, the evidence note must mention the source/readability impact explicitly.
+4. Public semantic smoke remains useful operational telemetry, but it does not replace direct readable-source admission checks.
 
 ### StoryCluster Replay Evidence Interpretation
 

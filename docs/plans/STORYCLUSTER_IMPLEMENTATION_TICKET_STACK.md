@@ -4,7 +4,7 @@ Status: Canonical ticket stack
 Owner: Core Engineering
 Last Updated: 2026-03-16
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `main` @ `d777683`
+Branch Baseline: `main` @ `746ac58`
 
 ## 1. Usage
 
@@ -32,7 +32,7 @@ Every PR in this stack must:
    - any benchmark deltas;
    - any live or replay artifacts added.
 
-## 2.1 Execution Snapshot (2026-03-13)
+## 2.1 Execution Snapshot (2026-03-16)
 
 Completed or functionally in-force:
 
@@ -62,26 +62,26 @@ Completed or functionally in-force:
 15. taxonomy normalization across StoryCluster code, fixtures, telemetry, and docs is in force on `main`
 16. vote aggregate live-refresh and stale-read hardening is in force on `main`
 17. discovery sync and HOTTEST storyline-cap diversification is in force on `main`
+18. StoryCluster correctness-gate sufficiency codification is in force on `main`
+19. daemon-first browser-gate startup reliability hardening is in force on `main`
 
 Active next implementation lane:
 
-1. StoryCluster correctness-gate sufficiency codification
+1. news-source admission and readable-distribution readiness
 2. immediate focus:
-   - codify the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof
-   - require the daemon-first semantic audit as the served-stack confirmation of that proof
+   - operationalize source admission around readable, accessible, extraction-safe sources rather than generic feed expansion
+   - codify singleton-first publication and later bundle growth as an explicit product invariant, not just an implicit replay behavior
+   - require source-health, paywall/truncation review, and source-lifecycle evidence for distribution-readiness claims
    - keep public semantic runs smoke-only as secondary distribution telemetry unless they independently earn promotion
-   - make release/readiness artifacts point directly at the authoritative gate inputs, not just generic semantic evidence
 
-Queued after the correctness-gate lane:
+Queued after the source-readiness lane:
 
 1. browser-first verification hardening for distribution readiness
    - feed/discovery/storyline lanes should carry explicit Playwright/browser validation as part of the evidence contract
    - keep fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof
-2. daemon-first browser-gate startup reliability
-   - treat `health-timeout:http://127.0.0.1:4302/ready` and similar startup failures as a production-readiness task, not incidental local noise
-   - capture traces/logs whenever a gate fails before browser assertions begin
-3. targeted fixture-corpus and replay-corpus expansion only when a real uncovered event class appears
-4. continued public semantic-soak density/trend improvement until public-feed evidence is strong enough to promote beyond smoke-only status
+2. targeted fixture-corpus and replay-corpus expansion only when a real uncovered event class appears
+   - correctness proof is no longer the default missing piece
+3. continued public semantic-soak density/trend improvement until public-feed evidence is strong enough to promote beyond smoke-only status
 
 ## 3. Ticket Stack
 
