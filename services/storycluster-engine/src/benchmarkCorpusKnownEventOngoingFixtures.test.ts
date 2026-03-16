@@ -11,6 +11,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS.map((dataset) => dataset.dataset_id)).toEqual([
       'fixture-known-event-ongoing-kennedy-center',
       'fixture-known-event-ongoing-fed-powell',
+      'fixture-known-event-ongoing-flag-burn-order-fallout',
+      'fixture-known-event-ongoing-teacher-prank-fallout',
+      'fixture-known-event-ongoing-fani-willis-fallout',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -21,6 +24,11 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-fed-subpoena-quash',
       'known-event-ongoing-fed-backlash-quash',
       'known-event-ongoing-fed-explainer-vs-quash',
+      'known-event-ongoing-flag-ban-vs-dismissal',
+      'known-event-ongoing-prank-charge-vs-dismissal',
+      'known-event-ongoing-willis-fees-vs-bills',
+      'known-event-ongoing-willis-bills-vs-wade-hearing',
+      'known-event-ongoing-willis-fees-vs-wade-hearing',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -35,6 +43,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       expect.arrayContaining([
         'replay-known-event-kennedy-center-ongoing-arc',
         'replay-known-event-fed-powell-gap-return',
+        'replay-known-event-flag-burn-order-gap-return',
+        'replay-known-event-teacher-prank-charge-drop',
+        'replay-known-event-fani-willis-postdismissal-arc',
       ]),
     );
   });

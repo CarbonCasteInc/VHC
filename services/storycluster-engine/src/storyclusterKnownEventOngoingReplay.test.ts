@@ -66,4 +66,36 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(storyIds[3]).toBe(storyIds[0]);
     expect(finalCluster?.source_documents).toHaveLength(3);
   });
+
+  it('restores the flag-burning crackdown story id across policy launch and case-dismissal fallout', async () => {
+    const snapshots = await runScenario('replay-known-event-flag-burn-order-gap-return');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('white_house_flag_burning_episode') ?? null);
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBeNull();
+    expect(storyIds[2]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+  });
+
+  it('restores the teacher-prank death story id across charge and later charge-drop fallout', async () => {
+    const snapshots = await runScenario('replay-known-event-teacher-prank-charge-drop');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('teacher_prank_death_episode') ?? null);
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBeNull();
+    expect(storyIds[2]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+  });
+
+  it('preserves the Fani Willis post-dismissal story id across legal, legislative, and Wade-hearing fallout', async () => {
+    const snapshots = await runScenario('replay-known-event-fani-willis-postdismissal-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('fani_willis_postdismissal_episode') ?? null);
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(3);
+  });
 });
