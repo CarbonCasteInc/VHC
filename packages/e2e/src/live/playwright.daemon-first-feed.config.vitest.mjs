@@ -10,6 +10,8 @@ async function loadConfig(runId, envOverrides = {}) {
     QDRANT_URL: process.env.QDRANT_URL,
     VH_DAEMON_FEED_USE_FIXTURE_FEED: process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED,
     VH_LIVE_DEV_FEED_SOURCE_IDS: process.env.VH_LIVE_DEV_FEED_SOURCE_IDS,
+    VH_LIVE_DEV_FEED_SOURCES_JSON: process.env.VH_LIVE_DEV_FEED_SOURCES_JSON,
+    VITE_NEWS_FEED_SOURCES: process.env.VITE_NEWS_FEED_SOURCES,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     ANALYSIS_RELAY_MODEL: process.env.ANALYSIS_RELAY_MODEL,
     ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS,
@@ -61,6 +63,31 @@ describe('playwright.daemon-first-feed.config', () => {
       'independent-us-politics',
       'cnn-politics',
       'pbs-politics',
+    ]);
+  });
+
+  it('passes an explicit survey-only source override through to the web app env', async () => {
+    const config = await loadConfig('run-survey-source-check', {
+      VH_LIVE_DEV_FEED_SOURCES_JSON: JSON.stringify([
+        {
+          id: 'washington-examiner-politics',
+          name: 'Washington Examiner Politics',
+          displayName: 'Washington Examiner',
+          rssUrl: 'https://www.washingtonexaminer.com/tag/politics/feed',
+          perspectiveTag: 'conservative',
+          iconKey: 'washington-examiner',
+          enabled: true,
+        },
+      ]),
+    });
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(JSON.parse(appServer.env.VITE_NEWS_FEED_SOURCES)).toEqual([
+      expect.objectContaining({
+        id: 'washington-examiner-politics',
+        rssUrl: 'https://www.washingtonexaminer.com/tag/politics/feed',
+      }),
     ]);
   });
 

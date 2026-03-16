@@ -1,4 +1,4 @@
-type FeedSource = {
+export type FeedSource = {
   readonly id: string;
   readonly name: string;
   readonly displayName: string;
@@ -45,6 +45,49 @@ const LIVE_PROXY_SOURCE_IDS = new Set([
   'usatoday-politics',
   'huffpost-us',
 ]);
+
+function isFeedSource(value: unknown): value is FeedSource {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const source = value as Record<string, unknown>;
+  return typeof source.id === 'string'
+    && source.id.trim().length > 0
+    && typeof source.name === 'string'
+    && source.name.trim().length > 0
+    && typeof source.displayName === 'string'
+    && source.displayName.trim().length > 0
+    && typeof source.rssUrl === 'string'
+    && source.rssUrl.trim().length > 0
+    && typeof source.perspectiveTag === 'string'
+    && source.perspectiveTag.trim().length > 0
+    && typeof source.iconKey === 'string'
+    && source.iconKey.trim().length > 0
+    && typeof source.enabled === 'boolean';
+}
+
+export function readExplicitLiveDevFeedSourcesJson(env = process.env): string | null {
+  if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
+    return null;
+  }
+
+  const raw = env.VH_LIVE_DEV_FEED_SOURCES_JSON?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    const sources = parsed.filter(isFeedSource);
+    return sources.length > 0 ? JSON.stringify(sources) : null;
+  } catch {
+    return null;
+  }
+}
 
 function fixtureFeedBaseUrl(): string {
   return process.env.VH_DAEMON_FEED_FIXTURE_BASE_URL?.trim()
@@ -99,6 +142,11 @@ function resolveLiveFeedSourcesJson(sourceIds: readonly string[]): string {
 }
 
 export function resolveDaemonFeedSourcesJson(): string {
+  const explicit = readExplicitLiveDevFeedSourcesJson(process.env);
+  if (explicit) {
+    return explicit;
+  }
+
   const sourceIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_SOURCE_IDS.join(','))
     .split(',')
     .map((value) => value.trim())

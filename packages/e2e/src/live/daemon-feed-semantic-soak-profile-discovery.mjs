@@ -273,12 +273,13 @@ function readJsonIfExists(filePath, readFile = readFileSync) {
   }
 }
 
-function runSemanticSoakProbe({
+export function runSemanticSoakProbe({
   cwd,
   env,
   profile,
   probeDir,
   probeTimeoutMs,
+  probeEnvOverrides = {},
   spawn,
   mkdir,
   readFile,
@@ -290,6 +291,7 @@ function runSemanticSoakProbe({
     cwd,
     env: {
       ...env,
+      ...probeEnvOverrides,
       VH_DAEMON_FEED_SOAK_SKIP_BUILD: 'true',
       VH_DAEMON_FEED_READY_TIMEOUT_MS: probeTimeoutMs,
       VH_PUBLIC_SEMANTIC_SOAK_SOURCE_PROFILES: profile,

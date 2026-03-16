@@ -259,7 +259,48 @@ function extractPort(url: string): number {
   }
 }
 
+function normalizeExplicitFeedSourcesJson(raw: string | undefined): string | null {
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return null;
+    }
+    const sources = parsed.filter((value) =>
+      value
+      && typeof value === 'object'
+      && typeof value.id === 'string'
+      && value.id.trim().length > 0
+      && typeof value.name === 'string'
+      && value.name.trim().length > 0
+      && typeof value.displayName === 'string'
+      && value.displayName.trim().length > 0
+      && typeof value.rssUrl === 'string'
+      && value.rssUrl.trim().length > 0
+      && typeof value.perspectiveTag === 'string'
+      && value.perspectiveTag.trim().length > 0
+      && typeof value.iconKey === 'string'
+      && value.iconKey.trim().length > 0
+      && typeof value.enabled === 'boolean'
+    );
+    return sources.length > 0 ? JSON.stringify(sources) : null;
+  } catch {
+    return null;
+  }
+}
+
 function resolveDevFeedSourcesJson(): string {
+  if (process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED !== 'true') {
+    const explicit = normalizeExplicitFeedSourcesJson(process.env.VH_LIVE_DEV_FEED_SOURCES_JSON)
+      ?? normalizeExplicitFeedSourcesJson(process.env.VITE_NEWS_FEED_SOURCES);
+    if (explicit) {
+      return explicit;
+    }
+  }
+
   const requestedIds = (process.env.VH_LIVE_DEV_FEED_SOURCE_IDS ?? DEFAULT_SOURCE_IDS.join(','))
     .split(',')
     .map((value) => value.trim())

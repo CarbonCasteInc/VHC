@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { resolveDaemonFeedSourcesJson } from './daemonFeedSources.ts';
+import {
+  readExplicitLiveDevFeedSourcesJson,
+  resolveDaemonFeedSourcesJson,
+} from './daemonFeedSources.ts';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -44,6 +47,83 @@ describe('resolveDaemonFeedSourcesJson', () => {
         rssUrl: 'https://www.cnn.com/politics',
       }),
     ]);
+  });
+
+  it('honors an explicit survey-only source override in live mode', () => {
+    process.env.VH_LIVE_DEV_FEED_SOURCES_JSON = JSON.stringify([
+      {
+        id: 'washington-examiner-politics',
+        name: 'Washington Examiner Politics',
+        displayName: 'Washington Examiner',
+        rssUrl: 'https://www.washingtonexaminer.com/tag/politics/feed',
+        perspectiveTag: 'conservative',
+        iconKey: 'washington-examiner',
+        enabled: true,
+      },
+    ]);
+
+    expect(JSON.parse(resolveDaemonFeedSourcesJson())).toEqual([
+      expect.objectContaining({
+        id: 'washington-examiner-politics',
+        rssUrl: 'https://www.washingtonexaminer.com/tag/politics/feed',
+      }),
+    ]);
+    expect(readExplicitLiveDevFeedSourcesJson()).toBe(
+      JSON.stringify([
+        {
+          id: 'washington-examiner-politics',
+          name: 'Washington Examiner Politics',
+          displayName: 'Washington Examiner',
+          rssUrl: 'https://www.washingtonexaminer.com/tag/politics/feed',
+          perspectiveTag: 'conservative',
+          iconKey: 'washington-examiner',
+          enabled: true,
+        },
+      ]),
+    );
+  });
+
+  it('ignores an explicit live override while fixture mode is active', () => {
+    process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED = 'true';
+    process.env.VH_DAEMON_FEED_FIXTURE_BASE_URL = 'http://127.0.0.1:9988';
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'guardian-us';
+    process.env.VH_LIVE_DEV_FEED_SOURCES_JSON = JSON.stringify([
+      {
+        id: 'washington-examiner-politics',
+        name: 'Washington Examiner Politics',
+        displayName: 'Washington Examiner',
+        rssUrl: 'https://www.washingtonexaminer.com/tag/politics/feed',
+        perspectiveTag: 'conservative',
+        iconKey: 'washington-examiner',
+        enabled: true,
+      },
+    ]);
+
+    expect(readExplicitLiveDevFeedSourcesJson()).toBeNull();
+    expect(JSON.parse(resolveDaemonFeedSourcesJson())).toEqual([
+      expect.objectContaining({
+        id: 'guardian-us',
+        rssUrl: 'http://127.0.0.1:9988/rss/guardian-us',
+      }),
+    ]);
+  });
+
+  it('rejects invalid explicit live overrides and falls back to catalog ids', () => {
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'guardian-us';
+    process.env.VH_LIVE_DEV_FEED_SOURCES_JSON = 'not-json';
+
+    expect(readExplicitLiveDevFeedSourcesJson()).toBeNull();
+    expect(JSON.parse(resolveDaemonFeedSourcesJson())).toEqual([
+      expect.objectContaining({
+        id: 'guardian-us',
+      }),
+    ]);
+
+    process.env.VH_LIVE_DEV_FEED_SOURCES_JSON = JSON.stringify({ id: 'guardian-us' });
+    expect(readExplicitLiveDevFeedSourcesJson()).toBeNull();
+
+    process.env.VH_LIVE_DEV_FEED_SOURCES_JSON = JSON.stringify([null, { id: 'bad' }]);
+    expect(readExplicitLiveDevFeedSourcesJson()).toBeNull();
   });
 
   it('falls back to the full catalog when all requested ids are unknown in live mode', () => {
