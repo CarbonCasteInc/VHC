@@ -29,6 +29,13 @@ describe('daemon-feed-semantic-soak-decision', () => {
       artifactDir: '/tmp/soak',
       summary: {
         executionPosture: { lane: 'public_semantic_soak', evidenceTier: 'smoke_only' },
+        authoritativeCorrectnessGate: {
+          gateId: 'storycluster-primary-correctness-gate-v1',
+          proofMode: 'deterministic_corpus_plus_daemon_first_semantic_gate',
+        },
+        secondaryDistributionTelemetry: {
+          role: 'secondary_distribution_telemetry',
+        },
         promotionAssessment: {
           promotable: false,
           status: 'not_ready',
@@ -46,6 +53,13 @@ describe('daemon-feed-semantic-soak-decision', () => {
       recommendedAction: 'remain_smoke_only',
       recommendedEvidenceTier: 'smoke_only',
       promotionBlockingReasons: ['insufficient_run_count'],
+      authoritativeCorrectnessGate: {
+        gateId: 'storycluster-primary-correctness-gate-v1',
+        proofMode: 'deterministic_corpus_plus_daemon_first_semantic_gate',
+      },
+      secondaryDistributionTelemetry: {
+        role: 'secondary_distribution_telemetry',
+      },
       paths: {
         artifactDir: '/tmp/soak',
         decisionPath: '/tmp/soak/promotion-decision.json',
@@ -84,6 +98,12 @@ describe('daemon-feed-semantic-soak-decision', () => {
       trend: {},
       index: {
         executionPosture: { lane: 'public_semantic_soak', evidenceTier: 'smoke_only' },
+        authoritativeCorrectnessGate: {
+          gateId: 'storycluster-primary-correctness-gate-v1',
+        },
+        secondaryDistributionTelemetry: {
+          role: 'secondary_distribution_telemetry',
+        },
       },
     });
 
@@ -92,6 +112,8 @@ describe('daemon-feed-semantic-soak-decision', () => {
       promotable: false,
       promotionBlockingReasons: ['promotion_assessment_missing'],
       executionPosture: { lane: 'public_semantic_soak', evidenceTier: 'smoke_only' },
+      authoritativeCorrectnessGate: { gateId: 'storycluster-primary-correctness-gate-v1' },
+      secondaryDistributionTelemetry: { role: 'secondary_distribution_telemetry' },
     });
   });
 

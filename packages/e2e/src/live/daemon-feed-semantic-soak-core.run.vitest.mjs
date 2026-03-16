@@ -156,8 +156,12 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"sampleFillRate": 0.5');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"readinessStatus": "not_ready"');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"promotionBlockingReasons"');
+    expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"authoritativeCorrectnessGate"');
+    expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"secondaryDistributionTelemetry"');
     expect(writes.get('/repo/.tmp/out/semantic-soak-trend.json')).toContain('"sampleFillRate": 0.5');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"promotionAssessment"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"combinedGateCommand": "pnpm test:storycluster:correctness"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('/repo/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts');
     expect(logs.some((message) => message.includes('artifact-index'))).toBe(true);
   });
 

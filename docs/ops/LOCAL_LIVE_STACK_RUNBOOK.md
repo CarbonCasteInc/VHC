@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-13
+> Last Reviewed: 2026-03-16
 > Depends On: docs/foundational/STATUS.md, docs/CANON_MAP.md
 
 
@@ -60,13 +60,19 @@ Browser-driven validation is part of distribution-readiness, not an optional add
 Rules:
 
 1. Any lane that changes feed, discovery, storyline navigation, related-coverage presentation, or public semantic evidence must run at least one relevant Playwright/browser command.
-2. StoryCluster semantic/integrity changes must continue to use the daemon-first Playwright gates as the blocking browser proof:
+2. StoryCluster semantic/integrity changes must continue to use the deterministic correctness gate plus the daemon-first semantic gate as the blocking proof:
+   - `pnpm test:storycluster:correctness`
+3. The authoritative correctness-gate inputs are:
+   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
+   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
+   - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
+4. StoryCluster semantic/integrity changes must continue to use the daemon-first Playwright gates as the blocking browser proof:
    - `pnpm test:storycluster:gates`
-3. Public semantic changes must continue to run the non-blocking public smoke lane and retain the artifacts:
+5. Public semantic changes must continue to run the non-blocking public smoke lane and retain the artifacts:
    - `pnpm test:storycluster:smoke`
-4. Browser commands and outcomes must be recorded in the lane evidence note or PR summary.
-5. Unit coverage does not replace browser verification for user-facing feed/discovery/storyline changes.
-6. If a daemon-first Playwright gate fails before browser assertions begin, treat it as an operational readiness failure and capture:
+6. Browser commands and outcomes must be recorded in the lane evidence note or PR summary.
+7. Unit coverage does not replace browser verification for user-facing feed/discovery/storyline changes.
+8. If a daemon-first Playwright gate fails before browser assertions begin, treat it as an operational readiness failure and capture:
    - the exact failing command;
    - the health-timeout or startup error;
    - the trace/log paths from the failed run.
@@ -76,19 +82,20 @@ Rules:
 Use this checklist during manual browser validation:
 
 1. Before merge/release, run `pnpm test:storycluster:gates` from repo root and require a clean pass.
-2. Feed loads with headlines visible.
-3. Scrolling loads older headlines (infinite list behavior).
-4. Pull-to-refresh / refresh button updates list.
-5. Opening a previously analyzed story shows existing analysis.
-6. Per-cell vote states are strictly tri-state per user: `+`, `-`, `none`.
-7. Switching `+` to `-` removes prior state and applies new state.
-8. Analysis persists across tabs/browsers.
-9. Vote aggregates update and persist across users.
-10. Opening storyline focus from the feed writes `?storyline=<id>` into route state and survives reload.
-11. Route-driven storyline focus shows a clear action only.
-12. Feed-opened storyline focus shows explicit `Back` and `Clear storyline` actions, and `Back` returns to the prior route state.
-13. Archive-child selection inside the storyline archive writes route/search state and restores the selected child on reload.
-14. Review the latest public semantic-soak artifact for:
+2. Before merge/release of StoryCluster semantic changes, run `pnpm test:storycluster:correctness` from repo root and require a clean pass.
+3. Feed loads with headlines visible.
+4. Scrolling loads older headlines (infinite list behavior).
+5. Pull-to-refresh / refresh button updates list.
+6. Opening a previously analyzed story shows existing analysis.
+7. Per-cell vote states are strictly tri-state per user: `+`, `-`, `none`.
+8. Switching `+` to `-` removes prior state and applies new state.
+9. Analysis persists across tabs/browsers.
+10. Vote aggregates update and persist across users.
+11. Opening storyline focus from the feed writes `?storyline=<id>` into route state and survives reload.
+12. Route-driven storyline focus shows a clear action only.
+13. Feed-opened storyline focus shows explicit `Back` and `Clear storyline` actions, and `Back` returns to the prior route state.
+14. Archive-child selection inside the storyline archive writes route/search state and restores the selected child on reload.
+15. Review the latest public semantic-soak artifact for:
    - `readinessStatus`
    - `promotionBlockingReasons`
    - `promotionAssessment`
@@ -98,20 +105,25 @@ Use this checklist during manual browser validation:
 Current release-gate split for StoryCluster and feed correctness:
 
 1. Blocking pre-merge / pre-release gate:
+   - `pnpm test:storycluster:correctness`
    - `pnpm test:storycluster:gates`
-2. The blocking gate is sequential and fixture-backed:
+2. The authoritative correctness gate is:
+   - deterministic known-event fixtures in `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
+   - deterministic replay scenarios in `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
+   - served daemon-first semantic audit in `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
+3. The blocking gate is sequential and fixture-backed:
    - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
    - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
-3. These gates still exercise the production stack shape:
+4. These gates still exercise the production stack shape:
    - daemon
    - relay
    - StoryCluster
    - web app
-4. Public semantic validation remains non-blocking smoke:
+5. Public semantic validation remains non-blocking smoke:
    - `pnpm test:storycluster:smoke`
-5. Public smoke failures caused by insufficient auditable live bundles do not block merge/release by themselves; they must still be reviewed as evidence artifacts.
-6. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
-7. Feed/discovery/storyline presentation or navigation changes must also carry at least one relevant Playwright/browser validation command in the lane evidence, even when the fixture-backed gates are unchanged.
+6. Public smoke failures caused by insufficient auditable live bundles do not block merge/release by themselves; they must still be reviewed as secondary distribution telemetry artifacts.
+7. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
+8. Feed/discovery/storyline presentation or navigation changes must also carry at least one relevant Playwright/browser validation command in the lane evidence, even when the fixture-backed gates are unchanged.
 
 ### StoryCluster Replay Evidence Interpretation
 

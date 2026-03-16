@@ -195,9 +195,26 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
     expect(buildReleaseArtifactIndex('/tmp/artifacts', '/tmp/summary.json', '/tmp/trend.json', [
       makeResult({ run: 1, pass: true }),
       makeResult({ run: 2, failureAuditableCount: 0, auditPath: null }),
-    ])).toMatchObject({
-      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v2',
+    ], '/repo')).toMatchObject({
+      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v3',
       executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
+      authoritativeCorrectnessGate: {
+        gateId: 'storycluster-primary-correctness-gate-v1',
+        role: 'primary_correctness_proof',
+        proofMode: 'deterministic_corpus_plus_daemon_first_semantic_gate',
+        authoritativeInputs: {
+          fixtureCorpusPath: '/repo/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts',
+          replayCorpusPath: '/repo/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts',
+          servedSemanticGateSpecPath: '/repo/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts',
+        },
+        commands: {
+          combinedGateCommand: 'pnpm test:storycluster:correctness',
+        },
+      },
+      secondaryDistributionTelemetry: {
+        role: 'secondary_distribution_telemetry',
+        interpretation: 'non_blocking_public_supply_signal',
+      },
       promotionAssessment: {
         promotable: false,
         status: 'not_ready',

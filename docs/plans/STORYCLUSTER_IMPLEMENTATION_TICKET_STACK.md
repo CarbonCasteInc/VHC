@@ -2,9 +2,9 @@
 
 Status: Canonical ticket stack
 Owner: Core Engineering
-Last Updated: 2026-03-13
+Last Updated: 2026-03-16
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `main` @ `15e1599`
+Branch Baseline: `main` @ `d777683`
 
 ## 1. Usage
 
@@ -65,13 +65,14 @@ Completed or functionally in-force:
 
 Active next implementation lane:
 
-1. public semantic-soak promotion/readiness criteria operationalization
+1. StoryCluster correctness-gate sufficiency codification
 2. immediate focus:
-   - turn the current promotion assessment into an explicit release decision surface, not operator inference
-   - keep public semantic runs smoke-only until readiness criteria are truly met
-   - keep canonical bundle rules, canonical source basis, and bias-table basis unchanged
+   - codify the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof
+   - require the daemon-first semantic audit as the served-stack confirmation of that proof
+   - keep public semantic runs smoke-only as secondary distribution telemetry unless they independently earn promotion
+   - make release/readiness artifacts point directly at the authoritative gate inputs, not just generic semantic evidence
 
-Queued after the readiness lane:
+Queued after the correctness-gate lane:
 
 1. browser-first verification hardening for distribution readiness
    - feed/discovery/storyline lanes should carry explicit Playwright/browser validation as part of the evidence contract
@@ -79,7 +80,7 @@ Queued after the readiness lane:
 2. daemon-first browser-gate startup reliability
    - treat `health-timeout:http://127.0.0.1:4302/ready` and similar startup failures as a production-readiness task, not incidental local noise
    - capture traces/logs whenever a gate fails before browser assertions begin
-3. further fixture-corpus and replay-corpus expansion for hard negatives and long-window identity pressure
+3. targeted fixture-corpus and replay-corpus expansion only when a real uncovered event class appears
 4. continued public semantic-soak density/trend improvement until public-feed evidence is strong enough to promote beyond smoke-only status
 
 ## 3. Ticket Stack

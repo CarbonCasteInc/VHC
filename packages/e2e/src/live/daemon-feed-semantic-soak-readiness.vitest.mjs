@@ -19,6 +19,15 @@ describe('daemon-feed-semantic-soak-readiness', () => {
       },
       trend: {},
       index: {
+        authoritativeCorrectnessGate: {
+          gateId: 'storycluster-primary-correctness-gate-v1',
+          commands: {
+            combinedGateCommand: 'pnpm test:storycluster:correctness',
+          },
+        },
+        secondaryDistributionTelemetry: {
+          role: 'secondary_distribution_telemetry',
+        },
         artifactPaths: {
           indexPath: '/repo/.tmp/daemon-feed-semantic-soak/123/release-artifact-index.json',
         },
@@ -34,8 +43,11 @@ describe('daemon-feed-semantic-soak-readiness', () => {
     expect(decision.readinessStatus).toBe('not_ready');
     expect(decision.promotionBlockingReasons).toEqual(['insufficient_sample_fill_rate']);
     expect(decision.recommendedAction).toBe('remain_smoke_only');
+    expect(decision.authoritativeCorrectnessGate.gateId).toBe('storycluster-primary-correctness-gate-v1');
+    expect(decision.secondaryDistributionTelemetry.role).toBe('secondary_distribution_telemetry');
     expect(logs[0]).toContain('"recommendedAction": "remain_smoke_only"');
     expect(writes.get('/repo/.tmp/daemon-feed-semantic-soak/123/promotion-decision.json')).toContain('"readinessStatus": "not_ready"');
+    expect(writes.get('/repo/.tmp/daemon-feed-semantic-soak/123/promotion-decision.json')).toContain('"storycluster-primary-correctness-gate-v1"');
 
     loadSpy.mockRestore();
   });
@@ -55,6 +67,12 @@ describe('daemon-feed-semantic-soak-readiness', () => {
       },
       trend: {},
       index: {
+        authoritativeCorrectnessGate: {
+          gateId: 'storycluster-primary-correctness-gate-v1',
+        },
+        secondaryDistributionTelemetry: {
+          role: 'secondary_distribution_telemetry',
+        },
         artifactPaths: {
           indexPath: '/repo/.tmp/daemon-feed-semantic-soak/custom/release-artifact-index.json',
         },
