@@ -949,4 +949,310 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
       ],
     ],
   },
+  {
+    scenario_id: 'replay-known-event-ap-access-arc',
+    topic_id: 'replay-known-event-ap-access-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'associated_press_access_episode',
+          'ap-press-access-curtailed-replay',
+          "Trump says AP will continue to be curtailed at White House until it changes AP Style's guidance",
+          'ap-access-curtailed-replay-a',
+          1_739_312_235_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/trump-ap-access-oval-office-air-force-one-40bc53fbe6d4ddb706c958d825c9e2d5',
+            canonicalUrl:
+              'https://apnews.com/article/trump-ap-access-oval-office-air-force-one-40bc53fbe6d4ddb706c958d825c9e2d5',
+            entity_keys: [
+              'associated_press_access_episode',
+              'associated_press',
+              'white_house_press_access',
+              'gulf_of_america_naming_dispute',
+              'trevor_mcfadden',
+            ],
+            cluster_text:
+              'The White House said AP access would remain curtailed over the Gulf of America naming dispute, beginning the same Associated Press access case that later brought trial-court and appeals-court rulings.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'associated_press_access_episode',
+          'ap-press-access-reinstated-replay',
+          "AP wins reinstatement to White House events after judge rules government can't bar its journalists",
+          'ap-access-reinstated-replay-b',
+          1_744_146_577_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/ap-trump-gulf-america-white-house-press-access-63c0c6c732ecde1afbeb9ddc4e3b9627',
+            canonicalUrl:
+              'https://apnews.com/article/ap-trump-gulf-america-white-house-press-access-63c0c6c732ecde1afbeb9ddc4e3b9627',
+            entity_keys: [
+              'associated_press_access_episode',
+              'associated_press',
+              'white_house_press_access',
+              'gulf_of_america_naming_dispute',
+              'trevor_mcfadden',
+            ],
+            cluster_text:
+              'A judge ordered AP journalists restored to White House events in the same press-access dispute over the Gulf naming fight.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'associated_press_access_episode',
+          'ap-press-access-enforcement-replay',
+          "Judge won't take further steps, for now, to enforce his order in AP's White House access case against Trump administration",
+          'ap-access-enforcement-replay-c',
+          1_744_996_782_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/ap-trump-white-house-access-gulf-america-a652a1c154866ef05ece5d96f250dcb9',
+            canonicalUrl:
+              'https://apnews.com/article/ap-trump-white-house-access-gulf-america-a652a1c154866ef05ece5d96f250dcb9',
+            entity_keys: [
+              'associated_press_access_episode',
+              'associated_press',
+              'white_house_press_access',
+              'gulf_of_america_naming_dispute',
+              'trevor_mcfadden',
+            ],
+            cluster_text:
+              'The judge later declined further enforcement steps, for now, in the same AP White House access case over the naming dispute.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'associated_press_access_episode',
+          'ap-press-access-appeals-replay',
+          "Appeals court won't reinstate AP access to presidential events amid ongoing dispute over 'Gulf of America'",
+          'ap-access-appeals-replay-d',
+          1_753_231_322_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/ap-trump-gulf-america-white-house-press-6d8a7bb5752b781d650d6edf431e5fd9',
+            canonicalUrl:
+              'https://apnews.com/article/ap-trump-gulf-america-white-house-press-6d8a7bb5752b781d650d6edf431e5fd9',
+            entity_keys: [
+              'associated_press_access_episode',
+              'associated_press',
+              'white_house_press_access',
+              'gulf_of_america_naming_dispute',
+              'trevor_mcfadden',
+            ],
+            cluster_text:
+              'An appeals court later refused to reinstate AP access to presidential events in the same White House press-access litigation over Gulf of America terminology.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-cfpb-dismantling-arc',
+    topic_id: 'replay-known-event-cfpb-dismantling-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'cfpb_dismantling_episode',
+          'ap-cfpb-chaos-replay',
+          'Federal official recounts chaos inside consumer agency after Trump fired its director',
+          'cfpb-chaos-replay-a',
+          1_741_638_801_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/cfpb-trump-firing-employee-testimony-980ed7ce6a35300b0bd9b05e1aa3976f',
+            canonicalUrl:
+              'https://apnews.com/article/cfpb-trump-firing-employee-testimony-980ed7ce6a35300b0bd9b05e1aa3976f',
+            entity_keys: [
+              'cfpb_dismantling_episode',
+              'consumer_financial_protection_bureau',
+              'russell_vought',
+              'amy_berman_jackson',
+              'cfpb_shutdown_push',
+            ],
+            cluster_text:
+              'A federal official described chaos inside the CFPB after the administration fired its director, part of the same dismantling push that later triggered injunctions against layoffs and defunding.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'cfpb_dismantling_episode',
+          'ap-cfpb-blocks-dismantling-replay',
+          'Federal judge blocks Trump from dismantling consumer watchdog CFPB',
+          'cfpb-blocks-dismantling-replay-b',
+          1_743_194_873_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/consumer-finance-protection-bureau-trump-musk-layoffs-00b1587f5d461d9daac42f017290bcfb',
+            canonicalUrl:
+              'https://apnews.com/article/consumer-finance-protection-bureau-trump-musk-layoffs-00b1587f5d461d9daac42f017290bcfb',
+            entity_keys: [
+              'cfpb_dismantling_episode',
+              'consumer_financial_protection_bureau',
+              'russell_vought',
+              'amy_berman_jackson',
+              'cfpb_shutdown_push',
+            ],
+            cluster_text:
+              'A judge blocked the administration from dismantling the CFPB in the same shutdown-and-layoffs legal fight over the consumer watchdog.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'cfpb_dismantling_episode',
+          'ap-cfpb-pauses-layoffs-replay',
+          'Judge pauses mass layoffs at consumer protection agency CFPB',
+          'cfpb-pauses-layoffs-replay-c',
+          1_744_992_255_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/consumer-finance-protection-bureau-layoffs-judge-order-8666bd2f7854a1d2abaf93388f118608',
+            canonicalUrl:
+              'https://apnews.com/article/consumer-finance-protection-bureau-layoffs-judge-order-8666bd2f7854a1d2abaf93388f118608',
+            entity_keys: [
+              'cfpb_dismantling_episode',
+              'consumer_financial_protection_bureau',
+              'russell_vought',
+              'amy_berman_jackson',
+              'cfpb_shutdown_push',
+            ],
+            cluster_text:
+              'The court later paused mass layoffs at the CFPB in the same dismantling case over whether the agency could be hollowed out.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'cfpb_dismantling_episode',
+          'ap-cfpb-blocks-defunding-replay',
+          'Judge blocks Trump administration from effectively defunding consumer protection agency',
+          'cfpb-blocks-defunding-replay-d',
+          1_767_113_974_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/trump-cfpb-defund-consumer-watchdog-judge-f967453f65f161ad63ea6d32ec80498f',
+            canonicalUrl:
+              'https://apnews.com/article/trump-cfpb-defund-consumer-watchdog-judge-f967453f65f161ad63ea6d32ec80498f',
+            entity_keys: [
+              'cfpb_dismantling_episode',
+              'consumer_financial_protection_bureau',
+              'russell_vought',
+              'amy_berman_jackson',
+              'cfpb_shutdown_push',
+            ],
+            cluster_text:
+              'The judge later blocked efforts to effectively defund the CFPB in the same ongoing dismantling episode over layoffs, shutdown, and agency survival.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-birthright-citizenship-order-arc',
+    topic_id: 'replay-known-event-birthright-citizenship-order-arc',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_order_episode',
+          'ap-birthright-fourth-judge-replay',
+          "A 4th federal judge blocks Trump's executive order seeking to end birthright citizenship",
+          'birthright-fourth-judge-replay-a',
+          1_739_481_602_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/trump-birthright-citizenship-executive-order-b95ec1d7a3fd95ebcd2d12bdf52f0c71',
+            canonicalUrl:
+              'https://apnews.com/article/trump-birthright-citizenship-executive-order-b95ec1d7a3fd95ebcd2d12bdf52f0c71',
+            entity_keys: [
+              'birthright_citizenship_order_episode',
+              'birthright_citizenship_order',
+              'fourteenth_amendment',
+              'trump_executive_order',
+              'federal_injunctions',
+            ],
+            cluster_text:
+              'A fourth federal judge blocked the birthright-citizenship executive order, beginning the same ongoing litigation over whether Trump could end automatic citizenship by executive action.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_order_episode',
+          'ap-birthright-appeals-court-replay',
+          "Appeals court won't lift block on Trump's executive order attempting to end birthright citizenship",
+          'birthright-appeals-court-replay-b',
+          1_741_724_144_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/trump-birthright-citizenship-appeal-f1c61e1f0e8a133bf094ae6f35cabcc7',
+            canonicalUrl:
+              'https://apnews.com/article/trump-birthright-citizenship-appeal-f1c61e1f0e8a133bf094ae6f35cabcc7',
+            entity_keys: [
+              'birthright_citizenship_order_episode',
+              'birthright_citizenship_order',
+              'fourteenth_amendment',
+              'trump_executive_order',
+              'federal_injunctions',
+            ],
+            cluster_text:
+              'An appeals court refused to lift an injunction against the same birthright-citizenship order in the continuing legal fight over executive power and the Fourteenth Amendment.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_order_episode',
+          'ap-birthright-new-hampshire-replay',
+          'New Hampshire judge pauses President Donald Trump birthright citizenship order nationwide',
+          'birthright-new-hampshire-replay-c',
+          1_752_120_085_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/trump-birthright-citizenship-order-federal-judge-c74f229f8fdaf71400530ad6cc3b346e',
+            canonicalUrl:
+              'https://apnews.com/article/trump-birthright-citizenship-order-federal-judge-c74f229f8fdaf71400530ad6cc3b346e',
+            entity_keys: [
+              'birthright_citizenship_order_episode',
+              'birthright_citizenship_order',
+              'fourteenth_amendment',
+              'trump_executive_order',
+              'federal_injunctions',
+            ],
+            cluster_text:
+              'A New Hampshire judge later paused the same birthright-citizenship order nationwide through a class action, extending the same ongoing litigation over the executive order.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_order_episode',
+          'ap-birthright-remains-blocked-replay',
+          "Trump's birthright citizenship order remains blocked as lawsuits march on after Supreme Court ruling",
+          'birthright-remains-blocked-replay-d',
+          1_752_858_510_000,
+          {
+            publisher: 'AP News',
+            url: 'https://apnews.com/article/trump-birthright-citizenship-lawsuits-supreme-court-b5cd136a3803ce7f5f1a66f9ec27f2b8',
+            canonicalUrl:
+              'https://apnews.com/article/trump-birthright-citizenship-lawsuits-supreme-court-b5cd136a3803ce7f5f1a66f9ec27f2b8',
+            entity_keys: [
+              'birthright_citizenship_order_episode',
+              'birthright_citizenship_order',
+              'fourteenth_amendment',
+              'trump_executive_order',
+              'federal_injunctions',
+            ],
+            cluster_text:
+              'The order remained blocked as lawsuits continued after the Supreme Court ruling, part of the same ongoing birthright-citizenship litigation over Trump’s executive order.',
+          },
+        ),
+      ],
+    ],
+  },
 ];

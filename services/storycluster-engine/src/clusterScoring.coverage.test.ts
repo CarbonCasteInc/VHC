@@ -71,6 +71,21 @@ function makeCluster(document: WorkingDocument) {
   return deriveClusterRecord(topicState, 'topic-news', [toStoredSource(document, document.source_variants[0]!)], 'story-a');
 }
 
+function makeClusterFromDocuments(documents: WorkingDocument[]) {
+  const topicState: StoredTopicState = {
+    schema_version: 'storycluster-state-v1',
+    topic_id: 'topic-news',
+    next_cluster_seq: 1,
+    clusters: [],
+  };
+  return deriveClusterRecord(
+    topicState,
+    'topic-news',
+    documents.map((document) => toStoredSource(document, document.source_variants[0]!)),
+    'story-a',
+  );
+}
+
 describe('clusterScoring coverage', () => {
   it('marks category-conflict candidates as event conflicts when they lack canonical entity support', () => {
     const cluster = makeCluster(makeWorkingDocument({
@@ -342,5 +357,114 @@ describe('clusterScoring coverage', () => {
     });
 
     expect(candidateEligible(candidate, cluster)).toBe(true);
+  });
+
+  it('keeps year-scale legal dismantling episodes eligible when the canonical entity spine remains strong', () => {
+    const cluster = makeClusterFromDocuments([
+      makeWorkingDocument({
+        doc_id: 'doc-cfpb-a',
+        source_id: 'ap-cfpb-chaos',
+        title: 'Federal official recounts chaos inside consumer agency after Trump fired its director',
+        summary: 'A federal official recounts chaos inside the CFPB after the administration fired its director.',
+        raw_text: 'A federal official recounts chaos inside the CFPB after the administration fired its director.',
+        normalized_text: 'federal official recounts chaos inside cfpb after administration fired its director',
+        translated_text: 'A federal official recounts chaos inside the CFPB after the administration fired its director.',
+        published_at: 1_741_638_801_000,
+        temporal_ms: 1_741_638_801_000,
+        entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+        linked_entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+        locations: ['washington'],
+        trigger: 'fired',
+        event_tuple: {
+          description: 'A federal official recounts chaos inside the CFPB after the administration fired its director.',
+          trigger: 'fired',
+          who: ['consumer_financial_protection_bureau'],
+          where: ['washington'],
+          when_ms: 1_741_638_801_000,
+          outcome: 'The agency faces operational chaos.',
+        },
+        coarse_vector: [0.91, 0.09],
+        full_vector: [0.91, 0.09],
+      }),
+      makeWorkingDocument({
+        doc_id: 'doc-cfpb-b',
+        source_id: 'ap-cfpb-block',
+        title: 'Federal judge blocks Trump from dismantling consumer watchdog CFPB',
+        summary: 'A judge blocks the administration from dismantling the CFPB.',
+        raw_text: 'A judge blocks the administration from dismantling the CFPB in the same shutdown-and-layoffs legal fight.',
+        normalized_text: 'judge blocks administration dismantling cfpb same shutdown layoffs legal fight',
+        translated_text: 'A judge blocks the administration from dismantling the CFPB in the same shutdown-and-layoffs legal fight.',
+        published_at: 1_743_194_873_000,
+        temporal_ms: 1_743_194_873_000,
+        entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+        linked_entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+        locations: ['washington'],
+        trigger: 'blocked',
+        event_tuple: {
+          description: 'A judge blocks the administration from dismantling the CFPB.',
+          trigger: 'blocked',
+          who: ['consumer_financial_protection_bureau'],
+          where: ['washington'],
+          when_ms: 1_743_194_873_000,
+          outcome: 'The dismantling plan is blocked.',
+        },
+        coarse_vector: [0.9, 0.1],
+        full_vector: [0.9, 0.1],
+      }),
+      makeWorkingDocument({
+        doc_id: 'doc-cfpb-c',
+        source_id: 'ap-cfpb-layoffs',
+        title: 'Judge pauses mass layoffs at consumer protection agency CFPB',
+        summary: 'The court pauses mass layoffs at the CFPB.',
+        raw_text: 'The court pauses mass layoffs at the CFPB in the same dismantling case over whether the agency could be hollowed out.',
+        normalized_text: 'court pauses mass layoffs cfpb same dismantling case agency hollowed out',
+        translated_text: 'The court pauses mass layoffs at the CFPB in the same dismantling case over whether the agency could be hollowed out.',
+        published_at: 1_744_992_255_000,
+        temporal_ms: 1_744_992_255_000,
+        entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+        linked_entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+        locations: ['washington'],
+        trigger: 'paused',
+        event_tuple: {
+          description: 'The court pauses mass layoffs at the CFPB.',
+          trigger: 'paused',
+          who: ['consumer_financial_protection_bureau'],
+          where: ['washington'],
+          when_ms: 1_744_992_255_000,
+          outcome: 'Mass layoffs are paused.',
+        },
+        coarse_vector: [0.9, 0.1],
+        full_vector: [0.9, 0.1],
+      }),
+    ]);
+
+    const followup = makeWorkingDocument({
+      doc_id: 'doc-cfpb-b',
+      source_id: 'ap-cfpb-defunding',
+      title: 'Judge blocks Trump administration from effectively defunding consumer protection agency',
+      summary: 'The judge blocks a move to effectively defund the CFPB.',
+      raw_text: 'The judge blocks a move to effectively defund the CFPB in the same dismantling case over layoffs and shutdown.',
+      normalized_text: 'judge blocks move effectively defund cfpb same dismantling case layoffs shutdown',
+      translated_text: 'The judge blocks a move to effectively defund the CFPB in the same dismantling case over layoffs and shutdown.',
+      published_at: 1_767_113_974_000,
+      temporal_ms: 1_767_113_974_000,
+      entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+      linked_entities: ['cfpb_dismantling_episode', 'consumer_financial_protection_bureau', 'russell_vought', 'amy_berman_jackson', 'cfpb_shutdown_push'],
+      locations: ['washington'],
+      trigger: 'blocked',
+      event_tuple: {
+        description: 'The judge blocks a move to effectively defund the CFPB in the same dismantling case.',
+        trigger: 'blocked',
+        who: ['consumer_financial_protection_bureau'],
+        where: ['washington'],
+        when_ms: 1_767_113_974_000,
+        outcome: 'The CFPB funding remains in place.',
+      },
+      coarse_vector: [0.9, 0.1],
+      full_vector: [0.9, 0.1],
+    });
+
+    expect(candidateEligible(followup, cluster)).toBe(true);
+    expect(buildCandidateMatch(followup, cluster).adjudication).toBe('accepted');
   });
 });

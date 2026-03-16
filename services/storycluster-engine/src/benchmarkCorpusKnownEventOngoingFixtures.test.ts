@@ -23,6 +23,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-voice-of-america',
       'fixture-known-event-ongoing-harvard-foreign-students',
       'fixture-known-event-ongoing-yunseo-chung',
+      'fixture-known-event-ongoing-ap-access',
+      'fixture-known-event-ongoing-cfpb-dismantling',
+      'fixture-known-event-ongoing-birthright-citizenship-order',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -55,6 +58,15 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-harvard-ban-vs-extension',
       'known-event-ongoing-harvard-extension-vs-hosting-order',
       'known-event-ongoing-chung-lawsuit-vs-detention-order',
+      'known-event-ongoing-ap-access-curtailed-vs-reinstated',
+      'known-event-ongoing-ap-access-reinstated-vs-enforcement',
+      'known-event-ongoing-ap-access-enforcement-vs-appeals',
+      'known-event-ongoing-cfpb-chaos-vs-block',
+      'known-event-ongoing-cfpb-block-vs-layoffs',
+      'known-event-ongoing-cfpb-layoffs-vs-defunding',
+      'known-event-ongoing-birthright-fourth-judge-vs-appeal',
+      'known-event-ongoing-birthright-appeal-vs-new-hampshire',
+      'known-event-ongoing-birthright-new-hampshire-vs-remains-blocked',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -81,6 +93,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-voice-of-america-arc',
         'replay-known-event-harvard-foreign-students-arc',
         'replay-known-event-yunseo-chung-arc',
+        'replay-known-event-ap-access-arc',
+        'replay-known-event-cfpb-dismantling-arc',
+        'replay-known-event-birthright-citizenship-order-arc',
       ]),
     );
   });
