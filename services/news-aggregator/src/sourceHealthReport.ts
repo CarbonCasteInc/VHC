@@ -14,6 +14,12 @@ export const SOURCE_HEALTH_REPORT_SCHEMA_VERSION =
 export type SourceHealthDecision = 'keep' | 'watch' | 'remove';
 export type SourceHealthReadinessStatus = 'ready' | 'review' | 'blocked';
 
+export interface SourceHealthRuntimePolicy {
+  readonly enabledSourceIds: readonly string[];
+  readonly watchSourceIds: readonly string[];
+  readonly removeSourceIds: readonly string[];
+}
+
 export interface SourceHealthSourceReport {
   readonly sourceId: string;
   readonly sourceName: string;
@@ -43,6 +49,7 @@ export interface SourceHealthReport {
   readonly keepSourceIds: readonly string[];
   readonly watchSourceIds: readonly string[];
   readonly removeSourceIds: readonly string[];
+  readonly runtimePolicy: SourceHealthRuntimePolicy;
   readonly sources: readonly SourceHealthSourceReport[];
   readonly paths: {
     readonly artifactDir: string;
@@ -115,6 +122,22 @@ function buildDecision(source: SourceAdmissionSourceReport): SourceHealthSourceR
   };
 }
 
+export function buildSourceHealthRuntimePolicy(
+  sources: readonly SourceHealthSourceReport[],
+): SourceHealthRuntimePolicy {
+  return {
+    enabledSourceIds: sources
+      .filter((source) => source.decision !== 'remove')
+      .map((source) => source.sourceId),
+    watchSourceIds: sources
+      .filter((source) => source.decision === 'watch')
+      .map((source) => source.sourceId),
+    removeSourceIds: sources
+      .filter((source) => source.decision === 'remove')
+      .map((source) => source.sourceId),
+  };
+}
+
 export function buildSourceHealthReport(
   admissionReport: SourceAdmissionReport,
   options: {
@@ -141,6 +164,7 @@ export function buildSourceHealthReport(
   const removeSourceIds = sources
     .filter((source) => source.decision === 'remove')
     .map((source) => source.sourceId);
+  const runtimePolicy = buildSourceHealthRuntimePolicy(sources);
 
   const readinessStatus: SourceHealthReadinessStatus =
     removeSourceIds.length > 0 ? 'blocked' : watchSourceIds.length > 0 ? 'review' : 'ready';
@@ -159,6 +183,7 @@ export function buildSourceHealthReport(
     keepSourceIds,
     watchSourceIds,
     removeSourceIds,
+    runtimePolicy,
     sources,
     paths: {
       artifactDir,
@@ -239,7 +264,7 @@ function isDirectExecution(): boolean {
   return fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 }
 
-/* c8 ignore next 12 */
+/* c8 ignore start */
 async function main(): Promise<void> {
   const artifact = await writeSourceHealthArtifact();
   console.info('[vh:news-source-health] report written', {
@@ -247,6 +272,7 @@ async function main(): Promise<void> {
     admissionReportPath: artifact.admissionReportPath,
     sourceHealthReportPath: artifact.sourceHealthReportPath,
     readinessStatus: artifact.sourceHealthReport.readinessStatus,
+    enabledSourceIds: artifact.sourceHealthReport.runtimePolicy.enabledSourceIds,
     keepSourceIds: artifact.sourceHealthReport.keepSourceIds,
     watchSourceIds: artifact.sourceHealthReport.watchSourceIds,
     removeSourceIds: artifact.sourceHealthReport.removeSourceIds,
@@ -257,9 +283,11 @@ async function main(): Promise<void> {
 if (isDirectExecution()) {
   await main();
 }
+/* c8 ignore stop */
 
 export const sourceHealthReportInternal = {
   buildDecision,
+  buildSourceHealthRuntimePolicy,
   hasLifecycleInstability,
   isDirectExecution,
 };

@@ -696,6 +696,283 @@ describe('ensureNewsRuntimeStarted', () => {
     expect(fetchMock.mock.calls.length).toBe(callsAfterFirstRun);
   });
 
+  it('removes sources marked remove by source health policy before runtime start', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('window', {
+      location: { origin: 'http://127.0.0.1:2048' },
+      __VH_NEWS_SOURCE_HEALTH_REPORT: {
+        readinessStatus: 'blocked',
+        recommendedAction: 'prune_remove_candidates',
+        runtimePolicy: {
+          enabledSourceIds: ['source-a'],
+          watchSourceIds: [],
+          removeSourceIds: ['source-b'],
+        },
+      },
+    });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-remove-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a']);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health removed feed sources',
+      expect.objectContaining({
+        removedConfiguredSourceIds: ['source-b'],
+        retainedSourceIds: ['source-a'],
+      }),
+    );
+  });
+
+  it('keeps watchlisted sources and logs the active watchlist summary', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubGlobal('window', {
+      location: { origin: 'http://127.0.0.1:2048' },
+      __VH_NEWS_SOURCE_HEALTH_REPORT: {
+        readinessStatus: 'review',
+        recommendedAction: 'review_watchlist',
+        runtimePolicy: {
+          enabledSourceIds: ['source-a', 'source-b'],
+          watchSourceIds: ['source-b'],
+          removeSourceIds: [],
+        },
+      },
+    });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-watch-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a', 'source-b']);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health watchlist active',
+      expect.objectContaining({
+        watchSourceIds: ['source-b'],
+        retainedSourceIds: ['source-a', 'source-b'],
+      }),
+    );
+  });
+
+  it('can disable source health enforcement while still surfacing the policy summary', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubGlobal('window', {
+      location: { origin: 'http://127.0.0.1:2048' },
+      __VH_NEWS_SOURCE_HEALTH_REPORT: {
+        readinessStatus: 'blocked',
+        recommendedAction: 'prune_remove_candidates',
+        runtimePolicy: {
+          enabledSourceIds: ['source-a'],
+          watchSourceIds: [],
+          removeSourceIds: ['source-b'],
+        },
+      },
+    });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_SOURCE_HEALTH_ENFORCEMENT', 'false');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-disabled-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a', 'source-b']);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health watchlist active',
+      expect.objectContaining({
+        enforcement: 'disabled',
+        removedConfiguredSourceIds: [],
+        retainedSourceIds: ['source-a', 'source-b'],
+        unclassifiedSourceIds: ['source-b'],
+      }),
+    );
+  });
+
+  it('ignores malformed source health JSON overrides and leaves feed sources unchanged', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_SOURCE_HEALTH_REPORT_JSON', '{invalid-json');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-invalid-json-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a', 'source-b']);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] invalid source health report JSON',
+      expect.anything(),
+    );
+  });
+
+  it('ignores source health overrides that do not classify any sources', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_SOURCE_HEALTH_REPORT_JSON',
+      JSON.stringify({
+        readinessStatus: 'review',
+        recommendedAction: 'review_watchlist',
+        runtimePolicy: {},
+      }),
+    );
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-empty-policy-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a']);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health report override did not contain any source ids',
+    );
+  });
+
+  it('ignores source health overrides that parse to a non-object value', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv('VITE_NEWS_SOURCE_HEALTH_REPORT_JSON', JSON.stringify(1));
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-non-object-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a']);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health report override was not an object',
+    );
+  });
+
+  it('logs a ready summary when all retained sources are enabled and no watchlist is active', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubGlobal('window', {
+      location: { origin: 'http://127.0.0.1:2048' },
+      __VH_NEWS_SOURCE_HEALTH_REPORT: {
+        readinessStatus: 'ready',
+        recommendedAction: 'starter_surface_ready',
+        runtimePolicy: {
+          enabledSourceIds: ['source-a', 'source-b'],
+          watchSourceIds: [],
+          removeSourceIds: [],
+        },
+      },
+    });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-ready-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a', 'source-b']);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health ready',
+      expect.objectContaining({
+        enforcement: 'enabled',
+        retainedSourceIds: ['source-a', 'source-b'],
+        watchSourceIds: [],
+        removedConfiguredSourceIds: [],
+        unclassifiedSourceIds: [],
+      }),
+    );
+  });
+
+  it('falls back to top-level policy fields when runtimePolicy is malformed', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
+    vi.stubEnv('VITE_NEWS_RUNTIME_ENABLED', 'true');
+    vi.stubEnv(
+      'VITE_NEWS_SOURCE_HEALTH_REPORT_JSON',
+      JSON.stringify({
+        readinessStatus: 1,
+        recommendedAction: false,
+        keepSourceIds: ['source-a'],
+        watchSourceIds: ['source-b'],
+        removeSourceIds: ['source-c'],
+        runtimePolicy: 'invalid',
+      }),
+    );
+    vi.stubEnv(
+      'VITE_NEWS_FEED_SOURCES',
+      JSON.stringify([
+        { id: 'source-a', name: 'Source A', rssUrl: 'https://a.example/rss', enabled: true },
+        { id: 'source-b', name: 'Source B', rssUrl: 'https://b.example/rss', enabled: true },
+        { id: 'source-c', name: 'Source C', rssUrl: 'https://c.example/rss', enabled: true },
+      ]),
+    );
+
+    await ensureNewsRuntimeStarted({ id: 'source-health-top-level-policy-client' } as any);
+
+    const runtimeConfig = startNewsRuntimeMock.mock.calls[0]?.[0] as {
+      feedSources: Array<{ id: string }>;
+    };
+    expect(runtimeConfig.feedSources.map((source) => source.id)).toEqual(['source-a', 'source-b']);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] source health removed feed sources',
+      expect.objectContaining({
+        readinessStatus: null,
+        recommendedAction: null,
+        watchSourceIds: ['source-b'],
+        removedConfiguredSourceIds: ['source-c'],
+      }),
+    );
+  });
+
   it('enables reliability gating by default when MODE is non-test and gate env is unset', async () => {
     vi.stubGlobal('window', { location: { origin: 'http://127.0.0.1:2048' } });
     vi.stubEnv('MODE', 'development');

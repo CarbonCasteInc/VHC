@@ -22,6 +22,29 @@ const DEFAULT_TOPIC_MAPPING: TopicMapping = {
 };
 
 type NewsRuntimeRole = 'auto' | 'ingester' | 'consumer';
+type SourceHealthEnforcementMode = 'enabled' | 'disabled';
+
+interface RuntimeSourceHealthPolicy {
+  readonly enabledSourceIds: readonly string[];
+  readonly watchSourceIds: readonly string[];
+  readonly removeSourceIds: readonly string[];
+}
+
+interface RuntimeSourceHealthReport {
+  readonly readinessStatus: string | null;
+  readonly recommendedAction: string | null;
+  readonly runtimePolicy: RuntimeSourceHealthPolicy;
+}
+
+interface RuntimeSourceHealthSummary {
+  readonly enforcement: SourceHealthEnforcementMode;
+  readonly readinessStatus: string | null;
+  readonly recommendedAction: string | null;
+  readonly retainedSourceIds: readonly string[];
+  readonly watchSourceIds: readonly string[];
+  readonly removedConfiguredSourceIds: readonly string[];
+  readonly unclassifiedSourceIds: readonly string[];
+}
 
 let runtimeHandle: NewsRuntimeHandle | null = null;
 let runtimeClient: VennClient | null = null;
@@ -352,6 +375,142 @@ function parseReliabilityGateEnabled(): boolean {
   return parseBooleanFlag(readEnvVar('VITE_NEWS_SOURCE_RELIABILITY_GATE'), defaultEnabled);
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function parseSourceHealthReport(): RuntimeSourceHealthReport | null {
+  const globalOverride = readGlobalFlag('__VH_NEWS_SOURCE_HEALTH_REPORT');
+  const envOverride = readEnvVar('VITE_NEWS_SOURCE_HEALTH_REPORT_JSON');
+  const raw = globalOverride ?? envOverride;
+  if (!raw) {
+    return null;
+  }
+
+  let parsed: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch (error) {
+      console.warn('[vh:news-runtime] invalid source health report JSON', error);
+      return null;
+    }
+  }
+
+  if (!isRecord(parsed)) {
+    console.warn('[vh:news-runtime] source health report override was not an object');
+    return null;
+  }
+
+  const runtimePolicyNode = isRecord(parsed.runtimePolicy) ? parsed.runtimePolicy : parsed;
+  const watchSourceIds = normalizeStringArray(
+    runtimePolicyNode.watchSourceIds ?? parsed.watchSourceIds,
+  );
+  const removeSourceIds = normalizeStringArray(
+    runtimePolicyNode.removeSourceIds ?? parsed.removeSourceIds,
+  );
+  const explicitEnabledSourceIds = normalizeStringArray(
+    runtimePolicyNode.enabledSourceIds ?? parsed.enabledSourceIds,
+  );
+  const keepSourceIds = normalizeStringArray(parsed.keepSourceIds);
+  const enabledSourceIds =
+    explicitEnabledSourceIds.length > 0
+      ? explicitEnabledSourceIds
+      : Array.from(new Set([...keepSourceIds, ...watchSourceIds])).sort();
+
+  if (
+    enabledSourceIds.length === 0
+    && watchSourceIds.length === 0
+    && removeSourceIds.length === 0
+  ) {
+    console.warn('[vh:news-runtime] source health report override did not contain any source ids');
+    return null;
+  }
+
+  return {
+    readinessStatus:
+      typeof parsed.readinessStatus === 'string' ? parsed.readinessStatus : null,
+    recommendedAction:
+      typeof parsed.recommendedAction === 'string' ? parsed.recommendedAction : null,
+    runtimePolicy: {
+      enabledSourceIds,
+      watchSourceIds,
+      removeSourceIds,
+    },
+  };
+}
+
+function applySourceHealthPolicy(feedSources: FeedSource[]): {
+  readonly feedSources: FeedSource[];
+  readonly summary: RuntimeSourceHealthSummary | null;
+} {
+  if (feedSources.length === 0) {
+    return { feedSources, summary: null };
+  }
+
+  const report = parseSourceHealthReport();
+  if (!report) {
+    return { feedSources, summary: null };
+  }
+
+  const enforcement = parseBooleanFlag(
+    readEnvVar('VITE_NEWS_SOURCE_HEALTH_ENFORCEMENT'),
+    true,
+  )
+    ? 'enabled'
+    : 'disabled';
+  const enabledSet = new Set(report.runtimePolicy.enabledSourceIds);
+  const watchSet = new Set(report.runtimePolicy.watchSourceIds);
+  const removeSet = new Set(report.runtimePolicy.removeSourceIds);
+  const removedConfiguredSourceIds: string[] = [];
+
+  const retainedSources =
+    enforcement === 'enabled'
+      ? feedSources.filter((source) => {
+          if (removeSet.has(source.id)) {
+            removedConfiguredSourceIds.push(source.id);
+            return false;
+          }
+          return true;
+        })
+      : feedSources;
+
+  const retainedSourceIds = retainedSources.map((source) => source.id);
+  const unclassifiedSourceIds = retainedSourceIds.filter(
+    (sourceId) => !enabledSet.has(sourceId) && !watchSet.has(sourceId),
+  );
+  const summary: RuntimeSourceHealthSummary = {
+    enforcement,
+    readinessStatus: report.readinessStatus,
+    recommendedAction: report.recommendedAction,
+    retainedSourceIds,
+    watchSourceIds: retainedSourceIds.filter((sourceId) => watchSet.has(sourceId)),
+    removedConfiguredSourceIds,
+    unclassifiedSourceIds,
+  };
+
+  if (enforcement === 'enabled' && removedConfiguredSourceIds.length > 0) {
+    console.warn('[vh:news-runtime] source health removed feed sources', summary);
+  } else if (summary.watchSourceIds.length > 0 || summary.unclassifiedSourceIds.length > 0) {
+    console.info('[vh:news-runtime] source health watchlist active', summary);
+  } else {
+    console.info('[vh:news-runtime] source health ready', summary);
+  }
+
+  return { feedSources: retainedSources, summary };
+}
+
 async function fetchText(url: string): Promise<string | null> {
   try {
     const response = await fetch(url);
@@ -520,9 +679,10 @@ export async function ensureNewsRuntimeStarted(client: VennClient): Promise<void
     }
 
     const parsedFeedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
+    const sourceHealthResult = applySourceHealthPolicy(parsedFeedSources);
     const reliableSources = parseReliabilityGateEnabled()
-      ? await filterFeedSourcesByReliability(parsedFeedSources)
-      : parsedFeedSources;
+      ? await filterFeedSourcesByReliability(sourceHealthResult.feedSources)
+      : sourceHealthResult.feedSources;
 
     // Rewrite rssUrl to same-origin proxy to avoid browser CORS blocks.
     // The runtime validates feedSources with a URL schema, so use absolute proxy URLs.
