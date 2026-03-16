@@ -195,7 +195,16 @@ function hasLongWindowContinuitySupport(
   if (eventFrame.hardReject || !withinOngoingEventWindow(document, cluster)) {
     return false;
   }
-  if (hasTriggerCategoryConflict(document, cluster)) {
+  const categoryConflict = hasTriggerCategoryConflict(document, cluster);
+  if (
+    categoryConflict &&
+    !(
+      specificCanonicalScore >= 0.75 &&
+      canonicalScore >= 0.75 &&
+      lexical >= 0.08 &&
+      eventFrame.score >= 0.24
+    )
+  ) {
     return false;
   }
   return (
@@ -226,6 +235,12 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     lexical,
     eventFrame,
   );
+  const strongOngoingContinuityOverride =
+    categoryConflict &&
+    longWindowContinuity &&
+    specificCanonicalScore >= 0.75 &&
+    canonicalScore >= 0.75 &&
+    location >= 0.45;
   const prefilter =
     coarseVectorScore * 0.22 +
     entityScore * 0.14 +
@@ -263,18 +278,22 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     reason = 'high-confidence';
   } else if (
     specificCanonicalScore >= 0.5 &&
-    (time >= 0.25 || longWindowContinuity) &&
+    (time >= 0.25 || longWindowContinuity || strongOngoingContinuityOverride) &&
     eventFrame.score >= 0.3 &&
-    !categoryConflict &&
+    (!categoryConflict || strongOngoingContinuityOverride) &&
     /* v8 ignore next 4 -- triggerScore cannot evaluate false while categoryConflict is false */
     (
       trigger >= 0.5 ||
+      strongOngoingContinuityOverride ||
       (actor >= 0.55 && location >= 0.45) ||
       (document.language !== cluster.primary_language && actor >= 0.35)
     )
   ) {
     adjudication = 'accepted';
-    reason = longWindowContinuity && time < 0.25 ? 'ongoing-canonical-match' : 'canonical-entity-match';
+    reason =
+      (longWindowContinuity || strongOngoingContinuityOverride) && time < 0.25
+        ? 'ongoing-canonical-match'
+        : 'canonical-entity-match';
   } else if (
     rerank >= REVIEW_THRESHOLD &&
     eventFrame.score >= 0.22 &&

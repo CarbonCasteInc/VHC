@@ -26,6 +26,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-ap-access',
       'fixture-known-event-ongoing-cfpb-dismantling',
       'fixture-known-event-ongoing-birthright-citizenship-order',
+      'fixture-known-event-ongoing-key-bridge-collapse',
+      'fixture-known-event-ongoing-dc-midair-collision',
+      'fixture-known-event-ongoing-air-india-crash',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -67,6 +70,15 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-birthright-fourth-judge-vs-appeal',
       'known-event-ongoing-birthright-appeal-vs-new-hampshire',
       'known-event-ongoing-birthright-new-hampshire-vs-remains-blocked',
+      'known-event-ongoing-key-bridge-collapse-vs-salvage',
+      'known-event-ongoing-key-bridge-salvage-vs-channel-reopens',
+      'known-event-ongoing-key-bridge-channel-vs-settlement',
+      'known-event-ongoing-dc-midair-crash-vs-salvage',
+      'known-event-ongoing-dc-midair-salvage-vs-altitude-data',
+      'known-event-ongoing-dc-midair-altitude-vs-helicopter-ban',
+      'known-event-ongoing-air-india-crash-vs-black-box',
+      'known-event-ongoing-air-india-black-box-vs-analysis',
+      'known-event-ongoing-air-india-analysis-vs-prelim-report',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -96,6 +108,9 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-ap-access-arc',
         'replay-known-event-cfpb-dismantling-arc',
         'replay-known-event-birthright-citizenship-order-arc',
+        'replay-known-event-key-bridge-collapse-arc',
+        'replay-known-event-dc-midair-collision-arc',
+        'replay-known-event-air-india-crash-arc',
       ]),
     );
   });

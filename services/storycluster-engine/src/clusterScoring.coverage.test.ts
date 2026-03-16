@@ -467,4 +467,81 @@ describe('clusterScoring coverage', () => {
     expect(candidateEligible(followup, cluster)).toBe(true);
     expect(buildCandidateMatch(followup, cluster).adjudication).toBe('accepted');
   });
+
+  it('accepts later safety-response coverage when a crash investigation keeps a strong canonical event spine', () => {
+    const cluster = makeClusterFromDocuments([
+      makeWorkingDocument({
+        doc_id: 'doc-midair-a',
+        source_id: 'ap-dc-midair-crash',
+        title: 'Passenger jet and Army helicopter collide midair near Reagan Airport, killing 67 people',
+        summary: 'A passenger jet and Army helicopter collide near Reagan National Airport.',
+        raw_text: 'A passenger jet and Army helicopter collide near Reagan National Airport.',
+        normalized_text: 'passenger jet army helicopter collide near reagan national airport',
+        translated_text: 'A passenger jet and Army helicopter collide near Reagan National Airport.',
+        published_at: 1_738_231_312_000,
+        temporal_ms: 1_738_231_312_000,
+        entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb_investigation'],
+        linked_entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb_investigation'],
+        locations: ['washington'],
+        trigger: 'collide',
+        coarse_vector: [0.91, 0.09],
+        full_vector: [0.91, 0.09],
+      }),
+      makeWorkingDocument({
+        doc_id: 'doc-midair-b',
+        source_id: 'ap-dc-midair-salvage',
+        title: 'Crews to salvage remnants of deadly DC midair collision from the Potomac River as early as Monday',
+        summary: 'Crews prepare to salvage wreckage from the Potomac.',
+        raw_text: 'Crews prepare to salvage wreckage from the Potomac in the same Reagan Airport midair collision episode.',
+        normalized_text: 'crews prepare salvage wreckage potomac same reagan airport midair collision episode',
+        translated_text: 'Crews prepare to salvage wreckage from the Potomac in the same Reagan Airport midair collision episode.',
+        published_at: 1_738_589_252_000,
+        temporal_ms: 1_738_589_252_000,
+        entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb_investigation'],
+        linked_entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb_investigation'],
+        locations: ['washington'],
+        trigger: 'salvage',
+        coarse_vector: [0.9, 0.1],
+        full_vector: [0.9, 0.1],
+      }),
+      makeWorkingDocument({
+        doc_id: 'doc-midair-c',
+        source_id: 'ap-dc-midair-altitude',
+        title: 'All 67 victims have been recovered from the DC midair collision. Data reveals conflicting altitudes',
+        summary: 'Recovery is complete and new altitude data becomes public.',
+        raw_text: 'Recovery is complete and new altitude data becomes public in the same Reagan Airport midair collision investigation.',
+        normalized_text: 'recovery complete new altitude data public same reagan airport midair collision investigation',
+        translated_text: 'Recovery is complete and new altitude data becomes public in the same Reagan Airport midair collision investigation.',
+        published_at: 1_738_682_882_000,
+        temporal_ms: 1_738_682_882_000,
+        entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb_investigation'],
+        linked_entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb_investigation'],
+        locations: ['washington'],
+        trigger: 'recovered',
+        coarse_vector: [0.9, 0.1],
+        full_vector: [0.9, 0.1],
+      }),
+    ]);
+
+    const followup = makeWorkingDocument({
+      doc_id: 'doc-midair-d',
+      source_id: 'ap-dc-midair-ban',
+      title: 'NTSB recommends ban on some helicopter flights around Reagan airport after deadly midair collision',
+      summary: 'The NTSB recommends flight restrictions after the same crash.',
+      raw_text: 'The NTSB recommends flight restrictions after the same Reagan Airport midair collision.',
+      normalized_text: 'ntsb recommends flight restrictions after same reagan airport midair collision',
+      translated_text: 'The NTSB recommends flight restrictions after the same Reagan Airport midair collision.',
+      published_at: 1_741_718_065_000,
+      temporal_ms: 1_741_718_065_000,
+      entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb', 'ntsb_investigation'],
+      linked_entities: ['dc_midair_collision_episode', 'reagan_national_airport', 'army_black_hawk', 'american_airlines_regional_jet', 'ntsb', 'ntsb_investigation'],
+      locations: ['washington'],
+      trigger: 'recommends',
+      coarse_vector: [0.89, 0.11],
+      full_vector: [0.89, 0.11],
+    });
+
+    expect(candidateEligible(followup, cluster)).toBe(true);
+    expect(buildCandidateMatch(followup, cluster).adjudication).toBe('accepted');
+  });
 });

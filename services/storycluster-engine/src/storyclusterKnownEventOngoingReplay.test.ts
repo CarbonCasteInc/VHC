@@ -232,4 +232,36 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(4);
   });
+
+  it('preserves the Key Bridge collapse story id across collapse, salvage, reopening, and cleanup fallout', async () => {
+    const snapshots = await runScenario('replay-known-event-key-bridge-collapse-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('key_bridge_collapse_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the DC midair collision story id across crash, salvage, investigation data, and helicopter restrictions', async () => {
+    const snapshots = await runScenario('replay-known-event-dc-midair-collision-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('dc_midair_collision_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the Air India Ahmedabad crash story id across crash and investigation phases', async () => {
+    const snapshots = await runScenario('replay-known-event-air-india-crash-arc');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('air_india_ahmedabad_crash_episode') ?? null,
+    );
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
 });
