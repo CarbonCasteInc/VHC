@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { StoryClusterTelemetryEnvelope } from './contracts';
+import type { StoryClusterCoverageRole } from './documentPolicy';
 import { getDefaultClusterStore } from './clusterStore';
 import { runStoryClusterStagePipeline, type StoryClusterStageRunnerOptions } from './stageRunner';
 import { tokenizeWords } from './textSignals';
@@ -18,6 +19,7 @@ export interface StoryClusterRemoteItem {
   translation_applied?: boolean;
   entity_keys: string[];
   cluster_text?: string;
+  coverage_role?: StoryClusterCoverageRole;
 }
 
 export interface StoryClusterRemoteRequest {
@@ -145,6 +147,20 @@ function readEntityKeys(record: Record<string, unknown>, path: string): string[]
   }).filter(Boolean);
 }
 
+function readCoverageRole(
+  record: Record<string, unknown>,
+  path: string,
+): StoryClusterCoverageRole | undefined {
+  const value = record.coverage_role;
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (value === 'canonical' || value === 'related') {
+    return value;
+  }
+  throw new Error(`${path}.coverage_role must be canonical or related when provided`);
+}
+
 function normalizeRequest(payload: unknown, nowMs: number): StoryClusterRemoteRequest & { reference_now_ms: number } {
   const record = asRecord(payload, 'storycluster remote payload must be an object');
   const topicId = readRequiredString(record, 'topic_id', 'payload');
@@ -171,6 +187,7 @@ function normalizeRequest(payload: unknown, nowMs: number): StoryClusterRemoteRe
       translation_applied: item.translation_applied === true,
       entity_keys: readEntityKeys(item, path),
       cluster_text: readOptionalString(item, 'cluster_text'),
+      coverage_role: readCoverageRole(item, path),
     };
   });
 
@@ -231,6 +248,7 @@ export async function runStoryClusterRemoteContract(
     language_hint: item.language,
     entity_keys: item.entity_keys,
     translation_applied: item.translation_applied,
+    coverage_role: item.coverage_role,
   }));
 
   const stageResult = await runStoryClusterStagePipeline(
@@ -329,6 +347,7 @@ export const remoteContractInternal = {
   deriveNewsTopicId,
   normalizeRequest,
   readEntityKeys,
+  readCoverageRole,
   readOptionalPublishedAt: (record: Record<string, unknown>, path: string) =>
     readOptionalNumber(record, 'publishedAt', path),
   readOptionalString,

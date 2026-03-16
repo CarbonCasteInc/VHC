@@ -22,6 +22,7 @@ import {
 
 const CANDIDATE_VECTOR_THRESHOLD = 0.32;
 const TIME_WINDOW_MS = 72 * 60 * 60 * 1000;
+const ONGOING_EVENT_TIME_WINDOW_MS = 240 * 24 * 60 * 60 * 1000;
 const ACCEPT_THRESHOLD = 0.68;
 const REVIEW_THRESHOLD = 0.52;
 const MERGE_THRESHOLD = 0.84;
@@ -176,6 +177,35 @@ function eventFrameScore(document: WorkingDocument, cluster: StoredClusterRecord
   };
 }
 
+function withinOngoingEventWindow(document: WorkingDocument, cluster: StoredClusterRecord): boolean {
+  return !(
+    Math.abs(document.published_at - cluster.cluster_window_end) > ONGOING_EVENT_TIME_WINDOW_MS &&
+    Math.abs(document.published_at - cluster.cluster_window_start) > ONGOING_EVENT_TIME_WINDOW_MS
+  );
+}
+
+function hasLongWindowContinuitySupport(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  canonicalScore: number,
+  specificCanonicalScore: number,
+  lexical: number,
+  eventFrame: { score: number; hardReject: boolean },
+): boolean {
+  if (eventFrame.hardReject || !withinOngoingEventWindow(document, cluster)) {
+    return false;
+  }
+  if (hasTriggerCategoryConflict(document, cluster)) {
+    return false;
+  }
+  return (
+    specificCanonicalScore >= 0.5 &&
+    canonicalScore >= 0.5 &&
+    lexical >= 0.08 &&
+    eventFrame.score >= 0.24
+  );
+}
+
 export function buildCandidateMatch(document: WorkingDocument, cluster: StoredClusterRecord): CandidateMatch {
   const coarseVectorScore = cosineSimilarity(document.coarse_vector, cluster.centroid_coarse);
   const entityScore = overlapRatio(document.entities, clusterEntities(cluster));
@@ -188,6 +218,14 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
   const location = eventLocationScore(document, cluster);
   const categoryConflict = hasTriggerCategoryConflict(document, cluster);
   const eventFrame = eventFrameScore(document, cluster);
+  const longWindowContinuity = hasLongWindowContinuitySupport(
+    document,
+    cluster,
+    canonicalScore,
+    specificCanonicalScore,
+    lexical,
+    eventFrame,
+  );
   const prefilter =
     coarseVectorScore * 0.22 +
     entityScore * 0.14 +
@@ -225,7 +263,7 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     reason = 'high-confidence';
   } else if (
     specificCanonicalScore >= 0.5 &&
-    time >= 0.25 &&
+    (time >= 0.25 || longWindowContinuity) &&
     eventFrame.score >= 0.3 &&
     !categoryConflict &&
     /* v8 ignore next 4 -- triggerScore cannot evaluate false while categoryConflict is false */
@@ -236,7 +274,7 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     )
   ) {
     adjudication = 'accepted';
-    reason = 'canonical-entity-match';
+    reason = longWindowContinuity && time < 0.25 ? 'ongoing-canonical-match' : 'canonical-entity-match';
   } else if (
     rerank >= REVIEW_THRESHOLD &&
     eventFrame.score >= 0.22 &&
@@ -259,17 +297,19 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
   };
 }
 export function candidateEligible(document: WorkingDocument, cluster: StoredClusterRecord): boolean {
+  const canonicalScore = canonicalEntityScore(document, cluster);
+  const specificCanonicalScore = specificCanonicalEntityScore(document, cluster);
+  const lexical = lexicalScore(document, cluster);
+  const eventFrame = eventFrameScore(document, cluster);
   if (
     Math.abs(document.published_at - cluster.cluster_window_end) > TIME_WINDOW_MS &&
-    Math.abs(document.published_at - cluster.cluster_window_start) > TIME_WINDOW_MS
+    Math.abs(document.published_at - cluster.cluster_window_start) > TIME_WINDOW_MS &&
+    !hasLongWindowContinuitySupport(document, cluster, canonicalScore, specificCanonicalScore, lexical, eventFrame)
   ) {
     return false;
   }
   const vectorScore = cosineSimilarity(document.coarse_vector, cluster.centroid_coarse);
   const entityScore = overlapRatio(document.entities, clusterEntities(cluster));
-  const canonicalScore = canonicalEntityScore(document, cluster);
-  const specificCanonicalScore = specificCanonicalEntityScore(document, cluster);
-  const eventFrame = eventFrameScore(document, cluster);
   if (
     eventFrame.hardReject ||
     isRelatedCoverageAttachmentConflict(document, cluster) ||

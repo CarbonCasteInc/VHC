@@ -1,5 +1,6 @@
 import { makeBenchmarkItem } from './benchmarkCorpusBuilders';
 import { STORYCLUSTER_REPLAY_KNOWN_EVENT_SCENARIOS } from './benchmarkCorpusReplayKnownEventScenarios';
+import { STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS } from './benchmarkCorpusReplayKnownEventOngoingScenarios';
 import { STORYCLUSTER_REPLAY_LONG_WINDOW_SCENARIOS } from './benchmarkCorpusReplayLongWindowScenarios';
 import { STORYCLUSTER_REPLAY_TOPOLOGY_SCENARIOS } from './benchmarkCorpusReplayTopologyScenarios';
 import type { StoryClusterReplayScenario } from './benchmarkCorpusReplayTypes';
@@ -294,6 +295,7 @@ const STORYCLUSTER_REPLAY_BASE_SCENARIOS: StoryClusterReplayScenario[] = [
 export const STORYCLUSTER_REPLAY_SCENARIOS: StoryClusterReplayScenario[] = [
   ...STORYCLUSTER_REPLAY_BASE_SCENARIOS,
   ...STORYCLUSTER_REPLAY_KNOWN_EVENT_SCENARIOS,
+  ...STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS,
   ...STORYCLUSTER_REPLAY_LONG_WINDOW_SCENARIOS,
   ...STORYCLUSTER_REPLAY_TOPOLOGY_SCENARIOS,
 ];

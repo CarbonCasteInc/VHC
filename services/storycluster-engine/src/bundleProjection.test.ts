@@ -58,9 +58,45 @@ describe('bundleProjection', () => {
 
     expect(projected.primary_sources).toHaveLength(1);
     expect(projected.primary_sources[0]?.title).toBe('Specific drone strike report');
-    expect(projected.secondary_assets.map((source) => source.title)).toContain(
-      'Trump news at a glance: latest Iran developments',
-    );
+    expect(projected.secondary_assets).toEqual([]);
+  });
+
+  it('keeps related coverage out of canonical bundles when canonical reporting exists', () => {
+    const projected = projectBundleSources([
+      makeSource({
+        source_key: 'pbs:hash-canonical',
+        source_id: 'pbs-news',
+        publisher: 'PBS News',
+        url_hash: 'hash-canonical',
+        title: 'Judge quashes subpoenas in Powell probe',
+        summary: 'A judge quashed the subpoenas in the Powell probe.',
+        doc_type: 'hard_news',
+        coverage_role: 'canonical',
+      }),
+      makeSource({
+        source_key: 'ap:hash-followup',
+        source_id: 'ap-news',
+        publisher: 'AP News',
+        url_hash: 'hash-followup',
+        title: 'Backlash grows after Powell subpoenas',
+        summary: 'Backlash grows after the Powell subpoenas.',
+        doc_type: 'hard_news',
+        coverage_role: 'canonical',
+      }),
+      makeSource({
+        source_key: 'pbs:hash-explainer',
+        source_id: 'pbs-explainer',
+        publisher: 'PBS News',
+        url_hash: 'hash-explainer',
+        title: 'What the Powell subpoena dispute means',
+        summary: 'An explainer on the wider dispute.',
+        doc_type: 'explainer',
+        coverage_role: 'related',
+      }),
+    ]);
+
+    expect(projected.primary_sources.map((source) => source.source_id)).toEqual(['ap-news', 'pbs-news']);
+    expect(projected.secondary_assets).toEqual([]);
   });
 
   it('orders same-publisher candidates by canonical event tie-breakers', () => {

@@ -14,6 +14,7 @@ export function sourceVariantsForDocument(
   document: NormalizedPipelineRequest['documents'][number],
   language: string,
 ) {
+  const coverageRole = document.coverage_role ?? 'canonical';
   return [{
     doc_id: document.doc_id,
     source_id: document.source_id,
@@ -27,7 +28,7 @@ export function sourceVariantsForDocument(
     summary: document.summary,
     language,
     translation_applied: document.translation_applied === true,
-    coverage_role: 'canonical' as const,
+    coverage_role: coverageRole,
   }];
 }
 
@@ -48,13 +49,34 @@ export function applyDocumentAnalysis(
     document.publisher,
     document.url,
   );
-  const coverageRole = coverageRoleForDocument({
+  const inferredCoverageRole = coverageRoleForDocument({
     doc_type: docType,
     translated_title: document.translated_title,
     summary: document.summary,
     publisher: document.publisher,
     url: document.url,
   });
+  const coverageRole = document.coverage_role === 'related'
+    ? 'related'
+    : inferredCoverageRole;
+  if (coverageRole === 'related') {
+    return {
+      ...document,
+      source_variants: document.source_variants.map((variant) => ({
+        ...variant,
+        coverage_role: 'related',
+      })),
+      doc_type: docType,
+      coverage_role: 'related',
+      doc_weight: documentTypeWeight(docType),
+      entities,
+      linked_entities: linkedEntities,
+      locations: analysis.locations,
+      temporal_ms: analysis.temporal_ms,
+      trigger: null,
+      event_tuple: null,
+    };
+  }
   const heuristicEventTuple = buildEventTuple(
     document.translated_title,
     document.summary,
@@ -70,11 +92,11 @@ export function applyDocumentAnalysis(
       where: analysis.event_tuple.where.length > 0
         ? analysis.event_tuple.where
         : analysis.locations,
-      trigger: analysis.event_tuple.trigger ?? analysis.trigger ?? (coverageRole === 'canonical' ? heuristicEventTuple.trigger : null),
-      outcome: analysis.event_tuple.outcome ?? (coverageRole === 'canonical' ? heuristicEventTuple.outcome : null),
+      trigger: analysis.event_tuple.trigger ?? analysis.trigger ?? heuristicEventTuple.trigger,
+      outcome: analysis.event_tuple.outcome ?? heuristicEventTuple.outcome,
     }
-    : (coverageRole === 'canonical' ? heuristicEventTuple : null);
-  const trigger = analysis.trigger ?? eventTuple?.trigger ?? (coverageRole === 'canonical' ? heuristicEventTuple.trigger : null);
+    : heuristicEventTuple;
+  const trigger = analysis.trigger ?? eventTuple?.trigger ?? heuristicEventTuple.trigger;
 
   return {
     ...document,

@@ -96,7 +96,12 @@ export function projectBundleSources(
     secondaryAssets.push(...secondary.map(toBundleSource));
   }
 
-  secondaryAssets.push(...relatedDocuments.map(toBundleSource));
+  const relatedAssets = relatedDocuments.filter((document) => isLikelySecondaryAsset(document));
+  if (canonicalDocuments.length === 0) {
+    secondaryAssets.push(...relatedDocuments.map(toBundleSource));
+  } else {
+    secondaryAssets.push(...relatedAssets.map(toBundleSource));
+  }
 
   primarySources.sort((left, right) => `${left.publisher}:${left.source_id}:${left.url_hash}`.localeCompare(`${right.publisher}:${right.source_id}:${right.url_hash}`));
   secondaryAssets.sort((left, right) => `${left.publisher}:${left.source_id}:${left.url_hash}`.localeCompare(`${right.publisher}:${right.source_id}:${right.url_hash}`));
