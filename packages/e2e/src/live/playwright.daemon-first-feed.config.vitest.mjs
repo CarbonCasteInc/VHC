@@ -33,6 +33,8 @@ describe('playwright.daemon-first-feed.config', () => {
       url: expect.stringMatching(/\/readyz$/),
     });
     expect(entries[0].command).toContain('daemon-feed-qdrant-stub.mjs');
+    expect(entries[0].command).toContain('kill -TERM');
+    expect(entries[0].command).toContain('kill -KILL');
     expect(entries[entries.length - 1].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
   });
 

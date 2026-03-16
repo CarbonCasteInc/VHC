@@ -17,6 +17,29 @@ export function repoRootDir(): string {
   return path.resolve(process.cwd(), '..', '..');
 }
 
+export function buildPortClearShellCommand(port: number): string {
+  return [
+    `pids=$(lsof -ti tcp:${port} 2>/dev/null || true)`,
+    'if [ -n "$pids" ]; then',
+    '  echo "$pids" | xargs kill -TERM 2>/dev/null || true',
+    '  attempts=0',
+    `  while [ "$attempts" -lt 40 ] && lsof -ti tcp:${port} >/dev/null 2>&1; do`,
+    '    sleep 0.25',
+    '    attempts=$((attempts + 1))',
+    '  done',
+    `  pids=$(lsof -ti tcp:${port} 2>/dev/null || true)`,
+    '  if [ -n "$pids" ]; then',
+    '    echo "$pids" | xargs kill -KILL 2>/dev/null || true',
+    '  fi',
+    '  attempts=0',
+    `  while [ "$attempts" -lt 40 ] && lsof -ti tcp:${port} >/dev/null 2>&1; do`,
+    '    sleep 0.25',
+    '    attempts=$((attempts + 1))',
+    '  done',
+    'fi',
+  ].join('\n');
+}
+
 function workspaceRootDir(repoRoot: string): string {
   return path.dirname(repoRoot);
 }
@@ -75,28 +98,21 @@ function shouldKillByProcessMetadata(
   return false;
 }
 
-export function killPortOccupants(port: number): void {
+export function killPortOccupantsWith(
+  port: number,
+  execSync: typeof execFileSync,
+): void {
   try {
-    const output = execFileSync('lsof', ['-ti', `tcp:${port}`], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (!output) {
-      return;
-    }
-    const pids = output
-      .split(/\r?\n/)
-      .map((value) => value.trim())
-      .filter((value) => value.length > 0);
-    if (pids.length === 0) {
-      return;
-    }
-    execFileSync('kill', ['-9', ...pids], {
+    execSync('sh', ['-lc', buildPortClearShellCommand(port)], {
       stdio: ['ignore', 'ignore', 'ignore'],
     });
   } catch {
     // Port already free or lsof unavailable.
   }
+}
+
+export function killPortOccupants(port: number): void {
+  killPortOccupantsWith(port, execFileSync);
 }
 
 export function killStaleDaemonFirstProcesses(): void {

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildPortClearShellCommand,
+  killPortOccupantsWith,
   killStaleDaemonFirstProcessesWith,
   shouldKillDaemonFirstProcess,
 } from './daemonFirstFeedProcesses';
@@ -123,5 +125,28 @@ describe('daemonFirstFeedProcesses', () => {
     expect(() =>
       killStaleDaemonFirstProcessesWith('/tmp/vhc', failingExec, 999),
     ).not.toThrow();
+  });
+
+  it('builds a bounded port-clear shell command for startup reuse', () => {
+    const command = buildPortClearShellCommand(4310);
+
+    expect(command).toContain('kill -TERM');
+    expect(command).toContain('kill -KILL');
+    expect(command).toContain('attempts=$((attempts + 1))');
+    expect(command).toContain('tcp:4310');
+  });
+
+  it('reuses the bounded port-clear command when clearing port occupants', () => {
+    const execSync = vi.fn();
+
+    killPortOccupantsWith(6333, execSync);
+
+    expect(execSync).toHaveBeenCalledWith(
+      'sh',
+      ['-lc', expect.stringContaining('tcp:6333')],
+      expect.objectContaining({
+        stdio: ['ignore', 'ignore', 'ignore'],
+      }),
+    );
   });
 });
