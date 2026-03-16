@@ -296,4 +296,36 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(4);
   });
+
+  it('preserves the Iran-US nuclear talks story id across Oman and Rome negotiation phases', async () => {
+    const snapshots = await runScenario('replay-known-event-iran-us-nuclear-talks-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('iran_us_nuclear_talks_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the 2025 Gaza ceasefire story id across draft, implementation, extension disputes, and breakdown', async () => {
+    const snapshots = await runScenario('replay-known-event-gaza-ceasefire-2025-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('gaza_ceasefire_2025_episode') ?? null);
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the 2025 Ukraine Istanbul talks story id across direct talks, follow-up disputes, and humanitarian follow-through', async () => {
+    const snapshots = await runScenario('replay-known-event-ukraine-istanbul-talks-arc');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('ukraine_istanbul_talks_episode') ?? null,
+    );
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
 });
