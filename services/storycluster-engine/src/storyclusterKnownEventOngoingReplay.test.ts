@@ -166,4 +166,38 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(3);
   });
+
+  it('preserves the Voice of America dismantling story id across firings, dismantling, compliance, and job-cut fallout', async () => {
+    const snapshots = await runScenario('replay-known-event-voice-of-america-arc');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('voice_of_america_dismantling_episode') ?? null,
+    );
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('preserves the Harvard foreign-student sanctions story id across the court orders', async () => {
+    const snapshots = await runScenario('replay-known-event-harvard-foreign-students-arc');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('harvard_foreign_students_sanctions_episode') ?? null,
+    );
+    const finalCluster = snapshots[2]?.clusters.find((cluster) => cluster.story_id === storyIds[2]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(3);
+  });
+
+  it('preserves the Yunseo Chung deportation story id across lawsuit and detention-order fallout', async () => {
+    const snapshots = await runScenario('replay-known-event-yunseo-chung-arc');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('yunseo_chung_deportation_episode') ?? null);
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+  });
 });
