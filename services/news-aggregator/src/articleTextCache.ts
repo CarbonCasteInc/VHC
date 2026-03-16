@@ -23,6 +23,7 @@ export interface CachedExtractionFailure {
   readonly code:
     | 'invalid-url'
     | 'domain-not-allowed'
+    | 'access-denied'
     | 'removed'
     | 'fetch-failed'
     | 'quality-too-low';

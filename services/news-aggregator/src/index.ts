@@ -118,9 +118,26 @@ export type {
 export {
   STARTER_FEED_URLS,
   STARTER_SOURCE_DOMAINS,
+  buildSourceDomainAllowlist,
   getStarterSourceDomainAllowlist,
   isSourceDomainAllowed,
 } from './sourceRegistry';
+
+export {
+  SOURCE_ADMISSION_REPORT_SCHEMA_VERSION,
+  auditFeedSourceAdmission,
+  buildSourceAdmissionReport,
+  writeSourceAdmissionArtifact,
+} from './sourceAdmissionReport';
+export type {
+  SourceAdmissionArtifactOptions,
+  SourceAdmissionAuditOptions,
+  SourceAdmissionCriteria,
+  SourceAdmissionReport,
+  SourceAdmissionSampleResult,
+  SourceAdmissionSourceReport,
+  SourceAdmissionStatus,
+} from './sourceAdmissionReport';
 
 export {
   createArticleTextServer,

@@ -6,6 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
+    "report:source-admission": "tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceAdmissionReport.js",
     "daemon": "tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/daemon.js",
     "lint": "echo 'lint: ok (no sources yet)'"
   },

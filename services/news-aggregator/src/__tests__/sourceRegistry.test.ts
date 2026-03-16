@@ -16,7 +16,8 @@ describe('sourceRegistry', () => {
   it('collects feed hosts and known publication aliases', () => {
     expect(STARTER_SOURCE_DOMAINS).toContain('moxie.foxnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('foxnews.com');
-    expect(STARTER_SOURCE_DOMAINS).toContain('washingtonpost.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('nypost.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('cbsnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('feeds.bbci.co.uk');
     expect(STARTER_SOURCE_DOMAINS).toContain('bbc.com');
   });
@@ -29,7 +30,8 @@ describe('sourceRegistry', () => {
 
   it('allows matching domains and URL hosts', () => {
     expect(isSourceDomainAllowed('https://www.foxnews.com/politics/story')).toBe(true);
-    expect(isSourceDomainAllowed('subdomain.washingtonpost.com')).toBe(true);
+    expect(isSourceDomainAllowed('https://nypost.com/2026/03/16/story')).toBe(true);
+    expect(isSourceDomainAllowed('https://www.cbsnews.com/news/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.theguardian.com/us-news/article')).toBe(true);
   });
 
