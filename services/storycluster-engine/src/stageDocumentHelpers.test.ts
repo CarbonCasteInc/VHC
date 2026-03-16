@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyDocumentAnalysis } from './stageDocumentHelpers';
+import { applyDocumentAnalysis, extractStageMetrics, sourceVariantsForDocument } from './stageDocumentHelpers';
 import type { DocumentAnalysisWorkResult } from './modelProvider';
-import type { WorkingDocument } from './stageState';
+import type { PipelineState, WorkingDocument } from './stageState';
 
 function makeWorkingDocument(overrides: Partial<WorkingDocument> = {}): WorkingDocument {
   return {
@@ -120,6 +120,54 @@ describe('applyDocumentAnalysis', () => {
     expect(merged.trigger).toBeNull();
   });
 
+  it('preserves an explicit related override even when document type looks canonical', () => {
+    const document = makeWorkingDocument({
+      title: 'Judge quashes subpoenas in Powell probe',
+      translated_title: 'Judge quashes subpoenas in Powell probe',
+      summary: 'A judge quashed subpoenas in the Powell probe.',
+      translated_text: 'Judge quashes subpoenas in Powell probe. A judge quashed subpoenas in the Powell probe.',
+      coverage_role: 'related',
+      source_variants: [{
+        doc_id: 'doc-1',
+        source_id: 'guardian-us',
+        publisher: 'Guardian',
+        url: 'https://example.com/story',
+        canonical_url: 'https://example.com/story',
+        url_hash: 'hash-1',
+        published_at: Date.UTC(2026, 2, 7),
+        title: 'Judge quashes subpoenas in Powell probe',
+        summary: 'A judge quashed subpoenas in the Powell probe.',
+        language: 'en',
+        translation_applied: false,
+        coverage_role: 'related',
+      }],
+    });
+    const analysis: DocumentAnalysisWorkResult = {
+      doc_id: document.doc_id,
+      doc_type: 'hard_news',
+      entities: ['jerome_powell', 'federal_reserve'],
+      linked_entities: ['jerome_powell', 'federal_reserve'],
+      locations: ['washington'],
+      temporal_ms: document.published_at,
+      trigger: 'subpoenaed',
+      event_tuple: {
+        description: 'A judge quashed subpoenas in the Powell probe.',
+        trigger: 'subpoenaed',
+        who: ['jerome_powell'],
+        where: ['washington'],
+        when_ms: document.published_at,
+        outcome: 'The subpoenas were quashed.',
+      },
+    };
+
+    const merged = applyDocumentAnalysis(document, analysis);
+
+    expect(merged.coverage_role).toBe('related');
+    expect(merged.source_variants.map((variant) => variant.coverage_role)).toEqual(['related']);
+    expect(merged.event_tuple).toBeNull();
+    expect(merged.trigger).toBeNull();
+  });
+
   it('builds a heuristic event tuple when canonical analysis omits one entirely', () => {
     const document = makeWorkingDocument({
       title: 'Port officials say repairs continue after the attack',
@@ -144,5 +192,89 @@ describe('applyDocumentAnalysis', () => {
     expect(merged.event_tuple?.trigger).toBe('attack');
     expect(merged.event_tuple?.where).toEqual(['Tehran']);
     expect(merged.trigger).toBe('attack');
+  });
+
+  it('backfills event actors from linked entities when canonical analysis leaves who empty', () => {
+    const document = makeWorkingDocument({
+      title: 'Port officials say repairs continue after the attack',
+      translated_title: 'Port officials say repairs continue after the attack',
+      summary: 'Port officials say repairs continue after the attack.',
+      translated_text: 'Port officials say repairs continue after the attack. Port officials say repairs continue after the attack.',
+      entities: ['port_authority'],
+      linked_entities: ['port_authority'],
+    });
+    const analysis: DocumentAnalysisWorkResult = {
+      doc_id: document.doc_id,
+      doc_type: 'hard_news',
+      entities: ['port_authority'],
+      linked_entities: ['port_authority'],
+      locations: ['tehran'],
+      temporal_ms: document.published_at,
+      trigger: 'attack',
+      event_tuple: {
+        description: 'Port officials say repairs continue after the attack.',
+        trigger: 'attack',
+        who: [],
+        where: ['tehran'],
+        when_ms: document.published_at,
+        outcome: 'Repairs continue.',
+      },
+    };
+
+    const merged = applyDocumentAnalysis(document, analysis);
+
+    expect(merged.event_tuple?.who).toEqual(['port_authority']);
+  });
+
+  it('falls back to a hashed url when a source variant has no explicit url hash', () => {
+    const variants = sourceVariantsForDocument({
+      doc_id: 'doc-hashless',
+      source_id: 'wire-a',
+      publisher: 'Reuters',
+      title: 'Hashless headline',
+      published_at: Date.UTC(2026, 2, 7),
+      url: 'https://example.com/hashless',
+      canonical_url: 'https://example.com/hashless',
+      summary: 'Summary.',
+      entity_keys: [],
+      coverage_role: 'related',
+    }, 'en');
+
+    expect(variants[0]?.url_hash).toBeTruthy();
+    expect(variants[0]?.coverage_role).toBe('related');
+  });
+
+  it('backfills linked entities from entities when extracting stage metrics', () => {
+    const state: PipelineState = {
+      topicId: 'topic-news',
+      referenceNowMs: Date.UTC(2026, 2, 7),
+      documents: [makeWorkingDocument({
+        entities: ['jerome_powell', 'federal_reserve'],
+        linked_entities: [],
+        event_tuple: null,
+        temporal_ms: null,
+      })],
+      clusters: [],
+      bundles: [],
+      storylines: [],
+      topic_state: {
+        schema_version: 'storycluster-state-v1',
+        topic_id: 'topic-news',
+        next_cluster_seq: 1,
+        clusters: [],
+      },
+      stage_metrics: {},
+    };
+
+    const next = extractStageMetrics(state);
+
+    expect(next.documents[0]?.linked_entities).toEqual(['jerome_powell', 'federal_reserve']);
+    expect(next.stage_metrics.me_ner_temporal).toMatchObject({
+      tuple_total: 0,
+      docs_with_tuples: 0,
+      entity_count: 2,
+      linked_entity_count: 0,
+      normalized_temporal_count: 0,
+    });
   });
 });

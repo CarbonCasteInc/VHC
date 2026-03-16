@@ -60,7 +60,7 @@ export function createInitialState(
         translation_applied: document.translation_applied === true,
         translation_gate: false,
         doc_type: 'hard_news',
-        coverage_role: 'canonical',
+        coverage_role: document.coverage_role ?? 'canonical',
         doc_weight: 1,
         minhash_signature: [],
         coarse_vector: [],

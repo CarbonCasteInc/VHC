@@ -165,6 +165,7 @@ describe('runStoryClusterRemoteContract', () => {
           summary: 'A recap of the wider fallout.',
           url_hash: 'hash-roundup',
           entity_keys: ['port_attack'],
+          coverage_role: 'related',
         },
       ],
     }, { clock: () => 200, store: new MemoryClusterStore() });
@@ -174,6 +175,41 @@ describe('runStoryClusterRemoteContract', () => {
     expect(response.storylines).toHaveLength(1);
     expect(response.storylines[0]?.storyline_id).toBe(response.bundles[0]?.storyline_id);
     expect(response.storylines[0]?.related_coverage.map((source) => source.source_id)).toEqual(['guardian-roundup']);
+  });
+
+  it('preserves explicit related coverage overrides from the remote request', async () => {
+    const response = await runStoryClusterRemoteContract({
+      topic_id: 'topic-explicit-related',
+      items: [
+        {
+          sourceId: 'ap-powell-news',
+          publisher: 'AP News',
+          url: 'https://example.com/powell-news',
+          canonicalUrl: 'https://example.com/powell-news',
+          title: 'Judge quashes subpoenas in Powell probe',
+          publishedAt: 100,
+          summary: 'A judge quashed the subpoenas in the Powell probe.',
+          url_hash: 'hash-news',
+          entity_keys: ['fed_powell_subpoena_episode'],
+        },
+        {
+          sourceId: 'pbs-powell-explainer',
+          publisher: 'PBS News',
+          url: 'https://example.com/powell-explainer',
+          canonicalUrl: 'https://example.com/powell-explainer',
+          title: 'What the Powell subpoena fight means',
+          publishedAt: 110,
+          summary: 'An explainer on the wider Powell subpoena dispute.',
+          url_hash: 'hash-explainer',
+          entity_keys: ['fed_powell_subpoena_episode'],
+          coverage_role: 'related',
+        },
+      ],
+    }, { clock: () => 200, store: new MemoryClusterStore() });
+
+    expect(response.bundles[0]?.primary_sources?.map((source) => source.source_id)).toEqual(['ap-powell-news']);
+    expect(response.bundles[0]?.secondary_assets).toEqual([]);
+    expect(response.storylines[0]?.related_coverage.map((source) => source.source_id)).toEqual(['pbs-powell-explainer']);
   });
 
   it('covers helper internals and fallback reference-now behavior', () => {
@@ -186,6 +222,7 @@ describe('runStoryClusterRemoteContract', () => {
     );
     expect(remoteContractInternal.readOptionalString({ key: 1 }, 'key')).toBeUndefined();
     expect(remoteContractInternal.readOptionalString({ key: '  ok  ' }, 'key')).toBe('ok');
+    expect(remoteContractInternal.readCoverageRole({ coverage_role: 'related' }, 'payload.items[0]')).toBe('related');
     expect(remoteContractInternal.readOptionalPublishedAt({ publishedAt: null }, 'payload.items[0]')).toBeUndefined();
 
     const noPublished = remoteContractInternal.normalizeRequest({
@@ -206,6 +243,7 @@ describe('runStoryClusterRemoteContract', () => {
   it('fails closed on invalid payload shapes', async () => {
     expect(() => remoteContractInternal.asRecord([], 'bad record')).toThrow('bad record');
     expect(() => remoteContractInternal.readEntityKeys({ entity_keys: 'bad' }, 'payload.items[0]')).toThrow('payload.items[0].entity_keys must be an array');
+    expect(() => remoteContractInternal.readCoverageRole({ coverage_role: 'bad' }, 'payload.items[0]')).toThrow('payload.items[0].coverage_role must be canonical or related when provided');
     expect(() => remoteContractInternal.readRequiredString({ topic_id: '' }, 'topic_id', 'payload')).toThrow('payload.topic_id must be a non-empty string');
     expect(() => remoteContractInternal.readOptionalPublishedAt({ publishedAt: -1 }, 'payload.items[0]')).toThrow('payload.items[0].publishedAt must be a non-negative finite number when provided');
     await expect(

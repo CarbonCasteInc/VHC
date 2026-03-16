@@ -1,3 +1,5 @@
+import type { StoryClusterCoverageRole } from './documentPolicy';
+
 export const STORYCLUSTER_STAGE_SEQUENCE = [
   'language_translation',
   'near_duplicate_collapse',
@@ -29,6 +31,7 @@ export interface StoryClusterInputDocument {
   language_hint?: string;
   entity_keys?: string[];
   translation_applied?: boolean;
+  coverage_role?: StoryClusterCoverageRole;
 }
 
 export interface StoryClusterPipelineRequest {
