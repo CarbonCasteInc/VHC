@@ -45,6 +45,7 @@ export interface ArticleTextResult {
 export type ArticleTextServiceErrorCode =
   | 'invalid-url'
   | 'domain-not-allowed'
+  | 'access-denied'
   | 'removed'
   | 'fetch-failed'
   | 'quality-too-low';
@@ -281,6 +282,14 @@ export class ArticleTextService {
 
     try {
       const response = await this.fetchFn(url, { signal: controller.signal });
+      if (response.status === 402 || response.status === 403) {
+        throw new ArticleTextServiceError(
+          'access-denied',
+          `HTTP ${response.status} while fetching article`,
+          response.status,
+          false,
+        );
+      }
       if (!response.ok) {
         throw new ArticleTextServiceError(
           'fetch-failed',

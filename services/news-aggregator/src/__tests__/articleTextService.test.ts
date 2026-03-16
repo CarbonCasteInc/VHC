@@ -37,6 +37,29 @@ beforeEach(() => {
 });
 
 describe('ArticleTextService', () => {
+  it('uses the default starter-source allowlist when none is provided', async () => {
+    const service = new ArticleTextService({
+      fetchFn: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(makeHtml(`${makeWords(220)}. Additional sentence. Another sentence. Final sentence.`), {
+          status: 200,
+        }),
+      ),
+      primaryExtractor: vi.fn().mockResolvedValue({
+        title: 'Starter Source',
+        text: Array.from(
+          { length: 24 },
+          () => 'This sentence keeps the starter-source article readable with factual detail.',
+        ).join(' '),
+      }),
+      fallbackExtractor: vi.fn().mockReturnValue(null),
+    });
+
+    const result = await service.extract('https://www.foxnews.com/politics/starter-source-story');
+
+    expect(result.sourceDomain).toBe('www.foxnews.com');
+    expect(result.cacheHit).toBe('none');
+  });
+
   it('rejects invalid URLs and non-allowlisted domains', async () => {
     const service = new ArticleTextService({
       allowlist: new Set(['allowed.com']),
@@ -50,6 +73,30 @@ describe('ArticleTextService', () => {
     await expect(service.extract('https://blocked.com/story')).rejects.toMatchObject({
       code: 'domain-not-allowed',
       statusCode: 403,
+    });
+  });
+
+  it('surfaces HTTP 403/402 article fetches as access-denied', async () => {
+    const forbidden = new ArticleTextService({
+      allowlist: new Set(['allowed.com']),
+      fetchFn: vi.fn<typeof fetch>().mockResolvedValue(new Response('forbidden', { status: 403 })),
+    });
+
+    await expect(forbidden.extract('https://allowed.com/forbidden')).rejects.toMatchObject({
+      code: 'access-denied',
+      statusCode: 403,
+      retryable: false,
+    });
+
+    const payment = new ArticleTextService({
+      allowlist: new Set(['allowed.com']),
+      fetchFn: vi.fn<typeof fetch>().mockResolvedValue(new Response('payment', { status: 402 })),
+    });
+
+    await expect(payment.extract('https://allowed.com/paywall')).rejects.toMatchObject({
+      code: 'access-denied',
+      statusCode: 402,
+      retryable: false,
     });
   });
 

@@ -19,6 +19,7 @@
     "test:storycluster:gates": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:gates",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
+    "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "pnpm --filter @vh/e2e test",
     "test:workflow": "act -j build-and-test",
