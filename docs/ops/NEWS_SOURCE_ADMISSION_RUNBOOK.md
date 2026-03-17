@@ -82,14 +82,15 @@ Use this workflow whenever the source surface changes:
 4. run `pnpm report:news-sources:health` and inspect the generated health decision artifact;
 5. update the source surface only if the source passes the readable-source contract;
 6. confirm the latest stable source-health artifact is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`;
-7. confirm the web runtime is prepared to autoload and enforce the latest health policy through `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/server/newsSourceHealthEnv.ts` and `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/newsRuntimeBootstrap.ts`;
-8. run the blocking StoryCluster correctness and daemon-first browser gates;
-9. record source-level evidence in the PR summary or lane note, including:
+7. confirm the compact latest trend index is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`;
+8. confirm the web runtime is prepared to autoload and enforce the latest health policy through `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/server/newsSourceHealthEnv.ts` and `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/newsRuntimeBootstrap.ts`;
+9. run the blocking StoryCluster correctness and daemon-first browser gates;
+10. record source-level evidence in the PR summary or lane note, including:
    - admission/health commands run;
    - latest artifact path;
    - keep/watch/remove outcome;
    - any rejection reasons.
-10. if the source fails later in production-like testing, remove or disable it rather than weakening the readability contract.
+11. if the source fails later in production-like testing, remove or disable it rather than weakening the readability contract.
 
 ## Required Validation
 
@@ -115,7 +116,16 @@ Operational artifact expectations:
    - `keepSourceIds`
    - `watchSourceIds`
    - `removeSourceIds`
-3. runtime evidence should identify the applied report source so operators can distinguish env overrides from the latest artifact autoload path.
+   - `historySummary`
+   - latest trend index path
+3. `pnpm report:news-sources:health` must also publish a compact comparison surface at:
+   - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`
+4. use the trend index for operator review before opening raw run artifacts:
+   - compare `readinessStatus`
+   - compare enabled/keep/watch/remove counts
+   - compare `historyEscalatedSourceCount`
+   - compare `pendingReadmissionSourceCount`
+5. runtime evidence should identify the applied report source so operators can distinguish env overrides from the latest artifact autoload path.
 
 ## Operational Interpretation
 

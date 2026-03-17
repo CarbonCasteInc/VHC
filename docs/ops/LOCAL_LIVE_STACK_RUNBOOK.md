@@ -147,11 +147,17 @@ Rules:
 3. If a lane changes `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceRegistry.ts`, `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/articleTextService.ts`, `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/fullTextFetcher.ts`, or `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceLifecycle.ts`, the evidence note must mention the source/readability impact explicitly.
 4. Run `pnpm report:news-sources:health` and retain the latest stable artifact path in the evidence note.
 5. Confirm the latest stable source-health artifact exists at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`.
-6. Confirm runtime bootstrap applied the intended source-health policy:
+6. Confirm the latest stable source-health trend index exists at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`.
+7. Use the trend index first to compare recent runs without opening raw full artifacts:
+   - `readinessStatus`
+   - enabled/keep/watch/remove counts
+   - `historyEscalatedSourceCount`
+   - `pendingReadmissionSourceCount`
+8. Confirm runtime bootstrap applied the intended source-health policy:
    - if artifact-backed, runtime evidence should identify `artifact:/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`;
    - if env-backed, evidence should explicitly note the override source.
-7. Review keep/watch/remove outcomes from runtime evidence and confirm no unexpected source was filtered or silently retained.
-8. Public semantic smoke remains useful operational telemetry, but it does not replace direct readable-source admission checks.
+9. Review keep/watch/remove outcomes from runtime evidence and confirm no unexpected source was filtered or silently retained.
+10. Public semantic smoke remains useful operational telemetry, but it does not replace direct readable-source admission checks.
 
 ### StoryCluster Replay Evidence Interpretation
 
@@ -180,6 +186,7 @@ When reviewing StoryCluster release evidence:
 - Source-health evidence:
   - `pnpm report:news-sources:health`
   - inspect `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
+  - inspect `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`
   - confirm runtime evidence identifies the applied source-health report source
 - If you need a different profile:
   - `ENV_FILE=/path/to/.env pnpm live:stack:up`

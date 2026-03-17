@@ -12,6 +12,8 @@ import {
 
 export const SOURCE_HEALTH_REPORT_SCHEMA_VERSION =
   'news-source-health-report-v1';
+export const SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION =
+  'news-source-health-trend-v1';
 
 export type SourceHealthDecision = 'keep' | 'watch' | 'remove';
 export type SourceHealthReadinessStatus = 'ready' | 'review' | 'blocked';
@@ -78,6 +80,28 @@ export interface SourceHealthHistorySummary {
   readonly pendingReadmissionSourceIds: readonly string[];
 }
 
+export interface SourceHealthTrendRunSummary {
+  readonly generatedAt: string;
+  readonly readinessStatus: SourceHealthReadinessStatus;
+  readonly enabledSourceCount: number;
+  readonly keepSourceCount: number;
+  readonly watchSourceCount: number;
+  readonly removeSourceCount: number;
+  readonly historyEscalatedSourceCount: number;
+  readonly pendingReadmissionSourceCount: number;
+  readonly keepSourceIds: readonly string[];
+  readonly watchSourceIds: readonly string[];
+  readonly removeSourceIds: readonly string[];
+}
+
+export interface SourceHealthTrendIndex {
+  readonly schemaVersion: typeof SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION;
+  readonly generatedAt: string;
+  readonly lookbackRunCount: number;
+  readonly runCount: number;
+  readonly runs: readonly SourceHealthTrendRunSummary[];
+}
+
 export interface SourceHealthReport {
   readonly schemaVersion: typeof SOURCE_HEALTH_REPORT_SCHEMA_VERSION;
   readonly generatedAt: string;
@@ -100,9 +124,11 @@ export interface SourceHealthReport {
     readonly artifactDir: string;
     readonly admissionReportPath: string;
     readonly sourceHealthReportPath: string;
+    readonly sourceHealthTrendPath: string;
     readonly latestArtifactDir: string;
     readonly latestAdmissionReportPath: string;
     readonly latestSourceHealthReportPath: string;
+    readonly latestSourceHealthTrendPath: string;
   };
 }
 
@@ -112,6 +138,14 @@ export interface SourceHealthArtifactOptions extends SourceAdmissionArtifactOpti
 
 interface HistoricalSourceHealthRecord {
   readonly generatedAtMs: number;
+  readonly generatedAt: string;
+  readonly readinessStatus: SourceHealthReadinessStatus;
+  readonly enabledSourceCount: number;
+  readonly keepSourceIds: readonly string[];
+  readonly watchSourceIds: readonly string[];
+  readonly removeSourceIds: readonly string[];
+  readonly historyEscalatedSourceCount: number;
+  readonly pendingReadmissionSourceCount: number;
   readonly sources: readonly HistoricalSourceHealthSourceRecord[];
 }
 
@@ -270,6 +304,41 @@ function parseHistoricalSourceHealthRecord(
 
   return {
     generatedAtMs: generatedAt,
+    generatedAt: new Date(generatedAt).toISOString(),
+    readinessStatus:
+      record.readinessStatus === 'ready'
+      || record.readinessStatus === 'review'
+      || record.readinessStatus === 'blocked'
+        ? record.readinessStatus
+        : sources.some((source) => source.decision === 'remove')
+          ? 'blocked'
+          : sources.some((source) => source.decision === 'watch')
+            ? 'review'
+            : 'ready',
+    enabledSourceCount:
+      typeof (record.observability as Record<string, unknown> | undefined)?.enabledSourceCount === 'number'
+        ? (record.observability as Record<string, number>).enabledSourceCount ?? 0
+        : sources.filter((source) => source.decision !== 'remove').length,
+    keepSourceIds:
+      Array.isArray(record.keepSourceIds)
+        ? record.keepSourceIds.filter((sourceId): sourceId is string => typeof sourceId === 'string')
+        : sources.filter((source) => source.decision === 'keep').map((source) => source.sourceId),
+    watchSourceIds:
+      Array.isArray(record.watchSourceIds)
+        ? record.watchSourceIds.filter((sourceId): sourceId is string => typeof sourceId === 'string')
+        : sources.filter((source) => source.decision === 'watch').map((source) => source.sourceId),
+    removeSourceIds:
+      Array.isArray(record.removeSourceIds)
+        ? record.removeSourceIds.filter((sourceId): sourceId is string => typeof sourceId === 'string')
+        : sources.filter((source) => source.decision === 'remove').map((source) => source.sourceId),
+    historyEscalatedSourceCount:
+      typeof (record.observability as Record<string, unknown> | undefined)?.historyEscalatedSourceCount === 'number'
+        ? (record.observability as Record<string, number>).historyEscalatedSourceCount ?? 0
+        : 0,
+    pendingReadmissionSourceCount:
+      typeof (record.observability as Record<string, unknown> | undefined)?.pendingReadmissionSourceCount === 'number'
+        ? (record.observability as Record<string, number>).pendingReadmissionSourceCount ?? 0
+        : 0,
     sources,
   };
 }
@@ -492,6 +561,74 @@ export function buildSourceHealthRuntimePolicy(
   };
 }
 
+function toTrendRunSummary(
+  input:
+    | HistoricalSourceHealthRecord
+    | Pick<
+        SourceHealthReport,
+        | 'generatedAt'
+        | 'readinessStatus'
+        | 'keepSourceIds'
+        | 'watchSourceIds'
+        | 'removeSourceIds'
+        | 'observability'
+      >,
+): SourceHealthTrendRunSummary {
+  const keepSourceIds = [...input.keepSourceIds];
+  const watchSourceIds = [...input.watchSourceIds];
+  const removeSourceIds = [...input.removeSourceIds];
+
+  return {
+    generatedAt: input.generatedAt,
+    readinessStatus: input.readinessStatus,
+    enabledSourceCount:
+      'observability' in input
+        ? input.observability.enabledSourceCount
+        : input.enabledSourceCount,
+    keepSourceCount: keepSourceIds.length,
+    watchSourceCount: watchSourceIds.length,
+    removeSourceCount: removeSourceIds.length,
+    historyEscalatedSourceCount:
+      'observability' in input
+        ? input.observability.historyEscalatedSourceCount
+        : input.historyEscalatedSourceCount,
+    pendingReadmissionSourceCount:
+      'observability' in input
+        ? input.observability.pendingReadmissionSourceCount
+        : input.pendingReadmissionSourceCount,
+    keepSourceIds,
+    watchSourceIds,
+    removeSourceIds,
+  };
+}
+
+export function buildSourceHealthTrendIndex(
+  currentReport: Pick<
+    SourceHealthReport,
+    | 'generatedAt'
+    | 'readinessStatus'
+    | 'keepSourceIds'
+    | 'watchSourceIds'
+    | 'removeSourceIds'
+    | 'observability'
+    | 'thresholds'
+  >,
+  historicalReports: readonly HistoricalSourceHealthRecord[],
+): SourceHealthTrendIndex {
+  const runs = [
+    ...historicalReports.map((report) => toTrendRunSummary(report)),
+    toTrendRunSummary(currentReport),
+  ];
+
+  return {
+    schemaVersion: SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION,
+    generatedAt: currentReport.generatedAt,
+    lookbackRunCount: currentReport.thresholds.historyLookbackRunCount,
+    runCount: runs.length,
+    runs,
+  };
+}
+
 export function buildSourceHealthReport(
   admissionReport: SourceAdmissionReport,
   options: {
@@ -521,6 +658,10 @@ export function buildSourceHealthReport(
   const latestSourceHealthReportPath =
     options.latestSourceHealthReportPath
     ?? path.join(latestArtifactDir, 'source-health-report.json');
+  const latestSourceHealthTrendPath = path.join(
+    latestArtifactDir,
+    'source-health-trend.json',
+  );
   const thresholds = buildSourceHealthThresholds(options.thresholds);
   const historicalReports = readHistoricalSourceHealthReports(
     artifactDir,
@@ -609,9 +750,11 @@ export function buildSourceHealthReport(
       artifactDir,
       admissionReportPath,
       sourceHealthReportPath,
+      sourceHealthTrendPath: path.join(artifactDir, 'source-health-trend.json'),
       latestArtifactDir,
       latestAdmissionReportPath,
       latestSourceHealthReportPath,
+      latestSourceHealthTrendPath,
     },
   };
 }
@@ -622,11 +765,14 @@ export async function writeSourceHealthArtifact(
   latestArtifactDir: string;
   latestAdmissionReportPath: string;
   latestSourceHealthReportPath: string;
+  latestSourceHealthTrendPath: string;
   artifactDir: string;
   admissionReportPath: string;
   sourceHealthReportPath: string;
+  sourceHealthTrendPath: string;
   admissionReport: SourceAdmissionReport;
   sourceHealthReport: SourceHealthReport;
+  sourceHealthTrendIndex: SourceHealthTrendIndex;
 }> {
   const resolvedArtifactDir =
     options.artifactDir
@@ -669,6 +815,10 @@ export async function writeSourceHealthArtifact(
     latestArtifactDir,
     'source-health-report.json',
   );
+  const latestSourceHealthTrendPath = path.join(
+    latestArtifactDir,
+    'source-health-trend.json',
+  );
   const sourceHealthReport = buildSourceHealthReport(admissionArtifact.report, {
     artifactDir: admissionArtifact.artifactDir,
     admissionReportPath: admissionArtifact.reportPath,
@@ -681,10 +831,23 @@ export async function writeSourceHealthArtifact(
     latestSourceHealthReportPath,
     now: options.now,
   });
+  const historicalReports = readHistoricalSourceHealthReports(
+    admissionArtifact.artifactDir,
+    sourceHealthReport.thresholds.historyLookbackRunCount,
+  );
+  const sourceHealthTrendIndex = buildSourceHealthTrendIndex(
+    sourceHealthReport,
+    historicalReports,
+  );
 
   writeFileSync(
     sourceHealthReport.paths.sourceHealthReportPath,
     `${JSON.stringify(sourceHealthReport, null, 2)}\n`,
+    'utf8',
+  );
+  writeFileSync(
+    sourceHealthReport.paths.sourceHealthTrendPath,
+    `${JSON.stringify(sourceHealthTrendIndex, null, 2)}\n`,
     'utf8',
   );
   mkdirSync(latestArtifactDir, { recursive: true });
@@ -698,16 +861,24 @@ export async function writeSourceHealthArtifact(
     `${JSON.stringify(sourceHealthReport, null, 2)}\n`,
     'utf8',
   );
+  writeFileSync(
+    latestSourceHealthTrendPath,
+    `${JSON.stringify(sourceHealthTrendIndex, null, 2)}\n`,
+    'utf8',
+  );
 
   return {
     latestArtifactDir,
     latestAdmissionReportPath,
     latestSourceHealthReportPath,
+    latestSourceHealthTrendPath,
     artifactDir: admissionArtifact.artifactDir,
     admissionReportPath: admissionArtifact.reportPath,
     sourceHealthReportPath: sourceHealthReport.paths.sourceHealthReportPath,
+    sourceHealthTrendPath: sourceHealthReport.paths.sourceHealthTrendPath,
     admissionReport: admissionArtifact.report,
     sourceHealthReport,
+    sourceHealthTrendIndex,
   };
 }
 
@@ -726,12 +897,17 @@ async function main(): Promise<void> {
     artifactDir: artifact.artifactDir,
     admissionReportPath: artifact.admissionReportPath,
     sourceHealthReportPath: artifact.sourceHealthReportPath,
+    sourceHealthTrendPath: artifact.sourceHealthTrendPath,
     latestArtifactDir: artifact.latestArtifactDir,
     latestSourceHealthReportPath: artifact.latestSourceHealthReportPath,
+    latestSourceHealthTrendPath: artifact.latestSourceHealthTrendPath,
     readinessStatus: artifact.sourceHealthReport.readinessStatus,
     thresholds: artifact.sourceHealthReport.thresholds,
     observability: artifact.sourceHealthReport.observability,
     historySummary: artifact.sourceHealthReport.historySummary,
+    trendRunCount: artifact.sourceHealthTrendIndex.runCount,
+    latestTrendRun:
+      artifact.sourceHealthTrendIndex.runs[artifact.sourceHealthTrendIndex.runs.length - 1] ?? null,
     enabledSourceIds: artifact.sourceHealthReport.runtimePolicy.enabledSourceIds,
     keepSourceIds: artifact.sourceHealthReport.keepSourceIds,
     watchSourceIds: artifact.sourceHealthReport.watchSourceIds,
@@ -748,6 +924,7 @@ if (isDirectExecution()) {
 export const sourceHealthReportInternal = {
   applyHistoricalDecisionPolicy,
   buildDecision,
+  buildSourceHealthTrendIndex,
   buildSourceHistory,
   buildSourceHealthRuntimePolicy,
   countConsecutiveDecisions,
