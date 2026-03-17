@@ -3,7 +3,7 @@
 Status: Canonical execution plan
 Owner: Core Engineering
 Last Updated: 2026-03-16
-Branch Baseline: `main` @ `746ac58`
+Branch Baseline: `main` @ `a11129a`
 
 Companion execution backlog:
 
@@ -31,16 +31,20 @@ This replaces the earlier broad pipeline-first plan as the canonical execution p
 
 ## 2. Problem Statement
 
-The repo already has strong production-path wiring, but the current bundler still behaves too much like a topic clusterer.
+The repo originally had strong production-path wiring, but the bundler behaved too much like a topic clusterer.
 
 Validated live failure mode:
 
 1. a Jan. 6 plaque article and a related CBS video were correctly bundled as the same incident;
 2. a CBS report on a specific drone strike was incorrectly bundled with a broad Guardian Iran roundup.
 
-That second case is the core defect.
+That second case was the core defect that drove this program.
 
-The system must optimize for event precision, not generic topic similarity.
+Current state:
+
+1. the deterministic corpus/replay gate plus daemon-first semantic gate now provide the primary correctness proof on `main`;
+2. the active production blocker is no longer generic semantic uncertainty;
+3. the active blocker is source-surface quality, source-health enforcement, and distribution-readiness evidence.
 
 ## 3. Canonical Principles
 
@@ -104,12 +108,23 @@ Implementation state note:
    - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
    - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
    - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
-7. the active follow-on lane is source-readability admission and distribution-readiness hardening:
-   - the feed promise is about onboarded readable sources, not arbitrary sources;
-   - singleton-first publication and later bundle growth must remain explicit release invariants;
-   - source onboarding/removal and readability review are governed operationally by `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`;
+7. source-readability admission and runtime health enforcement are already operational on `main`:
+   - source-admission evidence and source-health decision artifacts are emitted from the news-aggregator runtime;
+   - web bootstrap autoloads the latest source-health artifact;
+   - runtime source selection enforces keep/watch/remove policy and surfaces the applied report source in evidence/logging;
+   - the feed promise is about onboarded readable sources, not arbitrary sources.
 8. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes;
 9. public semantic soak remains secondary distribution telemetry, not the primary clustering proof.
+
+## 4.3 Production-Readiness Task List
+
+1. Converge starter-surface generation and runtime source selection onto the same source-health-derived source set.
+2. Require `pnpm report:news-sources:health` in release evidence for source-surface changes, alongside:
+   - `pnpm test:storycluster:correctness`
+   - `pnpm test:storycluster:gates`
+3. Codify watchlist escalation, removal, and re-admission thresholds so source decisions are deterministic and reviewable.
+4. Build source-health observability for readable success rate, access-denied rate, quality failures, lifecycle instability, and feed contribution by source.
+5. Expand distribution-ready source breadth only through the admission/health pipeline.
 
 ## 5. Canonical Pair Ontology
 
