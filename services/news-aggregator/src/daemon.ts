@@ -22,6 +22,7 @@ import {
   createAsyncEnrichmentQueue,
   DEFAULT_LEASE_TTL_MS,
   parseFeedSources,
+  resolveFeedSourceConfig,
   parseGunPeers,
   parseOptionalPositiveInt,
   parsePositiveInt,
@@ -240,7 +241,8 @@ export interface NewsAggregatorDaemonProcessHandle {
 }
 
 export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregatorDaemonProcessHandle> {
-  const feedSources = parseFeedSources(readEnvVar('VITE_NEWS_FEED_SOURCES'));
+  const feedSourceResolution = resolveFeedSourceConfig(readEnvVar('VITE_NEWS_FEED_SOURCES'));
+  const feedSources = [...feedSourceResolution.feedSources];
   const topicMapping = parseTopicMapping(readEnvVar('VITE_NEWS_TOPIC_MAPPING'));
   const pollIntervalMs = parseOptionalPositiveInt(readEnvVar('VITE_NEWS_POLL_INTERVAL_MS'));
   const leaseTtlMs = parsePositiveInt(
@@ -256,6 +258,12 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   });
 
   const gunPeers = parseGunPeers(readEnvVar('VH_GUN_PEERS') ?? readEnvVar('VITE_GUN_PEERS'));
+  if (feedSourceResolution.sourceHealth.summary) {
+    console.info('[vh:news-daemon] source health starter surface', {
+      ...feedSourceResolution.sourceHealth.summary,
+      reportPath: feedSourceResolution.sourceHealth.reportPath,
+    });
+  }
   const client = createNodeMeshClient({
     peers: gunPeers.length > 0 ? gunPeers : undefined,
     requireSession: false,

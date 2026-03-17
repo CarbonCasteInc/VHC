@@ -1,6 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { SourceHealthRuntimePolicy } from '@vh/ai-engine';
+export type { SourceHealthRuntimePolicy } from '@vh/ai-engine';
 import {
   type SourceAdmissionArtifactOptions,
   type SourceAdmissionSourceReport,
@@ -13,12 +15,6 @@ export const SOURCE_HEALTH_REPORT_SCHEMA_VERSION =
 
 export type SourceHealthDecision = 'keep' | 'watch' | 'remove';
 export type SourceHealthReadinessStatus = 'ready' | 'review' | 'blocked';
-
-export interface SourceHealthRuntimePolicy {
-  readonly enabledSourceIds: readonly string[];
-  readonly watchSourceIds: readonly string[];
-  readonly removeSourceIds: readonly string[];
-}
 
 export interface SourceHealthSourceReport {
   readonly sourceId: string;
@@ -37,6 +33,26 @@ export interface SourceHealthSourceReport {
   readonly unstableLifecycleDomains: readonly string[];
 }
 
+export interface SourceHealthThresholds {
+  readonly keepMinReadableSampleRate: number;
+  readonly maxWatchSourceCount: number;
+  readonly minEnabledSourceCount: number;
+  readonly removeRejectedNonFeedOutage: boolean;
+  readonly requireHealthyLifecycleForKeep: boolean;
+}
+
+export interface SourceHealthObservability {
+  readonly enabledSourceCount: number;
+  readonly keepSourceCount: number;
+  readonly watchSourceCount: number;
+  readonly removeSourceCount: number;
+  readonly admittedSourceCount: number;
+  readonly rejectedSourceCount: number;
+  readonly inconclusiveSourceCount: number;
+  readonly unstableLifecycleSourceCount: number;
+  readonly reasonCounts: Readonly<Record<string, number>>;
+}
+
 export interface SourceHealthReport {
   readonly schemaVersion: typeof SOURCE_HEALTH_REPORT_SCHEMA_VERSION;
   readonly generatedAt: string;
@@ -44,11 +60,14 @@ export interface SourceHealthReport {
   readonly recommendedAction:
     | 'starter_surface_ready'
     | 'review_watchlist'
+    | 'expand_readable_surface'
     | 'prune_remove_candidates';
   readonly sourceCount: number;
   readonly keepSourceIds: readonly string[];
   readonly watchSourceIds: readonly string[];
   readonly removeSourceIds: readonly string[];
+  readonly thresholds: SourceHealthThresholds;
+  readonly observability: SourceHealthObservability;
   readonly runtimePolicy: SourceHealthRuntimePolicy;
   readonly sources: readonly SourceHealthSourceReport[];
   readonly paths: {
@@ -65,6 +84,74 @@ export interface SourceHealthArtifactOptions extends SourceAdmissionArtifactOpti
   readonly admissionReport?: SourceAdmissionReport;
 }
 
+function parseRate(raw: string | undefined, fallback: number): number {
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 1) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function parsePositiveInt(raw: string | undefined, fallback: number): number {
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.floor(parsed);
+}
+
+function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
+  const normalized = raw?.trim().toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+export function buildSourceHealthThresholds(
+  options: {
+    readonly keepMinReadableSampleRate?: number;
+    readonly maxWatchSourceCount?: number;
+    readonly minEnabledSourceCount?: number;
+    readonly removeRejectedNonFeedOutage?: boolean;
+    readonly requireHealthyLifecycleForKeep?: boolean;
+  } = {},
+): SourceHealthThresholds {
+  return {
+    keepMinReadableSampleRate:
+      options.keepMinReadableSampleRate
+      ?? parseRate(process.env.VH_NEWS_SOURCE_HEALTH_KEEP_MIN_READABLE_RATE, 1),
+    maxWatchSourceCount:
+      options.maxWatchSourceCount
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_MAX_WATCH_SOURCE_COUNT, 0),
+    minEnabledSourceCount:
+      options.minEnabledSourceCount
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_MIN_ENABLED_SOURCE_COUNT, 1),
+    removeRejectedNonFeedOutage:
+      options.removeRejectedNonFeedOutage
+      ?? parseBoolean(process.env.VH_NEWS_SOURCE_HEALTH_REMOVE_REJECTED_NON_FEED_OUTAGE, true),
+    requireHealthyLifecycleForKeep:
+      options.requireHealthyLifecycleForKeep
+      ?? parseBoolean(process.env.VH_NEWS_SOURCE_HEALTH_REQUIRE_HEALTHY_LIFECYCLE_FOR_KEEP, true),
+  };
+}
+
 function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
   return source.lifecycle.some(
     (state) =>
@@ -75,7 +162,10 @@ function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
   );
 }
 
-function buildDecision(source: SourceAdmissionSourceReport): SourceHealthSourceReport {
+function buildDecision(
+  source: SourceAdmissionSourceReport,
+  thresholds: SourceHealthThresholds,
+): SourceHealthSourceReport {
   const unstableLifecycleDomains = source.lifecycle
     .filter(
       (state) =>
@@ -88,8 +178,18 @@ function buildDecision(source: SourceAdmissionSourceReport): SourceHealthSourceR
 
   if (source.status === 'admitted') {
     const pristine =
-      source.readableSampleRate === 1
-      && !hasLifecycleInstability(source);
+      (source.readableSampleRate ?? 0) >= thresholds.keepMinReadableSampleRate
+      && (
+        !thresholds.requireHealthyLifecycleForKeep
+        || !hasLifecycleInstability(source)
+      );
+    const reasons: string[] = [];
+    if ((source.readableSampleRate ?? 0) < thresholds.keepMinReadableSampleRate) {
+      reasons.push('below_keep_readable_rate_threshold');
+    }
+    if (thresholds.requireHealthyLifecycleForKeep && hasLifecycleInstability(source)) {
+      reasons.push('admitted_with_instability');
+    }
 
     return {
       sourceId: source.sourceId,
@@ -98,7 +198,7 @@ function buildDecision(source: SourceAdmissionSourceReport): SourceHealthSourceR
       admissionStatus: source.status,
       decision: pristine ? 'keep' : 'watch',
       recommendedAction: pristine ? 'keep_in_starter_surface' : 'review_manually',
-      reasons: pristine ? [] : ['admitted_with_instability'],
+      reasons: pristine ? [] : reasons,
       readableSampleRate: source.readableSampleRate,
       readableSampleCount: source.readableSampleCount,
       sampleLinkCount: source.sampleLinkCount,
@@ -107,7 +207,8 @@ function buildDecision(source: SourceAdmissionSourceReport): SourceHealthSourceR
   }
 
   const removable =
-    source.status === 'rejected'
+    thresholds.removeRejectedNonFeedOutage
+    && source.status === 'rejected'
     && source.reasons.some((reason) => reason !== 'feed_links_unavailable');
 
   return {
@@ -150,6 +251,7 @@ export function buildSourceHealthReport(
     readonly latestArtifactDir?: string;
     readonly latestAdmissionReportPath?: string;
     readonly latestSourceHealthReportPath?: string;
+    readonly thresholds?: Partial<SourceHealthThresholds>;
     readonly now?: () => number;
   } = {},
 ): SourceHealthReport {
@@ -169,7 +271,8 @@ export function buildSourceHealthReport(
   const latestSourceHealthReportPath =
     options.latestSourceHealthReportPath
     ?? path.join(latestArtifactDir, 'source-health-report.json');
-  const sources = admissionReport.sources.map(buildDecision);
+  const thresholds = buildSourceHealthThresholds(options.thresholds);
+  const sources = admissionReport.sources.map((source) => buildDecision(source, thresholds));
   const keepSourceIds = sources
     .filter((source) => source.decision === 'keep')
     .map((source) => source.sourceId);
@@ -180,17 +283,41 @@ export function buildSourceHealthReport(
     .filter((source) => source.decision === 'remove')
     .map((source) => source.sourceId);
   const runtimePolicy = buildSourceHealthRuntimePolicy(sources);
+  const reasonCounts = sources.reduce<Record<string, number>>((counts, source) => {
+    for (const reason of source.reasons) {
+      counts[reason] = (counts[reason] ?? 0) + 1;
+    }
+    return counts;
+  }, {});
+  const observability: SourceHealthObservability = {
+    enabledSourceCount: runtimePolicy.enabledSourceIds.length,
+    keepSourceCount: keepSourceIds.length,
+    watchSourceCount: watchSourceIds.length,
+    removeSourceCount: removeSourceIds.length,
+    admittedSourceCount: sources.filter((source) => source.admissionStatus === 'admitted').length,
+    rejectedSourceCount: sources.filter((source) => source.admissionStatus === 'rejected').length,
+    inconclusiveSourceCount: sources.filter((source) => source.admissionStatus === 'inconclusive').length,
+    unstableLifecycleSourceCount: sources.filter((source) => source.unstableLifecycleDomains.length > 0).length,
+    reasonCounts,
+  };
 
   const readinessStatus: SourceHealthReadinessStatus =
-    removeSourceIds.length > 0 ? 'blocked' : watchSourceIds.length > 0 ? 'review' : 'ready';
+    removeSourceIds.length > 0
+      || runtimePolicy.enabledSourceIds.length < thresholds.minEnabledSourceCount
+      ? 'blocked'
+      : watchSourceIds.length > thresholds.maxWatchSourceCount
+        ? 'review'
+        : 'ready';
 
   return {
     schemaVersion: SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
     generatedAt: new Date((options.now ?? Date.now)()).toISOString(),
     readinessStatus,
     recommendedAction:
-      readinessStatus === 'blocked'
+      readinessStatus === 'blocked' && removeSourceIds.length > 0
         ? 'prune_remove_candidates'
+        : readinessStatus === 'blocked'
+          ? 'expand_readable_surface'
         : readinessStatus === 'review'
           ? 'review_watchlist'
           : 'starter_surface_ready',
@@ -198,6 +325,8 @@ export function buildSourceHealthReport(
     keepSourceIds,
     watchSourceIds,
     removeSourceIds,
+    thresholds,
+    observability,
     runtimePolicy,
     sources,
     paths: {
@@ -324,6 +453,8 @@ async function main(): Promise<void> {
     latestArtifactDir: artifact.latestArtifactDir,
     latestSourceHealthReportPath: artifact.latestSourceHealthReportPath,
     readinessStatus: artifact.sourceHealthReport.readinessStatus,
+    thresholds: artifact.sourceHealthReport.thresholds,
+    observability: artifact.sourceHealthReport.observability,
     enabledSourceIds: artifact.sourceHealthReport.runtimePolicy.enabledSourceIds,
     keepSourceIds: artifact.sourceHealthReport.keepSourceIds,
     watchSourceIds: artifact.sourceHealthReport.watchSourceIds,

@@ -1,4 +1,6 @@
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
 import {
@@ -11,6 +13,7 @@ import {
   parsePositiveInt,
   parseStoryClusterRemoteConfig,
   parseTopicMapping,
+  resolveFeedSourceConfig,
   resolveLeaseHolderId,
   verifyStoryClusterHealth,
   DEFAULT_LEASE_TTL_MS,
@@ -261,6 +264,65 @@ describe('daemonUtils', () => {
       '{"peer":"https://x.example/gun"}',
     ]);
     expect(parseGunPeers('[invalid-json')).toEqual([]);
+  });
+
+  it('resolves starter feed sources through the source-health policy surface', () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-daemon-feed-sources-'));
+    const latestDir = path.join(cwd, '.tmp', 'news-source-admission', 'latest');
+    mkdirSync(latestDir, { recursive: true });
+    const latestPath = path.join(latestDir, 'source-health-report.json');
+    writeFileSync(
+      latestPath,
+      JSON.stringify({
+        readinessStatus: 'review',
+        recommendedAction: 'review_watchlist',
+        runtimePolicy: {
+          enabledSourceIds: ['fox-latest', 'guardian-us'],
+          watchSourceIds: ['guardian-us'],
+          removeSourceIds: ['cbs-politics'],
+        },
+      }),
+      'utf8',
+    );
+
+    const originalCwd = process.cwd();
+    process.chdir(cwd);
+
+    try {
+      vi.stubEnv('VH_NEWS_SOURCE_HEALTH_REPORT_AUTOLOAD', 'false');
+
+      const resolved = resolveFeedSourceConfig(
+        JSON.stringify([
+          {
+            id: 'source-a',
+            name: 'Source A',
+            rssUrl: 'https://example.com/a.xml',
+            enabled: true,
+          },
+          {
+            id: 'source-b',
+            name: 'Source B',
+            rssUrl: 'https://example.com/b.xml',
+            enabled: true,
+          },
+        ]),
+      );
+
+      expect(resolved.feedSources.map((source) => source.id)).toEqual(['source-a', 'source-b']);
+      expect(resolved.sourceHealth.summary).toBeNull();
+
+      vi.stubEnv('VH_NEWS_SOURCE_HEALTH_REPORT_AUTOLOAD', 'true');
+
+      const autoResolved = resolveFeedSourceConfig(undefined);
+
+      expect(realpathSync(autoResolved.sourceHealth.reportPath!)).toBe(realpathSync(latestPath));
+      expect(autoResolved.sourceHealth.summary?.watchSourceIds).toEqual(['guardian-us']);
+      expect(autoResolved.sourceHealth.summary?.removedConfiguredSourceIds).toEqual(['cbs-politics']);
+      expect(autoResolved.feedSources.map((source) => source.id)).not.toContain('cbs-politics');
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('resolves lease holder ids and lease payload transitions', () => {
