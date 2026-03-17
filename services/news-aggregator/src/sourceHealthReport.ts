@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { SourceHealthRuntimePolicy } from '@vh/ai-engine';
@@ -21,6 +21,7 @@ export interface SourceHealthSourceReport {
   readonly sourceName: string;
   readonly rssUrl: string;
   readonly admissionStatus: SourceAdmissionSourceReport['status'];
+  readonly baseDecision: SourceHealthDecision;
   readonly decision: SourceHealthDecision;
   readonly recommendedAction:
     | 'keep_in_starter_surface'
@@ -31,6 +32,7 @@ export interface SourceHealthSourceReport {
   readonly readableSampleCount: number;
   readonly sampleLinkCount: number;
   readonly unstableLifecycleDomains: readonly string[];
+  readonly history: SourceHealthSourceHistory;
 }
 
 export interface SourceHealthThresholds {
@@ -39,6 +41,9 @@ export interface SourceHealthThresholds {
   readonly minEnabledSourceCount: number;
   readonly removeRejectedNonFeedOutage: boolean;
   readonly requireHealthyLifecycleForKeep: boolean;
+  readonly historyLookbackRunCount: number;
+  readonly watchEscalationRunCount: number;
+  readonly readmissionKeepRunCount: number;
 }
 
 export interface SourceHealthObservability {
@@ -50,7 +55,27 @@ export interface SourceHealthObservability {
   readonly rejectedSourceCount: number;
   readonly inconclusiveSourceCount: number;
   readonly unstableLifecycleSourceCount: number;
+  readonly historyEscalatedSourceCount: number;
+  readonly pendingReadmissionSourceCount: number;
   readonly reasonCounts: Readonly<Record<string, number>>;
+}
+
+export interface SourceHealthSourceHistory {
+  readonly priorReportCount: number;
+  readonly priorEffectiveDecision: SourceHealthDecision | null;
+  readonly priorEffectiveDecisions: readonly SourceHealthDecision[];
+  readonly priorBaseDecisions: readonly SourceHealthDecision[];
+  readonly consecutiveBaseKeepRuns: number;
+  readonly consecutiveDegradedRuns: number;
+  readonly escalatedToRemove: boolean;
+  readonly pendingReadmission: boolean;
+}
+
+export interface SourceHealthHistorySummary {
+  readonly lookbackRunCount: number;
+  readonly priorReportCount: number;
+  readonly escalatedSourceIds: readonly string[];
+  readonly pendingReadmissionSourceIds: readonly string[];
 }
 
 export interface SourceHealthReport {
@@ -68,6 +93,7 @@ export interface SourceHealthReport {
   readonly removeSourceIds: readonly string[];
   readonly thresholds: SourceHealthThresholds;
   readonly observability: SourceHealthObservability;
+  readonly historySummary: SourceHealthHistorySummary;
   readonly runtimePolicy: SourceHealthRuntimePolicy;
   readonly sources: readonly SourceHealthSourceReport[];
   readonly paths: {
@@ -82,6 +108,17 @@ export interface SourceHealthReport {
 
 export interface SourceHealthArtifactOptions extends SourceAdmissionArtifactOptions {
   readonly admissionReport?: SourceAdmissionReport;
+}
+
+interface HistoricalSourceHealthRecord {
+  readonly generatedAtMs: number;
+  readonly sources: readonly HistoricalSourceHealthSourceRecord[];
+}
+
+interface HistoricalSourceHealthSourceRecord {
+  readonly sourceId: string;
+  readonly baseDecision: SourceHealthDecision;
+  readonly decision: SourceHealthDecision;
 }
 
 function parseRate(raw: string | undefined, fallback: number): number {
@@ -131,6 +168,9 @@ export function buildSourceHealthThresholds(
     readonly minEnabledSourceCount?: number;
     readonly removeRejectedNonFeedOutage?: boolean;
     readonly requireHealthyLifecycleForKeep?: boolean;
+    readonly historyLookbackRunCount?: number;
+    readonly watchEscalationRunCount?: number;
+    readonly readmissionKeepRunCount?: number;
   } = {},
 ): SourceHealthThresholds {
   return {
@@ -149,7 +189,120 @@ export function buildSourceHealthThresholds(
     requireHealthyLifecycleForKeep:
       options.requireHealthyLifecycleForKeep
       ?? parseBoolean(process.env.VH_NEWS_SOURCE_HEALTH_REQUIRE_HEALTHY_LIFECYCLE_FOR_KEEP, true),
+    historyLookbackRunCount:
+      options.historyLookbackRunCount
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_HISTORY_LOOKBACK_RUN_COUNT, 8),
+    watchEscalationRunCount:
+      options.watchEscalationRunCount
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_WATCH_ESCALATION_RUN_COUNT, 3),
+    readmissionKeepRunCount:
+      options.readmissionKeepRunCount
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_READMISSION_KEEP_RUN_COUNT, 2),
   };
+}
+
+function countConsecutiveDecisions(
+  decisions: readonly SourceHealthDecision[],
+  predicate: (decision: SourceHealthDecision) => boolean,
+): number {
+  let count = 0;
+  for (let index = decisions.length - 1; index >= 0; index -= 1) {
+    const decision = decisions[index];
+    if (!decision || !predicate(decision)) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+function normalizeDecision(value: unknown): SourceHealthDecision | null {
+  switch (value) {
+    case 'keep':
+    case 'watch':
+    case 'remove':
+      return value;
+    default:
+      return null;
+  }
+}
+
+function parseHistoricalSourceHealthRecord(
+  value: unknown,
+): HistoricalSourceHealthRecord | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const generatedAt =
+    typeof record.generatedAt === 'string' ? Date.parse(record.generatedAt) : Number.NaN;
+  if (!Number.isFinite(generatedAt)) {
+    return null;
+  }
+
+  if (!Array.isArray(record.sources)) {
+    return null;
+  }
+
+  const sources: HistoricalSourceHealthSourceRecord[] = [];
+  for (const source of record.sources) {
+    if (typeof source !== 'object' || source === null || Array.isArray(source)) {
+      continue;
+    }
+    const parsedSource = source as Record<string, unknown>;
+    const sourceId =
+      typeof parsedSource.sourceId === 'string' && parsedSource.sourceId.trim().length > 0
+        ? parsedSource.sourceId.trim()
+        : null;
+    const decision = normalizeDecision(parsedSource.decision);
+    const baseDecision =
+      normalizeDecision(parsedSource.baseDecision) ?? decision;
+    if (!sourceId || !decision || !baseDecision) {
+      continue;
+    }
+    sources.push({
+      sourceId,
+      baseDecision,
+      decision,
+    });
+  }
+
+  return {
+    generatedAtMs: generatedAt,
+    sources,
+  };
+}
+
+function readHistoricalSourceHealthReports(
+  artifactDir: string,
+  lookbackRunCount: number,
+): HistoricalSourceHealthRecord[] {
+  const artifactRoot = path.dirname(artifactDir);
+  if (!existsSync(artifactRoot)) {
+    return [];
+  }
+
+  const currentDirName = path.basename(artifactDir);
+  const candidates = readdirSync(artifactRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== 'latest' && entry.name !== currentDirName)
+    .map((entry) => path.join(artifactRoot, entry.name, 'source-health-report.json'))
+    .filter((reportPath) => existsSync(reportPath));
+
+  const parsed = candidates
+    .map((reportPath) => {
+      try {
+        return parseHistoricalSourceHealthRecord(
+          JSON.parse(readFileSync(reportPath, 'utf8')) as unknown,
+        );
+      } catch {
+        return null;
+      }
+    })
+    .filter((record): record is HistoricalSourceHealthRecord => record !== null)
+    .sort((left, right) => left.generatedAtMs - right.generatedAtMs);
+
+  return parsed.slice(-lookbackRunCount);
 }
 
 function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
@@ -196,6 +349,7 @@ function buildDecision(
       sourceName: source.sourceName,
       rssUrl: source.rssUrl,
       admissionStatus: source.status,
+      baseDecision: pristine ? 'keep' : 'watch',
       decision: pristine ? 'keep' : 'watch',
       recommendedAction: pristine ? 'keep_in_starter_surface' : 'review_manually',
       reasons: pristine ? [] : reasons,
@@ -203,6 +357,16 @@ function buildDecision(
       readableSampleCount: source.readableSampleCount,
       sampleLinkCount: source.sampleLinkCount,
       unstableLifecycleDomains,
+      history: {
+        priorReportCount: 0,
+        priorEffectiveDecision: null,
+        priorEffectiveDecisions: [],
+        priorBaseDecisions: [],
+        consecutiveBaseKeepRuns: 0,
+        consecutiveDegradedRuns: 0,
+        escalatedToRemove: false,
+        pendingReadmission: false,
+      },
     };
   }
 
@@ -216,6 +380,7 @@ function buildDecision(
     sourceName: source.sourceName,
     rssUrl: source.rssUrl,
     admissionStatus: source.status,
+    baseDecision: removable ? 'remove' : 'watch',
     decision: removable ? 'remove' : 'watch',
     recommendedAction: removable ? 'remove_from_starter_surface' : 'review_manually',
     reasons: source.reasons,
@@ -223,6 +388,91 @@ function buildDecision(
     readableSampleCount: source.readableSampleCount,
     sampleLinkCount: source.sampleLinkCount,
     unstableLifecycleDomains,
+    history: {
+      priorReportCount: 0,
+      priorEffectiveDecision: null,
+      priorEffectiveDecisions: [],
+      priorBaseDecisions: [],
+      consecutiveBaseKeepRuns: 0,
+      consecutiveDegradedRuns: 0,
+      escalatedToRemove: false,
+      pendingReadmission: false,
+    },
+  };
+}
+
+function buildSourceHistory(
+  sourceId: string,
+  historicalReports: readonly HistoricalSourceHealthRecord[],
+  thresholds: SourceHealthThresholds,
+  baseDecision: SourceHealthDecision,
+): SourceHealthSourceHistory {
+  const priorRecords = historicalReports
+    .map((report) => report.sources.find((source) => source.sourceId === sourceId) ?? null)
+    .filter((source): source is HistoricalSourceHealthSourceRecord => source !== null);
+  const priorEffectiveDecisions = priorRecords.map((source) => source.decision);
+  const priorBaseDecisions = priorRecords.map((source) => source.baseDecision);
+  const priorEffectiveDecision =
+    priorEffectiveDecisions.length > 0
+      ? priorEffectiveDecisions[priorEffectiveDecisions.length - 1] ?? null
+      : null;
+  const consecutiveBaseKeepRuns = countConsecutiveDecisions(
+    priorBaseDecisions,
+    (decision) => decision === 'keep',
+  );
+  const consecutiveDegradedRuns = countConsecutiveDecisions(
+    priorEffectiveDecisions,
+    (decision) => decision !== 'keep',
+  );
+  const priorRemovalSeen = priorEffectiveDecisions.includes('remove');
+  const pendingReadmission =
+    baseDecision === 'keep'
+    && priorRemovalSeen
+    && consecutiveBaseKeepRuns + 1 < thresholds.readmissionKeepRunCount;
+  const escalatedToRemove =
+    baseDecision === 'watch'
+    && consecutiveDegradedRuns + 1 >= thresholds.watchEscalationRunCount;
+
+  return {
+    priorReportCount: priorRecords.length,
+    priorEffectiveDecision,
+    priorEffectiveDecisions,
+    priorBaseDecisions,
+    consecutiveBaseKeepRuns,
+    consecutiveDegradedRuns,
+    escalatedToRemove,
+    pendingReadmission,
+  };
+}
+
+function applyHistoricalDecisionPolicy(
+  source: SourceHealthSourceReport,
+  history: SourceHealthSourceHistory,
+): SourceHealthSourceReport {
+  const reasons = [...source.reasons];
+  let decision = source.decision;
+  let recommendedAction = source.recommendedAction;
+
+  if (history.pendingReadmission) {
+    decision = 'watch';
+    recommendedAction = 'review_manually';
+    if (!reasons.includes('pending_readmission_stability_window')) {
+      reasons.push('pending_readmission_stability_window');
+    }
+  } else if (history.escalatedToRemove) {
+    decision = 'remove';
+    recommendedAction = 'remove_from_starter_surface';
+    if (!reasons.includes('watchlist_escalated_by_history')) {
+      reasons.push('watchlist_escalated_by_history');
+    }
+  }
+
+  return {
+    ...source,
+    decision,
+    recommendedAction,
+    reasons,
+    history,
   };
 }
 
@@ -272,7 +522,20 @@ export function buildSourceHealthReport(
     options.latestSourceHealthReportPath
     ?? path.join(latestArtifactDir, 'source-health-report.json');
   const thresholds = buildSourceHealthThresholds(options.thresholds);
-  const sources = admissionReport.sources.map((source) => buildDecision(source, thresholds));
+  const historicalReports = readHistoricalSourceHealthReports(
+    artifactDir,
+    thresholds.historyLookbackRunCount,
+  );
+  const sources = admissionReport.sources.map((source) => {
+    const baseDecision = buildDecision(source, thresholds);
+    const history = buildSourceHistory(
+      baseDecision.sourceId,
+      historicalReports,
+      thresholds,
+      baseDecision.baseDecision,
+    );
+    return applyHistoricalDecisionPolicy(baseDecision, history);
+  });
   const keepSourceIds = sources
     .filter((source) => source.decision === 'keep')
     .map((source) => source.sourceId);
@@ -298,7 +561,19 @@ export function buildSourceHealthReport(
     rejectedSourceCount: sources.filter((source) => source.admissionStatus === 'rejected').length,
     inconclusiveSourceCount: sources.filter((source) => source.admissionStatus === 'inconclusive').length,
     unstableLifecycleSourceCount: sources.filter((source) => source.unstableLifecycleDomains.length > 0).length,
+    historyEscalatedSourceCount: sources.filter((source) => source.history.escalatedToRemove).length,
+    pendingReadmissionSourceCount: sources.filter((source) => source.history.pendingReadmission).length,
     reasonCounts,
+  };
+  const historySummary: SourceHealthHistorySummary = {
+    lookbackRunCount: thresholds.historyLookbackRunCount,
+    priorReportCount: historicalReports.length,
+    escalatedSourceIds: sources
+      .filter((source) => source.history.escalatedToRemove)
+      .map((source) => source.sourceId),
+    pendingReadmissionSourceIds: sources
+      .filter((source) => source.history.pendingReadmission)
+      .map((source) => source.sourceId),
   };
 
   const readinessStatus: SourceHealthReadinessStatus =
@@ -327,6 +602,7 @@ export function buildSourceHealthReport(
     removeSourceIds,
     thresholds,
     observability,
+    historySummary,
     runtimePolicy,
     sources,
     paths: {
@@ -455,6 +731,7 @@ async function main(): Promise<void> {
     readinessStatus: artifact.sourceHealthReport.readinessStatus,
     thresholds: artifact.sourceHealthReport.thresholds,
     observability: artifact.sourceHealthReport.observability,
+    historySummary: artifact.sourceHealthReport.historySummary,
     enabledSourceIds: artifact.sourceHealthReport.runtimePolicy.enabledSourceIds,
     keepSourceIds: artifact.sourceHealthReport.keepSourceIds,
     watchSourceIds: artifact.sourceHealthReport.watchSourceIds,
@@ -469,8 +746,13 @@ if (isDirectExecution()) {
 /* c8 ignore stop */
 
 export const sourceHealthReportInternal = {
+  applyHistoricalDecisionPolicy,
   buildDecision,
+  buildSourceHistory,
   buildSourceHealthRuntimePolicy,
+  countConsecutiveDecisions,
   hasLifecycleInstability,
   isDirectExecution,
+  parseHistoricalSourceHealthRecord,
+  readHistoricalSourceHealthReports,
 };
