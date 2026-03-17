@@ -148,7 +148,7 @@
       - Encrypted attachments >100KB (docs exports, media), referenced from mesh objects
 
   - **Engines & services (back-end / infra pieces)** 🟡
-    - **News Aggregator Service** 🟢 - Tech: RSS ingest → normalize → cluster → StoryBundle; UX: "one story, many sources" (fully implemented Wave 1)
+    - **News Aggregator Service** 🟢 - Tech: RSS ingest → normalize → cluster → StoryBundle; UX: a readable story may start with one source and accumulate corroborating sources over time when later coverage belongs to the same incident or developing episode
     - **Synthesis Engine (V2 quorum + epochs)** 🟡 - Tech: candidate gather + critique/refine + synthesize + deterministic accept (core wiring present; hardening/consistency work ongoing)
     - **AI Engine Router (model switching)** 🟡
       - Default (current live profile): **API relay-backed analysis** ✅
@@ -167,7 +167,7 @@
 
   - **Implementation reality check (what exists today vs target)** 🟡
     - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
-    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; public semantic soak is still smoke-only; source-readability admission and distribution-ready source breadth remain the active blocker
+    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; source-admission/health evidence, runtime keep/watch/remove enforcement, and source-health artifact autoload are in force; public semantic soak is still smoke-only; distribution-ready source breadth and source-program convergence remain the active blocker
     - **Discovery feed / storyline UX** 🟡 - storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)

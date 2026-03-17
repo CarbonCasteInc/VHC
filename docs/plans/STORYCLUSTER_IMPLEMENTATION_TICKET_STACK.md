@@ -4,7 +4,7 @@ Status: Canonical ticket stack
 Owner: Core Engineering
 Last Updated: 2026-03-16
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `main` @ `746ac58`
+Branch Baseline: `main` @ `a11129a`
 
 ## 1. Usage
 
@@ -64,14 +64,17 @@ Completed or functionally in-force:
 17. discovery sync and HOTTEST storyline-cap diversification is in force on `main`
 18. StoryCluster correctness-gate sufficiency codification is in force on `main`
 19. daemon-first browser-gate startup reliability hardening is in force on `main`
+20. source-admission and source-health evidence commands are in force on `main`
+21. web-runtime keep/watch/remove enforcement and latest-artifact autoload are in force on `main`
 
 Active next implementation lane:
 
-1. news-source admission and readable-distribution readiness
+1. source-program convergence and readable-distribution readiness
 2. immediate focus:
-   - operationalize source admission around readable, accessible, extraction-safe sources rather than generic feed expansion
-   - codify singleton-first publication and later bundle growth as an explicit product invariant, not just an implicit replay behavior
-   - require source-health, paywall/truncation review, and source-lifecycle evidence for distribution-readiness claims
+   - converge starter-surface generation and runtime selection onto the same source-health-derived source set
+   - require `pnpm report:news-sources:health`, latest-artifact review, and keep/watch/remove runtime evidence for distribution-readiness claims
+   - codify watchlist escalation, removal, and re-admission thresholds so source decisions are deterministic
+   - build source-health observability for readable success rate, access-denied rate, quality failures, lifecycle instability, and feed contribution by source
    - keep public semantic runs smoke-only as secondary distribution telemetry unless they independently earn promotion
 
 Queued after the source-readiness lane:
