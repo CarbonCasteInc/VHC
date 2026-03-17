@@ -17,6 +17,7 @@ export const SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION =
 
 export type SourceHealthDecision = 'keep' | 'watch' | 'remove';
 export type SourceHealthReadinessStatus = 'ready' | 'review' | 'blocked';
+export type SourceHealthReleaseEvidenceStatus = 'pass' | 'warn' | 'fail';
 
 export interface SourceHealthSourceReport {
   readonly sourceId: string;
@@ -46,6 +47,8 @@ export interface SourceHealthThresholds {
   readonly historyLookbackRunCount: number;
   readonly watchEscalationRunCount: number;
   readonly readmissionKeepRunCount: number;
+  readonly releaseEvidenceWindowRunCount: number;
+  readonly maxNonReadyRunsInWindow: number;
 }
 
 export interface SourceHealthObservability {
@@ -99,7 +102,23 @@ export interface SourceHealthTrendIndex {
   readonly generatedAt: string;
   readonly lookbackRunCount: number;
   readonly runCount: number;
+  readonly releaseEvidence: SourceHealthReleaseEvidence;
   readonly runs: readonly SourceHealthTrendRunSummary[];
+}
+
+export interface SourceHealthReleaseEvidence {
+  readonly status: SourceHealthReleaseEvidenceStatus;
+  readonly recommendedAction:
+    | 'release_ready'
+    | 'review_recent_deterioration'
+    | 'hold_release_for_trend_recovery';
+  readonly reasons: readonly string[];
+  readonly recentWindowRunCount: number;
+  readonly recentReadyRunCount: number;
+  readonly recentReviewRunCount: number;
+  readonly recentBlockedRunCount: number;
+  readonly latestNewWatchSourceIds: readonly string[];
+  readonly latestNewRemoveSourceIds: readonly string[];
 }
 
 export interface SourceHealthReport {
@@ -118,6 +137,7 @@ export interface SourceHealthReport {
   readonly thresholds: SourceHealthThresholds;
   readonly observability: SourceHealthObservability;
   readonly historySummary: SourceHealthHistorySummary;
+  readonly releaseEvidence: SourceHealthReleaseEvidence;
   readonly runtimePolicy: SourceHealthRuntimePolicy;
   readonly sources: readonly SourceHealthSourceReport[];
   readonly paths: {
@@ -205,6 +225,8 @@ export function buildSourceHealthThresholds(
     readonly historyLookbackRunCount?: number;
     readonly watchEscalationRunCount?: number;
     readonly readmissionKeepRunCount?: number;
+    readonly releaseEvidenceWindowRunCount?: number;
+    readonly maxNonReadyRunsInWindow?: number;
   } = {},
 ): SourceHealthThresholds {
   return {
@@ -232,6 +254,12 @@ export function buildSourceHealthThresholds(
     readmissionKeepRunCount:
       options.readmissionKeepRunCount
       ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_READMISSION_KEEP_RUN_COUNT, 2),
+    releaseEvidenceWindowRunCount:
+      options.releaseEvidenceWindowRunCount
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_RELEASE_EVIDENCE_WINDOW_RUN_COUNT, 5),
+    maxNonReadyRunsInWindow:
+      options.maxNonReadyRunsInWindow
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_MAX_NON_READY_RUNS_IN_WINDOW, 1),
   };
 }
 
@@ -602,6 +630,70 @@ function toTrendRunSummary(
   };
 }
 
+function buildSourceHealthReleaseEvidence(
+  runs: readonly SourceHealthTrendRunSummary[],
+  thresholds: Pick<SourceHealthThresholds, 'releaseEvidenceWindowRunCount' | 'maxNonReadyRunsInWindow'>,
+): SourceHealthReleaseEvidence {
+  const recentRuns = runs.slice(-thresholds.releaseEvidenceWindowRunCount);
+  const latestRun = recentRuns[recentRuns.length - 1] ?? null;
+  const priorRun = recentRuns.length > 1 ? recentRuns[recentRuns.length - 2] ?? null : null;
+  const recentReviewRunCount = recentRuns.filter((run) => run.readinessStatus === 'review').length;
+  const recentBlockedRunCount = recentRuns.filter((run) => run.readinessStatus === 'blocked').length;
+  const recentReadyRunCount = recentRuns.filter((run) => run.readinessStatus === 'ready').length;
+  const recentNonReadyRunCount = recentReviewRunCount + recentBlockedRunCount;
+  const latestNewWatchSourceIds =
+    latestRun && priorRun
+      ? latestRun.watchSourceIds.filter((sourceId) => !priorRun.watchSourceIds.includes(sourceId))
+      : latestRun?.watchSourceIds ?? [];
+  const latestNewRemoveSourceIds =
+    latestRun && priorRun
+      ? latestRun.removeSourceIds.filter((sourceId) => !priorRun.removeSourceIds.includes(sourceId))
+      : latestRun?.removeSourceIds ?? [];
+
+  const reasons: string[] = [];
+  let status: SourceHealthReleaseEvidenceStatus = 'pass';
+  let recommendedAction: SourceHealthReleaseEvidence['recommendedAction'] = 'release_ready';
+
+  if (recentBlockedRunCount > 0) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_trend_recovery';
+    reasons.push('blocked_run_within_release_window');
+  }
+  if (recentNonReadyRunCount > thresholds.maxNonReadyRunsInWindow) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_trend_recovery';
+    reasons.push('non_ready_runs_exceed_threshold');
+  }
+
+  if (status !== 'fail' && latestRun?.readinessStatus !== 'ready') {
+    status = 'warn';
+    recommendedAction = 'review_recent_deterioration';
+    reasons.push('latest_run_not_ready');
+  }
+  if (status !== 'fail' && latestNewWatchSourceIds.length > 0) {
+    status = 'warn';
+    recommendedAction = 'review_recent_deterioration';
+    reasons.push('new_watch_sources_detected');
+  }
+  if (status !== 'fail' && latestNewRemoveSourceIds.length > 0) {
+    status = 'warn';
+    recommendedAction = 'review_recent_deterioration';
+    reasons.push('new_remove_sources_detected');
+  }
+
+  return {
+    status,
+    recommendedAction,
+    reasons,
+    recentWindowRunCount: recentRuns.length,
+    recentReadyRunCount,
+    recentReviewRunCount,
+    recentBlockedRunCount,
+    latestNewWatchSourceIds,
+    latestNewRemoveSourceIds,
+  };
+}
+
 export function buildSourceHealthTrendIndex(
   currentReport: Pick<
     SourceHealthReport,
@@ -625,6 +717,7 @@ export function buildSourceHealthTrendIndex(
     generatedAt: currentReport.generatedAt,
     lookbackRunCount: currentReport.thresholds.historyLookbackRunCount,
     runCount: runs.length,
+    releaseEvidence: buildSourceHealthReleaseEvidence(runs, currentReport.thresholds),
     runs,
   };
 }
@@ -716,7 +809,7 @@ export function buildSourceHealthReport(
       .filter((source) => source.history.pendingReadmission)
       .map((source) => source.sourceId),
   };
-
+  const generatedAt = new Date((options.now ?? Date.now)()).toISOString();
   const readinessStatus: SourceHealthReadinessStatus =
     removeSourceIds.length > 0
       || runtimePolicy.enabledSourceIds.length < thresholds.minEnabledSourceCount
@@ -724,10 +817,22 @@ export function buildSourceHealthReport(
       : watchSourceIds.length > thresholds.maxWatchSourceCount
         ? 'review'
         : 'ready';
+  const releaseEvidence = buildSourceHealthTrendIndex(
+    {
+      generatedAt,
+      readinessStatus,
+      keepSourceIds,
+      watchSourceIds,
+      removeSourceIds,
+      observability,
+      thresholds,
+    },
+    historicalReports,
+  ).releaseEvidence;
 
   return {
     schemaVersion: SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
-    generatedAt: new Date((options.now ?? Date.now)()).toISOString(),
+    generatedAt,
     readinessStatus,
     recommendedAction:
       readinessStatus === 'blocked' && removeSourceIds.length > 0
@@ -744,6 +849,7 @@ export function buildSourceHealthReport(
     thresholds,
     observability,
     historySummary,
+    releaseEvidence,
     runtimePolicy,
     sources,
     paths: {
@@ -902,6 +1008,7 @@ async function main(): Promise<void> {
     latestSourceHealthReportPath: artifact.latestSourceHealthReportPath,
     latestSourceHealthTrendPath: artifact.latestSourceHealthTrendPath,
     readinessStatus: artifact.sourceHealthReport.readinessStatus,
+    releaseEvidence: artifact.sourceHealthReport.releaseEvidence,
     thresholds: artifact.sourceHealthReport.thresholds,
     observability: artifact.sourceHealthReport.observability,
     historySummary: artifact.sourceHealthReport.historySummary,

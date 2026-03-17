@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-16
+> Last Reviewed: 2026-03-17
 > Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/CANON_MAP.md
 
 
@@ -149,6 +149,8 @@ Rules:
 5. Confirm the latest stable source-health artifact exists at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`.
 6. Confirm the latest stable source-health trend index exists at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`.
 7. Use the trend index first to compare recent runs without opening raw full artifacts:
+   - `releaseEvidence.status`
+   - `releaseEvidence.reasons`
    - `readinessStatus`
    - enabled/keep/watch/remove counts
    - `historyEscalatedSourceCount`
@@ -187,6 +189,7 @@ When reviewing StoryCluster release evidence:
   - `pnpm report:news-sources:health`
   - inspect `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
   - inspect `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`
+  - treat `releaseEvidence.status=fail` as a release blocker and `releaseEvidence.status=warn` as an explicit review item
   - confirm runtime evidence identifies the applied source-health report source
 - If you need a different profile:
   - `ENV_FILE=/path/to/.env pnpm live:stack:up`

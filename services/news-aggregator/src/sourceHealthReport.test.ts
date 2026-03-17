@@ -207,6 +207,8 @@ describe('sourceHealthReport', () => {
       historyLookbackRunCount: 8,
       watchEscalationRunCount: 3,
       readmissionKeepRunCount: 2,
+      releaseEvidenceWindowRunCount: 5,
+      maxNonReadyRunsInWindow: 1,
     });
     expect(report.observability).toEqual({
       enabledSourceCount: 2,
@@ -229,6 +231,17 @@ describe('sourceHealthReport', () => {
       priorReportCount: 0,
       escalatedSourceIds: [],
       pendingReadmissionSourceIds: [],
+    });
+    expect(report.releaseEvidence).toEqual({
+      status: 'fail',
+      recommendedAction: 'hold_release_for_trend_recovery',
+      reasons: ['blocked_run_within_release_window'],
+      recentWindowRunCount: 1,
+      recentReadyRunCount: 0,
+      recentReviewRunCount: 0,
+      recentBlockedRunCount: 1,
+      latestNewWatchSourceIds: ['guardian-us'],
+      latestNewRemoveSourceIds: ['cbs-politics'],
     });
     expect(report.runtimePolicy).toEqual({
       enabledSourceIds: ['fox-latest', 'guardian-us'],
@@ -282,6 +295,17 @@ describe('sourceHealthReport', () => {
     expect(report.readinessStatus).toBe('review');
     expect(report.recommendedAction).toBe('review_watchlist');
     expect(report.watchSourceIds).toEqual(['guardian-us']);
+    expect(report.releaseEvidence).toEqual({
+      status: 'warn',
+      recommendedAction: 'review_recent_deterioration',
+      reasons: ['latest_run_not_ready', 'new_watch_sources_detected'],
+      recentWindowRunCount: 1,
+      recentReadyRunCount: 0,
+      recentReviewRunCount: 1,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: ['guardian-us'],
+      latestNewRemoveSourceIds: [],
+    });
   });
 
   it('enforces configurable enabled-source thresholds', () => {
@@ -445,6 +469,17 @@ describe('sourceHealthReport', () => {
     expect(trendIndex.schemaVersion).toBe(SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION);
     expect(trendIndex.lookbackRunCount).toBe(8);
     expect(trendIndex.runCount).toBe(3);
+    expect(trendIndex.releaseEvidence).toEqual({
+      status: 'pass',
+      recommendedAction: 'release_ready',
+      reasons: [],
+      recentWindowRunCount: 3,
+      recentReadyRunCount: 2,
+      recentReviewRunCount: 1,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: [],
+      latestNewRemoveSourceIds: [],
+    });
     expect(trendIndex.runs.map((run) => run.readinessStatus)).toEqual([
       'ready',
       'review',
@@ -519,8 +554,14 @@ describe('sourceHealthReport', () => {
     expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
       '"historySummary"',
     );
+    expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
+      '"releaseEvidence"',
+    );
     expect(readFileSync(artifact.sourceHealthTrendPath, 'utf8')).toContain(
       `"schemaVersion": "${SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION}"`,
+    );
+    expect(readFileSync(artifact.sourceHealthTrendPath, 'utf8')).toContain(
+      '"releaseEvidence"',
     );
     expect(readFileSync(artifact.latestSourceHealthReportPath, 'utf8')).toContain(
       '"runtimePolicy"',

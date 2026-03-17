@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops + Core Engineering
-> Last Reviewed: 2026-03-16
+> Last Reviewed: 2026-03-17
 > Depends On: docs/foundational/STATUS.md, docs/specs/spec-news-aggregator-v0.md, docs/CANON_MAP.md
 
 
@@ -112,6 +112,8 @@ Operational artifact expectations:
    - a stable latest artifact under `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
 2. release evidence should capture:
    - `readinessStatus`
+   - `releaseEvidence.status`
+   - `releaseEvidence.reasons`
    - `recommendedAction`
    - `keepSourceIds`
    - `watchSourceIds`
@@ -121,6 +123,8 @@ Operational artifact expectations:
 3. `pnpm report:news-sources:health` must also publish a compact comparison surface at:
    - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`
 4. use the trend index for operator review before opening raw run artifacts:
+   - compare `releaseEvidence.status`
+   - compare `releaseEvidence.reasons`
    - compare `readinessStatus`
    - compare enabled/keep/watch/remove counts
    - compare `historyEscalatedSourceCount`
