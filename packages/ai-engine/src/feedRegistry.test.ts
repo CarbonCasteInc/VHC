@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(10);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(11);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -53,6 +53,18 @@ describe('feedRegistry', () => {
         rssUrl: 'https://feeds.nbcnews.com/feeds/nbcpolitics',
         perspectiveTag: 'broadcast-news',
         iconKey: 'nbc',
+        enabled: true,
+      });
+    });
+
+    it('includes evidence-admitted pbs politics coverage', () => {
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'pbs-politics'),
+      ).toMatchObject({
+        name: 'PBS News Politics',
+        rssUrl: 'https://www.pbs.org/newshour/feeds/rss/politics',
+        perspectiveTag: 'public-broadcast',
+        iconKey: 'pbs',
         enabled: true,
       });
     });
@@ -130,6 +142,15 @@ describe('feedRegistry', () => {
         displayName: 'NBC News',
         perspectiveTag: 'broadcast-news',
         iconKey: 'nbc',
+      });
+    });
+
+    it('returns metadata for evidence-admitted pbs politics', () => {
+      const meta = getSourceMetadata('pbs-politics');
+      expect(meta).toEqual({
+        displayName: 'PBS News',
+        perspectiveTag: 'public-broadcast',
+        iconKey: 'pbs',
       });
     });
 
