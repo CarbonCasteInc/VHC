@@ -13,6 +13,7 @@ export * from './topicSynthesisPipeline';
 export * from './newsTypes';
 export * from './bundlePrompts';
 export * from './feedRegistry';
+export * from './sourceHealthPolicy';
 export * from './sameEventMerge';
 export * from './newsIngest';
 export * from './newsNormalize';

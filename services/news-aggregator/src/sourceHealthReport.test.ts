@@ -7,6 +7,7 @@ import type { SourceAdmissionReport, SourceAdmissionSourceReport } from './sourc
 import {
   SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
   buildSourceHealthReport,
+  buildSourceHealthThresholds,
   sourceHealthReportInternal,
   writeSourceHealthArtifact,
 } from './sourceHealthReport';
@@ -54,7 +55,10 @@ function makeAdmissionReport(
 describe('sourceHealthReport', () => {
   it('keeps pristine admitted sources in the starter surface', () => {
     const source = makeAdmissionSource({ sourceId: 'fox-latest' });
-    const decision = sourceHealthReportInternal.buildDecision(source);
+    const decision = sourceHealthReportInternal.buildDecision(
+      source,
+      buildSourceHealthThresholds(),
+    );
 
     expect(decision.decision).toBe('keep');
     expect(decision.recommendedAction).toBe('keep_in_starter_surface');
@@ -86,10 +90,16 @@ describe('sourceHealthReport', () => {
       ],
     });
 
-    const decision = sourceHealthReportInternal.buildDecision(source);
+    const decision = sourceHealthReportInternal.buildDecision(
+      source,
+      buildSourceHealthThresholds(),
+    );
 
     expect(decision.decision).toBe('watch');
-    expect(decision.reasons).toEqual(['admitted_with_instability']);
+    expect(decision.reasons).toEqual([
+      'below_keep_readable_rate_threshold',
+      'admitted_with_instability',
+    ]);
     expect(decision.unstableLifecycleDomains).toEqual(['www.theguardian.com']);
   });
 
@@ -103,7 +113,10 @@ describe('sourceHealthReport', () => {
       reasons: ['access-denied'],
     });
 
-    const decision = sourceHealthReportInternal.buildDecision(source);
+    const decision = sourceHealthReportInternal.buildDecision(
+      source,
+      buildSourceHealthThresholds(),
+    );
 
     expect(decision.decision).toBe('remove');
     expect(decision.recommendedAction).toBe('remove_from_starter_surface');
@@ -120,7 +133,10 @@ describe('sourceHealthReport', () => {
       reasons: ['feed_links_unavailable'],
     });
 
-    const decision = sourceHealthReportInternal.buildDecision(source);
+    const decision = sourceHealthReportInternal.buildDecision(
+      source,
+      buildSourceHealthThresholds(),
+    );
 
     expect(decision.decision).toBe('watch');
     expect(decision.recommendedAction).toBe('review_manually');
@@ -156,6 +172,27 @@ describe('sourceHealthReport', () => {
     expect(report.keepSourceIds).toEqual(['fox-latest']);
     expect(report.watchSourceIds).toEqual(['guardian-us']);
     expect(report.removeSourceIds).toEqual(['cbs-politics']);
+    expect(report.thresholds).toEqual({
+      keepMinReadableSampleRate: 1,
+      maxWatchSourceCount: 0,
+      minEnabledSourceCount: 1,
+      removeRejectedNonFeedOutage: true,
+      requireHealthyLifecycleForKeep: true,
+    });
+    expect(report.observability).toEqual({
+      enabledSourceCount: 2,
+      keepSourceCount: 1,
+      watchSourceCount: 1,
+      removeSourceCount: 1,
+      admittedSourceCount: 2,
+      rejectedSourceCount: 1,
+      inconclusiveSourceCount: 0,
+      unstableLifecycleSourceCount: 0,
+      reasonCounts: {
+        below_keep_readable_rate_threshold: 1,
+        'access-denied': 1,
+      },
+    });
     expect(report.runtimePolicy).toEqual({
       enabledSourceIds: ['fox-latest', 'guardian-us'],
       watchSourceIds: ['guardian-us'],
@@ -191,6 +228,26 @@ describe('sourceHealthReport', () => {
     expect(report.readinessStatus).toBe('review');
     expect(report.recommendedAction).toBe('review_watchlist');
     expect(report.watchSourceIds).toEqual(['guardian-us']);
+  });
+
+  it('enforces configurable enabled-source thresholds', () => {
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: '/repo/.tmp/news-source-admission/run-thresholds',
+        thresholds: {
+          minEnabledSourceCount: 2,
+        },
+        now: () => 1_700_000_000_000,
+      },
+    );
+
+    expect(report.readinessStatus).toBe('blocked');
+    expect(report.recommendedAction).toBe('expand_readable_surface');
+    expect(report.thresholds.minEnabledSourceCount).toBe(2);
+    expect(report.observability.enabledSourceCount).toBe(1);
   });
 
   it('uses process cwd and the live clock when build options are omitted', () => {
@@ -243,6 +300,12 @@ describe('sourceHealthReport', () => {
     );
     expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
       '"runtimePolicy"',
+    );
+    expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
+      '"thresholds"',
+    );
+    expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
+      '"observability"',
     );
     expect(readFileSync(artifact.latestSourceHealthReportPath, 'utf8')).toContain(
       '"runtimePolicy"',

@@ -1,13 +1,13 @@
 import os from 'node:os';
 import {
   FeedSourceSchema,
-  STARTER_FEED_SOURCES,
   TopicMappingSchema,
   type FeedSource,
   type NewsRuntimeSynthesisCandidate,
   type TopicMapping,
 } from '@vh/ai-engine';
 import type { NewsIngestionLease } from '@vh/gun-client';
+import { resolveStarterFeedSources, type ResolvedStarterFeedSources } from './sourceRegistry';
 
 export const DEFAULT_TOPIC_MAPPING: TopicMapping = {
   defaultTopicId: 'topic-news',
@@ -229,15 +229,15 @@ export function parseOptionalPositiveInt(raw: string | undefined): number | unde
   return Math.floor(parsed);
 }
 
-export function parseFeedSources(raw: string | undefined): FeedSource[] {
+export function resolveFeedSourceConfig(raw: string | undefined): ResolvedStarterFeedSources {
   if (!raw) {
-    return [...STARTER_FEED_SOURCES];
+    return resolveStarterFeedSources();
   }
 
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) {
-      return [...STARTER_FEED_SOURCES];
+      return resolveStarterFeedSources();
     }
 
     const valid: FeedSource[] = [];
@@ -248,10 +248,14 @@ export function parseFeedSources(raw: string | undefined): FeedSource[] {
       }
     }
 
-    return valid;
+    return resolveStarterFeedSources({ feedSources: valid });
   } catch {
-    return [...STARTER_FEED_SOURCES];
+    return resolveStarterFeedSources();
   }
+}
+
+export function parseFeedSources(raw: string | undefined): FeedSource[] {
+  return [...resolveFeedSourceConfig(raw).feedSources];
 }
 
 export function parseTopicMapping(raw: string | undefined): TopicMapping {

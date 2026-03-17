@@ -119,9 +119,13 @@ export {
   STARTER_FEED_URLS,
   STARTER_SOURCE_DOMAINS,
   buildSourceDomainAllowlist,
+  findLatestSourceHealthReportPath,
   getStarterSourceDomainAllowlist,
   isSourceDomainAllowed,
+  resolveSourceHealthReport,
+  resolveStarterFeedSources,
 } from './sourceRegistry';
+export type { ResolvedStarterFeedSources } from './sourceRegistry';
 
 export {
   SOURCE_ADMISSION_REPORT_SCHEMA_VERSION,
@@ -142,15 +146,19 @@ export type {
 export {
   SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
   buildSourceHealthReport,
+  buildSourceHealthThresholds,
+  buildSourceHealthRuntimePolicy,
   writeSourceHealthArtifact,
 } from './sourceHealthReport';
 export type {
   SourceHealthArtifactOptions,
   SourceHealthDecision,
+  SourceHealthObservability,
   SourceHealthReadinessStatus,
   SourceHealthReport,
   SourceHealthRuntimePolicy,
   SourceHealthSourceReport,
+  SourceHealthThresholds,
 } from './sourceHealthReport';
 
 export {

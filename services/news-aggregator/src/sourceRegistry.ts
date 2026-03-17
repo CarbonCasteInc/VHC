@@ -1,4 +1,13 @@
-import { STARTER_FEED_SOURCES, type FeedSource } from '@vh/ai-engine';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import path from 'node:path';
+import {
+  STARTER_FEED_SOURCES,
+  applySourceHealthReportToFeedSources,
+  parseSourceHealthReportObject,
+  type AppliedSourceHealthPolicySummary,
+  type FeedSource,
+  type ParsedSourceHealthReport,
+} from '@vh/ai-engine';
 
 /**
  * Starter-source domains for extraction allowlisting.
@@ -55,8 +64,195 @@ function parseDomain(input: string): string | null {
 
 type FeedSourceLike = Pick<FeedSource, 'rssUrl'> | string;
 
+export interface ResolvedStarterFeedSources {
+  readonly feedSources: readonly FeedSource[];
+  readonly sourceHealth: {
+    readonly reportSource: string | null;
+    readonly reportPath: string | null;
+    readonly report: ParsedSourceHealthReport | null;
+    readonly summary: AppliedSourceHealthPolicySummary | null;
+  };
+}
+
+interface ResolveStarterFeedSourcesOptions {
+  readonly feedSources?: readonly FeedSource[];
+  readonly cwd?: string;
+  readonly env?: Record<string, string | undefined>;
+}
+
 function toFeedUrl(source: FeedSourceLike): string {
   return typeof source === 'string' ? source : source.rssUrl;
+}
+
+function normalizeNonEmpty(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+  const normalized = normalizeNonEmpty(value)?.toLowerCase();
+  if (!normalized) {
+    return fallback;
+  }
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+}
+
+function readHealthEnv(
+  env: Record<string, string | undefined>,
+  suffix: string,
+): string | undefined {
+  return env[`VH_${suffix}`] ?? env[`VITE_${suffix}`];
+}
+
+function resolveSourceHealthArtifactRoot(cwd: string): string {
+  return path.resolve(cwd, '.tmp/news-source-admission');
+}
+
+export function findLatestSourceHealthReportPath(
+  cwd: string = process.cwd(),
+  env: Record<string, string | undefined> = process.env,
+): string | null {
+  const explicitPath = normalizeNonEmpty(readHealthEnv(env, 'NEWS_SOURCE_HEALTH_REPORT_PATH'));
+  if (explicitPath) {
+    const resolvedPath = path.resolve(cwd, explicitPath);
+    return existsSync(resolvedPath) ? resolvedPath : null;
+  }
+
+  const artifactRoot = resolveSourceHealthArtifactRoot(cwd);
+  const latestPath = path.join(artifactRoot, 'latest', 'source-health-report.json');
+  if (existsSync(latestPath)) {
+    return latestPath;
+  }
+
+  if (!existsSync(artifactRoot)) {
+    return null;
+  }
+
+  const candidates = readdirSync(artifactRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^\d+$/.test(entry.name))
+    .map((entry) => ({
+      runId: Number(entry.name),
+      reportPath: path.join(artifactRoot, entry.name, 'source-health-report.json'),
+    }))
+    .filter((entry) => existsSync(entry.reportPath))
+    .sort((left, right) => right.runId - left.runId);
+
+  return candidates[0]?.reportPath ?? null;
+}
+
+export function resolveSourceHealthReport(
+  cwd: string = process.cwd(),
+  env: Record<string, string | undefined> = process.env,
+): {
+  readonly reportSource: string | null;
+  readonly reportPath: string | null;
+  readonly report: ParsedSourceHealthReport | null;
+} {
+  const explicitJson = normalizeNonEmpty(readHealthEnv(env, 'NEWS_SOURCE_HEALTH_REPORT_JSON'));
+  if (explicitJson) {
+    try {
+      return {
+        reportSource:
+          normalizeNonEmpty(readHealthEnv(env, 'NEWS_SOURCE_HEALTH_REPORT_SOURCE'))
+          ?? 'env:NEWS_SOURCE_HEALTH_REPORT_JSON',
+        reportPath: null,
+        report:
+          parseSourceHealthReportObject(JSON.parse(explicitJson) as unknown, {
+            reportSource:
+              normalizeNonEmpty(readHealthEnv(env, 'NEWS_SOURCE_HEALTH_REPORT_SOURCE'))
+              ?? 'env:NEWS_SOURCE_HEALTH_REPORT_JSON',
+          }),
+      };
+    } catch {
+      return {
+        reportSource: null,
+        reportPath: null,
+        report: null,
+      };
+    }
+  }
+
+  if (!parseBoolean(readHealthEnv(env, 'NEWS_SOURCE_HEALTH_REPORT_AUTOLOAD'), true)) {
+    return {
+      reportSource: null,
+      reportPath: null,
+      report: null,
+    };
+  }
+
+  const reportPath = findLatestSourceHealthReportPath(cwd, env);
+  if (!reportPath) {
+    return {
+      reportSource: null,
+      reportPath: null,
+      report: null,
+    };
+  }
+
+  try {
+    const reportSource = `artifact:${reportPath}`;
+    return {
+      reportSource,
+      reportPath,
+      report:
+        parseSourceHealthReportObject(JSON.parse(readFileSync(reportPath, 'utf8')) as unknown, {
+          reportSource,
+        }),
+    };
+  } catch {
+    return {
+      reportSource: null,
+      reportPath: null,
+      report: null,
+    };
+  }
+}
+
+export function resolveStarterFeedSources(
+  options: ResolveStarterFeedSourcesOptions = {},
+): ResolvedStarterFeedSources {
+  const env = options.env ?? process.env;
+  const cwd = options.cwd ?? process.cwd();
+  const baseSources = options.feedSources ? [...options.feedSources] : [...STARTER_FEED_SOURCES];
+  const reportResolution = resolveSourceHealthReport(cwd, env);
+
+  if (!reportResolution.report) {
+    return {
+      feedSources: baseSources,
+      sourceHealth: {
+        reportSource: reportResolution.reportSource,
+        reportPath: reportResolution.reportPath,
+        report: null,
+        summary: null,
+      },
+    };
+  }
+
+  const enforcement = parseBoolean(
+    readHealthEnv(env, 'NEWS_SOURCE_HEALTH_ENFORCEMENT'),
+    true,
+  )
+    ? 'enabled'
+    : 'disabled';
+  const applied = applySourceHealthReportToFeedSources(baseSources, reportResolution.report, {
+    enforcement,
+  });
+
+  return {
+    feedSources: applied.feedSources,
+    sourceHealth: {
+      reportSource: reportResolution.reportSource,
+      reportPath: reportResolution.reportPath,
+      report: reportResolution.report,
+      summary: applied.summary,
+    },
+  };
 }
 
 export function buildSourceDomainAllowlist(
@@ -88,7 +284,7 @@ export const STARTER_SOURCE_DOMAINS: readonly string[] = Object.freeze(
 );
 
 export function getStarterSourceDomainAllowlist(): ReadonlySet<string> {
-  return STARTER_SOURCE_DOMAIN_SET;
+  return buildSourceDomainAllowlist(resolveStarterFeedSources().feedSources);
 }
 
 export function isSourceDomainAllowed(
@@ -108,7 +304,13 @@ export function isSourceDomainAllowed(
 }
 
 export const sourceRegistryInternal = {
+  findLatestSourceHealthReportPath,
+  normalizeNonEmpty,
+  parseBoolean,
   toFeedUrl,
   parseDomain,
+  readHealthEnv,
+  resolveSourceHealthArtifactRoot,
+  resolveSourceHealthReport,
   toBaseDomain,
 };
