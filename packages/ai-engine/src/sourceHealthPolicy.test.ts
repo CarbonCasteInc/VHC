@@ -67,6 +67,22 @@ describe('sourceHealthPolicy', () => {
     });
   });
 
+  it('ignores non-string, blank, and duplicate source ids while preserving sorted output', () => {
+    const report = parseSourceHealthReportObject({
+      runtimePolicy: {
+        enabledSourceIds: [' source-b ', 42, 'source-a', '', 'source-b', '   '],
+        watchSourceIds: [' source-b ', null, 'source-b', ''],
+        removeSourceIds: ['source-c', undefined, 'source-c', '   '],
+      },
+    });
+
+    expect(report?.runtimePolicy).toEqual({
+      enabledSourceIds: ['source-a', 'source-b'],
+      watchSourceIds: ['source-b'],
+      removeSourceIds: ['source-c'],
+    });
+  });
+
   it('returns null when no policy ids are present', () => {
     expect(parseSourceHealthReportObject({ runtimePolicy: {} })).toBeNull();
     expect(parseSourceHealthReportObject(1)).toBeNull();
