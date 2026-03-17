@@ -82,6 +82,16 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'nbc',
     enabled: true,
   }),
+  // Public broadcast (1)
+  FeedSourceSchema.parse({
+    id: 'pbs-politics',
+    name: 'PBS News Politics',
+    displayName: 'PBS News',
+    rssUrl: 'https://www.pbs.org/newshour/feeds/rss/politics',
+    perspectiveTag: 'public-broadcast',
+    iconKey: 'pbs',
+    enabled: true,
+  }),
   // International wire (3)
   FeedSourceSchema.parse({
     id: 'bbc-general',
