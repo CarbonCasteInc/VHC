@@ -8,8 +8,8 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
-    it('contains exactly 9 sources', () => {
-      expect(STARTER_FEED_SOURCES).toHaveLength(9);
+    it('contains the baseline starter surface and evidence-admitted additions', () => {
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(10);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -24,25 +24,37 @@ describe('feedRegistry', () => {
       }
     });
 
-    it('has 3 conservative sources', () => {
+    it('preserves the conservative coverage floor', () => {
       const conservative = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'conservative',
       );
-      expect(conservative).toHaveLength(3);
+      expect(conservative.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('has 3 progressive sources', () => {
+    it('preserves the progressive coverage floor', () => {
       const progressive = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'progressive',
       );
-      expect(progressive).toHaveLength(3);
+      expect(progressive.length).toBeGreaterThanOrEqual(3);
     });
 
-    it('has 3 international-wire sources', () => {
+    it('preserves the international-wire coverage floor', () => {
       const wire = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'international-wire',
       );
-      expect(wire).toHaveLength(3);
+      expect(wire.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('includes evidence-admitted nbc politics coverage', () => {
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'nbc-politics'),
+      ).toMatchObject({
+        name: 'NBC News Politics',
+        rssUrl: 'https://feeds.nbcnews.com/feeds/nbcpolitics',
+        perspectiveTag: 'broadcast-news',
+        iconKey: 'nbc',
+        enabled: true,
+      });
     });
 
     it('all sources have unique ids', () => {
@@ -104,12 +116,21 @@ describe('feedRegistry', () => {
       expect(getSourceMetadata('')).toBeUndefined();
     });
 
-    it('returns correct metadata for all 9 sources', () => {
+    it('returns correct metadata for all configured sources', () => {
       for (const source of STARTER_FEED_SOURCES) {
         const meta = getSourceMetadata(source.id);
         expect(meta).toBeDefined();
         expect(meta!.displayName).toBeTruthy();
       }
+    });
+
+    it('returns metadata for evidence-admitted nbc politics', () => {
+      const meta = getSourceMetadata('nbc-politics');
+      expect(meta).toEqual({
+        displayName: 'NBC News',
+        perspectiveTag: 'broadcast-news',
+        iconKey: 'nbc',
+      });
     });
 
     it('falls back to name when displayName is absent', () => {

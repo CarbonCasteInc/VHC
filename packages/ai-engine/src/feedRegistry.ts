@@ -11,8 +11,9 @@ export interface SourceMetadata {
 }
 
 /**
- * 9-source starter feed slate: 3 conservative, 3 progressive, 3 international-wire.
- * perspectiveTag values are governance-managed and auditable via code review.
+ * Starter feed slate is evidence-admitted and may grow as new sources clear
+ * readability, health, and feed-contribution gates. perspectiveTag values are
+ * governance-managed and auditable via code review.
  */
 export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
   // Conservative (3)
@@ -69,6 +70,16 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     rssUrl: 'https://www.cbsnews.com/latest/rss/politics',
     perspectiveTag: 'progressive',
     iconKey: 'cbs',
+    enabled: true,
+  }),
+  // Broadcast news (1)
+  FeedSourceSchema.parse({
+    id: 'nbc-politics',
+    name: 'NBC News Politics',
+    displayName: 'NBC News',
+    rssUrl: 'https://feeds.nbcnews.com/feeds/nbcpolitics',
+    perspectiveTag: 'broadcast-news',
+    iconKey: 'nbc',
     enabled: true,
   }),
   // International wire (3)

@@ -9,6 +9,12 @@ import {
   type SourceAdmissionReport,
   writeSourceAdmissionArtifact,
 } from './sourceAdmissionReport';
+import {
+  SOURCE_FEED_CONTRIBUTION_REPORT_SCHEMA_VERSION,
+  buildSourceFeedContributionReport,
+  type SourceFeedContributionReport,
+  type SourceFeedContributionSourceReport,
+} from './sourceContributionReport';
 
 export const SOURCE_HEALTH_REPORT_SCHEMA_VERSION =
   'news-source-health-report-v1';
@@ -35,6 +41,7 @@ export interface SourceHealthSourceReport {
   readonly readableSampleCount: number;
   readonly sampleLinkCount: number;
   readonly unstableLifecycleDomains: readonly string[];
+  readonly feedContribution: SourceFeedContributionSourceReport | null;
   readonly history: SourceHealthSourceHistory;
 }
 
@@ -49,6 +56,7 @@ export interface SourceHealthThresholds {
   readonly readmissionKeepRunCount: number;
   readonly releaseEvidenceWindowRunCount: number;
   readonly maxNonReadyRunsInWindow: number;
+  readonly minContributingSourceCount: number;
 }
 
 export interface SourceHealthObservability {
@@ -62,6 +70,9 @@ export interface SourceHealthObservability {
   readonly unstableLifecycleSourceCount: number;
   readonly historyEscalatedSourceCount: number;
   readonly pendingReadmissionSourceCount: number;
+  readonly contributingSourceCount: number;
+  readonly corroboratingSourceCount: number;
+  readonly zeroContributionEnabledSourceCount: number;
   readonly reasonCounts: Readonly<Record<string, number>>;
 }
 
@@ -92,6 +103,9 @@ export interface SourceHealthTrendRunSummary {
   readonly removeSourceCount: number;
   readonly historyEscalatedSourceCount: number;
   readonly pendingReadmissionSourceCount: number;
+  readonly contributingSourceCount: number;
+  readonly corroboratingSourceCount: number;
+  readonly zeroContributionEnabledSourceCount: number;
   readonly keepSourceIds: readonly string[];
   readonly watchSourceIds: readonly string[];
   readonly removeSourceIds: readonly string[];
@@ -129,6 +143,7 @@ export interface SourceHealthReport {
     | 'starter_surface_ready'
     | 'review_watchlist'
     | 'expand_readable_surface'
+    | 'investigate_feed_yield'
     | 'prune_remove_candidates';
   readonly sourceCount: number;
   readonly keepSourceIds: readonly string[];
@@ -136,6 +151,7 @@ export interface SourceHealthReport {
   readonly removeSourceIds: readonly string[];
   readonly thresholds: SourceHealthThresholds;
   readonly observability: SourceHealthObservability;
+  readonly feedContribution: SourceFeedContributionReport;
   readonly historySummary: SourceHealthHistorySummary;
   readonly releaseEvidence: SourceHealthReleaseEvidence;
   readonly runtimePolicy: SourceHealthRuntimePolicy;
@@ -154,6 +170,7 @@ export interface SourceHealthReport {
 
 export interface SourceHealthArtifactOptions extends SourceAdmissionArtifactOptions {
   readonly admissionReport?: SourceAdmissionReport;
+  readonly thresholds?: Partial<SourceHealthThresholds>;
 }
 
 interface HistoricalSourceHealthRecord {
@@ -161,6 +178,9 @@ interface HistoricalSourceHealthRecord {
   readonly generatedAt: string;
   readonly readinessStatus: SourceHealthReadinessStatus;
   readonly enabledSourceCount: number;
+  readonly contributingSourceCount: number;
+  readonly corroboratingSourceCount: number;
+  readonly zeroContributionEnabledSourceCount: number;
   readonly keepSourceIds: readonly string[];
   readonly watchSourceIds: readonly string[];
   readonly removeSourceIds: readonly string[];
@@ -227,6 +247,7 @@ export function buildSourceHealthThresholds(
     readonly readmissionKeepRunCount?: number;
     readonly releaseEvidenceWindowRunCount?: number;
     readonly maxNonReadyRunsInWindow?: number;
+    readonly minContributingSourceCount?: number;
   } = {},
 ): SourceHealthThresholds {
   return {
@@ -260,6 +281,9 @@ export function buildSourceHealthThresholds(
     maxNonReadyRunsInWindow:
       options.maxNonReadyRunsInWindow
       ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_MAX_NON_READY_RUNS_IN_WINDOW, 1),
+    minContributingSourceCount:
+      options.minContributingSourceCount
+      ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_HEALTH_MIN_CONTRIBUTING_SOURCE_COUNT, 1),
   };
 }
 
@@ -367,6 +391,18 @@ function parseHistoricalSourceHealthRecord(
       typeof (record.observability as Record<string, unknown> | undefined)?.pendingReadmissionSourceCount === 'number'
         ? (record.observability as Record<string, number>).pendingReadmissionSourceCount ?? 0
         : 0,
+    contributingSourceCount:
+      typeof (record.observability as Record<string, unknown> | undefined)?.contributingSourceCount === 'number'
+        ? (record.observability as Record<string, number>).contributingSourceCount ?? 0
+        : 0,
+    corroboratingSourceCount:
+      typeof (record.observability as Record<string, unknown> | undefined)?.corroboratingSourceCount === 'number'
+        ? (record.observability as Record<string, number>).corroboratingSourceCount ?? 0
+        : 0,
+    zeroContributionEnabledSourceCount:
+      typeof (record.observability as Record<string, unknown> | undefined)?.zeroContributionEnabledSourceCount === 'number'
+        ? (record.observability as Record<string, number>).zeroContributionEnabledSourceCount ?? 0
+        : 0,
     sources,
   };
 }
@@ -454,6 +490,7 @@ function buildDecision(
       readableSampleCount: source.readableSampleCount,
       sampleLinkCount: source.sampleLinkCount,
       unstableLifecycleDomains,
+      feedContribution: null,
       history: {
         priorReportCount: 0,
         priorEffectiveDecision: null,
@@ -485,6 +522,7 @@ function buildDecision(
     readableSampleCount: source.readableSampleCount,
     sampleLinkCount: source.sampleLinkCount,
     unstableLifecycleDomains,
+    feedContribution: null,
     history: {
       priorReportCount: 0,
       priorEffectiveDecision: null,
@@ -624,6 +662,18 @@ function toTrendRunSummary(
       'observability' in input
         ? input.observability.pendingReadmissionSourceCount
         : input.pendingReadmissionSourceCount,
+    contributingSourceCount:
+      'observability' in input
+        ? input.observability.contributingSourceCount
+        : input.contributingSourceCount,
+    corroboratingSourceCount:
+      'observability' in input
+        ? input.observability.corroboratingSourceCount
+        : input.corroboratingSourceCount,
+    zeroContributionEnabledSourceCount:
+      'observability' in input
+        ? input.observability.zeroContributionEnabledSourceCount
+        : input.zeroContributionEnabledSourceCount,
     keepSourceIds,
     watchSourceIds,
     removeSourceIds,
@@ -732,6 +782,7 @@ export function buildSourceHealthReport(
     readonly latestAdmissionReportPath?: string;
     readonly latestSourceHealthReportPath?: string;
     readonly thresholds?: Partial<SourceHealthThresholds>;
+    readonly feedContribution?: SourceFeedContributionReport;
     readonly now?: () => number;
   } = {},
 ): SourceHealthReport {
@@ -756,6 +807,34 @@ export function buildSourceHealthReport(
     'source-health-trend.json',
   );
   const thresholds = buildSourceHealthThresholds(options.thresholds);
+  const feedContribution = options.feedContribution ?? {
+    schemaVersion: SOURCE_FEED_CONTRIBUTION_REPORT_SCHEMA_VERSION,
+    generatedAt: new Date((options.now ?? Date.now)()).toISOString(),
+    snapshotMode: 'heuristic_live_feed_snapshot',
+    sourceCount: admissionReport.sources.length,
+    totalIngestedItemCount: 0,
+    totalNormalizedItemCount: 0,
+    totalBundleCount: 0,
+    totalSingletonBundleCount: 0,
+    totalCorroboratedBundleCount: 0,
+    contributingSourceIds: [],
+    corroboratingSourceIds: [],
+    zeroContributionSourceIds: admissionReport.sources.map((source) => source.sourceId),
+    sources: admissionReport.sources.map((source) => ({
+      sourceId: source.sourceId,
+      sourceName: source.sourceName,
+      rssUrl: source.rssUrl,
+      ingestErrorCount: 0,
+      ingestErrors: [],
+      ingestedItemCount: 0,
+      normalizedItemCount: 0,
+      dedupDroppedItemCount: 0,
+      bundleAppearanceCount: 0,
+      singletonBundleCount: 0,
+      corroboratedBundleCount: 0,
+      contributionStatus: 'none',
+    })),
+  };
   const historicalReports = readHistoricalSourceHealthReports(
     artifactDir,
     thresholds.historyLookbackRunCount,
@@ -768,7 +847,12 @@ export function buildSourceHealthReport(
       thresholds,
       baseDecision.baseDecision,
     );
-    return applyHistoricalDecisionPolicy(baseDecision, history);
+    const contribution =
+      feedContribution.sources.find((entry) => entry.sourceId === source.sourceId) ?? null;
+    return {
+      ...applyHistoricalDecisionPolicy(baseDecision, history),
+      feedContribution: contribution,
+    };
   });
   const keepSourceIds = sources
     .filter((source) => source.decision === 'keep')
@@ -797,6 +881,11 @@ export function buildSourceHealthReport(
     unstableLifecycleSourceCount: sources.filter((source) => source.unstableLifecycleDomains.length > 0).length,
     historyEscalatedSourceCount: sources.filter((source) => source.history.escalatedToRemove).length,
     pendingReadmissionSourceCount: sources.filter((source) => source.history.pendingReadmission).length,
+    contributingSourceCount: feedContribution.contributingSourceIds.length,
+    corroboratingSourceCount: feedContribution.corroboratingSourceIds.length,
+    zeroContributionEnabledSourceCount: runtimePolicy.enabledSourceIds
+      .filter((sourceId) => feedContribution.zeroContributionSourceIds.includes(sourceId))
+      .length,
     reasonCounts,
   };
   const historySummary: SourceHealthHistorySummary = {
@@ -813,6 +902,7 @@ export function buildSourceHealthReport(
   const readinessStatus: SourceHealthReadinessStatus =
     removeSourceIds.length > 0
       || runtimePolicy.enabledSourceIds.length < thresholds.minEnabledSourceCount
+      || feedContribution.contributingSourceIds.length < thresholds.minContributingSourceCount
       ? 'blocked'
       : watchSourceIds.length > thresholds.maxWatchSourceCount
         ? 'review'
@@ -838,6 +928,9 @@ export function buildSourceHealthReport(
       readinessStatus === 'blocked' && removeSourceIds.length > 0
         ? 'prune_remove_candidates'
         : readinessStatus === 'blocked'
+          && feedContribution.contributingSourceIds.length < thresholds.minContributingSourceCount
+            ? 'investigate_feed_yield'
+        : readinessStatus === 'blocked'
           ? 'expand_readable_surface'
         : readinessStatus === 'review'
           ? 'review_watchlist'
@@ -848,6 +941,7 @@ export function buildSourceHealthReport(
     removeSourceIds,
     thresholds,
     observability,
+    feedContribution,
     historySummary,
     releaseEvidence,
     runtimePolicy,
@@ -925,6 +1019,16 @@ export async function writeSourceHealthArtifact(
     latestArtifactDir,
     'source-health-trend.json',
   );
+  const feedContribution = await buildSourceFeedContributionReport({
+    feedSources: admissionArtifact.report.sources.map((source) => ({
+      id: source.sourceId,
+      name: source.sourceName,
+      rssUrl: source.rssUrl,
+      enabled: true,
+    })),
+    fetchFn: options.fetchFn,
+    now: options.now,
+  });
   const sourceHealthReport = buildSourceHealthReport(admissionArtifact.report, {
     artifactDir: admissionArtifact.artifactDir,
     admissionReportPath: admissionArtifact.reportPath,
@@ -935,6 +1039,8 @@ export async function writeSourceHealthArtifact(
     latestArtifactDir,
     latestAdmissionReportPath,
     latestSourceHealthReportPath,
+    thresholds: options.thresholds,
+    feedContribution,
     now: options.now,
   });
   const historicalReports = readHistoricalSourceHealthReports(
@@ -1020,6 +1126,36 @@ async function main(): Promise<void> {
     watchSourceIds: artifact.sourceHealthReport.watchSourceIds,
     removeSourceIds: artifact.sourceHealthReport.removeSourceIds,
   });
+
+  const enforceReleaseEvidence = parseBoolean(
+    process.env.VH_NEWS_SOURCE_HEALTH_ENFORCE_RELEASE_EVIDENCE,
+    false,
+  );
+  const failOnWarn = parseBoolean(
+    process.env.VH_NEWS_SOURCE_HEALTH_FAIL_ON_WARN,
+    false,
+  );
+  const releaseStatus = artifact.sourceHealthReport.releaseEvidence.status;
+  if (releaseStatus === 'warn') {
+    const message = `[vh:news-source-health] release evidence warn: ${artifact.sourceHealthReport.releaseEvidence.reasons.join(', ') || 'recent deterioration detected'}`;
+    if (process.env.GITHUB_ACTIONS === 'true') {
+      console.warn(`::warning::${message}`);
+    } else {
+      console.warn(message);
+    }
+  }
+
+  if (
+    enforceReleaseEvidence
+    && (
+      releaseStatus === 'fail'
+      || (failOnWarn && releaseStatus === 'warn')
+    )
+  ) {
+    throw new Error(
+      `source-health release evidence ${releaseStatus}: ${artifact.sourceHealthReport.releaseEvidence.reasons.join(', ') || 'no reasons provided'}`,
+    );
+  }
 }
 
 /* c8 ignore next 3 */
@@ -1037,6 +1173,7 @@ export const sourceHealthReportInternal = {
   countConsecutiveDecisions,
   hasLifecycleInstability,
   isDirectExecution,
+  parseBoolean,
   parseHistoricalSourceHealthRecord,
   readHistoricalSourceHealthReports,
 };

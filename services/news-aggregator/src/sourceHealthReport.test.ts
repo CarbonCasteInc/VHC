@@ -188,6 +188,9 @@ describe('sourceHealthReport', () => {
       ]),
       {
         artifactDir: '/repo/.tmp/news-source-admission/run-a',
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
         now: () => 1_700_000_000_000,
       },
     );
@@ -209,6 +212,7 @@ describe('sourceHealthReport', () => {
       readmissionKeepRunCount: 2,
       releaseEvidenceWindowRunCount: 5,
       maxNonReadyRunsInWindow: 1,
+      minContributingSourceCount: 0,
     });
     expect(report.observability).toEqual({
       enabledSourceCount: 2,
@@ -221,6 +225,9 @@ describe('sourceHealthReport', () => {
       unstableLifecycleSourceCount: 0,
       historyEscalatedSourceCount: 0,
       pendingReadmissionSourceCount: 0,
+      contributingSourceCount: 0,
+      corroboratingSourceCount: 0,
+      zeroContributionEnabledSourceCount: 2,
       reasonCounts: {
         below_keep_readable_rate_threshold: 1,
         'access-denied': 1,
@@ -288,6 +295,9 @@ describe('sourceHealthReport', () => {
       ]),
       {
         artifactDir: '/repo/.tmp/news-source-admission/run-review',
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
         now: () => 1_700_000_000_000,
       },
     );
@@ -317,6 +327,7 @@ describe('sourceHealthReport', () => {
         artifactDir: '/repo/.tmp/news-source-admission/run-thresholds',
         thresholds: {
           minEnabledSourceCount: 2,
+          minContributingSourceCount: 0,
         },
         now: () => 1_700_000_000_000,
       },
@@ -326,6 +337,23 @@ describe('sourceHealthReport', () => {
     expect(report.recommendedAction).toBe('expand_readable_surface');
     expect(report.thresholds.minEnabledSourceCount).toBe(2);
     expect(report.observability.enabledSourceCount).toBe(1);
+  });
+
+  it('blocks readiness when no enabled source contributes to the feed snapshot', () => {
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: '/repo/.tmp/news-source-admission/run-zero-yield',
+        now: () => 1_700_000_000_000,
+      },
+    );
+
+    expect(report.readinessStatus).toBe('blocked');
+    expect(report.recommendedAction).toBe('investigate_feed_yield');
+    expect(report.observability.contributingSourceCount).toBe(0);
+    expect(report.observability.zeroContributionEnabledSourceCount).toBe(1);
   });
 
   it('escalates repeated degraded history from watch to remove', () => {
@@ -363,6 +391,7 @@ describe('sourceHealthReport', () => {
         artifactDir: path.join(artifactRoot, 'run-3'),
         thresholds: {
           watchEscalationRunCount: 3,
+          minContributingSourceCount: 0,
         },
         now: () => 1_700_000_000_000,
       },
@@ -410,6 +439,7 @@ describe('sourceHealthReport', () => {
         artifactDir: path.join(artifactRoot, 'run-3'),
         thresholds: {
           readmissionKeepRunCount: 3,
+          minContributingSourceCount: 0,
         },
         now: () => 1_700_000_000_000,
       },
@@ -455,6 +485,9 @@ describe('sourceHealthReport', () => {
       ]),
       {
         artifactDir: path.join(artifactRoot, 'run-3'),
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
         now: () => 1_700_000_000_000,
       },
     );
@@ -531,6 +564,9 @@ describe('sourceHealthReport', () => {
     const artifact = await writeSourceHealthArtifact({
       artifactDir,
       admissionReport,
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
       now: () => 1_700_000_000_000,
     });
 
@@ -604,6 +640,9 @@ describe('sourceHealthReport', () => {
       sampleSize: 1,
       minimumSuccessCount: 1,
       minimumSuccessRate: 1,
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
       articleTextServiceOptions: {
         primaryExtractor: async () => ({
           title: 'Readable',
@@ -663,6 +702,9 @@ describe('sourceHealthReport', () => {
       sampleSize: 1,
       minimumSuccessCount: 1,
       minimumSuccessRate: 1,
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
       articleTextServiceOptions: {
         primaryExtractor: async () => ({
           title: 'Readable',

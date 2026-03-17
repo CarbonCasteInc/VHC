@@ -35,6 +35,7 @@ jobs:
       run-e2e: ${{ steps.filter.outputs.run-e2e }}
       run-bundle: ${{ steps.filter.outputs.run-bundle }}
       run-lighthouse: ${{ steps.filter.outputs.run-lighthouse }}
+      run-source-health: ${{ steps.filter.outputs.run-source-health }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect changed paths
@@ -63,6 +64,13 @@ jobs:
               - '.github/workflows/main.yml'
             run-lighthouse:
               - 'apps/web-pwa/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/main.yml'
+            run-source-health:
+              - 'apps/web-pwa/**'
+              - 'packages/ai-engine/**'
+              - 'services/news-aggregator/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.github/workflows/main.yml'
@@ -138,10 +146,58 @@ jobs:
       - name: Build
         run: pnpm build
 
+  source-health:
+    name: Source Health
+    runs-on: ubuntu-latest
+    needs: [quality, change-detection]
+    timeout-minutes: 20
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - name: Source health applicability
+        run: |
+          if [ "${{ needs.change-detection.outputs.run-source-health }}" = "true" ]; then
+            echo "Source health: relevant changes detected; running source-health gate."
+          else
+            echo "Source health: no relevant changes detected; passing required check."
+          fi
+
+      - uses: actions/checkout@v4
+        if: needs.change-detection.outputs.run-source-health == 'true'
+
+      - name: Install pnpm
+        if: needs.change-detection.outputs.run-source-health == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 20
+        if: needs.change-detection.outputs.run-source-health == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        if: needs.change-detection.outputs.run-source-health == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Source Health Gate
+        if: needs.change-detection.outputs.run-source-health == 'true'
+        run: pnpm check:news-sources:health
+
+      - name: Upload Source Health Artifacts
+        if: always() && needs.change-detection.outputs.run-source-health == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: news-source-health
+          path: |
+            services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json
+            services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json
+          if-no-files-found: error
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: [test-and-build, change-detection]
+    needs: [test-and-build, source-health, change-detection]
     timeout-minutes: 30
     steps:
       - name: E2E applicability
