@@ -23,6 +23,7 @@ describe('sourceRegistry', () => {
     expect(STARTER_FEED_URLS[0]).toContain('foxnews');
     expect(STARTER_FEED_URLS).toContain('https://feeds.nbcnews.com/feeds/nbcpolitics');
     expect(STARTER_FEED_URLS).toContain('https://www.pbs.org/newshour/feeds/rss/politics');
+    expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1014/rss.xml');
   });
 
   it('collects feed hosts and known publication aliases', () => {
@@ -31,6 +32,7 @@ describe('sourceRegistry', () => {
     expect(STARTER_SOURCE_DOMAINS).toContain('nypost.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('cbsnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('nbcnews.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('npr.org');
     expect(STARTER_SOURCE_DOMAINS).toContain('pbs.org');
     expect(STARTER_SOURCE_DOMAINS).toContain('feeds.bbci.co.uk');
     expect(STARTER_SOURCE_DOMAINS).toContain('bbc.com');
@@ -42,6 +44,7 @@ describe('sourceRegistry', () => {
     expect(allowlist.has('theguardian.com')).toBe(true);
     expect(allowlist.has('huffpost.com')).toBe(true);
     expect(allowlist.has('nbcnews.com')).toBe(true);
+    expect(allowlist.has('npr.org')).toBe(true);
     expect(allowlist.has('pbs.org')).toBe(true);
   });
 
@@ -108,6 +111,7 @@ describe('sourceRegistry', () => {
     expect(isSourceDomainAllowed('https://nypost.com/2026/03/16/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.cbsnews.com/news/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.nbcnews.com/politics/story')).toBe(true);
+    expect(isSourceDomainAllowed('https://www.npr.org/2026/03/17/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.pbs.org/newshour/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.theguardian.com/us-news/article')).toBe(true);
   });
