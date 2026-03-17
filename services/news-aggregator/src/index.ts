@@ -153,10 +153,12 @@ export {
 export type {
   SourceHealthArtifactOptions,
   SourceHealthDecision,
+  SourceHealthHistorySummary,
   SourceHealthObservability,
   SourceHealthReadinessStatus,
   SourceHealthReport,
   SourceHealthRuntimePolicy,
+  SourceHealthSourceHistory,
   SourceHealthSourceReport,
   SourceHealthThresholds,
 } from './sourceHealthReport';

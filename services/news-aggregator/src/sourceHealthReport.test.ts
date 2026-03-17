@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -50,6 +50,31 @@ function makeAdmissionReport(
     inconclusiveSourceIds: sources.filter((source) => source.status === 'inconclusive').map((source) => source.sourceId),
     sources,
   };
+}
+
+function writeHistoricalSourceHealthReport(
+  artifactRoot: string,
+  runId: string,
+  report: {
+    readonly generatedAt: string;
+    readonly sources: readonly Array<{
+      readonly sourceId: string;
+      readonly baseDecision?: 'keep' | 'watch' | 'remove';
+      readonly decision: 'keep' | 'watch' | 'remove';
+    }>;
+  },
+): void {
+  const runDir = path.join(artifactRoot, runId);
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(
+    path.join(runDir, 'source-health-report.json'),
+    `${JSON.stringify({
+      schemaVersion: SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
+      generatedAt: report.generatedAt,
+      sources: report.sources,
+    }, null, 2)}\n`,
+    'utf8',
+  );
 }
 
 describe('sourceHealthReport', () => {
@@ -178,6 +203,9 @@ describe('sourceHealthReport', () => {
       minEnabledSourceCount: 1,
       removeRejectedNonFeedOutage: true,
       requireHealthyLifecycleForKeep: true,
+      historyLookbackRunCount: 8,
+      watchEscalationRunCount: 3,
+      readmissionKeepRunCount: 2,
     });
     expect(report.observability).toEqual({
       enabledSourceCount: 2,
@@ -188,15 +216,34 @@ describe('sourceHealthReport', () => {
       rejectedSourceCount: 1,
       inconclusiveSourceCount: 0,
       unstableLifecycleSourceCount: 0,
+      historyEscalatedSourceCount: 0,
+      pendingReadmissionSourceCount: 0,
       reasonCounts: {
         below_keep_readable_rate_threshold: 1,
         'access-denied': 1,
       },
     });
+    expect(report.historySummary).toEqual({
+      lookbackRunCount: 8,
+      priorReportCount: 0,
+      escalatedSourceIds: [],
+      pendingReadmissionSourceIds: [],
+    });
     expect(report.runtimePolicy).toEqual({
       enabledSourceIds: ['fox-latest', 'guardian-us'],
       watchSourceIds: ['guardian-us'],
       removeSourceIds: ['cbs-politics'],
+    });
+    expect(report.sources[0]?.baseDecision).toBe('keep');
+    expect(report.sources[0]?.history).toEqual({
+      priorReportCount: 0,
+      priorEffectiveDecision: null,
+      priorEffectiveDecisions: [],
+      priorBaseDecisions: [],
+      consecutiveBaseKeepRuns: 0,
+      consecutiveDegradedRuns: 0,
+      escalatedToRemove: false,
+      pendingReadmission: false,
     });
     expect(report.paths.sourceHealthReportPath).toBe(
       '/repo/.tmp/news-source-admission/run-a/source-health-report.json',
@@ -248,6 +295,104 @@ describe('sourceHealthReport', () => {
     expect(report.recommendedAction).toBe('expand_readable_surface');
     expect(report.thresholds.minEnabledSourceCount).toBe(2);
     expect(report.observability.enabledSourceCount).toBe(1);
+  });
+
+  it('escalates repeated degraded history from watch to remove', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-history-watch-'));
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-1', {
+      generatedAt: '2026-03-15T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'guardian-us',
+          baseDecision: 'watch',
+          decision: 'watch',
+        },
+      ],
+    });
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-2', {
+      generatedAt: '2026-03-16T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'guardian-us',
+          baseDecision: 'watch',
+          decision: 'watch',
+        },
+      ],
+    });
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({
+          sourceId: 'guardian-us',
+          readableSampleCount: 3,
+          readableSampleRate: 0.75,
+        }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-3'),
+        thresholds: {
+          watchEscalationRunCount: 3,
+        },
+        now: () => 1_700_000_000_000,
+      },
+    );
+
+    expect(report.watchSourceIds).toEqual([]);
+    expect(report.removeSourceIds).toEqual(['guardian-us']);
+    expect(report.historySummary.escalatedSourceIds).toEqual(['guardian-us']);
+    expect(report.observability.historyEscalatedSourceCount).toBe(1);
+    expect(report.sources[0]?.baseDecision).toBe('watch');
+    expect(report.sources[0]?.decision).toBe('remove');
+    expect(report.sources[0]?.reasons).toContain('watchlist_escalated_by_history');
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('requires consecutive keep runs before re-admitting previously removed sources', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-history-readmit-'));
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-1', {
+      generatedAt: '2026-03-15T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'remove',
+          decision: 'remove',
+        },
+      ],
+    });
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-2', {
+      generatedAt: '2026-03-16T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'keep',
+          decision: 'watch',
+        },
+      ],
+    });
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-3'),
+        thresholds: {
+          readmissionKeepRunCount: 3,
+        },
+        now: () => 1_700_000_000_000,
+      },
+    );
+
+    expect(report.keepSourceIds).toEqual([]);
+    expect(report.watchSourceIds).toEqual(['fox-latest']);
+    expect(report.historySummary.pendingReadmissionSourceIds).toEqual(['fox-latest']);
+    expect(report.observability.pendingReadmissionSourceCount).toBe(1);
+    expect(report.sources[0]?.baseDecision).toBe('keep');
+    expect(report.sources[0]?.decision).toBe('watch');
+    expect(report.sources[0]?.reasons).toContain('pending_readmission_stability_window');
+
+    rmSync(artifactRoot, { recursive: true, force: true });
   });
 
   it('uses process cwd and the live clock when build options are omitted', () => {
@@ -306,6 +451,9 @@ describe('sourceHealthReport', () => {
     );
     expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
       '"observability"',
+    );
+    expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
+      '"historySummary"',
     );
     expect(readFileSync(artifact.latestSourceHealthReportPath, 'utf8')).toContain(
       '"runtimePolicy"',
@@ -453,6 +601,7 @@ describe('sourceHealthReport', () => {
           sourceName: 'Fox News',
           rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml',
           admissionStatus: 'admitted',
+          baseDecision: 'keep',
           decision: 'keep',
           recommendedAction: 'keep_in_starter_surface',
           reasons: [],
@@ -460,12 +609,23 @@ describe('sourceHealthReport', () => {
           readableSampleCount: 4,
           sampleLinkCount: 4,
           unstableLifecycleDomains: [],
+          history: {
+            priorReportCount: 0,
+            priorEffectiveDecision: null,
+            priorEffectiveDecisions: [],
+            priorBaseDecisions: [],
+            consecutiveBaseKeepRuns: 0,
+            consecutiveDegradedRuns: 0,
+            escalatedToRemove: false,
+            pendingReadmission: false,
+          },
         },
         {
           sourceId: 'guardian-us',
           sourceName: 'The Guardian US',
           rssUrl: 'https://www.theguardian.com/us-news/rss',
           admissionStatus: 'admitted',
+          baseDecision: 'watch',
           decision: 'watch',
           recommendedAction: 'review_manually',
           reasons: ['admitted_with_instability'],
@@ -473,12 +633,23 @@ describe('sourceHealthReport', () => {
           readableSampleCount: 3,
           sampleLinkCount: 4,
           unstableLifecycleDomains: ['www.theguardian.com'],
+          history: {
+            priorReportCount: 0,
+            priorEffectiveDecision: null,
+            priorEffectiveDecisions: [],
+            priorBaseDecisions: [],
+            consecutiveBaseKeepRuns: 0,
+            consecutiveDegradedRuns: 0,
+            escalatedToRemove: false,
+            pendingReadmission: false,
+          },
         },
         {
           sourceId: 'cbs-politics',
           sourceName: 'CBS News Politics',
           rssUrl: 'https://www.cbsnews.com/latest/rss/politics',
           admissionStatus: 'rejected',
+          baseDecision: 'remove',
           decision: 'remove',
           recommendedAction: 'remove_from_starter_surface',
           reasons: ['access-denied'],
@@ -486,6 +657,16 @@ describe('sourceHealthReport', () => {
           readableSampleCount: 0,
           sampleLinkCount: 4,
           unstableLifecycleDomains: [],
+          history: {
+            priorReportCount: 0,
+            priorEffectiveDecision: null,
+            priorEffectiveDecisions: [],
+            priorBaseDecisions: [],
+            consecutiveBaseKeepRuns: 0,
+            consecutiveDegradedRuns: 0,
+            escalatedToRemove: false,
+            pendingReadmission: false,
+          },
         },
       ]),
     ).toEqual({
