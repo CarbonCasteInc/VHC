@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -78,6 +78,89 @@ describe('sourceAdmissionReport', () => {
     delete process.env.VH_NEWS_SOURCE_ADMISSION_SAMPLE_SIZE;
     delete process.env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_COUNT;
     delete process.env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_RATE;
+  });
+
+  it('resolves configured feed sources from env JSON and file overrides', () => {
+    vi.stubEnv(
+      'VH_NEWS_SOURCE_ADMISSION_SOURCES_JSON',
+      JSON.stringify([
+        {
+          id: 'custom-json',
+          name: 'Custom Json',
+          rssUrl: 'https://json.example/rss.xml',
+          enabled: true,
+        },
+        {
+          id: '',
+          name: 'Invalid',
+          rssUrl: 'https://json.example/invalid.xml',
+          enabled: true,
+        },
+      ]),
+    );
+
+    const envJsonSources = sourceAdmissionReportInternal.resolveConfiguredFeedSources();
+
+    expect(envJsonSources).toEqual([
+      {
+        id: 'custom-json',
+        name: 'Custom Json',
+        rssUrl: 'https://json.example/rss.xml',
+        enabled: true,
+      },
+    ]);
+
+    const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-source-admission-config-'));
+    const filePath = path.join(cwd, 'sources.json');
+    writeFileSync(
+      filePath,
+      JSON.stringify([
+        {
+          id: 'custom-file',
+          name: 'Custom File',
+          rssUrl: 'https://file.example/rss.xml',
+          enabled: true,
+        },
+      ]),
+      'utf8',
+    );
+    vi.stubEnv('VH_NEWS_SOURCE_ADMISSION_SOURCES_JSON', '');
+    vi.stubEnv('VH_NEWS_SOURCE_ADMISSION_SOURCES_FILE', './sources.json');
+
+    const fileSources = sourceAdmissionReportInternal.resolveConfiguredFeedSources({ cwd });
+
+    expect(fileSources).toEqual([
+      {
+        id: 'custom-file',
+        name: 'Custom File',
+        rssUrl: 'https://file.example/rss.xml',
+        enabled: true,
+      },
+    ]);
+
+    vi.stubEnv('VH_NEWS_SOURCE_ADMISSION_SOURCES_FILE', './missing.json');
+    expect(() =>
+      sourceAdmissionReportInternal.resolveConfiguredFeedSources({ cwd }),
+    ).toThrow(/VH_NEWS_SOURCE_ADMISSION_SOURCES_FILE not found/);
+
+    rmSync(cwd, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+  });
+
+  it('fails fast for malformed explicit feed source overrides', () => {
+    expect(() =>
+      sourceAdmissionReportInternal.parseFeedSourcesOverride(
+        '{"id":"broken"}',
+        'VH_NEWS_SOURCE_ADMISSION_SOURCES_JSON',
+      ),
+    ).toThrow(/must be a JSON array/);
+
+    expect(() =>
+      sourceAdmissionReportInternal.parseFeedSourcesOverride(
+        '[{"id":"","name":"Broken","rssUrl":"https://example.com/feed","enabled":true}]',
+        'VH_NEWS_SOURCE_ADMISSION_SOURCES_JSON',
+      ),
+    ).toThrow(/must contain at least one valid feed source/);
   });
 
   it('returns null when feed XML fetch fails or is non-OK', async () => {

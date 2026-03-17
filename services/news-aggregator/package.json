@@ -6,8 +6,10 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run --config ./vitest.config.ts",
-    "report:source-admission": "tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceAdmissionReport.js",
-    "report:source-health": "tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthReport.js",
+    "build:source-health-deps": "pnpm --filter @vh/types build && pnpm --filter @vh/crypto build && pnpm --filter @vh/data-model build && pnpm --filter @vh/gun-client build && pnpm --filter @vh/ai-engine build",
+    "report:source-admission": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceAdmissionReport.js",
+    "report:source-health": "pnpm build:source-health-deps && tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthReport.js",
+    "check:source-health": "pnpm build:source-health-deps && tsc -p tsconfig.json && VH_NEWS_SOURCE_HEALTH_ENFORCE_RELEASE_EVIDENCE=1 node --loader ../../tools/node/esm-resolve-loader.mjs dist/sourceHealthReport.js",
     "daemon": "tsc -p tsconfig.json && node --loader ../../tools/node/esm-resolve-loader.mjs dist/daemon.js",
     "lint": "echo 'lint: ok (no sources yet)'"
   },

@@ -170,6 +170,16 @@ export type {
 } from './sourceHealthReport';
 
 export {
+  SOURCE_FEED_CONTRIBUTION_REPORT_SCHEMA_VERSION,
+  buildSourceFeedContributionReport,
+} from './sourceContributionReport';
+export type {
+  SourceFeedContributionOptions,
+  SourceFeedContributionReport,
+  SourceFeedContributionSourceReport,
+} from './sourceContributionReport';
+
+export {
   createArticleTextServer,
   startArticleTextServer,
 } from './server';

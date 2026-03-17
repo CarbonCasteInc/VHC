@@ -19,8 +19,9 @@ describe('sourceRegistry', () => {
   });
 
   it('exposes starter feed URLs', () => {
-    expect(STARTER_FEED_URLS).toHaveLength(9);
+    expect(STARTER_FEED_URLS.length).toBeGreaterThanOrEqual(10);
     expect(STARTER_FEED_URLS[0]).toContain('foxnews');
+    expect(STARTER_FEED_URLS).toContain('https://feeds.nbcnews.com/feeds/nbcpolitics');
   });
 
   it('collects feed hosts and known publication aliases', () => {
@@ -28,6 +29,7 @@ describe('sourceRegistry', () => {
     expect(STARTER_SOURCE_DOMAINS).toContain('foxnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('nypost.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('cbsnews.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('nbcnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('feeds.bbci.co.uk');
     expect(STARTER_SOURCE_DOMAINS).toContain('bbc.com');
   });
@@ -37,6 +39,7 @@ describe('sourceRegistry', () => {
     const allowlist = getStarterSourceDomainAllowlist();
     expect(allowlist.has('theguardian.com')).toBe(true);
     expect(allowlist.has('huffpost.com')).toBe(true);
+    expect(allowlist.has('nbcnews.com')).toBe(true);
   });
 
   it('resolves and applies the latest source-health artifact to starter feed sources', () => {
@@ -101,6 +104,7 @@ describe('sourceRegistry', () => {
     expect(isSourceDomainAllowed('https://www.foxnews.com/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://nypost.com/2026/03/16/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.cbsnews.com/news/story')).toBe(true);
+    expect(isSourceDomainAllowed('https://www.nbcnews.com/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.theguardian.com/us-news/article')).toBe(true);
   });
 

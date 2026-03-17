@@ -1,7 +1,7 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { STARTER_FEED_SOURCES, type FeedSource } from '@vh/ai-engine';
+import { FeedSourceSchema, STARTER_FEED_SOURCES, type FeedSource } from '@vh/ai-engine';
 import {
   ArticleTextService,
   ArticleTextServiceError,
@@ -85,6 +85,7 @@ export interface SourceAdmissionAuditOptions {
 export interface SourceAdmissionArtifactOptions extends SourceAdmissionAuditOptions {
   readonly artifactDir?: string;
   readonly cwd?: string;
+  readonly env?: Record<string, string | undefined>;
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -111,6 +112,85 @@ function parseRate(raw: string | undefined, fallback: number): number {
   }
 
   return parsed;
+}
+
+function normalizeNonEmpty(value: string | undefined): string | null {
+  const trimmed = value?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function parseFeedSourcesOverride(
+  raw: string | undefined,
+  sourceLabel = 'feed source override',
+): FeedSource[] | null {
+  const normalized = normalizeNonEmpty(raw);
+  if (!normalized) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(normalized) as unknown;
+  } catch {
+    throw new Error(`${sourceLabel} must be valid JSON`);
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new Error(`${sourceLabel} must be a JSON array`);
+  }
+
+  const valid: FeedSource[] = [];
+  for (const source of parsed) {
+    const result = FeedSourceSchema.safeParse(source);
+    if (result.success) {
+      valid.push(result.data);
+    }
+  }
+
+  if (valid.length === 0) {
+    throw new Error(`${sourceLabel} must contain at least one valid feed source`);
+  }
+
+  return valid;
+}
+
+function resolveConfiguredFeedSources(
+  options: SourceAdmissionAuditOptions & Pick<SourceAdmissionArtifactOptions, 'cwd' | 'env'> = {},
+): readonly FeedSource[] {
+  if (options.feedSources) {
+    return options.feedSources;
+  }
+
+  const env = options.env ?? process.env;
+  const jsonOverrideRaw = normalizeNonEmpty(env.VH_NEWS_SOURCE_ADMISSION_SOURCES_JSON);
+  const jsonOverride = parseFeedSourcesOverride(
+    jsonOverrideRaw ?? undefined,
+    'VH_NEWS_SOURCE_ADMISSION_SOURCES_JSON',
+  );
+  if (jsonOverride) {
+    return jsonOverride;
+  }
+
+  const fileOverride = normalizeNonEmpty(env.VH_NEWS_SOURCE_ADMISSION_SOURCES_FILE);
+  if (fileOverride) {
+    const cwd = options.cwd ?? process.cwd();
+    const filePath = path.resolve(cwd, fileOverride);
+    let fileContents: string;
+    try {
+      fileContents = readFileSync(filePath, 'utf8');
+    } catch {
+      throw new Error(`VH_NEWS_SOURCE_ADMISSION_SOURCES_FILE not found: ${filePath}`);
+    }
+    return (
+      parseFeedSourcesOverride(
+        fileContents,
+        `VH_NEWS_SOURCE_ADMISSION_SOURCES_FILE (${filePath})`,
+      )
+      ?? STARTER_FEED_SOURCES
+    );
+  }
+
+  return STARTER_FEED_SOURCES;
 }
 
 function decodeXmlEntities(input: string): string {
@@ -341,9 +421,9 @@ export async function auditFeedSourceAdmission(
 }
 
 export async function buildSourceAdmissionReport(
-  options: SourceAdmissionAuditOptions = {},
+  options: SourceAdmissionAuditOptions & Pick<SourceAdmissionArtifactOptions, 'cwd' | 'env'> = {},
 ): Promise<SourceAdmissionReport> {
-  const feedSources = options.feedSources ?? STARTER_FEED_SOURCES;
+  const feedSources = resolveConfiguredFeedSources(options);
   const criteria = buildCriteria(options);
   const sources: SourceAdmissionSourceReport[] = [];
 
@@ -416,7 +496,10 @@ export const sourceAdmissionReportInternal = {
   extractTagText,
   failSample,
   isDirectExecution,
+  normalizeNonEmpty,
   parseFeedLinks,
+  parseFeedSourcesOverride,
   passSample,
   readFeedXml,
+  resolveConfiguredFeedSources,
 };
