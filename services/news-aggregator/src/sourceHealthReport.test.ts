@@ -6,6 +6,7 @@ import { STARTER_FEED_SOURCES } from '@vh/ai-engine';
 import type { SourceAdmissionReport, SourceAdmissionSourceReport } from './sourceAdmissionReport';
 import {
   SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
+  SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION,
   buildSourceHealthReport,
   buildSourceHealthThresholds,
   sourceHealthReportInternal,
@@ -248,12 +249,18 @@ describe('sourceHealthReport', () => {
     expect(report.paths.sourceHealthReportPath).toBe(
       '/repo/.tmp/news-source-admission/run-a/source-health-report.json',
     );
+    expect(report.paths.sourceHealthTrendPath).toBe(
+      '/repo/.tmp/news-source-admission/run-a/source-health-trend.json',
+    );
     expect(report.paths.latestArtifactDir).toBe('/repo/.tmp/news-source-admission/latest');
     expect(report.paths.latestAdmissionReportPath).toBe(
       '/repo/.tmp/news-source-admission/latest/source-admission-report.json',
     );
     expect(report.paths.latestSourceHealthReportPath).toBe(
       '/repo/.tmp/news-source-admission/latest/source-health-report.json',
+    );
+    expect(report.paths.latestSourceHealthTrendPath).toBe(
+      '/repo/.tmp/news-source-admission/latest/source-health-trend.json',
     );
   });
 
@@ -395,6 +402,63 @@ describe('sourceHealthReport', () => {
     rmSync(artifactRoot, { recursive: true, force: true });
   });
 
+  it('builds a compact trend index from historical and current runs', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-trend-index-'));
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-1', {
+      generatedAt: '2026-03-15T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'keep',
+          decision: 'keep',
+        },
+      ],
+    });
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-2', {
+      generatedAt: '2026-03-16T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'watch',
+          decision: 'watch',
+        },
+      ],
+    });
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-3'),
+        now: () => 1_700_000_000_000,
+      },
+    );
+    const trendIndex = sourceHealthReportInternal.buildSourceHealthTrendIndex(
+      report,
+      sourceHealthReportInternal.readHistoricalSourceHealthReports(
+        report.paths.artifactDir,
+        report.thresholds.historyLookbackRunCount,
+      ),
+    );
+
+    expect(trendIndex.schemaVersion).toBe(SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION);
+    expect(trendIndex.lookbackRunCount).toBe(8);
+    expect(trendIndex.runCount).toBe(3);
+    expect(trendIndex.runs.map((run) => run.readinessStatus)).toEqual([
+      'ready',
+      'review',
+      'ready',
+    ]);
+    expect(trendIndex.runs[2]).toMatchObject({
+      keepSourceIds: ['fox-latest'],
+      watchSourceIds: [],
+      removeSourceIds: [],
+    });
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
   it('uses process cwd and the live clock when build options are omitted', () => {
     const originalCwd = process.cwd();
     const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-build-defaults-'));
@@ -455,8 +519,14 @@ describe('sourceHealthReport', () => {
     expect(readFileSync(artifact.sourceHealthReportPath, 'utf8')).toContain(
       '"historySummary"',
     );
+    expect(readFileSync(artifact.sourceHealthTrendPath, 'utf8')).toContain(
+      `"schemaVersion": "${SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION}"`,
+    );
     expect(readFileSync(artifact.latestSourceHealthReportPath, 'utf8')).toContain(
       '"runtimePolicy"',
+    );
+    expect(readFileSync(artifact.latestSourceHealthTrendPath, 'utf8')).toContain(
+      '"runCount"',
     );
     expect(readFileSync(artifact.latestAdmissionReportPath, 'utf8')).toContain(
       '"schemaVersion": "news-source-admission-report-v1"',

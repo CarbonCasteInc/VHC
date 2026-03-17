@@ -145,7 +145,9 @@ export type {
 
 export {
   SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
+  SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION,
   buildSourceHealthReport,
+  buildSourceHealthTrendIndex,
   buildSourceHealthThresholds,
   buildSourceHealthRuntimePolicy,
   writeSourceHealthArtifact,
@@ -160,6 +162,8 @@ export type {
   SourceHealthRuntimePolicy,
   SourceHealthSourceHistory,
   SourceHealthSourceReport,
+  SourceHealthTrendIndex,
+  SourceHealthTrendRunSummary,
   SourceHealthThresholds,
 } from './sourceHealthReport';
 
