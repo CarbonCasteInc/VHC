@@ -157,6 +157,8 @@ export type {
   SourceHealthDecision,
   SourceHealthHistorySummary,
   SourceHealthObservability,
+  SourceHealthReleaseEvidence,
+  SourceHealthReleaseEvidenceStatus,
   SourceHealthReadinessStatus,
   SourceHealthReport,
   SourceHealthRuntimePolicy,
