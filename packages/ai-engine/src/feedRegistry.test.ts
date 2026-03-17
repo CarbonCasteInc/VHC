@@ -42,7 +42,7 @@ describe('feedRegistry', () => {
       const wire = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'international-wire',
       );
-      expect(wire.length).toBeGreaterThanOrEqual(3);
+      expect(wire.length).toBeGreaterThanOrEqual(2);
     });
 
     it('includes evidence-admitted nbc politics coverage', () => {
@@ -65,6 +65,18 @@ describe('feedRegistry', () => {
         rssUrl: 'https://www.pbs.org/newshour/feeds/rss/politics',
         perspectiveTag: 'public-broadcast',
         iconKey: 'pbs',
+        enabled: true,
+      });
+    });
+
+    it('includes evidence-admitted npr politics coverage', () => {
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'npr-politics'),
+      ).toMatchObject({
+        name: 'NPR Politics',
+        rssUrl: 'https://feeds.npr.org/1014/rss.xml',
+        perspectiveTag: 'public-radio',
+        iconKey: 'npr',
         enabled: true,
       });
     });
@@ -151,6 +163,15 @@ describe('feedRegistry', () => {
         displayName: 'PBS News',
         perspectiveTag: 'public-broadcast',
         iconKey: 'pbs',
+      });
+    });
+
+    it('returns metadata for evidence-admitted npr politics', () => {
+      const meta = getSourceMetadata('npr-politics');
+      expect(meta).toEqual({
+        displayName: 'NPR',
+        perspectiveTag: 'public-radio',
+        iconKey: 'npr',
       });
     });
 

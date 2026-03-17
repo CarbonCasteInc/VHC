@@ -82,6 +82,16 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'nbc',
     enabled: true,
   }),
+  // Public radio (1)
+  FeedSourceSchema.parse({
+    id: 'npr-politics',
+    name: 'NPR Politics',
+    displayName: 'NPR',
+    rssUrl: 'https://feeds.npr.org/1014/rss.xml',
+    perspectiveTag: 'public-radio',
+    iconKey: 'npr',
+    enabled: true,
+  }),
   // Public broadcast (1)
   FeedSourceSchema.parse({
     id: 'pbs-politics',
@@ -92,7 +102,7 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'pbs',
     enabled: true,
   }),
-  // International wire (3)
+  // International wire (2)
   FeedSourceSchema.parse({
     id: 'bbc-general',
     name: 'BBC News',
@@ -109,15 +119,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml',
     perspectiveTag: 'international-wire',
     iconKey: 'bbc',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
-    id: 'yahoo-world',
-    name: 'Yahoo News World',
-    displayName: 'Yahoo News',
-    rssUrl: 'https://news.yahoo.com/rss/world',
-    perspectiveTag: 'international-wire',
-    iconKey: 'yahoo',
     enabled: true,
   }),
 ]);
