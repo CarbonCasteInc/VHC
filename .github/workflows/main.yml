@@ -212,6 +212,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: [quality, change-detection]
     timeout-minutes: 35
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
     steps:
       - name: StoryCluster correctness applicability
         run: |
