@@ -35,6 +35,18 @@ From repo root:
 pnpm live:stack:up
 ```
 
+Default behavior:
+- fixture-backed bundled-feed mode
+- local StoryCluster server
+- local relay
+- canonical news daemon serving the app headlines/stories
+
+Public/admitted-source variant:
+
+```bash
+pnpm live:stack:up:public
+```
+
 Status check:
 
 ```bash
@@ -180,6 +192,8 @@ When reviewing StoryCluster release evidence:
 - Logs:
   - web: `/tmp/vh-local-web.log`
   - relay: `/tmp/vh-local-relay.log`
+- `pnpm live:stack:up` is the canonical manual browser path and defaults to fixture-backed bundled-headlines mode.
+- `tools/scripts/manual-dev.sh` is now a compatibility wrapper around the same canonical stack launcher.
 - The launcher script is:
   - `tools/scripts/live-local-stack.sh`
 - Public semantic soak remains non-blocking smoke:

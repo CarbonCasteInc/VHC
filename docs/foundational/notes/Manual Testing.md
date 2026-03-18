@@ -6,7 +6,7 @@
 > Depends On: docs/foundational/STATUS.md
 
 ### Prerequisites
-- [ ] Docker stack running (`manual-dev.sh up`)
+- [ ] Canonical bundled-feed stack running (`pnpm live:stack:up` or `./tools/scripts/manual-dev.sh up`)
 - [ ] Dev server accessible at `http://localhost:2048`
 - [ ] Trusted identity created (trustScore ≥ 0.5)
 - [ ] Optional: Second browser/incognito for sync checks

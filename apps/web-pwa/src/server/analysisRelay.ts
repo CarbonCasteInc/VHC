@@ -152,8 +152,10 @@ function parseReasoningEffort(value: string | undefined): 'none' | 'low' | 'medi
   return undefined;
 }
 export function resolveAnalysisRelayConfig(env: Record<string, string | undefined>): AnalysisRelayConfig | null {
-  const endpointUrl = readServerEnvVar(env, 'ANALYSIS_RELAY_UPSTREAM_URL');
-  const apiKey = readServerEnvVar(env, 'ANALYSIS_RELAY_API_KEY');
+  const apiKey = readServerEnvVar(env, 'ANALYSIS_RELAY_API_KEY')
+    ?? readServerEnvVar(env, 'OPENAI_API_KEY');
+  const endpointUrl = readServerEnvVar(env, 'ANALYSIS_RELAY_UPSTREAM_URL')
+    ?? (apiKey ? 'https://api.openai.com/v1/chat/completions' : undefined);
   if (!endpointUrl || !apiKey) return null;
 
   return {

@@ -29,7 +29,9 @@ Services exposed (default localhost):
 
 ## Remote manual testing (PWA)
 - WebCrypto requires a secure context; using a raw IP over HTTP can blank the app. For remote browsers, tunnel to localhost or use HTTPS.
-- One-shot helper: `./tools/scripts/manual-dev.sh up` (starts stack via `pnpm vh bootstrap up`, then PWA dev on 0.0.0.0:2048, logs at `/tmp/vh-pwa-dev.log`). Stop with `./tools/scripts/manual-dev.sh down` (stack left running).
+- Canonical bundled-headlines helper: `pnpm live:stack:up` (fixture-backed StoryCluster + relay + daemon + web on `http://127.0.0.1:2048/`). Stop with `pnpm live:stack:down`.
+- Public/admitted-source variant: `pnpm live:stack:up:public`.
+- Compatibility wrapper: `./tools/scripts/manual-dev.sh up` now delegates to the same canonical local stack path.
 - Remote tunnel example (from your laptop): `ssh -L 2048:localhost:2048 <user>@<server-ip>` then open `http://localhost:2048`.
 - If you prefer direct IP, trust a cert and use HTTPS (self-signed or via Traefik); otherwise stay on localhost via tunnel to avoid secure-context issues.
 - Clear stale SW/cache in your browser if the UI looks blank after switching hosts.

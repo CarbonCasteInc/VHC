@@ -23,7 +23,7 @@ function statusLabel(mode: string): string {
     case 'mesh-degraded':
       return 'Mesh Degraded';
     case 'relay-unavailable':
-      return 'Relay Unavailable';
+      return 'Analysis Relay Unavailable';
     case 'disconnected':
       return 'Disconnected';
     default:
