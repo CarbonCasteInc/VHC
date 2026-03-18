@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-17
+> Last Reviewed: 2026-03-18
 > Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/CANON_MAP.md
 
 
@@ -40,6 +40,7 @@ Default behavior:
 - local StoryCluster server
 - local relay
 - canonical news daemon serving the app headlines/stories
+- current fixture mode is stable but only covers a representative subset of the admitted source surface, not all admitted sources
 
 Public/admitted-source variant:
 
@@ -193,9 +194,14 @@ When reviewing StoryCluster release evidence:
   - web: `/tmp/vh-local-web.log`
   - relay: `/tmp/vh-local-relay.log`
 - `pnpm live:stack:up` is the canonical manual browser path and defaults to fixture-backed bundled-headlines mode.
+- use `pnpm live:stack:up` for deterministic/manual QA and `pnpm live:stack:up:public` when you need to sample the admitted public source surface.
 - `tools/scripts/manual-dev.sh` is now a compatibility wrapper around the same canonical stack launcher.
 - The launcher script is:
   - `tools/scripts/live-local-stack.sh`
+- Gate classification:
+  - CI-enforced today: `Source Health` on source-surface changes
+  - manual release discipline: `pnpm test:storycluster:correctness`, `pnpm test:storycluster:gates`
+  - telemetry/review only: `pnpm test:storycluster:smoke`
 - Public semantic soak remains non-blocking smoke:
   - `pnpm test:storycluster:smoke`
   - inspect the soak trend/report artifacts for the explicit promotion assessment before arguing that public-feed evidence is ready to move beyond smoke-only

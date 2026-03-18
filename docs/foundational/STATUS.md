@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-16
+> Last Reviewed: 2026-03-18
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-16
-**Version:** 0.8.0 (StoryCluster correctness gate codified; source-health runtime policy and distribution-readiness task list operationalized)
-**Assessment:** Pre-production prototype. Wave 4 is closed; active work is source-program convergence and distribution-readiness hardening on top of the deterministic StoryCluster correctness gate, daemon-first semantic gate discipline, secondary public-feed smoke telemetry, and browser-driven verification for feed/discovery/storyline changes.
+**Last Updated:** 2026-03-18
+**Version:** 0.8.0 (StoryCluster correctness gate codified; source-health runtime policy, contribution evidence, and trend-aware release evidence operationalized)
+**Assessment:** Pre-production prototype. Wave 4 is closed; active work is production-readiness enforcement: promote authoritative StoryCluster correctness gates into CI, add source-health freshness guarantees, accumulate trailing-window headline usefulness evidence, and continue source-surface growth only through the admission + contribution pipeline.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -27,8 +27,8 @@
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, receipt-in-feed | ❌ No |
-| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path, source-admission/health evidence, runtime keep/watch/remove enforcement, and source-health artifact autoload; distribution-ready source breadth and source-program convergence remain active | ⚠️ Partial |
-| **Discovery Feed** | 🟢 Implemented with fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
+| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path, source-admission/health evidence, runtime keep/watch/remove enforcement, contribution metrics, and source-health artifact autoload; distribution-ready source breadth and trailing-window headline usefulness evidence remain active blockers | ⚠️ Partial |
+| **Discovery Feed** | 🟢 Implemented with fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, deep-link focus state, and canonical bundled local QA; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
 
@@ -42,16 +42,25 @@ Current policy state:
 - Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
 - StoryCluster correctness is now gated primarily by the deterministic corpus/replay path plus the daemon-first semantic gate; the active blocker has moved to source-program maturity and distribution readiness.
-- Blocking feed-release evidence now comes from fixture-backed daemon-first gates:
-  - `pnpm test:storycluster:correctness`
-  - `pnpm test:storycluster:gates`
-  - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
-  - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
+- Gate status on `main` is now split explicitly:
+  - CI-enforced today:
+    - `pnpm test:storycluster:quality`
+    - `Source Health` GitHub Actions job for source-surface changes
+  - manual release discipline today:
+    - `pnpm test:storycluster:correctness`
+    - `pnpm test:storycluster:gates`
+    - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
+    - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
+  - telemetry / review only:
+    - `pnpm test:storycluster:smoke`
+- Source-health CI enforcement is real, but scoped:
+  - source-surface changes are hard-gated by the `Source Health` workflow job;
+  - non-source PRs do not currently run that gate.
 - Primary StoryCluster correctness proof is now explicit and deterministic:
   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
   - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
-- Release/readiness reviewers should treat that deterministic corpus plus the daemon-first semantic gate as the authoritative correctness gate.
+- Release/readiness reviewers should treat that deterministic corpus plus the daemon-first semantic gate as the authoritative correctness gate, but note that this gate family is not yet promoted into CI.
 - Production-grade feed claims now depend more on source-readability discipline than on additional StoryCluster corpus growth:
   - only onboarded readable, accessible, extraction-safe sources count toward the feed promise;
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
@@ -60,6 +69,9 @@ Current policy state:
   - `pnpm report:news-sources:health`
   - stable latest artifact path: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
   - web bootstrap autoloads the latest health artifact and applies keep/watch/remove policy during runtime source selection.
+- Per-source contribution evidence is also in force on `main`:
+  - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceContributionReport.ts`
+  - release evidence now tracks contributing and corroborating source counts in the latest health artifact.
 - Canonical feed publication is singleton-first and source-growth friendly:
   - a single readable article may publish as a valid feed story;
   - later same-incident / same-developing-episode coverage should attach under stable story identity as sources grow.
@@ -71,7 +83,7 @@ Current policy state:
   - soak artifacts now include a machine-readable promotion assessment plus explicit references to the authoritative correctness-gate inputs, so release evidence can distinguish blocking correctness proof from non-blocking public-supply telemetry.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
-## StoryCluster Program Snapshot (2026-03-16)
+## StoryCluster Program Snapshot (2026-03-18)
 
 Current truth for the news bundler and feed hardening lane:
 
@@ -116,11 +128,12 @@ Current truth for the news bundler and feed hardening lane:
   - explicit promotion-readiness assessment with blocking reasons;
   - denser diagnostic artifacts for insufficient-bundle public runs.
 - The correctness-gate sufficiency lane is complete and in force on `main`.
-- The current active work is source-program convergence and release-evidence discipline:
+- The current active work is release-discipline convergence and distribution evidence:
   - treat the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof;
   - require the daemon-first semantic gate as the served-stack confirmation of that proof;
   - keep public semantic runs smoke-only unless they independently earn promotion beyond telemetry;
-  - make source admission, extraction quality, source-health runtime policy, and operator review explicit release-readiness work.
+  - treat source admission, extraction quality, source-health runtime policy, contribution evidence, and operator review as release-readiness work;
+  - promote the authoritative correctness gates into CI before claiming fully automated release discipline.
 - `main` now also includes source-program operationalization:
   - machine-readable source-admission evidence;
   - machine-readable source-health decisions with keep/watch/remove runtime policy;
@@ -136,26 +149,30 @@ Current truth for the news bundler and feed hardening lane:
 
 ### StoryCluster Next Steps (Active)
 
-1. Keep the deterministic corpus/replay gate and daemon-first semantic gate explicit in release/readiness artifacts:
-   - primary correctness proof must name the authoritative corpus, replay, and served semantic-gate inputs;
-   - public semantic soak must remain labeled as secondary distribution telemetry.
-2. Treat source-program maturity as the main distribution-readiness blocker:
-   - production-grade feed claims apply only to onboarded readable, accessible, extraction-safe sources;
-   - source onboarding/removal, paywall/truncation rejection, source-health review, and runtime-policy enforcement must follow `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
-3. Keep singleton-first publication and later bundle growth explicit in release evidence:
-   - single-source stories remain valid feed entries;
-   - later same-incident / same-developing-episode coverage must attach without identity churn as source coverage grows.
-4. Production-readiness next steps:
-   - converge starter-surface generation and runtime selection onto the same source-health-derived source set;
-   - make `pnpm report:news-sources:health` required release evidence and record the latest artifact path in merge/release notes;
-   - codify re-admission, watchlist escalation, and removal thresholds so source decisions are not ad hoc;
-   - add source-health observability for readable success rate, access-denied rate, quality failures, lifecycle instability, and feed contribution by source;
-   - expand admitted readable source breadth only through the admission/health pipeline, not generic feed growth.
-5. Keep Playwright/browser validation a standard release discipline for feed/discovery/storyline/vote changes:
-   - record exact browser commands run;
-   - treat fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof;
-   - treat public semantic smoke as non-blocking evidence.
-6. Continue improving public semantic-soak density and trend interpretation until public-feed evidence is strong enough to promote beyond smoke-only status, without treating public scarcity as a substitute for source-health review.
+1. Promote StoryCluster correctness into CI:
+   - add `pnpm test:storycluster:correctness` with change-detection scoping for StoryCluster, feed, daemon, and runtime surfaces;
+   - phase `pnpm test:storycluster:gates` in as required once CI runtime/cost is stable enough.
+2. Add freshness/staleness enforcement for source-health artifacts:
+   - local/manual runtime should warn and fall back safely;
+   - CI/release evidence should fail when the latest artifact is older than the accepted threshold.
+3. Add a compact headline-soak trend artifact plus scheduled collection on `main`:
+   - measure corroborated bundle density, singleton-to-later-attachment rate, source diversity, and contamination/failure rate;
+   - treat this as the missing distribution-readiness signal.
+4. Define a unified release contract that combines:
+   - StoryCluster correctness gates;
+   - source-health trend and release evidence;
+   - headline-soak trend over a trailing window.
+5. Expand fixture-backed local QA toward the admitted source surface:
+   - the current fixture stack is stable but only covers a subset of admitted sources;
+   - broaden it so local manual QA is more representative.
+6. Keep source-surface growth evidence-driven:
+   - admit one source at a time through the admission + contribution pipeline;
+   - keep singleton-first publication and later bundle growth explicit in release evidence.
+7. Operationalize the live-misses-to-corpus loop:
+   - define where candidate live misses accumulate;
+   - define triage ownership;
+   - define promotion criteria into deterministic fixtures or replay scenarios.
+8. Treat scoped flag retirement and doc refresh as housekeeping, not as substitutes for the production-readiness gates above.
 
 ---
 
@@ -568,7 +585,7 @@ Wave 4 merged to main via PR #253 (`31fce88`, 2026-02-15T01:44:54Z). All integra
 - **FE-4** (removal polish): merged
 
 Remaining backlog:
-1. **Feature-flag retirement** — promote Wave 1–4 flags to permanent-on after stability verification
+1. **Feature-flag retirement** — scoped sweep, starting with news/feed/runtime flags after the release-discipline lanes above land
 2. ~~**Remaining budget key**~~ — `moderation/day` enforcement landed (PR #259, all 8/8 active)
 3. **Runtime wiring** — synthesis pipeline → discovery feed UI (v2 end-to-end)
 

@@ -2,8 +2,8 @@
 
 Status: Canonical execution plan
 Owner: Core Engineering
-Last Updated: 2026-03-16
-Branch Baseline: `main` @ `a11129a`
+Last Updated: 2026-03-18
+Branch Baseline: `main` @ `84a1b20`
 
 Companion execution backlog:
 
@@ -113,18 +113,31 @@ Implementation state note:
    - web bootstrap autoloads the latest source-health artifact;
    - runtime source selection enforces keep/watch/remove policy and surfaces the applied report source in evidence/logging;
    - the feed promise is about onboarded readable sources, not arbitrary sources.
-8. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes;
-9. public semantic soak remains secondary distribution telemetry, not the primary clustering proof.
+8. source contribution, source-health trend indexing, and trend-aware release evidence are already operational on `main`;
+9. source-health is CI-gated today for source-surface changes, but StoryCluster correctness gates are still manual release discipline;
+10. browser-driven Playwright verification is now part of the expected release evidence for feed/discovery/storyline changes;
+11. public semantic soak remains secondary distribution telemetry, not the primary clustering proof.
 
 ## 4.3 Production-Readiness Task List
 
-1. Converge starter-surface generation and runtime source selection onto the same source-health-derived source set.
-2. Require `pnpm report:news-sources:health` in release evidence for source-surface changes, alongside:
-   - `pnpm test:storycluster:correctness`
-   - `pnpm test:storycluster:gates`
-3. Codify watchlist escalation, removal, and re-admission thresholds so source decisions are deterministic and reviewable.
-4. Build source-health observability for readable success rate, access-denied rate, quality failures, lifecycle instability, and feed contribution by source.
-5. Expand distribution-ready source breadth only through the admission/health pipeline.
+1. Promote StoryCluster correctness gates into CI:
+   - add change-detection-scoped `pnpm test:storycluster:correctness`;
+   - phase `pnpm test:storycluster:gates` into CI once runtime/cost is stable enough.
+2. Add freshness/staleness enforcement for source-health artifacts:
+   - local/manual runtime should warn and fall back safely;
+   - CI/release evidence should fail when the latest artifact is older than threshold.
+3. Add a compact headline-soak trend artifact plus scheduled collection on `main`:
+   - measure corroborated bundle density;
+   - singleton-to-later-attachment rate;
+   - source diversity;
+   - contamination/failure rate.
+4. Define one unified release contract that explicitly combines:
+   - StoryCluster correctness gates;
+   - source-health trend and release evidence;
+   - headline-soak trend over a trailing review window.
+5. Broaden fixture-backed local QA toward the admitted source surface so manual testing is representative as well as stable.
+6. Expand distribution-ready source breadth only through the admission/health/contribution pipeline.
+7. Operationalize the live-misses-to-corpus workflow so real live misses become deterministic fixture or replay cases.
 
 ## 5. Canonical Pair Ontology
 

@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops + Core Engineering
-> Last Reviewed: 2026-03-17
+> Last Reviewed: 2026-03-18
 > Depends On: docs/foundational/STATUS.md, docs/specs/spec-news-aggregator-v0.md, docs/CANON_MAP.md
 
 
@@ -101,6 +101,16 @@ Source-surface changes should keep these in the loop:
 3. `pnpm test:storycluster:correctness`
 4. `pnpm test:storycluster:gates`
 
+Gate classification on `main` is currently:
+
+1. CI-enforced for source-surface changes:
+   - `pnpm check:news-sources:health`
+2. manual release discipline:
+   - `pnpm test:storycluster:correctness`
+   - `pnpm test:storycluster:gates`
+3. telemetry / review only:
+   - `pnpm test:storycluster:smoke`
+
 Public smoke remains supplementary telemetry:
 
 1. `pnpm test:storycluster:smoke`
@@ -144,13 +154,20 @@ The remaining blocker is building and maintaining a source surface that is:
 
 ## Production-Readiness Next Steps
 
-1. Converge starter-surface generation and runtime selection onto the same source-health-derived source set.
-2. Make `pnpm report:news-sources:health` mandatory release evidence for feed/source-surface changes.
-3. Codify watchlist escalation, removal, and re-admission thresholds so source decisions are deterministic.
-4. Add source-health observability for:
-   - readable success rate;
-   - access-denied rate;
-   - quality-too-low failures;
-   - lifecycle instability;
-   - actual feed contribution by source.
-5. Expand source breadth only through this admission/health workflow, not by generic feed-surface growth.
+1. Add freshness/staleness enforcement for source-health artifacts:
+   - warn and fall back safely in local/manual runtime;
+   - fail in CI/release evidence when the latest artifact is older than the allowed threshold.
+2. Promote StoryCluster correctness gates into CI:
+   - add change-detection-scoped `pnpm test:storycluster:correctness`;
+   - phase `pnpm test:storycluster:gates` in after CI runtime/cost is validated.
+3. Define one unified release contract for feed/source-surface claims:
+   - correctness gates green;
+   - source-health trend green;
+   - headline-soak trend acceptable over the trailing review window.
+4. Add the missing headline-soak trend artifact and scheduled collection:
+   - track corroborated bundle density;
+   - singleton-to-later-attachment rate;
+   - source diversity;
+   - contamination/failure rate.
+5. Expand source breadth only through this admission/health/contribution workflow, not by generic feed-surface growth.
+6. Broaden fixture-backed local QA toward the admitted source surface so manual testing is representative, not merely stable.

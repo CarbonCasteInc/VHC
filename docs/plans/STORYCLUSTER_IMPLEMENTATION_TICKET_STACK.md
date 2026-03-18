@@ -2,9 +2,9 @@
 
 Status: Canonical ticket stack
 Owner: Core Engineering
-Last Updated: 2026-03-16
+Last Updated: 2026-03-18
 Parent Plan: `/Users/bldt/Desktop/VHC/VHC/docs/plans/STORYCLUSTER_INTEGRATION_EXECUTION_PLAN.md`
-Branch Baseline: `main` @ `a11129a`
+Branch Baseline: `main` @ `84a1b20`
 
 ## 1. Usage
 
@@ -66,25 +66,41 @@ Completed or functionally in-force:
 19. daemon-first browser-gate startup reliability hardening is in force on `main`
 20. source-admission and source-health evidence commands are in force on `main`
 21. web-runtime keep/watch/remove enforcement and latest-artifact autoload are in force on `main`
+22. source-health trend indexing, trend-aware release evidence, and source-contribution reporting are in force on `main`
+23. starter-surface/runtime source selection convergence and source-health CI gating are in force on `main`
+24. evidence-backed starter-surface promotion is in force on `main`:
+   - `nbc-politics`
+   - `pbs-politics`
+   - `npr-politics`
+   - `abc-politics`
+25. canonical local bundled manual QA is in force on `main`:
+   - `pnpm live:stack:up` defaults to fixture-backed bundled-headlines mode
+   - `pnpm live:stack:up:public` is the admitted public-source path
 
 Active next implementation lane:
 
-1. source-program convergence and readable-distribution readiness
+1. production-readiness enforcement and distribution evidence
 2. immediate focus:
-   - converge starter-surface generation and runtime selection onto the same source-health-derived source set
-   - require `pnpm report:news-sources:health`, latest-artifact review, and keep/watch/remove runtime evidence for distribution-readiness claims
-   - codify watchlist escalation, removal, and re-admission thresholds so source decisions are deterministic
-   - build source-health observability for readable success rate, access-denied rate, quality failures, lifecycle instability, and feed contribution by source
+   - promote `pnpm test:storycluster:correctness` into CI with change-detection scoping for StoryCluster, feed, daemon, and runtime surfaces
+   - phase `pnpm test:storycluster:gates` into CI once runtime/cost is stable enough
+   - add source-health artifact freshness/staleness enforcement in runtime/bootstrap and CI/release evidence
+   - add a compact headline-soak trend artifact plus scheduled collection on `main`
+   - define one unified release contract combining correctness gates, source-health trend, and headline-soak trend
+   - broaden fixture-backed local QA toward the admitted source surface
    - keep public semantic runs smoke-only as secondary distribution telemetry unless they independently earn promotion
 
 Queued after the source-readiness lane:
 
-1. browser-first verification hardening for distribution readiness
+1. operationalize the live-misses-to-corpus workflow
+   - one candidate inbox location
+   - one triage owner
+   - explicit promotion criteria into fixtures or replay scenarios
+2. browser-first verification hardening for distribution readiness
    - feed/discovery/storyline lanes should carry explicit Playwright/browser validation as part of the evidence contract
    - keep fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof
-2. targeted fixture-corpus and replay-corpus expansion only when a real uncovered event class appears
-   - correctness proof is no longer the default missing piece
-3. continued public semantic-soak density/trend improvement until public-feed evidence is strong enough to promote beyond smoke-only status
+3. continued evidence-backed source-surface growth
+   - admit one source at a time through admission + contribution
+4. scoped feed/runtime flag-retirement sweep after the gates above land
 
 ## 3. Ticket Stack
 
