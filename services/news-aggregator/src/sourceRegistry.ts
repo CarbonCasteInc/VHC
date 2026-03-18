@@ -27,6 +27,7 @@ const DOMAIN_ALIASES: Record<string, readonly string[]> = {
   'www.theguardian.com': ['theguardian.com'],
   'www.huffpost.com': ['huffpost.com', 'chaski.huffpost.com'],
   'www.cbsnews.com': ['cbsnews.com'],
+  'abcnews.go.com': ['abcnews.com', 'www.abcnews.com'],
   'feeds.bbci.co.uk': ['bbc.com', 'www.bbc.com', 'bbc.co.uk', 'www.bbc.co.uk'],
   'news.yahoo.com': ['yahoo.com', 'www.yahoo.com'],
 };

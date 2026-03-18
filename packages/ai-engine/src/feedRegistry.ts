@@ -72,7 +72,16 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'cbs',
     enabled: true,
   }),
-  // Broadcast news (1)
+  // Broadcast news (2)
+  FeedSourceSchema.parse({
+    id: 'abc-politics',
+    name: 'ABC News Politics',
+    displayName: 'ABC News',
+    rssUrl: 'https://abcnews.go.com/abcnews/politicsheadlines',
+    perspectiveTag: 'broadcast-news',
+    iconKey: 'abc',
+    enabled: true,
+  }),
   FeedSourceSchema.parse({
     id: 'nbc-politics',
     name: 'NBC News Politics',

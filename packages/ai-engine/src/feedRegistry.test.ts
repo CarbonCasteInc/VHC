@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(11);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(12);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -43,6 +43,18 @@ describe('feedRegistry', () => {
         (s) => s.perspectiveTag === 'international-wire',
       );
       expect(wire.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('includes evidence-admitted abc politics coverage', () => {
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'abc-politics'),
+      ).toMatchObject({
+        name: 'ABC News Politics',
+        rssUrl: 'https://abcnews.go.com/abcnews/politicsheadlines',
+        perspectiveTag: 'broadcast-news',
+        iconKey: 'abc',
+        enabled: true,
+      });
     });
 
     it('includes evidence-admitted nbc politics coverage', () => {
@@ -146,6 +158,15 @@ describe('feedRegistry', () => {
         expect(meta).toBeDefined();
         expect(meta!.displayName).toBeTruthy();
       }
+    });
+
+    it('returns metadata for evidence-admitted abc politics', () => {
+      const meta = getSourceMetadata('abc-politics');
+      expect(meta).toEqual({
+        displayName: 'ABC News',
+        perspectiveTag: 'broadcast-news',
+        iconKey: 'abc',
+      });
     });
 
     it('returns metadata for evidence-admitted nbc politics', () => {

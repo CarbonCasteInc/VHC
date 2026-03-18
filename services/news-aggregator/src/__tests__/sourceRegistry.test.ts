@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   STARTER_FEED_URLS,
   STARTER_SOURCE_DOMAINS,
+  buildSourceDomainAllowlist,
   findLatestSourceHealthReportPath,
   getStarterSourceDomainAllowlist,
   isSourceDomainAllowed,
@@ -19,8 +20,9 @@ describe('sourceRegistry', () => {
   });
 
   it('exposes starter feed URLs', () => {
-    expect(STARTER_FEED_URLS.length).toBeGreaterThanOrEqual(11);
+    expect(STARTER_FEED_URLS.length).toBeGreaterThanOrEqual(12);
     expect(STARTER_FEED_URLS[0]).toContain('foxnews');
+    expect(STARTER_FEED_URLS).toContain('https://abcnews.go.com/abcnews/politicsheadlines');
     expect(STARTER_FEED_URLS).toContain('https://feeds.nbcnews.com/feeds/nbcpolitics');
     expect(STARTER_FEED_URLS).toContain('https://www.pbs.org/newshour/feeds/rss/politics');
     expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1014/rss.xml');
@@ -31,6 +33,8 @@ describe('sourceRegistry', () => {
     expect(STARTER_SOURCE_DOMAINS).toContain('foxnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('nypost.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('cbsnews.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('abcnews.go.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('abcnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('nbcnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('npr.org');
     expect(STARTER_SOURCE_DOMAINS).toContain('pbs.org');
@@ -43,9 +47,19 @@ describe('sourceRegistry', () => {
     const allowlist = getStarterSourceDomainAllowlist();
     expect(allowlist.has('theguardian.com')).toBe(true);
     expect(allowlist.has('huffpost.com')).toBe(true);
+    expect(allowlist.has('abcnews.com')).toBe(true);
     expect(allowlist.has('nbcnews.com')).toBe(true);
     expect(allowlist.has('npr.org')).toBe(true);
     expect(allowlist.has('pbs.org')).toBe(true);
+  });
+
+  it('expands known publication aliases for explicit candidate feed sources', () => {
+    const allowlist = buildSourceDomainAllowlist([
+      'https://abcnews.go.com/abcnews/politicsheadlines',
+    ]);
+    expect(allowlist.has('abcnews.go.com')).toBe(true);
+    expect(allowlist.has('abcnews.com')).toBe(true);
+    expect(allowlist.has('www.abcnews.com')).toBe(true);
   });
 
   it('resolves and applies the latest source-health artifact to starter feed sources', () => {
@@ -110,6 +124,7 @@ describe('sourceRegistry', () => {
     expect(isSourceDomainAllowed('https://www.foxnews.com/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://nypost.com/2026/03/16/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.cbsnews.com/news/story')).toBe(true);
+    expect(isSourceDomainAllowed('https://abcnews.com/Politics/wireStory/example')).toBe(true);
     expect(isSourceDomainAllowed('https://www.nbcnews.com/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.npr.org/2026/03/17/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://www.pbs.org/newshour/politics/story')).toBe(true);
