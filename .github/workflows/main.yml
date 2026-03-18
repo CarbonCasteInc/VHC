@@ -36,6 +36,7 @@ jobs:
       run-bundle: ${{ steps.filter.outputs.run-bundle }}
       run-lighthouse: ${{ steps.filter.outputs.run-lighthouse }}
       run-source-health: ${{ steps.filter.outputs.run-source-health }}
+      run-storycluster-correctness: ${{ steps.filter.outputs.run-storycluster-correctness }}
     steps:
       - uses: actions/checkout@v4
       - name: Detect changed paths
@@ -71,6 +72,18 @@ jobs:
               - 'apps/web-pwa/**'
               - 'packages/ai-engine/**'
               - 'services/news-aggregator/**'
+              - 'package.json'
+              - 'pnpm-lock.yaml'
+              - '.github/workflows/main.yml'
+            run-storycluster-correctness:
+              - 'services/storycluster-engine/**'
+              - 'packages/e2e/**'
+              - 'services/news-aggregator/**'
+              - 'apps/web-pwa/**'
+              - 'packages/ai-engine/**'
+              - 'packages/gun-client/**'
+              - 'packages/data-model/**'
+              - 'packages/types/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
               - '.github/workflows/main.yml'
@@ -194,10 +207,52 @@ jobs:
             services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json
           if-no-files-found: warn
 
+  storycluster-correctness:
+    name: StoryCluster Correctness
+    runs-on: ubuntu-latest
+    needs: [quality, change-detection]
+    timeout-minutes: 35
+    steps:
+      - name: StoryCluster correctness applicability
+        run: |
+          if [ "${{ needs.change-detection.outputs.run-storycluster-correctness }}" = "true" ]; then
+            echo "StoryCluster correctness: relevant changes detected; running authoritative correctness gate."
+          else
+            echo "StoryCluster correctness: no relevant changes detected; passing required check."
+          fi
+
+      - uses: actions/checkout@v4
+        if: needs.change-detection.outputs.run-storycluster-correctness == 'true'
+
+      - name: Install pnpm
+        if: needs.change-detection.outputs.run-storycluster-correctness == 'true'
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 20
+        if: needs.change-detection.outputs.run-storycluster-correctness == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        if: needs.change-detection.outputs.run-storycluster-correctness == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers
+        if: needs.change-detection.outputs.run-storycluster-correctness == 'true'
+        run: pnpm --filter @vh/e2e exec playwright install --with-deps
+
+      - name: Run StoryCluster Correctness Gate
+        if: needs.change-detection.outputs.run-storycluster-correctness == 'true'
+        env:
+          CI: true
+        run: pnpm check:storycluster:correctness
+
   e2e:
     name: E2E Tests
     runs-on: ubuntu-latest
-    needs: [test-and-build, source-health, change-detection]
+    needs: [test-and-build, source-health, storycluster-correctness, change-detection]
     timeout-minutes: 30
     steps:
       - name: E2E applicability

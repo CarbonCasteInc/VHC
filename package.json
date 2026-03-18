@@ -16,6 +16,7 @@
     "test:storycluster:quality": "pnpm --filter @vh/storycluster-engine exec vitest run src/vectorBackend.test.ts src/server.test.ts src/stageRunner.pipeline.test.ts src/coherenceAudit.test.ts src/storyclusterQualityGate.test.ts --config ./vitest.config.ts --reporter=verbose",
     "test:storycluster:live-benchmark": "pnpm --filter @vh/storycluster-engine exec vitest run src/liveBenchmark.integration.test.ts --config ./vitest.config.ts --reporter=verbose",
     "test:storycluster:correctness": "pnpm --filter @vh/storycluster-engine exec vitest run src/benchmarkCorpusKnownEventOngoingFixtures.test.ts src/storyclusterKnownEventOngoingReplay.test.ts src/storyclusterQualityGate.test.ts --config ./vitest.config.ts --reporter=verbose && pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate",
+    "check:storycluster:correctness": "pnpm test:storycluster:correctness",
     "test:storycluster:gates": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:gates",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
