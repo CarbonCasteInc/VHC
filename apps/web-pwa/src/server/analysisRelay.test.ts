@@ -55,6 +55,20 @@ describe('analysisRelay config + success paths', () => {
     ).toBeNull();
   });
 
+  it('falls back to OPENAI_API_KEY and the default upstream endpoint', () => {
+    const config = resolveAnalysisRelayConfig({
+      OPENAI_API_KEY: 'openai-secret',
+    });
+
+    expect(config).toMatchObject({
+      endpointUrl: 'https://api.openai.com/v1/chat/completions',
+      apiKey: 'openai-secret',
+      providerId: 'remote-analysis-relay',
+      analysesLimit: 25,
+      analysesPerTopicLimit: 5,
+    });
+  });
+
   it('applies relay config overrides for provider/model and budget limits', () => {
     const config = resolveAnalysisRelayConfig({
       ...BASE_ENV,
