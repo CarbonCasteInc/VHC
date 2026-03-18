@@ -13,6 +13,7 @@ import {
   waitForHeadlines,
   type DaemonFirstStack,
 } from './daemonFirstFeedHarness';
+import { resolveSemanticAuditOpenAIConfig } from './daemonFirstFeedSemanticAuditOpenAI';
 import { runDaemonFirstFeedSemanticAudit } from './daemonFirstFeedSemanticAudit';
 
 function readPositiveIntEnv(name: string): number | undefined {
@@ -25,14 +26,6 @@ function readPositiveIntEnv(name: string): number | undefined {
     throw new Error(`${name} must be a positive integer. Received: ${raw}`);
   }
   return parsed;
-}
-
-function requireOpenAIApiKey(): string {
-  const apiKey = process.env.OPENAI_API_KEY?.trim() ?? '';
-  if (!apiKey) {
-    throw new Error('blocked-setup-openai-api-key-missing');
-  }
-  return apiKey;
 }
 
 function semanticAuditArtifactDir(): string | null {
@@ -100,10 +93,12 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         timeout: NAV_TIMEOUT_MS,
       });
       await waitForHeadlines(page);
+      const openAI = resolveSemanticAuditOpenAIConfig(process.env);
 
       const report = await runDaemonFirstFeedSemanticAudit(page, {
-        openAIApiKey: requireOpenAIApiKey(),
-        openAIModel: process.env.VH_STORYCLUSTER_AUDIT_MODEL?.trim() || undefined,
+        openAIApiKey: openAI.apiKey,
+        openAIBaseUrl: openAI.baseUrl,
+        openAIModel: openAI.model,
         sampleCount: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT'),
         timeoutMs: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS'),
       });
