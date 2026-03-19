@@ -183,6 +183,9 @@ export function classifySoakRun(result) {
   if (typeof result.failureAuditableCount === 'number') {
     return result.failureAuditableCount > 0 ? 'insufficient_auditable_supply' : 'bundle_starvation';
   }
+  if (typeof result.auditArtifactState === 'string' && result.auditArtifactState !== 'present') {
+    return 'artifact_missing';
+  }
   if (typeof result.auditError === 'string' && result.auditError.includes('attachment missing')) {
     return 'artifact_missing';
   }
