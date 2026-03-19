@@ -129,6 +129,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     try {
       await expect(runDaemonFeedSemanticSoak({
         cwd: '/repo',
+        repoRoot: '/repo',
         env: {
           VH_DAEMON_FEED_SOAK_RUNS: '1',
           VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
@@ -181,6 +182,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     try {
       await expect(runDaemonFeedSemanticSoak({
         cwd: '/repo',
+        repoRoot: '/repo',
         env: {
           VH_DAEMON_FEED_SOAK_RUNS: '1',
           VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
@@ -245,6 +247,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
     const result = await runDaemonFeedSemanticSoak({
       cwd: '/repo',
+      repoRoot: '/repo',
       env: {
         VH_DAEMON_FEED_SOAK_RUNS: '2',
         VH_DAEMON_FEED_SOAK_PAUSE_MS: '5',
@@ -288,6 +291,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     try {
       await expect(runDaemonFeedSemanticSoak({
         cwd: '/repo',
+        repoRoot: '/repo',
         env: {
           VH_DAEMON_FEED_SOAK_RUNS: '1',
           VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
@@ -331,6 +335,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     try {
       await expect(runDaemonFeedSemanticSoak({
         cwd: '/repo',
+        repoRoot: '/repo',
         env: {
           VH_DAEMON_FEED_SOAK_RUNS: '1',
           VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',

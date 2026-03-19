@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  assessHeadlineSoakReleaseEvidence,
   buildHeadlineSoakExecutionSummary,
   buildHeadlineSoakTrendIndex,
   buildReleaseArtifactIndex,
   buildSoakTrend,
   HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
+  PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
   PUBLIC_SEMANTIC_SOAK_POSTURE,
   PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
 } from './daemon-feed-semantic-soak-report.mjs';
@@ -429,6 +431,20 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         maxUniqueSourceCount: 6,
         averageRepeatedStoryCount: 2,
       },
+      releaseEvidence: {
+        status: 'fail',
+        recommendedAction: 'hold_release_for_headline_soak_recovery',
+        reasons: [
+          'insufficient_headline_soak_execution_count',
+          'promotable_execution_count_below_threshold',
+        ],
+        criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
+        latestExecutionReadinessStatus: 'promotable',
+        recentExecutionCount: 2,
+        recentPromotableExecutionCount: 1,
+        recentNotReadyExecutionCount: 1,
+        recentStrictSoakFailCount: 1,
+      },
       runs: [firstExecution, secondExecution],
     });
   });
@@ -447,6 +463,86 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       runCount: 4,
       passCount: 1,
       failCount: 3,
+    });
+  });
+
+  it('marks headline-soak release evidence as pass, warn, or fail over the trailing window', () => {
+    expect(assessHeadlineSoakReleaseEvidence({
+      executionCount: 4,
+      promotableExecutionCount: 4,
+      notReadyExecutionCount: 0,
+      strictSoakFailCount: 0,
+      latestExecution: {
+        readinessStatus: 'promotable',
+      },
+      usefulness: {
+        averageCorroboratedBundleRate: 0.75,
+        averageUniqueSourceCount: 3,
+      },
+    })).toEqual({
+      status: 'pass',
+      recommendedAction: 'release_ready',
+      reasons: [],
+      criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
+      latestExecutionReadinessStatus: 'promotable',
+      recentExecutionCount: 4,
+      recentPromotableExecutionCount: 4,
+      recentNotReadyExecutionCount: 0,
+      recentStrictSoakFailCount: 0,
+    });
+
+    expect(assessHeadlineSoakReleaseEvidence({
+      executionCount: 4,
+      promotableExecutionCount: 4,
+      notReadyExecutionCount: 0,
+      strictSoakFailCount: 1,
+      latestExecution: {
+        readinessStatus: 'promotable',
+      },
+      usefulness: {
+        averageCorroboratedBundleRate: 0.75,
+        averageUniqueSourceCount: 3,
+      },
+    })).toEqual({
+      status: 'warn',
+      recommendedAction: 'review_recent_headline_soak_deterioration',
+      reasons: ['recent_strict_soak_failures_present'],
+      criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
+      latestExecutionReadinessStatus: 'promotable',
+      recentExecutionCount: 4,
+      recentPromotableExecutionCount: 4,
+      recentNotReadyExecutionCount: 0,
+      recentStrictSoakFailCount: 1,
+    });
+
+    expect(assessHeadlineSoakReleaseEvidence({
+      executionCount: 2,
+      promotableExecutionCount: 1,
+      notReadyExecutionCount: 1,
+      strictSoakFailCount: 1,
+      latestExecution: {
+        readinessStatus: 'not_ready',
+      },
+      usefulness: {
+        averageCorroboratedBundleRate: 0.2,
+        averageUniqueSourceCount: 1,
+      },
+    })).toEqual({
+      status: 'fail',
+      recommendedAction: 'hold_release_for_headline_soak_recovery',
+      reasons: [
+        'insufficient_headline_soak_execution_count',
+        'promotable_execution_count_below_threshold',
+        'latest_headline_soak_execution_not_promotable',
+        'corroborated_bundle_rate_below_threshold',
+        'headline_source_diversity_below_threshold',
+      ],
+      criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
+      latestExecutionReadinessStatus: 'not_ready',
+      recentExecutionCount: 2,
+      recentPromotableExecutionCount: 1,
+      recentNotReadyExecutionCount: 1,
+      recentStrictSoakFailCount: 1,
     });
   });
 });

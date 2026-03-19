@@ -85,12 +85,13 @@ Use this workflow whenever the source surface changes:
 7. confirm the compact latest trend index is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`;
 8. confirm the web runtime is prepared to autoload and enforce the latest health policy through `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/server/newsSourceHealthEnv.ts` and `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/newsRuntimeBootstrap.ts`;
 9. run the blocking StoryCluster correctness and daemon-first browser gates;
-10. record source-level evidence in the PR summary or lane note, including:
+10. run `pnpm report:storycluster:production-readiness` before a production-readiness claim and confirm the combined decision still resolves to `release_ready`;
+11. record source-level evidence in the PR summary or lane note, including:
    - admission/health commands run;
    - latest artifact path;
    - keep/watch/remove outcome;
    - any rejection reasons.
-11. if the source fails later in production-like testing, remove or disable it rather than weakening the readability contract.
+12. if the source fails later in production-like testing, remove or disable it rather than weakening the readability contract.
 
 ## Required Validation
 
@@ -100,6 +101,7 @@ Source-surface changes should keep these in the loop:
 2. `pnpm report:news-sources:health`
 3. `pnpm test:storycluster:correctness`
 4. `pnpm test:storycluster:gates`
+5. `pnpm report:storycluster:production-readiness` before a production-readiness claim
 
 Public smoke remains supplementary telemetry:
 
@@ -130,6 +132,10 @@ Operational artifact expectations:
    - compare `historyEscalatedSourceCount`
    - compare `pendingReadmissionSourceCount`
 5. runtime evidence should identify the applied report source so operators can distinguish env overrides from the latest artifact autoload path.
+6. source-health is one required input to the combined production-readiness rule, not a standalone release claim:
+   - StoryCluster correctness must pass;
+   - source-health release evidence must pass and remain fresh;
+   - headline-soak trend release evidence must pass and remain fresh.
 
 ## Operational Interpretation
 
@@ -144,13 +150,11 @@ The remaining blocker is building and maintaining a source surface that is:
 
 ## Production-Readiness Next Steps
 
-1. Converge starter-surface generation and runtime selection onto the same source-health-derived source set.
-2. Make `pnpm report:news-sources:health` mandatory release evidence for feed/source-surface changes.
-3. Codify watchlist escalation, removal, and re-admission thresholds so source decisions are deterministic.
-4. Add source-health observability for:
-   - readable success rate;
-   - access-denied rate;
-   - quality-too-low failures;
-   - lifecycle instability;
-   - actual feed contribution by source.
+1. Keep source growth evidence-driven: only promote the next source if admission, health, contribution, and combined production-readiness evidence all stay green.
+2. Broaden fixture-backed local QA so the deterministic manual stack covers more of the admitted surface, not just the current subset.
+3. Treat live public feed misses as bundler inputs:
+   - accumulate candidate misses;
+   - triage them;
+   - promote true misses into deterministic fixtures or replay scenarios.
+4. Continue tightening release-readiness automation until the remaining manual release-discipline surfaces are small, explicit, and reviewable.
 5. Expand source breadth only through this admission/health workflow, not by generic feed-surface growth.

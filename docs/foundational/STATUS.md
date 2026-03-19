@@ -52,6 +52,20 @@ Current policy state:
   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
   - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
 - Release/readiness reviewers should treat that deterministic corpus plus the daemon-first semantic gate as the authoritative correctness gate.
+- Unified production-readiness now requires one explicit combined rule:
+  - StoryCluster correctness must pass via `pnpm check:storycluster:correctness`;
+  - source-health release evidence must remain fresh and pass via `pnpm check:news-sources:health`;
+  - headline-soak trend evidence must remain fresh and pass via `pnpm report:storycluster:production-readiness`.
+- The combined production-readiness decision surface is:
+  - command: `pnpm check:storycluster:production-readiness`
+  - artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
+  - release-ready status: `release_ready`
+  - non-ready statuses: `review_required`, `blocked`
+  - refresh headline-soak input with `pnpm collect:storycluster:headline-soak` before a production claim when the latest soak trend is missing or stale.
+- Evidence-bearing StoryCluster/feed checks must now be labeled as one of:
+  - `CI-enforced`: automated merge gates that run only when scoped change detection says the lane is relevant;
+  - `manual release discipline`: commands that must be run by the release owner before a production claim;
+  - `telemetry / review only`: evidence that informs release posture but does not block merge by itself.
 - Production-grade feed claims now depend more on source-readability discipline than on additional StoryCluster corpus growth:
   - only onboarded readable, accessible, extraction-safe sources count toward the feed promise;
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`.
@@ -69,6 +83,7 @@ Current policy state:
   - `pnpm test:storycluster:smoke`
   - these runs are evidence-bearing secondary distribution telemetry, but live public-feed bundle scarcity is not currently stable enough to be the primary clustering proof or sole semantic blocker.
   - soak artifacts now include a machine-readable promotion assessment plus explicit references to the authoritative correctness-gate inputs, so release evidence can distinguish blocking correctness proof from non-blocking public-supply telemetry.
+  - the scheduled headline-soak trend is still telemetry/review evidence, but the unified production-readiness rule now requires its latest trend artifact to remain fresh and pass over the recent run window.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
 ## StoryCluster Program Snapshot (2026-03-16)
