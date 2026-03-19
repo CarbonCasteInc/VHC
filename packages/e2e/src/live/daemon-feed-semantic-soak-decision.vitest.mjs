@@ -156,4 +156,26 @@ describe('daemon-feed-semantic-soak-decision', () => {
       readFile: () => '{}',
     })).toThrow('required semantic-soak artifact missing: /tmp/soak/semantic-soak-trend.json');
   });
+
+  it('defaults to the canonical workspace artifact root before the legacy package-local path', () => {
+    const reads = new Map([
+      ['/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100/semantic-soak-summary.json', JSON.stringify({})],
+      ['/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100/semantic-soak-trend.json', JSON.stringify({})],
+      ['/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100/release-artifact-index.json', JSON.stringify({})],
+    ]);
+
+    const artifacts = loadPromotionDecisionArtifacts({
+      exists: (filePath) => (
+        filePath === '/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak'
+        || filePath === '/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100/semantic-soak-summary.json'
+        || filePath === '/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100/semantic-soak-trend.json'
+        || filePath === '/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100/release-artifact-index.json'
+      ),
+      readdir: () => [{ isDirectory: () => true, name: '100' }],
+      stat: () => ({ mtimeMs: 1 }),
+      readFile: (filePath) => reads.get(filePath),
+    });
+
+    expect(artifacts.artifactDir).toBe('/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100');
+  });
 });

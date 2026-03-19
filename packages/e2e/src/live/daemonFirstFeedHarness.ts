@@ -120,10 +120,23 @@ function resolveNewsFeedMaxItemsTotal(): string {
     : LIVE_MAX_ITEMS_TOTAL;
 }
 
+function resolveMinimumAuditableStories(): number {
+  const configured = process.env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES?.trim();
+  if (configured) {
+    const parsed = Number.parseInt(configured, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return parsed;
+    }
+  }
+
+  return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 1 : 0;
+}
+
 export const daemonFirstFeedHarnessInternal = {
   resolveNewsPollIntervalMs,
   resolveNewsFeedMaxItemsPerSource,
   resolveNewsFeedMaxItemsTotal,
+  resolveMinimumAuditableStories,
 };
 
 function commonEnv(): NodeJS.ProcessEnv {
@@ -234,13 +247,14 @@ export async function attachRuntimeLogs(
 
 export async function waitForHeadlines(page: Page, minHeadlines = MIN_HEADLINES): Promise<number> {
   const startedAt = Date.now();
+  const minAuditableStories = resolveMinimumAuditableStories();
   let lastDomCount = 0;
   let lastStoryCount = 0;
   let lastAuditableCount = 0;
   let reloadAttempted = false;
   while (Date.now() - startedAt < FEED_READY_TIMEOUT_MS) {
     lastDomCount = await page.locator('[data-testid^="news-card-headline-"]').count();
-    if (lastDomCount >= minHeadlines) {
+    if (lastDomCount >= minHeadlines && minAuditableStories === 0) {
       return Date.now() - startedAt;
     }
 
@@ -248,6 +262,10 @@ export async function waitForHeadlines(page: Page, minHeadlines = MIN_HEADLINES)
     const diagnostics = await readAuditableBundleDiagnostics(page).catch(() => null);
     lastStoryCount = diagnostics?.storyCount ?? 0;
     lastAuditableCount = diagnostics?.auditableCount ?? 0;
+
+    if (lastDomCount >= minHeadlines && lastAuditableCount >= minAuditableStories) {
+      return Date.now() - startedAt;
+    }
 
     if (!reloadAttempted && lastDomCount === 0 && lastStoryCount >= minHeadlines) {
       reloadAttempted = true;

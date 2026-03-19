@@ -53,4 +53,20 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     expect(daemonFirstFeedHarnessInternal.resolveNewsFeedMaxItemsPerSource()).toBe('7');
     expect(daemonFirstFeedHarnessInternal.resolveNewsFeedMaxItemsTotal()).toBe('21');
   });
+
+  it('defaults auditable-bundle waiting to fixture-only unless explicitly overridden', () => {
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'true');
+    vi.stubEnv('VH_DAEMON_FEED_MIN_AUDITABLE_STORIES', '');
+    expect(daemonFirstFeedHarnessInternal.resolveMinimumAuditableStories()).toBe(1);
+
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
+    vi.stubEnv('VH_DAEMON_FEED_MIN_AUDITABLE_STORIES', '');
+    expect(daemonFirstFeedHarnessInternal.resolveMinimumAuditableStories()).toBe(0);
+  });
+
+  it('prefers an explicit auditable-bundle minimum when provided', () => {
+    vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
+    vi.stubEnv('VH_DAEMON_FEED_MIN_AUDITABLE_STORIES', '2');
+    expect(daemonFirstFeedHarnessInternal.resolveMinimumAuditableStories()).toBe(2);
+  });
 });
