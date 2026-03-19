@@ -23,33 +23,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate OpenAI secret
+      - name: Evaluate collection prerequisites
+        id: prerequisites
         run: |
-          if [ -z "${OPENAI_API_KEY}" ]; then
+          if [ -n "${OPENAI_API_KEY}" ]; then
+            echo "can_collect=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "OPENAI_API_KEY secret is required for public semantic soak collection."
             exit 1
           fi
 
+          echo "can_collect=false" >> "$GITHUB_OUTPUT"
+          echo "Skipping scheduled headline soak collection because OPENAI_API_KEY is not configured." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install pnpm
+        if: steps.prerequisites.outputs.can_collect == 'true'
         uses: pnpm/action-setup@v4
 
       - name: Use Node.js 20
+        if: steps.prerequisites.outputs.can_collect == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'pnpm'
 
       - name: Install Dependencies
+        if: steps.prerequisites.outputs.can_collect == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Install Playwright Browsers
+        if: steps.prerequisites.outputs.can_collect == 'true'
         run: pnpm --filter @vh/e2e exec playwright install --with-deps
 
       - name: Collect Headline Soak Evidence
+        if: steps.prerequisites.outputs.can_collect == 'true'
         run: pnpm collect:storycluster:headline-soak
 
       - name: Upload Headline Soak Artifacts
-        if: always()
+        if: always() && steps.prerequisites.outputs.can_collect == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: daemon-feed-headline-soak
