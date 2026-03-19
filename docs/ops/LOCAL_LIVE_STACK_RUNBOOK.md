@@ -124,27 +124,40 @@ Use this checklist during manual browser validation:
 
 Current release-gate split for StoryCluster and feed correctness:
 
-1. Blocking pre-merge / pre-release gate:
-   - `pnpm test:storycluster:correctness`
-   - `pnpm test:storycluster:gates`
-2. The authoritative correctness gate is:
+1. `CI-enforced` correctness gate:
+   - `pnpm check:storycluster:correctness`
+   - scoped by change detection; this is the authoritative merge gate for StoryCluster correctness when the touched lane can affect bundling/feed semantics.
+2. `Manual release discipline` combined production-readiness rule:
+   - `pnpm check:storycluster:production-readiness`
+   - this command combines:
+     - StoryCluster correctness;
+     - latest source-health release evidence;
+     - latest headline-soak trend release evidence.
+   - refresh the headline-soak input with `pnpm collect:storycluster:headline-soak` if the latest trend artifact is missing or stale before relying on the combined decision.
+   - release owners should retain the latest artifact at `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`.
+3. The combined rule is only `release_ready` when all three inputs are green and fresh:
+   - correctness gate status = `pass`
+   - source-health release evidence status = `pass`
+   - headline-soak release evidence status = `pass`
+   - anything else is either `review_required` or `blocked`
+4. The authoritative correctness gate is:
    - deterministic known-event fixtures in `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
    - deterministic replay scenarios in `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
    - served daemon-first semantic audit in `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts`
-3. The blocking gate is sequential and fixture-backed:
+5. The fixture-backed daemon-first browser gates remain the served-stack enforcement core:
    - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
    - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
-4. These gates still exercise the production stack shape:
+6. These gates still exercise the production stack shape:
    - daemon
    - relay
    - StoryCluster
    - web app
-5. Public semantic validation remains non-blocking smoke:
+7. Public semantic validation remains `telemetry / review only`:
    - `pnpm test:storycluster:smoke`
-6. Public smoke failures caused by insufficient auditable live bundles do not block merge/release by themselves; they must still be reviewed as secondary distribution telemetry artifacts.
-7. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
-8. Feed/discovery/storyline presentation or navigation changes must also carry at least one relevant Playwright/browser validation command in the lane evidence, even when the fixture-backed gates are unchanged.
-9. Distribution-ready feed claims also require readable-source review:
+8. Public smoke failures caused by insufficient auditable live bundles do not block merge by themselves; they are consumed by the headline-soak trend and can still block production readiness through the combined rule if the recent window deteriorates.
+9. If CI does not run the live daemon-first gates in a fully provisioned environment, the merge/release owner must run the blocking gate manually and retain the artifacts.
+10. Feed/discovery/storyline presentation or navigation changes must also carry at least one relevant Playwright/browser validation command in the lane evidence, even when the fixture-backed gates are unchanged.
+11. Distribution-ready feed claims also require readable-source review:
    - use `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` for source admission, source-health review, and removal criteria;
    - do not treat public semantic smoke scarcity by itself as proof of semantic failure when the source surface is the limiting factor.
 

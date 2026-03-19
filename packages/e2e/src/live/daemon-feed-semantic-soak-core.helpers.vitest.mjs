@@ -150,6 +150,7 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
   it('resolves artifact roots and sleep promises', async () => {
     expect(artifactRootFromEnv({ VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/tmp/out' }, '/repo')).toBe('/tmp/out');
     expect(artifactRootFromEnv({}, '/repo').startsWith('/repo/.tmp/daemon-feed-semantic-soak/')).toBe(true);
+    expect(artifactRootFromEnv({})).toMatch(/^\/Users\/bldt\/Desktop\/VHC\/VHC\/\.tmp\/daemon-feed-semantic-soak\//);
     await expect(sleep(0)).resolves.toBeUndefined();
   });
 

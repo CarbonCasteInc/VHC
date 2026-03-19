@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const PUBLIC_SEMANTIC_SOAK_POSTURE = Object.freeze({
   lane: 'public_semantic_soak',
@@ -12,7 +13,12 @@ export const HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION = Object.freeze(
   'daemon-feed-headline-soak-trend-index-v1',
 );
 
-export function buildStoryClusterCorrectnessGate(repoRoot = process.cwd()) {
+const DEFAULT_REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../..',
+);
+
+export function buildStoryClusterCorrectnessGate(repoRoot = DEFAULT_REPO_ROOT) {
   return {
     gateId: 'storycluster-primary-correctness-gate-v1',
     role: 'primary_correctness_proof',
@@ -58,6 +64,14 @@ export const PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA = Object.freeze({
   minimumAverageAuditedPairsPerSampledStory: 1,
   maximumSemanticContaminationRuns: 0,
   maximumSupplyFailureRuns: 0,
+});
+
+export const PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA = Object.freeze({
+  minimumExecutionCount: 4,
+  minimumPromotableExecutionCount: 2,
+  maximumNotReadyExecutionCount: 1,
+  minimumAverageCorroboratedBundleRate: 0.5,
+  minimumAverageUniqueSourceCount: 2,
 });
 
 function isFiniteNumber(value) {
@@ -467,7 +481,7 @@ export function buildHeadlineSoakTrendIndex(
   const uniqueSourceCounts = recentRuns.map((run) => run.averageUniqueSourceCount);
   const repeatedStoryCounts = recentRuns.map((run) => run.repeatedStoryCount);
 
-  return {
+  const trendIndex = {
     schemaVersion: HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
     generatedAt: new Date().toISOString(),
     artifactRoot,
@@ -498,6 +512,69 @@ export function buildHeadlineSoakTrendIndex(
     },
     runs: recentRuns,
   };
+
+  return {
+    ...trendIndex,
+    releaseEvidence: assessHeadlineSoakReleaseEvidence(trendIndex),
+  };
+}
+
+export function assessHeadlineSoakReleaseEvidence(trendIndex) {
+  const criteria = PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA;
+  const reasons = [];
+  let status = 'pass';
+  let recommendedAction = 'release_ready';
+
+  if ((trendIndex?.executionCount ?? 0) < criteria.minimumExecutionCount) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_headline_soak_recovery';
+    reasons.push('insufficient_headline_soak_execution_count');
+  }
+  if ((trendIndex?.promotableExecutionCount ?? 0) < criteria.minimumPromotableExecutionCount) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_headline_soak_recovery';
+    reasons.push('promotable_execution_count_below_threshold');
+  }
+  if ((trendIndex?.notReadyExecutionCount ?? 0) > criteria.maximumNotReadyExecutionCount) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_headline_soak_recovery';
+    reasons.push('non_promotable_execution_count_exceeds_threshold');
+  }
+  if ((trendIndex?.latestExecution?.readinessStatus ?? 'not_ready') !== 'promotable') {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_headline_soak_recovery';
+    reasons.push('latest_headline_soak_execution_not_promotable');
+  }
+  if ((trendIndex?.usefulness?.averageCorroboratedBundleRate ?? 0)
+      < criteria.minimumAverageCorroboratedBundleRate) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_headline_soak_recovery';
+    reasons.push('corroborated_bundle_rate_below_threshold');
+  }
+  if ((trendIndex?.usefulness?.averageUniqueSourceCount ?? 0)
+      < criteria.minimumAverageUniqueSourceCount) {
+    status = 'fail';
+    recommendedAction = 'hold_release_for_headline_soak_recovery';
+    reasons.push('headline_source_diversity_below_threshold');
+  }
+
+  if (status !== 'fail' && (trendIndex?.strictSoakFailCount ?? 0) > 0) {
+    status = 'warn';
+    recommendedAction = 'review_recent_headline_soak_deterioration';
+    reasons.push('recent_strict_soak_failures_present');
+  }
+
+  return {
+    status,
+    recommendedAction,
+    reasons,
+    criteria,
+    latestExecutionReadinessStatus: trendIndex?.latestExecution?.readinessStatus ?? null,
+    recentExecutionCount: trendIndex?.executionCount ?? 0,
+    recentPromotableExecutionCount: trendIndex?.promotableExecutionCount ?? 0,
+    recentNotReadyExecutionCount: trendIndex?.notReadyExecutionCount ?? 0,
+    recentStrictSoakFailCount: trendIndex?.strictSoakFailCount ?? 0,
+  };
 }
 
 export function buildReleaseArtifactIndex(
@@ -505,7 +582,7 @@ export function buildReleaseArtifactIndex(
   summaryPath,
   trendPath,
   results,
-  repoRoot = process.cwd(),
+  repoRoot = DEFAULT_REPO_ROOT,
   headlineSoakTrendIndexPath = `${artifactDir}/headline-soak-trend-index.json`,
 ) {
   const trend = buildSoakTrend(results);

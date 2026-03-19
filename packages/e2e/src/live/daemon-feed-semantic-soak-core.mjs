@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   accumulateStoryCoverage,
   buildHeadlineSoakExecutionSummary,
@@ -29,6 +30,10 @@ const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
 const PUBLIC_SMOKE_SOURCE_IDS = 'guardian-us,cbs-politics,fox-latest,abc-politics,nbc-politics,pbs-politics';
 const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
 const PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '24';
+const DEFAULT_REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../..',
+);
 
 export function readPositiveInt(name, fallback, env = process.env) {
   const raw = env[name]?.trim();
@@ -210,12 +215,12 @@ export function formatDaemonFeedSemanticSoakRunState(result) {
   return `FAIL (stories=${sampleDetail}, related_topic_only=${result.relatedTopicOnlyPairCount ?? 'n/a'}, fill=${fillDetail}${detail})`;
 }
 
-export function artifactRootFromEnv(env = process.env, cwd = process.cwd()) {
+export function artifactRootFromEnv(env = process.env, repoRoot = DEFAULT_REPO_ROOT) {
   const explicit = env.VH_DAEMON_FEED_SOAK_ARTIFACT_DIR?.trim();
   if (explicit) {
     return explicit;
   }
-  return path.join(cwd, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
+  return path.join(repoRoot, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
 }
 
 export function resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs) {
@@ -243,6 +248,7 @@ export function resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampl
 
 export async function runDaemonFeedSemanticSoak({
   cwd = process.cwd(),
+  repoRoot = DEFAULT_REPO_ROOT,
   env = process.env,
   spawn = spawnSync,
   mkdir = mkdirSync,
@@ -258,7 +264,7 @@ export async function runDaemonFeedSemanticSoak({
   const pauseMs = readNonNegativeInt('VH_DAEMON_FEED_SOAK_PAUSE_MS', 30_000, env);
   const sampleCount = readPositiveInt('VH_DAEMON_FEED_SOAK_SAMPLE_COUNT', 8, env);
   const sampleTimeoutMs = readPositiveInt('VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS', 180_000, env);
-  const artifactDir = artifactRootFromEnv(env, cwd);
+  const artifactDir = artifactRootFromEnv(env, repoRoot);
   const summaryPath = env.VH_DAEMON_FEED_SOAK_SUMMARY_PATH?.trim()
     || path.join(artifactDir, 'semantic-soak-summary.json');
 
@@ -393,7 +399,7 @@ export async function runDaemonFeedSemanticSoak({
   const latestHeadlineSoakTrendIndexPath = path.join(artifactRoot, 'headline-soak-trend-index.json');
   const trend = buildSoakTrend(results);
   const promotionAssessment = trend.promotionAssessment;
-  const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(cwd);
+  const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
   const secondaryDistributionTelemetry = buildPublicSemanticSoakSecondaryTelemetry();
   const summary = {
     generatedAt: new Date().toISOString(),
@@ -429,7 +435,7 @@ export async function runDaemonFeedSemanticSoak({
     summaryPath,
     trendPath,
     results,
-    cwd,
+    repoRoot,
     headlineSoakTrendIndexPath,
   );
   writeFile(

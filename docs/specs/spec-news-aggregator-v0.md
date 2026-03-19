@@ -29,6 +29,13 @@ Season 0 source contract:
 4. later same-incident / same-developing-episode coverage should attach under stable story identity as source coverage grows;
 5. under-bundling is preferable to false canonical merges.
 
+Season 0 production-readiness contract:
+
+1. StoryCluster correctness must pass through the deterministic corpus/replay gate plus the daemon-first semantic gate;
+2. source-health release evidence must remain fresh and pass over the recent run window;
+3. headline-soak release evidence must remain fresh and pass over the recent run window;
+4. the combined release-decision artifact at `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json` must resolve to `release_ready` before a production-readiness claim.
+
 ## 2. Inputs and ingest
 
 ```ts

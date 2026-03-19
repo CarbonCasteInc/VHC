@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   accumulateStoryCoverage,
   assessPromotionReadiness,
+  buildStoryClusterCorrectnessGate,
   buildRunArtifactPaths,
   classifySoakRun,
   PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
@@ -32,6 +33,16 @@ function makeResult(overrides = {}) {
 }
 
 describe('daemon-feed-semantic-soak-report', () => {
+  it('defaults correctness-gate paths to the workspace root', () => {
+    expect(buildStoryClusterCorrectnessGate()).toMatchObject({
+      authoritativeInputs: {
+        fixtureCorpusPath: '/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts',
+        replayCorpusPath: '/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts',
+        servedSemanticGateSpecPath: '/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-first-feed-semantic-audit.live.spec.ts',
+      },
+    });
+  });
+
   it('summarizes label counts across bundles', () => {
     expect(summarizeLabelCounts({
       bundles: [
