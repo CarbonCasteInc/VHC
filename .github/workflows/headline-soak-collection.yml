@@ -69,5 +69,7 @@ jobs:
           name: daemon-feed-headline-soak
           path: |
             .tmp/daemon-feed-semantic-soak/**
+            services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json
+            services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json
           if-no-files-found: error
           retention-days: 14

@@ -49,7 +49,7 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'fox-latest',
 ].join(',');
 const PUBLIC_SMOKE_SOURCE_LIMIT = 8;
-const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
+const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '6';
 const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../..',
@@ -121,43 +121,40 @@ function rankPublicSmokeSourceIdsFromHealthReport(report) {
   }
 
   const preferredSourceIds = normalizeSourceIds(PUBLIC_SMOKE_SOURCE_IDS);
-  const keepSourceIdSet = new Set(keepSourceIds);
-  const preferredRanked = preferredSourceIds.filter((sourceId) => keepSourceIdSet.has(sourceId));
-  const preferredRankedSet = new Set(preferredRanked);
+  const preferredOrder = new Map(preferredSourceIds.map((sourceId, index) => [sourceId, index]));
   const originalIndex = new Map(keepSourceIds.map((sourceId, index) => [sourceId, index]));
   const contributionSources = Array.isArray(report.feedContribution?.sources)
     ? report.feedContribution.sources
     : [];
-  const rankedRemainder = contributionSources
-    .filter((source) => (
-      typeof source?.sourceId === 'string'
-      && originalIndex.has(source.sourceId)
-      && !preferredRankedSet.has(source.sourceId)
-    ))
-    .map((source) => ({
-      sourceId: source.sourceId,
-      corroboratedBundleCount:
-        Number.isFinite(source.corroboratedBundleCount) ? source.corroboratedBundleCount : 0,
-      bundleAppearanceCount:
-        Number.isFinite(source.bundleAppearanceCount) ? source.bundleAppearanceCount : 0,
-      ingestedItemCount:
-        Number.isFinite(source.ingestedItemCount) ? source.ingestedItemCount : 0,
-      originalOrder: originalIndex.get(source.sourceId) ?? Number.MAX_SAFE_INTEGER,
-    }))
+  const contributionBySourceId = new Map(
+    contributionSources
+      .filter((source) => typeof source?.sourceId === 'string' && originalIndex.has(source.sourceId))
+      .map((source) => [source.sourceId, source]),
+  );
+
+  return keepSourceIds
+    .map((sourceId) => {
+      const source = contributionBySourceId.get(sourceId);
+      return {
+        sourceId,
+        preferredOrder: preferredOrder.get(sourceId) ?? Number.MAX_SAFE_INTEGER,
+        originalOrder: originalIndex.get(sourceId) ?? Number.MAX_SAFE_INTEGER,
+        corroboratedBundleCount:
+          Number.isFinite(source?.corroboratedBundleCount) ? source.corroboratedBundleCount : 0,
+        bundleAppearanceCount:
+          Number.isFinite(source?.bundleAppearanceCount) ? source.bundleAppearanceCount : 0,
+        ingestedItemCount:
+          Number.isFinite(source?.ingestedItemCount) ? source.ingestedItemCount : 0,
+      };
+    })
     .sort((left, right) => (
       right.corroboratedBundleCount - left.corroboratedBundleCount
       || right.bundleAppearanceCount - left.bundleAppearanceCount
       || right.ingestedItemCount - left.ingestedItemCount
+      || left.preferredOrder - right.preferredOrder
       || left.originalOrder - right.originalOrder
     ))
     .map((source) => source.sourceId);
-
-  const rankedSet = new Set([...preferredRanked, ...rankedRemainder]);
-  return [
-    ...preferredRanked,
-    ...rankedRemainder,
-    ...keepSourceIds.filter((sourceId) => !rankedSet.has(sourceId)),
-  ];
 }
 
 export function resolvePublicSemanticSoakSourceIds(

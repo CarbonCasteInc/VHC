@@ -99,9 +99,59 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
       'bbc-us-canada,guardian-us,cbs-politics,fox-latest',
     );
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('16');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('6');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('24');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
+  });
+
+  it('ranks the public smoke source slice by contribution signals before preferred-order tie breaks', () => {
+    expect(resolvePublicSemanticSoakSourceIds({}, {
+      repoRoot: '/repo',
+      exists: () => true,
+      readFile: () => JSON.stringify({
+        keepSourceIds: [
+          'fox-latest',
+          'nypost-politics',
+          'federalist',
+          'guardian-us',
+          'huffpost-us',
+          'cbs-politics',
+          'abc-politics',
+          'nbc-politics',
+          'npr-politics',
+          'pbs-politics',
+          'bbc-general',
+          'bbc-us-canada',
+        ],
+        feedContribution: {
+          sources: [
+            { sourceId: 'bbc-us-canada', corroboratedBundleCount: 8, bundleAppearanceCount: 17, ingestedItemCount: 24 },
+            { sourceId: 'nbc-politics', corroboratedBundleCount: 8, bundleAppearanceCount: 15, ingestedItemCount: 25 },
+            { sourceId: 'huffpost-us', corroboratedBundleCount: 7, bundleAppearanceCount: 30, ingestedItemCount: 48 },
+            { sourceId: 'federalist', corroboratedBundleCount: 7, bundleAppearanceCount: 14, ingestedItemCount: 20 },
+            { sourceId: 'cbs-politics', corroboratedBundleCount: 6, bundleAppearanceCount: 13, ingestedItemCount: 30 },
+            { sourceId: 'guardian-us', corroboratedBundleCount: 6, bundleAppearanceCount: 10, ingestedItemCount: 33 },
+            { sourceId: 'nypost-politics', corroboratedBundleCount: 5, bundleAppearanceCount: 7, ingestedItemCount: 19 },
+            { sourceId: 'abc-politics', corroboratedBundleCount: 5, bundleAppearanceCount: 5, ingestedItemCount: 25 },
+            { sourceId: 'bbc-general', corroboratedBundleCount: 4, bundleAppearanceCount: 15, ingestedItemCount: 37 },
+            { sourceId: 'pbs-politics', corroboratedBundleCount: 4, bundleAppearanceCount: 6, ingestedItemCount: 20 },
+            { sourceId: 'npr-politics', corroboratedBundleCount: 3, bundleAppearanceCount: 3, ingestedItemCount: 10 },
+            { sourceId: 'fox-latest', corroboratedBundleCount: 2, bundleAppearanceCount: 8, ingestedItemCount: 25 },
+          ],
+        },
+      }),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+    })).toEqual([
+      'bbc-us-canada',
+      'nbc-politics',
+      'huffpost-us',
+      'federalist',
+      'cbs-politics',
+      'guardian-us',
+      'nypost-politics',
+      'abc-politics',
+    ]);
   });
 
   it('preserves explicit feed source and limit overrides', () => {
