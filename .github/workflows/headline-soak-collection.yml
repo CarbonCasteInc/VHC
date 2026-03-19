@@ -1,0 +1,59 @@
+name: Headline Soak Collection
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 */6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: headline-soak-collection
+  cancel-in-progress: false
+
+jobs:
+  collect-headline-soak:
+    name: Collect Headline Soak
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CI: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate OpenAI secret
+        run: |
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "OPENAI_API_KEY secret is required for public semantic soak collection."
+            exit 1
+          fi
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install Dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Browsers
+        run: pnpm --filter @vh/e2e exec playwright install --with-deps
+
+      - name: Collect Headline Soak Evidence
+        run: pnpm collect:storycluster:headline-soak
+
+      - name: Upload Headline Soak Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daemon-feed-headline-soak
+          path: |
+            .tmp/daemon-feed-semantic-soak/**
+          if-no-files-found: error
+          retention-days: 14

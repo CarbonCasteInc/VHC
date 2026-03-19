@@ -1,13 +1,16 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import {
   accumulateStoryCoverage,
+  buildHeadlineSoakExecutionSummary,
+  buildHeadlineSoakTrendIndex,
   buildPublicSemanticSoakSecondaryTelemetry,
   buildReleaseArtifactIndex,
   buildStoryClusterCorrectnessGate,
   buildSoakTrend,
   PUBLIC_SEMANTIC_SOAK_POSTURE,
+  summarizeBundleComposition,
   summarizeLabelCounts,
 } from './daemon-feed-semantic-soak-report.mjs';
 
@@ -79,6 +82,56 @@ export function decodeAttachment(primaryResult, name) {
 export function formatErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
+
+function readJson(filePath, readFile = readFileSync) {
+  return JSON.parse(readFile(filePath, 'utf8'));
+}
+
+function readHistoricalHeadlineSoakExecutions(
+  artifactRoot,
+  lookbackExecutionCount,
+  {
+    exists = existsSync,
+    readdir = readdirSync,
+    stat = statSync,
+    readFile = readFileSync,
+  } = {},
+) {
+  let artifactDirs = [];
+  try {
+    artifactDirs = readdir(artifactRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const artifactDir = path.join(artifactRoot, entry.name);
+        return { artifactDir, mtimeMs: stat(artifactDir).mtimeMs };
+      })
+      .sort((left, right) => left.mtimeMs - right.mtimeMs)
+      .slice(-lookbackExecutionCount);
+  } catch {
+    return [];
+  }
+
+  return artifactDirs.flatMap(({ artifactDir }) => {
+    const summaryPath = path.join(artifactDir, 'semantic-soak-summary.json');
+    const trendPath = path.join(artifactDir, 'semantic-soak-trend.json');
+    const indexPath = path.join(artifactDir, 'release-artifact-index.json');
+    if (![summaryPath, trendPath, indexPath].every((filePath) => exists(filePath))) {
+      return [];
+    }
+
+    try {
+      return [buildHeadlineSoakExecutionSummary({
+        artifactDir,
+        summary: readJson(summaryPath, readFile),
+        trend: readJson(trendPath, readFile),
+        index: readJson(indexPath, readFile),
+      })];
+    } catch {
+      return [];
+    }
+  });
+}
+
 export function summarizeRun(
   report,
   failureSnapshot,
@@ -92,6 +145,7 @@ export function summarizeRun(
   runtimeLogsPath,
 ) {
   const labelCounts = summarizeLabelCounts(report);
+  const bundleComposition = summarizeBundleComposition(report);
   const failingBundles = (report?.bundles ?? [])
     .filter((bundle) => bundle?.has_related_topic_only_pair)
     .map((bundle) => ({
@@ -134,6 +188,7 @@ export function summarizeRun(
       ? runtimeLogs.browserLogs.length
       : null,
     labelCounts,
+    bundleComposition,
     failingBundles,
     storyIds: (report?.bundles ?? []).map((bundle) => bundle.story_id),
   };
@@ -193,6 +248,8 @@ export async function runDaemonFeedSemanticSoak({
   mkdir = mkdirSync,
   readFile = readFileSync,
   writeFile = writeFileSync,
+  readdir = readdirSync,
+  stat = statSync,
   log = console.log,
   errorLog = console.error,
   sleepImpl = sleep,
@@ -330,7 +387,10 @@ export async function runDaemonFeedSemanticSoak({
   }
 
   const storyCoverage = accumulateStoryCoverage(results);
+  const artifactRoot = path.dirname(artifactDir);
   const trendPath = path.join(artifactDir, 'semantic-soak-trend.json');
+  const headlineSoakTrendIndexPath = path.join(artifactDir, 'headline-soak-trend-index.json');
+  const latestHeadlineSoakTrendIndexPath = path.join(artifactRoot, 'headline-soak-trend-index.json');
   const trend = buildSoakTrend(results);
   const promotionAssessment = trend.promotionAssessment;
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(cwd);
@@ -350,6 +410,9 @@ export async function runDaemonFeedSemanticSoak({
     totalAuditedPairs: results.reduce((sum, result) => sum + (result.auditedPairCount ?? 0), 0),
     totalRelatedTopicOnlyPairs: results.reduce((sum, result) => sum + (result.relatedTopicOnlyPairCount ?? 0), 0),
     totalSampledStories: results.reduce((sum, result) => sum + (result.sampledStoryCount ?? 0), 0),
+    totalBundledStories: results.reduce((sum, result) => sum + (result.bundleComposition?.bundledStoryCount ?? 0), 0),
+    totalCorroboratedBundles: results.reduce((sum, result) => sum + (result.bundleComposition?.corroboratedBundleCount ?? 0), 0),
+    totalSingletonBundles: results.reduce((sum, result) => sum + (result.bundleComposition?.singletonBundleCount ?? 0), 0),
     repeatedStoryCount: storyCoverage.filter((story) => story.run_count > 1).length,
     readinessStatus: promotionAssessment.status,
     promotionBlockingReasons: promotionAssessment.blockingReasons,
@@ -361,14 +424,48 @@ export async function runDaemonFeedSemanticSoak({
   writeFile(summaryPath, JSON.stringify(summary, null, 2), 'utf8');
   writeFile(trendPath, JSON.stringify(trend, null, 2), 'utf8');
   const artifactIndexPath = path.join(artifactDir, 'release-artifact-index.json');
+  const artifactIndex = buildReleaseArtifactIndex(
+    artifactDir,
+    summaryPath,
+    trendPath,
+    results,
+    cwd,
+    headlineSoakTrendIndexPath,
+  );
   writeFile(
     artifactIndexPath,
-    JSON.stringify(buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results, cwd), null, 2),
+    JSON.stringify(artifactIndex, null, 2),
     'utf8',
   );
+  const lookbackExecutionCount = readPositiveInt('VH_DAEMON_FEED_SOAK_TREND_LOOKBACK_EXECUTIONS', 20, env);
+  const currentHeadlineSoakExecution = buildHeadlineSoakExecutionSummary({
+    artifactDir,
+    summary,
+    trend,
+    index: artifactIndex,
+  });
+  const headlineSoakTrendIndex = buildHeadlineSoakTrendIndex(
+    [
+      ...readHistoricalHeadlineSoakExecutions(artifactRoot, lookbackExecutionCount, {
+        readFile,
+        readdir,
+        stat,
+      }).filter((entry) => entry.artifactDir !== artifactDir),
+      currentHeadlineSoakExecution,
+    ],
+    {
+      artifactRoot,
+      latestArtifactDir: artifactDir,
+      lookbackExecutionCount,
+    },
+  );
+  writeFile(headlineSoakTrendIndexPath, JSON.stringify(headlineSoakTrendIndex, null, 2), 'utf8');
+  writeFile(latestHeadlineSoakTrendIndexPath, JSON.stringify(headlineSoakTrendIndex, null, 2), 'utf8');
   log(`[vh:daemon-soak] summary: ${summaryPath}`);
   log(`[vh:daemon-soak] trend: ${trendPath}`);
   log(`[vh:daemon-soak] artifact-index: ${artifactIndexPath}`);
+  log(`[vh:daemon-soak] headline-soak-trend-index: ${headlineSoakTrendIndexPath}`);
+  log(`[vh:daemon-soak] latest-headline-soak-trend-index: ${latestHeadlineSoakTrendIndexPath}`);
   log(JSON.stringify({
     strictSoakPass: summary.strictSoakPass,
     passCount: summary.passCount,
@@ -376,6 +473,9 @@ export async function runDaemonFeedSemanticSoak({
     totalAuditedPairs: summary.totalAuditedPairs,
     totalRelatedTopicOnlyPairs: summary.totalRelatedTopicOnlyPairs,
     totalSampledStories: summary.totalSampledStories,
+    totalBundledStories: summary.totalBundledStories,
+    totalCorroboratedBundles: summary.totalCorroboratedBundles,
+    totalSingletonBundles: summary.totalSingletonBundles,
     repeatedStoryCount: summary.repeatedStoryCount,
     readinessStatus: summary.readinessStatus,
     promotionBlockingReasons: summary.promotionBlockingReasons,
@@ -385,7 +485,18 @@ export async function runDaemonFeedSemanticSoak({
     process.exit(1);
   }
 
-  return { artifactDir, summaryPath, trendPath, artifactIndexPath, summary, trend, results };
+  return {
+    artifactDir,
+    summaryPath,
+    trendPath,
+    artifactIndexPath,
+    headlineSoakTrendIndexPath,
+    latestHeadlineSoakTrendIndexPath,
+    summary,
+    trend,
+    headlineSoakTrendIndex,
+    results,
+  };
 }
 
 export function logDaemonFeedSemanticSoakFatal(error, errorLog = console.error) {

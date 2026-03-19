@@ -5,6 +5,7 @@ import {
   buildRunArtifactPaths,
   classifySoakRun,
   PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
+  summarizeBundleComposition,
   summarizeLabelCounts,
   summarizeSoakDensity,
 } from './daemon-feed-semantic-soak-report.mjs';
@@ -173,6 +174,65 @@ describe('daemon-feed-semantic-soak-report', () => {
       { story_id: 'story-a', run_count: 2, runs: [1, 3] },
       { story_id: 'story-b', run_count: 1, runs: [1] },
     ]);
+  });
+
+  it('summarizes bundle composition and source diversity across audited bundles', () => {
+    expect(summarizeBundleComposition({
+      bundles: [
+        {
+          canonical_source_count: 2,
+          canonical_sources: [
+            { source_id: 'guardian-us' },
+            { source_id: 'cbs-politics' },
+          ],
+        },
+        {
+          canonical_source_count: 1,
+          canonical_sources: [
+            { source_id: 'guardian-us' },
+          ],
+        },
+        {
+          canonical_sources: [
+            { source_id: 'nbc-politics' },
+            { source_id: 'pbs-politics' },
+            { source_id: 'guardian-us' },
+          ],
+        },
+      ],
+    })).toEqual({
+      bundledStoryCount: 3,
+      corroboratedBundleCount: 2,
+      singletonBundleCount: 1,
+      corroboratedBundleRate: 2 / 3,
+      averageCanonicalSourceCount: 2,
+      maxCanonicalSourceCount: 3,
+      uniqueSourceCount: 4,
+      uniqueSourceIds: ['cbs-politics', 'guardian-us', 'nbc-politics', 'pbs-politics'],
+    });
+  });
+
+  it('falls back to generic bundle sources and null counts when canonical fields are missing', () => {
+    expect(summarizeBundleComposition({
+      bundles: [
+        {
+          sources: [
+            { source_id: 'abc-politics' },
+            { source_id: 'nbc-politics' },
+          ],
+        },
+        {},
+      ],
+    })).toEqual({
+      bundledStoryCount: 2,
+      corroboratedBundleCount: 1,
+      singletonBundleCount: 0,
+      corroboratedBundleRate: 0.5,
+      averageCanonicalSourceCount: 2,
+      maxCanonicalSourceCount: 2,
+      uniqueSourceCount: 2,
+      uniqueSourceIds: ['abc-politics', 'nbc-politics'],
+    });
   });
 
   it('marks public soak as not promotable when density or pass criteria fail', () => {
