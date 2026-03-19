@@ -65,8 +65,11 @@ function normalizeSourceIds(value) {
 function readPublicSmokeSourceHealthReport(
   repoRoot = DEFAULT_REPO_ROOT,
   {
+    env = process.env,
     exists = existsSync,
     readFile = readFileSync,
+    stat = statSync,
+    now = Date.now,
   } = {},
 ) {
   const reportPath = path.join(
@@ -78,7 +81,28 @@ function readPublicSmokeSourceHealthReport(
   }
 
   try {
-    return readJson(reportPath, readFile);
+    const report = readJson(reportPath, readFile);
+    const maxAgeHours = readPositiveInt(
+      'VH_DAEMON_FEED_SOURCE_HEALTH_MAX_AGE_HOURS',
+      24,
+      env,
+    );
+    const generatedAtMs = typeof report?.generatedAt === 'string'
+      ? Date.parse(report.generatedAt)
+      : Number.NaN;
+    const timestampMs = Number.isFinite(generatedAtMs)
+      ? generatedAtMs
+      : stat(reportPath).mtimeMs;
+    if (!Number.isFinite(timestampMs)) {
+      return null;
+    }
+
+    const ageMs = now() - timestampMs;
+    if (Number.isFinite(ageMs) && ageMs > maxAgeHours * 60 * 60 * 1000) {
+      return null;
+    }
+
+    return report;
   } catch {
     return null;
   }
@@ -142,6 +166,8 @@ export function resolvePublicSemanticSoakSourceIds(
     repoRoot = DEFAULT_REPO_ROOT,
     exists = existsSync,
     readFile = readFileSync,
+    stat = statSync,
+    now = Date.now,
   } = {},
 ) {
   const explicitSourceIds = normalizeSourceIds(env.VH_LIVE_DEV_FEED_SOURCE_IDS);
@@ -155,7 +181,13 @@ export function resolvePublicSemanticSoakSourceIds(
   );
 
   const sourceIdsFromHealthReport = rankPublicSmokeSourceIdsFromHealthReport(
-    readPublicSmokeSourceHealthReport(repoRoot, { exists, readFile }),
+    readPublicSmokeSourceHealthReport(repoRoot, {
+      env,
+      exists,
+      readFile,
+      stat,
+      now,
+    }),
   );
   if (sourceIdsFromHealthReport.length > 0) {
     return sourceIdsFromHealthReport.slice(0, sourceLimit);
@@ -237,6 +269,63 @@ export function formatErrorMessage(error) {
 
 function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
+}
+
+function findAttachment(primaryResult, name) {
+  return primaryResult?.attachments?.find((item) => item?.name === name) ?? null;
+}
+
+function classifyAuditArtifactState({
+  procStatus,
+  primaryResult,
+  audit,
+  auditError,
+  auditAttachment,
+  failureSnapshot,
+  runtimeLogs,
+}) {
+  if (audit) {
+    return 'present';
+  }
+  if (typeof auditError === 'string' && auditError.length > 0 && !auditError.includes('attachment missing')) {
+    return 'audit_attachment_invalid';
+  }
+  if (
+    auditAttachment
+    && typeof auditAttachment.path === 'string'
+    && auditAttachment.path.trim().length > 0
+    && typeof auditAttachment.body !== 'string'
+  ) {
+    return 'attachment_path_mismatch';
+  }
+  if (!primaryResult) {
+    return procStatus === 0
+      ? 'playwright_result_missing_after_success'
+      : 'crash_before_attachment';
+  }
+
+  const primaryResultStatus = typeof primaryResult.status === 'string'
+    ? primaryResult.status
+    : null;
+  const attachmentCount = Array.isArray(primaryResult.attachments)
+    ? primaryResult.attachments.length
+    : 0;
+  if (primaryResultStatus === 'passed') {
+    return 'no_attachment_test_finished';
+  }
+  if (attachmentCount === 0) {
+    return procStatus === 0
+      ? 'no_attachment_test_finished'
+      : 'crash_before_attachment';
+  }
+
+  if (failureSnapshot || runtimeLogs) {
+    return 'audit_attachment_missing_with_auxiliary_attachments';
+  }
+
+  return procStatus === 0
+    ? 'no_attachment_test_finished'
+    : 'audit_attachment_missing_after_failure';
 }
 
 function readHistoricalHeadlineSoakExecutions(
@@ -379,6 +468,8 @@ export function resolvePublicSemanticSoakSpawnEnv(
     repoRoot = DEFAULT_REPO_ROOT,
     exists = existsSync,
     readFile = readFileSync,
+    stat = statSync,
+    now = Date.now,
   } = {},
 ) {
   const nextEnv = {
@@ -397,6 +488,8 @@ export function resolvePublicSemanticSoakSpawnEnv(
     repoRoot,
     exists,
     readFile,
+    stat,
+    now,
   });
   nextEnv.VH_LIVE_DEV_FEED_SOURCE_IDS = sourceIds.join(',');
   nextEnv.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE = env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim()
@@ -467,6 +560,7 @@ export async function runDaemonFeedSemanticSoak({
         repoRoot,
         exists,
         readFile,
+        stat,
       }),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
@@ -489,6 +583,7 @@ export async function runDaemonFeedSemanticSoak({
     let audit = null;
     let auditError = null;
     let auditPath = null;
+    const auditAttachment = findAttachment(primaryResult, ATTACHMENT_NAME);
     let failureSnapshot = null;
     let failureSnapshotPath = null;
     let runtimeLogs = null;
@@ -540,6 +635,21 @@ export async function runDaemonFeedSemanticSoak({
 
     const result = {
       run,
+      auditArtifactState: classifyAuditArtifactState({
+        procStatus: proc.status,
+        primaryResult,
+        audit,
+        auditError,
+        auditAttachment,
+        failureSnapshot,
+        runtimeLogs,
+      }),
+      playwrightPrimaryResultPresent: Boolean(primaryResult),
+      playwrightResultStatus: typeof primaryResult?.status === 'string' ? primaryResult.status : null,
+      playwrightErrorLocation: primaryResult?.errorLocation ?? null,
+      playwrightAttachmentCount: Array.isArray(primaryResult?.attachments)
+        ? primaryResult.attachments.length
+        : 0,
       ...summarizeRun(
         audit,
         failureSnapshot,

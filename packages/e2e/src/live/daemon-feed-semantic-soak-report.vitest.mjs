@@ -83,6 +83,9 @@ describe('daemon-feed-semantic-soak-report', () => {
     expect(classifySoakRun(makeResult({ failureAuditableCount: 0 }))).toBe('bundle_starvation');
     expect(classifySoakRun(makeResult({ failureAuditableCount: 1 }))).toBe('insufficient_auditable_supply');
     expect(classifySoakRun(makeResult({ auditError: 'daemon-first-feed-semantic-audit attachment missing' }))).toBe('artifact_missing');
+    expect(classifySoakRun(makeResult({ auditArtifactState: 'crash_before_attachment' }))).toBe('artifact_missing');
+    expect(classifySoakRun(makeResult({ auditArtifactState: 'audit_attachment_missing_with_auxiliary_attachments' }))).toBe('artifact_missing');
+    expect(classifySoakRun(makeResult({ auditArtifactState: 'attachment_path_mismatch' }))).toBe('artifact_missing');
     expect(classifySoakRun(makeResult({ reportParseError: 'bad json' }))).toBe('report_parse_error');
     expect(classifySoakRun(makeResult({ auditError: 'other failure' }))).toBe('runner_failure');
   });

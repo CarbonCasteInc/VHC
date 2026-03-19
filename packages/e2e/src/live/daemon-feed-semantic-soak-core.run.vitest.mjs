@@ -38,6 +38,10 @@ function makeReport(overrides = {}) {
   };
 }
 
+function isoHoursAgo(hours) {
+  return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
 function makeVirtualArtifactFs(writes) {
   return {
     exists: (filePath) => writes.has(filePath),
@@ -61,6 +65,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000, {
       repoRoot: '/repo',
       exists: (filePath) => filePath === '/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json',
+      stat: () => ({ mtimeMs: Date.now() - 60 * 60 * 1000 }),
       readFile: () => JSON.stringify({
         keepSourceIds: [
           'fox-latest',
@@ -128,6 +133,61 @@ describe('runDaemonFeedSemanticSoak', () => {
       'bbc-general',
       'npr-politics',
       'pbs-politics',
+    ]);
+  });
+
+  it('falls back to the default source surface when the health artifact is stale', () => {
+    expect(resolvePublicSemanticSoakSourceIds({
+      VH_DAEMON_FEED_SOURCE_HEALTH_MAX_AGE_HOURS: '24',
+    }, {
+      repoRoot: '/repo',
+      exists: () => true,
+      readFile: () => JSON.stringify({
+        generatedAt: isoHoursAgo(48),
+        keepSourceIds: ['guardian-us', 'cbs-politics'],
+        feedContribution: {
+          sources: [
+            { sourceId: 'guardian-us', corroboratedBundleCount: 10, bundleAppearanceCount: 15, ingestedItemCount: 20 },
+            { sourceId: 'cbs-politics', corroboratedBundleCount: 8, bundleAppearanceCount: 12, ingestedItemCount: 18 },
+          ],
+        },
+      }),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+    })).toEqual([
+      'bbc-us-canada',
+      'nbc-politics',
+      'huffpost-us',
+      'guardian-us',
+      'cbs-politics',
+      'bbc-general',
+      'npr-politics',
+      'pbs-politics',
+    ]);
+  });
+
+  it('falls back to file mtime when generatedAt is absent on the source-health artifact', () => {
+    expect(resolvePublicSemanticSoakSourceIds({
+      VH_DAEMON_FEED_SOURCE_HEALTH_MAX_AGE_HOURS: '24',
+    }, {
+      repoRoot: '/repo',
+      exists: () => true,
+      readFile: () => JSON.stringify({
+        keepSourceIds: ['guardian-us', 'cbs-politics', 'bbc-us-canada'],
+        feedContribution: {
+          sources: [
+            { sourceId: 'guardian-us', corroboratedBundleCount: 7, bundleAppearanceCount: 12, ingestedItemCount: 33 },
+            { sourceId: 'bbc-us-canada', corroboratedBundleCount: 10, bundleAppearanceCount: 18, ingestedItemCount: 23 },
+            { sourceId: 'cbs-politics', corroboratedBundleCount: 6, bundleAppearanceCount: 9, ingestedItemCount: 30 },
+          ],
+        },
+      }),
+      stat: () => ({ mtimeMs: Date.now() - 2 * 60 * 60 * 1000 }),
+      now: () => Date.now(),
+    })).toEqual([
+      'bbc-us-canada',
+      'guardian-us',
+      'cbs-politics',
     ]);
   });
 
@@ -435,6 +495,161 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(summary).toContain('Unexpected token');
     expect(summary).not.toContain('also-not-json');
     expect(summary).not.toContain('still-not-json');
+  });
+
+  it('disambiguates missing audit artifacts when the playwright result has no attachments', async () => {
+    const writes = new Map();
+    const primaryResult = makePrimaryResult([]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        repoRoot: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        },
+        spawn,
+        mkdir: vi.fn(),
+        readFile: (target) => writes.get(target),
+        writeFile: (target, content) => writes.set(target, String(content)),
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    const summary = JSON.parse(writes.get('/repo/.tmp/out/semantic-soak-summary.json'));
+    expect(summary.results[0]).toMatchObject({
+      auditArtifactState: 'crash_before_attachment',
+      playwrightPrimaryResultPresent: true,
+      playwrightResultStatus: null,
+      playwrightAttachmentCount: 0,
+      auditError: 'daemon-first-feed-semantic-audit attachment missing',
+    });
+  });
+
+  it('disambiguates missing audit artifacts when auxiliary attachments exist', async () => {
+    const writes = new Map();
+    const primaryResult = makePrimaryResult([
+      makeAttachment('daemon-first-feed-semantic-audit-failure-snapshot', {
+        story_count: 3,
+        auditable_count: 1,
+        top_story_ids: ['story-1'],
+        top_auditable_story_ids: ['story-1'],
+      }),
+      makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: ['log-1'] }),
+    ]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        repoRoot: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        },
+        spawn,
+        mkdir: vi.fn(),
+        readFile: (target) => writes.get(target),
+        writeFile: (target, content) => writes.set(target, String(content)),
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    const summary = JSON.parse(writes.get('/repo/.tmp/out/semantic-soak-summary.json'));
+    expect(summary.results[0]).toMatchObject({
+      auditArtifactState: 'audit_attachment_missing_with_auxiliary_attachments',
+      playwrightPrimaryResultPresent: true,
+      playwrightAttachmentCount: 2,
+      failureSnapshotPath: '/repo/.tmp/out/run-1.semantic-audit-failure-snapshot.json',
+      runtimeLogsPath: '/repo/.tmp/out/run-1.runtime-logs.json',
+    });
+  });
+
+  it('disambiguates path-only audit attachments as attachment_path_mismatch', async () => {
+    const writes = new Map();
+    const primaryResult = {
+      status: 'failed',
+      attachments: [
+        {
+          name: 'daemon-first-feed-semantic-audit',
+          path: '/tmp/missing-audit.json',
+          contentType: 'application/json',
+        },
+      ],
+    };
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        repoRoot: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        },
+        spawn,
+        mkdir: vi.fn(),
+        readFile: (target) => writes.get(target),
+        writeFile: (target, content) => writes.set(target, String(content)),
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    const summary = JSON.parse(writes.get('/repo/.tmp/out/semantic-soak-summary.json'));
+    expect(summary.results[0]).toMatchObject({
+      auditArtifactState: 'attachment_path_mismatch',
+      playwrightPrimaryResultPresent: true,
+      playwrightResultStatus: 'failed',
+      playwrightAttachmentCount: 1,
+      auditError: 'daemon-first-feed-semantic-audit attachment missing',
+    });
   });
 
   it('treats continuity telemetry failures as non-blocking and still writes the core soak artifacts', async () => {
