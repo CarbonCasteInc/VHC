@@ -228,11 +228,20 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
   });
 
   it('builds a release artifact index with posture and nested artifact paths', () => {
-    expect(buildReleaseArtifactIndex('/tmp/artifacts', '/tmp/summary.json', '/tmp/trend.json', [
-      makeResult({ run: 1, pass: true }),
-      makeResult({ run: 2, failureAuditableCount: 0, auditPath: null }),
-    ], '/repo')).toMatchObject({
-      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v3',
+    expect(buildReleaseArtifactIndex(
+      '/tmp/artifacts',
+      '/tmp/summary.json',
+      '/tmp/trend.json',
+      [
+        makeResult({ run: 1, pass: true }),
+        makeResult({ run: 2, failureAuditableCount: 0, auditPath: null }),
+      ],
+      '/repo',
+      '/tmp/artifacts/headline-soak-trend-index.json',
+      '/tmp/artifacts/continuity-analysis.json',
+      '/tmp/artifacts/continuity-trend-index.json',
+    )).toMatchObject({
+      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v4',
       executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
       authoritativeCorrectnessGate: {
         gateId: 'storycluster-primary-correctness-gate-v1',
@@ -276,6 +285,8 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         trendPath: '/tmp/trend.json',
         indexPath: '/tmp/artifacts/release-artifact-index.json',
         headlineSoakTrendIndexPath: '/tmp/artifacts/headline-soak-trend-index.json',
+        continuityAnalysisPath: '/tmp/artifacts/continuity-analysis.json',
+        continuityTrendIndexPath: '/tmp/artifacts/continuity-trend-index.json',
         build: {
           stdoutPath: '/tmp/artifacts/build.stdout.log',
           stderrPath: '/tmp/artifacts/build.stderr.log',

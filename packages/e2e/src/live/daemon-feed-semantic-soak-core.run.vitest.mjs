@@ -38,6 +38,24 @@ function makeReport(overrides = {}) {
   };
 }
 
+function makeVirtualArtifactFs(writes) {
+  return {
+    exists: (filePath) => writes.has(filePath),
+    readdir: (dirPath) => {
+      const prefix = `${dirPath}/`;
+      return [...writes.keys()]
+        .filter((filePath) => filePath.startsWith(prefix))
+        .map((filePath) => filePath.slice(prefix.length))
+        .filter((name) => name.length > 0 && !name.includes('/'))
+        .map((name) => ({
+          name,
+          isFile: () => true,
+        }));
+    },
+    stat: () => ({ mtimeMs: Date.now() }),
+  };
+}
+
 describe('runDaemonFeedSemanticSoak', () => {
   it('injects the ranked keep-source profile and scaled limits when unset', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000, {
@@ -115,6 +133,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('injects the run id and persists summary, trend, and artifact index', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const logs = [];
     const stderrWrites = [];
     const originalStderrWrite = process.stderr.write;
@@ -179,6 +198,9 @@ describe('runDaemonFeedSemanticSoak', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        exists: virtualFs.exists,
+        stat: virtualFs.stat,
+        readdir: virtualFs.readdir,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
         log: (message) => logs.push(message),
@@ -207,10 +229,18 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"combinedGateCommand": "pnpm test:storycluster:correctness"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('/repo/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"headlineSoakTrendIndexPath": "/repo/.tmp/out/headline-soak-trend-index.json"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityAnalysisPath": "/repo/.tmp/out/continuity-analysis.json"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityTrendIndexPath": "/repo/.tmp/out/continuity-trend-index.json"');
     expect(writes.get('/repo/.tmp/out/headline-soak-trend-index.json')).toContain('"executionCount": 1');
     expect(writes.get('/repo/.tmp/headline-soak-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
+    expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"schemaVersion": "daemon-feed-headline-soak-continuity-analysis-v1"');
+    expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"topicRetentionRate":');
+    expect(writes.get('/repo/.tmp/out/continuity-trend-index.json')).toContain('"schemaVersion": "daemon-feed-headline-soak-continuity-trend-index-v1"');
+    expect(writes.get('/repo/.tmp/continuity-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
     expect(logs.some((message) => message.includes('artifact-index'))).toBe(true);
     expect(logs.some((message) => message.includes('headline-soak-trend-index'))).toBe(true);
+    expect(logs.some((message) => message.includes('continuity-analysis'))).toBe(true);
+    expect(logs.some((message) => message.includes('continuity-trend-index'))).toBe(true);
   });
 
   it('fails fast when the build step fails', async () => {
@@ -237,6 +267,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('returns a passing summary, persists attachments, and sleeps between successful runs', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const sleepImpl = vi.fn();
     const primaryResult = makePrimaryResult([
       makeAttachment('daemon-first-feed-semantic-audit', makeReport({
@@ -296,6 +327,9 @@ describe('runDaemonFeedSemanticSoak', () => {
       },
       spawn,
       mkdir: vi.fn(),
+      exists: virtualFs.exists,
+      stat: virtualFs.stat,
+      readdir: virtualFs.readdir,
       readFile: (target) => writes.get(target),
       writeFile: (target, content) => writes.set(target, String(content)),
       log: vi.fn(),
@@ -310,11 +344,15 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(result.summary.totalCorroboratedBundles).toBe(2);
     expect(result.summary.totalSingletonBundles).toBe(0);
     expect(result.headlineSoakTrendIndex.executionCount).toBe(1);
+    expect(result.continuityAnalysis.schemaVersion).toBe('daemon-feed-headline-soak-continuity-analysis-v1');
+    expect(result.continuityTrendIndex.schemaVersion).toBe('daemon-feed-headline-soak-continuity-trend-index-v1');
     expect(result.results).toHaveLength(2);
     expect(sleepImpl).toHaveBeenCalledWith(5);
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit.json')).toContain('"requested_sample_count": 1');
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit-failure-snapshot.json')).toContain('"story_count": 4');
     expect(writes.get('/repo/.tmp/out/run-1.runtime-logs.json')).toContain('browser-log');
+    expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"topic_id": "topic-1"');
+    expect(writes.get('/repo/.tmp/out/continuity-trend-index.json')).toContain('"analysisCount": 1');
   });
 
   it('records parse and attachment failures before exiting the failing soak run', async () => {
