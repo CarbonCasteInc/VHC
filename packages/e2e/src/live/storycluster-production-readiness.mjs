@@ -58,6 +58,15 @@ function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
 }
 
+function readRequiredArtifactJson(filePath, label, readFile = readFileSync) {
+  try {
+    return readJson(filePath, readFile);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`invalid production-readiness artifact JSON (${label}): ${filePath} :: ${detail}`);
+  }
+}
+
 function resolvePreferredHeadlineSoakTrendPath({
   explicitPath,
   primaryPath,
@@ -214,9 +223,21 @@ export function loadProductionReadinessArtifacts({
     }
   }
 
-  const sourceHealthReport = readJson(resolvedSourceHealthReportPath, readFile);
-  const sourceHealthTrend = readJson(resolvedSourceHealthTrendPath, readFile);
-  const headlineSoakTrend = readJson(resolvedHeadlineSoakTrendPath, readFile);
+  const sourceHealthReport = readRequiredArtifactJson(
+    resolvedSourceHealthReportPath,
+    'source-health-report',
+    readFile,
+  );
+  const sourceHealthTrend = readRequiredArtifactJson(
+    resolvedSourceHealthTrendPath,
+    'source-health-trend',
+    readFile,
+  );
+  const headlineSoakTrend = readRequiredArtifactJson(
+    resolvedHeadlineSoakTrendPath,
+    'headline-soak-trend',
+    readFile,
+  );
 
   return {
     rule,
@@ -271,44 +292,39 @@ export function buildProductionReadinessDecision({
     ?? 'missing';
   const headlineSoakReleaseStatus = headlineSoakReleaseEvidence?.status ?? 'missing';
 
-  if (normalizedCorrectnessStatus !== 'pass') {
+  function block(reason, action) {
+    if (status !== 'blocked') {
+      recommendedAction = action;
+    }
     status = 'blocked';
-    recommendedAction = 'run_or_fix_correctness_gate';
-    reasons.push(
+    reasons.push(reason);
+  }
+
+  if (normalizedCorrectnessStatus !== 'pass') {
+    block(
       normalizedCorrectnessStatus === 'fail'
         ? 'storycluster_correctness_gate_failed'
         : 'storycluster_correctness_gate_not_asserted',
+      'run_or_fix_correctness_gate',
     );
   }
   if (sourceHealthFreshness?.stale) {
-    status = 'blocked';
-    recommendedAction = 'refresh_source_health_evidence';
-    reasons.push('source_health_evidence_stale');
+    block('source_health_evidence_stale', 'refresh_source_health_evidence');
   }
   if (headlineSoakFreshness?.stale) {
-    status = 'blocked';
-    recommendedAction = 'collect_fresh_headline_soak_evidence';
-    reasons.push('headline_soak_evidence_stale');
+    block('headline_soak_evidence_stale', 'collect_fresh_headline_soak_evidence');
   }
   if (sourceHealthReleaseStatus === 'missing') {
-    status = 'blocked';
-    recommendedAction = 'refresh_source_health_evidence';
-    reasons.push('source_health_release_evidence_missing');
+    block('source_health_release_evidence_missing', 'refresh_source_health_evidence');
   }
   if (headlineSoakReleaseStatus === 'missing') {
-    status = 'blocked';
-    recommendedAction = 'collect_fresh_headline_soak_evidence';
-    reasons.push('headline_soak_release_evidence_missing');
+    block('headline_soak_release_evidence_missing', 'collect_fresh_headline_soak_evidence');
   }
   if (sourceHealthReleaseStatus === 'fail') {
-    status = 'blocked';
-    recommendedAction = 'recover_source_surface';
-    reasons.push('source_health_release_evidence_failed');
+    block('source_health_release_evidence_failed', 'recover_source_surface');
   }
   if (headlineSoakReleaseStatus === 'fail') {
-    status = 'blocked';
-    recommendedAction = 'hold_for_public_soak_recovery';
-    reasons.push('headline_soak_release_evidence_failed');
+    block('headline_soak_release_evidence_failed', 'hold_for_public_soak_recovery');
   }
 
   if (status !== 'blocked' && sourceHealthReleaseStatus === 'warn') {
@@ -439,6 +455,7 @@ export const storyclusterProductionReadinessInternal = {
   parsePositiveInt,
   parseBoolean,
   parseCorrectnessStatus,
+  readRequiredArtifactJson,
   resolveArtifactTimestamp,
   resolvePreferredHeadlineSoakTrendPath,
 };

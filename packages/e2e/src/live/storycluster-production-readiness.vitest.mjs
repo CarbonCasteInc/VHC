@@ -85,6 +85,20 @@ describe('storycluster-production-readiness', () => {
     })).toBe('/repo/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json');
   });
 
+  it('surfaces invalid artifact JSON with a targeted error message', () => {
+    expect(() => loadProductionReadinessArtifacts({
+      repoRoot: '/repo',
+      exists: () => true,
+      readFile: (filePath) => (
+        filePath.endsWith('source-health-trend.json')
+          ? '{bad json'
+          : JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' } })
+      ),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+    })).toThrowError(/invalid production-readiness artifact JSON \(source-health-trend\): \/repo\/services\/news-aggregator\/.tmp\/news-source-admission\/latest\/source-health-trend\.json/);
+  });
+
   it('builds pass, review, and blocked release decisions', () => {
     const rule = buildProductionReadinessRule('/repo');
     const base = {
@@ -187,7 +201,7 @@ describe('storycluster-production-readiness', () => {
       },
     })).toMatchObject({
       status: 'blocked',
-      recommendedAction: 'hold_for_public_soak_recovery',
+      recommendedAction: 'run_or_fix_correctness_gate',
       reasons: [
         'storycluster_correctness_gate_not_asserted',
         'source_health_evidence_stale',
@@ -252,5 +266,6 @@ describe('storycluster-production-readiness', () => {
     expect(storyclusterProductionReadinessInternal.parseBoolean('bad', true)).toBe(true);
     expect(storyclusterProductionReadinessInternal.parseCorrectnessStatus('FAIL')).toBe('fail');
     expect(storyclusterProductionReadinessInternal.parseCorrectnessStatus('')).toBe('unknown');
+    expect(() => storyclusterProductionReadinessInternal.readRequiredArtifactJson('/tmp/bad.json', 'bad-artifact', () => '{bad json')).toThrowError(/invalid production-readiness artifact JSON \(bad-artifact\): \/tmp\/bad\.json/);
   });
 });
