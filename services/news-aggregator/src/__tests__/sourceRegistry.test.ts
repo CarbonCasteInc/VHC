@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -17,6 +17,7 @@ import {
 describe('sourceRegistry', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it('exposes starter feed URLs', () => {
@@ -120,6 +121,129 @@ describe('sourceRegistry', () => {
     expect(resolved.sourceHealth.summary?.enforcement).toBe('disabled');
   });
 
+  it('drops stale autoloaded artifacts in warn mode and falls back to the base starter surface', () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-source-registry-stale-warn-'));
+    const latestDir = path.join(cwd, '.tmp', 'news-source-admission', 'latest');
+    mkdirSync(latestDir, { recursive: true });
+    const latestPath = path.join(latestDir, 'source-health-report.json');
+    writeFileSync(
+      latestPath,
+      JSON.stringify({
+        generatedAt: '2000-01-01T00:00:00.000Z',
+        runtimePolicy: {
+          enabledSourceIds: ['fox-latest'],
+          watchSourceIds: [],
+          removeSourceIds: ['guardian-us'],
+        },
+      }),
+      'utf8',
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(
+      resolveSourceHealthReport(cwd, {
+        VH_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+      }),
+    ).toEqual({
+      reportSource: null,
+      reportPath: null,
+      report: null,
+    });
+    const resolved = resolveStarterFeedSources({
+      cwd,
+      env: {
+        VH_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+      },
+    });
+    expect(resolved.feedSources.map((source) => source.id)).toContain('guardian-us');
+    expect(resolved.sourceHealth.summary).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('stale-source-health-report'));
+  });
+
+  it('rejects stale explicit path overrides in fail mode', () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-source-registry-stale-fail-'));
+    const explicitPath = path.join(cwd, 'tmp', 'explicit-source-health-report.json');
+    mkdirSync(path.dirname(explicitPath), { recursive: true });
+    writeFileSync(
+      explicitPath,
+      JSON.stringify({
+        generatedAt: '2000-01-01T00:00:00.000Z',
+        runtimePolicy: {
+          enabledSourceIds: ['fox-latest'],
+          watchSourceIds: [],
+          removeSourceIds: [],
+        },
+      }),
+      'utf8',
+    );
+
+    expect(() =>
+      resolveSourceHealthReport(cwd, {
+        VH_NEWS_SOURCE_HEALTH_REPORT_PATH: './tmp/explicit-source-health-report.json',
+        VH_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+        VH_NEWS_SOURCE_HEALTH_REPORT_STALE_ACTION: 'fail',
+      }),
+    ).toThrow(/stale-source-health-report/);
+  });
+
+  it('falls back to file mtime when generatedAt is missing or invalid', () => {
+    const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-source-registry-mtime-'));
+    const latestDir = path.join(cwd, '.tmp', 'news-source-admission', 'latest');
+    mkdirSync(latestDir, { recursive: true });
+    const latestPath = path.join(latestDir, 'source-health-report.json');
+    writeFileSync(
+      latestPath,
+      JSON.stringify({
+        generatedAt: 'not-a-date',
+        runtimePolicy: {
+          enabledSourceIds: ['fox-latest'],
+          watchSourceIds: [],
+          removeSourceIds: [],
+        },
+      }),
+      'utf8',
+    );
+
+    expect(
+      resolveSourceHealthReport(cwd, {
+        VH_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+        VH_NEWS_SOURCE_HEALTH_REPORT_STALE_ACTION: 'fail',
+      }).report?.runtimePolicy.enabledSourceIds,
+    ).toEqual(['fox-latest']);
+
+    const oldDate = new Date('2000-01-01T00:00:00.000Z');
+    utimesSync(latestPath, oldDate, oldDate);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(
+      resolveSourceHealthReport(cwd, {
+        VH_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+      }),
+    ).toEqual({
+      reportSource: null,
+      reportPath: null,
+      report: null,
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('timestamp_source=mtime'));
+  });
+
+  it('treats inline JSON overrides as authoritative even when they carry old timestamps', () => {
+    const report = resolveSourceHealthReport('/tmp', {
+      VH_NEWS_SOURCE_HEALTH_REPORT_JSON: JSON.stringify({
+        generatedAt: '2000-01-01T00:00:00.000Z',
+        runtimePolicy: {
+          enabledSourceIds: ['fox-latest'],
+          watchSourceIds: [],
+          removeSourceIds: [],
+        },
+      }),
+      VH_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+      VH_NEWS_SOURCE_HEALTH_REPORT_STALE_ACTION: 'fail',
+    });
+
+    expect(report.reportSource).toBe('env:NEWS_SOURCE_HEALTH_REPORT_JSON');
+    expect(report.report?.runtimePolicy.enabledSourceIds).toEqual(['fox-latest']);
+  });
+
   it('allows matching domains and URL hosts', () => {
     expect(isSourceDomainAllowed('https://www.foxnews.com/politics/story')).toBe(true);
     expect(isSourceDomainAllowed('https://nypost.com/2026/03/16/story')).toBe(true);
@@ -147,6 +271,19 @@ describe('sourceRegistry', () => {
     expect(sourceRegistryInternal.parseDomain('http://%zz')).toBeNull();
     expect(sourceRegistryInternal.normalizeNonEmpty('  x  ')).toBe('x');
     expect(sourceRegistryInternal.parseBoolean('true', false)).toBe(true);
+    expect(sourceRegistryInternal.parsePositiveNumber('12', 24)).toBe(12);
+    expect(sourceRegistryInternal.parsePositiveNumber('bad', 24)).toBe(24);
+    expect(sourceRegistryInternal.parseStaleAction('fail', 'warn')).toBe('fail');
+    expect(sourceRegistryInternal.parseStaleAction('bad', 'warn')).toBe('warn');
     expect(sourceRegistryInternal.readHealthEnv({ VH_TEST: 'a', VITE_TEST: 'b' }, 'TEST')).toBe('a');
+    expect(
+      sourceRegistryInternal.resolveSourceHealthArtifactTimestamp(
+        { generatedAt: '2026-03-18T00:00:00.000Z' },
+        '/tmp/source-health-report.json',
+      ),
+    ).toEqual({
+      timestampMs: Date.parse('2026-03-18T00:00:00.000Z'),
+      timestampSource: 'generatedAt',
+    });
   });
 });

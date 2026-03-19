@@ -1,10 +1,11 @@
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   applyNewsSourceHealthEnv,
   findLatestNewsSourceHealthReportPath,
+  newsSourceHealthEnvInternal,
   resolveNewsSourceHealthArtifactRoot,
   resolveNewsSourceHealthEnv,
 } from './newsSourceHealthEnv';
@@ -24,6 +25,7 @@ describe('newsSourceHealthEnv', () => {
   const originalReportPath = process.env.VITE_NEWS_SOURCE_HEALTH_REPORT_PATH;
 
   afterEach(() => {
+    vi.restoreAllMocks();
     if (typeof originalReportJson === 'undefined') {
       delete process.env.VITE_NEWS_SOURCE_HEALTH_REPORT_JSON;
     } else {
@@ -141,6 +143,154 @@ describe('newsSourceHealthEnv', () => {
     });
   });
 
+  it('drops stale artifacts in warn mode and leaves the env surface unresolved', () => {
+    const appRoot = makeAppRoot();
+    const latestPath = path.join(
+      resolveNewsSourceHealthArtifactRoot(appRoot),
+      'latest',
+      'source-health-report.json',
+    );
+    mkdirSync(path.dirname(latestPath), { recursive: true });
+    writeFileSync(
+      latestPath,
+      JSON.stringify({
+        generatedAt: '2000-01-01T00:00:00.000Z',
+        runtimePolicy: { enabledSourceIds: ['source-a'] },
+      }),
+      'utf8',
+    );
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(
+      resolveNewsSourceHealthEnv({
+        appRoot,
+        env: {
+          VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+        },
+      }),
+    ).toEqual({
+      reportJson: null,
+      reportPath: null,
+      reportSource: null,
+      autoloaded: false,
+    });
+
+    const env: Record<string, string | undefined> = {
+      VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+    };
+    expect(
+      applyNewsSourceHealthEnv({
+        appRoot,
+        env,
+      }),
+    ).toEqual({
+      reportJson: null,
+      reportPath: null,
+      reportSource: null,
+      autoloaded: false,
+    });
+    expect(env.VITE_NEWS_SOURCE_HEALTH_REPORT_JSON).toBeUndefined();
+    expect(env.VITE_NEWS_SOURCE_HEALTH_REPORT_SOURCE).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('stale-news-source-health-report'));
+  });
+
+  it('rejects stale explicit path overrides in fail mode', () => {
+    const appRoot = makeAppRoot();
+    const explicitPath = path.join(appRoot, 'tmp', 'explicit-source-health-report.json');
+    mkdirSync(path.dirname(explicitPath), { recursive: true });
+    writeFileSync(
+      explicitPath,
+      JSON.stringify({
+        generatedAt: '2000-01-01T00:00:00.000Z',
+        runtimePolicy: { enabledSourceIds: ['source-a'] },
+      }),
+      'utf8',
+    );
+
+    expect(() =>
+      resolveNewsSourceHealthEnv({
+        appRoot,
+        env: {
+          VITE_NEWS_SOURCE_HEALTH_REPORT_PATH: './tmp/explicit-source-health-report.json',
+          VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+          VITE_NEWS_SOURCE_HEALTH_REPORT_STALE_ACTION: 'fail',
+        },
+      }),
+    ).toThrow(/stale-news-source-health-report/);
+  });
+
+  it('falls back to file mtime when generatedAt is missing or invalid', () => {
+    const appRoot = makeAppRoot();
+    const latestPath = path.join(
+      resolveNewsSourceHealthArtifactRoot(appRoot),
+      'latest',
+      'source-health-report.json',
+    );
+    mkdirSync(path.dirname(latestPath), { recursive: true });
+    writeFileSync(
+      latestPath,
+      JSON.stringify({
+        generatedAt: 'not-a-date',
+        runtimePolicy: { enabledSourceIds: ['source-a'] },
+      }),
+      'utf8',
+    );
+
+    expect(
+      resolveNewsSourceHealthEnv({
+        appRoot,
+        env: {
+          VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+          VITE_NEWS_SOURCE_HEALTH_REPORT_STALE_ACTION: 'fail',
+        },
+      }),
+    ).toEqual({
+      reportJson: '{"generatedAt":"not-a-date","runtimePolicy":{"enabledSourceIds":["source-a"]}}',
+      reportPath: latestPath,
+      reportSource: `artifact:${latestPath}`,
+      autoloaded: true,
+    });
+
+    const oldDate = new Date('2000-01-01T00:00:00.000Z');
+    utimesSync(latestPath, oldDate, oldDate);
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect(
+      resolveNewsSourceHealthEnv({
+        appRoot,
+        env: {
+          VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+        },
+      }),
+    ).toEqual({
+      reportJson: null,
+      reportPath: null,
+      reportSource: null,
+      autoloaded: false,
+    });
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('timestamp_source=mtime'));
+  });
+
+  it('treats inline JSON overrides as authoritative even when they carry old timestamps', () => {
+    const appRoot = makeAppRoot();
+    expect(
+      resolveNewsSourceHealthEnv({
+        appRoot,
+        env: {
+          VITE_NEWS_SOURCE_HEALTH_REPORT_JSON:
+            '{"generatedAt":"2000-01-01T00:00:00.000Z","runtimePolicy":{"enabledSourceIds":["source-a"]}}',
+          VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+          VITE_NEWS_SOURCE_HEALTH_REPORT_STALE_ACTION: 'fail',
+        },
+      }),
+    ).toEqual({
+      reportJson:
+        '{"generatedAt":"2000-01-01T00:00:00.000Z","runtimePolicy":{"enabledSourceIds":["source-a"]}}',
+      reportPath: null,
+      reportSource: 'env:VITE_NEWS_SOURCE_HEALTH_REPORT_JSON',
+      autoloaded: false,
+    });
+  });
+
   it('can disable artifact autoload', () => {
     const appRoot = makeAppRoot();
     const latestPath = path.join(
@@ -189,6 +339,71 @@ describe('newsSourceHealthEnv', () => {
       reportSource: `artifact:${latestPath}`,
       autoloaded: true,
     });
+  });
+
+  it('covers helper branches for stale timestamp parsing and formatting', () => {
+    expect(newsSourceHealthEnvInternal.parsePositiveNumber('bad', 24)).toBe(24);
+    expect(newsSourceHealthEnvInternal.parseStaleAction('bad', 'warn')).toBe('warn');
+    expect(
+      newsSourceHealthEnvInternal.resolveNewsSourceHealthArtifactTimestamp(
+        { generatedAt: '2026-03-19T00:00:00.000Z' },
+        '/tmp/unused.json',
+      ),
+    ).toEqual({
+      timestampMs: Date.parse('2026-03-19T00:00:00.000Z'),
+      timestampSource: 'generatedAt',
+    });
+    expect(
+      newsSourceHealthEnvInternal.resolveNewsSourceHealthArtifactTimestamp(
+        { generatedAt: 'bad-date' },
+        '/definitely/missing/source-health-report.json',
+      ),
+    ).toEqual({
+      timestampMs: null,
+      timestampSource: 'unavailable',
+    });
+    expect(
+      newsSourceHealthEnvInternal.formatNewsSourceHealthArtifactStaleMessage(
+        '/tmp/source-health-report.json',
+        null,
+        24,
+        'unavailable',
+      ),
+    ).toContain('age=unknown');
+  });
+
+  it('returns unresolved state when the artifact file contains invalid JSON', () => {
+    const appRoot = makeAppRoot();
+    const latestPath = path.join(
+      resolveNewsSourceHealthArtifactRoot(appRoot),
+      'latest',
+      'source-health-report.json',
+    );
+    mkdirSync(path.dirname(latestPath), { recursive: true });
+    writeFileSync(latestPath, '{not-json', 'utf8');
+
+    expect(resolveNewsSourceHealthEnv({ appRoot, env: {} })).toEqual({
+      reportJson: null,
+      reportPath: null,
+      reportSource: null,
+      autoloaded: false,
+    });
+  });
+
+  it('warns with age unknown when freshness enforcement cannot resolve any timestamp', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(
+      newsSourceHealthEnvInternal.enforceFreshNewsSourceHealthArtifact(
+        { generatedAt: 'bad-date' },
+        '/definitely/missing/source-health-report.json',
+        {
+          VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+        },
+      ),
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('age=unknown'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('timestamp_source=unavailable'));
   });
 
   it('honors explicit true autoload flag values', () => {
