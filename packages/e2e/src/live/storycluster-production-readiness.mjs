@@ -185,6 +185,13 @@ export function buildProductionReadinessRule(repoRoot = DEFAULT_REPO_ROOT) {
       ),
       legacyTrendPath: LEGACY_HEADLINE_SOAK_TREND_PATH,
     },
+    continuityTelemetry: {
+      required: false,
+      latestTrendPath: path.join(
+        repoRoot,
+        '.tmp/daemon-feed-semantic-soak/continuity-trend-index.json',
+      ),
+    },
   };
 }
 
@@ -212,6 +219,7 @@ export function loadProductionReadinessArtifacts({
     exists,
     readFile,
   });
+  const resolvedContinuityTrendPath = rule.continuityTelemetry.latestTrendPath;
 
   for (const filePath of [
     resolvedSourceHealthReportPath,
@@ -238,6 +246,26 @@ export function loadProductionReadinessArtifacts({
     'headline-soak-trend',
     readFile,
   );
+  let continuityTrend = null;
+  let continuityFreshness = null;
+  let continuityTelemetryError = null;
+  if (exists(resolvedContinuityTrendPath)) {
+    try {
+      continuityTrend = readRequiredArtifactJson(
+        resolvedContinuityTrendPath,
+        'continuity-trend',
+        readFile,
+      );
+      continuityFreshness = assessArtifactFreshness(
+        resolvedContinuityTrendPath,
+        continuityTrend,
+        headlineSoakMaxAgeHours,
+        { now, stat },
+      );
+    } catch (error) {
+      continuityTelemetryError = error instanceof Error ? error.message : String(error);
+    }
+  }
 
   return {
     rule,
@@ -245,9 +273,11 @@ export function loadProductionReadinessArtifacts({
     sourceHealthReportPath: resolvedSourceHealthReportPath,
     sourceHealthTrendPath: resolvedSourceHealthTrendPath,
     headlineSoakTrendPath: resolvedHeadlineSoakTrendPath,
+    continuityTrendPath: resolvedContinuityTrendPath,
     sourceHealthReport,
     sourceHealthTrend,
     headlineSoakTrend,
+    continuityTrend,
     sourceHealthFreshness: assessArtifactFreshness(
       resolvedSourceHealthReportPath,
       sourceHealthReport,
@@ -260,6 +290,8 @@ export function loadProductionReadinessArtifacts({
       headlineSoakMaxAgeHours,
       { now, stat },
     ),
+    continuityFreshness,
+    continuityTelemetryError,
   };
 }
 
@@ -272,6 +304,10 @@ export function buildProductionReadinessDecision({
   sourceHealthReport,
   sourceHealthTrend,
   headlineSoakTrend,
+  continuityTrendPath,
+  continuityTrend,
+  continuityFreshness,
+  continuityTelemetryError,
   sourceHealthFreshness,
   headlineSoakFreshness,
   artifactDir,
@@ -368,6 +404,17 @@ export function buildProductionReadinessDecision({
       executionCount: headlineSoakTrend?.executionCount ?? null,
       promotableExecutionCount: headlineSoakTrend?.promotableExecutionCount ?? null,
       latestExecution: headlineSoakTrend?.latestExecution ?? null,
+    },
+    continuityTelemetry: {
+      trendPath: continuityTrendPath,
+      freshness: continuityFreshness,
+      available: Boolean(continuityTrend),
+      nonBlocking: true,
+      error: continuityTelemetryError,
+      latestAnalysis: continuityTrend?.latestAnalysis ?? null,
+      averages: continuityTrend?.averages ?? null,
+      totals: continuityTrend?.totals ?? null,
+      coverage: continuityTrend?.coverage ?? null,
     },
     paths: {
       artifactDir,

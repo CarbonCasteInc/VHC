@@ -56,6 +56,7 @@ describe('storycluster-production-readiness', () => {
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, observability: { enabledSourceCount: 12, contributingSourceCount: 12, corroboratingSourceCount: 12 } })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' } })],
       ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(4), releaseEvidence: { status: 'warn' }, executionCount: 4, promotableExecutionCount: 3 })],
+      ['/repo/.tmp/daemon-feed-semantic-soak/continuity-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(3), latestAnalysis: { topicRetentionRate: 0.5 }, averages: { singletonToCorroboratedRate: 0.25 }, totals: { laterAttachmentCount: 2 }, coverage: { exactAnalysisCount: 1 } })],
     ]);
 
     const artifacts = loadProductionReadinessArtifacts({
@@ -69,6 +70,8 @@ describe('storycluster-production-readiness', () => {
     expect(artifacts.sourceHealthFreshness.stale).toBe(false);
     expect(artifacts.headlineSoakFreshness.stale).toBe(false);
     expect(artifacts.headlineSoakTrend.releaseEvidence.status).toBe('warn');
+    expect(artifacts.continuityTrend.latestAnalysis.topicRetentionRate).toBe(0.5);
+    expect(artifacts.continuityFreshness.stale).toBe(false);
   });
 
   it('falls back to the richer legacy headline-soak trend during path migration', () => {
@@ -97,6 +100,39 @@ describe('storycluster-production-readiness', () => {
       stat: () => ({ mtimeMs: Date.now() }),
       now: () => Date.now(),
     })).toThrowError(/invalid production-readiness artifact JSON \(source-health-trend\): \/repo\/services\/news-aggregator\/.tmp\/news-source-admission\/latest\/source-health-trend\.json/);
+  });
+
+  it('keeps continuity telemetry non-blocking when the optional artifact is invalid', () => {
+    const files = new Map([
+      ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, observability: { enabledSourceCount: 12, contributingSourceCount: 12, corroboratingSourceCount: 12 } })],
+      ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' } })],
+      ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, executionCount: 4, promotableExecutionCount: 4, latestExecution: { readinessStatus: 'promotable' } })],
+      ['/repo/.tmp/daemon-feed-semantic-soak/continuity-trend-index.json', '{bad json'],
+    ]);
+
+    const artifacts = loadProductionReadinessArtifacts({
+      repoRoot: '/repo',
+      exists: (filePath) => files.has(filePath),
+      readFile: (filePath) => files.get(filePath),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+    });
+
+    const decision = buildProductionReadinessDecision({
+      ...artifacts,
+      correctnessStatus: 'pass',
+      artifactDir: '/repo/.tmp/storycluster-production-readiness/123',
+      reportPath: '/repo/.tmp/storycluster-production-readiness/123/production-readiness-report.json',
+      latestArtifactDir: '/repo/.tmp/storycluster-production-readiness/latest',
+      latestReportPath: '/repo/.tmp/storycluster-production-readiness/latest/production-readiness-report.json',
+    });
+
+    expect(decision.status).toBe('release_ready');
+    expect(decision.continuityTelemetry).toMatchObject({
+      available: false,
+      nonBlocking: true,
+    });
+    expect(decision.continuityTelemetry.error).toMatch(/invalid production-readiness artifact JSON \(continuity-trend\)/);
   });
 
   it('builds pass, review, and blocked release decisions', () => {

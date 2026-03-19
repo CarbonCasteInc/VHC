@@ -597,6 +597,8 @@ export function buildReleaseArtifactIndex(
   results,
   repoRoot = DEFAULT_REPO_ROOT,
   headlineSoakTrendIndexPath = `${artifactDir}/headline-soak-trend-index.json`,
+  continuityAnalysisPath = null,
+  continuityTrendIndexPath = null,
 ) {
   const trend = buildSoakTrend(results);
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
@@ -608,7 +610,7 @@ export function buildReleaseArtifactIndex(
   };
 
   return {
-    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v3',
+    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v4',
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
     authoritativeCorrectnessGate,
@@ -624,6 +626,8 @@ export function buildReleaseArtifactIndex(
       trendPath,
       indexPath: `${artifactDir}/release-artifact-index.json`,
       headlineSoakTrendIndexPath,
+      continuityAnalysisPath,
+      continuityTrendIndexPath,
       build,
     },
     runs: results.map((result) => {

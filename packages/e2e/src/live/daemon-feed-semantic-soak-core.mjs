@@ -14,6 +14,13 @@ import {
   summarizeBundleComposition,
   summarizeLabelCounts,
 } from './daemon-feed-semantic-soak-report.mjs';
+import {
+  buildContinuityAnalysis,
+  buildContinuityTrendIndex,
+  readExecutionBundleSnapshot,
+  readHistoricalContinuityAnalyses,
+  readHistoricalExecutionBundleSnapshots,
+} from './daemon-feed-semantic-soak-continuity.mjs';
 
 const BUILD_ARGS = ['test:live:daemon-feed:build'];
 const PLAYWRIGHT_ARGS = [
@@ -409,6 +416,7 @@ export async function runDaemonFeedSemanticSoak({
   repoRoot = DEFAULT_REPO_ROOT,
   env = process.env,
   spawn = spawnSync,
+  exists = existsSync,
   mkdir = mkdirSync,
   readFile = readFileSync,
   writeFile = writeFileSync,
@@ -455,7 +463,11 @@ export async function runDaemonFeedSemanticSoak({
     const runId = `semantic-soak-${Date.now()}-${run}`;
     const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
       cwd,
-      env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs),
+      env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, {
+        repoRoot,
+        exists,
+        readFile,
+      }),
       encoding: 'utf8',
       maxBuffer: 64 * 1024 * 1024,
     });
@@ -553,8 +565,12 @@ export async function runDaemonFeedSemanticSoak({
   const storyCoverage = accumulateStoryCoverage(results);
   const artifactRoot = path.dirname(artifactDir);
   const trendPath = path.join(artifactDir, 'semantic-soak-trend.json');
+  const artifactIndexPath = path.join(artifactDir, 'release-artifact-index.json');
   const headlineSoakTrendIndexPath = path.join(artifactDir, 'headline-soak-trend-index.json');
   const latestHeadlineSoakTrendIndexPath = path.join(artifactRoot, 'headline-soak-trend-index.json');
+  const continuityAnalysisPath = path.join(artifactDir, 'continuity-analysis.json');
+  const continuityTrendIndexPath = path.join(artifactDir, 'continuity-trend-index.json');
+  const latestContinuityTrendIndexPath = path.join(artifactRoot, 'continuity-trend-index.json');
   const trend = buildSoakTrend(results);
   const promotionAssessment = trend.promotionAssessment;
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
@@ -587,26 +603,20 @@ export async function runDaemonFeedSemanticSoak({
 
   writeFile(summaryPath, JSON.stringify(summary, null, 2), 'utf8');
   writeFile(trendPath, JSON.stringify(trend, null, 2), 'utf8');
-  const artifactIndexPath = path.join(artifactDir, 'release-artifact-index.json');
-  const artifactIndex = buildReleaseArtifactIndex(
-    artifactDir,
-    summaryPath,
-    trendPath,
-    results,
-    repoRoot,
-    headlineSoakTrendIndexPath,
-  );
-  writeFile(
-    artifactIndexPath,
-    JSON.stringify(artifactIndex, null, 2),
-    'utf8',
-  );
   const lookbackExecutionCount = readPositiveInt('VH_DAEMON_FEED_SOAK_TREND_LOOKBACK_EXECUTIONS', 20, env);
+  const continuityLookbackHours = readPositiveInt('VH_DAEMON_FEED_CONTINUITY_LOOKBACK_HOURS', 24, env);
   const currentHeadlineSoakExecution = buildHeadlineSoakExecutionSummary({
     artifactDir,
     summary,
     trend,
-    index: artifactIndex,
+    index: {
+      generatedAt: summary.generatedAt,
+      summaryPath,
+      trendPath,
+      artifactPaths: {
+        indexPath: artifactIndexPath,
+      },
+    },
   });
   const headlineSoakTrendIndex = buildHeadlineSoakTrendIndex(
     [
@@ -625,11 +635,80 @@ export async function runDaemonFeedSemanticSoak({
   );
   writeFile(headlineSoakTrendIndexPath, JSON.stringify(headlineSoakTrendIndex, null, 2), 'utf8');
   writeFile(latestHeadlineSoakTrendIndexPath, JSON.stringify(headlineSoakTrendIndex, null, 2), 'utf8');
+  const currentContinuitySnapshot = readExecutionBundleSnapshot(artifactDir, {
+    exists,
+    readFile,
+    readdir,
+    stat,
+  });
+  let continuityAnalysis = null;
+  let continuityTrendIndex = null;
+  if (currentContinuitySnapshot) {
+    continuityAnalysis = buildContinuityAnalysis(
+      currentContinuitySnapshot,
+      readHistoricalExecutionBundleSnapshots(artifactRoot, {
+        currentArtifactDir: artifactDir,
+        currentTimestampMs: currentContinuitySnapshot.timestampMs,
+        lookbackHours: continuityLookbackHours,
+        lookbackExecutionCount,
+        exists,
+        readFile,
+        readdir,
+        stat,
+      }),
+      { lookbackHours: continuityLookbackHours },
+    );
+    writeFile(continuityAnalysisPath, JSON.stringify(continuityAnalysis, null, 2), 'utf8');
+
+    continuityTrendIndex = buildContinuityTrendIndex(
+      [
+        ...readHistoricalContinuityAnalyses(artifactRoot, {
+          currentArtifactDir: artifactDir,
+          lookbackExecutionCount,
+          exists,
+          readFile,
+          readdir,
+          stat,
+        }),
+        continuityAnalysis,
+      ],
+      {
+        artifactRoot,
+        latestArtifactDir: artifactDir,
+        lookbackExecutionCount,
+        lookbackHours: continuityLookbackHours,
+      },
+    );
+    writeFile(continuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
+    writeFile(latestContinuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
+  }
+  const artifactIndex = buildReleaseArtifactIndex(
+    artifactDir,
+    summaryPath,
+    trendPath,
+    results,
+    repoRoot,
+    headlineSoakTrendIndexPath,
+    continuityAnalysis ? continuityAnalysisPath : null,
+    continuityTrendIndex ? continuityTrendIndexPath : null,
+  );
+  writeFile(
+    artifactIndexPath,
+    JSON.stringify(artifactIndex, null, 2),
+    'utf8',
+  );
   log(`[vh:daemon-soak] summary: ${summaryPath}`);
   log(`[vh:daemon-soak] trend: ${trendPath}`);
   log(`[vh:daemon-soak] artifact-index: ${artifactIndexPath}`);
   log(`[vh:daemon-soak] headline-soak-trend-index: ${headlineSoakTrendIndexPath}`);
   log(`[vh:daemon-soak] latest-headline-soak-trend-index: ${latestHeadlineSoakTrendIndexPath}`);
+  if (continuityAnalysis) {
+    log(`[vh:daemon-soak] continuity-analysis: ${continuityAnalysisPath}`);
+  }
+  if (continuityTrendIndex) {
+    log(`[vh:daemon-soak] continuity-trend-index: ${continuityTrendIndexPath}`);
+    log(`[vh:daemon-soak] latest-continuity-trend-index: ${latestContinuityTrendIndexPath}`);
+  }
   log(JSON.stringify({
     strictSoakPass: summary.strictSoakPass,
     passCount: summary.passCount,
@@ -656,9 +735,14 @@ export async function runDaemonFeedSemanticSoak({
     artifactIndexPath,
     headlineSoakTrendIndexPath,
     latestHeadlineSoakTrendIndexPath,
+    continuityAnalysisPath: continuityAnalysis ? continuityAnalysisPath : null,
+    continuityTrendIndexPath: continuityTrendIndex ? continuityTrendIndexPath : null,
+    latestContinuityTrendIndexPath: continuityTrendIndex ? latestContinuityTrendIndexPath : null,
     summary,
     trend,
     headlineSoakTrendIndex,
+    continuityAnalysis,
+    continuityTrendIndex,
     results,
   };
 }
