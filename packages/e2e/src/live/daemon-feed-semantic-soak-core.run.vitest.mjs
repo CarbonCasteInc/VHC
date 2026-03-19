@@ -437,4 +437,82 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(summary).not.toContain('still-not-json');
   });
 
+  it('treats continuity telemetry failures as non-blocking and still writes the core soak artifacts', async () => {
+    const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
+    const errorLog = vi.fn();
+    const primaryResult = makePrimaryResult([
+      makeAttachment('daemon-first-feed-semantic-audit', makeReport({
+        requested_sample_count: 1,
+        sampled_story_count: 1,
+        overall: {
+          audited_pair_count: 1,
+          related_topic_only_pair_count: 0,
+          sample_fill_rate: 1,
+          sample_shortfall: 0,
+          pass: true,
+        },
+        supply: {
+          story_count: 4,
+          auditable_count: 2,
+          visible_story_ids: ['story-1'],
+          top_story_ids: ['story-1'],
+          top_auditable_story_ids: ['story-1'],
+          sample_fill_rate: 1,
+          sample_shortfall: 0,
+        },
+        bundles: [{
+          story_id: 'story-1',
+          topic_id: 'topic-1',
+          headline: 'Headline',
+          canonical_source_count: 2,
+          canonical_sources: [{ source_id: 'guardian-us' }, { source_id: 'cbs-politics' }],
+          pairs: [{ label: 'same_incident' }],
+          has_related_topic_only_pair: false,
+        }],
+      })),
+    ]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' });
+
+    const result = await runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      repoRoot: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+        VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+        VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      exists: virtualFs.exists,
+      stat: virtualFs.stat,
+      readdir: virtualFs.readdir,
+      readFile: (target) => writes.get(target),
+      writeFile: (target, content) => {
+        if (target.endsWith('/continuity-analysis.json')) {
+          throw new Error('disk-full-on-continuity-write');
+        }
+        writes.set(target, String(content));
+      },
+      log: vi.fn(),
+      errorLog,
+      sleepImpl: vi.fn(),
+    });
+
+    expect(result.summary.strictSoakPass).toBe(true);
+    expect(result.continuityAnalysis).toBeNull();
+    expect(result.continuityTrendIndex).toBeNull();
+    expect(writes.get('/repo/.tmp/out/semantic-soak-summary.json')).toContain('"strictSoakPass": true');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityAnalysisPath": null');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityTrendIndexPath": null');
+    expect(errorLog).toHaveBeenCalledWith('[vh:daemon-soak] continuity-telemetry-error: disk-full-on-continuity-write');
+  });
+
 });
