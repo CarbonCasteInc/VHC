@@ -25,6 +25,7 @@
     "check:storycluster:production-readiness": "pnpm check:storycluster:correctness && pnpm check:news-sources:health && VH_STORYCLUSTER_PRODUCTION_READINESS_CORRECTNESS_STATUS=pass VH_STORYCLUSTER_PRODUCTION_READINESS_ENFORCE=true pnpm report:storycluster:production-readiness",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
+    "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",
     "check:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator check:source-health",
     "live:stack:up": "bash tools/scripts/live-local-stack.sh up",
     "live:stack:up:public": "VH_LOCAL_STACK_FEED_MODE=public bash tools/scripts/live-local-stack.sh up",

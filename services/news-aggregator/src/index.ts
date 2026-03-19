@@ -180,6 +180,19 @@ export type {
 } from './sourceContributionReport';
 
 export {
+  SOURCE_CANDIDATE_SCOUT_REPORT_SCHEMA_VERSION,
+  buildSourceCandidateScoutReport,
+  writeSourceCandidateScoutReport,
+} from './sourceCandidateScout';
+export type {
+  SourceCandidateScoutCandidateResult,
+  SourceCandidateScoutOptions,
+  SourceCandidateScoutReport,
+} from './sourceCandidateScout';
+
+export { SOURCE_SCOUT_CANDIDATE_FEED_SOURCES } from './sourceScoutCandidates';
+
+export {
   createArticleTextServer,
   startArticleTextServer,
 } from './server';
