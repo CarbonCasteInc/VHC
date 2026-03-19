@@ -43,6 +43,7 @@ function isoHoursAgo(hours) {
 }
 
 function makeVirtualArtifactFs(writes) {
+  const renameCalls = [];
   return {
     exists: (filePath) => writes.has(filePath),
     readdir: (dirPath) => {
@@ -57,6 +58,13 @@ function makeVirtualArtifactFs(writes) {
         }));
     },
     stat: () => ({ mtimeMs: Date.now() }),
+    rename: (fromPath, toPath) => {
+      renameCalls.push({ fromPath, toPath });
+      const content = writes.get(fromPath);
+      writes.delete(fromPath);
+      writes.set(toPath, content);
+    },
+    renameCalls,
   };
 }
 
@@ -258,6 +266,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        rename: virtualFs.rename,
         exists: virtualFs.exists,
         stat: virtualFs.stat,
         readdir: virtualFs.readdir,
@@ -297,6 +306,11 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"topicRetentionRate":');
     expect(writes.get('/repo/.tmp/out/continuity-trend-index.json')).toContain('"schemaVersion": "daemon-feed-headline-soak-continuity-trend-index-v1"');
     expect(writes.get('/repo/.tmp/continuity-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
+    expect(virtualFs.renameCalls).toEqual(expect.arrayContaining([
+      expect.objectContaining({ toPath: '/repo/.tmp/headline-soak-trend-index.json' }),
+      expect.objectContaining({ toPath: '/repo/.tmp/continuity-trend-index.json' }),
+    ]));
+    expect(virtualFs.renameCalls.every(({ fromPath }) => fromPath.includes('.tmp-'))).toBe(true);
     expect(logs.some((message) => message.includes('artifact-index'))).toBe(true);
     expect(logs.some((message) => message.includes('headline-soak-trend-index'))).toBe(true);
     expect(logs.some((message) => message.includes('continuity-analysis'))).toBe(true);
@@ -387,6 +401,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       },
       spawn,
       mkdir: vi.fn(),
+      rename: virtualFs.rename,
       exists: virtualFs.exists,
       stat: virtualFs.stat,
       readdir: virtualFs.readdir,
@@ -417,6 +432,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('records parse and attachment failures before exiting the failing soak run', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const spawn = vi.fn()
       .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
       .mockReturnValueOnce({ status: 1, stdout: '{bad json', stderr: '' });
@@ -438,6 +454,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
         log: vi.fn(),
@@ -453,6 +470,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('records invalid failure/runtime attachments without overwriting an existing audit error', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const primaryResult = makePrimaryResult([
       { name: 'daemon-first-feed-semantic-audit', body: Buffer.from('not-json').toString('base64') },
       { name: 'daemon-first-feed-semantic-audit-failure-snapshot', body: Buffer.from('still-not-json').toString('base64') },
@@ -482,6 +500,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
         log: vi.fn(),
@@ -499,6 +518,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('disambiguates missing audit artifacts when the playwright result has no attachments', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const primaryResult = makePrimaryResult([]);
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
@@ -524,6 +544,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
         log: vi.fn(),
@@ -545,6 +566,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('disambiguates missing audit artifacts when auxiliary attachments exist', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const primaryResult = makePrimaryResult([
       makeAttachment('daemon-first-feed-semantic-audit-failure-snapshot', {
         story_count: 3,
@@ -578,6 +600,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
         log: vi.fn(),
@@ -599,6 +622,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
   it('disambiguates path-only audit attachments as attachment_path_mismatch', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const primaryResult = {
       status: 'failed',
       attachments: [
@@ -633,6 +657,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
         log: vi.fn(),
@@ -706,6 +731,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       },
       spawn,
       mkdir: vi.fn(),
+      rename: virtualFs.rename,
       exists: virtualFs.exists,
       stat: virtualFs.stat,
       readdir: virtualFs.readdir,

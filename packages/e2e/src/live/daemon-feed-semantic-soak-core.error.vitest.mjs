@@ -35,9 +35,20 @@ function makeReport(overrides = {}) {
   };
 }
 
+function makeVirtualArtifactFs(writes) {
+  return {
+    rename: (fromPath, toPath) => {
+      const content = writes.get(fromPath);
+      writes.delete(fromPath);
+      writes.set(toPath, content);
+    },
+  };
+}
+
 describe('runDaemonFeedSemanticSoak attachment error branches', () => {
   it('records invalid failure-snapshot attachments when auditError is still empty', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const primaryResult = makePrimaryResult([
       makeAttachment('daemon-first-feed-semantic-audit', makeReport()),
       { name: 'daemon-first-feed-semantic-audit-failure-snapshot', body: Buffer.from('bad-json').toString('base64') },
@@ -55,6 +66,7 @@ describe('runDaemonFeedSemanticSoak attachment error branches', () => {
       },
       spawn,
       mkdir: vi.fn(),
+      rename: virtualFs.rename,
       readFile: (target) => writes.get(target),
       writeFile: (target, content) => writes.set(target, String(content)),
       log: vi.fn(),
@@ -67,6 +79,7 @@ describe('runDaemonFeedSemanticSoak attachment error branches', () => {
 
   it('records invalid runtime-log attachments when auditError is still empty', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const primaryResult = makePrimaryResult([
       makeAttachment('daemon-first-feed-semantic-audit', makeReport()),
       makeAttachment('daemon-first-feed-semantic-audit-failure-snapshot', {
@@ -90,6 +103,7 @@ describe('runDaemonFeedSemanticSoak attachment error branches', () => {
       },
       spawn,
       mkdir: vi.fn(),
+      rename: virtualFs.rename,
       readFile: (target) => writes.get(target),
       writeFile: (target, content) => writes.set(target, String(content)),
       log: vi.fn(),
@@ -102,6 +116,7 @@ describe('runDaemonFeedSemanticSoak attachment error branches', () => {
 
   it('records non-Error report read failures and tolerates undefined stdout/stderr buffers', async () => {
     const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
     const spawn = vi.fn()
       .mockReturnValueOnce({ status: 0, stdout: undefined, stderr: undefined })
       .mockReturnValueOnce({ status: 1, stdout: undefined, stderr: undefined });
@@ -122,6 +137,7 @@ describe('runDaemonFeedSemanticSoak attachment error branches', () => {
         },
         spawn,
         mkdir: vi.fn(),
+        rename: virtualFs.rename,
         readFile: () => {
           throw 'read-failed';
         },
