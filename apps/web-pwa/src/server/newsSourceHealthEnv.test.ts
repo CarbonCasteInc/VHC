@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   applyNewsSourceHealthEnv,
   findLatestNewsSourceHealthReportPath,
+  newsSourceHealthEnvInternal,
   resolveNewsSourceHealthArtifactRoot,
   resolveNewsSourceHealthEnv,
 } from './newsSourceHealthEnv';
@@ -338,6 +339,71 @@ describe('newsSourceHealthEnv', () => {
       reportSource: `artifact:${latestPath}`,
       autoloaded: true,
     });
+  });
+
+  it('covers helper branches for stale timestamp parsing and formatting', () => {
+    expect(newsSourceHealthEnvInternal.parsePositiveNumber('bad', 24)).toBe(24);
+    expect(newsSourceHealthEnvInternal.parseStaleAction('bad', 'warn')).toBe('warn');
+    expect(
+      newsSourceHealthEnvInternal.resolveNewsSourceHealthArtifactTimestamp(
+        { generatedAt: '2026-03-19T00:00:00.000Z' },
+        '/tmp/unused.json',
+      ),
+    ).toEqual({
+      timestampMs: Date.parse('2026-03-19T00:00:00.000Z'),
+      timestampSource: 'generatedAt',
+    });
+    expect(
+      newsSourceHealthEnvInternal.resolveNewsSourceHealthArtifactTimestamp(
+        { generatedAt: 'bad-date' },
+        '/definitely/missing/source-health-report.json',
+      ),
+    ).toEqual({
+      timestampMs: null,
+      timestampSource: 'unavailable',
+    });
+    expect(
+      newsSourceHealthEnvInternal.formatNewsSourceHealthArtifactStaleMessage(
+        '/tmp/source-health-report.json',
+        null,
+        24,
+        'unavailable',
+      ),
+    ).toContain('age=unknown');
+  });
+
+  it('returns unresolved state when the artifact file contains invalid JSON', () => {
+    const appRoot = makeAppRoot();
+    const latestPath = path.join(
+      resolveNewsSourceHealthArtifactRoot(appRoot),
+      'latest',
+      'source-health-report.json',
+    );
+    mkdirSync(path.dirname(latestPath), { recursive: true });
+    writeFileSync(latestPath, '{not-json', 'utf8');
+
+    expect(resolveNewsSourceHealthEnv({ appRoot, env: {} })).toEqual({
+      reportJson: null,
+      reportPath: null,
+      reportSource: null,
+      autoloaded: false,
+    });
+  });
+
+  it('warns with age unknown when freshness enforcement cannot resolve any timestamp', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    expect(
+      newsSourceHealthEnvInternal.enforceFreshNewsSourceHealthArtifact(
+        { generatedAt: 'bad-date' },
+        '/definitely/missing/source-health-report.json',
+        {
+          VITE_NEWS_SOURCE_HEALTH_REPORT_MAX_AGE_HOURS: '1',
+        },
+      ),
+    ).toBe(false);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('age=unknown'));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('timestamp_source=unavailable'));
   });
 
   it('honors explicit true autoload flag values', () => {

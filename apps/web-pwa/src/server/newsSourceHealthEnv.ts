@@ -275,3 +275,13 @@ export function applyNewsSourceHealthEnv(
 
   return resolution;
 }
+
+export const newsSourceHealthEnvInternal = {
+  normalizeNonEmpty,
+  parseBoolean,
+  parsePositiveNumber,
+  parseStaleAction,
+  resolveNewsSourceHealthArtifactTimestamp,
+  formatNewsSourceHealthArtifactStaleMessage,
+  enforceFreshNewsSourceHealthArtifact,
+};
