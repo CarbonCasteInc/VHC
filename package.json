@@ -20,7 +20,7 @@
     "test:storycluster:gates": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:gates",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
-    "collect:storycluster:headline-soak": "pnpm test:storycluster:smoke:readiness",
+    "collect:storycluster:headline-soak": "pnpm report:news-sources:health && pnpm test:storycluster:smoke:readiness",
     "report:storycluster:production-readiness": "pnpm --filter @vh/e2e report:live:daemon-feed:production-readiness",
     "check:storycluster:production-readiness": "pnpm check:storycluster:correctness && pnpm check:news-sources:health && VH_STORYCLUSTER_PRODUCTION_READINESS_CORRECTNESS_STATUS=pass VH_STORYCLUSTER_PRODUCTION_READINESS_ENFORCE=true pnpm report:storycluster:production-readiness",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
