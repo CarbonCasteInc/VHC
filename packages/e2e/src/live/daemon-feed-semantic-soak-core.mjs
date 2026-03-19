@@ -644,43 +644,50 @@ export async function runDaemonFeedSemanticSoak({
   let continuityAnalysis = null;
   let continuityTrendIndex = null;
   if (currentContinuitySnapshot) {
-    continuityAnalysis = buildContinuityAnalysis(
-      currentContinuitySnapshot,
-      readHistoricalExecutionBundleSnapshots(artifactRoot, {
-        currentArtifactDir: artifactDir,
-        currentTimestampMs: currentContinuitySnapshot.timestampMs,
-        lookbackHours: continuityLookbackHours,
-        lookbackExecutionCount,
-        exists,
-        readFile,
-        readdir,
-        stat,
-      }),
-      { lookbackHours: continuityLookbackHours },
-    );
-    writeFile(continuityAnalysisPath, JSON.stringify(continuityAnalysis, null, 2), 'utf8');
-
-    continuityTrendIndex = buildContinuityTrendIndex(
-      [
-        ...readHistoricalContinuityAnalyses(artifactRoot, {
+    try {
+      continuityAnalysis = buildContinuityAnalysis(
+        currentContinuitySnapshot,
+        readHistoricalExecutionBundleSnapshots(artifactRoot, {
           currentArtifactDir: artifactDir,
+          currentTimestampMs: currentContinuitySnapshot.timestampMs,
+          lookbackHours: continuityLookbackHours,
           lookbackExecutionCount,
           exists,
           readFile,
           readdir,
           stat,
         }),
-        continuityAnalysis,
-      ],
-      {
-        artifactRoot,
-        latestArtifactDir: artifactDir,
-        lookbackExecutionCount,
-        lookbackHours: continuityLookbackHours,
-      },
-    );
-    writeFile(continuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
-    writeFile(latestContinuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
+        { lookbackHours: continuityLookbackHours },
+      );
+      writeFile(continuityAnalysisPath, JSON.stringify(continuityAnalysis, null, 2), 'utf8');
+
+      continuityTrendIndex = buildContinuityTrendIndex(
+        [
+          ...readHistoricalContinuityAnalyses(artifactRoot, {
+            currentArtifactDir: artifactDir,
+            lookbackExecutionCount,
+            exists,
+            readFile,
+            readdir,
+            stat,
+          }),
+          continuityAnalysis,
+        ],
+        {
+          artifactRoot,
+          latestArtifactDir: artifactDir,
+          lookbackExecutionCount,
+          lookbackHours: continuityLookbackHours,
+        },
+      );
+      writeFile(continuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
+      writeFile(latestContinuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
+    } catch (error) {
+      continuityAnalysis = null;
+      continuityTrendIndex = null;
+      const message = error instanceof Error ? error.message : String(error);
+      errorLog(`[vh:daemon-soak] continuity-telemetry-error: ${message}`);
+    }
   }
   const artifactIndex = buildReleaseArtifactIndex(
     artifactDir,
