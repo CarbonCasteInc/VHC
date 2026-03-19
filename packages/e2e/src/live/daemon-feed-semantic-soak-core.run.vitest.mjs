@@ -21,6 +21,8 @@ function makeReport(overrides = {}) {
       story_id: 'story-1',
       topic_id: 'topic-1',
       headline: 'Headline',
+      canonical_source_count: 1,
+      canonical_sources: [{ source_id: 'guardian-us' }],
       pairs: [{ label: 'related_topic_only' }],
       has_related_topic_only_pair: true,
     }],
@@ -99,6 +101,8 @@ describe('runDaemonFeedSemanticSoak', () => {
         story_id: 'story-1',
         topic_id: 'topic-1',
         headline: 'Headline',
+        canonical_source_count: 2,
+        canonical_sources: [{ source_id: 'guardian-us' }, { source_id: 'cbs-politics' }],
         pairs: [],
         has_related_topic_only_pair: false,
       }],
@@ -162,7 +166,11 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"promotionAssessment"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"combinedGateCommand": "pnpm test:storycluster:correctness"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('/repo/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"headlineSoakTrendIndexPath": "/repo/.tmp/out/headline-soak-trend-index.json"');
+    expect(writes.get('/repo/.tmp/out/headline-soak-trend-index.json')).toContain('"executionCount": 1');
+    expect(writes.get('/repo/.tmp/headline-soak-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
     expect(logs.some((message) => message.includes('artifact-index'))).toBe(true);
+    expect(logs.some((message) => message.includes('headline-soak-trend-index'))).toBe(true);
   });
 
   it('fails fast when the build step fails', async () => {
@@ -213,6 +221,8 @@ describe('runDaemonFeedSemanticSoak', () => {
           story_id: 'story-1',
           topic_id: 'topic-1',
           headline: 'Headline',
+          canonical_source_count: 2,
+          canonical_sources: [{ source_id: 'guardian-us' }, { source_id: 'cbs-politics' }],
           pairs: [{ label: 'same_incident' }],
           has_related_topic_only_pair: false,
         }],
@@ -254,6 +264,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(result.summary.readinessStatus).toBe('not_ready');
     expect(result.summary.promotionAssessment.blockingReasons).toContain('insufficient_run_count');
     expect(result.summary.repeatedStoryCount).toBe(1);
+    expect(result.summary.totalBundledStories).toBe(2);
+    expect(result.summary.totalCorroboratedBundles).toBe(2);
+    expect(result.summary.totalSingletonBundles).toBe(0);
+    expect(result.headlineSoakTrendIndex.executionCount).toBe(1);
     expect(result.results).toHaveLength(2);
     expect(sleepImpl).toHaveBeenCalledWith(5);
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit.json')).toContain('"requested_sample_count": 1');

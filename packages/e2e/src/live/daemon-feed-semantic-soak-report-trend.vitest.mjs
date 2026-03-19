@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildHeadlineSoakExecutionSummary,
+  buildHeadlineSoakTrendIndex,
   buildReleaseArtifactIndex,
   buildSoakTrend,
+  HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
   PUBLIC_SEMANTIC_SOAK_POSTURE,
   PUBLIC_SEMANTIC_SOAK_PROMOTION_CRITERIA,
 } from './daemon-feed-semantic-soak-report.mjs';
@@ -23,6 +26,17 @@ function makeResult(overrides = {}) {
     auditError: null,
     reportParseError: null,
     storyIds: [],
+    bundleComposition: {
+      bundledStoryCount: 0,
+      corroboratedBundleCount: 0,
+      singletonBundleCount: 0,
+      corroboratedBundleRate: null,
+      averageCanonicalSourceCount: null,
+      maxCanonicalSourceCount: null,
+      uniqueSourceCount: 0,
+      uniqueSourceIds: [],
+    },
+    repeatedStoryCount: null,
     ...overrides,
   };
 }
@@ -94,6 +108,16 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       averageFailureAuditableDensity: 1 / 28,
       observedFailureDensityRuns: 2,
       observedFailureSnapshotRuns: 1,
+    });
+    expect(trend.usefulness).toEqual({
+      bundledStoryTotal: 0,
+      corroboratedBundleTotal: 0,
+      singletonBundleTotal: 0,
+      averageCorroboratedBundleRate: null,
+      observedBundleRuns: 4,
+      averageUniqueSourceCount: 0,
+      maxUniqueSourceCount: 0,
+      averageRepeatedStoryCount: null,
     });
     expect(trend.longestFailureStreak).toBe(3);
     expect(trend.longestSupplyFailureStreak).toBe(2);
@@ -188,6 +212,16 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       observedFailureDensityRuns: 0,
       observedFailureSnapshotRuns: 0,
     });
+    expect(trend.usefulness).toEqual({
+      bundledStoryTotal: 0,
+      corroboratedBundleTotal: 0,
+      singletonBundleTotal: 0,
+      averageCorroboratedBundleRate: null,
+      observedBundleRuns: 0,
+      averageUniqueSourceCount: null,
+      maxUniqueSourceCount: null,
+      averageRepeatedStoryCount: null,
+    });
     expect(trend.runs).toEqual([]);
   });
 
@@ -239,6 +273,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         summaryPath: '/tmp/summary.json',
         trendPath: '/tmp/trend.json',
         indexPath: '/tmp/artifacts/release-artifact-index.json',
+        headlineSoakTrendIndexPath: '/tmp/artifacts/headline-soak-trend-index.json',
         build: {
           stdoutPath: '/tmp/artifacts/build.stdout.log',
           stderrPath: '/tmp/artifacts/build.stderr.log',
@@ -270,6 +305,148 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
           },
         },
       ],
+    });
+  });
+
+  it('builds compact cross-run headline-soak summaries and history indexes', () => {
+    const firstExecution = buildHeadlineSoakExecutionSummary({
+      artifactDir: '/tmp/artifacts/100',
+      summary: {
+        generatedAt: '2026-03-18T00:00:00.000Z',
+        strictSoakPass: false,
+        readinessStatus: 'not_ready',
+        promotionBlockingReasons: ['insufficient_run_count'],
+        runCount: 3,
+        passCount: 1,
+        failCount: 2,
+        totalSampledStories: 6,
+        totalAuditedPairs: 8,
+        totalRelatedTopicOnlyPairs: 0,
+        repeatedStoryCount: 1,
+        totalBundledStories: 6,
+        totalCorroboratedBundles: 4,
+        totalSingletonBundles: 2,
+      },
+      trend: {
+        density: {
+          averageSampleFillRate: 0.5,
+          averageAuditedPairsPerSampledStory: 1.25,
+        },
+        usefulness: {
+          averageCorroboratedBundleRate: 2 / 3,
+          averageUniqueSourceCount: 4,
+          maxUniqueSourceCount: 5,
+        },
+        classifications: {
+          pass: 1,
+          semantic_contamination: 0,
+          bundle_starvation: 1,
+          insufficient_auditable_supply: 1,
+          artifact_missing: 0,
+          report_parse_error: 0,
+          runner_failure: 0,
+        },
+      },
+      index: {
+        artifactPaths: {
+          indexPath: '/tmp/artifacts/100/release-artifact-index.json',
+        },
+      },
+    });
+    const secondExecution = buildHeadlineSoakExecutionSummary({
+      artifactDir: '/tmp/artifacts/200',
+      summary: {
+        generatedAt: '2026-03-19T00:00:00.000Z',
+        strictSoakPass: true,
+        readinessStatus: 'promotable',
+        promotionBlockingReasons: [],
+        runCount: 5,
+        passCount: 5,
+        failCount: 0,
+        totalSampledStories: 20,
+        totalAuditedPairs: 30,
+        totalRelatedTopicOnlyPairs: 0,
+        repeatedStoryCount: 3,
+        totalBundledStories: 20,
+        totalCorroboratedBundles: 16,
+        totalSingletonBundles: 4,
+      },
+      trend: {
+        density: {
+          averageSampleFillRate: 1,
+          averageAuditedPairsPerSampledStory: 1.5,
+        },
+        usefulness: {
+          averageCorroboratedBundleRate: 0.8,
+          averageUniqueSourceCount: 6,
+          maxUniqueSourceCount: 7,
+        },
+        classifications: {
+          pass: 5,
+          semantic_contamination: 0,
+          bundle_starvation: 0,
+          insufficient_auditable_supply: 0,
+          artifact_missing: 0,
+          report_parse_error: 0,
+          runner_failure: 0,
+        },
+      },
+      index: {
+        artifactPaths: {
+          indexPath: '/tmp/artifacts/200/release-artifact-index.json',
+        },
+      },
+    });
+
+    expect(buildHeadlineSoakTrendIndex([firstExecution, secondExecution], {
+      artifactRoot: '/tmp/artifacts',
+      latestArtifactDir: '/tmp/artifacts/200',
+      lookbackExecutionCount: 20,
+    })).toEqual({
+      schemaVersion: HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
+      generatedAt: expect.any(String),
+      artifactRoot: '/tmp/artifacts',
+      latestArtifactDir: '/tmp/artifacts/200',
+      lookbackExecutionCount: 20,
+      executionCount: 2,
+      promotableExecutionCount: 1,
+      notReadyExecutionCount: 1,
+      strictSoakPassCount: 1,
+      strictSoakFailCount: 1,
+      latestExecution: secondExecution,
+      latestPromotableExecution: secondExecution,
+      latestStrictFailureExecution: firstExecution,
+      density: {
+        averageSampleFillRate: 0.75,
+        averageAuditedPairsPerSampledStory: 1.375,
+      },
+      usefulness: {
+        totalBundledStories: 26,
+        totalCorroboratedBundles: 20,
+        totalSingletonBundles: 6,
+        averageCorroboratedBundleRate: 0.7333333333333334,
+        averageUniqueSourceCount: 5,
+        maxUniqueSourceCount: 6,
+        averageRepeatedStoryCount: 2,
+      },
+      runs: [firstExecution, secondExecution],
+    });
+  });
+
+  it('derives fail counts from run/pass counts when compact execution summaries omit them', () => {
+    expect(buildHeadlineSoakExecutionSummary({
+      artifactDir: '/tmp/artifacts/300',
+      summary: {
+        runCount: 4,
+        passCount: 1,
+      },
+      trend: {},
+      index: {},
+    })).toMatchObject({
+      artifactDir: '/tmp/artifacts/300',
+      runCount: 4,
+      passCount: 1,
+      failCount: 3,
     });
   });
 });

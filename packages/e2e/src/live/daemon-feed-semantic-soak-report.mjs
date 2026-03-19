@@ -8,6 +8,10 @@ export const PUBLIC_SEMANTIC_SOAK_POSTURE = Object.freeze({
   biasTableBasis: 'unchanged',
 });
 
+export const HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION = Object.freeze(
+  'daemon-feed-headline-soak-trend-index-v1',
+);
+
 export function buildStoryClusterCorrectnessGate(repoRoot = process.cwd()) {
   return {
     gateId: 'storycluster-primary-correctness-gate-v1',
@@ -79,6 +83,22 @@ function ratio(numerator, denominator) {
   return numerator / denominator;
 }
 
+function canonicalSourceCount(bundle) {
+  if (isFiniteNumber(bundle?.canonical_source_count)) {
+    return bundle.canonical_source_count;
+  }
+
+  if (Array.isArray(bundle?.canonical_sources)) {
+    return bundle.canonical_sources.length;
+  }
+
+  if (Array.isArray(bundle?.sources)) {
+    return bundle.sources.length;
+  }
+
+  return null;
+}
+
 export function summarizeLabelCounts(report) {
   const counts = {
     duplicate: 0,
@@ -96,6 +116,43 @@ export function summarizeLabelCounts(report) {
   }
 
   return counts;
+}
+
+export function summarizeBundleComposition(report) {
+  const bundles = Array.isArray(report?.bundles) ? report.bundles : [];
+  const canonicalSourceCounts = [];
+  const uniqueSourceIds = new Set();
+  let corroboratedBundleCount = 0;
+  let singletonBundleCount = 0;
+
+  for (const bundle of bundles) {
+    const nextCanonicalSourceCount = canonicalSourceCount(bundle);
+    if (isFiniteNumber(nextCanonicalSourceCount)) {
+      canonicalSourceCounts.push(nextCanonicalSourceCount);
+      if (nextCanonicalSourceCount > 1) {
+        corroboratedBundleCount += 1;
+      } else if (nextCanonicalSourceCount === 1) {
+        singletonBundleCount += 1;
+      }
+    }
+
+    for (const source of bundle?.canonical_sources ?? bundle?.sources ?? []) {
+      if (typeof source?.source_id === 'string' && source.source_id.trim()) {
+        uniqueSourceIds.add(source.source_id.trim());
+      }
+    }
+  }
+
+  return {
+    bundledStoryCount: bundles.length,
+    corroboratedBundleCount,
+    singletonBundleCount,
+    corroboratedBundleRate: ratio(corroboratedBundleCount, bundles.length),
+    averageCanonicalSourceCount: average(canonicalSourceCounts),
+    maxCanonicalSourceCount: canonicalSourceCounts.length === 0 ? null : Math.max(...canonicalSourceCounts),
+    uniqueSourceCount: uniqueSourceIds.size,
+    uniqueSourceIds: [...uniqueSourceIds].sort(),
+  };
 }
 
 export function classifySoakRun(result) {
@@ -250,6 +307,8 @@ export function buildSoakTrend(results) {
       runtimeLogsPath: artifactPaths.runtimeLogsPath,
       artifactPaths,
       density,
+      bundleComposition: result.bundleComposition ?? null,
+      repeatedStoryCount: result.repeatedStoryCount ?? null,
     };
   });
 
@@ -263,6 +322,8 @@ export function buildSoakTrend(results) {
   const sampleShortfalls = runs.map((run) => run.density.sampleShortfall).filter(isFiniteNumber);
   const sampleFillRates = runs.map((run) => run.density.sampleFillRate);
   const failureAuditableDensities = runs.map((run) => run.density.failureAuditableDensity);
+  const corroboratedBundleRates = runs.map((run) => run.bundleComposition?.corroboratedBundleRate);
+  const uniqueSourceCounts = runs.map((run) => run.bundleComposition?.uniqueSourceCount);
 
   const trend = {
     schemaVersion: 'daemon-feed-semantic-soak-trend-v2',
@@ -289,6 +350,18 @@ export function buildSoakTrend(results) {
       observedFailureDensityRuns: failureAuditableDensities.filter(isFiniteNumber).length,
       observedFailureSnapshotRuns: artifactCoverage.failureSnapshotCount,
     },
+    usefulness: {
+      bundledStoryTotal: sum(runs.map((run) => run.bundleComposition?.bundledStoryCount)),
+      corroboratedBundleTotal: sum(runs.map((run) => run.bundleComposition?.corroboratedBundleCount)),
+      singletonBundleTotal: sum(runs.map((run) => run.bundleComposition?.singletonBundleCount)),
+      averageCorroboratedBundleRate: average(corroboratedBundleRates),
+      observedBundleRuns: runs.filter((run) => isFiniteNumber(run.bundleComposition?.bundledStoryCount)).length,
+      averageUniqueSourceCount: average(uniqueSourceCounts),
+      maxUniqueSourceCount: uniqueSourceCounts.filter(isFiniteNumber).length === 0
+        ? null
+        : Math.max(...uniqueSourceCounts.filter(isFiniteNumber)),
+      averageRepeatedStoryCount: average(runs.map((run) => run.repeatedStoryCount)),
+    },
     longestFailureStreak,
     longestSupplyFailureStreak: longestStarvationStreak,
     latestFailure: failureRuns.at(-1) ?? null,
@@ -306,7 +379,135 @@ export function buildSoakTrend(results) {
   };
 }
 
-export function buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, results, repoRoot = process.cwd()) {
+export function buildHeadlineSoakExecutionSummary({
+  artifactDir,
+  summary,
+  trend,
+  index,
+}) {
+  const runCount = summary?.runCount ?? trend?.totalRuns ?? 0;
+  const passCount = summary?.passCount ?? trend?.classifications?.pass ?? 0;
+  const failCount = summary?.failCount ?? (
+    isFiniteNumber(runCount) && isFiniteNumber(passCount)
+      ? Math.max(runCount - passCount, 0)
+      : 0
+  );
+
+  return {
+    artifactDir,
+    generatedAt: summary?.generatedAt ?? trend?.generatedAt ?? index?.generatedAt ?? null,
+    strictSoakPass: summary?.strictSoakPass === true,
+    readinessStatus:
+      summary?.readinessStatus
+      ?? trend?.promotionAssessment?.status
+      ?? index?.promotionAssessment?.status
+      ?? 'not_ready',
+    promotionBlockingReasons:
+      summary?.promotionBlockingReasons
+      ?? trend?.promotionAssessment?.blockingReasons
+      ?? index?.promotionAssessment?.blockingReasons
+      ?? [],
+    runCount,
+    passCount,
+    failCount,
+    totalSampledStories: summary?.totalSampledStories ?? trend?.density?.sampledStoryTotal ?? 0,
+    totalAuditedPairs: summary?.totalAuditedPairs ?? trend?.density?.auditedPairTotal ?? 0,
+    totalRelatedTopicOnlyPairs:
+      summary?.totalRelatedTopicOnlyPairs
+      ?? trend?.density?.relatedTopicOnlyPairTotal
+      ?? 0,
+    repeatedStoryCount: summary?.repeatedStoryCount ?? null,
+    totalBundledStories: summary?.totalBundledStories ?? trend?.usefulness?.bundledStoryTotal ?? 0,
+    totalCorroboratedBundles:
+      summary?.totalCorroboratedBundles
+      ?? trend?.usefulness?.corroboratedBundleTotal
+      ?? 0,
+    totalSingletonBundles:
+      summary?.totalSingletonBundles
+      ?? trend?.usefulness?.singletonBundleTotal
+      ?? 0,
+    averageSampleFillRate: trend?.density?.averageSampleFillRate ?? null,
+    averageAuditedPairsPerSampledStory:
+      trend?.density?.averageAuditedPairsPerSampledStory
+      ?? null,
+    averageCorroboratedBundleRate: trend?.usefulness?.averageCorroboratedBundleRate ?? null,
+    averageUniqueSourceCount: trend?.usefulness?.averageUniqueSourceCount ?? null,
+    maxUniqueSourceCount: trend?.usefulness?.maxUniqueSourceCount ?? null,
+    classifications: trend?.classifications ?? null,
+    artifactPaths: {
+      summaryPath:
+        index?.summaryPath
+        ?? path.join(artifactDir, 'semantic-soak-summary.json'),
+      trendPath:
+        index?.trendPath
+        ?? path.join(artifactDir, 'semantic-soak-trend.json'),
+      indexPath:
+        index?.artifactPaths?.indexPath
+        ?? path.join(artifactDir, 'release-artifact-index.json'),
+    },
+  };
+}
+
+export function buildHeadlineSoakTrendIndex(
+  runs,
+  {
+    artifactRoot = null,
+    latestArtifactDir = null,
+    lookbackExecutionCount = null,
+  } = {},
+) {
+  const recentRuns = Array.isArray(runs) ? runs : [];
+  const latestExecution = recentRuns.at(-1) ?? null;
+  const promotableExecutionCount = recentRuns.filter((run) => run.readinessStatus === 'promotable').length;
+  const strictSoakPassCount = recentRuns.filter((run) => run.strictSoakPass).length;
+  const strictSoakFailCount = recentRuns.length - strictSoakPassCount;
+  const sampleFillRates = recentRuns.map((run) => run.averageSampleFillRate);
+  const auditedPairDensities = recentRuns.map((run) => run.averageAuditedPairsPerSampledStory);
+  const corroboratedBundleRates = recentRuns.map((run) => run.averageCorroboratedBundleRate);
+  const uniqueSourceCounts = recentRuns.map((run) => run.averageUniqueSourceCount);
+  const repeatedStoryCounts = recentRuns.map((run) => run.repeatedStoryCount);
+
+  return {
+    schemaVersion: HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
+    generatedAt: new Date().toISOString(),
+    artifactRoot,
+    latestArtifactDir,
+    lookbackExecutionCount,
+    executionCount: recentRuns.length,
+    promotableExecutionCount,
+    notReadyExecutionCount: recentRuns.length - promotableExecutionCount,
+    strictSoakPassCount,
+    strictSoakFailCount,
+    latestExecution,
+    latestPromotableExecution: [...recentRuns].reverse().find((run) => run.readinessStatus === 'promotable') ?? null,
+    latestStrictFailureExecution: [...recentRuns].reverse().find((run) => !run.strictSoakPass) ?? null,
+    density: {
+      averageSampleFillRate: average(sampleFillRates),
+      averageAuditedPairsPerSampledStory: average(auditedPairDensities),
+    },
+    usefulness: {
+      totalBundledStories: sum(recentRuns.map((run) => run.totalBundledStories)),
+      totalCorroboratedBundles: sum(recentRuns.map((run) => run.totalCorroboratedBundles)),
+      totalSingletonBundles: sum(recentRuns.map((run) => run.totalSingletonBundles)),
+      averageCorroboratedBundleRate: average(corroboratedBundleRates),
+      averageUniqueSourceCount: average(uniqueSourceCounts),
+      maxUniqueSourceCount: uniqueSourceCounts.filter(isFiniteNumber).length === 0
+        ? null
+        : Math.max(...uniqueSourceCounts.filter(isFiniteNumber)),
+      averageRepeatedStoryCount: average(repeatedStoryCounts),
+    },
+    runs: recentRuns,
+  };
+}
+
+export function buildReleaseArtifactIndex(
+  artifactDir,
+  summaryPath,
+  trendPath,
+  results,
+  repoRoot = process.cwd(),
+  headlineSoakTrendIndexPath = `${artifactDir}/headline-soak-trend-index.json`,
+) {
   const trend = buildSoakTrend(results);
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
   const secondaryDistributionTelemetry = buildPublicSemanticSoakSecondaryTelemetry();
@@ -332,6 +533,7 @@ export function buildReleaseArtifactIndex(artifactDir, summaryPath, trendPath, r
       summaryPath,
       trendPath,
       indexPath: `${artifactDir}/release-artifact-index.json`,
+      headlineSoakTrendIndexPath,
       build,
     },
     runs: results.map((result) => {
