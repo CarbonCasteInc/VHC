@@ -91,7 +91,16 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'nbc',
     enabled: true,
   }),
-  // Public radio (1)
+  // Public radio (2)
+  FeedSourceSchema.parse({
+    id: 'npr-news',
+    name: 'NPR News',
+    displayName: 'NPR',
+    rssUrl: 'https://feeds.npr.org/1001/rss.xml',
+    perspectiveTag: 'public-radio',
+    iconKey: 'npr',
+    enabled: true,
+  }),
   FeedSourceSchema.parse({
     id: 'npr-politics',
     name: 'NPR Politics',

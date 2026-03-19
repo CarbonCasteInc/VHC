@@ -21,11 +21,12 @@ describe('sourceRegistry', () => {
   });
 
   it('exposes starter feed URLs', () => {
-    expect(STARTER_FEED_URLS.length).toBeGreaterThanOrEqual(12);
+    expect(STARTER_FEED_URLS.length).toBeGreaterThanOrEqual(13);
     expect(STARTER_FEED_URLS[0]).toContain('foxnews');
     expect(STARTER_FEED_URLS).toContain('https://abcnews.go.com/abcnews/politicsheadlines');
     expect(STARTER_FEED_URLS).toContain('https://feeds.nbcnews.com/feeds/nbcpolitics');
     expect(STARTER_FEED_URLS).toContain('https://www.pbs.org/newshour/feeds/rss/politics');
+    expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1001/rss.xml');
     expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1014/rss.xml');
   });
 

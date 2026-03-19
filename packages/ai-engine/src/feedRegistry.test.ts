@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(12);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(13);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -87,6 +87,18 @@ describe('feedRegistry', () => {
       ).toMatchObject({
         name: 'NPR Politics',
         rssUrl: 'https://feeds.npr.org/1014/rss.xml',
+        perspectiveTag: 'public-radio',
+        iconKey: 'npr',
+        enabled: true,
+      });
+    });
+
+    it('includes evidence-admitted npr general news coverage', () => {
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'npr-news'),
+      ).toMatchObject({
+        name: 'NPR News',
+        rssUrl: 'https://feeds.npr.org/1001/rss.xml',
         perspectiveTag: 'public-radio',
         iconKey: 'npr',
         enabled: true,
@@ -189,6 +201,15 @@ describe('feedRegistry', () => {
 
     it('returns metadata for evidence-admitted npr politics', () => {
       const meta = getSourceMetadata('npr-politics');
+      expect(meta).toEqual({
+        displayName: 'NPR',
+        perspectiveTag: 'public-radio',
+        iconKey: 'npr',
+      });
+    });
+
+    it('returns metadata for evidence-admitted npr general news', () => {
+      const meta = getSourceMetadata('npr-news');
       expect(meta).toEqual({
         displayName: 'NPR',
         perspectiveTag: 'public-radio',
