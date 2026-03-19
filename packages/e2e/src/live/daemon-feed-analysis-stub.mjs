@@ -71,6 +71,140 @@ function readArticleBody(prompt) {
   return /unavailable; analyze available metadata only\./i.test(body) ? '' : body;
 }
 
+function normalizeWords(text) {
+  const STOP_WORDS = new Set([
+    'about',
+    'after',
+    'against',
+    'american',
+    'began',
+    'begin',
+    'between',
+    'could',
+    'federal',
+    'government',
+    'house',
+    'legal',
+    'plans',
+    'replace',
+    'screening',
+    'state',
+    'their',
+    'there',
+    'these',
+    'those',
+    'trump',
+    'under',
+    'white',
+    'which',
+    'while',
+    'where',
+    'would',
+  ]);
+  return `${text ?? ''}`
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter((word) => word.length >= 4 && !STOP_WORDS.has(word));
+}
+
+function jaccardOverlap(leftWords, rightWords) {
+  const left = new Set(leftWords);
+  const right = new Set(rightWords);
+  if (left.size === 0 || right.size === 0) {
+    return 0;
+  }
+  let intersection = 0;
+  for (const word of left) {
+    if (right.has(word)) {
+      intersection += 1;
+    }
+  }
+  return intersection / new Set([...left, ...right]).size;
+}
+
+function readPairLabelRequests(prompt) {
+  const candidates = [`${prompt ?? ''}`]
+    .concat(`${prompt ?? ''}`.split('\n').map((line) => line.trim()).filter(Boolean).reverse());
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed?.pair_labels)) {
+        return parsed.pair_labels;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function classifyPairLabel(pair) {
+  const leftTitleWords = normalizeWords(pair?.left?.title);
+  const rightTitleWords = normalizeWords(pair?.right?.title);
+  const leftTextWords = normalizeWords(pair?.left?.text);
+  const rightTextWords = normalizeWords(pair?.right?.text);
+  const headlineWords = normalizeWords(pair?.story_headline);
+
+  const titleOverlap = jaccardOverlap(leftTitleWords, rightTitleWords);
+  const textOverlap = jaccardOverlap(leftTextWords, rightTextWords);
+  const headlineLeftOverlap = jaccardOverlap(headlineWords, leftTitleWords);
+  const headlineRightOverlap = jaccardOverlap(headlineWords, rightTitleWords);
+  const strongestOverlap = Math.max(titleOverlap, textOverlap, headlineLeftOverlap, headlineRightOverlap);
+  const identicalTitles =
+    leftTitleWords.length > 0
+    && leftTitleWords.join(' ') === rightTitleWords.join(' ');
+
+  if (identicalTitles || (titleOverlap >= 0.92 && textOverlap >= 0.84)) {
+    return {
+      label: 'duplicate',
+      confidence: 0.97,
+      rationale: 'Deterministic fixture classifier found near-identical title/body overlap.',
+    };
+  }
+
+  if (titleOverlap >= 0.2 || textOverlap >= 0.14 || strongestOverlap >= 0.4) {
+    return {
+      label: 'same_incident',
+      confidence: 0.93,
+      rationale: 'Deterministic fixture classifier found strong shared incident language across the paired reports.',
+    };
+  }
+
+  if (
+    (titleOverlap >= 0.12 || textOverlap >= 0.1 || strongestOverlap >= 0.28)
+    && (headlineLeftOverlap >= 0.12 || headlineRightOverlap >= 0.12)
+  ) {
+    return {
+      label: 'same_developing_episode',
+      confidence: 0.82,
+      rationale: 'Deterministic fixture classifier found limited but still episode-level overlap.',
+    };
+  }
+
+  return {
+    label: 'related_topic_only',
+    confidence: 0.91,
+    rationale: 'Deterministic fixture classifier found topic adjacency without enough shared incident detail.',
+  };
+}
+
+export function buildFixturePairLabelResponse(prompt) {
+  const pairRequests = readPairLabelRequests(prompt);
+  if (!pairRequests) {
+    return null;
+  }
+
+  return {
+    pair_labels: pairRequests.map((pair) => ({
+      pair_id: typeof pair?.pair_id === 'string' ? pair.pair_id : 'fixture-pair',
+      ...classifyPairLabel(pair),
+    })),
+  };
+}
+
 export function buildFixtureAnalysis(prompt) {
   const articleTitle = readTaggedLine(prompt, 'Article title');
   const storyHeadline = readTaggedLine(prompt, 'Story headline');
@@ -110,7 +244,9 @@ const server = createServer(async (req, res) => {
   const body = await readJsonBody(req);
   const model = resolveResponseModel(body);
   const prompt = readMessageText(body?.messages);
-  const content = JSON.stringify(buildFixtureAnalysis(prompt));
+  const content = JSON.stringify(
+    buildFixturePairLabelResponse(prompt) ?? buildFixtureAnalysis(prompt),
+  );
   sendJson(res, 200, {
     id: 'chatcmpl-fixture-analysis',
     object: 'chat.completion',
@@ -170,6 +306,10 @@ export const fixtureAnalysisStubInternal = {
   resolveRequestUrl,
   readJsonBody,
   resolveResponseModel,
+  normalizeWords,
+  jaccardOverlap,
+  readPairLabelRequests,
+  classifyPairLabel,
   closeListeningServer,
   removeShutdownHandler,
 };

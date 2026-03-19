@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   buildFixtureAnalysis,
+  buildFixturePairLabelResponse,
   fixtureAnalysisStubInternal,
   startFixtureAnalysisStub,
   startFixtureAnalysisStubWhenLaunchedDirectly,
@@ -43,7 +44,72 @@ describe('daemon-feed-analysis-stub', () => {
     expect(analysis.biases).toEqual(['Urgency framing']);
   });
 
+  it('builds deterministic pair-label responses for semantic-audit prompts', () => {
+    const response = buildFixturePairLabelResponse(JSON.stringify({
+      pair_labels: [
+        {
+          pair_id: 'pair-same',
+          story_headline: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+          left: {
+            title: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+            text: 'Emergency ceasefire talks began in Geneva after an overnight missile strike hit fuel depots and forced negotiators back to the table.',
+          },
+          right: {
+            title: 'Emergency talks begin in Geneva after missile strike hits fuel depots',
+            text: 'Negotiators returned to Geneva after an overnight missile strike hit fuel depots and triggered emergency ceasefire talks.',
+          },
+        },
+        {
+          pair_id: 'pair-topic-only',
+          story_headline: 'Trump-backed flag-burning crackdown meets legal blowback',
+          left: {
+            title: 'Feds move to dismiss charges against Army veteran who burned American flag near White House',
+            text: 'Federal prosecutors moved to dismiss charges tied to the White House flag-burning case.',
+          },
+          right: {
+            title: 'Trump seeks to replace White House visitor screening center with underground facility',
+            text: 'The White House plans a new visitor screening facility and underground entrance upgrades.',
+          },
+        },
+      ],
+    }));
+
+    expect(response).toEqual({
+      pair_labels: [
+        expect.objectContaining({
+          pair_id: 'pair-same',
+          label: 'same_incident',
+        }),
+        expect.objectContaining({
+          pair_id: 'pair-topic-only',
+          label: 'related_topic_only',
+        }),
+      ],
+    });
+  });
+
   it('covers parsing helpers and server endpoints', async () => {
+    expect(fixtureAnalysisStubInternal.normalizeWords('Geneva talks begin after missile strike'))
+      .toEqual(['geneva', 'talks', 'missile', 'strike']);
+    expect(fixtureAnalysisStubInternal.jaccardOverlap(['alpha', 'beta'], ['beta', 'gamma'])).toBe(1 / 3);
+    expect(fixtureAnalysisStubInternal.readPairLabelRequests('not json')).toBeNull();
+    expect(
+      fixtureAnalysisStubInternal.readPairLabelRequests(
+        'system instructions here\n{"pair_labels":[{"pair_id":"pair-same"}]}',
+      ),
+    ).toEqual([{ pair_id: 'pair-same' }]);
+    expect(fixtureAnalysisStubInternal.classifyPairLabel({
+      story_headline: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+      left: {
+        title: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+        text: 'Emergency ceasefire talks began in Geneva after an overnight missile strike hit fuel depots and forced negotiators back to the table.',
+      },
+      right: {
+        title: 'Emergency talks begin in Geneva after missile strike hits fuel depots',
+        text: 'Negotiators returned to Geneva after an overnight missile strike hit fuel depots and triggered emergency ceasefire talks.',
+      },
+    }).label).toBe('same_incident');
+
     expect(fixtureAnalysisStubInternal.firstSentence('')).toBe('');
     expect(fixtureAnalysisStubInternal.firstSentence(null)).toBe('');
     expect(fixtureAnalysisStubInternal.firstSentence('No punctuation here')).toBe('No punctuation here');
@@ -121,6 +187,35 @@ describe('daemon-feed-analysis-stub', () => {
     const content = payload.choices?.[0]?.message?.content;
     expect(typeof content).toBe('string');
     expect(content).toContain('Emergency ceasefire talks began in Geneva');
+
+    const pairCompletion = await fetch(`${fixtureAnalysisStubInternal.baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'fixture-analysis-stub',
+        messages: [{
+          role: 'user',
+          content: JSON.stringify({
+            pair_labels: [{
+              pair_id: 'pair-same',
+              story_headline: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+              left: {
+                title: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
+                text: 'Emergency ceasefire talks began in Geneva after an overnight missile strike hit fuel depots and forced negotiators back to the table.',
+              },
+              right: {
+                title: 'Emergency talks begin in Geneva after missile strike hits fuel depots',
+                text: 'Negotiators returned to Geneva after an overnight missile strike hit fuel depots and triggered emergency ceasefire talks.',
+              },
+            }],
+          }),
+        }],
+      }),
+    });
+    expect(pairCompletion.status).toBe(200);
+    const pairPayload = await pairCompletion.json();
+    const pairContent = JSON.parse(pairPayload.choices?.[0]?.message?.content ?? '{}');
+    expect(pairContent.pair_labels?.[0]?.label).toBe('same_incident');
   });
 
   it('covers direct-launch startup branch and signal shutdown', async () => {
