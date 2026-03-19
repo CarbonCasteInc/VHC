@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -271,6 +271,22 @@ function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
 }
 
+function writeAtomicTextFile(
+  targetPath,
+  content,
+  {
+    writeFile = writeFileSync,
+    rename = renameSync,
+  } = {},
+) {
+  const tempPath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.tmp-${process.pid}-${Date.now()}`,
+  );
+  writeFile(tempPath, content, 'utf8');
+  rename(tempPath, targetPath);
+}
+
 function findAttachment(primaryResult, name) {
   return primaryResult?.attachments?.find((item) => item?.name === name) ?? null;
 }
@@ -512,6 +528,7 @@ export async function runDaemonFeedSemanticSoak({
   exists = existsSync,
   mkdir = mkdirSync,
   readFile = readFileSync,
+  rename = renameSync,
   writeFile = writeFileSync,
   readdir = readdirSync,
   stat = statSync,
@@ -744,7 +761,11 @@ export async function runDaemonFeedSemanticSoak({
     },
   );
   writeFile(headlineSoakTrendIndexPath, JSON.stringify(headlineSoakTrendIndex, null, 2), 'utf8');
-  writeFile(latestHeadlineSoakTrendIndexPath, JSON.stringify(headlineSoakTrendIndex, null, 2), 'utf8');
+  writeAtomicTextFile(
+    latestHeadlineSoakTrendIndexPath,
+    JSON.stringify(headlineSoakTrendIndex, null, 2),
+    { writeFile, rename },
+  );
   const currentContinuitySnapshot = readExecutionBundleSnapshot(artifactDir, {
     exists,
     readFile,
@@ -791,7 +812,11 @@ export async function runDaemonFeedSemanticSoak({
         },
       );
       writeFile(continuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
-      writeFile(latestContinuityTrendIndexPath, JSON.stringify(continuityTrendIndex, null, 2), 'utf8');
+      writeAtomicTextFile(
+        latestContinuityTrendIndexPath,
+        JSON.stringify(continuityTrendIndex, null, 2),
+        { writeFile, rename },
+      );
     } catch (error) {
       continuityAnalysis = null;
       continuityTrendIndex = null;
