@@ -27,13 +27,153 @@ const PLAYWRIGHT_ARGS = [
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
 const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
-const PUBLIC_SMOKE_SOURCE_IDS = 'guardian-us,cbs-politics,fox-latest,abc-politics,nbc-politics,pbs-politics';
+const PUBLIC_SMOKE_SOURCE_IDS = [
+  'bbc-us-canada',
+  'nbc-politics',
+  'huffpost-us',
+  'guardian-us',
+  'cbs-politics',
+  'bbc-general',
+  'npr-politics',
+  'pbs-politics',
+  'federalist',
+  'abc-politics',
+  'nypost-politics',
+  'fox-latest',
+].join(',');
+const PUBLIC_SMOKE_SOURCE_LIMIT = 8;
 const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
-const PUBLIC_SMOKE_MAX_ITEMS_TOTAL = '24';
 const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../..',
 );
+
+function normalizeSourceIds(value) {
+  return String(value ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry, index, items) => entry.length > 0 && items.indexOf(entry) === index);
+}
+
+function readPublicSmokeSourceHealthReport(
+  repoRoot = DEFAULT_REPO_ROOT,
+  {
+    exists = existsSync,
+    readFile = readFileSync,
+  } = {},
+) {
+  const reportPath = path.join(
+    repoRoot,
+    'services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json',
+  );
+  if (!exists(reportPath)) {
+    return null;
+  }
+
+  try {
+    return readJson(reportPath, readFile);
+  } catch {
+    return null;
+  }
+}
+
+function rankPublicSmokeSourceIdsFromHealthReport(report) {
+  if (!report || typeof report !== 'object') {
+    return [];
+  }
+
+  const keepSourceIds = Array.isArray(report.keepSourceIds)
+    ? report.keepSourceIds.filter((sourceId) => typeof sourceId === 'string' && sourceId.trim().length > 0)
+    : [];
+  if (keepSourceIds.length === 0) {
+    return [];
+  }
+
+  const preferredSourceIds = normalizeSourceIds(PUBLIC_SMOKE_SOURCE_IDS);
+  const keepSourceIdSet = new Set(keepSourceIds);
+  const preferredRanked = preferredSourceIds.filter((sourceId) => keepSourceIdSet.has(sourceId));
+  const preferredRankedSet = new Set(preferredRanked);
+  const originalIndex = new Map(keepSourceIds.map((sourceId, index) => [sourceId, index]));
+  const contributionSources = Array.isArray(report.feedContribution?.sources)
+    ? report.feedContribution.sources
+    : [];
+  const rankedRemainder = contributionSources
+    .filter((source) => (
+      typeof source?.sourceId === 'string'
+      && originalIndex.has(source.sourceId)
+      && !preferredRankedSet.has(source.sourceId)
+    ))
+    .map((source) => ({
+      sourceId: source.sourceId,
+      corroboratedBundleCount:
+        Number.isFinite(source.corroboratedBundleCount) ? source.corroboratedBundleCount : 0,
+      bundleAppearanceCount:
+        Number.isFinite(source.bundleAppearanceCount) ? source.bundleAppearanceCount : 0,
+      ingestedItemCount:
+        Number.isFinite(source.ingestedItemCount) ? source.ingestedItemCount : 0,
+      originalOrder: originalIndex.get(source.sourceId) ?? Number.MAX_SAFE_INTEGER,
+    }))
+    .sort((left, right) => (
+      right.corroboratedBundleCount - left.corroboratedBundleCount
+      || right.bundleAppearanceCount - left.bundleAppearanceCount
+      || right.ingestedItemCount - left.ingestedItemCount
+      || left.originalOrder - right.originalOrder
+    ))
+    .map((source) => source.sourceId);
+
+  const rankedSet = new Set([...preferredRanked, ...rankedRemainder]);
+  return [
+    ...preferredRanked,
+    ...rankedRemainder,
+    ...keepSourceIds.filter((sourceId) => !rankedSet.has(sourceId)),
+  ];
+}
+
+export function resolvePublicSemanticSoakSourceIds(
+  env = process.env,
+  {
+    repoRoot = DEFAULT_REPO_ROOT,
+    exists = existsSync,
+    readFile = readFileSync,
+  } = {},
+) {
+  const explicitSourceIds = normalizeSourceIds(env.VH_LIVE_DEV_FEED_SOURCE_IDS);
+  if (explicitSourceIds.length > 0) {
+    return explicitSourceIds;
+  }
+  const sourceLimit = readPositiveInt(
+    'VH_DAEMON_FEED_PUBLIC_SMOKE_SOURCE_LIMIT',
+    PUBLIC_SMOKE_SOURCE_LIMIT,
+    env,
+  );
+
+  const sourceIdsFromHealthReport = rankPublicSmokeSourceIdsFromHealthReport(
+    readPublicSmokeSourceHealthReport(repoRoot, { exists, readFile }),
+  );
+  if (sourceIdsFromHealthReport.length > 0) {
+    return sourceIdsFromHealthReport.slice(0, sourceLimit);
+  }
+
+  return normalizeSourceIds(PUBLIC_SMOKE_SOURCE_IDS).slice(0, sourceLimit);
+}
+
+export function resolvePublicSemanticSoakMaxItemsTotal(
+  env = process.env,
+  sourceIds = resolvePublicSemanticSoakSourceIds(env),
+) {
+  const explicitTotal = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim();
+  if (explicitTotal) {
+    return explicitTotal;
+  }
+
+  const perSource = Number.parseInt(
+    env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim() || PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE,
+    10,
+  );
+  const normalizedPerSource = Number.isFinite(perSource) && perSource > 0 ? perSource : 4;
+  const sourceCount = Array.isArray(sourceIds) ? sourceIds.length : normalizeSourceIds(sourceIds).length;
+  return String(Math.max(sourceCount, 1) * normalizedPerSource);
+}
 
 export function readPositiveInt(name, fallback, env = process.env) {
   const raw = env[name]?.trim();
@@ -223,7 +363,17 @@ export function artifactRootFromEnv(env = process.env, repoRoot = DEFAULT_REPO_R
   return path.join(repoRoot, '.tmp', 'daemon-feed-semantic-soak', String(Date.now()));
 }
 
-export function resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs) {
+export function resolvePublicSemanticSoakSpawnEnv(
+  env,
+  runId,
+  sampleCount,
+  sampleTimeoutMs,
+  {
+    repoRoot = DEFAULT_REPO_ROOT,
+    exists = existsSync,
+    readFile = readFileSync,
+  } = {},
+) {
   const nextEnv = {
     ...env,
     VH_RUN_DAEMON_FIRST_FEED: 'true',
@@ -236,12 +386,20 @@ export function resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampl
     return nextEnv;
   }
 
-  nextEnv.VH_LIVE_DEV_FEED_SOURCE_IDS = env.VH_LIVE_DEV_FEED_SOURCE_IDS?.trim()
-    || PUBLIC_SMOKE_SOURCE_IDS;
+  const sourceIds = resolvePublicSemanticSoakSourceIds(env, {
+    repoRoot,
+    exists,
+    readFile,
+  });
+  nextEnv.VH_LIVE_DEV_FEED_SOURCE_IDS = sourceIds.join(',');
   nextEnv.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE = env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim()
     || PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE;
-  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_TOTAL = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim()
-    || PUBLIC_SMOKE_MAX_ITEMS_TOTAL;
+  nextEnv.VH_DAEMON_FEED_MAX_ITEMS_TOTAL = resolvePublicSemanticSoakMaxItemsTotal(
+    env,
+    sourceIds,
+  );
+  nextEnv.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES = env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES?.trim()
+    || '1';
 
   return nextEnv;
 }

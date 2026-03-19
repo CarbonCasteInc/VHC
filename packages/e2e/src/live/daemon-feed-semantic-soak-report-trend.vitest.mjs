@@ -316,8 +316,6 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       summary: {
         generatedAt: '2026-03-18T00:00:00.000Z',
         strictSoakPass: false,
-        readinessStatus: 'not_ready',
-        promotionBlockingReasons: ['insufficient_run_count'],
         runCount: 3,
         passCount: 1,
         failCount: 2,
@@ -330,6 +328,14 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         totalSingletonBundles: 2,
       },
       trend: {
+        promotionAssessment: {
+          status: 'not_ready',
+          blockingReasons: [
+            'insufficient_run_count',
+            'pass_rate_below_threshold',
+            'supply_failures_present',
+          ],
+        },
         density: {
           averageSampleFillRate: 0.5,
           averageAuditedPairsPerSampledStory: 1.25,
@@ -360,8 +366,6 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       summary: {
         generatedAt: '2026-03-19T00:00:00.000Z',
         strictSoakPass: true,
-        readinessStatus: 'promotable',
-        promotionBlockingReasons: [],
         runCount: 5,
         passCount: 5,
         failCount: 0,
@@ -374,6 +378,10 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         totalSingletonBundles: 4,
       },
       trend: {
+        promotionAssessment: {
+          status: 'promotable',
+          blockingReasons: [],
+        },
         density: {
           averageSampleFillRate: 1,
           averageAuditedPairsPerSampledStory: 1.5,
@@ -455,14 +463,43 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       summary: {
         runCount: 4,
         passCount: 1,
+        strictSoakPass: false,
       },
-      trend: {},
+      trend: {
+        promotionAssessment: {
+          blockingReasons: ['insufficient_run_count'],
+        },
+      },
       index: {},
     })).toMatchObject({
       artifactDir: '/tmp/artifacts/300',
       runCount: 4,
       passCount: 1,
       failCount: 3,
+      readinessStatus: 'not_ready',
+      promotionBlockingReasons: ['strict_soak_fail'],
+    });
+  });
+
+  it('treats single healthy executions as promotable even before the five-run lane threshold is met', () => {
+    expect(buildHeadlineSoakExecutionSummary({
+      artifactDir: '/tmp/artifacts/400',
+      summary: {
+        strictSoakPass: true,
+        runCount: 1,
+        passCount: 1,
+        failCount: 0,
+      },
+      trend: {
+        promotionAssessment: {
+          status: 'not_ready',
+          blockingReasons: ['insufficient_run_count'],
+        },
+      },
+      index: {},
+    })).toMatchObject({
+      readinessStatus: 'promotable',
+      promotionBlockingReasons: [],
     });
   });
 

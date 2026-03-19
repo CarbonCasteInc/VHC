@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   buildPublicSemanticSoakSecondaryTelemetry,
   buildStoryClusterCorrectnessGate,
@@ -9,6 +10,12 @@ import {
 
 export const PUBLIC_SEMANTIC_SOAK_DECISION_SCHEMA_VERSION =
   'daemon-feed-semantic-soak-promotion-decision-v2';
+const DEFAULT_REPO_ROOT = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../..',
+);
+const DEFAULT_ARTIFACT_ROOT = path.join(DEFAULT_REPO_ROOT, '.tmp', 'daemon-feed-semantic-soak');
+const LEGACY_ARTIFACT_ROOT = path.join(DEFAULT_REPO_ROOT, 'packages/e2e/.tmp/daemon-feed-semantic-soak');
 
 function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
@@ -46,7 +53,7 @@ export function buildPromotionDecision({
     authoritativeCorrectnessGate:
       summary?.authoritativeCorrectnessGate
       ?? index?.authoritativeCorrectnessGate
-      ?? buildStoryClusterCorrectnessGate(process.cwd()),
+      ?? buildStoryClusterCorrectnessGate(DEFAULT_REPO_ROOT),
     secondaryDistributionTelemetry:
       summary?.secondaryDistributionTelemetry
       ?? index?.secondaryDistributionTelemetry
@@ -75,7 +82,8 @@ export function loadPromotionDecisionArtifacts({
   readdir = readdirSync,
   stat = statSync,
 } = {}) {
-  const resolvedRoot = artifactRoot ?? path.join(process.cwd(), '.tmp', 'daemon-feed-semantic-soak');
+  const resolvedRoot = artifactRoot
+    ?? (exists(DEFAULT_ARTIFACT_ROOT) ? DEFAULT_ARTIFACT_ROOT : LEGACY_ARTIFACT_ROOT);
   const resolvedDir = artifactDir ?? findLatestArtifactDir(resolvedRoot, readdir, stat);
   if (!resolvedDir) {
     throw new Error(`no semantic-soak artifact directory found under ${resolvedRoot}`);

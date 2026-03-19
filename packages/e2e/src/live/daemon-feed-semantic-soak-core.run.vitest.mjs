@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  resolvePublicSemanticSoakSourceIds,
   resolvePublicSemanticSoakSpawnEnv,
   runDaemonFeedSemanticSoak,
 } from './daemon-feed-semantic-soak-core.mjs';
@@ -38,18 +39,38 @@ function makeReport(overrides = {}) {
 }
 
 describe('runDaemonFeedSemanticSoak', () => {
-  it('injects the smoke-only public source profile and limits when unset', () => {
-    const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000);
+  it('injects the ranked keep-source profile and scaled limits when unset', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000, {
+      repoRoot: '/repo',
+      exists: (filePath) => filePath === '/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json',
+      readFile: () => JSON.stringify({
+        keepSourceIds: [
+          'fox-latest',
+          'guardian-us',
+          'cbs-politics',
+          'bbc-us-canada',
+        ],
+        feedContribution: {
+          sources: [
+            { sourceId: 'guardian-us', corroboratedBundleCount: 7, bundleAppearanceCount: 12, ingestedItemCount: 33 },
+            { sourceId: 'bbc-us-canada', corroboratedBundleCount: 10, bundleAppearanceCount: 18, ingestedItemCount: 23 },
+            { sourceId: 'fox-latest', corroboratedBundleCount: 2, bundleAppearanceCount: 7, ingestedItemCount: 25 },
+            { sourceId: 'cbs-politics', corroboratedBundleCount: 6, bundleAppearanceCount: 9, ingestedItemCount: 30 },
+          ],
+        },
+      }),
+    });
 
     expect(env.VH_RUN_DAEMON_FIRST_FEED).toBe('true');
     expect(env.VH_DAEMON_FEED_RUN_ID).toBe('run-1');
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT).toBe('4');
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS).toBe('180000');
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
-      'guardian-us,cbs-politics,fox-latest,abc-politics,nbc-politics,pbs-politics',
+      'bbc-us-canada,guardian-us,cbs-politics,fox-latest',
     );
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('24');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('16');
+    expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
   });
 
   it('preserves explicit feed source and limit overrides', () => {
@@ -62,6 +83,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('guardian-us,fox-latest');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('2');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('8');
+    expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
   });
 
   it('does not inject smoke-only source defaults for fixture runs', () => {
@@ -72,6 +94,23 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBeUndefined();
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBeUndefined();
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBeUndefined();
+  });
+
+  it('falls back to the full admitted default source surface when no health artifact exists', () => {
+    expect(resolvePublicSemanticSoakSourceIds({}, {
+      repoRoot: '/repo',
+      exists: () => false,
+      readFile: () => '',
+    })).toEqual([
+      'bbc-us-canada',
+      'nbc-politics',
+      'huffpost-us',
+      'guardian-us',
+      'cbs-politics',
+      'bbc-general',
+      'npr-politics',
+      'pbs-politics',
+    ]);
   });
 
   it('injects the run id and persists summary, trend, and artifact index', async () => {

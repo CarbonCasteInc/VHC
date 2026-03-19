@@ -73,6 +73,10 @@ export const PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA = Object.freeze({
   minimumAverageCorroboratedBundleRate: 0.5,
   minimumAverageUniqueSourceCount: 2,
 });
+const HEADLINE_SOAK_SINGLE_EXECUTION_IGNORED_BLOCKERS = new Set([
+  'insufficient_run_count',
+  'pass_rate_below_threshold',
+]);
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
@@ -399,6 +403,23 @@ export function buildHeadlineSoakExecutionSummary({
   trend,
   index,
 }) {
+  const strictSoakPass = summary?.strictSoakPass === true;
+  const executionBlockingReasons = [
+    ...(
+      trend?.promotionAssessment?.blockingReasons
+      ?? summary?.promotionBlockingReasons
+      ?? index?.promotionAssessment?.blockingReasons
+      ?? []
+    ),
+  ]
+    .filter((reason) => !HEADLINE_SOAK_SINGLE_EXECUTION_IGNORED_BLOCKERS.has(reason))
+    .filter((reason, position, reasons) => reasons.indexOf(reason) === position);
+  if (!strictSoakPass && executionBlockingReasons.length === 0) {
+    executionBlockingReasons.push('strict_soak_fail');
+  }
+  const executionReadinessStatus = executionBlockingReasons.length === 0
+    ? 'promotable'
+    : 'not_ready';
   const runCount = summary?.runCount ?? trend?.totalRuns ?? 0;
   const passCount = summary?.passCount ?? trend?.classifications?.pass ?? 0;
   const failCount = summary?.failCount ?? (
@@ -410,17 +431,9 @@ export function buildHeadlineSoakExecutionSummary({
   return {
     artifactDir,
     generatedAt: summary?.generatedAt ?? trend?.generatedAt ?? index?.generatedAt ?? null,
-    strictSoakPass: summary?.strictSoakPass === true,
-    readinessStatus:
-      summary?.readinessStatus
-      ?? trend?.promotionAssessment?.status
-      ?? index?.promotionAssessment?.status
-      ?? 'not_ready',
-    promotionBlockingReasons:
-      summary?.promotionBlockingReasons
-      ?? trend?.promotionAssessment?.blockingReasons
-      ?? index?.promotionAssessment?.blockingReasons
-      ?? [],
+    strictSoakPass,
+    readinessStatus: executionReadinessStatus,
+    promotionBlockingReasons: executionBlockingReasons,
     runCount,
     passCount,
     failCount,
