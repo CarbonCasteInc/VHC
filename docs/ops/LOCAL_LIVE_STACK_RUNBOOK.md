@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-17
+> Last Reviewed: 2026-03-20
 > Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/CANON_MAP.md
 
 
@@ -205,6 +205,9 @@ When reviewing StoryCluster release evidence:
 - Logs:
   - web: `/tmp/vh-local-web.log`
   - relay: `/tmp/vh-local-relay.log`
+  - daemon: `/tmp/vh-local-news-daemon.log`
+  - StoryCluster: `/tmp/vh-local-storycluster.log`
+  - fixture feed: `/tmp/vh-local-fixture-feed.log`
 - `pnpm live:stack:up` is the canonical manual browser path and defaults to fixture-backed bundled-headlines mode.
 - `tools/scripts/manual-dev.sh` is now a compatibility wrapper around the same canonical stack launcher.
 - The launcher script is:

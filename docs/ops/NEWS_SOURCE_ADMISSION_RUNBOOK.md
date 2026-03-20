@@ -51,6 +51,7 @@ Before adding a source to the production-ready surface:
    - representative article URLs are fetchable without paywall or routine access denial.
 3. Readable extraction:
    - article text clears the current extraction-quality bar implemented in `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/articleTextService.ts`.
+   - feed-carried video/watch entries do not consume readability-sampling slots; the admission pass should keep scanning until it finds the required number of non-video article candidates or exhausts the feed.
 4. Runtime compatibility:
    - the source can participate in the daemon-first feed path without destabilizing release gates.
 5. Evidence:
@@ -100,7 +101,7 @@ Use this workflow whenever the source surface changes:
 9. confirm the latest scout artifact is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`;
 10. confirm the daemon starter surface remains the authoritative keep/watch/remove enforcement path and that web/server runtime surfaces can autoload the latest health artifact through `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/server/newsSourceHealthEnv.ts` and `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/newsRuntimeBootstrap.ts`;
 11. run the blocking StoryCluster correctness and daemon-first browser gates;
-12. run `pnpm report:storycluster:production-readiness` before a production-readiness claim and confirm the combined decision still resolves to `release_ready`;
+12. run `pnpm check:storycluster:production-readiness` before a production-readiness claim and confirm the combined decision resolves to `release_ready`;
 13. record source-level evidence in the PR summary or lane note, including:
    - admission/health commands run;
    - scout command/report used;
@@ -118,7 +119,7 @@ Source-surface changes should keep these in the loop:
 3. `pnpm scout:news-sources:candidates`
 4. `pnpm test:storycluster:correctness`
 5. `pnpm test:storycluster:gates`
-6. `pnpm report:storycluster:production-readiness` before a production-readiness claim
+6. `pnpm check:storycluster:production-readiness` before a production-readiness claim
 
 Public smoke remains supplementary telemetry:
 
@@ -144,12 +145,14 @@ Operational artifact expectations:
 4. `pnpm scout:news-sources:candidates` must publish a stable latest scout artifact at:
    - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`
    - operators should review:
+     - `runAssessment.globalFeedStageFailure`
      - `promotableCandidateIds`
      - `topPromotableCandidateId`
-     - per-candidate `admissionStatus`
-     - per-candidate `decision`
+     - per-candidate `candidateOnlyStatus`
+     - per-candidate `candidateDecision`
      - per-candidate `contributionStatus`
      - per-candidate blocking reasons
+   - when `runAssessment.globalFeedStageFailure` is `true`, treat the timestamped run as scout infrastructure noise and do not interpret it as candidate-quality deterioration
 5. use the trend index for operator review before opening raw run artifacts:
    - compare `releaseEvidence.status`
    - compare `releaseEvidence.reasons`
