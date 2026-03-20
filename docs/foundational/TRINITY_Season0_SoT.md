@@ -2,14 +2,14 @@
 
 > Status: Season Scope Contract
 > Owner: VHC Product + Architecture
-> Last Reviewed: 2026-03-16
+> Last Reviewed: 2026-03-20
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/System_Architecture.md
 
 
 **Purpose:** one **single tree** that gives **frontend + backend** devs the full picture (UX surfaces + contracts + privacy boundaries + gates).
 **Stance:** **Design & build for Synthesis V2**. Anything labeled V1 is **legacy/compat only**.
 **Legend:** ✅ Implemented · 🟡 Partial · 🔴 Stubbed · ⚪ Planned
-**Last updated:** 2026-03-16
+**Last updated:** 2026-03-20
 
 > Implementation-truth note: this document is season scope and target framing, not the current implementation ledger. For actual merged state and drift notes, use `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`.
 
@@ -54,7 +54,7 @@
     - **App Shell / Navigation** ✅ - UX: stable app frame; boot/hydrate before high-impact actions
     - **Unified Topics Feed** 🟡 - UX: one stream; filter chips: All / News / Topics / Social / Articles; sort: Latest / Hottest / My Activity
       - **TopicCard (shared)** 🟡 - UX: headline/title + category tags + 👁 Eye + 💡 Lightbulb + comment count
-      - **NewsCard (clustered story)** 🟡 - UX: **one headline = one story** when readable reporting exists; single-source stories are allowed, and later outlet coverage should accumulate into the same story when it is the same incident or developing episode; tap opens TopicDetail
+      - **NewsCard (clustered story)** 🟡 - UX: **one headline = one story** when readable reporting exists; single-source stories are allowed, and later outlet coverage should accumulate into the same story when it is the same incident or developing episode; tap expands/flips inline into the story view inside the feed context
       - **TopicCard (user topic/thread)** 🟡 - UX: looks like news once discussion is rich enough (summary + frames + thread)
       - **SocialNotificationCard** 🟡 - UX: platform badge; tap expands to embedded platform view; swipe-left returns & dismisses card (real-data rendering landed Wave 2 Gamma P3)
       - **ArticleFeedCard** 🟡 - UX: docs-backed longform in the same discovery stream
@@ -167,12 +167,12 @@
 
   - **Implementation reality check (what exists today vs target)** 🟡
     - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
-    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; source-admission/health evidence, runtime keep/watch/remove enforcement, and source-health artifact autoload are in force; public semantic soak is still smoke-only; distribution-ready source breadth and source-program convergence remain the active blocker
+    - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; source-admission/health evidence, runtime keep/watch/remove enforcement, source-scouting, and source-health artifact autoload are in force; public semantic soak is still smoke-only; live public headline-soak density and broader overlap-ready source breadth remain the active blocker
     - **Discovery feed / storyline UX** 🟡 - storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)
     - **HERMES Docs** 🟡 — foundation + CollabEditor wired into ArticleEditor (flag-gated; Wave 2 Beta + Wave 3)  
-    - **Bridge / Civic Action Kit** 🟡 — 5-component UI, trust/XP/budget enforcement, receipt-in-feed (Wave 2 Gamma + Wave 3 CAK)
+    - **Bridge / Civic Action Kit** 🟡 — 5-component UI, trust/XP/budget enforcement, and local receipt capture are real; unified feed receipt publication remains partial (Wave 2 Gamma + Wave 3 CAK)
     - **LUMA** 🟡 - Wave 4 hardened: trust constants consolidated, session lifecycle (expiry/revocation), constituency proof verification (flag-gated). TEE/VIO/sybil still stubbed (Season 0 §9.2 deferred)
     - **GWC contracts** 🟡 - contracts implemented; public testnet deploy incomplete; Season 0 UX should remain XP-first
 

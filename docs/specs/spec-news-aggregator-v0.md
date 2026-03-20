@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-16
+> Last Reviewed: 2026-03-20
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.3
+Version: 0.4
 Status: Canonical for Season 0
 Context: RSS ingest, normalization, clustering, and story bundle publication.
 
@@ -34,7 +34,15 @@ Season 0 production-readiness contract:
 1. StoryCluster correctness must pass through the deterministic corpus/replay gate plus the daemon-first semantic gate;
 2. source-health release evidence must remain fresh and pass over the recent run window;
 3. headline-soak release evidence must remain fresh and pass over the recent run window;
-4. the combined release-decision artifact at `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json` must resolve to `release_ready` before a production-readiness claim.
+4. headline-soak release evidence currently passes the recent run window only when all of these are true:
+   - at least 4 recent executions are present;
+   - at least 2 recent executions are promotable;
+   - at most 1 recent execution is `not_ready`;
+   - average corroborated bundle rate is at least `0.5`;
+   - average unique visible source count is at least `2`;
+5. the combined release-decision artifact at `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json` must resolve to `release_ready` before a production-readiness claim.
+
+Changing the headline-soak release thresholds requires a spec update and a matching implementation change in `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-semantic-soak-report.mjs`.
 
 ## 2. Inputs and ingest
 
@@ -129,7 +137,7 @@ Canonical publication contract:
 - adding later sources must not churn the existing `story_id`.
 
 `created_at` contract:
-- `created_at` is the first-seen publish timestamp for a `story_id` and MUST remain immutable after initial publish.
+- `created_at` is the initial publish timestamp for a `story_id`; when the earliest source publish time is available it should seed this value, otherwise the initial cluster publish time may seed it; it MUST remain immutable after initial publish.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
@@ -137,14 +145,15 @@ PR0 identity wiring freeze:
 
 ## 4. Provenance requirements
 
-Every story must preserve source-level provenance:
+Every story must preserve source-level provenance for the canonical event-bundle projection:
 
 - publisher and source ID
 - canonical URL and URL hash
 - publication time when available
 - deterministic provenance hash over sorted source list
 
-No source URLs should be dropped from provenance if used in clustering/synthesis.
+No source URLs should be dropped from canonical event-bundle provenance if they remain part of published `StoryBundle.sources`, `primary_sources`, or `secondary_assets`.
+Related-coverage sources may be projected separately through `StorylineGroup` and do not need to widen canonical `StoryBundle` provenance.
 Canonical event-bundle publication must remain strict even when related coverage is grouped elsewhere.
 
 ## 5. Mesh/storage paths
