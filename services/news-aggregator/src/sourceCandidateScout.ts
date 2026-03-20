@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { STARTER_FEED_SOURCES, type FeedSource } from '@vh/ai-engine';
@@ -67,6 +67,11 @@ export interface SourceCandidateScoutReport {
     | 'prepare_promotion_pr'
     | 'review_ranked_results';
   readonly topPromotableCandidateId: string | null;
+  readonly runAssessment: {
+    readonly globalFeedStageFailure: boolean;
+    readonly latestPublicationAction: 'publish_latest' | 'preserve_previous_latest';
+    readonly latestPublicationSkipReason: 'all_candidates_failed_at_feed_stage' | null;
+  };
   readonly candidates: readonly SourceCandidateScoutCandidateResult[];
   readonly paths: {
     readonly artifactDir: string;
@@ -75,6 +80,17 @@ export interface SourceCandidateScoutReport {
     readonly latestReportPath: string;
   };
 }
+
+const FEED_STAGE_BLOCKING_REASONS = new Set([
+  'feed_links_unavailable',
+  'feed_http_error',
+  'feed_fetch_error',
+  'feed_fetch_timeout',
+  'feed_non_xml_payload',
+  'feed_empty_payload',
+  'feed_parse_no_entries',
+  'feed_parse_no_links',
+]);
 
 type ScoutFetch = NonNullable<SourceCandidateScoutOptions['fetchFn']>;
 type ScoutFetchInput = Parameters<ScoutFetch>[0];
@@ -240,6 +256,27 @@ function compareCandidateResults(
   );
 }
 
+function isFeedStageFailureCandidate(
+  candidate: SourceCandidateScoutCandidateResult,
+): boolean {
+  return (
+    candidate.candidateDecision === null
+    && candidate.surfaceReadinessStatus === null
+    && candidate.candidateOnlyReasons.some((reason) => FEED_STAGE_BLOCKING_REASONS.has(reason))
+  );
+}
+
+function shouldPreservePreviousLatestReport(
+  candidates: readonly SourceCandidateScoutCandidateResult[],
+  latestReportPath: string,
+): boolean {
+  return (
+    candidates.length > 0
+    && existsSync(latestReportPath)
+    && candidates.every(isFeedStageFailureCandidate)
+  );
+}
+
 async function evaluateSourceCandidate(
   source: FeedSource,
   options: SourceCandidateScoutOptions,
@@ -367,6 +404,24 @@ export async function buildSourceCandidateScoutReport(
         ? 'prepare_promotion_pr'
         : 'review_ranked_results',
     topPromotableCandidateId: promotableCandidateIds[0] ?? null,
+    runAssessment: {
+      globalFeedStageFailure: shouldPreservePreviousLatestReport(
+        sortedCandidates,
+        path.join(latestArtifactDir, 'source-candidate-scout-report.json'),
+      ),
+      latestPublicationAction: shouldPreservePreviousLatestReport(
+        sortedCandidates,
+        path.join(latestArtifactDir, 'source-candidate-scout-report.json'),
+      )
+        ? 'preserve_previous_latest'
+        : 'publish_latest',
+      latestPublicationSkipReason: shouldPreservePreviousLatestReport(
+        sortedCandidates,
+        path.join(latestArtifactDir, 'source-candidate-scout-report.json'),
+      )
+        ? 'all_candidates_failed_at_feed_stage'
+        : null,
+    },
     candidates: sortedCandidates,
     paths: {
       artifactDir,
@@ -382,7 +437,9 @@ export async function writeSourceCandidateScoutReport(
 ): Promise<SourceCandidateScoutReport> {
   const report = await buildSourceCandidateScoutReport(options);
   writeFileSync(report.paths.reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  writeFileSync(report.paths.latestReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  if (report.runAssessment.latestPublicationAction === 'publish_latest') {
+    writeFileSync(report.paths.latestReportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  }
   return report;
 }
 
@@ -404,6 +461,7 @@ async function main(): Promise<void> {
     candidateCount: report.candidateCount,
     promotableCandidateIds: report.promotableCandidateIds,
     recommendedAction: report.recommendedAction,
+    runAssessment: report.runAssessment,
     topCandidates: report.candidates.slice(0, 5).map((candidate) => ({
       sourceId: candidate.sourceId,
       promotable: candidate.promotable,
@@ -424,9 +482,11 @@ if (isDirectExecution()) {
 export const sourceCandidateScoutInternal = {
   buildBlockingReasons,
   compareCandidateResults,
+  isFeedStageFailureCandidate,
   parseCandidateIds,
   parsePositiveInt,
   resolveCandidateFeedSources,
   resolveScoutRecommendedAction,
+  shouldPreservePreviousLatestReport,
   wrapFetchWithTimeout,
 };

@@ -43,6 +43,28 @@ export interface SourceAdmissionSampleResult {
   readonly retryable?: boolean;
 }
 
+export type SourceAdmissionFeedReadErrorCode =
+  | 'feed_http_error'
+  | 'feed_fetch_error'
+  | 'feed_fetch_timeout'
+  | 'feed_non_xml_payload'
+  | 'feed_empty_payload'
+  | null;
+
+export interface SourceAdmissionFeedReadDiagnostics {
+  readonly ok: boolean;
+  readonly httpStatus: number | null;
+  readonly contentType: string | null;
+  readonly bodyLength: number | null;
+  readonly payloadKind: 'xml' | 'non_xml' | 'empty' | 'unavailable';
+  readonly errorCode: SourceAdmissionFeedReadErrorCode;
+  readonly errorMessage: string | null;
+  readonly attemptCount: number;
+  readonly itemFragmentCount: number;
+  readonly entryFragmentCount: number;
+  readonly extractedLinkCount: number;
+}
+
 export interface SourceAdmissionSourceReport {
   readonly sourceId: string;
   readonly sourceName: string;
@@ -56,6 +78,7 @@ export interface SourceAdmissionSourceReport {
   readonly sampledUrls: readonly string[];
   readonly samples: readonly SourceAdmissionSampleResult[];
   readonly lifecycle: readonly SourceLifecycleState[];
+  readonly feedRead: SourceAdmissionFeedReadDiagnostics;
 }
 
 export interface SourceAdmissionReport {
@@ -76,6 +99,8 @@ export interface SourceAdmissionAuditOptions {
   readonly minimumSuccessRate?: number;
   readonly fetchFn?: typeof fetch;
   readonly now?: () => number;
+  readonly feedReadAttemptCount?: number;
+  readonly feedReadRetryDelayMs?: number;
   readonly articleTextServiceOptions?: Omit<
     ArticleTextServiceOptions,
     'allowlist' | 'fetchFn' | 'lifecycle' | 'now'
@@ -86,6 +111,12 @@ export interface SourceAdmissionArtifactOptions extends SourceAdmissionAuditOpti
   readonly artifactDir?: string;
   readonly cwd?: string;
   readonly env?: Record<string, string | undefined>;
+}
+
+interface FeedLinkParseResult {
+  readonly links: readonly string[];
+  readonly itemFragmentCount: number;
+  readonly entryFragmentCount: number;
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -230,11 +261,10 @@ function extractLink(xmlFragment: string): string | undefined {
   return textLink?.trim();
 }
 
-export function parseFeedLinks(xml: string, sampleSize: number): string[] {
-  const fragments = [
-    ...Array.from(xml.matchAll(RSS_ITEM_REGEX), (match) => match[0]),
-    ...Array.from(xml.matchAll(ATOM_ENTRY_REGEX), (match) => match[0]),
-  ];
+function parseFeedLinksDetailed(xml: string, sampleSize: number): FeedLinkParseResult {
+  const rssFragments = Array.from(xml.matchAll(RSS_ITEM_REGEX), (match) => match[0]);
+  const atomFragments = Array.from(xml.matchAll(ATOM_ENTRY_REGEX), (match) => match[0]);
+  const fragments = [...rssFragments, ...atomFragments];
 
   const links: string[] = [];
   const seen = new Set<string>();
@@ -254,22 +284,177 @@ export function parseFeedLinks(xml: string, sampleSize: number): string[] {
     }
   }
 
-  return links;
+  return {
+    links,
+    itemFragmentCount: rssFragments.length,
+    entryFragmentCount: atomFragments.length,
+  };
+}
+
+export function parseFeedLinks(xml: string, sampleSize: number): string[] {
+  return [...parseFeedLinksDetailed(xml, sampleSize).links];
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function isLikelyXmlPayload(
+  contentType: string | null,
+  body: string,
+): boolean {
+  const normalizedType = contentType?.toLowerCase() ?? '';
+  if (
+    normalizedType.includes('xml')
+    || normalizedType.includes('rss')
+    || normalizedType.includes('atom')
+  ) {
+    return true;
+  }
+
+  const trimmed = body.trimStart().toLowerCase();
+  return (
+    trimmed.startsWith('<?xml')
+    || trimmed.startsWith('<rss')
+    || trimmed.startsWith('<feed')
+    || trimmed.startsWith('<rdf:rdf')
+  );
+}
+
+function classifyFeedReadError(error: unknown): {
+  readonly errorCode: Exclude<SourceAdmissionFeedReadErrorCode, 'feed_http_error' | null>;
+  readonly errorMessage: string;
+} {
+  if (error instanceof Error) {
+    const normalizedMessage = error.message.toLowerCase();
+    if (error.name === 'AbortError' || normalizedMessage.includes('abort')) {
+      return {
+        errorCode: 'feed_fetch_timeout',
+        errorMessage: error.message,
+      };
+    }
+
+    return {
+      errorCode: 'feed_fetch_error',
+      errorMessage: error.message,
+    };
+  }
+
+  return {
+    errorCode: 'feed_fetch_error',
+    errorMessage: 'Unexpected feed fetch failure',
+  };
 }
 
 async function readFeedXml(
   fetchFn: typeof fetch,
   source: FeedSource,
-): Promise<string | null> {
-  try {
-    const response = await fetchFn(source.rssUrl);
-    if (!response.ok) {
-      return null;
+  options: Pick<SourceAdmissionAuditOptions, 'feedReadAttemptCount' | 'feedReadRetryDelayMs'> = {},
+): Promise<{
+  readonly xml: string | null;
+  readonly diagnostics: Omit<
+    SourceAdmissionFeedReadDiagnostics,
+    'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
+  >;
+}> {
+  const attemptCount = Math.max(1, options.feedReadAttemptCount ?? 2);
+  const retryDelayMs = Math.max(0, options.feedReadRetryDelayMs ?? 250);
+
+  let lastDiagnostics: Omit<
+    SourceAdmissionFeedReadDiagnostics,
+    'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
+  > = {
+    ok: false,
+    httpStatus: null,
+    contentType: null,
+    bodyLength: null,
+    payloadKind: 'unavailable',
+    errorCode: 'feed_fetch_error',
+    errorMessage: 'Feed fetch did not complete',
+    attemptCount: 0,
+  };
+
+  for (let attempt = 1; attempt <= attemptCount; attempt += 1) {
+    try {
+      const response = await fetchFn(source.rssUrl);
+      const contentType = response.headers.get('content-type');
+      if (!response.ok) {
+        lastDiagnostics = {
+          ok: false,
+          httpStatus: response.status,
+          contentType,
+          bodyLength: null,
+          payloadKind: 'unavailable',
+          errorCode: 'feed_http_error',
+          errorMessage: `Feed request failed with status ${response.status}`,
+          attemptCount: attempt,
+        };
+      } else {
+        const body = await response.text();
+        const bodyLength = body.length;
+        if (body.trim().length === 0) {
+          lastDiagnostics = {
+            ok: false,
+            httpStatus: response.status,
+            contentType,
+            bodyLength,
+            payloadKind: 'empty',
+            errorCode: 'feed_empty_payload',
+            errorMessage: 'Feed response body was empty',
+            attemptCount: attempt,
+          };
+        } else if (!isLikelyXmlPayload(contentType, body)) {
+          lastDiagnostics = {
+            ok: false,
+            httpStatus: response.status,
+            contentType,
+            bodyLength,
+            payloadKind: 'non_xml',
+            errorCode: 'feed_non_xml_payload',
+            errorMessage: 'Feed response was not parseable XML',
+            attemptCount: attempt,
+          };
+        } else {
+          return {
+            xml: body,
+            diagnostics: {
+              ok: true,
+              httpStatus: response.status,
+              contentType,
+              bodyLength,
+              payloadKind: 'xml',
+              errorCode: null,
+              errorMessage: null,
+              attemptCount: attempt,
+            },
+          };
+        }
+      }
+    } catch (error) {
+      const classified = classifyFeedReadError(error);
+      lastDiagnostics = {
+        ok: false,
+        httpStatus: null,
+        contentType: null,
+        bodyLength: null,
+        payloadKind: 'unavailable',
+        errorCode: classified.errorCode,
+        errorMessage: classified.errorMessage,
+        attemptCount: attempt,
+      };
     }
-    return await response.text();
-  } catch {
-    return null;
+
+    if (attempt < attemptCount && retryDelayMs > 0) {
+      await sleep(retryDelayMs);
+    }
   }
+
+  return {
+    xml: null,
+    diagnostics: lastDiagnostics,
+  };
 }
 
 function buildCriteria(options: SourceAdmissionAuditOptions): SourceAdmissionCriteria {
@@ -332,6 +517,7 @@ function failSample(
 function classifySource(
   source: FeedSource,
   criteria: SourceAdmissionCriteria,
+  feedRead: SourceAdmissionSourceReport['feedRead'],
   sampledUrls: readonly string[],
   samples: readonly SourceAdmissionSampleResult[],
   lifecycle: readonly SourceLifecycleState[],
@@ -346,6 +532,15 @@ function classifySource(
   if (sampledUrls.length === 0) {
     status = 'inconclusive';
     reasons.push('feed_links_unavailable');
+    if (feedRead.errorCode) {
+      reasons.push(feedRead.errorCode);
+    } else if (feedRead.payloadKind === 'xml') {
+      if (feedRead.itemFragmentCount + feedRead.entryFragmentCount === 0) {
+        reasons.push('feed_parse_no_entries');
+      } else {
+        reasons.push('feed_parse_no_links');
+      }
+    }
   } else if (
     readableSampleCount >= criteria.minimumSuccessCount &&
     readableSampleCount / sampledUrls.length >= criteria.minimumSuccessRate
@@ -379,6 +574,7 @@ function classifySource(
     sampledUrls,
     samples,
     lifecycle,
+    feedRead,
   };
 }
 
@@ -398,8 +594,18 @@ export async function auditFeedSourceAdmission(
     now,
   });
 
-  const xml = await readFeedXml(fetchFn, source);
-  const sampledUrls = xml ? parseFeedLinks(xml, criteria.sampleSize) : [];
+  const feedReadResult = await readFeedXml(fetchFn, source, {
+    feedReadAttemptCount: options.feedReadAttemptCount,
+    feedReadRetryDelayMs: options.feedReadRetryDelayMs,
+  });
+  const parseResult = feedReadResult.xml
+    ? parseFeedLinksDetailed(feedReadResult.xml, criteria.sampleSize)
+    : {
+      links: [],
+      itemFragmentCount: 0,
+      entryFragmentCount: 0,
+    };
+  const sampledUrls = [...parseResult.links];
   const samples: SourceAdmissionSampleResult[] = [];
 
   for (const url of sampledUrls) {
@@ -414,6 +620,12 @@ export async function auditFeedSourceAdmission(
   return classifySource(
     source,
     criteria,
+    {
+      ...feedReadResult.diagnostics,
+      itemFragmentCount: parseResult.itemFragmentCount,
+      entryFragmentCount: parseResult.entryFragmentCount,
+      extractedLinkCount: sampledUrls.length,
+    },
     sampledUrls,
     samples,
     lifecycle.snapshot(),
@@ -491,13 +703,16 @@ if (isDirectExecution()) {
 export const sourceAdmissionReportInternal = {
   buildCriteria,
   classifySource,
+  classifyFeedReadError,
   decodeXmlEntities,
   extractLink,
   extractTagText,
   failSample,
+  isLikelyXmlPayload,
   isDirectExecution,
   normalizeNonEmpty,
   parseFeedLinks,
+  parseFeedLinksDetailed,
   parseFeedSourcesOverride,
   passSample,
   readFeedXml,

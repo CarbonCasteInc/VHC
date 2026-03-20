@@ -163,7 +163,7 @@ describe('sourceAdmissionReport', () => {
     ).toThrow(/must contain at least one valid feed source/);
   });
 
-  it('returns null when feed XML fetch fails or is non-OK', async () => {
+  it('returns feed diagnostics when feed XML fetch fails or is non-OK', async () => {
     const source = STARTER_FEED_SOURCES[0];
 
     await expect(
@@ -171,7 +171,14 @@ describe('sourceAdmissionReport', () => {
         (async () => makeResponse(500, 'nope')) as typeof fetch,
         source,
       ),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      xml: null,
+      diagnostics: {
+        ok: false,
+        httpStatus: 500,
+        errorCode: 'feed_http_error',
+      },
+    });
 
     await expect(
       sourceAdmissionReportInternal.readFeedXml(
@@ -180,7 +187,46 @@ describe('sourceAdmissionReport', () => {
         }) as typeof fetch,
         source,
       ),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      xml: null,
+      diagnostics: {
+        ok: false,
+        httpStatus: null,
+        errorCode: 'feed_fetch_error',
+        errorMessage: 'boom',
+      },
+    });
+  });
+
+  it('retries feed reads before failing and surfaces the final diagnostics', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const fetchFn = vi
+      .fn<[string | URL | Request], Promise<Response>>()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(
+        makeResponse(
+          200,
+          '<rss><channel><item><link>https://www.foxnews.com/a</link></item></channel></rss>',
+        ),
+      );
+
+    const result = await sourceAdmissionReportInternal.readFeedXml(
+      fetchFn as unknown as typeof fetch,
+      source,
+      {
+        feedReadAttemptCount: 2,
+        feedReadRetryDelayMs: 0,
+      },
+    );
+
+    expect(result.xml).toContain('https://www.foxnews.com/a');
+    expect(result.diagnostics).toMatchObject({
+      ok: true,
+      attemptCount: 2,
+      payloadKind: 'xml',
+      errorCode: null,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it('admits a source when readable samples clear the threshold', async () => {
@@ -270,18 +316,49 @@ describe('sourceAdmissionReport', () => {
     });
 
     expect(report.status).toBe('inconclusive');
-    expect(report.reasons).toEqual(['feed_links_unavailable']);
+    expect(report.reasons).toEqual(['feed_links_unavailable', 'feed_parse_no_links']);
+    expect(report.feedRead).toMatchObject({
+      ok: true,
+      payloadKind: 'xml',
+      itemFragmentCount: 1,
+      entryFragmentCount: 0,
+      extractedLinkCount: 0,
+    });
   });
 
   it('marks a source inconclusive when the feed request itself fails', async () => {
     const source = STARTER_FEED_SOURCES[0];
     const report = await auditFeedSourceAdmission(source, {
       fetchFn: (async () => makeResponse(500, 'down')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
     });
 
     expect(report.status).toBe('inconclusive');
     expect(report.sampleLinkCount).toBe(0);
-    expect(report.reasons).toEqual(['feed_links_unavailable']);
+    expect(report.reasons).toEqual(['feed_links_unavailable', 'feed_http_error']);
+    expect(report.feedRead).toMatchObject({
+      ok: false,
+      httpStatus: 500,
+      errorCode: 'feed_http_error',
+      payloadKind: 'unavailable',
+    });
+  });
+
+  it('marks a source inconclusive when the feed payload is non-xml', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn: (async () => makeResponse(200, '<html><body>challenge</body></html>')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
+    });
+
+    expect(report.status).toBe('inconclusive');
+    expect(report.reasons).toEqual(['feed_links_unavailable', 'feed_non_xml_payload']);
+    expect(report.feedRead).toMatchObject({
+      ok: false,
+      httpStatus: 200,
+      errorCode: 'feed_non_xml_payload',
+      payloadKind: 'non_xml',
+    });
   });
 
   it('marks threshold misses without failures as readable-sample-threshold-not-met', () => {
@@ -295,6 +372,19 @@ describe('sourceAdmissionReport', () => {
     const report = sourceAdmissionReportInternal.classifySource(
       source,
       criteria,
+      {
+        ok: true,
+        httpStatus: 200,
+        contentType: 'application/rss+xml',
+        bodyLength: 100,
+        payloadKind: 'xml',
+        errorCode: null,
+        errorMessage: null,
+        attemptCount: 1,
+        itemFragmentCount: 1,
+        entryFragmentCount: 0,
+        extractedLinkCount: 1,
+      },
       ['https://www.foxnews.com/a'],
       [
         {
@@ -348,6 +438,19 @@ describe('sourceAdmissionReport', () => {
     const report = sourceAdmissionReportInternal.classifySource(
       source,
       criteria,
+      {
+        ok: true,
+        httpStatus: 200,
+        contentType: 'application/rss+xml',
+        bodyLength: 100,
+        payloadKind: 'xml',
+        errorCode: null,
+        errorMessage: null,
+        attemptCount: 1,
+        itemFragmentCount: 2,
+        entryFragmentCount: 0,
+        extractedLinkCount: 2,
+      },
       ['https://www.foxnews.com/a', 'https://www.foxnews.com/b'],
       [
         {
@@ -529,6 +632,7 @@ describe('sourceAdmissionReport', () => {
 
     const report = await buildSourceAdmissionReport({
       fetchFn: (async () => makeResponse(500, 'down')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
     });
 
     expect(report.sourceCount).toBe(STARTER_FEED_SOURCES.length);
@@ -548,6 +652,7 @@ describe('sourceAdmissionReport', () => {
     const { artifactDir, reportPath } = await writeSourceAdmissionArtifact({
       cwd,
       fetchFn: (async () => makeResponse(500, 'down')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
     });
 
     const expectedSuffix = path.join('.tmp', 'news-source-admission', String(Date.now()));
