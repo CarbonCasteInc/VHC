@@ -9,6 +9,7 @@ const REQUIRED_DIRECTIVES = [
   'script-src',
   'style-src',
   'connect-src',
+  'frame-src',
   'img-src',
   'worker-src',
   'object-src',
@@ -49,6 +50,7 @@ describe('index.html content security policy', () => {
     const scriptSrc = directives.get('script-src') ?? '';
     const styleSrc = directives.get('style-src') ?? '';
     const connectSrc = directives.get('connect-src') ?? '';
+    const frameSrc = directives.get('frame-src') ?? '';
 
     expect(scriptSrc).toContain("'self'");
     expect(scriptSrc).not.toContain("'unsafe-inline'");
@@ -69,5 +71,8 @@ describe('index.html content security policy', () => {
     expect(connectSrc).toContain('ws://100.75.18.26:7777');
     expect(connectSrc).not.toContain('https:');
     expect(connectSrc).not.toContain('wss:');
+
+    expect(frameSrc).toContain("'self'");
+    expect(frameSrc).toContain('https:');
   });
 });

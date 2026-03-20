@@ -54,6 +54,37 @@ describe('sourceAdmissionReport', () => {
     ]);
   });
 
+  it('skips likely video feed entries and pulls additional article links', () => {
+    const xml = `
+      <rss>
+        <channel>
+          <item>
+            <title>Video: nightly briefing</title>
+            <link>https://www.today.com/video/nightly-briefing-123</link>
+            <media:content medium="video" url="https://cdn.example.com/video.mp4" />
+          </item>
+          <item><title>Article A</title><link>https://example.com/a</link></item>
+          <item><title>Article B</title><link>https://example.com/b</link></item>
+          <item><title>Article C</title><link>https://example.com/c</link></item>
+          <item><title>Article D</title><link>https://example.com/d</link></item>
+          <item><title>Article E</title><link>https://example.com/e</link></item>
+        </channel>
+      </rss>
+    `;
+
+    const result = sourceAdmissionReportInternal.parseFeedLinksDetailed(xml, 4);
+
+    expect(result.links).toEqual([
+      'https://example.com/a',
+      'https://example.com/b',
+      'https://example.com/c',
+      'https://example.com/d',
+    ]);
+    expect(result.skippedVideoUrls).toEqual([
+      'https://www.today.com/video/nightly-briefing-123',
+    ]);
+  });
+
   it('derives criteria from explicit options and env fallbacks', () => {
     process.env.VH_NEWS_SOURCE_ADMISSION_SAMPLE_SIZE = '6';
     process.env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_COUNT = '3';
@@ -163,7 +194,7 @@ describe('sourceAdmissionReport', () => {
     ).toThrow(/must contain at least one valid feed source/);
   });
 
-  it('returns null when feed XML fetch fails or is non-OK', async () => {
+  it('returns feed diagnostics when feed XML fetch fails or is non-OK', async () => {
     const source = STARTER_FEED_SOURCES[0];
 
     await expect(
@@ -171,7 +202,14 @@ describe('sourceAdmissionReport', () => {
         (async () => makeResponse(500, 'nope')) as typeof fetch,
         source,
       ),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      xml: null,
+      diagnostics: {
+        ok: false,
+        httpStatus: 500,
+        errorCode: 'feed_http_error',
+      },
+    });
 
     await expect(
       sourceAdmissionReportInternal.readFeedXml(
@@ -180,7 +218,15 @@ describe('sourceAdmissionReport', () => {
         }) as typeof fetch,
         source,
       ),
-    ).resolves.toBeNull();
+    ).resolves.toMatchObject({
+      xml: null,
+      diagnostics: {
+        ok: false,
+        httpStatus: null,
+        errorCode: 'feed_fetch_error',
+        errorMessage: 'boom',
+      },
+    });
   });
 
   it('admits a source when readable samples clear the threshold', async () => {
@@ -220,6 +266,57 @@ describe('sourceAdmissionReport', () => {
     expect(report.status).toBe('admitted');
     expect(report.readableSampleCount).toBe(2);
     expect(report.reasons).toEqual([]);
+    expect(report.skippedVideoUrls).toEqual([]);
+  });
+
+  it('does not count skipped video links against source readability samples', async () => {
+    const source = STARTER_FEED_SOURCES.find((entry) => entry.id === 'nbc-politics')!;
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `<rss><channel>
+             <item><title>Video: Source clip</title><link>https://www.today.com/video/source-clip-1</link></item>
+             <item><title>Article A</title><link>https://www.nbcnews.com/politics/a</link></item>
+             <item><title>Article B</title><link>https://www.nbcnews.com/politics/b</link></item>
+             <item><title>Article C</title><link>https://www.nbcnews.com/politics/c</link></item>
+             <item><title>Article D</title><link>https://www.nbcnews.com/politics/d</link></item>
+             <item><title>Article E</title><link>https://www.nbcnews.com/politics/e</link></item>
+           </channel></rss>`,
+        );
+      }
+      if (/https:\/\/www\.nbcnews\.com\/politics\//.test(url)) {
+        return makeResponse(200, makeReadableHtml('Readable'));
+      }
+      return makeResponse(404, 'missing');
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 4,
+      minimumSuccessCount: 4,
+      minimumSuccessRate: 1,
+      now: () => 1_700_000_000_000,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'Readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    expect(report.sampleLinkCount).toBe(4);
+    expect(report.readableSampleCount).toBe(4);
+    expect(report.skippedVideoUrls).toEqual(['https://www.today.com/video/source-clip-1']);
+    expect(report.sampledUrls).toEqual([
+      'https://www.nbcnews.com/politics/a',
+      'https://www.nbcnews.com/politics/b',
+      'https://www.nbcnews.com/politics/c',
+      'https://www.nbcnews.com/politics/d',
+    ]);
   });
 
   it('rejects a source when article fetches are access denied', async () => {
@@ -270,18 +367,49 @@ describe('sourceAdmissionReport', () => {
     });
 
     expect(report.status).toBe('inconclusive');
-    expect(report.reasons).toEqual(['feed_links_unavailable']);
+    expect(report.reasons).toEqual(['feed_links_unavailable', 'feed_parse_no_links']);
+    expect(report.feedRead).toMatchObject({
+      ok: true,
+      payloadKind: 'xml',
+      itemFragmentCount: 1,
+      entryFragmentCount: 0,
+      extractedLinkCount: 0,
+    });
   });
 
   it('marks a source inconclusive when the feed request itself fails', async () => {
     const source = STARTER_FEED_SOURCES[0];
     const report = await auditFeedSourceAdmission(source, {
       fetchFn: (async () => makeResponse(500, 'down')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
     });
 
     expect(report.status).toBe('inconclusive');
     expect(report.sampleLinkCount).toBe(0);
-    expect(report.reasons).toEqual(['feed_links_unavailable']);
+    expect(report.reasons).toEqual(['feed_links_unavailable', 'feed_http_error']);
+    expect(report.feedRead).toMatchObject({
+      ok: false,
+      httpStatus: 500,
+      errorCode: 'feed_http_error',
+      payloadKind: 'unavailable',
+    });
+  });
+
+  it('marks a source inconclusive when the feed payload is non-xml', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn: (async () => makeResponse(200, '<html><body>challenge</body></html>')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
+    });
+
+    expect(report.status).toBe('inconclusive');
+    expect(report.reasons).toEqual(['feed_links_unavailable', 'feed_non_xml_payload']);
+    expect(report.feedRead).toMatchObject({
+      ok: false,
+      httpStatus: 200,
+      errorCode: 'feed_non_xml_payload',
+      payloadKind: 'non_xml',
+    });
   });
 
   it('marks threshold misses without failures as readable-sample-threshold-not-met', () => {
@@ -295,7 +423,21 @@ describe('sourceAdmissionReport', () => {
     const report = sourceAdmissionReportInternal.classifySource(
       source,
       criteria,
+      {
+        ok: true,
+        httpStatus: 200,
+        contentType: 'application/rss+xml',
+        bodyLength: 100,
+        payloadKind: 'xml',
+        errorCode: null,
+        errorMessage: null,
+        attemptCount: 1,
+        itemFragmentCount: 1,
+        entryFragmentCount: 0,
+        extractedLinkCount: 1,
+      },
       ['https://www.foxnews.com/a'],
+      [],
       [
         {
           url: 'https://www.foxnews.com/a',
@@ -348,7 +490,21 @@ describe('sourceAdmissionReport', () => {
     const report = sourceAdmissionReportInternal.classifySource(
       source,
       criteria,
+      {
+        ok: true,
+        httpStatus: 200,
+        contentType: 'application/rss+xml',
+        bodyLength: 100,
+        payloadKind: 'xml',
+        errorCode: null,
+        errorMessage: null,
+        attemptCount: 1,
+        itemFragmentCount: 2,
+        entryFragmentCount: 0,
+        extractedLinkCount: 2,
+      },
       ['https://www.foxnews.com/a', 'https://www.foxnews.com/b'],
+      [],
       [
         {
           url: 'https://www.foxnews.com/a',
@@ -529,6 +685,7 @@ describe('sourceAdmissionReport', () => {
 
     const report = await buildSourceAdmissionReport({
       fetchFn: (async () => makeResponse(500, 'down')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
     });
 
     expect(report.sourceCount).toBe(STARTER_FEED_SOURCES.length);
@@ -548,6 +705,7 @@ describe('sourceAdmissionReport', () => {
     const { artifactDir, reportPath } = await writeSourceAdmissionArtifact({
       cwd,
       fetchFn: (async () => makeResponse(500, 'down')) as typeof fetch,
+      feedReadRetryDelayMs: 0,
     });
 
     const expectedSuffix = path.join('.tmp', 'news-source-admission', String(Date.now()));
