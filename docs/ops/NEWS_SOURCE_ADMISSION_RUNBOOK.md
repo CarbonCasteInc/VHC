@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops + Core Engineering
-> Last Reviewed: 2026-03-17
+> Last Reviewed: 2026-03-20
 > Depends On: docs/foundational/STATUS.md, docs/specs/spec-news-aggregator-v0.md, docs/CANON_MAP.md
 
 
@@ -31,6 +31,7 @@ Source admission and readable-article behavior are currently implemented in:
 6. `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceHealthReport.ts`
 7. `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/server/newsSourceHealthEnv.ts`
 8. `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/newsRuntimeBootstrap.ts`
+9. `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceCandidateScout.ts`
 
 ## Product Contract
 
@@ -72,26 +73,41 @@ Public semantic-smoke scarcity alone is not a removal reason. First determine wh
 3. readability/accessibility;
 4. semantic correctness.
 
+## Scout-First Workflow
+
+Do not start each source review from scratch.
+
+Start with the checked-in scout surface:
+
+1. run `pnpm scout:news-sources:candidates` or inspect the latest scout artifact at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`;
+2. use the scout report as the ranked candidate queue for manual review;
+3. treat `promotable=true` as “ready for minimal promotion patch + validation”, not “safe to auto-merge”;
+4. treat `blocked`, `rejected`, and `inconclusive` scout outcomes as explicit operator triage inputs, not noise;
+5. only fall back to manual candidate discovery when the scout backlog is exhausted or intentionally being expanded.
+
 ## Review Workflow
 
 Use this workflow whenever the source surface changes:
 
-1. evaluate the candidate RSS feed and representative article URLs;
-2. confirm article readability and accessibility;
-3. run `pnpm report:news-sources:admission` and inspect the generated admission artifact;
-4. run `pnpm report:news-sources:health` and inspect the generated health decision artifact;
-5. update the source surface only if the source passes the readable-source contract;
-6. confirm the latest stable source-health artifact is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`;
-7. confirm the compact latest trend index is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`;
-8. confirm the web runtime is prepared to autoload and enforce the latest health policy through `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/server/newsSourceHealthEnv.ts` and `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/newsRuntimeBootstrap.ts`;
-9. run the blocking StoryCluster correctness and daemon-first browser gates;
-10. run `pnpm report:storycluster:production-readiness` before a production-readiness claim and confirm the combined decision still resolves to `release_ready`;
-11. record source-level evidence in the PR summary or lane note, including:
+1. run `pnpm scout:news-sources:candidates` and inspect the ranked scout output;
+2. evaluate the top-ranked candidate RSS feed and representative article URLs;
+3. confirm article readability and accessibility;
+4. run `pnpm report:news-sources:admission` and inspect the generated admission artifact;
+5. run `pnpm report:news-sources:health` and inspect the generated health decision artifact;
+6. update the source surface only if the source passes the readable-source contract, stays `keep`, and contributes/corroborates without degrading combined release evidence;
+7. confirm the latest stable source-health artifact is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`;
+8. confirm the compact latest trend index is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`;
+9. confirm the latest scout artifact is published at `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`;
+10. confirm the daemon starter surface remains the authoritative keep/watch/remove enforcement path and that web/server runtime surfaces can autoload the latest health artifact through `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/server/newsSourceHealthEnv.ts` and `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/store/newsRuntimeBootstrap.ts`;
+11. run the blocking StoryCluster correctness and daemon-first browser gates;
+12. run `pnpm report:storycluster:production-readiness` before a production-readiness claim and confirm the combined decision still resolves to `release_ready`;
+13. record source-level evidence in the PR summary or lane note, including:
    - admission/health commands run;
+   - scout command/report used;
    - latest artifact path;
    - keep/watch/remove outcome;
    - any rejection reasons.
-12. if the source fails later in production-like testing, remove or disable it rather than weakening the readability contract.
+14. if the source fails later in production-like testing, remove or disable it rather than weakening the readability contract.
 
 ## Required Validation
 
@@ -99,9 +115,10 @@ Source-surface changes should keep these in the loop:
 
 1. `pnpm report:news-sources:admission`
 2. `pnpm report:news-sources:health`
-3. `pnpm test:storycluster:correctness`
-4. `pnpm test:storycluster:gates`
-5. `pnpm report:storycluster:production-readiness` before a production-readiness claim
+3. `pnpm scout:news-sources:candidates`
+4. `pnpm test:storycluster:correctness`
+5. `pnpm test:storycluster:gates`
+6. `pnpm report:storycluster:production-readiness` before a production-readiness claim
 
 Public smoke remains supplementary telemetry:
 
@@ -124,15 +141,24 @@ Operational artifact expectations:
    - latest trend index path
 3. `pnpm report:news-sources:health` must also publish a compact comparison surface at:
    - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`
-4. use the trend index for operator review before opening raw run artifacts:
+4. `pnpm scout:news-sources:candidates` must publish a stable latest scout artifact at:
+   - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`
+   - operators should review:
+     - `promotableCandidateIds`
+     - `topPromotableCandidateId`
+     - per-candidate `admissionStatus`
+     - per-candidate `decision`
+     - per-candidate `contributionStatus`
+     - per-candidate blocking reasons
+5. use the trend index for operator review before opening raw run artifacts:
    - compare `releaseEvidence.status`
    - compare `releaseEvidence.reasons`
    - compare `readinessStatus`
    - compare enabled/keep/watch/remove counts
    - compare `historyEscalatedSourceCount`
    - compare `pendingReadmissionSourceCount`
-5. runtime evidence should identify the applied report source so operators can distinguish env overrides from the latest artifact autoload path.
-6. source-health is one required input to the combined production-readiness rule, not a standalone release claim:
+6. runtime evidence should identify the applied report source so operators can distinguish env overrides from the latest artifact autoload path.
+7. source-health is one required input to the combined production-readiness rule, not a standalone release claim:
    - StoryCluster correctness must pass;
    - source-health release evidence must pass and remain fresh;
    - headline-soak trend release evidence must pass and remain fresh.
@@ -150,7 +176,7 @@ The remaining blocker is building and maintaining a source surface that is:
 
 ## Production-Readiness Next Steps
 
-1. Keep source growth evidence-driven: only promote the next source if admission, health, contribution, and combined production-readiness evidence all stay green.
+1. Keep source growth evidence-driven: only promote the next source if scout, admission, health, contribution, and combined production-readiness evidence all stay green.
 2. Broaden fixture-backed local QA so the deterministic manual stack covers more of the admitted surface, not just the current subset.
 3. Treat live public feed misses as bundler inputs:
    - accumulate candidate misses;

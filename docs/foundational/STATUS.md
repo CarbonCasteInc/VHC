@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-16
+> Last Reviewed: 2026-03-20
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-16
-**Version:** 0.8.0 (StoryCluster correctness gate codified; source-health runtime policy and distribution-readiness task list operationalized)
-**Assessment:** Pre-production prototype. Wave 4 is closed; active work is source-program convergence and distribution-readiness hardening on top of the deterministic StoryCluster correctness gate, daemon-first semantic gate discipline, secondary public-feed smoke telemetry, and browser-driven verification for feed/discovery/storyline changes.
+**Last Updated:** 2026-03-20
+**Version:** 0.8.1 (Unified production-readiness, scout-backed source admission, and 13-source keep surface on `main`)
+**Assessment:** Pre-production prototype. Wave 4 is closed; StoryCluster correctness, source-health enforcement, unified production-readiness, and background source scouting are all landed. The primary remaining blocker is live public headline-soak density and broader overlap-ready source breadth, not generic source-program convergence.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -26,8 +26,8 @@
 | **HERMES Messaging** | 🟢 Implemented | ⚠️ Partial |
 | **HERMES Forum** | 🟢 Implemented + 240-char reply cap + article CTA | ⚠️ Partial |
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
-| **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, receipt-in-feed | ❌ No |
-| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path, source-admission/health evidence, runtime keep/watch/remove enforcement, and source-health artifact autoload; distribution-ready source breadth and source-program convergence remain active | ⚠️ Partial |
+| **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
+| **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path, source-admission/health evidence, scout-backed source growth, and unified production-readiness; live public headline-soak density and broader overlap-ready source breadth remain active | ⚠️ Partial |
 | **Discovery Feed** | 🟢 Implemented with fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
@@ -41,7 +41,7 @@ Current policy state:
 - Transitional proof shims are dev/staging only and must be removed before ship.
 - Point-identity migration requires dual-write/backfill plus explicit sunset criteria.
 - Canary rollout requires quantitative SLO gates and validated rollback drills.
-- StoryCluster correctness is now gated primarily by the deterministic corpus/replay path plus the daemon-first semantic gate; the active blocker has moved to source-program maturity and distribution readiness.
+- StoryCluster correctness is now gated primarily by the deterministic corpus/replay path plus the daemon-first semantic gate; the active blocker has moved to live public headline-soak recovery and overlap-ready source breadth.
 - Blocking feed-release evidence now comes from fixture-backed daemon-first gates:
   - `pnpm test:storycluster:correctness`
   - `pnpm test:storycluster:gates`
@@ -72,8 +72,20 @@ Current policy state:
 - Source-readiness evidence is now a concrete runtime/ops surface on `main`:
   - `pnpm report:news-sources:admission`
   - `pnpm report:news-sources:health`
+  - `pnpm scout:news-sources:candidates`
   - stable latest artifact path: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
-  - web bootstrap autoloads the latest health artifact and applies keep/watch/remove policy during runtime source selection.
+  - stable latest scout path: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`
+  - daemon starter-surface resolution is the authoritative keep/watch/remove enforcement path;
+  - web/server surfaces can autoload the latest health artifact for diagnostics and optional browser-runtime bootstrap flows.
+- `main` currently carries a 13-source keep surface and passing source-health release evidence:
+  - `enabledSourceCount: 13`
+  - `contributingSourceCount: 13`
+  - `corroboratingSourceCount: 13`
+- The latest full combined readiness check on `main` currently blocks only on:
+  - `headline_soak_release_evidence_failed`
+- Background source scouting is now part of the operating model:
+  - the checked-in scout command ranks overlap-heavy candidates;
+  - the active Codex automation keeps that admission lane moving without auto-merging source changes.
 - Canonical feed publication is singleton-first and source-growth friendly:
   - a single readable article may publish as a valid feed story;
   - later same-incident / same-developing-episode coverage should attach under stable story identity as sources grow.
@@ -131,16 +143,18 @@ Current truth for the news bundler and feed hardening lane:
   - explicit promotion-readiness assessment with blocking reasons;
   - denser diagnostic artifacts for insufficient-bundle public runs.
 - The correctness-gate sufficiency lane is complete and in force on `main`.
-- The current active work is source-program convergence and release-evidence discipline:
+- The current active work is live public headline-soak recovery, source-surface density growth, and release-evidence accumulation:
   - treat the deterministic known-event fixture corpus plus replay corpus as the primary StoryCluster correctness proof;
   - require the daemon-first semantic gate as the served-stack confirmation of that proof;
   - keep public semantic runs smoke-only unless they independently earn promotion beyond telemetry;
-  - make source admission, extraction quality, source-health runtime policy, and operator review explicit release-readiness work.
+  - make source breadth growth, scout-ranked candidate promotion, and public overlap density explicit release-readiness work.
 - `main` now also includes source-program operationalization:
   - machine-readable source-admission evidence;
   - machine-readable source-health decisions with keep/watch/remove runtime policy;
+  - machine-readable source-candidate scouting with promotable/blocked/rejected outcomes;
   - stable latest source-health artifact publication;
-  - web-runtime autoload of the latest source-health artifact;
+  - stable latest source-scout artifact publication;
+  - web/server autoload of the latest source-health artifact for diagnostics/bootstrap surfaces;
   - runtime summaries that surface the applied report source plus removed/watchlisted sources.
 - Storyline/discovery work is now expected to carry browser-driven verification, not only unit coverage:
   - local feed opens create history entries;
@@ -161,11 +175,11 @@ Current truth for the news bundler and feed hardening lane:
    - single-source stories remain valid feed entries;
    - later same-incident / same-developing-episode coverage must attach without identity churn as source coverage grows.
 4. Production-readiness next steps:
-   - converge starter-surface generation and runtime selection onto the same source-health-derived source set;
-   - make `pnpm report:news-sources:health` required release evidence and record the latest artifact path in merge/release notes;
-   - codify re-admission, watchlist escalation, and removal thresholds so source decisions are not ad hoc;
-   - add source-health observability for readable success rate, access-denied rate, quality failures, lifecycle instability, and feed contribution by source;
-   - expand admitted readable source breadth only through the admission/health pipeline, not generic feed growth.
+   - keep the unified production-readiness report fresh and treat `headline_soak_release_evidence_failed` as the current live blocker until the trend actually recovers;
+   - keep scheduled headline-soak collection running on the fresh, contribution-ranked public smoke surface so new density evidence replaces the older red trend window;
+   - expand admitted readable source breadth only through the scout/admission/health pipeline, not generic feed growth;
+   - use scout-ranked overlap-heavy candidates as the primary source-growth queue;
+   - keep source-health and scout artifacts attached to release/session evidence so source-surface changes remain reviewable.
 5. Keep Playwright/browser validation a standard release discipline for feed/discovery/storyline/vote changes:
    - record exact browser commands run;
    - treat fixture-backed daemon-first Playwright gates as the blocking semantic/integrity proof;

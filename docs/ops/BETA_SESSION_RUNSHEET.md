@@ -2,13 +2,13 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-03-20
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
 **Owner:** session operator (single person per session)
 **Profiles:** `dev-small` (current), `beta-scale` (after flip-switch)
-**Branch:** `main` (post-PR #345 merge)
+**Branch:** `main`
 
 ---
 
@@ -27,6 +27,28 @@
 ---
 
 ## Daily Gate (must pass before opening session)
+
+### 0. Feed/source readiness review
+
+Review the current feed posture before opening any session that depends on live public headlines:
+
+```
+pnpm report:storycluster:production-readiness
+pnpm scout:news-sources:candidates
+```
+
+Review:
+
+1. `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
+2. `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json`
+3. `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`
+
+Required operator decision:
+
+1. if the latest production-readiness artifact, soak trend, or scout report is stale, refresh it before continuing;
+2. if production-readiness is `blocked` because of headline-soak / live-feed reasons, do not present the session as public-feed validation;
+3. either pause the session or explicitly scope it to fixture-backed / non-public-feed validation;
+4. if the scout reports a promotable candidate, note it in the session log, but do not change the source surface mid-session.
 
 ### 1. Infrastructure health
 
@@ -116,6 +138,9 @@ After each session, record one entry:
 ```
 Date:           2026-MM-DD
 Profile:        dev-small | beta-scale
+Production readiness: release_ready | review_required | blocked (reason)
+Headline soak:  pass | fail (reason)
+Source scout:   top promotable candidate | none | blocked (reason)
 Strict gate:    PASS N/N | FAIL (reason)
 3-browser:      PASS | FAIL at step N (reason)
 Testers:        count
