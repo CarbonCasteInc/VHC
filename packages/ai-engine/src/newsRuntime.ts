@@ -149,6 +149,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
       for (const bundle of bundles) {
         const request = buildRemoteRequest(createPrompt(bundle));
+        const workItems = buildEnrichmentWorkItems(bundle);
 
         await writeStoryBundle(config.gunClient, bundle);
         nextPublishedStoryIds.add(bundle.story_id);
@@ -161,7 +162,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
           config.onError?.(error);
         }
 
-        if (config.onSynthesisCandidate) {
+        if (config.onSynthesisCandidate && workItems.length > 0) {
           const candidate: NewsRuntimeSynthesisCandidate = {
             story_id: bundle.story_id,
             provider: {
@@ -170,7 +171,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
               kind: 'remote',
             },
             request,
-            work_items: buildEnrichmentWorkItems(bundle),
+            work_items: workItems,
             advanced_artifact: advancedArtifact,
           };
 

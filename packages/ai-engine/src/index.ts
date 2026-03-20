@@ -17,6 +17,7 @@ export * from './sourceHealthPolicy';
 export * from './sameEventMerge';
 export * from './newsIngest';
 export * from './newsNormalize';
+export * from './newsSourceMedia';
 export * from './clusterEngine';
 export * from './newsCluster';
 export * from './newsOrchestrator';

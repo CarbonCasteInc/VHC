@@ -38,6 +38,24 @@ const STORY_BUNDLE: StoryBundle = {
   created_at: 1_700_000_200_000,
 };
 
+const VIDEO_STORY_BUNDLE: StoryBundle = {
+  ...STORY_BUNDLE,
+  story_id: 'story-video',
+  headline: 'Video: source clip',
+  summary_hint: 'Source video available directly from the publisher.',
+  sources: [
+    {
+      source_id: 'src-video',
+      publisher: 'TODAY',
+      url: 'https://www.today.com/video/source-clip-1',
+      url_hash: 'video-hash',
+      published_at: 1_700_000_000_000,
+      title: 'Video: source clip',
+    },
+  ],
+  provenance_hash: 'provhash-video',
+};
+
 const STORYLINE: StorylineGroup = {
   schemaVersion: 'storyline-group-v0',
   storyline_id: 'storyline-1',
@@ -384,6 +402,28 @@ describe('newsRuntime', () => {
         }),
       }),
     );
+
+    handle.stop();
+  });
+
+  it('does not emit synthesis candidates for singleton video bundles', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([VIDEO_STORY_BUNDLE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onSynthesisCandidate = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      onSynthesisCandidate,
+      runOnStart: true,
+      pollIntervalMs: 30,
+    });
+
+    await flushTasks();
+
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, VIDEO_STORY_BUNDLE);
+    expect(onSynthesisCandidate).not.toHaveBeenCalled();
 
     handle.stop();
   });

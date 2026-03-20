@@ -255,6 +255,18 @@ describe('newsCluster', () => {
     ]);
   });
 
+  it('skips enrichment work-items for singleton video bundles', () => {
+    const bundle = clusterItems([
+      makeItem({
+        canonicalUrl: 'https://www.today.com/video/source-clip-1',
+        url_hash: 'video-hash',
+        title: 'Video: source clip',
+      }),
+    ], 'topic-video')[0]!;
+
+    expect(buildEnrichmentWorkItems(bundle, 1707139999000)).toEqual([]);
+  });
+
   it('covers internal utility branches and similarity helpers', () => {
     expect(clusterItems([], 'topic-empty')).toEqual([]);
     expect(() => clusterItems([], '   ')).toThrow('topicId must be non-empty');

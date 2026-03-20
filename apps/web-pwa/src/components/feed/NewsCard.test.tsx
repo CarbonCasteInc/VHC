@@ -1,5 +1,5 @@
 /* @vitest-environment jsdom */
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
@@ -203,6 +203,39 @@ describe('NewsCard', () => {
       'href',
       'https://example.com/canonical',
     );
+  });
+
+  it('shows an in-app source viewer for singleton video stories and skips analysis', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    const story = makeStoryBundle({
+      sources: [
+        {
+          source_id: 'src-video',
+          publisher: 'TODAY',
+          url: 'https://www.today.com/video/netanyahu-speaks-out-on-how-war-in-iran-will-end-259648581670',
+          url_hash: 'video-hash',
+          published_at: NOW,
+          title: 'Video: Netanyahu speaks out on how war in Iran will end',
+        },
+      ],
+    });
+
+    useNewsStore.getState().setStories([story]);
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'City council votes on transit plan' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('source-viewer-frame-news-1')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Source View')).toBeInTheDocument();
+    expect(screen.getByTestId('source-viewer-open-link-news-1')).toHaveAttribute(
+      'href',
+      'https://www.today.com/video/netanyahu-speaks-out-on-how-war-in-iran-will-end-259648581670',
+    );
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
   it('feature flag off keeps existing synthesis behavior and does not call analysis pipeline', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
