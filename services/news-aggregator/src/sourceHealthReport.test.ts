@@ -30,6 +30,19 @@ function makeAdmissionSource(
     sampledUrls: ['https://example.com/a', 'https://example.com/b'],
     samples: [],
     lifecycle: [],
+    feedRead: {
+      ok: true,
+      httpStatus: 200,
+      contentType: 'application/rss+xml',
+      bodyLength: 512,
+      payloadKind: 'xml',
+      errorCode: null,
+      errorMessage: null,
+      attemptCount: 1,
+      itemFragmentCount: 4,
+      entryFragmentCount: 0,
+      extractedLinkCount: 4,
+    },
     ...overrides,
   };
 }
@@ -58,6 +71,10 @@ function writeHistoricalSourceHealthReport(
   runId: string,
   report: {
     readonly generatedAt: string;
+    readonly readinessStatus?: 'ready' | 'review' | 'blocked';
+    readonly runAssessment?: {
+      readonly globalFeedStageFailure: boolean;
+    };
     readonly sources: readonly Array<{
       readonly sourceId: string;
       readonly baseDecision?: 'keep' | 'watch' | 'remove';
@@ -72,8 +89,24 @@ function writeHistoricalSourceHealthReport(
     `${JSON.stringify({
       schemaVersion: SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
       generatedAt: report.generatedAt,
+      readinessStatus: report.readinessStatus,
+      runAssessment: report.runAssessment,
       sources: report.sources,
     }, null, 2)}\n`,
+    'utf8',
+  );
+}
+
+function writeHistoricalSourceAdmissionReport(
+  artifactRoot: string,
+  runId: string,
+  sources: readonly SourceAdmissionSourceReport[],
+): void {
+  const runDir = path.join(artifactRoot, runId);
+  mkdirSync(runDir, { recursive: true });
+  writeFileSync(
+    path.join(runDir, 'source-admission-report.json'),
+    `${JSON.stringify(makeAdmissionReport(sources), null, 2)}\n`,
     'utf8',
   );
 }
@@ -669,6 +702,144 @@ describe('sourceHealthReport', () => {
     );
 
     rmSync(cwd, { recursive: true, force: true });
+  });
+
+  it('preserves the previous latest artifact on a global feed-stage collapse', async () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-preserve-latest-'));
+    const goodArtifactDir = path.join(artifactRoot, '1700000000000');
+    const failedArtifactDir = path.join(artifactRoot, '1700000001000');
+
+    const goodArtifact = await writeSourceHealthArtifact({
+      artifactDir: goodArtifactDir,
+      admissionReport: makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
+      now: () => 1_700_000_000_000,
+    });
+
+    const originalLatestHealthReport = readFileSync(goodArtifact.latestSourceHealthReportPath, 'utf8');
+    const originalLatestAdmissionReport = readFileSync(goodArtifact.latestAdmissionReportPath, 'utf8');
+    const originalLatestTrend = readFileSync(goodArtifact.latestSourceHealthTrendPath, 'utf8');
+
+    const failedArtifact = await writeSourceHealthArtifact({
+      artifactDir: failedArtifactDir,
+      admissionReport: makeAdmissionReport([
+        makeAdmissionSource({
+          sourceId: 'fox-latest',
+          status: 'inconclusive',
+          admitted: false,
+          sampleLinkCount: 0,
+          readableSampleCount: 0,
+          readableSampleRate: null,
+          reasons: ['feed_links_unavailable', 'feed_fetch_error'],
+          sampledUrls: [],
+          feedRead: {
+            ok: false,
+            httpStatus: null,
+            contentType: null,
+            bodyLength: null,
+            payloadKind: 'unavailable',
+            errorCode: 'feed_fetch_error',
+            errorMessage: 'fetch failed',
+            attemptCount: 2,
+            itemFragmentCount: 0,
+            entryFragmentCount: 0,
+            extractedLinkCount: 0,
+          },
+        }),
+      ]),
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
+      now: () => 1_700_000_001_000,
+    });
+
+    expect(failedArtifact.sourceHealthReport.runAssessment).toEqual({
+      globalFeedStageFailure: true,
+      latestPublicationAction: 'preserve_previous_latest',
+      latestPublicationSkipReason: 'all_sources_failed_at_feed_stage',
+    });
+    expect(readFileSync(failedArtifact.latestSourceHealthReportPath, 'utf8')).toBe(
+      originalLatestHealthReport,
+    );
+    expect(readFileSync(failedArtifact.latestAdmissionReportPath, 'utf8')).toBe(
+      originalLatestAdmissionReport,
+    );
+    expect(readFileSync(failedArtifact.latestSourceHealthTrendPath, 'utf8')).toBe(
+      originalLatestTrend,
+    );
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('ignores historical global feed-stage collapses inferred from admission artifacts', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-ignore-global-failure-'));
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-1', {
+      generatedAt: '2026-03-20T00:00:00.000Z',
+      readinessStatus: 'ready',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          decision: 'keep',
+        },
+      ],
+    });
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-2', {
+      generatedAt: '2026-03-20T06:00:00.000Z',
+      readinessStatus: 'blocked',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          decision: 'watch',
+        },
+      ],
+    });
+    writeHistoricalSourceAdmissionReport(artifactRoot, 'run-2', [
+      makeAdmissionSource({
+        sourceId: 'fox-latest',
+        status: 'inconclusive',
+        admitted: false,
+        sampleLinkCount: 0,
+        readableSampleCount: 0,
+        readableSampleRate: null,
+        reasons: ['feed_links_unavailable', 'feed_fetch_error'],
+        sampledUrls: [],
+        feedRead: {
+          ok: false,
+          httpStatus: null,
+          contentType: null,
+          bodyLength: null,
+          payloadKind: 'unavailable',
+          errorCode: 'feed_fetch_error',
+          errorMessage: 'fetch failed',
+          attemptCount: 2,
+          itemFragmentCount: 0,
+          entryFragmentCount: 0,
+          extractedLinkCount: 0,
+        },
+      }),
+    ]);
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-3'),
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
+        now: () => Date.parse('2026-03-20T12:00:00.000Z'),
+      },
+    );
+
+    expect(report.historySummary.priorReportCount).toBe(1);
+    expect(report.releaseEvidence.status).toBe('pass');
+
+    rmSync(artifactRoot, { recursive: true, force: true });
   });
 
   it('uses process cwd and the live clock when writing without cwd or artifactDir overrides', async () => {

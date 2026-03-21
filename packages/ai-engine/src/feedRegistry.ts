@@ -91,6 +91,15 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'nbc',
     enabled: true,
   }),
+  FeedSourceSchema.parse({
+    id: 'washingtonexaminer-politics',
+    name: 'Washington Examiner Politics',
+    displayName: 'Washington Examiner',
+    rssUrl: 'https://www.washingtonexaminer.com/tag/politics.rss',
+    perspectiveTag: 'conservative',
+    iconKey: 'washingtonexaminer',
+    enabled: true,
+  }),
   // Public radio (2)
   FeedSourceSchema.parse({
     id: 'npr-news',
