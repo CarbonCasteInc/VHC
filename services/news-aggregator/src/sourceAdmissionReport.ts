@@ -1,7 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FeedSourceSchema, STARTER_FEED_SOURCES, type FeedSource } from '@vh/ai-engine';
+import {
+  FeedSourceSchema,
+  STARTER_FEED_SOURCES,
+  isLikelyVideoSourceEntry,
+  type FeedSource,
+} from '@vh/ai-engine';
 import {
   ArticleTextService,
   ArticleTextServiceError,
@@ -76,6 +81,7 @@ export interface SourceAdmissionSourceReport {
   readonly readableSampleRate: number | null;
   readonly reasons: string[];
   readonly sampledUrls: readonly string[];
+  readonly skippedVideoUrls?: readonly string[];
   readonly samples: readonly SourceAdmissionSampleResult[];
   readonly lifecycle: readonly SourceLifecycleState[];
   readonly feedRead: SourceAdmissionFeedReadDiagnostics;
@@ -117,6 +123,7 @@ interface FeedLinkParseResult {
   readonly links: readonly string[];
   readonly itemFragmentCount: number;
   readonly entryFragmentCount: number;
+  readonly skippedVideoUrls: readonly string[];
 }
 
 function parsePositiveInt(raw: string | undefined, fallback: number): number {
@@ -261,12 +268,28 @@ function extractLink(xmlFragment: string): string | undefined {
   return textLink?.trim();
 }
 
+function isLikelyVideoFeedEntry(
+  xmlFragment: string,
+  url: string,
+  title: string | undefined,
+): boolean {
+  if (
+    /<enclosure\b[^>]*\btype=["']video\//i.test(xmlFragment)
+    || /<media:content\b[^>]*\bmedium=["']video["']/i.test(xmlFragment)
+    || /<media:player\b/i.test(xmlFragment)
+  ) {
+    return true;
+  }
+
+  return isLikelyVideoSourceEntry({ url, title });
+}
 function parseFeedLinksDetailed(xml: string, sampleSize: number): FeedLinkParseResult {
   const rssFragments = Array.from(xml.matchAll(RSS_ITEM_REGEX), (match) => match[0]);
   const atomFragments = Array.from(xml.matchAll(ATOM_ENTRY_REGEX), (match) => match[0]);
   const fragments = [...rssFragments, ...atomFragments];
 
   const links: string[] = [];
+  const skippedVideoUrls: string[] = [];
   const seen = new Set<string>();
 
   for (const fragment of fragments) {
@@ -278,6 +301,12 @@ function parseFeedLinksDetailed(xml: string, sampleSize: number): FeedLinkParseR
       continue;
     }
     seen.add(link);
+
+    if (isLikelyVideoFeedEntry(fragment, link, extractTagText(fragment, 'title'))) {
+      skippedVideoUrls.push(link);
+      continue;
+    }
+
     links.push(link);
     if (links.length >= sampleSize) {
       break;
@@ -288,6 +317,7 @@ function parseFeedLinksDetailed(xml: string, sampleSize: number): FeedLinkParseR
     links,
     itemFragmentCount: rssFragments.length,
     entryFragmentCount: atomFragments.length,
+    skippedVideoUrls,
   };
 }
 
@@ -519,6 +549,7 @@ function classifySource(
   criteria: SourceAdmissionCriteria,
   feedRead: SourceAdmissionSourceReport['feedRead'],
   sampledUrls: readonly string[],
+  skippedVideoUrls: readonly string[],
   samples: readonly SourceAdmissionSampleResult[],
   lifecycle: readonly SourceLifecycleState[],
 ): SourceAdmissionSourceReport {
@@ -572,6 +603,7 @@ function classifySource(
     readableSampleRate,
     reasons,
     sampledUrls,
+    skippedVideoUrls,
     samples,
     lifecycle,
     feedRead,
@@ -604,6 +636,7 @@ export async function auditFeedSourceAdmission(
       links: [],
       itemFragmentCount: 0,
       entryFragmentCount: 0,
+      skippedVideoUrls: [],
     };
   const sampledUrls = [...parseResult.links];
   const samples: SourceAdmissionSampleResult[] = [];
@@ -627,6 +660,7 @@ export async function auditFeedSourceAdmission(
       extractedLinkCount: sampledUrls.length,
     },
     sampledUrls,
+    parseResult.skippedVideoUrls,
     samples,
     lifecycle.snapshot(),
   );

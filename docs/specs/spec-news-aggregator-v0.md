@@ -76,6 +76,7 @@ Readable-article eligibility requirements:
 - sources are admitted from an explicit onboarded source set, not arbitrary feed URLs
 - article extraction must clear the readable-text quality bar
 - paywalled, truncated, robots-blocked, empty, or chronically unreadable article paths must not count toward production-ready source coverage
+- feed-carried video/watch entries from an admitted source must not count against article-readability sampling; admission should continue scanning feed items until it finds the required number of non-video article candidates or exhausts the feed
 
 ## 3. Story clustering contract
 
@@ -133,8 +134,11 @@ interface StoryBundle {
 
 Canonical publication contract:
 - `StoryBundle` publication may represent a single-source story when only one readable canonical report exists;
+- `StoryBundle` publication may also represent a single-source publisher-hosted video/watch story from an admitted source when no corroborating article bundle exists yet;
 - later corroborating coverage may widen the bundle if and only if it is the same incident or same developing episode;
 - adding later sources must not churn the existing `story_id`.
+- single-source video/watch stories must bypass text synthesis/enrichment and preserve direct source access as the primary detail path;
+- corroborated bundles may still synthesize normally even when one or more member sources are video/watch pages.
 
 `created_at` contract:
 - `created_at` is the initial publish timestamp for a `story_id`; when the earliest source publish time is available it should seed this value, otherwise the initial cluster publish time may seed it; it MUST remain immutable after initial publish.

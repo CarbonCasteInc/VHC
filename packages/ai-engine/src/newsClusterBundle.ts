@@ -20,6 +20,7 @@ import {
   toCluster,
 } from './newsClusterPrimitives';
 import { resolveStoryId } from './newsClusterAssignment';
+import { isLikelyVideoSourceEntry } from './newsSourceMedia';
 import { computeClusterConfidence } from './newsClusterVerification';
 
 export interface StoryEnrichmentWorkItem {
@@ -178,6 +179,16 @@ export function buildEnrichmentWorkItems(
   bundle: StoryBundle,
   nowMs: number = Date.now(),
 ): StoryEnrichmentWorkItem[] {
+  if (
+    bundle.sources.length === 1 &&
+    isLikelyVideoSourceEntry({
+      url: bundle.sources[0]!.url,
+      title: bundle.sources[0]!.title,
+    })
+  ) {
+    return [];
+  }
+
   return [
     {
       story_id: bundle.story_id,

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StoryBundle, StorylineGroup } from '@vh/data-model';
+import { isLikelyVideoSourceEntry } from '@vh/ai-engine';
 import { FlippableCard } from '../venn/FlippableCard';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
@@ -28,6 +29,25 @@ function formatHotness(hotness: number): string {
 }
 function normalizeStoryId(storyId: string | undefined): string | null {
   const normalized = storyId?.trim(); return normalized ? normalized : null;
+}
+
+function resolveSingletonVideoSource(
+  story: StoryBundle | null,
+): { publisher: string; title: string; url: string } | null {
+  if (!story || story.sources.length !== 1) {
+    return null;
+  }
+
+  const source = story.sources[0]!;
+  if (!isLikelyVideoSourceEntry({ url: source.url, title: source.title })) {
+    return null;
+  }
+
+  return {
+    publisher: source.publisher,
+    title: source.title,
+    url: source.url,
+  };
 }
 
 function toCardInstanceKey(item: FeedItem): string {
@@ -104,12 +124,16 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     () => (isExpanded ? analysisStoryRef.current ?? story : story),
     [isExpanded, story],
   );
+  const singletonVideoSource = useMemo(
+    () => resolveSingletonVideoSource(analysisStory),
+    [analysisStory],
+  );
   const {
     analysis,
     status: analysisStatus,
     error: analysisError,
     retry: retryAnalysis,
-  } = useAnalysis(analysisStory, isExpanded);
+  } = useAnalysis(analysisStory, isExpanded && singletonVideoSource === null);
   const synthesis = synthesisTopicState?.synthesis ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
@@ -335,6 +359,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
                 analysisId={computedAnalysisId}
                 synthesisId={synthesisId}
                 epoch={synthesisEpoch}
+                sourceViewer={singletonVideoSource}
                 onFlipBack={collapseCard}
               />
             ) : null}

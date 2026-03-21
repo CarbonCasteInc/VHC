@@ -54,6 +54,37 @@ describe('sourceAdmissionReport', () => {
     ]);
   });
 
+  it('skips likely video feed entries and pulls additional article links', () => {
+    const xml = `
+      <rss>
+        <channel>
+          <item>
+            <title>Video: nightly briefing</title>
+            <link>https://www.today.com/video/nightly-briefing-123</link>
+            <media:content medium="video" url="https://cdn.example.com/video.mp4" />
+          </item>
+          <item><title>Article A</title><link>https://example.com/a</link></item>
+          <item><title>Article B</title><link>https://example.com/b</link></item>
+          <item><title>Article C</title><link>https://example.com/c</link></item>
+          <item><title>Article D</title><link>https://example.com/d</link></item>
+          <item><title>Article E</title><link>https://example.com/e</link></item>
+        </channel>
+      </rss>
+    `;
+
+    const result = sourceAdmissionReportInternal.parseFeedLinksDetailed(xml, 4);
+
+    expect(result.links).toEqual([
+      'https://example.com/a',
+      'https://example.com/b',
+      'https://example.com/c',
+      'https://example.com/d',
+    ]);
+    expect(result.skippedVideoUrls).toEqual([
+      'https://www.today.com/video/nightly-briefing-123',
+    ]);
+  });
+
   it('derives criteria from explicit options and env fallbacks', () => {
     process.env.VH_NEWS_SOURCE_ADMISSION_SAMPLE_SIZE = '6';
     process.env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_COUNT = '3';
@@ -266,6 +297,57 @@ describe('sourceAdmissionReport', () => {
     expect(report.status).toBe('admitted');
     expect(report.readableSampleCount).toBe(2);
     expect(report.reasons).toEqual([]);
+    expect(report.skippedVideoUrls).toEqual([]);
+  });
+
+  it('does not count skipped video links against source readability samples', async () => {
+    const source = STARTER_FEED_SOURCES.find((entry) => entry.id === 'nbc-politics')!;
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `<rss><channel>
+             <item><title>Video: Source clip</title><link>https://www.today.com/video/source-clip-1</link></item>
+             <item><title>Article A</title><link>https://www.nbcnews.com/politics/a</link></item>
+             <item><title>Article B</title><link>https://www.nbcnews.com/politics/b</link></item>
+             <item><title>Article C</title><link>https://www.nbcnews.com/politics/c</link></item>
+             <item><title>Article D</title><link>https://www.nbcnews.com/politics/d</link></item>
+             <item><title>Article E</title><link>https://www.nbcnews.com/politics/e</link></item>
+           </channel></rss>`,
+        );
+      }
+      if (/https:\/\/www\.nbcnews\.com\/politics\//.test(url)) {
+        return makeResponse(200, makeReadableHtml('Readable'));
+      }
+      return makeResponse(404, 'missing');
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 4,
+      minimumSuccessCount: 4,
+      minimumSuccessRate: 1,
+      now: () => 1_700_000_000_000,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'Readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    expect(report.sampleLinkCount).toBe(4);
+    expect(report.readableSampleCount).toBe(4);
+    expect(report.skippedVideoUrls).toEqual(['https://www.today.com/video/source-clip-1']);
+    expect(report.sampledUrls).toEqual([
+      'https://www.nbcnews.com/politics/a',
+      'https://www.nbcnews.com/politics/b',
+      'https://www.nbcnews.com/politics/c',
+      'https://www.nbcnews.com/politics/d',
+    ]);
   });
 
   it('rejects a source when article fetches are access denied', async () => {
@@ -386,6 +468,7 @@ describe('sourceAdmissionReport', () => {
         extractedLinkCount: 1,
       },
       ['https://www.foxnews.com/a'],
+      [],
       [
         {
           url: 'https://www.foxnews.com/a',
@@ -452,6 +535,7 @@ describe('sourceAdmissionReport', () => {
         extractedLinkCount: 2,
       },
       ['https://www.foxnews.com/a', 'https://www.foxnews.com/b'],
+      [],
       [
         {
           url: 'https://www.foxnews.com/a',

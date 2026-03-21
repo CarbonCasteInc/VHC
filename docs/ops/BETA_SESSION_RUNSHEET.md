@@ -17,7 +17,7 @@
 | Setting | `dev-small` | `beta-scale` |
 |---------|-------------|--------------|
 | `VITE_ANALYSIS_MODEL` | `gpt-5-nano` | `gpt-5-nano` |
-| `VITE_VH_ANALYSIS_PIPELINE` | `true` | `true` |
+| `VITE_VH_ANALYSIS_PIPELINE` | host/stack must expose `true` | host/stack must expose `true` |
 | `ANALYSIS_RELAY_BUDGET_ANALYSES` | `120` | `600` |
 | `ANALYSIS_RELAY_BUDGET_ANALYSES_PER_TOPIC` | `20` | `20` |
 | `VH_LIVE_MATRIX_TOPICS` | `3` | `8` |
@@ -33,7 +33,7 @@
 Review the current feed posture before opening any session that depends on live public headlines:
 
 ```
-pnpm report:storycluster:production-readiness
+pnpm check:storycluster:production-readiness
 pnpm scout:news-sources:candidates
 ```
 
@@ -70,7 +70,7 @@ pnpm --filter @vh/e2e test:live:matrix:strict:stability
 
 **Required:** `strictStabilityAchieved: true`, `passCount: 3`, `scarcityCount: 0`.
 
-If `scarcityCount > 0`: environment problem (analysis relay, feed, or vote-capable inventory). Triage environment, do not open session.
+If `scarcityCount > 0`: setup-scarcity problem (insufficient vote-capable inventory / synthesis-ready topics). Triage feed inventory and prewarm; analysis-relay misconfiguration is a separate strict-gate failure mode and does not increment `scarcityCount`.
 
 ### 3. Manual 3-browser persistence check
 
@@ -113,7 +113,7 @@ Watch these during active tester sessions:
 | Analysis 429 rate | server logs / relay metrics | >3% for 10 min **or** >5% for 5 min => pause sessions |
 | Mesh write-ack timeout rate | console telemetry `[vh:aggregate:voter-write]` | >5% for 10 min => pause voting |
 | Convergence p95 | strict gate telemetry or manual spot-check | >10s for 15 min => pause new tester intake |
-| Vote-capable inventory | preflight `voteCapableFound` | <8 for 10 min => stop session start, run prewarm |
+| Vote-capable inventory | preflight `voteCapableFound` | below active profile target (`3` in `dev-small`, `8` in `beta-scale`) for 10 min => stop session start, run prewarm |
 | Gun peer connectivity | browser console / relay health | disconnect >60s sustained => session degraded; >5 min => stop |
 
 ---
@@ -139,7 +139,7 @@ After each session, record one entry:
 Date:           2026-MM-DD
 Profile:        dev-small | beta-scale
 Production readiness: release_ready | review_required | blocked (reason)
-Headline soak:  pass | fail (reason)
+Headline soak:  pass | warn | fail (reason)
 Source scout:   top promotable candidate | none | blocked (reason)
 Strict gate:    PASS N/N | FAIL (reason)
 3-browser:      PASS | FAIL at step N (reason)

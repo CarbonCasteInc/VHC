@@ -2,7 +2,7 @@
 
 > Status: Architecture Contract
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-16
+> Last Reviewed: 2026-03-20
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/TRINITY_Season0_SoT.md
 
 
@@ -103,7 +103,9 @@ Feed controls:
 News-feed publication note:
 
 - a readable news story may appear in the feed with a single canonical source;
+- a single-source publisher-hosted video/watch story from an admitted source may also appear in the feed;
 - later corroborating coverage may attach to the same story when it is the same incident or same developing episode;
+- singleton video/watch stories should preserve direct source access as the primary detail path instead of inventing synthesized text;
 - broader storyline grouping remains separate from canonical bundle identity.
 
 ### 3.2 Topic detail (single object, two lenses)
@@ -208,7 +210,9 @@ Publication discipline:
 1. under-bundling is preferable to false canonical merges;
 2. `StoryBundle` may begin as a single-source canonical story;
 3. later source growth should preserve `story_id` when corroborating coverage belongs to the same incident or same developing episode;
-4. production-ready source breadth depends on onboarded readable, accessible, extraction-safe sources rather than arbitrary feed ingestion.
+4. production-ready source breadth depends on onboarded readable, accessible, extraction-safe sources rather than arbitrary feed ingestion;
+5. feed-carried video/watch entries should not count against source-readability admission sampling;
+6. singleton video/watch stories should route users to direct source viewing rather than synthesized analysis.
 
 ### 5.3 Topic digest
 
