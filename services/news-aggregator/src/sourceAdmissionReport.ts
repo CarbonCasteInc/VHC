@@ -283,7 +283,6 @@ function isLikelyVideoFeedEntry(
 
   return isLikelyVideoSourceEntry({ url, title });
 }
-
 function parseFeedLinksDetailed(xml: string, sampleSize: number): FeedLinkParseResult {
   const rssFragments = Array.from(xml.matchAll(RSS_ITEM_REGEX), (match) => match[0]);
   const atomFragments = Array.from(xml.matchAll(ATOM_ENTRY_REGEX), (match) => match[0]);

@@ -229,6 +229,37 @@ describe('sourceAdmissionReport', () => {
     });
   });
 
+  it('retries feed reads before failing and surfaces the final diagnostics', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const fetchFn = vi
+      .fn<[string | URL | Request], Promise<Response>>()
+      .mockRejectedValueOnce(new Error('temporary failure'))
+      .mockResolvedValueOnce(
+        makeResponse(
+          200,
+          '<rss><channel><item><link>https://www.foxnews.com/a</link></item></channel></rss>',
+        ),
+      );
+
+    const result = await sourceAdmissionReportInternal.readFeedXml(
+      fetchFn as unknown as typeof fetch,
+      source,
+      {
+        feedReadAttemptCount: 2,
+        feedReadRetryDelayMs: 0,
+      },
+    );
+
+    expect(result.xml).toContain('https://www.foxnews.com/a');
+    expect(result.diagnostics).toMatchObject({
+      ok: true,
+      attemptCount: 2,
+      payloadKind: 'xml',
+      errorCode: null,
+    });
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+
   it('admits a source when readable samples clear the threshold', async () => {
     const source = STARTER_FEED_SOURCES[0];
     const fetchFn = vi.fn(async (input: string | URL) => {
