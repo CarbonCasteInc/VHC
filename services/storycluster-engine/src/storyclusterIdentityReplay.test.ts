@@ -33,6 +33,26 @@ function makeInput(docId: string, title: string, publishedAt: number, overrides:
   };
 }
 
+function makeReplayInput(
+  docId: string,
+  title: string,
+  publishedAt: number,
+  sourceId: string,
+  urlHash: string,
+  summary: string,
+  overrides: Partial<StoryClusterInputDocument> = {},
+): StoryClusterInputDocument {
+  return makeInput(docId, title, publishedAt, {
+    source_id: sourceId,
+    publisher: sourceId,
+    url: `https://example.com/${sourceId}/${urlHash}`,
+    canonical_url: `https://example.com/${sourceId}/${urlHash}`,
+    url_hash: urlHash,
+    summary,
+    ...overrides,
+  });
+}
+
 function makeWorkingDocument(docId: string, title: string, entity: string, trigger: string | null, vector: [number, number], publishedAt: number): WorkingDocument {
   return {
     ...makeInput(docId, title, publishedAt, { entity_keys: [entity] }),
@@ -96,6 +116,162 @@ function makeEmptyState(topicState: StoredTopicState): PipelineState {
 }
 
 describe('StoryCluster identity replay hardening', () => {
+  it('preserves story_id for repeated exact-source Cuba escalation coverage', async () => {
+    const store = new MemoryClusterStore();
+    const title = "Cuba's deputy foreign minister says it is preparing for possible U.S. 'military aggression'";
+    const summary = 'Cuba says it is preparing for possible U.S. military aggression after Trump remarks escalated tensions.';
+
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-cuba-escalation',
+        documents: [
+          makeReplayInput('cuba-1', title, 100, 'nbc-politics', '07f8408a', summary),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-cuba-escalation',
+        documents: [
+          makeReplayInput('cuba-2', title, 200, 'nbc-politics', '07f8408a', summary),
+        ],
+      },
+      { clock: makeClock(1_713_500_010_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources).toHaveLength(1);
+    expect(second.bundles[0]?.headline).toContain("military aggression");
+  });
+
+  it('preserves story_id while the ICE/TSA airport episode grows around a persistent source', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-airport-ice',
+        documents: [
+          makeReplayInput(
+            'airport-1',
+            'Trump says ICE agents will assist TSA at airports as delays worsen',
+            100,
+            'cbs-politics',
+            'bc734304',
+            'Trump says ICE agents will assist TSA at airports as delays worsen while staffing shortages and shutdown delays mount.',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-airport-ice',
+        documents: [
+          makeReplayInput(
+            'airport-2',
+            'Trump says ICE agents will assist TSA at airports as delays worsen',
+            110,
+            'cbs-politics',
+            'bc734304',
+            'Trump says ICE agents will assist TSA at airports as delays worsen while staffing shortages and shutdown delays mount.',
+          ),
+          makeReplayInput(
+            'airport-3',
+            'ICE agents will be deployed to US airports on Monday to ease long lines',
+            120,
+            'guardian-us',
+            '86a83b99',
+            'ICE agents will be deployed to airports on Monday to ease long lines during the TSA staffing crunch.',
+          ),
+          makeReplayInput(
+            'airport-4',
+            'Trump says ICE agents will assist airport security as DHS shutdown continues',
+            130,
+            'bbc-us-canada',
+            '56d52d4c',
+            'Trump says ICE agents will assist airport security as the DHS shutdown continues and delays worsen.',
+          ),
+          makeReplayInput(
+            'airport-5',
+            'ICE officers set to deploy to airports as delays mount, border czar Homan confirms',
+            140,
+            'npr-politics',
+            'dee86065',
+            'ICE officers are set to deploy to airports as delays mount, Homan confirms.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_020_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'bbc-us-canada',
+      'cbs-politics',
+      'guardian-us',
+      'npr-politics',
+    ]);
+  });
+
+  it('preserves story_id while Mueller obituary coverage adds a second canonical source', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-mueller-obit',
+        documents: [
+          makeReplayInput(
+            'mueller-1',
+            'Robert Mueller, ex-FBI chief who led Trump-Russia investigation, dies at 81',
+            100,
+            'bbc-us-canada',
+            '6ef5fdc8',
+            'Robert Mueller, former FBI director and special counsel in the Trump-Russia investigation, has died at 81.',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-mueller-obit',
+        documents: [
+          makeReplayInput(
+            'mueller-2',
+            'Robert Mueller, ex-FBI chief who led Trump-Russia investigation, dies at 81',
+            110,
+            'bbc-us-canada',
+            '6ef5fdc8',
+            'Robert Mueller, former FBI director and special counsel in the Trump-Russia investigation, has died at 81.',
+          ),
+          makeReplayInput(
+            'mueller-3',
+            'Robert Mueller, former FBI Director who investigated Russia-Trump campaign ties, dies at 81',
+            120,
+            'pbs-politics',
+            'a6fc02ae',
+            'Robert Mueller, former FBI director who investigated Russia-Trump campaign ties, has died at 81.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_030_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'bbc-us-canada',
+      'pbs-politics',
+    ]);
+  });
+
   it('preserves story_id and created_at across headline drift and multilingual restatements', async () => {
     const store = new MemoryClusterStore();
     const first = await runStoryClusterStagePipeline(
