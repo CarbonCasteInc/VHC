@@ -155,6 +155,21 @@ describe('clusterRecords', () => {
     expect(updated.source_documents[0]?.published_at).toBe(100);
   });
 
+  it('mints different story ids for identical source inputs when next_cluster_seq changes', () => {
+    const baseDocument = makeWorkingDocument('doc-5', 'Cuba prepares for possible US military aggression');
+    const source = toStoredSource(baseDocument, baseDocument.source_variants[0]!);
+
+    const firstState = makeTopicState();
+    const first = deriveClusterRecord(firstState, 'topic-news', [source]);
+
+    const laterState = makeTopicState();
+    laterState.next_cluster_seq = 4;
+    const later = deriveClusterRecord(laterState, 'topic-news', [source]);
+
+    expect(first.source_documents).toEqual(later.source_documents);
+    expect(first.story_id).not.toBe(later.story_id);
+  });
+
   it('computes confidence and connected components', () => {
     const sourceA: StoredSourceDocument = toStoredSource(makeWorkingDocument('doc-1'), makeWorkingDocument('doc-1').source_variants[0]!);
     const sourceB: StoredSourceDocument = toStoredSource(makeWorkingDocument('doc-2'), makeWorkingDocument('doc-2').source_variants[0]!);
