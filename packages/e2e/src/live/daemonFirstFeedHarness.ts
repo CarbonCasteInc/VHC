@@ -29,7 +29,8 @@ export const RUN_ID = process.env.VH_DAEMON_FEED_RUN_ID ?? `manual-${process.pid
 export const QDRANT_URL = process.env.VH_STORYCLUSTER_QDRANT_URL ?? process.env.QDRANT_URL ?? 'http://127.0.0.1:6333';
 export const GUN_PEER_URL = `http://localhost:${GUN_PORT}/gun`;
 export const NAV_TIMEOUT_MS = 90_000;
-export const FEED_READY_TIMEOUT_MS = 240_000;
+const DEFAULT_FEED_READY_TIMEOUT_MS = 240_000;
+const FEED_READY_TIMEOUT_BUFFER_MS = 60_000;
 export const MIN_HEADLINES = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 3 : 4;
 const FIXTURE_NEWS_POLL_INTERVAL_MS = String(30 * 60 * 1000);
 const DEFAULT_NEWS_POLL_INTERVAL_MS = '15000';
@@ -39,6 +40,7 @@ const LIVE_MAX_ITEMS_PER_SOURCE = '3';
 const LIVE_MAX_ITEMS_TOTAL = '15';
 const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = '300000';
 const DEFAULT_STORYCLUSTER_OPENAI_TIMEOUT_MS = '120000';
+export const FEED_READY_TIMEOUT_MS = resolveFeedReadyTimeoutMs();
 
 export type HeadlineRow = {
   readonly storyId: string;
@@ -158,6 +160,23 @@ function resolveStoryClusterOpenAITimeoutMs(): string {
   return DEFAULT_STORYCLUSTER_OPENAI_TIMEOUT_MS;
 }
 
+function resolveFeedReadyTimeoutMs(): number {
+  const configured = process.env.VH_DAEMON_FEED_READY_TIMEOUT_MS?.trim()
+    || process.env.VH_LIVE_FEED_READY_TIMEOUT_MS?.trim();
+  if (configured) {
+    const parsed = Number.parseInt(configured, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return parsed;
+    }
+  }
+
+  const remoteTimeoutMs = Number.parseInt(resolveStoryClusterRemoteTimeoutMs(), 10);
+  const derivedTimeoutMs = Number.isFinite(remoteTimeoutMs)
+    ? remoteTimeoutMs + FEED_READY_TIMEOUT_BUFFER_MS
+    : DEFAULT_FEED_READY_TIMEOUT_MS;
+  return Math.max(DEFAULT_FEED_READY_TIMEOUT_MS, derivedTimeoutMs);
+}
+
 export const daemonFirstFeedHarnessInternal = {
   resolveNewsPollIntervalMs,
   resolveNewsFeedMaxItemsPerSource,
@@ -165,6 +184,7 @@ export const daemonFirstFeedHarnessInternal = {
   resolveMinimumAuditableStories,
   resolveStoryClusterRemoteTimeoutMs,
   resolveStoryClusterOpenAITimeoutMs,
+  resolveFeedReadyTimeoutMs,
 };
 
 function commonEnv(): NodeJS.ProcessEnv {
@@ -277,12 +297,13 @@ export async function attachRuntimeLogs(
 
 export async function waitForHeadlines(page: Page, minHeadlines = MIN_HEADLINES): Promise<number> {
   const startedAt = Date.now();
+  const feedReadyTimeoutMs = resolveFeedReadyTimeoutMs();
   const minAuditableStories = resolveMinimumAuditableStories();
   let lastDomCount = 0;
   let lastStoryCount = 0;
   let lastAuditableCount = 0;
   let reloadAttempted = false;
-  while (Date.now() - startedAt < FEED_READY_TIMEOUT_MS) {
+  while (Date.now() - startedAt < feedReadyTimeoutMs) {
     lastDomCount = await page.locator('[data-testid^="news-card-headline-"]').count();
     if (lastDomCount >= minHeadlines && minAuditableStories === 0) {
       return Date.now() - startedAt;
@@ -351,7 +372,7 @@ async function materializeBundledStory(
 }
 
 export async function findBundledStory(page: Page, limit = 12): Promise<BundledStory> {
-  const deadline = Date.now() + FEED_READY_TIMEOUT_MS;
+  const deadline = Date.now() + resolveFeedReadyTimeoutMs();
   while (Date.now() < deadline) {
     const auditableBundles = (await readAuditableBundles(page)).slice(0, limit);
     for (const bundle of auditableBundles) {
