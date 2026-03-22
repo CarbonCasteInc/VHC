@@ -79,4 +79,14 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS', '420000');
     expect(daemonFirstFeedHarnessInternal.resolveStoryClusterRemoteTimeoutMs()).toBe('420000');
   });
+
+  it('defaults the soak storycluster OpenAI timeout to 120000ms', () => {
+    vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_OPENAI_TIMEOUT_MS', '');
+    expect(daemonFirstFeedHarnessInternal.resolveStoryClusterOpenAITimeoutMs()).toBe('120000');
+  });
+
+  it('prefers an explicit soak storycluster OpenAI timeout override when provided', () => {
+    vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_OPENAI_TIMEOUT_MS', '180000');
+    expect(daemonFirstFeedHarnessInternal.resolveStoryClusterOpenAITimeoutMs()).toBe('180000');
+  });
 });
