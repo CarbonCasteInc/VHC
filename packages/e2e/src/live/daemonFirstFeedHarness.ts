@@ -38,6 +38,7 @@ const FIXTURE_MAX_ITEMS_TOTAL = '30';
 const LIVE_MAX_ITEMS_PER_SOURCE = '3';
 const LIVE_MAX_ITEMS_TOTAL = '15';
 const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = '300000';
+const DEFAULT_STORYCLUSTER_OPENAI_TIMEOUT_MS = '120000';
 
 export type HeadlineRow = {
   readonly storyId: string;
@@ -145,12 +146,25 @@ function resolveStoryClusterRemoteTimeoutMs(): string {
   return DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS;
 }
 
+function resolveStoryClusterOpenAITimeoutMs(): string {
+  const configured = process.env.VH_DAEMON_FEED_STORYCLUSTER_OPENAI_TIMEOUT_MS?.trim();
+  if (configured) {
+    const parsed = Number.parseInt(configured, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return String(parsed);
+    }
+  }
+
+  return DEFAULT_STORYCLUSTER_OPENAI_TIMEOUT_MS;
+}
+
 export const daemonFirstFeedHarnessInternal = {
   resolveNewsPollIntervalMs,
   resolveNewsFeedMaxItemsPerSource,
   resolveNewsFeedMaxItemsTotal,
   resolveMinimumAuditableStories,
   resolveStoryClusterRemoteTimeoutMs,
+  resolveStoryClusterOpenAITimeoutMs,
 };
 
 function commonEnv(): NodeJS.ProcessEnv {
@@ -159,6 +173,7 @@ function commonEnv(): NodeJS.ProcessEnv {
   const maxItemsPerSource = resolveNewsFeedMaxItemsPerSource();
   const maxItemsTotal = resolveNewsFeedMaxItemsTotal();
   const storyClusterRemoteTimeoutMs = resolveStoryClusterRemoteTimeoutMs();
+  const storyClusterOpenAITimeoutMs = resolveStoryClusterOpenAITimeoutMs();
   return {
     ...process.env,
     NODE_ENV: 'production',
@@ -170,7 +185,7 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_STORYCLUSTER_STATE_DIR: path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/storycluster-state`),
     VH_STORYCLUSTER_SERVER_PORT: String(STORYCLUSTER_PORT),
     VH_STORYCLUSTER_SERVER_AUTH_TOKEN: STORYCLUSTER_TOKEN,
-    VH_STORYCLUSTER_OPENAI_TIMEOUT_MS: '60000',
+    VH_STORYCLUSTER_OPENAI_TIMEOUT_MS: storyClusterOpenAITimeoutMs,
     VH_GUN_PEERS: `["${GUN_PEER_URL}"]`,
     VITE_NEWS_FEED_SOURCES: resolveDaemonFeedSourcesJson(),
     VITE_NEWS_TOPIC_MAPPING: '{"defaultTopicId":"topic-news","sourceTopics":{}}',
