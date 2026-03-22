@@ -100,6 +100,7 @@ describe('daemon-feed-semantic-soak-report', () => {
       reportPath: '/tmp/run-1.playwright.json',
       auditPath: null,
       failureSnapshotPath: '/tmp/run-1.failure.json',
+      retainedSourceEvidencePath: null,
       runtimeLogsPath: null,
     });
 
@@ -112,6 +113,7 @@ describe('daemon-feed-semantic-soak-report', () => {
       reportPath: null,
       auditPath: '/tmp/run-2.audit.json',
       failureSnapshotPath: null,
+      retainedSourceEvidencePath: null,
       runtimeLogsPath: '/tmp/run-2.logs.json',
     });
   });
