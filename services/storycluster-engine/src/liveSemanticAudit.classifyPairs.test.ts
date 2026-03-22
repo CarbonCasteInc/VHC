@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { classifyCanonicalSourcePairs } from './liveSemanticAudit';
+import { classifyCanonicalSourcePairs, liveSemanticAuditInternal } from './liveSemanticAudit';
 
 function makePair(overrides: Record<string, unknown> = {}) {
   return {
@@ -381,5 +381,85 @@ describe('liveSemanticAudit classifier', () => {
 
     expect(maxInFlight).toBeGreaterThan(1);
     expect(results.map((result) => result.pair_id)).toEqual(pairs.map((pair) => pair.pair_id));
+  });
+
+  it('treats same-episode perspective shifts as same_developing_episode in the Cuba regression pair', async () => {
+    const cubaPair = makePair({
+      pair_id: 'story-cuba::fox-latest:39e4d4b6::nbc-politics:07f8408a',
+      story_id: 'story-cuba',
+      topic_id: 'topic-cuba',
+      story_headline: "Cuban official reveals military 'preparing' for conflict after Trump considers 'taking' island",
+      left: {
+        source_id: 'fox-latest',
+        publisher: 'fox-latest',
+        url: 'https://www.foxnews.com/media/cuban-official-reveals-military-preparing-conflict-after-trump-considers-taking-island',
+        url_hash: '39e4d4b6',
+        published_at: 1774213218000,
+        title: "Cuban official reveals military 'preparing' for conflict after Trump considers 'taking' island",
+        text: 'A Cuban official says the island is preparing for conflict after Trump raised the idea of taking Cuba and the government warns of escalation.',
+      },
+      right: {
+        source_id: 'nbc-politics',
+        publisher: 'nbc-politics',
+        url: 'https://www.nbcnews.com/world/cuba/cuba-foreign-minister-military-aggression-us-oil-trump-rubio-rcna264568',
+        url_hash: '07f8408a',
+        published_at: 1774185083000,
+        title: "Cuba's deputy foreign minister says it is preparing for possible U.S. 'military aggression'",
+        text: "Cuba's deputy foreign minister says the country is preparing for possible U.S. military aggression after Trump comments intensified tensions.",
+      },
+    });
+
+    const fetchFn = vi.fn<typeof fetch>(async (_input, init) => {
+      const body = JSON.parse(String(init?.body ?? '{}'));
+      expect(body.messages?.[0]?.content).toContain(
+        'Different national, political, or institutional perspectives alone are not enough to downgrade a pair to related_topic_only',
+      );
+      expect(body.messages?.[0]?.content).toContain(
+        'same ongoing confrontation, escalation, negotiation, investigation, or response arc involving the same core actors and immediate trigger',
+      );
+      expect(body.messages?.[1]?.content).toContain("Cuban official reveals military 'preparing' for conflict");
+      expect(body.messages?.[1]?.content).toContain("Cuba's deputy foreign minister says it is preparing for possible U.S. 'military aggression'");
+      return new Response(JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                pair_labels: [
+                  {
+                    pair_id: 'story-cuba::fox-latest:39e4d4b6::nbc-politics:07f8408a',
+                    label: 'same_developing_episode',
+                    confidence: 0.84,
+                    rationale: 'Both reports describe the same Cuba-U.S. escalation episode from different perspectives.',
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }), { status: 200 });
+    });
+
+    const results = await classifyCanonicalSourcePairs([cubaPair], {
+      apiKey: 'test-key',
+      fetchFn,
+    });
+
+    expect(results).toEqual([
+      {
+        pair_id: 'story-cuba::fox-latest:39e4d4b6::nbc-politics:07f8408a',
+        label: 'same_developing_episode',
+        confidence: 0.84,
+        rationale: 'Both reports describe the same Cuba-U.S. escalation episode from different perspectives.',
+      },
+    ]);
+  });
+
+  it('includes explicit perspective-shift guidance in the audit rubric', () => {
+    expect(liveSemanticAuditInternal.buildSemanticAuditSystemPrompt()).toContain(
+      'Different national, political, or institutional perspectives alone are not enough to downgrade a pair to related_topic_only',
+    );
+    expect(liveSemanticAuditInternal.buildSemanticAuditSystemPrompt()).toContain(
+      'same ongoing confrontation, escalation, negotiation, investigation, or response arc involving the same core actors and immediate trigger',
+    );
   });
 });

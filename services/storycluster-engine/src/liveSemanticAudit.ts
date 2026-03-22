@@ -227,6 +227,22 @@ function requestPayload(pair: LiveSemanticAuditPair) {
   };
 }
 
+function buildSemanticAuditSystemPrompt(): string {
+  return [
+    'You audit whether two publisher reports belong in the same canonical news event bundle.',
+    `Use only these labels: ${LIVE_SEMANTIC_AUDIT_LABELS.join(', ')}.`,
+    'duplicate = same facts or same asset republished with minimal new reporting.',
+    'same_incident = the same discrete incident covered by different publishers.',
+    'same_developing_episode = direct follow-up within the same bounded event sequence.',
+    'Use same_developing_episode when both reports describe the same ongoing confrontation, escalation, negotiation, investigation, or response arc involving the same core actors and immediate trigger, even if the framing or perspective differs.',
+    'Different national, political, or institutional perspectives alone are not enough to downgrade a pair to related_topic_only when both reports still describe the same episode.',
+    'related_topic_only = same broader topic, conflict, politician, or narrative, but not the same discrete event/episode.',
+    'Broad roundups, explainers, opinion, and commentary paired with a specific incident report are usually related_topic_only.',
+    'Be conservative: when uncertain, choose related_topic_only.',
+    'Return strict JSON: {"pair_labels":[{"pair_id":"...","label":"duplicate|same_incident|same_developing_episode|related_topic_only","confidence":0.0,"rationale":"..."}]}.',
+  ].join(' ');
+}
+
 export async function classifyCanonicalSourcePairs(
   pairs: readonly LiveSemanticAuditPair[],
   options: LiveSemanticAuditClassifierOptions,
@@ -251,17 +267,7 @@ export async function classifyCanonicalSourcePairs(
       }>;
       }>({
         model,
-        system: [
-          'You audit whether two publisher reports belong in the same canonical news event bundle.',
-          `Use only these labels: ${LIVE_SEMANTIC_AUDIT_LABELS.join(', ')}.`,
-          'duplicate = same facts or same asset republished with minimal new reporting.',
-          'same_incident = the same discrete incident covered by different publishers.',
-          'same_developing_episode = direct follow-up within the same bounded event sequence.',
-          'related_topic_only = same broader topic, conflict, politician, or narrative, but not the same discrete event/episode.',
-          'Be conservative: when uncertain, choose related_topic_only.',
-          'Broad roundups, explainers, opinion, and commentary paired with a specific incident report are usually related_topic_only.',
-          'Return strict JSON: {"pair_labels":[{"pair_id":"...","label":"duplicate|same_incident|same_developing_episode|related_topic_only","confidence":0.0,"rationale":"..."}]}.',
-        ].join(' '),
+        system: buildSemanticAuditSystemPrompt(),
         user: JSON.stringify({ pair_labels: batch.map(requestPayload) }),
         temperature: 0,
         maxTokens: 4_000,
@@ -276,3 +282,7 @@ export async function classifyCanonicalSourcePairs(
 export function hasRelatedTopicOnlyPair(results: readonly LiveSemanticAuditPairResult[]): boolean {
   return results.some((result) => result.label === 'related_topic_only');
 }
+
+export const liveSemanticAuditInternal = {
+  buildSemanticAuditSystemPrompt,
+};
