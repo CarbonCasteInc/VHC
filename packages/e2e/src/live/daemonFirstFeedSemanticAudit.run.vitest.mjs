@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const readAuditableBundles = vi.fn();
+const readRetainedSourceEvidenceSnapshot = vi.fn();
 const readSemanticAuditStoreSnapshot = vi.fn();
 const refreshNewsStoreLatest = vi.fn();
 const waitForHeadlines = vi.fn();
@@ -15,6 +16,7 @@ const fetchMock = vi.fn();
 
 vi.mock('./browserNewsStore', () => ({
   readAuditableBundles,
+  readRetainedSourceEvidenceSnapshot,
   readSemanticAuditStoreSnapshot,
   refreshNewsStoreLatest,
 }));
@@ -68,6 +70,38 @@ function makeSnapshot(overrides = {}) {
   };
 }
 
+function makeRetainedSourceEvidenceSnapshot(overrides = {}) {
+  return {
+    schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+    generatedAt: '2026-03-22T00:00:00.000Z',
+    story_count: 4,
+    auditable_count: 2,
+    visible_story_ids: ['story-1', 'story-2', 'story-3'],
+    top_story_ids: ['story-1', 'story-2', 'story-3', 'story-4'],
+    top_auditable_story_ids: ['story-1', 'story-2'],
+    source_count: 2,
+    sources: [{
+      source_id: 'story-1-a',
+      publisher: 'Source A',
+      url: 'https://example.com/story-1/a',
+      url_hash: 'story-1-a',
+      title: 'Title story-1 A',
+      observations: [{
+        story_id: 'story-1',
+        topic_id: 'topic-story-1',
+        headline: 'Headline story-1',
+        source_count: 2,
+        primary_source_count: 2,
+        secondary_asset_count: 0,
+        is_auditable: true,
+        is_dom_visible: true,
+        source_roles: ['primary_source', 'source'],
+      }],
+    }],
+    ...overrides,
+  };
+}
+
 function makePair(bundle) {
   return {
     pair_id: `${bundle.story_id}-pair-1`,
@@ -97,6 +131,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('fetch', fetchMock);
   refreshNewsStoreLatest.mockResolvedValue(undefined);
+  readRetainedSourceEvidenceSnapshot.mockResolvedValue(makeRetainedSourceEvidenceSnapshot());
   waitForHeadlines.mockResolvedValue(undefined);
   nudgeFeed.mockResolvedValue(undefined);
   fetchMock.mockResolvedValue({
@@ -257,6 +292,13 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
       readFileSync(path.join(artifactDir(process.env.VH_DAEMON_FEED_RUN_ID), 'semantic-audit-report.json'), 'utf8'),
     );
     expect(persistedReport.overall.pass).toBe(true);
+    const retainedEvidence = JSON.parse(
+      readFileSync(path.join(artifactDir(process.env.VH_DAEMON_FEED_RUN_ID), 'retained-source-evidence-snapshot.json'), 'utf8'),
+    );
+    expect(retainedEvidence).toMatchObject({
+      schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+      source_count: 2,
+    });
   });
 
   it('keeps insufficient fixture-backed supply as a recorded failure instead of silently promoting it', async () => {

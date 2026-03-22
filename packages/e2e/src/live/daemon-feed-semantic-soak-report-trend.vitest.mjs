@@ -22,6 +22,7 @@ function makeResult(overrides = {}) {
     failureStoryCount: null,
     failureAuditableCount: null,
     failureSnapshotPath: null,
+    retainedSourceEvidencePath: null,
     runtimeLogsPath: null,
     reportPath: '/tmp/report.json',
     auditPath: '/tmp/audit.json',
@@ -95,6 +96,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       reportCount: 4,
       auditCount: 4,
       failureSnapshotCount: 1,
+      retainedSourceEvidenceCount: 0,
       runtimeLogsCount: 1,
     });
     expect(trend.density).toEqual({
@@ -138,6 +140,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         reportPath: '/tmp/report.json',
         auditPath: '/tmp/audit.json',
         failureSnapshotPath: null,
+        retainedSourceEvidencePath: null,
         runtimeLogsPath: null,
       },
       density: {
@@ -153,6 +156,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       runtimeLogsPath: '/tmp/runtime.json',
       artifactPaths: {
         failureSnapshotPath: '/tmp/failure.json',
+        retainedSourceEvidencePath: null,
         runtimeLogsPath: '/tmp/runtime.json',
       },
     });
@@ -198,6 +202,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       reportCount: 0,
       auditCount: 0,
       failureSnapshotCount: 0,
+      retainedSourceEvidenceCount: 0,
       runtimeLogsCount: 0,
     });
     expect(trend.density).toEqual({
@@ -241,7 +246,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       '/tmp/artifacts/continuity-analysis.json',
       '/tmp/artifacts/continuity-trend-index.json',
     )).toMatchObject({
-      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v4',
+      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v5',
       executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
       authoritativeCorrectnessGate: {
         gateId: 'storycluster-primary-correctness-gate-v1',
@@ -301,6 +306,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
             reportPath: '/tmp/report.json',
             auditPath: '/tmp/audit.json',
             failureSnapshotPath: null,
+            retainedSourceEvidencePath: null,
             runtimeLogsPath: null,
           },
         },
@@ -314,6 +320,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
             reportPath: '/tmp/report.json',
             auditPath: null,
             failureSnapshotPath: null,
+            retainedSourceEvidencePath: null,
             runtimeLogsPath: null,
           },
         },

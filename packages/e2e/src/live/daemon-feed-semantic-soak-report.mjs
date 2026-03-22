@@ -200,6 +200,7 @@ export function buildRunArtifactPaths(result) {
     reportPath: result.reportPath ?? null,
     auditPath: result.auditPath ?? null,
     failureSnapshotPath: result.failureSnapshotPath ?? null,
+    retainedSourceEvidencePath: result.retainedSourceEvidencePath ?? null,
     runtimeLogsPath: result.runtimeLogsPath ?? null,
   };
 }
@@ -325,6 +326,7 @@ export function buildSoakTrend(results) {
       reportPath: artifactPaths.reportPath,
       auditPath: artifactPaths.auditPath,
       failureSnapshotPath: artifactPaths.failureSnapshotPath,
+      retainedSourceEvidencePath: artifactPaths.retainedSourceEvidencePath,
       runtimeLogsPath: artifactPaths.runtimeLogsPath,
       artifactPaths,
       density,
@@ -338,6 +340,7 @@ export function buildSoakTrend(results) {
     reportCount: runs.filter((run) => run.artifactPaths.reportPath).length,
     auditCount: runs.filter((run) => run.artifactPaths.auditPath).length,
     failureSnapshotCount: runs.filter((run) => run.artifactPaths.failureSnapshotPath).length,
+    retainedSourceEvidenceCount: runs.filter((run) => run.artifactPaths.retainedSourceEvidencePath).length,
     runtimeLogsCount: runs.filter((run) => run.artifactPaths.runtimeLogsPath).length,
   };
   const sampleShortfalls = runs.map((run) => run.density.sampleShortfall).filter(isFiniteNumber);
@@ -613,7 +616,7 @@ export function buildReleaseArtifactIndex(
   };
 
   return {
-    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v4',
+    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v5',
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
     authoritativeCorrectnessGate,
@@ -642,6 +645,7 @@ export function buildReleaseArtifactIndex(
         reportPath: artifactPaths.reportPath,
         auditPath: artifactPaths.auditPath,
         failureSnapshotPath: artifactPaths.failureSnapshotPath,
+        retainedSourceEvidencePath: artifactPaths.retainedSourceEvidencePath,
         runtimeLogsPath: artifactPaths.runtimeLogsPath,
         artifactPaths,
       };

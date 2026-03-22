@@ -292,6 +292,34 @@ describe('runDaemonFeedSemanticSoak', () => {
     };
     const primaryResult = makePrimaryResult([
       makeAttachment('daemon-first-feed-semantic-audit', runAudit),
+      makeAttachment('daemon-first-feed-retained-source-evidence', {
+        schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+        generatedAt: '2026-03-22T00:00:00.000Z',
+        story_count: 3,
+        auditable_count: 1,
+        visible_story_ids: ['story-1'],
+        top_story_ids: ['story-1'],
+        top_auditable_story_ids: ['story-1'],
+        source_count: 2,
+        sources: [{
+          source_id: 'guardian-us',
+          publisher: 'Guardian',
+          url: 'https://example.com/guardian-us',
+          url_hash: 'guardian-us-1',
+          title: 'Guardian headline',
+          observations: [{
+            story_id: 'story-1',
+            topic_id: 'topic-1',
+            headline: 'Headline',
+            source_count: 2,
+            primary_source_count: 2,
+            secondary_asset_count: 0,
+            is_auditable: true,
+            is_dom_visible: true,
+            source_roles: ['primary_source', 'source'],
+          }],
+        }],
+      }),
       makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: ['log-1'] }),
     ]);
     const playwrightReport = {
@@ -349,6 +377,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('/repo/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"headlineSoakTrendIndexPath": "/repo/.tmp/out/headline-soak-trend-index.json"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityAnalysisPath": "/repo/.tmp/out/continuity-analysis.json"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"retainedSourceEvidencePath": "/repo/.tmp/out/run-1.retained-source-evidence.json"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityTrendIndexPath": "/repo/.tmp/out/continuity-trend-index.json"');
     expect(writes.get('/repo/.tmp/out/headline-soak-trend-index.json')).toContain('"executionCount": 1');
     expect(writes.get('/repo/.tmp/headline-soak-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
@@ -429,6 +458,34 @@ describe('runDaemonFeedSemanticSoak', () => {
         top_story_ids: ['story-1'],
         top_auditable_story_ids: ['story-1'],
       }),
+      makeAttachment('daemon-first-feed-retained-source-evidence', {
+        schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+        generatedAt: '2026-03-22T00:00:00.000Z',
+        story_count: 4,
+        auditable_count: 2,
+        visible_story_ids: ['story-1'],
+        top_story_ids: ['story-1'],
+        top_auditable_story_ids: ['story-1'],
+        source_count: 2,
+        sources: [{
+          source_id: 'guardian-us',
+          publisher: 'Guardian',
+          url: 'https://example.com/guardian-us',
+          url_hash: 'guardian-us-1',
+          title: 'Guardian headline',
+          observations: [{
+            story_id: 'story-1',
+            topic_id: 'topic-1',
+            headline: 'Headline',
+            source_count: 2,
+            primary_source_count: 2,
+            secondary_asset_count: 0,
+            is_auditable: true,
+            is_dom_visible: true,
+            source_roles: ['primary_source', 'source'],
+          }],
+        }],
+      }),
       makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: ['browser-log'] }),
     ]);
     const playwrightReport = {
@@ -475,6 +532,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(sleepImpl).toHaveBeenCalledWith(5);
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit.json')).toContain('"requested_sample_count": 1');
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit-failure-snapshot.json')).toContain('"story_count": 4');
+    expect(writes.get('/repo/.tmp/out/run-1.retained-source-evidence.json')).toContain('"schemaVersion": "daemon-feed-retained-source-evidence-v1"');
     expect(writes.get('/repo/.tmp/out/run-1.runtime-logs.json')).toContain('browser-log');
     expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"topic_id": "topic-1"');
     expect(writes.get('/repo/.tmp/out/continuity-trend-index.json')).toContain('"analysisCount": 1');
@@ -803,6 +861,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/semantic-soak-summary.json')).toContain('"strictSoakPass": true');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityAnalysisPath": null');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityTrendIndexPath": null');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"retainedSourceEvidencePath": null');
     expect(errorLog).toHaveBeenCalledWith('[vh:daemon-soak] continuity-telemetry-error: disk-full-on-continuity-write');
   });
 

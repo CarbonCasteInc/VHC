@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { Page } from '@playwright/test';
 import {
   readAuditableBundles,
+  readRetainedSourceEvidenceSnapshot,
   readSemanticAuditStoreSnapshot,
   refreshNewsStoreLatest,
 } from './browserNewsStore';
@@ -15,6 +16,7 @@ import type {
   LiveSemanticAuditBundleLike,
   LiveSemanticAuditPair,
   LiveSemanticAuditPairResult,
+  RetainedSourceEvidenceSnapshot,
   SemanticAuditStoreSnapshot,
   SemanticAuditSupplyDiagnostics,
   StoryBundleSource,
@@ -267,6 +269,23 @@ async function persistSemanticAuditFailureSnapshot(
   );
 }
 
+async function persistRetainedSourceEvidenceSnapshot(
+  snapshot: RetainedSourceEvidenceSnapshot,
+): Promise<void> {
+  const runId = process.env.VH_DAEMON_FEED_RUN_ID?.trim();
+  if (!runId) {
+    return;
+  }
+
+  const artifactDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId);
+  await mkdir(artifactDir, { recursive: true });
+  await writeFile(
+    path.join(artifactDir, 'retained-source-evidence-snapshot.json'),
+    JSON.stringify(snapshot, null, 2),
+    'utf8',
+  );
+}
+
 export function buildDaemonFeedSemanticAuditReport(
   sampleCount: number,
   reports: DaemonFeedSemanticAuditReport['bundles'],
@@ -306,6 +325,8 @@ export async function runDaemonFirstFeedSemanticAudit(
   } = await loadSemanticAuditModule();
 
   const { bundles: sampledBundles, storeSnapshot } = await waitForSampledBundles(page, sampleCount, timeoutMs);
+  const retainedSourceEvidenceSnapshot = await readRetainedSourceEvidenceSnapshot(page);
+  await persistRetainedSourceEvidenceSnapshot(retainedSourceEvidenceSnapshot);
   const hydratedBundles = [...sampledBundles];
   const canonicalSources = Array.from(
     new Map(
