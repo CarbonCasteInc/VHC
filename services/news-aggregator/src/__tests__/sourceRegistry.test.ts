@@ -21,10 +21,11 @@ describe('sourceRegistry', () => {
   });
 
   it('exposes starter feed URLs', () => {
-    expect(STARTER_FEED_URLS.length).toBeGreaterThanOrEqual(13);
+    expect(STARTER_FEED_URLS.length).toBeGreaterThanOrEqual(14);
     expect(STARTER_FEED_URLS[0]).toContain('foxnews');
     expect(STARTER_FEED_URLS).toContain('https://abcnews.go.com/abcnews/politicsheadlines');
     expect(STARTER_FEED_URLS).toContain('https://feeds.nbcnews.com/feeds/nbcpolitics');
+    expect(STARTER_FEED_URLS).toContain('https://www.washingtonexaminer.com/tag/politics.rss');
     expect(STARTER_FEED_URLS).toContain('https://www.pbs.org/newshour/feeds/rss/politics');
     expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1001/rss.xml');
     expect(STARTER_FEED_URLS).toContain('https://feeds.npr.org/1014/rss.xml');
@@ -38,6 +39,8 @@ describe('sourceRegistry', () => {
     expect(STARTER_SOURCE_DOMAINS).toContain('abcnews.go.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('abcnews.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('nbcnews.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('washingtonexaminer.com');
+    expect(STARTER_SOURCE_DOMAINS).toContain('www.washingtonexaminer.com');
     expect(STARTER_SOURCE_DOMAINS).toContain('npr.org');
     expect(STARTER_SOURCE_DOMAINS).toContain('pbs.org');
     expect(STARTER_SOURCE_DOMAINS).toContain('feeds.bbci.co.uk');
