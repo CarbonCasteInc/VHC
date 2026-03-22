@@ -155,7 +155,7 @@ describe('clusterRecords', () => {
     expect(updated.source_documents[0]?.published_at).toBe(100);
   });
 
-  it('mints different story ids for identical source inputs when next_cluster_seq changes', () => {
+  it('keeps story ids stable for identical source inputs even when next_cluster_seq changes', () => {
     const baseDocument = makeWorkingDocument('doc-5', 'Cuba prepares for possible US military aggression');
     const source = toStoredSource(baseDocument, baseDocument.source_variants[0]!);
 
@@ -167,7 +167,7 @@ describe('clusterRecords', () => {
     const later = deriveClusterRecord(laterState, 'topic-news', [source]);
 
     expect(first.source_documents).toEqual(later.source_documents);
-    expect(first.story_id).not.toBe(later.story_id);
+    expect(first.story_id).toBe(later.story_id);
   });
 
   it('computes confidence and connected components', () => {

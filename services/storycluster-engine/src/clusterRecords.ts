@@ -37,6 +37,33 @@ function sourceEntityKeys(document: StoredSourceDocument): string[] {
   return [...new Set([...document.entities, ...document.linked_entities].filter(Boolean))].sort();
 }
 
+function rankedKeys(scores: Record<string, number>, limit: number): string[] {
+  return Object.entries(scores)
+    .filter(([, score]) => score > 0)
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([value]) => value)
+    .slice(0, limit);
+}
+
+function storyIdentityTimeBucket(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return 'unknown';
+  }
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function deriveStableStoryId(topicId: string, sourceDocuments: readonly StoredSourceDocument[]): string {
+  const sorted = [...sourceDocuments].sort((left, right) => left.published_at - right.published_at || left.source_key.localeCompare(right.source_key));
+  const anchor = sorted[0];
+  const entityScores = sumMap(sorted.flatMap((document) => sourceEntityKeys(document)));
+  const triggerScores = sumMap(sorted.flatMap((document) => (document.trigger ? [document.trigger] : [])));
+  const anchorSourceKey = anchor?.source_key ?? 'empty';
+  const timeBucket = storyIdentityTimeBucket(anchor?.published_at ?? 0);
+  const entityAnchor = rankedKeys(entityScores, 6).join('|');
+  const triggerAnchor = rankedKeys(triggerScores, 3).join('|');
+  return `story-${sha256Hex(`${topicId}:${timeBucket}:${anchorSourceKey}:${entityAnchor}:${triggerAnchor}`, 12)}`;
+}
+
 function averageVectors(vectors: readonly number[][]): number[] {
   if (vectors.length === 0) {
     return [];
@@ -91,7 +118,7 @@ export function deriveClusterRecord(
   const clusterWindowEnd = sorted.length > 0
     ? Math.max(...sorted.map((document) => document.published_at))
     : createdAt;
-  const storyId = existingStoryId ?? `story-${sha256Hex(`${topicId}:${state.next_cluster_seq}:${sorted.map((document) => document.source_key).join('|')}`, 12)}`;
+  const storyId = existingStoryId ?? deriveStableStoryId(topicId, sorted);
   if (!existingStoryId) {
     state.next_cluster_seq += 1;
   }

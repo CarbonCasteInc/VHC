@@ -45,8 +45,8 @@ function findBundleBySourceKeys(response: { bundles: StoryClusterBundle[] }, exp
   return bundle!;
 }
 
-describe('StoryCluster batch replay identity drift', () => {
-  it('rekeys repeated Cuba singleton coverage when fresh batch topology changes', async () => {
+describe('StoryCluster batch replay identity anchoring', () => {
+  it('keeps repeated Cuba singleton coverage on the same story id when fresh batch topology changes', async () => {
     const topicId = 'topic-live-batch-replay';
     const provider = createDeterministicTestModelProvider();
 
@@ -110,13 +110,14 @@ describe('StoryCluster batch replay identity drift', () => {
     expect(minimalCuba.headline).toBe(crowdedCuba.headline);
     expect(minimalCuba.primary_sources).toHaveLength(1);
     expect(crowdedCuba.primary_sources).toHaveLength(1);
-    expect(minimalCuba.story_id).not.toBe(crowdedCuba.story_id);
+    expect(minimalCuba.story_id).toBe(crowdedCuba.story_id);
   });
 
-  it('rekeys the same airport episode cluster when unrelated earlier clusters consume sequence slots', async () => {
+  it('keeps the airport episode anchored while source coverage grows in a fresh crowded batch', async () => {
     const topicId = 'topic-live-batch-replay';
     const provider = createDeterministicTestModelProvider();
-    const airportKeys = ['cbs-politics:bc734304', 'guardian-us:86a83b99'];
+    const anchorAirportKeys = ['cbs-politics:bc734304'];
+    const grownAirportKeys = ['cbs-politics:bc734304', 'guardian-us:86a83b99'];
 
     const minimal = await runStoryClusterStagePipeline(
       {
@@ -129,15 +130,6 @@ describe('StoryCluster batch replay identity drift', () => {
             'Trump says ICE agents will assist TSA at airports as delays worsen',
             'Trump says ICE agents will assist TSA at airports as delays worsen while staffing shortages continue.',
             100,
-            ['ice_tsa_airports'],
-          ),
-          makeDoc(
-            'airport-guardian-20',
-            'guardian-us',
-            '86a83b99',
-            'ICE agents will be deployed to US airports on Monday to ease long lines',
-            'ICE agents will be deployed to U.S. airports on Monday to ease long lines as TSA delays worsen.',
-            105,
             ['ice_tsa_airports'],
           ),
         ],
@@ -190,11 +182,11 @@ describe('StoryCluster batch replay identity drift', () => {
       { clock: makeClock(1_713_900_030_000), modelProvider: provider, store: new MemoryClusterStore() },
     );
 
-    const minimalAirport = findBundleBySourceKeys(minimal, airportKeys);
-    const crowdedAirport = findBundleBySourceKeys(crowded, airportKeys);
+    const minimalAirport = findBundleBySourceKeys(minimal, anchorAirportKeys);
+    const crowdedAirport = findBundleBySourceKeys(crowded, grownAirportKeys);
 
-    expect(minimalAirport.primary_sources.map((source) => source.source_id).sort()).toEqual(['cbs-politics', 'guardian-us']);
+    expect(minimalAirport.primary_sources.map((source) => source.source_id).sort()).toEqual(['cbs-politics']);
     expect(crowdedAirport.primary_sources.map((source) => source.source_id).sort()).toEqual(['cbs-politics', 'guardian-us']);
-    expect(minimalAirport.story_id).not.toBe(crowdedAirport.story_id);
+    expect(minimalAirport.story_id).toBe(crowdedAirport.story_id);
   });
 });
