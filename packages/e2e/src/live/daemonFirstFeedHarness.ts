@@ -37,6 +37,7 @@ const FIXTURE_MAX_ITEMS_PER_SOURCE = '5';
 const FIXTURE_MAX_ITEMS_TOTAL = '30';
 const LIVE_MAX_ITEMS_PER_SOURCE = '3';
 const LIVE_MAX_ITEMS_TOTAL = '15';
+const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = '300000';
 
 export type HeadlineRow = {
   readonly storyId: string;
@@ -132,11 +133,24 @@ function resolveMinimumAuditableStories(): number {
   return process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true' ? 1 : 0;
 }
 
+function resolveStoryClusterRemoteTimeoutMs(): string {
+  const configured = process.env.VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS?.trim();
+  if (configured) {
+    const parsed = Number.parseInt(configured, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return String(parsed);
+    }
+  }
+
+  return DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS;
+}
+
 export const daemonFirstFeedHarnessInternal = {
   resolveNewsPollIntervalMs,
   resolveNewsFeedMaxItemsPerSource,
   resolveNewsFeedMaxItemsTotal,
   resolveMinimumAuditableStories,
+  resolveStoryClusterRemoteTimeoutMs,
 };
 
 function commonEnv(): NodeJS.ProcessEnv {
@@ -144,6 +158,7 @@ function commonEnv(): NodeJS.ProcessEnv {
   const esmLoaderPath = path.join(root, 'tools/node/esm-resolve-loader.mjs');
   const maxItemsPerSource = resolveNewsFeedMaxItemsPerSource();
   const maxItemsTotal = resolveNewsFeedMaxItemsTotal();
+  const storyClusterRemoteTimeoutMs = resolveStoryClusterRemoteTimeoutMs();
   return {
     ...process.env,
     NODE_ENV: 'production',
@@ -164,7 +179,7 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_NEWS_FEED_MAX_ITEMS_TOTAL: maxItemsTotal,
     VH_STORYCLUSTER_REMOTE_URL: `http://127.0.0.1:${STORYCLUSTER_PORT}/cluster`,
     VH_STORYCLUSTER_REMOTE_HEALTH_URL: `http://127.0.0.1:${STORYCLUSTER_PORT}/ready`,
-    VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: '180000',
+    VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: storyClusterRemoteTimeoutMs,
     VH_STORYCLUSTER_REMOTE_AUTH_TOKEN: STORYCLUSTER_TOKEN,
     VH_STORYCLUSTER_REMOTE_AUTH_HEADER: 'authorization',
     VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: 'Bearer',

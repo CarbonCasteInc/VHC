@@ -69,4 +69,14 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     vi.stubEnv('VH_DAEMON_FEED_MIN_AUDITABLE_STORIES', '2');
     expect(daemonFirstFeedHarnessInternal.resolveMinimumAuditableStories()).toBe(2);
   });
+
+  it('defaults the soak storycluster remote timeout to 300000ms', () => {
+    vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS', '');
+    expect(daemonFirstFeedHarnessInternal.resolveStoryClusterRemoteTimeoutMs()).toBe('300000');
+  });
+
+  it('prefers an explicit soak storycluster remote timeout override when provided', () => {
+    vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS', '420000');
+    expect(daemonFirstFeedHarnessInternal.resolveStoryClusterRemoteTimeoutMs()).toBe('420000');
+  });
 });
