@@ -68,6 +68,18 @@ function normalizeRemoteTimeoutMs(timeoutMs: number | undefined): number {
   return Math.floor(timeoutMs);
 }
 
+function traceEnabled(): boolean {
+  const raw = readEnvVar('VH_STORYCLUSTER_TRACE')?.trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function traceLog(event: string, detail: Record<string, unknown>): void {
+  if (!traceEnabled()) {
+    return;
+  }
+  console.info(`[vh:storycluster-remote] ${event}`, detail);
+}
+
 function parseRemoteBundles(payload: unknown): StoryBundle[] {
   return parseRemoteBatchResult(payload).bundles;
 }
@@ -197,11 +209,18 @@ export class StoryClusterRemoteEngine
   ): Promise<StoryClusterBatchResult> {
     const normalized = normalizeStoryClusterInput(input);
     const controller = new AbortController();
+    const startedAtMs = Date.now();
     const timer = setTimeout(() => {
       controller.abort();
     }, this.timeoutMs);
 
     try {
+      traceLog('request_started', {
+        endpoint_url: this.endpointUrl,
+        topic_id: normalized.topicId,
+        item_count: normalized.items.length,
+        timeout_ms: this.timeoutMs,
+      });
       const response = await this.fetchFn(this.endpointUrl, {
         method: 'POST',
         headers: {
@@ -221,9 +240,25 @@ export class StoryClusterRemoteEngine
 
       const payload = await response.json();
       clearTimeout(timer);
-      return parseRemoteBatchResult(payload);
+      const parsed = parseRemoteBatchResult(payload);
+      traceLog('request_completed', {
+        endpoint_url: this.endpointUrl,
+        topic_id: normalized.topicId,
+        item_count: normalized.items.length,
+        bundle_count: parsed.bundles.length,
+        storyline_count: parsed.storylines.length,
+        duration_ms: Math.max(0, Date.now() - startedAtMs),
+      });
+      return parsed;
     } catch (error) {
       clearTimeout(timer);
+      traceLog('request_failed', {
+        endpoint_url: this.endpointUrl,
+        topic_id: normalized.topicId,
+        item_count: normalized.items.length,
+        duration_ms: Math.max(0, Date.now() - startedAtMs),
+        error: error instanceof Error ? error.message : String(error),
+      });
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`remote cluster request timed out after ${this.timeoutMs}ms`);
       }

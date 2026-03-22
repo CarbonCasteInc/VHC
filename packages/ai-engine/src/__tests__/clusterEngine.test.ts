@@ -262,6 +262,38 @@ describe('clusterEngine', () => {
     await expect(runClusterBatch(timeoutEngine, input('   '))).rejects.toThrow('topicId must be non-empty');
   });
 
+  it('StoryClusterRemoteEngine emits remote request trace logs when VH_STORYCLUSTER_TRACE is enabled', async () => {
+    vi.stubEnv('VH_STORYCLUSTER_TRACE', '1');
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const engine = new StoryClusterRemoteEngine({
+      endpointUrl: 'https://storycluster.example.com/cluster',
+      fetchFn: vi.fn(async () =>
+        new Response(JSON.stringify({ bundles: [sampleBundle({ story_id: 'story-traced' })], storylines: [] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })),
+    });
+
+    const result = await runClusterBatch(engine, input('topic-trace'));
+
+    expect(result[0]?.story_id).toBe('story-traced');
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[vh:storycluster-remote] request_started',
+      expect.objectContaining({
+        topic_id: 'topic-trace',
+        item_count: 1,
+      }),
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[vh:storycluster-remote] request_completed',
+      expect.objectContaining({
+        topic_id: 'topic-trace',
+        item_count: 1,
+        bundle_count: 1,
+      }),
+    );
+  });
+
   it('AutoEngine uses heuristic when remote is absent or disabled', async () => {
     const heuristic = new HeuristicClusterEngine<StoryClusterBatchInput, StoryBundle>(
       () => [sampleBundle({ story_id: 'story-heuristic' })],

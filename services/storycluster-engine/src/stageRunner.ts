@@ -26,6 +26,18 @@ import { createDeterministicTestModelProvider } from './testModelProvider';
 import { normalizeText } from './textSignals';
 import { type ClusterVectorBackend, resolveVectorBackend } from './vectorBackend';
 
+function traceEnabled(): boolean {
+  const raw = process.env.VH_STORYCLUSTER_TRACE?.trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function traceLog(event: string, detail: Record<string, unknown>): void {
+  if (!traceEnabled()) {
+    return;
+  }
+  console.info(`[vh:storycluster] ${event}`, detail);
+}
+
 export interface StoryClusterStageRunnerOptions {
   clock?: () => number;
   stageOverrides?: StageOverrideMap;
@@ -70,10 +82,22 @@ export async function runStoryClusterStagePipeline(
   const handlers = resolveStageHandlers(options.stageOverrides, modelProvider, vectorBackend);
   let state = createInitialState(normalized, store);
   const stageTelemetry: StoryClusterStageTelemetry[] = [];
+  const pipelineStartedAtMs = Math.floor(clock());
+
+  traceLog('pipeline_started', {
+    topic_id: normalized.topicId,
+    document_count: normalized.documents.length,
+  });
 
   for (const stageId of STORYCLUSTER_STAGE_SEQUENCE) {
     const startedAtMs = Math.floor(clock());
     const inputCount = stageInputCount(stageId, state);
+
+    traceLog('stage_started', {
+      topic_id: normalized.topicId,
+      stage_id: stageId,
+      input_count: inputCount,
+    });
 
     try {
       state = await handlers[stageId](state);
@@ -91,6 +115,13 @@ export async function runStoryClusterStagePipeline(
         latency_ms: latencyMs,
         latency_per_item_ms: stageLatencyPerItemMs(latencyMs, inputCount),
         artifact_counts: stageArtifactCounts(stageId, state, inputCount, outputCount),
+      });
+      traceLog('stage_completed', {
+        topic_id: normalized.topicId,
+        stage_id: stageId,
+        input_count: inputCount,
+        output_count: outputCount,
+        latency_ms: latencyMs,
       });
     } catch (error) {
       const endedAtMs = Math.floor(clock());
@@ -112,6 +143,13 @@ export async function runStoryClusterStagePipeline(
         },
         detail,
       });
+      traceLog('stage_failed', {
+        topic_id: normalized.topicId,
+        stage_id: stageId,
+        input_count: inputCount,
+        latency_ms: latencyMs,
+        detail,
+      });
       throw new StoryClusterStageError(
         stageId,
         detail,
@@ -123,9 +161,17 @@ export async function runStoryClusterStagePipeline(
   store.saveTopic(state.topic_state);
   await vectorBackend.replaceTopicClusters(normalized.topicId, state.topic_state.clusters);
   const generatedAtMs = Math.floor(clock());
+  const storylines = state.storylines ?? [];
+  traceLog('pipeline_completed', {
+    topic_id: normalized.topicId,
+    document_count: normalized.documents.length,
+    bundle_count: state.bundles.length,
+    storyline_count: storylines.length,
+    duration_ms: Math.max(0, generatedAtMs - pipelineStartedAtMs),
+  });
   return {
     bundles: state.bundles,
-    storylines: state.storylines,
+    storylines,
     telemetry: buildTelemetry(normalized.topicId, normalized.documents.length, stageTelemetry, generatedAtMs),
   };
 }
