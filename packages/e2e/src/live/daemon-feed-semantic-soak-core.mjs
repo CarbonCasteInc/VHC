@@ -21,6 +21,13 @@ import {
   readHistoricalContinuityAnalyses,
   readHistoricalExecutionBundleSnapshots,
 } from './daemon-feed-semantic-soak-continuity.mjs';
+import {
+  buildGhostRetainedMeshReport,
+  buildGhostRetainedMeshTrendIndex,
+  readExecutionRetainedSourceEvidenceSnapshot,
+  readHistoricalExecutionRetainedSourceEvidenceSnapshots,
+  readHistoricalGhostRetainedMeshReports,
+} from './daemon-feed-semantic-soak-retained.mjs';
 
 const BUILD_ARGS = ['test:live:daemon-feed:build'];
 const PLAYWRIGHT_ARGS = [
@@ -719,6 +726,9 @@ export async function runDaemonFeedSemanticSoak({
   const continuityAnalysisPath = path.join(artifactDir, 'continuity-analysis.json');
   const continuityTrendIndexPath = path.join(artifactDir, 'continuity-trend-index.json');
   const latestContinuityTrendIndexPath = path.join(artifactRoot, 'continuity-trend-index.json');
+  const ghostRetainedMeshReportPath = path.join(artifactDir, 'ghost-retained-mesh-report.json');
+  const ghostRetainedMeshTrendIndexPath = path.join(artifactDir, 'ghost-retained-mesh-trend-index.json');
+  const latestGhostRetainedMeshTrendIndexPath = path.join(artifactRoot, 'ghost-retained-mesh-trend-index.json');
   const trend = buildSoakTrend(results);
   const promotionAssessment = trend.promotionAssessment;
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
@@ -753,6 +763,7 @@ export async function runDaemonFeedSemanticSoak({
   writeFile(trendPath, JSON.stringify(trend, null, 2), 'utf8');
   const lookbackExecutionCount = readPositiveInt('VH_DAEMON_FEED_SOAK_TREND_LOOKBACK_EXECUTIONS', 20, env);
   const continuityLookbackHours = readPositiveInt('VH_DAEMON_FEED_CONTINUITY_LOOKBACK_HOURS', 24, env);
+  const retainedMeshLookbackHours = readPositiveInt('VH_DAEMON_FEED_RETAINED_MESH_LOOKBACK_HOURS', 24, env);
   const currentHeadlineSoakExecution = buildHeadlineSoakExecutionSummary({
     artifactDir,
     summary,
@@ -845,6 +856,64 @@ export async function runDaemonFeedSemanticSoak({
       errorLog(`[vh:daemon-soak] continuity-telemetry-error: ${message}`);
     }
   }
+  const currentRetainedSourceEvidenceSnapshot = readExecutionRetainedSourceEvidenceSnapshot(artifactDir, {
+    exists,
+    readFile,
+    readdir,
+    stat,
+  });
+  let ghostRetainedMeshReport = null;
+  let ghostRetainedMeshTrendIndex = null;
+  if (currentRetainedSourceEvidenceSnapshot) {
+    try {
+      ghostRetainedMeshReport = buildGhostRetainedMeshReport(
+        currentRetainedSourceEvidenceSnapshot,
+        readHistoricalExecutionRetainedSourceEvidenceSnapshots(artifactRoot, {
+          currentArtifactDir: artifactDir,
+          currentTimestampMs: currentRetainedSourceEvidenceSnapshot.timestampMs,
+          lookbackHours: retainedMeshLookbackHours,
+          lookbackExecutionCount,
+          exists,
+          readFile,
+          readdir,
+          stat,
+        }),
+        { lookbackHours: retainedMeshLookbackHours },
+      );
+      writeFile(ghostRetainedMeshReportPath, JSON.stringify(ghostRetainedMeshReport, null, 2), 'utf8');
+
+      ghostRetainedMeshTrendIndex = buildGhostRetainedMeshTrendIndex(
+        [
+          ...readHistoricalGhostRetainedMeshReports(artifactRoot, {
+            currentArtifactDir: artifactDir,
+            lookbackExecutionCount,
+            exists,
+            readFile,
+            readdir,
+            stat,
+          }),
+          ghostRetainedMeshReport,
+        ],
+        {
+          artifactRoot,
+          latestArtifactDir: artifactDir,
+          lookbackExecutionCount,
+          lookbackHours: retainedMeshLookbackHours,
+        },
+      );
+      writeFile(ghostRetainedMeshTrendIndexPath, JSON.stringify(ghostRetainedMeshTrendIndex, null, 2), 'utf8');
+      writeAtomicTextFile(
+        latestGhostRetainedMeshTrendIndexPath,
+        JSON.stringify(ghostRetainedMeshTrendIndex, null, 2),
+        { writeFile, rename },
+      );
+    } catch (error) {
+      ghostRetainedMeshReport = null;
+      ghostRetainedMeshTrendIndex = null;
+      const message = error instanceof Error ? error.message : String(error);
+      errorLog(`[vh:daemon-soak] ghost-retained-mesh-error: ${message}`);
+    }
+  }
   const artifactIndex = buildReleaseArtifactIndex(
     artifactDir,
     summaryPath,
@@ -854,6 +923,8 @@ export async function runDaemonFeedSemanticSoak({
     headlineSoakTrendIndexPath,
     continuityAnalysis ? continuityAnalysisPath : null,
     continuityTrendIndex ? continuityTrendIndexPath : null,
+    ghostRetainedMeshReport ? ghostRetainedMeshReportPath : null,
+    ghostRetainedMeshTrendIndex ? ghostRetainedMeshTrendIndexPath : null,
   );
   writeFile(
     artifactIndexPath,
@@ -871,6 +942,13 @@ export async function runDaemonFeedSemanticSoak({
   if (continuityTrendIndex) {
     log(`[vh:daemon-soak] continuity-trend-index: ${continuityTrendIndexPath}`);
     log(`[vh:daemon-soak] latest-continuity-trend-index: ${latestContinuityTrendIndexPath}`);
+  }
+  if (ghostRetainedMeshReport) {
+    log(`[vh:daemon-soak] ghost-retained-mesh-report: ${ghostRetainedMeshReportPath}`);
+  }
+  if (ghostRetainedMeshTrendIndex) {
+    log(`[vh:daemon-soak] ghost-retained-mesh-trend-index: ${ghostRetainedMeshTrendIndexPath}`);
+    log(`[vh:daemon-soak] latest-ghost-retained-mesh-trend-index: ${latestGhostRetainedMeshTrendIndexPath}`);
   }
   log(JSON.stringify({
     strictSoakPass: summary.strictSoakPass,
@@ -901,11 +979,16 @@ export async function runDaemonFeedSemanticSoak({
     continuityAnalysisPath: continuityAnalysis ? continuityAnalysisPath : null,
     continuityTrendIndexPath: continuityTrendIndex ? continuityTrendIndexPath : null,
     latestContinuityTrendIndexPath: continuityTrendIndex ? latestContinuityTrendIndexPath : null,
+    ghostRetainedMeshReportPath: ghostRetainedMeshReport ? ghostRetainedMeshReportPath : null,
+    ghostRetainedMeshTrendIndexPath: ghostRetainedMeshTrendIndex ? ghostRetainedMeshTrendIndexPath : null,
+    latestGhostRetainedMeshTrendIndexPath: ghostRetainedMeshTrendIndex ? latestGhostRetainedMeshTrendIndexPath : null,
     summary,
     trend,
     headlineSoakTrendIndex,
     continuityAnalysis,
     continuityTrendIndex,
+    ghostRetainedMeshReport,
+    ghostRetainedMeshTrendIndex,
     results,
   };
 }

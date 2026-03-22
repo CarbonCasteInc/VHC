@@ -379,21 +379,29 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityAnalysisPath": "/repo/.tmp/out/continuity-analysis.json"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"retainedSourceEvidencePath": "/repo/.tmp/out/run-1.retained-source-evidence.json"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityTrendIndexPath": "/repo/.tmp/out/continuity-trend-index.json"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshReportPath": "/repo/.tmp/out/ghost-retained-mesh-report.json"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshTrendIndexPath": "/repo/.tmp/out/ghost-retained-mesh-trend-index.json"');
     expect(writes.get('/repo/.tmp/out/headline-soak-trend-index.json')).toContain('"executionCount": 1');
     expect(writes.get('/repo/.tmp/headline-soak-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
     expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"schemaVersion": "daemon-feed-headline-soak-continuity-analysis-v1"');
     expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"topicRetentionRate":');
     expect(writes.get('/repo/.tmp/out/continuity-trend-index.json')).toContain('"schemaVersion": "daemon-feed-headline-soak-continuity-trend-index-v1"');
     expect(writes.get('/repo/.tmp/continuity-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
+    expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-report.json')).toContain('"schemaVersion": "daemon-feed-ghost-retained-mesh-report-v1"');
+    expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-trend-index.json')).toContain('"schemaVersion": "daemon-feed-ghost-retained-mesh-trend-index-v1"');
+    expect(writes.get('/repo/.tmp/ghost-retained-mesh-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
     expect(virtualFs.renameCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ toPath: '/repo/.tmp/headline-soak-trend-index.json' }),
       expect.objectContaining({ toPath: '/repo/.tmp/continuity-trend-index.json' }),
+      expect.objectContaining({ toPath: '/repo/.tmp/ghost-retained-mesh-trend-index.json' }),
     ]));
     expect(virtualFs.renameCalls.every(({ fromPath }) => fromPath.includes('.tmp-'))).toBe(true);
     expect(logs.some((message) => message.includes('artifact-index'))).toBe(true);
     expect(logs.some((message) => message.includes('headline-soak-trend-index'))).toBe(true);
     expect(logs.some((message) => message.includes('continuity-analysis'))).toBe(true);
     expect(logs.some((message) => message.includes('continuity-trend-index'))).toBe(true);
+    expect(logs.some((message) => message.includes('ghost-retained-mesh-report'))).toBe(true);
+    expect(logs.some((message) => message.includes('ghost-retained-mesh-trend-index'))).toBe(true);
   });
 
   it('fails fast when the build step fails', async () => {
@@ -528,6 +536,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(result.headlineSoakTrendIndex.executionCount).toBe(1);
     expect(result.continuityAnalysis.schemaVersion).toBe('daemon-feed-headline-soak-continuity-analysis-v1');
     expect(result.continuityTrendIndex.schemaVersion).toBe('daemon-feed-headline-soak-continuity-trend-index-v1');
+    expect(result.ghostRetainedMeshReport.schemaVersion).toBe('daemon-feed-ghost-retained-mesh-report-v1');
+    expect(result.ghostRetainedMeshTrendIndex.schemaVersion).toBe('daemon-feed-ghost-retained-mesh-trend-index-v1');
     expect(result.results).toHaveLength(2);
     expect(sleepImpl).toHaveBeenCalledWith(5);
     expect(writes.get('/repo/.tmp/out/run-1.semantic-audit.json')).toContain('"requested_sample_count": 1');
@@ -536,6 +546,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/run-1.runtime-logs.json')).toContain('browser-log');
     expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"topic_id": "topic-1"');
     expect(writes.get('/repo/.tmp/out/continuity-trend-index.json')).toContain('"analysisCount": 1');
+    expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-report.json')).toContain('"currentTopicIdRegime": "post-entity-key-stability-tiebreak"');
+    expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-trend-index.json')).toContain('"reportCount": 1');
   });
 
   it('records parse and attachment failures before exiting the failing soak run', async () => {
@@ -862,7 +874,116 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityAnalysisPath": null');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityTrendIndexPath": null');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"retainedSourceEvidencePath": null');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshReportPath": null');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshTrendIndexPath": null');
     expect(errorLog).toHaveBeenCalledWith('[vh:daemon-soak] continuity-telemetry-error: disk-full-on-continuity-write');
+  });
+
+  it('treats ghost retained-mesh telemetry failures as non-blocking and preserves the core soak artifacts', async () => {
+    const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
+    const errorLog = vi.fn();
+    const primaryResult = makePrimaryResult([
+      makeAttachment('daemon-first-feed-semantic-audit', makeReport({
+        requested_sample_count: 1,
+        sampled_story_count: 1,
+        overall: {
+          audited_pair_count: 1,
+          related_topic_only_pair_count: 0,
+          sample_fill_rate: 1,
+          sample_shortfall: 0,
+          pass: true,
+        },
+        supply: {
+          story_count: 2,
+          auditable_count: 1,
+          visible_story_ids: ['story-1'],
+          top_story_ids: ['story-1'],
+          top_auditable_story_ids: ['story-1'],
+          sample_fill_rate: 1,
+          sample_shortfall: 0,
+        },
+        bundles: [{
+          story_id: 'story-1',
+          topic_id: 'topic-1',
+          headline: 'Headline',
+          canonical_source_count: 1,
+          canonical_sources: [{ source_id: 'guardian-us' }],
+          pairs: [{ label: 'same_incident' }],
+          has_related_topic_only_pair: false,
+        }],
+      })),
+      makeAttachment('daemon-first-feed-retained-source-evidence', {
+        schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+        generatedAt: '2026-03-22T00:00:00.000Z',
+        story_count: 2,
+        auditable_count: 1,
+        visible_story_ids: ['story-1'],
+        top_story_ids: ['story-1'],
+        top_auditable_story_ids: ['story-1'],
+        source_count: 1,
+        sources: [{
+          source_id: 'guardian-us',
+          publisher: 'Guardian',
+          url: 'https://example.com/guardian-us',
+          url_hash: 'guardian-us-1',
+          title: 'Guardian headline',
+          observations: [{
+            story_id: 'story-1',
+            topic_id: 'topic-1',
+            headline: 'Headline',
+            source_count: 1,
+            primary_source_count: 1,
+            secondary_asset_count: 0,
+            is_auditable: false,
+            is_dom_visible: true,
+            source_roles: ['source'],
+          }],
+        }],
+      }),
+    ]);
+    const playwrightReport = {
+      suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
+    };
+    const spawn = vi.fn()
+      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
+      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' });
+
+    const result = await runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      repoRoot: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+        VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+        VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      rename: virtualFs.rename,
+      exists: virtualFs.exists,
+      stat: virtualFs.stat,
+      readdir: virtualFs.readdir,
+      readFile: (target) => writes.get(target),
+      writeFile: (target, content) => {
+        if (target.endsWith('/ghost-retained-mesh-report.json')) {
+          throw new Error('disk-full-on-ghost-retained-mesh');
+        }
+        writes.set(target, String(content));
+      },
+      log: vi.fn(),
+      errorLog,
+      sleepImpl: vi.fn(),
+    });
+
+    expect(result.summary.strictSoakPass).toBe(true);
+    expect(result.ghostRetainedMeshReport).toBeNull();
+    expect(result.ghostRetainedMeshTrendIndex).toBeNull();
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshReportPath": null');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshTrendIndexPath": null');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityAnalysisPath": "/repo/.tmp/out/continuity-analysis.json"');
+    expect(errorLog).toHaveBeenCalledWith('[vh:daemon-soak] ghost-retained-mesh-error: disk-full-on-ghost-retained-mesh');
   });
 
 });

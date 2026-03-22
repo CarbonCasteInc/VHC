@@ -245,8 +245,10 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       '/tmp/artifacts/headline-soak-trend-index.json',
       '/tmp/artifacts/continuity-analysis.json',
       '/tmp/artifacts/continuity-trend-index.json',
+      '/tmp/artifacts/ghost-retained-mesh-report.json',
+      '/tmp/artifacts/ghost-retained-mesh-trend-index.json',
     )).toMatchObject({
-      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v5',
+      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v6',
       executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
       authoritativeCorrectnessGate: {
         gateId: 'storycluster-primary-correctness-gate-v1',
@@ -292,6 +294,8 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         headlineSoakTrendIndexPath: '/tmp/artifacts/headline-soak-trend-index.json',
         continuityAnalysisPath: '/tmp/artifacts/continuity-analysis.json',
         continuityTrendIndexPath: '/tmp/artifacts/continuity-trend-index.json',
+        ghostRetainedMeshReportPath: '/tmp/artifacts/ghost-retained-mesh-report.json',
+        ghostRetainedMeshTrendIndexPath: '/tmp/artifacts/ghost-retained-mesh-trend-index.json',
         build: {
           stdoutPath: '/tmp/artifacts/build.stdout.log',
           stderrPath: '/tmp/artifacts/build.stderr.log',

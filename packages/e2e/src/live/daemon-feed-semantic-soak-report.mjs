@@ -605,6 +605,8 @@ export function buildReleaseArtifactIndex(
   headlineSoakTrendIndexPath = `${artifactDir}/headline-soak-trend-index.json`,
   continuityAnalysisPath = null,
   continuityTrendIndexPath = null,
+  ghostRetainedMeshReportPath = null,
+  ghostRetainedMeshTrendIndexPath = null,
 ) {
   const trend = buildSoakTrend(results);
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
@@ -616,7 +618,7 @@ export function buildReleaseArtifactIndex(
   };
 
   return {
-    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v5',
+    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v6',
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
     authoritativeCorrectnessGate,
@@ -634,6 +636,8 @@ export function buildReleaseArtifactIndex(
       headlineSoakTrendIndexPath,
       continuityAnalysisPath,
       continuityTrendIndexPath,
+      ghostRetainedMeshReportPath,
+      ghostRetainedMeshTrendIndexPath,
       build,
     },
     runs: results.map((result) => {
