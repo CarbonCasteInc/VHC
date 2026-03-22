@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { MemoryClusterStore } from './clusterStore';
 import { StoryClusterStageError, STORYCLUSTER_STAGE_SEQUENCE, type StoryClusterInputDocument } from './contracts';
 import { runStoryClusterStagePipeline } from './stageRunner';
@@ -32,6 +32,11 @@ function makeClock(start = 1_709_001_000_000): () => number {
 }
 
 describe('runStoryClusterStagePipeline', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
   it('runs all mandatory stages with real summaries and stage telemetry', async () => {
     const store = new MemoryClusterStore();
     const response = await runStoryClusterStagePipeline(
@@ -211,6 +216,43 @@ describe('runStoryClusterStagePipeline', () => {
         { store: new MemoryClusterStore(), vectorBackend: brokenVectorBackend },
       ),
     ).rejects.toThrow('storycluster vector backend is not ready: vector-offline');
+  });
+
+  it('emits pipeline and stage trace logs when VH_STORYCLUSTER_TRACE is enabled', async () => {
+    vi.stubEnv('VH_STORYCLUSTER_TRACE', '1');
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-trace',
+        documents: [
+          makeDoc('doc-1', 'Port attack disrupts terminals overnight', 100, { entity_keys: ['port_attack'] }),
+        ],
+      },
+      { clock: makeClock(9_500), store: new MemoryClusterStore() },
+    );
+
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[vh:storycluster] pipeline_started',
+      expect.objectContaining({
+        topic_id: 'topic-trace',
+        document_count: 1,
+      }),
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[vh:storycluster] stage_started',
+      expect.objectContaining({
+        topic_id: 'topic-trace',
+        stage_id: STORYCLUSTER_STAGE_SEQUENCE[0],
+      }),
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[vh:storycluster] pipeline_completed',
+      expect.objectContaining({
+        topic_id: 'topic-trace',
+        document_count: 1,
+      }),
+    );
   });
 
   it('uses the default store path when no store override is supplied', async () => {

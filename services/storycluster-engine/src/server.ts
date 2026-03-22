@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { StoryClusterStageError } from './contracts';
 import { getDefaultClusterStore, type ClusterStore } from './clusterStore';
 import { STORYCLUSTER_STAGE_SEQUENCE } from './contracts';
 import { runStoryClusterRemoteContract } from './remoteContract';
@@ -7,6 +8,7 @@ import { type ClusterVectorBackend, resolveVectorBackend } from './vectorBackend
 const DEFAULT_HOST = '127.0.0.1';
 const DEFAULT_PORT = 4310;
 const MAX_BODY_BYTES = 1024 * 1024;
+let nextTraceRequestId = 0;
 
 export interface StoryClusterServerOptions {
   host?: string;
@@ -17,6 +19,27 @@ export interface StoryClusterServerOptions {
   now?: () => number;
   store?: ClusterStore;
   vectorBackend?: ClusterVectorBackend;
+}
+
+function traceEnabled(): boolean {
+  const raw = process.env.VH_STORYCLUSTER_TRACE?.trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function traceNow(options: StoryClusterServerOptions): number {
+  return Math.floor((options.now ?? Date.now)());
+}
+
+function traceRequestId(options: StoryClusterServerOptions): string {
+  nextTraceRequestId += 1;
+  return `storycluster-${traceNow(options)}-${nextTraceRequestId}`;
+}
+
+function traceLog(event: string, detail: Record<string, unknown>): void {
+  if (!traceEnabled()) {
+    return;
+  }
+  console.info(`[vh:storycluster] ${event}`, detail);
 }
 
 async function runtimeReadiness(
@@ -158,6 +181,9 @@ async function handleRequest(
     return;
   }
 
+  const requestId = traceRequestId(options);
+  const startedAtMs = traceNow(options);
+
   if (method !== 'POST') {
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
@@ -168,17 +194,55 @@ async function handleRequest(
     const vectorBackend = resolveVectorBackend(options.vectorBackend);
     const readiness = await runtimeReadiness(store, vectorBackend);
     if (!readiness.ok) {
+      traceLog('cluster_request_rejected', {
+        request_id: requestId,
+        method,
+        path: parsed.pathname,
+        reason: readiness.detail,
+      });
       sendJson(res, 503, { error: readiness.detail });
       return;
     }
     const payload = await readJsonBody(req);
+    const topicId = typeof (payload as { topic_id?: unknown })?.topic_id === 'string'
+      ? (payload as { topic_id: string }).topic_id
+      : null;
+    const itemCount = Array.isArray((payload as { items?: unknown })?.items)
+      ? ((payload as { items: unknown[] }).items.length)
+      : null;
+    traceLog('cluster_request_received', {
+      request_id: requestId,
+      method,
+      path: parsed.pathname,
+      topic_id: topicId,
+      item_count: itemCount,
+    });
     const result = await runStoryClusterRemoteContract(payload, {
       clock: options.now,
       store,
       vectorBackend,
     });
+    traceLog('cluster_request_completed', {
+      request_id: requestId,
+      method,
+      path: parsed.pathname,
+      topic_id: topicId,
+      item_count: itemCount,
+      bundle_count: result.bundles.length,
+      storyline_count: result.storylines.length,
+      stage_count: result.telemetry.stage_count,
+      duration_ms: Math.max(0, traceNow(options) - startedAtMs),
+    });
     sendJson(res, 200, result);
   } catch (error) {
+    traceLog('cluster_request_failed', {
+      request_id: requestId,
+      method,
+      path: parsed.pathname,
+      duration_ms: Math.max(0, traceNow(options) - startedAtMs),
+      error: error instanceof Error ? error.message : String(error),
+      failed_stage: error instanceof StoryClusterStageError ? error.stageId : null,
+    });
     sendJson(res, 400, {
       error: error instanceof Error ? error.message : 'Invalid storycluster request payload',
     });

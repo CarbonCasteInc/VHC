@@ -125,6 +125,70 @@ describe('storycluster server', () => {
     );
   });
 
+  it('emits request lifecycle trace logs when VH_STORYCLUSTER_TRACE is enabled', async () => {
+    vi.stubEnv('VH_STORYCLUSTER_TRACE', '1');
+    const consoleInfo = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    await withServer(
+      {
+        authToken: 'token-123',
+        now: (() => {
+          let now = 1_710_000_200_000;
+          return () => {
+            now += 5;
+            return now;
+          };
+        })(),
+      },
+      async (baseUrl) => {
+        const cluster = await fetch(`${baseUrl}/cluster`, {
+          method: 'POST',
+          headers: {
+            authorization: 'Bearer token-123',
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({
+            topic_id: 'topic-trace',
+            items: [
+              {
+                sourceId: 'wire-a',
+                publisher: 'Wire A',
+                url: 'https://example.com/a',
+                canonicalUrl: 'https://example.com/a',
+                title: 'Breaking: Port attack triggers alerts',
+                publishedAt: 1_710_000_000_000,
+                summary: 'Authorities respond in the first hour',
+                url_hash: 'hash-a',
+                language: 'en',
+                translation_applied: false,
+                entity_keys: ['port', 'alerts'],
+              },
+            ],
+          }),
+        });
+
+        expect(cluster.status).toBe(200);
+        await cluster.arrayBuffer();
+      },
+    );
+
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[vh:storycluster] cluster_request_received',
+      expect.objectContaining({
+        topic_id: 'topic-trace',
+        item_count: 1,
+      }),
+    );
+    expect(consoleInfo).toHaveBeenCalledWith(
+      '[vh:storycluster] cluster_request_completed',
+      expect.objectContaining({
+        topic_id: 'topic-trace',
+        item_count: 1,
+        bundle_count: 1,
+      }),
+    );
+  });
+
   it('supports custom auth header/scheme and rejects unsupported methods', async () => {
     await withServer(
       {
