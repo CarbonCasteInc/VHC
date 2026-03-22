@@ -58,6 +58,34 @@ export interface SemanticAuditStoreSnapshot {
   readonly stories: ReadonlyArray<SemanticAuditStoreStorySnapshot>;
 }
 
+export interface RetainedSourceEvidenceObservation {
+  readonly story_id: string;
+  readonly topic_id: string;
+  readonly headline: string;
+  readonly source_count: number;
+  readonly primary_source_count: number;
+  readonly secondary_asset_count: number;
+  readonly is_auditable: boolean;
+  readonly is_dom_visible: boolean;
+  readonly source_roles: ReadonlyArray<'source' | 'primary_source' | 'secondary_asset'>;
+}
+
+export interface RetainedSourceEvidenceRecord extends StoryBundleSource {
+  readonly observations: ReadonlyArray<RetainedSourceEvidenceObservation>;
+}
+
+export interface RetainedSourceEvidenceSnapshot {
+  readonly schemaVersion: 'daemon-feed-retained-source-evidence-v1';
+  readonly generatedAt: string;
+  readonly story_count: number;
+  readonly auditable_count: number;
+  readonly visible_story_ids: ReadonlyArray<string>;
+  readonly top_story_ids: ReadonlyArray<string>;
+  readonly top_auditable_story_ids: ReadonlyArray<string>;
+  readonly source_count: number;
+  readonly sources: ReadonlyArray<RetainedSourceEvidenceRecord>;
+}
+
 export interface DaemonFeedSemanticAuditOptions {
   readonly sampleCount?: number;
   readonly timeoutMs?: number;

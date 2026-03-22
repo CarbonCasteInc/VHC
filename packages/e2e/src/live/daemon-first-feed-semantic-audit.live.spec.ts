@@ -40,6 +40,9 @@ async function attachSemanticAuditArtifacts(
   testInfo: {
     attach: (name: string, options: { body: string; contentType: string }) => Promise<void>;
   },
+  options: {
+    includeAuditReport?: boolean;
+  } = {},
 ): Promise<void> {
   const artifactDir = semanticAuditArtifactDir();
   if (!artifactDir) {
@@ -47,13 +50,17 @@ async function attachSemanticAuditArtifacts(
   }
 
   const attachments = [
-    {
+    ...(options.includeAuditReport === false ? [] : [{
       name: 'daemon-first-feed-semantic-audit',
       fileName: 'semantic-audit-report.json',
-    },
+    }]),
     {
       name: 'daemon-first-feed-semantic-audit-failure-snapshot',
       fileName: 'semantic-audit-store-snapshot.json',
+    },
+    {
+      name: 'daemon-first-feed-retained-source-evidence',
+      fileName: 'retained-source-evidence-snapshot.json',
     },
   ];
 
@@ -107,6 +114,7 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         body: JSON.stringify(report, null, 2),
         contentType: 'application/json',
       });
+      await attachSemanticAuditArtifacts(testInfo, { includeAuditReport: false });
 
       expect(report.sampled_story_count).toBeGreaterThanOrEqual(1);
       expect(report.overall.audited_pair_count).toBeGreaterThan(0);

@@ -33,6 +33,7 @@ const PLAYWRIGHT_ARGS = [
 ];
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
+const RETAINED_SOURCE_EVIDENCE_ATTACHMENT_NAME = 'daemon-first-feed-retained-source-evidence';
 const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
 const PUBLIC_SMOKE_SOURCE_IDS = [
   'bbc-us-canada',
@@ -389,6 +390,7 @@ function readHistoricalHeadlineSoakExecutions(
 export function summarizeRun(
   report,
   failureSnapshot,
+  retainedSourceEvidence,
   runtimeLogs,
   procStatus,
   reportPath,
@@ -396,6 +398,7 @@ export function summarizeRun(
   auditPath,
   auditError,
   failureSnapshotPath,
+  retainedSourceEvidencePath,
   runtimeLogsPath,
 ) {
   const labelCounts = summarizeLabelCounts(report);
@@ -426,6 +429,7 @@ export function summarizeRun(
     auditPath,
     auditError,
     failureSnapshotPath,
+    retainedSourceEvidencePath,
     runtimeLogsPath,
     requestedSampleCount: report?.requested_sample_count ?? null,
     sampledStoryCount: report?.sampled_story_count ?? null,
@@ -438,6 +442,7 @@ export function summarizeRun(
     failureAuditableCount: failureSnapshot?.auditable_count ?? report?.supply?.auditable_count ?? null,
     failureTopStoryIds: failureSnapshot?.top_story_ids ?? report?.supply?.top_story_ids ?? [],
     failureTopAuditableStoryIds: failureSnapshot?.top_auditable_story_ids ?? report?.supply?.top_auditable_story_ids ?? [],
+    retainedSourceEvidenceCount: retainedSourceEvidence?.source_count ?? null,
     runtimeLogCount: Array.isArray(runtimeLogs?.browserLogs)
       ? runtimeLogs.browserLogs.length
       : null,
@@ -600,6 +605,8 @@ export async function runDaemonFeedSemanticSoak({
     const auditAttachment = findAttachment(primaryResult, ATTACHMENT_NAME);
     let failureSnapshot = null;
     let failureSnapshotPath = null;
+    let retainedSourceEvidence = null;
+    let retainedSourceEvidencePath = null;
     let runtimeLogs = null;
     let runtimeLogsPath = null;
 
@@ -630,6 +637,21 @@ export async function runDaemonFeedSemanticSoak({
     if (failureSnapshot) {
       failureSnapshotPath = path.join(artifactDir, `run-${run}.semantic-audit-failure-snapshot.json`);
       writeFile(failureSnapshotPath, JSON.stringify(failureSnapshot, null, 2), 'utf8');
+    }
+
+    try {
+      retainedSourceEvidence = primaryResult
+        ? decodeAttachment(primaryResult, RETAINED_SOURCE_EVIDENCE_ATTACHMENT_NAME)
+        : null;
+    } catch (error) {
+      if (!auditError) {
+        auditError = formatErrorMessage(error);
+      }
+    }
+
+    if (retainedSourceEvidence) {
+      retainedSourceEvidencePath = path.join(artifactDir, `run-${run}.retained-source-evidence.json`);
+      writeFile(retainedSourceEvidencePath, JSON.stringify(retainedSourceEvidence, null, 2), 'utf8');
     }
 
     try {
@@ -667,6 +689,7 @@ export async function runDaemonFeedSemanticSoak({
       ...summarizeRun(
         audit,
         failureSnapshot,
+        retainedSourceEvidence,
         runtimeLogs,
         proc.status,
         reportPath,
@@ -674,6 +697,7 @@ export async function runDaemonFeedSemanticSoak({
         auditPath,
         auditError,
         failureSnapshotPath,
+        retainedSourceEvidencePath,
         runtimeLogsPath,
       ),
     };

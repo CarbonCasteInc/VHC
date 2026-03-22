@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const readAuditableBundles = vi.fn();
+const readRetainedSourceEvidenceSnapshot = vi.fn();
 const readSemanticAuditStoreSnapshot = vi.fn();
 const refreshNewsStoreLatest = vi.fn();
 const waitForHeadlines = vi.fn();
@@ -13,6 +14,7 @@ const fetchMock = vi.fn();
 
 vi.mock('./browserNewsStore', () => ({
   readAuditableBundles,
+  readRetainedSourceEvidenceSnapshot,
   readSemanticAuditStoreSnapshot,
   refreshNewsStoreLatest,
 }));
@@ -70,6 +72,17 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   vi.stubGlobal('fetch', fetchMock);
+  readRetainedSourceEvidenceSnapshot.mockResolvedValue({
+    schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+    generatedAt: '2026-03-22T00:00:00.000Z',
+    story_count: 0,
+    auditable_count: 0,
+    visible_story_ids: [],
+    top_story_ids: [],
+    top_auditable_story_ids: [],
+    source_count: 0,
+    sources: [],
+  });
   refreshNewsStoreLatest.mockResolvedValue(undefined);
   waitForHeadlines.mockResolvedValue(undefined);
   nudgeFeed.mockResolvedValue(undefined);
