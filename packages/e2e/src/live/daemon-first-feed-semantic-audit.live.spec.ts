@@ -14,7 +14,10 @@ import {
   type DaemonFirstStack,
 } from './daemonFirstFeedHarness';
 import { resolveSemanticAuditOpenAIConfig } from './daemonFirstFeedSemanticAuditOpenAI';
-import { runDaemonFirstFeedSemanticAudit } from './daemonFirstFeedSemanticAudit';
+import {
+  captureDaemonFirstFeedSemanticAuditSnapshots,
+  runDaemonFirstFeedSemanticAudit,
+} from './daemonFirstFeedSemanticAudit';
 
 function readPositiveIntEnv(name: string): number | undefined {
   const raw = process.env[name]?.trim();
@@ -85,6 +88,7 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
 
     let stack: DaemonFirstStack | null = null;
     let context: BrowserContext | null = null;
+    let page: Awaited<ReturnType<BrowserContext['newPage']>> | null = null;
     const browserLogs: string[] = [];
 
     try {
@@ -92,7 +96,7 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
       context = await browser.newContext({ ignoreHTTPSErrors: true });
       await addConsumerInitScript(context);
 
-      const page = await context.newPage();
+      page = await context.newPage();
       page.on('console', (message) => browserLogs.push(logText(message)));
 
       await page.goto(LIVE_BASE_URL, {
@@ -122,6 +126,9 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
       expect(report.overall.related_topic_only_pair_count).toBe(0);
       expect(report.overall.pass).toBe(true);
     } catch (error) {
+      if (page) {
+        await captureDaemonFirstFeedSemanticAuditSnapshots(page).catch(() => {});
+      }
       await attachSemanticAuditArtifacts(testInfo);
       if (stack) {
         await attachRuntimeLogs(testInfo, browserLogs, stack);
