@@ -452,6 +452,105 @@ describe('OpenAIStoryClusterProvider', () => {
     expect(callCount).toBe(2);
   });
 
+  it('sanitizes adjudication payload text before sending it to OpenAI', async () => {
+    let capturedPayload: Record<string, unknown> | null = null;
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        capturedPayload = JSON.parse(String(body.messages?.[1]?.content ?? '{}'));
+        return jsonResponse({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                judgements: [{ pair_id: 'pair-1', score: 0.7, decision: 'accepted' }],
+              }),
+            },
+          }],
+        });
+      },
+    });
+
+    await expect(provider.adjudicatePairs([{
+      pair_id: 'pair-1',
+      document_title: 'Doc\u0000 Title',
+      document_text: `Lead\u001f text ${'x'.repeat(8_200)}\ud800`,
+      document_entities: ['entity\u0007-one', 'entity\u0007-one', 'entity-two'],
+      document_trigger: 'attack\u0000',
+      cluster_headline: 'Headline\u0001',
+      cluster_summary: 'Summary\u0000 block',
+      cluster_entities: ['cluster\u0002-entity', 'cluster\u0002-entity'],
+      cluster_triggers: ['trigger\u0003'],
+    }])).resolves.toEqual([
+      { pair_id: 'pair-1', score: 0.7, decision: 'accepted' },
+    ]);
+
+    const sanitized = (capturedPayload as {
+      adjudication_pairs: Array<{
+        pair_id: string;
+        document_title: string;
+        document_text: string;
+        document_entities: string[];
+        document_trigger: string | null;
+        cluster_headline: string;
+        cluster_summary: string;
+        cluster_entities: string[];
+        cluster_triggers: string[];
+      }>;
+    }).adjudication_pairs[0]!;
+    expect(sanitized.pair_id).toBe('pair-1');
+    expect(sanitized.document_title).toBe('Doc Title');
+    expect(sanitized.document_trigger).toBe('attack');
+    expect(sanitized.cluster_headline).toBe('Headline');
+    expect(sanitized.cluster_summary).toBe('Summary block');
+    expect(sanitized.document_entities).toEqual(['entity -one', 'entity-two']);
+    expect(sanitized.cluster_entities).toEqual(['cluster -entity']);
+    expect(sanitized.cluster_triggers).toEqual(['trigger']);
+    expect(sanitized.document_text.startsWith('Lead text ')).toBe(true);
+    expect(sanitized.document_text.endsWith('...')).toBe(true);
+    expect(sanitized.document_text).toHaveLength(8000);
+    expect(sanitized.document_text).not.toMatch(/[\u0000-\u001f\u007f]/);
+    expect(sanitized.document_text).not.toContain('\ud800');
+  });
+
+  it('logs adjudication payload diagnostics when the OpenAI request fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const provider = new OpenAIStoryClusterProvider({
+      apiKey: 'key',
+      fetchFn: async () => new Response('{"error":"bad request"}', {
+        status: 400,
+        headers: { 'content-type': 'application/json' },
+      }),
+    });
+
+    await expect(provider.adjudicatePairs([{
+      pair_id: 'pair-1',
+      document_title: 'Doc',
+      document_text: 'Text\u0000',
+      document_entities: ['entity'],
+      document_trigger: 'attack',
+      cluster_headline: 'Headline',
+      cluster_summary: 'Summary',
+      cluster_entities: ['entity'],
+      cluster_triggers: ['attack'],
+    }])).rejects.toThrow('OpenAI chat request failed: HTTP 400');
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]?.[0]).toBe('[vh:storycluster] adjudicatePairs request failed');
+    expect(warnSpy.mock.calls[0]?.[1]).toMatchObject({
+      pairCount: 1,
+      pairIds: ['pair-1'],
+      sanitizationStats: {
+        sanitizedFieldCount: 1,
+        removedControlCharCount: 1,
+        replacedLoneSurrogateCount: 0,
+      },
+    });
+    expect(warnSpy.mock.calls[0]?.[1]).toHaveProperty('payloadLengthBytes');
+    expect(warnSpy.mock.calls[0]?.[1]).toHaveProperty('payloadPreview');
+    expect((warnSpy.mock.calls[0]?.[1] as { payloadPreview: string }).payloadPreview).toContain('adjudication_pairs');
+  });
+
   it('creates a provider from environment and rejects missing api keys', async () => {
     vi.stubEnv('OPENAI_API_KEY', '');
     expect(() => createOpenAIStoryClusterProviderFromEnv()).toThrow('OPENAI_API_KEY is required for StoryCluster provider');
