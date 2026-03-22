@@ -10,6 +10,7 @@ import {
 import { LIVE_BASE_URL, waitForHeadlines } from './daemonFirstFeedHarness';
 import { nudgeFeed } from './feedReadiness';
 import type {
+  AuditedBundleReport,
   AuditedBundlePairResult,
   DaemonFeedSemanticAuditOptions,
   DaemonFeedSemanticAuditReport,
@@ -17,6 +18,7 @@ import type {
   LiveSemanticAuditPair,
   LiveSemanticAuditPairResult,
   RetainedSourceEvidenceSnapshot,
+  SemanticAuditArticleFetchFailure,
   SemanticAuditStoreSnapshot,
   SemanticAuditSupplyDiagnostics,
   StoryBundleSource,
@@ -24,11 +26,14 @@ import type {
 
 const ARTICLE_TEXT_TIMEOUT_MS = 20_000;
 const ARTICLE_FETCH_CONCURRENCY = 4;
+const ARTICLE_FETCH_MAX_ATTEMPTS = 3;
+const ARTICLE_FETCH_RETRY_DELAY_MS = 1_000;
 const DEFAULT_SAMPLE_COUNT = 2;
 const SAMPLE_TIMEOUT_MS = 240_000;
 const SEMANTIC_AUDIT_REFRESH_LIMIT = 120;
 const SEMANTIC_AUDIT_POST_REFRESH_SETTLE_MS = 4_000;
 const runtimeImport = async (modulePath: string): Promise<unknown> => await import(modulePath);
+const RETRIABLE_ARTICLE_TEXT_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504]);
 
 async function loadSemanticAuditModule(): Promise<{
   buildCanonicalSourcePairs: (
@@ -87,6 +92,72 @@ export async function fetchArticlePayload(baseUrl: string, url: string, sourceId
     }
     throw error;
   }
+}
+
+function isRetriableArticleTextError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.message.includes('article-text timeout for ')) {
+    return true;
+  }
+  const statusMatch = error.message.match(/^article-text (\d{3}) for /);
+  if (statusMatch) {
+    const status = Number.parseInt(statusMatch[1] ?? '', 10);
+    return RETRIABLE_ARTICLE_TEXT_STATUS_CODES.has(status);
+  }
+  return error.message === 'fetch failed'
+    || error.message.startsWith('fetch failed')
+    || error.message.includes('network')
+    || error.message.includes('socket');
+}
+
+function formatArticleFetchError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchArticlePayloadWithRetry(
+  baseUrl: string,
+  source: StoryBundleSource,
+): Promise<
+  | { readonly ok: true; readonly payload: { title: string; text: string }; readonly attempts: number }
+  | { readonly ok: false; readonly failure: SemanticAuditArticleFetchFailure }
+> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= ARTICLE_FETCH_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const payload = await fetchArticlePayload(baseUrl, source.url, source.source_id);
+      return { ok: true, payload, attempts: attempt };
+    } catch (error) {
+      lastError = error;
+      if (attempt >= ARTICLE_FETCH_MAX_ATTEMPTS || !isRetriableArticleTextError(error)) {
+        return {
+          ok: false,
+          failure: {
+            source_id: source.source_id,
+            url: source.url,
+            error: formatArticleFetchError(error),
+            attempts: attempt,
+          },
+        };
+      }
+      await delay(ARTICLE_FETCH_RETRY_DELAY_MS * attempt);
+    }
+  }
+
+  return {
+    ok: false,
+    failure: {
+      source_id: source.source_id,
+      url: source.url,
+      error: formatArticleFetchError(lastError),
+      attempts: ARTICLE_FETCH_MAX_ATTEMPTS,
+    },
+  };
 }
 
 async function mapWithConcurrency<T, R>(
@@ -312,21 +383,26 @@ export function buildDaemonFeedSemanticAuditReport(
   auditedPairCount: number,
   relatedTopicOnlyPairCount: number,
   supply: SemanticAuditSupplyDiagnostics,
+  articleFetchFailures: readonly SemanticAuditArticleFetchFailure[] = [],
 ): DaemonFeedSemanticAuditReport {
+  const incompleteBundleCount = reports.filter((bundle) => bundle.audit_status === 'incomplete_article_text').length;
   return {
-    schema_version: 'daemon-first-feed-semantic-audit-v2',
+    schema_version: 'daemon-first-feed-semantic-audit-v3',
     base_url: LIVE_BASE_URL,
     requested_sample_count: sampleCount,
     sampled_story_count: reports.length,
     visible_story_ids: supply.visible_story_ids,
     supply,
     bundles: reports,
+    article_fetch_failures: articleFetchFailures,
     overall: {
       audited_pair_count: auditedPairCount,
       related_topic_only_pair_count: relatedTopicOnlyPairCount,
+      incomplete_bundle_count: incompleteBundleCount,
+      article_fetch_failure_count: articleFetchFailures.length,
       sample_fill_rate: supply.sample_fill_rate,
       sample_shortfall: supply.sample_shortfall,
-      pass: reports.length >= sampleCount && relatedTopicOnlyPairCount === 0,
+      pass: reports.length >= sampleCount && relatedTopicOnlyPairCount === 0 && incompleteBundleCount === 0,
     },
   };
 }
@@ -360,21 +436,71 @@ export async function runDaemonFirstFeedSemanticAudit(
     canonicalSources,
     ARTICLE_FETCH_CONCURRENCY,
     async (source) => {
-      const payload = articleTextCache.get(source.url)
-        ?? await fetchArticlePayload(LIVE_BASE_URL, source.url, source.source_id);
-      articleTextCache.set(source.url, payload);
-      return [source.url, payload] as const;
+      const cachedPayload = articleTextCache.get(source.url);
+      if (cachedPayload) {
+        return {
+          url: source.url,
+          ok: true as const,
+          payload: cachedPayload,
+        };
+      }
+
+      const resolution = await fetchArticlePayloadWithRetry(LIVE_BASE_URL, source);
+      if (resolution.ok) {
+        articleTextCache.set(source.url, resolution.payload);
+        return {
+          url: source.url,
+          ok: true as const,
+          payload: resolution.payload,
+        };
+      }
+
+      return {
+        url: source.url,
+        ok: false as const,
+        failure: resolution.failure,
+      };
     },
   );
-  const payloadByUrl = new Map(payloadEntries);
+  const payloadByUrl = new Map(
+    payloadEntries
+      .filter((entry) => entry.ok)
+      .map((entry) => [entry.url, entry.payload] as const),
+  );
+  const articleFetchFailures = payloadEntries
+    .filter((entry) => !entry.ok)
+    .map((entry) => entry.failure);
+  const articleFetchFailureByUrl = new Map(
+    payloadEntries
+      .filter((entry) => !entry.ok)
+      .map((entry) => [entry.url, entry.failure] as const),
+  );
   const allPairs: LiveSemanticAuditPair[] = [];
+  const incompleteBundleStoryIds = new Set<string>();
 
   for (const bundle of hydratedBundles) {
     const primarySources = [...(bundle.primary_sources ?? bundle.sources)];
     const sourceTexts = new Map<string, string>();
+    const missingArticleSources: SemanticAuditArticleFetchFailure[] = [];
 
     for (const source of primarySources) {
-      sourceTexts.set(`${source.source_id}:${source.url_hash}`, payloadByUrl.get(source.url)!.text);
+      const payload = payloadByUrl.get(source.url);
+      if (payload) {
+        sourceTexts.set(`${source.source_id}:${source.url_hash}`, payload.text);
+        continue;
+      }
+
+      missingArticleSources.push(articleFetchFailureByUrl.get(source.url) ?? {
+        source_id: source.source_id,
+        url: source.url,
+        error: `article-text unavailable for ${source.source_id}`,
+        attempts: 0,
+      });
+    }
+
+    if (missingArticleSources.length > 0) {
+      incompleteBundleStoryIds.add(bundle.story_id);
+      continue;
     }
 
     allPairs.push(...buildCanonicalSourcePairs(
@@ -394,6 +520,13 @@ export async function runDaemonFirstFeedSemanticAudit(
   const resultsByStory = groupPairResults(allPairs, results);
   const reports = hydratedBundles.map((bundle) => {
     const bundleResults = resultsByStory.get(bundle.story_id) ?? [];
+    const missingArticleSources = (bundle.primary_sources ?? bundle.sources)
+      .map((source) => articleFetchFailureByUrl.get(source.url))
+      .filter((failure): failure is SemanticAuditArticleFetchFailure => Boolean(failure));
+    const isIncomplete = incompleteBundleStoryIds.has(bundle.story_id);
+    const auditStatus: AuditedBundleReport['audit_status'] = isIncomplete
+      ? 'incomplete_article_text'
+      : 'complete';
     return {
       story_id: bundle.story_id,
       topic_id: bundle.topic_id,
@@ -403,6 +536,8 @@ export async function runDaemonFirstFeedSemanticAudit(
       canonical_sources: bundle.primary_sources ?? bundle.sources,
       pairs: bundleResults,
       has_related_topic_only_pair: hasRelatedTopicOnlyPair(bundleResults),
+      audit_status: auditStatus,
+      missing_article_sources: isIncomplete ? missingArticleSources : [],
     };
   });
 
@@ -417,6 +552,7 @@ export async function runDaemonFirstFeedSemanticAudit(
     results.length,
     relatedTopicOnlyPairCount,
     summarizeSemanticAuditSupply(sampleCount, hydratedBundles, storeSnapshot),
+    articleFetchFailures,
   );
 
   await persistSemanticAuditReport(report);

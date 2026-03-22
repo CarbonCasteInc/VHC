@@ -130,7 +130,7 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
       0,
       supply,
     )).toMatchObject({
-      schema_version: 'daemon-first-feed-semantic-audit-v2',
+      schema_version: 'daemon-first-feed-semantic-audit-v3',
       requested_sample_count: 3,
       sampled_story_count: 1,
       visible_story_ids: ['story-1', 'story-2', 'story-3'],
@@ -144,6 +144,8 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
       overall: {
         audited_pair_count: 1,
         related_topic_only_pair_count: 0,
+        incomplete_bundle_count: 0,
+        article_fetch_failure_count: 0,
         sample_fill_rate: 1 / 3,
         sample_shortfall: 2,
         pass: false,
@@ -236,6 +238,8 @@ describe('daemonFirstFeedSemanticAudit fetch and helper coverage', () => {
       },
       overall: {
         audited_pair_count: 0,
+        incomplete_bundle_count: 0,
+        article_fetch_failure_count: 0,
         pass: false,
       },
     });
