@@ -151,6 +151,37 @@ afterEach(() => {
 });
 
 describe('daemonFirstFeedSemanticAudit run coverage', () => {
+  it('persists store and retained snapshots for timeout-path observability', async () => {
+    process.env.VH_DAEMON_FEED_RUN_ID = `semantic-audit-test-${Date.now()}-timeout-snapshots`;
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot());
+
+    const { captureDaemonFirstFeedSemanticAuditSnapshots } = await import('./daemonFirstFeedSemanticAudit');
+    const result = await captureDaemonFirstFeedSemanticAuditSnapshots({});
+
+    expect(result.storeSnapshot).toMatchObject({
+      story_count: 4,
+      auditable_count: 2,
+    });
+    expect(result.retainedSourceEvidenceSnapshot).toMatchObject({
+      schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+      source_count: 2,
+    });
+
+    const artifactRoot = artifactDir(process.env.VH_DAEMON_FEED_RUN_ID);
+    expect(JSON.parse(
+      readFileSync(path.join(artifactRoot, 'semantic-audit-store-snapshot.json'), 'utf8'),
+    )).toMatchObject({
+      story_count: 4,
+      auditable_count: 2,
+    });
+    expect(JSON.parse(
+      readFileSync(path.join(artifactRoot, 'retained-source-evidence-snapshot.json'), 'utf8'),
+    )).toMatchObject({
+      schemaVersion: 'daemon-feed-retained-source-evidence-v1',
+      source_count: 2,
+    });
+  });
+
   it('records empty sampled supply without invoking fetch or the classifier', async () => {
     readAuditableBundles.mockResolvedValue([]);
     readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 0 }));

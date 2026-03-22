@@ -286,6 +286,26 @@ async function persistRetainedSourceEvidenceSnapshot(
   );
 }
 
+export async function captureDaemonFirstFeedSemanticAuditSnapshots(
+  page: Page,
+): Promise<{
+  readonly storeSnapshot: SemanticAuditStoreSnapshot;
+  readonly retainedSourceEvidenceSnapshot: RetainedSourceEvidenceSnapshot;
+}> {
+  const [storeSnapshot, retainedSourceEvidenceSnapshot] = await Promise.all([
+    readSemanticAuditStoreSnapshot(page),
+    readRetainedSourceEvidenceSnapshot(page),
+  ]);
+  await Promise.all([
+    persistSemanticAuditFailureSnapshot(storeSnapshot),
+    persistRetainedSourceEvidenceSnapshot(retainedSourceEvidenceSnapshot),
+  ]);
+  return {
+    storeSnapshot,
+    retainedSourceEvidenceSnapshot,
+  };
+}
+
 export function buildDaemonFeedSemanticAuditReport(
   sampleCount: number,
   reports: DaemonFeedSemanticAuditReport['bundles'],
