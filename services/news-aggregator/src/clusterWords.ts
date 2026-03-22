@@ -23,14 +23,34 @@ export function extractWords(title: string): string[] {
 
 export function topEntityKeys(items: NormalizedFeedItem[], max: number): string[] {
   const freq = new Map<string, number>();
-  for (const item of items) {
+  const firstSeen = new Map<string, number>();
+  let nextWordOrder = 0;
+  const stableItems = [...items].sort((left, right) => {
+    if (left.publishedAt === undefined && right.publishedAt === undefined) {
+      return left.title.localeCompare(right.title);
+    }
+    if (left.publishedAt === undefined) return 1;
+    if (right.publishedAt === undefined) return -1;
+    if (left.publishedAt !== right.publishedAt) {
+      return left.publishedAt - right.publishedAt;
+    }
+    return left.title.localeCompare(right.title);
+  });
+
+  for (const item of stableItems) {
     for (const word of extractWords(item.title)) {
       freq.set(word, (freq.get(word) ?? 0) + 1);
+      if (!firstSeen.has(word)) {
+        firstSeen.set(word, nextWordOrder++);
+      }
     }
   }
 
   return [...freq.entries()]
-    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .sort((a, b) =>
+      b[1] - a[1]
+      || (firstSeen.get(a[0]) ?? Number.MAX_SAFE_INTEGER) - (firstSeen.get(b[0]) ?? Number.MAX_SAFE_INTEGER)
+      || a[0].localeCompare(b[0]))
     .slice(0, max)
     .map(([word]) => word)
     .sort();

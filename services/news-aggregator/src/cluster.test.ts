@@ -418,6 +418,189 @@ describe('clusterItems', () => {
     expect(keys).toEqual([...keys].sort());
   });
 
+  it('keeps topic_id stable across same-event source growth when core entity keys stay fixed', () => {
+    const first = makeItem({
+      sourceId: 'src-1',
+      title: 'Canada Tariff Talks Ottawa Trade Advance',
+      url: 'https://a.com/canada-tariff-talks-1',
+      canonicalUrl: 'https://a.com/canada-tariff-talks-1',
+      urlHash: 'growth_a1',
+      publishedAt: FIXED_NOW,
+    });
+    const second = makeItem({
+      sourceId: 'src-2',
+      title: 'Canada Tariff Talks Ottawa Trade Continue',
+      url: 'https://b.com/canada-tariff-talks-2',
+      canonicalUrl: 'https://b.com/canada-tariff-talks-2',
+      urlHash: 'growth_b2',
+      publishedAt: FIXED_NOW + 60_000,
+    });
+    const third = makeItem({
+      sourceId: 'src-3',
+      title: 'Canada Tariff Talks Ottawa Trade Deal',
+      url: 'https://c.com/canada-tariff-talks-3',
+      canonicalUrl: 'https://c.com/canada-tariff-talks-3',
+      urlHash: 'growth_c3',
+      publishedAt: FIXED_NOW + 120_000,
+    });
+
+    const run1 = clusterItems([first], sources, { nowFn });
+    const run2 = clusterItems([first, second], sources, { nowFn });
+    const run3 = clusterItems([first, second, third], sources, { nowFn });
+
+    expect(run1).toHaveLength(1);
+    expect(run2).toHaveLength(1);
+    expect(run3).toHaveLength(1);
+    expect(run1[0]!.topic_id).toBe(run2[0]!.topic_id);
+    expect(run2[0]!.topic_id).toBe(run3[0]!.topic_id);
+    expect(run1[0]!.cluster_features.entity_keys).toEqual([
+      'canada',
+      'ottawa',
+      'talks',
+      'tariff',
+      'trade',
+    ]);
+    expect(run2[0]!.cluster_features.entity_keys).toEqual(
+      run1[0]!.cluster_features.entity_keys,
+    );
+    expect(run3[0]!.cluster_features.entity_keys).toEqual(
+      run1[0]!.cluster_features.entity_keys,
+    );
+  });
+
+  it('keeps topic_id stable across headline drift when the same event keeps the same core keys', () => {
+    const first = makeItem({
+      sourceId: 'src-1',
+      title: 'Quebec Bridge Collapse Rescue Workers Trapped',
+      url: 'https://a.com/quebec-bridge-collapse-1',
+      canonicalUrl: 'https://a.com/quebec-bridge-collapse-1',
+      urlHash: 'drift_a1',
+      publishedAt: FIXED_NOW,
+    });
+    const second = makeItem({
+      sourceId: 'src-2',
+      title: 'Workers Survive Quebec Bridge Collapse Rescue',
+      url: 'https://b.com/quebec-bridge-collapse-2',
+      canonicalUrl: 'https://b.com/quebec-bridge-collapse-2',
+      urlHash: 'drift_b2',
+      publishedAt: FIXED_NOW + 120_000,
+    });
+    const third = makeItem({
+      sourceId: 'src-3',
+      title: 'Quebec Rescue Widens After Bridge Collapse Workers Found',
+      url: 'https://c.com/quebec-bridge-collapse-3',
+      canonicalUrl: 'https://c.com/quebec-bridge-collapse-3',
+      urlHash: 'drift_c3',
+      publishedAt: FIXED_NOW + 240_000,
+    });
+
+    const run1 = clusterItems([first], sources, { nowFn });
+    const run2 = clusterItems([first, second], sources, { nowFn });
+    const run3 = clusterItems([first, second, third], sources, { nowFn });
+
+    expect(run1).toHaveLength(1);
+    expect(run2).toHaveLength(1);
+    expect(run3).toHaveLength(1);
+    expect(run1[0]!.topic_id).toBe(run2[0]!.topic_id);
+    expect(run2[0]!.topic_id).toBe(run3[0]!.topic_id);
+    expect(run1[0]!.cluster_features.entity_keys).toEqual([
+      'bridge',
+      'collapse',
+      'quebec',
+      'rescue',
+      'workers',
+    ]);
+    expect(run2[0]!.cluster_features.entity_keys).toEqual(
+      run1[0]!.cluster_features.entity_keys,
+    );
+    expect(run3[0]!.cluster_features.entity_keys).toEqual(
+      run1[0]!.cluster_features.entity_keys,
+    );
+  });
+
+  it('keeps topic_id stable when a noisy same-event headline still carries the core event keys', () => {
+    const first = makeItem({
+      sourceId: 'src-1',
+      title: 'Canada Tariff Talks Ottawa Trade Advance',
+      url: 'https://a.com/noisy-canada-tariff-talks-1',
+      canonicalUrl: 'https://a.com/noisy-canada-tariff-talks-1',
+      urlHash: 'noise_a1',
+      publishedAt: FIXED_NOW,
+    });
+    const second = makeItem({
+      sourceId: 'src-2',
+      title: 'Canada Tariff Talks Ottawa Trade Continue',
+      url: 'https://b.com/noisy-canada-tariff-talks-2',
+      canonicalUrl: 'https://b.com/noisy-canada-tariff-talks-2',
+      urlHash: 'noise_b2',
+      publishedAt: FIXED_NOW + 60_000,
+    });
+    const noisyVariant = makeItem({
+      sourceId: 'src-3',
+      title: 'Analysis Canada Tariff Talks Ottawa Trade What We Know',
+      url: 'https://c.com/noisy-canada-tariff-talks-3',
+      canonicalUrl: 'https://c.com/noisy-canada-tariff-talks-3',
+      urlHash: 'noise_c3',
+      publishedAt: FIXED_NOW + 120_000,
+    });
+
+    const cleanRun = clusterItems([first, second], sources, { nowFn });
+    const noisyRun = clusterItems([first, second, noisyVariant], sources, {
+      nowFn,
+    });
+
+    expect(cleanRun).toHaveLength(1);
+    expect(noisyRun).toHaveLength(1);
+    expect(cleanRun[0]!.topic_id).toBe(noisyRun[0]!.topic_id);
+    expect(noisyRun[0]!.cluster_features.entity_keys).toEqual([
+      'canada',
+      'ottawa',
+      'talks',
+      'tariff',
+      'trade',
+    ]);
+  });
+
+  it('assigns different topic_id values to different events in the same broad topic', () => {
+    const californiaWildfire = makeItem({
+      sourceId: 'src-1',
+      title: 'California Wildfire Interstate Closure Sacramento',
+      url: 'https://a.com/california-wildfire-closure',
+      canonicalUrl: 'https://a.com/california-wildfire-closure',
+      urlHash: 'neg_a1',
+      publishedAt: FIXED_NOW,
+    });
+    const texasWildfire = makeItem({
+      sourceId: 'src-2',
+      title: 'Texas Wildfire Evacuation Austin Refinery',
+      url: 'https://b.com/texas-wildfire-evacuation',
+      canonicalUrl: 'https://b.com/texas-wildfire-evacuation',
+      urlHash: 'neg_b2',
+      publishedAt: FIXED_NOW,
+    });
+
+    const californiaRun = clusterItems([californiaWildfire], sources, { nowFn });
+    const texasRun = clusterItems([texasWildfire], sources, { nowFn });
+
+    expect(californiaRun).toHaveLength(1);
+    expect(texasRun).toHaveLength(1);
+    expect(californiaRun[0]!.topic_id).not.toBe(texasRun[0]!.topic_id);
+    expect(californiaRun[0]!.cluster_features.entity_keys).toEqual([
+      'california',
+      'closure',
+      'interstate',
+      'sacramento',
+      'wildfire',
+    ]);
+    expect(texasRun[0]!.cluster_features.entity_keys).toEqual([
+      'austin',
+      'evacuation',
+      'refinery',
+      'texas',
+      'wildfire',
+    ]);
+  });
+
   /* ---------------------------------------------------------------- */
   /*  Custom options                                                  */
   /* ---------------------------------------------------------------- */
