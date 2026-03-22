@@ -151,6 +151,10 @@ describe('runDaemonFeedSemanticSoak', () => {
       'guardian-us',
       'nypost-politics',
       'abc-politics',
+      'bbc-general',
+      'pbs-politics',
+      'npr-politics',
+      'fox-latest',
     ]);
   });
 
@@ -189,6 +193,10 @@ describe('runDaemonFeedSemanticSoak', () => {
       'guardian-us',
       'cbs-politics',
       'bbc-general',
+      'abc-politics',
+      'federalist',
+      'washingtonexaminer-politics',
+      'npr-news',
       'npr-politics',
       'pbs-politics',
     ]);
@@ -219,6 +227,10 @@ describe('runDaemonFeedSemanticSoak', () => {
       'guardian-us',
       'cbs-politics',
       'bbc-general',
+      'abc-politics',
+      'federalist',
+      'washingtonexaminer-politics',
+      'npr-news',
       'npr-politics',
       'pbs-politics',
     ]);
