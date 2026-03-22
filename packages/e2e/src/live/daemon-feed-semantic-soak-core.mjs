@@ -49,14 +49,16 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'guardian-us',
   'cbs-politics',
   'bbc-general',
+  'abc-politics',
+  'federalist',
+  'washingtonexaminer-politics',
+  'npr-news',
   'npr-politics',
   'pbs-politics',
-  'federalist',
-  'abc-politics',
   'nypost-politics',
   'fox-latest',
 ].join(',');
-const PUBLIC_SMOKE_SOURCE_LIMIT = 8;
+const PUBLIC_SMOKE_SOURCE_LIMIT = 12;
 const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '6';
 const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
