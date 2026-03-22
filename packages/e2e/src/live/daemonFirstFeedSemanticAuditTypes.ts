@@ -99,6 +99,13 @@ export interface AuditedBundlePairResult extends LiveSemanticAuditPairResult {
   readonly right: Pick<StoryBundleSource, 'source_id' | 'publisher' | 'title' | 'url'>;
 }
 
+export interface SemanticAuditArticleFetchFailure {
+  readonly source_id: string;
+  readonly url: string;
+  readonly error: string;
+  readonly attempts: number;
+}
+
 export interface AuditedBundleReport {
   readonly story_id: string;
   readonly topic_id: string;
@@ -108,6 +115,8 @@ export interface AuditedBundleReport {
   readonly canonical_sources: ReadonlyArray<StoryBundleSource>;
   readonly pairs: ReadonlyArray<AuditedBundlePairResult>;
   readonly has_related_topic_only_pair: boolean;
+  readonly audit_status?: 'complete' | 'incomplete_article_text';
+  readonly missing_article_sources?: ReadonlyArray<SemanticAuditArticleFetchFailure>;
 }
 
 export type SemanticAuditSupplyStatus = 'full' | 'partial' | 'empty';
@@ -124,16 +133,19 @@ export interface SemanticAuditSupplyDiagnostics {
 }
 
 export interface DaemonFeedSemanticAuditReport {
-  readonly schema_version: 'daemon-first-feed-semantic-audit-v2';
+  readonly schema_version: 'daemon-first-feed-semantic-audit-v3';
   readonly base_url: string;
   readonly requested_sample_count: number;
   readonly sampled_story_count: number;
   readonly visible_story_ids: ReadonlyArray<string>;
   readonly supply: SemanticAuditSupplyDiagnostics;
   readonly bundles: ReadonlyArray<AuditedBundleReport>;
+  readonly article_fetch_failures?: ReadonlyArray<SemanticAuditArticleFetchFailure>;
   readonly overall: {
     readonly audited_pair_count: number;
     readonly related_topic_only_pair_count: number;
+    readonly incomplete_bundle_count: number;
+    readonly article_fetch_failure_count: number;
     readonly sample_fill_rate: number;
     readonly sample_shortfall: number;
     readonly pass: boolean;

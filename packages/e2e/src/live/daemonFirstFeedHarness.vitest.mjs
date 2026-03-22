@@ -89,4 +89,23 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_OPENAI_TIMEOUT_MS', '180000');
     expect(daemonFirstFeedHarnessInternal.resolveStoryClusterOpenAITimeoutMs()).toBe('180000');
   });
+
+  it('defaults the feed-ready timeout to the remote timeout plus slack', () => {
+    vi.stubEnv('VH_DAEMON_FEED_READY_TIMEOUT_MS', '');
+    vi.stubEnv('VH_LIVE_FEED_READY_TIMEOUT_MS', '');
+    vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS', '');
+    expect(daemonFirstFeedHarnessInternal.resolveFeedReadyTimeoutMs()).toBe(360000);
+  });
+
+  it('prefers an explicit daemon feed-ready timeout override when provided', () => {
+    vi.stubEnv('VH_DAEMON_FEED_READY_TIMEOUT_MS', '420000');
+    vi.stubEnv('VH_LIVE_FEED_READY_TIMEOUT_MS', '');
+    expect(daemonFirstFeedHarnessInternal.resolveFeedReadyTimeoutMs()).toBe(420000);
+  });
+
+  it('falls back to the shared live feed-ready timeout override when the daemon-specific override is absent', () => {
+    vi.stubEnv('VH_DAEMON_FEED_READY_TIMEOUT_MS', '');
+    vi.stubEnv('VH_LIVE_FEED_READY_TIMEOUT_MS', '390000');
+    expect(daemonFirstFeedHarnessInternal.resolveFeedReadyTimeoutMs()).toBe(390000);
+  });
 });

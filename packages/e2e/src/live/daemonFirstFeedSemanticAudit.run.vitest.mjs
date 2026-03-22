@@ -300,7 +300,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
       model: undefined,
     });
     expect(report).toMatchObject({
-      schema_version: 'daemon-first-feed-semantic-audit-v2',
+      schema_version: 'daemon-first-feed-semantic-audit-v3',
       requested_sample_count: 2,
       sampled_story_count: 2,
       visible_story_ids: ['story-1', 'story-2', 'story-3'],
@@ -313,6 +313,8 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
       overall: {
         audited_pair_count: 2,
         related_topic_only_pair_count: 0,
+        incomplete_bundle_count: 0,
+        article_fetch_failure_count: 0,
         sample_fill_rate: 1,
         sample_shortfall: 0,
         pass: true,
@@ -360,6 +362,8 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
       overall: {
         audited_pair_count: 1,
         related_topic_only_pair_count: 0,
+        incomplete_bundle_count: 0,
+        article_fetch_failure_count: 0,
         sample_fill_rate: 0.5,
         sample_shortfall: 1,
         pass: false,
@@ -418,7 +422,81 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
       },
       overall: {
         audited_pair_count: 3,
+        incomplete_bundle_count: 0,
+        article_fetch_failure_count: 0,
         pass: true,
+      },
+    });
+  });
+
+  it('degrades persistent article-text failures into incomplete bundle evidence instead of aborting the run', async () => {
+    const bundleA = makeBundle('story-1');
+    const bundleB = makeBundle('story-2');
+    const pairA = makePair(bundleA);
+    readAuditableBundles.mockResolvedValue([bundleA, bundleB]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 2 }));
+    buildCanonicalSourcePairs.mockImplementation((bundle) => {
+      if (bundle.story_id === 'story-1') {
+        return [pairA];
+      }
+      throw new Error('story-2 should be skipped because article-text fetch failed');
+    });
+    classifyCanonicalSourcePairs.mockResolvedValue([makeResult(pairA.pair_id)]);
+
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes('story-2%2Fb') || String(url).includes('/story-2/b')) {
+        return { ok: false, status: 502 };
+      }
+      return {
+        ok: true,
+        json: async () => ({ title: 'Fetched title', text: 'Fetched article body' }),
+      };
+    });
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 2,
+      timeoutMs: 0,
+    });
+
+    expect(buildCanonicalSourcePairs).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(report).toMatchObject({
+      sampled_story_count: 2,
+      article_fetch_failures: [
+        {
+          source_id: 'story-2-b',
+          url: 'https://example.com/story-2/b',
+          error: 'article-text 502 for story-2-b',
+          attempts: 3,
+        },
+      ],
+      bundles: [
+        {
+          story_id: 'story-1',
+          audit_status: 'complete',
+          pairs: [makeResult(pairA.pair_id)],
+        },
+        {
+          story_id: 'story-2',
+          audit_status: 'incomplete_article_text',
+          pairs: [],
+          missing_article_sources: [
+            {
+              source_id: 'story-2-b',
+              url: 'https://example.com/story-2/b',
+              error: 'article-text 502 for story-2-b',
+              attempts: 3,
+            },
+          ],
+        },
+      ],
+      overall: {
+        audited_pair_count: 1,
+        incomplete_bundle_count: 1,
+        article_fetch_failure_count: 1,
+        pass: false,
       },
     });
   });
@@ -507,6 +585,8 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
       },
       overall: {
         audited_pair_count: 1,
+        incomplete_bundle_count: 0,
+        article_fetch_failure_count: 0,
         pass: false,
       },
     });
@@ -551,6 +631,8 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
       },
       overall: {
         audited_pair_count: 2,
+        incomplete_bundle_count: 0,
+        article_fetch_failure_count: 0,
         pass: true,
       },
     });
