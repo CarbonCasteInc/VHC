@@ -59,7 +59,7 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'fox-latest',
 ].join(',');
 const PUBLIC_SMOKE_SOURCE_LIMIT = 12;
-const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '6';
+const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
 const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../..',

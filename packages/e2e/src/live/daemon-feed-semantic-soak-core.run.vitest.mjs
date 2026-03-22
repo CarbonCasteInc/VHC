@@ -99,8 +99,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(
       'bbc-us-canada,guardian-us,cbs-politics,fox-latest',
     );
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('6');
-    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('24');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
+    expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('16');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
   });
 
