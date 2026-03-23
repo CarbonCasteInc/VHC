@@ -21,6 +21,14 @@ function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
 }
 
+function requiredArtifactPaths(artifactDir) {
+  return {
+    summaryPath: path.join(artifactDir, 'semantic-soak-summary.json'),
+    trendPath: path.join(artifactDir, 'semantic-soak-trend.json'),
+    indexPath: path.join(artifactDir, 'release-artifact-index.json'),
+  };
+}
+
 export function findLatestArtifactDir(artifactRoot, readdir = readdirSync, stat = statSync) {
   const dirs = readdir(artifactRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -30,6 +38,32 @@ export function findLatestArtifactDir(artifactRoot, readdir = readdirSync, stat 
     })
     .sort((left, right) => right.mtimeMs - left.mtimeMs);
   return dirs[0]?.fullPath ?? null;
+}
+
+export function findLatestCompleteArtifactDir(
+  artifactRoot,
+  {
+    exists = existsSync,
+    readdir = readdirSync,
+    stat = statSync,
+  } = {},
+) {
+  const dirs = readdir(artifactRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => {
+      const fullPath = path.join(artifactRoot, entry.name);
+      return { fullPath, mtimeMs: stat(fullPath).mtimeMs };
+    })
+    .sort((left, right) => right.mtimeMs - left.mtimeMs);
+
+  for (const { fullPath } of dirs) {
+    const { summaryPath, trendPath, indexPath } = requiredArtifactPaths(fullPath);
+    if ([summaryPath, trendPath, indexPath].every((filePath) => exists(filePath))) {
+      return fullPath;
+    }
+  }
+
+  return null;
 }
 
 export function buildPromotionDecision({
@@ -84,14 +118,14 @@ export function loadPromotionDecisionArtifacts({
 } = {}) {
   const resolvedRoot = artifactRoot
     ?? (exists(DEFAULT_ARTIFACT_ROOT) ? DEFAULT_ARTIFACT_ROOT : LEGACY_ARTIFACT_ROOT);
-  const resolvedDir = artifactDir ?? findLatestArtifactDir(resolvedRoot, readdir, stat);
+  const resolvedDir = artifactDir
+    ?? findLatestCompleteArtifactDir(resolvedRoot, { exists, readdir, stat })
+    ?? findLatestArtifactDir(resolvedRoot, readdir, stat);
   if (!resolvedDir) {
     throw new Error(`no semantic-soak artifact directory found under ${resolvedRoot}`);
   }
 
-  const summaryPath = path.join(resolvedDir, 'semantic-soak-summary.json');
-  const trendPath = path.join(resolvedDir, 'semantic-soak-trend.json');
-  const indexPath = path.join(resolvedDir, 'release-artifact-index.json');
+  const { summaryPath, trendPath, indexPath } = requiredArtifactPaths(resolvedDir);
 
   for (const filePath of [summaryPath, trendPath, indexPath]) {
     if (!exists(filePath)) {

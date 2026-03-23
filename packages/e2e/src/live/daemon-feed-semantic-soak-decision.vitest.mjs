@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildPromotionDecision,
   findLatestArtifactDir,
+  findLatestCompleteArtifactDir,
   loadPromotionDecisionArtifacts,
   writePromotionDecision,
 } from './daemon-feed-semantic-soak-decision.mjs';
@@ -22,6 +23,31 @@ describe('daemon-feed-semantic-soak-decision', () => {
       (fullPath) => ({ mtimeMs: fullPath === fullPaths.older ? 1 : 2 }),
     );
     expect(result).toBe(fullPaths.newer);
+  });
+
+  it('chooses the newest complete artifact directory when newer dirs are still in progress', () => {
+    const artifactRoot = '/tmp/soak';
+    const fullPaths = {
+      complete: `${artifactRoot}/complete`,
+      incomplete: `${artifactRoot}/incomplete`,
+    };
+    const result = findLatestCompleteArtifactDir(
+      artifactRoot,
+      {
+        exists: (filePath) => (
+          filePath === `${fullPaths.complete}/semantic-soak-summary.json`
+          || filePath === `${fullPaths.complete}/semantic-soak-trend.json`
+          || filePath === `${fullPaths.complete}/release-artifact-index.json`
+        ),
+        readdir: () => [
+          { isDirectory: () => true, name: 'complete' },
+          { isDirectory: () => true, name: 'incomplete' },
+        ],
+        stat: (fullPath) => ({ mtimeMs: fullPath === fullPaths.incomplete ? 2 : 1 }),
+      },
+    );
+
+    expect(result).toBe(fullPaths.complete);
   });
 
   it('builds a smoke-only decision when readiness is not met', () => {
@@ -177,5 +203,31 @@ describe('daemon-feed-semantic-soak-decision', () => {
     });
 
     expect(artifacts.artifactDir).toBe('/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/100');
+  });
+
+  it('skips the newest incomplete artifact directory when loading implicit promotion artifacts', () => {
+    const root = '/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak';
+    const reads = new Map([
+      [`${root}/100/semantic-soak-summary.json`, JSON.stringify({ promotionAssessment: { status: 'not_ready' } })],
+      [`${root}/100/semantic-soak-trend.json`, JSON.stringify({ promotionAssessment: { status: 'not_ready' } })],
+      [`${root}/100/release-artifact-index.json`, JSON.stringify({ artifactPaths: { indexPath: `${root}/100/release-artifact-index.json` } })],
+    ]);
+
+    const artifacts = loadPromotionDecisionArtifacts({
+      exists: (filePath) => (
+        filePath === root
+        || filePath === `${root}/100/semantic-soak-summary.json`
+        || filePath === `${root}/100/semantic-soak-trend.json`
+        || filePath === `${root}/100/release-artifact-index.json`
+      ),
+      readdir: () => [
+        { isDirectory: () => true, name: '100' },
+        { isDirectory: () => true, name: '200' },
+      ],
+      stat: (fullPath) => ({ mtimeMs: fullPath === `${root}/200` ? 2 : 1 }),
+      readFile: (filePath) => reads.get(filePath),
+    });
+
+    expect(artifacts.artifactDir).toBe(`${root}/100`);
   });
 });
