@@ -96,6 +96,18 @@ function defaultPrompt(bundle: StoryBundle): string {
   return bundle.summary_hint ?? bundle.headline;
 }
 
+function runtimeTraceEnabled(): boolean {
+  const raw = readEnvVar('VH_NEWS_RUNTIME_TRACE')?.trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function runtimeTrace(event: string, detail: Record<string, unknown>): void {
+  if (!runtimeTraceEnabled()) {
+    return;
+  }
+  console.info(`[vh:news-runtime] ${event}`, detail);
+}
+
 export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   const pollIntervalMs = normalizePollInterval(config.pollIntervalMs);
   const shouldRun = config.enabled ?? isNewsRuntimeEnabled();
@@ -109,10 +121,19 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
   const runTick = async (): Promise<void> => {
     if (!running || inFlight) {
+      runtimeTrace('tick_skipped', {
+        running,
+        in_flight: inFlight,
+      });
       return;
     }
 
     inFlight = true;
+    const startedAt = Date.now();
+    runtimeTrace('tick_started', {
+      poll_interval_ms: pollIntervalMs,
+      feed_source_count: config.feedSources.length,
+    });
 
     try {
       const result = await orchestrateNewsPipeline(
@@ -123,6 +144,10 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         config.orchestratorOptions,
       );
       const { bundles, storylines } = result;
+      runtimeTrace('tick_clustered', {
+        bundle_count: bundles.length,
+        storyline_count: storylines.length,
+      });
 
       const writeStoryBundle = config.writeStoryBundle;
       if (!writeStoryBundle) {
@@ -204,7 +229,16 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
       }
 
       lastRunAt = new Date();
+      runtimeTrace('tick_completed', {
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        published_story_count: nextPublishedStoryIds.size,
+        published_storyline_count: nextPublishedStorylineIds.size,
+      });
     } catch (error) {
+      runtimeTrace('tick_failed', {
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      });
       config.onError?.(error);
     } finally {
       inFlight = false;
@@ -231,6 +265,9 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
   }, pollIntervalMs);
 
   if (config.runOnStart !== false) {
+    runtimeTrace('tick_queued_immediate', {
+      poll_interval_ms: pollIntervalMs,
+    });
     void runTick();
   }
 

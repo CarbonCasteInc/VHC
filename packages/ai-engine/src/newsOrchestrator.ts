@@ -33,6 +33,26 @@ export interface NewsOrchestratorOptions {
   allowHeuristicFallback?: boolean;
 }
 
+function readEnvVar(name: string): string | undefined {
+  const viteValue = (import.meta as ImportMeta & { env?: Record<string, unknown> }).env?.[name];
+  const processValue =
+    typeof process !== 'undefined' ? (process.env as Record<string, string | undefined>)[name] : undefined;
+  const value = viteValue ?? processValue;
+  return typeof value === 'string' ? value : undefined;
+}
+
+function orchestratorTraceEnabled(): boolean {
+  const raw = readEnvVar('VH_NEWS_RUNTIME_TRACE')?.trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function orchestratorTrace(event: string, detail: Record<string, unknown>): void {
+  if (!orchestratorTraceEnabled()) {
+    return;
+  }
+  console.info(`[vh:news-orchestrator] ${event}`, detail);
+}
+
 function groupByTopic(
   items: NormalizedItem[],
   config: NewsPipelineConfig,
@@ -102,11 +122,31 @@ export async function orchestrateNewsPipeline(
 ): Promise<StoryClusterBatchResult> {
   const parsedConfig = NewsPipelineConfigSchema.parse(config);
   const clusterEngine = resolveClusterEngine(options);
+  const startedAt = Date.now();
+  orchestratorTrace('pipeline_started', {
+    feed_source_count: parsedConfig.feedSources.length,
+  });
 
+  const ingestStartedAt = Date.now();
   const rawItems = await ingestFeeds(parsedConfig.feedSources);
+  orchestratorTrace('ingest_completed', {
+    duration_ms: Math.max(0, Date.now() - ingestStartedAt),
+    raw_item_count: rawItems.length,
+  });
+  const normalizeStartedAt = Date.now();
   const normalizedItems = normalizeAndDedup(rawItems, parsedConfig.normalize);
+  orchestratorTrace('normalize_completed', {
+    duration_ms: Math.max(0, Date.now() - normalizeStartedAt),
+    normalized_item_count: normalizedItems.length,
+  });
 
   if (normalizedItems.length === 0) {
+    orchestratorTrace('pipeline_completed', {
+      duration_ms: Math.max(0, Date.now() - startedAt),
+      bundle_count: 0,
+      storyline_count: 0,
+      topic_count: 0,
+    });
     return { bundles: [], storylines: [] };
   }
 
@@ -116,9 +156,20 @@ export async function orchestrateNewsPipeline(
 
   for (const topicId of [...groupedByTopic.keys()].sort()) {
     const topicItems = groupedByTopic.get(topicId)!;
+    const topicStartedAt = Date.now();
+    orchestratorTrace('topic_cluster_started', {
+      topic_id: topicId,
+      item_count: topicItems.length,
+    });
     const clustered = await runStoryClusterBatch(clusterEngine, {
       topicId,
       items: topicItems,
+    });
+    orchestratorTrace('topic_cluster_completed', {
+      topic_id: topicId,
+      duration_ms: Math.max(0, Date.now() - topicStartedAt),
+      bundle_count: clustered.bundles.length,
+      storyline_count: clustered.storylines.length,
     });
     outputBundles.push(...clustered.bundles);
     for (const storyline of clustered.storylines) {
@@ -126,7 +177,7 @@ export async function orchestrateNewsPipeline(
     }
   }
 
-  return {
+  const result = {
     bundles: outputBundles.sort((left, right) => {
       if (left.topic_id !== right.topic_id) {
         return left.topic_id.localeCompare(right.topic_id);
@@ -140,6 +191,13 @@ export async function orchestrateNewsPipeline(
       return left.storyline_id.localeCompare(right.storyline_id);
     }),
   };
+  orchestratorTrace('pipeline_completed', {
+    duration_ms: Math.max(0, Date.now() - startedAt),
+    bundle_count: result.bundles.length,
+    storyline_count: result.storylines.length,
+    topic_count: groupedByTopic.size,
+  });
+  return result;
 }
 
 export const newsOrchestratorInternal = {
