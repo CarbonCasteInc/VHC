@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-20
+> Last Reviewed: 2026-03-23
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-20
-**Version:** 0.8.1 (Unified production-readiness, scout-backed source admission, and 13-source keep surface on `main`)
-**Assessment:** Pre-production prototype. Wave 4 is closed; StoryCluster correctness, source-health enforcement, unified production-readiness, and background source scouting are all landed. The primary remaining blocker is live public headline-soak density and broader overlap-ready source breadth, not generic source-program convergence.
+**Last Updated:** 2026-03-23
+**Version:** 0.8.2 (Stable retained identity, soak-consumer hardening, and explicit UI/soak lane separation on `main`)
+**Assessment:** Pre-production prototype. Wave 4 is closed; StoryCluster correctness, source-health enforcement, unified production-readiness, background source scouting, and stable retained identity anchoring are landed. The primary remaining blocker is no longer generic identity churn; it is live public headline-soak density and hours-scale later attachment across repeated executions.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -81,6 +81,10 @@ Current policy state:
   - `enabledSourceCount: 13`
   - `contributingSourceCount: 13`
   - `corroboratingSourceCount: 13`
+- UI / UX product work and periodic soak measurement are now explicitly separated:
+  - UI lanes build against the current published feed contract;
+  - soak lanes validate the production pipeline behind that contract on merged `main`;
+  - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`.
 - The latest full combined readiness check on `main` currently blocks only on:
   - `headline_soak_release_evidence_failed`
 - Background source scouting is now part of the operating model:
@@ -89,6 +93,9 @@ Current policy state:
 - Canonical feed publication is singleton-first and source-growth friendly:
   - a single readable article may publish as a valid feed story;
   - later same-incident / same-developing-episode coverage should attach under stable story identity as sources grow.
+- The retained-mesh identity prerequisite is now materially improved on `main`:
+  - adjacent-run continuity moved from near-zero retention to high repeated-evidence retention after stable identity anchoring;
+  - the active unresolved question is now timing/attachment over hours, not sequence-driven identity churn across adjacent runs.
 - Feed/discovery/storyline changes are not considered distribution-ready on unit coverage alone:
   - every such lane must run at least one relevant Playwright/browser validation command and record the exact command and result in its evidence note.
 - Public-feed daemon semantic runs remain smoke/soak only:
