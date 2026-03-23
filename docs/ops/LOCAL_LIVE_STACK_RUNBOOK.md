@@ -2,11 +2,15 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-20
-> Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/CANON_MAP.md
+> Last Reviewed: 2026-03-23
+> Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md, docs/CANON_MAP.md
 
 
 This runbook locks local manual testing to the same production-like wiring used by live headless gates.
+
+Lane boundary note:
+- UI / UX product work and periodic soak measurement are intentionally separated.
+- Use `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md` before combining UI work with feed-runtime or headline-soak changes.
 
 ## Purpose
 
