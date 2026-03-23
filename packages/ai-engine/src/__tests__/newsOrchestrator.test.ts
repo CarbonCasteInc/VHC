@@ -171,6 +171,67 @@ describe('newsOrchestrator', () => {
     expect(result).toEqual({ bundles: [], storylines: [] });
   });
 
+  it('emits trace logs when VH_NEWS_RUNTIME_TRACE is enabled', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('<rss><channel></channel></rss>'),
+    } as unknown as Response);
+
+    await orchestrateNewsPipeline({
+      feedSources: [
+        {
+          id: 'source-empty',
+          name: 'Source Empty',
+          rssUrl: 'https://feeds.example.com/empty.xml',
+          enabled: true,
+        },
+      ],
+      topicMapping: {
+        defaultTopicId: 'topic-general',
+      },
+    });
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] pipeline_started',
+      expect.objectContaining({ feed_source_count: 1 }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] pipeline_completed',
+      expect.objectContaining({ bundle_count: 0, topic_count: 0 }),
+    );
+  });
+
+  it('tolerates missing process when trace helpers resolve env vars', async () => {
+    const originalProcess = globalThis.process;
+    vi.stubGlobal('process', undefined);
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: vi.fn().mockResolvedValue('<rss><channel></channel></rss>'),
+    } as unknown as Response);
+
+    await expect(
+      orchestrateNewsPipeline({
+        feedSources: [
+          {
+            id: 'source-empty',
+            name: 'Source Empty',
+            rssUrl: 'https://feeds.example.com/empty.xml',
+            enabled: true,
+          },
+        ],
+        topicMapping: {
+          defaultTopicId: 'topic-general',
+        },
+      }),
+    ).resolves.toEqual({ bundles: [], storylines: [] });
+
+    vi.stubGlobal('process', originalProcess);
+  });
+
   it('validates config and exposes groupByTopic internal helper', async () => {
     await expect(
       orchestrateNewsPipeline({

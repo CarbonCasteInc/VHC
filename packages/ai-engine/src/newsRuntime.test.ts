@@ -311,6 +311,64 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('emits runtime trace logs when VH_NEWS_RUNTIME_TRACE is enabled', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE], [STORYLINE]));
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockResolvedValue(undefined);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle,
+      writeStorylineGroup,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] tick_queued_immediate',
+      expect.objectContaining({ poll_interval_ms: 10 }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] tick_clustered',
+      expect.objectContaining({ bundle_count: 1, storyline_count: 1 }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] tick_completed',
+      expect.objectContaining({ published_story_count: 1, published_storyline_count: 1 }),
+    );
+
+    handle.stop();
+  });
+
+  it('logs non-Error failures through tick_failed trace output', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    orchestrateNewsPipelineMock.mockRejectedValue('string failure');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const onError = vi.fn();
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      writeStoryBundle: vi.fn().mockResolvedValue(undefined),
+      onError,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(onError).toHaveBeenCalledWith('string failure');
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-runtime] tick_failed',
+      expect.objectContaining({ error: 'string failure' }),
+    );
+
+    handle.stop();
+  });
+
   it('skips overlapping ticks while a run is in flight', async () => {
     let resolveRun: ((result: ReturnType<typeof batch>) => void) | null = null;
     orchestrateNewsPipelineMock.mockImplementation(
