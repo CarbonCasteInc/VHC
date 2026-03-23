@@ -104,6 +104,7 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         timeout: NAV_TIMEOUT_MS,
       });
       await waitForHeadlines(page);
+      await captureDaemonFirstFeedSemanticAuditSnapshots(page);
       const openAI = resolveSemanticAuditOpenAIConfig(process.env);
 
       const report = await runDaemonFirstFeedSemanticAudit(page, {
