@@ -9,6 +9,18 @@ function stablePort(base: number, span: number, seed: string): number {
   return base + offset;
 }
 
+function wrapLoggedWebServerCommand(name: string, script: string): string {
+  const logPath = path.resolve(
+    process.cwd(),
+    `../../.tmp/e2e-daemon-feed/${runId}/webserver-${name}.log`,
+  );
+  return [
+    `mkdir -p ${JSON.stringify(path.dirname(logPath))}`,
+    `: > ${JSON.stringify(logPath)}`,
+    `{ echo "[vh:e2e-webserver] starting ${name}"; ${script}; status=$?; echo "[vh:e2e-webserver] exit ${name} status=$status"; exit $status; } >> ${JSON.stringify(logPath)} 2>&1`,
+  ].join(' && ');
+}
+
 const runId = process.env.VH_DAEMON_FEED_RUN_ID;
 process.env.VH_DAEMON_FEED_GUN_PORT ??= String(stablePort(8700, 200, runId));
 process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, runId));
@@ -231,20 +243,20 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 
 const localWebServers: TestConfig['webServer'] = [
   {
-    command: [
+    command: wrapLoggedWebServerCommand('qdrant', [
       buildPortClearShellCommand(qdrantPort),
       `VH_DAEMON_FEED_QDRANT_PORT=${qdrantPort} node ${JSON.stringify(qdrantServerPath)}`,
-    ].join(' && '),
+    ].join(' && ')),
     url: `${qdrantBaseUrl}/readyz`,
     reuseExistingServer: false,
     timeout: 30_000,
   },
   ...(useFixtureFeed
     ? [{
-        command: [
+        command: wrapLoggedWebServerCommand('fixture-feed', [
           buildPortClearShellCommand(fixtureFeedPort),
           `VH_DAEMON_FEED_FIXTURE_PORT=${fixtureFeedPort} node ${JSON.stringify(fixtureServerPath)}`,
-        ].join(' && '),
+        ].join(' && ')),
         url: `${fixtureFeedBaseUrl}/health`,
         reuseExistingServer: false,
         timeout: 30_000,
@@ -252,32 +264,32 @@ const localWebServers: TestConfig['webServer'] = [
     : []),
   ...(useFixtureAnalysisStub
     ? [{
-        command: [
+        command: wrapLoggedWebServerCommand('analysis-stub', [
           buildPortClearShellCommand(analysisStubPort),
           `VH_DAEMON_FEED_ANALYSIS_STUB_PORT=${analysisStubPort} node ${JSON.stringify(analysisStubServerPath)}`,
-        ].join(' && '),
+        ].join(' && ')),
         url: `${analysisStubBaseUrl}/health`,
         reuseExistingServer: false,
         timeout: 30_000,
       }]
     : []),
   {
-    command: [
+    command: wrapLoggedWebServerCommand('relay', [
       buildPortClearShellCommand(gunPort),
-      `rm -rf ../../.tmp/e2e-daemon-feed/${runId}`,
+      `rm -rf ${JSON.stringify(relayRootDir)}`,
       `mkdir -p ${JSON.stringify(relayRootDir)}`,
       `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} || true`,
       `GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
-    ].join(' && '),
+    ].join(' && ')),
     url: `http://127.0.0.1:${gunPort}`,
     reuseExistingServer: false,
     timeout: 30_000,
   },
   {
-    command: [
+    command: wrapLoggedWebServerCommand('web-pwa', [
       buildPortClearShellCommand(basePort),
       `pnpm --filter @vh/web-pwa dev --port ${basePort} --strictPort`,
-    ].join(' && '),
+    ].join(' && ')),
     url: baseUrl,
     reuseExistingServer: false,
     timeout: 60_000,

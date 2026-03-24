@@ -9,6 +9,7 @@ import {
   logDaemonFeedSemanticSoakFatal,
   readNonNegativeInt,
   readPositiveInt,
+  resolveDaemonFirstPortPlan,
   sleep,
   summarizeRun,
 } from './daemon-feed-semantic-soak-core.mjs';
@@ -88,12 +89,14 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
         },
       }),
       null,
+      null,
       { browserLogs: ['a', 'b'] },
       1,
       '/tmp/report.json',
       null,
       '/tmp/audit.json',
       'attachment missing',
+      null,
       null,
       '/tmp/runtime.json',
     );
@@ -152,6 +155,17 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(artifactRootFromEnv({}, '/repo').startsWith('/repo/.tmp/daemon-feed-semantic-soak/')).toBe(true);
     expect(artifactRootFromEnv({})).toMatch(/^\/Users\/bldt\/Desktop\/VHC\/VHC\/\.tmp\/daemon-feed-semantic-soak\//);
     await expect(sleep(0)).resolves.toBeUndefined();
+  });
+
+  it('derives the same stable port plan for a given run id', () => {
+    expect(resolveDaemonFirstPortPlan('semantic-soak-123-1')).toEqual({
+      gunPort: 8716,
+      storyclusterPort: 4316,
+      fixturePort: 8916,
+      qdrantPort: 6316,
+      analysisStubPort: 9116,
+      webPort: 2116,
+    });
   });
 
   it('formats error objects and non-errors consistently', () => {

@@ -35,6 +35,7 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(entries[0].command).toContain('daemon-feed-qdrant-stub.mjs');
     expect(entries[0].command).toContain('kill -TERM');
     expect(entries[0].command).toContain('kill -KILL');
+    expect(entries[0].command).toContain('webserver-qdrant.log');
     expect(entries[entries.length - 1].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
   });
 
@@ -75,5 +76,18 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(appServer.env.ANALYSIS_RELAY_API_KEY).toBe('test-openai-key');
     expect(appServer.env.ANALYSIS_RELAY_MODEL).toBe('gpt-test');
     expect(appServer.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS).toBe('32100');
+  });
+
+  it('writes per-service startup logs into the run artifact directory', async () => {
+    const config = await loadConfig('run-webserver-log-check', {
+      VH_DAEMON_FEED_USE_FIXTURE_FEED: 'true',
+    });
+    const entries = config.webServer;
+
+    expect(entries[0].command).toContain('webserver-qdrant.log');
+    expect(entries[1].command).toContain('webserver-fixture-feed.log');
+    expect(entries[2].command).toContain('webserver-analysis-stub.log');
+    expect(entries[3].command).toContain('webserver-relay.log');
+    expect(entries[4].command).toContain('webserver-web-pwa.log');
   });
 });
