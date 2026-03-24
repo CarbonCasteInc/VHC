@@ -1,4 +1,5 @@
 import { once } from 'node:events';
+import { spawn } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { startQdrantStubServer } from './daemon-feed-qdrant-stub.mjs';
 
@@ -144,5 +145,45 @@ describe('daemon-feed-qdrant-stub', () => {
         },
       },
     });
+  });
+
+  it('logs readiness only after the stub is actually listening', async () => {
+    const child = spawn('node', [
+      '/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-qdrant-stub.mjs',
+    ], {
+      env: {
+        ...process.env,
+        VH_DAEMON_FEED_QDRANT_PORT: '0',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    child.stdout.on('data', (chunk) => {
+      output += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk) => {
+      output += chunk.toString('utf8');
+    });
+
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('qdrant stub did not log readiness')), 5_000);
+      const interval = setInterval(() => {
+        if (output.includes('[vh:e2e-qdrant] started')) {
+          clearInterval(interval);
+          clearTimeout(timeout);
+          resolve();
+        }
+      }, 50);
+      child.once('exit', (code) => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+        reject(new Error(`qdrant stub exited early: ${code}`));
+      });
+    });
+
+    child.kill('SIGTERM');
+    await once(child, 'exit');
+    expect(output).toContain('[vh:e2e-qdrant] started');
+    expect(output).not.toContain('[vh:e2e-qdrant] failed');
   });
 });

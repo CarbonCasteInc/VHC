@@ -222,6 +222,24 @@ describe('daemon-feed-process-cleanup', () => {
     ).toEqual(['111']);
   });
 
+  it('treats ps EPERM as a non-fatal skip', () => {
+    const execSync = vi.fn(() => {
+      const error = new Error('spawnSync ps EPERM');
+      error.code = 'EPERM';
+      throw error;
+    });
+
+    expect(
+      killStaleProbeWriters(
+        '/Users/bldt/Desktop/VHC/VHC-hottest-fix',
+        'http://localhost:9787/gun',
+        execSync,
+        999,
+        998,
+      ),
+    ).toEqual([]);
+  });
+
   it('reads args and executes cleanup with explicit output', () => {
     const log = vi.fn();
     const execSync = vi.fn((command, args) => {
