@@ -64,6 +64,18 @@ const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../..',
 );
+const DEFAULT_DAEMON_FEED_GUN_PORT = 8700;
+const DEFAULT_DAEMON_FEED_GUN_PORT_SPAN = 200;
+const DEFAULT_DAEMON_FEED_STORYCLUSTER_PORT = 4300;
+const DEFAULT_DAEMON_FEED_STORYCLUSTER_PORT_SPAN = 200;
+const DEFAULT_DAEMON_FEED_FIXTURE_PORT = 8900;
+const DEFAULT_DAEMON_FEED_FIXTURE_PORT_SPAN = 100;
+const DEFAULT_DAEMON_FEED_QDRANT_PORT = 6300;
+const DEFAULT_DAEMON_FEED_QDRANT_PORT_SPAN = 100;
+const DEFAULT_DAEMON_FEED_ANALYSIS_STUB_PORT = 9100;
+const DEFAULT_DAEMON_FEED_ANALYSIS_STUB_PORT_SPAN = 100;
+const DEFAULT_DAEMON_FEED_WEB_PORT = 2100;
+const DEFAULT_DAEMON_FEED_WEB_PORT_SPAN = 200;
 
 function normalizeSourceIds(value) {
   return String(value ?? '')
@@ -276,6 +288,92 @@ export function formatErrorMessage(error) {
 
 function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
+}
+
+function stablePort(base, span, seed) {
+  const offset = [...String(seed ?? '')].reduce((total, char) => total + char.charCodeAt(0), 0) % span;
+  return base + offset;
+}
+
+export function resolveDaemonFirstPortPlan(runId) {
+  return {
+    gunPort: stablePort(DEFAULT_DAEMON_FEED_GUN_PORT, DEFAULT_DAEMON_FEED_GUN_PORT_SPAN, runId),
+    storyclusterPort: stablePort(DEFAULT_DAEMON_FEED_STORYCLUSTER_PORT, DEFAULT_DAEMON_FEED_STORYCLUSTER_PORT_SPAN, runId),
+    fixturePort: stablePort(DEFAULT_DAEMON_FEED_FIXTURE_PORT, DEFAULT_DAEMON_FEED_FIXTURE_PORT_SPAN, runId),
+    qdrantPort: stablePort(DEFAULT_DAEMON_FEED_QDRANT_PORT, DEFAULT_DAEMON_FEED_QDRANT_PORT_SPAN, runId),
+    analysisStubPort: stablePort(DEFAULT_DAEMON_FEED_ANALYSIS_STUB_PORT, DEFAULT_DAEMON_FEED_ANALYSIS_STUB_PORT_SPAN, runId),
+    webPort: stablePort(DEFAULT_DAEMON_FEED_WEB_PORT, DEFAULT_DAEMON_FEED_WEB_PORT_SPAN, runId),
+  };
+}
+
+function buildPortClearScript(port) {
+  return [
+    `pids=$(lsof -ti tcp:${port} 2>/dev/null || true)`,
+    'if [ -n "$pids" ]; then',
+    '  echo "$pids" | xargs kill -TERM 2>/dev/null || true',
+    '  attempts=0',
+    `  while [ "$attempts" -lt 40 ] && lsof -ti tcp:${port} >/dev/null 2>&1; do`,
+    '    sleep 0.25',
+    '    attempts=$((attempts + 1))',
+    '  done',
+    `  pids=$(lsof -ti tcp:${port} 2>/dev/null || true)`,
+    '  if [ -n "$pids" ]; then',
+    '    echo "$pids" | xargs kill -KILL 2>/dev/null || true',
+    '  fi',
+    'fi',
+  ].join('\n');
+}
+
+function runDaemonFirstPreflight({
+  cwd,
+  repoRoot,
+  env,
+  spawn,
+  artifactDir,
+  run,
+  runId,
+  log = console.log,
+}) {
+  const ports = resolveDaemonFirstPortPlan(runId);
+  const cleanupScriptPath = path.join(
+    repoRoot,
+    'packages/e2e/src/live/daemon-feed-process-cleanup.mjs',
+  );
+  const preflightLogPath = path.join(artifactDir, `run-${run}.preflight.log`);
+  const script = [
+    'set -eu',
+    `echo "[vh:daemon-soak] preflight runId=${runId}"`,
+    `node ${JSON.stringify(cleanupScriptPath)} --repo-root ${JSON.stringify(repoRoot)} --gun-peer-url ${JSON.stringify(`http://localhost:${ports.gunPort}/gun`)} || true`,
+    buildPortClearScript(ports.webPort),
+    buildPortClearScript(ports.gunPort),
+    buildPortClearScript(ports.qdrantPort),
+    buildPortClearScript(ports.analysisStubPort),
+    buildPortClearScript(ports.fixturePort),
+    buildPortClearScript(ports.storyclusterPort),
+  ].join('\n');
+
+  const proc = spawn('sh', ['-lc', script], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    maxBuffer: 16 * 1024 * 1024,
+  });
+
+  const preflightLog = [
+    proc.stdout ?? '',
+    proc.stderr ?? '',
+  ].filter(Boolean).join('');
+  writeAtomicTextFile(preflightLogPath, preflightLog || '[vh:daemon-soak] preflight completed\n');
+
+  if (proc.status !== 0) {
+    log(`[vh:daemon-soak] preflight failed for ${runId}; continuing to preserve playwright diagnostics`);
+  }
+
+  return {
+    ...ports,
+    preflightLogPath,
+    status: proc.status,
+  };
 }
 
 function writeAtomicTextFile(
@@ -582,6 +680,16 @@ export async function runDaemonFeedSemanticSoak({
     log(`[vh:daemon-soak] run ${run}/${runCount} starting (sampleCount=${sampleCount})`);
     const reportPath = path.join(artifactDir, `run-${run}.playwright.json`);
     const runId = `semantic-soak-${Date.now()}-${run}`;
+    runDaemonFirstPreflight({
+      cwd,
+      repoRoot,
+      env,
+      spawn,
+      artifactDir,
+      run,
+      runId,
+      log,
+    });
     const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
       cwd,
       env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, {
