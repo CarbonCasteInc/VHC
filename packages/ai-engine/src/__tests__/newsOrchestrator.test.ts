@@ -458,6 +458,48 @@ describe('newsOrchestrator', () => {
     );
   });
 
+  it('traces non-Error cluster artifact failures without aborting the pipeline', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceA),
+    } as unknown as Response);
+
+    const onClusterArtifacts = vi.fn(async () => {
+      throw 'plain failure';
+    });
+
+    await expect(orchestrateNewsPipeline({
+      feedSources: [
+        {
+          id: 'source-a',
+          name: 'Source A',
+          rssUrl: 'https://feeds.example.com/a.xml',
+          enabled: true,
+        },
+      ],
+      topicMapping: {
+        defaultTopicId: 'topic-finance',
+      },
+    }, {
+      onClusterArtifacts,
+    })).resolves.toEqual(expect.objectContaining({
+      bundles: expect.any(Array),
+      storylines: expect.any(Array),
+    }));
+
+    expect(onClusterArtifacts).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] cluster_artifacts_capture_failed',
+      expect.objectContaining({
+        duration_ms: expect.any(Number),
+        error: 'plain failure',
+      }),
+    );
+  });
+
   it('resolveClusterEngine can consume endpoint from env when enabled', async () => {
     vi.stubEnv('STORYCLUSTER_REMOTE_URL', 'https://env.storycluster.example.com/cluster');
 
