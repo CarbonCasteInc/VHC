@@ -398,6 +398,66 @@ describe('newsOrchestrator', () => {
     }));
   });
 
+  it('swallows cluster artifact persistence failures and traces them', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceA),
+    } as unknown as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceB),
+    } as unknown as Response);
+
+    const onClusterArtifacts = vi.fn(async () => {
+      throw new Error('capture failed');
+    });
+
+    await expect(orchestrateNewsPipeline({
+      feedSources: [
+        {
+          id: 'source-a',
+          name: 'Source A',
+          rssUrl: 'https://feeds.example.com/a.xml',
+          enabled: true,
+        },
+        {
+          id: 'source-b',
+          name: 'Source B',
+          rssUrl: 'https://feeds.example.com/b.xml',
+          enabled: true,
+        },
+      ],
+      topicMapping: {
+        defaultTopicId: 'topic-general',
+        sourceTopics: {
+          'source-a': 'topic-finance',
+          'source-b': 'topic-sports',
+        },
+      },
+    }, {
+      onClusterArtifacts,
+    })).resolves.toEqual(expect.objectContaining({
+      bundles: expect.any(Array),
+      storylines: expect.any(Array),
+    }));
+
+    expect(onClusterArtifacts).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] cluster_artifacts_capture_failed',
+      expect.objectContaining({
+        duration_ms: expect.any(Number),
+        error: 'capture failed',
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] pipeline_completed',
+      expect.objectContaining({ bundle_count: 2, topic_count: 2 }),
+    );
+  });
+
   it('resolveClusterEngine can consume endpoint from env when enabled', async () => {
     vi.stubEnv('STORYCLUSTER_REMOTE_URL', 'https://env.storycluster.example.com/cluster');
 
