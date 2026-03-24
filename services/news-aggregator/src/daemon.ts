@@ -35,6 +35,7 @@ import {
   type LoggerLike,
 } from './daemonUtils';
 import { createLeaseGuard } from './leaseGuard';
+import { createDaemonFeedClusterCaptureRecorder } from './clusterCapturePersistence';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 export interface NewsAggregatorDaemonConfig {
   client: VennClient;
@@ -81,6 +82,9 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
   const queue = createAsyncEnrichmentQueue(config.enrichmentWorker ?? (() => undefined), logger);
+  const clusterCaptureRecorder = createDaemonFeedClusterCaptureRecorder(
+    readEnvVar('VH_DAEMON_FEED_RUN_ID'),
+  );
   let running = false;
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -99,6 +103,16 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       return;
     }
     logger.info('[vh:news-daemon] starting runtime', { holder_id: holderId });
+    const orchestratorOptions: NewsRuntimeConfig['orchestratorOptions'] = {
+      ...(config.runtimeOrchestratorOptions ?? {}),
+    };
+    if (clusterCaptureRecorder) {
+      const existingCaptureHook = orchestratorOptions.onClusterArtifacts;
+      orchestratorOptions.onClusterArtifacts = async (artifacts) => {
+        await clusterCaptureRecorder(artifacts);
+        await existingCaptureHook?.(artifacts);
+      };
+    }
     runtimeHandle = startRuntime({
       enabled: true,
       feedSources: config.feedSources,
@@ -127,7 +141,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       onError(error) {
         logger.warn('[vh:news-daemon] runtime tick failed', error);
       },
-      orchestratorOptions: config.runtimeOrchestratorOptions,
+      orchestratorOptions,
     });
     if (runtimeHandle.isRunning()) {
       logger.info('[vh:news-daemon] runtime started', { holder_id: holderId, poll_interval_ms: config.pollIntervalMs ?? null });

@@ -97,6 +97,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       auditCount: 4,
       failureSnapshotCount: 1,
       retainedSourceEvidenceCount: 0,
+      clusterCaptureCount: 0,
       runtimeLogsCount: 1,
     });
     expect(trend.density).toEqual({
@@ -141,6 +142,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         auditPath: '/tmp/audit.json',
         failureSnapshotPath: null,
         retainedSourceEvidencePath: null,
+        clusterCapturePath: null,
         runtimeLogsPath: null,
       },
       density: {
@@ -157,6 +159,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       artifactPaths: {
         failureSnapshotPath: '/tmp/failure.json',
         retainedSourceEvidencePath: null,
+        clusterCapturePath: null,
         runtimeLogsPath: '/tmp/runtime.json',
       },
     });
@@ -203,6 +206,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       auditCount: 0,
       failureSnapshotCount: 0,
       retainedSourceEvidenceCount: 0,
+      clusterCaptureCount: 0,
       runtimeLogsCount: 0,
     });
     expect(trend.density).toEqual({
@@ -247,8 +251,10 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       '/tmp/artifacts/continuity-trend-index.json',
       '/tmp/artifacts/ghost-retained-mesh-report.json',
       '/tmp/artifacts/ghost-retained-mesh-trend-index.json',
+      '/tmp/artifacts/offline-cluster-replay-report.json',
+      '/tmp/artifacts/offline-cluster-replay-trend-index.json',
     )).toMatchObject({
-      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v6',
+      schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v7',
       executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
       authoritativeCorrectnessGate: {
         gateId: 'storycluster-primary-correctness-gate-v1',
@@ -296,6 +302,8 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         continuityTrendIndexPath: '/tmp/artifacts/continuity-trend-index.json',
         ghostRetainedMeshReportPath: '/tmp/artifacts/ghost-retained-mesh-report.json',
         ghostRetainedMeshTrendIndexPath: '/tmp/artifacts/ghost-retained-mesh-trend-index.json',
+        offlineClusterReplayReportPath: '/tmp/artifacts/offline-cluster-replay-report.json',
+        offlineClusterReplayTrendIndexPath: '/tmp/artifacts/offline-cluster-replay-trend-index.json',
         build: {
           stdoutPath: '/tmp/artifacts/build.stdout.log',
           stderrPath: '/tmp/artifacts/build.stderr.log',
@@ -311,6 +319,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
             auditPath: '/tmp/audit.json',
             failureSnapshotPath: null,
             retainedSourceEvidencePath: null,
+            clusterCapturePath: null,
             runtimeLogsPath: null,
           },
         },
@@ -325,6 +334,7 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
             auditPath: null,
             failureSnapshotPath: null,
             retainedSourceEvidencePath: null,
+            clusterCapturePath: null,
             runtimeLogsPath: null,
           },
         },

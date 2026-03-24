@@ -28,6 +28,13 @@ import {
   readHistoricalExecutionRetainedSourceEvidenceSnapshots,
   readHistoricalGhostRetainedMeshReports,
 } from './daemon-feed-semantic-soak-retained.mjs';
+import {
+  buildOfflineClusterReplayReport,
+  buildOfflineClusterReplayTrendIndex,
+  readExecutionClusterCaptureSnapshot,
+  readHistoricalExecutionClusterCaptureSnapshots,
+  readHistoricalOfflineClusterReplayReports,
+} from './daemon-feed-semantic-soak-offline-replay.mjs';
 
 const BUILD_ARGS = ['test:live:daemon-feed:build'];
 const PLAYWRIGHT_ARGS = [
@@ -41,6 +48,7 @@ const PLAYWRIGHT_ARGS = [
 const ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit';
 const FAILURE_SNAPSHOT_ATTACHMENT_NAME = 'daemon-first-feed-semantic-audit-failure-snapshot';
 const RETAINED_SOURCE_EVIDENCE_ATTACHMENT_NAME = 'daemon-first-feed-retained-source-evidence';
+const CLUSTER_CAPTURE_ATTACHMENT_NAME = 'daemon-first-feed-cluster-capture';
 const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
 const PUBLIC_SMOKE_SOURCE_IDS = [
   'bbc-us-canada',
@@ -456,6 +464,8 @@ function runDaemonFirstPreflight({
   runId,
   ports = resolveDaemonFirstPortPlan(runId),
   log = console.log,
+  writeFile = writeFileSync,
+  rename = renameSync,
 }) {
   const cleanupScriptPath = path.join(
     repoRoot,
@@ -485,7 +495,14 @@ function runDaemonFirstPreflight({
     proc.stdout ?? '',
     proc.stderr ?? '',
   ].filter(Boolean).join('');
-  writeAtomicTextFile(preflightLogPath, preflightLog || '[vh:daemon-soak] preflight completed\n');
+  writeAtomicTextFile(
+    preflightLogPath,
+    preflightLog || '[vh:daemon-soak] preflight completed\n',
+    {
+      writeFile,
+      rename,
+    },
+  );
 
   if (proc.status !== 0) {
     log(`[vh:daemon-soak] preflight failed for ${runId}; continuing to preserve playwright diagnostics`);
@@ -620,6 +637,7 @@ export function summarizeRun(
   report,
   failureSnapshot,
   retainedSourceEvidence,
+  clusterCapture,
   runtimeLogs,
   procStatus,
   reportPath,
@@ -628,6 +646,7 @@ export function summarizeRun(
   auditError,
   failureSnapshotPath,
   retainedSourceEvidencePath,
+  clusterCapturePath,
   runtimeLogsPath,
 ) {
   const labelCounts = summarizeLabelCounts(report);
@@ -659,6 +678,7 @@ export function summarizeRun(
     auditError,
     failureSnapshotPath,
     retainedSourceEvidencePath,
+    clusterCapturePath,
     runtimeLogsPath,
     requestedSampleCount: report?.requested_sample_count ?? null,
     sampledStoryCount: report?.sampled_story_count ?? null,
@@ -672,6 +692,9 @@ export function summarizeRun(
     failureTopStoryIds: failureSnapshot?.top_story_ids ?? report?.supply?.top_story_ids ?? [],
     failureTopAuditableStoryIds: failureSnapshot?.top_auditable_story_ids ?? report?.supply?.top_auditable_story_ids ?? [],
     retainedSourceEvidenceCount: retainedSourceEvidence?.source_count ?? null,
+    clusterCaptureTickCount: Array.isArray(clusterCapture?.ticks)
+      ? clusterCapture.ticks.length
+      : null,
     runtimeLogCount: Array.isArray(runtimeLogs?.browserLogs)
       ? runtimeLogs.browserLogs.length
       : null,
@@ -770,6 +793,8 @@ export async function runDaemonFeedSemanticSoak({
   writeFile = writeFileSync,
   readdir = readdirSync,
   stat = statSync,
+  resolvePortPlan = resolveBindableDaemonFirstPortPlan,
+  clusterItemsImpl = undefined,
   log = console.log,
   errorLog = console.error,
   sleepImpl = sleep,
@@ -809,7 +834,7 @@ export async function runDaemonFeedSemanticSoak({
     log(`[vh:daemon-soak] run ${run}/${runCount} starting (sampleCount=${sampleCount})`);
     const reportPath = path.join(artifactDir, `run-${run}.playwright.json`);
     const runId = `semantic-soak-${Date.now()}-${run}`;
-    const portPlan = resolveBindableDaemonFirstPortPlan(runId, {
+    const portPlan = resolvePortPlan(runId, {
       cwd,
       env,
       spawn,
@@ -825,6 +850,8 @@ export async function runDaemonFeedSemanticSoak({
       runId,
       ports: portPlan,
       log,
+      writeFile,
+      rename,
     });
     const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
       cwd,
@@ -861,6 +888,8 @@ export async function runDaemonFeedSemanticSoak({
     let failureSnapshotPath = null;
     let retainedSourceEvidence = null;
     let retainedSourceEvidencePath = null;
+    let clusterCapture = null;
+    let clusterCapturePath = null;
     let runtimeLogs = null;
     let runtimeLogsPath = null;
 
@@ -909,6 +938,21 @@ export async function runDaemonFeedSemanticSoak({
     }
 
     try {
+      clusterCapture = primaryResult
+        ? decodeAttachment(primaryResult, CLUSTER_CAPTURE_ATTACHMENT_NAME)
+        : null;
+    } catch (error) {
+      if (!auditError) {
+        auditError = formatErrorMessage(error);
+      }
+    }
+
+    if (clusterCapture) {
+      clusterCapturePath = path.join(artifactDir, `run-${run}.cluster-capture.json`);
+      writeFile(clusterCapturePath, JSON.stringify(clusterCapture, null, 2), 'utf8');
+    }
+
+    try {
       runtimeLogs = primaryResult
         ? decodeAttachment(primaryResult, RUNTIME_LOG_ATTACHMENT_NAME)
         : null;
@@ -944,6 +988,7 @@ export async function runDaemonFeedSemanticSoak({
         audit,
         failureSnapshot,
         retainedSourceEvidence,
+        clusterCapture,
         runtimeLogs,
         proc.status,
         reportPath,
@@ -952,6 +997,7 @@ export async function runDaemonFeedSemanticSoak({
         auditError,
         failureSnapshotPath,
         retainedSourceEvidencePath,
+        clusterCapturePath,
         runtimeLogsPath,
       ),
     };
@@ -976,6 +1022,9 @@ export async function runDaemonFeedSemanticSoak({
   const ghostRetainedMeshReportPath = path.join(artifactDir, 'ghost-retained-mesh-report.json');
   const ghostRetainedMeshTrendIndexPath = path.join(artifactDir, 'ghost-retained-mesh-trend-index.json');
   const latestGhostRetainedMeshTrendIndexPath = path.join(artifactRoot, 'ghost-retained-mesh-trend-index.json');
+  const offlineClusterReplayReportPath = path.join(artifactDir, 'offline-cluster-replay-report.json');
+  const offlineClusterReplayTrendIndexPath = path.join(artifactDir, 'offline-cluster-replay-trend-index.json');
+  const latestOfflineClusterReplayTrendIndexPath = path.join(artifactRoot, 'offline-cluster-replay-trend-index.json');
   const trend = buildSoakTrend(results);
   const promotionAssessment = trend.promotionAssessment;
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
@@ -1161,6 +1210,67 @@ export async function runDaemonFeedSemanticSoak({
       errorLog(`[vh:daemon-soak] ghost-retained-mesh-error: ${message}`);
     }
   }
+  const currentClusterCaptureSnapshot = readExecutionClusterCaptureSnapshot(artifactDir, {
+    exists,
+    readFile,
+    readdir,
+    stat,
+  });
+  let offlineClusterReplayReport = null;
+  let offlineClusterReplayTrendIndex = null;
+  if (currentClusterCaptureSnapshot) {
+    try {
+      offlineClusterReplayReport = await buildOfflineClusterReplayReport(
+        currentClusterCaptureSnapshot,
+        readHistoricalExecutionClusterCaptureSnapshots(artifactRoot, {
+          currentArtifactDir: artifactDir,
+          currentTimestampMs: currentClusterCaptureSnapshot.timestampMs,
+          lookbackHours: retainedMeshLookbackHours,
+          lookbackExecutionCount,
+          exists,
+          readFile,
+          readdir,
+          stat,
+        }),
+        {
+          lookbackHours: retainedMeshLookbackHours,
+          clusterItemsImpl,
+        },
+      );
+      writeFile(offlineClusterReplayReportPath, JSON.stringify(offlineClusterReplayReport, null, 2), 'utf8');
+
+      offlineClusterReplayTrendIndex = buildOfflineClusterReplayTrendIndex(
+        [
+          ...readHistoricalOfflineClusterReplayReports(artifactRoot, {
+            currentArtifactDir: artifactDir,
+            lookbackExecutionCount,
+            exists,
+            readFile,
+            readdir,
+            stat,
+          }),
+          offlineClusterReplayReport,
+        ],
+        {
+          artifactRoot,
+          latestArtifactDir: artifactDir,
+          lookbackExecutionCount,
+          lookbackHours: retainedMeshLookbackHours,
+        },
+      );
+      writeFile(offlineClusterReplayTrendIndexPath, JSON.stringify(offlineClusterReplayTrendIndex, null, 2), 'utf8');
+      writeAtomicTextFile(
+        latestOfflineClusterReplayTrendIndexPath,
+        JSON.stringify(offlineClusterReplayTrendIndex, null, 2),
+        { writeFile, rename },
+      );
+    } catch (error) {
+      offlineClusterReplayReport = null;
+      offlineClusterReplayTrendIndex = null;
+      const message = error instanceof Error ? error.message : String(error);
+      errorLog(`[vh:daemon-soak] offline-cluster-replay-error: ${message}`);
+    }
+  }
   const artifactIndex = buildReleaseArtifactIndex(
     artifactDir,
     summaryPath,
@@ -1172,6 +1282,8 @@ export async function runDaemonFeedSemanticSoak({
     continuityTrendIndex ? continuityTrendIndexPath : null,
     ghostRetainedMeshReport ? ghostRetainedMeshReportPath : null,
     ghostRetainedMeshTrendIndex ? ghostRetainedMeshTrendIndexPath : null,
+    offlineClusterReplayReport ? offlineClusterReplayReportPath : null,
+    offlineClusterReplayTrendIndex ? offlineClusterReplayTrendIndexPath : null,
   );
   writeFile(
     artifactIndexPath,
@@ -1196,6 +1308,13 @@ export async function runDaemonFeedSemanticSoak({
   if (ghostRetainedMeshTrendIndex) {
     log(`[vh:daemon-soak] ghost-retained-mesh-trend-index: ${ghostRetainedMeshTrendIndexPath}`);
     log(`[vh:daemon-soak] latest-ghost-retained-mesh-trend-index: ${latestGhostRetainedMeshTrendIndexPath}`);
+  }
+  if (offlineClusterReplayReport) {
+    log(`[vh:daemon-soak] offline-cluster-replay-report: ${offlineClusterReplayReportPath}`);
+  }
+  if (offlineClusterReplayTrendIndex) {
+    log(`[vh:daemon-soak] offline-cluster-replay-trend-index: ${offlineClusterReplayTrendIndexPath}`);
+    log(`[vh:daemon-soak] latest-offline-cluster-replay-trend-index: ${latestOfflineClusterReplayTrendIndexPath}`);
   }
   log(JSON.stringify({
     strictSoakPass: summary.strictSoakPass,
@@ -1236,6 +1355,8 @@ export async function runDaemonFeedSemanticSoak({
     continuityTrendIndex,
     ghostRetainedMeshReport,
     ghostRetainedMeshTrendIndex,
+    offlineClusterReplayReport,
+    offlineClusterReplayTrendIndex,
     results,
   };
 }

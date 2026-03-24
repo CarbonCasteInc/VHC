@@ -336,6 +336,170 @@ describe('newsOrchestrator', () => {
     expect(result.bundles[0]?.topic_id).toBe('topic-finance');
   });
 
+  it('emits cluster artifacts for normalized input and per-topic cluster results', async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceA),
+    } as unknown as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceB),
+    } as unknown as Response);
+
+    const onClusterArtifacts = vi.fn();
+
+    const result = await orchestrateNewsPipeline({
+      feedSources: [
+        {
+          id: 'source-a',
+          name: 'Source A',
+          rssUrl: 'https://feeds.example.com/a.xml',
+          enabled: true,
+        },
+        {
+          id: 'source-b',
+          name: 'Source B',
+          rssUrl: 'https://feeds.example.com/b.xml',
+          enabled: true,
+        },
+      ],
+      topicMapping: {
+        defaultTopicId: 'topic-general',
+        sourceTopics: {
+          'source-a': 'topic-finance',
+          'source-b': 'topic-sports',
+        },
+      },
+    }, {
+      onClusterArtifacts,
+    });
+
+    expect(result.bundles).toHaveLength(2);
+    expect(onClusterArtifacts).toHaveBeenCalledTimes(1);
+    expect(onClusterArtifacts).toHaveBeenCalledWith(expect.objectContaining({
+      schemaVersion: 'news-orchestrator-cluster-artifacts-v1',
+      normalizedItems: expect.arrayContaining([
+        expect.objectContaining({ sourceId: 'source-a', url_hash: expect.any(String) }),
+        expect.objectContaining({ sourceId: 'source-b', url_hash: expect.any(String) }),
+      ]),
+      topicCaptures: expect.arrayContaining([
+        expect.objectContaining({
+          topicId: 'topic-finance',
+          items: expect.arrayContaining([expect.objectContaining({ sourceId: 'source-a' })]),
+          result: expect.objectContaining({ bundles: expect.any(Array), storylines: expect.any(Array) }),
+        }),
+        expect.objectContaining({
+          topicId: 'topic-sports',
+          items: expect.arrayContaining([expect.objectContaining({ sourceId: 'source-b' })]),
+          result: expect.objectContaining({ bundles: expect.any(Array), storylines: expect.any(Array) }),
+        }),
+      ]),
+    }));
+  });
+
+  it('swallows cluster artifact persistence failures and traces them', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceA),
+    } as unknown as Response);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceB),
+    } as unknown as Response);
+
+    const onClusterArtifacts = vi.fn(async () => {
+      throw new Error('capture failed');
+    });
+
+    await expect(orchestrateNewsPipeline({
+      feedSources: [
+        {
+          id: 'source-a',
+          name: 'Source A',
+          rssUrl: 'https://feeds.example.com/a.xml',
+          enabled: true,
+        },
+        {
+          id: 'source-b',
+          name: 'Source B',
+          rssUrl: 'https://feeds.example.com/b.xml',
+          enabled: true,
+        },
+      ],
+      topicMapping: {
+        defaultTopicId: 'topic-general',
+        sourceTopics: {
+          'source-a': 'topic-finance',
+          'source-b': 'topic-sports',
+        },
+      },
+    }, {
+      onClusterArtifacts,
+    })).resolves.toEqual(expect.objectContaining({
+      bundles: expect.any(Array),
+      storylines: expect.any(Array),
+    }));
+
+    expect(onClusterArtifacts).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] cluster_artifacts_capture_failed',
+      expect.objectContaining({
+        duration_ms: expect.any(Number),
+        error: 'capture failed',
+      }),
+    );
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] pipeline_completed',
+      expect.objectContaining({ bundle_count: 2, topic_count: 2 }),
+    );
+  });
+
+  it('traces non-Error cluster artifact failures without aborting the pipeline', async () => {
+    vi.stubEnv('VH_NEWS_RUNTIME_TRACE', 'true');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      text: vi.fn().mockResolvedValue(xmlForSourceA),
+    } as unknown as Response);
+
+    const onClusterArtifacts = vi.fn(async () => {
+      throw 'plain failure';
+    });
+
+    await expect(orchestrateNewsPipeline({
+      feedSources: [
+        {
+          id: 'source-a',
+          name: 'Source A',
+          rssUrl: 'https://feeds.example.com/a.xml',
+          enabled: true,
+        },
+      ],
+      topicMapping: {
+        defaultTopicId: 'topic-finance',
+      },
+    }, {
+      onClusterArtifacts,
+    })).resolves.toEqual(expect.objectContaining({
+      bundles: expect.any(Array),
+      storylines: expect.any(Array),
+    }));
+
+    expect(onClusterArtifacts).toHaveBeenCalledTimes(1);
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:news-orchestrator] cluster_artifacts_capture_failed',
+      expect.objectContaining({
+        duration_ms: expect.any(Number),
+        error: 'plain failure',
+      }),
+    );
+  });
+
   it('resolveClusterEngine can consume endpoint from env when enabled', async () => {
     vi.stubEnv('STORYCLUSTER_REMOTE_URL', 'https://env.storycluster.example.com/cluster');
 

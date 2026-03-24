@@ -201,6 +201,7 @@ export function buildRunArtifactPaths(result) {
     auditPath: result.auditPath ?? null,
     failureSnapshotPath: result.failureSnapshotPath ?? null,
     retainedSourceEvidencePath: result.retainedSourceEvidencePath ?? null,
+    clusterCapturePath: result.clusterCapturePath ?? null,
     runtimeLogsPath: result.runtimeLogsPath ?? null,
   };
 }
@@ -327,6 +328,7 @@ export function buildSoakTrend(results) {
       auditPath: artifactPaths.auditPath,
       failureSnapshotPath: artifactPaths.failureSnapshotPath,
       retainedSourceEvidencePath: artifactPaths.retainedSourceEvidencePath,
+      clusterCapturePath: artifactPaths.clusterCapturePath,
       runtimeLogsPath: artifactPaths.runtimeLogsPath,
       artifactPaths,
       density,
@@ -341,6 +343,7 @@ export function buildSoakTrend(results) {
     auditCount: runs.filter((run) => run.artifactPaths.auditPath).length,
     failureSnapshotCount: runs.filter((run) => run.artifactPaths.failureSnapshotPath).length,
     retainedSourceEvidenceCount: runs.filter((run) => run.artifactPaths.retainedSourceEvidencePath).length,
+    clusterCaptureCount: runs.filter((run) => run.artifactPaths.clusterCapturePath).length,
     runtimeLogsCount: runs.filter((run) => run.artifactPaths.runtimeLogsPath).length,
   };
   const sampleShortfalls = runs.map((run) => run.density.sampleShortfall).filter(isFiniteNumber);
@@ -607,6 +610,8 @@ export function buildReleaseArtifactIndex(
   continuityTrendIndexPath = null,
   ghostRetainedMeshReportPath = null,
   ghostRetainedMeshTrendIndexPath = null,
+  offlineClusterReplayReportPath = null,
+  offlineClusterReplayTrendIndexPath = null,
 ) {
   const trend = buildSoakTrend(results);
   const authoritativeCorrectnessGate = buildStoryClusterCorrectnessGate(repoRoot);
@@ -618,7 +623,7 @@ export function buildReleaseArtifactIndex(
   };
 
   return {
-    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v6',
+    schemaVersion: 'daemon-feed-semantic-soak-release-artifact-index-v7',
     generatedAt: new Date().toISOString(),
     executionPosture: PUBLIC_SEMANTIC_SOAK_POSTURE,
     authoritativeCorrectnessGate,
@@ -638,6 +643,8 @@ export function buildReleaseArtifactIndex(
       continuityTrendIndexPath,
       ghostRetainedMeshReportPath,
       ghostRetainedMeshTrendIndexPath,
+      offlineClusterReplayReportPath,
+      offlineClusterReplayTrendIndexPath,
       build,
     },
     runs: results.map((result) => {
@@ -650,6 +657,7 @@ export function buildReleaseArtifactIndex(
         auditPath: artifactPaths.auditPath,
         failureSnapshotPath: artifactPaths.failureSnapshotPath,
         retainedSourceEvidencePath: artifactPaths.retainedSourceEvidencePath,
+        clusterCapturePath: artifactPaths.clusterCapturePath,
         runtimeLogsPath: artifactPaths.runtimeLogsPath,
         artifactPaths,
       };
