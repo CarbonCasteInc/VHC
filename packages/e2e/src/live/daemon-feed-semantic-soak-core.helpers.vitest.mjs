@@ -9,7 +9,9 @@ import {
   logDaemonFeedSemanticSoakFatal,
   readNonNegativeInt,
   readPositiveInt,
+  resolveBindableDaemonFirstPortPlan,
   resolveDaemonFirstPortPlan,
+  resolvePublicSemanticSoakSpawnEnv,
   sleep,
   summarizeRun,
 } from './daemon-feed-semantic-soak-core.mjs';
@@ -165,6 +167,72 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
       qdrantPort: 6316,
       analysisStubPort: 9116,
       webPort: 2116,
+    });
+  });
+
+  it('falls back to alternate ports when a preferred bind probe fails', () => {
+    const log = vi.fn();
+    const spawn = vi.fn((command, args) => {
+      expect(command).toBe('node');
+      const port = Number(args.at(-1));
+      if (port === 6316) {
+        return {
+          status: 1,
+          stdout: '',
+          stderr: JSON.stringify({ code: 'EPERM', syscall: 'listen', port }),
+          error: null,
+        };
+      }
+      return {
+        status: 0,
+        stdout: '',
+        stderr: '',
+        error: null,
+      };
+    });
+
+    expect(
+      resolveBindableDaemonFirstPortPlan('semantic-soak-123-1', {
+        cwd: '/Users/bldt/Desktop/VHC/VHC',
+        env: {},
+        spawn,
+        log,
+      }),
+    ).toEqual({
+      gunPort: 8716,
+      storyclusterPort: 4316,
+      fixturePort: 8916,
+      qdrantPort: 27045,
+      analysisStubPort: 9116,
+      webPort: 2116,
+    });
+    expect(log).toHaveBeenCalledWith('[vh:daemon-soak] qdrantPort port fallback 6316 -> 27045');
+  });
+
+  it('seeds playwright env with the resolved daemon-first port plan', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({}, 'semantic-soak-123-1', 8, 180000, {
+      portPlan: {
+        gunPort: 8716,
+        storyclusterPort: 4316,
+        fixturePort: 8916,
+        qdrantPort: 6316,
+        analysisStubPort: 9116,
+        webPort: 2116,
+      },
+      repoRoot: '/Users/bldt/Desktop/VHC/VHC',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env).toMatchObject({
+      VH_DAEMON_FEED_GUN_PORT: '8716',
+      VH_DAEMON_FEED_STORYCLUSTER_PORT: '4316',
+      VH_DAEMON_FEED_FIXTURE_PORT: '8916',
+      VH_DAEMON_FEED_QDRANT_PORT: '6316',
+      VH_DAEMON_FEED_ANALYSIS_STUB_PORT: '9116',
+      VH_LIVE_BASE_URL: 'http://127.0.0.1:2116/',
     });
   });
 

@@ -191,13 +191,35 @@ export function startQdrantStubServer({ host = DEFAULT_HOST, port = DEFAULT_PORT
   return server;
 }
 
+function describeServerError(error) {
+  if (!error || typeof error !== 'object') {
+    return { message: String(error) };
+  }
+  return {
+    message: typeof error.message === 'string' ? error.message : String(error),
+    code: typeof error.code === 'string' ? error.code : null,
+    errno: Number.isFinite(error.errno) ? error.errno : null,
+    syscall: typeof error.syscall === 'string' ? error.syscall : null,
+    address: typeof error.address === 'string' ? error.address : null,
+    port: Number.isFinite(error.port) ? error.port : null,
+  };
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const server = startQdrantStubServer();
+  const server = createQdrantStubServer();
   const shutdown = () => server.close(() => process.exit(0));
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  console.log('[vh:e2e-qdrant] started', {
-    host: DEFAULT_HOST,
-    port: DEFAULT_PORT,
+  server.once('error', (error) => {
+    console.error('[vh:e2e-qdrant] failed', describeServerError(error));
+    process.exit(1);
   });
+  server.once('listening', () => {
+    const address = server.address();
+    console.log('[vh:e2e-qdrant] started', {
+      host: typeof address === 'object' && address?.address ? address.address : DEFAULT_HOST,
+      port: typeof address === 'object' && Number.isFinite(address?.port) ? address.port : DEFAULT_PORT,
+    });
+  });
+  server.listen(DEFAULT_PORT, DEFAULT_HOST);
 }

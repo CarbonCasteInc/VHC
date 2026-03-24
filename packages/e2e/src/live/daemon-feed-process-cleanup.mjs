@@ -91,10 +91,18 @@ export function killStaleProbeWriters(
   currentPid = process.pid,
   parentPid = process.ppid,
 ) {
-  const output = execSync('ps', ['eww', '-axo', 'pid=,command='], {
-    encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  let output = '';
+  try {
+    output = execSync('ps', ['eww', '-axo', 'pid=,command='], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'EPERM') {
+      return [];
+    }
+    throw error;
+  }
   const pids = parseProcessTable(output)
     .filter((entry) => entry.pid !== String(currentPid) && entry.pid !== String(parentPid))
     .filter((entry) => shouldKillStaleProbeWriter(entry, repoRoot, gunPeerUrl, execSync))

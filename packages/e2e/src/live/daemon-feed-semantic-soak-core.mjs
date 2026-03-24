@@ -76,6 +76,16 @@ const DEFAULT_DAEMON_FEED_ANALYSIS_STUB_PORT = 9100;
 const DEFAULT_DAEMON_FEED_ANALYSIS_STUB_PORT_SPAN = 100;
 const DEFAULT_DAEMON_FEED_WEB_PORT = 2100;
 const DEFAULT_DAEMON_FEED_WEB_PORT_SPAN = 200;
+const DAEMON_FEED_PORT_FALLBACK_SPAN = 1000;
+const DAEMON_FEED_PORT_FALLBACK_PROBE_COUNT = 32;
+const DAEMON_FEED_PORT_FALLBACK_BASES = {
+  gunPort: 18700,
+  storyclusterPort: 24300,
+  fixturePort: 28900,
+  qdrantPort: 26300,
+  analysisStubPort: 29100,
+  webPort: 32100,
+};
 
 function normalizeSourceIds(value) {
   return String(value ?? '')
@@ -306,6 +316,118 @@ export function resolveDaemonFirstPortPlan(runId) {
   };
 }
 
+function probeBindableTcpPort({
+  cwd,
+  env,
+  spawn = spawnSync,
+  host = '127.0.0.1',
+  port,
+}) {
+  const probe = spawn('node', [
+    '-e',
+    [
+      'const net = require("node:net");',
+      'const host = process.argv[1];',
+      'const port = Number(process.argv[2]);',
+      'const server = net.createServer();',
+      'server.once("error", (error) => {',
+      '  process.stderr.write(JSON.stringify({',
+      '    message: error?.message ?? String(error),',
+      '    code: error?.code ?? null,',
+      '    errno: error?.errno ?? null,',
+      '    syscall: error?.syscall ?? null,',
+      '    address: error?.address ?? null,',
+      '    port: error?.port ?? null,',
+      '  }));',
+      '  process.exit(1);',
+      '});',
+      'server.listen(port, host, () => server.close(() => process.exit(0)));',
+    ].join(' '),
+    host,
+    String(port),
+  ], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 5_000,
+    maxBuffer: 1024 * 1024,
+  });
+
+  return {
+    ok: probe.status === 0,
+    status: probe.status,
+    stdout: probe.stdout ?? '',
+    stderr: probe.stderr ?? '',
+    error: probe.error ?? null,
+  };
+}
+
+function buildDaemonFirstPortCandidates(key, preferredPort, runId) {
+  const fallbackBase = DAEMON_FEED_PORT_FALLBACK_BASES[key];
+  const fallbackStart = stablePort(
+    fallbackBase,
+    DAEMON_FEED_PORT_FALLBACK_SPAN,
+    `${runId}:${key}`,
+  );
+  const candidates = [preferredPort];
+  const seen = new Set(candidates);
+
+  for (let attempt = 0; attempt < DAEMON_FEED_PORT_FALLBACK_PROBE_COUNT; attempt += 1) {
+    const candidate =
+      fallbackBase
+      + ((fallbackStart - fallbackBase + attempt) % DAEMON_FEED_PORT_FALLBACK_SPAN);
+    if (!seen.has(candidate)) {
+      candidates.push(candidate);
+      seen.add(candidate);
+    }
+  }
+
+  return candidates;
+}
+
+export function resolveBindableDaemonFirstPortPlan(
+  runId,
+  {
+    cwd = process.cwd(),
+    env = process.env,
+    spawn = spawnSync,
+    log = console.log,
+  } = {},
+) {
+  const preferred = resolveDaemonFirstPortPlan(runId);
+  const selected = {};
+
+  for (const [key, preferredPort] of Object.entries(preferred)) {
+    const candidates = buildDaemonFirstPortCandidates(key, preferredPort, runId);
+    let chosenPort = preferredPort;
+    let finalProbe = null;
+
+    for (const candidate of candidates) {
+      const probe = probeBindableTcpPort({
+        cwd,
+        env,
+        spawn,
+        port: candidate,
+      });
+      finalProbe = probe;
+      if (probe.ok) {
+        chosenPort = candidate;
+        break;
+      }
+    }
+
+    if (chosenPort !== preferredPort) {
+      log(`[vh:daemon-soak] ${key} port fallback ${preferredPort} -> ${chosenPort}`);
+    } else if (finalProbe && !finalProbe.ok) {
+      log(`[vh:daemon-soak] ${key} port probe failed on ${preferredPort}; preserving default port for playwright diagnostics`);
+    }
+
+    selected[key] = chosenPort;
+  }
+
+  return selected;
+}
+
 function buildPortClearScript(port) {
   return [
     `pids=$(lsof -ti tcp:${port} 2>/dev/null || true)`,
@@ -332,9 +454,9 @@ function runDaemonFirstPreflight({
   artifactDir,
   run,
   runId,
+  ports = resolveDaemonFirstPortPlan(runId),
   log = console.log,
 }) {
-  const ports = resolveDaemonFirstPortPlan(runId);
   const cleanupScriptPath = path.join(
     repoRoot,
     'packages/e2e/src/live/daemon-feed-process-cleanup.mjs',
@@ -590,6 +712,7 @@ export function resolvePublicSemanticSoakSpawnEnv(
   sampleCount,
   sampleTimeoutMs,
   {
+    portPlan = resolveDaemonFirstPortPlan(runId),
     repoRoot = DEFAULT_REPO_ROOT,
     exists = existsSync,
     readFile = readFileSync,
@@ -603,6 +726,12 @@ export function resolvePublicSemanticSoakSpawnEnv(
     VH_DAEMON_FEED_RUN_ID: runId,
     VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: String(sampleCount),
     VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: String(sampleTimeoutMs),
+    VH_DAEMON_FEED_GUN_PORT: String(portPlan.gunPort),
+    VH_DAEMON_FEED_STORYCLUSTER_PORT: String(portPlan.storyclusterPort),
+    VH_DAEMON_FEED_FIXTURE_PORT: String(portPlan.fixturePort),
+    VH_DAEMON_FEED_QDRANT_PORT: String(portPlan.qdrantPort),
+    VH_DAEMON_FEED_ANALYSIS_STUB_PORT: String(portPlan.analysisStubPort),
+    VH_LIVE_BASE_URL: `http://127.0.0.1:${portPlan.webPort}/`,
   };
 
   if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
@@ -680,6 +809,12 @@ export async function runDaemonFeedSemanticSoak({
     log(`[vh:daemon-soak] run ${run}/${runCount} starting (sampleCount=${sampleCount})`);
     const reportPath = path.join(artifactDir, `run-${run}.playwright.json`);
     const runId = `semantic-soak-${Date.now()}-${run}`;
+    const portPlan = resolveBindableDaemonFirstPortPlan(runId, {
+      cwd,
+      env,
+      spawn,
+      log,
+    });
     runDaemonFirstPreflight({
       cwd,
       repoRoot,
@@ -688,11 +823,13 @@ export async function runDaemonFeedSemanticSoak({
       artifactDir,
       run,
       runId,
+      ports: portPlan,
       log,
     });
     const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
       cwd,
       env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, {
+        portPlan,
         repoRoot,
         exists,
         readFile,
