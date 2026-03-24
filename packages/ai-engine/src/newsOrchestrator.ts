@@ -20,6 +20,19 @@ import {
 
 export type StoryClusterEngine = StoryClusterBatchCapableEngine;
 
+export interface NewsOrchestratorTopicClusterArtifacts {
+  readonly topicId: string;
+  readonly items: ReadonlyArray<NormalizedItem>;
+  readonly result: StoryClusterBatchResult;
+}
+
+export interface NewsOrchestratorClusterArtifacts {
+  readonly schemaVersion: 'news-orchestrator-cluster-artifacts-v1';
+  readonly generatedAt: string;
+  readonly normalizedItems: ReadonlyArray<NormalizedItem>;
+  readonly topicCaptures: ReadonlyArray<NewsOrchestratorTopicClusterArtifacts>;
+}
+
 export interface NewsOrchestratorOptions {
   clusterEngine?: StoryClusterEngine;
   remoteClusterEndpoint?: string;
@@ -31,6 +44,7 @@ export interface NewsOrchestratorOptions {
   allowEnvRemoteEndpoint?: boolean;
   productionMode?: boolean;
   allowHeuristicFallback?: boolean;
+  onClusterArtifacts?: (artifacts: NewsOrchestratorClusterArtifacts) => void | Promise<void>;
 }
 
 function readEnvVar(name: string): string | undefined {
@@ -153,6 +167,7 @@ export async function orchestrateNewsPipeline(
   const groupedByTopic = groupByTopic(normalizedItems, parsedConfig);
   const outputBundles: StoryBundle[] = [];
   const outputStorylines = new Map<string, StorylineGroup>();
+  const topicCaptures: NewsOrchestratorTopicClusterArtifacts[] = [];
 
   for (const topicId of [...groupedByTopic.keys()].sort()) {
     const topicItems = groupedByTopic.get(topicId)!;
@@ -170,6 +185,11 @@ export async function orchestrateNewsPipeline(
       duration_ms: Math.max(0, Date.now() - topicStartedAt),
       bundle_count: clustered.bundles.length,
       storyline_count: clustered.storylines.length,
+    });
+    topicCaptures.push({
+      topicId,
+      items: topicItems,
+      result: clustered,
     });
     outputBundles.push(...clustered.bundles);
     for (const storyline of clustered.storylines) {
@@ -191,6 +211,21 @@ export async function orchestrateNewsPipeline(
       return left.storyline_id.localeCompare(right.storyline_id);
     }),
   };
+  if (options.onClusterArtifacts) {
+    try {
+      await Promise.resolve(options.onClusterArtifacts({
+        schemaVersion: 'news-orchestrator-cluster-artifacts-v1',
+        generatedAt: new Date().toISOString(),
+        normalizedItems,
+        topicCaptures,
+      }));
+    } catch (error) {
+      orchestratorTrace('cluster_artifacts_capture_failed', {
+        duration_ms: Math.max(0, Date.now() - startedAt),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   orchestratorTrace('pipeline_completed', {
     duration_ms: Math.max(0, Date.now() - startedAt),
     bundle_count: result.bundles.length,

@@ -68,6 +68,42 @@ function makeVirtualArtifactFs(writes) {
   };
 }
 
+const TEST_PORT_PLAN = {
+  gunPort: 8777,
+  storyclusterPort: 4310,
+  fixturePort: 8788,
+  qdrantPort: 6333,
+  analysisStubPort: 9100,
+  webPort: 2148,
+};
+
+function resolveTestPortPlan() {
+  return TEST_PORT_PLAN;
+}
+
+function makeSpawnMock(...pnpmResults) {
+  let pnpmCallIndex = 0;
+  return vi.fn((command, args, options) => {
+    if (command === 'sh') {
+      return {
+        status: 0,
+        stdout: '[vh:daemon-soak] preflight completed\n',
+        stderr: '',
+      };
+    }
+    if (command !== 'pnpm') {
+      throw new Error(`unexpected spawn command: ${command}`);
+    }
+
+    const result = pnpmResults[pnpmCallIndex];
+    pnpmCallIndex += 1;
+    if (!result) {
+      throw new Error(`unexpected pnpm spawn #${pnpmCallIndex}: ${String(args?.join?.(' ') ?? args)}`);
+    }
+    return result;
+  });
+}
+
 describe('runDaemonFeedSemanticSoak', () => {
   it('injects the ranked keep-source profile and scaled limits when unset', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000, {
@@ -332,15 +368,76 @@ describe('runDaemonFeedSemanticSoak', () => {
           }],
         }],
       }),
+      makeAttachment('daemon-first-feed-cluster-capture', {
+        schemaVersion: 'daemon-feed-cluster-capture-v1',
+        generatedAt: '2026-03-24T00:00:00.000Z',
+        runId: 'semantic-soak-1-1',
+        ticks: [{
+          tickSequence: 1,
+          schemaVersion: 'news-orchestrator-cluster-artifacts-v1',
+          generatedAt: '2026-03-24T00:00:00.000Z',
+          normalizedItems: [{
+            sourceId: 'guardian-us',
+            publisher: 'guardian-us',
+            url: 'https://example.com/guardian-us',
+            canonicalUrl: 'https://example.com/guardian-us',
+            title: 'Guardian headline',
+            publishedAt: 1,
+            url_hash: 'guardian-us-1',
+            entity_keys: ['guardian'],
+            cluster_text: 'Guardian headline',
+          }],
+          topicCaptures: [{
+            topicId: 'topic-news',
+            items: [{
+              sourceId: 'guardian-us',
+              publisher: 'guardian-us',
+              url: 'https://example.com/guardian-us',
+              canonicalUrl: 'https://example.com/guardian-us',
+              title: 'Guardian headline',
+              publishedAt: 1,
+              url_hash: 'guardian-us-1',
+              entity_keys: ['guardian'],
+              cluster_text: 'Guardian headline',
+            }],
+            result: {
+              bundles: [{
+                schemaVersion: 'story-bundle-v0',
+                story_id: 'story-1',
+                topic_id: 'topic-news',
+                headline: 'Guardian headline',
+                cluster_window_start: 1,
+                cluster_window_end: 1,
+                sources: [{
+                  source_id: 'guardian-us',
+                  publisher: 'guardian-us',
+                  url: 'https://example.com/guardian-us',
+                  url_hash: 'guardian-us-1',
+                  title: 'Guardian headline',
+                }],
+                cluster_features: {
+                  entity_keys: ['guardian'],
+                  time_bucket: '2026-03-24T00',
+                  semantic_signature: 'sig-1',
+                },
+                provenance_hash: 'guardian-us-prov',
+                created_at: 1,
+              }],
+              storylines: [],
+            },
+          }],
+        }],
+      }),
       makeAttachment('daemon-first-feed-runtime-logs', { browserLogs: ['log-1'] }),
     ]);
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
 
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: 'warn' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: 'warn' },
+    );
 
     try {
       await expect(runDaemonFeedSemanticSoak({
@@ -362,6 +459,29 @@ describe('runDaemonFeedSemanticSoak', () => {
         readdir: virtualFs.readdir,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
+        clusterItemsImpl: async (items, topicId) => [{
+          schemaVersion: 'story-bundle-v0',
+          story_id: `offline-${topicId}-${items.length}`,
+          topic_id: topicId,
+          headline: 'Offline headline',
+          cluster_window_start: 1,
+          cluster_window_end: 1,
+          sources: items.map((item) => ({
+            source_id: item.sourceId,
+            publisher: item.publisher,
+            url: item.canonicalUrl,
+            url_hash: item.url_hash,
+            title: item.title,
+          })),
+          cluster_features: {
+            entity_keys: ['guardian'],
+            time_bucket: '2026-03-24T00',
+            semantic_signature: 'offline-sig',
+          },
+          provenance_hash: 'guardian-us-prov',
+          created_at: 1,
+        }],
         log: (message) => logs.push(message),
         sleepImpl: vi.fn(),
       })).rejects.toThrow();
@@ -369,14 +489,21 @@ describe('runDaemonFeedSemanticSoak', () => {
       process.stderr.write = originalStderrWrite;
     }
 
-    expect(spawn).toHaveBeenNthCalledWith(2, 'pnpm', expect.arrayContaining(['exec', 'playwright', 'test']), expect.objectContaining({
+    const playwrightSpawnCall = spawn.mock.calls.find(([command, args]) => (
+      command === 'pnpm'
+      && Array.isArray(args)
+      && args.includes('playwright')
+      && args.includes('test')
+    ));
+    expect(playwrightSpawnCall).toBeDefined();
+    expect(playwrightSpawnCall[2]).toEqual(expect.objectContaining({
       env: expect.objectContaining({
         VH_RUN_DAEMON_FIRST_FEED: 'true',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: '2',
         VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: '10',
       }),
     }));
-    expect(spawn.mock.calls[1][2].env.VH_DAEMON_FEED_RUN_ID).toMatch(/^semantic-soak-/);
+    expect(playwrightSpawnCall[2].env.VH_DAEMON_FEED_RUN_ID).toMatch(/^semantic-soak-/);
     expect(stderrWrites).toContain('warn');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"sampleFillRate": 0.5');
     expect(writes.get('/repo/.tmp/out/custom-summary.json')).toContain('"readinessStatus": "not_ready"');
@@ -393,6 +520,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"continuityTrendIndexPath": "/repo/.tmp/out/continuity-trend-index.json"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshReportPath": "/repo/.tmp/out/ghost-retained-mesh-report.json"');
     expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"ghostRetainedMeshTrendIndexPath": "/repo/.tmp/out/ghost-retained-mesh-trend-index.json"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"offlineClusterReplayReportPath": "/repo/.tmp/out/offline-cluster-replay-report.json"');
+    expect(writes.get('/repo/.tmp/out/release-artifact-index.json')).toContain('"offlineClusterReplayTrendIndexPath": "/repo/.tmp/out/offline-cluster-replay-trend-index.json"');
     expect(writes.get('/repo/.tmp/out/headline-soak-trend-index.json')).toContain('"executionCount": 1');
     expect(writes.get('/repo/.tmp/headline-soak-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
     expect(writes.get('/repo/.tmp/out/continuity-analysis.json')).toContain('"schemaVersion": "daemon-feed-headline-soak-continuity-analysis-v1"');
@@ -402,10 +531,14 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-report.json')).toContain('"schemaVersion": "daemon-feed-ghost-retained-mesh-report-v1"');
     expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-trend-index.json')).toContain('"schemaVersion": "daemon-feed-ghost-retained-mesh-trend-index-v1"');
     expect(writes.get('/repo/.tmp/ghost-retained-mesh-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
+    expect(writes.get('/repo/.tmp/out/offline-cluster-replay-report.json')).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-report-v1"');
+    expect(writes.get('/repo/.tmp/out/offline-cluster-replay-trend-index.json')).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-trend-index-v1"');
+    expect(writes.get('/repo/.tmp/offline-cluster-replay-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
     expect(virtualFs.renameCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ toPath: '/repo/.tmp/headline-soak-trend-index.json' }),
       expect.objectContaining({ toPath: '/repo/.tmp/continuity-trend-index.json' }),
       expect.objectContaining({ toPath: '/repo/.tmp/ghost-retained-mesh-trend-index.json' }),
+      expect.objectContaining({ toPath: '/repo/.tmp/offline-cluster-replay-trend-index.json' }),
     ]));
     expect(virtualFs.renameCalls.every(({ fromPath }) => fromPath.includes('.tmp-'))).toBe(true);
     expect(logs.some((message) => message.includes('artifact-index'))).toBe(true);
@@ -414,6 +547,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(logs.some((message) => message.includes('continuity-trend-index'))).toBe(true);
     expect(logs.some((message) => message.includes('ghost-retained-mesh-report'))).toBe(true);
     expect(logs.some((message) => message.includes('ghost-retained-mesh-trend-index'))).toBe(true);
+    expect(logs.some((message) => message.includes('offline-cluster-replay-report'))).toBe(true);
+    expect(logs.some((message) => message.includes('offline-cluster-replay-trend-index'))).toBe(true);
   });
 
   it('fails fast when the build step fails', async () => {
@@ -432,6 +567,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         spawn,
         mkdir: vi.fn(),
         writeFile: vi.fn(),
+        resolvePortPlan: resolveTestPortPlan,
       })).rejects.toThrow('daemon-feed-build-failed:2');
     } finally {
       process.stderr.write = originalStderrWrite;
@@ -511,10 +647,11 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' })
-      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' },
+      { status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
 
     const result = await runDaemonFeedSemanticSoak({
       cwd: '/repo',
@@ -534,6 +671,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       readdir: virtualFs.readdir,
       readFile: (target) => writes.get(target),
       writeFile: (target, content) => writes.set(target, String(content)),
+      resolvePortPlan: resolveTestPortPlan,
       log: vi.fn(),
       sleepImpl,
     });
@@ -565,9 +703,10 @@ describe('runDaemonFeedSemanticSoak', () => {
   it('records parse and attachment failures before exiting the failing soak run', async () => {
     const writes = new Map();
     const virtualFs = makeVirtualArtifactFs(writes);
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: '{bad json', stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: '{bad json', stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -589,6 +728,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
       })).rejects.toThrow('exit:1');
@@ -611,9 +751,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -635,6 +776,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
       })).rejects.toThrow('exit:1');
@@ -655,9 +797,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -679,6 +822,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
       })).rejects.toThrow('exit:1');
@@ -711,9 +855,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -735,6 +880,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
       })).rejects.toThrow('exit:1');
@@ -768,9 +914,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 1, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
     const originalExit = process.exit;
     process.exit = vi.fn((code) => {
       throw new Error(`exit:${code}`);
@@ -792,6 +939,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         rename: virtualFs.rename,
         readFile: (target) => writes.get(target),
         writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
       })).rejects.toThrow('exit:1');
@@ -847,9 +995,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
 
     const result = await runDaemonFeedSemanticSoak({
       cwd: '/repo',
@@ -874,6 +1023,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         }
         writes.set(target, String(content));
       },
+      resolvePortPlan: resolveTestPortPlan,
       log: vi.fn(),
       errorLog,
       sleepImpl: vi.fn(),
@@ -957,9 +1107,10 @@ describe('runDaemonFeedSemanticSoak', () => {
     const playwrightReport = {
       suites: [{ specs: [{ tests: [{ results: [primaryResult] }] }] }],
     };
-    const spawn = vi.fn()
-      .mockReturnValueOnce({ status: 0, stdout: 'build ok', stderr: '' })
-      .mockReturnValueOnce({ status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' });
+    const spawn = makeSpawnMock(
+      { status: 0, stdout: 'build ok', stderr: '' },
+      { status: 0, stdout: JSON.stringify(playwrightReport), stderr: '' },
+    );
 
     const result = await runDaemonFeedSemanticSoak({
       cwd: '/repo',
@@ -984,6 +1135,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         }
         writes.set(target, String(content));
       },
+      resolvePortPlan: resolveTestPortPlan,
       log: vi.fn(),
       errorLog,
       sleepImpl: vi.fn(),

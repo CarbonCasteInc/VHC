@@ -65,6 +65,10 @@ async function attachSemanticAuditArtifacts(
       name: 'daemon-first-feed-retained-source-evidence',
       fileName: 'retained-source-evidence-snapshot.json',
     },
+    {
+      name: 'daemon-first-feed-cluster-capture',
+      fileName: 'cluster-capture.json',
+    },
   ];
 
   for (const attachment of attachments) {
