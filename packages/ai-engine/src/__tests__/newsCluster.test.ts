@@ -171,6 +171,42 @@ describe('newsCluster', () => {
     ]);
   });
 
+  it('merges Florida special-election coverage across a same-day multi-hour window', () => {
+    const normalized = normalizeAndDedup([
+      {
+        sourceId: 'abc-politics',
+        url: 'https://abcnews.com/Politics/wireStory/democrat-flips-seat-special-election-florida-district-includes-131381362',
+        title: 'Democrat flips seat in election for Florida district that is home to Mar-a-Lago',
+        publishedAt: 1774424017000,
+        summary: 'Democrat Emily Gregory has won a special election for a Florida state House seat, flipping a district that is home to President Donald Trump&rsquo;s estate, Mar-a-Lago',
+      },
+      {
+        sourceId: 'nypost-politics',
+        url: 'https://nypost.com/2026/03/25/us-news/democrat-emily-gregory-flips-long-held-florida-gop-house-seat-that-includes-trumps-mar-a-lago/',
+        title: 'Democrat Emily Gregory flips long-held Florida GOP House seat that includes Trump&#8217;s Mar-a-Lago',
+        publishedAt: 1774416950000,
+        summary: 'Republican Maples faced Democrat Emily Gregory in Florida House District 87, a Palm Beach seat Trump carried by roughly 10 points in 2024.',
+        author: 'Fox News',
+      },
+      {
+        sourceId: 'nbc-politics',
+        url: 'https://www.nbcnews.com/politics/elections/democrat-flips-republican-florida-house-seat-includes-trump-mar-lago-rcna264660',
+        title: 'Democrat flips Republican-held Florida state House district that includes Trump’s Mar-a-Lago',
+        publishedAt: 1774396885000,
+        summary: 'Democrat Emily Gregory won a special election Tuesday for the Florida state House district that includes President Donald Trump’s Mar-a-Lago resort, flipping the seat from Republican control, The Associated Press projects',
+        author: 'Alexandra Marquez',
+      },
+    ]);
+
+    const bundles = clusterItems(normalized, 'topic-news');
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]?.sources.map((source) => source.source_id)).toEqual([
+      'abc-politics',
+      'nbc-politics',
+      'nypost-politics',
+    ]);
+  });
+
   it('keeps stable story_id across incremental updates via hybrid assignment', () => {
     const first = makeItem({
       canonicalUrl: 'https://example.com/first',

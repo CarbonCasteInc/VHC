@@ -4,9 +4,12 @@ import {
   type NormalizedItem,
   type StoryBundle,
 } from './newsTypes';
-import { shouldMerge } from './sameEventMerge';
+import { computeMergeSignals, shouldMerge } from './sameEventMerge';
 
 const MIN_ENTITY_OVERLAP = 2;
+const EXTENDED_EVENT_MERGE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const EXTENDED_EVENT_MERGE_MIN_SCORE = 0.45;
+const EXTENDED_EVENT_MERGE_MIN_KEYWORD_OVERLAP = 0.25;
 
 export interface MutableCluster {
   readonly bucketStart: number;
@@ -172,15 +175,57 @@ export function toCluster(items: NormalizedItem[]): MutableCluster[] {
     const entityKeys = entityKeysForItem(item);
 
     const existing = clusters.find(
-      (cluster) =>
-        cluster.bucketStart === bucketStart &&
-        hasSignificantEntityOverlap(cluster, entityKeys) &&
-        shouldMerge(
+      (cluster) => {
+        if (!hasSignificantEntityOverlap(cluster, entityKeys)) {
+          return false;
+        }
+
+        const clusterTitles = cluster.items.map((entry) => entry.title);
+        const mergeSignals = computeMergeSignals(
           [...cluster.entitySet],
-          cluster.items.map((i) => i.title),
+          clusterTitles,
           entityKeys,
           item.title,
-        ),
+        );
+
+        if (
+          cluster.bucketStart === bucketStart
+          && shouldMerge(
+            [...cluster.entitySet],
+            clusterTitles,
+            entityKeys,
+            item.title,
+          )
+        ) {
+          return true;
+        }
+
+        const publishedAt = item.publishedAt;
+        if (
+          typeof publishedAt !== 'number'
+          || !Number.isFinite(publishedAt)
+          || cluster.bucketStart === 0
+          || bucketStart === 0
+        ) {
+          return false;
+        }
+
+        const gapMs = publishedAt - cluster.bucketEnd;
+        if (gapMs < 0 || gapMs > EXTENDED_EVENT_MERGE_WINDOW_MS) {
+          return false;
+        }
+
+        return (
+          shouldMerge(
+            [...cluster.entitySet],
+            clusterTitles,
+            entityKeys,
+            item.title,
+          )
+          && mergeSignals.score >= EXTENDED_EVENT_MERGE_MIN_SCORE
+          && mergeSignals.keywordOverlap >= EXTENDED_EVENT_MERGE_MIN_KEYWORD_OVERLAP
+        );
+      },
     );
 
     if (existing) {
