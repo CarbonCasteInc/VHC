@@ -179,6 +179,32 @@ describe('sameEventMerge', () => {
       expect(shouldMerge(clusterEntities, clusterTitles, itemEntities, itemTitle)).toBe(false);
     });
 
+    it('blocks merge: weak same-person overlap without shared event evidence', () => {
+      const clusterEntities = [
+        'ambassador', 'amid', 'business', 'calling', 'chief', 'commander',
+        'devine', 'force', 'given', 'iran', 'israel', 'mike', 'miranda',
+        'netanyahu', 'period', 'president', 'shots', 'tells', 'told', 'trump', 'waltz',
+      ];
+      const clusterTitles = [
+        'Trump has given Israel the business Mike Waltz tells Pod Force One amid Iran war',
+      ];
+      const itemEntities = [
+        'adolescent', 'afghan', 'afghanistan', 'ambassador', 'battlefield',
+        'chilling', 'decide', 'decision', 'experience', 'kill', 'make', 'mike',
+        'nations', 'recalls', 'reflected', 'second', 'shoot', 'split', 'story',
+        'united', 'waltz', 'where', 'whether', 'which', 'year',
+      ];
+      const itemTitle = 'Mike Waltz recalls chilling war story where he had to decide whether to shoot a 10-year-old Afghan';
+
+      expect(shouldMerge(clusterEntities, clusterTitles, itemEntities, itemTitle)).toBe(false);
+
+      const explanation = explainMerge(clusterEntities, clusterTitles, itemEntities, itemTitle);
+      expect(explanation.reason).toBe('low_evidence_overlap');
+      expect(explanation.entityOverlap).toBeLessThan(0.1);
+      expect(explanation.keywordOverlap).toBeLessThan(0.2);
+      expect(explanation.compositeScore).toBeGreaterThan(SAME_EVENT_MERGE_THRESHOLD);
+    });
+
     it('penalizes location mismatch in scoring', () => {
       const signals = computeMergeSignals(
         ['earthquake', 'damage'],
@@ -296,7 +322,7 @@ describe('sameEventMerge', () => {
         'Klmnop qrstuv wxyzab cdefgh ijklmn opqrst',
       );
       expect(explanation.merged).toBe(false);
-      expect(explanation.reason).toBe('below_threshold');
+      expect(explanation.reason).toBe('low_evidence_overlap');
       expect(explanation.entityOverlap).toBeGreaterThan(0);
       expect(explanation.compositeScore).toBeLessThan(SAME_EVENT_MERGE_THRESHOLD);
     });
