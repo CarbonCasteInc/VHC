@@ -171,15 +171,21 @@ function decodeHtmlEntities(text: string): string {
   return text.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code) => {
     const normalized = code.toLowerCase();
     if (normalized.startsWith('#x')) {
-      const parsed = Number.parseInt(normalized.slice(2), 16);
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : entity;
+      return decodeNumericHtmlEntity(entity, normalized.slice(2), 16);
     }
     if (normalized.startsWith('#')) {
-      const parsed = Number.parseInt(normalized.slice(1), 10);
-      return Number.isFinite(parsed) ? String.fromCodePoint(parsed) : entity;
+      return decodeNumericHtmlEntity(entity, normalized.slice(1), 10);
     }
     return HTML_ENTITY_MAP[normalized] ?? entity;
   });
+}
+
+function decodeNumericHtmlEntity(entity: string, codePoint: string, radix: 10 | 16): string {
+  try {
+    return String.fromCodePoint(Number.parseInt(codePoint, radix));
+  } catch {
+    return entity;
+  }
 }
 
 function sanitizeFeedText(text: string): string {
@@ -369,6 +375,7 @@ export function computeImageHash(imageUrl: string | undefined): string {
 }
 
 export const newsNormalizeConfigInternal = {
+  decodeNumericHtmlEntity,
   decodeHtmlEntities,
   sanitizeFeedText,
 };

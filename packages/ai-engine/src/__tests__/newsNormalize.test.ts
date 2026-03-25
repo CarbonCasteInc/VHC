@@ -294,6 +294,9 @@ describe('newsNormalize', () => {
       newsNormalizeInternal.decodeHtmlEntities('Tom &#39;s &amp; Jerry &#x27;s <3 &bogus;'),
     ).toBe("Tom 's & Jerry 's <3 &bogus;");
     expect(
+      newsNormalizeInternal.decodeHtmlEntities('Bad &#x110000; entity and &#999999999999; fallback'),
+    ).toBe('Bad &#x110000; entity and &#999999999999; fallback');
+    expect(
       newsNormalizeInternal.sanitizeFeedText('Rock&#x27;n&#39;roll &bogus; https://example.com'),
     ).toBe("Rock'n'roll &bogus;");
   });
