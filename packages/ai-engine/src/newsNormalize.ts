@@ -13,6 +13,7 @@ import {
   detectLanguage,
   extractEntityKeys,
   isTrackingParam,
+  newsNormalizeConfigInternal,
   normalizeImageUrl,
   normalizeTitle,
   shouldTranslateLanguage,
@@ -115,6 +116,7 @@ export const newsNormalizeInternal = {
   detectLanguage,
   isNearDuplicateItem,
   isTrackingParam,
+  newsNormalizeConfigInternal,
   normalizeImageUrl,
   normalizeTitle,
   sharedPrefixTokens,
@@ -123,4 +125,5 @@ export const newsNormalizeInternal = {
   toTimeBucket,
   tokenizeWords,
   translateTokens,
+  ...newsNormalizeConfigInternal,
 };

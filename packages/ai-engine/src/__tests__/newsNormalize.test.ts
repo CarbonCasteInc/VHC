@@ -271,4 +271,21 @@ describe('newsNormalize', () => {
     expect(newsNormalizeInternal.tokenizeWords('À bientôt, marchés!')).toEqual(['a', 'bientot', 'marches']);
     expect(newsNormalizeInternal.normalizeImageUrl('   ')).toBeUndefined();
   });
+
+  it('strips html, urls, and entity noise before building cluster text and entity keys', () => {
+    const built = newsNormalizeInternal.buildClusterText({
+      title: 'Trump&apos;s team reacts',
+      summary: '<p>Panel denies filing. <a href="https://example.com/story">Continue reading...</a></p>',
+    });
+
+    expect(built.clusterText).toContain('trump s team reacts');
+    expect(built.clusterText).not.toContain('apos');
+    expect(built.clusterText).not.toContain('href');
+    expect(built.clusterText).not.toContain('https');
+    expect(built.clusterText).not.toContain('continue reading');
+
+    expect(
+      extractEntityKeys('trump apos href https continue reading 2026 ballot recount'),
+    ).toEqual(['ballot', 'recount', 'trump']);
+  });
 });

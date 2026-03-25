@@ -208,7 +208,7 @@ describe('daemon-feed-semantic-soak offline replay', () => {
     expect(report.currentExecution.offlineHeuristic.bundleSummary.corroboratedBundleCount).toBe(0);
     expect(report.retainedUnion.heuristic.bundleSummary.corroboratedBundleCount).toBe(1);
     expect(report.retainedUnion.uplift.corroboratedBundleCountDelta).toBe(1);
-    expect(report.currentExecution.calibration.exactBundleMatchRate).toBe(1);
+    expect(report.currentExecution.calibration.exactSourceSetMatchRate).toBe(1);
     expect(report.currentExecution.calibration.provenanceHashExactBundleMatchRate).toBe(0);
     expect(report.currentExecution.calibration.sourceAssignmentAgreementRate).toBe(1);
     expect(report.currentExecution.calibration.averageBestRemoteBundleJaccard).toBe(1);
@@ -257,7 +257,7 @@ describe('daemon-feed-semantic-soak offline replay', () => {
 
     const calibration = offlineClusterReplayInternal.compareBundleSets(remoteBundles, offlineBundles);
 
-    expect(calibration.exactBundleMatchRate).toBe(0);
+    expect(calibration.exactSourceSetMatchRate).toBe(0);
     expect(calibration.provenanceHashExactBundleMatchRate).toBe(0);
     expect(calibration.sourceAssignmentAgreementRate).toBe(0);
     expect(calibration.averageBestRemoteBundleJaccard).toBe(0.5);

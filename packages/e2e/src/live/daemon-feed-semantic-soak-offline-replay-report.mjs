@@ -105,7 +105,7 @@ function summarizeCalibration(calibration) {
   return {
     remoteBundleCount: calibration?.remoteBundleCount ?? null,
     offlineBundleCount: calibration?.offlineBundleCount ?? null,
-    exactBundleMatchRate: calibration?.exactBundleMatchRate ?? null,
+    exactSourceSetMatchRate: calibration?.exactSourceSetMatchRate ?? null,
     provenanceHashExactBundleMatchRate:
       calibration?.provenanceHashExactBundleMatchRate ?? null,
     sourceAssignmentAgreementRate:

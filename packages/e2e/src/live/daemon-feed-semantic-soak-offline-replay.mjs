@@ -353,7 +353,6 @@ function compareBundleSets(remoteBundles, offlineBundles) {
   return {
     remoteBundleCount: remoteBundles.length,
     offlineBundleCount: offlineBundles.length,
-    exactBundleMatchRate: sourceSetComparison.exactMatchRate,
     remoteCoverageRate: sourceSetComparison.remoteCoverageRate,
     offlineCoverageRate: sourceSetComparison.offlineCoverageRate,
     provenanceHashExactBundleMatchRate: provenanceHashComparison.exactMatchRate,
@@ -694,7 +693,7 @@ export function buildOfflineClusterReplayTrendIndex(
     (report) => report?.retainedUnion?.heuristic?.bundleSummary?.corroboratedBundleRate,
   );
   const exactMatchRates = recentReports.map(
-    (report) => report?.currentExecution?.calibration?.exactBundleMatchRate,
+    (report) => report?.currentExecution?.calibration?.exactSourceSetMatchRate,
   );
   const provenanceExactMatchRates = recentReports.map(
     (report) => report?.currentExecution?.calibration?.provenanceHashExactBundleMatchRate,
@@ -719,7 +718,7 @@ export function buildOfflineClusterReplayTrendIndex(
     executionCount: recentReports.length,
     latestReport: recentReports.at(-1) ?? null,
     calibration: {
-      averageExactBundleMatchRate: average(exactMatchRates),
+      averageExactSourceSetMatchRate: average(exactMatchRates),
       averageProvenanceHashExactBundleMatchRate: average(provenanceExactMatchRates),
       averageSourceAssignmentAgreementRate: average(sourceAssignmentAgreementRates),
       averageBestRemoteBundleJaccard: average(bestRemoteBundleJaccards),
@@ -740,8 +739,8 @@ export function buildOfflineClusterReplayTrendIndex(
         report?.retainedUnion?.heuristic?.bundleSummary?.corroboratedBundleRate ?? null,
       retainedUnionCorroboratedBundleCountDelta:
         report?.retainedUnion?.uplift?.corroboratedBundleCountDelta ?? null,
-      exactBundleMatchRate:
-        report?.currentExecution?.calibration?.exactBundleMatchRate ?? null,
+      exactSourceSetMatchRate:
+        report?.currentExecution?.calibration?.exactSourceSetMatchRate ?? null,
       provenanceHashExactBundleMatchRate:
         report?.currentExecution?.calibration?.provenanceHashExactBundleMatchRate ?? null,
       sourceAssignmentAgreementRate:

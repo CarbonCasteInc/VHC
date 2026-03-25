@@ -126,7 +126,7 @@ describe('daemon-feed-semantic-soak offline replay report wrapper', () => {
     expect(result.calibration).toEqual({
       remoteBundleCount: 1,
       offlineBundleCount: 1,
-      exactBundleMatchRate: 1,
+      exactSourceSetMatchRate: 1,
       provenanceHashExactBundleMatchRate: 0,
       sourceAssignmentAgreementRate: 1,
       averageBestRemoteBundleJaccard: 1,
