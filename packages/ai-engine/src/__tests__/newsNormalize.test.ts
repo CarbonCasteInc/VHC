@@ -288,4 +288,13 @@ describe('newsNormalize', () => {
       extractEntityKeys('trump apos href https continue reading 2026 ballot recount'),
     ).toEqual(['ballot', 'recount', 'trump']);
   });
+
+  it('decodes decimal and hex html entities and preserves unknown entities', () => {
+    expect(
+      newsNormalizeInternal.decodeHtmlEntities('Tom &#39;s &amp; Jerry &#x27;s <3 &bogus;'),
+    ).toBe("Tom 's & Jerry 's <3 &bogus;");
+    expect(
+      newsNormalizeInternal.sanitizeFeedText('Rock&#x27;n&#39;roll &bogus; https://example.com'),
+    ).toBe("Rock'n'roll &bogus;");
+  });
 });
