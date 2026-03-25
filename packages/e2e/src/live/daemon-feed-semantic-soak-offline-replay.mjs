@@ -1,4 +1,5 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { register } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { summarizeBundleComposition } from './daemon-feed-semantic-soak-report.mjs';
@@ -15,6 +16,12 @@ const AI_ENGINE_DIST_INDEX_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../ai-engine/dist/index.js',
 );
+const ESM_RESOLVE_LOADER_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../tools/node/esm-resolve-loader.mjs',
+);
+
+let aiEngineModulePromise = null;
 
 function normalizeNonEmpty(value) {
   const trimmed = typeof value === 'string' ? value.trim() : '';
@@ -245,7 +252,11 @@ function mergeUnionTopicItems(snapshots) {
 }
 
 async function defaultClusterItemsImpl(items, topicId) {
-  const aiEngine = await import(pathToFileURL(AI_ENGINE_DIST_INDEX_PATH).href);
+  if (!aiEngineModulePromise) {
+    register(pathToFileURL(ESM_RESOLVE_LOADER_PATH).href, import.meta.url);
+    aiEngineModulePromise = import(pathToFileURL(AI_ENGINE_DIST_INDEX_PATH).href);
+  }
+  const aiEngine = await aiEngineModulePromise;
   return aiEngine.clusterItems(items, topicId);
 }
 

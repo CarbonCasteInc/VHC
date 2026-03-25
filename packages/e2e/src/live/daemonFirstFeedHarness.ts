@@ -198,6 +198,9 @@ function commonEnv(): NodeJS.ProcessEnv {
     ...process.env,
     NODE_ENV: 'production',
     OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? '',
+    VH_DAEMON_FEED_ARTIFACT_ROOT:
+      process.env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim()
+      || path.join(root, '.tmp/e2e-daemon-feed'),
     VH_STORYCLUSTER_VECTOR_BACKEND: 'qdrant',
     VH_STORYCLUSTER_QDRANT_URL: QDRANT_URL,
     VH_STORYCLUSTER_QDRANT_TIMEOUT_MS: '20000',

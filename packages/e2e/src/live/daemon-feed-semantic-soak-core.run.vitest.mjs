@@ -130,6 +130,7 @@ describe('runDaemonFeedSemanticSoak', () => {
 
     expect(env.VH_RUN_DAEMON_FIRST_FEED).toBe('true');
     expect(env.VH_DAEMON_FEED_RUN_ID).toBe('run-1');
+    expect(env.VH_DAEMON_FEED_ARTIFACT_ROOT).toBe('/repo/.tmp/e2e-daemon-feed');
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT).toBe('4');
     expect(env.VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS).toBe('180000');
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe(

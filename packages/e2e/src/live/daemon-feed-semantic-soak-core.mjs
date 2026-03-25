@@ -747,6 +747,9 @@ export function resolvePublicSemanticSoakSpawnEnv(
     ...env,
     VH_RUN_DAEMON_FIRST_FEED: 'true',
     VH_DAEMON_FEED_RUN_ID: runId,
+    VH_DAEMON_FEED_ARTIFACT_ROOT:
+      env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim()
+      || path.join(repoRoot, '.tmp/e2e-daemon-feed'),
     VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT: String(sampleCount),
     VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS: String(sampleTimeoutMs),
     VH_DAEMON_FEED_GUN_PORT: String(portPlan.gunPort),
