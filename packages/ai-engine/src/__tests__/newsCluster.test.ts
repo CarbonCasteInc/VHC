@@ -207,6 +207,62 @@ describe('newsCluster', () => {
     ]);
   });
 
+  it('does not cross-bucket merge when the incoming item is untimed', () => {
+    const items: NormalizedItem[] = [
+      makeItem({
+        sourceId: 'src-a',
+        publisher: 'Publisher A',
+        canonicalUrl: 'https://example.com/florida-a',
+        url_hash: 'hash-florida-a',
+        title: 'Florida special election flips Mar-a-Lago district',
+        cluster_text: 'florida special election flips mar a lago district',
+        publishedAt: 1774424017000,
+        entity_keys: ['florida', 'mar', 'lago', 'election'],
+      }),
+      makeItem({
+        sourceId: 'src-b',
+        publisher: 'Publisher B',
+        canonicalUrl: 'https://example.com/florida-b',
+        url_hash: 'hash-florida-b',
+        title: 'Florida special election flips Mar-a-Lago district',
+        cluster_text: 'florida special election flips mar a lago district',
+        publishedAt: undefined,
+        entity_keys: ['florida', 'mar', 'lago', 'election'],
+      }),
+    ];
+
+    const bundles = clusterItems(items, 'topic-news');
+    expect(bundles).toHaveLength(2);
+  });
+
+  it('does not cross-bucket merge same-event coverage when it falls outside the extended window', () => {
+    const items: NormalizedItem[] = [
+      makeItem({
+        sourceId: 'src-a',
+        publisher: 'Publisher A',
+        canonicalUrl: 'https://example.com/florida-window-a',
+        url_hash: 'hash-florida-window-a',
+        title: 'Florida special election flips Mar-a-Lago district',
+        cluster_text: 'florida special election flips mar a lago district',
+        publishedAt: 1774396885000,
+        entity_keys: ['florida', 'mar', 'lago', 'election'],
+      }),
+      makeItem({
+        sourceId: 'src-b',
+        publisher: 'Publisher B',
+        canonicalUrl: 'https://example.com/florida-window-b',
+        url_hash: 'hash-florida-window-b',
+        title: 'Florida special election flips Mar-a-Lago district',
+        cluster_text: 'florida special election flips mar a lago district',
+        publishedAt: 1774424017000,
+        entity_keys: ['florida', 'mar', 'lago', 'election'],
+      }),
+    ];
+
+    const bundles = clusterItems(items, 'topic-news');
+    expect(bundles).toHaveLength(2);
+  });
+
   it('keeps stable story_id across incremental updates via hybrid assignment', () => {
     const first = makeItem({
       canonicalUrl: 'https://example.com/first',
