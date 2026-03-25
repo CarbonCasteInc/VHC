@@ -123,8 +123,17 @@ describe('daemon-feed-semantic-soak offline replay report wrapper', () => {
     expect(result.reportPath).toBe(`${artifactDir}/offline-cluster-replay-report.json`);
     expect(result.trendIndexPath).toBe(`${artifactDir}/offline-cluster-replay-trend-index.json`);
     expect(result.latestTrendIndexPath).toBe(`${artifactRoot}/offline-cluster-replay-trend-index.json`);
-    expect(writes.get(`${artifactDir}/offline-cluster-replay-report.json`)).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-report-v1"');
-    expect(writes.get(`${artifactDir}/offline-cluster-replay-trend-index.json`)).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-trend-index-v1"');
+    expect(result.calibration).toEqual({
+      remoteBundleCount: 1,
+      offlineBundleCount: 1,
+      exactBundleMatchRate: 1,
+      provenanceHashExactBundleMatchRate: 0,
+      sourceAssignmentAgreementRate: 1,
+      averageBestRemoteBundleJaccard: 1,
+      averageBestOfflineBundleJaccard: 1,
+    });
+    expect(writes.get(`${artifactDir}/offline-cluster-replay-report.json`)).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-report-v2"');
+    expect(writes.get(`${artifactDir}/offline-cluster-replay-trend-index.json`)).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-trend-index-v2"');
     expect(writes.get(`${artifactRoot}/offline-cluster-replay-trend-index.json`)).toContain(`"latestArtifactDir": "${artifactDir}"`);
     expect(log).toHaveBeenCalledWith(expect.stringContaining('"artifactDir": "/repo/.tmp/daemon-feed-semantic-soak/200"'));
   });

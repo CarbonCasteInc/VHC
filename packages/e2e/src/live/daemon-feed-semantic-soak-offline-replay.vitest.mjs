@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildOfflineClusterReplayReport,
   buildOfflineClusterReplayTrendIndex,
+  offlineClusterReplayInternal,
   readExecutionClusterCaptureSnapshot,
   readHistoricalExecutionClusterCaptureSnapshots,
 } from './daemon-feed-semantic-soak-offline-replay.mjs';
@@ -193,7 +194,7 @@ describe('daemon-feed-semantic-soak offline replay', () => {
         time_bucket: '2026-03-24T10',
         semantic_signature: `offline-${items.length}`,
       },
-      provenance_hash: items.length > 1 ? 'merged-prov' : `${items[0].sourceId}-prov`,
+      provenance_hash: items.length > 1 ? 'merged-prov' : `offline-${items[0].sourceId}-prov`,
       created_at: 1,
     }];
 
@@ -202,12 +203,15 @@ describe('daemon-feed-semantic-soak offline replay', () => {
       clusterItemsImpl,
     });
 
-    expect(report.schemaVersion).toBe('daemon-feed-offline-cluster-replay-report-v1');
+    expect(report.schemaVersion).toBe('daemon-feed-offline-cluster-replay-report-v2');
     expect(report.currentExecution.remote.bundleSummary.corroboratedBundleCount).toBe(0);
     expect(report.currentExecution.offlineHeuristic.bundleSummary.corroboratedBundleCount).toBe(0);
     expect(report.retainedUnion.heuristic.bundleSummary.corroboratedBundleCount).toBe(1);
     expect(report.retainedUnion.uplift.corroboratedBundleCountDelta).toBe(1);
     expect(report.currentExecution.calibration.exactBundleMatchRate).toBe(1);
+    expect(report.currentExecution.calibration.provenanceHashExactBundleMatchRate).toBe(0);
+    expect(report.currentExecution.calibration.sourceAssignmentAgreementRate).toBe(1);
+    expect(report.currentExecution.calibration.averageBestRemoteBundleJaccard).toBe(1);
 
     const trend = buildOfflineClusterReplayTrendIndex([report], {
       artifactRoot: '/repo/.tmp/daemon-feed-semantic-soak',
@@ -216,9 +220,48 @@ describe('daemon-feed-semantic-soak offline replay', () => {
       lookbackHours: 24,
     });
 
-    expect(trend.schemaVersion).toBe('daemon-feed-offline-cluster-replay-trend-index-v1');
+    expect(trend.schemaVersion).toBe('daemon-feed-offline-cluster-replay-trend-index-v2');
     expect(trend.executionCount).toBe(1);
     expect(trend.latestReport.artifactDir).toBe(current.artifactDir);
     expect(trend.calibration.averageRetainedUnionCorroboratedBundleCountDelta).toBe(1);
+    expect(trend.calibration.averageProvenanceHashExactBundleMatchRate).toBe(0);
+    expect(trend.calibration.averageSourceAssignmentAgreementRate).toBe(1);
+  });
+
+  it('distinguishes bundle-assignment disagreement from identifier mismatch', () => {
+    const remoteBundles = [
+      {
+        story_id: 'story-remote-merged',
+        headline: 'Merged remote',
+        sources: [
+          { source_id: 'source-a', url_hash: 'hash-a' },
+          { source_id: 'source-b', url_hash: 'hash-b' },
+        ],
+        provenance_hash: 'remote-merged',
+      },
+    ];
+    const offlineBundles = [
+      {
+        story_id: 'story-offline-a',
+        headline: 'Offline A',
+        sources: [{ source_id: 'source-a', url_hash: 'hash-a' }],
+        provenance_hash: 'offline-a',
+      },
+      {
+        story_id: 'story-offline-b',
+        headline: 'Offline B',
+        sources: [{ source_id: 'source-b', url_hash: 'hash-b' }],
+        provenance_hash: 'offline-b',
+      },
+    ];
+
+    const calibration = offlineClusterReplayInternal.compareBundleSets(remoteBundles, offlineBundles);
+
+    expect(calibration.exactBundleMatchRate).toBe(0);
+    expect(calibration.provenanceHashExactBundleMatchRate).toBe(0);
+    expect(calibration.sourceAssignmentAgreementRate).toBe(0);
+    expect(calibration.averageBestRemoteBundleJaccard).toBe(0.5);
+    expect(calibration.remoteBundlesWithStrongOverlapRate).toBe(1);
+    expect(calibration.remoteMismatchSamples[0].bestMatchSourceEventKeys).toEqual(['source-a::hash-a']);
   });
 });

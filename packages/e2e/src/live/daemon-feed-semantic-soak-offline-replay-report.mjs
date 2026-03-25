@@ -101,6 +101,22 @@ function writeAtomicTextFile(
   rename(tempPath, targetPath);
 }
 
+function summarizeCalibration(calibration) {
+  return {
+    remoteBundleCount: calibration?.remoteBundleCount ?? null,
+    offlineBundleCount: calibration?.offlineBundleCount ?? null,
+    exactBundleMatchRate: calibration?.exactBundleMatchRate ?? null,
+    provenanceHashExactBundleMatchRate:
+      calibration?.provenanceHashExactBundleMatchRate ?? null,
+    sourceAssignmentAgreementRate:
+      calibration?.sourceAssignmentAgreementRate ?? null,
+    averageBestRemoteBundleJaccard:
+      calibration?.averageBestRemoteBundleJaccard ?? null,
+    averageBestOfflineBundleJaccard:
+      calibration?.averageBestOfflineBundleJaccard ?? null,
+  };
+}
+
 export async function runOfflineClusterReplayReport({
   env = process.env,
   exists = existsSync,
@@ -209,7 +225,7 @@ export async function runOfflineClusterReplayReport({
     reportPath,
     trendIndexPath,
     latestTrendIndexPath,
-    calibration: report.currentExecution.calibration,
+    calibration: summarizeCalibration(report.currentExecution.calibration),
     retainedUnionUplift: report.retainedUnion.uplift,
   };
 
