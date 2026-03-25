@@ -29,7 +29,39 @@ const STOPWORDS = new Set([
   'this',
   'those',
   'with',
+  'continue',
+  'reading',
 ]);
+
+const ENTITY_NOISE_TOKENS = new Set([
+  'apos',
+  'href',
+  'http',
+  'https',
+  'nbsp',
+  'quot',
+  'rdquo',
+  'ldquo',
+  'rsquo',
+  'lsquo',
+  'www',
+]);
+
+const HTML_ENTITY_MAP: Record<string, string> = {
+  amp: '&',
+  apos: '\'',
+  quot: '"',
+  nbsp: ' ',
+  rsquo: '\'',
+  lsquo: '\'',
+  rdquo: '"',
+  ldquo: '"',
+  ndash: ' ',
+  mdash: ' ',
+  hellip: ' ',
+  lt: '<',
+  gt: '>',
+};
 
 const LANGUAGE_MARKERS: Record<string, ReadonlySet<string>> = {
   en: new Set(['the', 'and', 'with', 'from', 'after', 'update', 'breaking', 'markets']),
@@ -133,6 +165,37 @@ export function canonicalizeUrl(url: string): string {
 
 function stripDiacritics(text: string): string {
   return text.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function decodeHtmlEntities(text: string): string {
+  return text.replace(/&(#x?[0-9a-f]+|[a-z]+);/gi, (entity, code) => {
+    const normalized = code.toLowerCase();
+    if (normalized.startsWith('#x')) {
+      return decodeNumericHtmlEntity(entity, normalized.slice(2), 16);
+    }
+    if (normalized.startsWith('#')) {
+      return decodeNumericHtmlEntity(entity, normalized.slice(1), 10);
+    }
+    return HTML_ENTITY_MAP[normalized] ?? entity;
+  });
+}
+
+function decodeNumericHtmlEntity(entity: string, codePoint: string, radix: 10 | 16): string {
+  try {
+    return String.fromCodePoint(Number.parseInt(codePoint, radix));
+  } catch {
+    return entity;
+  }
+}
+
+function sanitizeFeedText(text: string): string {
+  return decodeHtmlEntities(text)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\bhttps?:\/\/\S+/gi, ' ')
+    .replace(/\bwww\.\S+/gi, ' ')
+    .replace(/\bcontinue\s+reading\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export function tokenizeWords(text: string): string[] {
@@ -243,7 +306,9 @@ interface ClusterTextBuild {
 }
 
 export function buildClusterText(item: Pick<RawFeedItem, 'title' | 'summary'>): ClusterTextBuild {
-  const rawText = `${item.title} ${item.summary ?? ''}`.trim();
+  const sanitizedTitle = sanitizeFeedText(item.title);
+  const sanitizedSummary = sanitizeFeedText(item.summary ?? '');
+  const rawText = `${sanitizedTitle} ${sanitizedSummary}`.trim();
   const language = detectLanguage(rawText);
 
   if (!shouldTranslateLanguage(language)) {
@@ -254,8 +319,8 @@ export function buildClusterText(item: Pick<RawFeedItem, 'title' | 'summary'>): 
     };
   }
 
-  const titleTokens = tokenizeWords(item.title);
-  const summaryTokens = tokenizeWords(item.summary ?? '');
+  const titleTokens = tokenizeWords(sanitizedTitle);
+  const summaryTokens = tokenizeWords(sanitizedSummary);
 
   const translatedTitle = translateTokens(titleTokens, language);
   const translatedSummary = translateTokens(summaryTokens, language);
@@ -283,7 +348,11 @@ export function buildClusterText(item: Pick<RawFeedItem, 'title' | 'summary'>): 
 
 export function extractEntityKeys(text: string): string[] {
   const tokens = tokenizeWords(text)
-    .filter((token) => token.length >= 4 && !STOPWORDS.has(token));
+    .filter((token) =>
+      token.length >= 4
+      && !STOPWORDS.has(token)
+      && !ENTITY_NOISE_TOKENS.has(token)
+      && !/^\d+$/.test(token));
 
   return [...new Set(tokens)].sort();
 }
@@ -304,3 +373,9 @@ export function normalizeImageUrl(imageUrl: string | undefined): string | undefi
 export function computeImageHash(imageUrl: string | undefined): string {
   return imageUrl ? toHex(fnv1a32(imageUrl)) : 'no-image';
 }
+
+export const newsNormalizeConfigInternal = {
+  decodeNumericHtmlEntity,
+  decodeHtmlEntities,
+  sanitizeFeedText,
+};

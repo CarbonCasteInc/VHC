@@ -1,12 +1,13 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { register } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { summarizeBundleComposition } from './daemon-feed-semantic-soak-report.mjs';
 
 export const OFFLINE_CLUSTER_REPLAY_REPORT_SCHEMA_VERSION =
-  'daemon-feed-offline-cluster-replay-report-v1';
+  'daemon-feed-offline-cluster-replay-report-v2';
 export const OFFLINE_CLUSTER_REPLAY_TREND_INDEX_SCHEMA_VERSION =
-  'daemon-feed-offline-cluster-replay-trend-index-v1';
+  'daemon-feed-offline-cluster-replay-trend-index-v2';
 
 const CLUSTER_CAPTURE_FILE_RE = /^run-(\d+)\.cluster-capture\.json$/;
 const OFFLINE_CLUSTER_REPLAY_REPORT_FILE = 'offline-cluster-replay-report.json';
@@ -15,6 +16,12 @@ const AI_ENGINE_DIST_INDEX_PATH = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   '../../../ai-engine/dist/index.js',
 );
+const ESM_RESOLVE_LOADER_PATH = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../tools/node/esm-resolve-loader.mjs',
+);
+
+let aiEngineModulePromise = null;
 
 function normalizeNonEmpty(value) {
   const trimmed = typeof value === 'string' ? value.trim() : '';
@@ -142,6 +149,150 @@ function provenanceHash(bundle) {
     ?? null;
 }
 
+function bundleSourceEventKeys(bundle) {
+  const sources = Array.isArray(bundle?.sources) ? bundle.sources : [];
+  return [...new Set(sources.map(sourceEventKey).filter(Boolean))].sort();
+}
+
+function bundleSourceEventSetKey(bundle) {
+  return bundleSourceEventKeys(bundle).join('|');
+}
+
+function intersectCount(leftSet, rightSet) {
+  let matches = 0;
+  for (const value of leftSet) {
+    if (rightSet.has(value)) {
+      matches += 1;
+    }
+  }
+  return matches;
+}
+
+function jaccardForKeys(leftKeys, rightKeys) {
+  const leftSet = new Set(leftKeys);
+  const rightSet = new Set(rightKeys);
+  const unionSize = new Set([...leftSet, ...rightSet]).size;
+  if (unionSize === 0) {
+    return 1;
+  }
+  return intersectCount(leftSet, rightSet) / unionSize;
+}
+
+function describeBundles(bundles) {
+  return bundles.map((bundle, index) => {
+    const sourceKeys = bundleSourceEventKeys(bundle);
+    return {
+      index,
+      bundle,
+      storyId: normalizeNonEmpty(bundle?.story_id ?? bundle?.storyId),
+      headline: normalizeNonEmpty(bundle?.headline),
+      provenanceHash: provenanceHash(bundle),
+      sourceEventKeys: sourceKeys,
+      sourceEventSetKey: sourceKeys.join('|'),
+    };
+  });
+}
+
+function compareExactValues(remoteValues, offlineValues) {
+  const remoteSet = new Set(remoteValues.filter(Boolean));
+  const offlineSet = new Set(offlineValues.filter(Boolean));
+  const matchedValues = [...remoteSet].filter((value) => offlineSet.has(value)).sort();
+  const remoteOnlyValues = [...remoteSet].filter((value) => !offlineSet.has(value)).sort();
+  const offlineOnlyValues = [...offlineSet].filter((value) => !remoteSet.has(value)).sort();
+  const unionSize = new Set([...remoteSet, ...offlineSet]).size;
+
+  return {
+    matchedCount: matchedValues.length,
+    remoteOnlyCount: remoteOnlyValues.length,
+    offlineOnlyCount: offlineOnlyValues.length,
+    exactMatchRate: ratio(matchedValues.length, unionSize),
+    remoteCoverageRate: ratio(matchedValues.length, remoteSet.size),
+    offlineCoverageRate: ratio(matchedValues.length, offlineSet.size),
+    matchedValues,
+    remoteOnlyValues,
+    offlineOnlyValues,
+  };
+}
+
+function compareSourceAssignments(remoteDescriptors, offlineDescriptors) {
+  const remoteAssignments = new Map();
+  const offlineAssignments = new Map();
+
+  for (const descriptor of remoteDescriptors) {
+    for (const sourceKey of descriptor.sourceEventKeys) {
+      remoteAssignments.set(sourceKey, descriptor.sourceEventSetKey);
+    }
+  }
+
+  for (const descriptor of offlineDescriptors) {
+    for (const sourceKey of descriptor.sourceEventKeys) {
+      offlineAssignments.set(sourceKey, descriptor.sourceEventSetKey);
+    }
+  }
+
+  const sharedSourceEventKeys = [...remoteAssignments.keys()]
+    .filter((sourceKey) => offlineAssignments.has(sourceKey))
+    .sort();
+  const disagreementSourceEventKeys = sharedSourceEventKeys.filter(
+    (sourceKey) => remoteAssignments.get(sourceKey) !== offlineAssignments.get(sourceKey),
+  );
+
+  return {
+    sharedSourceEventCount: sharedSourceEventKeys.length,
+    agreementCount: sharedSourceEventKeys.length - disagreementSourceEventKeys.length,
+    disagreementCount: disagreementSourceEventKeys.length,
+    agreementRate: ratio(
+      sharedSourceEventKeys.length - disagreementSourceEventKeys.length,
+      sharedSourceEventKeys.length,
+    ),
+    disagreementSourceEventKeys,
+  };
+}
+
+function summarizeBestOverlap(leftDescriptors, rightDescriptors, side) {
+  const bestScores = [];
+  const mismatches = [];
+
+  for (const descriptor of leftDescriptors) {
+    let bestMatch = null;
+    let bestScore = -1;
+
+    for (const candidate of rightDescriptors) {
+      const score = jaccardForKeys(descriptor.sourceEventKeys, candidate.sourceEventKeys);
+      if (score > bestScore) {
+        bestScore = score;
+        bestMatch = candidate;
+      }
+    }
+
+    const boundedScore = bestScore < 0 ? 0 : bestScore;
+    bestScores.push(boundedScore);
+    const resolvedBestMatch = boundedScore > 0 ? bestMatch : null;
+
+    if (boundedScore < 1) {
+      mismatches.push({
+        storyId: descriptor.storyId,
+        headline: descriptor.headline,
+        sourceEventKeys: descriptor.sourceEventKeys,
+        bestOverlapScore: boundedScore,
+        bestMatchStoryId: resolvedBestMatch?.storyId ?? null,
+        bestMatchHeadline: resolvedBestMatch?.headline ?? null,
+        bestMatchSourceEventKeys: resolvedBestMatch?.sourceEventKeys ?? [],
+      });
+    }
+  }
+
+  const anyOverlapCount = bestScores.filter((score) => score > 0).length;
+  const strongOverlapCount = bestScores.filter((score) => score >= 0.5).length;
+
+  return {
+    [`averageBest${side}BundleJaccard`]: average(bestScores),
+    [`${side[0].toLowerCase()}${side.slice(1)}BundlesWithAnyOverlapRate`]: ratio(anyOverlapCount, bestScores.length),
+    [`${side[0].toLowerCase()}${side.slice(1)}BundlesWithStrongOverlapRate`]: ratio(strongOverlapCount, bestScores.length),
+    [`${side[0].toLowerCase()}${side.slice(1)}MismatchSamples`]: mismatches.slice(0, 10),
+  };
+}
+
 function flattenRemoteBundles(snapshot) {
   return snapshot.runCaptures.flatMap((capture) =>
     capture.topicCaptures.flatMap((topicCapture) => topicCapture.result.bundles));
@@ -185,25 +336,53 @@ function summarizeCaptureItems(runCaptures) {
 }
 
 function compareBundleSets(remoteBundles, offlineBundles) {
-  const remoteHashes = new Set(remoteBundles.map(provenanceHash).filter(Boolean));
-  const offlineHashes = new Set(offlineBundles.map(provenanceHash).filter(Boolean));
-  const matchedBundleProvenanceHashes = [...remoteHashes].filter((hash) => offlineHashes.has(hash)).sort();
-  const remoteOnlyBundleProvenanceHashes = [...remoteHashes].filter((hash) => !offlineHashes.has(hash)).sort();
-  const offlineOnlyBundleProvenanceHashes = [...offlineHashes].filter((hash) => !remoteHashes.has(hash)).sort();
-  const unionSize = new Set([...remoteHashes, ...offlineHashes]).size;
+  const remoteDescriptors = describeBundles(remoteBundles);
+  const offlineDescriptors = describeBundles(offlineBundles);
+  const provenanceHashComparison = compareExactValues(
+    remoteDescriptors.map((descriptor) => descriptor.provenanceHash),
+    offlineDescriptors.map((descriptor) => descriptor.provenanceHash),
+  );
+  const sourceSetComparison = compareExactValues(
+    remoteDescriptors.map((descriptor) => descriptor.sourceEventSetKey),
+    offlineDescriptors.map((descriptor) => descriptor.sourceEventSetKey),
+  );
+  const sourceAssignment = compareSourceAssignments(remoteDescriptors, offlineDescriptors);
+  const remoteOverlap = summarizeBestOverlap(remoteDescriptors, offlineDescriptors, 'Remote');
+  const offlineOverlap = summarizeBestOverlap(offlineDescriptors, remoteDescriptors, 'Offline');
 
   return {
     remoteBundleCount: remoteBundles.length,
     offlineBundleCount: offlineBundles.length,
-    matchedBundleCount: matchedBundleProvenanceHashes.length,
-    remoteOnlyBundleCount: remoteOnlyBundleProvenanceHashes.length,
-    offlineOnlyBundleCount: offlineOnlyBundleProvenanceHashes.length,
-    exactBundleMatchRate: ratio(matchedBundleProvenanceHashes.length, unionSize),
-    remoteCoverageRate: ratio(matchedBundleProvenanceHashes.length, remoteHashes.size),
-    offlineCoverageRate: ratio(matchedBundleProvenanceHashes.length, offlineHashes.size),
-    matchedBundleProvenanceHashes,
-    remoteOnlyBundleProvenanceHashes,
-    offlineOnlyBundleProvenanceHashes,
+    remoteCoverageRate: sourceSetComparison.remoteCoverageRate,
+    offlineCoverageRate: sourceSetComparison.offlineCoverageRate,
+    provenanceHashExactBundleMatchRate: provenanceHashComparison.exactMatchRate,
+    provenanceHashComparison: {
+      matchedCount: provenanceHashComparison.matchedCount,
+      remoteOnlyCount: provenanceHashComparison.remoteOnlyCount,
+      offlineOnlyCount: provenanceHashComparison.offlineOnlyCount,
+      exactMatchRate: provenanceHashComparison.exactMatchRate,
+      remoteCoverageRate: provenanceHashComparison.remoteCoverageRate,
+      offlineCoverageRate: provenanceHashComparison.offlineCoverageRate,
+      matchedBundleProvenanceHashes: provenanceHashComparison.matchedValues,
+      remoteOnlyBundleProvenanceHashes: provenanceHashComparison.remoteOnlyValues,
+      offlineOnlyBundleProvenanceHashes: provenanceHashComparison.offlineOnlyValues,
+    },
+    exactSourceSetMatchRate: sourceSetComparison.exactMatchRate,
+    sourceSetComparison: {
+      matchedCount: sourceSetComparison.matchedCount,
+      remoteOnlyCount: sourceSetComparison.remoteOnlyCount,
+      offlineOnlyCount: sourceSetComparison.offlineOnlyCount,
+      exactMatchRate: sourceSetComparison.exactMatchRate,
+      remoteCoverageRate: sourceSetComparison.remoteCoverageRate,
+      offlineCoverageRate: sourceSetComparison.offlineCoverageRate,
+      matchedBundleSourceSetKeys: sourceSetComparison.matchedValues,
+      remoteOnlyBundleSourceSetKeys: sourceSetComparison.remoteOnlyValues,
+      offlineOnlyBundleSourceSetKeys: sourceSetComparison.offlineOnlyValues,
+    },
+    sourceAssignmentAgreementRate: sourceAssignment.agreementRate,
+    sourceAssignment,
+    ...remoteOverlap,
+    ...offlineOverlap,
   };
 }
 
@@ -245,7 +424,11 @@ function mergeUnionTopicItems(snapshots) {
 }
 
 async function defaultClusterItemsImpl(items, topicId) {
-  const aiEngine = await import(pathToFileURL(AI_ENGINE_DIST_INDEX_PATH).href);
+  if (!aiEngineModulePromise) {
+    register(pathToFileURL(ESM_RESOLVE_LOADER_PATH).href, import.meta.url);
+    aiEngineModulePromise = import(pathToFileURL(AI_ENGINE_DIST_INDEX_PATH).href);
+  }
+  const aiEngine = await aiEngineModulePromise;
   return aiEngine.clusterItems(items, topicId);
 }
 
@@ -510,7 +693,16 @@ export function buildOfflineClusterReplayTrendIndex(
     (report) => report?.retainedUnion?.heuristic?.bundleSummary?.corroboratedBundleRate,
   );
   const exactMatchRates = recentReports.map(
-    (report) => report?.currentExecution?.calibration?.exactBundleMatchRate,
+    (report) => report?.currentExecution?.calibration?.exactSourceSetMatchRate,
+  );
+  const provenanceExactMatchRates = recentReports.map(
+    (report) => report?.currentExecution?.calibration?.provenanceHashExactBundleMatchRate,
+  );
+  const sourceAssignmentAgreementRates = recentReports.map(
+    (report) => report?.currentExecution?.calibration?.sourceAssignmentAgreementRate,
+  );
+  const bestRemoteBundleJaccards = recentReports.map(
+    (report) => report?.currentExecution?.calibration?.averageBestRemoteBundleJaccard,
   );
   const bundleCountDeltas = recentReports.map(
     (report) => report?.retainedUnion?.uplift?.corroboratedBundleCountDelta,
@@ -526,7 +718,10 @@ export function buildOfflineClusterReplayTrendIndex(
     executionCount: recentReports.length,
     latestReport: recentReports.at(-1) ?? null,
     calibration: {
-      averageExactBundleMatchRate: average(exactMatchRates),
+      averageExactSourceSetMatchRate: average(exactMatchRates),
+      averageProvenanceHashExactBundleMatchRate: average(provenanceExactMatchRates),
+      averageSourceAssignmentAgreementRate: average(sourceAssignmentAgreementRates),
+      averageBestRemoteBundleJaccard: average(bestRemoteBundleJaccards),
       averageCurrentRemoteCorroboratedBundleRate: average(currentRemoteRates),
       averageRetainedUnionCorroboratedBundleRate: average(retainedUnionRates),
       averageRetainedUnionCorroboratedBundleCountDelta: average(bundleCountDeltas),
@@ -544,15 +739,24 @@ export function buildOfflineClusterReplayTrendIndex(
         report?.retainedUnion?.heuristic?.bundleSummary?.corroboratedBundleRate ?? null,
       retainedUnionCorroboratedBundleCountDelta:
         report?.retainedUnion?.uplift?.corroboratedBundleCountDelta ?? null,
-      exactBundleMatchRate:
-        report?.currentExecution?.calibration?.exactBundleMatchRate ?? null,
+      exactSourceSetMatchRate:
+        report?.currentExecution?.calibration?.exactSourceSetMatchRate ?? null,
+      provenanceHashExactBundleMatchRate:
+        report?.currentExecution?.calibration?.provenanceHashExactBundleMatchRate ?? null,
+      sourceAssignmentAgreementRate:
+        report?.currentExecution?.calibration?.sourceAssignmentAgreementRate ?? null,
+      averageBestRemoteBundleJaccard:
+        report?.currentExecution?.calibration?.averageBestRemoteBundleJaccard ?? null,
     })),
   };
 }
 
 export const offlineClusterReplayInternal = {
+  bundleSourceEventSetKey,
   choosePrimaryTick,
   compareBundleSets,
+  compareSourceAssignments,
+  jaccardForKeys,
   mergeUnionTopicItems,
   provenanceHash,
   summarizeCaptureItems,

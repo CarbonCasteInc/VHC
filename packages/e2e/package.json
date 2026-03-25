@@ -19,6 +19,7 @@
     "test:live:daemon-feed:semantic-public": "VH_RUN_DAEMON_FIRST_FEED=true playwright test --config=playwright.daemon-first-feed.config.ts src/live/daemon-first-feed-semantic-audit.live.spec.ts",
     "test:live:daemon-feed:semantic-soak": "node ./src/live/daemon-feed-semantic-soak.mjs",
     "test:live:daemon-feed:semantic-soak:readiness": "node ./src/live/daemon-feed-semantic-soak-readiness.mjs",
+    "report:offline-cluster-replay": "node ./src/live/daemon-feed-semantic-soak-offline-replay-report.mjs",
     "report:live:daemon-feed:production-readiness": "node ./src/live/storycluster-production-readiness.mjs",
     "codegen": "playwright codegen",
     "typecheck": "tsc --noEmit"

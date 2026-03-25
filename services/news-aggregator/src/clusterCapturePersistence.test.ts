@@ -86,6 +86,7 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+  delete process.env.VH_DAEMON_FEED_ARTIFACT_ROOT;
 });
 
 describe('clusterCapturePersistence', () => {
@@ -169,5 +170,32 @@ describe('clusterCapturePersistence', () => {
     expect(targetPath).toBe('/repo/.tmp/e2e-daemon-feed/run-atomic/cluster-capture.json');
     expect(writes.get(targetPath)).toContain('"schemaVersion": "daemon-feed-cluster-capture-v1"');
     expect(writes.has(String(tempPath))).toBe(false);
+  });
+
+  it('prefers the explicit daemon feed artifact root when provided', async () => {
+    process.env.VH_DAEMON_FEED_ARTIFACT_ROOT = '/shared/artifacts';
+
+    const writes = new Map<string, string>();
+    const writeTextFile = vi.fn(async (filePath: string, content: string) => {
+      writes.set(filePath, content);
+    });
+    const renameFile = vi.fn(async (fromPath: string, toPath: string) => {
+      const content = writes.get(fromPath);
+      writes.delete(fromPath);
+      writes.set(toPath, content ?? '');
+    });
+
+    await persistDaemonFeedClusterCapture('run-env-root', 1, makeArtifacts(), {
+      cwd: '/repo/services/news-aggregator',
+      mkdirFn: vi.fn(async () => undefined) as typeof import('node:fs/promises').mkdir,
+      readTextFile: vi.fn(async () => {
+        throw new Error('missing');
+      }) as typeof import('node:fs/promises').readFile,
+      writeTextFile: writeTextFile as typeof import('node:fs/promises').writeFile,
+      renameFile: renameFile as typeof import('node:fs/promises').rename,
+    });
+
+    const [, targetPath] = renameFile.mock.calls[0];
+    expect(targetPath).toBe('/shared/artifacts/run-env-root/cluster-capture.json');
   });
 });

@@ -21,11 +21,19 @@ export interface ClusterCapturePersistenceOptions {
   readonly mkdirFn?: typeof mkdir;
 }
 
+function resolveClusterCaptureArtifactRoot(cwd: string = process.cwd()): string {
+  const explicitRoot = process.env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim();
+  if (explicitRoot) {
+    return path.resolve(explicitRoot);
+  }
+  return path.resolve(cwd, '.tmp/e2e-daemon-feed');
+}
+
 export function clusterCaptureArtifactDir(
   runId: string,
   cwd: string = process.cwd(),
 ): string {
-  return path.resolve(cwd, '.tmp/e2e-daemon-feed', runId);
+  return path.join(resolveClusterCaptureArtifactRoot(cwd), runId);
 }
 
 export function clusterCaptureArtifactPath(

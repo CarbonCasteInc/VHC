@@ -7,6 +7,7 @@ import {
 } from '../newsCluster';
 import { clusterHeadlineTexts } from '../newsClusterBundle';
 import { normalizedItemTexts } from '../newsClusterAssignment';
+import { normalizeAndDedup } from '../newsNormalize';
 import type { NormalizedItem } from '../newsTypes';
 
 function makeItem(overrides: Partial<NormalizedItem> = {}): NormalizedItem {
@@ -138,6 +139,36 @@ describe('newsCluster', () => {
 
     const bundles = clusterItems(items, 'topic-mixed');
     expect(bundles).toHaveLength(3);
+  });
+
+  it('does not false-merge cuba missions coverage with unrelated justice fraud coverage after input cleanup', () => {
+    const normalized = normalizeAndDedup([
+      {
+        sourceId: 'npr-news',
+        url: 'https://www.npr.org/2026/03/24/nx-s1-5746626/cuba-doctors-mission-blockade',
+        title: 'Cuba sends doctors on medical missions. The U.S. isn&apos;t a fan',
+        publishedAt: 1774382397000,
+        summary: 'It&apos;s a major source of revenue for the island. And it&apos;s controversial. Now countries are sending Cuban doctors home in response to pressure from the Trump administration.',
+      },
+      {
+        sourceId: 'npr-politics',
+        url: 'https://www.npr.org/2026/03/24/g-s1-114956/trump-fraud-enforcement-justice-role',
+        title: 'Senate confirms Trump&apos;s pick for new role of fraud enforcement at Justice Department',
+        publishedAt: 1774379219000,
+        summary: 'The confirmation comes just days after the White House announced details of its own task force to pursue fraud in government programs.',
+      },
+    ]);
+
+    expect(normalized).toHaveLength(2);
+    expect(normalized[0]?.entity_keys).not.toContain('apos');
+    expect(normalized[1]?.entity_keys).not.toContain('apos');
+
+    const bundles = clusterItems(normalized, 'topic-news');
+    expect(bundles).toHaveLength(2);
+    expect(bundles.map((bundle) => bundle.headline).sort()).toEqual([
+      'Cuba sends doctors on medical missions. The U.S. isn&apos;t a fan',
+      'Senate confirms Trump&apos;s pick for new role of fraud enforcement at Justice Department',
+    ]);
   });
 
   it('keeps stable story_id across incremental updates via hybrid assignment', () => {
