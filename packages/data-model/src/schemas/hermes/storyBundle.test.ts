@@ -145,6 +145,16 @@ describe('RawFeedItemSchema', () => {
     expect(result.author).toBeUndefined();
   });
 
+  it('normalizes blank optional summary and author fields to undefined', () => {
+    const result = RawFeedItemSchema.parse({
+      ...validRawFeedItem,
+      summary: '   ',
+      author: '',
+    });
+    expect(result.summary).toBeUndefined();
+    expect(result.author).toBeUndefined();
+  });
+
   it('rejects empty sourceId', () => {
     expect(
       RawFeedItemSchema.safeParse({ ...validRawFeedItem, sourceId: '' })

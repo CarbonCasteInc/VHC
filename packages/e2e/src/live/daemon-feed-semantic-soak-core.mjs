@@ -53,18 +53,27 @@ const RUNTIME_LOG_ATTACHMENT_NAME = 'daemon-first-feed-runtime-logs';
 const PUBLIC_SMOKE_SOURCE_IDS = [
   'bbc-us-canada',
   'nbc-politics',
-  'huffpost-us',
   'guardian-us',
   'cbs-politics',
-  'bbc-general',
+  'texastribune-main',
+  'kffhealthnews-original',
+  'sky-world',
+  'aljazeera-all',
+  'scotusblog-main',
+  'channelnewsasia-latest',
+  'dw-top',
+  'globalnews-politics',
+  'mississippitoday-main',
+  'nevadaindependent-main',
+  'canarymedia-main',
   'abc-politics',
-  'federalist',
+  'huffpost-us',
   'washingtonexaminer-politics',
   'npr-news',
   'npr-politics',
   'pbs-politics',
-  'nypost-politics',
   'fox-latest',
+  'nypost-politics',
 ].join(',');
 const PUBLIC_SMOKE_SOURCE_LIMIT = 12;
 const PUBLIC_SMOKE_MAX_ITEMS_PER_SOURCE = '4';
@@ -761,9 +770,13 @@ export function resolvePublicSemanticSoakSpawnEnv(
   };
 
   if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
+    nextEnv.VH_STORYCLUSTER_VECTOR_BACKEND =
+      env.VH_STORYCLUSTER_VECTOR_BACKEND?.trim() || 'qdrant';
     return nextEnv;
   }
 
+  nextEnv.VH_STORYCLUSTER_VECTOR_BACKEND =
+    env.VH_STORYCLUSTER_VECTOR_BACKEND?.trim() || 'memory';
   const sourceIds = resolvePublicSemanticSoakSourceIds(env, {
     repoRoot,
     exists,

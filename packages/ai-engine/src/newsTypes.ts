@@ -22,14 +22,22 @@ export const FeedSourceSchema = z
 
 export type FeedSource = z.infer<typeof FeedSourceSchema>;
 
+const OptionalTrimmedStringSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}, z.string().min(1).optional());
+
 export const RawFeedItemSchema = z
   .object({
     sourceId: z.string().min(1),
     url: z.string().url(),
     title: z.string().min(1),
     publishedAt: z.number().int().nonnegative().optional(),
-    summary: z.string().min(1).optional(),
-    author: z.string().min(1).optional(),
+    summary: OptionalTrimmedStringSchema,
+    author: OptionalTrimmedStringSchema,
     imageUrl: z.string().url().optional(),
   })
   .strict();
@@ -56,8 +64,8 @@ export const NormalizedItemSchema = z
     canonicalUrl: z.string().url(),
     title: z.string().min(1),
     publishedAt: z.number().int().nonnegative().optional(),
-    summary: z.string().min(1).optional(),
-    author: z.string().min(1).optional(),
+    summary: OptionalTrimmedStringSchema,
+    author: OptionalTrimmedStringSchema,
     imageUrl: z.string().url().optional(),
     url_hash: z.string().min(1),
     image_hash: z.string().min(1).optional(),

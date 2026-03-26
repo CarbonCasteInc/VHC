@@ -28,6 +28,19 @@ const atomXml = `
   </feed>
 `;
 
+const rssXmlWithBlankOptionalFields = `
+  <rss>
+    <channel>
+      <item>
+        <title>Policy desk update</title>
+        <link>https://example.com/news?id=blank-fields</link>
+        <description>   </description>
+        <author></author>
+      </item>
+    </channel>
+  </rss>
+`;
+
 const multiItemRssXml = `
   <rss>
     <channel>
@@ -200,6 +213,28 @@ describe('newsIngest', () => {
       },
     );
     expect(skipped).toHaveLength(0);
+  });
+
+  it('keeps items when optional summary or author fields are blank', () => {
+    const parsed = newsIngestInternal.parseFeedXml(
+      rssXmlWithBlankOptionalFields,
+      {
+        id: 'src',
+        name: 'Source',
+        rssUrl: 'https://example.com/feed.xml',
+        enabled: true,
+      },
+    );
+
+    expect(parsed).toEqual([
+      expect.objectContaining({
+        sourceId: 'src',
+        title: 'Policy desk update',
+        url: 'https://example.com/news?id=blank-fields',
+        summary: undefined,
+        author: undefined,
+      }),
+    ]);
   });
 
   it('applies per-source and total item budgets using recency ordering', async () => {
