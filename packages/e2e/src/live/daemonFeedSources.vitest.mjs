@@ -44,7 +44,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'nbc-politics',
       'pbs-politics',
       'texastribune-main',
-      'mississippitoday-main',
       'nevadaindependent-main',
       'kffhealthnews-original',
       'scotusblog-main',
