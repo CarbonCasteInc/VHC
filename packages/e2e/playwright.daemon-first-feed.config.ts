@@ -185,15 +185,6 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'texastribune',
     enabled: true,
   },
-  'mississippitoday-main': {
-    id: 'mississippitoday-main',
-    name: 'Mississippi Today',
-    displayName: 'Mississippi Today',
-    rssUrl: 'https://mississippitoday.org/feed',
-    perspectiveTag: 'statehouse',
-    iconKey: 'mississippitoday',
-    enabled: true,
-  },
   'nevadaindependent-main': {
     id: 'nevadaindependent-main',
     name: 'Nevada Independent',

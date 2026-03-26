@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(24);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(23);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {

@@ -63,7 +63,6 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'channelnewsasia-latest',
   'dw-top',
   'globalnews-politics',
-  'mississippitoday-main',
   'nevadaindependent-main',
   'canarymedia-main',
   'abc-politics',

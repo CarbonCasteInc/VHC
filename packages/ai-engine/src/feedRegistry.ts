@@ -159,15 +159,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     enabled: true,
   }),
   FeedSourceSchema.parse({
-    id: 'mississippitoday-main',
-    name: 'Mississippi Today',
-    displayName: 'Mississippi Today',
-    rssUrl: 'https://mississippitoday.org/feed',
-    perspectiveTag: 'statehouse',
-    iconKey: 'mississippitoday',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
     id: 'nevadaindependent-main',
     name: 'Nevada Independent',
     displayName: 'Nevada Independent',
