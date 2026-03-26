@@ -77,14 +77,17 @@ Current policy state:
   - stable latest scout path: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`
   - daemon starter-surface resolution is the authoritative keep/watch/remove enforcement path;
   - web/server surfaces can autoload the latest health artifact for diagnostics and optional browser-runtime bootstrap flows.
-- `main` currently carries a 13-source keep surface and passing source-health release evidence:
+- `main` currently carries a 13-source keep surface, but the latest source-health release evidence is blocked on the recent run window:
+  - `readinessStatus: blocked`
   - `enabledSourceCount: 13`
-  - `contributingSourceCount: 13`
+  - `contributingSourceCount: 14`
   - `corroboratingSourceCount: 13`
 - UI / UX product work and periodic soak measurement are now explicitly separated:
   - UI lanes build against the current published feed contract;
   - soak lanes validate the production pipeline behind that contract on merged `main`;
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`.
+- Story bundler release claims now have an explicit operational scorecard:
+  - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` for the snapshot-ready vs retained-feed-ready gates, thresholds, and artifact paths.
 - The latest full combined readiness check on `main` currently blocks only on:
   - `headline_soak_release_evidence_failed`
 - Background source scouting is now part of the operating model:
