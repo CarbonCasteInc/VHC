@@ -1,6 +1,14 @@
 import { sha256 } from '@vh/crypto';
 import { z } from 'zod';
 
+const OptionalTrimmedStringSchema = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}, z.string().optional());
+
 /**
  * Schema version tag for StoryBundle — frozen at v0 for Season 0.
  */
@@ -30,8 +38,8 @@ export const RawFeedItemSchema = z.object({
   url: z.string().url(),
   title: z.string().min(1),
   publishedAt: z.number().optional(),
-  summary: z.string().optional(),
-  author: z.string().optional(),
+  summary: OptionalTrimmedStringSchema,
+  author: OptionalTrimmedStringSchema,
   imageUrl: z.string().url().optional(),
 });
 export type RawFeedItem = z.infer<typeof RawFeedItemSchema>;

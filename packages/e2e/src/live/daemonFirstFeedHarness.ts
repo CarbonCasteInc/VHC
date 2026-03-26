@@ -41,6 +41,8 @@ const LIVE_MAX_ITEMS_TOTAL = '15';
 const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = '300000';
 const DEFAULT_STORYCLUSTER_OPENAI_TIMEOUT_MS = '120000';
 export const FEED_READY_TIMEOUT_MS = resolveFeedReadyTimeoutMs();
+export const STORYCLUSTER_VECTOR_BACKEND =
+  process.env.VH_STORYCLUSTER_VECTOR_BACKEND?.trim() || 'qdrant';
 
 export type HeadlineRow = {
   readonly storyId: string;
@@ -201,9 +203,13 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_DAEMON_FEED_ARTIFACT_ROOT:
       process.env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim()
       || path.join(root, '.tmp/e2e-daemon-feed'),
-    VH_STORYCLUSTER_VECTOR_BACKEND: 'qdrant',
-    VH_STORYCLUSTER_QDRANT_URL: QDRANT_URL,
-    VH_STORYCLUSTER_QDRANT_TIMEOUT_MS: '20000',
+    VH_STORYCLUSTER_VECTOR_BACKEND: STORYCLUSTER_VECTOR_BACKEND,
+    ...(STORYCLUSTER_VECTOR_BACKEND === 'qdrant'
+      ? {
+          VH_STORYCLUSTER_QDRANT_URL: QDRANT_URL,
+          VH_STORYCLUSTER_QDRANT_TIMEOUT_MS: '20000',
+        }
+      : {}),
     VH_STORYCLUSTER_ESM_LOADER_PATH: esmLoaderPath,
     VH_STORYCLUSTER_STATE_DIR: path.join(root, `.tmp/e2e-daemon-feed/${RUN_ID}/storycluster-state`),
     VH_STORYCLUSTER_SERVER_PORT: String(STORYCLUSTER_PORT),
@@ -232,6 +238,7 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
   killPortOccupants(STORYCLUSTER_PORT);
   const storyclusterDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/server.js')).href;
   const clusterStoreDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/clusterStore.js')).href;
+  const vectorBackendDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/vectorBackend.js')).href;
   const esmLoaderPath = env.VH_STORYCLUSTER_ESM_LOADER_PATH!;
 
   const storycluster = spawnLoggedProcess(
@@ -244,12 +251,17 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
       '-e',
       `import { startStoryClusterServer } from ${JSON.stringify(storyclusterDistUrl)};
        import { FileClusterStore } from ${JSON.stringify(clusterStoreDistUrl)};
+       import { MemoryVectorBackend } from ${JSON.stringify(vectorBackendDistUrl)};
        const stateDir = process.env.VH_STORYCLUSTER_STATE_DIR;
+       const vectorBackend = process.env.VH_STORYCLUSTER_VECTOR_BACKEND === 'memory'
+         ? new MemoryVectorBackend()
+         : undefined;
        const server = startStoryClusterServer({
          host: '127.0.0.1',
          port: Number(process.env.VH_STORYCLUSTER_SERVER_PORT),
          authToken: process.env.VH_STORYCLUSTER_SERVER_AUTH_TOKEN,
          store: stateDir ? new FileClusterStore(stateDir) : undefined,
+         vectorBackend,
        });
        const shutdown = () => server.close(() => process.exit(0));
        process.on('SIGINT', shutdown);

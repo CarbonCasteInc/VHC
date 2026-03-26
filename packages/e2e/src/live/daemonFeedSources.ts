@@ -23,6 +23,17 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'abc-politics': { id: 'abc-politics', name: 'ABC News Politics', displayName: 'ABC News', rssUrl: 'https://abcnews.go.com/abcnews/politicsheadlines', perspectiveTag: 'broadcast-news', iconKey: 'abc', enabled: true },
   'nbc-politics': { id: 'nbc-politics', name: 'NBC News Politics', displayName: 'NBC News', rssUrl: 'https://feeds.nbcnews.com/feeds/nbcpolitics', perspectiveTag: 'broadcast-news', iconKey: 'nbc', enabled: true },
   'pbs-politics': { id: 'pbs-politics', name: 'PBS News Politics', displayName: 'PBS News', rssUrl: 'https://www.pbs.org/newshour/feeds/rss/politics', perspectiveTag: 'public-broadcast', iconKey: 'pbs', enabled: true },
+  'texastribune-main': { id: 'texastribune-main', name: 'Texas Tribune', displayName: 'Texas Tribune', rssUrl: 'https://feeds.texastribune.org/feeds/main/', perspectiveTag: 'statehouse', iconKey: 'texastribune', enabled: true },
+  'mississippitoday-main': { id: 'mississippitoday-main', name: 'Mississippi Today', displayName: 'Mississippi Today', rssUrl: 'https://mississippitoday.org/feed', perspectiveTag: 'statehouse', iconKey: 'mississippitoday', enabled: true },
+  'nevadaindependent-main': { id: 'nevadaindependent-main', name: 'Nevada Independent', displayName: 'Nevada Independent', rssUrl: 'https://thenevadaindependent.com/feed/', perspectiveTag: 'statehouse', iconKey: 'nevadaindependent', enabled: true },
+  'kffhealthnews-original': { id: 'kffhealthnews-original', name: 'KFF Health News', displayName: 'KFF Health News', rssUrl: 'https://kffhealthnews.org/topics/syndicate/feed/aprss', perspectiveTag: 'health-policy', iconKey: 'kff', enabled: true },
+  'scotusblog-main': { id: 'scotusblog-main', name: 'SCOTUSblog', displayName: 'SCOTUSblog', rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs', perspectiveTag: 'courts-legal', iconKey: 'scotusblog', enabled: true },
+  'canarymedia-main': { id: 'canarymedia-main', name: 'Canary Media', displayName: 'Canary Media', rssUrl: 'https://www.canarymedia.com/rss.rss', perspectiveTag: 'climate-policy', iconKey: 'canarymedia', enabled: true },
+  'sky-world': { id: 'sky-world', name: 'Sky News World', displayName: 'Sky News', rssUrl: 'https://feeds.skynews.com/feeds/rss/world.xml', perspectiveTag: 'international-wire', iconKey: 'sky', enabled: true },
+  'aljazeera-all': { id: 'aljazeera-all', name: 'Al Jazeera', displayName: 'Al Jazeera', rssUrl: 'https://www.aljazeera.com/xml/rss/all.xml', perspectiveTag: 'international-wire', iconKey: 'aljazeera', enabled: true },
+  'globalnews-politics': { id: 'globalnews-politics', name: 'Global News Politics', displayName: 'Global News', rssUrl: 'https://globalnews.ca/politics/feed/', perspectiveTag: 'broadcast-news', iconKey: 'globalnews', enabled: true },
+  'channelnewsasia-latest': { id: 'channelnewsasia-latest', name: 'Channel NewsAsia Latest', displayName: 'Channel NewsAsia', rssUrl: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml', perspectiveTag: 'international-wire', iconKey: 'cna', enabled: true },
+  'dw-top': { id: 'dw-top', name: 'Deutsche Welle Top Stories', displayName: 'DW', rssUrl: 'https://rss.dw.com/rdf/rss-en-top', perspectiveTag: 'international-wire', iconKey: 'dw', enabled: true },
 };
 
 const DEFAULT_SOURCE_IDS = [

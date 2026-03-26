@@ -92,6 +92,7 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
       }),
       null,
       null,
+      null,
       { browserLogs: ['a', 'b'] },
       1,
       '/tmp/report.json',
@@ -233,6 +234,7 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
       VH_DAEMON_FEED_QDRANT_PORT: '6316',
       VH_DAEMON_FEED_ANALYSIS_STUB_PORT: '9116',
       VH_LIVE_BASE_URL: 'http://127.0.0.1:2116/',
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'memory',
     });
   });
 

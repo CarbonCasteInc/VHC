@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(14);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(24);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -42,7 +42,37 @@ describe('feedRegistry', () => {
       const wire = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'international-wire',
       );
-      expect(wire.length).toBeGreaterThanOrEqual(2);
+      expect(wire.length).toBeGreaterThanOrEqual(6);
+    });
+
+    it('includes the highest-confidence statehouse and specialist additions', () => {
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'texastribune-main'),
+      ).toMatchObject({
+        name: 'Texas Tribune',
+        rssUrl: 'https://feeds.texastribune.org/feeds/main/',
+        perspectiveTag: 'statehouse',
+        iconKey: 'texastribune',
+        enabled: true,
+      });
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'kffhealthnews-original'),
+      ).toMatchObject({
+        name: 'KFF Health News',
+        rssUrl: 'https://kffhealthnews.org/topics/syndicate/feed/aprss',
+        perspectiveTag: 'health-policy',
+        iconKey: 'kff',
+        enabled: true,
+      });
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'scotusblog-main'),
+      ).toMatchObject({
+        name: 'SCOTUSblog',
+        rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs',
+        perspectiveTag: 'courts-legal',
+        iconKey: 'scotusblog',
+        enabled: true,
+      });
     });
 
     it('includes evidence-admitted abc politics coverage', () => {
@@ -237,6 +267,24 @@ describe('feedRegistry', () => {
         displayName: 'NPR',
         perspectiveTag: 'public-radio',
         iconKey: 'npr',
+      });
+    });
+
+    it('returns metadata for newly admitted specialist and international sources', () => {
+      expect(getSourceMetadata('texastribune-main')).toEqual({
+        displayName: 'Texas Tribune',
+        perspectiveTag: 'statehouse',
+        iconKey: 'texastribune',
+      });
+      expect(getSourceMetadata('sky-world')).toEqual({
+        displayName: 'Sky News',
+        perspectiveTag: 'international-wire',
+        iconKey: 'sky',
+      });
+      expect(getSourceMetadata('channelnewsasia-latest')).toEqual({
+        displayName: 'Channel NewsAsia',
+        perspectiveTag: 'international-wire',
+        iconKey: 'cna',
       });
     });
 

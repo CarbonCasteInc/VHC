@@ -139,6 +139,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('4');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('16');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
+    expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
   });
 
   it('ranks the public smoke source slice by contribution signals before preferred-order tie breaks', () => {
@@ -206,6 +207,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('2');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('8');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
+    expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
   });
 
   it('does not inject smoke-only source defaults for fixture runs', () => {
@@ -216,6 +218,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBeUndefined();
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBeUndefined();
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBeUndefined();
+    expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('qdrant');
   });
 
   it('falls back to the full admitted default source surface when no health artifact exists', () => {
@@ -226,16 +229,16 @@ describe('runDaemonFeedSemanticSoak', () => {
     })).toEqual([
       'bbc-us-canada',
       'nbc-politics',
-      'huffpost-us',
       'guardian-us',
       'cbs-politics',
-      'bbc-general',
-      'abc-politics',
-      'federalist',
-      'washingtonexaminer-politics',
-      'npr-news',
-      'npr-politics',
-      'pbs-politics',
+      'texastribune-main',
+      'kffhealthnews-original',
+      'sky-world',
+      'aljazeera-all',
+      'scotusblog-main',
+      'channelnewsasia-latest',
+      'dw-top',
+      'globalnews-politics',
     ]);
   });
 
@@ -260,16 +263,16 @@ describe('runDaemonFeedSemanticSoak', () => {
     })).toEqual([
       'bbc-us-canada',
       'nbc-politics',
-      'huffpost-us',
       'guardian-us',
       'cbs-politics',
-      'bbc-general',
-      'abc-politics',
-      'federalist',
-      'washingtonexaminer-politics',
-      'npr-news',
-      'npr-politics',
-      'pbs-politics',
+      'texastribune-main',
+      'kffhealthnews-original',
+      'sky-world',
+      'aljazeera-all',
+      'scotusblog-main',
+      'channelnewsasia-latest',
+      'dw-top',
+      'globalnews-politics',
     ]);
   });
 
@@ -532,8 +535,8 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-report.json')).toContain('"schemaVersion": "daemon-feed-ghost-retained-mesh-report-v1"');
     expect(writes.get('/repo/.tmp/out/ghost-retained-mesh-trend-index.json')).toContain('"schemaVersion": "daemon-feed-ghost-retained-mesh-trend-index-v1"');
     expect(writes.get('/repo/.tmp/ghost-retained-mesh-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
-    expect(writes.get('/repo/.tmp/out/offline-cluster-replay-report.json')).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-report-v1"');
-    expect(writes.get('/repo/.tmp/out/offline-cluster-replay-trend-index.json')).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-trend-index-v1"');
+    expect(writes.get('/repo/.tmp/out/offline-cluster-replay-report.json')).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-report-v2"');
+    expect(writes.get('/repo/.tmp/out/offline-cluster-replay-trend-index.json')).toContain('"schemaVersion": "daemon-feed-offline-cluster-replay-trend-index-v2"');
     expect(writes.get('/repo/.tmp/offline-cluster-replay-trend-index.json')).toContain('"latestArtifactDir": "/repo/.tmp/out"');
     expect(virtualFs.renameCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ toPath: '/repo/.tmp/headline-soak-trend-index.json' }),

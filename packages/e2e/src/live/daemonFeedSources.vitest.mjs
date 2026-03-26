@@ -43,7 +43,33 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'abc-politics',
       'nbc-politics',
       'pbs-politics',
+      'texastribune-main',
+      'mississippitoday-main',
+      'nevadaindependent-main',
+      'kffhealthnews-original',
+      'scotusblog-main',
+      'canarymedia-main',
+      'sky-world',
+      'aljazeera-all',
+      'globalnews-politics',
+      'channelnewsasia-latest',
+      'dw-top',
     ]);
+  });
+
+  it('resolves newly admitted statehouse and international sources in live mode', () => {
+    process.env.VH_LIVE_DEV_FEED_SOURCE_IDS = 'texastribune-main,sky-world,channelnewsasia-latest';
+
+    const sources = JSON.parse(resolveDaemonFeedSourcesJson());
+
+    expect(sources.map((source) => source.id)).toEqual([
+      'texastribune-main',
+      'sky-world',
+      'channelnewsasia-latest',
+    ]);
+    expect(sources[0].rssUrl).toBe('https://feeds.texastribune.org/feeds/main/');
+    expect(sources[1].rssUrl).toBe('https://feeds.skynews.com/feeds/rss/world.xml');
+    expect(sources[2].rssUrl).toBe('https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml');
   });
 
   it('rewrites fixture feeds to the local fixture server and keeps only known sources', () => {

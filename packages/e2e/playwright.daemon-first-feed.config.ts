@@ -41,7 +41,9 @@ const analysisStubPort = Number(process.env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT);
 const analysisStubBaseUrl = `http://127.0.0.1:${analysisStubPort}`;
 const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
 const useFixtureAnalysisStub = useFixtureFeed && process.env.VH_DAEMON_FEED_USE_ANALYSIS_STUB !== 'false';
+const storyclusterVectorBackend = process.env.VH_STORYCLUSTER_VECTOR_BACKEND?.trim() || 'qdrant';
 process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER ??= useFixtureFeed ? 'true' : 'false';
+process.env.VH_STORYCLUSTER_VECTOR_BACKEND ??= storyclusterVectorBackend;
 const relayRootDir = path.resolve(process.cwd(), '../../.tmp/e2e-daemon-feed', runId, 'relay');
 const relayDataPath = path.join(relayRootDir, 'data');
 const relayServerPath = path.resolve(process.cwd(), '../../infra/relay/server.js');
@@ -50,8 +52,10 @@ const qdrantServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-qdr
 const analysisStubServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-analysis-stub.mjs');
 const cleanupServerPath = path.resolve(process.cwd(), './src/live/daemon-feed-process-cleanup.mjs');
 
-process.env.VH_STORYCLUSTER_QDRANT_URL ??= qdrantBaseUrl;
-process.env.QDRANT_URL ??= qdrantBaseUrl;
+if (storyclusterVectorBackend === 'qdrant') {
+  process.env.VH_STORYCLUSTER_QDRANT_URL ??= qdrantBaseUrl;
+  process.env.QDRANT_URL ??= qdrantBaseUrl;
+}
 
 type DevFeedSource = {
   id: string;
@@ -172,6 +176,105 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'pbs',
     enabled: true,
   },
+  'texastribune-main': {
+    id: 'texastribune-main',
+    name: 'Texas Tribune',
+    displayName: 'Texas Tribune',
+    rssUrl: 'https://feeds.texastribune.org/feeds/main/',
+    perspectiveTag: 'statehouse',
+    iconKey: 'texastribune',
+    enabled: true,
+  },
+  'mississippitoday-main': {
+    id: 'mississippitoday-main',
+    name: 'Mississippi Today',
+    displayName: 'Mississippi Today',
+    rssUrl: 'https://mississippitoday.org/feed',
+    perspectiveTag: 'statehouse',
+    iconKey: 'mississippitoday',
+    enabled: true,
+  },
+  'nevadaindependent-main': {
+    id: 'nevadaindependent-main',
+    name: 'Nevada Independent',
+    displayName: 'Nevada Independent',
+    rssUrl: 'https://thenevadaindependent.com/feed/',
+    perspectiveTag: 'statehouse',
+    iconKey: 'nevadaindependent',
+    enabled: true,
+  },
+  'kffhealthnews-original': {
+    id: 'kffhealthnews-original',
+    name: 'KFF Health News',
+    displayName: 'KFF Health News',
+    rssUrl: 'https://kffhealthnews.org/topics/syndicate/feed/aprss',
+    perspectiveTag: 'health-policy',
+    iconKey: 'kff',
+    enabled: true,
+  },
+  'scotusblog-main': {
+    id: 'scotusblog-main',
+    name: 'SCOTUSblog',
+    displayName: 'SCOTUSblog',
+    rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs',
+    perspectiveTag: 'courts-legal',
+    iconKey: 'scotusblog',
+    enabled: true,
+  },
+  'canarymedia-main': {
+    id: 'canarymedia-main',
+    name: 'Canary Media',
+    displayName: 'Canary Media',
+    rssUrl: 'https://www.canarymedia.com/rss.rss',
+    perspectiveTag: 'climate-policy',
+    iconKey: 'canarymedia',
+    enabled: true,
+  },
+  'sky-world': {
+    id: 'sky-world',
+    name: 'Sky News World',
+    displayName: 'Sky News',
+    rssUrl: 'https://feeds.skynews.com/feeds/rss/world.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'sky',
+    enabled: true,
+  },
+  'aljazeera-all': {
+    id: 'aljazeera-all',
+    name: 'Al Jazeera',
+    displayName: 'Al Jazeera',
+    rssUrl: 'https://www.aljazeera.com/xml/rss/all.xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'aljazeera',
+    enabled: true,
+  },
+  'globalnews-politics': {
+    id: 'globalnews-politics',
+    name: 'Global News Politics',
+    displayName: 'Global News',
+    rssUrl: 'https://globalnews.ca/politics/feed/',
+    perspectiveTag: 'broadcast-news',
+    iconKey: 'globalnews',
+    enabled: true,
+  },
+  'channelnewsasia-latest': {
+    id: 'channelnewsasia-latest',
+    name: 'Channel NewsAsia Latest',
+    displayName: 'Channel NewsAsia',
+    rssUrl: 'https://www.channelnewsasia.com/api/v1/rss-outbound-feed?_format=xml',
+    perspectiveTag: 'international-wire',
+    iconKey: 'cna',
+    enabled: true,
+  },
+  'dw-top': {
+    id: 'dw-top',
+    name: 'Deutsche Welle Top Stories',
+    displayName: 'DW',
+    rssUrl: 'https://rss.dw.com/rdf/rss-en-top',
+    perspectiveTag: 'international-wire',
+    iconKey: 'dw',
+    enabled: true,
+  },
 };
 
 const DEFAULT_SOURCE_IDS = [
@@ -242,15 +345,17 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 }
 
 const localWebServers: TestConfig['webServer'] = [
-  {
-    command: wrapLoggedWebServerCommand('qdrant', [
-      buildPortClearShellCommand(qdrantPort),
-      `VH_DAEMON_FEED_QDRANT_PORT=${qdrantPort} node ${JSON.stringify(qdrantServerPath)}`,
-    ].join(' && ')),
-    url: `${qdrantBaseUrl}/readyz`,
-    reuseExistingServer: false,
-    timeout: 30_000,
-  },
+  ...(storyclusterVectorBackend === 'qdrant'
+    ? [{
+        command: wrapLoggedWebServerCommand('qdrant', [
+          buildPortClearShellCommand(qdrantPort),
+          `VH_DAEMON_FEED_QDRANT_PORT=${qdrantPort} node ${JSON.stringify(qdrantServerPath)}`,
+        ].join(' && ')),
+        url: `${qdrantBaseUrl}/readyz`,
+        reuseExistingServer: false,
+        timeout: 30_000,
+      }]
+    : []),
   ...(useFixtureFeed
     ? [{
         command: wrapLoggedWebServerCommand('fixture-feed', [

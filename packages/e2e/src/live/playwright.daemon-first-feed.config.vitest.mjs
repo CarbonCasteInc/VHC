@@ -8,6 +8,7 @@ async function loadConfig(runId, envOverrides = {}) {
     VH_DAEMON_FEED_QDRANT_PORT: process.env.VH_DAEMON_FEED_QDRANT_PORT,
     VH_STORYCLUSTER_QDRANT_URL: process.env.VH_STORYCLUSTER_QDRANT_URL,
     QDRANT_URL: process.env.QDRANT_URL,
+    VH_STORYCLUSTER_VECTOR_BACKEND: process.env.VH_STORYCLUSTER_VECTOR_BACKEND,
     VH_DAEMON_FEED_USE_FIXTURE_FEED: process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED,
     VH_LIVE_DEV_FEED_SOURCE_IDS: process.env.VH_LIVE_DEV_FEED_SOURCE_IDS,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
@@ -39,9 +40,19 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(entries[entries.length - 1].url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
   });
 
+  it('skips the qdrant stub when the vector backend is memory', async () => {
+    const config = await loadConfig('run-memory-backend-check', {
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'memory',
+    });
+    const entries = config.webServer;
+    expect(entries[0].command).not.toContain('daemon-feed-qdrant-stub.mjs');
+    expect(entries.some((entry) => entry.command.includes('daemon-feed-qdrant-stub.mjs'))).toBe(false);
+  });
+
   it('keeps the qdrant stub entry when fixture feed mode is enabled', async () => {
     const config = await loadConfig('run-fixture-check', {
       VH_DAEMON_FEED_USE_FIXTURE_FEED: 'true',
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'qdrant',
     });
     const entries = config.webServer;
     expect(entries).toHaveLength(5);
@@ -81,6 +92,7 @@ describe('playwright.daemon-first-feed.config', () => {
   it('writes per-service startup logs into the run artifact directory', async () => {
     const config = await loadConfig('run-webserver-log-check', {
       VH_DAEMON_FEED_USE_FIXTURE_FEED: 'true',
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'qdrant',
     });
     const entries = config.webServer;
 
@@ -89,5 +101,16 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(entries[2].command).toContain('webserver-analysis-stub.log');
     expect(entries[3].command).toContain('webserver-relay.log');
     expect(entries[4].command).toContain('webserver-web-pwa.log');
+  });
+
+  it('writes startup logs without qdrant when the memory backend is selected', async () => {
+    const config = await loadConfig('run-memory-log-check', {
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'memory',
+    });
+    const entries = config.webServer;
+
+    expect(entries.some((entry) => entry.command.includes('webserver-qdrant.log'))).toBe(false);
+    expect(entries[0].command).toContain('webserver-relay.log');
+    expect(entries[1].command).toContain('webserver-web-pwa.log');
   });
 });

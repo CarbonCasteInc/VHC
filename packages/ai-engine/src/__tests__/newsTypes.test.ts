@@ -32,6 +32,18 @@ describe('newsTypes', () => {
     expect(RawFeedItemSchema.safeParse({}).success).toBe(false);
   });
 
+  it('normalizes blank optional raw-item text fields to undefined', () => {
+    const result = RawFeedItemSchema.parse({
+      sourceId: 'src-1',
+      url: 'https://example.com/story',
+      title: 'Story title',
+      summary: ' ',
+      author: '',
+    });
+    expect(result.summary).toBeUndefined();
+    expect(result.author).toBeUndefined();
+  });
+
   it('accepts optional perspectiveTag, iconKey, and displayName on FeedSource', () => {
     const withExtras = FeedSourceSchema.safeParse({
       id: 'src-2',
