@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { daemonFirstFeedHarnessInternal } from './daemonFirstFeedHarness';
+import { GUN_PEER_URL, daemonFirstFeedHarnessInternal } from './daemonFirstFeedHarness';
 
 describe('daemonFirstFeedHarnessInternal.resolveNewsPollIntervalMs', () => {
   afterEach(() => {
@@ -22,6 +22,12 @@ describe('daemonFirstFeedHarnessInternal.resolveNewsPollIntervalMs', () => {
     vi.stubEnv('VH_DAEMON_FEED_USE_FIXTURE_FEED', 'false');
     vi.stubEnv('VITE_NEWS_POLL_INTERVAL_MS', '');
     expect(daemonFirstFeedHarnessInternal.resolveNewsPollIntervalMs()).toBe('15000');
+  });
+});
+
+describe('daemonFirstFeedHarness loopback relay wiring', () => {
+  it('uses a loopback gun peer url', () => {
+    expect(GUN_PEER_URL).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/gun$/);
   });
 });
 

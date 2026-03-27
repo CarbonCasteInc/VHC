@@ -242,7 +242,6 @@ async function waitForSampledBundles(
       page,
       progressiveSampling ? { finalSettleMs: SEMANTIC_AUDIT_POST_REFRESH_SETTLE_MS } : undefined,
     );
-    await waitForHeadlines(page);
   }
 
   const auditable = await readAuditableBundles(page);
