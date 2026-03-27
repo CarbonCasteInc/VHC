@@ -31,7 +31,6 @@ describe('resolveDaemonFeedSourcesJson', () => {
     expect(sources.map((source) => source.id)).toEqual([
       'fox-latest',
       'nypost-politics',
-      'federalist',
       'guardian-us',
       'huffpost-us',
       'cbs-politics',

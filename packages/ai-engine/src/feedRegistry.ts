@@ -16,7 +16,7 @@ export interface SourceMetadata {
  * governance-managed and auditable via code review.
  */
 export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
-  // Conservative (3)
+  // Conservative (2)
   FeedSourceSchema.parse({
     id: 'fox-latest',
     name: 'Fox News',
@@ -33,15 +33,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     rssUrl: 'https://nypost.com/politics/feed/',
     perspectiveTag: 'conservative',
     iconKey: 'nypost',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
-    id: 'federalist',
-    name: 'The Federalist',
-    displayName: 'The Federalist',
-    rssUrl: 'https://thefederalist.com/feed/',
-    perspectiveTag: 'conservative',
-    iconKey: 'federalist',
     enabled: true,
   }),
   // Progressive (3)
