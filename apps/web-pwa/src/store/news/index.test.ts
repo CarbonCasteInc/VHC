@@ -488,6 +488,54 @@ describe('news store', () => {
     expect(store.getState().error).toBeNull();
   });
 
+  it('refreshLatest skips story reads when the requested limit is not finite', async () => {
+    const client = { id: 'client-non-finite-limit' };
+    readNewsLatestIndexMock.mockResolvedValue({ s1: 200, s2: 100 });
+    readNewsHotIndexMock.mockResolvedValue({ s1: 0.91, s2: 0.42 });
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(Number.POSITIVE_INFINITY);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+    expect(store.getState().stories).toEqual([]);
+    expect(store.getState().latestIndex).toEqual({ s1: 200, s2: 100 });
+    expect(store.getState().hotIndex).toEqual({ s1: 0.91, s2: 0.42 });
+  });
+
+  it('refreshLatest skips story reads when the requested limit is non-positive', async () => {
+    const client = { id: 'client-zero-limit' };
+    readNewsLatestIndexMock.mockResolvedValue({ s1: 200, s2: 100 });
+    readNewsHotIndexMock.mockResolvedValue({ s1: 0.91, s2: 0.42 });
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(0);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+    expect(store.getState().stories).toEqual([]);
+    expect(store.getState().latestIndex).toEqual({ s1: 200, s2: 100 });
+    expect(store.getState().hotIndex).toEqual({ s1: 0.91, s2: 0.42 });
+  });
+
+  it('refreshLatest breaks latest-index timestamp ties by story id', async () => {
+    const client = { id: 'client-tie-break' };
+    readNewsLatestIndexMock.mockResolvedValue({ s2: 200, s1: 200 });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockImplementation(async (_client, storyId) =>
+      story({ story_id: storyId, created_at: storyId === 's1' ? 10 : 20 }));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await store.getState().refreshLatest(2);
+
+    expect(readNewsStoryMock.mock.calls.map(([, storyId]) => storyId)).toEqual(['s1', 's2']);
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s1', 's2']);
+  });
+
   it('refreshLatest preserves first created_at for re-ingested story identities', async () => {
     const client = { id: 'client-created-at-freeze' };
     const initial = story({ story_id: 's1', created_at: 10, cluster_window_end: 20, headline: 'initial' });
