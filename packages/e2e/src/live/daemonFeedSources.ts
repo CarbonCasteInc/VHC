@@ -11,7 +11,6 @@ type FeedSource = {
 const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'fox-latest': { id: 'fox-latest', name: 'Fox News', displayName: 'Fox News', rssUrl: 'https://moxie.foxnews.com/google-publisher/latest.xml', perspectiveTag: 'conservative', iconKey: 'fox', enabled: true },
   'nypost-politics': { id: 'nypost-politics', name: 'New York Post Politics', displayName: 'New York Post', rssUrl: 'https://nypost.com/politics/feed/', perspectiveTag: 'conservative', iconKey: 'nypost', enabled: true },
-  federalist: { id: 'federalist', name: 'The Federalist', displayName: 'The Federalist', rssUrl: 'https://thefederalist.com/feed/', perspectiveTag: 'conservative', iconKey: 'federalist', enabled: true },
   'guardian-us': { id: 'guardian-us', name: 'The Guardian US', displayName: 'The Guardian', rssUrl: 'https://www.theguardian.com/us-news/rss', perspectiveTag: 'progressive', iconKey: 'guardian', enabled: true },
   'huffpost-us': { id: 'huffpost-us', name: 'HuffPost', displayName: 'HuffPost', rssUrl: 'https://www.huffpost.com/section/us-news/feed', perspectiveTag: 'progressive', iconKey: 'huffpost', enabled: true },
   'cbs-politics': { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },

@@ -150,7 +150,6 @@ describe('runDaemonFeedSemanticSoak', () => {
         keepSourceIds: [
           'fox-latest',
           'nypost-politics',
-          'federalist',
           'guardian-us',
           'huffpost-us',
           'cbs-politics',
@@ -166,7 +165,6 @@ describe('runDaemonFeedSemanticSoak', () => {
             { sourceId: 'bbc-us-canada', corroboratedBundleCount: 8, bundleAppearanceCount: 17, ingestedItemCount: 24 },
             { sourceId: 'nbc-politics', corroboratedBundleCount: 8, bundleAppearanceCount: 15, ingestedItemCount: 25 },
             { sourceId: 'huffpost-us', corroboratedBundleCount: 7, bundleAppearanceCount: 30, ingestedItemCount: 48 },
-            { sourceId: 'federalist', corroboratedBundleCount: 7, bundleAppearanceCount: 14, ingestedItemCount: 20 },
             { sourceId: 'cbs-politics', corroboratedBundleCount: 6, bundleAppearanceCount: 13, ingestedItemCount: 30 },
             { sourceId: 'guardian-us', corroboratedBundleCount: 6, bundleAppearanceCount: 10, ingestedItemCount: 33 },
             { sourceId: 'nypost-politics', corroboratedBundleCount: 5, bundleAppearanceCount: 7, ingestedItemCount: 19 },
@@ -184,7 +182,6 @@ describe('runDaemonFeedSemanticSoak', () => {
       'bbc-us-canada',
       'nbc-politics',
       'huffpost-us',
-      'federalist',
       'cbs-politics',
       'guardian-us',
       'nypost-politics',
