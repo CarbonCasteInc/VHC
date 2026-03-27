@@ -375,7 +375,7 @@ const localWebServers: TestConfig['webServer'] = [
       `rm -rf ${JSON.stringify(relayRootDir)}`,
       `mkdir -p ${JSON.stringify(relayRootDir)}`,
       `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} || true`,
-      `GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
+      `GUN_HOST=127.0.0.1 GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
     ].join(' && ')),
     url: `http://127.0.0.1:${gunPort}`,
     reuseExistingServer: false,
