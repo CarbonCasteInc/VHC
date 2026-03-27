@@ -138,7 +138,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     );
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('3');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('12');
-    expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
+    expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
   });
 
@@ -203,7 +203,7 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_LIVE_DEV_FEED_SOURCE_IDS).toBe('guardian-us,fox-latest');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('2');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('8');
-    expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('1');
+    expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
   });
 

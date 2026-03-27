@@ -105,7 +105,6 @@ describe('news store storylines', () => {
   it('refreshLatest loads referenced storylines for fetched stories', async () => {
     const client = { id: 'client' };
     readNewsLatestIndexMock.mockResolvedValue({ 'story-1': 20 });
-    readLatestStoryIdsMock.mockResolvedValue(['story-1']);
     readNewsStoryMock.mockResolvedValue(story());
     readNewsStorylineMock.mockResolvedValue(storyline());
 

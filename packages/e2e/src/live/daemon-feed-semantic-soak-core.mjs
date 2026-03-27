@@ -791,7 +791,7 @@ export function resolvePublicSemanticSoakSpawnEnv(
     sourceIds,
   );
   nextEnv.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES = env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES?.trim()
-    || '1';
+    || '0';
 
   return nextEnv;
 }

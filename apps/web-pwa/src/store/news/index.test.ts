@@ -462,9 +462,10 @@ describe('news store', () => {
     hydrateNewsStoreMock.mockReturnValue(true);
 
     const client = { id: 'client' };
-    readNewsLatestIndexMock.mockResolvedValue({ s1: 200, s2: 100 });
+    readNewsLatestIndexMock
+      .mockResolvedValueOnce({ s1: 200, s2: 100 })
+      .mockResolvedValueOnce({});
     readNewsHotIndexMock.mockResolvedValue({ s1: 0.91, s2: 0.42 });
-    readLatestStoryIdsMock.mockResolvedValue(['s1', 's2']);
     readNewsStoryMock.mockImplementation(async (_client, storyId) => {
       if (storyId === 's1') return story({ story_id: 's1', created_at: 10 });
       return story({ story_id: 's2', created_at: 20 });
@@ -476,7 +477,8 @@ describe('news store', () => {
     await store.getState().refreshLatest(25);
 
     expect(hydrateNewsStoreMock).toHaveBeenCalled();
-    expect(readLatestStoryIdsMock).toHaveBeenCalledWith(client, 25);
+    expect(readNewsLatestIndexMock).toHaveBeenCalledTimes(1);
+    expect(readLatestStoryIdsMock).not.toHaveBeenCalled();
     expect(readNewsHotIndexMock).toHaveBeenCalledWith(client);
     expect(store.getState().hydrated).toBe(true);
     expect(store.getState().latestIndex).toEqual({ s1: 200, s2: 100 });
@@ -492,7 +494,6 @@ describe('news store', () => {
     const reingested = story({ story_id: 's1', created_at: 999, cluster_window_end: 400, headline: 'updated' });
 
     readNewsLatestIndexMock.mockResolvedValue({ s1: 400 });
-    readLatestStoryIdsMock.mockResolvedValue(['s1']);
     readNewsStoryMock.mockResolvedValue(reingested);
 
     const { createNewsStore } = await import('./index');
@@ -514,7 +515,6 @@ describe('news store', () => {
     const client = { id: 'client-mirror' };
     const s1 = story({ story_id: 'mirror-story', created_at: 10, cluster_window_end: 250 });
     readNewsLatestIndexMock.mockResolvedValue({ [s1.story_id]: s1.cluster_window_end });
-    readLatestStoryIdsMock.mockResolvedValue([s1.story_id]);
     readNewsStoryMock.mockResolvedValue(s1);
 
     const { createNewsStore } = await import('./index');

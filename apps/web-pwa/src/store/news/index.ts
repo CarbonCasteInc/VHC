@@ -1,6 +1,5 @@
 import { create, type StoreApi } from 'zustand';
 import {
-  readLatestStoryIds,
   readNewsHotIndex,
   readNewsLatestIndex,
   readNewsStory,
@@ -36,6 +35,17 @@ const INITIAL_STATE: Pick<NewsState,
   loading: false,
   error: null
 };
+
+function selectLatestStoryIds(latestIndex: Record<string, number>, limit = 50): string[] {
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return [];
+  }
+
+  return Object.entries(latestIndex)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, Math.floor(limit))
+    .map(([storyId]) => storyId);
+}
 
 export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsState> {
   const defaults: NewsDeps = {
@@ -260,7 +270,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
           readNewsHotIndex(client).then(sanitizeHotIndex),
         ]);
 
-        const storyIds = await readLatestStoryIds(client, limit);
+        const storyIds = selectLatestStoryIds(latestIndex, limit);
         const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
         const validStories = parseStories(stories);
         const filteredStories = filterStoriesToConfiguredSources(validStories);

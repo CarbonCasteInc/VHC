@@ -210,6 +210,29 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     });
   });
 
+  it('keeps sampling from store refreshes without re-entering headline readiness', async () => {
+    readAuditableBundles.mockResolvedValue([]);
+    readSemanticAuditStoreSnapshot.mockResolvedValue(makeSnapshot({ auditable_count: 0 }));
+
+    const { runDaemonFirstFeedSemanticAudit } = await import('./daemonFirstFeedSemanticAudit');
+    const report = await runDaemonFirstFeedSemanticAudit({}, {
+      openAIApiKey: 'test-key',
+      sampleCount: 1,
+      timeoutMs: 25,
+    });
+
+    expect(waitForHeadlines).not.toHaveBeenCalled();
+    expect(refreshNewsStoreLatest).toHaveBeenCalled();
+    expect(nudgeFeed).toHaveBeenCalled();
+    expect(report).toMatchObject({
+      sampled_story_count: 0,
+      supply: {
+        status: 'empty',
+        auditable_count: 0,
+      },
+    });
+  });
+
   it('fails fast when the classifier does not return a result for a built pair', async () => {
     const bundle = makeBundle('story-1');
     readAuditableBundles.mockResolvedValue([bundle]);
@@ -291,7 +314,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     });
 
     expect(refreshNewsStoreLatest).toHaveBeenCalledTimes(1);
-    expect(waitForHeadlines).toHaveBeenCalledTimes(1);
+    expect(waitForHeadlines).not.toHaveBeenCalled();
     expect(nudgeFeed).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(classifyCanonicalSourcePairs).toHaveBeenCalledWith(expect.arrayContaining([pairA, pairB]), {
@@ -409,7 +432,7 @@ describe('daemonFirstFeedSemanticAudit run coverage', () => {
     });
 
     expect(refreshNewsStoreLatest).toHaveBeenCalledTimes(2);
-    expect(waitForHeadlines).toHaveBeenCalledTimes(2);
+    expect(waitForHeadlines).not.toHaveBeenCalled();
     expect(nudgeFeed).toHaveBeenCalledTimes(2);
     expect(nudgeFeed).toHaveBeenCalledWith({}, { finalSettleMs: 4000 });
     expect(report.bundles.map((bundle) => bundle.story_id)).toEqual(['story-1', 'story-2', 'story-3']);
