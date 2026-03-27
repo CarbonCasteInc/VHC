@@ -45,7 +45,8 @@ Gun.obj.del = Gun.obj.del || ((obj, key) => {
 
 gunRequire('gun/lib/ws');
 
-const port = process.env.GUN_PORT || 7777;
+const port = Number(process.env.GUN_PORT || 7777);
+const host = process.env.GUN_HOST || '127.0.0.1';
 const gunFile = process.env.GUN_FILE || 'data';
 
 const server = http.createServer((req, res) => {
@@ -62,7 +63,7 @@ Gun({
   peers: [] // explicit empty list to keep ws adapter happy
 });
 
-server.listen(port, '0.0.0.0', () => {
+server.listen(port, host, () => {
   // eslint-disable-next-line no-console
-  console.log(`[vh:relay] Gun relay listening on ${port}`);
+  console.log(`[vh:relay] Gun relay listening on ${host}:${port}`);
 });

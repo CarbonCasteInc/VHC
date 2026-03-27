@@ -111,6 +111,7 @@ describe('playwright.daemon-first-feed.config', () => {
 
     expect(entries.some((entry) => entry.command.includes('webserver-qdrant.log'))).toBe(false);
     expect(entries[0].command).toContain('webserver-relay.log');
+    expect(entries[0].command).toContain('GUN_HOST=127.0.0.1');
     expect(entries[1].command).toContain('webserver-web-pwa.log');
   });
 });
