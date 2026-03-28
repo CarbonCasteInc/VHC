@@ -1,5 +1,5 @@
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { spawn as spawnAsync, spawnSync } from 'node:child_process';
+import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -103,6 +103,8 @@ const DAEMON_FEED_PORT_FALLBACK_BASES = {
   analysisStubPort: 29100,
   webPort: 32100,
 };
+const MANAGED_RELAY_READY_TIMEOUT_MS = 10_000;
+const MANAGED_RELAY_STOP_TIMEOUT_MS = 5_000;
 
 function normalizeSourceIds(value) {
   return String(value ?? '')
@@ -609,6 +611,149 @@ function runDaemonFirstPreflight({
   };
 }
 
+function resolveDaemonFirstRuntimeDir(runId, env = process.env, repoRoot = DEFAULT_REPO_ROOT) {
+  const artifactRoot = env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim()
+    || path.join(repoRoot, '.tmp/e2e-daemon-feed');
+  return path.join(artifactRoot, runId);
+}
+
+function buildManagedRelayFailureMessage(message, relayLogPath) {
+  return relayLogPath
+    ? `${message} (see ${relayLogPath})`
+    : message;
+}
+
+async function waitForManagedRelayReady({
+  child,
+  relayUrl,
+  relayLogPath,
+  timeoutMs = MANAGED_RELAY_READY_TIMEOUT_MS,
+  sleepImpl = sleep,
+}) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (child.exitCode !== null) {
+      throw new Error(buildManagedRelayFailureMessage(
+        `managed relay exited early with code ${child.exitCode}`,
+        relayLogPath,
+      ));
+    }
+    try {
+      const response = await fetch(relayUrl, {
+        signal: AbortSignal.timeout(1_000),
+      });
+      const body = await response.text();
+      if (response.ok && body.includes('vh relay alive')) {
+        return;
+      }
+    } catch {
+      // poll until ready or child exits
+    }
+    await sleepImpl(250);
+  }
+
+  throw new Error(buildManagedRelayFailureMessage(
+    `managed relay readiness timeout after ${timeoutMs}ms`,
+    relayLogPath,
+  ));
+}
+
+export async function startManagedRelayServer({
+  cwd = process.cwd(),
+  repoRoot = DEFAULT_REPO_ROOT,
+  env = process.env,
+  runId,
+  ports,
+  log = console.log,
+  sleepImpl = sleep,
+  spawnChild = spawnAsync,
+  mkdir = mkdirSync,
+  rm = rmSync,
+  writeFile = writeFileSync,
+}) {
+  const runtimeDir = resolveDaemonFirstRuntimeDir(runId, env, repoRoot);
+  const relayRootDir = path.join(runtimeDir, 'relay');
+  const relayDataPath = path.join(relayRootDir, 'data');
+  const relayLogPath = path.join(runtimeDir, 'webserver-relay.log');
+  const relayServerPath = path.join(repoRoot, 'infra/relay/server.js');
+  const relayUrl = `http://127.0.0.1:${ports.gunPort}`;
+
+  rm(relayRootDir, { recursive: true, force: true });
+  mkdir(relayRootDir, { recursive: true });
+  mkdir(path.dirname(relayLogPath), { recursive: true });
+  writeFile(relayLogPath, '[vh:e2e-webserver] starting relay\n', 'utf8');
+
+  const relayLogStream = createWriteStream(relayLogPath, { flags: 'a' });
+  const child = spawnChild('node', [relayServerPath], {
+    cwd,
+    env: {
+      ...env,
+      GUN_HOST: '127.0.0.1',
+      GUN_PORT: String(ports.gunPort),
+      GUN_FILE: relayDataPath,
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+
+  child.stdout?.pipe(relayLogStream, { end: false });
+  child.stderr?.pipe(relayLogStream, { end: false });
+  child.once('exit', (code, signal) => {
+    relayLogStream.write(`[vh:e2e-webserver] exit relay status=${code ?? 'null'}${signal ? ` signal=${signal}` : ''}\n`);
+  });
+
+  try {
+    await waitForManagedRelayReady({
+      child,
+      relayUrl,
+      relayLogPath,
+      sleepImpl,
+    });
+    log(`[vh:daemon-soak] managed relay ready on 127.0.0.1:${ports.gunPort}`);
+    return {
+      child,
+      relayLogPath,
+      relayLogStream,
+    };
+  } catch (error) {
+    await stopManagedRelayServer({
+      relayHandle: {
+        child,
+        relayLogPath,
+        relayLogStream,
+      },
+      sleepImpl,
+    });
+    throw error;
+  }
+}
+
+export async function stopManagedRelayServer({
+  relayHandle,
+  sleepImpl = sleep,
+}) {
+  if (!relayHandle) {
+    return;
+  }
+
+  const { child, relayLogStream } = relayHandle;
+  if (child && child.exitCode === null) {
+    child.kill('SIGTERM');
+    const startedAt = Date.now();
+    while (child.exitCode === null && Date.now() - startedAt < MANAGED_RELAY_STOP_TIMEOUT_MS) {
+      await sleepImpl(100);
+    }
+    if (child.exitCode === null) {
+      child.kill('SIGKILL');
+      const killStartedAt = Date.now();
+      while (child.exitCode === null && Date.now() - killStartedAt < 1_000) {
+        await sleepImpl(50);
+      }
+    }
+  }
+
+  await new Promise((resolve) => relayLogStream.end(resolve));
+}
+
 function writeAtomicTextFile(
   targetPath,
   content,
@@ -841,6 +986,7 @@ export function resolvePublicSemanticSoakSpawnEnv(
     ...env,
     VH_RUN_DAEMON_FIRST_FEED: 'true',
     VH_DAEMON_FEED_RUN_ID: runId,
+    VH_DAEMON_FEED_MANAGED_RELAY: 'true',
     VH_DAEMON_FEED_ARTIFACT_ROOT:
       env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim()
       || path.join(repoRoot, '.tmp/e2e-daemon-feed'),
@@ -899,6 +1045,8 @@ export async function runDaemonFeedSemanticSoak({
   log = console.log,
   errorLog = console.error,
   sleepImpl = sleep,
+  startManagedRelay = startManagedRelayServer,
+  stopManagedRelay = stopManagedRelayServer,
 } = {}) {
   const runCount = readPositiveInt('VH_DAEMON_FEED_SOAK_RUNS', 3, env);
   const pauseMs = readNonNegativeInt('VH_DAEMON_FEED_SOAK_PAUSE_MS', 30_000, env);
@@ -954,18 +1102,68 @@ export async function runDaemonFeedSemanticSoak({
       writeFile,
       rename,
     });
-    const proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
-      cwd,
-      env: resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, {
-        portPlan,
-        repoRoot,
-        exists,
-        readFile,
-        stat,
-      }),
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
+    const spawnEnv = resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, {
+      portPlan,
+      repoRoot,
+      exists,
+      readFile,
+      stat,
     });
+    let proc = { status: 1, stdout: '', stderr: '' };
+    let startupError = null;
+    let relayHandle = null;
+
+    try {
+      if (spawnEnv.VH_DAEMON_FEED_MANAGED_RELAY === 'true') {
+        relayHandle = await startManagedRelay({
+          cwd,
+          repoRoot,
+          env: spawnEnv,
+          runId,
+          ports: portPlan,
+          log,
+          sleepImpl,
+        });
+      }
+
+      proc = spawn('pnpm', PLAYWRIGHT_ARGS, {
+        cwd,
+        env: spawnEnv,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      });
+    } catch (error) {
+      startupError = formatErrorMessage(error);
+      proc = {
+        status: 1,
+        stdout: JSON.stringify({
+          config: {
+            configFile: path.join(cwd, 'playwright.daemon-first-feed.config.ts'),
+            rootDir: path.join(cwd, 'src/live'),
+            webServer: null,
+          },
+          suites: [],
+          errors: [{
+            message: `Error: ${startupError}`,
+            stack: `Error: ${startupError}`,
+          }],
+          stats: {
+            startTime: new Date().toISOString(),
+            duration: 0,
+            expected: 0,
+            skipped: 0,
+            unexpected: 0,
+            flaky: 0,
+          },
+        }),
+        stderr: '',
+      };
+    } finally {
+      await stopManagedRelay({
+        relayHandle,
+        sleepImpl,
+      });
+    }
 
     writeFile(reportPath, proc.stdout ?? '', 'utf8');
     if (proc.stderr) {
@@ -997,7 +1195,7 @@ export async function runDaemonFeedSemanticSoak({
     try {
       audit = primaryResult ? decodeAttachment(primaryResult, ATTACHMENT_NAME) : null;
       if (!audit) {
-        auditError = `${ATTACHMENT_NAME} attachment missing`;
+        auditError = startupError || `${ATTACHMENT_NAME} attachment missing`;
       }
     } catch (error) {
       auditError = formatErrorMessage(error);
