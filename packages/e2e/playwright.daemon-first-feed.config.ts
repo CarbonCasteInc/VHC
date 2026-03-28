@@ -32,7 +32,7 @@ process.env.VH_LIVE_BASE_URL ??= `http://127.0.0.1:${stablePort(2100, 200, runId
 const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
 const baseUrl = process.env.VH_LIVE_BASE_URL;
 const basePort = extractPort(baseUrl);
-const gunPeerUrl = `http://localhost:${gunPort}/gun`;
+const gunPeerUrl = `http://127.0.0.1:${gunPort}/gun`;
 const fixtureFeedPort = Number(process.env.VH_DAEMON_FEED_FIXTURE_PORT);
 const fixtureFeedBaseUrl = `http://127.0.0.1:${fixtureFeedPort}`;
 const qdrantPort = Number(process.env.VH_DAEMON_FEED_QDRANT_PORT);
@@ -41,6 +41,7 @@ const analysisStubPort = Number(process.env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT);
 const analysisStubBaseUrl = `http://127.0.0.1:${analysisStubPort}`;
 const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
 const useFixtureAnalysisStub = useFixtureFeed && process.env.VH_DAEMON_FEED_USE_ANALYSIS_STUB !== 'false';
+const useManagedRelay = process.env.VH_DAEMON_FEED_MANAGED_RELAY === 'true';
 const storyclusterVectorBackend = process.env.VH_STORYCLUSTER_VECTOR_BACKEND?.trim() || 'qdrant';
 process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER ??= useFixtureFeed ? 'true' : 'false';
 process.env.VH_STORYCLUSTER_VECTOR_BACKEND ??= storyclusterVectorBackend;
@@ -369,18 +370,20 @@ const localWebServers: TestConfig['webServer'] = [
         timeout: 30_000,
       }]
     : []),
-  {
-    command: wrapLoggedWebServerCommand('relay', [
-      buildPortClearShellCommand(gunPort),
-      `rm -rf ${JSON.stringify(relayRootDir)}`,
-      `mkdir -p ${JSON.stringify(relayRootDir)}`,
-      `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} || true`,
-      `GUN_HOST=127.0.0.1 GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
-    ].join(' && ')),
-    url: `http://127.0.0.1:${gunPort}`,
-    reuseExistingServer: false,
-    timeout: 30_000,
-  },
+  ...(!useManagedRelay
+    ? [{
+        command: wrapLoggedWebServerCommand('relay', [
+          buildPortClearShellCommand(gunPort),
+          `rm -rf ${JSON.stringify(relayRootDir)}`,
+          `mkdir -p ${JSON.stringify(relayRootDir)}`,
+          `node ${JSON.stringify(cleanupServerPath)} --repo-root ${JSON.stringify(path.resolve(process.cwd(), '../../'))} --gun-peer-url ${JSON.stringify(gunPeerUrl)} || true`,
+          `GUN_HOST=127.0.0.1 GUN_PORT=${gunPort} GUN_FILE=${JSON.stringify(relayDataPath)} node ${JSON.stringify(relayServerPath)}`,
+        ].join(' && ')),
+        url: `http://127.0.0.1:${gunPort}`,
+        reuseExistingServer: false,
+        timeout: 30_000,
+      }]
+    : []),
   {
     command: wrapLoggedWebServerCommand('web-pwa', [
       buildPortClearShellCommand(basePort),

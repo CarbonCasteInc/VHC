@@ -6,6 +6,7 @@ async function loadConfig(runId, envOverrides = {}) {
   const previous = {
     VH_DAEMON_FEED_RUN_ID: process.env.VH_DAEMON_FEED_RUN_ID,
     VH_DAEMON_FEED_QDRANT_PORT: process.env.VH_DAEMON_FEED_QDRANT_PORT,
+    VH_DAEMON_FEED_MANAGED_RELAY: process.env.VH_DAEMON_FEED_MANAGED_RELAY,
     VH_STORYCLUSTER_QDRANT_URL: process.env.VH_STORYCLUSTER_QDRANT_URL,
     QDRANT_URL: process.env.QDRANT_URL,
     VH_STORYCLUSTER_VECTOR_BACKEND: process.env.VH_STORYCLUSTER_VECTOR_BACKEND,
@@ -113,5 +114,17 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(entries[0].command).toContain('webserver-relay.log');
     expect(entries[0].command).toContain('GUN_HOST=127.0.0.1');
     expect(entries[1].command).toContain('webserver-web-pwa.log');
+  });
+
+  it('skips relay webServer startup when the soak wrapper manages relay lifecycle', async () => {
+    const config = await loadConfig('run-managed-relay-check', {
+      VH_DAEMON_FEED_MANAGED_RELAY: 'true',
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'memory',
+    });
+    const entries = config.webServer;
+
+    expect(entries.some((entry) => entry.command.includes('webserver-relay.log'))).toBe(false);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].command).toContain('webserver-web-pwa.log');
   });
 });

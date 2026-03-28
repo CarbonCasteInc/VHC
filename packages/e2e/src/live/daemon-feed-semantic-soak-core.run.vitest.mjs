@@ -104,6 +104,14 @@ function makeSpawnMock(...pnpmResults) {
   });
 }
 
+function makeManagedRelayMocks(overrides = {}) {
+  return {
+    startManagedRelay: vi.fn(async () => ({ relayLogPath: '/repo/.tmp/e2e-daemon-feed/run/relay.log' })),
+    stopManagedRelay: vi.fn(async () => {}),
+    ...overrides,
+  };
+}
+
 describe('runDaemonFeedSemanticSoak', () => {
   it('injects the ranked keep-source profile and scaled limits when unset', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'run-1', 4, 180000, {
@@ -485,6 +493,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         }],
         log: (message) => logs.push(message),
         sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
       })).rejects.toThrow();
     } finally {
       process.stderr.write = originalStderrWrite;
@@ -675,6 +684,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       resolvePortPlan: resolveTestPortPlan,
       log: vi.fn(),
       sleepImpl,
+      ...makeManagedRelayMocks(),
     });
 
     expect(result.summary.strictSoakPass).toBe(true);
@@ -732,6 +742,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
       })).rejects.toThrow('exit:1');
     } finally {
       process.exit = originalExit;
@@ -739,6 +750,60 @@ describe('runDaemonFeedSemanticSoak', () => {
 
     expect(writes.get('/repo/.tmp/out/semantic-soak-summary.json')).toContain('"reportParseError":');
     expect(writes.get('/repo/.tmp/out/semantic-soak-summary.json')).toContain('attachment missing');
+  });
+
+  it('records managed relay startup failures before exiting the failing soak run', async () => {
+    const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
+    const startManagedRelay = vi.fn(async () => {
+      throw new Error('managed relay failed');
+    });
+    const stopManagedRelay = vi.fn(async () => {});
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        repoRoot: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        },
+        spawn: makeSpawnMock(
+          { status: 0, stdout: 'build ok', stderr: '' },
+        ),
+        mkdir: vi.fn(),
+        rename: virtualFs.rename,
+        readFile: (target) => writes.get(target),
+        writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+        startManagedRelay,
+        stopManagedRelay,
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    expect(startManagedRelay).toHaveBeenCalledTimes(1);
+    expect(stopManagedRelay).toHaveBeenCalledWith({
+      relayHandle: null,
+      sleepImpl: expect.any(Function),
+    });
+    expect(writes.get('/repo/.tmp/out/run-1.playwright.json')).toContain('managed relay failed');
+    const summary = JSON.parse(writes.get('/repo/.tmp/out/semantic-soak-summary.json'));
+    expect(summary.results[0]).toMatchObject({
+      auditArtifactState: 'audit_attachment_invalid',
+      playwrightPrimaryResultPresent: false,
+      auditError: 'managed relay failed',
+    });
   });
 
   it('records invalid failure/runtime attachments without overwriting an existing audit error', async () => {
@@ -780,6 +845,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
       })).rejects.toThrow('exit:1');
     } finally {
       process.exit = originalExit;
@@ -826,6 +892,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
       })).rejects.toThrow('exit:1');
     } finally {
       process.exit = originalExit;
@@ -884,6 +951,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
       })).rejects.toThrow('exit:1');
     } finally {
       process.exit = originalExit;
@@ -943,6 +1011,7 @@ describe('runDaemonFeedSemanticSoak', () => {
         resolvePortPlan: resolveTestPortPlan,
         log: vi.fn(),
         sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
       })).rejects.toThrow('exit:1');
     } finally {
       process.exit = originalExit;
@@ -1028,6 +1097,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       log: vi.fn(),
       errorLog,
       sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
     });
 
     expect(result.summary.strictSoakPass).toBe(true);
@@ -1140,6 +1210,7 @@ describe('runDaemonFeedSemanticSoak', () => {
       log: vi.fn(),
       errorLog,
       sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
     });
 
     expect(result.summary.strictSoakPass).toBe(true);
