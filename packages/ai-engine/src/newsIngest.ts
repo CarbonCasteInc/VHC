@@ -4,6 +4,7 @@ import {
   type FeedSource,
   type RawFeedItem,
 } from './newsTypes';
+import { parseApNewsHtmlFeedItems } from './sourceHtmlFeeds';
 
 const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
@@ -180,8 +181,18 @@ async function fetchFeedItems(source: FeedSource): Promise<RawFeedItem[]> {
         throw new Error(`HTTP ${response.status}`);
       }
 
-      const xml = await response.text();
-      return parseFeedXml(xml, source).sort(sortByPublishedDesc);
+      const payload = await response.text();
+      const parsedXmlItems = parseFeedXml(payload, source);
+      if (parsedXmlItems.length > 0) {
+        return parsedXmlItems.sort(sortByPublishedDesc);
+      }
+
+      const parsedHtmlItems = parseApNewsHtmlFeedItems(
+        source,
+        payload,
+        response.url || source.rssUrl,
+      );
+      return parsedHtmlItems.sort(sortByPublishedDesc);
     } catch (error) {
       lastError = error;
       if (attempt < feedFetchAttempts) {

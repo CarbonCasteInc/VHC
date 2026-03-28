@@ -33,6 +33,16 @@ function makeReadableText(): string {
   ).join(' ');
 }
 
+const apHubHtml = `
+  <!DOCTYPE html>
+  <html class="TagPage" data-named-page-type="Hub">
+    <body>
+      <a href="https://apnews.com/article/policy-shift-111">AP policy shift headline</a>
+      <a href="https://apnews.com/article/budget-vote-222">Budget vote clears committee</a>
+    </body>
+  </html>
+`;
+
 describe('sourceAdmissionReport', () => {
   it('parses unique http links from RSS and Atom feeds', () => {
     const xml = `
@@ -83,6 +93,31 @@ describe('sourceAdmissionReport', () => {
     expect(result.skippedVideoUrls).toEqual([
       'https://www.today.com/video/nightly-briefing-123',
     ]);
+  });
+
+  it('parses AP html hub links when the source uses an official section page', () => {
+    const source = {
+      id: 'ap-topnews',
+      name: 'Associated Press Top News',
+      rssUrl: 'https://apnews.com/hub/apf-topnews',
+      enabled: true,
+    };
+
+    expect(
+      sourceAdmissionReportInternal.parseFeedLinksDetailed(
+        apHubHtml,
+        4,
+        source,
+        'https://apnews.com/hub/apf-topnews',
+      ),
+    ).toMatchObject({
+      links: [
+        'https://apnews.com/article/policy-shift-111',
+        'https://apnews.com/article/budget-vote-222',
+      ],
+      itemFragmentCount: 0,
+      entryFragmentCount: 0,
+    });
   });
 
   it('derives criteria from explicit options and env fallbacks', () => {
@@ -351,7 +386,7 @@ describe('sourceAdmissionReport', () => {
   });
 
   it('rejects a source when article fetches are access denied', async () => {
-    const source = STARTER_FEED_SOURCES[5];
+    const source = STARTER_FEED_SOURCES.find((entry) => entry.id === 'cbs-politics')!;
     const fetchFn = vi.fn(async (input: string | URL) => {
       const url = String(input);
       if (url === source.rssUrl) {
@@ -440,6 +475,56 @@ describe('sourceAdmissionReport', () => {
       httpStatus: 200,
       errorCode: 'feed_non_xml_payload',
       payloadKind: 'non_xml',
+    });
+  });
+
+  it('admits AP html hub sources when the article pages are readable', async () => {
+    const source = {
+      id: 'ap-topnews',
+      name: 'Associated Press Top News',
+      rssUrl: 'https://apnews.com/hub/apf-topnews',
+      enabled: true,
+    };
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(200, apHubHtml);
+      }
+      if (
+        url === 'https://apnews.com/article/policy-shift-111'
+        || url === 'https://apnews.com/article/budget-vote-222'
+      ) {
+        return makeResponse(200, makeReadableHtml('AP readable'));
+      }
+      return makeResponse(404, 'missing');
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 2,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 0.5,
+      now: () => 1_700_000_000_000,
+      feedReadRetryDelayMs: 0,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'AP readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    expect(report.sampledUrls).toEqual([
+      'https://apnews.com/article/policy-shift-111',
+      'https://apnews.com/article/budget-vote-222',
+    ]);
+    expect(report.feedRead).toMatchObject({
+      ok: true,
+      payloadKind: 'html_feed',
+      errorCode: null,
+      extractedLinkCount: 2,
     });
   });
 

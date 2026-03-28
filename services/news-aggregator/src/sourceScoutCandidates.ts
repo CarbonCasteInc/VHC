@@ -18,7 +18,7 @@ export const SOURCE_SCOUT_CANDIDATE_FEED_SOURCES: readonly FeedSource[] = Object
     id: 'ap-topnews',
     name: 'Associated Press Top News',
     displayName: 'AP',
-    rssUrl: 'https://apnews.com/hub/ap-top-news?output=rss',
+    rssUrl: 'https://apnews.com/hub/apf-topnews',
     perspectiveTag: 'wire-service',
     iconKey: 'ap',
     enabled: true,

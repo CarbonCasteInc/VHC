@@ -63,6 +63,17 @@ const multiItemRssXml = `
   </rss>
 `;
 
+const apHubHtml = `
+  <!DOCTYPE html>
+  <html class="TagPage" data-named-page-type="Hub">
+    <body>
+      <a href="https://apnews.com/article/policy-shift-111">AP policy shift headline</a>
+      <a href="https://apnews.com/article/policy-shift-111">AP policy shift headline</a>
+      <a href="https://apnews.com/article/budget-vote-222">Budget vote clears committee</a>
+    </body>
+  </html>
+`;
+
 describe('newsIngest', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -235,6 +246,31 @@ describe('newsIngest', () => {
         author: undefined,
       }),
     ]);
+  });
+
+  it('falls back to AP html hub parsing when no rss or atom entries exist', async () => {
+    const fetchMock = vi.mocked(globalThis.fetch);
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      url: 'https://apnews.com/hub/apf-topnews',
+      text: vi.fn().mockResolvedValue(apHubHtml),
+    } as unknown as Response);
+
+    const items = await ingestFeeds([
+      {
+        id: 'ap-topnews',
+        name: 'Associated Press Top News',
+        rssUrl: 'https://apnews.com/hub/apf-topnews',
+        enabled: true,
+      },
+    ]);
+
+    expect(items).toHaveLength(2);
+    expect(items.map((item) => item.url)).toEqual([
+      'https://apnews.com/article/policy-shift-111',
+      'https://apnews.com/article/budget-vote-222',
+    ]);
+    expect(items[0]?.publishedAt).toBeGreaterThan(items[1]?.publishedAt ?? Number.NEGATIVE_INFINITY);
   });
 
   it('applies per-source and total item budgets using recency ordering', async () => {

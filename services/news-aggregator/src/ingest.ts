@@ -7,7 +7,12 @@
  * @module @vh/news-aggregator/ingest
  */
 
-import { RawFeedItemSchema, type FeedSource, type RawFeedItem } from '@vh/data-model';
+import {
+  parseApNewsHtmlFeedItems,
+  type FeedSource,
+  RawFeedItemSchema,
+  type RawFeedItem,
+} from '@vh/ai-engine';
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                             */
@@ -182,8 +187,11 @@ export async function ingestFeed(
         result.errors.push(`HTTP ${resp.status} from ${source.rssUrl}`);
         return result;
       }
-      const xml = await resp.text();
-      result.items = parseFeedXml(xml, source.id);
+      const payload = await resp.text();
+      const parsedXmlItems = parseFeedXml(payload, source.id);
+      result.items = parsedXmlItems.length > 0
+        ? parsedXmlItems
+        : parseApNewsHtmlFeedItems(source, payload, resp.url || source.rssUrl);
     } finally {
       clearTimeout(timer);
     }
