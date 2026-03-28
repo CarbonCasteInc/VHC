@@ -531,6 +531,40 @@ export function resolveBindableDaemonFirstPortPlan(
   return selected;
 }
 
+export async function startManagedRelayWithPortFallback({
+  runId,
+  ports,
+  log = console.log,
+  buildCandidates = buildDaemonFirstPortCandidates,
+  startAttempt,
+}) {
+  if (!ports || !Number.isFinite(ports.gunPort) || typeof startAttempt !== 'function') {
+    throw new Error('managed relay fallback requires ports.gunPort and a startAttempt callback');
+  }
+
+  const preferredPort = ports.gunPort;
+  const candidates = buildCandidates('gunPort', preferredPort, runId);
+  let lastError = null;
+
+  for (const candidatePort of candidates) {
+    try {
+      const handle = await startAttempt(candidatePort);
+      ports.gunPort = candidatePort;
+      if (candidatePort !== preferredPort) {
+        log(`[vh:daemon-soak] managed relay port fallback ${preferredPort} -> ${candidatePort}`);
+      }
+      return {
+        ...handle,
+        port: candidatePort,
+      };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError ?? new Error('managed relay failed to start on every candidate port');
+}
+
 function buildPortClearScript(port) {
   return [
     `pids=$(lsof -ti tcp:${port} 2>/dev/null || true)`,
@@ -667,64 +701,90 @@ export async function startManagedRelayServer({
   log = console.log,
   sleepImpl = sleep,
   spawnChild = spawnAsync,
+  spawnSyncImpl = spawnSync,
   mkdir = mkdirSync,
   rm = rmSync,
   writeFile = writeFileSync,
 }) {
   const runtimeDir = resolveDaemonFirstRuntimeDir(runId, env, repoRoot);
   const relayRootDir = path.join(runtimeDir, 'relay');
-  const relayDataPath = path.join(relayRootDir, 'data');
   const relayLogPath = path.join(runtimeDir, 'webserver-relay.log');
   const relayServerPath = path.join(repoRoot, 'infra/relay/server.js');
-  const relayUrl = `http://127.0.0.1:${ports.gunPort}`;
+  const cleanupScriptPath = path.join(
+    repoRoot,
+    'packages/e2e/src/live/daemon-feed-process-cleanup.mjs',
+  );
 
-  rm(relayRootDir, { recursive: true, force: true });
-  mkdir(relayRootDir, { recursive: true });
   mkdir(path.dirname(relayLogPath), { recursive: true });
   writeFile(relayLogPath, '[vh:e2e-webserver] starting relay\n', 'utf8');
 
-  const relayLogStream = createWriteStream(relayLogPath, { flags: 'a' });
-  const child = spawnChild('node', [relayServerPath], {
-    cwd,
-    env: {
-      ...env,
-      GUN_HOST: '127.0.0.1',
-      GUN_PORT: String(ports.gunPort),
-      GUN_FILE: relayDataPath,
+  return startManagedRelayWithPortFallback({
+    runId,
+    ports,
+    log,
+    startAttempt: async (candidatePort) => {
+      const relayDataPath = path.join(relayRootDir, 'data');
+      const relayUrl = `http://127.0.0.1:${candidatePort}`;
+      const cleanupScript = [
+        `node ${JSON.stringify(cleanupScriptPath)} --repo-root ${JSON.stringify(repoRoot)} --gun-peer-url ${JSON.stringify(`${relayUrl}/gun`)} || true`,
+        buildPortClearScript(candidatePort),
+      ].join('\n');
+      spawnSyncImpl('sh', ['-lc', cleanupScript], {
+        cwd,
+        env,
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+      });
+
+      rm(relayRootDir, { recursive: true, force: true });
+      mkdir(relayRootDir, { recursive: true });
+
+      const relayLogStream = createWriteStream(relayLogPath, { flags: 'a' });
+      relayLogStream.write(`[vh:e2e-webserver] relay attempt port=${candidatePort}\n`);
+
+      const child = spawnChild('node', [relayServerPath], {
+        cwd,
+        env: {
+          ...env,
+          GUN_HOST: '127.0.0.1',
+          GUN_PORT: String(candidatePort),
+          GUN_FILE: relayDataPath,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      child.stdout?.pipe(relayLogStream, { end: false });
+      child.stderr?.pipe(relayLogStream, { end: false });
+      child.once('exit', (code, signal) => {
+        relayLogStream.write(`[vh:e2e-webserver] exit relay status=${code ?? 'null'}${signal ? ` signal=${signal}` : ''}\n`);
+      });
+
+      try {
+        await waitForManagedRelayReady({
+          child,
+          relayUrl,
+          relayLogPath,
+          sleepImpl,
+        });
+        log(`[vh:daemon-soak] managed relay ready on 127.0.0.1:${candidatePort}`);
+        return {
+          child,
+          relayLogPath,
+          relayLogStream,
+        };
+      } catch (error) {
+        await stopManagedRelayServer({
+          relayHandle: {
+            child,
+            relayLogPath,
+            relayLogStream,
+          },
+          sleepImpl,
+        });
+        throw error;
+      }
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
   });
-
-  child.stdout?.pipe(relayLogStream, { end: false });
-  child.stderr?.pipe(relayLogStream, { end: false });
-  child.once('exit', (code, signal) => {
-    relayLogStream.write(`[vh:e2e-webserver] exit relay status=${code ?? 'null'}${signal ? ` signal=${signal}` : ''}\n`);
-  });
-
-  try {
-    await waitForManagedRelayReady({
-      child,
-      relayUrl,
-      relayLogPath,
-      sleepImpl,
-    });
-    log(`[vh:daemon-soak] managed relay ready on 127.0.0.1:${ports.gunPort}`);
-    return {
-      child,
-      relayLogPath,
-      relayLogStream,
-    };
-  } catch (error) {
-    await stopManagedRelayServer({
-      relayHandle: {
-        child,
-        relayLogPath,
-        relayLogStream,
-      },
-      sleepImpl,
-    });
-    throw error;
-  }
 }
 
 export async function stopManagedRelayServer({
@@ -1124,6 +1184,9 @@ export async function runDaemonFeedSemanticSoak({
           log,
           sleepImpl,
         });
+        if (relayHandle?.port) {
+          spawnEnv.VH_DAEMON_FEED_GUN_PORT = String(relayHandle.port);
+        }
       }
 
       proc = spawn('pnpm', PLAYWRIGHT_ARGS, {

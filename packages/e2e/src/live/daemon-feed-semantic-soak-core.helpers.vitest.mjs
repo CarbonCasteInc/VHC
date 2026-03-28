@@ -13,6 +13,7 @@ import {
   resolveDaemonFirstPortPlan,
   resolvePublicSemanticSoakSpawnEnv,
   sleep,
+  startManagedRelayWithPortFallback,
   summarizeRun,
 } from './daemon-feed-semantic-soak-core.mjs';
 
@@ -247,6 +248,40 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
       webPort: 2116,
     });
     expect(log).toHaveBeenCalledWith('[vh:daemon-soak] gunPort port fallback 8716 -> 19125');
+  });
+
+  it('falls back at managed relay startup time when the preferred relay port still fails', async () => {
+    const log = vi.fn();
+    const ports = {
+      gunPort: 8716,
+      storyclusterPort: 4316,
+      fixturePort: 8916,
+      qdrantPort: 6316,
+      analysisStubPort: 9116,
+      webPort: 2116,
+    };
+    const startAttempt = vi.fn(async (candidatePort) => {
+      if (candidatePort === 8716) {
+        throw new Error('managed relay exited early with code 1');
+      }
+      return { relayLogPath: `/tmp/relay-${candidatePort}.log` };
+    });
+
+    await expect(startManagedRelayWithPortFallback({
+      runId: 'semantic-soak-123-1',
+      ports,
+      log,
+      buildCandidates: () => [8716, 19125],
+      startAttempt,
+    })).resolves.toMatchObject({
+      port: 19125,
+      relayLogPath: '/tmp/relay-19125.log',
+    });
+
+    expect(ports.gunPort).toBe(19125);
+    expect(startAttempt).toHaveBeenNthCalledWith(1, 8716);
+    expect(startAttempt).toHaveBeenNthCalledWith(2, 19125);
+    expect(log).toHaveBeenCalledWith('[vh:daemon-soak] managed relay port fallback 8716 -> 19125');
   });
 
   it('seeds playwright env with the resolved daemon-first port plan', () => {
