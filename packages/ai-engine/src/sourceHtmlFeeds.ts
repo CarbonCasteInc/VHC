@@ -86,8 +86,8 @@ export function parseApNewsHtmlFeedLinks(
   AP_ARTICLE_LINK_REGEX.lastIndex = 0;
   let match: RegExpExecArray | null;
   while ((match = AP_ARTICLE_LINK_REGEX.exec(payload)) !== null) {
-    const url = match[2].trim();
-    const title = normalizeTitle(match[3]);
+    const url = match[2]!.trim();
+    const title = normalizeTitle(match[3]!);
     if (!url || !title || seen.has(url)) {
       continue;
     }
