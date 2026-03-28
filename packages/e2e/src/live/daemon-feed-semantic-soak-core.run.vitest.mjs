@@ -806,6 +806,82 @@ describe('runDaemonFeedSemanticSoak', () => {
     });
   });
 
+  it('passes the fallback relay port through to playwright after managed relay startup succeeds on a new port', async () => {
+    const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
+    const capturedEnvs = [];
+    const spawn = vi.fn((command, args, options) => {
+      if (command === 'sh') {
+        return {
+          status: 0,
+          stdout: '[vh:daemon-soak] preflight completed\n',
+          stderr: '',
+        };
+      }
+      if (command !== 'pnpm') {
+        throw new Error(`unexpected spawn command: ${command}`);
+      }
+
+      capturedEnvs.push(options?.env ?? {});
+      if (capturedEnvs.length === 1) {
+        return { status: 0, stdout: 'build ok', stderr: '' };
+      }
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          suites: [{ specs: [{ tests: [{ results: [makePrimaryResult([
+            makeAttachment('daemon-first-feed-semantic-audit', makeReport({
+              overall: {
+                audited_pair_count: 1,
+                related_topic_only_pair_count: 0,
+                sample_fill_rate: 1,
+                sample_shortfall: 0,
+                pass: true,
+              },
+            })),
+          ])] }] }] }],
+        }),
+        stderr: '',
+      };
+    });
+    const relayHandle = {
+      relayLogPath: '/repo/.tmp/e2e-daemon-feed/run/relay.log',
+      relayLogStream: { end: (cb) => cb() },
+      port: 19125,
+    };
+    const startManagedRelay = vi.fn(async () => relayHandle);
+    const stopManagedRelay = vi.fn(async () => {});
+
+    const result = await runDaemonFeedSemanticSoak({
+      cwd: '/repo',
+      repoRoot: '/repo',
+      env: {
+        VH_DAEMON_FEED_SOAK_RUNS: '1',
+        VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+        VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+        VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+        VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+      },
+      spawn,
+      mkdir: vi.fn(),
+      rename: virtualFs.rename,
+      readFile: (target) => writes.get(target),
+      writeFile: (target, content) => writes.set(target, String(content)),
+      resolvePortPlan: resolveTestPortPlan,
+      log: vi.fn(),
+      sleepImpl: vi.fn(),
+      startManagedRelay,
+      stopManagedRelay,
+    });
+
+    expect(capturedEnvs).toHaveLength(2);
+    expect(capturedEnvs[1].VH_DAEMON_FEED_GUN_PORT).toBe('19125');
+    expect(stopManagedRelay).toHaveBeenCalledWith({
+      relayHandle,
+      sleepImpl: expect.any(Function),
+    });
+  });
+
   it('records invalid failure/runtime attachments without overwriting an existing audit error', async () => {
     const writes = new Map();
     const virtualFs = makeVirtualArtifactFs(writes);
