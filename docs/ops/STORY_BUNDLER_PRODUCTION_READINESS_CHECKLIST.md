@@ -46,6 +46,21 @@ Two separate facts are true right now:
    - Fresh combined readiness artifact still blocks on:
      - `headline_soak_release_evidence_failed`
 
+3. **The offline heuristic proxy is useful again, but it is no longer near the stricter assignment target on current `main`.**
+   - Fresh replay artifact:
+     - `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1774695043848/offline-cluster-replay-report.json`
+   - Current calibration:
+     - `remoteBundleCount: 25`
+     - `offlineBundleCount: 35`
+     - `exactSourceSetMatchRate: 0.5789473684210527`
+     - `sourceAssignmentAgreementRate: 0.7857142857142857`
+     - `averageBestRemoteBundleJaccard: 0.94`
+     - `averageBestOfflineBundleJaccard: 0.7142857142857143`
+   - Interpretation:
+     - the proxy still sees largely related event families;
+     - it is no longer close enough to treat heuristic assignment as release-grade evidence;
+     - current drift is dominated by split pairs and content-eligibility differences, not the older obvious false-merge contamination.
+
 Interpretation:
 - the integrated app can move forward in constrained beta on current `main`
 - the live corroborated-headlines lane is still not production-ready
@@ -122,8 +137,8 @@ Current posture on `main`:
 | `public.yield.floor` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/run-1.semantic-audit-failure-snapshot.json` | `story_count >= 12` and `auditable_count >= 3` | latest usable complete run `1774695043848` had `4 stories / 1 auditable` | Fail |
 | `public.yield.sample` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/run-1.semantic-audit.json` | `sample_fill_rate >= 0.5` with default public sample count | latest usable run passed with `requested_sample_count = 1`; default-sample evidence still missing | Fail |
 | `public.precision` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/run-1.semantic-audit.json` | `related_topic_only_pair_count == 0` and no failing bundle labeled semantic contamination | latest usable run had `related_topic_only_pair_count: 0` and `article_fetch_failure_count: 0` | Pass on latest usable run |
-| `offline.calibration.assignment` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/offline-cluster-replay-report.json` | `sourceAssignmentAgreementRate >= 0.95` | current `main` still needs a fresh merged replay artifact refresh after the latest source/batch changes | Pending refresh |
-| `offline.calibration.precision` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/offline-cluster-replay-report.json` | no remote mismatch samples caused by obvious false merges | current `main` still needs a fresh merged replay artifact refresh after the latest source/batch changes | Pending refresh |
+| `offline.calibration.assignment` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/offline-cluster-replay-report.json` | `sourceAssignmentAgreementRate >= 0.95` | refreshed current-`main` replay `1774695043848` is `0.7857142857142857` after the latest source and batch-budget changes | Fail |
+| `offline.calibration.precision` | Snapshot, Retained | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/offline-cluster-replay-report.json` | no remote mismatch samples caused by obvious false merges | refreshed current-`main` replay shows split-pair/content-eligibility drift and non-zero mismatch samples, even though the older obvious false-merge families remain removed | Review |
 | `retained.continuity` | Retained only | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/ghost-retained-mesh-report.json` and `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/ghost-retained-mesh-trend-index.json` | `topicRetentionRate >= 0.75` and `topicDriftRate <= 0.15` across spaced executions | latest continuity telemetry remains far below threshold on the available sample-backed run | Fail |
 | `retained.uplift` | Retained only | `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/<run>/ghost-retained-mesh-report.json` | `laterAttachmentCount > 0`, `singletonToAuditableCount > 0`, `growingTopicCount > 0` over spaced executions | latest valid ghost report still shows all three at `0` | Fail |
 | `retained.policy` | Retained only | explicit RFC/doc path once written | retained identity, update-in-place, and decay semantics approved in writing | not written yet | Fail |
@@ -199,9 +214,9 @@ In priority order:
    - Identity stability appears materially better than it was before `#460`.
    - What is still missing is proof of hours-scale later attachment.
 
-3. **Refresh offline replay on current `main` after the latest source/batch changes.**
-   - The proxy is already good enough for input-quality iteration.
-   - The next remaining parity delta is content eligibility, not generic merge behavior.
+3. **Use offline replay as a development aid, not release proof, until calibration recovers.**
+   - The refreshed current-`main` replay fell back to `0.7857` source-assignment agreement.
+   - Keep using it for fast heuristic iteration, but do not treat it as near-parity release evidence.
 
 4. **Ship the integrated app only under the explicit beta posture until the scorecard clears.**
    - Stable ids and improved source breadth are prerequisites.
