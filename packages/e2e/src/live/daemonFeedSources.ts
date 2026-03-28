@@ -16,6 +16,7 @@ const STARTER_FEED_SOURCE_CATALOG: Record<string, FeedSource> = {
   'cbs-politics': { id: 'cbs-politics', name: 'CBS News Politics', displayName: 'CBS News', rssUrl: 'https://www.cbsnews.com/latest/rss/politics', perspectiveTag: 'progressive', iconKey: 'cbs', enabled: true },
   'bbc-general': { id: 'bbc-general', name: 'BBC News', displayName: 'BBC News', rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
   'bbc-us-canada': { id: 'bbc-us-canada', name: 'BBC US & Canada', displayName: 'BBC', rssUrl: 'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', perspectiveTag: 'international-wire', iconKey: 'bbc', enabled: true },
+  'ap-topnews': { id: 'ap-topnews', name: 'Associated Press Top News', displayName: 'AP', rssUrl: 'https://apnews.com/hub/apf-topnews', perspectiveTag: 'international-wire', iconKey: 'ap', enabled: true },
   'yahoo-world': { id: 'yahoo-world', name: 'Yahoo News World', displayName: 'Yahoo News', rssUrl: 'https://news.yahoo.com/rss/world', perspectiveTag: 'international-wire', iconKey: 'yahoo', enabled: true },
   'npr-news': { id: 'npr-news', name: 'NPR News', displayName: 'NPR', rssUrl: 'https://feeds.npr.org/1001/rss.xml', perspectiveTag: 'public-radio', iconKey: 'npr', enabled: true },
   'npr-politics': { id: 'npr-politics', name: 'NPR Politics', displayName: 'NPR', rssUrl: 'https://feeds.npr.org/1014/rss.xml', perspectiveTag: 'public-radio', iconKey: 'npr', enabled: true },

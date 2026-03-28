@@ -25,6 +25,7 @@ const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
 const DEFAULT_SAMPLE_SIZE = 4;
 const DEFAULT_MIN_SUCCESS_COUNT = 2;
 const DEFAULT_MIN_SUCCESS_RATE = 0.75;
+const REPLACEMENT_SAMPLE_BUFFER = 4;
 
 export const SOURCE_ADMISSION_REPORT_SCHEMA_VERSION =
   'news-source-admission-report-v1';
@@ -585,6 +586,18 @@ function failSample(
   };
 }
 
+function canReplaceSampleFailure(
+  sample: SourceAdmissionSampleResult,
+  remainingCandidateCount: number,
+  remainingSampleSlots: number,
+): boolean {
+  return (
+    sample.outcome === 'failed'
+    && sample.errorCode === 'quality-too-low'
+    && remainingCandidateCount >= remainingSampleSlots
+  );
+}
+
 function classifySource(
   source: FeedSource,
   criteria: SourceAdmissionCriteria,
@@ -674,7 +687,7 @@ export async function auditFeedSourceAdmission(
   const parseResult = feedReadResult.xml
     ? parseFeedLinksDetailed(
       feedReadResult.xml,
-      criteria.sampleSize,
+      criteria.sampleSize + REPLACEMENT_SAMPLE_BUFFER,
       source,
       feedReadResult.responseUrl ?? source.rssUrl,
     )
@@ -684,15 +697,28 @@ export async function auditFeedSourceAdmission(
       entryFragmentCount: 0,
       skippedVideoUrls: [],
     };
-  const sampledUrls = [...parseResult.links];
+  const candidateUrls = [...parseResult.links];
+  const sampledUrls: string[] = [];
   const samples: SourceAdmissionSampleResult[] = [];
 
-  for (const url of sampledUrls) {
+  for (const [index, url] of candidateUrls.entries()) {
+    if (sampledUrls.length >= criteria.sampleSize) {
+      break;
+    }
+
     try {
       const result = await service.extract(url);
+      sampledUrls.push(url);
       samples.push(passSample(result));
     } catch (error) {
-      samples.push(failSample(url, error));
+      const failureSample = failSample(url, error);
+      const remainingCandidateCount = candidateUrls.length - index - 1;
+      const remainingSampleSlots = criteria.sampleSize - sampledUrls.length;
+      if (canReplaceSampleFailure(failureSample, remainingCandidateCount, remainingSampleSlots)) {
+        continue;
+      }
+      sampledUrls.push(url);
+      samples.push(failureSample);
     }
   }
 
