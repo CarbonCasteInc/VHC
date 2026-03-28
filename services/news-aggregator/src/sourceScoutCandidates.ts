@@ -24,6 +24,15 @@ export const SOURCE_SCOUT_CANDIDATE_FEED_SOURCES: readonly FeedSource[] = Object
     enabled: true,
   }),
   FeedSourceSchema.parse({
+    id: 'ap-politics',
+    name: 'Associated Press Politics',
+    displayName: 'AP',
+    rssUrl: 'https://apnews.com/politics',
+    perspectiveTag: 'wire-service',
+    iconKey: 'ap',
+    enabled: true,
+  }),
+  FeedSourceSchema.parse({
     id: 'cnn-politics',
     name: 'CNN Politics',
     displayName: 'CNN',
