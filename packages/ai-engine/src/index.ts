@@ -18,6 +18,7 @@ export * from './sameEventMerge';
 export * from './newsIngest';
 export * from './newsNormalize';
 export * from './newsSourceMedia';
+export * from './sourceHtmlFeeds';
 export * from './clusterEngine';
 export * from './newsCluster';
 export * from './newsOrchestrator';

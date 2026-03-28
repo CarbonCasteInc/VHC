@@ -51,6 +51,14 @@ const atomXml = `<?xml version="1.0" encoding="UTF-8"?>
   </entry>
 </feed>`;
 
+const apHubHtml = `<!DOCTYPE html>
+<html class="TagPage" data-named-page-type="Hub">
+  <body>
+    <a href="https://apnews.com/article/policy-shift-111">AP policy shift headline</a>
+    <a href="https://apnews.com/article/budget-vote-222">Budget vote clears committee</a>
+  </body>
+</html>`;
+
 const enabledSource: FeedSource = {
   id: 'src-test',
   name: 'Test Feed',
@@ -363,6 +371,29 @@ describe('ingestFeed', () => {
     });
     await ingestFeed(enabledSource, fn as FetchFn);
     expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to AP html hub sources when the payload is not xml', async () => {
+    const source: FeedSource = {
+      id: 'ap-topnews',
+      name: 'Associated Press Top News',
+      rssUrl: 'https://apnews.com/hub/apf-topnews',
+      enabled: true,
+    };
+    const fn = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      url: 'https://apnews.com/hub/apf-topnews',
+      text: () => Promise.resolve(apHubHtml),
+    });
+
+    const result = await ingestFeed(source, fn as FetchFn);
+
+    expect(result.errors).toEqual([]);
+    expect(result.items.map((item) => item.url)).toEqual([
+      'https://apnews.com/article/policy-shift-111',
+      'https://apnews.com/article/budget-vote-222',
+    ]);
   });
 });
 

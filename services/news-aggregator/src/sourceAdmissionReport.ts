@@ -5,6 +5,7 @@ import {
   FeedSourceSchema,
   STARTER_FEED_SOURCES,
   isLikelyVideoSourceEntry,
+  parseApNewsHtmlFeedLinks,
   type FeedSource,
 } from '@vh/ai-engine';
 import {
@@ -61,7 +62,7 @@ export interface SourceAdmissionFeedReadDiagnostics {
   readonly httpStatus: number | null;
   readonly contentType: string | null;
   readonly bodyLength: number | null;
-  readonly payloadKind: 'xml' | 'non_xml' | 'empty' | 'unavailable';
+  readonly payloadKind: 'xml' | 'html_feed' | 'non_xml' | 'empty' | 'unavailable';
   readonly errorCode: SourceAdmissionFeedReadErrorCode;
   readonly errorMessage: string | null;
   readonly attemptCount: number;
@@ -283,10 +284,29 @@ function isLikelyVideoFeedEntry(
 
   return isLikelyVideoSourceEntry({ url, title });
 }
-function parseFeedLinksDetailed(xml: string, sampleSize: number): FeedLinkParseResult {
+function parseFeedLinksDetailed(
+  xml: string,
+  sampleSize: number,
+  source?: FeedSource,
+  responseUrl?: string,
+): FeedLinkParseResult {
   const rssFragments = Array.from(xml.matchAll(RSS_ITEM_REGEX), (match) => match[0]);
   const atomFragments = Array.from(xml.matchAll(ATOM_ENTRY_REGEX), (match) => match[0]);
   const fragments = [...rssFragments, ...atomFragments];
+
+  if (fragments.length === 0 && source) {
+    const htmlLinks = parseApNewsHtmlFeedLinks(
+      xml,
+      responseUrl ?? source.rssUrl,
+      sampleSize,
+    ).map((entry) => entry.url);
+    return {
+      links: htmlLinks,
+      itemFragmentCount: 0,
+      entryFragmentCount: 0,
+      skippedVideoUrls: [],
+    };
+  }
 
   const links: string[] = [];
   const skippedVideoUrls: string[] = [];
@@ -384,6 +404,7 @@ async function readFeedXml(
   options: Pick<SourceAdmissionAuditOptions, 'feedReadAttemptCount' | 'feedReadRetryDelayMs'> = {},
 ): Promise<{
   readonly xml: string | null;
+  readonly responseUrl: string | null;
   readonly diagnostics: Omit<
     SourceAdmissionFeedReadDiagnostics,
     'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
@@ -410,6 +431,7 @@ async function readFeedXml(
     try {
       const response = await fetchFn(source.rssUrl);
       const contentType = response.headers.get('content-type');
+      const responseUrl = response.url || source.rssUrl;
       if (!response.ok) {
         lastDiagnostics = {
           ok: false,
@@ -436,6 +458,23 @@ async function readFeedXml(
             attemptCount: attempt,
           };
         } else if (!isLikelyXmlPayload(contentType, body)) {
+          const htmlLinks = parseApNewsHtmlFeedLinks(body, responseUrl, 1);
+          if (htmlLinks.length > 0) {
+            return {
+              xml: body,
+              responseUrl,
+              diagnostics: {
+                ok: true,
+                httpStatus: response.status,
+                contentType,
+                bodyLength,
+                payloadKind: 'html_feed',
+                errorCode: null,
+                errorMessage: null,
+                attemptCount: attempt,
+              },
+            };
+          }
           lastDiagnostics = {
             ok: false,
             httpStatus: response.status,
@@ -449,6 +488,7 @@ async function readFeedXml(
         } else {
           return {
             xml: body,
+            responseUrl,
             diagnostics: {
               ok: true,
               httpStatus: response.status,
@@ -483,6 +523,7 @@ async function readFeedXml(
 
   return {
     xml: null,
+    responseUrl: null,
     diagnostics: lastDiagnostics,
   };
 }
@@ -631,7 +672,12 @@ export async function auditFeedSourceAdmission(
     feedReadRetryDelayMs: options.feedReadRetryDelayMs,
   });
   const parseResult = feedReadResult.xml
-    ? parseFeedLinksDetailed(feedReadResult.xml, criteria.sampleSize)
+    ? parseFeedLinksDetailed(
+      feedReadResult.xml,
+      criteria.sampleSize,
+      source,
+      feedReadResult.responseUrl ?? source.rssUrl,
+    )
     : {
       links: [],
       itemFragmentCount: 0,
