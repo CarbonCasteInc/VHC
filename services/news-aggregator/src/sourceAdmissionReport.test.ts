@@ -385,6 +385,63 @@ describe('sourceAdmissionReport', () => {
     ]);
   });
 
+  it('replaces quality-too-low sample misses with later readable feed links', async () => {
+    const source = STARTER_FEED_SOURCES.find((entry) => entry.id === 'guardian-us')!;
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `<rss><channel>
+             <item><link>https://www.theguardian.com/us-news/a</link></item>
+             <item><link>https://www.theguardian.com/us-news/b</link></item>
+             <item><link>https://www.theguardian.com/us-news/c</link></item>
+             <item><link>https://www.theguardian.com/us-news/d</link></item>
+             <item><link>https://www.theguardian.com/us-news/e</link></item>
+           </channel></rss>`,
+        );
+      }
+      if (/https:\/\/www\.theguardian\.com\/us-news\//.test(url)) {
+        return makeResponse(200, makeReadableHtml('Guardian readable'));
+      }
+      return makeResponse(404, 'missing');
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 4,
+      minimumSuccessCount: 4,
+      minimumSuccessRate: 1,
+      now: () => 1_700_000_000_000,
+      articleTextServiceOptions: {
+        primaryExtractor: async (url) => {
+          if (url.endsWith('/a')) {
+            return {
+              title: 'Too short',
+              text: 'short text',
+            };
+          }
+          return {
+            title: 'Guardian readable',
+            text: makeReadableText(),
+          };
+        },
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    expect(report.sampleLinkCount).toBe(4);
+    expect(report.readableSampleCount).toBe(4);
+    expect(report.sampledUrls).toEqual([
+      'https://www.theguardian.com/us-news/b',
+      'https://www.theguardian.com/us-news/c',
+      'https://www.theguardian.com/us-news/d',
+      'https://www.theguardian.com/us-news/e',
+    ]);
+    expect(report.samples.every((sample) => sample.outcome === 'passed')).toBe(true);
+  });
+
   it('rejects a source when article fetches are access denied', async () => {
     const source = STARTER_FEED_SOURCES.find((entry) => entry.id === 'cbs-politics')!;
     const fetchFn = vi.fn(async (input: string | URL) => {

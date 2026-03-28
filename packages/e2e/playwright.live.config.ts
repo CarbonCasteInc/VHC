@@ -67,6 +67,15 @@ const DEV_FEED_CATALOG: Record<string, DevFeedSource> = {
     iconKey: 'bbc',
     enabled: true,
   },
+  'ap-topnews': {
+    id: 'ap-topnews',
+    name: 'Associated Press Top News',
+    displayName: 'AP',
+    rssUrl: 'https://apnews.com/hub/apf-topnews',
+    perspectiveTag: 'international-wire',
+    iconKey: 'ap',
+    enabled: true,
+  },
   'texastribune-main': {
     id: 'texastribune-main',
     name: 'Texas Tribune',

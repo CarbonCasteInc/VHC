@@ -509,7 +509,6 @@ function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
   return source.lifecycle.some(
     (state) =>
       state.status !== 'healthy'
-      || state.totalFailures > 0
       || state.retryCount > 0
       || state.consecutiveFailures > 0,
   );
@@ -523,7 +522,6 @@ function buildDecision(
     .filter(
       (state) =>
         state.status !== 'healthy'
-        || state.totalFailures > 0
         || state.retryCount > 0
         || state.consecutiveFailures > 0,
     )

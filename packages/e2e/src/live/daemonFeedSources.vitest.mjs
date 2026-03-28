@@ -36,6 +36,7 @@ describe('resolveDaemonFeedSourcesJson', () => {
       'cbs-politics',
       'bbc-general',
       'bbc-us-canada',
+      'ap-topnews',
       'yahoo-world',
       'npr-news',
       'npr-politics',

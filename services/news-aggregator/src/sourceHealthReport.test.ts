@@ -162,6 +162,39 @@ describe('sourceHealthReport', () => {
     expect(decision.unstableLifecycleDomains).toEqual(['www.theguardian.com']);
   });
 
+  it('keeps admitted sources when prior failures fully recovered without retries', () => {
+    const source = makeAdmissionSource({
+      sourceId: 'guardian-us',
+      lifecycle: [
+        {
+          sourceDomain: 'www.theguardian.com',
+          status: 'healthy',
+          totalAttempts: 5,
+          totalSuccesses: 4,
+          totalFailures: 1,
+          consecutiveFailures: 0,
+          retryCount: 0,
+          lastAttemptAt: 5,
+          lastSuccessAt: 5,
+          lastFailureAt: 1,
+          lastRetryAt: null,
+          nextRetryAt: null,
+          lastBackoffMs: null,
+          lastErrorMessage: null,
+        },
+      ],
+    });
+
+    const decision = sourceHealthReportInternal.buildDecision(
+      source,
+      buildSourceHealthThresholds(),
+    );
+
+    expect(decision.decision).toBe('keep');
+    expect(decision.reasons).toEqual([]);
+    expect(decision.unstableLifecycleDomains).toEqual([]);
+  });
+
   it('marks rejected non-feed-outage sources for removal', () => {
     const source = makeAdmissionSource({
       sourceId: 'cbs-politics',
