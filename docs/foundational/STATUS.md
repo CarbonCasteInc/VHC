@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-23
+> Last Reviewed: 2026-03-28
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-23
-**Version:** 0.8.2 (Stable retained identity, soak-consumer hardening, and explicit UI/soak lane separation on `main`)
-**Assessment:** Pre-production prototype. Wave 4 is closed; StoryCluster correctness, source-health enforcement, unified production-readiness, background source scouting, and stable retained identity anchoring are landed. The primary remaining blocker is no longer generic identity churn; it is live public headline-soak density and hours-scale later attachment across repeated executions.
+**Last Updated:** 2026-03-28
+**Version:** 0.8.3 (24-source starter surface, AP HTML-hub promotion, wrapper-owned relay startup, and explicit beta distribution posture on `main`)
+**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, but the live corroborated-headlines promise remains beta-gated by production-readiness evidence. Wave 4 is closed; StoryCluster correctness, source-health enforcement, unified production-readiness, background source scouting, stable retained identity anchoring, and AP HTML-hub onboarding are landed. The primary remaining blocker is no longer generic identity churn; it is headline-soak trend recovery and hours-scale later attachment across repeated executions.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -77,19 +77,32 @@ Current policy state:
   - stable latest scout path: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-scout/latest/source-candidate-scout-report.json`
   - daemon starter-surface resolution is the authoritative keep/watch/remove enforcement path;
   - web/server surfaces can autoload the latest health artifact for diagnostics and optional browser-runtime bootstrap flows.
-- `main` currently carries a 13-source keep surface, but the latest source-health release evidence is blocked on the recent run window:
-  - `readinessStatus: blocked`
-  - `enabledSourceCount: 13`
-  - `contributingSourceCount: 14`
-  - `corroboratingSourceCount: 13`
+- `main` currently carries a 24-source keep surface and the latest source-health runtime policy is green:
+  - latest artifact: `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json`
+  - `readinessStatus: ready`
+  - `releaseEvidence.status: pass`
+  - `enabledSourceCount: 24`
+  - `contributingSourceCount: 24`
+  - `corroboratingSourceCount: 24`
 - UI / UX product work and periodic soak measurement are now explicitly separated:
   - UI lanes build against the current published feed contract;
   - soak lanes validate the production pipeline behind that contract on merged `main`;
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`.
 - Story bundler release claims now have an explicit operational scorecard:
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` for the snapshot-ready vs retained-feed-ready gates, thresholds, and artifact paths.
-- The latest full combined readiness check on `main` currently blocks only on:
+- The latest full combined readiness check on `main` is fresh again and currently blocks only on:
   - `headline_soak_release_evidence_failed`
+  - latest artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`
+- The latest complete post-fix public soak now provides usable telemetry again, but the density is still thin:
+  - artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1774695043848/semantic-soak-summary.json`
+  - visible stories: `4`
+  - auditable stories: `1`
+  - sampled stories: `1`
+  - audited pairs: `1`
+- The latest headline-soak trend execution is still not promotable:
+  - artifact: `/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/1774707755214/semantic-soak-summary.json`
+  - `readinessStatus: not_ready`
+  - classification: `artifact_missing`
 - Background source scouting is now part of the operating model:
   - the checked-in scout command ranks overlap-heavy candidates;
   - the active Codex automation keeps that admission lane moving without auto-merging source changes.
@@ -106,6 +119,10 @@ Current policy state:
   - these runs are evidence-bearing secondary distribution telemetry, but live public-feed bundle scarcity is not currently stable enough to be the primary clustering proof or sole semantic blocker.
   - soak artifacts now include a machine-readable promotion assessment plus explicit references to the authoritative correctness-gate inputs, so release evidence can distinguish blocking correctness proof from non-blocking public-supply telemetry.
   - the scheduled headline-soak trend is still telemetry/review evidence, but the unified production-readiness rule now requires its latest trend artifact to remain fresh and pass over the recent run window.
+- Beta distribution posture is now explicit:
+  - the integrated VENN/HERMES/AGORA application may be distributed in constrained beta on current `main`;
+  - live corroborated headlines remain beta-gated by `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`;
+  - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 
 ## StoryCluster Program Snapshot (2026-03-16)
