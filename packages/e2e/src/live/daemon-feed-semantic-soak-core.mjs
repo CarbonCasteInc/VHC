@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -378,6 +379,73 @@ function probeBindableTcpPort({
   };
 }
 
+function probeRelayServerPort({
+  cwd,
+  env,
+  spawn = spawnSync,
+  host = '127.0.0.1',
+  port,
+  repoRoot = DEFAULT_REPO_ROOT,
+}) {
+  const relayServerPath = path.join(repoRoot, 'infra/relay/server.js');
+  const probe = spawn('node', [
+    '-e',
+    [
+      'const { mkdtempSync, rmSync } = require("node:fs");',
+      'const { spawn } = require("node:child_process");',
+      'const os = require("node:os");',
+      'const path = require("node:path");',
+      'const [relayServerPath, host, port] = process.argv.slice(1);',
+      'const tempRoot = mkdtempSync(path.join(os.tmpdir(), "vh-relay-probe-"));',
+      'const gunFile = path.join(tempRoot, "data");',
+      'const cleanup = () => { try { rmSync(tempRoot, { recursive: true, force: true }); } catch {} };',
+      'const child = spawn("node", [relayServerPath], {',
+      '  env: { ...process.env, GUN_HOST: host, GUN_PORT: String(port), GUN_FILE: gunFile },',
+      '  stdio: ["ignore", "pipe", "pipe"],',
+      '});',
+      'let stdout = "";',
+      'let stderr = "";',
+      'let settled = false;',
+      'const finish = (code, message) => {',
+      '  if (settled) return;',
+      '  settled = true;',
+      '  clearTimeout(timer);',
+      '  if (!child.killed) child.kill("SIGTERM");',
+      '  cleanup();',
+      '  if (message) process.stderr.write(message);',
+      '  process.exit(code);',
+      '};',
+      'const maybeReady = () => {',
+      '  if (stdout.includes("[vh:relay] Gun relay listening on")) finish(0, "");',
+      '};',
+      'child.stdout.setEncoding("utf8");',
+      'child.stderr.setEncoding("utf8");',
+      'child.stdout.on("data", (chunk) => { stdout += chunk; maybeReady(); });',
+      'child.stderr.on("data", (chunk) => { stderr += chunk; });',
+      'child.once("exit", (code) => finish(code === 0 ? 0 : 1, stderr || stdout || `relay probe exited ${code ?? "null"}`));',
+      'child.once("error", (error) => finish(1, error?.message ?? String(error)));',
+      'const timer = setTimeout(() => finish(1, stderr || stdout || "relay probe timeout"), 5000);',
+    ].join(' '),
+    relayServerPath,
+    host,
+    String(port),
+  ], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 8_000,
+    maxBuffer: 1024 * 1024,
+  });
+
+  return {
+    ok: probe.status === 0,
+    status: probe.status,
+    stdout: probe.stdout ?? '',
+    stderr: probe.stderr ?? '',
+    error: probe.error ?? null,
+  };
+}
+
 function buildDaemonFirstPortCandidates(key, preferredPort, runId) {
   const fallbackBase = DAEMON_FEED_PORT_FALLBACK_BASES[key];
   const fallbackStart = stablePort(
@@ -408,6 +476,8 @@ export function resolveBindableDaemonFirstPortPlan(
     env = process.env,
     spawn = spawnSync,
     log = console.log,
+    repoRoot = DEFAULT_REPO_ROOT,
+    probePort = null,
   } = {},
 ) {
   const preferred = resolveDaemonFirstPortPlan(runId);
@@ -419,12 +489,27 @@ export function resolveBindableDaemonFirstPortPlan(
     let finalProbe = null;
 
     for (const candidate of candidates) {
-      const probe = probeBindableTcpPort({
-        cwd,
-        env,
-        spawn,
-        port: candidate,
-      });
+      const probe = probePort
+        ? probePort(key, candidate, {
+          cwd,
+          env,
+          spawn,
+          repoRoot,
+        })
+        : key === 'gunPort'
+          ? probeRelayServerPort({
+            cwd,
+            env,
+            spawn,
+            port: candidate,
+            repoRoot,
+          })
+          : probeBindableTcpPort({
+            cwd,
+            env,
+            spawn,
+            port: candidate,
+          });
       finalProbe = probe;
       if (probe.ok) {
         chosenPort = candidate;
@@ -483,7 +568,8 @@ function runDaemonFirstPreflight({
   const script = [
     'set -eu',
     `echo "[vh:daemon-soak] preflight runId=${runId}"`,
-    `node ${JSON.stringify(cleanupScriptPath)} --repo-root ${JSON.stringify(repoRoot)} --gun-peer-url ${JSON.stringify(`http://localhost:${ports.gunPort}/gun`)} || true`,
+    `echo ${JSON.stringify(`[vh:daemon-soak] ports ${JSON.stringify(ports)}`)}`,
+    `node ${JSON.stringify(cleanupScriptPath)} --repo-root ${JSON.stringify(repoRoot)} --gun-peer-url ${JSON.stringify(`http://127.0.0.1:${ports.gunPort}/gun`)} || true`,
     buildPortClearScript(ports.webPort),
     buildPortClearScript(ports.gunPort),
     buildPortClearScript(ports.qdrantPort),
@@ -502,7 +588,7 @@ function runDaemonFirstPreflight({
   const preflightLog = [
     proc.stdout ?? '',
     proc.stderr ?? '',
-  ].filter(Boolean).join('');
+  ].filter(Boolean).join('\n');
   writeAtomicTextFile(
     preflightLogPath,
     preflightLog || '[vh:daemon-soak] preflight completed\n',
