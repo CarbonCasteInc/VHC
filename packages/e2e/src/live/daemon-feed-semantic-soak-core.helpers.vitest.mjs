@@ -210,6 +210,45 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(log).toHaveBeenCalledWith('[vh:daemon-soak] qdrantPort port fallback 6316 -> 27045');
   });
 
+  it('falls back for relay ports when the relay-specific probe rejects the preferred port', () => {
+    const log = vi.fn();
+    const probePort = vi.fn((key, port) => {
+      if (key === 'gunPort' && port === 8716) {
+        return {
+          ok: false,
+          status: 1,
+          stdout: '',
+          stderr: JSON.stringify({ code: 'EPERM', syscall: 'listen', port }),
+          error: null,
+        };
+      }
+      return {
+        ok: true,
+        status: 0,
+        stdout: '',
+        stderr: '',
+        error: null,
+      };
+    });
+
+    expect(
+      resolveBindableDaemonFirstPortPlan('semantic-soak-123-1', {
+        cwd: '/Users/bldt/Desktop/VHC/VHC',
+        env: {},
+        log,
+        probePort,
+      }),
+    ).toEqual({
+      gunPort: 19125,
+      storyclusterPort: 4316,
+      fixturePort: 8916,
+      qdrantPort: 6316,
+      analysisStubPort: 9116,
+      webPort: 2116,
+    });
+    expect(log).toHaveBeenCalledWith('[vh:daemon-soak] gunPort port fallback 8716 -> 19125');
+  });
+
   it('seeds playwright env with the resolved daemon-first port plan', () => {
     const env = resolvePublicSemanticSoakSpawnEnv({}, 'semantic-soak-123-1', 8, 180000, {
       portPlan: {
