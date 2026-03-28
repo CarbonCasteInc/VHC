@@ -31,6 +31,45 @@ describe('sourceHtmlFeeds', () => {
     expect(sourceHtmlFeedsInternal.isApNewsHtmlFeedSurface('https://apnews.com/', apHubHtml)).toBe(false);
   });
 
+  it('rejects invalid or non-AP surfaces', () => {
+    expect(parseApNewsHtmlFeedLinks(apHubHtml, 'not-a-url', 4)).toEqual([]);
+    expect(parseApNewsHtmlFeedLinks(apHubHtml, 'https://example.com/hub/apf-topnews', 4)).toEqual([]);
+    expect(
+      sourceHtmlFeedsInternal.isApNewsHtmlFeedSurface('https://example.com/hub/apf-topnews', apHubHtml),
+    ).toBe(false);
+  });
+
+  it('decodes numeric html entities and drops invalid code points', () => {
+    const hugeDecimal = '9'.repeat(400);
+    const hugeHex = 'F'.repeat(400);
+
+    expect(
+      sourceHtmlFeedsInternal.normalizeTitle(
+        `<strong>Budget</strong> &#38; vote &#x26; update &#1114112; &#x110000; &#x${hugeHex}; &#${hugeDecimal};`,
+      ),
+    ).toBe('Budget & vote & update');
+  });
+
+  it('respects the max link limit and skips empty titles', () => {
+    const html = `
+      <!DOCTYPE html>
+      <html data-named-page-type="Section">
+        <body>
+          <a href="https://apnews.com/article/blank-title-1"><span> </span></a>
+          <a href="https://apnews.com/article/first-link-2">First link</a>
+          <a href="https://apnews.com/article/second-link-3">Second link</a>
+        </body>
+      </html>
+    `;
+
+    expect(parseApNewsHtmlFeedLinks(html, 'https://apnews.com/politics', 1)).toEqual([
+      {
+        url: 'https://apnews.com/article/first-link-2',
+        title: 'First link',
+      },
+    ]);
+  });
+
   it('creates raw feed items with stable descending publishedAt values', () => {
     const items = parseApNewsHtmlFeedItems(
       {
@@ -58,5 +97,21 @@ describe('sourceHtmlFeeds', () => {
         publishedAt: 1_700_000_000_499,
       }),
     ]);
+  });
+
+  it('drops html feed entries that fail raw item validation', () => {
+    const items = parseApNewsHtmlFeedItems(
+      {
+        id: '',
+        name: 'Broken AP Source',
+        rssUrl: 'https://apnews.com/hub/apf-topnews',
+        enabled: true,
+      },
+      apHubHtml,
+      'https://apnews.com/hub/apf-topnews',
+      1_700_000_000_500,
+    );
+
+    expect(items).toEqual([]);
   });
 });
