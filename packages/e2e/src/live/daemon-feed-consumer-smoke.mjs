@@ -5,7 +5,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { chromium } from '@playwright/test';
 import {
   classifyConsumerSmokeOutcome,
   formatConsoleArgs,
@@ -25,6 +24,14 @@ function consumerSmokeArtifactDirFromEnv(env = process.env, repoRoot = DEFAULT_R
     return explicit;
   }
   return path.join(repoRoot, '.tmp', 'daemon-feed-consumer-smoke', String(Date.now()));
+}
+
+export async function loadPlaywrightChromium(importModule = () => import('@playwright/test')) {
+  const playwright = await importModule();
+  if (!playwright?.chromium) {
+    throw new Error('consumer-smoke-playwright-chromium-unavailable');
+  }
+  return playwright.chromium;
 }
 
 function writeAtomicJson(
@@ -143,7 +150,7 @@ export async function runDaemonFeedConsumerSmoke({
   rename = renameSync,
   fetchImpl = fetch,
   sleepImpl = sleep,
-  launchBrowser = () => chromium.launch({ headless: true }),
+  launchBrowser = null,
   log = console.log,
 } = {}) {
   const artifactDir = consumerSmokeArtifactDirFromEnv(env, repoRoot);
@@ -192,7 +199,11 @@ export async function runDaemonFeedConsumerSmoke({
 
     await waitForHttpReady(baseUrl, webServer, 60_000, fetchImpl, sleepImpl);
 
-    browser = await launchBrowser();
+    const browserLauncher = launchBrowser ?? (async () => {
+      const chromium = await loadPlaywrightChromium();
+      return await chromium.launch({ headless: true });
+    });
+    browser = await browserLauncher();
     context = await browser.newContext({ ignoreHTTPSErrors: true });
     await context.addInitScript({
       content: `
