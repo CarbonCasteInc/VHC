@@ -18,6 +18,8 @@
     "test:storycluster:correctness": "pnpm --filter @vh/storycluster-engine exec vitest run src/benchmarkCorpusKnownEventOngoingFixtures.test.ts src/storyclusterKnownEventOngoingReplay.test.ts src/storyclusterQualityGate.test.ts --config ./vitest.config.ts --reporter=verbose && pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate",
     "check:storycluster:correctness": "pnpm test:storycluster:correctness",
     "test:storycluster:gates": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:gates",
+    "test:storycluster:publisher-canary": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:publisher-canary",
+    "test:storycluster:consumer-smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:consumer-smoke",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
     "collect:storycluster:headline-soak": "pnpm report:news-sources:health && pnpm test:storycluster:smoke:readiness",

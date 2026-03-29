@@ -2,12 +2,13 @@
 
 > Status: Operational Boundary (Canonical)
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-23
+> Last Reviewed: 2026-03-29
 > Depends On: /Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md, /Users/bldt/Desktop/VHC/VHC/docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md, /Users/bldt/Desktop/VHC/VHC/docs/specs/spec-news-aggregator-v0.md
 
 This document defines the strict separation between:
 - the UI / UX product lane
-- the periodic headline-soak / retained-mesh measurement lane
+- the periodic publisher-canary / consumer-smoke operational lanes
+- the heavier headline-soak / retained-mesh measurement lanes
 
 The goal is simple:
 - UI work must keep moving
@@ -43,6 +44,8 @@ It must not block on soak recovery before building user-facing surfaces.
 The soak lane measures whether the production pipeline behind that contract is good enough for release.
 
 It owns:
+- periodic `pnpm test:storycluster:publisher-canary`
+- periodic `pnpm test:storycluster:consumer-smoke`
 - periodic `pnpm collect:storycluster:headline-soak`
 - retained-source-evidence capture
 - ghost retained-mesh trend analysis
@@ -50,6 +53,63 @@ It owns:
 - production-readiness inputs derived from those artifacts
 
 It must run against merged `main`, not a UI feature branch.
+
+### Soak Lane Stack
+
+The operational soak stack is intentionally split by purpose:
+
+1. `pnpm report:news-sources:health`
+   - validates that the admitted readable-source surface is currently usable
+2. `pnpm test:storycluster:publisher-canary`
+   - validates the live publisher path only:
+     - daemon first tick
+     - ingest
+     - normalize
+     - remote StoryCluster request
+     - publish into the feed contract
+   - does not require Gun relay or a browser
+3. `pnpm test:storycluster:consumer-smoke`
+   - validates the integrated app can consume published `StoryBundle` output
+   - uses the latest passing publisher-canary artifact as input
+   - does not validate live ingest
+4. `pnpm collect:storycluster:headline-soak`
+   - remains the heavier readiness / release-evidence lane
+5. retained-window comparison
+   - remains the lane that answers whether later attachment and singleton-to-auditable growth are real
+
+Only the last two lanes are valid for readiness and retained-uplift interpretation.
+The first three lanes are operational truth, not release proof.
+
+### Canary Validation Envelope
+
+The publisher canary is valid only when it proves all of the following on merged `main`:
+
+1. source-health input is explicit
+2. daemon leadership starts and first tick begins
+3. ingest and normalize complete
+4. remote StoryCluster request completes
+5. publish writes a complete `published-store-snapshot.json`
+6. runtime logs and summary artifacts are complete and classifiable
+
+The consumer smoke is valid only when it proves all of the following:
+
+1. it uses a passing publisher-canary artifact as input
+2. the browser app boots in consumer/offline mode
+3. headlines render from the published contract
+4. source metadata is visible on the first rendered story
+5. the first story expands successfully
+
+### Invalid Runs
+
+Trend consumers must ignore runs that are not inside the validity envelope, including:
+
+- source-health runs with `globalFeedStageFailure=true`
+- source-health runs with `latestPublicationAction=preserve_previous_latest`
+- startup failures before artifact completion
+- runs missing summary or snapshot artifacts
+- publisher-canary runs that never complete the remote cluster request
+- consumer-smoke runs without a passing publisher-canary fixture
+- headline-soak or retained-window runs produced from incomplete artifact directories
 
 ## Strict Separation Rules
 
@@ -60,6 +120,8 @@ It must run against merged `main`, not a UI feature branch.
    - `VITE_NEWS_RUNTIME_ENABLED=false`
    - or `VITE_NEWS_RUNTIME_ROLE=consumer`
 5. UI contributors must not manually run live soak commands unless they are intentionally working the soak lane:
+   - `pnpm test:storycluster:publisher-canary`
+   - `pnpm test:storycluster:consumer-smoke`
    - `pnpm collect:storycluster:headline-soak`
    - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak`
    - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
@@ -189,7 +251,7 @@ Merge the two lanes only when both are true:
 If the task is:
 - presentation, navigation, affordance, layout, loading, empty/error state
   - stay in the UI lane
-- bundle supply, source overlap, retained evidence, trend interpretation, production readiness
+- publisher startup, publish-path integrity, consumer contract rendering, bundle supply, source overlap, retained evidence, trend interpretation, production readiness
   - stay in the soak lane
 - publication semantics or identity lifecycle
   - open a dedicated integration lane; do not smuggle it through UI polish or soak-only work
