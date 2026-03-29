@@ -86,6 +86,19 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
   // Browser clients are strictly consumers and only bootstrap feed bridges.
   void client;
 
+  try {
+    const [{ useNewsStore }, { bootstrapNewsSnapshotIfConfigured }] = await Promise.all([
+      import('./news'),
+      import('./newsSnapshotBootstrap'),
+    ]);
+    const bootstrappedSnapshot = await bootstrapNewsSnapshotIfConfigured(useNewsStore);
+    if (bootstrappedSnapshot) {
+      return;
+    }
+  } catch (snapshotError) {
+    console.warn(`[vh:web-pwa] snapshot bootstrap failed (${context}):`, snapshotError);
+  }
+
   if (shouldBootstrapFeedBridges()) {
     try {
       const { bootstrapFeedBridges } = await import('./feedBridge');

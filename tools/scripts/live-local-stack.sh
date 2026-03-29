@@ -3,24 +3,32 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ENV_FILE="${ENV_FILE:-$ROOT/packages/e2e/.env.dev-small}"
-STACK_MODE="${VH_LOCAL_STACK_FEED_MODE:-fixture}"
+STACK_MODE_FILE="${STACK_MODE_FILE:-/tmp/vh-local-stack.mode}"
+STACK_MODE="${VH_LOCAL_STACK_FEED_MODE:-}"
+if [[ -z "$STACK_MODE" && -f "$STACK_MODE_FILE" ]]; then
+  STACK_MODE="$(cat "$STACK_MODE_FILE")"
+fi
+STACK_MODE="${STACK_MODE:-fixture}"
 
 WEB_PORT="${WEB_PORT:-2048}"
 RELAY_PORT="${RELAY_PORT:-7777}"
 STORYCLUSTER_PORT="${STORYCLUSTER_PORT:-4310}"
 FIXTURE_PORT="${FIXTURE_PORT:-8788}"
+SNAPSHOT_PORT="${SNAPSHOT_PORT:-8790}"
 
 WEB_LOG="${WEB_LOG:-/tmp/vh-local-web.log}"
 RELAY_LOG="${RELAY_LOG:-/tmp/vh-local-relay.log}"
 DAEMON_LOG="${DAEMON_LOG:-/tmp/vh-local-news-daemon.log}"
 STORYCLUSTER_LOG="${STORYCLUSTER_LOG:-/tmp/vh-local-storycluster.log}"
 FIXTURE_LOG="${FIXTURE_LOG:-/tmp/vh-local-fixture-feed.log}"
+SNAPSHOT_LOG="${SNAPSHOT_LOG:-/tmp/vh-local-validated-snapshot.log}"
 
 WEB_PID_FILE="${WEB_PID_FILE:-/tmp/vh-local-web.pid}"
 RELAY_PID_FILE="${RELAY_PID_FILE:-/tmp/vh-local-relay.pid}"
 DAEMON_PID_FILE="${DAEMON_PID_FILE:-/tmp/vh-local-news-daemon.pid}"
 STORYCLUSTER_PID_FILE="${STORYCLUSTER_PID_FILE:-/tmp/vh-local-storycluster.pid}"
 FIXTURE_PID_FILE="${FIXTURE_PID_FILE:-/tmp/vh-local-fixture-feed.pid}"
+SNAPSHOT_PID_FILE="${SNAPSHOT_PID_FILE:-/tmp/vh-local-validated-snapshot.pid}"
 
 RELAY_DATA_PATH="${RELAY_DATA_PATH:-$ROOT/.tmp/live-local-stack/relay-data}"
 STORYCLUSTER_STATE_DIR="${STORYCLUSTER_STATE_DIR:-$ROOT/.tmp/live-local-stack/storycluster-state}"
@@ -128,9 +136,9 @@ wait_for_log() {
 
 validate_stack_mode() {
   case "$STACK_MODE" in
-    fixture|public) ;;
+    fixture|public|validated-snapshot) ;;
     *)
-      die "Unsupported VH_LOCAL_STACK_FEED_MODE: $STACK_MODE (expected fixture or public)"
+      die "Unsupported VH_LOCAL_STACK_FEED_MODE: $STACK_MODE (expected fixture, public, or validated-snapshot)"
       ;;
   esac
 }
@@ -198,8 +206,20 @@ load_profile_env() {
     export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-10000}"
   fi
 
-  [[ -n "${ANALYSIS_RELAY_API_KEY:-}" ]] \
-    || die "Missing ANALYSIS_RELAY_API_KEY (or OPENAI_API_KEY). Analysis will not materialize."
+  if [[ "$STACK_MODE" == 'validated-snapshot' ]]; then
+    export VITE_NEWS_RUNTIME_ENABLED=false
+    export VITE_NEWS_RUNTIME_ROLE=consumer
+    export VITE_NEWS_BRIDGE_ENABLED=false
+    export VITE_SYNTHESIS_BRIDGE_ENABLED=false
+    export VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL="http://127.0.0.1:${SNAPSHOT_PORT}/snapshot.json"
+  else
+    unset VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL
+  fi
+
+  if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
+    [[ -n "${ANALYSIS_RELAY_API_KEY:-}" ]] \
+      || die "Missing ANALYSIS_RELAY_API_KEY (or OPENAI_API_KEY). Analysis will not materialize."
+  fi
 }
 
 start_storycluster() {
@@ -236,6 +256,18 @@ start_fixture_feed() {
     "$FIXTURE_LOG" \
     node \
     packages/e2e/src/live/daemon-feed-fixtures.mjs
+}
+
+start_validated_snapshot_server() {
+  info "Starting validated snapshot server on :${SNAPSHOT_PORT}"
+  : > "$SNAPSHOT_LOG"
+  env VH_VALIDATED_SNAPSHOT_PORT="$SNAPSHOT_PORT" \
+    node "$ROOT/tools/scripts/spawn-detached.mjs" \
+    "$SNAPSHOT_PID_FILE" \
+    "$ROOT" \
+    "$SNAPSHOT_LOG" \
+    node \
+    packages/e2e/src/live/daemon-feed-validated-snapshot-server.mjs
 }
 
 start_relay() {
@@ -294,49 +326,68 @@ stack_up() {
   kill_pid_file "$DAEMON_PID_FILE"
   kill_pid_file "$STORYCLUSTER_PID_FILE"
   kill_pid_file "$FIXTURE_PID_FILE"
+  kill_pid_file "$SNAPSHOT_PID_FILE"
   kill_port "$WEB_PORT"
   kill_port "$RELAY_PORT"
   kill_port "$STORYCLUSTER_PORT"
   kill_port "$FIXTURE_PORT"
+  kill_port "$SNAPSHOT_PORT"
 
-  start_storycluster
-  wait_for_http \
-    "http://127.0.0.1:${STORYCLUSTER_PORT}/ready" \
-    "$READY_TIMEOUT_SECS" \
-    -H "authorization: Bearer ${STORYCLUSTER_AUTH_TOKEN}" \
-    || die "StoryCluster did not become ready in ${READY_TIMEOUT_SECS}s (log: $STORYCLUSTER_LOG)"
+  if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
+    start_storycluster
+    wait_for_http \
+      "http://127.0.0.1:${STORYCLUSTER_PORT}/ready" \
+      "$READY_TIMEOUT_SECS" \
+      -H "authorization: Bearer ${STORYCLUSTER_AUTH_TOKEN}" \
+      || die "StoryCluster did not become ready in ${READY_TIMEOUT_SECS}s (log: $STORYCLUSTER_LOG)"
+  fi
 
   if [[ "$STACK_MODE" == 'fixture' ]]; then
     start_fixture_feed
     wait_for_http "http://127.0.0.1:${FIXTURE_PORT}/health" "$READY_TIMEOUT_SECS" \
       || die "Fixture feed did not become ready in ${READY_TIMEOUT_SECS}s (log: $FIXTURE_LOG)"
+  elif [[ "$STACK_MODE" == 'validated-snapshot' ]]; then
+    start_validated_snapshot_server
+    wait_for_http "http://127.0.0.1:${SNAPSHOT_PORT}/health" "$READY_TIMEOUT_SECS" \
+      || die "Validated snapshot server did not become ready in ${READY_TIMEOUT_SECS}s (log: $SNAPSHOT_LOG)"
   fi
 
   start_relay
   wait_for_http "http://127.0.0.1:${RELAY_PORT}" "$READY_TIMEOUT_SECS" \
     || die "Relay did not become ready in ${READY_TIMEOUT_SECS}s (log: $RELAY_LOG)"
 
-  start_daemon
-  wait_for_log "$DAEMON_LOG" "\\[vh:news-daemon\\] runtime started" "$DAEMON_READY_TIMEOUT_SECS" \
-    || die "News daemon runtime did not start in ${DAEMON_READY_TIMEOUT_SECS}s (log: $DAEMON_LOG)"
+  if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
+    start_daemon
+    wait_for_log "$DAEMON_LOG" "\\[vh:news-daemon\\] runtime started" "$DAEMON_READY_TIMEOUT_SECS" \
+      || die "News daemon runtime did not start in ${DAEMON_READY_TIMEOUT_SECS}s (log: $DAEMON_LOG)"
+  fi
 
   start_web
   wait_for_http "http://127.0.0.1:${WEB_PORT}/" "$READY_TIMEOUT_SECS" \
     || die "Web server did not become ready in ${READY_TIMEOUT_SECS}s (log: $WEB_LOG)"
-  wait_for_http "http://127.0.0.1:${WEB_PORT}/api/analyze/config" "$READY_TIMEOUT_SECS" \
-    || die "Analysis relay config route did not become ready in ${READY_TIMEOUT_SECS}s (log: $WEB_LOG)"
+  if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
+    wait_for_http "http://127.0.0.1:${WEB_PORT}/api/analyze/config" "$READY_TIMEOUT_SECS" \
+      || die "Analysis relay config route did not become ready in ${READY_TIMEOUT_SECS}s (log: $WEB_LOG)"
+  fi
 
   info "Stack ready"
   info "Mode:     ${STACK_MODE}"
+  printf '%s\n' "$STACK_MODE" > "$STACK_MODE_FILE"
   info "App URL:  http://127.0.0.1:${WEB_PORT}/"
   info "Relay:    http://127.0.0.1:${RELAY_PORT}/gun"
-  info "Cluster:  http://127.0.0.1:${STORYCLUSTER_PORT}/cluster"
   if [[ "$STACK_MODE" == 'fixture' ]]; then
+    info "Cluster:  http://127.0.0.1:${STORYCLUSTER_PORT}/cluster"
     info "Feed:     http://127.0.0.1:${FIXTURE_PORT}/ (fixture bundled-feed mode)"
+  elif [[ "$STACK_MODE" == 'validated-snapshot' ]]; then
+    info "Feed:     http://127.0.0.1:${SNAPSHOT_PORT}/snapshot.json (latest passing publisher-canary snapshot)"
+    info "Snapshot: $SNAPSHOT_LOG"
   else
+    info "Cluster:  http://127.0.0.1:${STORYCLUSTER_PORT}/cluster"
     info "Feed:     public/admitted source surface"
   fi
-  info "Daemon log:$DAEMON_LOG"
+  if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
+    info "Daemon log:$DAEMON_LOG"
+  fi
   info "Web log:  $WEB_LOG"
   info "Relay log:$RELAY_LOG"
 }
@@ -347,10 +398,13 @@ stack_down() {
   kill_pid_file "$DAEMON_PID_FILE"
   kill_pid_file "$STORYCLUSTER_PID_FILE"
   kill_pid_file "$FIXTURE_PID_FILE"
+  kill_pid_file "$SNAPSHOT_PID_FILE"
   kill_port "$WEB_PORT"
   kill_port "$RELAY_PORT"
   kill_port "$STORYCLUSTER_PORT"
   kill_port "$FIXTURE_PORT"
+  kill_port "$SNAPSHOT_PORT"
+  rm -f "$STACK_MODE_FILE"
   info "Stack stopped"
 }
 
@@ -361,11 +415,18 @@ stack_status() {
     "relay:$RELAY_PID_FILE:${RELAY_PORT}" \
     "news-daemon:$DAEMON_PID_FILE:-" \
     "storycluster:$STORYCLUSTER_PID_FILE:${STORYCLUSTER_PORT}" \
-    "fixture-feed:$FIXTURE_PID_FILE:${FIXTURE_PORT}"; do
+    "fixture-feed:$FIXTURE_PID_FILE:${FIXTURE_PORT}" \
+    "validated-snapshot:$SNAPSHOT_PID_FILE:${SNAPSHOT_PORT}"; do
     IFS=':' read -r name pid_file port <<<"$label"
     local_pid="$(read_pid_file "$pid_file" || true)"
     if is_pid_alive "$local_pid"; then
+      if [[ "$STACK_MODE" == 'validated-snapshot' && ( "$name" == 'news-daemon' || "$name" == 'storycluster' || "$name" == 'fixture-feed' ) ]]; then
+        continue
+      fi
       if [[ "$name" == 'fixture-feed' && "$STACK_MODE" != 'fixture' ]]; then
+        continue
+      fi
+      if [[ "$name" == 'validated-snapshot' && "$STACK_MODE" != 'validated-snapshot' ]]; then
         continue
       fi
       if [[ "$port" == '-' ]]; then
@@ -374,7 +435,13 @@ stack_status() {
         info "$name running (pid=$local_pid, port=$port)"
       fi
     else
+      if [[ "$STACK_MODE" == 'validated-snapshot' && ( "$name" == 'news-daemon' || "$name" == 'storycluster' || "$name" == 'fixture-feed' ) ]]; then
+        continue
+      fi
       if [[ "$name" == 'fixture-feed' && "$STACK_MODE" != 'fixture' ]]; then
+        continue
+      fi
+      if [[ "$name" == 'validated-snapshot' && "$STACK_MODE" != 'validated-snapshot' ]]; then
         continue
       fi
       warn "$name not running"

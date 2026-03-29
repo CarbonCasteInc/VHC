@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-23
+> Last Reviewed: 2026-03-29
 > Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md, docs/CANON_MAP.md
 
 
@@ -50,6 +50,18 @@ Public/admitted-source variant:
 ```bash
 pnpm live:stack:up:public
 ```
+
+Latest valid published-snapshot variant:
+
+```bash
+pnpm live:stack:up:validated-snapshot
+```
+
+Validated-snapshot behavior:
+- uses the latest passing publisher-canary artifact as the news input
+- keeps the stack in consumer mode for news
+- avoids live ingest/runtime volatility while still showing recent, validity-envelope-approved `StoryBundle` output
+- is the preferred manual mode when UI needs fresher realistic data than the deterministic fixture feed without depending on current public ingest luck
 
 Status check:
 
@@ -213,6 +225,7 @@ When reviewing StoryCluster release evidence:
   - StoryCluster: `/tmp/vh-local-storycluster.log`
   - fixture feed: `/tmp/vh-local-fixture-feed.log`
 - `pnpm live:stack:up` is the canonical manual browser path and defaults to fixture-backed bundled-headlines mode.
+- `pnpm live:stack:up:validated-snapshot` is the canonical manual browser path when UI work wants the latest passing publisher-canary snapshot instead of deterministic fixture data.
 - `tools/scripts/manual-dev.sh` is now a compatibility wrapper around the same canonical stack launcher.
 - The launcher script is:
   - `tools/scripts/live-local-stack.sh`

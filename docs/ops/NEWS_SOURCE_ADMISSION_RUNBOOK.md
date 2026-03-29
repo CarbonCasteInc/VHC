@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops + Core Engineering
-> Last Reviewed: 2026-03-20
+> Last Reviewed: 2026-03-29
 > Depends On: docs/foundational/STATUS.md, docs/specs/spec-news-aggregator-v0.md, docs/CANON_MAP.md
 
 
@@ -187,3 +187,30 @@ The remaining blocker is building and maintaining a source surface that is:
    - promote true misses into deterministic fixtures or replay scenarios.
 4. Continue tightening release-readiness automation until the remaining manual release-discipline surfaces are small, explicit, and reviewable.
 5. Expand source breadth only through this admission/health workflow, not by generic feed-surface growth.
+
+## Fixture Promotion Rubric
+
+Validation findings should continuously improve the deterministic fixture and replay corpus, but promotion must stay curated.
+
+Rules:
+
+1. Only promote from evidence inside the validity envelope:
+   - source-health is explicit and not a `globalFeedStageFailure` fallback;
+   - the underlying soak/canary artifact is complete;
+   - the finding is not derived from a startup, relay, or artifact-attachment failure.
+2. Do not mirror the latest public news cycle into the deterministic fixture feed.
+   - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-fixtures.mjs` exists for stable local/manual and served-stack QA, not for rolling live-news refresh.
+3. Promote live findings into one of three targets, based on intent:
+   - deterministic local fixture feed when the case is primarily about UI/manual stack contract coverage;
+   - benchmark/replay corpus when the case is primarily about bundler correctness or continuity;
+   - validated snapshot artifacts when the case is primarily about fresher manual UI inspection.
+4. A candidate should be promoted only when the expected bundle membership is reviewable and specific.
+   - “interesting recent article” is not enough;
+   - “same incident should merge” or “analysis/recap should stay separate” is.
+5. Preferred landing zones:
+   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusKnownEventOngoingFixtures.ts`
+   - `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/benchmarkCorpusReplayKnownEventOngoingScenarios.ts`
+   - `/Users/bldt/Desktop/VHC/VHC/packages/ai-engine/src/__tests__/newsCluster.test.ts`
+   - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-fixtures.mjs` only when manual/UI stack coverage specifically needs it
+6. Use `/Users/bldt/Desktop/VHC/VHC/.tmp/findings-executor/latest-fixture-candidate-intake.json` as the formal intake queue for live-derived fixture and replay candidates.
+   - executor and human reviewers should work from that artifact instead of ad hoc notes.

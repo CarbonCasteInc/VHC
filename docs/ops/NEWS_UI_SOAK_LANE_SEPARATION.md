@@ -163,6 +163,15 @@ VITE_NEWS_RUNTIME_ROLE=consumer \
 pnpm dev
 ```
 
+Preferred served-stack variant for fresher manual UI data without live ingest:
+
+```bash
+cd /Users/bldt/Desktop/VHC/VHC
+pnpm live:stack:up:validated-snapshot
+```
+
+This mode is valid for UI/UX work because it consumes the latest passing publisher-canary artifact rather than an in-progress live soak run.
+
 ## Stable Contract The UI May Assume Today
 
 The UI may assume the following contract is stable for current work:
