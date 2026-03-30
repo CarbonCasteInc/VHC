@@ -21,6 +21,7 @@
     "test:live:daemon-feed:consumer-smoke": "node --loader ../../tools/node/esm-resolve-loader.mjs ./src/live/daemon-feed-consumer-smoke.mjs",
     "test:live:daemon-feed:semantic-soak": "node ./src/live/daemon-feed-semantic-soak.mjs",
     "test:live:daemon-feed:semantic-soak:readiness": "node ./src/live/daemon-feed-semantic-soak-readiness.mjs",
+    "report:live:daemon-feed:fixture-candidate-intake": "node ./src/live/daemon-feed-fixture-candidate-intake.mjs",
     "report:offline-cluster-replay": "node ./src/live/daemon-feed-semantic-soak-offline-replay-report.mjs",
     "report:live:daemon-feed:production-readiness": "node ./src/live/storycluster-production-readiness.mjs",
     "codegen": "playwright codegen",
