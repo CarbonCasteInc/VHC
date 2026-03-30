@@ -3,6 +3,47 @@ import type { StoryClusterReplayScenario } from './benchmarkCorpusReplayTypes';
 
 export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterReplayScenario[] = [
   {
+    scenario_id: 'replay-known-event-no-kings-protests-source-growth',
+    topic_id: 'replay-known-event-no-kings-protests-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'no_kings_protests_episode',
+          'pbs-no-kings-rallies-replay',
+          "'No Kings' rallies draw crowds across U.S. and Europe as Springsteen headlines Minnesota demonstration",
+          'no-kings-rallies-replay-a',
+          1_774_733_241_000,
+          {
+            publisher: 'PBS News',
+            url: 'https://www.pbs.org/newshour/nation/no-kings-rallies-draw-crowds-across-u-s-and-europe-as-springsteen-headlines-minnesota-demonstration',
+            canonicalUrl:
+              'https://www.pbs.org/newshour/nation/no-kings-rallies-draw-crowds-across-u-s-and-europe-as-springsteen-headlines-minnesota-demonstration',
+            entity_keys: ['no_kings_protests_episode', 'no_kings_rallies', 'donald_trump', 'bruce_springsteen', 'minnesota'],
+            cluster_text:
+              'Large No Kings rallies protested Donald Trump across the U.S. and Europe, with Minnesota as a flagship stop where Bruce Springsteen headlined the same protest episode.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'no_kings_protests_episode',
+          'bbc-no-kings-rallies-replay',
+          'No Kings protests draw large crowds to rally against Donald Trump',
+          'no-kings-rallies-replay-b',
+          1_774_828_645_000,
+          {
+            publisher: 'BBC News',
+            url: 'https://www.bbc.com/news/articles/cq8wy7g1gd1o?at_medium=RSS&at_campaign=rss',
+            canonicalUrl: 'https://www.bbc.com/news/articles/cq8wy7g1gd1o?at_campaign=rss&at_medium=RSS',
+            entity_keys: ['no_kings_protests_episode', 'no_kings_rallies', 'donald_trump', 'bruce_springsteen', 'minnesota'],
+            cluster_text:
+              'No Kings protests drew large crowds against Donald Trump in the same protest wave, including the Minnesota rally where Bruce Springsteen performed.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-known-event-kennedy-center-ongoing-arc',
     topic_id: 'replay-known-event-kennedy-center-ongoing-arc',
     ticks: [
