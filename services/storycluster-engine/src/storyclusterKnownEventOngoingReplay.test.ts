@@ -45,6 +45,16 @@ async function runScenario(scenarioId: string): Promise<ReplaySnapshot[]> {
 }
 
 describe('StoryCluster known-event ongoing replay scenarios', () => {
+  it('preserves the No Kings protest story id when BBC corroboration attaches to the PBS rally coverage', async () => {
+    const snapshots = await runScenario('replay-known-event-no-kings-protests-source-growth');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('no_kings_protests_episode') ?? null);
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+  });
+
   it('preserves the Kennedy Center story id across the audited takeover arc', async () => {
     const snapshots = await runScenario('replay-known-event-kennedy-center-ongoing-arc');
     const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('kennedy_center_takeover_episode') ?? null);
