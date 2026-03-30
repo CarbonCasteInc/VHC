@@ -14,7 +14,6 @@ import {
   formatErrorMessage,
   readPositiveInt,
   resolveDaemonFirstPortPlan,
-  resolvePublicSemanticSoakMaxItemsTotal,
   resolvePublicSemanticSoakSourceIds,
   sleep,
 } from './daemon-feed-semantic-soak-core.mjs';
@@ -28,9 +27,27 @@ const DEFAULT_TOPIC_MAPPING = {
   sourceTopics: {},
 };
 const DEFAULT_REMOTE_TIMEOUT_MS = 240_000;
+const DEFAULT_OPENAI_TIMEOUT_MS = 120_000;
 const DEFAULT_SERVER_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_CANARY_LEASE_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_PUBLISHER_CANARY_MAX_ITEMS_TOTAL = '15';
 /* c8 ignore start */
+
+function resolvePublisherCanaryMaxItemsTotal(env = process.env) {
+  const configured = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim();
+  if (configured) {
+    return configured;
+  }
+  return DEFAULT_PUBLISHER_CANARY_MAX_ITEMS_TOTAL;
+}
+
+function resolvePublisherCanaryOpenAITimeoutMs(env = process.env) {
+  return readPositiveInt(
+    'VH_DAEMON_FEED_STORYCLUSTER_OPENAI_TIMEOUT_MS',
+    DEFAULT_OPENAI_TIMEOUT_MS,
+    env,
+  );
+}
 
 function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
@@ -298,16 +315,13 @@ export async function runDaemonFeedPublisherCanary({
     readFile,
   });
   const maxItemsPerSource = env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim() || '2';
-  const maxItemsTotal = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim()
-    || resolvePublicSemanticSoakMaxItemsTotal({
-      ...env,
-      VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE: maxItemsPerSource,
-    }, sourceIds);
+  const maxItemsTotal = resolvePublisherCanaryMaxItemsTotal(env);
   const timeoutMs = readPositiveInt(
     'VH_DAEMON_FEED_PUBLISHER_CANARY_TIMEOUT_MS',
     DEFAULT_REMOTE_TIMEOUT_MS,
     env,
   );
+  const storyClusterOpenAITimeoutMs = resolvePublisherCanaryOpenAITimeoutMs(env);
   const leaseTtlMs = readPositiveInt(
     'VH_DAEMON_FEED_PUBLISHER_CANARY_LEASE_TTL_MS',
     Math.max(DEFAULT_CANARY_LEASE_TTL_MS, timeoutMs + 120_000),
@@ -325,6 +339,7 @@ export async function runDaemonFeedPublisherCanary({
     VH_STORYCLUSTER_TRACE: process.env.VH_STORYCLUSTER_TRACE,
     VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: process.env.VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE,
     VH_NEWS_FEED_MAX_ITEMS_TOTAL: process.env.VH_NEWS_FEED_MAX_ITEMS_TOTAL,
+    VH_STORYCLUSTER_OPENAI_TIMEOUT_MS: process.env.VH_STORYCLUSTER_OPENAI_TIMEOUT_MS,
   };
 
   let summary;
@@ -340,6 +355,7 @@ export async function runDaemonFeedPublisherCanary({
     process.env.VH_STORYCLUSTER_TRACE = 'true';
     process.env.VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE = maxItemsPerSource;
     process.env.VH_NEWS_FEED_MAX_ITEMS_TOTAL = maxItemsTotal;
+    process.env.VH_STORYCLUSTER_OPENAI_TIMEOUT_MS = String(storyClusterOpenAITimeoutMs);
 
     const modules = await loadModules(repoRoot);
     const feedSourceResolution = modules.resolveStarterFeedSources({
@@ -544,6 +560,11 @@ export async function runDaemonFeedPublisherCanary({
 async function main() {
   await runDaemonFeedPublisherCanary();
 }
+
+export const publisherCanaryInternal = {
+  resolvePublisherCanaryMaxItemsTotal,
+  resolvePublisherCanaryOpenAITimeoutMs,
+};
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main()
