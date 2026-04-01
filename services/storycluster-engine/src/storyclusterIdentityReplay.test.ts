@@ -219,6 +219,324 @@ describe('StoryCluster identity replay hardening', () => {
     ]);
   });
 
+  it('merges Kharg Island live coverage when Axios restates the same Trump seizure angle', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-kharg-island',
+        documents: [
+          makeReplayInput(
+            'kharg-1',
+            "Trump says he wants Iran's oil and could seize Kharg Island",
+            1774842195000,
+            'nbc-politics',
+            '74945b7c',
+            'President Donald Trump said Sunday that he would like to "take the oil in Iran" and is considering seizing the export hub of Kharg Island, which is responsible for more than 90% of Iran\'s oil exports',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-kharg-island',
+        documents: [
+          makeReplayInput(
+            'kharg-2',
+            "Trump says he wants Iran's oil and could seize Kharg Island",
+            1774842195000,
+            'nbc-politics',
+            '74945b7c',
+            'President Donald Trump said Sunday that he would like to "take the oil in Iran" and is considering seizing the export hub of Kharg Island, which is responsible for more than 90% of Iran\'s oil exports',
+          ),
+          makeReplayInput(
+            'kharg-3',
+            'Iran war: How Kharg Island, Red Sea are shaping U.S. conflict in the Gulf',
+            1773921600000,
+            'axios-world',
+            'kharg-axios-001',
+            'Axios reported that Trump had long considered attacking or seizing Kharg Island because it could be an economic knockout to Iran, directly matching the island-seizure angle in the NBC story.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_040_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'axios-world',
+      'nbc-politics',
+    ]);
+  });
+
+  it('merges Dezi Freeman manhunt coverage across DW and Guardian without resetting identity', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dezi-freeman',
+        documents: [
+          makeReplayInput(
+            'dezi-1',
+            'Australia police shoot dead man wanted for killing 2 officers',
+            1774866620000,
+            'dw-top',
+            '76837f24',
+            'After a seven-month manhunt involving hundreds of officers, Australian police finally caught up with Desmond Freeman, one of the country\'s most-wanted criminals.',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dezi-freeman',
+        documents: [
+          makeReplayInput(
+            'dezi-2',
+            'Australia police shoot dead man wanted for killing 2 officers',
+            1774866620000,
+            'dw-top',
+            '76837f24',
+            'After a seven-month manhunt involving hundreds of officers, Australian police finally caught up with Desmond Freeman, one of the country\'s most-wanted criminals.',
+          ),
+          makeReplayInput(
+            'dezi-3',
+            'Dezi Freeman shot dead by police after seven-month manhunt',
+            1774843800000,
+            'guardian-australia',
+            'dezi-guardian-001',
+            'Fugitive Dezi Freeman, accused of killing two officers at Porepunkah, was fatally shot by police after a seven-month manhunt in rural Victoria.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_050_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'dw-top',
+      'guardian-australia',
+    ]);
+  });
+
+  it('merges the DHS airport-disruption episode when WaPo adds the ICE-lines follow-up framing', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dhs-shutdown-exact',
+        documents: [
+          makeReplayInput(
+            'shutdown-1',
+            'TSA pay may be coming, but airport delays could persist and ICE agents may not leave soon',
+            1774829322000,
+            'abc-politics',
+            'b84dea4f',
+            'Heading into the weekend, President Donald Trump signed an executive order to pay the tens of thousands of TSA officers who have been working without pay for over a month during a partial government shutdown',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dhs-shutdown-exact',
+        documents: [
+          makeReplayInput(
+            'shutdown-2',
+            'TSA pay may be coming, but airport delays could persist and ICE agents may not leave soon',
+            1774829322000,
+            'abc-politics',
+            'b84dea4f',
+            'Heading into the weekend, President Donald Trump signed an executive order to pay the tens of thousands of TSA officers who have been working without pay for over a month during a partial government shutdown',
+          ),
+          makeReplayInput(
+            'shutdown-3',
+            'Long lines persist at some U.S. airports despite arrival of ICE officers',
+            1774270800000,
+            'washington-post-immigration',
+            'shutdown-wapo-001',
+            'ICE officers were dispatched amid TSA staffing shortages caused by a congressional impasse over Department of Homeland Security funding, but long airport security lines persisted.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_060_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'abc-politics',
+      'washington-post-immigration',
+    ]);
+  });
+
+  it('merges the DHS airport-disruption episode when ABC Australia restates the same ICE checkpoint story', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dhs-shutdown-abc-au',
+        documents: [
+          makeReplayInput(
+            'shutdown-abc-au-1',
+            'TSA pay may be coming, but airport delays could persist and ICE agents may not leave soon',
+            1774829322000,
+            'abc-politics',
+            'b84dea4f',
+            'Heading into the weekend, President Donald Trump signed an executive order to pay the tens of thousands of TSA officers who have been working without pay for over a month during a partial government shutdown',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dhs-shutdown-abc-au',
+        documents: [
+          makeReplayInput(
+            'shutdown-abc-au-2',
+            'TSA pay may be coming, but airport delays could persist and ICE agents may not leave soon',
+            1774829322000,
+            'abc-politics',
+            'b84dea4f',
+            'Heading into the weekend, President Donald Trump signed an executive order to pay the tens of thousands of TSA officers who have been working without pay for over a month during a partial government shutdown',
+          ),
+          makeReplayInput(
+            'shutdown-abc-au-3',
+            'Donald Trump orders ICE agents to man US airport security checkpoints',
+            1774308300000,
+            'abc-au-world-politics',
+            'tsa-ice-abc-au-001',
+            'A fight over funding for the Department of Homeland Security has led to lengthy queues at US airports, with staff from the Transport Security Administration working without pay.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_070_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'abc-au-world-politics',
+      'abc-politics',
+    ]);
+  });
+
+  it('merges the Prop. 50 election-fraud probe across CBS and the LA Times ballots follow-up', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-bianco-prop-50',
+        documents: [
+          makeReplayInput(
+            'bianco-1',
+            'California sheriff says election fraud probe delayed by suits and court filings',
+            1774852440000,
+            'cbs-politics',
+            'd49f48b3',
+            'Riverside County Sheriff Chad Bianco says his election fraud probe of the Proposition 50 Special Election last fall has come to a halt due to "politically motivated lawsuits and court filings."',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-bianco-prop-50',
+        documents: [
+          makeReplayInput(
+            'bianco-2',
+            'California sheriff says election fraud probe delayed by suits and court filings',
+            1774852440000,
+            'cbs-politics',
+            'd49f48b3',
+            'Riverside County Sheriff Chad Bianco says his election fraud probe of the Proposition 50 Special Election last fall has come to a halt due to "politically motivated lawsuits and court filings."',
+          ),
+          makeReplayInput(
+            'bianco-3',
+            'More than half a million ballots seized by top GOP candidate in California governor’s race',
+            1774076400000,
+            'latimes-california',
+            'bianco-lat-001',
+            'Riverside County Sheriff Chad Bianco seized more than 650,000 Proposition 50 ballots, drawing a sharp rebuke from California Attorney General Rob Bonta and escalating the same election-fraud probe CBS described.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_080_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'cbs-politics',
+      'latimes-california',
+    ]);
+  });
+
+  it('keeps the Cuba tanker story from widening its canonical source set with the WaPo diesel-embassy follow-up', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-cuba-embassy-diesel',
+        documents: [
+          makeReplayInput(
+            'cuba-separation-1',
+            'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+            1774866620000,
+            'cbs-politics',
+            '2a55210c',
+            'When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-cuba-embassy-diesel',
+        documents: [
+          makeReplayInput(
+            'cuba-separation-2',
+            'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+            1774866620000,
+            'cbs-politics',
+            '2a55210c',
+            'When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+          ),
+          makeReplayInput(
+            'cuba-separation-3',
+            'Cuba refuses to let US Embassy in Havana import diesel for its generators',
+            1774054620000,
+            'washington-post-politics',
+            'cuba-wapo-001',
+            'The Cuban government refused a U.S. Embassy request to import diesel while the Trump administration kept a fuel blockade on the island and Russian oil shipments remained a live pressure point.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_090_000), store },
+    );
+
+    const firstStoryId = first.bundles[0]?.story_id;
+    expect(firstStoryId).toBeTruthy();
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(firstStoryId);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id)).toEqual(['cbs-politics']);
+    expect(second.bundles[0]?.sources.map((source) => source.source_id)).toEqual(['cbs-politics']);
+  });
+
   it('preserves story_id while Mueller obituary coverage adds a second canonical source', async () => {
     const store = new MemoryClusterStore();
     const first = await runStoryClusterStagePipeline(

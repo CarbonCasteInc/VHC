@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { buildCandidateMatch, candidateEligible, clusterMergeScore, shouldMergeClusters } from './clusterScoring';
 import { deriveClusterRecord, toStoredSource } from './clusterRecords';
+import { applyDocumentAnalysis } from './stageDocumentHelpers';
 import type { StoredTopicState, WorkingDocument } from './stageState';
+import { createDeterministicTestModelProvider } from './testModelProvider';
 
 function makeWorkingDocument(overrides: Partial<WorkingDocument> = {}): WorkingDocument {
   return {
@@ -105,6 +107,100 @@ describe('clusterScoring related coverage guardrails', () => {
     expect(match.reason).toBe('related-coverage-conflict');
     expect(match.adjudication).toBe('rejected');
     expect(candidateEligible(roundupDocument, specificCluster)).toBe(false);
+  });
+
+  it('keeps the Cuba diesel-embassy follow-up out of the tanker story canonical bundle', async () => {
+    const provider = createDeterministicTestModelProvider();
+    const tankerSeed = makeWorkingDocument({
+      doc_id: 'doc-cuba-tanker',
+      source_id: 'cbs-politics',
+      publisher: 'CBS News',
+      title: 'Trump says he has no problem with Russian tanker bringing oil to Cuba',
+      translated_title: 'Trump says he has no problem with Russian tanker bringing oil to Cuba',
+      summary: 'When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+      raw_text: 'Trump says he has no problem with Russian tanker bringing oil to Cuba. When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+      normalized_text: 'trump says he has no problem with russian tanker bringing oil to cuba when asked if a new york times report that the tanker would be allowed to reach cuba was true mr trump said if a country wants to send some oil into cuba right now i have no problem whether it is russia or not',
+      translated_text: 'Trump says he has no problem with Russian tanker bringing oil to Cuba. When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+      url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+      canonical_url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+      url_hash: '2a55210c',
+      published_at: 1774866620000,
+      temporal_ms: 1774866620000,
+      source_variants: [{
+        doc_id: 'doc-cuba-tanker',
+        source_id: 'cbs-politics',
+        publisher: 'CBS News',
+        url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+        canonical_url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+        url_hash: '2a55210c',
+        published_at: 1774866620000,
+        title: 'Trump says he has no problem with Russian tanker bringing oil to Cuba',
+        summary: 'When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+        language: 'en',
+        translation_applied: false,
+        coverage_role: 'canonical',
+      }],
+    });
+    const dieselFollowup = makeWorkingDocument({
+      doc_id: 'doc-cuba-diesel',
+      source_id: 'washington-post-politics',
+      publisher: 'The Washington Post',
+      title: 'Cuba refuses to let US Embassy in Havana import diesel for its generators',
+      translated_title: 'Cuba refuses to let US Embassy in Havana import diesel for its generators',
+      summary: 'The Cuban government refused a U.S. Embassy request to import diesel while the Trump administration kept a fuel blockade on the island and Russian oil shipments remained a live pressure point.',
+      raw_text: 'Cuba refuses to let US Embassy in Havana import diesel for its generators. The Cuban government refused a U.S. Embassy request to import diesel while the Trump administration kept a fuel blockade on the island and Russian oil shipments remained a live pressure point.',
+      normalized_text: 'cuba refuses to let us embassy in havana import diesel for its generators the cuban government refused a us embassy request to import diesel while the trump administration kept a fuel blockade on the island and russian oil shipments remained a live pressure point',
+      translated_text: 'Cuba refuses to let US Embassy in Havana import diesel for its generators. The Cuban government refused a U.S. Embassy request to import diesel while the Trump administration kept a fuel blockade on the island and Russian oil shipments remained a live pressure point.',
+      url: 'https://www.washingtonpost.com/politics/2026/03/20/cuba-fuel-embassy-trump-blockade/ee341b58-24c0-11f1-954a-6300919c9854_story.html/',
+      canonical_url: 'https://www.washingtonpost.com/politics/2026/03/20/cuba-fuel-embassy-trump-blockade/ee341b58-24c0-11f1-954a-6300919c9854_story.html/',
+      url_hash: 'cuba-wapo-001',
+      published_at: 1774054620000,
+      temporal_ms: 1774054620000,
+      source_variants: [{
+        doc_id: 'doc-cuba-diesel',
+        source_id: 'washington-post-politics',
+        publisher: 'The Washington Post',
+        url: 'https://www.washingtonpost.com/politics/2026/03/20/cuba-fuel-embassy-trump-blockade/ee341b58-24c0-11f1-954a-6300919c9854_story.html/',
+        canonical_url: 'https://www.washingtonpost.com/politics/2026/03/20/cuba-fuel-embassy-trump-blockade/ee341b58-24c0-11f1-954a-6300919c9854_story.html/',
+        url_hash: 'cuba-wapo-001',
+        published_at: 1774054620000,
+        title: 'Cuba refuses to let US Embassy in Havana import diesel for its generators',
+        summary: 'The Cuban government refused a U.S. Embassy request to import diesel while the Trump administration kept a fuel blockade on the island and Russian oil shipments remained a live pressure point.',
+        language: 'en',
+        translation_applied: false,
+        coverage_role: 'canonical',
+      }],
+    });
+    const analyses = await provider.analyzeDocuments([
+      {
+        doc_id: tankerSeed.doc_id,
+        title: tankerSeed.title,
+        summary: tankerSeed.summary,
+        publisher: tankerSeed.publisher,
+        text: `${tankerSeed.title}. ${tankerSeed.summary}`,
+        entity_hints: [],
+        published_at: tankerSeed.published_at,
+      },
+      {
+        doc_id: dieselFollowup.doc_id,
+        title: dieselFollowup.title,
+        summary: dieselFollowup.summary,
+        publisher: dieselFollowup.publisher,
+        text: `${dieselFollowup.title}. ${dieselFollowup.summary}`,
+        entity_hints: [],
+        published_at: dieselFollowup.published_at,
+      },
+    ]);
+
+    const tankerDocument = applyDocumentAnalysis(tankerSeed, analyses[0]!);
+    const dieselDocument = applyDocumentAnalysis(dieselFollowup, analyses[1]!);
+    const cluster = makeCluster(tankerDocument);
+    const match = buildCandidateMatch(dieselDocument, cluster);
+
+    expect(dieselDocument.coverage_role).toBe('related');
+    expect(match.reason).toBe('related-coverage-conflict');
+    expect(match.adjudication).toBe('rejected');
+    expect(candidateEligible(dieselDocument, cluster)).toBe(false);
   });
 
   it('blocks merging a roundup cluster into a discrete incident cluster', () => {
