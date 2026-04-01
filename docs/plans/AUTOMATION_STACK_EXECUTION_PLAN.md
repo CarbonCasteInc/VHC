@@ -72,7 +72,7 @@ Persistent stack ownership is limited to:
 1. StoryCluster listener
 2. validated snapshot server
 3. stable web preview server
-4. Gun relay only if a remaining automation lane still requires it after runner refactors
+4. Gun relay
 
 ### 3.2 What stays run-scoped
 
@@ -132,6 +132,18 @@ Stable outputs:
 - `/Users/bldt/Desktop/VHC/VHC/.tmp/automation-stack/lock`
 - `/Users/bldt/Desktop/VHC/VHC/.tmp/automation-stack/logs/*.log`
 
+Fixed automation-stack endpoints:
+
+- StoryCluster: `127.0.0.1:4310`
+- relay: `127.0.0.1:7777`
+- validated snapshot server: `127.0.0.1:8790`
+- automation web preview: `127.0.0.1:2099`
+
+Implementation note:
+
+- the validated snapshot server is the existing server implemented by `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-validated-snapshot-server.mjs`
+- the automation web must not use `2048`, because `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md` reserves `2048` for manual/UI development flows
+
 ### 5.2 Shared-stack consumers
 
 Every affected scheduled run starts with:
@@ -144,6 +156,14 @@ Then:
 - `Publisher Canary` runs a bounded publisher cycle against the shared infra
 - `Consumer Smoke` opens the shared web against the latest passing publisher snapshot
 - `Retained Uplift` runs a bounded semantic/retained measurement cycle against the shared infra
+
+If `pnpm automation:stack:health` fails:
+
+1. the run aborts cleanly;
+2. the automation opens a diagnostic inbox item with the failed health details;
+3. the lane must not fall back to self-managed listener startup.
+
+There is no fallback-to-self-managed mode in the scheduled automations.
 
 ### 5.3 Validity envelope metadata
 
@@ -184,17 +204,23 @@ A persistent `launchd`-managed local automation stack with idempotent ensure/hea
 - [ ] Extract shared constants/helpers from `live-local-stack.sh` into `local-stack-lib.sh`
 - [ ] Keep destructive port-kill logic only in the manual local-stack script
 - [ ] Implement `automation-stack.sh ensure|restart|stop|status|write-state`
-- [ ] Use `.tmp/automation-stack/lock` for serialization
+- [ ] Use `flock` on `.tmp/automation-stack/lock` for serialization
 - [ ] Write `state.json` and `health.json` under `.tmp/automation-stack`
-- [ ] Make the automation web use `vite preview` on `127.0.0.1:2048`
+- [ ] Make the automation web use `vite preview` on `127.0.0.1:2099`
+- [ ] Keep the validated snapshot server on `127.0.0.1:8790` using `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-validated-snapshot-server.mjs`
+- [ ] Keep the relay on `127.0.0.1:7777` as part of the persistent stack
+- [ ] Compare current `git rev-parse HEAD` to `state.json.gitHead` inside `automation:ensure-stack`
+- [ ] Rebuild and restart stale components when the running stack HEAD diverges from the workspace HEAD
 - [ ] Add package scripts:
   - [ ] `automation:ensure-stack`
   - [ ] `automation:stack:health`
   - [ ] `automation:stack:restart`
   - [ ] `automation:stack:stop`
   - [ ] `automation:stack:install-launchd`
+  - [ ] `automation:stack:uninstall`
 - [ ] Add a user-scoped LaunchAgent installer using `launchctl bootstrap|enable|kickstart`
-- [ ] Document install/uninstall, health checks, and state-file contract
+- [ ] Add a matching uninstall path using `launchctl bootout` and removal of the installed plist
+- [ ] Document install/uninstall, health checks, rebuild policy, and state-file contract
 
 ### Required state contract
 
@@ -211,7 +237,7 @@ A persistent `launchd`-managed local automation stack with idempotent ensure/hea
 - [ ] `snapshotPath`
 - [ ] `webBaseUrl`
 - [ ] `storyclusterReadyUrl`
-- [ ] `relayUrl` when present
+- [ ] `relayUrl`
 - [ ] `healthStatus`
 
 ### Acceptance checkpoint
@@ -232,7 +258,7 @@ A persistent `launchd`-managed local automation stack with idempotent ensure/hea
 - [ ] Update `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-canary-shared.mjs`
 - [ ] Update `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-canary-shared.vitest.mjs`
 - [ ] Update `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-consumer-smoke.mjs`
-- [ ] Update `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-consumer-smoke.vitest.mjs`
+- [ ] Create `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-consumer-smoke.vitest.mjs`
 - [ ] Update `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`
 
 ### Exact work
@@ -345,12 +371,14 @@ The three affected automations consume the shared stack and no longer imply per-
 ### Exact work
 
 - [ ] Keep `execution_environment = "worktree"`
+- [ ] Document in the automation prompts/runbook that the automation id `spaced-soak` is the TOML/storage id while the displayed automation name is `Publisher Canary`
 - [ ] Prepend `pnpm automation:ensure-stack`
 - [ ] Prepend `pnpm automation:stack:health`
 - [ ] Remove prompt wording that implies starting servers or binding ports
 - [ ] Make `Publisher Canary` describe shared-stack consumption plus bounded publisher validation
 - [ ] Make `Consumer Smoke` describe shared web + latest passing publisher snapshot consumption only
 - [ ] Make `Retained Uplift` describe shared-stack semantic-soak mode only
+- [ ] Require clean abort with a diagnostic inbox item when `automation:stack:health` fails
 
 ### Acceptance checkpoint
 
