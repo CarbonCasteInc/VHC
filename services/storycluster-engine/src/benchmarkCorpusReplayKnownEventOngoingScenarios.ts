@@ -2123,6 +2123,28 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
       ],
       [
         makeBenchmarkItem(
+          'trump_presidential_library_design_episode',
+          'nbc-trump-library-design-replay',
+          'Design for Trump’s presidential library draws praise and protest in Miami',
+          'trump-library-design-nbc-replay-a',
+          1_775_030_000_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            entity_keys: [
+              'trump_presidential_library_design_episode',
+              'donald_trump',
+              'presidential_library',
+              'miami',
+              'architecture',
+            ],
+            cluster_text:
+              'A design for Trump’s presidential library in Miami drew praise and protest, centering on architecture, donors, and local opposition around the proposed library project.',
+          },
+        ),
+        makeBenchmarkItem(
           'kennedy_center_chicago_visit_episode',
           'nbc-kennedy-chicago-replay',
           "Trump attends Kennedy Center performance of 'Chicago' ahead of planned two-year closure",
@@ -2227,6 +2249,27 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
         ),
       ],
       [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'cbs-cuba-tanker-separation-replay',
+          'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+          'cuba-tanker-separation-cbs-replay-a',
+          1_774_866_620_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+            canonicalUrl: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'donald_trump',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'Trump said he had no problem with a Russian tanker bringing oil to Cuba, part of the same Cuba fuel-shipment episode over whether the tanker would be allowed to reach the island.',
+          },
+        ),
         makeBenchmarkItem(
           'trump_democrats_primary_opinion_episode',
           'guardian-trump-opinion-replay',

@@ -113,6 +113,9 @@ describe('StoryCluster quality gate', () => {
       (dataset) => dataset.reappearance_observations === 0 && dataset.persistence_observations > 0,
     );
     const reappearanceReplayResults = report.replay_results.filter((dataset) => dataset.reappearance_observations > 0);
+    const continuousReplayFailures = continuousReplayResults
+      .filter((dataset) => dataset.persistence_rate < 0.99)
+      .map((dataset) => `${dataset.scenario_id}:${dataset.persistence_rate}`);
     expect(report.replay_overall.failed_dataset_ids).toEqual([]);
     expect(report.replay_overall.max_contamination_rate).toBeLessThanOrEqual(
       STORYCLUSTER_BENCHMARK_CORPUS.replayThresholds.max_contamination_rate,
@@ -124,7 +127,10 @@ describe('StoryCluster quality gate', () => {
       STORYCLUSTER_BENCHMARK_CORPUS.replayThresholds.min_coherence_score,
     );
     expect(continuousReplayResults.length).toBeGreaterThan(0);
-    expect(continuousReplayResults.every((dataset) => dataset.persistence_rate >= 0.99)).toBe(true);
+    expect(
+      continuousReplayResults.every((dataset) => dataset.persistence_rate >= 0.99),
+      `continuous replay persistence failures: ${continuousReplayFailures.join(', ')}`,
+    ).toBe(true);
     expect(reappearanceReplayResults.length).toBeGreaterThan(0);
     expect(report.replay_overall.reappearance_observations).toBeGreaterThan(0);
     expect(report.replay_overall.reappearance_rate).toBeGreaterThanOrEqual(0.99);
