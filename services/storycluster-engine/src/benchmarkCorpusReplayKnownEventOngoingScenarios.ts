@@ -1256,6 +1256,59 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
     ],
   },
   {
+    scenario_id: 'replay-known-event-birthright-arguments-source-growth',
+    topic_id: 'replay-known-event-birthright-arguments-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_argument_episode',
+          'cbs-birthright-arguments-replay',
+          'Trump plans to attend Supreme Court arguments in birthright citizenship case',
+          'birthright-arguments-cbs-replay-a',
+          1_775_034_600_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/trump-supreme-court-birthright-citizenship-case/',
+            canonicalUrl: 'https://www.cbsnews.com/news/trump-supreme-court-birthright-citizenship-case/',
+            entity_keys: [
+              'birthright_citizenship_argument_episode',
+              'birthright_citizenship_order',
+              'birthright_citizenship',
+              'donald_trump',
+              'supreme_court',
+            ],
+            cluster_text:
+              'Trump planned to attend Supreme Court arguments in the same birthright-citizenship case over his executive order, part of the same arguments-day episode about nationwide injunctions and the Fourteenth Amendment.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_argument_episode',
+          'nbc-birthright-arguments-replay',
+          "Supreme Court weighs Trump's contentious attempt to limit birthright citizenship",
+          'birthright-arguments-nbc-replay-b',
+          1_775_035_500_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/supreme-court/supreme-court-weighs-trumps-contentious-attempt-limit-birthright-citizenship-rcna208123',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/supreme-court/supreme-court-weighs-trumps-contentious-attempt-limit-birthright-citizenship-rcna208123',
+            entity_keys: [
+              'birthright_citizenship_argument_episode',
+              'birthright_citizenship_order',
+              'birthright_citizenship',
+              'donald_trump',
+              'supreme_court',
+            ],
+            cluster_text:
+              'The Supreme Court weighed Trump’s attempt to limit birthright citizenship during the same arguments-day episode over the executive order, nationwide injunctions, and the Fourteenth Amendment.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-known-event-key-bridge-collapse-arc',
     topic_id: 'replay-known-event-key-bridge-collapse-arc',
     ticks: [
@@ -1994,6 +2047,60 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
               'Abbas Araghchi said no new date was set for the same Oman-Rome nuclear talks with US envoy Steve Witkoff and no deal was imminent.',
             cluster_text:
               'Abbas Araghchi said no new date was set and no deal was imminent in the same Oman-and-Rome nuclear talks episode with Steve Witkoff over Iran nuclear limits.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-trump-library-vs-kennedy-separation',
+    topic_id: 'replay-known-event-trump-library-vs-kennedy-separation',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'trump_presidential_library_design_episode',
+          'nbc-trump-library-design-replay',
+          'Design for Trump’s presidential library draws praise and protest in Miami',
+          'trump-library-design-nbc-replay-a',
+          1_775_030_000_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            entity_keys: [
+              'trump_presidential_library_design_episode',
+              'donald_trump',
+              'presidential_library',
+              'miami',
+              'architecture',
+            ],
+            cluster_text:
+              'A design for Trump’s presidential library in Miami drew praise and protest, centering on architecture, donors, and local opposition around the proposed library project.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'kennedy_center_chicago_visit_episode',
+          'nbc-kennedy-chicago-replay',
+          "Trump attends Kennedy Center performance of 'Chicago' ahead of planned two-year closure",
+          'kennedy-chicago-nbc-replay-b',
+          1_775_030_600_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/donald-trump/trump-attends-kennedy-center-performance-chicago-ahead-planned-two-year-closure-rcna208011',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/donald-trump/trump-attends-kennedy-center-performance-chicago-ahead-planned-two-year-closure-rcna208011',
+            entity_keys: [
+              'kennedy_center_chicago_visit_episode',
+              'donald_trump',
+              'kennedy_center',
+              'chicago_musical',
+              'closure_plan',
+            ],
+            cluster_text:
+              'Trump attended a Kennedy Center performance of Chicago ahead of the venue’s planned two-year closure, focusing on the arts venue, the closure timeline, and Trump’s cultural takeover of the institution.',
           },
         ),
       ],
