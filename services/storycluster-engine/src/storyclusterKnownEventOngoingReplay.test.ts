@@ -45,6 +45,16 @@ async function runScenario(scenarioId: string): Promise<ReplaySnapshot[]> {
 }
 
 describe('StoryCluster known-event ongoing replay scenarios', () => {
+  it('preserves the No Kings protest story id when BBC corroboration attaches to the PBS rally coverage', async () => {
+    const snapshots = await runScenario('replay-known-event-no-kings-protests-source-growth');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('no_kings_protests_episode') ?? null);
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+  });
+
   it('preserves the Kennedy Center story id across the audited takeover arc', async () => {
     const snapshots = await runScenario('replay-known-event-kennedy-center-ongoing-arc');
     const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('kennedy_center_takeover_episode') ?? null);
@@ -233,6 +243,68 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(finalCluster?.source_documents).toHaveLength(4);
   });
 
+  it('grows the birthright arguments story across CBS and NBC without changing story identity', async () => {
+    const snapshots = await runScenario('replay-known-event-birthright-arguments-source-growth');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('birthright_citizenship_argument_episode') ?? null,
+    );
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'cbs-birthright-arguments-replay',
+      'nbc-birthright-arguments-replay',
+    ]);
+  });
+
+  it('grows the Cuba tanker story across Guardian and CBS without changing story identity', async () => {
+    const snapshots = await runScenario('replay-known-event-cuba-tanker-source-growth');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('cuba_russian_tanker_episode') ?? null);
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'cbs-cuba-tanker-replay',
+      'guardian-world-cuba-tanker-replay',
+    ]);
+  });
+
+  it('keeps the Cuba tanker story separate from unrelated Guardian Trump-opinion coverage', async () => {
+    const snapshots = await runScenario('replay-known-event-cuba-tanker-vs-trump-opinion-separation');
+    const cubaStoryId = snapshots[0]?.storyByEvent.get('cuba_russian_tanker_episode') ?? null;
+    const opinionStoryId = snapshots[1]?.storyByEvent.get('trump_democrats_primary_opinion_episode') ?? null;
+    const finalCubaCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === cubaStoryId);
+    const finalOpinionCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === opinionStoryId);
+
+    expect(cubaStoryId).toBeTruthy();
+    expect(opinionStoryId).toBeTruthy();
+    expect(opinionStoryId).not.toBe(cubaStoryId);
+    expect(finalCubaCluster?.source_documents).toHaveLength(1);
+    expect(finalOpinionCluster?.source_documents).toHaveLength(1);
+  });
+
+  it('grows the DHS airport-disruption story across BBC, ABC, WaPo, and NBC without changing identity', async () => {
+    const snapshots = await runScenario('replay-known-event-dhs-airport-shutdown-source-growth');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('dhs_shutdown_airport_disruption_episode') ?? null,
+    );
+    const finalCluster = snapshots[3]?.clusters.find((cluster) => cluster.story_id === storyIds[3]);
+
+    expect(storyIds.every(Boolean)).toBe(true);
+    expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
+    expect(finalCluster?.source_documents).toHaveLength(4);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'abc-dhs-shutdown-airport-replay',
+      'bbc-dhs-shutdown-airport-replay',
+      'nbc-dhs-shutdown-airport-replay',
+      'wapo-dhs-shutdown-airport-replay',
+    ]);
+  });
+
   it('preserves the Key Bridge collapse story id across collapse, salvage, reopening, and cleanup fallout', async () => {
     const snapshots = await runScenario('replay-known-event-key-bridge-collapse-arc');
     const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('key_bridge_collapse_episode') ?? null);
@@ -263,6 +335,20 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(storyIds.every(Boolean)).toBe(true);
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(4);
+  });
+
+  it('keeps the Trump library design and Kennedy Center Chicago visit in separate stories', async () => {
+    const snapshots = await runScenario('replay-known-event-trump-library-vs-kennedy-separation');
+    const libraryStoryId = snapshots[0]?.storyByEvent.get('trump_presidential_library_design_episode') ?? null;
+    const kennedyStoryId = snapshots[1]?.storyByEvent.get('kennedy_center_chicago_visit_episode') ?? null;
+    const finalLibraryCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === libraryStoryId);
+    const finalKennedyCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === kennedyStoryId);
+
+    expect(libraryStoryId).toBeTruthy();
+    expect(kennedyStoryId).toBeTruthy();
+    expect(kennedyStoryId).not.toBe(libraryStoryId);
+    expect(finalLibraryCluster?.source_documents).toHaveLength(1);
+    expect(finalKennedyCluster?.source_documents).toHaveLength(1);
   });
 
   it('preserves the Helene I-40 recovery story id across delayed reopening, reopening, and post-slide recovery', async () => {

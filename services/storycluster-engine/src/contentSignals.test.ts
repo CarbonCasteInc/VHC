@@ -152,9 +152,22 @@ describe('contentSignals', () => {
     expect(triggerCategory('rerouted')).toBe('infrastructure_disruption');
     expect(triggerCategory('continued')).toBe('infrastructure_disruption');
     expect(triggerCategory('left')).toBe('infrastructure_disruption');
+    expect(triggerCategory('bringing')).toBe('economic');
+    expect(triggerCategory('refuses')).toBe('diplomacy');
+    expect(triggerCategory('shot')).toBe('conflict');
+    expect(triggerCategory('seizing')).toBe('military_posture');
     expect(triggerCategory('convicted')).toBe('legal_verdict');
     expect(triggerCategory('guilty')).toBe('legal_verdict');
     expect(triggerCategory('found')).toBe('legal_verdict');
+  });
+
+  it('extracts divergent action frames for adjacent same-subject coverage', () => {
+    expect(extractTrigger('Trump says he has no problem with Russian tanker bringing oil to Cuba')).toBe('bringing');
+    expect(extractTrigger('Cuba refuses to let US Embassy in Havana import diesel for its generators')).toBe('refuses');
+    expect(extractTrigger(
+      'Iran war: How Kharg Island, Red Sea are shaping U.S. conflict in the Gulf. Axios reported that Trump had long considered attacking or seizing Kharg Island because it could be an economic knockout to Iran.',
+    )).toBe('seizing');
+    expect(extractTrigger('Dezi Freeman shot dead by police after seven-month manhunt')).toBe('shot');
   });
 
   it('returns no trigger candidates for empty normalized text', () => {

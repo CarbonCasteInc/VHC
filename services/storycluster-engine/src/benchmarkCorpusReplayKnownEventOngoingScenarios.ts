@@ -3,6 +3,47 @@ import type { StoryClusterReplayScenario } from './benchmarkCorpusReplayTypes';
 
 export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterReplayScenario[] = [
   {
+    scenario_id: 'replay-known-event-no-kings-protests-source-growth',
+    topic_id: 'replay-known-event-no-kings-protests-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'no_kings_protests_episode',
+          'pbs-no-kings-rallies-replay',
+          "'No Kings' rallies draw crowds across U.S. and Europe as Springsteen headlines Minnesota demonstration",
+          'no-kings-rallies-replay-a',
+          1_774_733_241_000,
+          {
+            publisher: 'PBS News',
+            url: 'https://www.pbs.org/newshour/nation/no-kings-rallies-draw-crowds-across-u-s-and-europe-as-springsteen-headlines-minnesota-demonstration',
+            canonicalUrl:
+              'https://www.pbs.org/newshour/nation/no-kings-rallies-draw-crowds-across-u-s-and-europe-as-springsteen-headlines-minnesota-demonstration',
+            entity_keys: ['no_kings_protests_episode', 'no_kings_rallies', 'donald_trump', 'bruce_springsteen', 'minnesota'],
+            cluster_text:
+              'Large No Kings rallies protested Donald Trump across the U.S. and Europe, with Minnesota as a flagship stop where Bruce Springsteen headlined the same protest episode.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'no_kings_protests_episode',
+          'bbc-no-kings-rallies-replay',
+          'No Kings protests draw large crowds to rally against Donald Trump',
+          'no-kings-rallies-replay-b',
+          1_774_828_645_000,
+          {
+            publisher: 'BBC News',
+            url: 'https://www.bbc.com/news/articles/cq8wy7g1gd1o?at_medium=RSS&at_campaign=rss',
+            canonicalUrl: 'https://www.bbc.com/news/articles/cq8wy7g1gd1o?at_campaign=rss&at_medium=RSS',
+            entity_keys: ['no_kings_protests_episode', 'no_kings_rallies', 'donald_trump', 'bruce_springsteen', 'minnesota'],
+            cluster_text:
+              'No Kings protests drew large crowds against Donald Trump in the same protest wave, including the Minnesota rally where Bruce Springsteen performed.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-known-event-kennedy-center-ongoing-arc',
     topic_id: 'replay-known-event-kennedy-center-ongoing-arc',
     ticks: [
@@ -1256,6 +1297,59 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
     ],
   },
   {
+    scenario_id: 'replay-known-event-birthright-arguments-source-growth',
+    topic_id: 'replay-known-event-birthright-arguments-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_argument_episode',
+          'cbs-birthright-arguments-replay',
+          'Trump plans to attend Supreme Court arguments in birthright citizenship case',
+          'birthright-arguments-cbs-replay-a',
+          1_775_034_600_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/trump-supreme-court-birthright-citizenship-case/',
+            canonicalUrl: 'https://www.cbsnews.com/news/trump-supreme-court-birthright-citizenship-case/',
+            entity_keys: [
+              'birthright_citizenship_argument_episode',
+              'birthright_citizenship_order',
+              'birthright_citizenship',
+              'donald_trump',
+              'supreme_court',
+            ],
+            cluster_text:
+              'Trump planned to attend Supreme Court arguments in the same birthright-citizenship case over his executive order, part of the same arguments-day episode about nationwide injunctions and the Fourteenth Amendment.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'birthright_citizenship_argument_episode',
+          'nbc-birthright-arguments-replay',
+          "Supreme Court weighs Trump's contentious attempt to limit birthright citizenship",
+          'birthright-arguments-nbc-replay-b',
+          1_775_035_500_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/supreme-court/supreme-court-weighs-trumps-contentious-attempt-limit-birthright-citizenship-rcna208123',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/supreme-court/supreme-court-weighs-trumps-contentious-attempt-limit-birthright-citizenship-rcna208123',
+            entity_keys: [
+              'birthright_citizenship_argument_episode',
+              'birthright_citizenship_order',
+              'birthright_citizenship',
+              'donald_trump',
+              'supreme_court',
+            ],
+            cluster_text:
+              'The Supreme Court weighed Trump’s attempt to limit birthright citizenship during the same arguments-day episode over the executive order, nationwide injunctions, and the Fourteenth Amendment.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-known-event-key-bridge-collapse-arc',
     topic_id: 'replay-known-event-key-bridge-collapse-arc',
     ticks: [
@@ -1994,6 +2088,307 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
               'Abbas Araghchi said no new date was set for the same Oman-Rome nuclear talks with US envoy Steve Witkoff and no deal was imminent.',
             cluster_text:
               'Abbas Araghchi said no new date was set and no deal was imminent in the same Oman-and-Rome nuclear talks episode with Steve Witkoff over Iran nuclear limits.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-trump-library-vs-kennedy-separation',
+    topic_id: 'replay-known-event-trump-library-vs-kennedy-separation',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'trump_presidential_library_design_episode',
+          'nbc-trump-library-design-replay',
+          'Design for Trump’s presidential library draws praise and protest in Miami',
+          'trump-library-design-nbc-replay-a',
+          1_775_030_000_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            entity_keys: [
+              'trump_presidential_library_design_episode',
+              'donald_trump',
+              'presidential_library',
+              'miami',
+              'architecture',
+            ],
+            cluster_text:
+              'A design for Trump’s presidential library in Miami drew praise and protest, centering on architecture, donors, and local opposition around the proposed library project.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'trump_presidential_library_design_episode',
+          'nbc-trump-library-design-replay',
+          'Design for Trump’s presidential library draws praise and protest in Miami',
+          'trump-library-design-nbc-replay-a',
+          1_775_030_000_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/donald-trump/design-trumps-presidential-library-draws-praise-protest-miami-rcna207950',
+            entity_keys: [
+              'trump_presidential_library_design_episode',
+              'donald_trump',
+              'presidential_library',
+              'miami',
+              'architecture',
+            ],
+            cluster_text:
+              'A design for Trump’s presidential library in Miami drew praise and protest, centering on architecture, donors, and local opposition around the proposed library project.',
+          },
+        ),
+        makeBenchmarkItem(
+          'kennedy_center_chicago_visit_episode',
+          'nbc-kennedy-chicago-replay',
+          "Trump attends Kennedy Center performance of 'Chicago' ahead of planned two-year closure",
+          'kennedy-chicago-nbc-replay-b',
+          1_775_030_600_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/donald-trump/trump-attends-kennedy-center-performance-chicago-ahead-planned-two-year-closure-rcna208011',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/donald-trump/trump-attends-kennedy-center-performance-chicago-ahead-planned-two-year-closure-rcna208011',
+            entity_keys: [
+              'kennedy_center_chicago_visit_episode',
+              'donald_trump',
+              'kennedy_center',
+              'chicago_musical',
+              'closure_plan',
+            ],
+            cluster_text:
+              'Trump attended a Kennedy Center performance of Chicago ahead of the venue’s planned two-year closure, focusing on the arts venue, the closure timeline, and Trump’s cultural takeover of the institution.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-cuba-tanker-source-growth',
+    topic_id: 'replay-known-event-cuba-tanker-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'guardian-world-cuba-tanker-replay',
+          'Russian oil tanker heading to Cuba amid US economic blockade',
+          'cuba-tanker-guardian-replay-a',
+          1_773_957_300_000,
+          {
+            publisher: 'The Guardian',
+            url: 'https://www.theguardian.com/world/2026/mar/19/cuba-us-economic-blockade-trump-russian-oil-tanker',
+            canonicalUrl: 'https://www.theguardian.com/world/2026/mar/19/cuba-us-economic-blockade-trump-russian-oil-tanker',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'economic_blockade',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'A Russian oil tanker was heading to Cuba amid a US economic blockade, starting the same Cuba tanker episode about fuel shipments, blackout pressure, and the Trump administration’s stance toward deliveries to the island.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'cbs-cuba-tanker-replay',
+          'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+          'cuba-tanker-cbs-replay-b',
+          1_774_866_620_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+            canonicalUrl: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'donald_trump',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'Trump said he had no problem with a Russian tanker bringing oil to Cuba in the same Cuba tanker episode about whether the delivery would be allowed to reach the island during fuel pressure and blockade conditions.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-cuba-tanker-vs-trump-opinion-separation',
+    topic_id: 'replay-known-event-cuba-tanker-vs-trump-opinion-separation',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'cbs-cuba-tanker-separation-replay',
+          'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+          'cuba-tanker-separation-cbs-replay-a',
+          1_774_866_620_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+            canonicalUrl: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'donald_trump',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'Trump said he had no problem with a Russian tanker bringing oil to Cuba, part of the same Cuba fuel-shipment episode over whether the tanker would be allowed to reach the island.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'cbs-cuba-tanker-separation-replay',
+          'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+          'cuba-tanker-separation-cbs-replay-a',
+          1_774_866_620_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+            canonicalUrl: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'donald_trump',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'Trump said he had no problem with a Russian tanker bringing oil to Cuba, part of the same Cuba fuel-shipment episode over whether the tanker would be allowed to reach the island.',
+          },
+        ),
+        makeBenchmarkItem(
+          'trump_democrats_primary_opinion_episode',
+          'guardian-trump-opinion-replay',
+          'For Democrats, fighting Trump isn’t enough anymore',
+          'trump-opinion-guardian-replay-b',
+          1_774_864_807_000,
+          {
+            publisher: 'The Guardian',
+            url: 'https://www.theguardian.com/commentisfree/2026/mar/30/democrats-trump-dan-goldman-brad-lander',
+            canonicalUrl:
+              'https://www.theguardian.com/commentisfree/2026/mar/30/democrats-trump-dan-goldman-brad-lander',
+            entity_keys: [
+              'trump_democrats_primary_opinion_episode',
+              'donald_trump',
+              'democratic_primary',
+              'new_york',
+              'opinion',
+            ],
+            cluster_text:
+              'A Guardian opinion essay argued that Democrats need a positive political agenda beyond opposing Trump, focusing on the New York 10th district primary and ideological conflicts inside the Democratic party.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-dhs-airport-shutdown-source-growth',
+    topic_id: 'replay-known-event-dhs-airport-shutdown-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'bbc-dhs-shutdown-airport-replay',
+          'Partial government shutdown becomes the longest in US history',
+          'dhs-shutdown-bbc-replay-a',
+          1_774_833_231_000,
+          {
+            publisher: 'BBC News',
+            url: 'https://www.bbc.com/news/articles/cyv1qpzq5v7o?at_medium=RSS&at_campaign=rss',
+            canonicalUrl: 'https://www.bbc.com/news/articles/cyv1qpzq5v7o?at_campaign=rss&at_medium=RSS',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'tsa',
+              'airports',
+              'travel_delays',
+            ],
+            cluster_text:
+              'The Department of Homeland Security shutdown became the longest in US history and caused travel chaos at airports, beginning the same shutdown-and-airport-disruption episode over TSA staffing, lines, and political stalemate.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'abc-dhs-shutdown-airport-replay',
+          'TSA pay may be coming, but airport delays could persist and ICE agents may not leave soon',
+          'dhs-shutdown-abc-replay-b',
+          1_774_829_322_000,
+          {
+            publisher: 'ABC News',
+            url: 'https://abcnews.com/Politics/wireStory/tsa-pay-coming-airport-delays-persist-ice-agents-131505159',
+            canonicalUrl: 'https://abcnews.com/Politics/wireStory/tsa-pay-coming-airport-delays-persist-ice-agents-131505159',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'tsa',
+              'airports',
+              'ice_officers',
+            ],
+            cluster_text:
+              'Trump signed an order on TSA pay while airport delays persisted and ICE agents remained in the same DHS shutdown airport-disruption episode about staffing shortages and long security lines.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'wapo-dhs-shutdown-airport-replay',
+          'Long lines persist at some U.S. airports despite arrival of ICE officers',
+          'dhs-shutdown-wapo-replay-c',
+          1_774_270_800_000,
+          {
+            publisher: 'The Washington Post',
+            url: 'https://www.washingtonpost.com/immigration/2026/03/23/ice-agents-airports/',
+            canonicalUrl: 'https://www.washingtonpost.com/immigration/2026/03/23/ice-agents-airports/',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'tsa',
+              'airports',
+              'ice_officers',
+            ],
+            cluster_text:
+              'Long lines persisted at US airports despite the arrival of ICE officers in the same DHS shutdown airport-disruption episode about TSA staffing shortages and the funding impasse.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'nbc-dhs-shutdown-airport-replay',
+          "'I blame them all': Travelers frustrated with Washington as shutdown drags on",
+          'dhs-shutdown-nbc-replay-d',
+          1_774_861_860_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/congress/travelers-frustrated-washington-shutdown-blame-rcna265602',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/congress/travelers-frustrated-washington-shutdown-blame-rcna265602',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'travelers',
+              'airports',
+              'travel_delays',
+            ],
+            cluster_text:
+              'Travelers blamed Washington as the same DHS shutdown dragged on, capturing the same airport-disruption episode that left airline workers strained and airport lines snarled.',
           },
         ),
       ],
