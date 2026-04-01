@@ -2107,6 +2107,210 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
     ],
   },
   {
+    scenario_id: 'replay-known-event-cuba-tanker-source-growth',
+    topic_id: 'replay-known-event-cuba-tanker-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'guardian-world-cuba-tanker-replay',
+          'Russian oil tanker heading to Cuba amid US economic blockade',
+          'cuba-tanker-guardian-replay-a',
+          1_773_957_300_000,
+          {
+            publisher: 'The Guardian',
+            url: 'https://www.theguardian.com/world/2026/mar/19/cuba-us-economic-blockade-trump-russian-oil-tanker',
+            canonicalUrl: 'https://www.theguardian.com/world/2026/mar/19/cuba-us-economic-blockade-trump-russian-oil-tanker',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'economic_blockade',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'A Russian oil tanker was heading to Cuba amid a US economic blockade, starting the same Cuba tanker episode about fuel shipments, blackout pressure, and the Trump administration’s stance toward deliveries to the island.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'cbs-cuba-tanker-replay',
+          'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+          'cuba-tanker-cbs-replay-b',
+          1_774_866_620_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+            canonicalUrl: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'donald_trump',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'Trump said he had no problem with a Russian tanker bringing oil to Cuba in the same Cuba tanker episode about whether the delivery would be allowed to reach the island during fuel pressure and blockade conditions.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-cuba-tanker-vs-trump-opinion-separation',
+    topic_id: 'replay-known-event-cuba-tanker-vs-trump-opinion-separation',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'cuba_russian_tanker_episode',
+          'cbs-cuba-tanker-separation-replay',
+          'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+          'cuba-tanker-separation-cbs-replay-a',
+          1_774_866_620_000,
+          {
+            publisher: 'CBS News',
+            url: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem/',
+            canonicalUrl: 'https://www.cbsnews.com/news/cuba-blockade-russian-tanker-trump-no-problem',
+            entity_keys: [
+              'cuba_russian_tanker_episode',
+              'cuba',
+              'russian_oil_tanker',
+              'donald_trump',
+              'fuel_shipments',
+            ],
+            cluster_text:
+              'Trump said he had no problem with a Russian tanker bringing oil to Cuba, part of the same Cuba fuel-shipment episode over whether the tanker would be allowed to reach the island.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'trump_democrats_primary_opinion_episode',
+          'guardian-trump-opinion-replay',
+          'For Democrats, fighting Trump isn’t enough anymore',
+          'trump-opinion-guardian-replay-b',
+          1_774_864_807_000,
+          {
+            publisher: 'The Guardian',
+            url: 'https://www.theguardian.com/commentisfree/2026/mar/30/democrats-trump-dan-goldman-brad-lander',
+            canonicalUrl:
+              'https://www.theguardian.com/commentisfree/2026/mar/30/democrats-trump-dan-goldman-brad-lander',
+            entity_keys: [
+              'trump_democrats_primary_opinion_episode',
+              'donald_trump',
+              'democratic_primary',
+              'new_york',
+              'opinion',
+            ],
+            cluster_text:
+              'A Guardian opinion essay argued that Democrats need a positive political agenda beyond opposing Trump, focusing on the New York 10th district primary and ideological conflicts inside the Democratic party.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-dhs-airport-shutdown-source-growth',
+    topic_id: 'replay-known-event-dhs-airport-shutdown-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'bbc-dhs-shutdown-airport-replay',
+          'Partial government shutdown becomes the longest in US history',
+          'dhs-shutdown-bbc-replay-a',
+          1_774_833_231_000,
+          {
+            publisher: 'BBC News',
+            url: 'https://www.bbc.com/news/articles/cyv1qpzq5v7o?at_medium=RSS&at_campaign=rss',
+            canonicalUrl: 'https://www.bbc.com/news/articles/cyv1qpzq5v7o?at_campaign=rss&at_medium=RSS',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'tsa',
+              'airports',
+              'travel_delays',
+            ],
+            cluster_text:
+              'The Department of Homeland Security shutdown became the longest in US history and caused travel chaos at airports, beginning the same shutdown-and-airport-disruption episode over TSA staffing, lines, and political stalemate.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'abc-dhs-shutdown-airport-replay',
+          'TSA pay may be coming, but airport delays could persist and ICE agents may not leave soon',
+          'dhs-shutdown-abc-replay-b',
+          1_774_829_322_000,
+          {
+            publisher: 'ABC News',
+            url: 'https://abcnews.com/Politics/wireStory/tsa-pay-coming-airport-delays-persist-ice-agents-131505159',
+            canonicalUrl: 'https://abcnews.com/Politics/wireStory/tsa-pay-coming-airport-delays-persist-ice-agents-131505159',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'tsa',
+              'airports',
+              'ice_officers',
+            ],
+            cluster_text:
+              'Trump signed an order on TSA pay while airport delays persisted and ICE agents remained in the same DHS shutdown airport-disruption episode about staffing shortages and long security lines.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'wapo-dhs-shutdown-airport-replay',
+          'Long lines persist at some U.S. airports despite arrival of ICE officers',
+          'dhs-shutdown-wapo-replay-c',
+          1_774_270_800_000,
+          {
+            publisher: 'The Washington Post',
+            url: 'https://www.washingtonpost.com/immigration/2026/03/23/ice-agents-airports/',
+            canonicalUrl: 'https://www.washingtonpost.com/immigration/2026/03/23/ice-agents-airports/',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'tsa',
+              'airports',
+              'ice_officers',
+            ],
+            cluster_text:
+              'Long lines persisted at US airports despite the arrival of ICE officers in the same DHS shutdown airport-disruption episode about TSA staffing shortages and the funding impasse.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'dhs_shutdown_airport_disruption_episode',
+          'nbc-dhs-shutdown-airport-replay',
+          "'I blame them all': Travelers frustrated with Washington as shutdown drags on",
+          'dhs-shutdown-nbc-replay-d',
+          1_774_861_860_000,
+          {
+            publisher: 'NBC News',
+            url: 'https://www.nbcnews.com/politics/congress/travelers-frustrated-washington-shutdown-blame-rcna265602',
+            canonicalUrl:
+              'https://www.nbcnews.com/politics/congress/travelers-frustrated-washington-shutdown-blame-rcna265602',
+            entity_keys: [
+              'dhs_shutdown_airport_disruption_episode',
+              'dhs_shutdown',
+              'travelers',
+              'airports',
+              'travel_delays',
+            ],
+            cluster_text:
+              'Travelers blamed Washington as the same DHS shutdown dragged on, capturing the same airport-disruption episode that left airline workers strained and airport lines snarled.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-known-event-gaza-ceasefire-2025-arc',
     topic_id: 'replay-known-event-gaza-ceasefire-2025-arc',
     ticks: [
