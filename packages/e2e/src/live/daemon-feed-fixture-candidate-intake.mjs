@@ -112,6 +112,49 @@ function buildReplayCandidate(sample, origin, artifactDir, reportPath) {
   };
 }
 
+function normalizeEventKeys(value) {
+  return Array.isArray(value)
+    ? value.filter((entry) => typeof entry === 'string' && entry.length > 0).sort()
+    : [];
+}
+
+function replayCandidateDedupeKey(sample) {
+  const primary = normalizeEventKeys(sample?.sourceEventKeys);
+  const counterpart = normalizeEventKeys(sample?.bestMatchSourceEventKeys);
+  const sides = [primary.join('|'), counterpart.join('|')].sort();
+  const pairKey = sides.join(' <-> ');
+  if (pairKey !== ' <-> ') {
+    return pairKey;
+  }
+  if (typeof sample?.storyId === 'string' && sample.storyId.length > 0) {
+    return `story:${sample.storyId}`;
+  }
+  if (typeof sample?.headline === 'string' && sample.headline.length > 0) {
+    return `headline:${sample.headline}`;
+  }
+  return null;
+}
+
+function dedupeReplayCandidates(samplesByOrigin) {
+  const deduped = [];
+  const seen = new Set();
+
+  for (const { samples, origin, artifactDir, reportPath } of samplesByOrigin) {
+    for (const sample of samples) {
+      const dedupeKey = replayCandidateDedupeKey(sample);
+      if (dedupeKey && seen.has(dedupeKey)) {
+        continue;
+      }
+      if (dedupeKey) {
+        seen.add(dedupeKey);
+      }
+      deduped.push(buildReplayCandidate(sample, origin, artifactDir, reportPath));
+    }
+  }
+
+  return deduped;
+}
+
 function buildScoutCandidate(candidate, scoutReportPath) {
   return {
     candidateId: `scout:${candidate.sourceId}`,
@@ -158,18 +201,24 @@ export function buildFixtureCandidateIntake({
   const latestScout = findLatestScoutReport(scoutRoot, { exists, readdir, stat, readFile });
 
   const replayCandidates = replayReport
-    ? [
-        ...(Array.isArray(replayReport.currentExecution?.calibration?.remoteMismatchSamples)
-          ? replayReport.currentExecution.calibration.remoteMismatchSamples.map((sample) =>
-              buildReplayCandidate(sample, 'offline_replay_remote_mismatch', artifactDir, reportPath),
-            )
-          : []),
-        ...(Array.isArray(replayReport.currentExecution?.calibration?.offlineMismatchSamples)
-          ? replayReport.currentExecution.calibration.offlineMismatchSamples.map((sample) =>
-              buildReplayCandidate(sample, 'offline_replay_offline_mismatch', artifactDir, reportPath),
-            )
-          : []),
-      ]
+    ? dedupeReplayCandidates([
+        {
+          samples: Array.isArray(replayReport.currentExecution?.calibration?.remoteMismatchSamples)
+            ? replayReport.currentExecution.calibration.remoteMismatchSamples
+            : [],
+          origin: 'offline_replay_remote_mismatch',
+          artifactDir,
+          reportPath,
+        },
+        {
+          samples: Array.isArray(replayReport.currentExecution?.calibration?.offlineMismatchSamples)
+            ? replayReport.currentExecution.calibration.offlineMismatchSamples
+            : [],
+          origin: 'offline_replay_offline_mismatch',
+          artifactDir,
+          reportPath,
+        },
+      ])
     : [];
 
   const scoutCandidates = Array.isArray(latestScout?.report?.candidates)

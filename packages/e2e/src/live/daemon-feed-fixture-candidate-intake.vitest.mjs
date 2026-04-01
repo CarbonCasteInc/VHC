@@ -31,7 +31,15 @@ describe('fixture candidate intake', () => {
               bestMatchHeadline: 'Offline story',
               bestMatchSourceEventKeys: ['ap-topnews::2'],
             }],
-            offlineMismatchSamples: [],
+            offlineMismatchSamples: [{
+              storyId: 'story-2',
+              headline: 'Offline story',
+              sourceEventKeys: ['ap-topnews::2'],
+              bestOverlapScore: 0.5,
+              bestMatchStoryId: 'story-1',
+              bestMatchHeadline: 'Remote story',
+              bestMatchSourceEventKeys: ['guardian-us::1'],
+            }],
           },
         },
       }), 'utf8');
