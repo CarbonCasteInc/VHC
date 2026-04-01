@@ -378,6 +378,59 @@ describe('StoryCluster identity replay hardening', () => {
     ]);
   });
 
+  it('merges the longest-shutdown BBC story with the WaPo ICE-lines follow-up without resetting identity', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dhs-shutdown-bbc-wapo',
+        documents: [
+          makeReplayInput(
+            'shutdown-bbc-1',
+            'Partial government shutdown becomes the longest in US history',
+            1774833231000,
+            'bbc-us-canada',
+            '803e0a6e',
+            'The 44-day funding lapse for the Department of Homeland Security has led to travel chaos at US airports.',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-dhs-shutdown-bbc-wapo',
+        documents: [
+          makeReplayInput(
+            'shutdown-bbc-2',
+            'Partial government shutdown becomes the longest in US history',
+            1774833231000,
+            'bbc-us-canada',
+            '803e0a6e',
+            'The 44-day funding lapse for the Department of Homeland Security has led to travel chaos at US airports.',
+          ),
+          makeReplayInput(
+            'shutdown-bbc-3',
+            'Long lines persist at some U.S. airports despite arrival of ICE officers',
+            1774270800000,
+            'washington-post-immigration',
+            'shutdown-wapo-bbc-001',
+            'ICE officers were dispatched amid TSA staffing shortages caused by a congressional impasse over Department of Homeland Security funding, but long airport security lines persisted.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_095_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'bbc-us-canada',
+      'washington-post-immigration',
+    ]);
+  });
+
   it('merges the DHS airport-disruption episode when ABC Australia restates the same ICE checkpoint story', async () => {
     const store = new MemoryClusterStore();
     const first = await runStoryClusterStagePipeline(
@@ -535,6 +588,59 @@ describe('StoryCluster identity replay hardening', () => {
     expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
     expect(second.bundles[0]?.primary_sources.map((source) => source.source_id)).toEqual(['cbs-politics']);
     expect(second.bundles[0]?.sources.map((source) => source.source_id)).toEqual(['cbs-politics']);
+  });
+
+  it('merges the Cuba tanker story with the Guardian tanker report without resetting identity', async () => {
+    const store = new MemoryClusterStore();
+    const first = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-cuba-guardian-growth',
+        documents: [
+          makeReplayInput(
+            'cuba-guardian-1',
+            'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+            1774866620000,
+            'cbs-politics',
+            '2a55210c',
+            'When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+          ),
+        ],
+      },
+      { clock: makeClock(), store },
+    );
+    const second = await runStoryClusterStagePipeline(
+      {
+        topic_id: 'topic-cuba-guardian-growth',
+        documents: [
+          makeReplayInput(
+            'cuba-guardian-2',
+            'Trump says he has "no problem" with Russian tanker bringing oil to Cuba',
+            1774866620000,
+            'cbs-politics',
+            '2a55210c',
+            'When asked if a New York Times report that the tanker would be allowed to reach Cuba was true, Mr. Trump said: "If a country wants to send some oil into Cuba right now, I have no problem whether it\'s Russia or not."',
+          ),
+          makeReplayInput(
+            'cuba-guardian-3',
+            'Russian oil tanker heading to Cuba amid US economic blockade',
+            1773957300000,
+            'guardian-world',
+            'cuba-guardian-001',
+            'Hundreds of thousands of barrels of Russian oil are heading to Cuba, according to maritime tracking data, as the island suffers blackouts under a US economic blockade.',
+          ),
+        ],
+      },
+      { clock: makeClock(1_713_500_100_000), store },
+    );
+
+    expect(first.bundles).toHaveLength(1);
+    expect(second.bundles).toHaveLength(1);
+    expect(second.bundles[0]?.story_id).toBe(first.bundles[0]?.story_id);
+    expect(second.bundles[0]?.created_at).toBe(first.bundles[0]?.created_at);
+    expect(second.bundles[0]?.primary_sources.map((source) => source.source_id).sort()).toEqual([
+      'cbs-politics',
+      'guardian-world',
+    ]);
   });
 
   it('preserves story_id while Mueller obituary coverage adds a second canonical source', async () => {
