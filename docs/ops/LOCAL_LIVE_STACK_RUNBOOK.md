@@ -3,7 +3,7 @@
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
 > Last Reviewed: 2026-03-29
-> Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md, docs/CANON_MAP.md
+> Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md, docs/ops/AUTOMATION_STACK_RUNBOOK.md, docs/CANON_MAP.md
 
 
 This runbook locks local manual testing to the same production-like wiring used by live headless gates.
@@ -30,6 +30,20 @@ All commands below use:
    - `ANALYSIS_RELAY_API_KEY`
    - `OPENAI_API_KEY` (used as fallback)
 2. Node/pnpm installed.
+
+## Related: Automation Stack
+
+The automation stack (`docs/ops/AUTOMATION_STACK_RUNBOOK.md`) is a persistent `launchd`-managed local stack used by scheduled automation runs. It shares ports `7777` (relay) and `8790` (snapshot server) with this manual dev stack, so the two are mutually exclusive. Stop one before starting the other:
+
+```bash
+# If automation stack is running, stop it first:
+pnpm automation:stack:stop
+
+# Then start the manual dev stack:
+pnpm live:stack:up
+```
+
+The automation stack uses port `2099` for its web preview, while this manual stack uses port `2048`. The web ports do not conflict.
 
 ## Canonical Commands
 

@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+_log_tag="live-local-stack"
+source "$ROOT/tools/scripts/local-stack-lib.sh"
+
 ENV_FILE="${ENV_FILE:-$ROOT/packages/e2e/.env.dev-small}"
 STACK_MODE_FILE="${STACK_MODE_FILE:-/tmp/vh-local-stack.mode}"
 STACK_MODE="${VH_LOCAL_STACK_FEED_MODE:-}"
@@ -32,108 +35,6 @@ SNAPSHOT_PID_FILE="${SNAPSHOT_PID_FILE:-/tmp/vh-local-validated-snapshot.pid}"
 
 RELAY_DATA_PATH="${RELAY_DATA_PATH:-$ROOT/.tmp/live-local-stack/relay-data}"
 STORYCLUSTER_STATE_DIR="${STORYCLUSTER_STATE_DIR:-$ROOT/.tmp/live-local-stack/storycluster-state}"
-STORYCLUSTER_AUTH_TOKEN="${STORYCLUSTER_AUTH_TOKEN:-vh-local-storycluster-token}"
-STORYCLUSTER_LOADER_PATH="${STORYCLUSTER_LOADER_PATH:-$ROOT/tools/node/esm-resolve-loader.mjs}"
-READY_TIMEOUT_SECS="${READY_TIMEOUT_SECS:-45}"
-DAEMON_READY_TIMEOUT_SECS="${DAEMON_READY_TIMEOUT_SECS:-90}"
-
-info() { echo "[live-local-stack] $*"; }
-warn() { echo "[live-local-stack][warn] $*" >&2; }
-die() { echo "[live-local-stack][error] $*" >&2; exit 1; }
-
-spawn_detached() {
-  local pid_file="$1"
-  local log_file="$2"
-  shift 2
-  node "$ROOT/tools/scripts/spawn-detached.mjs" "$pid_file" "$ROOT" "$log_file" "$@"
-}
-
-require_cmd() {
-  command -v "$1" >/dev/null 2>&1 || die "Missing required command: $1"
-}
-
-read_pid_file() {
-  local file="$1"
-  if [[ -f "$file" ]]; then
-    cat "$file"
-  fi
-}
-
-is_pid_alive() {
-  local pid="$1"
-  [[ -n "$pid" ]] && kill -0 "$pid" >/dev/null 2>&1
-}
-
-kill_pid_file() {
-  local file="$1"
-  local pid
-  pid="$(read_pid_file "$file" || true)"
-  if is_pid_alive "$pid"; then
-    kill "$pid" >/dev/null 2>&1 || true
-    sleep 0.5
-    if is_pid_alive "$pid"; then
-      kill -9 "$pid" >/dev/null 2>&1 || true
-    fi
-  fi
-  rm -f "$file"
-}
-
-kill_port() {
-  local port="$1"
-  local pids
-  pids="$(lsof -ti "tcp:${port}" 2>/dev/null || true)"
-  if [[ -n "$pids" ]]; then
-    info "Stopping existing process(es) on tcp:${port}"
-    xargs kill <<<"$pids" >/dev/null 2>&1 || true
-    sleep 0.5
-    pids="$(lsof -ti "tcp:${port}" 2>/dev/null || true)"
-    if [[ -n "$pids" ]]; then
-      xargs kill -9 <<<"$pids" >/dev/null 2>&1 || true
-    fi
-  fi
-}
-
-wait_for_http() {
-  local url="$1"
-  local timeout="$2"
-  local -a curl_args=()
-  if (( $# > 2 )); then
-    curl_args=("${@:3}")
-  fi
-  local started
-  started="$(date +%s)"
-  while true; do
-    if (( ${#curl_args[@]} > 0 )); then
-      if curl -fsS "${curl_args[@]}" "$url" >/dev/null 2>&1; then
-        return 0
-      fi
-    elif curl -fsS "$url" >/dev/null 2>&1; then
-      return 0
-    fi
-    if (( $(date +%s) - started >= timeout )); then
-      return 1
-    fi
-    sleep 1
-  done
-}
-
-wait_for_log() {
-  local file="$1"
-  local pattern="$2"
-  local timeout="$3"
-  local started
-  started="$(date +%s)"
-  while true; do
-    if [[ -f "$file" ]] && grep -Eq "$pattern" "$file"; then
-      return 0
-    fi
-    if (( $(date +%s) - started >= timeout )); then
-      return 1
-    fi
-    sleep 1
-  done
-}
-
 validate_stack_mode() {
   case "$STACK_MODE" in
     fixture|public|validated-snapshot) ;;
