@@ -127,9 +127,11 @@ do_ensure() {
   info "Building storycluster-engine..."
   pnpm --filter @vh/storycluster-engine build > "$AUTO_DIR/logs/storycluster-build.log" 2>&1
 
-  # Build web for vite preview
+  # Build the preview bundle directly. The normal package "build" lifecycle runs
+  # the workspace prebuild guard through tsx, which is the exact IPC pipe path
+  # that fails inside scheduled worktree automation runs.
   info "Building web-pwa..."
-  pnpm --filter @vh/web-pwa build > "$AUTO_DIR/logs/web-build.log" 2>&1
+  pnpm --filter @vh/web-pwa exec vite build > "$AUTO_DIR/logs/web-build.log" 2>&1
 
   # Start storycluster for publisher-canary / daemon-first remote clustering
   mkdir -p "$AUTO_STORYCLUSTER_STATE"
