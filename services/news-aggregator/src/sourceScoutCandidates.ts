@@ -6,6 +6,24 @@ import { FeedSourceSchema, type FeedSource } from '@vh/ai-engine';
  */
 export const SOURCE_SCOUT_CANDIDATE_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
   FeedSourceSchema.parse({
+    id: 'washingtonpost-politics',
+    name: 'The Washington Post Politics',
+    displayName: 'The Washington Post',
+    rssUrl: 'https://www.washingtonpost.com/politics/',
+    perspectiveTag: 'national-newspaper',
+    iconKey: 'washingtonpost',
+    enabled: true,
+  }),
+  FeedSourceSchema.parse({
+    id: 'wsfa-state',
+    name: 'WSFA 12 News State Politics',
+    displayName: 'WSFA 12 News',
+    rssUrl: 'https://www.wsfa.com/politics/state/',
+    perspectiveTag: 'statehouse',
+    iconKey: 'wsfa',
+    enabled: true,
+  }),
+  FeedSourceSchema.parse({
     id: 'reuters-topnews',
     name: 'Reuters Top News',
     displayName: 'Reuters',

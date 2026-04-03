@@ -20,4 +20,28 @@ describe('SOURCE_SCOUT_CANDIDATE_FEED_SOURCES', () => {
       SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.some((source) => source.id === 'ap-topnews'),
     ).toBe(false);
   });
+
+  it('keeps reviewed HTML-hub candidates in the scout backlog until promotion', () => {
+    expect(
+      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'washingtonpost-politics'),
+    ).toMatchObject({
+      name: 'The Washington Post Politics',
+      displayName: 'The Washington Post',
+      rssUrl: 'https://www.washingtonpost.com/politics/',
+      perspectiveTag: 'national-newspaper',
+      iconKey: 'washingtonpost',
+      enabled: true,
+    });
+
+    expect(
+      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'wsfa-state'),
+    ).toMatchObject({
+      name: 'WSFA 12 News State Politics',
+      displayName: 'WSFA 12 News',
+      rssUrl: 'https://www.wsfa.com/politics/state/',
+      perspectiveTag: 'statehouse',
+      iconKey: 'wsfa',
+      enabled: true,
+    });
+  });
 });
