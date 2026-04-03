@@ -108,6 +108,8 @@ export interface SourceHealthHistorySummary {
 export interface SourceHealthTrendRunSummary {
   readonly generatedAt: string;
   readonly readinessStatus: SourceHealthReadinessStatus;
+  readonly globalFeedStageFailure: boolean;
+  readonly latestPublicationAction: SourceHealthRunAssessment['latestPublicationAction'];
   readonly enabledSourceCount: number;
   readonly keepSourceCount: number;
   readonly watchSourceCount: number;
@@ -721,6 +723,7 @@ function toTrendRunSummary(
         SourceHealthReport,
         | 'generatedAt'
         | 'readinessStatus'
+        | 'runAssessment'
         | 'keepSourceIds'
         | 'watchSourceIds'
         | 'removeSourceIds'
@@ -734,6 +737,16 @@ function toTrendRunSummary(
   return {
     generatedAt: input.generatedAt,
     readinessStatus: input.readinessStatus,
+    globalFeedStageFailure:
+      'runAssessment' in input
+        ? input.runAssessment.globalFeedStageFailure
+        : input.globalFeedStageFailure,
+    latestPublicationAction:
+      'runAssessment' in input
+        ? input.runAssessment.latestPublicationAction
+        : input.globalFeedStageFailure
+          ? 'preserve_previous_latest'
+          : 'publish_latest',
     enabledSourceCount:
       'observability' in input
         ? input.observability.enabledSourceCount
@@ -767,11 +780,24 @@ function toTrendRunSummary(
   };
 }
 
+function isReleaseEvidenceEligibleTrendRun(
+  run: Pick<
+    SourceHealthTrendRunSummary,
+    'globalFeedStageFailure' | 'latestPublicationAction'
+  >,
+): boolean {
+  return (
+    !run.globalFeedStageFailure
+    && run.latestPublicationAction === 'publish_latest'
+  );
+}
+
 function buildSourceHealthReleaseEvidence(
   runs: readonly SourceHealthTrendRunSummary[],
   thresholds: Pick<SourceHealthThresholds, 'releaseEvidenceWindowRunCount' | 'maxNonReadyRunsInWindow'>,
 ): SourceHealthReleaseEvidence {
-  const recentRuns = runs.slice(-thresholds.releaseEvidenceWindowRunCount);
+  const releaseEligibleRuns = runs.filter(isReleaseEvidenceEligibleTrendRun);
+  const recentRuns = releaseEligibleRuns.slice(-thresholds.releaseEvidenceWindowRunCount);
   const latestRun = recentRuns[recentRuns.length - 1] ?? null;
   const priorRun = recentRuns.length > 1 ? recentRuns[recentRuns.length - 2] ?? null : null;
   const recentReviewRunCount = recentRuns.filter((run) => run.readinessStatus === 'review').length;
@@ -835,6 +861,7 @@ export function buildSourceHealthTrendIndex(
   currentReport: Pick<
     SourceHealthReport,
     | 'generatedAt'
+    | 'runAssessment'
     | 'readinessStatus'
     | 'keepSourceIds'
     | 'watchSourceIds'
@@ -999,6 +1026,13 @@ export function buildSourceHealthReport(
     {
       generatedAt,
       readinessStatus,
+      runAssessment:
+        options.runAssessment
+        ?? {
+          globalFeedStageFailure: false,
+          latestPublicationAction: 'publish_latest',
+          latestPublicationSkipReason: null,
+        },
       keepSourceIds,
       watchSourceIds,
       removeSourceIds,
