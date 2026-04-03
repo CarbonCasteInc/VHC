@@ -139,12 +139,16 @@ export function classifyConsumerSmokeOutcome({
   renderCount,
   expanded,
   errorMessage,
+  validationMode = 'browser',
 }) {
   if (typeof errorMessage === 'string' && errorMessage.length > 0) {
     return 'startup_failure';
   }
   if (!isFiniteNumber(renderCount) || renderCount < 1) {
     return 'render_empty';
+  }
+  if (validationMode === 'http-contract') {
+    return 'pass';
   }
   if (!expanded) {
     return 'story_open_failed';
@@ -262,6 +266,9 @@ export function resolveAutomationStackState(
       ? normalizeUrl(state?.storyclusterAuthToken)
       : null,
     snapshotPath: services.snapshot?.healthy ? normalizeUrl(state?.snapshotPath) : null,
+    snapshotUrl: services.snapshot?.healthy && Number.isFinite(state?.ports?.snapshot)
+      ? `http://127.0.0.1:${state.ports.snapshot}/snapshot.json`
+      : null,
     state,
   };
 }

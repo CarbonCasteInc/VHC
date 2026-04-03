@@ -161,6 +161,13 @@ describe('daemon-feed-canary shared helpers', () => {
       expanded: false,
       errorMessage: null,
     })).toBe('story_open_failed');
+
+    expect(classifyConsumerSmokeOutcome({
+      renderCount: 2,
+      expanded: false,
+      errorMessage: null,
+      validationMode: 'http-contract',
+    })).toBe('pass');
   });
 
   it('formats console args defensively', () => {
@@ -227,6 +234,9 @@ describe('daemon-feed-canary shared helpers', () => {
         storyclusterReadyUrl: 'http://127.0.0.1:4310/ready',
         storyclusterAuthToken: 'stack-token',
         snapshotPath: '/repo/.tmp/daemon-feed-publisher-canary/123/published-store-snapshot.json',
+        ports: {
+          snapshot: 8790,
+        },
       }),
     });
 
@@ -238,6 +248,7 @@ describe('daemon-feed-canary shared helpers', () => {
       storyclusterReadyUrl: 'http://127.0.0.1:4310/ready',
       storyclusterAuthToken: 'stack-token',
       snapshotPath: '/repo/.tmp/daemon-feed-publisher-canary/123/published-store-snapshot.json',
+      snapshotUrl: 'http://127.0.0.1:8790/snapshot.json',
     });
   });
 
@@ -259,6 +270,9 @@ describe('daemon-feed-canary shared helpers', () => {
         storyclusterReadyUrl: 'http://127.0.0.1:4310/ready',
         storyclusterAuthToken: 'stack-token',
         snapshotPath: '/repo/.tmp/snapshot.json',
+        ports: {
+          snapshot: 8790,
+        },
       }),
     });
 
@@ -269,6 +283,7 @@ describe('daemon-feed-canary shared helpers', () => {
       storyclusterReadyUrl: null,
       storyclusterAuthToken: null,
       snapshotPath: '/repo/.tmp/snapshot.json',
+      snapshotUrl: 'http://127.0.0.1:8790/snapshot.json',
     });
   });
 });

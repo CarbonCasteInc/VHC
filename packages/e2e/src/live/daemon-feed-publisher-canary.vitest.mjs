@@ -21,6 +21,16 @@ describe('publisher canary defaults', () => {
     expect(publisherCanaryInternal.resolvePublisherCanaryOpenAITimeoutMs()).toBe(120000);
   });
 
+  it('does not require shared stack unless explicitly enabled', () => {
+    vi.stubEnv('VH_DAEMON_FEED_REQUIRE_SHARED_STACK', 'false');
+    expect(publisherCanaryInternal.resolvePublisherCanaryRequireSharedStack()).toBe(false);
+  });
+
+  it('requires shared stack when explicitly enabled', () => {
+    vi.stubEnv('VH_DAEMON_FEED_REQUIRE_SHARED_STACK', 'true');
+    expect(publisherCanaryInternal.resolvePublisherCanaryRequireSharedStack()).toBe(true);
+  });
+
   it('honors an explicit canary storycluster openai timeout override', () => {
     vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_OPENAI_TIMEOUT_MS', '180000');
     expect(publisherCanaryInternal.resolvePublisherCanaryOpenAITimeoutMs()).toBe(180000);
