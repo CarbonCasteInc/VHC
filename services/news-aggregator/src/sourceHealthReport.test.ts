@@ -585,6 +585,8 @@ describe('sourceHealthReport', () => {
       'ready',
     ]);
     expect(trendIndex.runs[2]).toMatchObject({
+      globalFeedStageFailure: false,
+      latestPublicationAction: 'publish_latest',
       keepSourceIds: ['fox-latest'],
       watchSourceIds: [],
       removeSourceIds: [],
@@ -871,6 +873,80 @@ describe('sourceHealthReport', () => {
 
     expect(report.historySummary.priorReportCount).toBe(1);
     expect(report.releaseEvidence.status).toBe('pass');
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('excludes current global feed-stage collapses from release-evidence trend decisions', async () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-current-global-failure-'));
+    const goodArtifactDir = path.join(artifactRoot, '1700000000000');
+    const failedArtifactDir = path.join(artifactRoot, '1700000001000');
+
+    await writeSourceHealthArtifact({
+      artifactDir: goodArtifactDir,
+      admissionReport: makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
+      now: () => 1_700_000_000_000,
+    });
+
+    const failedArtifact = await writeSourceHealthArtifact({
+      artifactDir: failedArtifactDir,
+      admissionReport: makeAdmissionReport([
+        makeAdmissionSource({
+          sourceId: 'fox-latest',
+          status: 'inconclusive',
+          admitted: false,
+          sampleLinkCount: 0,
+          readableSampleCount: 0,
+          readableSampleRate: null,
+          reasons: ['feed_links_unavailable', 'feed_fetch_error'],
+          sampledUrls: [],
+          feedRead: {
+            ok: false,
+            httpStatus: null,
+            contentType: null,
+            bodyLength: null,
+            payloadKind: 'unavailable',
+            errorCode: 'feed_fetch_error',
+            errorMessage: 'fetch failed',
+            attemptCount: 2,
+            itemFragmentCount: 0,
+            entryFragmentCount: 0,
+            extractedLinkCount: 0,
+          },
+        }),
+      ]),
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
+      now: () => 1_700_000_001_000,
+    });
+
+    expect(failedArtifact.sourceHealthReport.runAssessment.globalFeedStageFailure).toBe(true);
+    expect(failedArtifact.sourceHealthTrendIndex.releaseEvidence).toEqual({
+      status: 'pass',
+      recommendedAction: 'release_ready',
+      reasons: [],
+      recentWindowRunCount: 1,
+      recentReadyRunCount: 1,
+      recentReviewRunCount: 0,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: [],
+      latestNewRemoveSourceIds: [],
+    });
+    expect(
+      failedArtifact.sourceHealthTrendIndex.runs[
+        failedArtifact.sourceHealthTrendIndex.runs.length - 1
+      ],
+    ).toMatchObject({
+      globalFeedStageFailure: true,
+      latestPublicationAction: 'preserve_previous_latest',
+      readinessStatus: 'review',
+    });
 
     rmSync(artifactRoot, { recursive: true, force: true });
   });
