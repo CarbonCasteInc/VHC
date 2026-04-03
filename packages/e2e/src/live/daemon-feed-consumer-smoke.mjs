@@ -9,6 +9,7 @@ import { chromium } from '@playwright/test';
 import {
   classifyConsumerSmokeOutcome,
   formatConsoleArgs,
+  resolveAutomationStackState,
   resolveLatestPassingCanaryArtifact,
 } from './daemon-feed-canary-shared.mjs';
 import { formatErrorMessage, sleep } from './daemon-feed-semantic-soak-core.mjs';
@@ -131,6 +132,45 @@ async function loadStarterFeedSourcesJson(repoRoot) {
   return JSON.stringify(resolved.feedSources);
 }
 
+function resolveConsumerSmokeBaseUrl(
+  repoRoot,
+  env = process.env,
+  {
+    exists = existsSync,
+    readFile = readFileSync,
+  } = {},
+) {
+  const explicitBaseUrl = env.VH_DAEMON_FEED_CONSUMER_SMOKE_BASE_URL?.trim();
+  if (explicitBaseUrl) {
+    return {
+      mode: 'explicit',
+      baseUrl: explicitBaseUrl,
+      statePath: null,
+    };
+  }
+
+  const stackState = resolveAutomationStackState(repoRoot, {
+    env,
+    exists,
+    readFile,
+  });
+  if (stackState?.webBaseUrl) {
+    return {
+      mode: 'automation-stack',
+      baseUrl: stackState.webBaseUrl.endsWith('/')
+        ? stackState.webBaseUrl
+        : `${stackState.webBaseUrl}/`,
+      statePath: stackState.statePath,
+    };
+  }
+
+  return {
+    mode: 'ephemeral',
+    baseUrl: null,
+    statePath: stackState?.statePath || null,
+  };
+}
+
 export async function runDaemonFeedConsumerSmoke({
   repoRoot = DEFAULT_REPO_ROOT,
   env = process.env,
@@ -158,9 +198,17 @@ export async function runDaemonFeedConsumerSmoke({
     stat,
     readFile,
   });
-  const feedSourcesJson = await loadStarterFeedSourcesJson(repoRoot);
-  const port = await findAvailablePort();
-  const baseUrl = `http://127.0.0.1:${port}/`;
+  const baseUrlResolution = resolveConsumerSmokeBaseUrl(repoRoot, env, {
+    exists,
+    readFile,
+  });
+  const feedSourcesJson = baseUrlResolution.mode === 'ephemeral'
+    ? await loadStarterFeedSourcesJson(repoRoot)
+    : null;
+  const port = baseUrlResolution.mode === 'ephemeral'
+    ? await findAvailablePort()
+    : null;
+  const baseUrl = baseUrlResolution.baseUrl || `http://127.0.0.1:${port}/`;
   const browserLogs = [];
   let browser = null;
   let context = null;
@@ -169,28 +217,36 @@ export async function runDaemonFeedConsumerSmoke({
 
   try {
     writeFile(serverLogPath, '', 'utf8');
-    webServer = spawn(
-      'pnpm',
-      ['--filter', '@vh/web-pwa', 'dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-      {
-        cwd: repoRoot,
-        env: {
-          ...env,
-          VITE_E2E_MODE: 'true',
-          VITE_NEWS_RUNTIME_ENABLED: 'false',
-          VITE_NEWS_BRIDGE_ENABLED: 'false',
-          VITE_SYNTHESIS_BRIDGE_ENABLED: 'false',
-          VITE_LINKED_SOCIAL_ENABLED: 'false',
-          VITE_VH_ANALYSIS_PIPELINE: 'false',
-          VITE_NEWS_FEED_SOURCES: feedSourcesJson,
+    if (baseUrlResolution.mode === 'ephemeral') {
+      webServer = spawn(
+        'pnpm',
+        ['--filter', '@vh/web-pwa', 'dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+        {
+          cwd: repoRoot,
+          env: {
+            ...env,
+            VITE_E2E_MODE: 'true',
+            VITE_NEWS_RUNTIME_ENABLED: 'false',
+            VITE_NEWS_BRIDGE_ENABLED: 'false',
+            VITE_SYNTHESIS_BRIDGE_ENABLED: 'false',
+            VITE_LINKED_SOCIAL_ENABLED: 'false',
+            VITE_VH_ANALYSIS_PIPELINE: 'false',
+            VITE_NEWS_FEED_SOURCES: feedSourcesJson,
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
         },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      },
-    );
-    webServer.stdout?.on('data', (chunk) => writeFile(serverLogPath, chunk.toString('utf8'), { flag: 'a' }));
-    webServer.stderr?.on('data', (chunk) => writeFile(serverLogPath, chunk.toString('utf8'), { flag: 'a' }));
+      );
+      webServer.stdout?.on('data', (chunk) => writeFile(serverLogPath, chunk.toString('utf8'), { flag: 'a' }));
+      webServer.stderr?.on('data', (chunk) => writeFile(serverLogPath, chunk.toString('utf8'), { flag: 'a' }));
 
-    await waitForHttpReady(baseUrl, webServer, 60_000, fetchImpl, sleepImpl);
+      await waitForHttpReady(baseUrl, webServer, 60_000, fetchImpl, sleepImpl);
+    } else {
+      writeFile(
+        serverLogPath,
+        `[vh:consumer-smoke] using ${baseUrlResolution.mode} web host ${baseUrl} state=${baseUrlResolution.statePath ?? 'n/a'}\n`,
+        'utf8',
+      );
+    }
 
     browser = await launchBrowser();
     context = await browser.newContext({ ignoreHTTPSErrors: true });
@@ -260,6 +316,12 @@ export async function runDaemonFeedConsumerSmoke({
         logsPath,
         serverLogPath,
       },
+      automationStack: baseUrlResolution.mode === 'automation-stack'
+        ? {
+          statePath: baseUrlResolution.statePath,
+          baseUrl,
+        }
+        : null,
       baseUrl,
       pass: false,
       outcome: classifyConsumerSmokeOutcome({
@@ -343,6 +405,10 @@ export async function runDaemonFeedConsumerSmoke({
 async function main() {
   await runDaemonFeedConsumerSmoke();
 }
+
+export const consumerSmokeInternal = {
+  resolveConsumerSmokeBaseUrl,
+};
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   main().catch((error) => {

@@ -18,10 +18,13 @@ const { values: args } = parseArgs({
     'git-head':           { type: 'string',  default: '' },
     'snapshot-port':      { type: 'string',  default: '8790' },
     'relay-port':         { type: 'string',  default: '7777' },
+    'storycluster-port':  { type: 'string',  default: '4310' },
     'web-port':           { type: 'string',  default: '2099' },
     'snapshot-pid-file':  { type: 'string',  default: '' },
     'relay-pid-file':     { type: 'string',  default: '' },
+    'storycluster-pid-file': { type: 'string', default: '' },
     'web-pid-file':       { type: 'string',  default: '' },
+    'storycluster-auth-token': { type: 'string', default: 'vh-local-storycluster-token' },
   },
   strict: false,
 });
@@ -66,11 +69,14 @@ function readPid(pidFile) {
   }
 }
 
-async function probeHttp(url, timeoutMs = 5000) {
+async function probeHttp(url, timeoutMs = 5000, options = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
     clearTimeout(timer);
     return { ok: res.ok, status: res.status, error: null };
   } catch (err) {
@@ -84,38 +90,47 @@ async function probeHttp(url, timeoutMs = 5000) {
 async function checkServices() {
   const snapshotPort = parseInt(args['snapshot-port'], 10);
   const relayPort    = parseInt(args['relay-port'], 10);
+  const storyclusterPort = parseInt(args['storycluster-port'], 10);
   const webPort      = parseInt(args['web-port'], 10);
 
-  const [snapshotProbe, relayProbe, webProbe] = await Promise.all([
+  const [snapshotProbe, relayProbe, storyclusterProbe, webProbe] = await Promise.all([
     probeHttp(`http://127.0.0.1:${snapshotPort}/health`),
     probeHttp(`http://127.0.0.1:${relayPort}/`),
+    probeHttp(`http://127.0.0.1:${storyclusterPort}/ready`, 5000, {
+      headers: {
+        authorization: `Bearer ${args['storycluster-auth-token']}`,
+      },
+    }),
     probeHttp(`http://127.0.0.1:${webPort}/`),
   ]);
 
   const snapshotPid = readPid(args['snapshot-pid-file']);
   const relayPid    = readPid(args['relay-pid-file']);
+  const storyclusterPid = readPid(args['storycluster-pid-file']);
   const webPid      = readPid(args['web-pid-file']);
 
   // Report pid as null when the process is dead — downstream consumers
   // must not treat stale PIDs as live handles.
   const snapshotLivePid = snapshotPid.alive ? snapshotPid.pid : null;
   const relayLivePid    = relayPid.alive    ? relayPid.pid    : null;
+  const storyclusterLivePid = storyclusterPid.alive ? storyclusterPid.pid : null;
   const webLivePid      = webPid.alive      ? webPid.pid      : null;
 
   const services = {
     snapshot: { port: snapshotPort, pid: snapshotLivePid, healthy: snapshotProbe.ok },
     relay:    { port: relayPort,    pid: relayLivePid,    healthy: relayProbe.ok },
+    storycluster: { port: storyclusterPort, pid: storyclusterLivePid, healthy: storyclusterProbe.ok },
     web:      { port: webPort,      pid: webLivePid,      healthy: webProbe.ok },
   };
 
-  const allHealthy = snapshotProbe.ok && relayProbe.ok && webProbe.ok;
+  const allHealthy = snapshotProbe.ok && relayProbe.ok && storyclusterProbe.ok && webProbe.ok;
 
   return {
     services,
-    ports: { snapshot: snapshotPort, relay: relayPort, web: webPort },
-    pids: { snapshot: snapshotLivePid, relay: relayLivePid, web: webLivePid },
+    ports: { snapshot: snapshotPort, relay: relayPort, storycluster: storyclusterPort, web: webPort },
+    pids: { snapshot: snapshotLivePid, relay: relayLivePid, storycluster: storyclusterLivePid, web: webLivePid },
     healthStatus: allHealthy ? 'healthy' : 'degraded',
-    probes: { snapshot: snapshotProbe, relay: relayProbe, web: webProbe },
+    probes: { snapshot: snapshotProbe, relay: relayProbe, storycluster: storyclusterProbe, web: webProbe },
   };
 }
 
@@ -135,8 +150,10 @@ async function main() {
     pids: result.pids,
     snapshotPath: null,
     webBaseUrl: `http://127.0.0.1:${result.ports.web}`,
-    storyclusterReadyUrl: null,
-    relayUrl: `http://127.0.0.1:${result.ports.relay}`,
+    storyclusterClusterUrl: `http://127.0.0.1:${result.ports.storycluster}/cluster`,
+    storyclusterReadyUrl: `http://127.0.0.1:${result.ports.storycluster}/ready`,
+    storyclusterAuthToken: args['storycluster-auth-token'] || null,
+    relayUrl: `http://127.0.0.1:${result.ports.relay}/gun`,
     healthStatus: result.healthStatus,
   };
 

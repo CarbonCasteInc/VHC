@@ -1,3 +1,4 @@
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 function isFiniteNumber(value) {
@@ -212,4 +213,51 @@ export function resolveLatestPassingCanaryArtifact(
   }
 
   return null;
+}
+
+function normalizeUrl(value) {
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim()
+    : null;
+}
+
+export function resolveAutomationStackState(
+  repoRoot,
+  {
+    env = process.env,
+    exists = existsSync,
+    readFile = readFileSync,
+  } = {},
+) {
+  const explicitStatePath = env.VH_AUTOMATION_STACK_STATE_PATH?.trim();
+  const statePath = explicitStatePath || path.join(repoRoot, '.tmp', 'automation-stack', 'state.json');
+  if (!exists(statePath)) {
+    return null;
+  }
+
+  let state;
+  try {
+    state = JSON.parse(readFile(statePath, 'utf8'));
+  } catch {
+    return null;
+  }
+
+  const services = state?.services ?? {};
+  return {
+    statePath,
+    healthStatus: typeof state?.healthStatus === 'string' ? state.healthStatus : 'unknown',
+    webBaseUrl: services.web?.healthy ? normalizeUrl(state?.webBaseUrl) : null,
+    relayUrl: services.relay?.healthy ? normalizeUrl(state?.relayUrl) : null,
+    storyclusterClusterUrl: services.storycluster?.healthy
+      ? normalizeUrl(state?.storyclusterClusterUrl)
+      : null,
+    storyclusterReadyUrl: services.storycluster?.healthy
+      ? normalizeUrl(state?.storyclusterReadyUrl)
+      : null,
+    storyclusterAuthToken: services.storycluster?.healthy
+      ? normalizeUrl(state?.storyclusterAuthToken)
+      : null,
+    snapshotPath: services.snapshot?.healthy ? normalizeUrl(state?.snapshotPath) : null,
+    state,
+  };
 }

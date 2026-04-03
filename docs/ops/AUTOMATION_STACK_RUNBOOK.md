@@ -17,8 +17,8 @@ This eliminates the `listen EPERM` failures that occur when automation child pro
 |----------------------|-----------------|-----------------|
 | Web preview / dev    | `127.0.0.1:2099` | `127.0.0.1:2048` |
 | Gun relay            | `127.0.0.1:7777` | `127.0.0.1:7777` |
+| StoryCluster         | `127.0.0.1:4310` | `127.0.0.1:4310` |
 | Snapshot server      | `127.0.0.1:8790` | `127.0.0.1:8790` |
-| StoryCluster         | (not in Phase 1) | `127.0.0.1:4310` |
 
 Ports `7777` and `8790` are shared. The automation stack and manual dev stack are mutually exclusive. Stop one before starting the other.
 
@@ -88,8 +88,10 @@ Schema:
 | `pids`               | object  | `{ snapshot, relay, web }` |
 | `snapshotPath`       | string  | Path to snapshot data (if available) |
 | `webBaseUrl`         | string  | `http://127.0.0.1:2099` |
-| `storyclusterReadyUrl` | string | `null` in Phase 1 |
-| `relayUrl`           | string  | `http://127.0.0.1:7777` |
+| `storyclusterClusterUrl` | string | `http://127.0.0.1:4310/cluster` |
+| `storyclusterReadyUrl` | string | `http://127.0.0.1:4310/ready` |
+| `storyclusterAuthToken` | string | Local auth token for automation clients |
+| `relayUrl`           | string  | `http://127.0.0.1:7777/gun` |
 | `healthStatus`       | string  | `healthy` or `degraded` |
 
 ## Rebuild Policy
