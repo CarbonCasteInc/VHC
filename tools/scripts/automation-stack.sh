@@ -12,17 +12,21 @@ ENV_FILE="${ENV_FILE:-$ROOT/packages/e2e/.env.dev-small}"
 
 AUTO_WEB_PORT="${AUTO_WEB_PORT:-2099}"
 AUTO_RELAY_PORT="${AUTO_RELAY_PORT:-7777}"
+AUTO_STORYCLUSTER_PORT="${AUTO_STORYCLUSTER_PORT:-4310}"
 AUTO_SNAPSHOT_PORT="${AUTO_SNAPSHOT_PORT:-8790}"
 
 AUTO_WEB_LOG="$AUTO_DIR/logs/web.log"
 AUTO_RELAY_LOG="$AUTO_DIR/logs/relay.log"
+AUTO_STORYCLUSTER_LOG="$AUTO_DIR/logs/storycluster.log"
 AUTO_SNAPSHOT_LOG="$AUTO_DIR/logs/snapshot.log"
 
 AUTO_WEB_PID="$AUTO_DIR/web.pid"
 AUTO_RELAY_PID="$AUTO_DIR/relay.pid"
+AUTO_STORYCLUSTER_PID="$AUTO_DIR/storycluster.pid"
 AUTO_SNAPSHOT_PID="$AUTO_DIR/snapshot.pid"
 
 AUTO_RELAY_DATA="$AUTO_DIR/relay-data"
+AUTO_STORYCLUSTER_STATE="$AUTO_DIR/storycluster-state"
 
 # --- lock ---
 acquire_lock() {
@@ -40,6 +44,7 @@ needs_rebuild() {
 
   # Check web build exists
   [[ -f "$ROOT/apps/web-pwa/dist/index.html" ]] || return 0
+  [[ -f "$ROOT/services/storycluster-engine/dist/server.js" ]] || return 0
 
   # Compare git HEAD (use $ROOT to get canonical repo HEAD, not worktree)
   local current_head state_head
@@ -60,10 +65,13 @@ run_health() {
     --state-dir "$AUTO_DIR" \
     --snapshot-port "$AUTO_SNAPSHOT_PORT" \
     --relay-port "$AUTO_RELAY_PORT" \
+    --storycluster-port "$AUTO_STORYCLUSTER_PORT" \
     --web-port "$AUTO_WEB_PORT" \
     --snapshot-pid-file "$AUTO_SNAPSHOT_PID" \
     --relay-pid-file "$AUTO_RELAY_PID" \
+    --storycluster-pid-file "$AUTO_STORYCLUSTER_PID" \
     --web-pid-file "$AUTO_WEB_PID" \
+    --storycluster-auth-token "$STORYCLUSTER_AUTH_TOKEN" \
     "$@"
 }
 
@@ -83,15 +91,18 @@ load_automation_env() {
   export VITE_SYNTHESIS_BRIDGE_ENABLED=false
   export VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL="http://127.0.0.1:${AUTO_SNAPSHOT_PORT}/snapshot.json"
   export VITE_GUN_PEERS="[\"http://localhost:${AUTO_RELAY_PORT}/gun\"]"
+  export VH_STORYCLUSTER_VECTOR_BACKEND=memory
 }
 
 # --- kill all automation services ---
 kill_automation_services() {
   kill_pid_file "$AUTO_WEB_PID"
   kill_pid_file "$AUTO_RELAY_PID"
+  kill_pid_file "$AUTO_STORYCLUSTER_PID"
   kill_pid_file "$AUTO_SNAPSHOT_PID"
   kill_port "$AUTO_WEB_PORT"
   kill_port "$AUTO_RELAY_PORT"
+  kill_port "$AUTO_STORYCLUSTER_PORT"
   kill_port "$AUTO_SNAPSHOT_PORT"
 }
 
@@ -113,9 +124,32 @@ do_ensure() {
   load_automation_env
   kill_automation_services
 
+  info "Building storycluster-engine..."
+  pnpm --filter @vh/storycluster-engine build > "$AUTO_DIR/logs/storycluster-build.log" 2>&1
+
   # Build web for vite preview
   info "Building web-pwa..."
   pnpm --filter @vh/web-pwa build > "$AUTO_DIR/logs/web-build.log" 2>&1
+
+  # Start storycluster for publisher-canary / daemon-first remote clustering
+  mkdir -p "$AUTO_STORYCLUSTER_STATE"
+  info "Starting StoryCluster on :${AUTO_STORYCLUSTER_PORT}"
+  : > "$AUTO_STORYCLUSTER_LOG"
+  export VH_STORYCLUSTER_SERVER_PORT="$AUTO_STORYCLUSTER_PORT"
+  export VH_STORYCLUSTER_SERVER_AUTH_TOKEN="$STORYCLUSTER_AUTH_TOKEN"
+  export VH_STORYCLUSTER_STATE_DIR="$AUTO_STORYCLUSTER_STATE"
+  spawn_detached \
+    "$AUTO_STORYCLUSTER_PID" \
+    "$AUTO_STORYCLUSTER_LOG" \
+    node \
+    --loader \
+    "$STORYCLUSTER_LOADER_PATH" \
+    tools/scripts/start-storycluster-local.mjs
+  wait_for_http \
+    "http://127.0.0.1:${AUTO_STORYCLUSTER_PORT}/ready" \
+    "$READY_TIMEOUT_SECS" \
+    -H "authorization: Bearer ${STORYCLUSTER_AUTH_TOKEN}" \
+    || die "StoryCluster did not become ready in ${READY_TIMEOUT_SECS}s (log: $AUTO_STORYCLUSTER_LOG)"
 
   # Start snapshot server
   info "Starting validated snapshot server on :${AUTO_SNAPSHOT_PORT}"
@@ -171,6 +205,7 @@ do_ensure() {
   info "Automation stack ready"
   info "Web:      http://127.0.0.1:${AUTO_WEB_PORT}/"
   info "Relay:    http://127.0.0.1:${AUTO_RELAY_PORT}/gun"
+  info "Cluster:  http://127.0.0.1:${AUTO_STORYCLUSTER_PORT}/cluster"
   info "Snapshot: http://127.0.0.1:${AUTO_SNAPSHOT_PORT}/health"
 }
 

@@ -5,6 +5,7 @@ import {
   formatConsoleArgs,
   observePublisherCanaryEvents,
   rankFeedSourcesByIds,
+  resolveAutomationStackState,
   resolveLatestPassingCanaryArtifact,
   summarizePublishedStoreSnapshot,
 } from './daemon-feed-canary-shared.mjs';
@@ -85,6 +86,25 @@ describe('daemon-feed-canary shared helpers', () => {
       pipelineStarted: true,
       ingestCompleted: true,
       normalizeCompleted: true,
+      topicClusterStarted: true,
+      clusterRequestReceived: true,
+      clusterRequestCompleted: true,
+      tickCompleted: true,
+      tickFailed: false,
+    });
+  });
+
+  it('treats remote storycluster client logs as valid cluster request evidence', () => {
+    const observed = observePublisherCanaryEvents([
+      '[vh:news-runtime] tick_started {"feed_source_count":12}',
+      '[vh:news-orchestrator] topic_cluster_started {"topic_id":"topic-news","item_count":19}',
+      '[vh:storycluster-remote] request_started {"endpoint_url":"http://127.0.0.1:4310/cluster","topic_id":"topic-news","item_count":19}',
+      '[vh:storycluster-remote] request_completed {"endpoint_url":"http://127.0.0.1:4310/cluster","topic_id":"topic-news","bundle_count":8}',
+      '[vh:news-runtime] tick_completed {"published_story_count":8}',
+    ]);
+
+    expect(observed).toMatchObject({
+      tickStarted: true,
       topicClusterStarted: true,
       clusterRequestReceived: true,
       clusterRequestCompleted: true,
@@ -185,6 +205,70 @@ describe('daemon-feed-canary shared helpers', () => {
       artifactDir: '/artifacts/200',
       summaryPath: '/artifacts/200/publisher-canary-summary.json',
       summary: { pass: true },
+    });
+  });
+
+  it('reads healthy automation stack endpoints from state', () => {
+    const statePath = '/repo/.tmp/automation-stack/state.json';
+    const resolved = resolveAutomationStackState('/repo', {
+      env: {},
+      exists: (filePath) => filePath === statePath,
+      readFile: () => JSON.stringify({
+        healthStatus: 'healthy',
+        services: {
+          web: { healthy: true },
+          relay: { healthy: true },
+          storycluster: { healthy: true },
+          snapshot: { healthy: true },
+        },
+        webBaseUrl: 'http://127.0.0.1:2099',
+        relayUrl: 'http://127.0.0.1:7777/gun',
+        storyclusterClusterUrl: 'http://127.0.0.1:4310/cluster',
+        storyclusterReadyUrl: 'http://127.0.0.1:4310/ready',
+        storyclusterAuthToken: 'stack-token',
+        snapshotPath: '/repo/.tmp/daemon-feed-publisher-canary/123/published-store-snapshot.json',
+      }),
+    });
+
+    expect(resolved).toMatchObject({
+      statePath,
+      webBaseUrl: 'http://127.0.0.1:2099',
+      relayUrl: 'http://127.0.0.1:7777/gun',
+      storyclusterClusterUrl: 'http://127.0.0.1:4310/cluster',
+      storyclusterReadyUrl: 'http://127.0.0.1:4310/ready',
+      storyclusterAuthToken: 'stack-token',
+      snapshotPath: '/repo/.tmp/daemon-feed-publisher-canary/123/published-store-snapshot.json',
+    });
+  });
+
+  it('drops unhealthy automation stack service endpoints', () => {
+    const resolved = resolveAutomationStackState('/repo', {
+      env: {},
+      exists: () => true,
+      readFile: () => JSON.stringify({
+        healthStatus: 'degraded',
+        services: {
+          web: { healthy: false },
+          relay: { healthy: true },
+          storycluster: { healthy: false },
+          snapshot: { healthy: true },
+        },
+        webBaseUrl: 'http://127.0.0.1:2099',
+        relayUrl: 'http://127.0.0.1:7777/gun',
+        storyclusterClusterUrl: 'http://127.0.0.1:4310/cluster',
+        storyclusterReadyUrl: 'http://127.0.0.1:4310/ready',
+        storyclusterAuthToken: 'stack-token',
+        snapshotPath: '/repo/.tmp/snapshot.json',
+      }),
+    });
+
+    expect(resolved).toMatchObject({
+      webBaseUrl: null,
+      relayUrl: 'http://127.0.0.1:7777/gun',
+      storyclusterClusterUrl: null,
+      storyclusterReadyUrl: null,
+      storyclusterAuthToken: null,
+      snapshotPath: '/repo/.tmp/snapshot.json',
     });
   });
 });

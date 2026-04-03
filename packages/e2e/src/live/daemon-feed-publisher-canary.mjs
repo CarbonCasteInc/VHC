@@ -8,6 +8,7 @@ import {
   formatConsoleArgs,
   observePublisherCanaryEvents,
   rankFeedSourcesByIds,
+  resolveAutomationStackState,
   summarizePublishedStoreSnapshot,
 } from './daemon-feed-canary-shared.mjs';
 import {
@@ -164,6 +165,51 @@ async function closeServer(server) {
   await new Promise((resolve) => server.close(() => resolve()));
 }
 
+function resolvePublisherCanaryRemoteConfig(
+  repoRoot,
+  env = process.env,
+  {
+    exists = existsSync,
+    readFile = readFileSync,
+  } = {},
+) {
+  const explicitClusterEndpoint = env.VH_DAEMON_FEED_STORYCLUSTER_ENDPOINT?.trim();
+  const explicitReadyUrl = env.VH_DAEMON_FEED_STORYCLUSTER_READY_URL?.trim();
+  const explicitAuthToken = env.VH_DAEMON_FEED_STORYCLUSTER_TOKEN?.trim();
+  if (explicitClusterEndpoint) {
+    return {
+      mode: 'explicit',
+      clusterEndpoint: explicitClusterEndpoint,
+      readyUrl: explicitReadyUrl || explicitClusterEndpoint.replace(/\/cluster(?:\/)?$/, '/ready'),
+      authToken: explicitAuthToken || null,
+      statePath: null,
+    };
+  }
+
+  const stackState = resolveAutomationStackState(repoRoot, {
+    env,
+    exists,
+    readFile,
+  });
+  if (stackState?.storyclusterClusterUrl && stackState.storyclusterReadyUrl) {
+    return {
+      mode: 'automation-stack',
+      clusterEndpoint: stackState.storyclusterClusterUrl,
+      readyUrl: stackState.storyclusterReadyUrl,
+      authToken: explicitAuthToken || stackState.storyclusterAuthToken || 'vh-local-storycluster-token',
+      statePath: stackState.statePath,
+    };
+  }
+
+  return {
+    mode: 'ephemeral',
+    clusterEndpoint: null,
+    readyUrl: null,
+    authToken: explicitAuthToken || 'vh-publisher-canary-token',
+    statePath: stackState?.statePath || null,
+  };
+}
+
 async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
   const load = async (relativePath) =>
     import(pathToFileURL(path.join(repoRoot, relativePath)).href);
@@ -314,6 +360,10 @@ export async function runDaemonFeedPublisherCanary({
     exists,
     readFile,
   });
+  const remoteConfig = resolvePublisherCanaryRemoteConfig(repoRoot, env, {
+    exists,
+    readFile,
+  });
   const maxItemsPerSource = env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE?.trim() || '2';
   const maxItemsTotal = resolvePublisherCanaryMaxItemsTotal(env);
   const timeoutMs = readPositiveInt(
@@ -367,30 +417,37 @@ export async function runDaemonFeedPublisherCanary({
       throw new Error('publisher-canary-source-selection-empty');
     }
 
-    const storyclusterToken = env.VH_DAEMON_FEED_STORYCLUSTER_TOKEN?.trim()
-      || 'vh-publisher-canary-token';
-    const storyclusterStoreDir = path.join(artifactDir, 'storycluster-state');
-    const vector = new modules.MemoryVectorBackend();
-    const store = new modules.FileClusterStore(storyclusterStoreDir);
-    server = modules.startStoryClusterServer({
-      host: '127.0.0.1',
-      port: 0,
-      authToken: storyclusterToken,
-      store,
-      vectorBackend: vector,
-    });
-    await waitForServerListening(server);
-    const address = server.address();
-    const storyclusterPort = typeof address === 'object' && address ? address.port : portPlan.storyclusterPort;
-    const readyUrl = `http://127.0.0.1:${storyclusterPort}/ready`;
+    let remoteClusterEndpoint = remoteConfig.clusterEndpoint;
+    let readyUrl = remoteConfig.readyUrl;
+    let storyclusterToken = remoteConfig.authToken;
+    if (remoteConfig.mode === 'ephemeral') {
+      const storyclusterStoreDir = path.join(artifactDir, 'storycluster-state');
+      const vector = new modules.MemoryVectorBackend();
+      const store = new modules.FileClusterStore(storyclusterStoreDir);
+      server = modules.startStoryClusterServer({
+        host: '127.0.0.1',
+        port: 0,
+        authToken: storyclusterToken,
+        store,
+        vectorBackend: vector,
+      });
+      await waitForServerListening(server);
+      const address = server.address();
+      const storyclusterPort = typeof address === 'object' && address ? address.port : portPlan.storyclusterPort;
+      remoteClusterEndpoint = `http://127.0.0.1:${storyclusterPort}/cluster`;
+      readyUrl = `http://127.0.0.1:${storyclusterPort}/ready`;
+    }
+    const remoteClusterHeaders = storyclusterToken
+      ? {
+        authorization: `Bearer ${storyclusterToken}`,
+      }
+      : undefined;
     await waitForHealth(
       readyUrl,
       DEFAULT_SERVER_READY_TIMEOUT_MS,
       fetchImpl,
       sleepImpl,
-      {
-        authorization: `Bearer ${storyclusterToken}`,
-      },
+      remoteClusterHeaders,
     );
 
     client = modules.createNodeMeshClient({
@@ -422,11 +479,9 @@ export async function runDaemonFeedPublisherCanary({
       runtimeOrchestratorOptions: {
         productionMode: true,
         allowHeuristicFallback: false,
-        remoteClusterEndpoint: `http://127.0.0.1:${storyclusterPort}/cluster`,
+        remoteClusterEndpoint,
         remoteClusterTimeoutMs: timeoutMs,
-        remoteClusterHeaders: {
-          authorization: `Bearer ${storyclusterToken}`,
-        },
+        remoteClusterHeaders,
       },
     });
 
@@ -472,7 +527,8 @@ export async function runDaemonFeedPublisherCanary({
         leaseTtlMs,
         relayUsed: false,
         browserUsed: false,
-        vectorBackend: 'memory',
+        vectorBackend: remoteConfig.mode === 'ephemeral' ? 'memory' : 'external',
+        remoteClusterMode: remoteConfig.mode,
       },
       observed,
       artifactPaths: {
@@ -482,6 +538,13 @@ export async function runDaemonFeedPublisherCanary({
         logsPath,
         clusterCapturePath: exists(clusterCapturePath) ? clusterCapturePath : null,
       },
+      automationStack: remoteConfig.mode === 'automation-stack'
+        ? {
+          statePath: remoteConfig.statePath,
+          clusterEndpoint: remoteClusterEndpoint,
+          readyUrl,
+        }
+        : null,
       pass: false,
       outcome: classifyPublisherCanaryOutcome({
         observed,
@@ -564,6 +627,7 @@ async function main() {
 export const publisherCanaryInternal = {
   resolvePublisherCanaryMaxItemsTotal,
   resolvePublisherCanaryOpenAITimeoutMs,
+  resolvePublisherCanaryRemoteConfig,
 };
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
