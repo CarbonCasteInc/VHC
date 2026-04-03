@@ -97,8 +97,12 @@ export function observePublisherCanaryEvents(records) {
     ingestCompleted: has('[vh:news-orchestrator] ingest_completed'),
     normalizeCompleted: has('[vh:news-orchestrator] normalize_completed'),
     topicClusterStarted: has('[vh:news-orchestrator] topic_cluster_started'),
-    clusterRequestReceived: has('[vh:storycluster] cluster_request_received'),
-    clusterRequestCompleted: has('[vh:storycluster] cluster_request_completed'),
+    clusterRequestReceived:
+      has('[vh:storycluster] cluster_request_received')
+      || has('[vh:storycluster-remote] request_started'),
+    clusterRequestCompleted:
+      has('[vh:storycluster] cluster_request_completed')
+      || has('[vh:storycluster-remote] request_completed'),
     tickCompleted: has('[vh:news-runtime] tick_completed'),
     tickFailed: has('[vh:news-runtime] tick_failed'),
   };

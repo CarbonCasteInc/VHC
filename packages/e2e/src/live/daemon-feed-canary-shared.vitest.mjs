@@ -94,6 +94,25 @@ describe('daemon-feed-canary shared helpers', () => {
     });
   });
 
+  it('treats remote storycluster client logs as valid cluster request evidence', () => {
+    const observed = observePublisherCanaryEvents([
+      '[vh:news-runtime] tick_started {"feed_source_count":12}',
+      '[vh:news-orchestrator] topic_cluster_started {"topic_id":"topic-news","item_count":19}',
+      '[vh:storycluster-remote] request_started {"endpoint_url":"http://127.0.0.1:4310/cluster","topic_id":"topic-news","item_count":19}',
+      '[vh:storycluster-remote] request_completed {"endpoint_url":"http://127.0.0.1:4310/cluster","topic_id":"topic-news","bundle_count":8}',
+      '[vh:news-runtime] tick_completed {"published_story_count":8}',
+    ]);
+
+    expect(observed).toMatchObject({
+      tickStarted: true,
+      topicClusterStarted: true,
+      clusterRequestReceived: true,
+      clusterRequestCompleted: true,
+      tickCompleted: true,
+      tickFailed: false,
+    });
+  });
+
   it('classifies publisher canary outcomes by observed event shape', () => {
     expect(classifyPublisherCanaryOutcome({
       observed: { tickCompleted: true, clusterRequestReceived: true, tickFailed: false },

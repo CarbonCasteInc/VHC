@@ -171,6 +171,10 @@ function resolveConsumerSmokeBaseUrl(
   };
 }
 
+function shouldHydrateFixtureInBrowser(mode) {
+  return mode === 'ephemeral';
+}
+
 export async function runDaemonFeedConsumerSmoke({
   repoRoot = DEFAULT_REPO_ROOT,
   env = process.env,
@@ -268,26 +272,28 @@ export async function runDaemonFeedConsumerSmoke({
 
     await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
     await page.waitForSelector('[data-testid="user-link"]', { timeout: 20_000 });
-    await page.evaluate(async (snapshot) => {
-      const store = window.__VH_NEWS_STORE__;
-      if (!store?.getState) {
-        throw new Error('news-store-unavailable');
-      }
-      const { mirrorStoriesIntoDiscovery } = await import('/src/store/news/storeHelpers.ts');
-      const state = store.getState();
-      state.setStorylines(snapshot.storylines ?? []);
-      state.setStories(snapshot.stories ?? []);
-      state.setLatestIndex(snapshot.latestIndex ?? {});
-      state.setHotIndex(snapshot.hotIndex ?? {});
-      const storylinesById = Object.fromEntries(
-        (snapshot.storylines ?? []).map((storyline) => [storyline.storyline_id, storyline]),
-      );
-      await mirrorStoriesIntoDiscovery(
-        snapshot.stories ?? [],
-        snapshot.hotIndex ?? {},
-        storylinesById,
-      );
-    }, fixture.snapshot);
+    if (shouldHydrateFixtureInBrowser(baseUrlResolution.mode)) {
+      await page.evaluate(async (snapshot) => {
+        const store = window.__VH_NEWS_STORE__;
+        if (!store?.getState) {
+          throw new Error('news-store-unavailable');
+        }
+        const { mirrorStoriesIntoDiscovery } = await import('/src/store/news/storeHelpers.ts');
+        const state = store.getState();
+        state.setStorylines(snapshot.storylines ?? []);
+        state.setStories(snapshot.stories ?? []);
+        state.setLatestIndex(snapshot.latestIndex ?? {});
+        state.setHotIndex(snapshot.hotIndex ?? {});
+        const storylinesById = Object.fromEntries(
+          (snapshot.storylines ?? []).map((storyline) => [storyline.storyline_id, storyline]),
+        );
+        await mirrorStoriesIntoDiscovery(
+          snapshot.stories ?? [],
+          snapshot.hotIndex ?? {},
+          storylinesById,
+        );
+      }, fixture.snapshot);
+    }
 
     await page.waitForSelector('[data-testid^="news-card-headline-"]', { timeout: 20_000 });
     const headlines = page.locator('[data-testid^="news-card-headline-"]');
@@ -408,6 +414,7 @@ async function main() {
 
 export const consumerSmokeInternal = {
   resolveConsumerSmokeBaseUrl,
+  shouldHydrateFixtureInBrowser,
 };
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

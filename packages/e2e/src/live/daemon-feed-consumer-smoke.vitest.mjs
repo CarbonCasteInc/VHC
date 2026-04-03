@@ -31,4 +31,10 @@ describe('consumer smoke automation-stack integration', () => {
       statePath: null,
     });
   });
+
+  it('hydrates fixture data in-browser only for ephemeral mode', () => {
+    expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('ephemeral')).toBe(true);
+    expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('automation-stack')).toBe(false);
+    expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('explicit')).toBe(false);
+  });
 });
