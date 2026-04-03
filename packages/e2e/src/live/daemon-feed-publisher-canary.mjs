@@ -14,7 +14,6 @@ import {
 import {
   formatErrorMessage,
   readPositiveInt,
-  resolveDaemonFirstPortPlan,
   resolvePublicSemanticSoakSourceIds,
   sleep,
 } from './daemon-feed-semantic-soak-core.mjs';
@@ -33,6 +32,10 @@ const DEFAULT_SERVER_READY_TIMEOUT_MS = 15_000;
 const DEFAULT_CANARY_LEASE_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_PUBLISHER_CANARY_MAX_ITEMS_TOTAL = '15';
 /* c8 ignore start */
+
+function resolvePublisherCanaryRequireSharedStack(env = process.env) {
+  return env.VH_DAEMON_FEED_REQUIRE_SHARED_STACK === 'true';
+}
 
 function resolvePublisherCanaryMaxItemsTotal(env = process.env) {
   const configured = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim();
@@ -354,12 +357,12 @@ export async function runDaemonFeedPublisherCanary({
   const logsPath = path.join(artifactDir, 'publisher-canary-runtime-logs.json');
   const runtimeArtifactRoot = path.join(artifactDir, 'runtime');
   const runId = env.VH_DAEMON_FEED_RUN_ID?.trim() || `publisher-canary-${Date.now()}`;
-  const portPlan = resolveDaemonFirstPortPlan(runId);
   const sourceIds = resolvePublicSemanticSoakSourceIds(env, {
     repoRoot,
     exists,
     readFile,
   });
+  const requireSharedStack = resolvePublisherCanaryRequireSharedStack(env);
   const remoteConfig = resolvePublisherCanaryRemoteConfig(repoRoot, env, {
     exists,
     readFile,
@@ -417,6 +420,10 @@ export async function runDaemonFeedPublisherCanary({
       throw new Error('publisher-canary-source-selection-empty');
     }
 
+    if (requireSharedStack && remoteConfig.mode !== 'automation-stack') {
+      throw new Error('publisher-canary-shared-stack-required');
+    }
+
     let remoteClusterEndpoint = remoteConfig.clusterEndpoint;
     let readyUrl = remoteConfig.readyUrl;
     let storyclusterToken = remoteConfig.authToken;
@@ -433,7 +440,7 @@ export async function runDaemonFeedPublisherCanary({
       });
       await waitForServerListening(server);
       const address = server.address();
-      const storyclusterPort = typeof address === 'object' && address ? address.port : portPlan.storyclusterPort;
+      const storyclusterPort = typeof address === 'object' && address ? address.port : 0;
       remoteClusterEndpoint = `http://127.0.0.1:${storyclusterPort}/cluster`;
       readyUrl = `http://127.0.0.1:${storyclusterPort}/ready`;
     }
@@ -627,6 +634,7 @@ async function main() {
 export const publisherCanaryInternal = {
   resolvePublisherCanaryMaxItemsTotal,
   resolvePublisherCanaryOpenAITimeoutMs,
+  resolvePublisherCanaryRequireSharedStack,
   resolvePublisherCanaryRemoteConfig,
 };
 

@@ -37,4 +37,25 @@ describe('consumer smoke automation-stack integration', () => {
     expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('automation-stack')).toBe(false);
     expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('explicit')).toBe(false);
   });
+
+  it('defaults to browser validation mode', () => {
+    expect(consumerSmokeInternal.resolveConsumerSmokeValidationMode({})).toBe('browser');
+  });
+
+  it('supports http-contract validation mode for scheduled automations', () => {
+    expect(
+      consumerSmokeInternal.resolveConsumerSmokeValidationMode({
+        VH_DAEMON_FEED_CONSUMER_SMOKE_HTTP_ONLY: 'true',
+      }),
+    ).toBe('http-contract');
+  });
+
+  it('does not require shared stack unless explicitly enabled', () => {
+    expect(consumerSmokeInternal.resolveConsumerSmokeRequireSharedStack({})).toBe(false);
+    expect(
+      consumerSmokeInternal.resolveConsumerSmokeRequireSharedStack({
+        VH_DAEMON_FEED_REQUIRE_SHARED_STACK: 'true',
+      }),
+    ).toBe(true);
+  });
 });

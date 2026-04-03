@@ -5,7 +5,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync,
 import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { chromium } from '@playwright/test';
 import {
   classifyConsumerSmokeOutcome,
   formatConsoleArgs,
@@ -175,6 +174,21 @@ function shouldHydrateFixtureInBrowser(mode) {
   return mode === 'ephemeral';
 }
 
+function resolveConsumerSmokeValidationMode(env = process.env) {
+  return env.VH_DAEMON_FEED_CONSUMER_SMOKE_HTTP_ONLY === 'true'
+    ? 'http-contract'
+    : 'browser';
+}
+
+function resolveConsumerSmokeRequireSharedStack(env = process.env) {
+  return env.VH_DAEMON_FEED_REQUIRE_SHARED_STACK === 'true';
+}
+
+async function defaultLaunchBrowser() {
+  const { chromium } = await import('@playwright/test');
+  return chromium.launch({ headless: true });
+}
+
 export async function runDaemonFeedConsumerSmoke({
   repoRoot = DEFAULT_REPO_ROOT,
   env = process.env,
@@ -187,7 +201,7 @@ export async function runDaemonFeedConsumerSmoke({
   rename = renameSync,
   fetchImpl = fetch,
   sleepImpl = sleep,
-  launchBrowser = () => chromium.launch({ headless: true }),
+  launchBrowser = defaultLaunchBrowser,
   log = console.log,
 } = {}) {
   const artifactDir = consumerSmokeArtifactDirFromEnv(env, repoRoot);
@@ -202,10 +216,17 @@ export async function runDaemonFeedConsumerSmoke({
     stat,
     readFile,
   });
+  const stackState = resolveAutomationStackState(repoRoot, {
+    env,
+    exists,
+    readFile,
+  });
   const baseUrlResolution = resolveConsumerSmokeBaseUrl(repoRoot, env, {
     exists,
     readFile,
   });
+  const validationMode = resolveConsumerSmokeValidationMode(env);
+  const requireSharedStack = resolveConsumerSmokeRequireSharedStack(env);
   const feedSourcesJson = baseUrlResolution.mode === 'ephemeral'
     ? await loadStarterFeedSourcesJson(repoRoot)
     : null;
@@ -220,6 +241,9 @@ export async function runDaemonFeedConsumerSmoke({
   let summary;
 
   try {
+    if (requireSharedStack && baseUrlResolution.mode !== 'automation-stack') {
+      throw new Error('consumer-smoke-shared-stack-required');
+    }
     writeFile(serverLogPath, '', 'utf8');
     if (baseUrlResolution.mode === 'ephemeral') {
       webServer = spawn(
@@ -252,65 +276,99 @@ export async function runDaemonFeedConsumerSmoke({
       );
     }
 
-    browser = await launchBrowser();
-    context = await browser.newContext({ ignoreHTTPSErrors: true });
-    await context.addInitScript({
-      content: `
-        window.__VH_NEWS_RUNTIME_ROLE = 'consumer';
-        window.__VH_TEST_SESSION = false;
-        window.__VH_EXPOSE_NEWS_STORE__ = true;
-        window.__VH_GUN_PEERS__ = [];
-      `,
-    });
-    const page = await context.newPage();
-    page.on('console', (message) => {
-      browserLogs.push({
-        type: message.type(),
-        text: message.text(),
-      });
-    });
+    let renderCount;
+    let firstStoryId;
+    let firstHeadlineText;
+    let sourceBadgeCount;
+    let metaText = null;
+    let expanded = null;
+    let storyExpansionChecked = false;
 
-    await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
-    await page.waitForSelector('[data-testid="user-link"]', { timeout: 20_000 });
-    if (shouldHydrateFixtureInBrowser(baseUrlResolution.mode)) {
-      await page.evaluate(async (snapshot) => {
-        const store = window.__VH_NEWS_STORE__;
-        if (!store?.getState) {
-          throw new Error('news-store-unavailable');
+    if (validationMode === 'http-contract') {
+      const response = await fetchImpl(baseUrl, { signal: AbortSignal.timeout(10_000) });
+      if (!response.ok) {
+        throw new Error(`consumer-smoke-web-http-${response.status}`);
+      }
+      const html = await response.text();
+      if (!html.includes('id="root"') && !html.includes("id='root'")) {
+        throw new Error('consumer-smoke-root-missing');
+      }
+
+      if (stackState?.snapshotUrl) {
+        const snapshotResponse = await fetchImpl(stackState.snapshotUrl, { signal: AbortSignal.timeout(10_000) });
+        if (!snapshotResponse.ok) {
+          throw new Error(`consumer-smoke-snapshot-http-${snapshotResponse.status}`);
         }
-        const { mirrorStoriesIntoDiscovery } = await import('/src/store/news/storeHelpers.ts');
-        const state = store.getState();
-        state.setStorylines(snapshot.storylines ?? []);
-        state.setStories(snapshot.stories ?? []);
-        state.setLatestIndex(snapshot.latestIndex ?? {});
-        state.setHotIndex(snapshot.hotIndex ?? {});
-        const storylinesById = Object.fromEntries(
-          (snapshot.storylines ?? []).map((storyline) => [storyline.storyline_id, storyline]),
-        );
-        await mirrorStoriesIntoDiscovery(
-          snapshot.stories ?? [],
-          snapshot.hotIndex ?? {},
-          storylinesById,
-        );
-      }, fixture.snapshot);
-    }
+      }
 
-    await page.waitForSelector('[data-testid^="news-card-headline-"]', { timeout: 20_000 });
-    const headlines = page.locator('[data-testid^="news-card-headline-"]');
-    const renderCount = await headlines.count();
-    const firstHeadline = headlines.first();
-    const firstHeadlineText = ((await firstHeadline.textContent()) ?? '').trim();
-    const firstStoryId = (await firstHeadline.getAttribute('data-story-id')) ?? null;
-    const firstCard = firstHeadline.locator('xpath=ancestor::article[1]');
-    const sourceBadgeCount = await firstCard.locator('[data-testid^="source-badge-"]').count();
-    const metaText = ((await firstCard.locator('p').nth(1).textContent().catch(() => '')) ?? '').trim();
-    await firstHeadline.click();
-    await page.waitForTimeout(500);
-    const expanded = (await firstCard.getAttribute('aria-expanded')) === 'true';
+      const stories = Array.isArray(fixture.snapshot?.stories) ? fixture.snapshot.stories : [];
+      renderCount = stories.length;
+      firstStoryId = typeof stories[0]?.story_id === 'string' ? stories[0].story_id : null;
+      firstHeadlineText = typeof stories[0]?.headline === 'string' ? stories[0].headline.trim() : '';
+      sourceBadgeCount = Array.isArray(stories[0]?.sources) ? stories[0].sources.length : 0;
+    } else {
+      browser = await launchBrowser();
+      context = await browser.newContext({ ignoreHTTPSErrors: true });
+      await context.addInitScript({
+        content: `
+          window.__VH_NEWS_RUNTIME_ROLE = 'consumer';
+          window.__VH_TEST_SESSION = false;
+          window.__VH_EXPOSE_NEWS_STORE__ = true;
+          window.__VH_GUN_PEERS__ = [];
+        `,
+      });
+      const page = await context.newPage();
+      page.on('console', (message) => {
+        browserLogs.push({
+          type: message.type(),
+          text: message.text(),
+        });
+      });
+
+      await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 });
+      await page.waitForSelector('[data-testid="user-link"]', { timeout: 20_000 });
+      if (shouldHydrateFixtureInBrowser(baseUrlResolution.mode)) {
+        await page.evaluate(async (snapshot) => {
+          const store = window.__VH_NEWS_STORE__;
+          if (!store?.getState) {
+            throw new Error('news-store-unavailable');
+          }
+          const { mirrorStoriesIntoDiscovery } = await import('/src/store/news/storeHelpers.ts');
+          const state = store.getState();
+          state.setStorylines(snapshot.storylines ?? []);
+          state.setStories(snapshot.stories ?? []);
+          state.setLatestIndex(snapshot.latestIndex ?? {});
+          state.setHotIndex(snapshot.hotIndex ?? {});
+          const storylinesById = Object.fromEntries(
+            (snapshot.storylines ?? []).map((storyline) => [storyline.storyline_id, storyline]),
+          );
+          await mirrorStoriesIntoDiscovery(
+            snapshot.stories ?? [],
+            snapshot.hotIndex ?? {},
+            storylinesById,
+          );
+        }, fixture.snapshot);
+      }
+
+      await page.waitForSelector('[data-testid^="news-card-headline-"]', { timeout: 20_000 });
+      const headlines = page.locator('[data-testid^="news-card-headline-"]');
+      renderCount = await headlines.count();
+      const firstHeadline = headlines.first();
+      firstHeadlineText = ((await firstHeadline.textContent()) ?? '').trim();
+      firstStoryId = (await firstHeadline.getAttribute('data-story-id')) ?? null;
+      const firstCard = firstHeadline.locator('xpath=ancestor::article[1]');
+      sourceBadgeCount = await firstCard.locator('[data-testid^="source-badge-"]').count();
+      metaText = ((await firstCard.locator('p').nth(1).textContent().catch(() => '')) ?? '').trim();
+      await firstHeadline.click();
+      await page.waitForTimeout(500);
+      expanded = (await firstCard.getAttribute('aria-expanded')) === 'true';
+      storyExpansionChecked = true;
+    }
 
     summary = {
       schemaVersion: 'daemon-feed-consumer-smoke-summary-v1',
       generatedAt: new Date().toISOString(),
+      validationMode,
       fixture: {
         artifactDir: fixture.artifactDir,
         summaryPath: fixture.summaryPath,
@@ -326,6 +384,7 @@ export async function runDaemonFeedConsumerSmoke({
         ? {
           statePath: baseUrlResolution.statePath,
           baseUrl,
+          snapshotUrl: stackState?.snapshotUrl ?? null,
         }
         : null,
       baseUrl,
@@ -334,6 +393,7 @@ export async function runDaemonFeedConsumerSmoke({
         renderCount,
         expanded,
         errorMessage: null,
+        validationMode,
       }),
       renderCount,
       firstStoryId,
@@ -341,6 +401,7 @@ export async function runDaemonFeedConsumerSmoke({
       sourceBadgeCount,
       metaText,
       expanded,
+      storyExpansionChecked,
     };
     summary.pass = summary.outcome === 'pass';
   } catch (error) {
@@ -363,8 +424,10 @@ export async function runDaemonFeedConsumerSmoke({
         renderCount: 0,
         expanded: false,
         errorMessage: formatErrorMessage(error),
+        validationMode,
       }),
       errorMessage: formatErrorMessage(error),
+      validationMode,
     };
   } finally {
     if (context) {
@@ -414,6 +477,8 @@ async function main() {
 
 export const consumerSmokeInternal = {
   resolveConsumerSmokeBaseUrl,
+  resolveConsumerSmokeRequireSharedStack,
+  resolveConsumerSmokeValidationMode,
   shouldHydrateFixtureInBrowser,
 };
 
