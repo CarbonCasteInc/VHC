@@ -263,6 +263,32 @@ describe('newsCluster', () => {
     expect(bundles).toHaveLength(2);
   });
 
+  it('does not merge Mike Waltz stories that only share person/role overlap', () => {
+    const normalized = normalizeAndDedup([
+      {
+        sourceId: 'nypost-politics',
+        url: 'https://nypost.com/2026/03/25/us-news/trump-has-given-netanyahu-the-business-un-ambassador-mike-waltz-reveals/',
+        title: 'Trump has given Israel&#8217;s Netanyahu &#8216;the business,&#8217; Mike Waltz tells Pod Force One amid Iran war',
+        publishedAt: 1774432800000,
+        summary: '"President Trump\'s calling the shots. He is commander-in-chief, period," US Ambassador to the UN Mike Waltz told Miranda Devine on "Pod Force One."',
+      },
+      {
+        sourceId: 'nypost-politics',
+        url: 'https://nypost.com/2026/03/25/us-news/mike-waltz-recalls-chilling-war-story-where-he-had-to-decide-whether-to-shoot-a-10-year-old-afghan/',
+        title: 'Mike Waltz recalls chilling war story where he had to decide whether to shoot a 10-year-old Afghan',
+        publishedAt: 1774432800000,
+        summary: 'US Ambassador to the United Nations Mike Waltz reflected on his chilling experience on the battlefield in Afghanistan, in which he had to make a split-second decision on whether to kill an adolescent.',
+      },
+    ]);
+
+    const bundles = clusterItems(normalized, 'topic-news');
+    expect(bundles).toHaveLength(2);
+    expect(bundles.map((bundle) => bundle.headline).sort()).toEqual([
+      'Mike Waltz recalls chilling war story where he had to decide whether to shoot a 10-year-old Afghan',
+      'Trump has given Israel&#8217;s Netanyahu &#8216;the business,&#8217; Mike Waltz tells Pod Force One amid Iran war',
+    ]);
+  });
+
   it('keeps stable story_id across incremental updates via hybrid assignment', () => {
     const first = makeItem({
       canonicalUrl: 'https://example.com/first',

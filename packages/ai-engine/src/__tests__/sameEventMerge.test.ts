@@ -179,6 +179,32 @@ describe('sameEventMerge', () => {
       expect(shouldMerge(clusterEntities, clusterTitles, itemEntities, itemTitle)).toBe(false);
     });
 
+    it('blocks merge: weak same-person overlap without shared event evidence', () => {
+      const clusterEntities = [
+        'ambassador', 'amid', 'business', 'calling', 'chief', 'commander',
+        'devine', 'force', 'given', 'iran', 'israel', 'mike', 'miranda',
+        'netanyahu', 'period', 'president', 'shots', 'tells', 'told', 'trump', 'waltz',
+      ];
+      const clusterTitles = [
+        'Trump has given Israel the business Mike Waltz tells Pod Force One amid Iran war',
+      ];
+      const itemEntities = [
+        'adolescent', 'afghan', 'afghanistan', 'ambassador', 'battlefield',
+        'chilling', 'decide', 'decision', 'experience', 'kill', 'make', 'mike',
+        'nations', 'recalls', 'reflected', 'second', 'shoot', 'split', 'story',
+        'united', 'waltz', 'where', 'whether', 'which', 'year',
+      ];
+      const itemTitle = 'Mike Waltz recalls chilling war story where he had to decide whether to shoot a 10-year-old Afghan';
+
+      expect(shouldMerge(clusterEntities, clusterTitles, itemEntities, itemTitle)).toBe(false);
+
+      const explanation = explainMerge(clusterEntities, clusterTitles, itemEntities, itemTitle);
+      expect(explanation.reason).toBe('low_evidence_overlap');
+      expect(explanation.entityOverlap).toBeLessThan(0.1);
+      expect(explanation.keywordOverlap).toBeLessThan(0.2);
+      expect(explanation.compositeScore).toBeGreaterThan(SAME_EVENT_MERGE_THRESHOLD);
+    });
+
     it('penalizes location mismatch in scoring', () => {
       const signals = computeMergeSignals(
         ['earthquake', 'damage'],
@@ -285,19 +311,21 @@ describe('sameEventMerge', () => {
     });
 
     it('explains below-threshold rejection', () => {
-      // 1 shared entity out of many = low entity Jaccard.
-      // Completely disjoint keywords = low keyword Jaccard.
-      // No action verbs = neutral action (0.5).
-      // Score ≈ 0.25*low + 0.35*0 + 0.25*0.5 + 0.15*1 = well below threshold.
+      // Enough entity overlap to avoid the low-evidence veto.
+      // Completely disjoint keywords plus conflicting locations keep the
+      // composite score below threshold.
       const explanation = explainMerge(
-        ['shared-ent', 'ent-b', 'ent-c', 'ent-d', 'ent-e', 'ent-f'],
-        ['Abcdef ghijkl mnopqr stuvwx yzabcd efghij'],
-        ['shared-ent', 'ent-x', 'ent-y', 'ent-z', 'ent-w', 'ent-v'],
-        'Klmnop qrstuv wxyzab cdefgh ijklmn opqrst',
+        ['shared-a', 'shared-b', 'ent-c', 'ent-d', 'ent-e', 'ent-f'],
+        ['Tokyo briefing abcdef ghijkl mnopqr stuvwx'],
+        ['shared-a', 'shared-b', 'ent-x', 'ent-y', 'ent-z', 'ent-w'],
+        'Berlin update yzabcd efghij klmnop qrstuv',
       );
       expect(explanation.merged).toBe(false);
       expect(explanation.reason).toBe('below_threshold');
       expect(explanation.entityOverlap).toBeGreaterThan(0);
+      expect(explanation.entityOverlap).toBeGreaterThanOrEqual(0.2);
+      expect(explanation.keywordOverlap).toBe(0);
+      expect(explanation.locationAlignment).toBe(0);
       expect(explanation.compositeScore).toBeLessThan(SAME_EVENT_MERGE_THRESHOLD);
     });
   });

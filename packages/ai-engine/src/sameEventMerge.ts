@@ -135,6 +135,18 @@ export interface MergeSignals {
   score: number;
 }
 
+const LOW_EVIDENCE_ENTITY_OVERLAP_MAX = 0.1;
+const LOW_EVIDENCE_KEYWORD_OVERLAP_MAX = 0.2;
+
+function hasLowEvidenceOverlap(signals: MergeSignals): boolean {
+  return (
+    !signals.actionMatch
+    && !signals.actionConflict
+    && signals.entityOverlap < LOW_EVIDENCE_ENTITY_OVERLAP_MAX
+    && signals.keywordOverlap < LOW_EVIDENCE_KEYWORD_OVERLAP_MAX
+  );
+}
+
 /**
  * Compute merge signals between a cluster's accumulated state and a
  * candidate item. Used to decide whether the item belongs to the cluster.
@@ -213,6 +225,8 @@ export function shouldMerge(
   if (signals.actionConflict) return false;
   // Must have at least some entity overlap.
   if (signals.entityOverlap === 0) return false;
+  // Avoid merging on weak person/role overlap alone when there is no positive action evidence.
+  if (hasLowEvidenceOverlap(signals)) return false;
   return signals.score >= SAME_EVENT_MERGE_THRESHOLD;
 }
 
@@ -247,6 +261,8 @@ export function explainMerge(
     reason = 'action_conflict_veto';
   } else if (signals.entityOverlap === 0) {
     reason = 'no_entity_overlap';
+  } else if (hasLowEvidenceOverlap(signals)) {
+    reason = 'low_evidence_overlap';
   } else if (signals.score < SAME_EVENT_MERGE_THRESHOLD) {
     reason = 'below_threshold';
   } else {
