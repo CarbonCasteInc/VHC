@@ -1,5 +1,7 @@
 export const LOW_SIGNAL_CANONICAL_ENTITIES = new Set([
   'donald_trump',
+  'executive_order',
+  'trump_executive_order',
   'cuba',
   'iran',
   'united_states',
