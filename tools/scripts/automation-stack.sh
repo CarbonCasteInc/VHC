@@ -136,6 +136,9 @@ load_automation_env() {
   export VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL="http://127.0.0.1:${AUTO_SNAPSHOT_PORT}/snapshot.json"
   export VITE_GUN_PEERS="[\"http://localhost:${AUTO_RELAY_PORT}/gun\"]"
   export VH_STORYCLUSTER_VECTOR_BACKEND=memory
+  export ANALYSIS_RELAY_MODEL="${ANALYSIS_RELAY_MODEL:-gpt-4o-mini}"
+  export VITE_ANALYSIS_MODEL="${VITE_ANALYSIS_MODEL:-gpt-4o-mini}"
+  export VH_STORYCLUSTER_TEXT_MODEL="${VH_STORYCLUSTER_TEXT_MODEL:-gpt-4o-mini}"
 }
 
 # --- kill all automation services ---
