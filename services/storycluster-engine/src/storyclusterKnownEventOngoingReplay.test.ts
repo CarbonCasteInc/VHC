@@ -415,6 +415,52 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(finalCluster?.source_documents).toHaveLength(4);
   });
 
+  it('grows the Iran F-15E downing story across CBS and Military Times without changing story identity', async () => {
+    const snapshots = await runScenario('replay-known-event-iran-f15e-source-growth');
+    const storyIds = snapshots.map((snapshot) => snapshot.storyByEvent.get('iran_f15e_downed_episode') ?? null);
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'cbs-iran-f15e-replay',
+      'militarytimes-iran-f15e-replay',
+    ]);
+  });
+
+  it('grows the Southern California wildfire story across the Guardian and Los Angeles Times without changing story identity', async () => {
+    const snapshots = await runScenario('replay-known-event-socal-wildfires-source-growth');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('socal_wildfires_apr3_episode') ?? null,
+    );
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'guardian-socal-fires-replay',
+      'latimes-socal-fires-replay',
+    ]);
+  });
+
+  it('grows the DHS pay-during-shutdown story across CBS and FedSmith without changing story identity', async () => {
+    const snapshots = await runScenario('replay-known-event-dhs-pay-shutdown-source-growth');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('dhs_pay_despite_shutdown_episode') ?? null,
+    );
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'cbs-dhs-pay-replay',
+      'fedsmith-dhs-pay-replay',
+    ]);
+  });
+
   it('keeps the Nevada voter-list lawsuit separate from the unrelated college-sports executive-order story', async () => {
     const snapshots = await runScenario('replay-known-event-nevada-voter-lists-vs-college-sports-order-separation');
     const sportsStoryId = snapshots[1]?.storyByEvent.get('college_sports_stabilization_order_episode') ?? null;
