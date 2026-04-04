@@ -1037,10 +1037,43 @@ export function summarizeRun(
     runtimeLogCount: Array.isArray(runtimeLogs?.browserLogs)
       ? runtimeLogs.browserLogs.length
       : null,
+    openAIProvenance: report?.openai_provenance ?? null,
     labelCounts,
     bundleComposition,
     failingBundles,
     storyIds: (report?.bundles ?? []).map((bundle) => bundle.story_id),
+  };
+}
+
+function summarizeSemanticSoakOpenAIProvenance(results, env = process.env) {
+  const semanticAuditEntries = results
+    .map((result) => result?.openAIProvenance)
+    .filter((entry) => entry && typeof entry.model_id === 'string');
+
+  return {
+    storycluster: {
+      providerId: 'openai-storycluster',
+      textModelId: env.VH_STORYCLUSTER_TEXT_MODEL?.trim() || 'gpt-4o-mini',
+      embeddingModelId: env.VH_STORYCLUSTER_EMBEDDING_MODEL?.trim() || 'text-embedding-3-small',
+      baseUrl: env.VH_STORYCLUSTER_OPENAI_BASE_URL?.trim() || null,
+      timeoutMs: readPositiveInt('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS', 30000, env),
+    },
+    semanticAudit: {
+      providerIds: [...new Set(
+        semanticAuditEntries
+          .map((entry) => entry.provider_id)
+          .filter((value) => typeof value === 'string' && value.trim().length > 0),
+      )].sort(),
+      modelIds: [...new Set(
+        semanticAuditEntries.map((entry) => entry.model_id),
+      )].sort(),
+      baseUrls: [...new Set(
+        semanticAuditEntries
+          .map((entry) => entry.base_url)
+          .filter((value) => typeof value === 'string' && value.trim().length > 0),
+      )].sort(),
+      usesFixtureStub: semanticAuditEntries.some((entry) => entry.uses_fixture_stub === true),
+    },
   };
 }
 
@@ -1440,6 +1473,7 @@ export async function runDaemonFeedSemanticSoak({
     readinessStatus: promotionAssessment.status,
     promotionBlockingReasons: promotionAssessment.blockingReasons,
     promotionAssessment,
+    openAIProvenance: summarizeSemanticSoakOpenAIProvenance(results, env),
     storyCoverage,
     results,
   };

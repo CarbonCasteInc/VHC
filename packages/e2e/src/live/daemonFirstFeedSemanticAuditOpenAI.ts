@@ -1,5 +1,7 @@
 const DEFAULT_ANALYSIS_STUB_KEY = 'fixture-analysis-stub-key';
 const DEFAULT_ANALYSIS_STUB_PORT = 9040;
+export const DEFAULT_LIVE_SEMANTIC_AUDIT_PROVIDER_ID = 'openai';
+export const DEFAULT_LIVE_SEMANTIC_AUDIT_MODEL = 'gpt-4o-mini';
 
 function normalizeNonEmpty(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -26,8 +28,11 @@ export function resolveSemanticAuditOpenAIConfig(
   env: Record<string, string | undefined> = process.env,
 ): {
   readonly apiKey: string;
+  readonly providerId: string;
   readonly baseUrl?: string;
-  readonly model?: string;
+  readonly model: string;
+  readonly modelId: string;
+  readonly usesFixtureStub: boolean;
 } {
   const configuredModel = normalizeNonEmpty(env.VH_STORYCLUSTER_AUDIT_MODEL);
 
@@ -35,10 +40,14 @@ export function resolveSemanticAuditOpenAIConfig(
     const stubPort =
       readPositiveIntEnv(env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT)
       ?? DEFAULT_ANALYSIS_STUB_PORT;
+    const modelId = configuredModel ?? 'fixture-analysis-stub';
     return {
+      providerId: DEFAULT_LIVE_SEMANTIC_AUDIT_PROVIDER_ID,
       apiKey: normalizeNonEmpty(env.OPENAI_API_KEY) ?? DEFAULT_ANALYSIS_STUB_KEY,
       baseUrl: `http://127.0.0.1:${stubPort}/v1`,
-      model: configuredModel ?? 'fixture-analysis-stub',
+      model: modelId,
+      modelId,
+      usesFixtureStub: true,
     };
   }
 
@@ -47,14 +56,19 @@ export function resolveSemanticAuditOpenAIConfig(
     throw new Error('blocked-setup-openai-api-key-missing');
   }
 
+  const modelId = configuredModel ?? DEFAULT_LIVE_SEMANTIC_AUDIT_MODEL;
   return {
+    providerId: DEFAULT_LIVE_SEMANTIC_AUDIT_PROVIDER_ID,
     apiKey,
     baseUrl: normalizeNonEmpty(env.VH_STORYCLUSTER_AUDIT_BASE_URL),
-    model: configuredModel,
+    model: modelId,
+    modelId,
+    usesFixtureStub: false,
   };
 }
 
 export const semanticAuditOpenAIInternal = {
+  DEFAULT_LIVE_SEMANTIC_AUDIT_MODEL,
   normalizeNonEmpty,
   readPositiveIntEnv,
 };

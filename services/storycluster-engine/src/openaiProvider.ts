@@ -6,7 +6,9 @@ export interface OpenAIStoryClusterProviderOptions extends OpenAIClientOptions {
   textModel?: string;
   embeddingModel?: string;
 }
-const DEFAULT_TEXT_MODEL = 'gpt-4o-mini', DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
+export const OPENAI_STORYCLUSTER_PROVIDER_ID = 'openai-storycluster';
+export const DEFAULT_TEXT_MODEL = 'gpt-4o-mini';
+export const DEFAULT_EMBEDDING_MODEL = 'text-embedding-3-small';
 const PAIR_ID_MAX_LENGTH = 256;
 const TITLE_MAX_LENGTH = 512;
 const TEXT_MAX_LENGTH = 8_000;
@@ -214,7 +216,7 @@ function defaultAnalysisResult(item: DocumentAnalysisWorkItem): DocumentAnalysis
   };
 }
 export class OpenAIStoryClusterProvider implements StoryClusterModelProvider {
-  readonly providerId = 'openai-storycluster';
+  readonly providerId = OPENAI_STORYCLUSTER_PROVIDER_ID;
   private readonly client: OpenAIClient;
   private readonly textModel: string;
   private readonly embeddingModel: string;
@@ -448,6 +450,32 @@ function envTimeoutMs(name: string): number | undefined {
   const parsed = Number(raw);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
 }
+
+export interface OpenAIStoryClusterProviderProvenance {
+  readonly providerId: typeof OPENAI_STORYCLUSTER_PROVIDER_ID;
+  readonly textModelId: string;
+  readonly embeddingModelId: string;
+  readonly baseUrl: string | null;
+  readonly timeoutMs: number | null;
+}
+
+export function resolveOpenAIStoryClusterProviderProvenanceFromEnv(
+  options: Omit<OpenAIStoryClusterProviderOptions, 'apiKey'> = {},
+): OpenAIStoryClusterProviderProvenance {
+  const textModelId = options.textModel?.trim() || process.env.VH_STORYCLUSTER_TEXT_MODEL?.trim() || DEFAULT_TEXT_MODEL;
+  const embeddingModelId = options.embeddingModel?.trim() || process.env.VH_STORYCLUSTER_EMBEDDING_MODEL?.trim() || DEFAULT_EMBEDDING_MODEL;
+  const baseUrl = options.baseUrl?.trim() || process.env.VH_STORYCLUSTER_OPENAI_BASE_URL?.trim() || null;
+  const timeoutMs = options.timeoutMs ?? envTimeoutMs('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS') ?? null;
+
+  return {
+    providerId: OPENAI_STORYCLUSTER_PROVIDER_ID,
+    textModelId,
+    embeddingModelId,
+    baseUrl,
+    timeoutMs,
+  };
+}
+
 export function createOpenAIStoryClusterProviderFromEnv(
   options: Omit<OpenAIStoryClusterProviderOptions, 'apiKey'> = {},
 ): OpenAIStoryClusterProvider {
@@ -455,12 +483,13 @@ export function createOpenAIStoryClusterProviderFromEnv(
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is required for StoryCluster provider');
   }
+  const provenance = resolveOpenAIStoryClusterProviderProvenanceFromEnv(options);
   return new OpenAIStoryClusterProvider({
     ...options,
     apiKey,
-    textModel: options.textModel ?? process.env.VH_STORYCLUSTER_TEXT_MODEL,
-    embeddingModel: options.embeddingModel ?? process.env.VH_STORYCLUSTER_EMBEDDING_MODEL,
-    baseUrl: options.baseUrl ?? process.env.VH_STORYCLUSTER_OPENAI_BASE_URL,
-    timeoutMs: options.timeoutMs ?? envTimeoutMs('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS'),
+    textModel: provenance.textModelId,
+    embeddingModel: provenance.embeddingModelId,
+    baseUrl: provenance.baseUrl ?? undefined,
+    timeoutMs: provenance.timeoutMs ?? undefined,
   });
 }

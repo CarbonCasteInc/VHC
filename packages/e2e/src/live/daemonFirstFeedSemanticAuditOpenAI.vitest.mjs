@@ -12,8 +12,11 @@ describe('daemonFirstFeedSemanticAuditOpenAI', () => {
       VH_DAEMON_FEED_ANALYSIS_STUB_PORT: '9123',
     })).toEqual({
       apiKey: 'fixture-analysis-stub-key',
+      providerId: 'openai',
       baseUrl: 'http://127.0.0.1:9123/v1',
       model: 'fixture-analysis-stub',
+      modelId: 'fixture-analysis-stub',
+      usesFixtureStub: true,
     });
   });
 
@@ -24,8 +27,11 @@ describe('daemonFirstFeedSemanticAuditOpenAI', () => {
       VH_STORYCLUSTER_AUDIT_MODEL: 'gpt-5.4-mini',
     })).toEqual({
       apiKey: 'real-key',
+      providerId: 'openai',
       baseUrl: 'http://127.0.0.1:9040/v1',
       model: 'gpt-5.4-mini',
+      modelId: 'gpt-5.4-mini',
+      usesFixtureStub: true,
     });
   });
 
@@ -42,8 +48,11 @@ describe('daemonFirstFeedSemanticAuditOpenAI', () => {
       VH_STORYCLUSTER_AUDIT_MODEL: 'gpt-5.4',
     })).toEqual({
       apiKey: 'real-key',
+      providerId: 'openai',
       baseUrl: 'https://example.test/v1/chat/completions',
       model: 'gpt-5.4',
+      modelId: 'gpt-5.4',
+      usesFixtureStub: false,
     });
   });
 

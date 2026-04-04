@@ -115,6 +115,8 @@ test.describe('daemon-first StoryCluster live semantic audit', () => {
         openAIApiKey: openAI.apiKey,
         openAIBaseUrl: openAI.baseUrl,
         openAIModel: openAI.model,
+        openAIProviderId: openAI.providerId,
+        openAIUsesFixtureStub: openAI.usesFixtureStub,
         sampleCount: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_SAMPLE_COUNT'),
         timeoutMs: readPositiveIntEnv('VH_DAEMON_FEED_SEMANTIC_AUDIT_TIMEOUT_MS'),
       });

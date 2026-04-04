@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   OpenAIStoryClusterProvider,
   createOpenAIStoryClusterProviderFromEnv,
+  resolveOpenAIStoryClusterProviderProvenanceFromEnv,
 } from './openaiProvider';
 
 function jsonResponse(payload: unknown): Response {
@@ -614,5 +615,33 @@ describe('OpenAIStoryClusterProvider', () => {
     });
 
     expect((provider as unknown as { client: { timeoutMs: number } }).client.timeoutMs).toBe(30000);
+  });
+
+  it('resolves storycluster openai provenance from env defaults and overrides', () => {
+    vi.stubEnv('VH_STORYCLUSTER_TEXT_MODEL', 'env-text-model');
+    vi.stubEnv('VH_STORYCLUSTER_EMBEDDING_MODEL', 'env-embed-model');
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_BASE_URL', 'https://proxy.example/v1/');
+    vi.stubEnv('VH_STORYCLUSTER_OPENAI_TIMEOUT_MS', '45000');
+
+    expect(resolveOpenAIStoryClusterProviderProvenanceFromEnv()).toEqual({
+      providerId: 'openai-storycluster',
+      textModelId: 'env-text-model',
+      embeddingModelId: 'env-embed-model',
+      baseUrl: 'https://proxy.example/v1/',
+      timeoutMs: 45000,
+    });
+
+    expect(resolveOpenAIStoryClusterProviderProvenanceFromEnv({
+      textModel: 'override-text-model',
+      embeddingModel: 'override-embed-model',
+      baseUrl: 'https://override.example/v1/',
+      timeoutMs: 120000,
+    })).toEqual({
+      providerId: 'openai-storycluster',
+      textModelId: 'override-text-model',
+      embeddingModelId: 'override-embed-model',
+      baseUrl: 'https://override.example/v1/',
+      timeoutMs: 120000,
+    });
   });
 });
