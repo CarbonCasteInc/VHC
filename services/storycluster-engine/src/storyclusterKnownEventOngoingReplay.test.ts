@@ -414,4 +414,18 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     expect(new Set(storyIds.filter(Boolean)).size).toBe(1);
     expect(finalCluster?.source_documents).toHaveLength(4);
   });
+
+  it('keeps the Nevada voter-list lawsuit separate from the unrelated college-sports executive-order story', async () => {
+    const snapshots = await runScenario('replay-known-event-nevada-voter-lists-vs-college-sports-order-separation');
+    const sportsStoryId = snapshots[1]?.storyByEvent.get('college_sports_stabilization_order_episode') ?? null;
+    const nevadaStoryId = snapshots[1]?.storyByEvent.get('nevada_voter_list_order_lawsuit_episode') ?? null;
+    const sportsCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === sportsStoryId);
+    const nevadaCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === nevadaStoryId);
+
+    expect(sportsStoryId).toBeTruthy();
+    expect(nevadaStoryId).toBeTruthy();
+    expect(nevadaStoryId).not.toBe(sportsStoryId);
+    expect(sportsCluster?.source_documents).toHaveLength(1);
+    expect(nevadaCluster?.source_documents).toHaveLength(1);
+  });
 });

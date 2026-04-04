@@ -2054,6 +2054,57 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS: StoryClusterCohe
       ),
     ],
   },
+  {
+    dataset_id: 'fixture-known-event-ongoing-nevada-voter-list-vs-college-sports-order',
+    topic_id: 'fixture-known-event-ongoing-nevada-voter-list-vs-college-sports-order',
+    items: [
+      makeBenchmarkItem(
+        'college_sports_stabilization_order_episode',
+        'abc-college-sports-order',
+        'President Trump signs executive order that aims to stabilize college sports',
+        'college-sports-order-abc',
+        1_775_268_000_000,
+        {
+          publisher: 'ABC News',
+          url: 'https://abcnews.go.com/Politics/wireStory/president-trump-signs-executive-order-aims-stabilize-college-131508975',
+          canonicalUrl:
+            'https://abcnews.go.com/Politics/wireStory/president-trump-signs-executive-order-aims-stabilize-college-131508975',
+          entity_keys: [
+            'college_sports_stabilization_order_episode',
+            'donald_trump',
+            'executive_order',
+            'college_sports',
+            'ncaa',
+          ],
+          cluster_text:
+            'Trump signed an executive order focused on stabilizing college sports, athlete compensation, and NCAA policy, a White House sports-regulation story rather than a voting-rights or election-administration dispute.',
+        },
+      ),
+      makeBenchmarkItem(
+        'nevada_voter_list_order_lawsuit_episode',
+        'nevadaindependent-voter-list-lawsuit',
+        'Nevada is suing to stop Trump order to make eligible voter lists. Is Lombardo looped in?',
+        'nevada-voter-list-lawsuit-ni',
+        1_775_269_200_000,
+        {
+          publisher: 'The Nevada Independent',
+          url: 'https://thenevadaindependent.com/article/nevada-is-suing-to-stop-trump-order-to-make-eligible-voter-lists-is-lombardo-looped-in',
+          canonicalUrl:
+            'https://thenevadaindependent.com/article/nevada-is-suing-to-stop-trump-order-to-make-eligible-voter-lists-is-lombardo-looped-in',
+          entity_keys: [
+            'nevada_voter_list_order_lawsuit_episode',
+            'donald_trump',
+            'executive_order',
+            'nevada',
+            'eligible_voter_lists',
+            'joe_lombardo',
+          ],
+          cluster_text:
+            'Nevada sued over a Trump voting-order requirement about eligible voter lists, centering on election administration, state litigation, and Gov. Joe Lombardo instead of college sports or NCAA governance.',
+        },
+      ),
+    ],
+  },
 ];
 
 export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBenchmarkPairExpectation[] = [
@@ -2518,5 +2569,12 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBen
     left_source_id: 'ap-ukraine-bodies-repatriated',
     right_source_id: 'ap-ukraine-ready-fresh-talks',
     expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-nevada-voter-lists-vs-college-sports-order',
+    dataset_id: 'fixture-known-event-ongoing-nevada-voter-list-vs-college-sports-order',
+    left_source_id: 'abc-college-sports-order',
+    right_source_id: 'nevadaindependent-voter-list-lawsuit',
+    expected_label: 'unrelated',
   },
 ];

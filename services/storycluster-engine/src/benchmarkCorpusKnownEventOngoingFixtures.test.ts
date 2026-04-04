@@ -35,6 +35,7 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-iran-us-nuclear-talks',
       'fixture-known-event-ongoing-gaza-ceasefire-episode',
       'fixture-known-event-ongoing-ukraine-istanbul-talks',
+      'fixture-known-event-ongoing-nevada-voter-list-vs-college-sports-order',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
       'known-event-ongoing-kennedy-closure-staff-cuts',
@@ -103,6 +104,7 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-ukraine-first-talks-vs-none-scheduled',
       'known-event-ongoing-ukraine-none-scheduled-vs-bodies',
       'known-event-ongoing-ukraine-bodies-vs-fresh-talks',
+      'known-event-ongoing-nevada-voter-lists-vs-college-sports-order',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
       expect.arrayContaining(STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS),
@@ -146,6 +148,7 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-trump-library-vs-kennedy-separation',
         'replay-known-event-gaza-ceasefire-2025-arc',
         'replay-known-event-ukraine-istanbul-talks-arc',
+        'replay-known-event-nevada-voter-lists-vs-college-sports-order-separation',
       ]),
     );
   });
