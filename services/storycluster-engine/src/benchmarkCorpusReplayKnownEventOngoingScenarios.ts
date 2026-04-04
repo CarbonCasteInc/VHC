@@ -2732,6 +2732,87 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
     ],
   },
   {
+    scenario_id: 'replay-known-event-big-bend-wall-source-growth',
+    topic_id: 'replay-known-event-big-bend-wall-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'big_bend_wall_backlash_episode',
+          'texastribune-big-bend-wall-replay',
+          'A border wall through Big Bend appears to be on hold after public outcry, but questions remain',
+          'big-bend-wall-texastribune-replay-a',
+          1_775_210_400_000,
+          {
+            publisher: 'Texas Tribune',
+            url: 'https://feeds.texastribune.org/link/16799/17312955/texas-border-wall-big-bend-national-park-ranch-state-park',
+            canonicalUrl:
+              'https://feeds.texastribune.org/link/16799/17312955/texas-border-wall-big-bend-national-park-ranch-state-park',
+            entity_keys: ['big_bend_wall_backlash_episode', 'big_bend', 'border_wall', 'chispa_road', 'public_outcry'],
+            cluster_text:
+              'The Big Bend border wall dispute centered on Chispa Road work, public outcry, and questions over whether the physical wall project near Big Bend was being paused.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'big_bend_wall_backlash_episode',
+          'bigbendsentinel-wall-road-replay',
+          'Contractors begin work on Chispa Road as Big Bend border wall backlash grows',
+          'big-bend-wall-bigbendsentinel-replay-b',
+          1_775_211_000_000,
+          {
+            publisher: 'Big Bend Sentinel',
+            url: 'https://bigbendsentinel.com/2026/04/02/contractors-begin-work-on-chispa-road/',
+            canonicalUrl: 'https://bigbendsentinel.com/2026/04/02/contractors-begin-work-on-chispa-road/',
+            entity_keys: ['big_bend_wall_backlash_episode', 'big_bend', 'border_wall', 'chispa_road', 'public_outcry'],
+            cluster_text:
+              'The same Big Bend border wall episode drew backlash after contractors began work on Chispa Road and residents questioned the wall project near the park.',
+          },
+        ),
+      ],
+    ],
+  },
+  {
+    scenario_id: 'replay-known-event-mail-voting-lawsuit-source-growth',
+    topic_id: 'replay-known-event-mail-voting-lawsuit-source-growth',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'mail_voting_order_lawsuit_episode',
+          'bbc-mail-voting-lawsuit-replay',
+          "Democratic states sue to block Trump's mail-in ballot restrictions",
+          'mail-voting-lawsuit-bbc-replay-a',
+          1_775_268_302_000,
+          {
+            publisher: 'BBC News',
+            url: 'https://www.bbc.com/news/articles/cdxdyvxryl2o?at_campaign=rss&at_medium=RSS',
+            canonicalUrl: 'https://www.bbc.com/news/articles/cdxdyvxryl2o?at_campaign=rss&at_medium=RSS',
+            entity_keys: ['mail_voting_order_lawsuit_episode', 'mail_in_voting', 'lawsuit', 'democratic_states', 'trump_order'],
+            cluster_text:
+              'Democratic states and party groups sued to block the same Trump executive order imposing mail-in ballot restrictions and election administration rules.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'mail_voting_order_lawsuit_episode',
+          'democracydocket-mail-voting-lawsuit-replay',
+          'Democrats sue to block Trump’s unlawful order targeting mail-in voting',
+          'mail-voting-lawsuit-democracydocket-replay-b',
+          1_775_174_400_000,
+          {
+            publisher: 'Democracy Docket',
+            url: 'https://www.democracydocket.com/news-alerts/democrats-sue-trump-unlawful-order-mail-voting/',
+            canonicalUrl: 'https://www.democracydocket.com/news-alerts/democrats-sue-trump-unlawful-order-mail-voting/',
+            entity_keys: ['mail_voting_order_lawsuit_episode', 'mail_in_voting', 'lawsuit', 'democratic_states', 'trump_order'],
+            cluster_text:
+              "The same lawsuit challenged Trump's order targeting mail-in voting, with Democrats arguing the election restrictions were unlawful and unconstitutional.",
+          },
+        ),
+      ],
+    ],
+  },
+  {
     scenario_id: 'replay-known-event-nevada-voter-lists-vs-college-sports-order-separation',
     topic_id: 'replay-known-event-nevada-voter-lists-vs-college-sports-order-separation',
     ticks: [
