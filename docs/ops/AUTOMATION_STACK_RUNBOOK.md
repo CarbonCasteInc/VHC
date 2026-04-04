@@ -9,7 +9,7 @@
 
 The automation stack is a persistent local infrastructure layer managed by `launchd`. It provides shared services that scheduled automation runs (Publisher Canary, Consumer Smoke, Retained Uplift) consume as clients instead of bootstrapping their own listeners.
 
-This eliminates the `listen EPERM` failures that occur when automation child processes attempt to bind ports in restricted contexts.
+This reduces `listen EPERM` failures by making scheduled lanes consume a shared stack and by launching detached stack children from the automation state directory instead of the Desktop-rooted repo cwd.
 
 ## Port Assignments
 
@@ -104,12 +104,14 @@ The comparison uses the canonical repo root HEAD, not a worktree HEAD, to avoid 
 
 ### Lock contention
 
-If `automation:ensure-stack` fails with "Could not acquire lock":
+`automation:ensure-stack` now waits briefly for an in-flight stack operation to finish and returns early if the other run already restored a healthy stack.
+
+If it still fails with a lock error after the wait budget:
 
 ```bash
 cat .tmp/automation-stack/lock    # shows holding PID
 ps -p $(cat .tmp/automation-stack/lock)  # check if alive
-rm .tmp/automation-stack/lock     # safe if holder is dead (shlock auto-reclaims)
+rm .tmp/automation-stack/lock     # only if holder is dead; stale locks are auto-reclaimed
 ```
 
 ### launchd "Operation not permitted" on Desktop-rooted repos

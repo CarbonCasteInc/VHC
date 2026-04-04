@@ -17,11 +17,19 @@ warn() { echo "[${_log_tag:-stack}][warn] $*" >&2; }
 die()  { echo "[${_log_tag:-stack}][error] $*" >&2; exit 1; }
 
 # --- process management ---
+spawn_detached_with_cwd() {
+  local spawn_cwd="$1"
+  local pid_file="$2"
+  local log_file="$3"
+  shift 3
+  node "$_LIB_ROOT/tools/scripts/spawn-detached.mjs" "$pid_file" "$spawn_cwd" "$log_file" "$@"
+}
+
 spawn_detached() {
   local pid_file="$1"
   local log_file="$2"
   shift 2
-  node "$_LIB_ROOT/tools/scripts/spawn-detached.mjs" "$pid_file" "$_LIB_ROOT" "$log_file" "$@"
+  spawn_detached_with_cwd "$_LIB_ROOT" "$pid_file" "$log_file" "$@"
 }
 
 require_cmd() {

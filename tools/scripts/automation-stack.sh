@@ -9,6 +9,8 @@ source "$ROOT/tools/scripts/local-stack-lib.sh"
 AUTO_DIR="${AUTO_DIR:-$ROOT/.tmp/automation-stack}"
 LOCK_FILE="$AUTO_DIR/lock"
 ENV_FILE="${ENV_FILE:-$ROOT/packages/e2e/.env.dev-small}"
+AUTO_CHILD_CWD="${AUTO_CHILD_CWD:-$AUTO_DIR}"
+AUTO_LOCK_WAIT_SECS="${AUTO_LOCK_WAIT_SECS:-90}"
 
 AUTO_WEB_PORT="${AUTO_WEB_PORT:-2099}"
 AUTO_RELAY_PORT="${AUTO_RELAY_PORT:-7777}"
@@ -29,12 +31,54 @@ AUTO_RELAY_DATA="$AUTO_DIR/relay-data"
 AUTO_STORYCLUSTER_STATE="$AUTO_DIR/storycluster-state"
 
 # --- lock ---
-acquire_lock() {
-  mkdir -p "$AUTO_DIR"
-  if ! /usr/bin/shlock -f "$LOCK_FILE" -p $$; then
-    die "Could not acquire lock ($LOCK_FILE). Another automation-stack operation may be running."
+read_lock_pid() {
+  if [[ -f "$LOCK_FILE" ]]; then
+    tr -d '[:space:]' < "$LOCK_FILE"
   fi
-  trap 'rm -f "$LOCK_FILE"' EXIT
+}
+
+clear_stale_lock_if_needed() {
+  local lock_pid
+  lock_pid="$(read_lock_pid || true)"
+  if [[ -n "$lock_pid" ]] && ! is_pid_alive "$lock_pid"; then
+    warn "Removing stale automation-stack lock held by dead pid $lock_pid"
+    rm -f "$LOCK_FILE"
+  fi
+}
+
+try_acquire_lock() {
+  mkdir -p "$AUTO_DIR"
+  clear_stale_lock_if_needed
+  /usr/bin/shlock -f "$LOCK_FILE" -p $$
+}
+
+acquire_lock_with_wait() {
+  mkdir -p "$AUTO_DIR"
+  local start_ts now_ts lock_pid
+  start_ts="$(date +%s)"
+  while true; do
+    if try_acquire_lock; then
+      trap 'rm -f "$LOCK_FILE"' EXIT
+      return 0
+    fi
+
+    if ! needs_rebuild && run_health --write-state >/dev/null 2>&1; then
+      info "Another automation-stack operation already restored a healthy stack."
+      return 1
+    fi
+
+    now_ts="$(date +%s)"
+    if (( now_ts - start_ts >= AUTO_LOCK_WAIT_SECS )); then
+      lock_pid="$(read_lock_pid || true)"
+      die "Could not acquire lock ($LOCK_FILE) within ${AUTO_LOCK_WAIT_SECS}s. Holder pid: ${lock_pid:-unknown}."
+    fi
+
+    sleep 2
+  done
+}
+
+acquire_lock() {
+  acquire_lock_with_wait
 }
 
 # --- rebuild detection ---
@@ -110,7 +154,9 @@ kill_automation_services() {
 
 do_ensure() {
   mkdir -p "$AUTO_DIR/logs"
-  acquire_lock
+  if ! acquire_lock; then
+    return 0
+  fi
 
   if ! needs_rebuild; then
     info "Stack HEAD matches, checking health..."
@@ -122,6 +168,7 @@ do_ensure() {
   fi
 
   load_automation_env
+  mkdir -p "$AUTO_CHILD_CWD"
   kill_automation_services
 
   info "Building storycluster-engine..."
@@ -140,13 +187,14 @@ do_ensure() {
   export VH_STORYCLUSTER_SERVER_PORT="$AUTO_STORYCLUSTER_PORT"
   export VH_STORYCLUSTER_SERVER_AUTH_TOKEN="$STORYCLUSTER_AUTH_TOKEN"
   export VH_STORYCLUSTER_STATE_DIR="$AUTO_STORYCLUSTER_STATE"
-  spawn_detached \
+  spawn_detached_with_cwd \
+    "$AUTO_CHILD_CWD" \
     "$AUTO_STORYCLUSTER_PID" \
     "$AUTO_STORYCLUSTER_LOG" \
     node \
     --loader \
     "$STORYCLUSTER_LOADER_PATH" \
-    tools/scripts/start-storycluster-local.mjs
+    "$ROOT/tools/scripts/start-storycluster-local.mjs"
   wait_for_http \
     "http://127.0.0.1:${AUTO_STORYCLUSTER_PORT}/ready" \
     "$READY_TIMEOUT_SECS" \
@@ -157,11 +205,12 @@ do_ensure() {
   info "Starting validated snapshot server on :${AUTO_SNAPSHOT_PORT}"
   : > "$AUTO_SNAPSHOT_LOG"
   export VH_VALIDATED_SNAPSHOT_PORT="$AUTO_SNAPSHOT_PORT"
-  spawn_detached \
+  spawn_detached_with_cwd \
+    "$AUTO_CHILD_CWD" \
     "$AUTO_SNAPSHOT_PID" \
     "$AUTO_SNAPSHOT_LOG" \
     node \
-    packages/e2e/src/live/daemon-feed-validated-snapshot-server.mjs
+    "$ROOT/packages/e2e/src/live/daemon-feed-validated-snapshot-server.mjs"
   wait_for_http "http://127.0.0.1:${AUTO_SNAPSHOT_PORT}/health" "$READY_TIMEOUT_SECS" \
     || die "Snapshot server did not become ready in ${READY_TIMEOUT_SECS}s (log: $AUTO_SNAPSHOT_LOG)"
 
@@ -171,21 +220,25 @@ do_ensure() {
   : > "$AUTO_RELAY_LOG"
   export GUN_PORT="$AUTO_RELAY_PORT"
   export GUN_FILE="$AUTO_RELAY_DATA"
-  spawn_detached \
+  spawn_detached_with_cwd \
+    "$AUTO_CHILD_CWD" \
     "$AUTO_RELAY_PID" \
     "$AUTO_RELAY_LOG" \
     node \
-    infra/relay/server.js
+    "$ROOT/infra/relay/server.js"
   wait_for_http "http://127.0.0.1:${AUTO_RELAY_PORT}" "$READY_TIMEOUT_SECS" \
     || die "Relay did not become ready in ${READY_TIMEOUT_SECS}s (log: $AUTO_RELAY_LOG)"
 
   # Start web preview
   info "Starting web preview on :${AUTO_WEB_PORT}"
   : > "$AUTO_WEB_LOG"
-  spawn_detached \
+  spawn_detached_with_cwd \
+    "$AUTO_CHILD_CWD" \
     "$AUTO_WEB_PID" \
     "$AUTO_WEB_LOG" \
     pnpm \
+    --dir \
+    "$ROOT" \
     --filter \
     @vh/web-pwa \
     exec \
