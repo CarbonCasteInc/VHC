@@ -2055,6 +2055,126 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_FIXTURE_DATASETS: StoryClusterCohe
     ],
   },
   {
+    dataset_id: 'fixture-known-event-ongoing-iran-f15e-downed',
+    topic_id: 'fixture-known-event-ongoing-iran-f15e-downed',
+    items: [
+      makeBenchmarkItem(
+        'iran_f15e_downed_episode',
+        'cbs-iran-f15e',
+        'American fighter jet downed over Iran, 1 crew member rescued',
+        'iran-f15e-cbs',
+        1_775_270_700_000,
+        {
+          publisher: 'CBS News',
+          url: 'https://www.cbsnews.com/news/american-fighter-jet-f15e-downed-over-iran',
+          canonicalUrl: 'https://www.cbsnews.com/news/american-fighter-jet-f15e-downed-over-iran',
+          entity_keys: ['iran_f15e_downed_episode', 'iran', 'f15e', 'crew_member', 'rescue_search'],
+          cluster_text:
+            'An American F-15E was downed over Iran in the same incident where one crew member was rescued and recovery teams searched for the remaining crew.',
+        },
+      ),
+      makeBenchmarkItem(
+        'iran_f15e_downed_episode',
+        'militarytimes-iran-f15e',
+        'American fighter jet downed over Iran as search continues for crew',
+        'iran-f15e-militarytimes',
+        1_775_271_600_000,
+        {
+          publisher: 'Military Times',
+          url: 'https://www.militarytimes.com/news/your-military/2026/04/03/american-fighter-jet-downed-over-iran/',
+          canonicalUrl: 'https://www.militarytimes.com/news/your-military/2026/04/03/american-fighter-jet-downed-over-iran/',
+          entity_keys: ['iran_f15e_downed_episode', 'iran', 'f15e', 'crew_member', 'rescue_search'],
+          cluster_text:
+            'The same American F-15E fighter jet was shot down over Iran and military teams continued the search for the crew after one member was rescued.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-socal-wildfires-apr3',
+    topic_id: 'fixture-known-event-ongoing-socal-wildfires-apr3',
+    items: [
+      makeBenchmarkItem(
+        'socal_wildfires_apr3_episode',
+        'guardian-socal-fires',
+        'Evacuations ordered as two wildfires break out in southern California',
+        'socal-fires-guardian',
+        1_775_268_328_000,
+        {
+          publisher: 'The Guardian',
+          url: 'https://www.theguardian.com/us-news/2026/apr/03/wildfires-southern-california',
+          canonicalUrl: 'https://www.theguardian.com/us-news/2026/apr/03/wildfires-southern-california',
+          entity_keys: [
+            'socal_wildfires_apr3_episode',
+            'southern_california',
+            'moreno_valley',
+            'springs_fire',
+            'crown_fire',
+          ],
+          cluster_text:
+            'Two southern California wildfires including the Springs fire near Moreno Valley and the Crown fire broke out on April 3 and triggered evacuations during Santa Ana winds.',
+        },
+      ),
+      makeBenchmarkItem(
+        'socal_wildfires_apr3_episode',
+        'latimes-socal-fires',
+        'Two fires break out in Southern California amid Santa Ana winds, triggering evacuations',
+        'socal-fires-latimes',
+        1_775_268_600_000,
+        {
+          publisher: 'Los Angeles Times',
+          url: 'https://www.latimes.com/california/story/2026-04-03/fire-riverside-santa-ana-winds',
+          canonicalUrl: 'https://www.latimes.com/california/story/2026-04-03/fire-riverside-santa-ana-winds',
+          entity_keys: [
+            'socal_wildfires_apr3_episode',
+            'southern_california',
+            'moreno_valley',
+            'springs_fire',
+            'crown_fire',
+          ],
+          cluster_text:
+            'The same April 3 Southern California wildfire outbreak near Moreno Valley involved the Springs fire and Crown fire, with Santa Ana winds forcing evacuations.',
+        },
+      ),
+    ],
+  },
+  {
+    dataset_id: 'fixture-known-event-ongoing-dhs-pay-shutdown',
+    topic_id: 'fixture-known-event-ongoing-dhs-pay-shutdown',
+    items: [
+      makeBenchmarkItem(
+        'dhs_pay_despite_shutdown_episode',
+        'cbs-dhs-pay',
+        'Trump orders DHS to pay all employees despite shutdown',
+        'dhs-pay-cbs',
+        1_775_268_960_000,
+        {
+          publisher: 'CBS News',
+          url: 'https://www.cbsnews.com/news/trump-orders-dhs-to-pay-all-employees-shutdown',
+          canonicalUrl: 'https://www.cbsnews.com/news/trump-orders-dhs-to-pay-all-employees-shutdown',
+          entity_keys: ['dhs_pay_despite_shutdown_episode', 'dhs', 'shutdown', 'employee_pay', 'trump_order'],
+          cluster_text:
+            'Trump directed the Department of Homeland Security to pay all employees despite the shutdown in the same federal workforce policy action.',
+        },
+      ),
+      makeBenchmarkItem(
+        'dhs_pay_despite_shutdown_episode',
+        'fedsmith-dhs-pay',
+        'Trump orders DHS to pay all employees despite shutdown',
+        'dhs-pay-fedsmith',
+        1_775_269_500_000,
+        {
+          publisher: 'FedSmith',
+          url: 'https://www.fedsmith.com/2026/04/03/trump-orders-dhs-to-pay-all-employees-despite-shutdown/',
+          canonicalUrl: 'https://www.fedsmith.com/2026/04/03/trump-orders-dhs-to-pay-all-employees-despite-shutdown/',
+          entity_keys: ['dhs_pay_despite_shutdown_episode', 'dhs', 'shutdown', 'employee_pay', 'trump_order'],
+          cluster_text:
+            'The same shutdown-era DHS pay order directed the department to keep paying employees even while much of the federal government remained shut down.',
+        },
+      ),
+    ],
+  },
+  {
     dataset_id: 'fixture-known-event-ongoing-nevada-voter-list-vs-college-sports-order',
     topic_id: 'fixture-known-event-ongoing-nevada-voter-list-vs-college-sports-order',
     items: [
@@ -2568,6 +2688,27 @@ export const STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS: StoryClusterBen
     dataset_id: 'fixture-known-event-ongoing-ukraine-istanbul-talks',
     left_source_id: 'ap-ukraine-bodies-repatriated',
     right_source_id: 'ap-ukraine-ready-fresh-talks',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-iran-f15e-cbs-vs-militarytimes',
+    dataset_id: 'fixture-known-event-ongoing-iran-f15e-downed',
+    left_source_id: 'cbs-iran-f15e',
+    right_source_id: 'militarytimes-iran-f15e',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-socal-wildfires-guardian-vs-latimes',
+    dataset_id: 'fixture-known-event-ongoing-socal-wildfires-apr3',
+    left_source_id: 'guardian-socal-fires',
+    right_source_id: 'latimes-socal-fires',
+    expected_label: 'same_developing_episode',
+  },
+  {
+    case_id: 'known-event-ongoing-dhs-pay-cbs-vs-fedsmith',
+    dataset_id: 'fixture-known-event-ongoing-dhs-pay-shutdown',
+    left_source_id: 'cbs-dhs-pay',
+    right_source_id: 'fedsmith-dhs-pay',
     expected_label: 'same_developing_episode',
   },
   {
