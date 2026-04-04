@@ -34,6 +34,10 @@ function substantiveEntities(values: readonly string[]): string[] {
   return values.filter((value) => value.includes('_') || (value.length >= 6 && !NON_SUBSTANTIVE_ENTITIES.has(value)));
 }
 
+function specificSubstantiveEntities(values: readonly string[]): string[] {
+  return substantiveEntities(values).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value));
+}
+
 function overlapCount(left: readonly string[], right: readonly string[]): number {
   const rightSet = new Set(right);
   return new Set(left).size === 0 ? 0 : [...new Set(left)].filter((value) => rightSet.has(value)).length;
@@ -45,6 +49,10 @@ function pairScore(item: PairJudgementWorkItem): PairJudgementWorkResult['decisi
   const canonicalOverlapValues = documentCanonical.filter((value) => clusterCanonical.includes(value));
   const canonicalOverlap = overlapCount(documentCanonical, clusterCanonical);
   const substantiveOverlap = overlapCount(substantiveEntities(item.document_entities), substantiveEntities(item.cluster_entities));
+  const specificSubstantiveOverlap = overlapCount(
+    specificSubstantiveEntities(item.document_entities),
+    specificSubstantiveEntities(item.cluster_entities),
+  );
   const documentTriggerCategory = triggerCategory(item.document_trigger);
   const triggerMatch = item.document_trigger && item.cluster_triggers.some((trigger) =>
     trigger === item.document_trigger || triggerCategory(trigger) === triggerCategory(item.document_trigger),
@@ -59,6 +67,9 @@ function pairScore(item: PairJudgementWorkItem): PairJudgementWorkResult['decisi
     canonicalOverlapValues.length > 0 &&
     canonicalOverlapValues.every((value) => LOW_SIGNAL_CANONICAL_ENTITIES.has(value));
   if (triggerCategoryConflict && overlapIsLowSignal) {
+    return 'rejected';
+  }
+  if (overlapIsLowSignal && !triggerMatch && specificSubstantiveOverlap === 0) {
     return 'rejected';
   }
   if (canonicalOverlap > 0 && triggerMatch) {

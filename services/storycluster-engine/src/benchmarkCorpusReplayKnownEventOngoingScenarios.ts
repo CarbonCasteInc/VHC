@@ -2598,4 +2598,81 @@ export const STORYCLUSTER_REPLAY_KNOWN_EVENT_ONGOING_SCENARIOS: StoryClusterRepl
       ],
     ],
   },
+  {
+    scenario_id: 'replay-known-event-nevada-voter-lists-vs-college-sports-order-separation',
+    topic_id: 'replay-known-event-nevada-voter-lists-vs-college-sports-order-separation',
+    ticks: [
+      [
+        makeBenchmarkItem(
+          'college_sports_stabilization_order_episode',
+          'abc-college-sports-order-replay',
+          'President Trump signs executive order that aims to stabilize college sports',
+          'college-sports-order-abc-replay-a',
+          1_775_268_000_000,
+          {
+            publisher: 'ABC News',
+            url: 'https://abcnews.go.com/Politics/wireStory/president-trump-signs-executive-order-aims-stabilize-college-131508975',
+            canonicalUrl:
+              'https://abcnews.go.com/Politics/wireStory/president-trump-signs-executive-order-aims-stabilize-college-131508975',
+            entity_keys: [
+              'college_sports_stabilization_order_episode',
+              'donald_trump',
+              'executive_order',
+              'college_sports',
+              'ncaa',
+            ],
+            cluster_text:
+              'Trump signed an executive order focused on stabilizing college sports, athlete compensation, and NCAA policy, a White House sports-regulation story rather than a voting-rights or election-administration dispute.',
+          },
+        ),
+      ],
+      [
+        makeBenchmarkItem(
+          'college_sports_stabilization_order_episode',
+          'abc-college-sports-order-replay',
+          'President Trump signs executive order that aims to stabilize college sports',
+          'college-sports-order-abc-replay-a',
+          1_775_268_000_000,
+          {
+            publisher: 'ABC News',
+            url: 'https://abcnews.go.com/Politics/wireStory/president-trump-signs-executive-order-aims-stabilize-college-131508975',
+            canonicalUrl:
+              'https://abcnews.go.com/Politics/wireStory/president-trump-signs-executive-order-aims-stabilize-college-131508975',
+            entity_keys: [
+              'college_sports_stabilization_order_episode',
+              'donald_trump',
+              'executive_order',
+              'college_sports',
+              'ncaa',
+            ],
+            cluster_text:
+              'Trump signed an executive order focused on stabilizing college sports, athlete compensation, and NCAA policy, a White House sports-regulation story rather than a voting-rights or election-administration dispute.',
+          },
+        ),
+        makeBenchmarkItem(
+          'nevada_voter_list_order_lawsuit_episode',
+          'nevadaindependent-voter-list-lawsuit-replay',
+          'Nevada is suing to stop Trump order to make eligible voter lists. Is Lombardo looped in?',
+          'nevada-voter-list-lawsuit-ni-replay-b',
+          1_775_269_200_000,
+          {
+            publisher: 'The Nevada Independent',
+            url: 'https://thenevadaindependent.com/article/nevada-is-suing-to-stop-trump-order-to-make-eligible-voter-lists-is-lombardo-looped-in',
+            canonicalUrl:
+              'https://thenevadaindependent.com/article/nevada-is-suing-to-stop-trump-order-to-make-eligible-voter-lists-is-lombardo-looped-in',
+            entity_keys: [
+              'nevada_voter_list_order_lawsuit_episode',
+              'donald_trump',
+              'executive_order',
+              'nevada',
+              'eligible_voter_lists',
+              'joe_lombardo',
+            ],
+            cluster_text:
+              'Nevada sued over a Trump voting-order requirement about eligible voter lists, centering on election administration, state litigation, and Gov. Joe Lombardo instead of college sports or NCAA governance.',
+          },
+        ),
+      ],
+    ],
+  },
 ];
