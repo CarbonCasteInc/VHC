@@ -461,6 +461,38 @@ describe('StoryCluster known-event ongoing replay scenarios', () => {
     ]);
   });
 
+  it('grows the Big Bend wall backlash story across the Texas Tribune and Big Bend Sentinel without changing story identity', async () => {
+    const snapshots = await runScenario('replay-known-event-big-bend-wall-source-growth');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('big_bend_wall_backlash_episode') ?? null,
+    );
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'bigbendsentinel-wall-road-replay',
+      'texastribune-big-bend-wall-replay',
+    ]);
+  });
+
+  it('grows the mail-voting lawsuit story across BBC and Democracy Docket without changing story identity', async () => {
+    const snapshots = await runScenario('replay-known-event-mail-voting-lawsuit-source-growth');
+    const storyIds = snapshots.map((snapshot) =>
+      snapshot.storyByEvent.get('mail_voting_order_lawsuit_episode') ?? null,
+    );
+    const finalCluster = snapshots[1]?.clusters.find((cluster) => cluster.story_id === storyIds[1]);
+
+    expect(storyIds[0]).toBeTruthy();
+    expect(storyIds[1]).toBe(storyIds[0]);
+    expect(finalCluster?.source_documents).toHaveLength(2);
+    expect(finalCluster?.source_documents.map((document) => document.source_id).sort()).toEqual([
+      'bbc-mail-voting-lawsuit-replay',
+      'democracydocket-mail-voting-lawsuit-replay',
+    ]);
+  });
+
   it('keeps the Nevada voter-list lawsuit separate from the unrelated college-sports executive-order story', async () => {
     const snapshots = await runScenario('replay-known-event-nevada-voter-lists-vs-college-sports-order-separation');
     const sportsStoryId = snapshots[1]?.storyByEvent.get('college_sports_stabilization_order_episode') ?? null;

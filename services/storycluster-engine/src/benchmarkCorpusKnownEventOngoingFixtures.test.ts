@@ -38,6 +38,8 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'fixture-known-event-ongoing-iran-f15e-downed',
       'fixture-known-event-ongoing-socal-wildfires-apr3',
       'fixture-known-event-ongoing-dhs-pay-shutdown',
+      'fixture-known-event-ongoing-big-bend-wall-backlash',
+      'fixture-known-event-ongoing-mail-voting-lawsuit',
       'fixture-known-event-ongoing-nevada-voter-list-vs-college-sports-order',
     ]);
     expect(STORYCLUSTER_KNOWN_EVENT_ONGOING_PAIR_EXPECTATIONS.map((pair) => pair.case_id)).toEqual([
@@ -110,6 +112,8 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
       'known-event-ongoing-iran-f15e-cbs-vs-militarytimes',
       'known-event-ongoing-socal-wildfires-guardian-vs-latimes',
       'known-event-ongoing-dhs-pay-cbs-vs-fedsmith',
+      'known-event-ongoing-big-bend-wall-texastribune-vs-bigbendsentinel',
+      'known-event-ongoing-mail-voting-bbc-vs-democracydocket',
       'known-event-ongoing-nevada-voter-lists-vs-college-sports-order',
     ]);
     expect(STORYCLUSTER_BENCHMARK_CORPUS.fixtureDatasets).toEqual(
@@ -157,6 +161,8 @@ describe('known-event ongoing benchmark corpus fixtures', () => {
         'replay-known-event-iran-f15e-source-growth',
         'replay-known-event-socal-wildfires-source-growth',
         'replay-known-event-dhs-pay-shutdown-source-growth',
+        'replay-known-event-big-bend-wall-source-growth',
+        'replay-known-event-mail-voting-lawsuit-source-growth',
         'replay-known-event-nevada-voter-lists-vs-college-sports-order-separation',
       ]),
     );
