@@ -31,6 +31,7 @@ export interface SourceCandidateScoutCandidateResult {
   readonly sourceId: string;
   readonly sourceName: string;
   readonly rssUrl: string;
+  readonly resolvedRssUrl: string | null;
   readonly candidateOnlyArtifactDir: string;
   readonly candidateOnlyReportPath: string;
   readonly candidateOnlyStatus: SourceAdmissionSourceReport['status'];
@@ -306,6 +307,13 @@ async function evaluateSourceCandidate(
   let candidateHealth: SourceHealthSourceReport | null = null;
 
   if (candidateOnly.status === 'admitted') {
+    const candidateSurfaceSource =
+      candidateOnly.feedRead.resolvedFeedUrl && candidateOnly.feedRead.resolvedFeedUrl !== source.rssUrl
+        ? {
+          ...source,
+          rssUrl: candidateOnly.feedRead.resolvedFeedUrl,
+        }
+        : source;
     starterPlusCandidateArtifactDir = path.join(
       artifactRootDir,
       source.id,
@@ -314,7 +322,7 @@ async function evaluateSourceCandidate(
     );
     const healthArtifact = await writeHealthArtifactFn({
       ...options,
-      feedSources: [...STARTER_FEED_SOURCES, source],
+      feedSources: [...STARTER_FEED_SOURCES, candidateSurfaceSource],
       artifactDir: starterPlusCandidateArtifactDir,
     });
     starterPlusCandidateReportPath = healthArtifact.sourceHealthReportPath;
@@ -337,6 +345,7 @@ async function evaluateSourceCandidate(
     sourceId: source.id,
     sourceName: source.name,
     rssUrl: source.rssUrl,
+    resolvedRssUrl: candidateOnly.feedRead.resolvedFeedUrl,
     candidateOnlyArtifactDir,
     candidateOnlyReportPath: admissionArtifact.reportPath,
     candidateOnlyStatus: candidateOnly.status,

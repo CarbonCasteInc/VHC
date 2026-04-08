@@ -607,6 +607,7 @@ describe('sourceAdmissionReport', () => {
     expect(report.feedRead).toMatchObject({
       ok: true,
       payloadKind: 'html_feed',
+      resolvedFeedUrl: 'https://apnews.com/hub/apf-topnews',
       errorCode: null,
       extractedLinkCount: 2,
     });
@@ -669,6 +670,7 @@ describe('sourceAdmissionReport', () => {
     expect(report.feedRead).toMatchObject({
       ok: true,
       payloadKind: 'html_feed',
+      resolvedFeedUrl: 'https://www.latimes.com/california.rss',
       errorCode: null,
       extractedLinkCount: 2,
     });
@@ -731,6 +733,7 @@ describe('sourceAdmissionReport', () => {
     expect(report.feedRead).toMatchObject({
       ok: true,
       payloadKind: 'html_feed',
+      resolvedFeedUrl: 'https://www.militarytimes.com/arc/outboundfeeds/rss/category/news/?outputType=xml',
       errorCode: null,
       extractedLinkCount: 2,
     });
@@ -738,6 +741,95 @@ describe('sourceAdmissionReport', () => {
     expect(fetchFn).toHaveBeenCalledWith(
       'https://www.militarytimes.com/arc/outboundfeeds/rss/category/news/?outputType=xml',
     );
+  });
+
+  it('prefers discovered xml feeds that actually contain entries', async () => {
+    const source = {
+      id: 'democracydocket-alerts',
+      name: 'Democracy Docket Democracy Alerts',
+      rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/',
+      enabled: true,
+    };
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `
+            <html>
+              <head>
+                <link rel="alternate" type="application/rss+xml" href="https://www.democracydocket.com/feed/" />
+                <link rel="alternate" type="application/rss+xml" href="https://www.democracydocket.com/article-type/democracy-alert/feed/" />
+              </head>
+            </html>
+          `,
+        );
+      }
+      if (url === 'https://www.democracydocket.com/feed/') {
+        return new Response(
+          '<?xml version="1.0" encoding="UTF-8"?><rss><channel><title>Site Feed</title></channel></rss>',
+          {
+            status: 200,
+            headers: { 'content-type': 'application/rss+xml; charset=UTF-8' },
+          },
+        );
+      }
+      if (url === 'https://www.democracydocket.com/article-type/democracy-alert/feed/') {
+        return new Response(
+          `
+            <?xml version="1.0" encoding="UTF-8"?>
+            <rss>
+              <channel>
+                <item><link>https://www.democracydocket.com/news-alerts/example-one/</link></item>
+                <item><link>https://www.democracydocket.com/news-alerts/example-two/</link></item>
+              </channel>
+            </rss>
+          `,
+          {
+            status: 200,
+            headers: { 'content-type': 'application/rss+xml; charset=UTF-8' },
+          },
+        );
+      }
+      if (
+        url === 'https://www.democracydocket.com/news-alerts/example-one/'
+        || url === 'https://www.democracydocket.com/news-alerts/example-one'
+        || url === 'https://www.democracydocket.com/news-alerts/example-two/'
+        || url === 'https://www.democracydocket.com/news-alerts/example-two'
+      ) {
+        return makeResponse(200, makeReadableHtml('Democracy Docket readable'));
+      }
+      return makeResponse(404, 'missing');
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 2,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 0.5,
+      feedReadRetryDelayMs: 0,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'Democracy Docket readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    expect(report.sampledUrls).toEqual([
+      'https://www.democracydocket.com/news-alerts/example-one/',
+      'https://www.democracydocket.com/news-alerts/example-two/',
+    ]);
+    expect(report.feedRead).toMatchObject({
+      ok: true,
+      payloadKind: 'html_feed',
+      resolvedFeedUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
+      extractedLinkCount: 2,
+    });
+    expect(fetchFn).toHaveBeenCalledWith('https://www.democracydocket.com/feed/');
+    expect(fetchFn).toHaveBeenCalledWith('https://www.democracydocket.com/article-type/democracy-alert/feed/');
   });
 
   it('marks threshold misses without failures as readable-sample-threshold-not-met', () => {

@@ -120,6 +120,23 @@ describe('sourceCandidateScout', () => {
               sampledUrls: [],
               samples: [],
               lifecycle: [],
+              feedRead: {
+                ok: candidateOnlyStatus === 'admitted',
+                httpStatus: candidateOnlyStatus === 'admitted' ? 200 : null,
+                contentType: candidateOnlyStatus === 'admitted' ? 'application/rss+xml' : null,
+                bodyLength: candidateOnlyStatus === 'admitted' ? 1024 : null,
+                resolvedFeedUrl:
+                  source.id === 'alpha' && candidateOnlyStatus === 'admitted'
+                    ? 'https://alpha.example.com/feed.xml'
+                    : source.rssUrl,
+                payloadKind: candidateOnlyStatus === 'admitted' ? 'xml' : 'unavailable',
+                errorCode: candidateOnlyStatus === 'admitted' ? null : 'feed_fetch_error',
+                errorMessage: candidateOnlyStatus === 'admitted' ? null : 'unavailable',
+                attemptCount: 1,
+                itemFragmentCount: candidateOnlyStatus === 'admitted' ? 4 : 0,
+                entryFragmentCount: 0,
+                extractedLinkCount: candidateOnlyStatus === 'admitted' ? 4 : 0,
+              },
             },
           ],
         };
@@ -132,6 +149,7 @@ describe('sourceCandidateScout', () => {
       },
       writeHealthArtifactFn: async ({ feedSources, artifactDir }) => {
         const source = feedSources?.find((entry) => entry.id === 'alpha')!;
+        expect(source?.rssUrl).toBe('https://alpha.example.com/feed.xml');
         const sourceHealthReport: SourceHealthReport = {
           schemaVersion: 'news-source-health-report-v1',
           generatedAt: new Date(now()).toISOString(),
@@ -303,6 +321,7 @@ describe('sourceCandidateScout', () => {
     expect(report.candidates[0]).toMatchObject({
       sourceId: 'alpha',
       promotable: true,
+      resolvedRssUrl: 'https://alpha.example.com/feed.xml',
       candidateDecision: 'keep',
       contributionStatus: 'corroborated',
       scoutRecommendedAction: 'prepare_promotion_pr',
@@ -357,6 +376,7 @@ describe('sourceCandidateScout', () => {
               httpStatus: admitted ? 200 : null,
               contentType: admitted ? 'application/rss+xml' : null,
               bodyLength: admitted ? 1024 : null,
+              resolvedFeedUrl: source.rssUrl,
               payloadKind: admitted ? 'xml' : 'unavailable',
               errorCode: admitted ? null : 'feed_fetch_timeout',
               errorMessage: admitted ? null : 'timeout',
