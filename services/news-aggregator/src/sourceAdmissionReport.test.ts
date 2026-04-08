@@ -43,6 +43,36 @@ const apHubHtml = `
   </html>
 `;
 
+const latimesHubHtml = `
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <link rel="alternate" type="application/rss+xml" title="California" href="https://www.latimes.com/california.rss" />
+    </head>
+    <body>
+      <a href="https://www.latimes.com/topic/california-law-politics">Topic page</a>
+    </body>
+  </html>
+`;
+
+const militaryTimesNewsHtml = `
+  <!DOCTYPE html>
+  <html>
+    <body>
+      <a href="https://www.militarytimes.com/m/military-times-rss-feeds/">RSS Feeds</a>
+    </body>
+  </html>
+`;
+
+const militaryTimesRssDirectoryHtml = `
+  <!DOCTYPE html>
+  <html>
+    <body>
+      <a href="https://www.militarytimes.com/arc/outboundfeeds/rss/category/news/?outputType=xml">News</a>
+    </body>
+  </html>
+`;
+
 describe('sourceAdmissionReport', () => {
   it('parses unique http links from RSS and Atom feeds', () => {
     const xml = `
@@ -328,7 +358,6 @@ describe('sourceAdmissionReport', () => {
         fallbackExtractor: () => null,
       },
     });
-
     expect(report.status).toBe('admitted');
     expect(report.readableSampleCount).toBe(2);
     expect(report.reasons).toEqual([]);
@@ -372,7 +401,6 @@ describe('sourceAdmissionReport', () => {
         fallbackExtractor: () => null,
       },
     });
-
     expect(report.status).toBe('admitted');
     expect(report.sampleLinkCount).toBe(4);
     expect(report.readableSampleCount).toBe(4);
@@ -571,7 +599,6 @@ describe('sourceAdmissionReport', () => {
         fallbackExtractor: () => null,
       },
     });
-
     expect(report.status).toBe('admitted');
     expect(report.sampledUrls).toEqual([
       'https://apnews.com/article/policy-shift-111',
@@ -583,6 +610,134 @@ describe('sourceAdmissionReport', () => {
       errorCode: null,
       extractedLinkCount: 2,
     });
+  });
+
+  it('follows alternate feed links exposed from html hubs', async () => {
+    const source = {
+      id: 'latimes-california',
+      name: 'Los Angeles Times California',
+      rssUrl: 'https://www.latimes.com/california',
+      enabled: true,
+    };
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(200, latimesHubHtml);
+      }
+      if (url === 'https://www.latimes.com/california.rss') {
+        return makeResponse(
+          200,
+          `
+            <rss>
+              <channel>
+                <item><link>https://www.latimes.com/california/story/2026-04-03/fire-riverside-santa-ana-winds</link></item>
+                <item><link>https://www.latimes.com/california/story/2026-04-02/crews-battle-foothill-fire</link></item>
+              </channel>
+            </rss>
+          `,
+        );
+      }
+      if (
+        url === 'https://www.latimes.com/california/story/2026-04-03/fire-riverside-santa-ana-winds'
+        || url === 'https://www.latimes.com/california/story/2026-04-02/crews-battle-foothill-fire'
+      ) {
+        return makeResponse(200, makeReadableHtml('LA Times readable'));
+      }
+      return makeResponse(404, 'missing');
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 2,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 0.5,
+      feedReadRetryDelayMs: 0,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'LA Times readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    expect(report.sampledUrls).toEqual([
+      'https://www.latimes.com/california/story/2026-04-03/fire-riverside-santa-ana-winds',
+      'https://www.latimes.com/california/story/2026-04-02/crews-battle-foothill-fire',
+    ]);
+    expect(report.feedRead).toMatchObject({
+      ok: true,
+      payloadKind: 'html_feed',
+      errorCode: null,
+      extractedLinkCount: 2,
+    });
+  });
+
+  it('follows nested html rss directories for html-hub candidates', async () => {
+    const source = {
+      id: 'militarytimes-news',
+      name: 'Military Times News',
+      rssUrl: 'https://www.militarytimes.com/news/',
+      enabled: true,
+    };
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(200, militaryTimesNewsHtml);
+      }
+      if (url === 'https://www.militarytimes.com/m/military-times-rss-feeds/') {
+        return makeResponse(200, militaryTimesRssDirectoryHtml);
+      }
+      if (url === 'https://www.militarytimes.com/arc/outboundfeeds/rss/category/news/?outputType=xml') {
+        return makeResponse(
+          200,
+          `
+            <rss>
+              <channel>
+                <item><link>https://www.militarytimes.com/news/your-military/2026/04/03/american-fighter-jet-downed-over-iran/</link></item>
+                <item><link>https://www.militarytimes.com/news/pentagon-congress/2026/04/02/pentagon-orders-readiness-review/</link></item>
+              </channel>
+            </rss>
+          `,
+        );
+      }
+      if (
+        url === 'https://www.militarytimes.com/news/your-military/2026/04/03/american-fighter-jet-downed-over-iran'
+        || url === 'https://www.militarytimes.com/news/your-military/2026/04/03/american-fighter-jet-downed-over-iran/'
+        || url === 'https://www.militarytimes.com/news/pentagon-congress/2026/04/02/pentagon-orders-readiness-review'
+        || url === 'https://www.militarytimes.com/news/pentagon-congress/2026/04/02/pentagon-orders-readiness-review/'
+      ) {
+        return makeResponse(200, makeReadableHtml('Military Times readable'));
+      }
+      return makeResponse(404, 'missing');
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 2,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 0.5,
+      feedReadRetryDelayMs: 0,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'Military Times readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+    expect(report.status).toBe('admitted');
+    expect(report.feedRead).toMatchObject({
+      ok: true,
+      payloadKind: 'html_feed',
+      errorCode: null,
+      extractedLinkCount: 2,
+    });
+    expect(fetchFn).toHaveBeenCalledWith('https://www.militarytimes.com/m/military-times-rss-feeds/');
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://www.militarytimes.com/arc/outboundfeeds/rss/category/news/?outputType=xml',
+    );
   });
 
   it('marks threshold misses without failures as readable-sample-threshold-not-met', () => {
