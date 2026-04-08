@@ -199,5 +199,6 @@ export const sourceHtmlFeedsInternal = {
   isLikelyFeedUrl,
   isApNewsHtmlFeedSurface,
   normalizeTitle,
+  isSameOrigin,
   tryResolveUrl,
 };

@@ -161,4 +161,51 @@ describe('sourceHtmlFeeds', () => {
     expect(sourceHtmlFeedsInternal.isLikelyFeedUrl('https://www.latimes.com/california.rss')).toBe(true);
     expect(sourceHtmlFeedsInternal.isLikelyFeedUrl('https://www.latimes.com/topic/california-law-politics')).toBe(false);
   });
+
+  it('returns no feed urls when the response base is invalid or hrefs cannot be resolved', () => {
+    const html = `
+      <html>
+        <body>
+          <a href=":not-a-url">Bad href</a>
+          <a href="/category/news/feed/">Relative feed</a>
+          <a href="https://www.fedsmith.com/category/news/feed/">Absolute feed</a>
+        </body>
+      </html>
+    `;
+
+    expect(sourceHtmlFeedsInternal.tryResolveUrl('http://[', 'https://www.fedsmith.com/category/news/')).toBeNull();
+    expect(discoverHtmlFeedUrls(html, 'not-a-url', 4)).toEqual([]);
+  });
+
+  it('treats invalid response urls as cross-origin in internal same-origin checks', () => {
+    expect(
+      sourceHtmlFeedsInternal.isSameOrigin(new URL('https://www.fedsmith.com/category/news/feed/'), 'not-a-url'),
+    ).toBe(false);
+  });
+
+  it('respects maxUrls for alternate links and plain href discovery', () => {
+    const alternateHtml = `
+      <html>
+        <head>
+          <link rel="alternate" type="application/rss+xml" href="/category/news/feed/" />
+          <link rel="alternate" type="application/atom+xml" href="/category/news/atom.xml" />
+        </head>
+      </html>
+    `;
+    const hrefHtml = `
+      <html>
+        <body>
+          <a href="/first.rss">First</a>
+          <a href="/second.rss">Second</a>
+        </body>
+      </html>
+    `;
+
+    expect(discoverHtmlFeedUrls(alternateHtml, 'https://www.fedsmith.com/category/news/', 1)).toEqual([
+      'https://www.fedsmith.com/category/news/feed/',
+    ]);
+    expect(discoverHtmlFeedUrls(hrefHtml, 'https://www.latimes.com/california', 1)).toEqual([
+      'https://www.latimes.com/first.rss',
+    ]);
+  });
 });
