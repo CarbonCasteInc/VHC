@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseApNewsHtmlFeedItems, parseApNewsHtmlFeedLinks, sourceHtmlFeedsInternal } from '../sourceHtmlFeeds';
+import {
+  discoverHtmlFeedUrls,
+  parseApNewsHtmlFeedItems,
+  parseApNewsHtmlFeedLinks,
+  sourceHtmlFeedsInternal,
+} from '../sourceHtmlFeeds';
 
 const apHubHtml = `
   <!DOCTYPE html>
@@ -113,5 +118,47 @@ describe('sourceHtmlFeeds', () => {
     );
 
     expect(items).toEqual([]);
+  });
+
+  it('discovers feed urls from alternate links and feed-like hrefs on html hubs', () => {
+    const html = `
+      <html>
+        <head>
+          <link rel="alternate" type="application/rss+xml" href="/category/news/feed/" />
+        </head>
+        <body>
+          <a href="/california.rss">California feed</a>
+          <a href="https://www.militarytimes.com/m/rss/">RSS directory</a>
+          <a href="https://example.com/not-a-feed">Ignore me</a>
+        </body>
+      </html>
+    `;
+
+    expect(discoverHtmlFeedUrls(html, 'https://www.fedsmith.com/category/news/', 4)).toEqual([
+      'https://www.fedsmith.com/category/news/feed/',
+      'https://www.fedsmith.com/california.rss',
+    ]);
+
+    expect(discoverHtmlFeedUrls(html, 'https://www.militarytimes.com/news/', 4)).toContain(
+      'https://www.militarytimes.com/m/rss/',
+    );
+  });
+
+  it('filters out off-origin and non-feed hrefs when discovering html feed urls', () => {
+    const html = `
+      <html>
+        <body>
+          <a href="https://www.latimes.com/topic/california-law-politics">Topic page</a>
+          <a href="https://www.latimes.com/california.rss">California RSS</a>
+          <a href="https://example.com/category/news/feed/">Other origin</a>
+        </body>
+      </html>
+    `;
+
+    expect(discoverHtmlFeedUrls(html, 'https://www.latimes.com/california', 4)).toEqual([
+      'https://www.latimes.com/california.rss',
+    ]);
+    expect(sourceHtmlFeedsInternal.isLikelyFeedUrl('https://www.latimes.com/california.rss')).toBe(true);
+    expect(sourceHtmlFeedsInternal.isLikelyFeedUrl('https://www.latimes.com/topic/california-law-politics')).toBe(false);
   });
 });

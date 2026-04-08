@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  discoverHtmlFeedUrls,
   FeedSourceSchema,
   STARTER_FEED_SOURCES,
   isLikelyVideoSourceEntry,
@@ -26,6 +27,7 @@ const DEFAULT_SAMPLE_SIZE = 4;
 const DEFAULT_MIN_SUCCESS_COUNT = 2;
 const DEFAULT_MIN_SUCCESS_RATE = 0.75;
 const REPLACEMENT_SAMPLE_BUFFER = 4;
+const MAX_HTML_FEED_DISCOVERY_DEPTH = 2;
 
 export const SOURCE_ADMISSION_REPORT_SCHEMA_VERSION =
   'news-source-admission-report-v1';
@@ -414,6 +416,94 @@ async function readFeedXml(
   const attemptCount = Math.max(1, options.feedReadAttemptCount ?? 2);
   const retryDelayMs = Math.max(0, options.feedReadRetryDelayMs ?? 250);
 
+  async function resolveHtmlFeedPayload(
+    payload: string,
+    responseUrl: string,
+    attempt: number,
+    remainingDepth: number,
+    seenUrls: Set<string> = new Set([responseUrl]),
+  ): Promise<{
+    readonly xml: string;
+    readonly responseUrl: string;
+    readonly diagnostics: Omit<
+      SourceAdmissionFeedReadDiagnostics,
+      'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
+    >;
+  } | null> {
+    const htmlLinks = parseApNewsHtmlFeedLinks(payload, responseUrl, 1);
+    if (htmlLinks.length > 0) {
+      return {
+        xml: payload,
+        responseUrl,
+        diagnostics: {
+          ok: true,
+          httpStatus: 200,
+          contentType: 'text/html',
+          bodyLength: payload.length,
+          payloadKind: 'html_feed',
+          errorCode: null,
+          errorMessage: null,
+          attemptCount: attempt,
+        },
+      };
+    }
+
+    if (remainingDepth <= 0) {
+      return null;
+    }
+
+    const discoveredFeedUrls = discoverHtmlFeedUrls(payload, responseUrl, 8)
+      .filter((candidateUrl) => !seenUrls.has(candidateUrl));
+
+    for (const candidateUrl of discoveredFeedUrls) {
+      seenUrls.add(candidateUrl);
+      try {
+        const response = await fetchFn(candidateUrl);
+        const contentType = response.headers.get('content-type');
+        if (!response.ok) {
+          continue;
+        }
+
+        const body = await response.text();
+        if (body.trim().length === 0) {
+          continue;
+        }
+
+        if (isLikelyXmlPayload(contentType, body)) {
+          return {
+            xml: body,
+            responseUrl: response.url || candidateUrl,
+            diagnostics: {
+              ok: true,
+              httpStatus: response.status,
+              contentType,
+              bodyLength: body.length,
+              payloadKind: 'html_feed',
+              errorCode: null,
+              errorMessage: null,
+              attemptCount: attempt,
+            },
+          };
+        }
+
+        const nested = await resolveHtmlFeedPayload(
+          body,
+          response.url || candidateUrl,
+          attempt,
+          remainingDepth - 1,
+          seenUrls,
+        );
+        if (nested) {
+          return nested;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    return null;
+  }
+
   let lastDiagnostics: Omit<
     SourceAdmissionFeedReadDiagnostics,
     'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
@@ -459,21 +549,17 @@ async function readFeedXml(
             attemptCount: attempt,
           };
         } else if (!isLikelyXmlPayload(contentType, body)) {
-          const htmlLinks = parseApNewsHtmlFeedLinks(body, responseUrl, 1);
-          if (htmlLinks.length > 0) {
+          const resolvedHtmlFeed = await resolveHtmlFeedPayload(
+            body,
+            responseUrl,
+            attempt,
+            MAX_HTML_FEED_DISCOVERY_DEPTH,
+          );
+          if (resolvedHtmlFeed) {
             return {
-              xml: body,
-              responseUrl,
-              diagnostics: {
-                ok: true,
-                httpStatus: response.status,
-                contentType,
-                bodyLength,
-                payloadKind: 'html_feed',
-                errorCode: null,
-                errorMessage: null,
-                attemptCount: attempt,
-              },
+              xml: resolvedHtmlFeed.xml,
+              responseUrl: resolvedHtmlFeed.responseUrl,
+              diagnostics: resolvedHtmlFeed.diagnostics,
             };
           }
           lastDiagnostics = {
