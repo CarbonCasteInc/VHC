@@ -65,6 +65,7 @@ export interface SourceAdmissionFeedReadDiagnostics {
   readonly httpStatus: number | null;
   readonly contentType: string | null;
   readonly bodyLength: number | null;
+  readonly resolvedFeedUrl: string | null;
   readonly payloadKind: 'xml' | 'html_feed' | 'non_xml' | 'empty' | 'unavailable';
   readonly errorCode: SourceAdmissionFeedReadErrorCode;
   readonly errorMessage: string | null;
@@ -89,6 +90,16 @@ export interface SourceAdmissionSourceReport {
   readonly samples: readonly SourceAdmissionSampleResult[];
   readonly lifecycle: readonly SourceLifecycleState[];
   readonly feedRead: SourceAdmissionFeedReadDiagnostics;
+}
+
+function countFeedEntryFragments(xml: string): {
+  readonly itemFragmentCount: number;
+  readonly entryFragmentCount: number;
+} {
+  return {
+    itemFragmentCount: Array.from(xml.matchAll(RSS_ITEM_REGEX)).length,
+    entryFragmentCount: Array.from(xml.matchAll(ATOM_ENTRY_REGEX)).length,
+  };
 }
 
 export interface SourceAdmissionReport {
@@ -440,6 +451,7 @@ async function readFeedXml(
           httpStatus: 200,
           contentType: 'text/html',
           bodyLength: payload.length,
+          resolvedFeedUrl: responseUrl,
           payloadKind: 'html_feed',
           errorCode: null,
           errorMessage: null,
@@ -454,6 +466,14 @@ async function readFeedXml(
 
     const discoveredFeedUrls = discoverHtmlFeedUrls(payload, responseUrl, 8)
       .filter((candidateUrl) => !seenUrls.has(candidateUrl));
+    let emptyXmlCandidate: {
+      readonly xml: string;
+      readonly responseUrl: string;
+      readonly diagnostics: Omit<
+        SourceAdmissionFeedReadDiagnostics,
+        'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
+      >;
+    } | null = null;
 
     for (const candidateUrl of discoveredFeedUrls) {
       seenUrls.add(candidateUrl);
@@ -470,19 +490,31 @@ async function readFeedXml(
         }
 
         if (isLikelyXmlPayload(contentType, body)) {
+          const resolvedFeedUrl = response.url || candidateUrl;
+          const fragmentCounts = countFeedEntryFragments(body);
+          const diagnostics = {
+            ok: true,
+            httpStatus: response.status,
+            contentType,
+            bodyLength: body.length,
+            resolvedFeedUrl,
+            payloadKind: 'html_feed' as const,
+            errorCode: null,
+            errorMessage: null,
+            attemptCount: attempt,
+          };
+          if (fragmentCounts.itemFragmentCount + fragmentCounts.entryFragmentCount === 0) {
+            emptyXmlCandidate ??= {
+              xml: body,
+              responseUrl: resolvedFeedUrl,
+              diagnostics,
+            };
+            continue;
+          }
           return {
             xml: body,
-            responseUrl: response.url || candidateUrl,
-            diagnostics: {
-              ok: true,
-              httpStatus: response.status,
-              contentType,
-              bodyLength: body.length,
-              payloadKind: 'html_feed',
-              errorCode: null,
-              errorMessage: null,
-              attemptCount: attempt,
-            },
+            responseUrl: resolvedFeedUrl,
+            diagnostics,
           };
         }
 
@@ -501,7 +533,7 @@ async function readFeedXml(
       }
     }
 
-    return null;
+    return emptyXmlCandidate;
   }
 
   let lastDiagnostics: Omit<
@@ -512,6 +544,7 @@ async function readFeedXml(
     httpStatus: null,
     contentType: null,
     bodyLength: null,
+    resolvedFeedUrl: null,
     payloadKind: 'unavailable',
     errorCode: 'feed_fetch_error',
     errorMessage: 'Feed fetch did not complete',
@@ -529,6 +562,7 @@ async function readFeedXml(
           httpStatus: response.status,
           contentType,
           bodyLength: null,
+          resolvedFeedUrl: responseUrl,
           payloadKind: 'unavailable',
           errorCode: 'feed_http_error',
           errorMessage: `Feed request failed with status ${response.status}`,
@@ -543,6 +577,7 @@ async function readFeedXml(
             httpStatus: response.status,
             contentType,
             bodyLength,
+            resolvedFeedUrl: responseUrl,
             payloadKind: 'empty',
             errorCode: 'feed_empty_payload',
             errorMessage: 'Feed response body was empty',
@@ -567,6 +602,7 @@ async function readFeedXml(
             httpStatus: response.status,
             contentType,
             bodyLength,
+            resolvedFeedUrl: responseUrl,
             payloadKind: 'non_xml',
             errorCode: 'feed_non_xml_payload',
             errorMessage: 'Feed response was not parseable XML',
@@ -581,6 +617,7 @@ async function readFeedXml(
               httpStatus: response.status,
               contentType,
               bodyLength,
+              resolvedFeedUrl: responseUrl,
               payloadKind: 'xml',
               errorCode: null,
               errorMessage: null,
@@ -596,6 +633,7 @@ async function readFeedXml(
         httpStatus: null,
         contentType: null,
         bodyLength: null,
+        resolvedFeedUrl: null,
         payloadKind: 'unavailable',
         errorCode: classified.errorCode,
         errorMessage: classified.errorMessage,
