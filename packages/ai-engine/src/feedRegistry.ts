@@ -195,16 +195,7 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'canarymedia',
     enabled: true,
   }),
-  // International breadth (5)
-  FeedSourceSchema.parse({
-    id: 'sky-world',
-    name: 'Sky News World',
-    displayName: 'Sky News',
-    rssUrl: 'https://feeds.skynews.com/feeds/rss/world.xml',
-    perspectiveTag: 'international-wire',
-    iconKey: 'sky',
-    enabled: true,
-  }),
+  // International breadth (4)
   FeedSourceSchema.parse({
     id: 'aljazeera-all',
     name: 'Al Jazeera',
