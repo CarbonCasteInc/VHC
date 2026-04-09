@@ -325,6 +325,36 @@ describe('sourceAdmissionReport', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
+  it('aborts hanging admission fetches with a bounded timeout', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const fetchFn = vi.fn((_input: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(Object.assign(new Error('timed out'), { name: 'AbortError' }));
+        });
+      }),
+    ) as typeof fetch;
+
+    const reportPromise = auditFeedSourceAdmission(source, {
+      fetchFn,
+      fetchTimeoutMs: 5,
+      feedReadAttemptCount: 1,
+      feedReadRetryDelayMs: 0,
+      sampleSize: 1,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 1,
+    });
+
+    await expect(reportPromise).resolves.toMatchObject({
+      status: 'inconclusive',
+      reasons: ['feed_links_unavailable', 'feed_fetch_timeout'],
+      feedRead: {
+        ok: false,
+        errorCode: 'feed_fetch_timeout',
+      },
+    });
+  });
+
   it('admits a source when readable samples clear the threshold', async () => {
     const source = STARTER_FEED_SOURCES[0];
     const fetchFn = vi.fn(async (input: string | URL) => {
@@ -737,9 +767,13 @@ describe('sourceAdmissionReport', () => {
       errorCode: null,
       extractedLinkCount: 2,
     });
-    expect(fetchFn).toHaveBeenCalledWith('https://www.militarytimes.com/m/military-times-rss-feeds/');
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://www.militarytimes.com/m/military-times-rss-feeds/',
+      expect.anything(),
+    );
     expect(fetchFn).toHaveBeenCalledWith(
       'https://www.militarytimes.com/arc/outboundfeeds/rss/category/news/?outputType=xml',
+      expect.anything(),
     );
   });
 
@@ -828,8 +862,14 @@ describe('sourceAdmissionReport', () => {
       resolvedFeedUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
       extractedLinkCount: 2,
     });
-    expect(fetchFn).toHaveBeenCalledWith('https://www.democracydocket.com/feed/');
-    expect(fetchFn).toHaveBeenCalledWith('https://www.democracydocket.com/article-type/democracy-alert/feed/');
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://www.democracydocket.com/feed/',
+      expect.anything(),
+    );
+    expect(fetchFn).toHaveBeenCalledWith(
+      'https://www.democracydocket.com/article-type/democracy-alert/feed/',
+      expect.anything(),
+    );
   });
 
   it('marks threshold misses without failures as readable-sample-threshold-not-met', () => {

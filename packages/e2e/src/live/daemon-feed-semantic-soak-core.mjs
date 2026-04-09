@@ -315,6 +315,37 @@ export function formatErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function resolvePlaywrightTimeoutMs(sampleTimeoutMs, env = process.env) {
+  const explicit = env.VH_DAEMON_FEED_SOAK_PLAYWRIGHT_TIMEOUT_MS?.trim();
+  if (explicit) {
+    return readPositiveInt('VH_DAEMON_FEED_SOAK_PLAYWRIGHT_TIMEOUT_MS', 1, env);
+  }
+  return Math.max(sampleTimeoutMs + 120_000, 300_000);
+}
+
+function buildSyntheticPlaywrightReport(cwd, message) {
+  return JSON.stringify({
+    config: {
+      configFile: path.join(cwd, 'playwright.daemon-first-feed.config.ts'),
+      rootDir: path.join(cwd, 'src/live'),
+      webServer: null,
+    },
+    suites: [],
+    errors: [{
+      message: `Error: ${message}`,
+      stack: `Error: ${message}`,
+    }],
+    stats: {
+      startTime: new Date().toISOString(),
+      duration: 0,
+      expected: 0,
+      skipped: 0,
+      unexpected: 0,
+      flaky: 0,
+    },
+  });
+}
+
 function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
 }
@@ -1112,6 +1143,7 @@ export async function runDaemonFeedSemanticSoak({
   const pauseMs = readNonNegativeInt('VH_DAEMON_FEED_SOAK_PAUSE_MS', 30_000, env);
   const sampleCount = readPositiveInt('VH_DAEMON_FEED_SOAK_SAMPLE_COUNT', 8, env);
   const sampleTimeoutMs = readPositiveInt('VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS', 180_000, env);
+  const playwrightTimeoutMs = resolvePlaywrightTimeoutMs(sampleTimeoutMs, env);
   const artifactDir = artifactRootFromEnv(env, repoRoot);
   const summaryPath = env.VH_DAEMON_FEED_SOAK_SUMMARY_PATH?.trim()
     || path.join(artifactDir, 'semantic-soak-summary.json');
@@ -1194,31 +1226,17 @@ export async function runDaemonFeedSemanticSoak({
         env: spawnEnv,
         encoding: 'utf8',
         maxBuffer: 64 * 1024 * 1024,
+        timeout: playwrightTimeoutMs,
+        killSignal: 'SIGKILL',
       });
+      if (proc.error) {
+        throw proc.error;
+      }
     } catch (error) {
       startupError = formatErrorMessage(error);
       proc = {
         status: 1,
-        stdout: JSON.stringify({
-          config: {
-            configFile: path.join(cwd, 'playwright.daemon-first-feed.config.ts'),
-            rootDir: path.join(cwd, 'src/live'),
-            webServer: null,
-          },
-          suites: [],
-          errors: [{
-            message: `Error: ${startupError}`,
-            stack: `Error: ${startupError}`,
-          }],
-          stats: {
-            startTime: new Date().toISOString(),
-            duration: 0,
-            expected: 0,
-            skipped: 0,
-            unexpected: 0,
-            flaky: 0,
-          },
-        }),
+        stdout: buildSyntheticPlaywrightReport(cwd, startupError),
         stderr: '',
       };
     } finally {
