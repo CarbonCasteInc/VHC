@@ -7,6 +7,8 @@ import { assessHeadlineSoakReleaseEvidence } from './daemon-feed-semantic-soak-r
 
 export const STORYCLUSTER_PRODUCTION_READINESS_SCHEMA_VERSION =
   'storycluster-production-readiness-report-v1';
+export const STORYCLUSTER_CORRECTNESS_GATE_STATUS_SCHEMA_VERSION =
+  'storycluster-correctness-gate-status-v1';
 
 const DEFAULT_REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -73,10 +75,30 @@ function resolvePreferredHeadlineSoakTrendPath({
   legacyPath = LEGACY_HEADLINE_SOAK_TREND_PATH,
   exists = existsSync,
   readFile = readFileSync,
+  stat = statSync,
+  now = Date.now,
+  maxAgeHours = 36,
 } = {}) {
   const normalizedExplicitPath = normalizeNonEmpty(explicitPath);
   if (normalizedExplicitPath) {
     return normalizedExplicitPath;
+  }
+
+  if (primaryPath && exists(primaryPath)) {
+    try {
+      const primaryRecord = readJson(primaryPath, readFile);
+      const primaryFreshness = assessArtifactFreshness(
+        primaryPath,
+        primaryRecord,
+        maxAgeHours,
+        { now, stat },
+      );
+      if (!primaryFreshness.stale) {
+        return primaryPath;
+      }
+    } catch {
+      // fall back to comparing the available candidates below
+    }
   }
 
   const candidates = [primaryPath, legacyPath]
@@ -161,6 +183,10 @@ export function buildProductionReadinessRule(repoRoot = DEFAULT_REPO_ROOT) {
       statusRequired: 'pass',
       command: 'pnpm check:storycluster:correctness',
       repoRoot,
+      latestStatusPath: path.join(
+        repoRoot,
+        '.tmp/storycluster-production-readiness/latest/correctness-gate-status.json',
+      ),
     },
     sourceHealthTrend: {
       required: true,
@@ -195,11 +221,51 @@ export function buildProductionReadinessRule(repoRoot = DEFAULT_REPO_ROOT) {
   };
 }
 
+function resolveCorrectnessGateStatus({
+  explicitStatus,
+  rule,
+  correctnessGateStatusPath,
+  exists = existsSync,
+  readFile = readFileSync,
+} = {}) {
+  const parsedExplicitStatus = parseCorrectnessStatus(explicitStatus);
+  const resolvedStatusPath = correctnessGateStatusPath ?? rule.correctnessGate.latestStatusPath;
+
+  if (parsedExplicitStatus !== 'unknown') {
+    return {
+      status: parsedExplicitStatus,
+      statusPath: resolvedStatusPath,
+      statusReport: null,
+    };
+  }
+
+  if (!resolvedStatusPath || !exists(resolvedStatusPath)) {
+    return {
+      status: 'unknown',
+      statusPath: resolvedStatusPath ?? null,
+      statusReport: null,
+    };
+  }
+
+  const statusReport = readRequiredArtifactJson(
+    resolvedStatusPath,
+    'correctness-gate-status',
+    readFile,
+  );
+
+  return {
+    status: parseCorrectnessStatus(statusReport?.status),
+    statusPath: resolvedStatusPath,
+    statusReport,
+  };
+}
+
 export function loadProductionReadinessArtifacts({
   repoRoot = DEFAULT_REPO_ROOT,
   sourceHealthReportPath,
   sourceHealthTrendPath,
   headlineSoakTrendPath,
+  correctnessGateStatusPath,
   sourceHealthMaxAgeHours = 24,
   headlineSoakMaxAgeHours = 36,
   exists = existsSync,
@@ -218,6 +284,9 @@ export function loadProductionReadinessArtifacts({
     legacyPath: rule.headlineSoakTrend.legacyTrendPath,
     exists,
     readFile,
+    stat,
+    now,
+    maxAgeHours: headlineSoakMaxAgeHours,
   });
   const resolvedContinuityTrendPath = rule.continuityTelemetry.latestTrendPath;
 
@@ -246,6 +315,12 @@ export function loadProductionReadinessArtifacts({
     'headline-soak-trend',
     readFile,
   );
+  const correctnessGate = resolveCorrectnessGateStatus({
+    rule,
+    correctnessGateStatusPath,
+    exists,
+    readFile,
+  });
   let continuityTrend = null;
   let continuityFreshness = null;
   let continuityTelemetryError = null;
@@ -273,6 +348,9 @@ export function loadProductionReadinessArtifacts({
     sourceHealthReportPath: resolvedSourceHealthReportPath,
     sourceHealthTrendPath: resolvedSourceHealthTrendPath,
     headlineSoakTrendPath: resolvedHeadlineSoakTrendPath,
+    correctnessGateStatusPath: correctnessGate.statusPath,
+    correctnessGateStatusReport: correctnessGate.statusReport,
+    correctnessStatus: correctnessGate.status,
     continuityTrendPath: resolvedContinuityTrendPath,
     sourceHealthReport,
     sourceHealthTrend,
@@ -298,6 +376,8 @@ export function loadProductionReadinessArtifacts({
 export function buildProductionReadinessDecision({
   rule,
   correctnessStatus = 'unknown',
+  correctnessGateStatusPath,
+  correctnessGateStatusReport,
   sourceHealthReportPath,
   sourceHealthTrendPath,
   headlineSoakTrendPath,
@@ -385,6 +465,9 @@ export function buildProductionReadinessDecision({
       status: normalizedCorrectnessStatus,
       requiredStatus: rule.correctnessGate.statusRequired,
       command: rule.correctnessGate.command,
+      latestStatusPath: correctnessGateStatusPath ?? rule.correctnessGate.latestStatusPath,
+      observedAt: correctnessGateStatusReport?.generatedAt ?? null,
+      exitCode: correctnessGateStatusReport?.exitCode ?? null,
     },
     sourceHealthTrend: {
       reportPath: sourceHealthReportPath,
@@ -476,7 +559,10 @@ export function runStoryclusterProductionReadiness({
   });
   const decision = buildProductionReadinessDecision({
     ...artifacts,
-    correctnessStatus: env.VH_STORYCLUSTER_PRODUCTION_READINESS_CORRECTNESS_STATUS,
+    correctnessStatus:
+      parseCorrectnessStatus(env.VH_STORYCLUSTER_PRODUCTION_READINESS_CORRECTNESS_STATUS) === 'unknown'
+        ? artifacts.correctnessStatus
+        : env.VH_STORYCLUSTER_PRODUCTION_READINESS_CORRECTNESS_STATUS,
     artifactDir,
     reportPath,
     latestArtifactDir,
@@ -504,6 +590,7 @@ export const storyclusterProductionReadinessInternal = {
   parseCorrectnessStatus,
   readRequiredArtifactJson,
   resolveArtifactTimestamp,
+  resolveCorrectnessGateStatus,
   resolvePreferredHeadlineSoakTrendPath,
 };
 

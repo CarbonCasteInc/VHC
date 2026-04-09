@@ -490,11 +490,13 @@ export function buildHeadlineSoakTrendIndex(
     artifactRoot = null,
     latestArtifactDir = null,
     lookbackExecutionCount = null,
+    lookbackHours = null,
   } = {},
 ) {
   const recentRuns = Array.isArray(runs) ? runs : [];
   const latestExecution = recentRuns.at(-1) ?? null;
-  const promotableExecutionCount = recentRuns.filter((run) => run.readinessStatus === 'promotable').length;
+  const promotableRuns = recentRuns.filter((run) => run.readinessStatus === 'promotable');
+  const promotableExecutionCount = promotableRuns.length;
   const strictSoakPassCount = recentRuns.filter((run) => run.strictSoakPass).length;
   const strictSoakFailCount = recentRuns.length - strictSoakPassCount;
   const sampleFillRates = recentRuns.map((run) => run.averageSampleFillRate);
@@ -502,6 +504,8 @@ export function buildHeadlineSoakTrendIndex(
   const corroboratedBundleRates = recentRuns.map((run) => run.averageCorroboratedBundleRate);
   const uniqueSourceCounts = recentRuns.map((run) => run.averageUniqueSourceCount);
   const repeatedStoryCounts = recentRuns.map((run) => run.repeatedStoryCount);
+  const promotableCorroboratedBundleRates = promotableRuns.map((run) => run.averageCorroboratedBundleRate);
+  const promotableUniqueSourceCounts = promotableRuns.map((run) => run.averageUniqueSourceCount);
 
   const trendIndex = {
     schemaVersion: HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
@@ -509,6 +513,7 @@ export function buildHeadlineSoakTrendIndex(
     artifactRoot,
     latestArtifactDir,
     lookbackExecutionCount,
+    lookbackHours,
     executionCount: recentRuns.length,
     promotableExecutionCount,
     notReadyExecutionCount: recentRuns.length - promotableExecutionCount,
@@ -530,6 +535,12 @@ export function buildHeadlineSoakTrendIndex(
       maxUniqueSourceCount: uniqueSourceCounts.filter(isFiniteNumber).length === 0
         ? null
         : Math.max(...uniqueSourceCounts.filter(isFiniteNumber)),
+      promotableAverageCorroboratedBundleRate: average(promotableCorroboratedBundleRates),
+      promotableAverageUniqueSourceCount: average(promotableUniqueSourceCounts),
+      promotableMaxUniqueSourceCount: promotableUniqueSourceCounts.filter(isFiniteNumber).length === 0
+        ? null
+        : Math.max(...promotableUniqueSourceCounts.filter(isFiniteNumber)),
+      promotableRunCount: promotableRuns.length,
       averageRepeatedStoryCount: average(repeatedStoryCounts),
     },
     runs: recentRuns,
@@ -567,14 +578,20 @@ export function assessHeadlineSoakReleaseEvidence(trendIndex) {
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('latest_headline_soak_execution_not_promotable');
   }
-  if ((trendIndex?.usefulness?.averageCorroboratedBundleRate ?? 0)
-      < criteria.minimumAverageCorroboratedBundleRate) {
+  const corroboratedBundleRate =
+    trendIndex?.usefulness?.promotableAverageCorroboratedBundleRate
+    ?? trendIndex?.usefulness?.averageCorroboratedBundleRate
+    ?? 0;
+  if (corroboratedBundleRate < criteria.minimumAverageCorroboratedBundleRate) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('corroborated_bundle_rate_below_threshold');
   }
-  if ((trendIndex?.usefulness?.averageUniqueSourceCount ?? 0)
-      < criteria.minimumAverageUniqueSourceCount) {
+  const uniqueSourceCount =
+    trendIndex?.usefulness?.promotableAverageUniqueSourceCount
+    ?? trendIndex?.usefulness?.averageUniqueSourceCount
+    ?? 0;
+  if (uniqueSourceCount < criteria.minimumAverageUniqueSourceCount) {
     status = 'fail';
     recommendedAction = 'hold_release_for_headline_soak_recovery';
     reasons.push('headline_source_diversity_below_threshold');
