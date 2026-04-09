@@ -7,6 +7,7 @@ import React from 'react';
 import { FeedShell } from './FeedShell';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import type { FeedItem } from '@vh/data-model';
+import { resetExpandedCardStore } from './expandedCardStore';
 
 const mockNavigate = vi.fn();
 let mockSearch: Record<string, unknown> = {};
@@ -87,6 +88,9 @@ describe('FeedShell', () => {
     cleanup();
     mockNavigate.mockReset();
     mockSearch = {};
+    resetExpandedCardStore();
+    delete (window as Window & { __VH_BOOT_SEARCH__?: string }).__VH_BOOT_SEARCH__;
+    window.history.replaceState(window.history.state, '', '/');
   });
 
   // ---- Rendering structure ----
@@ -176,6 +180,28 @@ describe('FeedShell', () => {
     expect(screen.getByTestId('feed-list')).toBeInTheDocument();
     expect(screen.getByTestId('feed-item-item-1')).toBeInTheDocument();
     expect(screen.getByTestId('feed-item-item-2')).toBeInTheDocument();
+  });
+
+  it('restores detail search state from the boot URL snapshot on direct load', async () => {
+    (window as Window & { __VH_BOOT_SEARCH__?: string }).__VH_BOOT_SEARCH__ =
+      '?detail=news%3Astory-1&feedFilter=NEWS&feedSort=HOTTEST';
+
+    render(
+      <React.StrictMode>
+        <FeedShell
+          feedResult={makeFeedResult({
+            feed: [makeFeedItem({ topic_id: 'topic-direct-load', story_id: 'story-1' })],
+          })}
+        />
+      </React.StrictMode>,
+    );
+
+    expect(window.location.search).toBe(
+      '?detail=news%3Astory-1&feedFilter=NEWS&feedSort=HOTTEST',
+    );
+    expect(
+      await screen.findByTestId('news-card-detail-topic-direct-load'),
+    ).toBeInTheDocument();
   });
 
   it('keeps NEWS_STORY row identity stable across created_at churn when story_id is present', () => {

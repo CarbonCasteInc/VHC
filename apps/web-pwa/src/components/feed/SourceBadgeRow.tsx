@@ -45,21 +45,24 @@ export const SourceBadgeRow: React.FC<SourceBadgeRowProps> = ({
 
   return (
     <div
-      className="mt-1 flex flex-wrap items-center gap-1"
+      className="mt-2 flex items-center"
       data-testid="source-badge-row"
       aria-label={`${uniqueSources.length} source${uniqueSources.length === 1 ? '' : 's'}`}
     >
-      {visible.map((source) => (
-        <SourceBadge
-          key={source.source_id}
-          sourceId={source.source_id}
-          publisher={source.publisher}
-          url={source.url}
-        />
-      ))}
+      <div className="flex items-center -space-x-2.5">
+        {visible.map((source, index) => (
+          <div key={source.source_id} className="relative" style={{ zIndex: visible.length - index }}>
+            <SourceBadge
+              sourceId={source.source_id}
+              publisher={source.publisher}
+              url={source.url}
+            />
+          </div>
+        ))}
+      </div>
       {overflow > 0 && (
         <span
-          className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+          className="ml-3 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
           data-testid="source-badge-overflow"
         >
           +{overflow} more

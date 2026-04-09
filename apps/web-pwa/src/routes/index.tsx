@@ -103,7 +103,10 @@ const HomeComponent = () => (
         className="text-sm font-semibold tracking-[0.08em] uppercase"
         style={{ color: 'var(--section-title)' }}
       >
-        Headlines
+        For You
+      </p>
+      <p className="text-sm text-slate-500">
+        News first, with forum topics rising as conversation heats up.
       </p>
       <FeedList />
     </div>
@@ -189,7 +192,12 @@ const rootRoute = createRootRoute({
   notFoundComponent: () => <div className="text-slate-700">Not Found</div>
 });
 
-const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: HomeComponent });
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  component: HomeComponent,
+  validateSearch: (search: Record<string, unknown>) => search,
+});
 const hermesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/hermes', component: HermesShell });
 const hermesIndexRoute = createRoute({
   getParentRoute: () => hermesRoute,

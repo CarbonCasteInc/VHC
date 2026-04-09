@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from '@tanstack/react-router';
 import type { FeedItem } from '@vh/data-model';
 import { useIntersectionLoader } from '../../hooks/useIntersectionLoader';
 import { NewsCardWithRemoval } from './NewsCardWithRemoval';
@@ -7,29 +6,7 @@ import { TopicCard } from './TopicCard';
 import { SocialNotificationCard } from './SocialNotificationCard';
 import { ArticleFeedCard } from '../docs/ArticleFeedCard';
 import { ReceiptFeedCard } from './ReceiptFeedCard';
-
-function normalizeStoryId(storyId: string | undefined): string | null {
-  const normalized = storyId?.trim();
-  return normalized ? normalized : null;
-}
-
-function toFeedItemKey(item: FeedItem): string {
-  if (item.kind === 'NEWS_STORY') {
-    const storyId = normalizeStoryId(item.story_id);
-    if (storyId) {
-      return ['NEWS_STORY', storyId].join('|');
-    }
-
-    const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
-    return ['NEWS_STORY', item.topic_id, normalizedTitle].join('|');
-  }
-
-  return [item.kind, item.topic_id].join('|');
-}
-
-function toFeedItemTestIdSuffix(item: FeedItem): string {
-  return normalizeStoryId(item.story_id) ?? item.topic_id;
-}
+import { getFeedItemKey, getFeedItemTestIdSuffix } from '../../utils/feedItemIdentity';
 
 export interface FeedContentProps {
   readonly feed: ReadonlyArray<FeedItem>;
@@ -92,7 +69,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
     <div className="space-y-2">
       <ul data-testid="feed-list" className="space-y-3">
         {feed.map((item) => (
-          <FeedItemRow key={toFeedItemKey(item)} item={item} />
+          <FeedItemRow key={getFeedItemKey(item)} item={item} />
         ))}
 
         {hasMore && (
@@ -125,26 +102,9 @@ interface FeedItemRowProps {
 }
 
 const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
-  const testIdSuffix = toFeedItemTestIdSuffix(item);
-
-  if (item.kind === 'NEWS_STORY') {
-    return (
-      <li data-testid={`feed-item-${testIdSuffix}`}>
-        <FeedItemCard item={item} />
-      </li>
-    );
-  }
-
   return (
-    <li data-testid={`feed-item-${testIdSuffix}`}>
-      <Link
-        to="/hermes/$threadId"
-        params={{ threadId: item.topic_id }}
-        className="block no-underline"
-        data-testid={`feed-link-${item.topic_id}`}
-      >
-        <FeedItemCard item={item} />
-      </Link>
+    <li data-testid={`feed-item-${getFeedItemTestIdSuffix(item)}`}>
+      <FeedItemCard item={item} />
     </li>
   );
 };

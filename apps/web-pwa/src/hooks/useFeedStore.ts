@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { FeedItem as DiscoveryFeedItem, FeedKind } from '@vh/data-model';
 import { composeFeed, useDiscoveryStore } from '../store/discovery';
+import { feedItemMatchesDetailId, normalizeStoryId } from '../utils/feedItemIdentity';
 
 export interface Perspective {
   id: string;
@@ -37,7 +38,11 @@ interface FeedState {
   setItems: (items: FeedItem[]) => void;
   setDiscoveryFeed: (
     items: ReadonlyArray<DiscoveryFeedItem>,
-    options?: { readonly resetPagination?: boolean },
+    options?: {
+      readonly resetPagination?: boolean;
+      readonly ensureVisibleDetailId?: string | null;
+      readonly ensureVisibleStoryId?: string | null;
+    },
   ) => void;
 }
 
@@ -119,13 +124,31 @@ function buildPagedState(
   fullFeed: ReadonlyArray<DiscoveryFeedItem>,
   page: number,
   loading: boolean,
+  options?: {
+    readonly ensureVisibleDetailId?: string | null;
+    readonly ensureVisibleStoryId?: string | null;
+  },
 ): Pick<
   FeedState,
   'allDiscoveryFeed' | 'discoveryFeed' | 'items' | 'page' | 'hasMore' | 'loading'
 > {
   const maxPage =
     fullFeed.length === 0 ? 0 : Math.max(1, Math.ceil(fullFeed.length / FEED_PAGE_SIZE));
-  const effectivePage = maxPage === 0 ? 0 : Math.min(Math.max(1, page), maxPage);
+  const focusIndex = fullFeed.findIndex((item) => {
+    if (options?.ensureVisibleDetailId && feedItemMatchesDetailId(item, options.ensureVisibleDetailId)) {
+      return true;
+    }
+
+    if (options?.ensureVisibleStoryId) {
+      return normalizeStoryId(item.story_id) === options.ensureVisibleStoryId;
+    }
+
+    return false;
+  });
+  const requiredPage =
+    focusIndex >= 0 ? Math.floor(focusIndex / FEED_PAGE_SIZE) + 1 : page;
+  const effectivePage =
+    maxPage === 0 ? 0 : Math.min(Math.max(1, Math.max(page, requiredPage)), maxPage);
   const visibleFeed = fullFeed.slice(0, effectivePage * FEED_PAGE_SIZE);
 
   return {
@@ -176,6 +199,10 @@ export const useFeedStore = create<FeedState>((set, get) => ({
         items,
         options?.resetPagination ? 1 : Math.max(1, state.page),
         state.loading,
+        {
+          ensureVisibleDetailId: options?.ensureVisibleDetailId,
+          ensureVisibleStoryId: options?.ensureVisibleStoryId,
+        },
       ),
     }));
   },

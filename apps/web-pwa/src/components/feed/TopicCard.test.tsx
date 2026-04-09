@@ -21,6 +21,7 @@ vi.mock('../../hooks/useInView', () => ({
 
 // Import after mocks
 import { TopicCard } from './TopicCard';
+import { resetExpandedCardStore } from './expandedCardStore';
 
 // ---- Fixtures ----
 
@@ -79,6 +80,10 @@ function makeSynthesisResult(overrides: Partial<UseSynthesisResult> = {}): UseSy
 
 const nullRef = { current: null };
 
+function expandTopicCard(): void {
+  fireEvent.click(screen.getByTestId('topic-card-toggle-topic-42'));
+}
+
 // ---- Tests ----
 
 describe('TopicCard', () => {
@@ -90,6 +95,7 @@ describe('TopicCard', () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+    resetExpandedCardStore();
   });
 
   it('renders topic badge, title, and stats', () => {
@@ -123,8 +129,9 @@ describe('TopicCard', () => {
   it('shows fallback text when synthesis is absent', () => {
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis: null, loading: false }));
     render(<TopicCard item={makeTopicItem()} />);
-    expect(screen.getByText('Active thread with community responses.')).toBeInTheDocument();
-    expect(screen.queryByTestId('synthesis-summary')).not.toBeInTheDocument();
+    expect(screen.getByTestId('topic-card-summary')).toHaveTextContent(
+      'Conversation is building around this topic.',
+    );
   });
 
   it('shows loading indicator during synthesis hydration', () => {
@@ -144,31 +151,21 @@ describe('TopicCard', () => {
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
     render(<TopicCard item={makeTopicItem()} />);
 
-    expect(screen.getByTestId('synthesis-facts')).toHaveTextContent(
+    expect(screen.getByTestId('topic-card-summary')).toHaveTextContent(
       'Transit weekends show 23% ridership increase',
     );
-    expect(screen.queryByText('Active thread with community responses.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Conversation is building around this topic.')).not.toBeInTheDocument();
   });
 
-  it('renders collapsible frames when synthesis has perspectives', () => {
+  it('renders frame rows in the expanded detail view', () => {
     const synthesis = makeSynthesis();
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
     render(<TopicCard item={makeTopicItem()} />);
+    expandTopicCard();
 
-    // Frames collapsed by default
-    const toggle = screen.getByTestId('synthesis-frames-toggle');
-    expect(toggle).toHaveTextContent('2 perspectives');
-    expect(screen.queryByTestId('synthesis-frames-list')).not.toBeInTheDocument();
-
-    // Expand frames
-    fireEvent.click(toggle);
-    expect(screen.getByTestId('synthesis-frames-list')).toBeInTheDocument();
-    expect(screen.getByTestId('synthesis-frame-0')).toHaveTextContent('Economic equity');
-    expect(screen.getByTestId('synthesis-frame-1')).toHaveTextContent('Fiscal impact');
-
-    // Collapse frames
-    fireEvent.click(toggle);
-    expect(screen.queryByTestId('synthesis-frames-list')).not.toBeInTheDocument();
+    expect(screen.getByTestId('topic-card-detail-topic-42')).toBeInTheDocument();
+    expect(screen.getByTestId('bias-table-row-0')).toHaveTextContent('Economic equity');
+    expect(screen.getByTestId('bias-table-row-1')).toHaveTextContent('Fiscal impact');
   });
 
   it('shows divergence indicator when disagreement_score > 0.5', () => {
@@ -177,6 +174,7 @@ describe('TopicCard', () => {
     });
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
     render(<TopicCard item={makeTopicItem()} />);
+    expandTopicCard();
     expect(screen.getByTestId('synthesis-divergence')).toHaveTextContent('High divergence');
   });
 
@@ -184,6 +182,7 @@ describe('TopicCard', () => {
     const synthesis = makeSynthesis();
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
     render(<TopicCard item={makeTopicItem()} />);
+    expandTopicCard();
     expect(screen.queryByTestId('synthesis-divergence')).not.toBeInTheDocument();
   });
 
@@ -191,14 +190,17 @@ describe('TopicCard', () => {
     const synthesis = makeSynthesis({ warnings: ['Possible editorial bias detected.'] });
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
     render(<TopicCard item={makeTopicItem()} />);
+    expandTopicCard();
     expect(screen.getByTestId('synthesis-warnings')).toHaveTextContent('editorial bias');
   });
 
-  it('renders "1 perspective" singular when only one frame', () => {
+  it('renders only one frame row when synthesis contains one perspective', () => {
     const synthesis = makeSynthesis({ frames: [{ frame: 'Only view', reframe: 'Still only view' }] });
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
     render(<TopicCard item={makeTopicItem()} />);
-    expect(screen.getByTestId('synthesis-frames-toggle')).toHaveTextContent('1 perspective');
+    expandTopicCard();
+    expect(screen.getByTestId('bias-table-row-0')).toHaveTextContent('Only view');
+    expect(screen.queryByTestId('bias-table-row-1')).not.toBeInTheDocument();
   });
 
   // ---- Viewport hydration containment ----

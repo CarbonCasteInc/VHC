@@ -6,15 +6,86 @@ import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { useFeedStore } from '../../hooks/useFeedStore';
 import { useDiscoveryStore } from '../../store/discovery';
 import { useNewsStore } from '../../store/news';
+import { feedItemMatchesDetailId } from '../../utils/feedItemIdentity';
 import { FilterChips } from './FilterChips';
 import { SortControls } from './SortControls';
 import { useExpandedCardStore } from './expandedCardStore';
 import { FeedContent } from './FeedContent';
 import { StorylineFocusPanel } from './StorylineFocusPanel';
-import { buildStorylineSearch, normalizeStorySearchValue, normalizeStorylineSearchValue } from './storylineSearch';
+import {
+  areSearchValuesEqual,
+  buildFeedSearch,
+  normalizeFeedDetailSearchValue,
+  normalizeFeedFilterSearchValue,
+  normalizeFeedSortSearchValue,
+  normalizeStorySearchValue,
+  normalizeStorylineSearchValue,
+} from './feedSearch';
 
 const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
+
+function getBootSearchSnapshot(): string | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const snapshot = (window as Window & { __VH_BOOT_SEARCH__?: string }).__VH_BOOT_SEARCH__;
+  if (typeof snapshot !== 'string') {
+    return null;
+  }
+
+  const normalized = snapshot.trim();
+  return normalized ? normalized : null;
+}
+
+function clearBootSearchSnapshot(): void {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  delete (window as Window & { __VH_BOOT_SEARCH__?: string }).__VH_BOOT_SEARCH__;
+}
+
+function readCurrentSearch(locationSearch: unknown): Record<string, unknown> {
+  const search =
+    locationSearch && typeof locationSearch === 'object'
+      ? { ...(locationSearch as Record<string, unknown>) }
+      : {};
+
+  if (typeof window === 'undefined') {
+    return search;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  for (const [key, value] of params.entries()) {
+    search[key] = value;
+  }
+
+  return search;
+}
+
+function buildSearchHref(pathname: string, search: Record<string, unknown>): string {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(search)) {
+    if (value === undefined || value === null) {
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        params.append(key, String(entry));
+      }
+      continue;
+    }
+
+    params.set(key, String(value));
+  }
+
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
 
 export interface FeedShellProps {
   /** Discovery feed hook result (injected for testability). */
@@ -55,20 +126,57 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const refreshLatest = useStore(useNewsStore, (state) => state.refreshLatest);
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
   const expandedStoryId = useStore(useExpandedCardStore, (state) => state.expandedStoryId);
+  const expandCard = useStore(useExpandedCardStore, (state) => state.expand);
+  const collapseCard = useStore(useExpandedCardStore, (state) => state.collapse);
   const deferredFeedRef = useRef<ReadonlyArray<FeedItem> | null>(null);
   const lastModeRef = useRef<{ filter: typeof filter; sortMode: typeof sortMode } | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const pullTriggeredRef = useRef(false);
+  const previousSearchFilterRef = useRef<typeof filter | null>(null);
+  const previousSearchSortModeRef = useRef<typeof sortMode | null>(null);
+  const previousSearchDetailIdRef = useRef<string | null>(null);
   const previousSearchStorylineIdRef = useRef<string | null>(null);
   const storylineOpenedFromFeedRef = useRef(false);
+  const hydratingFilterFromRouteRef = useRef(false);
+  const hydratingSortFromRouteRef = useRef(false);
+  const hydratingDetailFromRouteRef = useRef(false);
   const pendingStorylineOpenRouteSyncRef = useRef(false);
   const focusedStoryIdRef = useRef<string | null>(null);
   const hydratingFromRouteRef = useRef(false);
+  const [searchVersion, setSearchVersion] = useState(0);
   const [isNearTop, setIsNearTop] = useState(true);
   const [hasDeferredUpdates, setHasDeferredUpdates] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const searchStorylineId = normalizeStorylineSearchValue(location.search);
-  const searchStoryId = normalizeStorySearchValue(location.search);
+
+  useLayoutEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (window.location.search) {
+      clearBootSearchSnapshot();
+      return;
+    }
+
+    const bootSearch = getBootSearchSnapshot();
+    if (!bootSearch) {
+      return;
+    }
+
+    const nextHref = `${location.pathname}${bootSearch}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', nextHref);
+    clearBootSearchSnapshot();
+    setSearchVersion((value) => value + 1);
+  }, [location.pathname]);
+
+  const currentSearch = useMemo(() => readCurrentSearch(location.search), [location.search, searchVersion]);
+  const searchFilter = normalizeFeedFilterSearchValue(currentSearch);
+  const searchSortMode = normalizeFeedSortSearchValue(currentSearch);
+  const searchDetailId = normalizeFeedDetailSearchValue(currentSearch);
+  const searchStorylineId = normalizeStorylineSearchValue(currentSearch);
+  const searchStoryId = normalizeStorySearchValue(currentSearch);
+  const routeFilter = searchFilter ?? 'ALL';
+  const routeSortMode = searchSortMode ?? 'LATEST';
   const focusedStoryline = selectedStorylineId ? storylinesById[selectedStorylineId] ?? null : null;
   const focusedStoryCount = useMemo(
     () =>
@@ -84,16 +192,37 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     Boolean(selectedStorylineId) &&
     searchStorylineId === selectedStorylineId &&
     storylineOpenedFromFeedRef.current;
+  const commitSearch = useCallback(
+    (nextSearch: Record<string, unknown>, replace: boolean) => {
+      if (typeof window !== 'undefined' && import.meta.env.MODE !== 'test') {
+        const nextHref = buildSearchHref(location.pathname, nextSearch);
+        window.history[replace ? 'replaceState' : 'pushState'](window.history.state, '', nextHref);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        return;
+      }
+
+      void router.navigate({
+        to: location.pathname,
+        search: nextSearch as never,
+        replace,
+      });
+    },
+    [location.pathname, router],
+  );
 
   const applyDeferredFeed = useCallback(
     (resetPagination: boolean) => {
       const deferred = deferredFeedRef.current;
       if (!deferred) return;
-      setDiscoveryFeed(deferred, { resetPagination });
+      setDiscoveryFeed(deferred, {
+        resetPagination,
+        ensureVisibleDetailId: expandedStoryId ?? searchDetailId,
+        ensureVisibleStoryId: searchStoryId,
+      });
       deferredFeedRef.current = null;
       setHasDeferredUpdates(false);
     },
-    [setDiscoveryFeed],
+    [expandedStoryId, searchDetailId, searchStoryId, setDiscoveryFeed],
   );
 
   const handleClearStoryline = useCallback(() => {
@@ -107,14 +236,16 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     (storyId: string) => {
       if (!selectedStorylineId) return;
       focusedStoryIdRef.current = null;
-      const nextSearch = buildStorylineSearch(location.search, selectedStorylineId, storyId);
-      void router.navigate({
-        to: location.pathname,
-        search: nextSearch as never,
-        replace: false,
+      const nextSearch = buildFeedSearch(currentSearch, {
+        filter,
+        sortMode,
+        detailId: expandedStoryId,
+        selectedStorylineId,
+        selectedStoryId: storyId,
       });
+      commitSearch(nextSearch, false);
     },
-    [location.pathname, location.search, router, selectedStorylineId],
+    [commitSearch, currentSearch, expandedStoryId, filter, selectedStorylineId, sortMode],
   );
 
   const handleBackFromStoryline = useCallback(() => {
@@ -135,6 +266,69 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       setRefreshing(false);
     }
   }, [applyDeferredFeed, refreshLatest, refreshing]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handlePopstate = () => setSearchVersion((value) => value + 1);
+    window.addEventListener('popstate', handlePopstate);
+    return () => window.removeEventListener('popstate', handlePopstate);
+  }, []);
+
+  useEffect(() => {
+    const previousSearchFilter = previousSearchFilterRef.current;
+    previousSearchFilterRef.current = searchFilter;
+
+    if (routeFilter === filter) {
+      hydratingFilterFromRouteRef.current = false;
+      return;
+    }
+
+    if (previousSearchFilter === searchFilter) {
+      return;
+    }
+
+    hydratingFilterFromRouteRef.current = true;
+    setFilter(routeFilter);
+  }, [filter, routeFilter, searchFilter, setFilter]);
+
+  useEffect(() => {
+    const previousSearchSortMode = previousSearchSortModeRef.current;
+    previousSearchSortModeRef.current = searchSortMode;
+
+    if (routeSortMode === sortMode) {
+      hydratingSortFromRouteRef.current = false;
+      return;
+    }
+
+    if (previousSearchSortMode === searchSortMode) {
+      return;
+    }
+
+    hydratingSortFromRouteRef.current = true;
+    setSortMode(routeSortMode);
+  }, [routeSortMode, searchSortMode, setSortMode, sortMode]);
+
+  useEffect(() => {
+    const previousSearchDetailId = previousSearchDetailIdRef.current;
+    previousSearchDetailIdRef.current = searchDetailId;
+
+    if (searchDetailId === expandedStoryId) {
+      hydratingDetailFromRouteRef.current = false;
+      return;
+    }
+
+    if (previousSearchDetailId === searchDetailId) {
+      return;
+    }
+
+    hydratingDetailFromRouteRef.current = true;
+    if (searchDetailId) {
+      expandCard(searchDetailId);
+      return;
+    }
+
+    collapseCard();
+  }, [collapseCard, expandCard, expandedStoryId, searchDetailId]);
 
   useEffect(() => {
     const previousSearchStorylineId = previousSearchStorylineIdRef.current;
@@ -159,6 +353,27 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   }, [clearStorylineFocus, focusStoryline, searchStorylineId, selectedStorylineId]);
 
   useEffect(() => {
+    if (hydratingFilterFromRouteRef.current) {
+      if (routeFilter === filter) {
+        hydratingFilterFromRouteRef.current = false;
+      }
+      return;
+    }
+
+    if (hydratingSortFromRouteRef.current) {
+      if (routeSortMode === sortMode) {
+        hydratingSortFromRouteRef.current = false;
+      }
+      return;
+    }
+
+    if (hydratingDetailFromRouteRef.current) {
+      if (searchDetailId === expandedStoryId) {
+        hydratingDetailFromRouteRef.current = false;
+      }
+      return;
+    }
+
     if (hydratingFromRouteRef.current) {
       if (searchStorylineId === selectedStorylineId) {
         hydratingFromRouteRef.current = false;
@@ -170,23 +385,42 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       if (searchStorylineId === selectedStorylineId) pendingStorylineOpenRouteSyncRef.current = false;
       return;
     }
-    if (searchStorylineId === selectedStorylineId) return;
-
-    const openingStoryline = Boolean(selectedStorylineId);
-    if (openingStoryline) {
-      storylineOpenedFromFeedRef.current = true;
-      pendingStorylineOpenRouteSyncRef.current = true;
-    } else {
-      storylineOpenedFromFeedRef.current = false;
+    let replace = false;
+    if (searchStorylineId !== selectedStorylineId) {
+      const openingStoryline = Boolean(selectedStorylineId);
+      if (openingStoryline) {
+        storylineOpenedFromFeedRef.current = true;
+        pendingStorylineOpenRouteSyncRef.current = true;
+      } else {
+        storylineOpenedFromFeedRef.current = false;
+      }
+      replace = !openingStoryline;
     }
 
-    const nextSearch = buildStorylineSearch(location.search, selectedStorylineId, searchStoryId);
-    void router.navigate({
-      to: location.pathname,
-      search: nextSearch as never,
-      replace: !openingStoryline,
+    const nextSearch = buildFeedSearch(currentSearch, {
+      filter,
+      sortMode,
+      detailId: expandedStoryId,
+      selectedStorylineId,
+      selectedStoryId: searchStoryId,
     });
-  }, [location.pathname, location.search, router, searchStoryId, searchStorylineId, selectedStorylineId]);
+    if (areSearchValuesEqual(currentSearch, nextSearch)) {
+      return;
+    }
+    commitSearch(nextSearch, replace);
+  }, [
+    commitSearch,
+    expandedStoryId,
+    filter,
+    currentSearch,
+    routeFilter,
+    routeSortMode,
+    searchDetailId,
+    searchStoryId,
+    searchStorylineId,
+    selectedStorylineId,
+    sortMode,
+  ]);
 
   useEffect(() => {
     if (typeof document === 'undefined' || !selectedStorylineId || !searchStoryId) {
@@ -222,17 +456,40 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       lastModeRef.current?.sortMode !== sortMode;
     lastModeRef.current = { filter, sortMode };
 
-    const deferUpdates = expandedStoryId !== null || !isNearTop;
+    const detailToEnsure = expandedStoryId ?? searchDetailId;
+    const pagedFeedHasDetail =
+      detailToEnsure !== null &&
+      pagedFeed.some((item) => feedItemMatchesDetailId(item, detailToEnsure));
+    const pagedFeedHasFocusedStory =
+      searchStoryId !== null &&
+      pagedFeed.some((item) => item.kind === 'NEWS_STORY' && item.story_id?.trim() === searchStoryId);
+    const mustPrimeRestoredRouteState =
+      (detailToEnsure !== null && !pagedFeedHasDetail) ||
+      (searchStoryId !== null && !pagedFeedHasFocusedStory);
+    const deferUpdates = (expandedStoryId !== null || !isNearTop) && !mustPrimeRestoredRouteState;
     if (deferUpdates && !modeChanged) {
       deferredFeedRef.current = feed;
       setHasDeferredUpdates(true);
       return;
     }
 
-    setDiscoveryFeed(feed, { resetPagination: modeChanged });
+    setDiscoveryFeed(feed, {
+      resetPagination: modeChanged,
+      ensureVisibleDetailId: expandedStoryId ?? searchDetailId,
+      ensureVisibleStoryId: searchStoryId,
+    });
     deferredFeedRef.current = null;
     setHasDeferredUpdates(false);
-  }, [expandedStoryId, feed, filter, isNearTop, setDiscoveryFeed, sortMode]);
+  }, [
+    expandedStoryId,
+    feed,
+    filter,
+    isNearTop,
+    searchDetailId,
+    searchStoryId,
+    setDiscoveryFeed,
+    sortMode,
+  ]);
 
   const onTouchStart = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {

@@ -2,15 +2,17 @@ import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem, StoryBundle, StorylineGroup } from '@vh/data-model';
 import { isLikelyVideoSourceEntry } from '@vh/ai-engine';
-import { FlippableCard } from '../venn/FlippableCard';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
+import { useForumStore } from '../../store/hermesForum';
 import { SourceBadgeRow } from './SourceBadgeRow';
 import { useAnalysis } from './useAnalysis';
 import { NewsCardBack } from './NewsCardBack';
 import { FeedEngagement } from './FeedEngagement';
 import { useExpandedCardStore } from './expandedCardStore';
 import { useDiscoveryStore } from '../../store/discovery';
+import { getPrimaryStorySource, resolveStoryDiscussionThread } from '../../utils/feedDiscussionThreads';
+import { getFeedItemDetailId, normalizeStoryId } from '../../utils/feedItemIdentity';
 
 export interface NewsCardProps {
   /** Discovery feed item; expected kind: NEWS_STORY. */
@@ -26,9 +28,6 @@ function formatIsoTimestamp(timestampMs: number): string {
 }
 function formatHotness(hotness: number): string {
   return Number.isFinite(hotness) ? hotness.toFixed(2) : '0.00';
-}
-function normalizeStoryId(storyId: string | undefined): string | null {
-  const normalized = storyId?.trim(); return normalized ? normalized : null;
 }
 
 function resolveSingletonVideoSource(
@@ -48,16 +47,6 @@ function resolveSingletonVideoSource(
     title: source.title,
     url: source.url,
   };
-}
-
-function toCardInstanceKey(item: FeedItem): string {
-  const storyId = normalizeStoryId(item.story_id);
-  if (storyId) {
-    return storyId;
-  }
-
-  const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
-  return `${item.topic_id}|${normalizedTitle}`;
 }
 
 function resolveStoryBundle(
@@ -97,10 +86,8 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const startSynthesisHydration = useStore(useSynthesisStore, (s) => s.startHydration);
   const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
-  const cardInstanceKey = useMemo(
-    () => toCardInstanceKey(item),
-    [item.story_id, item.title, item.topic_id],
-  );
+  const forumThreads = useStore(useForumStore, (state) => state.threads);
+  const cardInstanceKey = useMemo(() => getFeedItemDetailId(item), [item]);
   const isExpanded = useStore(
     useExpandedCardStore,
     (s) => s.expandedStoryId === cardInstanceKey,
@@ -118,6 +105,11 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const storylineHeadline = normalizeStorylineHeadline(storyline?.headline);
   const storylineStoryCount = storyline?.story_ids.length ?? 0;
   const storylineId = story?.storyline_id?.trim() ?? null;
+  const discussionThread = useMemo(
+    () => resolveStoryDiscussionThread(forumThreads.values(), item, story),
+    [forumThreads, item, story],
+  );
+  const primaryStorySource = useMemo(() => getPrimaryStorySource(story), [story]);
   const analysisStoryRef = useRef<StoryBundle | null>(story);
   const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
   const analysisStory = useMemo(
@@ -173,10 +165,9 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     analysisPipelineEnabled && analysisStatus === 'success' && analysis
       ? analysis.analyses.filter((e) => e.summary.trim().length > 0)
       : [];
-  const frontRegionId = `news-card-front-${item.topic_id}`;
-  const backRegionId = `news-card-back-region-${item.topic_id}`;
+  const detailRegionId = `news-card-detail-region-${item.topic_id}`;
 
-  const openBack = useCallback(() => {
+  const openDetail = useCallback(() => {
     if (story) {
       analysisStoryRef.current = story;
     }
@@ -207,14 +198,6 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     return () => document.removeEventListener('keydown', handleDocumentKeyDown);
   }, [collapseCard, isExpanded]);
 
-  useEffect(() => {
-    return () => {
-      const state = useExpandedCardStore.getState();
-      if (state.expandedStoryId !== cardInstanceKey) return;
-      state.collapse();
-    };
-  }, [cardInstanceKey]);
-
   const handleCardKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {
       if (event.currentTarget !== event.target) return;
@@ -224,9 +207,9 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
         collapseCard();
         return;
       }
-      openBack();
+      openDetail();
     },
-    [collapseCard, isExpanded, openBack],
+    [collapseCard, isExpanded, openDetail],
   );
 
   const handleCardClick = useCallback(
@@ -234,9 +217,9 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       if (isExpanded) return;
       const target = event.target as HTMLElement;
       if (target.closest('a,button,input,select,textarea,label,[role="button"]')) return;
-      openBack();
+      openDetail();
     },
-    [isExpanded, openBack],
+    [isExpanded, openDetail],
   );
 
   const handleStorylineFocus = useCallback(
@@ -256,119 +239,142 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       data-testid={`news-card-${item.topic_id}`}
       data-story-id={storyId ?? undefined}
       data-storyline-id={storylineId ?? undefined}
-      className="relative overflow-hidden rounded-2xl p-5 shadow-sm transition-transform duration-150 hover:-translate-y-0.5 hover:scale-[1.01] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2"
+      data-feed-detail-id={cardInstanceKey}
+      className="relative overflow-hidden rounded-[1.75rem] p-5 shadow-sm transition-[box-shadow,border-color] duration-150 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 md:p-6"
       style={{
         backgroundColor: 'var(--headline-card-bg)',
-        borderColor: 'var(--headline-card-border)',
+        borderColor: isExpanded ? 'rgba(15, 23, 42, 0.18)' : 'var(--headline-card-border)',
         borderWidth: '1px',
         borderStyle: 'solid',
       }}
       aria-label="News story"
       aria-expanded={isExpanded}
-      aria-controls={isExpanded ? backRegionId : frontRegionId}
+      aria-controls={detailRegionId}
       tabIndex={0}
       onKeyDown={handleCardKeyDown}
       onClick={handleCardClick}
     >
-      <FlippableCard
-        front={
-          <section id={frontRegionId} data-testid={`news-card-front-${item.topic_id}`} data-story-id={storyId ?? undefined}>
-            <header className="mb-2 flex items-center justify-between gap-2">
-              <span
-                className="rounded-full px-2 py-0.5 text-xs font-semibold"
-                style={{
-                  backgroundColor: 'var(--bias-table-bg)',
-                  color: 'var(--headline-card-muted)',
-                }}
-              >
-                News
+      <section data-testid={`news-card-front-${item.topic_id}`} data-story-id={storyId ?? undefined}>
+        <header className="mb-3 flex items-start justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className="rounded-full px-2 py-0.5 text-xs font-semibold"
+              style={{
+                backgroundColor: 'var(--bias-table-bg)',
+                color: 'var(--headline-card-muted)',
+              }}
+            >
+              News
+            </span>
+            {discussionThread?.isHeadline && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                Active thread
               </span>
-              <span
-                className="text-xs font-medium uppercase tracking-[0.12em]"
-                style={{ color: 'var(--headline-card-muted)' }}
-                data-testid={`news-card-hotness-${item.topic_id}`}
-              >
-                Hotness {formatHotness(item.hotness)}
-              </span>
-            </header>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span
+              className="text-xs font-medium uppercase tracking-[0.12em]"
+              style={{ color: 'var(--headline-card-muted)' }}
+              data-testid={`news-card-hotness-${item.topic_id}`}
+            >
+              Hotness {formatHotness(item.hotness)}
+            </span>
             <button
               type="button"
-              className="mt-1 text-left text-lg font-semibold tracking-[0.01em] underline-offset-2 hover:underline"
-              style={{ color: 'var(--headline-card-text)' }}
-              data-testid={`news-card-headline-${item.topic_id}`}
-              data-story-id={storyId ?? undefined}
-              onClick={openBack}
+              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+              onClick={isExpanded ? collapseCard : openDetail}
+              data-testid={`news-card-toggle-${item.topic_id}`}
             >
-              {item.title}
+              {isExpanded ? 'Collapse' : 'Expand'}
             </button>
-            {story && story.sources.length > 0 && (
-              <SourceBadgeRow
-                sources={story.sources.map((source) => ({
-                  source_id: source.source_id,
-                  publisher: source.publisher,
-                  url: source.url,
-                }))}
-              />
-            )}
-            {storylineHeadline && (
-              <button
-                type="button"
-                className="mt-2 text-xs font-medium underline-offset-2 hover:underline"
-                style={{ color: 'var(--headline-card-muted)' }}
-                data-testid={`news-card-storyline-${item.topic_id}`}
-                onClick={handleStorylineFocus}
-              >
-                More on this storyline: {storylineHeadline}
-              </button>
-            )}
-            <p
-              className="mt-2 text-xs uppercase tracking-[0.18em]"
-              style={{ color: 'var(--headline-card-muted)' }}
-            >
-              Created {createdAt} • Updated {latestActivity}
-            </p>
-            <FeedEngagement
-              topicId={item.topic_id}
-              eye={item.eye}
-              lightbulb={item.lightbulb}
-              comments={item.comments}
-            />
-            <p className="mt-3 text-xs" style={{ color: 'var(--headline-card-muted)' }}>
-              Click headline to flip →
-            </p>
-          </section>
-        }
-        back={
-          <section id={backRegionId}>
-            {isExpanded ? (
-              <NewsCardBack
-                topicId={item.topic_id}
-                summary={summary}
-                frameRows={frameRows}
-                analysisProvider={analysisProvider}
-                perSourceSummaries={perSourceSummaries}
-                relatedCoverage={storyline?.related_coverage ?? []}
-                storylineHeadline={storylineHeadline}
-                storylineStoryCount={storylineStoryCount}
-                analysisFeedbackStatus={analysisFeedbackStatus}
-                analysisError={analysisError}
-                retryAnalysis={retryAnalysis}
-                synthesisLoading={synthesisLoading}
-                synthesisError={synthesisError}
-                analysis={analysis}
-                analysisId={computedAnalysisId}
-                synthesisId={synthesisId}
-                epoch={synthesisEpoch}
-                sourceViewer={singletonVideoSource}
-                onFlipBack={collapseCard}
-              />
-            ) : null}
-          </section>
-        }
-        isFlipped={isExpanded}
-        onFlip={isExpanded ? collapseCard : openBack}
-        showDefaultControls={false}
-      />
+          </div>
+        </header>
+        <button
+          type="button"
+          className="mt-1 text-left text-xl font-semibold tracking-tight text-slate-950 underline-offset-2 hover:underline"
+          style={{ color: 'var(--headline-card-text)' }}
+          data-testid={`news-card-headline-${item.topic_id}`}
+          data-story-id={storyId ?? undefined}
+          onClick={openDetail}
+        >
+          {item.title}
+        </button>
+        {story && story.sources.length > 0 && (
+          <SourceBadgeRow
+            sources={story.sources.map((source) => ({
+              source_id: source.source_id,
+              publisher: source.publisher,
+              url: source.url,
+            }))}
+          />
+        )}
+        {storylineHeadline && (
+          <button
+            type="button"
+            className="mt-3 text-xs font-medium underline-offset-2 hover:underline"
+            style={{ color: 'var(--headline-card-muted)' }}
+            data-testid={`news-card-storyline-${item.topic_id}`}
+            onClick={handleStorylineFocus}
+          >
+            Related coverage: {storylineHeadline}
+          </button>
+        )}
+        <p
+          className="mt-3 text-xs uppercase tracking-[0.18em]"
+          style={{ color: 'var(--headline-card-muted)' }}
+        >
+          Created {createdAt} • Updated {latestActivity}
+        </p>
+        <FeedEngagement
+          topicId={item.topic_id}
+          eye={item.eye}
+          lightbulb={item.lightbulb}
+          comments={item.comments}
+        />
+      </section>
+
+      {isExpanded && (
+        <section
+          id={detailRegionId}
+          className="mt-6 border-t border-slate-200/80 pt-6"
+          data-testid={`news-card-detail-${item.topic_id}`}
+        >
+          <NewsCardBack
+            headline={item.title}
+            topicId={item.topic_id}
+            summary={summary}
+            frameRows={frameRows}
+            analysisProvider={analysisProvider}
+            perSourceSummaries={perSourceSummaries}
+            relatedCoverage={storyline?.related_coverage ?? []}
+            storylineHeadline={storylineHeadline}
+            storylineStoryCount={storylineStoryCount}
+            analysisFeedbackStatus={analysisFeedbackStatus}
+            analysisError={analysisError}
+            retryAnalysis={retryAnalysis}
+            synthesisLoading={synthesisLoading}
+            synthesisError={synthesisError}
+            analysis={analysis}
+            analysisId={computedAnalysisId}
+            synthesisId={synthesisId}
+            epoch={synthesisEpoch}
+            sourceViewer={singletonVideoSource}
+            discussionThread={discussionThread}
+            fallbackCommentCount={item.comments}
+            createThread={
+              primaryStorySource
+                ? {
+                    defaultTitle: item.title,
+                    sourceAnalysisId: primaryStorySource.urlHash,
+                    sourceUrl: primaryStorySource.url,
+                  }
+                : null
+            }
+            onCollapse={collapseCard}
+          />
+        </section>
+      )}
     </article>
   );
 };
