@@ -148,6 +148,15 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     iconKey: 'ap',
     enabled: true,
   }),
+  FeedSourceSchema.parse({
+    id: 'ap-politics',
+    name: 'Associated Press Politics',
+    displayName: 'AP',
+    rssUrl: 'https://apnews.com/politics',
+    perspectiveTag: 'wire-service',
+    iconKey: 'ap',
+    enabled: true,
+  }),
   // Statehouse / policy implementation (3)
   FeedSourceSchema.parse({
     id: 'texastribune-main',
@@ -202,6 +211,15 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
     rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
     perspectiveTag: 'election-law',
     iconKey: 'democracydocket',
+    enabled: true,
+  }),
+  FeedSourceSchema.parse({
+    id: 'bigbendsentinel-border-wall',
+    name: 'Big Bend Sentinel Border Wall Updates',
+    displayName: 'Big Bend Sentinel',
+    rssUrl: 'https://bigbendsentinel.com/feed/',
+    perspectiveTag: 'local-news',
+    iconKey: 'bigbendsentinel',
     enabled: true,
   }),
   FeedSourceSchema.parse({
