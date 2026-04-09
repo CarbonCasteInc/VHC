@@ -21,7 +21,7 @@ describe('SOURCE_SCOUT_CANDIDATE_FEED_SOURCES', () => {
     ).toBe(false);
   });
 
-  it('keeps reviewed HTML-hub candidates in the scout backlog until promotion', () => {
+  it('keeps only unpromoted reviewed candidates in the scout backlog', () => {
     expect(
       SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'washingtonpost-politics'),
     ).toMatchObject({
@@ -45,39 +45,6 @@ describe('SOURCE_SCOUT_CANDIDATE_FEED_SOURCES', () => {
     });
 
     expect(
-      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'militarytimes-news'),
-    ).toMatchObject({
-      name: 'Military Times News',
-      displayName: 'Military Times',
-      rssUrl: 'https://www.militarytimes.com/news/',
-      perspectiveTag: 'military-policy',
-      iconKey: 'militarytimes',
-      enabled: true,
-    });
-
-    expect(
-      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'latimes-california'),
-    ).toMatchObject({
-      name: 'Los Angeles Times California',
-      displayName: 'Los Angeles Times',
-      rssUrl: 'https://www.latimes.com/california',
-      perspectiveTag: 'regional-newspaper',
-      iconKey: 'latimes',
-      enabled: true,
-    });
-
-    expect(
-      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'fedsmith-news'),
-    ).toMatchObject({
-      name: 'FedSmith News',
-      displayName: 'FedSmith',
-      rssUrl: 'https://www.fedsmith.com/category/news/',
-      perspectiveTag: 'federal-workforce',
-      iconKey: 'fedsmith',
-      enabled: true,
-    });
-
-    expect(
       SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'bigbendsentinel-border-wall'),
     ).toMatchObject({
       name: 'Big Bend Sentinel Border Wall Updates',
@@ -87,16 +54,20 @@ describe('SOURCE_SCOUT_CANDIDATE_FEED_SOURCES', () => {
       iconKey: 'bigbendsentinel',
       enabled: true,
     });
+  });
 
+  it('drops promoted candidates from the scout backlog once they join the starter surface', () => {
     expect(
-      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.find((source) => source.id === 'democracydocket-alerts'),
-    ).toMatchObject({
-      name: 'Democracy Docket Democracy Alerts',
-      displayName: 'Democracy Docket',
-      rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/',
-      perspectiveTag: 'election-law',
-      iconKey: 'democracydocket',
-      enabled: true,
-    });
+      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.some((source) => source.id === 'latimes-california'),
+    ).toBe(false);
+    expect(
+      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.some((source) => source.id === 'militarytimes-news'),
+    ).toBe(false);
+    expect(
+      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.some((source) => source.id === 'fedsmith-news'),
+    ).toBe(false);
+    expect(
+      SOURCE_SCOUT_CANDIDATE_FEED_SOURCES.some((source) => source.id === 'democracydocket-alerts'),
+    ).toBe(false);
   });
 });

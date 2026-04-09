@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(23);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(27);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -71,6 +71,42 @@ describe('feedRegistry', () => {
         rssUrl: 'https://feeds.feedburner.com/scotusblog/pFXs',
         perspectiveTag: 'courts-legal',
         iconKey: 'scotusblog',
+        enabled: true,
+      });
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'latimes-california'),
+      ).toMatchObject({
+        name: 'Los Angeles Times California',
+        rssUrl: 'https://www.latimes.com/california.rss',
+        perspectiveTag: 'regional-newspaper',
+        iconKey: 'latimes',
+        enabled: true,
+      });
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'militarytimes-news'),
+      ).toMatchObject({
+        name: 'Military Times News',
+        rssUrl: 'https://www.militarytimes.com/arc/outboundfeeds/rss/?outputType=xml',
+        perspectiveTag: 'military-policy',
+        iconKey: 'militarytimes',
+        enabled: true,
+      });
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'fedsmith-news'),
+      ).toMatchObject({
+        name: 'FedSmith News',
+        rssUrl: 'https://www.fedsmith.com/feed/',
+        perspectiveTag: 'federal-workforce',
+        iconKey: 'fedsmith',
+        enabled: true,
+      });
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'democracydocket-alerts'),
+      ).toMatchObject({
+        name: 'Democracy Docket Democracy Alerts',
+        rssUrl: 'https://www.democracydocket.com/article-type/democracy-alert/feed/',
+        perspectiveTag: 'election-law',
+        iconKey: 'democracydocket',
         enabled: true,
       });
     });
@@ -297,6 +333,26 @@ describe('feedRegistry', () => {
         displayName: 'AP',
         perspectiveTag: 'international-wire',
         iconKey: 'ap',
+      });
+      expect(getSourceMetadata('latimes-california')).toEqual({
+        displayName: 'Los Angeles Times',
+        perspectiveTag: 'regional-newspaper',
+        iconKey: 'latimes',
+      });
+      expect(getSourceMetadata('militarytimes-news')).toEqual({
+        displayName: 'Military Times',
+        perspectiveTag: 'military-policy',
+        iconKey: 'militarytimes',
+      });
+      expect(getSourceMetadata('fedsmith-news')).toEqual({
+        displayName: 'FedSmith',
+        perspectiveTag: 'federal-workforce',
+        iconKey: 'fedsmith',
+      });
+      expect(getSourceMetadata('democracydocket-alerts')).toEqual({
+        displayName: 'Democracy Docket',
+        perspectiveTag: 'election-law',
+        iconKey: 'democracydocket',
       });
     });
 
