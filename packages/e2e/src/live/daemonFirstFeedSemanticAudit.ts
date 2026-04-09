@@ -382,12 +382,19 @@ export function buildDaemonFeedSemanticAuditReport(
   auditedPairCount: number,
   relatedTopicOnlyPairCount: number,
   supply: SemanticAuditSupplyDiagnostics,
+  options: Pick<DaemonFeedSemanticAuditOptions, 'openAIBaseUrl' | 'openAIModel' | 'openAIProviderId' | 'openAIUsesFixtureStub'>,
   articleFetchFailures: readonly SemanticAuditArticleFetchFailure[] = [],
 ): DaemonFeedSemanticAuditReport {
   const incompleteBundleCount = reports.filter((bundle) => bundle.audit_status === 'incomplete_article_text').length;
   return {
     schema_version: 'daemon-first-feed-semantic-audit-v3',
     base_url: LIVE_BASE_URL,
+    openai_provenance: {
+      provider_id: options.openAIProviderId ?? 'openai',
+      model_id: options.openAIModel?.trim() || 'gpt-4o-mini',
+      base_url: options.openAIBaseUrl?.trim() || null,
+      uses_fixture_stub: options.openAIUsesFixtureStub === true,
+    },
     requested_sample_count: sampleCount,
     sampled_story_count: reports.length,
     visible_story_ids: supply.visible_story_ids,
@@ -551,6 +558,7 @@ export async function runDaemonFirstFeedSemanticAudit(
     results.length,
     relatedTopicOnlyPairCount,
     summarizeSemanticAuditSupply(sampleCount, hydratedBundles, storeSnapshot),
+    options,
     articleFetchFailures,
   );
 

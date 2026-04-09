@@ -222,6 +222,7 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
     aiEngine,
     nodeMeshClient,
     storyclusterServer,
+    storyclusterOpenAI,
     vectorBackend,
     clusterStore,
   ] = await Promise.all([
@@ -229,6 +230,7 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
     load('packages/ai-engine/dist/index.js'),
     load('packages/gun-client/dist/index.js'),
     load('services/storycluster-engine/dist/server.js'),
+    load('services/storycluster-engine/dist/openaiProvider.js'),
     load('services/storycluster-engine/dist/vectorBackend.js'),
     load('services/storycluster-engine/dist/clusterStore.js'),
   ]);
@@ -239,6 +241,8 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
     startNewsRuntime: aiEngine.startNewsRuntime,
     createNodeMeshClient: nodeMeshClient.createNodeMeshClient,
     startStoryClusterServer: storyclusterServer.startStoryClusterServer,
+    resolveOpenAIStoryClusterProviderProvenanceFromEnv:
+      storyclusterOpenAI.resolveOpenAIStoryClusterProviderProvenanceFromEnv,
     MemoryVectorBackend: vectorBackend.MemoryVectorBackend,
     FileClusterStore: clusterStore.FileClusterStore,
   };
@@ -400,6 +404,13 @@ export async function runDaemonFeedPublisherCanary({
   let client = null;
   let daemon = null;
   const publishedStore = buildPublishedStoreCapture();
+  let storyclusterOpenAIProvenance = {
+    providerId: 'openai-storycluster',
+    textModelId: process.env.VH_STORYCLUSTER_TEXT_MODEL?.trim() || 'gpt-4o-mini',
+    embeddingModelId: process.env.VH_STORYCLUSTER_EMBEDDING_MODEL?.trim() || 'text-embedding-3-small',
+    baseUrl: process.env.VH_STORYCLUSTER_OPENAI_BASE_URL?.trim() || null,
+    timeoutMs: storyClusterOpenAITimeoutMs,
+  };
 
   try {
     process.env.VH_DAEMON_FEED_RUN_ID = runId;
@@ -411,6 +422,9 @@ export async function runDaemonFeedPublisherCanary({
     process.env.VH_STORYCLUSTER_OPENAI_TIMEOUT_MS = String(storyClusterOpenAITimeoutMs);
 
     const modules = await loadModules(repoRoot);
+    storyclusterOpenAIProvenance = modules.resolveOpenAIStoryClusterProviderProvenanceFromEnv({
+      timeoutMs: storyClusterOpenAITimeoutMs,
+    });
     const feedSourceResolution = modules.resolveStarterFeedSources({
       cwd: repoRoot,
       env,
@@ -552,6 +566,9 @@ export async function runDaemonFeedPublisherCanary({
           readyUrl,
         }
         : null,
+      openAIProvenance: {
+        storycluster: storyclusterOpenAIProvenance,
+      },
       pass: false,
       outcome: classifyPublisherCanaryOutcome({
         observed,
@@ -577,6 +594,9 @@ export async function runDaemonFeedPublisherCanary({
       }),
       errorMessage: formatErrorMessage(error),
       observed,
+      openAIProvenance: {
+        storycluster: storyclusterOpenAIProvenance,
+      },
       artifactPaths: {
         artifactDir,
         summaryPath,

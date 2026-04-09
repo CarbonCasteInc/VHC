@@ -92,6 +92,8 @@ export interface DaemonFeedSemanticAuditOptions {
   readonly openAIApiKey: string;
   readonly openAIBaseUrl?: string;
   readonly openAIModel?: string;
+  readonly openAIProviderId?: string;
+  readonly openAIUsesFixtureStub?: boolean;
 }
 
 export interface AuditedBundlePairResult extends LiveSemanticAuditPairResult {
@@ -135,6 +137,12 @@ export interface SemanticAuditSupplyDiagnostics {
 export interface DaemonFeedSemanticAuditReport {
   readonly schema_version: 'daemon-first-feed-semantic-audit-v3';
   readonly base_url: string;
+  readonly openai_provenance: {
+    readonly provider_id: string;
+    readonly model_id: string;
+    readonly base_url: string | null;
+    readonly uses_fixture_stub: boolean;
+  };
   readonly requested_sample_count: number;
   readonly sampled_story_count: number;
   readonly visible_story_ids: ReadonlyArray<string>;
