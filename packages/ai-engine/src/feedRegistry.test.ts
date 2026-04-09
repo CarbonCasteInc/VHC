@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(24);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(23);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -288,11 +288,6 @@ describe('feedRegistry', () => {
         perspectiveTag: 'statehouse',
         iconKey: 'texastribune',
       });
-      expect(getSourceMetadata('sky-world')).toEqual({
-        displayName: 'Sky News',
-        perspectiveTag: 'international-wire',
-        iconKey: 'sky',
-      });
       expect(getSourceMetadata('channelnewsasia-latest')).toEqual({
         displayName: 'Channel NewsAsia',
         perspectiveTag: 'international-wire',
@@ -303,6 +298,10 @@ describe('feedRegistry', () => {
         perspectiveTag: 'international-wire',
         iconKey: 'ap',
       });
+    });
+
+    it('returns undefined for sources pruned from the starter surface', () => {
+      expect(getSourceMetadata('sky-world')).toBeUndefined();
     });
 
     it('falls back to name when displayName is absent', () => {

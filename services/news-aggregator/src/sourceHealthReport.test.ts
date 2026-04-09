@@ -877,6 +877,55 @@ describe('sourceHealthReport', () => {
     rmSync(artifactRoot, { recursive: true, force: true });
   });
 
+  it('resets history and release evidence when the source slate changes', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-slate-reset-'));
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-1', {
+      generatedAt: '2026-03-20T00:00:00.000Z',
+      readinessStatus: 'blocked',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'keep',
+          decision: 'keep',
+        },
+        {
+          sourceId: 'cbs-politics',
+          baseDecision: 'remove',
+          decision: 'remove',
+        },
+      ],
+    });
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-2'),
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
+        now: () => Date.parse('2026-03-20T12:00:00.000Z'),
+      },
+    );
+
+    expect(report.historySummary.priorReportCount).toBe(0);
+    expect(report.sources[0]?.history.priorReportCount).toBe(0);
+    expect(report.releaseEvidence).toEqual({
+      status: 'pass',
+      recommendedAction: 'release_ready',
+      reasons: [],
+      recentWindowRunCount: 1,
+      recentReadyRunCount: 1,
+      recentReviewRunCount: 0,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: [],
+      latestNewRemoveSourceIds: [],
+    });
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
   it('excludes current global feed-stage collapses from release-evidence trend decisions', async () => {
     const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-current-global-failure-'));
     const goodArtifactDir = path.join(artifactRoot, '1700000000000');

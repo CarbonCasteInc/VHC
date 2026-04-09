@@ -507,6 +507,20 @@ function inferHistoricalGlobalFeedStageFailure(
   return record;
 }
 
+function buildSourceSlateKey(sourceIds: readonly string[]): string {
+  return [...new Set(sourceIds)].sort().join('|');
+}
+
+function filterComparableHistoricalReports(
+  currentSourceIds: readonly string[],
+  historicalReports: readonly HistoricalSourceHealthRecord[],
+): HistoricalSourceHealthRecord[] {
+  const currentSourceSlateKey = buildSourceSlateKey(currentSourceIds);
+  return historicalReports.filter((report) => (
+    buildSourceSlateKey(report.sources.map((source) => source.sourceId)) === currentSourceSlateKey
+  ));
+}
+
 function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
   return source.lifecycle.some(
     (state) =>
@@ -954,11 +968,15 @@ export function buildSourceHealthReport(
     artifactDir,
     thresholds.historyLookbackRunCount,
   );
+  const comparableHistoricalReports = filterComparableHistoricalReports(
+    admissionReport.sources.map((source) => source.sourceId),
+    historicalReports,
+  );
   const sources = admissionReport.sources.map((source) => {
     const baseDecision = buildDecision(source, thresholds);
     const history = buildSourceHistory(
       baseDecision.sourceId,
-      historicalReports,
+      comparableHistoricalReports,
       thresholds,
       baseDecision.baseDecision,
     );
@@ -1005,7 +1023,7 @@ export function buildSourceHealthReport(
   };
   const historySummary: SourceHealthHistorySummary = {
     lookbackRunCount: thresholds.historyLookbackRunCount,
-    priorReportCount: historicalReports.length,
+    priorReportCount: comparableHistoricalReports.length,
     escalatedSourceIds: sources
       .filter((source) => source.history.escalatedToRemove)
       .map((source) => source.sourceId),
@@ -1039,7 +1057,7 @@ export function buildSourceHealthReport(
       observability,
       thresholds,
     },
-    historicalReports,
+    comparableHistoricalReports,
   ).releaseEvidence;
 
   return {
@@ -1315,8 +1333,10 @@ export const sourceHealthReportInternal = {
   buildDecision,
   buildSourceHealthTrendIndex,
   buildSourceHistory,
+  buildSourceSlateKey,
   buildSourceHealthRuntimePolicy,
   countConsecutiveDecisions,
+  filterComparableHistoricalReports,
   hasLifecycleInstability,
   isDirectExecution,
   isFeedStageFailureSource,
