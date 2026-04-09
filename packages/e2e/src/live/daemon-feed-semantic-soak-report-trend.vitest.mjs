@@ -444,12 +444,14 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       artifactRoot: '/tmp/artifacts',
       latestArtifactDir: '/tmp/artifacts/200',
       lookbackExecutionCount: 20,
+      lookbackHours: 168,
     })).toEqual({
       schemaVersion: HEADLINE_SOAK_TREND_INDEX_SCHEMA_VERSION,
       generatedAt: expect.any(String),
       artifactRoot: '/tmp/artifacts',
       latestArtifactDir: '/tmp/artifacts/200',
       lookbackExecutionCount: 20,
+      lookbackHours: 168,
       executionCount: 2,
       promotableExecutionCount: 1,
       notReadyExecutionCount: 1,
@@ -469,6 +471,10 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
         averageCorroboratedBundleRate: 0.7333333333333334,
         averageUniqueSourceCount: 5,
         maxUniqueSourceCount: 6,
+        promotableAverageCorroboratedBundleRate: 0.8,
+        promotableAverageUniqueSourceCount: 6,
+        promotableMaxUniqueSourceCount: 6,
+        promotableRunCount: 1,
         averageRepeatedStoryCount: 2,
       },
       releaseEvidence: {
@@ -610,6 +616,32 @@ describe('daemon-feed-semantic-soak-report trend output', () => {
       latestExecutionReadinessStatus: 'not_ready',
       recentExecutionCount: 2,
       recentPromotableExecutionCount: 1,
+      recentNotReadyExecutionCount: 1,
+      recentStrictSoakFailCount: 1,
+    });
+
+    expect(assessHeadlineSoakReleaseEvidence({
+      executionCount: 4,
+      promotableExecutionCount: 3,
+      notReadyExecutionCount: 1,
+      strictSoakFailCount: 1,
+      latestExecution: {
+        readinessStatus: 'promotable',
+      },
+      usefulness: {
+        averageCorroboratedBundleRate: 0.75,
+        averageUniqueSourceCount: 1.5,
+        promotableAverageCorroboratedBundleRate: 1,
+        promotableAverageUniqueSourceCount: 7 / 3,
+      },
+    })).toEqual({
+      status: 'warn',
+      recommendedAction: 'review_recent_headline_soak_deterioration',
+      reasons: ['recent_strict_soak_failures_present'],
+      criteria: PUBLIC_HEADLINE_SOAK_RELEASE_CRITERIA,
+      latestExecutionReadinessStatus: 'promotable',
+      recentExecutionCount: 4,
+      recentPromotableExecutionCount: 3,
       recentNotReadyExecutionCount: 1,
       recentStrictSoakFailCount: 1,
     });

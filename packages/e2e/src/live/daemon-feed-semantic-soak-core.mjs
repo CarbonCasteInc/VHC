@@ -922,6 +922,8 @@ function readHistoricalHeadlineSoakExecutions(
   artifactRoot,
   lookbackExecutionCount,
   {
+    lookbackHours = null,
+    currentTimestampMs = null,
     exists = existsSync,
     readdir = readdirSync,
     stat = statSync,
@@ -942,7 +944,14 @@ function readHistoricalHeadlineSoakExecutions(
     return [];
   }
 
+  const maxAgeMs = Number.isFinite(lookbackHours) ? lookbackHours * 60 * 60 * 1000 : null;
   return artifactDirs.flatMap(({ artifactDir }) => {
+    if (maxAgeMs !== null && Number.isFinite(currentTimestampMs)) {
+      const ageMs = currentTimestampMs - stat(artifactDir).mtimeMs;
+      if (ageMs < 0 || ageMs > maxAgeMs) {
+        return [];
+      }
+    }
     const summaryPath = path.join(artifactDir, 'semantic-soak-summary.json');
     const trendPath = path.join(artifactDir, 'semantic-soak-trend.json');
     const indexPath = path.join(artifactDir, 'release-artifact-index.json');
@@ -1438,6 +1447,7 @@ export async function runDaemonFeedSemanticSoak({
   writeFile(summaryPath, JSON.stringify(summary, null, 2), 'utf8');
   writeFile(trendPath, JSON.stringify(trend, null, 2), 'utf8');
   const lookbackExecutionCount = readPositiveInt('VH_DAEMON_FEED_SOAK_TREND_LOOKBACK_EXECUTIONS', 20, env);
+  const headlineTrendLookbackHours = readPositiveInt('VH_DAEMON_FEED_SOAK_TREND_LOOKBACK_HOURS', 168, env);
   const continuityLookbackHours = readPositiveInt('VH_DAEMON_FEED_CONTINUITY_LOOKBACK_HOURS', 24, env);
   const retainedMeshLookbackHours = readPositiveInt('VH_DAEMON_FEED_RETAINED_MESH_LOOKBACK_HOURS', 24, env);
   const currentHeadlineSoakExecution = buildHeadlineSoakExecutionSummary({
@@ -1456,6 +1466,8 @@ export async function runDaemonFeedSemanticSoak({
   const headlineSoakTrendIndex = buildHeadlineSoakTrendIndex(
     [
       ...readHistoricalHeadlineSoakExecutions(artifactRoot, lookbackExecutionCount, {
+        lookbackHours: headlineTrendLookbackHours,
+        currentTimestampMs: Date.parse(summary.generatedAt),
         readFile,
         readdir,
         stat,
@@ -1466,6 +1478,7 @@ export async function runDaemonFeedSemanticSoak({
       artifactRoot,
       latestArtifactDir: artifactDir,
       lookbackExecutionCount,
+      lookbackHours: headlineTrendLookbackHours,
     },
   );
   writeFile(headlineSoakTrendIndexPath, JSON.stringify(headlineSoakTrendIndex, null, 2), 'utf8');

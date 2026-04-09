@@ -18,6 +18,7 @@ describe('storycluster-production-readiness', () => {
     const rule = buildProductionReadinessRule();
 
     expect(rule.correctnessGate.repoRoot).toBe('/Users/bldt/Desktop/VHC/VHC');
+    expect(rule.correctnessGate.latestStatusPath).toBe('/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json');
     expect(rule.sourceHealthTrend.latestReportPath).toBe('/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json');
     expect(rule.headlineSoakTrend.latestTrendPath).toBe('/Users/bldt/Desktop/VHC/VHC/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json');
     expect(rule.headlineSoakTrend.legacyTrendPath).toBe('/Users/bldt/Desktop/VHC/VHC/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json');
@@ -53,6 +54,7 @@ describe('storycluster-production-readiness', () => {
 
   it('loads latest source-health and headline-soak artifacts with freshness metadata', () => {
     const files = new Map([
+      ['/repo/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json', JSON.stringify({ generatedAt: isoHoursAgo(1), status: 'pass', exitCode: 0 })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, observability: { enabledSourceCount: 12, contributingSourceCount: 12, corroboratingSourceCount: 12 } })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' } })],
       ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(4), releaseEvidence: { status: 'warn' }, executionCount: 4, promotableExecutionCount: 3 })],
@@ -67,6 +69,7 @@ describe('storycluster-production-readiness', () => {
       now: () => Date.now(),
     });
 
+    expect(artifacts.correctnessStatus).toBe('pass');
     expect(artifacts.sourceHealthFreshness.stale).toBe(false);
     expect(artifacts.headlineSoakFreshness.stale).toBe(false);
     expect(artifacts.headlineSoakTrend.releaseEvidence.status).toBe('warn');
@@ -74,7 +77,7 @@ describe('storycluster-production-readiness', () => {
     expect(artifacts.continuityFreshness.stale).toBe(false);
   });
 
-  it('falls back to the richer legacy headline-soak trend during path migration', () => {
+  it('prefers a fresh canonical headline-soak trend over a richer stale legacy fallback', () => {
     const files = new Map([
       ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(1), executionCount: 1, releaseEvidence: { status: 'fail' } })],
       ['/repo/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(2), executionCount: 5, releaseEvidence: { status: 'pass' } })],
@@ -85,6 +88,26 @@ describe('storycluster-production-readiness', () => {
       legacyPath: '/repo/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json',
       exists: (filePath) => files.has(filePath),
       readFile: (filePath) => files.get(filePath),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+      maxAgeHours: 36,
+    })).toBe('/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json');
+  });
+
+  it('falls back to the legacy headline-soak trend when the canonical one is stale', () => {
+    const files = new Map([
+      ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(72), executionCount: 4, releaseEvidence: { status: 'pass' } })],
+      ['/repo/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(2), executionCount: 5, releaseEvidence: { status: 'pass' } })],
+    ]);
+
+    expect(storyclusterProductionReadinessInternal.resolvePreferredHeadlineSoakTrendPath({
+      primaryPath: '/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json',
+      legacyPath: '/repo/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json',
+      exists: (filePath) => files.has(filePath),
+      readFile: (filePath) => files.get(filePath),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+      maxAgeHours: 36,
     })).toBe('/repo/packages/e2e/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json');
   });
 
@@ -104,6 +127,7 @@ describe('storycluster-production-readiness', () => {
 
   it('keeps continuity telemetry non-blocking when the optional artifact is invalid', () => {
     const files = new Map([
+      ['/repo/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json', JSON.stringify({ generatedAt: isoHoursAgo(1), status: 'pass', exitCode: 0 })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, observability: { enabledSourceCount: 12, contributingSourceCount: 12, corroboratingSourceCount: 12 } })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' } })],
       ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, executionCount: 4, promotableExecutionCount: 4, latestExecution: { readinessStatus: 'promotable' } })],
@@ -249,6 +273,7 @@ describe('storycluster-production-readiness', () => {
   it('writes the latest production-readiness artifact and enforces when requested', () => {
     const writes = new Map();
     const files = new Map([
+      ['/repo/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json', JSON.stringify({ generatedAt: isoHoursAgo(1), status: 'pass', exitCode: 0 })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, observability: { enabledSourceCount: 12, contributingSourceCount: 12, corroboratingSourceCount: 12 } })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' } })],
       ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, executionCount: 4, promotableExecutionCount: 4, latestExecution: { readinessStatus: 'promotable' } })],
@@ -257,7 +282,6 @@ describe('storycluster-production-readiness', () => {
     const decision = runStoryclusterProductionReadiness({
       env: {
         VH_STORYCLUSTER_PRODUCTION_READINESS_REPO_ROOT: '/repo',
-        VH_STORYCLUSTER_PRODUCTION_READINESS_CORRECTNESS_STATUS: 'pass',
         VH_STORYCLUSTER_PRODUCTION_READINESS_ENFORCE: 'true',
       },
       log: () => {},
@@ -276,6 +300,7 @@ describe('storycluster-production-readiness', () => {
 
   it('throws in enforce mode when the combined release rule is not ready', () => {
     const files = new Map([
+      ['/repo/.tmp/storycluster-production-readiness/latest/correctness-gate-status.json', JSON.stringify({ generatedAt: isoHoursAgo(1), status: 'pass', exitCode: 0 })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-report.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' }, observability: { enabledSourceCount: 12, contributingSourceCount: 12, corroboratingSourceCount: 12 } })],
       ['/repo/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'pass' } })],
       ['/repo/.tmp/daemon-feed-semantic-soak/headline-soak-trend-index.json', JSON.stringify({ generatedAt: isoHoursAgo(1), releaseEvidence: { status: 'fail', reasons: ['insufficient_headline_soak_execution_count'] }, executionCount: 1, promotableExecutionCount: 0, latestExecution: { readinessStatus: 'not_ready' } })],
@@ -284,7 +309,6 @@ describe('storycluster-production-readiness', () => {
     expect(() => runStoryclusterProductionReadiness({
       env: {
         VH_STORYCLUSTER_PRODUCTION_READINESS_REPO_ROOT: '/repo',
-        VH_STORYCLUSTER_PRODUCTION_READINESS_CORRECTNESS_STATUS: 'pass',
         VH_STORYCLUSTER_PRODUCTION_READINESS_ENFORCE: 'true',
       },
       log: () => {},
