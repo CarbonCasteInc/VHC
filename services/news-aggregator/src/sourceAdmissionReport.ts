@@ -118,6 +118,7 @@ export interface SourceAdmissionAuditOptions {
   readonly sampleSize?: number;
   readonly minimumSuccessCount?: number;
   readonly minimumSuccessRate?: number;
+  readonly fetchTimeoutMs?: number;
   readonly fetchFn?: typeof fetch;
   readonly now?: () => number;
   readonly feedReadAttemptCount?: number;
@@ -363,6 +364,35 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function wrapFetchWithTimeout(
+  fetchFn: typeof fetch,
+  timeoutMs: number,
+): typeof fetch {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return fetchFn;
+  }
+
+  return async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1],
+  ): Promise<Response> => {
+    const timeoutController = new AbortController();
+    const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
+    const signal = init?.signal
+      ? AbortSignal.any([init.signal, timeoutController.signal])
+      : timeoutController.signal;
+
+    try {
+      return await fetchFn(input, {
+        ...init,
+        signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+  };
 }
 
 function isLikelyXmlPayload(
@@ -793,7 +823,10 @@ export async function auditFeedSourceAdmission(
   options: SourceAdmissionAuditOptions = {},
 ): Promise<SourceAdmissionSourceReport> {
   const criteria = buildCriteria(options);
-  const fetchFn = options.fetchFn ?? fetch;
+  const fetchTimeoutMs =
+    options.fetchTimeoutMs
+    ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_ADMISSION_FETCH_TIMEOUT_MS, 10_000);
+  const fetchFn = wrapFetchWithTimeout(options.fetchFn ?? fetch, fetchTimeoutMs);
   const now = options.now ?? Date.now;
   const lifecycle = new SourceLifecycleTracker({ now });
   const service = new ArticleTextService({
@@ -947,4 +980,5 @@ export const sourceAdmissionReportInternal = {
   passSample,
   readFeedXml,
   resolveConfiguredFeedSources,
+  wrapFetchWithTimeout,
 };

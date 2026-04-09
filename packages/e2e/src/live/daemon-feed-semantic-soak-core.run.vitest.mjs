@@ -806,6 +806,75 @@ describe('runDaemonFeedSemanticSoak', () => {
     });
   });
 
+  it('bounds the playwright subprocess and writes a timeout summary when the audit runner hangs', async () => {
+    const writes = new Map();
+    const virtualFs = makeVirtualArtifactFs(writes);
+    const timeoutError = Object.assign(new Error('spawnSync pnpm ETIMEDOUT'), {
+      code: 'ETIMEDOUT',
+    });
+    const spawn = vi.fn((command, args, options) => {
+      if (command === 'sh') {
+        return {
+          status: 0,
+          stdout: '[vh:daemon-soak] preflight completed\n',
+          stderr: '',
+        };
+      }
+      if (command !== 'pnpm') {
+        throw new Error(`unexpected spawn command: ${command}`);
+      }
+      if (args?.[0] === 'test:live:daemon-feed:build') {
+        return { status: 0, stdout: 'build ok', stderr: '' };
+      }
+      expect(options.timeout).toBe(300000);
+      expect(options.killSignal).toBe('SIGKILL');
+      return {
+        status: null,
+        stdout: '',
+        stderr: '',
+        error: timeoutError,
+      };
+    });
+    const originalExit = process.exit;
+    process.exit = vi.fn((code) => {
+      throw new Error(`exit:${code}`);
+    });
+
+    try {
+      await expect(runDaemonFeedSemanticSoak({
+        cwd: '/repo',
+        repoRoot: '/repo',
+        env: {
+          VH_DAEMON_FEED_SOAK_RUNS: '1',
+          VH_DAEMON_FEED_SOAK_PAUSE_MS: '0',
+          VH_DAEMON_FEED_SOAK_SAMPLE_COUNT: '1',
+          VH_DAEMON_FEED_SOAK_SAMPLE_TIMEOUT_MS: '10',
+          VH_DAEMON_FEED_SOAK_PLAYWRIGHT_TIMEOUT_MS: '300000',
+          VH_DAEMON_FEED_SOAK_ARTIFACT_DIR: '/repo/.tmp/out',
+        },
+        spawn,
+        mkdir: vi.fn(),
+        rename: virtualFs.rename,
+        readFile: (target) => writes.get(target),
+        writeFile: (target, content) => writes.set(target, String(content)),
+        resolvePortPlan: resolveTestPortPlan,
+        log: vi.fn(),
+        sleepImpl: vi.fn(),
+        ...makeManagedRelayMocks(),
+      })).rejects.toThrow('exit:1');
+    } finally {
+      process.exit = originalExit;
+    }
+
+    const summary = JSON.parse(writes.get('/repo/.tmp/out/semantic-soak-summary.json'));
+    expect(summary.results[0]).toMatchObject({
+      auditArtifactState: 'audit_attachment_invalid',
+      playwrightPrimaryResultPresent: false,
+      auditError: 'spawnSync pnpm ETIMEDOUT',
+    });
+    expect(writes.get('/repo/.tmp/out/run-1.playwright.json')).toContain('spawnSync pnpm ETIMEDOUT');
+  });
+
   it('passes the fallback relay port through to playwright after managed relay startup succeeds on a new port', async () => {
     const writes = new Map();
     const virtualFs = makeVirtualArtifactFs(writes);
