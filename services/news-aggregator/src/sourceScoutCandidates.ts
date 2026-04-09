@@ -33,15 +33,6 @@ export const SOURCE_SCOUT_CANDIDATE_FEED_SOURCES: readonly FeedSource[] = Object
     enabled: true,
   }),
   FeedSourceSchema.parse({
-    id: 'ap-politics',
-    name: 'Associated Press Politics',
-    displayName: 'AP',
-    rssUrl: 'https://apnews.com/politics',
-    perspectiveTag: 'wire-service',
-    iconKey: 'ap',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
     id: 'cnn-politics',
     name: 'CNN Politics',
     displayName: 'CNN',
@@ -93,15 +84,6 @@ export const SOURCE_SCOUT_CANDIDATE_FEED_SOURCES: readonly FeedSource[] = Object
     rssUrl: 'https://feeds.skynews.com/feeds/rss/world.xml',
     perspectiveTag: 'international-wire',
     iconKey: 'sky',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
-    id: 'bigbendsentinel-border-wall',
-    name: 'Big Bend Sentinel Border Wall Updates',
-    displayName: 'Big Bend Sentinel',
-    rssUrl: 'https://bigbendsentinel.com/2026/04/02/border-wall-updates/',
-    perspectiveTag: 'local-news',
-    iconKey: 'bigbendsentinel',
     enabled: true,
   }),
 ]);

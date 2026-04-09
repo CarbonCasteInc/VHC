@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(27);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(29);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -109,6 +109,15 @@ describe('feedRegistry', () => {
         iconKey: 'democracydocket',
         enabled: true,
       });
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'bigbendsentinel-border-wall'),
+      ).toMatchObject({
+        name: 'Big Bend Sentinel Border Wall Updates',
+        rssUrl: 'https://bigbendsentinel.com/feed/',
+        perspectiveTag: 'local-news',
+        iconKey: 'bigbendsentinel',
+        enabled: true,
+      });
     });
 
     it('includes evidence-admitted abc politics coverage', () => {
@@ -192,6 +201,18 @@ describe('feedRegistry', () => {
         name: 'Associated Press Top News',
         rssUrl: 'https://apnews.com/hub/apf-topnews',
         perspectiveTag: 'international-wire',
+        iconKey: 'ap',
+        enabled: true,
+      });
+    });
+
+    it('includes evidence-admitted AP politics coverage', () => {
+      expect(
+        STARTER_FEED_SOURCES.find((source) => source.id === 'ap-politics'),
+      ).toMatchObject({
+        name: 'Associated Press Politics',
+        rssUrl: 'https://apnews.com/politics',
+        perspectiveTag: 'wire-service',
         iconKey: 'ap',
         enabled: true,
       });
