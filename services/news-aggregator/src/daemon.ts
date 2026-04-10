@@ -37,6 +37,9 @@ import {
 import { createLeaseGuard } from './leaseGuard';
 import { createDaemonFeedClusterCaptureRecorder } from './clusterCapturePersistence';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
+type RuntimeOrchestratorOptions = NonNullable<NewsRuntimeConfig['orchestratorOptions']> & {
+  remoteClusterMaxItemsPerRequest?: number;
+};
 export interface NewsAggregatorDaemonConfig {
   client: VennClient;
   feedSources: FeedSource[];
@@ -294,8 +297,9 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       allowHeuristicFallback: false,
       remoteClusterEndpoint: storyCluster.endpointUrl,
       remoteClusterTimeoutMs: storyCluster.timeoutMs,
+      remoteClusterMaxItemsPerRequest: storyCluster.maxItemsPerRequest,
       remoteClusterHeaders: storyCluster.headers,
-    },
+    } as RuntimeOrchestratorOptions,
   });
   await daemon.start();
   return {

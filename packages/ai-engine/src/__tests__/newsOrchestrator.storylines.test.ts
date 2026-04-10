@@ -68,6 +68,18 @@ function storyline(overrides: Partial<StorylineGroup> = {}): StorylineGroup {
   };
 }
 
+function normalizedItem(id: string) {
+  return {
+    sourceId: 'source-1',
+    publisher: 'Source 1',
+    url: `https://example.com/${id}`,
+    canonicalUrl: `https://example.com/${id}`,
+    title: `${id} headline`,
+    url_hash: `${id}-hash`,
+    entity_keys: ['entity'],
+  };
+}
+
 describe('newsOrchestrator storyline batches', () => {
   beforeEach(() => {
     ingestFeedsMock.mockReset();
@@ -159,5 +171,56 @@ describe('newsOrchestrator storyline batches', () => {
       'topic-a:storyline-z',
       'topic-z:storyline-b',
     ]);
+  });
+
+  it('chunks remote-capable topic batches and returns the final topic snapshot', async () => {
+    normalizeAndDedupMock.mockReturnValue([
+      normalizedItem('story-a'),
+      normalizedItem('story-b'),
+      normalizedItem('story-c'),
+      normalizedItem('story-d'),
+      normalizedItem('story-e'),
+    ]);
+
+    const batchSizes: number[] = [];
+    const snapshots = [
+      {
+        bundles: [bundle('story-a')],
+        storylines: [storyline()],
+      },
+      {
+        bundles: [bundle('story-a'), bundle('story-b')],
+        storylines: [storyline({ story_ids: ['story-a', 'story-b'] })],
+      },
+      {
+        bundles: [bundle('story-a'), bundle('story-b'), bundle('story-c')],
+        storylines: [storyline({ story_ids: ['story-a', 'story-b', 'story-c'] })],
+      },
+    ];
+
+    const clusterEngine = {
+      engineId: 'storycluster-chunk-test',
+      async clusterBatch() {
+        return [];
+      },
+      async clusterStoryBatch(input: { items: unknown[] }) {
+        batchSizes.push(input.items.length);
+        return snapshots[batchSizes.length - 1]!;
+      },
+    };
+
+    const result = await orchestrateNewsPipeline(
+      {
+        feedSources: [FEED_SOURCE],
+        topicMapping: { defaultTopicId: 'topic-news', sourceTopics: {} },
+      },
+      {
+        clusterEngine,
+        remoteClusterMaxItemsPerRequest: 2,
+      },
+    );
+
+    expect(batchSizes).toEqual([2, 2, 1]);
+    expect(result).toEqual(snapshots[2]);
   });
 });

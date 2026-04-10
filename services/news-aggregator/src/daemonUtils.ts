@@ -23,6 +23,7 @@ export interface StoryClusterRemoteConfig {
   endpointUrl: string;
   healthUrl: string;
   timeoutMs: number;
+  maxItemsPerRequest?: number;
   headers: Record<string, string>;
 }
 export type EnrichmentWorker = (candidate: NewsRuntimeSynthesisCandidate) => Promise<void> | void;
@@ -148,6 +149,13 @@ export function parseStoryClusterRemoteConfig(): StoryClusterRemoteConfig {
     readEnvVar('VH_STORYCLUSTER_REMOTE_TIMEOUT_MS'),
     DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS,
   );
+  const maxItemsPerRequest = parseOptionalPositiveInt(
+    firstNonEmpty(
+      readEnvVar('VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST'),
+      readEnvVar('STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST'),
+      readEnvVar('VITE_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST'),
+    ),
+  );
 
   const healthUrl =
     firstNonEmpty(readEnvVar('VH_STORYCLUSTER_REMOTE_HEALTH_URL')) ??
@@ -157,6 +165,7 @@ export function parseStoryClusterRemoteConfig(): StoryClusterRemoteConfig {
     endpointUrl,
     healthUrl,
     timeoutMs,
+    maxItemsPerRequest,
     headers: {
       [authHeader]: `${authScheme} ${authToken}`,
     },
