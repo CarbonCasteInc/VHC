@@ -13,6 +13,8 @@
     "baseUrl": "./",
     "paths": {
       "@/*": ["./src/*"],
+      "@vh/data-model": ["../../packages/data-model/src/index.ts"],
+      "@vh/data-model/*": ["../../packages/data-model/src/*"],
       "@vh/ai-engine": ["../../packages/ai-engine/src/index.ts"],
       "@vh/ai-engine/*": ["../../packages/ai-engine/src/*"]
     }

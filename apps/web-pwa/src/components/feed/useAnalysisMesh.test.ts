@@ -80,6 +80,7 @@ function makeSynthesis(overrides: Partial<NewsCardAnalysisSynthesis> = {}): News
         model_id: 'gpt-5.3-codex',
       },
     ],
+    relatedLinks: [],
     ...overrides,
   };
 }
@@ -150,6 +151,7 @@ describe('useAnalysisMesh', () => {
           model_id: 'gpt-5.3-codex',
         },
       ],
+      relatedLinks: [],
     });
 
     expect(mockReadAnalysis).toHaveBeenCalledTimes(1);
@@ -285,6 +287,7 @@ describe('useAnalysisMesh', () => {
       summary: 'Mismatch provenance',
       frames: [{ frame: 'f', reframe: 'r' }],
       analyses: [],
+      relatedLinks: [],
     });
 
     expect(infoSpy).toHaveBeenCalledWith(
@@ -322,6 +325,7 @@ describe('useAnalysisMesh', () => {
       summary: 'Mismatch model',
       frames: [{ frame: 'f', reframe: 'r' }],
       analyses: [],
+      relatedLinks: [],
     });
 
     expect(infoSpy).toHaveBeenCalledWith(

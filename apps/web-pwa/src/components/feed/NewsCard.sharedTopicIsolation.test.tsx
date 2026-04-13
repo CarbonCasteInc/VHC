@@ -96,6 +96,7 @@ const SYNTHESIS_RESULT: NewsCardAnalysisSynthesis = {
       model_id: 'gpt-4o-mini',
     },
   ],
+  relatedLinks: [],
 };
 
 describe('NewsCard shared-topic isolation', () => {

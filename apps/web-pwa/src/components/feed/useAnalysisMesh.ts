@@ -256,6 +256,13 @@ function toSynthesis(artifact: StoryAnalysisArtifact): NewsCardAnalysisSynthesis
       provider_id: entry.provider_id,
       model_id: entry.model_id,
     })),
+    relatedLinks: (artifact.relatedLinks ?? []).map((entry) => ({
+      source_id: entry.source_id,
+      publisher: entry.publisher,
+      url: entry.url,
+      url_hash: entry.url_hash,
+      title: entry.title,
+    })),
   };
 }
 
@@ -307,6 +314,13 @@ async function toArtifact(
         .filter((value) => value.length > 0),
       provider_id: entry.provider_id?.trim() || undefined,
       model_id: entry.model_id?.trim() || undefined,
+    })),
+    relatedLinks: synthesis.relatedLinks.map((entry) => ({
+      source_id: ensureNonEmpty(entry.source_id, story.story_id),
+      publisher: ensureNonEmpty(entry.publisher, 'Unknown publisher'),
+      url: ensureNonEmpty(entry.url, 'https://example.invalid/related'),
+      url_hash: ensureNonEmpty(entry.url_hash, `${story.story_id}-related`),
+      title: ensureNonEmpty(entry.title, 'Related story'),
     })),
     provider: {
       provider_id: ensureNonEmpty(firstProvider?.provider_id, 'unknown-provider'),
