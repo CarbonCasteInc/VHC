@@ -521,13 +521,21 @@ function filterComparableHistoricalReports(
   ));
 }
 
+function isLifecycleStateUnstable(state: SourceAdmissionSourceReport['lifecycle'][number]): boolean {
+  if (state.status !== 'healthy' || state.consecutiveFailures > 0) {
+    return true;
+  }
+  if (state.retryCount <= 0 || state.lastRetryAt === null) {
+    return false;
+  }
+  if (state.lastSuccessAt === null) {
+    return true;
+  }
+  return state.lastSuccessAt < state.lastRetryAt;
+}
+
 function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
-  return source.lifecycle.some(
-    (state) =>
-      state.status !== 'healthy'
-      || state.retryCount > 0
-      || state.consecutiveFailures > 0,
-  );
+  return source.lifecycle.some((state) => isLifecycleStateUnstable(state));
 }
 
 function buildDecision(
@@ -535,12 +543,7 @@ function buildDecision(
   thresholds: SourceHealthThresholds,
 ): SourceHealthSourceReport {
   const unstableLifecycleDomains = source.lifecycle
-    .filter(
-      (state) =>
-        state.status !== 'healthy'
-        || state.retryCount > 0
-        || state.consecutiveFailures > 0,
-    )
+    .filter((state) => isLifecycleStateUnstable(state))
     .map((state) => state.sourceDomain);
 
   if (source.status === 'admitted') {
@@ -1338,6 +1341,7 @@ export const sourceHealthReportInternal = {
   countConsecutiveDecisions,
   filterComparableHistoricalReports,
   hasLifecycleInstability,
+  isLifecycleStateUnstable,
   isDirectExecution,
   isFeedStageFailureSource,
   parseBoolean,
