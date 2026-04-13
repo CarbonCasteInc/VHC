@@ -3,33 +3,53 @@
 > Status: Implementation Plan
 > Owner: News Aggregator + StoryCluster
 > Branch: `coord/item-reliability-plan`
-> Scope: make item-level disqualification a system rule while keeping soak feeds that are at least 50% article-reliable over an 8-item sample
+> Scope: define the system rule for source reliability and item eligibility without conflating soak evaluation with the product admission contract
 
 ## Goal
 
-Make this an enforced system rule for soak/public-soak work:
+Make this an enforced system rule:
 
-1. A feed stays in the soak surface when its article-candidate links are at least 50% readable/reliable over an 8-item sample.
-2. Specific bad-link articles from otherwise-keep feeds are identified, classified, persisted, and disqualified.
-3. Disqualified article URLs must never be served to end users through article-text, bundle publication, snapshots, or UI-facing latest indexes.
+1. Soak/public-soak evaluation keeps a source when it is at least 50% article-reliable over an 8-item soak sample.
+2. Product admission/readiness keeps a source only when it is at least 66% reliable over a larger rolling sample built from accumulated extraction outcomes.
+3. Articles whose text cannot be extracted must never be treated as analyzed evidence or included in the framing table.
+4. Legitimate source links that fail extraction may still be shown to users as raw related stories.
+5. Truly bad links must be hard-blocked and never shown.
 
 ## Executive Decision
 
-Use a dual-level policy:
+Use two separate policy layers and three item states.
 
-1. Source-level keep/watch/remove remains the authoritative starter-surface policy.
-2. Item-level disqualification becomes a first-class policy underneath it.
+### Reliability layers
 
-This means:
+1. `soak_reliability`
+   - 8-item article-candidate sample
+   - keep at `4/8` or better
+   - only for canary, scout, consumer-smoke, and public-soak evaluation
+2. `product_reliability`
+   - rolling aggregate built from dozens of article extraction outcomes over time
+   - keep at `>= 0.66`
+   - governs real source admission, starter-surface retention, and production readiness
 
-- bad sources can still be removed;
-- good-enough sources are preserved even when some feed entries are junk;
-- bad URLs are quarantined individually instead of poisoning the whole source;
-- publication and serving paths must consult the same canonical disqualification ledger.
+### Item eligibility states
+
+1. `analysis_eligible`
+   - text extraction succeeded
+   - may be used in clustering provenance, synthesis, semantic audit, and framing tables
+2. `link_only`
+   - URL is legitimate and may still be shown to the user as a related story link
+   - text extraction failed or was not good enough for analysis
+   - must not be used in synthesis, framing, or canonical analysis claims
+3. `hard_blocked`
+   - invalid, dead, access-denied, or policy-forbidden URL
+   - must not be analyzed or shown
+
+This is the core design correction.
+
+Do not collapse all extraction failures into a permanent never-serve ledger.
 
 ## Why This Change Is Needed
 
-Current behavior is too blunt.
+Current behavior is too blunt and uses the wrong boundary.
 
 Relevant current code:
 
@@ -38,172 +58,263 @@ Relevant current code:
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/articleTextService.ts`
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/removalLedger.ts`
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/orchestrator.ts`
+- `/Users/bldt/Desktop/VHC/VHC/packages/data-model/src/schemas/hermes/storyBundle.ts`
+- `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/bundleProjection.ts`
+- `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/components/feed/NewsCard.tsx`
 
 Current gaps:
 
-1. Admission is source-level only.
-   - `sourceAdmissionReport.ts` samples URLs and decides `admitted/rejected/inconclusive` at the source level.
-   - It does not persist bad URLs as a reusable policy artifact.
-2. The extraction layer already knows how to reject removed URLs.
-   - `articleTextService.ts` checks `RemovalLedger` before fetch.
-   - But admission and publication do not systematically write to or consume that policy.
-3. Publication does not filter known-bad URLs before clustering.
-   - `orchestrator.ts` currently does `ingestFeeds -> normalizeAndDedup -> runClusterBatch` with no disqualification filter in between.
-4. The current threshold is not the user’s rule.
-   - admission default is `0.75` in `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceAdmissionReport.ts`
-   - source-health keep default is `1.0` in `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceHealthReport.ts`
+1. Admission is source-level only and has no first-class item eligibility contract.
+2. The extraction layer already supports hard blocks via `RemovalLedger`, but that is too strong a tool for every non-extractable article.
+3. Publication currently has no explicit boundary between:
+   - canonical analyzable sources
+   - raw related links that are display-only
+4. The existing `StoryBundle` contract has no field for “possible sources shown but not analyzed.”
 
-## Rule Definition
+## Correct System Rule
 
 ### Source-level rule
 
-A source is keep-eligible when all of these are true:
+A source decision depends on two different measurements.
 
-1. At least 4 article-candidate samples succeed.
-2. Article-candidate success rate is at least `0.50` over an 8-item sample.
-3. The source is not currently unstable for non-recovered lifecycle reasons.
-4. The source still contributes or corroborates under the existing source-health and contribution gates.
+#### Soak rule
+
+Use this only in soak/public-soak evaluation:
+
+1. sample 8 article-candidate links
+2. keep if at least 4 are extraction-successful
+3. do not let soak math rewrite the canonical product admission thresholds
+
+#### Product rule
+
+Use this for starter-surface admission and production readiness:
+
+1. aggregate extraction outcomes over a much larger rolling sample
+2. keep only when reliable article outcomes are at least `66%`
+3. include historical bad-link pressure in the decision, not just the latest run
 
 ### Item-level rule
 
-An individual URL is disqualified when it is an article candidate and its failure is non-retryable and policy-relevant.
+Each URL must resolve to exactly one item-eligibility state:
 
-Disqualified URLs must:
+1. `analysis_eligible`
+2. `link_only`
+3. `hard_blocked`
 
-1. be persisted by canonical URL hash;
-2. be excluded from future admission scoring as successful candidates;
-3. be dropped before normalize/cluster/publish;
-4. be rejected by article-text fetch;
-5. never appear in user-facing published `StoryBundle.sources`, snapshots, or latest-index-backed UI output.
+### Serving rule
 
-### Counting rule
-
-Count only article-candidate links in the denominator.
-
-Do not count these as article-candidate failures:
-
-- feed-carried video/watch entries already skipped today;
-- explicit non-article hub links caught before extraction;
-- transient 5xx/network/timeout failures that are retryable;
-- links already disqualified and skipped before scoring.
-
-## Sampling Math
-
-The current 4-sample default cannot express the requested soak rule well.
-
-- with `sampleSize = 4`, a single bad link moves the source too aggressively
-- soak work needs a wider sample so mixed-quality feeds can be judged more honestly
-
-### Proposed admission math
-
-Change the admission defaults to:
-
-- `sampleSize = 8`
-- `minimumSuccessCount = 4`
-- `minimumSuccessRate = 0.50`
-
-This makes the rule real:
-
-- `4/8 = 50%` passes
-- `3/8 = 37.5%` fails
-- a single bad link no longer distorts the source-level decision
-
-### Inconclusive floor
-
-If fewer than 4 article-candidate URLs are available after skipping obvious non-article entries, classify the source as `inconclusive`, not `rejected`.
-
-That prevents thin feeds from being misclassified by too little evidence.
+1. `analysis_eligible`
+   - may appear in canonical story provenance and analysis flows
+2. `link_only`
+   - may appear only in a bottom-of-card related stories section
+   - must not be treated as evidence for synthesis or framing
+3. `hard_blocked`
+   - may not be served anywhere
 
 ## Canonical Persistence Decision
 
-Reuse the existing removal ledger instead of inventing a second competing store.
+Keep two policy stores with different semantics.
 
-Canonical policy path:
+### A. Hard-block ledger
+
+Keep using the existing path for true never-serve entries:
 
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/removalLedger.ts`
 - mesh path: `vh/news/removed/<urlHash>`
 
-Why:
+Use this only for `hard_blocked` URLs.
 
-1. `articleTextService.ts` already enforces it.
-2. `packages/gun-client/src/newsAdapters.ts` already understands `vh/news/removed/*`.
-3. Reusing one path keeps extraction, publication, and moderation compatible.
+Examples:
 
-### Ledger semantics
+- invalid URL
+- 404 / 410 dead link
+- access denied
+- explicit publisher/policy removal
+- domain-not-allowed
+- permanent non-article destination
 
-Use `RemovalLedger` as the canonical URL-disqualification ledger for system policy, not just manual moderation.
+### B. Item eligibility store
 
-Add optional metadata fields:
-
-- `sourceId`
-- `reasonCategory`
-- `observedBy`
-- `firstSeenAt`
-- `lastSeenAt`
-- `recoverable`
-- `policyScope`
-
-Keep backward compatibility:
-
-- existing readers must continue accepting the current minimal entry shape;
-- new fields are additive.
-
-## Failure Taxonomy
-
-### Persist as item disqualifications
-
-Persist only non-retryable, policy-significant failures:
-
-- `removed`
-- `access-denied`
-- `domain-not-allowed`
-- `quality-too-low`
-- `invalid-url`
-- `http-404`
-- `http-410`
-- `non_article_destination`
-- `unsupported_link_shape`
-
-### Do not persist as permanent disqualifications
-
-Treat these as transient telemetry:
-
-- timeout
-- 429
-- 5xx upstream failures
-- temporary network failure
-- retryable fetch failure
-
-These should affect observability, but not permanently blacklist the URL.
-
-## Implementation Shape
-
-Create one new policy module and wire it through admission and publication.
-
-### New module
+Add a separate canonical store for `analysis_eligible` vs `link_only` decisions.
 
 Create:
 
-- `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/itemDisqualificationPolicy.ts`
+- `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/itemEligibilityLedger.ts`
 
-Responsibilities:
+Suggested shape:
 
-1. canonicalize URL and compute `urlHash`;
-2. classify article failures into `persistent_disqualification` vs `transient_failure`;
-3. read/write `RemovalLedger` entries with system-policy metadata;
-4. expose helpers to filter raw feed items before normalize/cluster/publish;
-5. expose report helpers for admission and source-health artifacts.
+- key by `urlHash`
+- include:
+  - `canonicalUrl`
+  - `sourceId`
+  - `eligibilityState`
+  - `reason`
+  - `firstSeenAt`
+  - `lastSeenAt`
+  - `observationCount`
+  - `lastObservedOutcome`
+  - `recoverable`
 
-This should be the single policy engine used by:
+Do not overload `vh/news/removed/*` for `link_only` items.
 
-- source admission
-- source health reporting
-- orchestrator/publication filtering
-- optional future moderation tooling
+## Failure Taxonomy
+
+### `analysis_eligible`
+
+Examples:
+
+- article extraction succeeded
+- quality passed
+
+### `link_only`
+
+Examples:
+
+- legitimate article URL but extraction quality too low
+- readable shell but insufficient body text
+- temporary extractor miss on a valid article page
+
+These links may still be shown as related stories.
+
+### `hard_blocked`
+
+Examples:
+
+- invalid URL
+- `http-404`
+- `http-410`
+- `access-denied`
+- `domain-not-allowed`
+- `unsupported_link_shape`
+- `non_article_destination`
+
+These must not be shown.
+
+## Counting and Metrics
+
+### Soak metrics
+
+For soak/public-soak only:
+
+1. denominator is 8 article-candidate URLs
+2. success means `analysis_eligible`
+3. `link_only` counts as non-success for analysis reliability
+4. `hard_blocked` counts as non-success and must be recorded separately
+
+### Product metrics
+
+Do not derive product readiness from soak math.
+
+Product reliability must use accumulated extraction outcomes over time:
+
+1. rolling article attempt count
+2. rolling `analysis_eligible` rate
+3. rolling `link_only` rate
+4. rolling `hard_blocked` rate
+5. source-level trend and contribution evidence
+
+### Historical pressure
+
+Do not let persisted entries disappear from the health picture.
+
+The system needs both:
+
+1. current-run reliability
+2. rolling bad-link pressure
+
+That prevents the source from appearing healthier just because old bad links were already classified once.
+
+## Thin-Feed Rule
+
+The previous draft’s inconclusive floor was too strict.
+
+For specialist or thin feeds:
+
+1. if at least 3 article-candidate URLs exist and all 3 are `analysis_eligible`, allow `provisional_keep_for_soak`
+2. do not automatically promote that into product keep
+3. require larger rolling evidence before product admission uses the source as a true keep
+
+This keeps useful narrow feeds from being stranded forever while preserving a higher production bar.
+
+## Canonical Publication Contract
+
+This is the most important boundary.
+
+### Canonical analysis inputs
+
+Only `analysis_eligible` items may enter:
+
+- `StoryBundle.sources`
+- `StoryBundle.primary_sources`
+- synthesis prompts in `/Users/bldt/Desktop/VHC/VHC/packages/ai-engine/src/bundlePrompts.ts`
+- semantic audit canonical source sets
+- framing table inputs in the UI analysis pipeline
+
+### Raw related-link display
+
+`link_only` items may be shown only through a new display-only field.
+
+Do not overload:
+
+- `sources`
+- `primary_sources`
+- `secondary_assets`
+
+Instead add a distinct field, for example:
+
+- `related_links`
+
+Suggested schema entry:
+
+- `source_id`
+- `publisher`
+- `url`
+- `url_hash`
+- `title`
+- `eligibility_state`
+- `display_reason`
+
+### Hard-blocked items
+
+`hard_blocked` items must appear nowhere in published bundles or UI-facing snapshots.
+
+## Data Model Changes
+
+Update:
+
+- `/Users/bldt/Desktop/VHC/VHC/packages/data-model/src/schemas/hermes/storyBundle.ts`
+
+Add a new optional field:
+
+- `related_links`
+
+This should be display-only, not canonical source provenance.
+
+Do not change the meaning of:
+
+- `sources`
+- `primary_sources`
+- `secondary_assets`
 
 ## File-by-File Implementation Plan
 
-### 1. Admission contract and sampling
+### 1. Item eligibility policy
+
+Create:
+
+- `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/itemEligibilityPolicy.ts`
+
+Responsibilities:
+
+1. classify item outcomes into `analysis_eligible | link_only | hard_blocked`
+2. decide whether a failed extraction is displayable or forbidden
+3. write `hard_blocked` entries to `RemovalLedger`
+4. write `analysis_eligible/link_only` observations to `itemEligibilityLedger`
+5. expose helpers for soak metrics and product metrics
+
+This module must become the single policy engine.
+
+### 2. Soak admission evaluation
 
 Update:
 
@@ -211,31 +322,32 @@ Update:
 
 Changes:
 
-1. Change defaults:
-   - `DEFAULT_SAMPLE_SIZE` from `4` to `8`
-   - `DEFAULT_MIN_SUCCESS_RATE` from `0.75` to `0.50`
-   - `DEFAULT_MIN_SUCCESS_COUNT` from `2` to `4`
-2. Extend `SourceAdmissionSampleResult` with explicit item classification:
+1. add an explicit soak-evaluation mode instead of replacing canonical defaults globally
+2. use:
+   - `sampleSize = 8`
+   - `minimumSuccessCount = 4`
+   - `minimumSuccessRate = 0.50`
+   only when the soak mode is selected
+3. extend `SourceAdmissionSampleResult` to record:
    - `canonicalUrl`
    - `urlHash`
-   - `candidateType: 'article' | 'video' | 'non_article'`
-   - `outcome: 'passed' | 'disqualified' | 'failed_transient' | 'skipped'`
-   - `disqualificationReason`
-   - `persistedDisqualification`
-3. Replace the current binary `passed/failed` sample model with policy-aware classification.
-4. Only count article-candidate URLs in `sampleLinkCount`, `readableSampleCount`, and `readableSampleRate`.
-5. Persist non-retryable bad article links through `itemDisqualificationPolicy.ts`.
-6. Publish an additional artifact in the admission directory:
-   - `disqualified-article-links.json`
+   - `candidateType`
+   - `eligibilityState`
+   - `reason`
+   - `persistedToHardBlockLedger`
+   - `persistedToEligibilityLedger`
+4. allow `3/3` thin-feed provisional soak keep
+5. publish separate soak artifacts for:
+   - `analysis-eligible-links.json`
+   - `link-only-links.json`
+   - `hard-blocked-links.json`
 
-Acceptance for this file:
+Acceptance:
 
-- a source with `4/8` readable article candidates is `admitted`;
-- a source with `3/8` is not;
-- bad non-article links are skipped, not counted as source poison;
-- non-retryable bad article URLs are persisted with URL hash and reason.
+- soak evaluation can keep a source at `4/8`
+- this does not rewrite the repo-wide product default thresholds
 
-### 2. Source-health semantics
+### 3. Product reliability aggregation
 
 Update:
 
@@ -243,21 +355,24 @@ Update:
 
 Changes:
 
-1. Change `keepMinReadableSampleRate` default from `1.0` to `0.50`.
-2. Base keep/watch/remove on article-candidate reliability, not raw mixed feed-link outcomes.
-3. Add observability fields:
-   - `disqualifiedArticleCount`
-   - `transientArticleFailureCount`
-   - `skippedNonArticleCount`
-4. Ensure recovered retries do not count as persistent item disqualifications.
-5. Keep the existing history/release-evidence model, but make it item-aware.
+1. keep the product rule separate from the soak rule
+2. add rolling metrics derived from accumulated item observations:
+   - `analysisEligibleRate`
+   - `linkOnlyRate`
+   - `hardBlockedRate`
+   - `rollingAttemptCount`
+3. make the product keep decision depend on:
+   - `analysisEligibleRate >= 0.66`
+   - enough rolling attempts to be meaningful
+   - existing lifecycle/history gates
+4. add source-health observability for both soak and product measurements
 
-Acceptance for this file:
+Acceptance:
 
-- a source with `>= 0.50` reliable article candidates over the 8-item soak sample can be `keep` if lifecycle and history are otherwise healthy;
-- known disqualified URLs do not force the source to `watch/remove` by themselves.
+- source-health no longer treats the soak threshold as the canonical product threshold
+- product keep remains a higher bar than soak keep
 
-### 3. Canonical URL disqualification ledger
+### 4. Hard-block ledger
 
 Update:
 
@@ -266,98 +381,143 @@ Update:
 
 Changes:
 
-1. Extend ledger entries with additive metadata fields for system-policy disqualifications.
-2. Keep backward compatibility for current readers and tests.
-3. Add convenience helpers for:
-   - `writeSystemDisqualification(url, metadata)`
-   - `readSystemDisqualification(urlHash)`
-4. Do not rename the path in this implementation.
-   - keep `vh/news/removed/<urlHash>` as the canonical wire/storage path
-   - treat naming cleanup as out of scope
+1. keep backward compatibility
+2. use this path only for `hard_blocked`
+3. add optional metadata fields needed for system-policy provenance
 
-Acceptance for this file:
+Acceptance:
 
-- article-text and publication can consult the same persisted URL-hash policy;
-- old entries remain readable.
+- hard-blocked URLs are truly never served
+- `link_only` items are not accidentally swallowed by the removal path
 
-### 4. Article extraction enforcement
+### 5. Item eligibility ledger
 
-Update:
+Create:
 
-- `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/articleTextService.ts`
+- `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/itemEligibilityLedger.ts`
 
 Changes:
 
-1. Keep the current pre-fetch `RemovalLedger` read.
-2. Add richer logging/return context so downstream callers know when a failure came from system disqualification versus live fetch.
-3. Do not make `ArticleTextService` the primary writer for policy in phase 1.
-   - writing should remain centralized in `itemDisqualificationPolicy.ts` and admission/runtime callers
+1. persist `analysis_eligible` and `link_only` observations separately from hard blocks
+2. aggregate repeated observations over time
+3. support rolling product reliability calculations
 
-Acceptance for this file:
+Acceptance:
 
-- disqualified URLs still fail fast with `removed`;
-- callers can surface the disqualification reason cleanly in artifacts.
+- the system can distinguish between “not analyzable” and “must never show”
 
-### 5. Publish-time enforcement before clustering
+### 6. Orchestrator / publication boundary
 
 Update:
 
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/orchestrator.ts`
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/ingest.ts`
-- optional new helper:
+- optional helper:
   - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/publishableFeedItems.ts`
 
 Changes:
 
-1. After `ingestFeeds`, filter raw items against the canonical disqualification ledger.
-2. Drop disqualified items before `normalizeAndDedup`.
-3. Emit diagnostics for dropped items by source and reason.
-4. Ensure the returned `PipelineResult` includes observability for filtered/disqualified item counts.
+1. after ingest, classify raw items with `itemEligibilityPolicy.ts`
+2. allow only `analysis_eligible` items into normalize/cluster/publish
+3. collect `link_only` items into a sidecar related-links list by story/topic where possible
+4. drop `hard_blocked` items completely
+5. expose diagnostics in `PipelineResult`
 
-This is the critical “never served” enforcement point.
+Acceptance:
 
-Acceptance for this file:
+- canonical story bundles are built only from analyzable evidence
+- legitimate non-extractable links can still be preserved for display
 
-- a URL in `vh/news/removed/<urlHash>` never reaches `normalizeAndDedup`;
-- it cannot appear in `StoryBundle.sources`;
-- it cannot reach latest/hot publication through `writeStoryBundle`.
-
-### 6. Contribution reporting
+### 7. Story bundle contract
 
 Update:
 
-- `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/sourceContributionReport.ts`
+- `/Users/bldt/Desktop/VHC/VHC/packages/data-model/src/schemas/hermes/storyBundle.ts`
+- any dependent type exports in `/Users/bldt/Desktop/VHC/VHC/packages/ai-engine/src/newsTypes.ts`
 
 Changes:
 
-1. Exclude disqualified items from normalized/bundle contribution counts.
-2. Add item-policy observability:
-   - `disqualifiedItemCount`
-   - `transientDroppedItemCount`
-3. Preserve current source contribution semantics while making the item drop behavior visible.
+1. add optional `related_links`
+2. keep `sources` and `primary_sources` as analysis-only
+3. keep `secondary_assets` for its current role, not for extraction-failed article links
 
-Acceptance for this file:
+Acceptance:
 
-- contribution reflects publishable items, not raw feed junk.
+- the data model distinguishes analyzed evidence from raw related links
 
-### 7. Publication/runtime integration
+### 8. StoryCluster projection and runtime
 
 Update:
 
-- `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/daemon.ts`
+- `/Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/src/bundleProjection.ts`
 - `/Users/bldt/Desktop/VHC/VHC/packages/ai-engine/src/newsRuntime.ts`
 
 Changes:
 
-1. Wire the orchestrator’s new filtered-item observability into runtime logs.
-2. Ensure the next runtime tick republishes bundles without disqualified sources.
-3. Do not introduce a second filter after `writeStoryBundle`; keep the enforcement earlier in the pipeline.
+1. preserve canonical-source semantics for `primary_sources`
+2. never widen canonical bundle evidence with `link_only` items
+3. ensure runtime publication carries `related_links` separately if available
 
-Acceptance for this file:
+Acceptance:
 
-- a previously published bad URL disappears on the next clean runtime tick after disqualification.
+- framing and semantic audit continue to rely only on analyzable sources
 
-### 8. Test coverage
+### 9. Analysis and framing boundary
+
+Update:
+
+- `/Users/bldt/Desktop/VHC/VHC/packages/ai-engine/src/bundlePrompts.ts`
+- `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/components/feed/useAnalysis.ts`
+- any news-card analysis helpers under `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/components/feed/`
+
+Changes:
+
+1. ensure synthesis prompts use only canonical analyzable sources
+2. ensure the framing/analysis table never claims coverage from `link_only` URLs
+3. if the UI displays related links, render them separately from analyzed source badges
+
+Acceptance:
+
+- analysis output is honest about what was and was not actually read
+
+### 10. UI related-stories surface
+
+Update:
+
+- `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/components/feed/NewsCard.tsx`
+- `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/components/feed/SourceBadgeRow.tsx`
+- add a new component, for example:
+  - `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/components/feed/RelatedStoriesLinks.tsx`
+
+Changes:
+
+1. keep `SourceBadgeRow` for analyzed canonical sources
+2. add a bottom-of-card related stories section for `related_links`
+3. label the section clearly so it is not mistaken for analysis evidence
+
+Acceptance:
+
+- end users can still see useful raw source links without the app claiming those links informed the analysis
+
+### 11. Immediate scrub semantics
+
+If a URL transitions to `hard_blocked`, the system must scrub already-published surfaces immediately.
+
+Update:
+
+- publication helpers and snapshot builders used by:
+  - `/Users/bldt/Desktop/VHC/VHC/packages/e2e/src/live/daemon-feed-validated-snapshot-server.mjs`
+  - latest published bundle refresh paths
+
+Required behavior:
+
+1. remove hard-blocked URLs from published bundles on the next scrub pass
+2. rebuild latest snapshot artifacts after a hard-block write
+3. do not require waiting for a normal runtime tick to stop serving a hard-blocked URL
+
+This is the real fix for the earlier “never served” gap.
+
+### 12. Tests
 
 Update/create tests in:
 
@@ -366,89 +526,66 @@ Update/create tests in:
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/__tests__/articleTextService.test.ts`
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/__tests__/removalLedger.test.ts`
 - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/src/orchestrator.test.ts`
-- `/Users/bldt/Desktop/VHC/VHC/packages/gun-client/src/newsAdapters.test.ts`
+- `/Users/bldt/Desktop/VHC/VHC/packages/data-model/src/schemas/hermes/storyBundle.test.ts`
+- relevant UI tests under `/Users/bldt/Desktop/VHC/VHC/apps/web-pwa/src/components/feed/`
 
 Required new cases:
 
-1. `4/8` source admission passes.
-2. `3/8` source admission fails.
-3. skipped video/non-article URLs do not count against source reliability.
-4. retryable failures are not permanently disqualified.
-5. non-retryable failures are written to the ledger.
-6. orchestrator drops ledgered URLs before normalization.
-7. bundles and latest publication never contain disqualified URLs.
-8. article-text rejects a disqualified URL without hitting the network.
-
-### 9. Docs/spec updates after code lands
-
-Update:
-
-- `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`
-- `/Users/bldt/Desktop/VHC/VHC/docs/specs/spec-news-aggregator-v0.md`
-
-Required doc changes:
-
-1. soak source readiness threshold is 50% article-candidate reliability over an 8-item sample, not 100% pristine extraction;
-2. item-level disqualification is now canonical policy;
-3. bad links from otherwise-good sources are quarantined individually;
-4. end-user serving path must exclude disqualified URLs.
+1. soak `4/8` keep passes without changing product defaults
+2. product keep still requires rolling `>= 0.66`
+3. `3/3` thin-feed provisional soak keep works
+4. extraction-failed but legitimate URLs become `link_only`
+5. dead/forbidden URLs become `hard_blocked`
+6. `link_only` URLs do not enter synthesis/framing inputs
+7. `link_only` URLs can still render in the related stories UI section
+8. `hard_blocked` URLs are absent from both analysis and display surfaces
 
 ## Migration / Rollout
 
-### Phase 1: Contract and artifacts
+### Phase 1: Policy separation
 
 Implement:
 
-- `itemDisqualificationPolicy.ts`
-- admission artifact changes
-- ledger metadata extensions
+- `itemEligibilityPolicy.ts`
+- `itemEligibilityLedger.ts`
+- soak vs product rule separation in docs and code
 
 Checkpoint:
 
-- admission artifacts include disqualified-item output;
-- no publication behavior changed yet.
+- no more ambiguity between soak thresholds and product thresholds
 
-### Phase 2: Source-health threshold update
+### Phase 2: Publication boundary
 
 Implement:
 
-- `0.50` keep threshold
-- `8`-sample admission math
-- source-health observability updates
+- analysis-only canonical sources
+- `related_links` sidecar path
+- hard-block filtering
 
 Checkpoint:
 
-- known feeds with up to four bad links out of eight can still remain `keep` if the readable half is healthy and non-retryable bad links are quarantined individually.
+- analysis and framing only use extractable sources
+- related links are display-only
 
-### Phase 3: Publish-time enforcement
+### Phase 3: Safe backfill
 
-Implement:
+Do not backfill from a single latest admission artifact.
 
-- orchestrator disqualification filter
-- runtime logging
-- contribution-report updates
+Instead add a guarded script:
 
-Checkpoint:
+- `/Users/bldt/Desktop/VHC/VHC/tools/scripts/backfill-item-eligibility.mjs`
 
-- a disqualified URL cannot enter a freshly published bundle.
+Rules:
 
-### Phase 4: Migration sweep
-
-Add a one-time backfill script:
-
-- `/Users/bldt/Desktop/VHC/VHC/tools/scripts/backfill-disqualified-article-links.mjs`
-
-Purpose:
-
-1. read latest admission artifacts;
-2. seed the ledger with already-known non-retryable bad URLs;
-3. run a fresh publish tick to republish bundles without those URLs.
+1. only backfill `hard_blocked` from a strict whitelist of reasons
+2. require repeated observation or manual approval for permanent hard-block entries
+3. allow softer historical entries to seed `link_only`, not `hard_blocked`
 
 Checkpoint:
 
-- latest snapshot and canary artifacts no longer contain backfilled disqualified URLs.
+- no one-off noisy run can create a permanent never-serve entry by itself
 
-### Phase 5: Production-readiness confirmation
+### Phase 4: Production-readiness confirmation
 
 Validation commands:
 
@@ -461,50 +598,41 @@ Validation commands:
 
 Checkpoint:
 
-- source health stays `ready/pass` under the new threshold;
-- public soak still passes;
-- no disqualified URL appears in user-facing story sources.
+- source health reports the correct product rule
+- public soak reports the correct soak rule
+- canonical analysis never claims non-extractable URLs as evidence
+- related raw links still show where allowed
 
 ## Acceptance Criteria
 
 We are done when all of these are true:
 
-1. A source with `4/8` readable article candidates is kept when otherwise healthy.
-2. A source with `3/8` readable article candidates is not kept.
-3. Specific bad links from a keep-eligible source are written to the canonical URL-hash disqualification ledger.
-4. `ArticleTextService` rejects those URLs without live fetch.
-5. `orchestrateNewsPipeline()` filters those URLs before normalize/cluster/publish.
-6. Published `StoryBundle.sources` and latest-index-backed consumer artifacts never contain a disqualified URL.
-7. Source-health artifacts expose both source-level and item-level policy outcomes clearly enough for operator review.
+1. Soak/public-soak can keep a source at `4/8` without rewriting the canonical product rule.
+2. Product source-health still requires rolling `>= 0.66` analyzable reliability over a larger sample.
+3. The system distinguishes `analysis_eligible`, `link_only`, and `hard_blocked` item states.
+4. `analysis_eligible` items alone drive synthesis, semantic audit, framing, and canonical source badges.
+5. `link_only` items may appear only in a clearly separate related stories section.
+6. `hard_blocked` items are never shown or analyzed.
+7. Safe backfill rules prevent single noisy runs from creating permanent never-serve entries.
 
 ## Non-Goals
 
 This plan does not:
 
-1. weaken the article-text quality bar;
-2. auto-keep every non-paywalled source regardless of contribution or instability;
-3. rename `vh/news/removed/*` to a different mesh path;
-4. solve all publisher-specific HTML-hub quirks.
-
-## Risks
-
-1. Over-disqualification
-   - If failure classification is too aggressive, we can suppress valid articles.
-   - Mitigation: persist only non-retryable policy failures in phase 1.
-2. Under-filtering
-   - If publication filtering misses a path, bad URLs can still leak to bundles.
-   - Mitigation: enforce before normalization and verify in canary/snapshot tests.
-3. Artifact drift
-   - If admission and source-health compute different denominators, operators will lose trust.
-   - Mitigation: centralize item classification in `itemDisqualificationPolicy.ts`.
+1. lower the canonical product admission bar to the soak threshold;
+2. claim every non-paywalled URL is analyzable;
+3. overload `secondary_assets` with extraction-failed article links;
+4. use a single ledger for both display-only links and hard-blocked links.
 
 ## Recommendation
 
-Implement this as a fix-first systems rule, not as a one-off BBC-style exception.
+Implement this as a contract split, not as a threshold tweak.
 
 The right architecture is:
 
-1. keep good-enough soak sources at `50%+` article reliability across an 8-item sample;
-2. quarantine bad URLs individually;
-3. persist the URL-hash decision once;
-4. enforce it consistently in extraction, publication, and user-facing output.
+1. soak keeps feeds at `50% over 8` for operational evaluation;
+2. product keeps feeds at `66%+` over a larger rolling extraction record;
+3. non-extractable but legitimate links become `link_only`;
+4. truly bad links become `hard_blocked`;
+5. only analyzable links inform analysis and framing;
+6. raw related links can still be shown without misrepresenting them as analyzed evidence.
