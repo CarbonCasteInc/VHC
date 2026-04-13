@@ -286,19 +286,6 @@ function toFrameRows(
   }
   return rows.slice(0, MAX_FRAME_ROWS);
 }
-
-function toRelatedLink(
-  source: StoryBundle['sources'][number],
-): NewsCardRelatedLink {
-  return {
-    source_id: source.source_id,
-    publisher: source.publisher,
-    url: source.url,
-    url_hash: source.url_hash,
-    title: source.title,
-  };
-}
-
 function synthesizeSummary(analyses: ReadonlyArray<NewsCardSourceAnalysis>): string {
   const hl = analyses
     .map((sa) => {
@@ -317,7 +304,6 @@ async function runSynthesis(
 ): Promise<NewsCardAnalysisSynthesis> {
   const selectedSources = selectSourcesForAnalysis(story, maxSourceAnalyses);
   const analyzed: NewsCardSourceAnalysis[] = [];
-  const relatedLinks: NewsCardRelatedLink[] = [];
   const skipArticleTextFetch = shouldSkipArticleTextFetch();
 
   for (const source of selectedSources) {
@@ -336,7 +322,6 @@ async function runSynthesis(
           sourceId: source.source_id,
           url: source.url,
         });
-        relatedLinks.push(toRelatedLink(source));
         continue;
       }
       const input = buildAnalysisInput(story, source, articleText);
@@ -356,7 +341,6 @@ async function runSynthesis(
         url: source.url,
         error,
       });
-      relatedLinks.push(toRelatedLink(source));
     }
   }
 
@@ -368,7 +352,7 @@ async function runSynthesis(
     summary: synthesizeSummary(analyzed),
     frames: toFrameRows(analyzed),
     analyses: analyzed,
-    relatedLinks,
+    relatedLinks: [],
   };
 }
 
@@ -429,7 +413,6 @@ export const newsCardAnalysisInternal = {
   shouldSkipArticleTextFetch,
   synthesizeSummary,
   toFrameRows,
-  toRelatedLink,
   toSourceAnalysis,
   toStoryCacheKey,
 };

@@ -6,6 +6,12 @@ import {
   type NewsRuntimeHandle,
   type TopicMapping,
 } from '@vh/ai-engine';
+import { ArticleTextService } from './articleTextService';
+import { ItemEligibilityLedger } from './itemEligibilityLedger';
+import {
+  createStoryBundleEligibilityEnricher,
+  type StoryBundleEligibilityEnricher,
+} from './storyBundleEligibilityEnrichment';
 import {
   createNodeMeshClient,
   readNewsIngestionLease,
@@ -51,6 +57,9 @@ export interface NewsAggregatorDaemonConfig {
   writeBundle?: (client: VennClient, bundle: unknown) => Promise<unknown>;
   removeBundle?: (client: VennClient, storyId: string) => Promise<unknown>;
   enrichmentWorker?: EnrichmentWorker;
+  storyBundleEnricher?: StoryBundleEligibilityEnricher;
+  articleTextService?: Pick<ArticleTextService, 'extract'>;
+  itemEligibilityLedger?: ItemEligibilityLedger;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -82,6 +91,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
   const queue = createAsyncEnrichmentQueue(config.enrichmentWorker ?? (() => undefined), logger);
+  const itemEligibilityLedger = config.itemEligibilityLedger ?? new ItemEligibilityLedger();
+  const storyBundleEnricher = config.storyBundleEnricher ?? createStoryBundleEligibilityEnricher({
+    itemEligibilityLedger,
+    articleTextService: config.articleTextService ?? new ArticleTextService({ itemEligibilityLedger }),
+    logger,
+  });
   const clusterCaptureRecorder = createDaemonFeedClusterCaptureRecorder(
     readEnvVar('VH_DAEMON_FEED_RUN_ID'),
   );
@@ -119,6 +134,10 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       topicMapping: config.topicMapping,
       gunClient: config.client,
       pollIntervalMs: config.pollIntervalMs,
+      prepareStoryBundle: async (bundle) => {
+        await leaseGuard.assertHeld(nowFn());
+        return storyBundleEnricher(bundle);
+      },
       writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
         await leaseGuard.assertHeld(nowFn());
         return writeBundle(runtimeClient as VennClient, bundle);

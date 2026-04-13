@@ -266,15 +266,7 @@ describe('newsCardAnalysis', () => {
     expect(analysisInputs[0]).toContain('ARTICLE BODY 2');
     expect(result.summary).toContain('Publisher Two: Only fetched article text is analyzed.');
     expect(result.summary).not.toContain('Publisher One');
-    expect(result.relatedLinks).toEqual([
-      {
-        source_id: 'source-1',
-        publisher: 'Publisher One',
-        url: 'https://example.com/1',
-        url_hash: 'hash-1',
-        title: 'Transit overhaul clears first hurdle',
-      },
-    ]);
+    expect(result.relatedLinks).toEqual([]);
   });
 
   it('does not run source analysis when article-text fetching is disabled', async () => {

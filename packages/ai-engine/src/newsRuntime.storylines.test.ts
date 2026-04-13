@@ -154,4 +154,27 @@ describe('newsRuntime storylines', () => {
 
     handle.stop();
   });
+
+  it('skips storylines whose prepared bundles are dropped before publish', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY], [STORYLINE]));
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const writeStorylineGroup = vi.fn().mockResolvedValue(undefined);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      prepareStoryBundle: async () => null,
+      writeStoryBundle,
+      writeStorylineGroup,
+      runOnStart: true,
+      pollIntervalMs: 10,
+    });
+
+    await flushTasks();
+
+    expect(writeStorylineGroup).not.toHaveBeenCalled();
+    expect(writeStoryBundle).not.toHaveBeenCalled();
+
+    handle.stop();
+  });
 });

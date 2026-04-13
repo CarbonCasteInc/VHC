@@ -346,6 +346,68 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('prepares story bundles through the daemon publish enricher before mesh writes', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+
+    const heldLease = makeLease();
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(heldLease);
+    const writeLease = vi.fn(async () => heldLease);
+    const writeBundle = vi.fn().mockResolvedValue(undefined);
+    const storyBundleEnricher = vi.fn(async (bundle: any) => ({
+      ...bundle,
+      related_links: [
+        {
+          source_id: 'source-related',
+          publisher: 'Related Publisher',
+          url: 'https://example.com/related',
+          url_hash: 'related-hash',
+          title: 'Related link',
+        },
+      ],
+    }));
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-enrich' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      writeBundle,
+      storyBundleEnricher,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    const preparedBundle = await runtimeConfig.prepareStoryBundle?.({
+      story_id: 'story-1',
+      sources: [],
+    } as any);
+    await runtimeConfig.writeStoryBundle?.({ id: 'client-enrich' }, preparedBundle as any);
+
+    expect(storyBundleEnricher).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-1' }));
+    expect(writeBundle).toHaveBeenCalledWith(
+      { id: 'client-enrich' },
+      expect.objectContaining({
+        related_links: [
+          expect.objectContaining({
+            source_id: 'source-related',
+          }),
+        ],
+      }),
+    );
+
+    await daemon.stop();
+  });
+
   it('renews lease on heartbeat ticks while running', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();
