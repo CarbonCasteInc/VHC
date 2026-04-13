@@ -25,6 +25,7 @@ import {
   assessItemEligibilityFromResult,
   type ItemEligibilityState,
 } from './itemEligibilityPolicy';
+import { ItemEligibilityLedger } from './itemEligibilityLedger';
 
 const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
@@ -134,6 +135,7 @@ export interface SourceAdmissionReport {
 export interface SourceAdmissionAuditOptions {
   readonly feedSources?: readonly FeedSource[];
   readonly evaluationMode?: SourceAdmissionEvaluationMode;
+  readonly itemEligibilityLedger?: ItemEligibilityLedger;
   readonly sampleSize?: number;
   readonly minimumSuccessCount?: number;
   readonly minimumSuccessRate?: number;
@@ -910,6 +912,9 @@ export async function auditFeedSourceAdmission(
     fetchFn,
     lifecycle,
     now,
+    itemEligibilityLedger:
+      options.itemEligibilityLedger
+      ?? options.articleTextServiceOptions?.itemEligibilityLedger,
   });
 
   const feedReadResult = await readFeedXml(fetchFn, source, {

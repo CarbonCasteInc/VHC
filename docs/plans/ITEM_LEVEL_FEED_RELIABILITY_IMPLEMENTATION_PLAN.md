@@ -5,6 +5,12 @@
 > Branch: `coord/item-reliability-plan`
 > Scope: define the system rule for source reliability and item eligibility without conflating soak evaluation with the product admission contract
 
+Implementation note:
+
+1. The current implementation sequence lands the eligibility ledger and the analysis/publish boundary first.
+2. The `related_links` data-model and UI rendering work remains a later follow-on slice.
+3. Until that follow-on lands, `link_only` items must stay out of analysis and framing outputs but are not yet rendered in a dedicated bottom-of-card surface.
+
 ## Goal
 
 Make this an enforced system rule:

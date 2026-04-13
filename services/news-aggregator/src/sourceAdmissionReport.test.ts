@@ -11,6 +11,7 @@ import {
   writeSourceAdmissionArtifact,
 } from './sourceAdmissionReport';
 import type { SourceAdmissionCriteria } from './sourceAdmissionReport';
+import { ItemEligibilityLedger } from './itemEligibilityLedger';
 
 function makeResponse(status: number, body: string) {
   return new Response(body, { status });
@@ -537,6 +538,45 @@ describe('sourceAdmissionReport', () => {
     expect(report.reasons).toEqual(['provisional_thin_feed_keep']);
     expect(report.sampleLinkCount).toBe(3);
     expect(report.readableSampleCount).toBe(3);
+  });
+
+  it('persists sampled article eligibility to a provided ledger', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const ledger = new ItemEligibilityLedger({ now: () => 123 });
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `<rss><channel>
+             <item><link>https://www.foxnews.com/a</link></item>
+           </channel></rss>`,
+        );
+      }
+      return makeResponse(200, makeReadableHtml('Readable'));
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      fetchFn,
+      sampleSize: 1,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 1,
+      itemEligibilityLedger: ledger,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'Readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    await expect(ledger.readByUrl('https://www.foxnews.com/a')).resolves.toMatchObject({
+      state: 'analysis_eligible',
+      reason: 'analysis_eligible',
+      observationCount: 1,
+    });
   });
 
   it('does not count skipped video links against source readability samples', async () => {
