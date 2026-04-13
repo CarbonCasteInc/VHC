@@ -122,15 +122,6 @@ export const STARTER_FEED_SOURCES: readonly FeedSource[] = Object.freeze([
   }),
   // International wire (3)
   FeedSourceSchema.parse({
-    id: 'bbc-general',
-    name: 'BBC News',
-    displayName: 'BBC News',
-    rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml',
-    perspectiveTag: 'international-wire',
-    iconKey: 'bbc',
-    enabled: true,
-  }),
-  FeedSourceSchema.parse({
     id: 'bbc-us-canada',
     name: 'BBC US & Canada',
     displayName: 'BBC',

@@ -195,6 +195,39 @@ describe('sourceHealthReport', () => {
     expect(decision.unstableLifecycleDomains).toEqual([]);
   });
 
+  it('keeps admitted sources when retrying fully recovered before the final sample', () => {
+    const source = makeAdmissionSource({
+      sourceId: 'fedsmith-news',
+      lifecycle: [
+        {
+          sourceDomain: 'www.fedsmith.com',
+          status: 'healthy',
+          totalAttempts: 5,
+          totalSuccesses: 4,
+          totalFailures: 0,
+          consecutiveFailures: 0,
+          retryCount: 1,
+          lastAttemptAt: 5,
+          lastSuccessAt: 5,
+          lastFailureAt: null,
+          lastRetryAt: 4,
+          nextRetryAt: null,
+          lastBackoffMs: null,
+          lastErrorMessage: null,
+        },
+      ],
+    });
+
+    const decision = sourceHealthReportInternal.buildDecision(
+      source,
+      buildSourceHealthThresholds(),
+    );
+
+    expect(decision.decision).toBe('keep');
+    expect(decision.reasons).toEqual([]);
+    expect(decision.unstableLifecycleDomains).toEqual([]);
+  });
+
   it('marks rejected non-feed-outage sources for removal', () => {
     const source = makeAdmissionSource({
       sourceId: 'cbs-politics',
@@ -216,7 +249,7 @@ describe('sourceHealthReport', () => {
 
   it('keeps feed-link outages on the manual-review watchlist', () => {
     const source = makeAdmissionSource({
-      sourceId: 'bbc-general',
+      sourceId: 'bbc-us-canada',
       status: 'inconclusive',
       admitted: false,
       sampleLinkCount: 0,

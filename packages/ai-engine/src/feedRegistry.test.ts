@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(29);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(28);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -42,7 +42,7 @@ describe('feedRegistry', () => {
       const wire = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'international-wire',
       );
-      expect(wire.length).toBeGreaterThanOrEqual(6);
+      expect(wire.length).toBeGreaterThanOrEqual(5);
     });
 
     it('includes the highest-confidence statehouse and specialist additions', () => {
@@ -261,9 +261,9 @@ describe('feedRegistry', () => {
     });
 
     it('returns metadata for international-wire source', () => {
-      const meta = getSourceMetadata('bbc-general');
+      const meta = getSourceMetadata('bbc-us-canada');
       expect(meta).toEqual({
-        displayName: 'BBC News',
+        displayName: 'BBC',
         perspectiveTag: 'international-wire',
         iconKey: 'bbc',
       });
