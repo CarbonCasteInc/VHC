@@ -116,6 +116,17 @@ export type {
 } from './removalLedger';
 
 export {
+  InMemoryItemEligibilityLedgerStore,
+  ItemEligibilityLedger,
+  itemEligibilityLedgerPath,
+} from './itemEligibilityLedger';
+export type {
+  ItemEligibilityLedgerEntry,
+  ItemEligibilityLedgerOptions,
+  ItemEligibilityLedgerStore,
+} from './itemEligibilityLedger';
+
+export {
   assessItemEligibilityFromError,
   assessItemEligibilityFromResult,
 } from './itemEligibilityPolicy';
