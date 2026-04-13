@@ -116,6 +116,16 @@ export type {
 } from './removalLedger';
 
 export {
+  assessItemEligibilityFromError,
+  assessItemEligibilityFromResult,
+} from './itemEligibilityPolicy';
+export type {
+  ItemEligibilityAssessment,
+  ItemEligibilityReason,
+  ItemEligibilityState,
+} from './itemEligibilityPolicy';
+
+export {
   STARTER_FEED_URLS,
   STARTER_SOURCE_DOMAINS,
   buildSourceDomainAllowlist,
@@ -137,6 +147,7 @@ export type {
   SourceAdmissionArtifactOptions,
   SourceAdmissionAuditOptions,
   SourceAdmissionCriteria,
+  SourceAdmissionEvaluationMode,
   SourceAdmissionReport,
   SourceAdmissionSampleResult,
   SourceAdmissionSourceReport,

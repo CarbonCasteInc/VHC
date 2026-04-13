@@ -176,6 +176,20 @@ describe('sourceAdmissionReport', () => {
     delete process.env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_RATE;
   });
 
+  it('uses soak-mode defaults without rewriting product-mode defaults', () => {
+    expect(sourceAdmissionReportInternal.buildCriteria({}, 'product')).toEqual({
+      sampleSize: 4,
+      minimumSuccessCount: 2,
+      minimumSuccessRate: 0.75,
+    });
+
+    expect(sourceAdmissionReportInternal.buildCriteria({ evaluationMode: 'soak' }, 'soak')).toEqual({
+      sampleSize: 8,
+      minimumSuccessCount: 4,
+      minimumSuccessRate: 0.5,
+    });
+  });
+
   it('resolves configured feed sources from env JSON and file overrides', () => {
     vi.stubEnv(
       'VH_NEWS_SOURCE_ADMISSION_SOURCES_JSON',
@@ -394,6 +408,137 @@ describe('sourceAdmissionReport', () => {
     expect(report.skippedVideoUrls).toEqual([]);
   });
 
+  it('admits a source in soak mode when 4 of 8 article candidates are analysis eligible', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const readableUrls = new Set([
+      'https://www.foxnews.com/a',
+      'https://www.foxnews.com/b',
+      'https://www.foxnews.com/c',
+      'https://www.foxnews.com/d',
+    ]);
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `<rss><channel>
+             <item><link>https://www.foxnews.com/a</link></item>
+             <item><link>https://www.foxnews.com/b</link></item>
+             <item><link>https://www.foxnews.com/c</link></item>
+             <item><link>https://www.foxnews.com/d</link></item>
+             <item><link>https://www.foxnews.com/e</link></item>
+             <item><link>https://www.foxnews.com/f</link></item>
+             <item><link>https://www.foxnews.com/g</link></item>
+             <item><link>https://www.foxnews.com/h</link></item>
+           </channel></rss>`,
+        );
+      }
+      return makeResponse(200, makeReadableHtml(`Readable ${url}`));
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      evaluationMode: 'soak',
+      fetchFn,
+      articleTextServiceOptions: {
+        primaryExtractor: async (url) => (
+          readableUrls.has(url)
+            ? { title: 'Readable', text: makeReadableText() }
+            : { title: 'Too short', text: 'short text' }
+        ),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.evaluationMode).toBe('soak');
+    expect(report.status).toBe('admitted');
+    expect(report.sampleLinkCount).toBe(8);
+    expect(report.readableSampleCount).toBe(4);
+    expect(report.readableSampleRate).toBe(0.5);
+    expect(report.samples.filter((sample) => sample.eligibilityState === 'analysis_eligible')).toHaveLength(4);
+    expect(report.samples.filter((sample) => sample.eligibilityState === 'link_only')).toHaveLength(4);
+  });
+
+  it('rejects a source in soak mode when only 3 of 8 article candidates are analysis eligible', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const readableUrls = new Set([
+      'https://www.foxnews.com/a',
+      'https://www.foxnews.com/b',
+      'https://www.foxnews.com/c',
+    ]);
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `<rss><channel>
+             <item><link>https://www.foxnews.com/a</link></item>
+             <item><link>https://www.foxnews.com/b</link></item>
+             <item><link>https://www.foxnews.com/c</link></item>
+             <item><link>https://www.foxnews.com/d</link></item>
+             <item><link>https://www.foxnews.com/e</link></item>
+             <item><link>https://www.foxnews.com/f</link></item>
+             <item><link>https://www.foxnews.com/g</link></item>
+             <item><link>https://www.foxnews.com/h</link></item>
+           </channel></rss>`,
+        );
+      }
+      return makeResponse(200, makeReadableHtml(`Readable ${url}`));
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      evaluationMode: 'soak',
+      fetchFn,
+      articleTextServiceOptions: {
+        primaryExtractor: async (url) => (
+          readableUrls.has(url)
+            ? { title: 'Readable', text: makeReadableText() }
+            : { title: 'Too short', text: 'short text' }
+        ),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('rejected');
+    expect(report.readableSampleCount).toBe(3);
+    expect(report.readableSampleRate).toBe(0.375);
+  });
+
+  it('allows a 3/3 provisional thin-feed keep in soak mode', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const fetchFn = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        return makeResponse(
+          200,
+          `<rss><channel>
+             <item><link>https://www.foxnews.com/a</link></item>
+             <item><link>https://www.foxnews.com/b</link></item>
+             <item><link>https://www.foxnews.com/c</link></item>
+           </channel></rss>`,
+        );
+      }
+      return makeResponse(200, makeReadableHtml('Readable'));
+    }) as typeof fetch;
+
+    const report = await auditFeedSourceAdmission(source, {
+      evaluationMode: 'soak',
+      fetchFn,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'Readable',
+          text: makeReadableText(),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(report.status).toBe('admitted');
+    expect(report.provisionalKeepForSoak).toBe(true);
+    expect(report.reasons).toEqual(['provisional_thin_feed_keep']);
+    expect(report.sampleLinkCount).toBe(3);
+    expect(report.readableSampleCount).toBe(3);
+  });
+
   it('does not count skipped video links against source readability samples', async () => {
     const source = STARTER_FEED_SOURCES.find((entry) => entry.id === 'nbc-politics')!;
     const fetchFn = vi.fn(async (input: string | URL) => {
@@ -529,6 +674,7 @@ describe('sourceAdmissionReport', () => {
     expect(report.samples[0]).toMatchObject({
       outcome: 'failed',
       errorCode: 'access-denied',
+      eligibilityState: 'hard_blocked',
     });
   });
 
@@ -882,6 +1028,7 @@ describe('sourceAdmissionReport', () => {
 
     const report = sourceAdmissionReportInternal.classifySource(
       source,
+      'product',
       criteria,
       {
         ok: true,
@@ -925,6 +1072,7 @@ describe('sourceAdmissionReport', () => {
       outcome: 'failed',
       errorCode: 'unexpected-error',
       errorMessage: 'extractor exploded',
+      eligibilityState: 'link_only',
     });
 
     expect(
@@ -936,6 +1084,7 @@ describe('sourceAdmissionReport', () => {
       outcome: 'failed',
       errorCode: 'unexpected-error',
       errorMessage: 'Unexpected source admission failure',
+      eligibilityState: 'link_only',
     });
   });
 
@@ -949,6 +1098,7 @@ describe('sourceAdmissionReport', () => {
 
     const report = sourceAdmissionReportInternal.classifySource(
       source,
+      'product',
       criteria,
       {
         ok: true,
@@ -1057,6 +1207,9 @@ describe('sourceAdmissionReport', () => {
     expect(reportPath).toBe(path.join(artifactDir, 'source-admission-report.json'));
     expect(report.schemaVersion).toBe(SOURCE_ADMISSION_REPORT_SCHEMA_VERSION);
     expect(readFileSync(reportPath, 'utf8')).toContain('"admittedSourceIds"');
+    expect(readFileSync(path.join(artifactDir, 'analysis-eligible-links.json'), 'utf8')).toContain('analysis_eligible');
+    expect(readFileSync(path.join(artifactDir, 'link-only-links.json'), 'utf8')).toBe('[]\n');
+    expect(readFileSync(path.join(artifactDir, 'hard-blocked-links.json'), 'utf8')).toBe('[]\n');
 
     rmSync(artifactDir, { recursive: true, force: true });
   });
