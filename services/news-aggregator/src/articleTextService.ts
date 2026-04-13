@@ -179,7 +179,7 @@ export class ArticleTextService {
 
     const directHit = this.cache.get(hashedUrl);
     if (directHit?.entry.kind === 'success') {
-      return { ...directHit.entry.value, cacheHit: 'urlHash', attempts: 0 };
+      return { ...directHit.entry.value, cacheHit: 'urlHash', attempts: 0 } satisfies ArticleTextResult;
     }
 
     if (directHit?.entry.kind === 'failure') {
@@ -200,7 +200,7 @@ export class ArticleTextService {
         if (contentHit?.entry.kind === 'success') {
           this.cache.linkUrlToContent(hashedUrl, contentHash);
           this.lifecycle.recordSuccess(domain);
-          const result = {
+          const result: ArticleTextResult = {
             ...contentHit.entry.value,
             url: canonicalUrl,
             urlHash: hashedUrl,
@@ -228,7 +228,7 @@ export class ArticleTextService {
         this.cache.rememberSuccess(success);
         this.lifecycle.recordSuccess(domain);
 
-        const result = {
+        const result: ArticleTextResult = {
           ...success,
           cacheHit: 'none',
           attempts: attempt,

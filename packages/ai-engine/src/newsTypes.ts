@@ -102,6 +102,7 @@ export const StoryBundleSchema = z
     sources: z.array(StoryBundleSourceSchema).min(1),
     primary_sources: z.array(StoryBundleSourceSchema).min(1).optional(),
     secondary_assets: z.array(StoryBundleSourceSchema).optional(),
+    related_links: z.array(StoryBundleSourceSchema).optional(),
     cluster_features: z
       .object({
         entity_keys: z.array(z.string().min(1)).min(1),

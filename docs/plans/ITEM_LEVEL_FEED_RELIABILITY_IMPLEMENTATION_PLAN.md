@@ -7,9 +7,9 @@
 
 Implementation note:
 
-1. The current implementation sequence lands the eligibility ledger and the analysis/publish boundary first.
-2. The `related_links` data-model and UI rendering work remains a later follow-on slice.
-3. Until that follow-on lands, `link_only` items must stay out of analysis and framing outputs but are not yet rendered in a dedicated bottom-of-card surface.
+1. The current implementation sequence lands the eligibility ledger and the analysis boundary first.
+2. `related_links` is now implemented as a data-model field plus a UI/runtime sidecar surfaced from article-text failures.
+3. Publish-time bundle enrichment from the eligibility ledger is still a follow-on slice; until that lands, runtime-discovered `related_links` are display-only and must not widen canonical analyzed-source semantics.
 
 ## Goal
 

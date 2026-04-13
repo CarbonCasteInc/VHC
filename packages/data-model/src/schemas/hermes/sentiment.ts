@@ -27,6 +27,16 @@ export const StoryAnalysisSourceSchema = z
   })
   .strict();
 
+export const StoryAnalysisRelatedLinkSchema = z
+  .object({
+    source_id: NonEmptyString,
+    publisher: NonEmptyString,
+    url: z.string().url(),
+    url_hash: NonEmptyString,
+    title: NonEmptyString,
+  })
+  .strict();
+
 export const StoryAnalysisProviderSchema = z
   .object({
     provider_id: NonEmptyString,
@@ -51,6 +61,7 @@ export const StoryAnalysisArtifactSchema = z
     summary: NonEmptyString,
     frames: z.array(StoryAnalysisFrameSchema),
     analyses: z.array(StoryAnalysisSourceSchema),
+    relatedLinks: z.array(StoryAnalysisRelatedLinkSchema).optional(),
     provider: StoryAnalysisProviderSchema,
     created_at: NonEmptyString,
   })
@@ -156,6 +167,7 @@ export const PointAggregateSnapshotV1Schema = z
 
 export type StoryAnalysisFrame = z.infer<typeof StoryAnalysisFrameSchema>;
 export type StoryAnalysisSource = z.infer<typeof StoryAnalysisSourceSchema>;
+export type StoryAnalysisRelatedLink = z.infer<typeof StoryAnalysisRelatedLinkSchema>;
 export type StoryAnalysisProvider = z.infer<typeof StoryAnalysisProviderSchema>;
 export type StoryAnalysisArtifact = z.infer<typeof StoryAnalysisArtifactSchema>;
 export type StoryAnalysisLatestPointer = z.infer<typeof StoryAnalysisLatestPointerSchema>;

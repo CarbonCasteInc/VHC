@@ -90,6 +90,46 @@ export function resolveAnalysisProviderModel(
   return withProvider?.provider_id ?? null;
 }
 
+function resolveDisplaySources(
+  story: StoryBundle | null,
+): ReadonlyArray<StoryBundle['sources'][number]> {
+  if (!story) {
+    return [];
+  }
+
+  return story.primary_sources ?? story.sources;
+}
+
+function mergeRelatedLinks(
+  story: StoryBundle | null,
+  analysis: ReturnType<typeof useAnalysis>['analysis'],
+): ReadonlyArray<{
+  source_id: string;
+  publisher: string;
+  title: string;
+  url: string;
+}> {
+  const entries = [
+    ...(story?.related_links ?? []),
+    ...(analysis?.relatedLinks ?? []),
+  ];
+  const deduped = new Map<string, {
+    source_id: string;
+    publisher: string;
+    title: string;
+    url: string;
+  }>();
+
+  for (const entry of entries) {
+    const key = `${entry.source_id}|${entry.url}`;
+    if (!deduped.has(key)) {
+      deduped.set(key, entry);
+    }
+  }
+
+  return [...deduped.values()];
+}
+
 export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const stories = useStore(useNewsStore, (state) => state.stories);
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
@@ -127,6 +167,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const singletonVideoSource = useMemo(
     () => resolveSingletonVideoSource(analysisStory),
     [analysisStory],
+  );
+  const displaySources = useMemo(
+    () => resolveDisplaySources(story),
+    [story],
   );
   const {
     analysis,
@@ -173,6 +217,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     analysisPipelineEnabled && analysisStatus === 'success' && analysis
       ? analysis.analyses.filter((e) => e.summary.trim().length > 0)
       : [];
+  const relatedLinks = useMemo(
+    () => mergeRelatedLinks(story, analysis),
+    [story, analysis],
+  );
   const frontRegionId = `news-card-front-${item.topic_id}`;
   const backRegionId = `news-card-back-region-${item.topic_id}`;
 
@@ -301,9 +349,9 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
             >
               {item.title}
             </button>
-            {story && story.sources.length > 0 && (
+            {displaySources.length > 0 && (
               <SourceBadgeRow
-                sources={story.sources.map((source) => ({
+                sources={displaySources.map((source) => ({
                   source_id: source.source_id,
                   publisher: source.publisher,
                   url: source.url,
@@ -348,6 +396,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
                 analysisProvider={analysisProvider}
                 perSourceSummaries={perSourceSummaries}
                 relatedCoverage={storyline?.related_coverage ?? []}
+                relatedLinks={relatedLinks}
                 storylineHeadline={storylineHeadline}
                 storylineStoryCount={storylineStoryCount}
                 analysisFeedbackStatus={analysisFeedbackStatus}

@@ -159,6 +159,7 @@ describe('newsCardAnalysis', () => {
     expect(result.summary).toContain('Publisher One: Publisher One says rollout should move fast.');
     expect(result.summary).toContain('Publisher Two: Publisher Two focuses on budget risk.');
     expect(result.summary).toContain('Publisher Three: Publisher Three emphasizes implementation details.');
+    expect(result.relatedLinks).toEqual([]);
 
     expect(result.frames).toEqual([
       {
@@ -265,6 +266,15 @@ describe('newsCardAnalysis', () => {
     expect(analysisInputs[0]).toContain('ARTICLE BODY 2');
     expect(result.summary).toContain('Publisher Two: Only fetched article text is analyzed.');
     expect(result.summary).not.toContain('Publisher One');
+    expect(result.relatedLinks).toEqual([
+      {
+        source_id: 'source-1',
+        publisher: 'Publisher One',
+        url: 'https://example.com/1',
+        url_hash: 'hash-1',
+        title: 'Transit overhaul clears first hurdle',
+      },
+    ]);
   });
 
   it('does not run source analysis when article-text fetching is disabled', async () => {

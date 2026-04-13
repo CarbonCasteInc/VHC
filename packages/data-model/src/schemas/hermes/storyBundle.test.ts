@@ -62,6 +62,7 @@ const validStoryBundle = {
   sources: [validBundleSource],
   primary_sources: [validBundleSource],
   secondary_assets: [{ ...validBundleSource, source_id: 'src-video', title: 'Video: markets rise' }],
+  related_links: [{ ...validBundleSource, source_id: 'src-related', title: 'Related: markets reaction' }],
   cluster_features: validClusterFeatures,
   provenance_hash: 'prov-hash-xyz',
   created_at: 1700003600001,
