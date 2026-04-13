@@ -163,6 +163,14 @@ function resolveConsumerSmokeBaseUrl(
     };
   }
 
+  if (env.VH_DAEMON_FEED_CONSUMER_SMOKE_STATIC_ONLY === 'true') {
+    return {
+      mode: 'static-artifact',
+      baseUrl: null,
+      statePath: stackState?.statePath || null,
+    };
+  }
+
   return {
     mode: 'ephemeral',
     baseUrl: null,
@@ -172,6 +180,14 @@ function resolveConsumerSmokeBaseUrl(
 
 function shouldHydrateFixtureInBrowser(mode) {
   return mode === 'ephemeral';
+}
+
+function resolveConsumerSmokeStaticBuildPath(repoRoot, env = process.env) {
+  const explicit = env.VH_DAEMON_FEED_CONSUMER_SMOKE_STATIC_BUILD_PATH?.trim();
+  if (explicit) {
+    return explicit;
+  }
+  return path.join(repoRoot, 'apps', 'web-pwa', 'dist', 'index.html');
 }
 
 function resolveConsumerSmokeValidationMode(env = process.env) {
@@ -227,13 +243,15 @@ export async function runDaemonFeedConsumerSmoke({
   });
   const validationMode = resolveConsumerSmokeValidationMode(env);
   const requireSharedStack = resolveConsumerSmokeRequireSharedStack(env);
+  const staticBuildPath = resolveConsumerSmokeStaticBuildPath(repoRoot, env);
   const feedSourcesJson = baseUrlResolution.mode === 'ephemeral'
     ? await loadStarterFeedSourcesJson(repoRoot)
     : null;
   const port = baseUrlResolution.mode === 'ephemeral'
     ? await findAvailablePort()
     : null;
-  const baseUrl = baseUrlResolution.baseUrl || `http://127.0.0.1:${port}/`;
+  const baseUrl = baseUrlResolution.baseUrl
+    ?? (baseUrlResolution.mode === 'ephemeral' ? `http://127.0.0.1:${port}/` : null);
   const browserLogs = [];
   let browser = null;
   let context = null;
@@ -241,7 +259,7 @@ export async function runDaemonFeedConsumerSmoke({
   let summary;
 
   try {
-    if (requireSharedStack && baseUrlResolution.mode !== 'automation-stack') {
+    if (requireSharedStack && !['automation-stack', 'static-artifact'].includes(baseUrlResolution.mode)) {
       throw new Error('consumer-smoke-shared-stack-required');
     }
     writeFile(serverLogPath, '', 'utf8');
@@ -271,7 +289,7 @@ export async function runDaemonFeedConsumerSmoke({
     } else {
       writeFile(
         serverLogPath,
-        `[vh:consumer-smoke] using ${baseUrlResolution.mode} web host ${baseUrl} state=${baseUrlResolution.statePath ?? 'n/a'}\n`,
+        `[vh:consumer-smoke] using ${baseUrlResolution.mode} web host ${baseUrl ?? 'static-build'} state=${baseUrlResolution.statePath ?? 'n/a'}\n`,
         'utf8',
       );
     }
@@ -285,16 +303,25 @@ export async function runDaemonFeedConsumerSmoke({
     let storyExpansionChecked = false;
 
     if (validationMode === 'http-contract') {
-      const response = await fetchImpl(baseUrl, { signal: AbortSignal.timeout(10_000) });
-      if (!response.ok) {
-        throw new Error(`consumer-smoke-web-http-${response.status}`);
-      }
-      const html = await response.text();
+      const html = baseUrlResolution.mode === 'static-artifact'
+        ? (() => {
+          if (!exists(staticBuildPath)) {
+            throw new Error(`consumer-smoke-static-build-missing:${staticBuildPath}`);
+          }
+          return readFile(staticBuildPath, 'utf8');
+        })()
+        : await (async () => {
+          const response = await fetchImpl(baseUrl, { signal: AbortSignal.timeout(10_000) });
+          if (!response.ok) {
+            throw new Error(`consumer-smoke-web-http-${response.status}`);
+          }
+          return response.text();
+        })();
       if (!html.includes('id="root"') && !html.includes("id='root'")) {
         throw new Error('consumer-smoke-root-missing');
       }
 
-      if (stackState?.snapshotUrl) {
+      if (baseUrlResolution.mode === 'automation-stack' && stackState?.snapshotUrl) {
         const snapshotResponse = await fetchImpl(stackState.snapshotUrl, { signal: AbortSignal.timeout(10_000) });
         if (!snapshotResponse.ok) {
           throw new Error(`consumer-smoke-snapshot-http-${snapshotResponse.status}`);
@@ -478,6 +505,7 @@ async function main() {
 export const consumerSmokeInternal = {
   resolveConsumerSmokeBaseUrl,
   resolveConsumerSmokeRequireSharedStack,
+  resolveConsumerSmokeStaticBuildPath,
   resolveConsumerSmokeValidationMode,
   shouldHydrateFixtureInBrowser,
 };

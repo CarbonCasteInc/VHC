@@ -113,9 +113,27 @@ export function classifyPublisherCanaryOutcome({
   waitOutcome,
   storyCount,
   errorMessage,
+  sourceHealthSummary,
+  sourceHealthReport,
 }) {
   if (typeof errorMessage === 'string' && errorMessage.length > 0) {
     return 'startup_failure';
+  }
+  const globalFeedStageFailure =
+    sourceHealthReport?.runAssessment?.globalFeedStageFailure === true
+    || sourceHealthReport?.globalFeedStageFailure === true
+    || sourceHealthReport?.observability?.reasonCounts?.feed_fetch_error > 0
+    || sourceHealthReport?.observability?.reasonCounts?.feed_links_unavailable > 0
+    || sourceHealthSummary?.runAssessment?.globalFeedStageFailure === true
+    || sourceHealthSummary?.globalFeedStageFailure === true;
+  const latestPublicationAction =
+    sourceHealthReport?.runAssessment?.latestPublicationAction
+    ?? sourceHealthReport?.latestPublicationAction
+    ?? sourceHealthSummary?.runAssessment?.latestPublicationAction
+    ?? sourceHealthSummary?.latestPublicationAction
+    ?? null;
+  if (globalFeedStageFailure || latestPublicationAction === 'preserve_previous_latest') {
+    return 'feed_stage_outage';
   }
   if (waitOutcome === 'timeout') {
     return 'runtime_timeout';
