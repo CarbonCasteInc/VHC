@@ -37,6 +37,10 @@ function resolvePublisherCanaryRequireSharedStack(env = process.env) {
   return env.VH_DAEMON_FEED_REQUIRE_SHARED_STACK === 'true';
 }
 
+function resolvePublisherCanaryInProcessStoryCluster(env = process.env) {
+  return env.VH_DAEMON_FEED_IN_PROCESS_STORYCLUSTER === 'true';
+}
+
 function resolvePublisherCanaryMaxItemsTotal(env = process.env) {
   const configured = env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL?.trim();
   if (configured) {
@@ -204,6 +208,16 @@ function resolvePublisherCanaryRemoteConfig(
     };
   }
 
+  if (resolvePublisherCanaryInProcessStoryCluster(env)) {
+    return {
+      mode: 'in-process',
+      clusterEndpoint: 'in-process://storycluster/cluster',
+      readyUrl: 'in-process://storycluster/ready',
+      authToken: explicitAuthToken || null,
+      statePath: stackState?.statePath || null,
+    };
+  }
+
   return {
     mode: 'ephemeral',
     clusterEndpoint: null,
@@ -223,6 +237,7 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
     nodeMeshClient,
     storyclusterServer,
     storyclusterOpenAI,
+    storyclusterRemoteContract,
     vectorBackend,
     clusterStore,
   ] = await Promise.all([
@@ -231,6 +246,7 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
     load('packages/gun-client/dist/index.js'),
     load('services/storycluster-engine/dist/server.js'),
     load('services/storycluster-engine/dist/openaiProvider.js'),
+    load('services/storycluster-engine/dist/remoteContract.js'),
     load('services/storycluster-engine/dist/vectorBackend.js'),
     load('services/storycluster-engine/dist/clusterStore.js'),
   ]);
@@ -243,8 +259,81 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
     startStoryClusterServer: storyclusterServer.startStoryClusterServer,
     resolveOpenAIStoryClusterProviderProvenanceFromEnv:
       storyclusterOpenAI.resolveOpenAIStoryClusterProviderProvenanceFromEnv,
+    runStoryClusterRemoteContract: storyclusterRemoteContract.runStoryClusterRemoteContract,
     MemoryVectorBackend: vectorBackend.MemoryVectorBackend,
     FileClusterStore: clusterStore.FileClusterStore,
+  };
+}
+
+function createInProcessStoryClusterEngine({
+  modules,
+  artifactDir,
+  log = console.info,
+}) {
+  const storyclusterStoreDir = path.join(artifactDir, 'storycluster-state');
+  mkdirSync(storyclusterStoreDir, { recursive: true });
+  const vectorBackend = new modules.MemoryVectorBackend();
+  const store = new modules.FileClusterStore(storyclusterStoreDir);
+
+  return {
+    engineId: 'storycluster-in-process-engine',
+    async clusterBatch(input) {
+      const result = await this.clusterStoryBatch(input);
+      return result.bundles;
+    },
+    async clusterStoryBatch(input) {
+      const startedAt = Date.now();
+      log('[vh:storycluster-remote] request_started', {
+        endpoint_url: 'in-process://storycluster/cluster',
+        topic_id: input.topicId,
+        item_count: Array.isArray(input.items) ? input.items.length : 0,
+        timeout_ms: null,
+      });
+      try {
+        const result = await modules.runStoryClusterRemoteContract({
+          topic_id: input.topicId,
+          items: (Array.isArray(input.items) ? input.items : []).map((item) => ({
+            sourceId: item.sourceId,
+            publisher: item.publisher,
+            url: item.url,
+            canonicalUrl: item.canonicalUrl,
+            title: item.title,
+            publishedAt: item.publishedAt,
+            summary: item.summary,
+            url_hash: item.url_hash,
+            image_hash: item.image_hash,
+            language: item.language,
+            translation_applied: item.translation_applied,
+            entity_keys: item.entity_keys,
+            cluster_text: item.cluster_text,
+          })),
+        }, {
+          store,
+          vectorBackend,
+        });
+        log('[vh:storycluster-remote] request_completed', {
+          endpoint_url: 'in-process://storycluster/cluster',
+          topic_id: input.topicId,
+          item_count: Array.isArray(input.items) ? input.items.length : 0,
+          bundle_count: result.bundles.length,
+          storyline_count: Array.isArray(result.storylines) ? result.storylines.length : 0,
+          duration_ms: Math.max(0, Date.now() - startedAt),
+        });
+        return {
+          bundles: result.bundles,
+          storylines: result.storylines ?? [],
+        };
+      } catch (error) {
+        log('[vh:storycluster-remote] request_failed', {
+          endpoint_url: 'in-process://storycluster/cluster',
+          topic_id: input.topicId,
+          item_count: Array.isArray(input.items) ? input.items.length : 0,
+          duration_ms: Math.max(0, Date.now() - startedAt),
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
+    },
   };
 }
 
@@ -403,6 +492,10 @@ export async function runDaemonFeedPublisherCanary({
   let server = null;
   let client = null;
   let daemon = null;
+  let inProcessClusterEngine = null;
+  let sourceHealthSummary = null;
+  let sourceHealthReport = null;
+  let sourceHealthOutcome = null;
   const publishedStore = buildPublishedStoreCapture();
   let storyclusterOpenAIProvenance = {
     providerId: 'openai-storycluster',
@@ -429,13 +522,83 @@ export async function runDaemonFeedPublisherCanary({
       cwd: repoRoot,
       env,
     });
+    sourceHealthSummary = feedSourceResolution.sourceHealth.summary;
+    if (feedSourceResolution.sourceHealth.reportPath) {
+      try {
+        sourceHealthReport = readJson(feedSourceResolution.sourceHealth.reportPath, readFile);
+      } catch {
+        sourceHealthReport = null;
+      }
+    }
     const selectedFeedSources = selectFeedSources(feedSourceResolution.feedSources, sourceIds);
     if (selectedFeedSources.length === 0) {
       throw new Error('publisher-canary-source-selection-empty');
     }
 
-    if (requireSharedStack && remoteConfig.mode !== 'automation-stack') {
+    if (requireSharedStack && !['automation-stack', 'in-process'].includes(remoteConfig.mode)) {
       throw new Error('publisher-canary-shared-stack-required');
+    }
+
+    sourceHealthOutcome = classifyPublisherCanaryOutcome({
+      observed: {},
+      waitOutcome: null,
+      storyCount: 0,
+      errorMessage: null,
+      sourceHealthSummary,
+      sourceHealthReport,
+    });
+    if (sourceHealthOutcome === 'feed_stage_outage') {
+      summary = {
+        schemaVersion: 'daemon-feed-publisher-canary-summary-v1',
+        generatedAt: new Date().toISOString(),
+        runId,
+        commitSha: env.VH_GIT_COMMIT_SHA?.trim() || null,
+        sourceHealth: {
+          reportPath: feedSourceResolution.sourceHealth.reportPath,
+          reportSource: feedSourceResolution.sourceHealth.reportSource,
+          summary: sourceHealthSummary,
+        },
+        config: {
+          sourceIds,
+          selectedSourceIds: selectedFeedSources.map((source) => source.id),
+          maxItemsPerSource: Number.parseInt(maxItemsPerSource, 10),
+          maxItemsTotal: Number.parseInt(maxItemsTotal, 10),
+          leaseTtlMs,
+          relayUsed: false,
+          browserUsed: false,
+          vectorBackend: remoteConfig.mode === 'ephemeral' ? 'memory' : 'external',
+          remoteClusterMode: remoteConfig.mode,
+        },
+        observed: observePublisherCanaryEvents(captured.records),
+        artifactPaths: {
+          artifactDir,
+          summaryPath,
+          snapshotPath: null,
+          logsPath,
+          clusterCapturePath: null,
+        },
+        automationStack: remoteConfig.mode === 'automation-stack'
+          ? {
+            statePath: remoteConfig.statePath,
+            clusterEndpoint: remoteConfig.clusterEndpoint,
+            readyUrl: remoteConfig.readyUrl,
+          }
+          : null,
+        openAIProvenance: {
+          storycluster: storyclusterOpenAIProvenance,
+        },
+        pass: false,
+        outcome: 'feed_stage_outage',
+        storyCount: 0,
+        storylineCount: 0,
+        latestIndexCount: 0,
+        hotIndexCount: 0,
+        auditableStoryCount: 0,
+        corroboratedBundleCount: 0,
+        uniqueSourceCount: 0,
+        uniqueSourceIds: [],
+      };
+      throw new Error('publisher-canary-feed_stage_outage');
     }
 
     let remoteClusterEndpoint = remoteConfig.clusterEndpoint;
@@ -458,18 +621,26 @@ export async function runDaemonFeedPublisherCanary({
       remoteClusterEndpoint = `http://127.0.0.1:${storyclusterPort}/cluster`;
       readyUrl = `http://127.0.0.1:${storyclusterPort}/ready`;
     }
+    if (remoteConfig.mode === 'in-process') {
+      inProcessClusterEngine = createInProcessStoryClusterEngine({
+        modules,
+        artifactDir,
+      });
+    }
     const remoteClusterHeaders = storyclusterToken
       ? {
         authorization: `Bearer ${storyclusterToken}`,
       }
       : undefined;
-    await waitForHealth(
-      readyUrl,
-      DEFAULT_SERVER_READY_TIMEOUT_MS,
-      fetchImpl,
-      sleepImpl,
-      remoteClusterHeaders,
-    );
+    if (remoteConfig.mode !== 'in-process') {
+      await waitForHealth(
+        readyUrl,
+        DEFAULT_SERVER_READY_TIMEOUT_MS,
+        fetchImpl,
+        sleepImpl,
+        remoteClusterHeaders,
+      );
+    }
 
     client = modules.createNodeMeshClient({
       peers: [],
@@ -500,9 +671,15 @@ export async function runDaemonFeedPublisherCanary({
       runtimeOrchestratorOptions: {
         productionMode: true,
         allowHeuristicFallback: false,
-        remoteClusterEndpoint,
-        remoteClusterTimeoutMs: timeoutMs,
-        remoteClusterHeaders,
+        ...(inProcessClusterEngine
+          ? {
+            clusterEngine: inProcessClusterEngine,
+          }
+          : {
+            remoteClusterEndpoint,
+            remoteClusterTimeoutMs: timeoutMs,
+            remoteClusterHeaders,
+          }),
       },
     });
 
@@ -575,36 +752,42 @@ export async function runDaemonFeedPublisherCanary({
         waitOutcome,
         storyCount: publishedSummary.storyCount,
         errorMessage: null,
+        sourceHealthSummary,
+        sourceHealthReport,
       }),
       ...publishedSummary,
     };
     summary.pass = summary.outcome === 'pass';
   } catch (error) {
-    const observed = observePublisherCanaryEvents(captured.records);
-    summary = {
-      schemaVersion: 'daemon-feed-publisher-canary-summary-v1',
-      generatedAt: new Date().toISOString(),
-      runId,
-      pass: false,
-      outcome: classifyPublisherCanaryOutcome({
-        observed,
-        waitOutcome: 'failed',
-        storyCount: 0,
+    if (!(sourceHealthOutcome === 'feed_stage_outage' && summary)) {
+      const observed = observePublisherCanaryEvents(captured.records);
+      summary = {
+        schemaVersion: 'daemon-feed-publisher-canary-summary-v1',
+        generatedAt: new Date().toISOString(),
+        runId,
+        pass: false,
+        outcome: classifyPublisherCanaryOutcome({
+          observed,
+          waitOutcome: 'failed',
+          storyCount: 0,
+          errorMessage: formatErrorMessage(error),
+          sourceHealthSummary,
+          sourceHealthReport,
+        }),
         errorMessage: formatErrorMessage(error),
-      }),
-      errorMessage: formatErrorMessage(error),
-      observed,
-      openAIProvenance: {
-        storycluster: storyclusterOpenAIProvenance,
-      },
-      artifactPaths: {
-        artifactDir,
-        summaryPath,
-        snapshotPath: exists(snapshotPath) ? snapshotPath : null,
-        logsPath,
-        clusterCapturePath: null,
-      },
-    };
+        observed,
+        openAIProvenance: {
+          storycluster: storyclusterOpenAIProvenance,
+        },
+        artifactPaths: {
+          artifactDir,
+          summaryPath,
+          snapshotPath: exists(snapshotPath) ? snapshotPath : null,
+          logsPath,
+          clusterCapturePath: null,
+        },
+      };
+    }
   } finally {
     writeAtomicJson(logsPath, {
       schemaVersion: 'daemon-feed-publisher-canary-runtime-logs-v1',
@@ -654,6 +837,7 @@ async function main() {
 export const publisherCanaryInternal = {
   resolvePublisherCanaryMaxItemsTotal,
   resolvePublisherCanaryOpenAITimeoutMs,
+  resolvePublisherCanaryInProcessStoryCluster,
   resolvePublisherCanaryRequireSharedStack,
   resolvePublisherCanaryRemoteConfig,
 };

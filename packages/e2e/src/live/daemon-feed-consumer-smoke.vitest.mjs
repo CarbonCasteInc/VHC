@@ -32,10 +32,26 @@ describe('consumer smoke automation-stack integration', () => {
     });
   });
 
+  it('supports static artifact mode for http-contract automation runs', () => {
+    const resolved = consumerSmokeInternal.resolveConsumerSmokeBaseUrl('/repo', {
+      VH_DAEMON_FEED_CONSUMER_SMOKE_STATIC_ONLY: 'true',
+    }, {
+      exists: () => false,
+      readFile: () => '',
+    });
+
+    expect(resolved).toEqual({
+      mode: 'static-artifact',
+      baseUrl: null,
+      statePath: null,
+    });
+  });
+
   it('hydrates fixture data in-browser only for ephemeral mode', () => {
     expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('ephemeral')).toBe(true);
     expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('automation-stack')).toBe(false);
     expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('explicit')).toBe(false);
+    expect(consumerSmokeInternal.shouldHydrateFixtureInBrowser('static-artifact')).toBe(false);
   });
 
   it('defaults to browser validation mode', () => {
@@ -57,5 +73,10 @@ describe('consumer smoke automation-stack integration', () => {
         VH_DAEMON_FEED_REQUIRE_SHARED_STACK: 'true',
       }),
     ).toBe(true);
+  });
+
+  it('uses the built web-pwa index path for static artifact validation by default', () => {
+    expect(consumerSmokeInternal.resolveConsumerSmokeStaticBuildPath('/repo', {}))
+      .toBe('/repo/apps/web-pwa/dist/index.html');
   });
 });
