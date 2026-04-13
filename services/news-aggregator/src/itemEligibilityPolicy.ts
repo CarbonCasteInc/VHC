@@ -1,7 +1,3 @@
-import {
-  ArticleTextServiceError,
-  type ArticleTextResult,
-} from './articleTextService';
 import { canonicalizeUrl, urlHash } from './normalize';
 
 export type ItemEligibilityState =
@@ -29,6 +25,16 @@ export interface ItemEligibilityAssessment {
   readonly displayEligible: boolean;
 }
 
+interface ArticleTextResultLike {
+  readonly url: string;
+  readonly urlHash: string;
+}
+
+interface ArticleTextServiceErrorLike {
+  readonly code: string;
+  readonly retryable: boolean;
+}
+
 function normalizeUrl(inputUrl: string): {
   readonly url: string;
   readonly canonicalUrl: string | null;
@@ -43,7 +49,7 @@ function normalizeUrl(inputUrl: string): {
 }
 
 export function assessItemEligibilityFromResult(
-  result: ArticleTextResult,
+  result: ArticleTextResultLike,
 ): ItemEligibilityAssessment {
   return {
     url: result.url,
@@ -56,13 +62,24 @@ export function assessItemEligibilityFromResult(
   };
 }
 
+function isArticleTextServiceErrorLike(
+  error: unknown,
+): error is ArticleTextServiceErrorLike {
+  return Boolean(
+    error
+    && typeof error === 'object'
+    && typeof (error as { code?: unknown }).code === 'string'
+    && typeof (error as { retryable?: unknown }).retryable === 'boolean',
+  );
+}
+
 export function assessItemEligibilityFromError(
   inputUrl: string,
   error: unknown,
 ): ItemEligibilityAssessment {
   const normalized = normalizeUrl(inputUrl);
 
-  if (error instanceof ArticleTextServiceError) {
+  if (isArticleTextServiceErrorLike(error)) {
     switch (error.code) {
       case 'access-denied':
       case 'domain-not-allowed':
