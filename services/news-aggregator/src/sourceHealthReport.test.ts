@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { STARTER_FEED_SOURCES } from '@vh/ai-engine';
 import type { SourceAdmissionReport, SourceAdmissionSourceReport } from './sourceAdmissionReport';
 import {
+  SOURCE_HEALTH_POLICY_VERSION,
   SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
   SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION,
   buildSourceHealthReport,
@@ -71,6 +72,7 @@ function writeHistoricalSourceHealthReport(
   runId: string,
   report: {
     readonly generatedAt: string;
+    readonly policyVersion?: string;
     readonly readinessStatus?: 'ready' | 'review' | 'blocked';
     readonly runAssessment?: {
       readonly globalFeedStageFailure: boolean;
@@ -88,6 +90,7 @@ function writeHistoricalSourceHealthReport(
     path.join(runDir, 'source-health-report.json'),
     `${JSON.stringify({
       schemaVersion: SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
+      policyVersion: report.policyVersion ?? SOURCE_HEALTH_POLICY_VERSION,
       generatedAt: report.generatedAt,
       readinessStatus: report.readinessStatus,
       runAssessment: report.runAssessment,
@@ -162,7 +165,7 @@ describe('sourceHealthReport', () => {
     expect(decision.unstableLifecycleDomains).toEqual(['www.theguardian.com']);
   });
 
-  it('keeps admitted sources when prior failures fully recovered without retries', () => {
+  it('keeps admitted sources when prior failures fully recovered after retries', () => {
     const source = makeAdmissionSource({
       sourceId: 'guardian-us',
       lifecycle: [
@@ -173,11 +176,11 @@ describe('sourceHealthReport', () => {
           totalSuccesses: 4,
           totalFailures: 1,
           consecutiveFailures: 0,
-          retryCount: 0,
+          retryCount: 1,
           lastAttemptAt: 5,
           lastSuccessAt: 5,
           lastFailureAt: 1,
-          lastRetryAt: null,
+          lastRetryAt: 2,
           nextRetryAt: null,
           lastBackoffMs: null,
           lastErrorMessage: null,
@@ -262,6 +265,7 @@ describe('sourceHealthReport', () => {
     );
 
     expect(report.schemaVersion).toBe(SOURCE_HEALTH_REPORT_SCHEMA_VERSION);
+    expect(report.policyVersion).toBe(SOURCE_HEALTH_POLICY_VERSION);
     expect(report.readinessStatus).toBe('blocked');
     expect(report.recommendedAction).toBe('prune_remove_candidates');
     expect(report.keepSourceIds).toEqual(['fox-latest']);
@@ -518,6 +522,83 @@ describe('sourceHealthReport', () => {
     expect(report.sources[0]?.baseDecision).toBe('keep');
     expect(report.sources[0]?.decision).toBe('watch');
     expect(report.sources[0]?.reasons).toContain('pending_readmission_stability_window');
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('clears pending readmission for a clean corroborating source', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-history-readmit-corroborated-'));
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-1', {
+      generatedAt: '2026-03-15T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'bbc-general',
+          baseDecision: 'remove',
+          decision: 'remove',
+        },
+      ],
+    });
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-2', {
+      generatedAt: '2026-03-16T00:00:00.000Z',
+      sources: [
+        {
+          sourceId: 'bbc-general',
+          baseDecision: 'watch',
+          decision: 'watch',
+        },
+      ],
+    });
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'bbc-general' }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-3'),
+        thresholds: {
+          readmissionKeepRunCount: 3,
+          minContributingSourceCount: 0,
+        },
+        feedContribution: {
+          schemaVersion: 'news-source-feed-contribution-report-v1',
+          generatedAt: '2026-03-16T12:00:00.000Z',
+          snapshotMode: 'heuristic_live_feed_snapshot',
+          sourceCount: 1,
+          totalIngestedItemCount: 8,
+          totalNormalizedItemCount: 8,
+          totalBundleCount: 4,
+          totalSingletonBundleCount: 1,
+          totalCorroboratedBundleCount: 3,
+          contributingSourceIds: ['bbc-general'],
+          corroboratingSourceIds: ['bbc-general'],
+          zeroContributionSourceIds: [],
+          sources: [
+            {
+              sourceId: 'bbc-general',
+              sourceName: 'BBC News',
+              rssUrl: 'https://feeds.bbci.co.uk/news/rss.xml',
+              ingestErrorCount: 0,
+              ingestErrors: [],
+              ingestedItemCount: 8,
+              normalizedItemCount: 8,
+              dedupDroppedItemCount: 0,
+              bundleAppearanceCount: 4,
+              singletonBundleCount: 1,
+              corroboratedBundleCount: 3,
+              contributionStatus: 'corroborated',
+            },
+          ],
+        },
+        now: () => 1_700_000_000_000,
+      },
+    );
+
+    expect(report.keepSourceIds).toEqual(['bbc-general']);
+    expect(report.watchSourceIds).toEqual([]);
+    expect(report.historySummary.pendingReadmissionSourceIds).toEqual([]);
+    expect(report.observability.pendingReadmissionSourceCount).toBe(0);
+    expect(report.sources[0]?.history.pendingReadmission).toBe(false);
+    expect(report.sources[0]?.reasons).not.toContain('pending_readmission_stability_window');
 
     rmSync(artifactRoot, { recursive: true, force: true });
   });
@@ -892,6 +973,51 @@ describe('sourceHealthReport', () => {
           sourceId: 'cbs-politics',
           baseDecision: 'remove',
           decision: 'remove',
+        },
+      ],
+    });
+
+    const report = buildSourceHealthReport(
+      makeAdmissionReport([
+        makeAdmissionSource({ sourceId: 'fox-latest' }),
+      ]),
+      {
+        artifactDir: path.join(artifactRoot, 'run-2'),
+        thresholds: {
+          minContributingSourceCount: 0,
+        },
+        now: () => Date.parse('2026-03-20T12:00:00.000Z'),
+      },
+    );
+
+    expect(report.historySummary.priorReportCount).toBe(0);
+    expect(report.sources[0]?.history.priorReportCount).toBe(0);
+    expect(report.releaseEvidence).toEqual({
+      status: 'pass',
+      recommendedAction: 'release_ready',
+      reasons: [],
+      recentWindowRunCount: 1,
+      recentReadyRunCount: 1,
+      recentReviewRunCount: 0,
+      recentBlockedRunCount: 0,
+      latestNewWatchSourceIds: [],
+      latestNewRemoveSourceIds: [],
+    });
+
+    rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('resets history and release evidence when the source-health policy version changes', () => {
+    const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-policy-reset-'));
+    writeHistoricalSourceHealthReport(artifactRoot, 'run-1', {
+      generatedAt: '2026-03-20T00:00:00.000Z',
+      policyVersion: 'legacy',
+      readinessStatus: 'review',
+      sources: [
+        {
+          sourceId: 'fox-latest',
+          baseDecision: 'watch',
+          decision: 'watch',
         },
       ],
     });

@@ -15,11 +15,14 @@ import {
   type SourceFeedContributionReport,
   type SourceFeedContributionSourceReport,
 } from './sourceContributionReport';
+import type { SourceLifecycleState } from './sourceLifecycle';
 
 export const SOURCE_HEALTH_REPORT_SCHEMA_VERSION =
   'news-source-health-report-v1';
 export const SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION =
   'news-source-health-trend-v1';
+export const SOURCE_HEALTH_POLICY_VERSION =
+  'news-source-health-policy-v2';
 
 const FEED_STAGE_BLOCKING_REASONS = new Set([
   'feed_links_unavailable',
@@ -156,6 +159,7 @@ export interface SourceHealthRunAssessment {
 
 export interface SourceHealthReport {
   readonly schemaVersion: typeof SOURCE_HEALTH_REPORT_SCHEMA_VERSION;
+  readonly policyVersion: typeof SOURCE_HEALTH_POLICY_VERSION;
   readonly generatedAt: string;
   readonly readinessStatus: SourceHealthReadinessStatus;
   readonly recommendedAction:
@@ -196,6 +200,7 @@ export interface SourceHealthArtifactOptions extends SourceAdmissionArtifactOpti
 interface HistoricalSourceHealthRecord {
   readonly generatedAtMs: number;
   readonly generatedAt: string;
+  readonly policyVersion: string;
   readonly globalFeedStageFailure: boolean;
   readonly readinessStatus: SourceHealthReadinessStatus;
   readonly enabledSourceCount: number;
@@ -378,6 +383,10 @@ function parseHistoricalSourceHealthRecord(
   return {
     generatedAtMs: generatedAt,
     generatedAt: new Date(generatedAt).toISOString(),
+    policyVersion:
+      typeof record.policyVersion === 'string' && record.policyVersion.trim().length > 0
+        ? record.policyVersion.trim()
+        : 'legacy',
     globalFeedStageFailure:
       typeof (record.runAssessment as Record<string, unknown> | undefined)?.globalFeedStageFailure === 'boolean'
         ? (record.runAssessment as Record<string, boolean>).globalFeedStageFailure ?? false
@@ -514,19 +523,26 @@ function buildSourceSlateKey(sourceIds: readonly string[]): string {
 function filterComparableHistoricalReports(
   currentSourceIds: readonly string[],
   historicalReports: readonly HistoricalSourceHealthRecord[],
+  currentPolicyVersion: string,
 ): HistoricalSourceHealthRecord[] {
   const currentSourceSlateKey = buildSourceSlateKey(currentSourceIds);
   return historicalReports.filter((report) => (
+    report.policyVersion === currentPolicyVersion
+    && (
     buildSourceSlateKey(report.sources.map((source) => source.sourceId)) === currentSourceSlateKey
+    )
   ));
+}
+
+function isLifecycleCurrentlyUnstable(
+  state: Pick<SourceLifecycleState, 'status' | 'consecutiveFailures'>,
+): boolean {
+  return state.status !== 'healthy' || state.consecutiveFailures > 0;
 }
 
 function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
   return source.lifecycle.some(
-    (state) =>
-      state.status !== 'healthy'
-      || state.retryCount > 0
-      || state.consecutiveFailures > 0,
+    (state) => isLifecycleCurrentlyUnstable(state),
   );
 }
 
@@ -536,10 +552,7 @@ function buildDecision(
 ): SourceHealthSourceReport {
   const unstableLifecycleDomains = source.lifecycle
     .filter(
-      (state) =>
-        state.status !== 'healthy'
-        || state.retryCount > 0
-        || state.consecutiveFailures > 0,
+      (state) => isLifecycleCurrentlyUnstable(state),
     )
     .map((state) => state.sourceDomain);
 
@@ -644,6 +657,9 @@ function buildSourceHistory(
   historicalReports: readonly HistoricalSourceHealthRecord[],
   thresholds: SourceHealthThresholds,
   baseDecision: SourceHealthDecision,
+  options: {
+    readonly bypassPendingReadmission?: boolean;
+  } = {},
 ): SourceHealthSourceHistory {
   const priorRecords = historicalReports
     .map((report) => report.sources.find((source) => source.sourceId === sourceId) ?? null)
@@ -665,6 +681,7 @@ function buildSourceHistory(
   const priorRemovalSeen = priorEffectiveDecisions.includes('remove');
   const pendingReadmission =
     baseDecision === 'keep'
+    && !options.bypassPendingReadmission
     && priorRemovalSeen
     && consecutiveBaseKeepRuns + 1 < thresholds.readmissionKeepRunCount;
   const escalatedToRemove =
@@ -971,17 +988,25 @@ export function buildSourceHealthReport(
   const comparableHistoricalReports = filterComparableHistoricalReports(
     admissionReport.sources.map((source) => source.sourceId),
     historicalReports,
+    SOURCE_HEALTH_POLICY_VERSION,
   );
   const sources = admissionReport.sources.map((source) => {
     const baseDecision = buildDecision(source, thresholds);
+    const contribution =
+      feedContribution.sources.find((entry) => entry.sourceId === source.sourceId) ?? null;
     const history = buildSourceHistory(
       baseDecision.sourceId,
       comparableHistoricalReports,
       thresholds,
       baseDecision.baseDecision,
+      {
+        bypassPendingReadmission:
+          baseDecision.baseDecision === 'keep'
+          && baseDecision.reasons.length === 0
+          && baseDecision.unstableLifecycleDomains.length === 0
+          && contribution?.contributionStatus === 'corroborated',
+      },
     );
-    const contribution =
-      feedContribution.sources.find((entry) => entry.sourceId === source.sourceId) ?? null;
     return {
       ...applyHistoricalDecisionPolicy(baseDecision, history),
       feedContribution: contribution,
@@ -1062,6 +1087,7 @@ export function buildSourceHealthReport(
 
   return {
     schemaVersion: SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
+    policyVersion: SOURCE_HEALTH_POLICY_VERSION,
     generatedAt,
     readinessStatus,
     recommendedAction:
@@ -1208,9 +1234,14 @@ export async function writeSourceHealthArtifact(
     admissionArtifact.artifactDir,
     sourceHealthReport.thresholds.historyLookbackRunCount,
   );
+  const comparableHistoricalReports = filterComparableHistoricalReports(
+    admissionArtifact.report.sources.map((source) => source.sourceId),
+    historicalReports,
+    SOURCE_HEALTH_POLICY_VERSION,
+  );
   const sourceHealthTrendIndex = buildSourceHealthTrendIndex(
     sourceHealthReport,
-    historicalReports,
+    comparableHistoricalReports,
   );
 
   writeFileSync(
