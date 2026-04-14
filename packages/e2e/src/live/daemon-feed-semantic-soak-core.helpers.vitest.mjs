@@ -11,6 +11,7 @@ import {
   readPositiveInt,
   resolveBindableDaemonFirstPortPlan,
   resolveDaemonFirstPortPlan,
+  resolvePlaywrightTimeoutMs,
   resolvePublicSemanticSoakSpawnEnv,
   sleep,
   startManagedRelayWithPortFallback,
@@ -57,6 +58,20 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(readNonNegativeInt('PAUSE', 30, { PAUSE: '0' })).toBe(0);
     expect(readNonNegativeInt('PAUSE', 30, {})).toBe(30);
     expect(() => readNonNegativeInt('PAUSE', 30, { PAUSE: '-1' })).toThrow('PAUSE must be a non-negative integer');
+  });
+
+  it('derives a playwright timeout that covers feed readiness plus semantic audit time', () => {
+    expect(resolvePlaywrightTimeoutMs(180_000, {})).toBe(660_000);
+    expect(
+      resolvePlaywrightTimeoutMs(180_000, {
+        VH_DAEMON_FEED_READY_TIMEOUT_MS: '60000',
+      }),
+    ).toBe(360_000);
+    expect(
+      resolvePlaywrightTimeoutMs(180_000, {
+        VH_DAEMON_FEED_SOAK_PLAYWRIGHT_TIMEOUT_MS: '12345',
+      }),
+    ).toBe(12_345);
   });
 
   it('collects the first primary result and decodes attachments', () => {

@@ -139,6 +139,7 @@ load_automation_env() {
   export ANALYSIS_RELAY_MODEL="${ANALYSIS_RELAY_MODEL:-gpt-4o-mini}"
   export VITE_ANALYSIS_MODEL="${VITE_ANALYSIS_MODEL:-gpt-4o-mini}"
   export VH_STORYCLUSTER_TEXT_MODEL="${VH_STORYCLUSTER_TEXT_MODEL:-gpt-4o-mini}"
+  export VH_STORYCLUSTER_OPENAI_TIMEOUT_MS="${VH_STORYCLUSTER_OPENAI_TIMEOUT_MS:-120000}"
 }
 
 # --- kill all automation services ---

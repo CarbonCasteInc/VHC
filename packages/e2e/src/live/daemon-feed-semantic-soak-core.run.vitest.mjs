@@ -147,7 +147,47 @@ describe('runDaemonFeedSemanticSoak', () => {
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_PER_SOURCE).toBe('3');
     expect(env.VH_DAEMON_FEED_MAX_ITEMS_TOTAL).toBe('12');
     expect(env.VH_DAEMON_FEED_MIN_AUDITABLE_STORIES).toBe('0');
+    expect(env.VH_DAEMON_FEED_MANAGED_STORYCLUSTER).toBe('true');
     expect(env.VH_STORYCLUSTER_VECTOR_BACKEND).toBe('memory');
+  });
+
+  it('reuses the shared automation-stack storycluster when required', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_REQUIRE_SHARED_STORYCLUSTER: 'true',
+    }, 'run-shared-storycluster', 1, 60_000, {
+      repoRoot: '/repo',
+      exists: (filePath) => filePath === '/repo/.tmp/automation-stack/state.json',
+      readFile: () => JSON.stringify({
+        services: {
+          relay: { healthy: true },
+          storycluster: { healthy: true },
+        },
+        relayUrl: 'http://127.0.0.1:7777/gun',
+        storyclusterClusterUrl: 'http://127.0.0.1:4310/cluster',
+        storyclusterReadyUrl: 'http://127.0.0.1:4310/ready',
+        storyclusterAuthToken: 'vh-local-storycluster-token',
+      }),
+      stat: () => ({ mtimeMs: Date.now() }),
+      now: () => Date.now(),
+    });
+
+    expect(env.VH_DAEMON_FEED_MANAGED_STORYCLUSTER).toBe('false');
+    expect(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL).toBe('http://127.0.0.1:4310/cluster');
+    expect(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_HEALTH_URL).toBe('http://127.0.0.1:4310/ready');
+    expect(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN).toBe('vh-local-storycluster-token');
+    expect(env.VH_STORYCLUSTER_REMOTE_URL).toBe('http://127.0.0.1:4310/cluster');
+    expect(env.VH_STORYCLUSTER_REMOTE_HEALTH_URL).toBe('http://127.0.0.1:4310/ready');
+    expect(env.VH_STORYCLUSTER_REMOTE_AUTH_TOKEN).toBe('vh-local-storycluster-token');
+  });
+
+  it('fails fast when shared storycluster is required but unavailable', () => {
+    expect(() => resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_REQUIRE_SHARED_STORYCLUSTER: 'true',
+    }, 'run-missing-shared-storycluster', 1, 60_000, {
+      repoRoot: '/repo',
+      exists: () => false,
+      readFile: () => '',
+    })).toThrow('daemon-feed-semantic-soak-shared-storycluster-required');
   });
 
   it('ranks the public smoke source slice by contribution signals before preferred-order tie breaks', () => {

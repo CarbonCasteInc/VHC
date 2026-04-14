@@ -48,6 +48,7 @@ const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
 const useFixtureAnalysisStub = useFixtureFeed && process.env.VH_DAEMON_FEED_USE_ANALYSIS_STUB !== 'false';
 const useManagedRelay = process.env.VH_DAEMON_FEED_MANAGED_RELAY === 'true';
 const useSharedRelay = sharedRelayUrl !== null;
+const useSharedStorycluster = Boolean(process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL?.trim());
 const storyclusterVectorBackend = process.env.VH_STORYCLUSTER_VECTOR_BACKEND?.trim() || 'qdrant';
 process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER ??= useFixtureFeed ? 'true' : 'false';
 process.env.VH_STORYCLUSTER_VECTOR_BACKEND ??= storyclusterVectorBackend;
@@ -352,7 +353,7 @@ function resolveAnalysisRelayEnv(): Record<string, string> {
 }
 
 const localWebServers: TestConfig['webServer'] = [
-  ...(storyclusterVectorBackend === 'qdrant'
+  ...(!useSharedStorycluster && storyclusterVectorBackend === 'qdrant'
     ? [{
         command: wrapLoggedWebServerCommand('qdrant', [
           buildPortClearShellCommand(qdrantPort),

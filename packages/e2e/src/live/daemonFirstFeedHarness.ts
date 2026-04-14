@@ -66,7 +66,7 @@ type AuditableStoryRef = {
 };
 
 export type DaemonFirstStack = {
-  readonly storycluster: LoggedProcess;
+  readonly storycluster: LoggedProcess | null;
   readonly daemon: LoggedProcess;
 };
 
@@ -184,6 +184,31 @@ function resolveFeedReadyTimeoutMs(): number {
   return Math.max(DEFAULT_FEED_READY_TIMEOUT_MS, derivedTimeoutMs);
 }
 
+function resolveStoryclusterRemoteConfig() {
+  const configuredSharedStoryclusterUrl = process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL?.trim();
+  const endpointUrl = configuredSharedStoryclusterUrl
+    || `http://127.0.0.1:${STORYCLUSTER_PORT}/cluster`;
+  const healthUrl = process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_HEALTH_URL?.trim()
+    || process.env.VH_STORYCLUSTER_REMOTE_HEALTH_URL?.trim()
+    || `http://127.0.0.1:${STORYCLUSTER_PORT}/ready`;
+  const authToken = process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN?.trim()
+    || process.env.VH_STORYCLUSTER_REMOTE_AUTH_TOKEN?.trim()
+    || STORYCLUSTER_TOKEN;
+  const authHeader = process.env.VH_STORYCLUSTER_REMOTE_AUTH_HEADER?.trim() || 'authorization';
+  const authScheme = process.env.VH_STORYCLUSTER_REMOTE_AUTH_SCHEME?.trim() || 'Bearer';
+  return {
+    usesSharedStorycluster: Boolean(configuredSharedStoryclusterUrl),
+    endpointUrl,
+    healthUrl,
+    authToken,
+    authHeader,
+    authScheme,
+    headers: {
+      [authHeader]: `${authScheme} ${authToken}`,
+    },
+  };
+}
+
 export const daemonFirstFeedHarnessInternal = {
   resolveNewsPollIntervalMs,
   resolveNewsFeedMaxItemsPerSource,
@@ -192,6 +217,7 @@ export const daemonFirstFeedHarnessInternal = {
   resolveStoryClusterRemoteTimeoutMs,
   resolveStoryClusterOpenAITimeoutMs,
   resolveFeedReadyTimeoutMs,
+  resolveStoryclusterRemoteConfig,
 };
 
 function commonEnv(): NodeJS.ProcessEnv {
@@ -201,6 +227,7 @@ function commonEnv(): NodeJS.ProcessEnv {
   const maxItemsTotal = resolveNewsFeedMaxItemsTotal();
   const storyClusterRemoteTimeoutMs = resolveStoryClusterRemoteTimeoutMs();
   const storyClusterOpenAITimeoutMs = resolveStoryClusterOpenAITimeoutMs();
+  const storyclusterRemote = resolveStoryclusterRemoteConfig();
   return {
     ...process.env,
     NODE_ENV: 'production',
@@ -226,12 +253,12 @@ function commonEnv(): NodeJS.ProcessEnv {
     VITE_NEWS_POLL_INTERVAL_MS: resolveNewsPollIntervalMs(),
     VH_NEWS_FEED_MAX_ITEMS_PER_SOURCE: maxItemsPerSource,
     VH_NEWS_FEED_MAX_ITEMS_TOTAL: maxItemsTotal,
-    VH_STORYCLUSTER_REMOTE_URL: `http://127.0.0.1:${STORYCLUSTER_PORT}/cluster`,
-    VH_STORYCLUSTER_REMOTE_HEALTH_URL: `http://127.0.0.1:${STORYCLUSTER_PORT}/ready`,
+    VH_STORYCLUSTER_REMOTE_URL: storyclusterRemote.endpointUrl,
+    VH_STORYCLUSTER_REMOTE_HEALTH_URL: storyclusterRemote.healthUrl,
     VH_STORYCLUSTER_REMOTE_TIMEOUT_MS: storyClusterRemoteTimeoutMs,
-    VH_STORYCLUSTER_REMOTE_AUTH_TOKEN: STORYCLUSTER_TOKEN,
-    VH_STORYCLUSTER_REMOTE_AUTH_HEADER: 'authorization',
-    VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: 'Bearer',
+    VH_STORYCLUSTER_REMOTE_AUTH_TOKEN: storyclusterRemote.authToken,
+    VH_STORYCLUSTER_REMOTE_AUTH_HEADER: storyclusterRemote.authHeader,
+    VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: storyclusterRemote.authScheme,
     VH_NEWS_DAEMON_HOLDER_ID: 'vh-e2e-news-daemon',
   };
 }
@@ -239,48 +266,56 @@ function commonEnv(): NodeJS.ProcessEnv {
 export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
   const root = repoRootDir();
   const env = commonEnv();
+  const storyclusterRemote = resolveStoryclusterRemoteConfig();
   killStaleDaemonFirstProcesses();
-  killPortOccupants(STORYCLUSTER_PORT);
-  const storyclusterDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/server.js')).href;
-  const clusterStoreDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/clusterStore.js')).href;
-  const vectorBackendDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/vectorBackend.js')).href;
-  const esmLoaderPath = env.VH_STORYCLUSTER_ESM_LOADER_PATH!;
+  let storycluster: LoggedProcess | null = null;
+  if (storyclusterRemote.usesSharedStorycluster) {
+    await waitForHealth(storyclusterRemote.healthUrl, 60_000, {
+      headers: storyclusterRemote.headers,
+    });
+  } else {
+    killPortOccupants(STORYCLUSTER_PORT);
+    const storyclusterDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/server.js')).href;
+    const clusterStoreDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/clusterStore.js')).href;
+    const vectorBackendDistUrl = pathToFileURL(path.join(root, 'services/storycluster-engine/dist/vectorBackend.js')).href;
+    const esmLoaderPath = env.VH_STORYCLUSTER_ESM_LOADER_PATH!;
 
-  const storycluster = spawnLoggedProcess(
-    'storycluster',
-    'node',
-    [
-      '--loader',
-      esmLoaderPath,
-      '--input-type=module',
-      '-e',
-      `import { startStoryClusterServer } from ${JSON.stringify(storyclusterDistUrl)};
-       import { FileClusterStore } from ${JSON.stringify(clusterStoreDistUrl)};
-       import { MemoryVectorBackend } from ${JSON.stringify(vectorBackendDistUrl)};
-       const stateDir = process.env.VH_STORYCLUSTER_STATE_DIR;
-       const vectorBackend = process.env.VH_STORYCLUSTER_VECTOR_BACKEND === 'memory'
-         ? new MemoryVectorBackend()
-         : undefined;
-       const server = startStoryClusterServer({
-         host: '127.0.0.1',
-         port: Number(process.env.VH_STORYCLUSTER_SERVER_PORT),
-         authToken: process.env.VH_STORYCLUSTER_SERVER_AUTH_TOKEN,
-         store: stateDir ? new FileClusterStore(stateDir) : undefined,
-         vectorBackend,
-       });
-       const shutdown = () => server.close(() => process.exit(0));
-       process.on('SIGINT', shutdown);
-       process.on('SIGTERM', shutdown);
-       console.log('[vh:e2e-storycluster] started', { stateDir });`,
-    ],
-    env,
-    RUN_ID,
-  );
+    storycluster = spawnLoggedProcess(
+      'storycluster',
+      'node',
+      [
+        '--loader',
+        esmLoaderPath,
+        '--input-type=module',
+        '-e',
+        `import { startStoryClusterServer } from ${JSON.stringify(storyclusterDistUrl)};
+         import { FileClusterStore } from ${JSON.stringify(clusterStoreDistUrl)};
+         import { MemoryVectorBackend } from ${JSON.stringify(vectorBackendDistUrl)};
+         const stateDir = process.env.VH_STORYCLUSTER_STATE_DIR;
+         const vectorBackend = process.env.VH_STORYCLUSTER_VECTOR_BACKEND === 'memory'
+           ? new MemoryVectorBackend()
+           : undefined;
+         const server = startStoryClusterServer({
+           host: '127.0.0.1',
+           port: Number(process.env.VH_STORYCLUSTER_SERVER_PORT),
+           authToken: process.env.VH_STORYCLUSTER_SERVER_AUTH_TOKEN,
+           store: stateDir ? new FileClusterStore(stateDir) : undefined,
+           vectorBackend,
+         });
+         const shutdown = () => server.close(() => process.exit(0));
+         process.on('SIGINT', shutdown);
+         process.on('SIGTERM', shutdown);
+         console.log('[vh:e2e-storycluster] started', { stateDir });`,
+      ],
+      env,
+      RUN_ID,
+    );
 
-  await waitForOutput(storycluster, /\[vh:e2e-storycluster\] started/, 30_000);
-  await waitForHealth(`http://127.0.0.1:${STORYCLUSTER_PORT}/ready`, 60_000, {
-    headers: { authorization: `Bearer ${STORYCLUSTER_TOKEN}` },
-  });
+    await waitForOutput(storycluster, /\[vh:e2e-storycluster\] started/, 30_000);
+    await waitForHealth(storyclusterRemote.healthUrl, 60_000, {
+      headers: storyclusterRemote.headers,
+    });
+  }
 
   const daemon = spawnLoggedProcess(
     'news-daemon',
@@ -297,7 +332,9 @@ export async function startDaemonFirstStack(): Promise<DaemonFirstStack> {
 export async function stopDaemonFirstStack(stack: DaemonFirstStack | null): Promise<void> {
   if (!stack) return;
   await stopProcess(stack.daemon);
-  await stopProcess(stack.storycluster);
+  if (stack.storycluster) {
+    await stopProcess(stack.storycluster);
+  }
 }
 
 export async function attachRuntimeLogs(
@@ -308,7 +345,7 @@ export async function attachRuntimeLogs(
   await testInfo.attach('daemon-first-feed-runtime-logs', {
     body: JSON.stringify({
       browserLogs,
-      storyclusterLogs: [...stack.storycluster.output],
+      storyclusterLogs: stack.storycluster ? [...stack.storycluster.output] : [],
       daemonLogs: [...stack.daemon.output],
     }, null, 2),
     contentType: 'application/json',

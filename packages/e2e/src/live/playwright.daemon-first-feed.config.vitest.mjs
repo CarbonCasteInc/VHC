@@ -18,6 +18,7 @@ async function loadConfig(runId, envOverrides = {}) {
     VH_DAEMON_FEED_QDRANT_PORT: process.env.VH_DAEMON_FEED_QDRANT_PORT,
     VH_DAEMON_FEED_MANAGED_RELAY: process.env.VH_DAEMON_FEED_MANAGED_RELAY,
     VH_DAEMON_FEED_SHARED_RELAY_URL: process.env.VH_DAEMON_FEED_SHARED_RELAY_URL,
+    VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL: process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL,
     VH_STORYCLUSTER_QDRANT_URL: process.env.VH_STORYCLUSTER_QDRANT_URL,
     QDRANT_URL: process.env.QDRANT_URL,
     VH_STORYCLUSTER_VECTOR_BACKEND: process.env.VH_STORYCLUSTER_VECTOR_BACKEND,
@@ -32,6 +33,7 @@ async function loadConfig(runId, envOverrides = {}) {
     VH_DAEMON_FEED_QDRANT_PORT: undefined,
     VH_DAEMON_FEED_MANAGED_RELAY: undefined,
     VH_DAEMON_FEED_SHARED_RELAY_URL: undefined,
+    VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL: undefined,
     VH_STORYCLUSTER_QDRANT_URL: undefined,
     QDRANT_URL: undefined,
     VH_STORYCLUSTER_VECTOR_BACKEND: undefined,
@@ -160,5 +162,15 @@ describe('playwright.daemon-first-feed.config', () => {
 
     expect(entries.some((entry) => entry.command.includes('webserver-relay.log'))).toBe(false);
     expect(appServer.env.VITE_GUN_PEERS).toBe('["http://127.0.0.1:7711/gun"]');
+  });
+
+  it('skips qdrant stub startup when a shared storycluster endpoint is configured', async () => {
+    const config = await loadConfig('run-shared-storycluster-check', {
+      VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL: 'http://127.0.0.1:4310/cluster',
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'qdrant',
+    });
+    const entries = config.webServer;
+
+    expect(entries.some((entry) => entry.command.includes('webserver-qdrant.log'))).toBe(false);
   });
 });

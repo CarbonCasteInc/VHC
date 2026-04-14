@@ -106,6 +106,9 @@ const DAEMON_FEED_PORT_FALLBACK_BASES = {
 };
 const MANAGED_RELAY_READY_TIMEOUT_MS = 10_000;
 const MANAGED_RELAY_STOP_TIMEOUT_MS = 5_000;
+const DEFAULT_FEED_READY_TIMEOUT_MS = 240_000;
+const FEED_READY_TIMEOUT_BUFFER_MS = 60_000;
+const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = 300_000;
 
 function normalizeGunPeerUrl(value) {
   const normalized = typeof value === 'string' ? value.trim() : '';
@@ -117,11 +120,36 @@ function normalizeGunPeerUrl(value) {
     : `${normalized.replace(/\/+$/, '')}/gun`;
 }
 
+function normalizeHttpUrl(value) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized.length > 0 ? normalized : null;
+}
+
 function normalizeSourceIds(value) {
   return String(value ?? '')
     .split(',')
     .map((entry) => entry.trim())
     .filter((entry, index, items) => entry.length > 0 && items.indexOf(entry) === index);
+}
+
+function resolveFeedReadyTimeoutMsForSemanticSoak(env = process.env) {
+  const explicit = env.VH_DAEMON_FEED_READY_TIMEOUT_MS?.trim()
+    || env.VH_LIVE_FEED_READY_TIMEOUT_MS?.trim();
+  if (explicit) {
+    return readPositiveInt(
+      explicit === env.VH_DAEMON_FEED_READY_TIMEOUT_MS?.trim()
+        ? 'VH_DAEMON_FEED_READY_TIMEOUT_MS'
+        : 'VH_LIVE_FEED_READY_TIMEOUT_MS',
+      1,
+      env,
+    );
+  }
+
+  const configuredRemoteTimeout = env.VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS?.trim();
+  const remoteTimeoutMs = configuredRemoteTimeout
+    ? readPositiveInt('VH_DAEMON_FEED_STORYCLUSTER_REMOTE_TIMEOUT_MS', 1, env)
+    : DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS;
+  return Math.max(DEFAULT_FEED_READY_TIMEOUT_MS, remoteTimeoutMs + FEED_READY_TIMEOUT_BUFFER_MS);
 }
 
 function readPublicSmokeSourceHealthReport(
@@ -326,12 +354,13 @@ export function formatErrorMessage(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
-function resolvePlaywrightTimeoutMs(sampleTimeoutMs, env = process.env) {
+export function resolvePlaywrightTimeoutMs(sampleTimeoutMs, env = process.env) {
   const explicit = env.VH_DAEMON_FEED_SOAK_PLAYWRIGHT_TIMEOUT_MS?.trim();
   if (explicit) {
     return readPositiveInt('VH_DAEMON_FEED_SOAK_PLAYWRIGHT_TIMEOUT_MS', 1, env);
   }
-  return Math.max(sampleTimeoutMs + 120_000, 300_000);
+  const feedReadyTimeoutMs = resolveFeedReadyTimeoutMsForSemanticSoak(env);
+  return Math.max(feedReadyTimeoutMs + sampleTimeoutMs + 120_000, 300_000);
 }
 
 function buildSyntheticPlaywrightReport(cwd, message) {
@@ -641,6 +670,7 @@ function runDaemonFirstPreflight({
   const gunPeerUrl = normalizeGunPeerUrl(env.VH_DAEMON_FEED_SHARED_RELAY_URL)
     ?? `http://127.0.0.1:${ports.gunPort}/gun`;
   const usingSharedRelay = Boolean(normalizeGunPeerUrl(env.VH_DAEMON_FEED_SHARED_RELAY_URL));
+  const usingSharedStorycluster = Boolean(normalizeHttpUrl(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL));
   const cleanupScriptPath = path.join(
     repoRoot,
     'packages/e2e/src/live/daemon-feed-process-cleanup.mjs',
@@ -653,9 +683,8 @@ function runDaemonFirstPreflight({
     JSON.stringify(repoRoot),
     '--gun-peer-url',
     JSON.stringify(gunPeerUrl),
-    ...(usingSharedRelay
-      ? ['--preserve-relay-server', '--preserve-storycluster-server']
-      : []),
+    ...(usingSharedRelay ? ['--preserve-relay-server'] : []),
+    ...(usingSharedStorycluster || usingSharedRelay ? ['--preserve-storycluster-server'] : []),
   ].join(' ');
   const script = [
     'set -eu',
@@ -1141,9 +1170,11 @@ export function resolvePublicSemanticSoakSpawnEnv(
   } = {},
 ) {
   const requireSharedRelay = env.VH_DAEMON_FEED_REQUIRE_SHARED_RELAY === 'true';
+  const requireSharedStorycluster = env.VH_DAEMON_FEED_REQUIRE_SHARED_STORYCLUSTER === 'true';
   const explicitSharedRelayUrl = normalizeGunPeerUrl(env.VH_DAEMON_FEED_SHARED_RELAY_URL);
+  const explicitSharedStoryclusterUrl = normalizeHttpUrl(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL);
   const automationStackState =
-    explicitSharedRelayUrl || requireSharedRelay
+    explicitSharedRelayUrl || explicitSharedStoryclusterUrl || requireSharedRelay || requireSharedStorycluster
       ? resolveAutomationStackState(repoRoot, {
         env,
         exists,
@@ -1153,8 +1184,20 @@ export function resolvePublicSemanticSoakSpawnEnv(
   const sharedRelayUrl =
     explicitSharedRelayUrl
     ?? normalizeGunPeerUrl(automationStackState?.relayUrl);
+  const sharedStoryclusterUrl =
+    explicitSharedStoryclusterUrl
+    ?? normalizeHttpUrl(automationStackState?.storyclusterClusterUrl);
+  const sharedStoryclusterHealthUrl =
+    normalizeHttpUrl(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_HEALTH_URL)
+    ?? normalizeHttpUrl(automationStackState?.storyclusterReadyUrl);
+  const sharedStoryclusterAuthToken =
+    normalizeHttpUrl(env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN)
+    ?? normalizeHttpUrl(automationStackState?.storyclusterAuthToken);
   if (requireSharedRelay && !sharedRelayUrl) {
     throw new Error('daemon-feed-semantic-soak-shared-relay-required');
+  }
+  if (requireSharedStorycluster && (!sharedStoryclusterUrl || !sharedStoryclusterAuthToken)) {
+    throw new Error('daemon-feed-semantic-soak-shared-storycluster-required');
   }
 
   const nextEnv = {
@@ -1162,6 +1205,7 @@ export function resolvePublicSemanticSoakSpawnEnv(
     VH_RUN_DAEMON_FIRST_FEED: 'true',
     VH_DAEMON_FEED_RUN_ID: runId,
     VH_DAEMON_FEED_MANAGED_RELAY: sharedRelayUrl ? 'false' : 'true',
+    VH_DAEMON_FEED_MANAGED_STORYCLUSTER: sharedStoryclusterUrl ? 'false' : 'true',
     VH_DAEMON_FEED_ARTIFACT_ROOT:
       env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim()
       || path.join(repoRoot, '.tmp/e2e-daemon-feed'),
@@ -1176,6 +1220,22 @@ export function resolvePublicSemanticSoakSpawnEnv(
   };
   if (sharedRelayUrl) {
     nextEnv.VH_DAEMON_FEED_SHARED_RELAY_URL = sharedRelayUrl;
+  }
+  if (sharedStoryclusterUrl) {
+    nextEnv.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL = sharedStoryclusterUrl;
+    nextEnv.VH_STORYCLUSTER_REMOTE_URL = sharedStoryclusterUrl;
+  }
+  if (sharedStoryclusterHealthUrl) {
+    nextEnv.VH_DAEMON_FEED_SHARED_STORYCLUSTER_HEALTH_URL = sharedStoryclusterHealthUrl;
+    nextEnv.VH_STORYCLUSTER_REMOTE_HEALTH_URL = sharedStoryclusterHealthUrl;
+  }
+  if (sharedStoryclusterAuthToken) {
+    nextEnv.VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN = sharedStoryclusterAuthToken;
+    nextEnv.VH_STORYCLUSTER_REMOTE_AUTH_TOKEN = sharedStoryclusterAuthToken;
+    nextEnv.VH_STORYCLUSTER_REMOTE_AUTH_HEADER =
+      env.VH_STORYCLUSTER_REMOTE_AUTH_HEADER?.trim() || 'authorization';
+    nextEnv.VH_STORYCLUSTER_REMOTE_AUTH_SCHEME =
+      env.VH_STORYCLUSTER_REMOTE_AUTH_SCHEME?.trim() || 'Bearer';
   }
 
   if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
