@@ -27,7 +27,12 @@ export const STORYCLUSTER_PORT = Number(process.env.VH_DAEMON_FEED_STORYCLUSTER_
 export const STORYCLUSTER_TOKEN = process.env.VH_DAEMON_FEED_STORYCLUSTER_TOKEN ?? 'vh-daemon-feed-token';
 export const RUN_ID = process.env.VH_DAEMON_FEED_RUN_ID ?? `manual-${process.pid}`;
 export const QDRANT_URL = process.env.VH_STORYCLUSTER_QDRANT_URL ?? process.env.QDRANT_URL ?? 'http://127.0.0.1:6333';
-export const GUN_PEER_URL = `http://127.0.0.1:${GUN_PORT}/gun`;
+const configuredSharedRelayUrl = process.env.VH_DAEMON_FEED_SHARED_RELAY_URL?.trim();
+export const GUN_PEER_URL = configuredSharedRelayUrl
+  ? (configuredSharedRelayUrl.endsWith('/gun')
+      ? configuredSharedRelayUrl
+      : `${configuredSharedRelayUrl.replace(/\/+$/, '')}/gun`)
+  : `http://127.0.0.1:${GUN_PORT}/gun`;
 export const NAV_TIMEOUT_MS = 90_000;
 const DEFAULT_FEED_READY_TIMEOUT_MS = 240_000;
 const FEED_READY_TIMEOUT_BUFFER_MS = 60_000;

@@ -22,6 +22,7 @@ function wrapLoggedWebServerCommand(name: string, script: string): string {
 }
 
 const runId = process.env.VH_DAEMON_FEED_RUN_ID;
+const sharedRelayUrl = process.env.VH_DAEMON_FEED_SHARED_RELAY_URL?.trim() || null;
 process.env.VH_DAEMON_FEED_GUN_PORT ??= String(stablePort(8700, 200, runId));
 process.env.VH_DAEMON_FEED_STORYCLUSTER_PORT ??= String(stablePort(4300, 200, runId));
 process.env.VH_DAEMON_FEED_FIXTURE_PORT ??= String(stablePort(8900, 100, runId));
@@ -32,7 +33,11 @@ process.env.VH_LIVE_BASE_URL ??= `http://127.0.0.1:${stablePort(2100, 200, runId
 const gunPort = Number(process.env.VH_DAEMON_FEED_GUN_PORT);
 const baseUrl = process.env.VH_LIVE_BASE_URL;
 const basePort = extractPort(baseUrl);
-const gunPeerUrl = `http://127.0.0.1:${gunPort}/gun`;
+const gunPeerUrl = sharedRelayUrl
+  ? (sharedRelayUrl.endsWith('/gun')
+      ? sharedRelayUrl
+      : `${sharedRelayUrl.replace(/\/+$/, '')}/gun`)
+  : `http://127.0.0.1:${gunPort}/gun`;
 const fixtureFeedPort = Number(process.env.VH_DAEMON_FEED_FIXTURE_PORT);
 const fixtureFeedBaseUrl = `http://127.0.0.1:${fixtureFeedPort}`;
 const qdrantPort = Number(process.env.VH_DAEMON_FEED_QDRANT_PORT);
@@ -42,6 +47,7 @@ const analysisStubBaseUrl = `http://127.0.0.1:${analysisStubPort}`;
 const useFixtureFeed = process.env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true';
 const useFixtureAnalysisStub = useFixtureFeed && process.env.VH_DAEMON_FEED_USE_ANALYSIS_STUB !== 'false';
 const useManagedRelay = process.env.VH_DAEMON_FEED_MANAGED_RELAY === 'true';
+const useSharedRelay = sharedRelayUrl !== null;
 const storyclusterVectorBackend = process.env.VH_STORYCLUSTER_VECTOR_BACKEND?.trim() || 'qdrant';
 process.env.VH_STORYCLUSTER_USE_TEST_PROVIDER ??= useFixtureFeed ? 'true' : 'false';
 process.env.VH_STORYCLUSTER_VECTOR_BACKEND ??= storyclusterVectorBackend;
@@ -379,7 +385,7 @@ const localWebServers: TestConfig['webServer'] = [
         timeout: 30_000,
       }]
     : []),
-  ...(!useManagedRelay
+  ...(!(useManagedRelay || useSharedRelay)
     ? [{
         command: wrapLoggedWebServerCommand('relay', [
           buildPortClearShellCommand(gunPort),

@@ -36,6 +36,7 @@ import {
   readHistoricalExecutionClusterCaptureSnapshots,
   readHistoricalOfflineClusterReplayReports,
 } from './daemon-feed-semantic-soak-offline-replay.mjs';
+import { resolveAutomationStackState } from './daemon-feed-canary-shared.mjs';
 
 const BUILD_ARGS = ['test:live:daemon-feed:build'];
 const PLAYWRIGHT_ARGS = [
@@ -105,6 +106,16 @@ const DAEMON_FEED_PORT_FALLBACK_BASES = {
 };
 const MANAGED_RELAY_READY_TIMEOUT_MS = 10_000;
 const MANAGED_RELAY_STOP_TIMEOUT_MS = 5_000;
+
+function normalizeGunPeerUrl(value) {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) {
+    return null;
+  }
+  return normalized.endsWith('/gun')
+    ? normalized
+    : `${normalized.replace(/\/+$/, '')}/gun`;
+}
 
 function normalizeSourceIds(value) {
   return String(value ?? '')
@@ -627,16 +638,30 @@ function runDaemonFirstPreflight({
   writeFile = writeFileSync,
   rename = renameSync,
 }) {
+  const gunPeerUrl = normalizeGunPeerUrl(env.VH_DAEMON_FEED_SHARED_RELAY_URL)
+    ?? `http://127.0.0.1:${ports.gunPort}/gun`;
+  const usingSharedRelay = Boolean(normalizeGunPeerUrl(env.VH_DAEMON_FEED_SHARED_RELAY_URL));
   const cleanupScriptPath = path.join(
     repoRoot,
     'packages/e2e/src/live/daemon-feed-process-cleanup.mjs',
   );
   const preflightLogPath = path.join(artifactDir, `run-${run}.preflight.log`);
+  const cleanupCommand = [
+    'node',
+    JSON.stringify(cleanupScriptPath),
+    '--repo-root',
+    JSON.stringify(repoRoot),
+    '--gun-peer-url',
+    JSON.stringify(gunPeerUrl),
+    ...(usingSharedRelay
+      ? ['--preserve-relay-server', '--preserve-storycluster-server']
+      : []),
+  ].join(' ');
   const script = [
     'set -eu',
     `echo "[vh:daemon-soak] preflight runId=${runId}"`,
     `echo ${JSON.stringify(`[vh:daemon-soak] ports ${JSON.stringify(ports)}`)}`,
-    `node ${JSON.stringify(cleanupScriptPath)} --repo-root ${JSON.stringify(repoRoot)} --gun-peer-url ${JSON.stringify(`http://127.0.0.1:${ports.gunPort}/gun`)} || true`,
+    `${cleanupCommand} || true`,
     buildPortClearScript(ports.webPort),
     buildPortClearScript(ports.gunPort),
     buildPortClearScript(ports.qdrantPort),
@@ -1115,11 +1140,28 @@ export function resolvePublicSemanticSoakSpawnEnv(
     now = Date.now,
   } = {},
 ) {
+  const requireSharedRelay = env.VH_DAEMON_FEED_REQUIRE_SHARED_RELAY === 'true';
+  const explicitSharedRelayUrl = normalizeGunPeerUrl(env.VH_DAEMON_FEED_SHARED_RELAY_URL);
+  const automationStackState =
+    explicitSharedRelayUrl || requireSharedRelay
+      ? resolveAutomationStackState(repoRoot, {
+        env,
+        exists,
+        readFile,
+      })
+      : null;
+  const sharedRelayUrl =
+    explicitSharedRelayUrl
+    ?? normalizeGunPeerUrl(automationStackState?.relayUrl);
+  if (requireSharedRelay && !sharedRelayUrl) {
+    throw new Error('daemon-feed-semantic-soak-shared-relay-required');
+  }
+
   const nextEnv = {
     ...env,
     VH_RUN_DAEMON_FIRST_FEED: 'true',
     VH_DAEMON_FEED_RUN_ID: runId,
-    VH_DAEMON_FEED_MANAGED_RELAY: 'true',
+    VH_DAEMON_FEED_MANAGED_RELAY: sharedRelayUrl ? 'false' : 'true',
     VH_DAEMON_FEED_ARTIFACT_ROOT:
       env.VH_DAEMON_FEED_ARTIFACT_ROOT?.trim()
       || path.join(repoRoot, '.tmp/e2e-daemon-feed'),
@@ -1132,6 +1174,9 @@ export function resolvePublicSemanticSoakSpawnEnv(
     VH_DAEMON_FEED_ANALYSIS_STUB_PORT: String(portPlan.analysisStubPort),
     VH_LIVE_BASE_URL: `http://127.0.0.1:${portPlan.webPort}/`,
   };
+  if (sharedRelayUrl) {
+    nextEnv.VH_DAEMON_FEED_SHARED_RELAY_URL = sharedRelayUrl;
+  }
 
   if (env.VH_DAEMON_FEED_USE_FIXTURE_FEED === 'true') {
     nextEnv.VH_STORYCLUSTER_VECTOR_BACKEND =
@@ -1223,10 +1268,17 @@ export async function runDaemonFeedSemanticSoak({
       spawn,
       log,
     });
+    const spawnEnv = resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, {
+      portPlan,
+      repoRoot,
+      exists,
+      readFile,
+      stat,
+    });
     runDaemonFirstPreflight({
       cwd,
       repoRoot,
-      env,
+      env: spawnEnv,
       spawn,
       artifactDir,
       run,
@@ -1235,13 +1287,6 @@ export async function runDaemonFeedSemanticSoak({
       log,
       writeFile,
       rename,
-    });
-    const spawnEnv = resolvePublicSemanticSoakSpawnEnv(env, runId, sampleCount, sampleTimeoutMs, {
-      portPlan,
-      repoRoot,
-      exists,
-      readFile,
-      stat,
     });
     let proc = { status: 1, stdout: '', stderr: '' };
     let startupError = null;

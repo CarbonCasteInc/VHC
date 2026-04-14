@@ -297,6 +297,9 @@ describe('sourceAdmissionReport', () => {
           throw new Error('boom');
         }) as typeof fetch,
         source,
+        {
+          feedFetchFallback: () => null,
+        },
       ),
     ).resolves.toMatchObject({
       xml: null,
@@ -305,6 +308,36 @@ describe('sourceAdmissionReport', () => {
         httpStatus: null,
         errorCode: 'feed_fetch_error',
         errorMessage: 'boom',
+      },
+    });
+  });
+
+  it('falls back to a shell feed fetch when native fetch fails generically', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+
+    const result = await sourceAdmissionReportInternal.readFeedXml(
+      (async () => {
+        throw new Error('fetch failed');
+      }) as typeof fetch,
+      source,
+      {
+        feedFetchFallback: vi.fn(() => ({
+          ok: true,
+          body: '<rss><channel><item><link>https://www.foxnews.com/a</link></item></channel></rss>',
+          contentType: 'application/rss+xml',
+          httpStatus: 200,
+          responseUrl: source.rssUrl,
+        })),
+      },
+    );
+
+    expect(result).toMatchObject({
+      xml: expect.stringContaining('https://www.foxnews.com/a'),
+      diagnostics: {
+        ok: true,
+        payloadKind: 'xml',
+        errorCode: null,
+        resolvedFeedUrl: source.rssUrl,
       },
     });
   });
@@ -327,6 +360,7 @@ describe('sourceAdmissionReport', () => {
       {
         feedReadAttemptCount: 2,
         feedReadRetryDelayMs: 0,
+        feedFetchFallback: () => null,
       },
     );
 
@@ -355,6 +389,7 @@ describe('sourceAdmissionReport', () => {
       fetchTimeoutMs: 5,
       feedReadAttemptCount: 1,
       feedReadRetryDelayMs: 0,
+      feedFetchFallback: () => null,
       sampleSize: 1,
       minimumSuccessCount: 1,
       minimumSuccessRate: 1,
