@@ -114,4 +114,24 @@ describe('daemonFirstFeedHarnessInternal live feed limits', () => {
     vi.stubEnv('VH_LIVE_FEED_READY_TIMEOUT_MS', '390000');
     expect(daemonFirstFeedHarnessInternal.resolveFeedReadyTimeoutMs()).toBe(390000);
   });
+
+  it('prefers the shared storycluster endpoint and auth when configured', () => {
+    vi.stubEnv('VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL', 'http://127.0.0.1:4310/cluster');
+    vi.stubEnv('VH_DAEMON_FEED_SHARED_STORYCLUSTER_HEALTH_URL', 'http://127.0.0.1:4310/ready');
+    vi.stubEnv('VH_DAEMON_FEED_SHARED_STORYCLUSTER_AUTH_TOKEN', 'stack-token');
+    vi.stubEnv('VH_STORYCLUSTER_REMOTE_AUTH_HEADER', 'x-storycluster-auth');
+    vi.stubEnv('VH_STORYCLUSTER_REMOTE_AUTH_SCHEME', 'Token');
+
+    expect(daemonFirstFeedHarnessInternal.resolveStoryclusterRemoteConfig()).toEqual({
+      usesSharedStorycluster: true,
+      endpointUrl: 'http://127.0.0.1:4310/cluster',
+      healthUrl: 'http://127.0.0.1:4310/ready',
+      authToken: 'stack-token',
+      authHeader: 'x-storycluster-auth',
+      authScheme: 'Token',
+      headers: {
+        'x-storycluster-auth': 'Token stack-token',
+      },
+    });
+  });
 });

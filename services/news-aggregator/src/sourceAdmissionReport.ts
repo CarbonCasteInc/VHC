@@ -1,3 +1,4 @@
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -144,6 +145,7 @@ export interface SourceAdmissionAuditOptions {
   readonly now?: () => number;
   readonly feedReadAttemptCount?: number;
   readonly feedReadRetryDelayMs?: number;
+  readonly feedFetchFallback?: typeof fetchFeedViaCurl;
   readonly articleTextServiceOptions?: Omit<
     ArticleTextServiceOptions,
     'allowlist' | 'fetchFn' | 'lifecycle' | 'now'
@@ -478,7 +480,10 @@ function classifyFeedReadError(error: unknown): {
 async function readFeedXml(
   fetchFn: typeof fetch,
   source: FeedSource,
-  options: Pick<SourceAdmissionAuditOptions, 'feedReadAttemptCount' | 'feedReadRetryDelayMs'> = {},
+  options: Pick<
+    SourceAdmissionAuditOptions,
+    'feedReadAttemptCount' | 'feedReadRetryDelayMs' | 'fetchTimeoutMs' | 'feedFetchFallback'
+  > = {},
 ): Promise<{
   readonly xml: string | null;
   readonly responseUrl: string | null;
@@ -489,6 +494,86 @@ async function readFeedXml(
 }> {
   const attemptCount = Math.max(1, options.feedReadAttemptCount ?? 2);
   const retryDelayMs = Math.max(0, options.feedReadRetryDelayMs ?? 250);
+  const feedFetchFallback = options.feedFetchFallback ?? fetchFeedViaCurl;
+
+  async function finalizeFeedPayload(
+    body: string,
+    responseUrl: string,
+    responseMeta: {
+      readonly httpStatus: number;
+      readonly contentType: string | null;
+      readonly payloadKind: 'xml' | 'html_feed';
+      readonly attemptCount: number;
+    },
+  ): Promise<{
+    readonly xml: string;
+    readonly responseUrl: string;
+    readonly diagnostics: Omit<
+      SourceAdmissionFeedReadDiagnostics,
+      'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
+    >;
+  } | null> {
+    const { httpStatus, contentType, payloadKind, attemptCount: resolvedAttemptCount } = responseMeta;
+    const bodyLength = body.length;
+    if (body.trim().length === 0) {
+      lastDiagnostics = {
+        ok: false,
+        httpStatus,
+        contentType,
+        bodyLength,
+        resolvedFeedUrl: responseUrl,
+        payloadKind: 'empty',
+        errorCode: 'feed_empty_payload',
+        errorMessage: 'Feed response body was empty',
+        attemptCount: resolvedAttemptCount,
+      };
+      return null;
+    }
+
+    if (!isLikelyXmlPayload(contentType, body)) {
+      const resolvedHtmlFeed = await resolveHtmlFeedPayload(
+        body,
+        responseUrl,
+        resolvedAttemptCount,
+        MAX_HTML_FEED_DISCOVERY_DEPTH,
+      );
+      if (resolvedHtmlFeed) {
+        return {
+          xml: resolvedHtmlFeed.xml,
+          responseUrl: resolvedHtmlFeed.responseUrl,
+          diagnostics: resolvedHtmlFeed.diagnostics,
+        };
+      }
+      lastDiagnostics = {
+        ok: false,
+        httpStatus,
+        contentType,
+        bodyLength,
+        resolvedFeedUrl: responseUrl,
+        payloadKind: 'non_xml',
+        errorCode: 'feed_non_xml_payload',
+        errorMessage: 'Feed response was not parseable XML',
+        attemptCount: resolvedAttemptCount,
+      };
+      return null;
+    }
+
+    return {
+      xml: body,
+      responseUrl,
+      diagnostics: {
+        ok: true,
+        httpStatus,
+        contentType,
+        bodyLength,
+        resolvedFeedUrl: responseUrl,
+        payloadKind,
+        errorCode: null,
+        errorMessage: null,
+        attemptCount: resolvedAttemptCount,
+      },
+    };
+  }
 
   async function resolveHtmlFeedPayload(
     payload: string,
@@ -632,76 +717,51 @@ async function readFeedXml(
           attemptCount: attempt,
         };
       } else {
-        const body = await response.text();
-        const bodyLength = body.length;
-        if (body.trim().length === 0) {
-          lastDiagnostics = {
-            ok: false,
-            httpStatus: response.status,
-            contentType,
-            bodyLength,
-            resolvedFeedUrl: responseUrl,
-            payloadKind: 'empty',
-            errorCode: 'feed_empty_payload',
-            errorMessage: 'Feed response body was empty',
-            attemptCount: attempt,
-          };
-        } else if (!isLikelyXmlPayload(contentType, body)) {
-          const resolvedHtmlFeed = await resolveHtmlFeedPayload(
-            body,
-            responseUrl,
-            attempt,
-            MAX_HTML_FEED_DISCOVERY_DEPTH,
-          );
-          if (resolvedHtmlFeed) {
-            return {
-              xml: resolvedHtmlFeed.xml,
-              responseUrl: resolvedHtmlFeed.responseUrl,
-              diagnostics: resolvedHtmlFeed.diagnostics,
-            };
-          }
-          lastDiagnostics = {
-            ok: false,
-            httpStatus: response.status,
-            contentType,
-            bodyLength,
-            resolvedFeedUrl: responseUrl,
-            payloadKind: 'non_xml',
-            errorCode: 'feed_non_xml_payload',
-            errorMessage: 'Feed response was not parseable XML',
-            attemptCount: attempt,
-          };
-        } else {
-          return {
-            xml: body,
-            responseUrl,
-            diagnostics: {
-              ok: true,
-              httpStatus: response.status,
-              contentType,
-              bodyLength,
-              resolvedFeedUrl: responseUrl,
-              payloadKind: 'xml',
-              errorCode: null,
-              errorMessage: null,
-              attemptCount: attempt,
-            },
-          };
+        const resolved = await finalizeFeedPayload(await response.text(), responseUrl, {
+          httpStatus: response.status,
+          contentType,
+          payloadKind: 'xml',
+          attemptCount: attempt,
+        });
+        if (resolved) {
+          return resolved;
         }
       }
     } catch (error) {
       const classified = classifyFeedReadError(error);
-      lastDiagnostics = {
-        ok: false,
-        httpStatus: null,
-        contentType: null,
-        bodyLength: null,
-        resolvedFeedUrl: null,
-        payloadKind: 'unavailable',
-        errorCode: classified.errorCode,
-        errorMessage: classified.errorMessage,
-        attemptCount: attempt,
-      };
+      const fallbackResult =
+        classified.errorCode === 'feed_fetch_error' || classified.errorCode === 'feed_fetch_timeout'
+          ? feedFetchFallback(source.rssUrl, {
+            timeoutMs: options.fetchTimeoutMs,
+          })
+          : null;
+      if (fallbackResult?.ok) {
+        const resolved = await finalizeFeedPayload(
+          fallbackResult.body,
+          fallbackResult.responseUrl,
+          {
+            httpStatus: fallbackResult.httpStatus,
+            contentType: fallbackResult.contentType,
+            payloadKind: 'xml',
+            attemptCount: attempt,
+          },
+        );
+        if (resolved) {
+          return resolved;
+        }
+      } else if (!fallbackResult?.ok) {
+        lastDiagnostics = {
+          ok: false,
+          httpStatus: null,
+          contentType: null,
+          bodyLength: null,
+          resolvedFeedUrl: null,
+          payloadKind: 'unavailable',
+          errorCode: classified.errorCode,
+          errorMessage: fallbackResult?.errorMessage ?? classified.errorMessage,
+          attemptCount: attempt,
+        };
+      }
     }
 
     if (attempt < attemptCount && retryDelayMs > 0) {
@@ -713,6 +773,86 @@ async function readFeedXml(
     xml: null,
     responseUrl: null,
     diagnostics: lastDiagnostics,
+  };
+}
+
+type FeedCurlFallbackResult =
+  | {
+    readonly ok: true;
+    readonly body: string;
+    readonly contentType: string | null;
+    readonly httpStatus: number;
+    readonly responseUrl: string;
+  }
+  | {
+    readonly ok: false;
+    readonly errorMessage: string;
+  };
+
+function fetchFeedViaCurl(
+  url: string,
+  options: {
+    readonly timeoutMs?: number;
+    readonly spawnSyncImpl?: typeof spawnSync;
+  } = {},
+): FeedCurlFallbackResult | null {
+  const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
+  const timeoutMs = Number.isFinite(options.timeoutMs) && (options.timeoutMs ?? 0) > 0
+    ? Math.max(1, Math.ceil((options.timeoutMs ?? 0) / 1000))
+    : 10;
+  const marker = '__VH_CURL_META__';
+  let result: SpawnSyncReturns<string>;
+
+  try {
+    result = spawnSyncImpl('curl', [
+      '--silent',
+      '--show-error',
+      '--location',
+      '--max-time',
+      String(timeoutMs),
+      '--output',
+      '-',
+      '--write-out',
+      `\n${marker}http_code=%{http_code};content_type=%{content_type};url_effective=%{url_effective}`,
+      url,
+    ], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+
+  if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    return {
+      ok: false,
+      errorMessage: (result.error as Error).message,
+    };
+  }
+
+  if (result.status !== 0) {
+    return {
+      ok: false,
+      errorMessage: (result.stderr || result.stdout || `curl exited ${result.status ?? 'null'}`).trim(),
+    };
+  }
+
+  const rawOutput = result.stdout ?? '';
+  const markerIndex = rawOutput.lastIndexOf(`\n${marker}`);
+  const body = markerIndex >= 0 ? rawOutput.slice(0, markerIndex) : rawOutput;
+  const metadataText = markerIndex >= 0 ? rawOutput.slice(markerIndex + 1 + marker.length) : '';
+  const metadata = new URLSearchParams(metadataText.replace(/;/g, '&'));
+  const httpStatus = Number.parseInt(metadata.get('http_code') ?? '200', 10);
+
+  return {
+    ok: true,
+    body,
+    contentType: normalizeNonEmpty(metadata.get('content_type') ?? undefined),
+    httpStatus: Number.isFinite(httpStatus) ? httpStatus : 200,
+    responseUrl: normalizeNonEmpty(metadata.get('url_effective') ?? undefined) ?? url,
   };
 }
 
@@ -920,6 +1060,8 @@ export async function auditFeedSourceAdmission(
   const feedReadResult = await readFeedXml(fetchFn, source, {
     feedReadAttemptCount: options.feedReadAttemptCount,
     feedReadRetryDelayMs: options.feedReadRetryDelayMs,
+    fetchTimeoutMs,
+    feedFetchFallback: options.feedFetchFallback,
   });
   const parseResult = feedReadResult.xml
     ? parseFeedLinksDetailed(
@@ -1089,6 +1231,7 @@ export const sourceAdmissionReportInternal = {
   parseFeedLinksDetailed,
   parseFeedSourcesOverride,
   passSample,
+  fetchFeedViaCurl,
   readFeedXml,
   resolveConfiguredFeedSources,
   wrapFetchWithTimeout,
