@@ -63,7 +63,7 @@ test.describe('daemon-first StoryCluster feed', () => {
         headlineSamples: initialRows.slice(0, 6),
         browserConsumerOnly,
         browserLogs,
-        storyclusterLogs: [...stack.storycluster.output],
+        storyclusterLogs: stack.storycluster ? [...stack.storycluster.output] : [],
         daemonLogs: [...stack.daemon.output],
       };
 
