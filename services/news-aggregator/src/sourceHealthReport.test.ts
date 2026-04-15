@@ -824,12 +824,17 @@ describe('sourceHealthReport', () => {
     const artifactRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-preserve-latest-'));
     const goodArtifactDir = path.join(artifactRoot, '1700000000000');
     const failedArtifactDir = path.join(artifactRoot, '1700000001000');
+    const fetchFn = (async () => new Response(
+      `<rss><channel><item><link>https://www.foxnews.com/a</link></item></channel></rss>`,
+      { status: 200 },
+    )) as typeof fetch;
 
     const goodArtifact = await writeSourceHealthArtifact({
       artifactDir: goodArtifactDir,
       admissionReport: makeAdmissionReport([
         makeAdmissionSource({ sourceId: 'fox-latest' }),
       ]),
+      fetchFn,
       thresholds: {
         minContributingSourceCount: 0,
       },
@@ -867,6 +872,7 @@ describe('sourceHealthReport', () => {
           },
         }),
       ]),
+      fetchFn,
       thresholds: {
         minContributingSourceCount: 0,
       },
@@ -889,6 +895,75 @@ describe('sourceHealthReport', () => {
     );
 
     rmSync(artifactRoot, { recursive: true, force: true });
+  });
+
+  it('retries a global feed-stage outage before finalizing the health artifact', async () => {
+    const source = STARTER_FEED_SOURCES[0];
+    const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-source-health-global-retry-'));
+    let feedAttempts = 0;
+    const fetchFn = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === source.rssUrl) {
+        feedAttempts += 1;
+        if (feedAttempts === 1) {
+          throw new TypeError('temporary dns failure');
+        }
+        return new Response(
+          `<rss><channel><item><link>https://www.foxnews.com/recovered</link></item></channel></rss>`,
+          { status: 200 },
+        );
+      }
+      if (url === 'https://www.foxnews.com/recovered') {
+        return new Response('<html><head><title>Recovered</title></head><body><article>fallback</article></body></html>', {
+          status: 200,
+        });
+      }
+      return new Response('missing', { status: 404 });
+    }) as typeof fetch;
+    const sleepFn = vi.fn(async () => {});
+
+    const artifact = await writeSourceHealthArtifact({
+      cwd,
+      now: () => 1_700_000_002_000,
+      fetchFn,
+      feedFetchFallback: () => ({
+        ok: false,
+        errorMessage: 'curl: (6) Could not resolve host',
+      }),
+      feedSources: [source],
+      feedReadAttemptCount: 1,
+      sampleSize: 1,
+      minimumSuccessCount: 1,
+      minimumSuccessRate: 1,
+      thresholds: {
+        minContributingSourceCount: 0,
+      },
+      globalOutageRetryCount: 1,
+      globalOutageRetryDelayMs: 0,
+      sleepFn,
+      articleTextServiceOptions: {
+        primaryExtractor: async () => ({
+          title: 'Recovered',
+          text: Array.from(
+            { length: 24 },
+            () => 'This recovered source-health retry artifact confirms readable content after the outage clears.',
+          ).join(' '),
+        }),
+        fallbackExtractor: () => null,
+      },
+    });
+
+    expect(feedAttempts).toBeGreaterThan(1);
+    expect(sleepFn).not.toHaveBeenCalled();
+    expect(artifact.sourceHealthReport.readinessStatus).toBe('ready');
+    expect(artifact.sourceHealthReport.runAssessment).toEqual({
+      globalFeedStageFailure: false,
+      latestPublicationAction: 'publish_latest',
+      latestPublicationSkipReason: null,
+    });
+    expect(artifact.admissionReport.sources[0]?.status).toBe('admitted');
+
+    rmSync(cwd, { recursive: true, force: true });
   });
 
   it('ignores historical global feed-stage collapses inferred from admission artifacts', () => {
