@@ -177,6 +177,7 @@ async function main() {
     pids: result.pids,
     snapshotPath: result.snapshotMeta?.fixture?.snapshotPath ?? null,
     snapshotSummary: result.snapshotMeta?.snapshotSummary ?? null,
+    rollingWindow: result.snapshotMeta?.rollingWindow ?? null,
     webBaseUrl: `http://127.0.0.1:${result.ports.web}`,
     storyclusterClusterUrl: `http://127.0.0.1:${result.ports.storycluster}/cluster`,
     storyclusterReadyUrl: `http://127.0.0.1:${result.ports.storycluster}/ready`,

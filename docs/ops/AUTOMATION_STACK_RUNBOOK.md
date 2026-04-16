@@ -11,8 +11,10 @@ The automation stack is a persistent local infrastructure layer managed by `laun
 
 The stack also provides the validated-snapshot through-line for UI testing:
 Publisher Canary writes a passing `published-store-snapshot.json`, the snapshot
-server serves the latest passing snapshot, and the web client periodically
-refreshes that snapshot into the discovery feed.
+server serves a newest-first rolling stream across recent passing snapshots,
+and the web client periodically refreshes that stream into the discovery feed.
+Reloads receive newer canary output; scrolling reveals older retained stories
+from the same validated stream.
 
 This reduces `listen EPERM` failures by making scheduled lanes consume a shared stack and by launching detached stack children from the automation state directory instead of the Desktop-rooted repo cwd.
 
@@ -93,6 +95,7 @@ Schema:
 | `pids`               | object  | `{ snapshot, relay, web }` |
 | `snapshotPath`       | string  | Path to snapshot data (if available) |
 | `snapshotSummary`    | object  | Current validated-snapshot summary from `/meta.json` |
+| `rollingWindow`      | object  | Current validated-snapshot rolling window metadata from `/meta.json` |
 | `webBaseUrl`         | string  | `http://127.0.0.1:2099` |
 | `storyclusterClusterUrl` | string | `http://127.0.0.1:4310/cluster` |
 | `storyclusterReadyUrl` | string | `http://127.0.0.1:4310/ready` |
@@ -107,8 +110,11 @@ Schema:
 The comparison uses the canonical repo root HEAD, not a worktree HEAD, to avoid spurious rebuilds during worktree-based automation runs.
 
 Snapshot freshness does not require a rebuild. The snapshot server re-resolves
-the latest passing publisher-canary artifact on `VH_VALIDATED_SNAPSHOT_REFRESH_MS`
-(default `10000`), and the web preview refreshes
+the latest passing publisher-canary artifact window on
+`VH_VALIDATED_SNAPSHOT_REFRESH_MS` (default `10000`) and serves a deduped
+rolling stream controlled by `VH_VALIDATED_SNAPSHOT_ROLLING_ARTIFACT_LIMIT`
+(default `24`) and `VH_VALIDATED_SNAPSHOT_MAX_STORIES` (default `150`). The web
+preview refreshes
 `VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL` on
 `VITE_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS` / `VH_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS`
 (default `60000`). Set either interval to `0` only when intentionally freezing a

@@ -322,7 +322,7 @@ stack_up() {
     info "Cluster:  http://127.0.0.1:${STORYCLUSTER_PORT}/cluster"
     info "Feed:     http://127.0.0.1:${FIXTURE_PORT}/ (fixture bundled-feed mode)"
   elif [[ "$STACK_MODE" == 'validated-snapshot' ]]; then
-    info "Feed:     http://127.0.0.1:${SNAPSHOT_PORT}/snapshot.json (latest passing publisher-canary snapshot)"
+    info "Feed:     http://127.0.0.1:${SNAPSHOT_PORT}/snapshot.json (rolling publisher-canary snapshot stream)"
     info "Snapshot: $SNAPSHOT_LOG"
   else
     info "Cluster:  http://127.0.0.1:${STORYCLUSTER_PORT}/cluster"

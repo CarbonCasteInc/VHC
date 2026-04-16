@@ -7,6 +7,7 @@ import {
   rankFeedSourcesByIds,
   resolveAutomationStackState,
   resolveLatestPassingCanaryArtifact,
+  resolvePassingCanaryArtifacts,
   resolvePublisherCanaryArtifactRoot,
   summarizePublishedStoreSnapshot,
 } from './daemon-feed-canary-shared.mjs';
@@ -239,6 +240,38 @@ describe('daemon-feed-canary shared helpers', () => {
       summaryPath: '/artifacts/200/publisher-canary-summary.json',
       summary: { pass: true },
     });
+  });
+
+  it('resolves a newest-first window of passing canary artifacts', () => {
+    const files = new Map([
+      ['/artifacts/100/publisher-canary-summary.json', JSON.stringify({ pass: true })],
+      ['/artifacts/100/published-store-snapshot.json', '{}'],
+      ['/artifacts/200/publisher-canary-summary.json', JSON.stringify({ pass: false })],
+      ['/artifacts/200/published-store-snapshot.json', '{}'],
+      ['/artifacts/300/publisher-canary-summary.json', JSON.stringify({ pass: true })],
+      ['/artifacts/300/published-store-snapshot.json', '{}'],
+      ['/artifacts/400/publisher-canary-summary.json', JSON.stringify({ pass: true })],
+      ['/artifacts/400/published-store-snapshot.json', '{}'],
+    ]);
+
+    const resolved = resolvePassingCanaryArtifacts('/artifacts', {
+      exists: (filePath) => filePath === '/artifacts' || files.has(filePath),
+      readdir: () => ['100', '200', '300', '400'].map((name) => ({
+        name,
+        isDirectory: () => true,
+      })),
+      stat: (filePath) => ({ mtimeMs: Number(filePath.split('/').at(-1)) }),
+      readFile: (filePath) => files.get(filePath),
+      summaryFileName: 'publisher-canary-summary.json',
+      requiredArtifactNames: ['published-store-snapshot.json'],
+      passPredicate: (summary) => summary.pass === true,
+      maxArtifacts: 2,
+    });
+
+    expect(resolved.map((artifact) => artifact.artifactDir)).toEqual([
+      '/artifacts/400',
+      '/artifacts/300',
+    ]);
   });
 
   it('resolves publisher canary artifact root from explicit env before repo default', () => {
