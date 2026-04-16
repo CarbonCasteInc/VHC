@@ -205,6 +205,15 @@ describe('storyBundleToFeedItem', () => {
     expect(item.latest_activity_at).toBe(0);
   });
 
+  it('does not leak timestamp-shaped hot index values into hotness UI scores', () => {
+    const item = storyBundleToFeedItem(
+      makeStoryBundle(),
+      { 'story-1': 1_776_298_361_000 },
+    );
+
+    expect(item.hotness).toBe(0);
+  });
+
   it('falls back to cluster feature entity keys when storyline group is unavailable', () => {
     const item = storyBundleToFeedItem(
       makeStoryBundle({

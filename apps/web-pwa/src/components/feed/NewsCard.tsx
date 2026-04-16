@@ -79,8 +79,11 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     const storylineId = story?.storyline_id?.trim();
     return storylineId ? storylinesById[storylineId] ?? null : null;
   }, [story, storylinesById]);
-  const storylineHeadline = normalizeStorylineHeadline(storyline?.headline);
   const storylineStoryCount = storyline?.story_ids.length ?? 0;
+  const hasStorylineCoverage = storylineStoryCount > 1;
+  const storylineHeadline = hasStorylineCoverage
+    ? normalizeStorylineHeadline(storyline?.headline)
+    : null;
   const storylineId = story?.storyline_id?.trim() ?? null;
   const discussionThread = useMemo(
     () => resolveStoryDiscussionThread(forumThreads.values(), item, story),
@@ -310,7 +313,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               frameBasisLabel={frameBasisLabel}
               analysisProvider={analysisProvider}
               galleryImages={galleryImages}
-              relatedCoverage={storyline?.related_coverage ?? []}
+              relatedCoverage={hasStorylineCoverage ? storyline?.related_coverage ?? [] : []}
               relatedLinks={relatedLinks}
               storylineHeadline={storylineHeadline}
               storylineStoryCount={storylineStoryCount}

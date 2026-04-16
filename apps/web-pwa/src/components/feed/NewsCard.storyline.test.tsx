@@ -135,7 +135,9 @@ describe('NewsCard related coverage', () => {
 
   it('focuses discovery on the storyline from the front label without opening the back', () => {
     useNewsStore.getState().setStories([makeStory()]);
-    useNewsStore.getState().setStorylines([makeStoryline()]);
+    useNewsStore.getState().setStorylines([
+      makeStoryline({ story_ids: ['story-news-1', 'story-news-2'] }),
+    ]);
 
     render(<NewsCard item={makeItem()} />);
 
@@ -188,9 +190,25 @@ describe('NewsCard related coverage', () => {
 
     await act(async () => {
       useNewsStore.getState().setStories([makeStory()]);
-      useNewsStore.getState().setStorylines([makeStoryline()]);
+      useNewsStore.getState().setStorylines([
+        makeStoryline({ story_ids: ['story-news-1', 'story-news-2'] }),
+      ]);
     });
 
     expect(await screen.findByTestId('news-card-related-coverage-news-1')).toBeInTheDocument();
+  });
+
+  it('does not render singleton storyline related coverage', async () => {
+    useNewsStore.getState().setStories([makeStory()]);
+    useNewsStore.getState().setStorylines([makeStoryline()]);
+
+    render(<NewsCard item={makeItem()} />);
+
+    expect(screen.queryByTestId('news-card-storyline-news-1')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-back-news-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('news-card-related-coverage-news-1')).not.toBeInTheDocument();
   });
 });

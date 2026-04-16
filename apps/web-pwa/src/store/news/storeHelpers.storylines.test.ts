@@ -93,6 +93,16 @@ describe('newsStoreHelpersInternal.storyToDiscoveryItem', () => {
     expect(item.storyline_id).toBe('storyline-1');
     expect(item.entity_keys).toEqual(['cluster fallback']);
   });
+
+  it('does not mirror timestamp-shaped hot index values into FeedItem hotness', () => {
+    const item = newsStoreHelpersInternal.storyToDiscoveryItem(
+      STORY,
+      { 'story-1': 1_776_298_361_000 },
+      { 'storyline-1': STORYLINE },
+    );
+
+    expect(item.hotness).toBe(0);
+  });
 });
 
 describe('mirrorStoriesIntoDiscovery', () => {

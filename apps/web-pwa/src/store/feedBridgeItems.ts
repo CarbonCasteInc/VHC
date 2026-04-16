@@ -19,6 +19,16 @@ function toTimestamp(value: number): number {
   return Math.floor(value);
 }
 
+function toHotnessScore(value: number | undefined): number {
+  if (!Number.isFinite(value) || value == null || value < 0) {
+    return 0;
+  }
+
+  // Some published snapshot indexes use epoch-ms ordering values, not scores.
+  // Keep those useful for ordering upstream, but never leak them into the UI.
+  return value > 10_000 ? 0 : value;
+}
+
 function validateFeedItems(items: ReadonlyArray<FeedItem>): FeedItem[] {
   const validated: FeedItem[] = [];
   for (const item of items) {
@@ -63,7 +73,7 @@ export function storyBundleToFeedItem(
     entity_keys: storylineEntityKeys,
     created_at: toTimestamp(bundle.created_at),
     latest_activity_at: toTimestamp(bundle.cluster_window_end),
-    hotness: Math.max(0, hotIndex[bundle.story_id] ?? 0),
+    hotness: toHotnessScore(hotIndex[bundle.story_id]),
     eye: 0,
     lightbulb: bundle.sources.length,
     comments: 0,
@@ -86,5 +96,6 @@ export function synthesisToFeedItem(synthesis: TopicSynthesisV2): FeedItem {
 
 export const feedBridgeItemsInternal = {
   toTimestamp,
+  toHotnessScore,
   validateFeedItems,
 };
