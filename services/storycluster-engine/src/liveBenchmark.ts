@@ -220,8 +220,11 @@ async function runReplayScenario(
       store,
       remoteRunner,
     });
+    const currentExpectedByKey = new Map<string, string>();
     tick.forEach((item: StoryClusterCoherenceAuditItem) => {
-      expectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
+      const key = coherenceAuditInternal.itemEventKey(item);
+      expectedByKey.set(key, item.expected_event_id);
+      currentExpectedByKey.set(key, item.expected_event_id);
     });
     const response = toResponse(
       scenario.topic_id,
@@ -239,7 +242,10 @@ async function runReplayScenario(
     observeReplayTopologyPressureTick(topologyPressure, topicState.clusters);
     const bundles = response.bundles;
     const currentStoryByEvent = new Map<string, string | null>();
-    for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, expectedByKey)) {
+    // The remote contract returns the full persisted topic snapshot so the feed
+    // can remain populated. Replay continuity must observe only current-tick
+    // sources; otherwise a gap tick looks like the prior story is still present.
+    for (const [eventId, storyIds] of eventStoryIdsFromBundles(bundles, currentExpectedByKey)) {
       currentStoryByEvent.set(eventId, singleStoryId(storyIds));
     }
     observeReplayContinuityTick(continuity, currentStoryByEvent);
