@@ -118,3 +118,49 @@ wait_for_log() {
     sleep 1
   done
 }
+
+probe_bindable_tcp_port() {
+  local port="$1"
+  node -e '
+    const net = require("node:net");
+    const port = Number(process.argv[1]);
+    const server = net.createServer();
+    const finish = (code) => {
+      try {
+        server.close(() => process.exit(code));
+      } catch {
+        process.exit(code);
+      }
+    };
+    server.once("error", () => finish(1));
+    server.listen({ host: "127.0.0.1", port, exclusive: true }, () => finish(0));
+  ' "$port" >/dev/null 2>&1
+}
+
+resolve_bindable_tcp_port() {
+  local preferred_port="$1"
+  local fallback_base="$2"
+  local probe_count="$3"
+  local label="${4:-port}"
+  local candidate_port
+
+  if probe_bindable_tcp_port "$preferred_port"; then
+    echo "$preferred_port"
+    return 0
+  fi
+
+  warn "Preferred ${label} tcp:${preferred_port} is not bindable; probing fallback ports"
+  for (( offset=0; offset<probe_count; offset+=1 )); do
+    candidate_port=$(( fallback_base + offset ))
+    if [[ "$candidate_port" -eq "$preferred_port" ]]; then
+      continue
+    fi
+    if probe_bindable_tcp_port "$candidate_port"; then
+      info "Using fallback ${label} tcp:${candidate_port}"
+      echo "$candidate_port"
+      return 0
+    fi
+  done
+
+  return 1
+}

@@ -195,6 +195,9 @@ export interface SourceHealthReport {
 export interface SourceHealthArtifactOptions extends SourceAdmissionArtifactOptions {
   readonly admissionReport?: SourceAdmissionReport;
   readonly thresholds?: Partial<SourceHealthThresholds>;
+  readonly globalOutageRetryCount?: number;
+  readonly globalOutageRetryDelayMs?: number;
+  readonly sleepFn?: (ms: number) => Promise<void>;
 }
 
 interface HistoricalSourceHealthRecord {
@@ -247,6 +250,19 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+
+  return Math.floor(parsed);
+}
+
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
   const normalized = raw?.trim().toLowerCase();
   if (!normalized) {
@@ -259,6 +275,12 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
     return false;
   }
   return fallback;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export function buildSourceHealthThresholds(
@@ -641,14 +663,22 @@ function isFeedStageFailureSource(
   );
 }
 
+function isGlobalFeedStageFailureAdmissionReport(
+  admissionReport: Pick<SourceAdmissionReport, 'sources'>,
+): boolean {
+  return (
+    admissionReport.sources.length > 0
+    && admissionReport.sources.every(isFeedStageFailureSource)
+  );
+}
+
 function shouldPreservePreviousLatestSourceHealthArtifacts(
   admissionReport: Pick<SourceAdmissionReport, 'sources'>,
   latestSourceHealthReportPath: string,
 ): boolean {
   return (
-    admissionReport.sources.length > 0
-    && existsSync(latestSourceHealthReportPath)
-    && admissionReport.sources.every(isFeedStageFailureSource)
+    existsSync(latestSourceHealthReportPath)
+    && isGlobalFeedStageFailureAdmissionReport(admissionReport)
   );
 }
 
@@ -1159,23 +1189,17 @@ export async function writeSourceHealthArtifact(
     resolvedArtifactDir,
     'source-admission-report.json',
   );
-  const admissionArtifact =
+  let admissionArtifact =
     options.admissionReport
       ? {
           artifactDir: resolvedArtifactDir,
           reportPath: resolvedAdmissionReportPath,
           report: options.admissionReport,
         }
-      : await writeSourceAdmissionArtifact(options);
-
-  mkdirSync(admissionArtifact.artifactDir, { recursive: true });
-  if (options.admissionReport) {
-    writeFileSync(
-      admissionArtifact.reportPath,
-      `${JSON.stringify(admissionArtifact.report, null, 2)}\n`,
-      'utf8',
-    );
-  }
+      : await writeSourceAdmissionArtifact({
+          ...options,
+          artifactDir: resolvedArtifactDir,
+        });
   const latestArtifactDir = path.join(
     path.dirname(admissionArtifact.artifactDir),
     'latest',
@@ -1192,6 +1216,54 @@ export async function writeSourceHealthArtifact(
     latestArtifactDir,
     'source-health-trend.json',
   );
+  const globalOutageRetryCount = Math.max(
+    0,
+    options.globalOutageRetryCount
+    ?? parseNonNegativeInt(
+      process.env.VH_NEWS_SOURCE_HEALTH_GLOBAL_OUTAGE_RETRY_COUNT,
+      2,
+    ),
+  );
+  const globalOutageRetryDelayMs = Math.max(
+    0,
+    options.globalOutageRetryDelayMs
+    ?? parseNonNegativeInt(
+      process.env.VH_NEWS_SOURCE_HEALTH_GLOBAL_OUTAGE_RETRY_DELAY_MS,
+      2_000,
+    ),
+  );
+  const sleepFn = options.sleepFn ?? sleep;
+
+  if (!options.admissionReport) {
+    for (
+      let retryAttempt = 1;
+      retryAttempt <= globalOutageRetryCount
+      && isGlobalFeedStageFailureAdmissionReport(admissionArtifact.report);
+      retryAttempt += 1
+    ) {
+      console.warn('[vh:news-source-health] global feed-stage outage detected; retrying full admission pass', {
+        retryAttempt,
+        globalOutageRetryCount,
+        retryDelayMs: globalOutageRetryDelayMs,
+      });
+      if (globalOutageRetryDelayMs > 0) {
+        await sleepFn(globalOutageRetryDelayMs);
+      }
+      admissionArtifact = await writeSourceAdmissionArtifact({
+        ...options,
+        artifactDir: resolvedArtifactDir,
+      });
+    }
+  }
+
+  mkdirSync(admissionArtifact.artifactDir, { recursive: true });
+  if (options.admissionReport) {
+    writeFileSync(
+      admissionArtifact.reportPath,
+      `${JSON.stringify(admissionArtifact.report, null, 2)}\n`,
+      'utf8',
+    );
+  }
   const preservePreviousLatest = shouldPreservePreviousLatestSourceHealthArtifacts(
     admissionArtifact.report,
     latestSourceHealthReportPath,
@@ -1371,6 +1443,7 @@ export const sourceHealthReportInternal = {
   hasLifecycleInstability,
   isDirectExecution,
   isFeedStageFailureSource,
+  isGlobalFeedStageFailureAdmissionReport,
   parseBoolean,
   parseHistoricalSourceHealthRecord,
   readHistoricalSourceHealthReports,
