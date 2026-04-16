@@ -18,6 +18,7 @@ export interface NewsCardSourceAnalysis {
   readonly counterpoints: ReadonlyArray<string>;
   readonly biasClaimQuotes: ReadonlyArray<string>;
   readonly justifyBiasClaims: ReadonlyArray<string>;
+  readonly perspectives?: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly provider_id?: string;
   readonly model_id?: string;
 }
@@ -302,6 +303,22 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return n.length > 0 ? n : undefined;
 }
 
+function normalizePerspectiveRows(
+  rows: ReadonlyArray<{ frame: string; reframe: string }> | undefined,
+): ReadonlyArray<{ frame: string; reframe: string }> {
+  if (!rows) return [];
+  const normalized: Array<{ frame: string; reframe: string }> = [];
+  for (const row of rows) {
+    const frame = row.frame.trim();
+    const reframe = row.reframe.trim();
+    if (!frame || !reframe) continue;
+    if (/^(?:n\/a|no clear bias detected)$/i.test(frame)) continue;
+    if (/^(?:n\/a|no clear bias detected)$/i.test(reframe)) continue;
+    normalized.push({ frame, reframe });
+  }
+  return normalized;
+}
+
 function toSourceAnalysis(
   source: StoryBundle['sources'][number],
   analysis: AnalysisResult,
@@ -315,6 +332,7 @@ function toSourceAnalysis(
     counterpoints: analysis.counterpoints,
     biasClaimQuotes: analysis.bias_claim_quote,
     justifyBiasClaims: analysis.justify_bias_claim,
+    perspectives: normalizePerspectiveRows(analysis.perspectives),
     provider_id:
       normalizeOptionalString(analysis.provider_id) ??
       normalizeOptionalString(analysis.provider?.provider_id),
@@ -329,6 +347,12 @@ function toFrameRows(
 ): ReadonlyArray<{ frame: string; reframe: string }> {
   const rows: Array<{ frame: string; reframe: string }> = [];
   for (const sa of analyses) {
+    const perspectiveRows = normalizePerspectiveRows(sa.perspectives);
+    if (perspectiveRows.length > 0) {
+      rows.push(...perspectiveRows);
+      continue;
+    }
+
     const count = Math.max(sa.biases.length, sa.counterpoints.length);
     for (let i = 0; i < count; i++) {
       const bias = sa.biases[i]?.trim() || 'No clear bias detected';

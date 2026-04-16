@@ -42,8 +42,12 @@ Return exactly one JSON object with these keys and no extraneous text:
 
 Rules:
 - "summary" must be 2-4 sentences, neutral, factual, covering what all sources agree on.
-- "frames" must have 2-4 entries. Each frame states a perspective found in the coverage; each reframe provides a direct counter-perspective.
-- Use terse, debate-style language for frames and reframes.
+- "frames" must have 2-4 entries. Never return an empty frames array.
+- Each frame must be a standalone, affirmative, debate-style claim from one public, political, institutional, or stakeholder side of the story.
+- Each reframe must be a direct, standalone, affirmative counterclaim that challenges the paired frame.
+- If explicit outlet bias or source disagreement is sparse, infer common sides around the issue: political divides, public opinion splits, stakeholder tradeoffs, rights/safety tensions, cost/risk disputes, or accountability arguments.
+- Frames are issue-side claims, not publication summaries. Do not prefix frames with publisher names unless the publisher itself is materially part of the dispute.
+- Never use "N/A" or "No clear bias detected" as a frame or reframe.
 - Do NOT insert opinions or emotive language in the summary.
 - Explicitly note where sources disagree in the frames section.
 `.trim();

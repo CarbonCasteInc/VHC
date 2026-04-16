@@ -55,14 +55,14 @@ const articlePayloadSchema = z
     biases: z.array(z.string()),
     counterpoints: z.array(z.string()),
     confidence: z.number().min(0).max(1),
-    perspectives: z.array(perspectiveSchema),
+    perspectives: z.array(perspectiveSchema).min(1),
   })
   .strict();
 
 const bundlePayloadSchema = z
   .object({
     summary: z.string(),
-    frame_reframe_table: z.array(perspectiveSchema),
+    frame_reframe_table: z.array(perspectiveSchema).min(1),
     warnings: z.array(z.string()).optional(),
     synthesis_ready: z.boolean().optional(),
     synthesis_unavailable_reason: z.string().optional(),
@@ -108,7 +108,11 @@ export function generateArticleAnalysisPrompt(
     'Instructions:',
     '- Summarize core claims neutrally.',
     '- Identify biases with direct supporting quotes.',
-    '- Provide counterpoints and at least one frame/reframe perspective pair.',
+    '- Bias rows must use strict debate-claim styling: each bias is an affirmative claim stated as if an advocate for the article slant were making it; each counterpoint is a direct affirmative counterclaim.',
+    '- If no clear article-level bias can be extracted, use one bias row of "No clear bias detected" with counterpoint "N/A"; do not use that fallback in perspectives.',
+    '- Provide 2-4 frame/reframe perspective pairs. Never leave perspectives empty.',
+    '- Frames are issue-side claims, not publication summaries: public/political/stakeholder sides, legal or institutional tensions, cost/risk disputes, rights/safety debates, or accountability arguments common to the issue.',
+    '- Each frame and reframe must be a standalone, affirmative, terse debate claim. Never return "N/A" or "No clear bias detected" as a frame or reframe.',
     '',
     '--- ARTICLE START ---',
     articleText,
@@ -164,13 +168,15 @@ export function generateBundleSynthesisPrompt(input: BundleSynthesisInput): stri
         `- title: ${entry.title}`,
         `- summary: ${entry.analysis.summary}`,
         `- biases: ${JSON.stringify(entry.analysis.biases)}`,
+        `- counterpoints: ${JSON.stringify(entry.analysis.counterpoints)}`,
+        `- perspectives: ${JSON.stringify(entry.analysis.perspectives)}`,
       ].join('\n');
     })
     .join('\n\n');
 
   const modeInstruction =
     count === 1
-      ? "Only one source is available. Include warning 'single-source-only'."
+      ? "Only one source is available. Include warning 'single-source-only', but still generate issue-side frame/reframe rows."
       : 'Cross-synthesize agreements, conflicts, and frame/reframe differences across sources.';
 
   return [
@@ -182,6 +188,7 @@ export function generateBundleSynthesisPrompt(input: BundleSynthesisInput): stri
     '',
     sourceList,
     '',
+    'Frame/reframe rules: return at least 2 rows when possible; never return an empty table for eligible sources. If explicit source disagreement is sparse, infer common public/political/stakeholder disagreements around the issue. Use standalone affirmative debate claims, not labels, questions, publication summaries, "N/A", or "No clear bias detected".',
     'Output schema: {"summary":"string","frame_reframe_table":[{"frame":"string","reframe":"string"}],"warnings":["string"],"synthesis_ready":true}',
   ].join('\n');
 }

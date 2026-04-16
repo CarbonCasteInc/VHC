@@ -68,6 +68,7 @@ function makeAnalysis(overrides: Partial<{
   summary: string;
   biases: string[];
   counterpoints: string[];
+  perspectives: Array<{ frame: string; reframe: string }>;
 }> = {}) {
   return {
     summary: 'A concise factual summary. Another sentence.',
@@ -75,6 +76,7 @@ function makeAnalysis(overrides: Partial<{
     justify_bias_claim: ['justification'],
     biases: ['Bias statement'],
     counterpoints: ['Counterpoint statement'],
+    perspectives: [],
     sentimentScore: 0.1,
     confidence: 0.8,
     ...overrides,
@@ -377,6 +379,66 @@ describe('newsCardAnalysis', () => {
     expect(result.analyses[0]!.justifyBiasClaims).toEqual(['justification']);
   });
 
+  it('prefers explicit perspective rows over legacy bias fallback rows', () => {
+    const rows = newsCardAnalysisInternal.toFrameRows([
+      {
+        source_id: 'source-1',
+        publisher: 'Publisher One',
+        url: 'https://example.com/1',
+        summary: 'Summary.',
+        biases: ['No clear bias detected'],
+        counterpoints: ['N/A'],
+        biasClaimQuotes: ['N/A'],
+        justifyBiasClaims: ['N/A'],
+        perspectives: [
+          {
+            frame: 'Public safety requires faster intervention.',
+            reframe: 'Civil liberties require stricter limits on intervention.',
+          },
+          {
+            frame: 'Institutional accountability depends on transparent enforcement.',
+            reframe: 'Operational flexibility depends on limiting premature disclosure.',
+          },
+        ],
+      },
+    ]);
+
+    expect(rows).toEqual([
+      {
+        frame: 'Public safety requires faster intervention.',
+        reframe: 'Civil liberties require stricter limits on intervention.',
+      },
+      {
+        frame: 'Institutional accountability depends on transparent enforcement.',
+        reframe: 'Operational flexibility depends on limiting premature disclosure.',
+      },
+    ]);
+    expect(rows[0]!.frame).not.toContain('Publisher One');
+    expect(rows[0]!.frame).not.toContain('No clear bias detected');
+  });
+
+  it('falls back to legacy bias rows when explicit perspectives are unavailable', () => {
+    const rows = newsCardAnalysisInternal.toFrameRows([
+      {
+        source_id: 'source-1',
+        publisher: 'Publisher One',
+        url: 'https://example.com/1',
+        summary: 'Summary.',
+        biases: ['Urgency justifies immediate action.'],
+        counterpoints: ['Verification should precede irreversible action.'],
+        biasClaimQuotes: ['quote'],
+        justifyBiasClaims: ['reason'],
+      },
+    ]);
+
+    expect(rows).toEqual([
+      {
+        frame: 'Publisher One: Urgency justifies immediate action.',
+        reframe: 'Verification should precede irreversible action.',
+      },
+    ]);
+  });
+
   it('toSourceAnalysis maps bias_claim_quote and justify_bias_claim', () => {
     const source = makeStoryBundle().sources[0]!;
     const analysis: AnalysisResult = {
@@ -385,6 +447,7 @@ describe('newsCardAnalysis', () => {
       justify_bias_claim: ['just-1'],
       biases: ['B1'],
       counterpoints: ['C1'],
+      perspectives: [{ frame: 'F1', reframe: 'R1' }],
     };
 
     const mapped = newsCardAnalysisInternal.toSourceAnalysis(source, analysis);
@@ -392,6 +455,7 @@ describe('newsCardAnalysis', () => {
     expect(mapped.justifyBiasClaims).toEqual(['just-1']);
     expect(mapped.biases).toEqual(['B1']);
     expect(mapped.counterpoints).toEqual(['C1']);
+    expect(mapped.perspectives).toEqual([{ frame: 'F1', reframe: 'R1' }]);
   });
 
   describe('runAnalysisViaRelay model threading', () => {
