@@ -93,16 +93,16 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
 }) => {
   return (
     <div data-testid={`news-card-back-${topicId}`} className="space-y-5">
-      <header className="flex flex-wrap items-start justify-between gap-3">
+      <header className="flex flex-wrap items-start justify-between gap-4 rounded-[1.75rem] border border-slate-200/90 bg-slate-50/85 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900/80">
         <div className="space-y-2">
-          <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+          <span className="inline-flex rounded-full bg-violet-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-violet-700 dark:bg-violet-950/70 dark:text-violet-100">
             {sourceViewer ? 'Source View' : 'Synthesis Lens'}
           </span>
-          <h3 className="text-xl font-semibold tracking-tight text-slate-950">{headline}</h3>
+          <h3 className="text-2xl leading-tight text-slate-950 dark:text-white">{headline}</h3>
         </div>
         <button
           type="button"
-          className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+          className="rounded-full border border-slate-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-950/80 dark:text-slate-200 dark:hover:bg-slate-800"
           onClick={onCollapse}
           data-testid={`news-card-back-button-${topicId}`}
         >
@@ -119,116 +119,122 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
         />
       )}
 
-      <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-slate-50/80 p-4">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-          Synthesis Summary
-        </h4>
-        {analysisFeedbackStatus ? (
-          <AnalysisLoadingState
-            status={analysisFeedbackStatus}
-            error={analysisError}
-            onRetry={retryAnalysis}
-          />
-        ) : (
-          <>
-            <p className="text-sm leading-6 text-slate-700" data-testid={`news-card-summary-${topicId}`}>
-              {summary}
-            </p>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.95fr)]">
+        <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-slate-50/80 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900/80">
+          <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Synthesis Summary
+          </h4>
+          <p className="text-sm leading-7 text-slate-700 dark:text-slate-200" data-testid={`news-card-summary-${topicId}`}>
+            {summary}
+          </p>
 
-            {analysisProvider && (
-              <p
-                className="text-xs text-slate-500"
-                data-testid={`news-card-analysis-provider-${topicId}`}
-              >
-                Analysis by {analysisProvider}
-              </p>
-            )}
+          {analysisFeedbackStatus && (
+            <AnalysisLoadingState
+              status={analysisFeedbackStatus}
+              error={analysisError}
+              onRetry={retryAnalysis}
+            />
+          )}
 
-            {perSourceSummaries.length > 0 && (
-              <ul
-                className="list-disc space-y-1 pl-5 text-xs text-slate-600"
-                data-testid={`news-card-analysis-source-summaries-${topicId}`}
-              >
-                {perSourceSummaries.map((entry) => (
-                  <li key={`${entry.source_id}|${entry.publisher}`}>
-                    <span className="font-medium text-slate-700">{entry.publisher}:</span>{' '}
-                    {entry.summary}
+          {!analysisFeedbackStatus && (
+            <>
+              {analysisProvider && (
+                <p
+                  className="text-xs text-slate-500 dark:text-slate-400"
+                  data-testid={`news-card-analysis-provider-${topicId}`}
+                >
+                  Analysis by {analysisProvider}
+                </p>
+              )}
+
+              {perSourceSummaries.length > 0 && (
+                <ul
+                  className="list-disc space-y-1 pl-5 text-xs text-slate-600 dark:text-slate-300"
+                  data-testid={`news-card-analysis-source-summaries-${topicId}`}
+                >
+                  {perSourceSummaries.map((entry) => (
+                    <li key={`${entry.source_id}|${entry.publisher}`}>
+                      <span className="font-medium text-slate-700 dark:text-white">{entry.publisher}:</span>{' '}
+                      {entry.summary}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </section>
+
+        <div className="space-y-4">
+          {relatedCoverage.length > 0 && (
+            <section
+              className="space-y-2 rounded-[1.5rem] border border-slate-200/90 bg-white/82 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80"
+              data-testid={`news-card-related-coverage-${topicId}`}
+            >
+              <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                Related Coverage
+              </h4>
+              {storylineHeadline && (
+                <p
+                  className="text-xs text-slate-500 dark:text-slate-400"
+                  data-testid={`news-card-storyline-headline-${topicId}`}
+                >
+                  {storylineHeadline}
+                  {storylineStoryCount > 0
+                    ? ` • ${storylineStoryCount} ${storylineStoryCount === 1 ? 'story' : 'stories'}`
+                    : ''}
+                </p>
+              )}
+              <ul className="space-y-1.5 text-sm text-slate-600 dark:text-slate-200">
+                {relatedCoverage.map((entry) => (
+                  <li key={`${entry.source_id}|${entry.url}`}>
+                    <span className="font-medium text-slate-700 dark:text-white">{entry.publisher}:</span>{' '}
+                    <a
+                      className="underline decoration-slate-300 underline-offset-2 hover:text-slate-900 dark:decoration-slate-600 dark:hover:text-white"
+                      href={entry.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {entry.title}
+                    </a>
                   </li>
                 ))}
               </ul>
-            )}
-          </>
-        )}
-      </section>
-
-      {relatedLinks.length > 0 && (
-        <section
-          className="space-y-2 rounded-[1.5rem] border border-amber-200/90 bg-amber-50/80 p-4 shadow-sm shadow-amber-900/5"
-          data-testid={`news-card-related-links-${topicId}`}
-        >
-          <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-            Related Stories
-          </h4>
-          <p className="text-xs text-amber-700/80">
-            These links were not used in the framing table or analysis summary.
-          </p>
-          <ul className="space-y-1.5 text-sm text-amber-900">
-            {relatedLinks.map((entry) => (
-              <li key={`${entry.source_id}|${entry.url}`}>
-                <span className="font-medium">{entry.publisher}:</span>{' '}
-                <a
-                  className="underline decoration-amber-300 underline-offset-2 hover:text-amber-950"
-                  href={entry.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {entry.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {relatedCoverage.length > 0 && (
-        <section
-          className="space-y-2 rounded-[1.5rem] border border-slate-200/90 bg-white/80 p-4 shadow-sm shadow-slate-900/5"
-          data-testid={`news-card-related-coverage-${topicId}`}
-        >
-          <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-            Related Coverage
-          </h4>
-          {storylineHeadline && (
-            <p
-              className="text-xs text-slate-500"
-              data-testid={`news-card-storyline-headline-${topicId}`}
-            >
-              {storylineHeadline}
-              {storylineStoryCount > 0
-                ? ` • ${storylineStoryCount} ${storylineStoryCount === 1 ? 'story' : 'stories'}`
-                : ''}
-            </p>
+            </section>
           )}
-          <ul className="space-y-1.5 text-sm text-slate-600">
-            {relatedCoverage.map((entry) => (
-              <li key={`${entry.source_id}|${entry.url}`}>
-                <span className="font-medium text-slate-700">{entry.publisher}:</span>{' '}
-                <a
-                  className="underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
-                  href={entry.url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  {entry.title}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
-      <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-white/80 p-4 shadow-sm shadow-slate-900/5">
-        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+          {relatedLinks.length > 0 && (
+            <section
+              className="space-y-2 rounded-[1.5rem] border border-amber-200/90 bg-amber-50/80 p-4 shadow-sm shadow-amber-900/5 dark:border-amber-900/60 dark:bg-amber-950/30"
+              data-testid={`news-card-related-links-${topicId}`}
+            >
+              <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700 dark:text-amber-100">
+                Related Stories
+              </h4>
+              <p className="text-xs text-amber-700/80 dark:text-amber-100/80">
+                These links were not used in the framing table or analysis summary.
+              </p>
+              <ul className="space-y-1.5 text-sm text-amber-900 dark:text-amber-100">
+                {relatedLinks.map((entry) => (
+                  <li key={`${entry.source_id}|${entry.url}`}>
+                    <span className="font-medium">{entry.publisher}:</span>{' '}
+                    <a
+                      className="underline decoration-amber-300 underline-offset-2 hover:text-amber-950 dark:decoration-amber-700 dark:hover:text-white"
+                      href={entry.url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {entry.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
+      </div>
+
+      <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-white/82 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80">
+        <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
           Frame / Reframe
         </h4>
 

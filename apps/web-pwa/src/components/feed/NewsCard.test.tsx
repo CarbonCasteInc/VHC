@@ -412,6 +412,9 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(
+      await screen.findByTestId('news-card-summary-news-1'),
+    ).toHaveTextContent('Transit vote split council members along budget priorities.');
+    expect(
       await screen.findByText('Extracting article text…'),
     ).toBeInTheDocument();
   });
@@ -423,6 +426,9 @@ describe('NewsCard', () => {
     useNewsStore.getState().setStories([makeStoryBundle()]);
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(
+      await screen.findByTestId('news-card-summary-news-1'),
+    ).toHaveTextContent('Transit vote split council members along budget priorities.');
     expect(await screen.findByText('analysis unavailable')).toBeInTheDocument();
     expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
   });

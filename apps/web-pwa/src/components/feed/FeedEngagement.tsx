@@ -47,12 +47,15 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
 
   return (
     <div
-      className={`mt-4 flex flex-wrap items-center gap-4 text-xs ${className ?? ''}`.trim()}
+      className={`mt-4 flex flex-wrap items-center gap-2 text-xs ${className ?? ''}`.trim()}
       style={{ color: 'var(--headline-card-muted)' }}
       data-testid={`${testIdPrefix}-engagement-${topicId}`}
       aria-label={ariaLabel}
     >
-      <span data-testid={`${testIdPrefix}-eye-${topicId}`} className="inline-flex items-center gap-1">
+      <span
+        data-testid={`${testIdPrefix}-eye-${topicId}`}
+        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 px-2.5 py-1 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
+      >
         {eye > 0 ? (
           <EyeSolid
             className={iconBaseClass}
@@ -68,10 +71,16 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
             aria-hidden="true"
           />
         )}
-        {eye}
+        <span>{eye}</span>
+        <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+          Watching
+        </span>
       </span>
 
-      <span data-testid={`${testIdPrefix}-lightbulb-${topicId}`} className="inline-flex items-center gap-1">
+      <span
+        data-testid={`${testIdPrefix}-lightbulb-${topicId}`}
+        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 px-2.5 py-1 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
+      >
         {lightbulb > 0 ? (
           <LightBulbSolid
             className={iconBaseClass}
@@ -87,10 +96,16 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
             aria-hidden="true"
           />
         )}
-        {lightbulb}
+        <span>{lightbulb}</span>
+        <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+          Stances
+        </span>
       </span>
 
-      <span data-testid={`${testIdPrefix}-comments-${topicId}`} className="inline-flex items-center gap-1">
+      <span
+        data-testid={`${testIdPrefix}-comments-${topicId}`}
+        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 px-2.5 py-1 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
+      >
         {comments > 0 ? (
           <ChatBubbleLeftRightSolid
             className={iconBaseClass}
@@ -106,7 +121,10 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
             aria-hidden="true"
           />
         )}
-        {comments}
+        <span>{comments}</span>
+        <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+          Replies
+        </span>
       </span>
     </div>
   );

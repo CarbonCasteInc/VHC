@@ -31,6 +31,15 @@ function formatHotness(hotness: number): string {
   return Number.isFinite(hotness) ? hotness.toFixed(2) : '0.00';
 }
 
+function previewText(value: string, maxLength = 210): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 function resolveSingletonVideoSource(
   story: StoryBundle | null,
 ): { publisher: string; title: string; url: string } | null {
@@ -215,6 +224,9 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     [story, analysis],
   );
   const detailRegionId = `news-card-detail-region-${item.topic_id}`;
+  const sourceSurfaceLabel =
+    displaySources.length > 1 ? 'Story cluster' : displaySources.length === 1 ? 'Singleton report' : 'Developing';
+  const summaryPreview = previewText(summary);
 
   const openDetail = useCallback(() => {
     if (story) {
@@ -289,10 +301,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       data-story-id={storyId ?? undefined}
       data-storyline-id={storylineId ?? undefined}
       data-feed-detail-id={cardInstanceKey}
-      className="relative overflow-hidden rounded-[1.75rem] p-5 shadow-sm transition-[box-shadow,border-color] duration-150 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 md:p-6"
+      className="group relative overflow-hidden rounded-[2rem] p-6 shadow-[0_28px_70px_-40px_rgba(15,23,42,0.4)] transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:shadow-[0_32px_80px_-42px_rgba(15,23,42,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 md:p-7"
       style={{
         backgroundColor: 'var(--headline-card-bg)',
-        borderColor: isExpanded ? 'rgba(15, 23, 42, 0.18)' : 'var(--headline-card-border)',
+        borderColor: isExpanded ? 'rgba(15, 23, 42, 0.14)' : 'var(--headline-card-border)',
         borderWidth: '1px',
         borderStyle: 'solid',
       }}
@@ -303,27 +315,27 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       onKeyDown={handleCardKeyDown}
       onClick={handleCardClick}
     >
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-slate-300/80 to-transparent dark:via-slate-600/80" />
       <section data-testid={`news-card-front-${item.topic_id}`} data-story-id={storyId ?? undefined}>
-        <header className="mb-3 flex items-start justify-between gap-3">
+        <header className="mb-4 flex items-start justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <span
-              className="rounded-full px-2 py-0.5 text-xs font-semibold"
-              style={{
-                backgroundColor: 'var(--bias-table-bg)',
-                color: 'var(--headline-card-muted)',
-              }}
+              className="rounded-full bg-sky-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-900 dark:bg-sky-950/60 dark:text-sky-100"
             >
               News
             </span>
+            <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+              {sourceSurfaceLabel}
+            </span>
             {discussionThread?.isHeadline && (
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                Active thread
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-900 dark:bg-amber-950/60 dark:text-amber-100">
+                Live thread
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
             <span
-              className="text-xs font-medium uppercase tracking-[0.12em]"
+              className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
               style={{ color: 'var(--headline-card-muted)' }}
               data-testid={`news-card-hotness-${item.topic_id}`}
             >
@@ -331,7 +343,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
             </span>
             <button
               type="button"
-              className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+              className="rounded-full border border-slate-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800"
               onClick={isExpanded ? collapseCard : openDetail}
               data-testid={`news-card-toggle-${item.topic_id}`}
             >
@@ -341,7 +353,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
         </header>
         <button
           type="button"
-          className="mt-1 text-left text-xl font-semibold tracking-tight text-slate-950 underline-offset-2 hover:underline"
+          className="mt-1 text-left text-[1.8rem] leading-[1.02] text-slate-950 underline-offset-2 transition group-hover:text-slate-700 hover:underline dark:text-white dark:group-hover:text-slate-100 md:text-[2.15rem]"
           style={{ color: 'var(--headline-card-text)' }}
           data-testid={`news-card-headline-${item.topic_id}`}
           data-story-id={storyId ?? undefined}
@@ -358,35 +370,51 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
             }))}
           />
         )}
+        {!isExpanded && (
+          <p className="mt-4 max-w-2xl text-[15px] leading-7 text-slate-600 dark:text-slate-300">
+            {summaryPreview}
+          </p>
+        )}
         {storylineHeadline && (
           <button
             type="button"
-            className="mt-3 text-xs font-medium underline-offset-2 hover:underline"
+            className="mt-4 inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-slate-50/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 hover:bg-white hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
             style={{ color: 'var(--headline-card-muted)' }}
             data-testid={`news-card-storyline-${item.topic_id}`}
             onClick={handleStorylineFocus}
           >
-            Related coverage: {storylineHeadline}
+            Related coverage
+            <span className="normal-case tracking-normal text-slate-500 dark:text-slate-400">
+              {storylineHeadline}
+            </span>
           </button>
         )}
-        <p
-          className="mt-3 text-xs uppercase tracking-[0.18em]"
-          style={{ color: 'var(--headline-card-muted)' }}
-        >
-          Created {createdAt} • Updated {latestActivity}
-        </p>
-        <FeedEngagement
-          topicId={item.topic_id}
-          eye={item.eye}
-          lightbulb={item.lightbulb}
-          comments={item.comments}
-        />
+        <div className="mt-5 border-t border-slate-200/80 pt-4 dark:border-slate-800">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p
+              className="text-xs uppercase tracking-[0.18em]"
+              style={{ color: 'var(--headline-card-muted)' }}
+            >
+              Created {createdAt} • Updated {latestActivity}
+            </p>
+            <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+              Expand for synthesis, frame / reframe, and replies.
+            </p>
+          </div>
+          <FeedEngagement
+            topicId={item.topic_id}
+            eye={item.eye}
+            lightbulb={item.lightbulb}
+            comments={item.comments}
+            className="mt-4"
+          />
+        </div>
       </section>
 
       {isExpanded && (
         <section
           id={detailRegionId}
-          className="mt-6 border-t border-slate-200/80 pt-6"
+          className="mt-6 border-t border-slate-200/80 pt-6 dark:border-slate-800"
           data-testid={`news-card-detail-${item.topic_id}`}
         >
           <NewsCardBack

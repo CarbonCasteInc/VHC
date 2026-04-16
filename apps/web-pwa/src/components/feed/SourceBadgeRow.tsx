@@ -45,7 +45,7 @@ export const SourceBadgeRow: React.FC<SourceBadgeRowProps> = ({
 
   return (
     <div
-      className="mt-2 flex items-center"
+      className="mt-3 flex flex-wrap items-center gap-3"
       data-testid="source-badge-row"
       aria-label={`${uniqueSources.length} source${uniqueSources.length === 1 ? '' : 's'}`}
     >
@@ -60,9 +60,15 @@ export const SourceBadgeRow: React.FC<SourceBadgeRowProps> = ({
           </div>
         ))}
       </div>
+      <span
+        className="rounded-full border border-slate-200/80 bg-white/90 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
+        data-testid="source-badge-count"
+      >
+        {uniqueSources.length === 1 ? 'Singleton' : `${uniqueSources.length} sources`}
+      </span>
       {overflow > 0 && (
         <span
-          className="ml-3 rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600"
+          className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300"
           data-testid="source-badge-overflow"
         >
           +{overflow} more

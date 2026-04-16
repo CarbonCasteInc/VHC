@@ -66,21 +66,21 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
 
   return (
     <section
-      className="space-y-4 rounded-[1.5rem] border border-slate-200/90 bg-white/80 p-4 shadow-sm shadow-slate-900/5"
+      className="space-y-4 rounded-[1.75rem] border border-slate-200/90 bg-white/84 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80"
       data-testid={`${sectionId}-discussion`}
     >
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-semibold text-slate-900">{title}</h4>
+            <h4 className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-900 dark:text-white">{title}</h4>
             <span
-              className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600"
+              className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
               data-testid={`${sectionId}-discussion-count`}
             >
               {commentCount} {commentCount === 1 ? 'comment' : 'comments'}
             </span>
           </div>
-          <p className="text-xs text-slate-500">
+          <p className="text-sm text-slate-500 dark:text-slate-400">
             {thread ? 'Threaded replies stay attached to this topic.' : emptyMessage}
           </p>
         </div>
@@ -89,7 +89,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
           <Link
             to="/hermes/$threadId"
             params={{ threadId: thread.id }}
-            className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
+            className="rounded-full border border-slate-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800"
             data-testid={`${sectionId}-open-thread`}
           >
             Open thread
@@ -100,41 +100,49 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
       {thread ? (
         <>
           <div
-            className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-3"
+            className="rounded-[1.5rem] border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/80"
             data-testid={`${sectionId}-thread-head`}
           >
-            <p className="text-sm font-semibold text-slate-900">{thread.title}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white dark:bg-white dark:text-slate-900">
+                {thread.isHeadline ? 'Headline thread' : 'Forum thread'}
+              </span>
+            </div>
+            <p className="mt-3 text-lg text-slate-900 dark:text-white">{thread.title}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
               <span>By {thread.author.slice(0, 10)}…</span>
               <span>{new Date(thread.timestamp).toLocaleString()}</span>
-              <span>{thread.isHeadline ? 'Headline thread' : 'Forum thread'}</span>
             </div>
           </div>
 
           {!loaded && (
-            <p className="text-sm text-slate-500" data-testid={`${sectionId}-discussion-loading`}>
+            <p className="text-sm text-slate-500 dark:text-slate-400" data-testid={`${sectionId}-discussion-loading`}>
               Loading comments…
             </p>
           )}
 
           {loaded && comments.length === 0 && (
             <p
-              className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-5 text-sm text-slate-500"
+              className="rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50/70 px-4 py-5 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400"
               data-testid={`${sectionId}-discussion-empty`}
             >
               No comments yet. Start the discussion.
             </p>
           )}
 
-          {comments.length > 0 && <CommentStream threadId={thread.id} comments={comments} />}
+          {comments.length > 0 && (
+            <div className="rounded-[1.5rem] border border-slate-200/80 bg-slate-50/55 p-2 dark:border-slate-800 dark:bg-slate-900/70">
+              <CommentStream threadId={thread.id} comments={comments} />
+            </div>
+          )}
 
-          <div className="space-y-3 border-t border-slate-200/80 pt-4">
+          <div className="space-y-3 border-t border-slate-200/80 pt-4 dark:border-slate-800">
             <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-medium text-slate-900">Join the discussion</p>
+              <p className="text-sm font-medium text-slate-900 dark:text-white">Join the discussion</p>
               <TrustGate
                 fallback={
                   <span
-                    className="text-xs text-slate-500"
+                    className="text-xs text-slate-500 dark:text-slate-400"
                     data-testid={`${sectionId}-discussion-trust-gate`}
                   >
                     Verify to reply
@@ -143,7 +151,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
               >
                 <button
                   type="button"
-                  className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800"
+                  className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
                   onClick={() => setShowComposer((value) => !value)}
                   data-testid={`${sectionId}-discussion-compose-toggle`}
                 >
@@ -166,7 +174,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
         <div className="space-y-3">
           <button
             type="button"
-            className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-slate-800"
+            className="rounded-full bg-slate-900 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-white transition hover:bg-slate-800 dark:bg-white dark:text-slate-900 dark:hover:bg-slate-200"
             onClick={() => setShowNewThreadForm((value) => !value)}
             data-testid={`${sectionId}-discussion-new-thread-toggle`}
           >
@@ -177,7 +185,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
             <TrustGate
               fallback={
                 <p
-                  className="text-xs text-slate-500"
+                  className="text-xs text-slate-500 dark:text-slate-400"
                   data-testid={`${sectionId}-discussion-new-thread-trust-gate`}
                 >
                   Verify identity to start the discussion.
@@ -195,7 +203,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
         </div>
       ) : (
         <p
-          className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 px-4 py-5 text-sm text-slate-500"
+          className="rounded-[1.5rem] border border-dashed border-slate-200 bg-slate-50/70 px-4 py-5 text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400"
           data-testid={`${sectionId}-discussion-unavailable`}
         >
           Conversation is still syncing for this topic.

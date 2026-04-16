@@ -64,15 +64,15 @@ describe('SortControls', () => {
   it('applies active styling to the selected mode', () => {
     render(<SortControls active="MY_ACTIVITY" onSelect={vi.fn()} />);
     const active = screen.getByTestId('sort-mode-MY_ACTIVITY');
-    expect(active.className).toContain('bg-blue-600');
-    expect(active.className).toContain('text-white');
+    expect(active.className).toContain('bg-white');
+    expect(active.className).toContain('text-slate-900');
   });
 
   it('applies inactive styling to non-selected modes', () => {
     render(<SortControls active="MY_ACTIVITY" onSelect={vi.fn()} />);
     const inactive = screen.getByTestId('sort-mode-LATEST');
-    expect(inactive.className).toContain('bg-slate-200');
-    expect(inactive.className).toContain('text-slate-700');
+    expect(inactive.className).toContain('bg-transparent');
+    expect(inactive.className).toContain('text-slate-500');
   });
 
   it('has a group role with accessible label', () => {

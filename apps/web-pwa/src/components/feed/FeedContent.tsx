@@ -36,7 +36,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
       <div
         role="alert"
         data-testid="feed-error"
-        className="rounded bg-red-50 p-3 text-sm text-red-700"
+        className="rounded-[1.5rem] border border-rose-200/80 bg-rose-50/90 p-4 text-sm text-rose-700 shadow-sm shadow-rose-900/5 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100"
       >
         {error}
       </div>
@@ -47,7 +47,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
     return (
       <div
         data-testid="feed-loading"
-        className="py-8 text-center text-sm text-slate-400"
+        className="rounded-[1.5rem] border border-slate-200/80 bg-white/85 px-4 py-10 text-center text-sm text-slate-500 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300"
       >
         Loading feed…
       </div>
@@ -58,7 +58,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
     return (
       <div
         data-testid="feed-empty"
-        className="py-8 text-center text-sm text-slate-400"
+        className="rounded-[1.5rem] border border-dashed border-slate-200/90 bg-white/82 px-4 py-10 text-center text-sm text-slate-500 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
       >
         No items to show.
       </div>
@@ -66,8 +66,8 @@ export const FeedContent: React.FC<FeedContentProps> = ({
   }
 
   return (
-    <div className="space-y-2">
-      <ul data-testid="feed-list" className="space-y-3">
+    <div className="space-y-4">
+      <ul data-testid="feed-list" className="space-y-5">
         {feed.map((item) => (
           <FeedItemRow key={getFeedItemKey(item)} item={item} />
         ))}
@@ -76,7 +76,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
           <li
             ref={sentinelRef}
             data-testid="feed-load-sentinel"
-            className="py-1 text-center text-xs text-slate-500"
+            className="rounded-full border border-slate-200/80 bg-white/90 px-4 py-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400"
             aria-hidden="true"
           >
             Scroll for more…
@@ -87,7 +87,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
       {loadingMore && (
         <p
           data-testid="feed-loading-more"
-          className="text-center text-xs text-slate-500"
+          className="text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400"
           aria-live="polite"
         >
           Loading more…

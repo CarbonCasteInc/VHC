@@ -30,7 +30,7 @@ export const SortControls: React.FC<SortControlsProps> = ({
 }) => {
   return (
     <div
-      className="flex gap-2"
+      className="flex flex-wrap gap-2 rounded-full bg-slate-100/90 p-1 dark:bg-slate-900/80"
       role="group"
       aria-label="Feed sort"
       data-testid="sort-controls"
@@ -75,8 +75,8 @@ const SortButton: React.FC<SortButtonProps> = ({
       data-testid={`sort-mode-${mode}`}
       className={
         isActive
-          ? 'rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white'
-          : 'rounded bg-slate-200 px-3 py-1 text-sm font-medium text-slate-700'
+          ? 'rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 shadow-sm dark:border-slate-700 dark:bg-slate-800 dark:text-white'
+          : 'rounded-full border border-transparent bg-transparent px-4 py-2 text-sm font-medium text-slate-500 transition hover:border-slate-200 hover:bg-white hover:text-slate-900 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white'
       }
     >
       {label}

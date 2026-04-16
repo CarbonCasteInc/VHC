@@ -100,6 +100,18 @@ describe('FeedShell', () => {
     expect(screen.getByTestId('feed-shell')).toBeInTheDocument();
   });
 
+  it('renders the editorial masthead for the main feed', () => {
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    const masthead = screen.getByTestId('feed-shell-masthead');
+    expect(masthead).toBeInTheDocument();
+    expect(within(masthead).getByText('Main Feed')).toBeInTheDocument();
+    expect(within(masthead).getByRole('heading', { name: 'For You' })).toBeInTheDocument();
+    expect(
+      within(masthead).getByText(/opens every story or topic into summary, frame \/ reframe, and live replies/i),
+    ).toBeInTheDocument();
+  });
+
   it('renders FilterChips component', () => {
     render(<FeedShell feedResult={makeFeedResult()} />);
     expect(screen.getByTestId('filter-chips')).toBeInTheDocument();

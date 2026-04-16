@@ -38,7 +38,13 @@ function badgeColor(sourceId: string): string {
 }
 
 function publisherTag(publisher: string): string {
-  const words = publisher
+  const normalizedPublisher = publisher.trim();
+  const lettersOnly = normalizedPublisher.replace(/[^A-Za-z0-9]/g, '');
+  if (lettersOnly.length > 0 && lettersOnly.length <= 4 && lettersOnly === lettersOnly.toUpperCase()) {
+    return lettersOnly.toLowerCase();
+  }
+
+  const words = normalizedPublisher
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
@@ -81,7 +87,7 @@ export const SourceBadge: React.FC<SourceBadgeProps> = ({
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-full border border-white text-[10px] font-semibold lowercase shadow-sm transition-transform hover:z-10 hover:-translate-y-0.5 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${colorClass}`}
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/90 text-[10px] font-semibold uppercase tracking-[0.16em] shadow-sm transition-transform hover:z-10 hover:-translate-y-0.5 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${colorClass}`}
       aria-label={`Source: ${publisher}`}
       title={publisher}
       data-testid={`source-badge-${sourceId}`}

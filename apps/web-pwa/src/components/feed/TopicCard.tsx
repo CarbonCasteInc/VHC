@@ -38,6 +38,15 @@ function stripMarkdown(value: string | undefined): string | null {
   return normalized ? normalized : null;
 }
 
+function previewText(value: string, maxLength = 220): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 /**
  * User topic/thread card for discovery feed USER_TOPIC items.
  *
@@ -69,6 +78,7 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
   const headline = thread?.title ?? item.title;
   const summary =
     synthesis?.facts_summary ?? stripMarkdown(thread?.content) ?? 'Conversation is building around this topic.';
+  const summaryPreview = previewText(summary);
   const threadHeadMarkup = useMemo(
     () => (thread?.content ? renderMarkdown(thread.content) : null),
     [thread?.content],
@@ -118,34 +128,35 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
       ref={ref}
       data-testid={`topic-card-${item.topic_id}`}
       data-feed-detail-id={detailId}
-      className="rounded-[1.75rem] border border-emerald-200/80 bg-emerald-50/70 p-5 shadow-sm transition-[box-shadow,border-color] duration-150 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 focus-visible:ring-offset-2 md:p-6"
+      className="group relative overflow-hidden rounded-[2rem] border border-indigo-200/40 bg-white/92 p-6 shadow-[0_28px_70px_-40px_rgba(15,23,42,0.36)] transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:shadow-[0_32px_80px_-42px_rgba(15,23,42,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2 md:p-7 dark:border-indigo-900/40 dark:bg-slate-950/84"
       aria-label="User topic"
       aria-expanded={isExpanded}
       tabIndex={0}
       onClick={handleCardClick}
       onKeyDown={handleCardKeyDown}
     >
-      <header className="mb-3 flex items-start justify-between gap-3">
+      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-indigo-300/80 to-transparent dark:via-indigo-700/80" />
+      <header className="mb-4 flex items-start justify-between gap-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded-full bg-emerald-200 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+          <span className="rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-900 dark:bg-indigo-950/70 dark:text-indigo-100">
             Topic
           </span>
           {thread?.isHeadline && (
-            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-medium text-emerald-900">
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-900 dark:bg-amber-950/60 dark:text-amber-100">
               Head thread
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
           <span
-            className="text-xs text-emerald-900"
+            className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-800 dark:text-slate-300"
             data-testid={`topic-card-activity-${item.topic_id}`}
           >
             My activity {myActivity}
           </span>
           <button
             type="button"
-            className="rounded-full border border-emerald-300/70 bg-white/70 px-3 py-1.5 text-xs font-medium text-emerald-900 transition hover:border-emerald-400 hover:bg-white"
+            className="rounded-full border border-slate-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800"
             onClick={isExpanded ? collapseCard : openDetail}
             data-testid={`topic-card-toggle-${item.topic_id}`}
           >
@@ -156,7 +167,7 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
 
       <button
         type="button"
-        className="text-left text-xl font-semibold tracking-tight text-slate-950 underline-offset-2 hover:underline"
+        className="text-left text-[1.8rem] leading-[1.02] text-slate-950 underline-offset-2 transition group-hover:text-slate-700 hover:underline dark:text-white dark:group-hover:text-slate-100 md:text-[2.15rem]"
         data-testid={`topic-card-headline-${item.topic_id}`}
         onClick={openDetail}
       >
@@ -167,45 +178,69 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
         synthesis={synthesis}
         loading={loading}
         error={error}
-        fallback={summary}
+        fallback={summaryPreview}
       />
 
-      <FeedEngagement
-        topicId={item.topic_id}
-        eye={item.eye}
-        lightbulb={item.lightbulb}
-        comments={item.comments}
-        testIdPrefix="topic-card"
-        ariaLabel="Topic engagement"
-      />
+      <div className="mt-5 border-t border-slate-200/80 pt-4 dark:border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+            Forum topic rising through engagement and subscription activity.
+          </p>
+          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+            Expand to review the thread summary, frames, and replies.
+          </p>
+        </div>
+
+        <FeedEngagement
+          topicId={item.topic_id}
+          eye={item.eye}
+          lightbulb={item.lightbulb}
+          comments={item.comments}
+          testIdPrefix="topic-card"
+          ariaLabel="Topic engagement"
+          className="mt-4"
+        />
+      </div>
 
       {isExpanded && (
         <section
-          className="mt-6 space-y-5 border-t border-emerald-200/80 pt-6"
+          className="mt-6 space-y-5 border-t border-slate-200/80 pt-6 dark:border-slate-800"
           data-testid={`topic-card-detail-${item.topic_id}`}
         >
-          {threadHeadMarkup && (
-            <section className="space-y-2 rounded-[1.5rem] border border-emerald-200/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
-              <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900/70">
-                Thread Head
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(16rem,0.9fr)]">
+            <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-slate-50/85 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900/80">
+              <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                Synthesis Summary
               </h4>
-              <div
-                className="prose prose-sm max-w-none text-slate-700"
-                dangerouslySetInnerHTML={{ __html: threadHeadMarkup }}
-                data-testid={`topic-card-thread-head-${item.topic_id}`}
-              />
+              <SynthesisSection synthesis={synthesis} loading={loading} error={error} fallback={summary} />
             </section>
-          )}
 
-          <section className="space-y-3 rounded-[1.5rem] border border-emerald-200/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
-            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900/70">
-              Synthesis Summary
-            </h4>
-            <SynthesisSection synthesis={synthesis} loading={loading} error={error} fallback={summary} />
-          </section>
+            {threadHeadMarkup ? (
+              <section className="space-y-2 rounded-[1.5rem] border border-slate-200/90 bg-white/82 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Thread Head
+                </h4>
+                <div
+                  className="prose prose-sm max-w-none text-slate-700 dark:prose-invert"
+                  dangerouslySetInnerHTML={{ __html: threadHeadMarkup }}
+                  data-testid={`topic-card-thread-head-${item.topic_id}`}
+                />
+              </section>
+            ) : (
+              <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-white/82 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80">
+                <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                  Conversation State
+                </h4>
+                <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+                  This topic is rising because people are subscribing, responding, and pulling the
+                  conversation into the main feed.
+                </p>
+              </section>
+            )}
+          </div>
 
-          <section className="space-y-3 rounded-[1.5rem] border border-emerald-200/80 bg-white/75 p-4 shadow-sm shadow-emerald-900/5">
-            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-900/70">
+          <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-white/82 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80">
+            <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
               Frame / Reframe
             </h4>
             <BiasTable
@@ -223,6 +258,7 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
             sectionId={`topic-card-${item.topic_id}`}
             thread={thread}
             fallbackCommentCount={item.comments}
+            title="Forum replies"
             emptyMessage="This topic is waiting on its conversation thread."
           />
         </section>

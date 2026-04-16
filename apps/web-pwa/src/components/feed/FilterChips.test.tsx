@@ -82,15 +82,15 @@ describe('FilterChips', () => {
   it('applies active styling to the selected chip', () => {
     render(<FilterChips active="SOCIAL" onSelect={vi.fn()} />);
     const activeChip = screen.getByTestId('filter-chip-SOCIAL');
-    expect(activeChip.className).toContain('bg-blue-600');
+    expect(activeChip.className).toContain('bg-slate-900');
     expect(activeChip.className).toContain('text-white');
   });
 
   it('applies inactive styling to non-selected chips', () => {
     render(<FilterChips active="SOCIAL" onSelect={vi.fn()} />);
     const inactiveChip = screen.getByTestId('filter-chip-ALL');
-    expect(inactiveChip.className).toContain('bg-slate-200');
-    expect(inactiveChip.className).toContain('text-slate-700');
+    expect(inactiveChip.className).toContain('bg-transparent');
+    expect(inactiveChip.className).toContain('text-slate-600');
   });
 
   it('has a group role with accessible label', () => {
