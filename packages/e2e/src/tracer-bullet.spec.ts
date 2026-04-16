@@ -29,7 +29,7 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
 
         // 3. Verify Mesh Connection
         // Note: Codex needs to ensure this text appears when connected
-        await expect(page.getByText(/Peers: \d+/)).toBeVisible();
+        await expect(page.getByText(/Peers:?\s+\d+/)).toBeVisible();
 
         // 4. Run Analysis
         const analyzeBtn = page.getByTestId('analyze-btn');
@@ -57,7 +57,7 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
         // Identity should still be there (no create button)
         await expect(createIdentityBtn).not.toBeVisible();
         // Mesh should reconnect
-        await expect(page.getByText(/Peers: \d+/)).toBeVisible();
+        await expect(page.getByText(/Peers:?\s+\d+/)).toBeVisible();
         await expect(page.getByTestId('linked-count')).toContainText(/Linked devices: 1/);
     });
 });

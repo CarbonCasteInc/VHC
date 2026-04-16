@@ -1,5 +1,8 @@
 import { defineConfig, devices } from '@playwright/test';
 
+const e2ePort = Number.parseInt(process.env.E2E_PORT ?? '5173', 10);
+const baseURL = `http://127.0.0.1:${Number.isFinite(e2ePort) ? e2ePort : 5173}`;
+
 export default defineConfig({
     testDir: './src',
     fullyParallel: true,
@@ -8,7 +11,7 @@ export default defineConfig({
     workers: process.env.CI ? 1 : undefined,
     reporter: 'html',
     use: {
-        baseURL: 'http://localhost:5173',
+        baseURL,
         trace: 'on-first-retry',
     },
     projects: [
@@ -18,8 +21,8 @@ export default defineConfig({
         },
     ],
     webServer: {
-        command: 'cd ../.. && VITE_E2E_MODE=true pnpm --filter @vh/web-pwa preview',
-        url: 'http://localhost:5173',
+        command: `cd ../.. && VITE_E2E_MODE=true pnpm --filter @vh/web-pwa preview --host 127.0.0.1 --port ${Number.isFinite(e2ePort) ? e2ePort : 5173}`,
+        url: baseURL,
         reuseExistingServer: false,
         timeout: 120 * 1000,
         env: {
