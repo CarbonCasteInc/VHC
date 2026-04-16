@@ -1,6 +1,7 @@
 import {
   deriveAnalysisKey,
   type StoryAnalysisArtifact,
+  type StoryAnalysisBundleIdentity,
   type StoryBundle,
 } from '@vh/data-model';
 import { readAnalysis, readLatestAnalysis, writeAnalysis } from '@vh/gun-client';
@@ -130,6 +131,28 @@ const MESH_DEBUG_ENABLED = isMeshDebugEnabled();
 function ensureNonEmpty(value: string | undefined | null, fallback: string): string {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : fallback;
+}
+
+function buildAnalysisBundleIdentity(story: StoryBundle): StoryAnalysisBundleIdentity {
+  const sourceArticleIds = [
+    ...new Set(story.sources.map((source) => `${source.source_id}:${source.url_hash}`)),
+  ].sort();
+
+  return {
+    bundle_revision: story.provenance_hash,
+    source_article_ids: sourceArticleIds,
+    source_count: sourceArticleIds.length,
+    cluster_window_start: Math.max(0, Math.floor(story.cluster_window_start)),
+    cluster_window_end: Math.max(0, Math.floor(story.cluster_window_end)),
+  };
+}
+
+function storyIdentityMatchesArtifact(story: StoryBundle, artifact: StoryAnalysisArtifact): boolean {
+  if (!artifact.bundle_identity) {
+    return artifact.provenance_hash === story.provenance_hash;
+  }
+
+  return JSON.stringify(artifact.bundle_identity) === JSON.stringify(buildAnalysisBundleIdentity(story));
 }
 
 function toPendingChain(client: ReturnType<typeof resolveClientFromAppStore>, storyId: string, modelScopeKey: string): any {
@@ -328,6 +351,7 @@ async function toArtifact(
       url_hash: ensureNonEmpty(entry.url_hash, `${story.story_id}-related`),
       title: ensureNonEmpty(entry.title, 'Related story'),
     })),
+    bundle_identity: buildAnalysisBundleIdentity(story),
     provider: {
       provider_id: ensureNonEmpty(firstProvider?.provider_id, 'unknown-provider'),
       model: ensureNonEmpty(firstProvider?.model_id, 'unknown-model'),
@@ -404,16 +428,18 @@ export async function readMeshAnalysis(
       if (directArtifact) {
         if (
           directArtifact.model_scope !== modelScopeKey ||
-          directArtifact.provenance_hash !== story.provenance_hash
+          !storyIdentityMatchesArtifact(story, directArtifact)
         ) {
           logMeshDebug('read-derived-key-mismatch', {
             story_id: story.story_id,
             attempt,
             expected_analysis_key: derivedKey,
             expected_provenance_hash: story.provenance_hash,
+            expected_bundle_identity: buildAnalysisBundleIdentity(story),
             expected_model_scope: modelScopeKey,
             actual_analysis_key: directArtifact.analysisKey,
             actual_provenance_hash: directArtifact.provenance_hash,
+            actual_bundle_identity: directArtifact.bundle_identity ?? null,
             actual_model_scope: directArtifact.model_scope,
           });
           emitTelemetry('derived-key-invalid');
@@ -460,7 +486,17 @@ export async function readMeshAnalysis(
           actual_model_scope: latestArtifact.model_scope,
         });
 
-        if (
+        if (!storyIdentityMatchesArtifact(story, latestArtifact)) {
+          logMeshDebug('read-latest-pointer-bundle-identity-mismatch', {
+            story_id: story.story_id,
+            attempt,
+            expected_bundle_identity: buildAnalysisBundleIdentity(story),
+            actual_analysis_key: latestArtifact.analysisKey,
+            actual_provenance_hash: latestArtifact.provenance_hash,
+            actual_bundle_identity: latestArtifact.bundle_identity ?? null,
+            actual_model_scope: latestArtifact.model_scope,
+          });
+        } else if (
           latestArtifact.model_scope !== modelScopeKey &&
           !CROSS_MODEL_REUSE_ENABLED
         ) {
@@ -473,16 +509,6 @@ export async function readMeshAnalysis(
             provenance_hash: latestArtifact.provenance_hash,
           });
         } else {
-          if (latestArtifact.provenance_hash !== story.provenance_hash) {
-            logMeshDebug('read-latest-pointer-provenance-drift-reuse', {
-              story_id: story.story_id,
-              attempt,
-              expected_provenance_hash: story.provenance_hash,
-              actual_provenance_hash: latestArtifact.provenance_hash,
-              analysis_key: latestArtifact.analysisKey,
-              model_scope: latestArtifact.model_scope,
-            });
-          }
           if (latestArtifact.model_scope !== modelScopeKey) {
             logMeshDebug('read-latest-pointer-cross-model-reuse', {
               story_id: story.story_id,
@@ -499,10 +525,7 @@ export async function readMeshAnalysis(
             analysis_key: latestArtifact.analysisKey,
             provenance_hash: latestArtifact.provenance_hash,
             model_scope: latestArtifact.model_scope,
-            provenance_mode:
-              latestArtifact.provenance_hash === story.provenance_hash
-                ? 'exact'
-                : 'drift-reuse',
+            provenance_mode: 'exact',
           });
           emitTelemetry('latest-pointer');
           return toSynthesis(latestArtifact);
@@ -751,6 +774,7 @@ export async function clearPendingMeshAnalysis(
 }
 
 export const analysisMeshInternal = {
+  buildAnalysisBundleIdentity,
   clearPendingMeshAnalysis,
   readPendingMeshAnalysis,
   toArtifact,

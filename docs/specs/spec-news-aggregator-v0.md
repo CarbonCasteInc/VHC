@@ -168,12 +168,21 @@ No source image URLs should be dropped from canonical event-bundle provenance wh
 Related-coverage sources may be projected separately through `StorylineGroup` and do not need to widen canonical `StoryBundle` provenance.
 Canonical event-bundle publication must remain strict even when related coverage is grouped elsewhere.
 
+Analysis persistence identity:
+- generated story analyses are keyed by `story_id + provenance_hash + pipeline_version + model_scope + schema_version`;
+- new generated analysis artifacts must also persist `bundle_identity.bundle_revision`, `bundle_identity.source_article_ids`, `bundle_identity.source_count`, and the bundle cluster window;
+- `bundle_revision` is the bundle provenance revision used for the analysis key;
+- `source_article_ids` are stable `source_id:url_hash` identifiers sorted across the accepted source set;
+- latest-analysis pointers must not be reused across bundle revision/source-set drift; old artifacts remain readable by their exact analysis key, and regenerated bundles must create a fresh analysis rather than overwriting or silently reusing stale analysis.
+
 ## 5. Mesh/storage paths
 
 - `vh/news/stories/<storyId>`
 - `vh/news/index/latest/<storyId>`
 - `vh/news/storylines/<storylineId>`
 - optional: `vh/news/source/<sourceId>/<itemId>` for debug snapshots
+- analysis artifacts: `vh/news/stories/<storyId>/analysis/<analysisKey>`
+- latest analysis pointer: `vh/news/stories/<storyId>/analysis_latest`
 
 Storyline publication contract:
 

@@ -90,9 +90,6 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
     let settled = false;
     const timeout = setTimeout(() => {
-      if (settled) {
-        return;
-      }
       settled = true;
       resolve(null);
     }, READ_ONCE_TIMEOUT_MS);
@@ -112,9 +109,6 @@ function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> 
   return new Promise<PutAckResult>((resolve, reject) => {
     let settled = false;
     const timer = setTimeout(() => {
-      if (settled) {
-        return;
-      }
       settled = true;
       resolve({
         acknowledged: false,
@@ -184,13 +178,8 @@ async function collectActorNodesViaMap(
     const nodesByActor = new Map<string, TopicEngagementActorNode>();
     const startedAt = Date.now();
     let lastEventAt = startedAt;
-    let settled = false;
 
     const finish = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
       clearInterval(idleTimer);
       clearTimeout(maxTimer);
       try {

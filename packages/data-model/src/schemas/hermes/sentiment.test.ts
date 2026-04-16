@@ -60,6 +60,13 @@ const validArtifact = {
     timestamp: 1_700_000_000,
   },
   created_at: '2026-02-18T22:00:00.000Z',
+  bundle_identity: {
+    bundle_revision: 'prov-123',
+    source_article_ids: ['src-1:url-hash-1'],
+    source_count: 1,
+    cluster_window_start: 1_700_000_000_000,
+    cluster_window_end: 1_700_003_600_000,
+  },
 };
 
 describe('StoryAnalysisArtifactSchema', () => {
@@ -79,6 +86,21 @@ describe('StoryAnalysisArtifactSchema', () => {
     };
     expect(StoryAnalysisArtifactSchema.safeParse(invalid).success).toBe(false);
   });
+
+  it('keeps legacy artifacts valid while enforcing bundle identity shape when present', () => {
+    const { bundle_identity: _bundleIdentity, ...legacyArtifact } = validArtifact;
+    expect(StoryAnalysisArtifactSchema.safeParse(legacyArtifact).success).toBe(true);
+
+    expect(
+      StoryAnalysisArtifactSchema.safeParse({
+        ...validArtifact,
+        bundle_identity: {
+          ...validArtifact.bundle_identity,
+          source_article_ids: [],
+        },
+      }).success,
+    ).toBe(false);
+  });
 });
 
 describe('StoryAnalysisLatestPointerSchema', () => {
@@ -89,6 +111,13 @@ describe('StoryAnalysisLatestPointerSchema', () => {
         provenance_hash: 'prov',
         model_scope: 'model:default',
         created_at: '2026-02-18T22:00:00.000Z',
+        bundle_identity: {
+          bundle_revision: 'prov',
+          source_article_ids: ['src-1:url-hash-1'],
+          source_count: 1,
+          cluster_window_start: 1_700_000_000_000,
+          cluster_window_end: 1_700_003_600_000,
+        },
       }).success,
     ).toBe(true);
   });

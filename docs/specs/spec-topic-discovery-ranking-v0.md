@@ -187,6 +187,13 @@ Required card affordances:
 
 News-created forum threads must link with `sourceSynthesisId` + `sourceEpoch` when available and preserve the feed `topic_id` as the thread `topicId`. Legacy `sourceAnalysisId` is read-only compatibility.
 
+Continuous stream behavior:
+
+- validated article-automation / publisher-canary snapshots feed the public news store through the configured snapshot bootstrap URL;
+- the snapshot payload is the public feed projection of bundled output, preserving singleton vs aggregate source composition for headline-card source strips;
+- refreshes surface newer clusters without requiring a tab switch or separate feed mode;
+- lazy pagination reveals older stories as the user scrolls, without dropping the current filter, sort, or restored expanded-card route state.
+
 ### 8.1 Topic cards
 
 `USER_TOPIC` feed cards are enriched with `TopicSynthesisV2` data when available.

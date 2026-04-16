@@ -91,4 +91,95 @@ describe('useFeedEngagementMetrics', () => {
     });
     expect(GunClient.readTopicEngagementSummary).toHaveBeenCalledWith(fakeClient, 'topic-mesh');
   });
+
+  it('logs mesh read failures and keeps local counters visible', async () => {
+    const fakeClient = {} as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'readTopicEngagementSummary').mockRejectedValue('mesh-read-failed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      eye: { 'topic-error': 1 },
+      lightbulb: { 'topic-error': 1.285 },
+    });
+
+    const { result } = renderHook(() =>
+      useFeedEngagementMetrics({
+        topicId: 'topic-error',
+        eye: 2,
+        lightbulb: 3,
+        comments: 4,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith('[vh:topic-engagement:read]', {
+        topic_id: 'topic-error',
+        error: 'mesh-read-failed',
+      });
+    });
+    expect(result.current).toEqual({
+      eye: 3,
+      lightbulb: 4.285,
+      comments: 4,
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it('uses Error messages when mesh aggregate reads throw Error objects', async () => {
+    const fakeClient = {} as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'readTopicEngagementSummary').mockRejectedValue(new Error('mesh-error-object'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    renderHook(() =>
+      useFeedEngagementMetrics({
+        topicId: 'topic-error-object',
+        eye: 0,
+        lightbulb: 0,
+        comments: 0,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(warnSpy).toHaveBeenCalledWith('[vh:topic-engagement:read]', {
+        topic_id: 'topic-error-object',
+        error: 'mesh-error-object',
+      });
+    });
+
+    warnSpy.mockRestore();
+  });
+
+  it('does not update state after the mesh read effect is cleaned up', async () => {
+    const fakeClient = {} as never;
+    let resolveRead: (value: null) => void = () => {};
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'readTopicEngagementSummary').mockImplementation(
+      () => new Promise((resolve) => {
+        resolveRead = resolve;
+      }),
+    );
+
+    const { result, unmount } = renderHook(() =>
+      useFeedEngagementMetrics({
+        topicId: 'topic-cleanup',
+        eye: 1,
+        lightbulb: 1,
+        comments: 1,
+      }),
+    );
+
+    expect(result.current).toEqual({
+      eye: 1,
+      lightbulb: 1,
+      comments: 1,
+    });
+    unmount();
+    resolveRead(null);
+    await Promise.resolve();
+
+    expect(GunClient.readTopicEngagementSummary).toHaveBeenCalledWith(fakeClient, 'topic-cleanup');
+  });
 });

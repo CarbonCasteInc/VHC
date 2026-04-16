@@ -113,6 +113,7 @@ describe('useSentimentState', () => {
   afterEach(() => {
     budgetMock.restore();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('cycles agreement and emits signals', () => {
@@ -175,6 +176,112 @@ describe('useSentimentState', () => {
         lightbulbWeight: 0,
       }),
     );
+  });
+
+  it('reuses an existing topic engagement actor secret when projecting reads', async () => {
+    localStorage.setItem('vh_topic_engagement_actor_secret_v1', ' existing-topic-secret ');
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-existing');
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: 'existing-topic-secret',
+      topic_id: TOPIC,
+    });
+  });
+
+  it('creates topic engagement actor secrets from getRandomValues when randomUUID is unavailable', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: vi.fn((array: Uint8Array) => {
+        array.set(Array.from({ length: array.length }, (_, index) => index));
+        return array;
+      }),
+    });
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-random-values');
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: '000102030405060708090a0b0c0d0e0f',
+      topic_id: TOPIC,
+    });
+  });
+
+  it('creates topic engagement actor secrets from time and random fallback when crypto is unavailable', async () => {
+    vi.stubGlobal('crypto', {});
+    vi.spyOn(Date, 'now').mockReturnValue(123456);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-fallback');
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: '2n9c-i',
+      topic_id: TOPIC,
+    });
+  });
+
+  it('logs topic engagement mesh projection failures without rolling back reads', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'writeTopicEngagementActorNode').mockRejectedValue(new Error('topic-write-failed'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const next = useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(next).toBe(1);
+    expect(useSentimentState.getState().getEyeWeight(TOPIC)).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:topic-engagement:mesh-write]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        success: false,
+        error: 'topic-write-failed',
+      }),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('stringifies non-Error topic engagement projection failures', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'writeTopicEngagementActorNode').mockRejectedValue('topic-write-string-failed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:topic-engagement:mesh-write]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        success: false,
+        error: 'topic-write-string-failed',
+      }),
+    );
+
+    warnSpy.mockRestore();
   });
 
   it('accumulates lightbulb_weight via recordEngagement with decay', () => {

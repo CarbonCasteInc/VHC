@@ -143,6 +143,15 @@ Current truth for the news bundler and feed hardening lane:
   - `secondary_assets` = same-publisher derivatives such as video clips
 - `created_at` is immutable by `story_id`; `cluster_window_end` is the latest-activity source of truth.
 - `Latest` is activity-based and `Hot` remains deterministic/config-versioned.
+- Public feed freshness now has an explicit through-line test from validated article-automation / publisher-canary snapshots into the unified feed:
+  - singleton and aggregate story composition is preserved for the headline-card source strip;
+  - older stories are revealed by scroll pagination;
+  - newer clusters from a later snapshot appear after refresh without changing feed mode.
+- Generated story analyses now persist explicit bundle identity metadata:
+  - `bundle_revision`
+  - sorted `source_article_ids`
+  - source count and cluster window
+  - latest-analysis reuse is exact-revision only, so regenerated bundles do not overwrite or silently reuse stale analysis records.
 - The fixture-backed daemon-first release gates are green on `main` after the latest semantic-fixture expansion:
   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
@@ -578,6 +587,8 @@ Operational live profiles intentionally override selected flags to enable the fu
 | TopicCard / NewsCard | ✅ Wave 1 |
 | Compact NewsCard side media + source strip + engagement counts | ✅ `components/feed/NewsCardFront.tsx`, `components/feed/SourceBadgeRow.tsx`, `components/feed/FeedEngagement.tsx` |
 | Mesh-backed Eye/Lightbulb topic engagement counters | ✅ `hooks/useSentimentState.ts`, `hooks/useFeedEngagementMetrics.ts`, `packages/gun-client/src/topicEngagementAdapters.ts` |
+| Rolling bundler snapshot -> feed freshness path | ✅ `store/newsSnapshotBootstrap.ts`, `components/feed/FeedShell.lazyLoading.test.tsx` |
+| Bundle-identity analysis persistence | ✅ `components/feed/useAnalysisMesh.ts`, `packages/gun-client/src/analysisAdapters.ts`, `packages/data-model/src/schemas/hermes/sentiment.ts` |
 | SocialNotificationCard (real data) | ✅ Wave 2 |
 | ArticleFeedCard | ✅ Wave 2 |
 | Discovery store + ranking | ✅ `store/discovery/` |

@@ -45,6 +45,16 @@ export const StoryAnalysisProviderSchema = z
   })
   .strict();
 
+export const StoryAnalysisBundleIdentitySchema = z
+  .object({
+    bundle_revision: NonEmptyString,
+    source_article_ids: z.array(NonEmptyString).min(1),
+    source_count: z.number().int().positive(),
+    cluster_window_start: z.number().int().nonnegative(),
+    cluster_window_end: z.number().int().nonnegative(),
+  })
+  .strict();
+
 /**
  * Public reusable analysis artifact for NewsCard analysis.
  * Path: vh/news/stories/<storyId>/analysis/<analysisKey>
@@ -64,6 +74,7 @@ export const StoryAnalysisArtifactSchema = z
     relatedLinks: z.array(StoryAnalysisRelatedLinkSchema).optional(),
     provider: StoryAnalysisProviderSchema,
     created_at: NonEmptyString,
+    bundle_identity: StoryAnalysisBundleIdentitySchema.optional(),
   })
   .strict();
 
@@ -77,6 +88,7 @@ export const StoryAnalysisLatestPointerSchema = z
     provenance_hash: NonEmptyString,
     model_scope: NonEmptyString,
     created_at: NonEmptyString,
+    bundle_identity: StoryAnalysisBundleIdentitySchema.optional(),
   })
   .strict();
 
@@ -204,6 +216,7 @@ export type StoryAnalysisFrame = z.infer<typeof StoryAnalysisFrameSchema>;
 export type StoryAnalysisSource = z.infer<typeof StoryAnalysisSourceSchema>;
 export type StoryAnalysisRelatedLink = z.infer<typeof StoryAnalysisRelatedLinkSchema>;
 export type StoryAnalysisProvider = z.infer<typeof StoryAnalysisProviderSchema>;
+export type StoryAnalysisBundleIdentity = z.infer<typeof StoryAnalysisBundleIdentitySchema>;
 export type StoryAnalysisArtifact = z.infer<typeof StoryAnalysisArtifactSchema>;
 export type StoryAnalysisLatestPointer = z.infer<typeof StoryAnalysisLatestPointerSchema>;
 export type SentimentEvent = z.infer<typeof SentimentEventSchema>;
