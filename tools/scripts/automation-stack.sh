@@ -32,6 +32,40 @@ AUTO_SNAPSHOT_PID="$AUTO_DIR/snapshot.pid"
 AUTO_RELAY_DATA="$AUTO_DIR/relay-data"
 AUTO_STORYCLUSTER_STATE="$AUTO_DIR/storycluster-state"
 
+artifact_root_has_snapshot() {
+  local artifact_root="$1"
+  [[ -d "$artifact_root" ]] || return 1
+  [[ -n "$(find "$artifact_root" -maxdepth 2 -name published-store-snapshot.json -print -quit 2>/dev/null)" ]]
+}
+
+resolve_publisher_canary_artifact_root() {
+  if [[ -n "${VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT:-}" ]]; then
+    printf '%s\n' "$VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT"
+    return 0
+  fi
+
+  local current_candidate="$ROOT/.tmp/daemon-feed-publisher-canary"
+  if artifact_root_has_snapshot "$current_candidate"; then
+    printf '%s\n' "$current_candidate"
+    return 0
+  fi
+
+  local main_worktree
+  main_worktree="$(
+    git -C "$ROOT" worktree list --porcelain 2>/dev/null \
+      | awk '/^worktree / { wt=$0; sub(/^worktree /, "", wt) } /^branch refs\/heads\/main$/ { print wt; exit }'
+  )"
+  if [[ -n "$main_worktree" ]]; then
+    local main_candidate="$main_worktree/.tmp/daemon-feed-publisher-canary"
+    if artifact_root_has_snapshot "$main_candidate"; then
+      printf '%s\n' "$main_candidate"
+      return 0
+    fi
+  fi
+
+  printf '%s\n' "$current_candidate"
+}
+
 # --- lock ---
 read_lock_pid() {
   if [[ -f "$LOCK_FILE" ]]; then
@@ -136,6 +170,7 @@ load_automation_env() {
   export VITE_NEWS_BRIDGE_ENABLED=false
   export VITE_SYNTHESIS_BRIDGE_ENABLED=false
   export VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL="http://127.0.0.1:${AUTO_SNAPSHOT_PORT}/snapshot.json"
+  export VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT="$(resolve_publisher_canary_artifact_root)"
   export VITE_GUN_PEERS="[\"http://localhost:${AUTO_RELAY_PORT}/gun\"]"
   export VH_STORYCLUSTER_VECTOR_BACKEND=memory
   export ANALYSIS_RELAY_MODEL="${ANALYSIS_RELAY_MODEL:-gpt-4o-mini}"

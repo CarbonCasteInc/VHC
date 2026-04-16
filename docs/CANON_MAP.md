@@ -26,7 +26,8 @@ Precedence is defined in `docs/README.md`.
 | HERMES Forum | `docs/specs/spec-hermes-forum-v0.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md` | 2026-04-16 |
 | HERMES Docs | `docs/specs/spec-hermes-docs-v0.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md` | 2026-03-03 |
 | Civic Action Kit | `docs/specs/spec-civic-action-kit-v0.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md` | 2026-03-03 |
-| Local manual + strict runtime ops | `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md` | VHC Ops | `docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`, `docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md`, `docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/analysis-backend-3001.md` | 2026-04-16 |
+| Local manual + strict runtime ops | `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md` | VHC Ops | `docs/ops/AUTOMATION_STACK_RUNBOOK.md`, `docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`, `docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md`, `docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md`, `docs/ops/BETA_SESSION_RUNSHEET.md`, `docs/ops/analysis-backend-3001.md` | 2026-04-16 |
+| Persistent automation stack and validated feed snapshot through-line | `docs/ops/AUTOMATION_STACK_RUNBOOK.md` | VHC Ops + Core Engineering | `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`, `docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`, `docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md`, `docs/specs/spec-news-aggregator-v0.md` | 2026-04-16 |
 | Beta-session operator procedure and pre-session feed readiness review | `docs/ops/BETA_SESSION_RUNSHEET.md` | VHC Ops | `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`, `docs/foundational/STATUS.md` | 2026-03-20 |
 
 ## Update Rule

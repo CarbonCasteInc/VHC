@@ -10,6 +10,7 @@ import {
   formatConsoleArgs,
   resolveAutomationStackState,
   resolveLatestPassingCanaryArtifact,
+  resolvePublisherCanaryArtifactRoot,
 } from './daemon-feed-canary-shared.mjs';
 import { formatErrorMessage, sleep } from './daemon-feed-semantic-soak-core.mjs';
 
@@ -96,7 +97,7 @@ async function loadConsumerSmokeFixture(repoRoot, env, { exists = existsSync, re
     };
   }
 
-  const artifactRoot = path.join(repoRoot, '.tmp', 'daemon-feed-publisher-canary');
+  const artifactRoot = resolvePublisherCanaryArtifactRoot(repoRoot, env);
   const latest = resolveLatestPassingCanaryArtifact(artifactRoot, {
     exists,
     readdir,

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mirrorStoriesIntoDiscoveryMock = vi.fn();
 
@@ -10,7 +10,18 @@ describe('news snapshot bootstrap', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.unstubAllEnvs();
+    vi.useRealTimers();
     mirrorStoriesIntoDiscoveryMock.mockReset();
+  });
+
+  afterEach(async () => {
+    try {
+      const { stopNewsSnapshotRefresh } = await import('./newsSnapshotBootstrap');
+      stopNewsSnapshotRefresh();
+    } catch {
+      // Module may not have been loaded in the current test.
+    }
+    vi.useRealTimers();
   });
 
   it('reads the configured snapshot url from env', async () => {
@@ -34,6 +45,16 @@ describe('news snapshot bootstrap', () => {
     } finally {
       vi.stubGlobal('process', originalProcess);
     }
+  });
+
+  it('parses snapshot refresh intervals with default, disable, and minimum behavior', async () => {
+    const { newsSnapshotBootstrapInternal } = await import('./newsSnapshotBootstrap');
+
+    expect(newsSnapshotBootstrapInternal.parseSnapshotRefreshMs(undefined)).toBe(60_000);
+    expect(newsSnapshotBootstrapInternal.parseSnapshotRefreshMs('0')).toBeNull();
+    expect(newsSnapshotBootstrapInternal.parseSnapshotRefreshMs('false')).toBeNull();
+    expect(newsSnapshotBootstrapInternal.parseSnapshotRefreshMs('1000')).toBe(5_000);
+    expect(newsSnapshotBootstrapInternal.parseSnapshotRefreshMs('25000')).toBe(25_000);
   });
 
   it('returns false when no snapshot url is configured', async () => {
@@ -182,5 +203,76 @@ describe('news snapshot bootstrap', () => {
     expect(state.stories).toEqual([{ story_id: 'story-2', headline: 'Recovered', sources: [] }]);
     expect(state.latestIndex).toEqual({ 'story-2': 456 });
     expect(state.hotIndex).toEqual({ 'story-2': 0.9 });
+  });
+
+  it('refreshes a configured snapshot URL so fresh canary output reaches discovery', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL', 'http://127.0.0.1:8790/snapshot.json');
+    vi.stubEnv('VITE_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS', '5000');
+    const { startNewsSnapshotRefreshIfConfigured, stopNewsSnapshotRefresh } = await import('./newsSnapshotBootstrap');
+    const state = {
+      stories: [],
+      hotIndex: {},
+      storylinesById: {},
+      latestIndex: {},
+      setStorylines(storylines: Array<{ storyline_id: string }>) {
+        this.storylinesById = Object.fromEntries(storylines.map((storyline) => [storyline.storyline_id, storyline]));
+      },
+      setStories(stories: Array<{ story_id: string }>) {
+        this.stories = stories;
+      },
+      setLatestIndex(index: Record<string, number>) {
+        this.latestIndex = index;
+      },
+      setHotIndex(index: Record<string, number>) {
+        this.hotIndex = index;
+      },
+    } as any;
+    const store = { getState: () => state } as any;
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          generatedAt: '2026-04-16T10:00:00.000Z',
+          runId: 'canary-1',
+          stories: [{ story_id: 'story-1', headline: 'First canary story', sources: [] }],
+          storylines: [{ storyline_id: 'storyline-1', topic_id: 'a'.repeat(64) }],
+          latestIndex: { 'story-1': 100 },
+          hotIndex: { 'story-1': 0.1 },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          generatedAt: '2026-04-16T11:00:00.000Z',
+          runId: 'canary-2',
+          stories: [{ story_id: 'story-2', headline: 'Second canary story', sources: [] }],
+          storylines: [{ storyline_id: 'storyline-2', topic_id: 'b'.repeat(64) }],
+          latestIndex: { 'story-2': 200 },
+          hotIndex: { 'story-2': 0.2 },
+        }),
+      });
+    const log = vi.fn();
+
+    expect(startNewsSnapshotRefreshIfConfigured(store, { fetchImpl: fetchImpl as any, log })).toBe(true);
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(state.stories).toEqual([{ story_id: 'story-1', headline: 'First canary story', sources: [] }]);
+    expect(state.latestIndex).toEqual({ 'story-1': 100 });
+    expect(mirrorStoriesIntoDiscoveryMock).toHaveBeenCalledWith(
+      state.stories,
+      { 'story-1': 0.1 },
+      { 'storyline-1': { storyline_id: 'storyline-1', topic_id: 'a'.repeat(64) } },
+    );
+
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(state.stories).toEqual([{ story_id: 'story-2', headline: 'Second canary story', sources: [] }]);
+    expect(state.latestIndex).toEqual({ 'story-2': 200 });
+    expect(mirrorStoriesIntoDiscoveryMock).toHaveBeenCalledTimes(2);
+    expect(log).toHaveBeenCalledTimes(2);
+
+    stopNewsSnapshotRefresh();
   });
 });

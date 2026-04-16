@@ -7,6 +7,7 @@ import {
   rankFeedSourcesByIds,
   resolveAutomationStackState,
   resolveLatestPassingCanaryArtifact,
+  resolvePublisherCanaryArtifactRoot,
   summarizePublishedStoreSnapshot,
 } from './daemon-feed-canary-shared.mjs';
 
@@ -238,6 +239,18 @@ describe('daemon-feed-canary shared helpers', () => {
       summaryPath: '/artifacts/200/publisher-canary-summary.json',
       summary: { pass: true },
     });
+  });
+
+  it('resolves publisher canary artifact root from explicit env before repo default', () => {
+    expect(resolvePublisherCanaryArtifactRoot('/repo', {
+      VH_DAEMON_FEED_PUBLISHER_CANARY_ARTIFACT_ROOT: '/shared/canary',
+    })).toBe('/shared/canary');
+
+    expect(resolvePublisherCanaryArtifactRoot('/repo', {
+      VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT: '../shared/canary',
+    })).toBe('/shared/canary');
+
+    expect(resolvePublisherCanaryArtifactRoot('/repo', {})).toBe('/repo/.tmp/daemon-feed-publisher-canary');
   });
 
   it('reads healthy automation stack endpoints from state', () => {

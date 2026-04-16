@@ -88,20 +88,27 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
   // Browser clients consume feed publication and wire local comment events into
   // the V2 synthesis trigger path; ingestion still runs in the daemon.
 
+  let bootstrappedSnapshot = false;
   try {
-    const [{ useNewsStore }, { bootstrapNewsSnapshotIfConfigured }] = await Promise.all([
+    const [
+      { useNewsStore },
+      {
+        bootstrapNewsSnapshotIfConfigured,
+        startNewsSnapshotRefreshIfConfigured,
+      },
+    ] = await Promise.all([
       import('./news'),
       import('./newsSnapshotBootstrap'),
     ]);
-    const bootstrappedSnapshot = await bootstrapNewsSnapshotIfConfigured(useNewsStore);
+    bootstrappedSnapshot = await bootstrapNewsSnapshotIfConfigured(useNewsStore);
     if (bootstrappedSnapshot) {
-      return;
+      startNewsSnapshotRefreshIfConfigured(useNewsStore);
     }
   } catch (snapshotError) {
     console.warn(`[vh:web-pwa] snapshot bootstrap failed (${context}):`, snapshotError);
   }
 
-  if (shouldBootstrapFeedBridges()) {
+  if (!bootstrappedSnapshot && shouldBootstrapFeedBridges()) {
     try {
       const { bootstrapFeedBridges } = await import('./feedBridge');
       await bootstrapFeedBridges();

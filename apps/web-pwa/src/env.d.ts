@@ -14,6 +14,7 @@ interface ImportMetaEnv {
   readonly VITE_NEWS_RUNTIME_ENABLED?: 'true' | 'false';
   readonly VITE_NEWS_FEED_SOURCES?: string;
   readonly VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL?: string;
+  readonly VITE_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS?: string;
   readonly VITE_NEWS_TOPIC_MAPPING?: string;
   readonly VITE_NEWS_POLL_INTERVAL_MS?: string;
   readonly VITE_NEWS_SOURCE_RELIABILITY_GATE?: 'true' | 'false';

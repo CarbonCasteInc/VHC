@@ -73,9 +73,23 @@ pnpm live:stack:up:validated-snapshot
 
 Validated-snapshot behavior:
 - uses the latest passing publisher-canary artifact as the news input
+- re-resolves that artifact while the stack is running, so a later passing
+  automation canary can replace the served snapshot without restarting the
+  stack
+- the browser bootstrap refreshes the configured snapshot URL on an interval
+  and mirrors updated `StoryBundle` output into discovery
 - keeps the stack in consumer mode for news
 - avoids live ingest/runtime volatility while still showing recent, validity-envelope-approved `StoryBundle` output
 - is the preferred manual mode when UI needs fresher realistic data than the deterministic fixture feed without depending on current public ingest luck
+
+Refresh knobs:
+- artifact root: `VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT` or
+  `VH_DAEMON_FEED_PUBLISHER_CANARY_ARTIFACT_ROOT` points at
+  `.tmp/daemon-feed-publisher-canary`; when unset, the local stack uses the
+  current checkout artifact root if it has snapshots, otherwise the `main`
+  worktree artifact root when available
+- snapshot server: `VH_VALIDATED_SNAPSHOT_REFRESH_MS` (default `10000`; `0` freezes the initial artifact)
+- browser consumer: `VITE_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS` or `VH_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS` (default `60000`; `0` disables polling)
 
 Status check:
 
@@ -164,12 +178,15 @@ Use this checklist during manual browser validation:
    - `readinessStatus`
    - `promotionBlockingReasons`
    - `promotionAssessment`
-16. If the lane changes source onboarding, extraction, or source reliability behavior, review `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` and confirm the source contract still holds.
-17. Confirm any newly admitted source is accessible and readable in practice:
+16. In validated-snapshot mode, confirm `/meta.json` on the snapshot server
+    points at the expected latest passing publisher-canary artifact and that
+    the visible feed updates after the browser snapshot refresh interval.
+17. If the lane changes source onboarding, extraction, or source reliability behavior, review `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` and confirm the source contract still holds.
+18. Confirm any newly admitted source is accessible and readable in practice:
    - no paywall-dependent article path;
    - no persistent truncation/robots-blocked behavior;
    - extraction succeeds at the required quality bar.
-18. Confirm singleton-first publication remains acceptable for the changed lane:
+19. Confirm singleton-first publication remains acceptable for the changed lane:
    - single-source stories may appear in feed;
    - later same-incident / same-developing-episode coverage still attaches without identity churn where covered by the evidence set.
 

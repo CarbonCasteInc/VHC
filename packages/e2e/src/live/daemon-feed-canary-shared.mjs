@@ -241,6 +241,16 @@ export function resolveLatestPassingCanaryArtifact(
   return null;
 }
 
+export function resolvePublisherCanaryArtifactRoot(repoRoot, env = process.env) {
+  const explicit =
+    env.VH_DAEMON_FEED_PUBLISHER_CANARY_ARTIFACT_ROOT?.trim()
+    || env.VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT?.trim();
+  if (explicit) {
+    return path.resolve(repoRoot, explicit);
+  }
+  return path.join(repoRoot, '.tmp', 'daemon-feed-publisher-canary');
+}
+
 function normalizeUrl(value) {
   return typeof value === 'string' && value.trim().length > 0
     ? value.trim()
