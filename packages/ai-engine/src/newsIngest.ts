@@ -96,7 +96,7 @@ function normalizeUrlCandidate(raw: string | undefined): string | undefined {
 
 function extractOpeningTags(xml: string, tag: string): string[] {
   const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*\\/?>`, 'gi');
-  return Array.from(xml.matchAll(regex), (match) => match[0] ?? '').filter(Boolean);
+  return Array.from(xml.matchAll(regex), (match) => match[0]).filter(Boolean);
 }
 
 function readTagAttribute(tag: string, attr: string): string | undefined {
@@ -112,7 +112,7 @@ function extractFirstImageFromHtml(html: string): string | undefined {
 
 function extractImageFromTagContents(xmlFragment: string, tagNames: readonly string[]): string | undefined {
   for (const tagName of tagNames) {
-    for (const content of Array.from(xmlFragment.matchAll(new RegExp(`<${tagName.replace(':', '\\:')}[^>]*>([\\s\\S]*?)<\\/${tagName.replace(':', '\\:')}>`, 'gi')), (match) => match[1] ?? '')) {
+    for (const content of Array.from(xmlFragment.matchAll(new RegExp(`<${tagName.replace(':', '\\:')}[^>]*>([\\s\\S]*?)<\\/${tagName.replace(':', '\\:')}>`, 'gi')), (match) => match[1] as string)) {
       const imageUrl = extractFirstImageFromHtml(content);
       if (imageUrl) {
         return imageUrl;

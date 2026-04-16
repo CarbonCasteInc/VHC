@@ -218,10 +218,66 @@ describe('newsIngest', () => {
       ),
     ).toBe('https://cdn.example.com/thumb.jpg');
     expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><media:content medium="video" url="https://cdn.example.com/video.mp4" /><enclosure url="https://cdn.example.com/enclosure.jpg" type="image/jpeg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/enclosure.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><media:content type="video/mp4" url="https://cdn.example.com/video.mp4" /><media:thumbnail url="https://cdn.example.com/type-fallback.jpg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/type-fallback.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><enclosure url="https://cdn.example.com/video.mp4" type="video/mp4" /></item>',
+      ),
+    ).toBeUndefined();
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><enclosure url="https://cdn.example.com/no-type.jpg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/no-type.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><media:thumbnail url="not a url" /><itunes:image href="https://cdn.example.com/podcast.jpg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/podcast.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl('<item><media:thumbnail url="   " /></item>'),
+    ).toBeUndefined();
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><description><![CDATA[<p><img src="https://cdn.example.com/description.jpg" /></p>]]></description></item>',
+      ),
+    ).toBe('https://cdn.example.com/description.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><description><![CDATA[<p><img src="   " /></p>]]></description></item>',
+      ),
+    ).toBeUndefined();
+    expect(
+      newsIngestInternal.extractAtomImageUrl(
+        '<entry><media:content medium="image" url="https://cdn.atom.example.com/media.jpg" /></entry>',
+      ),
+    ).toBe('https://cdn.atom.example.com/media.jpg');
+    expect(
+      newsIngestInternal.extractAtomImageUrl(
+        '<entry><media:content type="video/mp4" url="https://cdn.atom.example.com/video.mp4" /><media:thumbnail url="https://cdn.atom.example.com/thumb.jpg" /></entry>',
+      ),
+    ).toBe('https://cdn.atom.example.com/thumb.jpg');
+    expect(
       newsIngestInternal.extractAtomImageUrl(
         '<entry><link href="https://cdn.atom.example.com/3.jpg" rel="enclosure" type="image/jpeg" /></entry>',
       ),
     ).toBe('https://cdn.atom.example.com/3.jpg');
+    expect(
+      newsIngestInternal.extractAtomImageUrl(
+        '<entry><link href="https://cdn.atom.example.com/video.mp4" rel="enclosure" type="video/mp4" /><summary><![CDATA[<img src="https://cdn.atom.example.com/summary.jpg" />]]></summary></entry>',
+      ),
+    ).toBe('https://cdn.atom.example.com/summary.jpg');
+    expect(
+      newsIngestInternal.extractAtomImageUrl('<entry><link href="https://cdn.atom.example.com/not-image" rel="alternate" /></entry>'),
+    ).toBeUndefined();
 
     const parsed = newsIngestInternal.parseFeedXml(
       '<rss><channel><item><title>A</title><link>https://example.com/a</link></item></channel></rss>',

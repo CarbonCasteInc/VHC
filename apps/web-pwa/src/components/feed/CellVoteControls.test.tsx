@@ -66,6 +66,8 @@ describe('CellVoteControls', () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -308,6 +310,32 @@ describe('CellVoteControls', () => {
       expect(usePointAggregateMock).toHaveBeenCalled();
     });
     expect(warnSpy).not.toHaveBeenCalledWith('[vh:bias-table:point-map]', expect.anything());
+  });
+
+  it('emits point-map diagnostics when explicitly enabled', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    vi.stubEnv('VITE_BIAS_TABLE_DIAGNOSTICS', 'true');
+
+    render(<CellVoteControls {...BASE_PROPS} synthesisPointId="synth-point-xyz" />);
+
+    await waitFor(() => {
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:bias-table:point-map]',
+        expect.objectContaining({
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          display_point_id: 'point-abc',
+          canonical_point_id: 'synth-point-xyz',
+          id_partition: true,
+        }),
+      );
+    });
+  });
+
+  it('treats diagnostics as disabled when process env is unavailable', () => {
+    vi.stubGlobal('process', undefined);
+
+    expect(() => render(<CellVoteControls {...BASE_PROPS} />)).not.toThrow();
   });
 
   it('uses contextual agreement key when synthesisPointId is provided', () => {

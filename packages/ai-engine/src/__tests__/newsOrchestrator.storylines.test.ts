@@ -14,7 +14,7 @@ vi.mock('../newsNormalize', () => ({
   normalizeAndDedup: normalizeAndDedupMock,
 }));
 
-import { orchestrateNewsPipeline } from '../newsOrchestrator';
+import { newsOrchestratorInternal, orchestrateNewsPipeline } from '../newsOrchestrator';
 
 const FEED_SOURCE = {
   id: 'source-1',
@@ -223,6 +223,15 @@ describe('newsOrchestrator storyline batches', () => {
 
     expect(batchSizes).toEqual([2, 2, 1]);
     expect(result).toEqual(snapshots[2]);
+  });
+
+  it('rejects invalid remote chunk sizes before clustering', () => {
+    expect(() => newsOrchestratorInternal.normalizeRemoteClusterMaxItemsPerRequest(0)).toThrow(
+      'remoteClusterMaxItemsPerRequest must be a positive finite number',
+    );
+    expect(() => newsOrchestratorInternal.normalizeRemoteClusterMaxItemsPerRequest(Number.NaN)).toThrow(
+      'remoteClusterMaxItemsPerRequest must be a positive finite number',
+    );
   });
 
   it('merges incremental chunk responses when the remote engine returns deltas', async () => {

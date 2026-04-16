@@ -399,6 +399,18 @@ describe('AnalysisView', () => {
     expect(screen.queryByText('No forum thread yet')).not.toBeInTheDocument();
   });
 
+  it('renders linked forum thread when matched by source analysis id', () => {
+    forumStoreState.threads = new Map([
+      ['thread-analysis', { id: 'thread-analysis', sourceAnalysisId: 'analysis-1' }],
+    ]);
+
+    render(<AnalysisView item={sample} />);
+
+    fireEvent.click(screen.getByTestId('flip-to-forum'));
+
+    expect(screen.getByTestId('thread-view')).toHaveTextContent('thread-analysis');
+  });
+
   it('navigates to create thread when no linked thread exists', () => {
     render(<AnalysisView item={sample} />);
 

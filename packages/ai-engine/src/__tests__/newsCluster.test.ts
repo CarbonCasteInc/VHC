@@ -584,6 +584,15 @@ describe('newsCluster', () => {
     expect(newsClusterInternal.ensureSentence('')).toBe('Story update available.');
     expect(newsClusterInternal.clamp01(Number.NaN)).toBe(0);
     expect(newsClusterInternal.resolvePrimaryLanguage({ bucketStart: 0, bucketEnd: 0, items: [], entitySet: new Set() } as never)).toBe('en');
+    expect(newsClusterInternal.resolvePrimaryLanguage({
+      bucketStart: 0,
+      bucketEnd: 0,
+      items: [
+        makeItem({ language: 'fr' }),
+        makeItem({ language: 'es' }),
+      ],
+      entitySet: new Set(),
+    } as never)).toBe('es');
 
     const enrichmentBundle = clusterItems([makeItem()], 'topic-enrichment-fallback')[0]!;
     const enrichmentFallback = buildEnrichmentWorkItems(

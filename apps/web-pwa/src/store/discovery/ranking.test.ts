@@ -332,6 +332,27 @@ describe('sortItems', () => {
     expect(topFour).toEqual(['alpha-1', 'budget', 'alpha-2', 'wildfire']);
   });
 
+  it('HOTTEST diversification falls back to default settings when config omits overrides', () => {
+    const configWithoutDiversification: RankingConfig = {
+      ...CONFIG,
+      hottestDiversification: undefined,
+    };
+    const alpha = makeFeedItem({
+      topic_id: 'alpha',
+      title: 'Alpha policy update',
+      hotness: 1,
+    });
+    const beta = makeFeedItem({
+      topic_id: 'beta',
+      title: 'Beta policy update',
+      hotness: 0.9,
+    });
+
+    const result = sortItems([beta, alpha], 'HOTTEST', configWithoutDiversification, NOW);
+
+    expect(result.map((item) => item.topic_id)).toEqual(['alpha', 'beta']);
+  });
+
   it('HOTTEST promotes an eligible tail item before breaking the storyline cap', () => {
     const alphaItems = Array.from({ length: 12 }, (_, index) =>
       makeFeedItem({
