@@ -26,6 +26,8 @@ export const HermesThreadSchema = z.object({
   author: z.string().min(1),
   timestamp: z.number().int().nonnegative(),
   tags: z.array(z.string().min(1)),
+  sourceSynthesisId: z.string().min(1).optional(),
+  sourceEpoch: z.number().int().nonnegative().optional(),
   sourceAnalysisId: z.string().min(1).optional(),
   topicId: z.string().min(1).optional(),
   sourceUrl: z.string().url().optional(),

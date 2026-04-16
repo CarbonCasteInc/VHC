@@ -25,7 +25,8 @@ describe('NewThreadForm', () => {
     const sourceUrl = 'https://example.com/article';
     render(
       <NewThreadForm
-        sourceAnalysisId="analysis-hash-1"
+        sourceSynthesisId="synth-1"
+        sourceEpoch={4}
         defaultTitle="Default"
         sourceUrl={sourceUrl}
       />
@@ -44,13 +45,13 @@ describe('NewThreadForm', () => {
       'Thread title',
       'Thread content',
       ['news', 'policy', 'civic'],
-      'analysis-hash-1',
+      { sourceSynthesisId: 'synth-1', sourceEpoch: 4 },
       { sourceUrl, isHeadline: true }
     );
   });
 
   it('calls createThread with opts undefined when sourceUrl is absent', async () => {
-    render(<NewThreadForm sourceAnalysisId="analysis-hash-2" />);
+    render(<NewThreadForm sourceSynthesisId="synth-2" />);
 
     fireEvent.change(screen.getByTestId('thread-title'), { target: { value: ' Title ' } });
     fireEvent.change(screen.getByTestId('thread-content'), { target: { value: ' Content ' } });
@@ -58,11 +59,17 @@ describe('NewThreadForm', () => {
     fireEvent.click(screen.getByTestId('submit-thread-btn'));
 
     await waitFor(() => expect(createThreadMock).toHaveBeenCalledTimes(1));
-    expect(createThreadMock).toHaveBeenCalledWith('Title', 'Content', [], 'analysis-hash-2', undefined);
+    expect(createThreadMock).toHaveBeenCalledWith(
+      'Title',
+      'Content',
+      [],
+      { sourceSynthesisId: 'synth-2', sourceEpoch: undefined },
+      undefined,
+    );
   });
 
   it('calls createThread with opts undefined when sourceUrl is empty string', async () => {
-    render(<NewThreadForm sourceAnalysisId="analysis-hash-3" sourceUrl="" />);
+    render(<NewThreadForm sourceSynthesisId="synth-3" sourceUrl="" />);
 
     fireEvent.change(screen.getByTestId('thread-title'), { target: { value: 'Title' } });
     fireEvent.change(screen.getByTestId('thread-content'), { target: { value: 'Content' } });
@@ -70,6 +77,12 @@ describe('NewThreadForm', () => {
     fireEvent.click(screen.getByTestId('submit-thread-btn'));
 
     await waitFor(() => expect(createThreadMock).toHaveBeenCalledTimes(1));
-    expect(createThreadMock).toHaveBeenCalledWith('Title', 'Content', [], 'analysis-hash-3', undefined);
+    expect(createThreadMock).toHaveBeenCalledWith(
+      'Title',
+      'Content',
+      [],
+      { sourceSynthesisId: 'synth-3', sourceEpoch: undefined },
+      undefined,
+    );
   });
 });

@@ -171,6 +171,43 @@ describe('hermesForum store', () => {
     });
   });
 
+  it('createThread with sourceUrl and explicit topicId preserves unified topic identity', async () => {
+    setIdentity('story-topic-thread');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-story-topic', now: () => 1 });
+    const sourceUrl = 'https://example.com/story';
+
+    const thread = await store
+      .getState()
+      .createThread('title', 'content', ['news'], undefined, {
+        sourceUrl,
+        topicId: 'story-topic-1',
+      });
+
+    const expectedHash = await deriveUrlTopicId(sourceUrl);
+    expect(thread.sourceUrl).toBe(sourceUrl);
+    expect(thread.urlHash).toBe(expectedHash);
+    expect(thread.topicId).toBe('story-topic-1');
+  });
+
+  it('createThread writes synthesis source context and not legacy analysis context', async () => {
+    setIdentity('synthesis-thread');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-synth', now: () => 1 });
+
+    const thread = await store
+      .getState()
+      .createThread('title', 'content', ['news'], { sourceSynthesisId: 'synth-7', sourceEpoch: 3 });
+
+    expect(thread.sourceSynthesisId).toBe('synth-7');
+    expect(thread.sourceEpoch).toBe(3);
+    expect(thread.sourceAnalysisId).toBeUndefined();
+    expect(threadWrites[0]).toMatchObject({
+      id: 'thread-synth',
+      sourceSynthesisId: 'synth-7',
+      sourceEpoch: 3,
+    });
+    expect(threadWrites[0]).not.toHaveProperty('sourceAnalysisId');
+  });
+
   it('createThread without sourceUrl sets topicId from thread id', async () => {
     setIdentity('native-thread');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-native', now: () => 1 });

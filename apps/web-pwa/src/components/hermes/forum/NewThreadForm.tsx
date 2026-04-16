@@ -2,13 +2,22 @@ import React, { useState } from 'react';
 import { useForumStore } from '../../../store/hermesForum';
 
 interface Props {
-  sourceAnalysisId?: string;
+  sourceSynthesisId?: string;
+  sourceEpoch?: number;
   defaultTitle?: string;
   sourceUrl?: string;
+  topicId?: string;
   onSuccess?: () => void;
 }
 
-export const NewThreadForm: React.FC<Props> = ({ sourceAnalysisId, defaultTitle, sourceUrl, onSuccess }) => {
+export const NewThreadForm: React.FC<Props> = ({
+  sourceSynthesisId,
+  sourceEpoch,
+  defaultTitle,
+  sourceUrl,
+  topicId,
+  onSuccess,
+}) => {
   const { createThread } = useForumStore();
   const [title, setTitle] = useState(defaultTitle ?? '');
   const [content, setContent] = useState('');
@@ -20,8 +29,16 @@ export const NewThreadForm: React.FC<Props> = ({ sourceAnalysisId, defaultTitle,
     setBusy(true);
     try {
       const parsedTags = tags.split(',').map((t) => t.trim()).filter(Boolean);
-      const opts = sourceUrl ? { sourceUrl, isHeadline: true as const } : undefined;
-      await createThread(title.trim(), content.trim(), parsedTags, sourceAnalysisId, opts);
+      const opts = sourceUrl || topicId
+        ? { ...(sourceUrl ? { sourceUrl } : {}), ...(topicId ? { topicId } : {}), isHeadline: true as const }
+        : undefined;
+      await createThread(
+        title.trim(),
+        content.trim(),
+        parsedTags,
+        sourceSynthesisId ? { sourceSynthesisId, sourceEpoch } : undefined,
+        opts,
+      );
       setTitle('');
       setContent('');
       setTags('');

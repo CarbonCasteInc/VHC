@@ -42,6 +42,7 @@ vi.mock('./useStoryRemoval', () => ({
 // Mock newsCardAnalysis to prevent import side effects
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
+  sanitizePublicationNeutralSummary: (summary: string) => summary,
 }));
 
 const NOW = 1_700_000_000_000;

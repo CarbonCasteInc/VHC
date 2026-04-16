@@ -93,7 +93,7 @@ describe('Feed ↔ Forum integration', () => {
 
   it('creates a thread from analysis feed context with sourceUrl/urlHash/topicId/isHeadline', async () => {
     const sourceUrl = 'https://example.com/news/story';
-    const sourceAnalysisId = await hashUrl(sourceUrl);
+    const sourceSynthesisId = await hashUrl(sourceUrl);
     const summary = 'Analysis summary headline';
 
     localStorage.setItem(
@@ -101,7 +101,7 @@ describe('Feed ↔ Forum integration', () => {
       JSON.stringify([
         {
           url: sourceUrl,
-          urlHash: sourceAnalysisId,
+          urlHash: sourceSynthesisId,
           summary,
           biases: ['b'],
           counterpoints: ['c'],
@@ -147,7 +147,7 @@ describe('Feed ↔ Forum integration', () => {
     const discussLink = screen.getByRole('link', { name: /discuss in forum/i });
     const linkSearch = new URL(discussLink.getAttribute('href') ?? '', 'https://venn.local').searchParams;
 
-    expect(linkSearch.get('sourceAnalysisId')).toBe(sourceAnalysisId);
+    expect(linkSearch.get('sourceSynthesisId')).toBe(sourceSynthesisId);
     expect(linkSearch.get('title')).toBe(summary);
     expect(linkSearch.get('sourceUrl')).toBe(sourceUrl);
 
@@ -155,7 +155,7 @@ describe('Feed ↔ Forum integration', () => {
 
     render(
       <NewThreadForm
-        sourceAnalysisId={linkSearch.get('sourceAnalysisId') ?? undefined}
+        sourceSynthesisId={linkSearch.get('sourceSynthesisId') ?? undefined}
         defaultTitle={linkSearch.get('title') ?? undefined}
         sourceUrl={linkSearch.get('sourceUrl') ?? undefined}
       />
@@ -178,7 +178,7 @@ describe('Feed ↔ Forum integration', () => {
     const expectedHash = await deriveUrlTopicId(sourceUrl);
     expect(createdThread).toMatchObject({
       id: 'thread-feed-forum',
-      sourceAnalysisId,
+      sourceSynthesisId,
       sourceUrl,
       urlHash: expectedHash,
       topicId: expectedHash,

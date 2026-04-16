@@ -143,7 +143,7 @@ export function createPublishBackArtifacts(
       tags: ['article'],
       topicId: link.topicId,
       /* v8 ignore next -- both branches tested via with/without synthesisId tests */
-      ...(link.synthesisId ? { sourceAnalysisId: link.synthesisId } : {}),
+      ...(link.synthesisId ? { sourceSynthesisId: link.synthesisId } : {}),
       upvotes: 0,
       downvotes: 0,
       score: 0,

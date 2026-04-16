@@ -17,8 +17,10 @@ export interface FeedDiscussionSectionProps {
   readonly fallbackCommentCount?: number;
   readonly createThread?: {
     readonly defaultTitle: string;
-    readonly sourceAnalysisId?: string;
+    readonly sourceSynthesisId?: string;
+    readonly sourceEpoch?: number;
     readonly sourceUrl?: string;
+    readonly topicId?: string;
   } | null;
 }
 
@@ -194,8 +196,10 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
             >
               <NewThreadForm
                 defaultTitle={createThread.defaultTitle}
-                sourceAnalysisId={createThread.sourceAnalysisId}
+                sourceSynthesisId={createThread.sourceSynthesisId}
+                sourceEpoch={createThread.sourceEpoch}
                 sourceUrl={createThread.sourceUrl}
+                topicId={createThread.topicId}
                 onSuccess={() => setShowNewThreadForm(false)}
               />
             </TrustGate>

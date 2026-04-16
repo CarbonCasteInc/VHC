@@ -186,6 +186,8 @@ export interface HermesThread {
   author: string;
   timestamp: number;
   tags: string[];
+  sourceSynthesisId?: string;
+  sourceEpoch?: number;
   sourceAnalysisId?: string;
   topicId?: string;
   sourceUrl?: string;

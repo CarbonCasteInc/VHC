@@ -76,13 +76,16 @@ export function resolveStoryDiscussionThread(
   return pickThread(
     Array.from(threads).filter((thread) => {
       const threadTopicId = normalizeToken(thread.topicId);
+      const threadSourceSynthesisId = normalizeToken(thread.sourceSynthesisId);
       const threadSourceAnalysisId = normalizeToken(thread.sourceAnalysisId);
       const threadUrlHash = normalizeToken(thread.urlHash);
       const threadSourceUrl = normalizeUrl(thread.sourceUrl);
 
       return (
         (topicId !== null && threadTopicId === topicId) ||
+        (storyId !== null && threadSourceSynthesisId === storyId) ||
         (storyId !== null && threadSourceAnalysisId === storyId) ||
+        (threadSourceSynthesisId !== null && sourceHashSet.has(threadSourceSynthesisId)) ||
         (threadSourceAnalysisId !== null && sourceHashSet.has(threadSourceAnalysisId)) ||
         (threadUrlHash !== null && sourceHashSet.has(threadUrlHash)) ||
         (threadSourceUrl !== null && sourceUrlSet.has(threadSourceUrl))

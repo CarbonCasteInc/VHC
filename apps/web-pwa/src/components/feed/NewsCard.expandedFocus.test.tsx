@@ -16,6 +16,7 @@ import {
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn(),
+  sanitizePublicationNeutralSummary: (summary: string) => summary,
 }));
 
 vi.mock('../../store/identityProvider', () => ({

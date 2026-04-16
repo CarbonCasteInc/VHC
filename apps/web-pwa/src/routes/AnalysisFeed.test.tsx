@@ -189,7 +189,7 @@ describe('AnalysisFeed', () => {
     const url = new URL(link.getAttribute('href') ?? '', 'https://venn.local');
 
     expect(url.pathname).toBe('/hermes');
-    expect(url.searchParams.get('sourceAnalysisId')).toBe(existing[0].urlHash);
+    expect(url.searchParams.get('sourceSynthesisId')).toBe(existing[0].urlHash);
     expect(url.searchParams.get('title')).toBe(existing[0].summary);
     expect(url.searchParams.get('sourceUrl')).toBe(sourceUrl);
   });

@@ -61,4 +61,31 @@ describe('HOTTEST storyline cap', () => {
       'other-10',
     ]);
   });
+
+  it('uses ranking config diversification settings instead of hard-coded caps', () => {
+    const config: RankingConfig = {
+      ...CONFIG,
+      hottestDiversification: {
+        window: 4,
+        storylineCap: 1,
+        adjacentEntityOverlapPenalty: 0,
+      },
+    };
+    const items = [
+      makeFeedItem({ topic_id: 'alpha-1', storyline_id: 'storyline-alpha', hotness: 1 }),
+      makeFeedItem({ topic_id: 'alpha-2', storyline_id: 'storyline-alpha', hotness: 0.99 }),
+      makeFeedItem({ topic_id: 'beta-1', storyline_id: 'storyline-beta', hotness: 0.98 }),
+      makeFeedItem({ topic_id: 'gamma-1', storyline_id: 'storyline-gamma', hotness: 0.97 }),
+      makeFeedItem({ topic_id: 'delta-1', storyline_id: 'storyline-delta', hotness: 0.96 }),
+    ];
+
+    const result = sortItems(items, 'HOTTEST', config, NOW).slice(0, 4);
+
+    expect(result.map((item) => item.topic_id)).toEqual([
+      'alpha-1',
+      'beta-1',
+      'gamma-1',
+      'delta-1',
+    ]);
+  });
 });

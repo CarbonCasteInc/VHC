@@ -122,6 +122,9 @@ describe('HermesThreadSchema', () => {
     const parsed = HermesThreadSchema.parse({
       ...baseThread,
       topicId: 'topic-1',
+      sourceSynthesisId: 'synth-1',
+      sourceEpoch: 3,
+      sourceAnalysisId: 'legacy-analysis-1',
       sourceUrl: 'https://example.com/article',
       urlHash: 'hash-1',
       isHeadline: true,
@@ -134,6 +137,9 @@ describe('HermesThreadSchema', () => {
     });
     expect(parsed).toMatchObject({
       topicId: 'topic-1',
+      sourceSynthesisId: 'synth-1',
+      sourceEpoch: 3,
+      sourceAnalysisId: 'legacy-analysis-1',
       sourceUrl: 'https://example.com/article',
       urlHash: 'hash-1',
       isHeadline: true,

@@ -21,7 +21,7 @@ Precedence is defined in `docs/README.md`.
 | Identity, trust, and constituency semantics | `docs/specs/spec-identity-trust-constituency.md` | VHC Spec Owners | `docs/foundational/LUMA_BriefWhitePaper.md`, `docs/foundational/System_Architecture.md` | 2026-03-03 |
 | Civic sentiment and voting contract | `docs/specs/spec-civic-sentiment.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md` | 2026-03-13 |
 | News bundling, publication, and production-readiness contract | `docs/specs/spec-news-aggregator-v0.md` | VHC Spec Owners | `docs/specs/spec-topic-discovery-ranking-v0.md`, `docs/foundational/System_Architecture.md`, `docs/foundational/STATUS.md` | 2026-04-16 |
-| Topic/news discovery and ranking | `docs/specs/spec-topic-discovery-ranking-v0.md` | VHC Spec Owners | `docs/specs/spec-news-aggregator-v0.md` | 2026-03-13 |
+| Topic/news discovery and ranking | `docs/specs/spec-topic-discovery-ranking-v0.md` | VHC Spec Owners | `docs/specs/spec-news-aggregator-v0.md`, `docs/specs/spec-hermes-forum-v0.md`, `docs/specs/topic-synthesis-v2.md` | 2026-04-16 |
 | HERMES Messaging | `docs/specs/spec-hermes-messaging-v0.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md` | 2026-03-03 |
 | HERMES Forum | `docs/specs/spec-hermes-forum-v0.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md` | 2026-03-03 |
 | HERMES Docs | `docs/specs/spec-hermes-docs-v0.md` | VHC Spec Owners | `docs/foundational/System_Architecture.md` | 2026-03-03 |

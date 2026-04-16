@@ -11,6 +11,7 @@ import { BiasTable } from './BiasTable';
 import { FeedDiscussionSection } from './FeedDiscussionSection';
 import { FeedEngagement } from './FeedEngagement';
 import { useExpandedCardStore } from './expandedCardStore';
+import { CollapsedSummary, SynthesisSection } from './TopicSynthesisSections';
 
 export interface TopicCardProps {
   /** Discovery feed item; expected kind: USER_TOPIC. */
@@ -264,101 +265,6 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
         </section>
       )}
     </article>
-  );
-};
-
-// ---- Internal synthesis state renderer ----
-
-interface SynthesisSectionProps {
-  readonly synthesis: ReturnType<typeof useSynthesis>['synthesis'];
-  readonly loading: boolean;
-  readonly error: string | null;
-  readonly fallback: string;
-}
-
-const CollapsedSummary: React.FC<SynthesisSectionProps> = ({
-  synthesis,
-  loading,
-  error,
-  fallback,
-}) => {
-  if (loading) {
-    return (
-      <p className="mt-3 text-xs text-slate-500" data-testid="topic-card-synthesis-loading">
-        Loading synthesis…
-      </p>
-    );
-  }
-
-  if (error) {
-    return (
-      <p className="mt-3 text-xs text-amber-700" data-testid="topic-card-synthesis-error">
-        Synthesis unavailable.
-      </p>
-    );
-  }
-
-  return (
-    <p className="mt-3 text-sm leading-6 text-slate-700" data-testid="topic-card-summary">
-      {synthesis?.facts_summary ?? fallback}
-    </p>
-  );
-};
-
-const SynthesisSection: React.FC<SynthesisSectionProps> = ({
-  synthesis,
-  loading,
-  error,
-  fallback,
-}) => {
-  if (loading) {
-    return (
-      <p className="mt-1 text-xs text-slate-400" data-testid="topic-card-synthesis-loading">
-        Loading synthesis…
-      </p>
-    );
-  }
-
-  if (error) {
-    return (
-      <p className="mt-1 text-xs text-red-400" data-testid="topic-card-synthesis-error">
-        Synthesis unavailable. Conversation remains open below.
-      </p>
-    );
-  }
-
-  if (synthesis) {
-    return (
-      <div className="space-y-2">
-        <p className="text-sm leading-6 text-slate-700" data-testid="topic-card-synthesis-facts">
-          {synthesis.facts_summary}
-        </p>
-        {synthesis.warnings.length > 0 && (
-          <div
-            className="rounded bg-amber-50 px-2 py-1 text-xs text-amber-800"
-            data-testid="synthesis-warnings"
-          >
-            {synthesis.warnings.map((warning, index) => (
-              <p key={index}>{warning}</p>
-            ))}
-          </div>
-        )}
-        {synthesis.divergence_metrics.disagreement_score > 0.5 && (
-          <span
-            className="inline-block rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700"
-            data-testid="synthesis-divergence"
-          >
-            High divergence
-          </span>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <p className="mt-1 text-sm leading-6 text-slate-700" data-testid="topic-card-synthesis-fallback">
-      {fallback}
-    </p>
   );
 };
 

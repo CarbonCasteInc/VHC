@@ -254,7 +254,7 @@ describe('NewsCard', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
     expect(screen.queryByTestId('analysis-status-message')).not.toBeInTheDocument();
   });
-  it('feature flag on renders synthesized summary and provenance without per-publication summary bullets', async () => {
+  it('feature flag on prefers canonical V2 synthesis over card analysis when both exist', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore
@@ -262,16 +262,18 @@ describe('NewsCard', () => {
       .setTopicSynthesis('news-1', makeSynthesis());
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(
-      await screen.findByText('Pipeline synthesis summary from analyzed sources.'),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-analysis-provider-news-1')).toHaveTextContent(
-      'Analysis by gpt-4o-mini',
+    expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Council approved a phased transit expansion plan.',
     );
+    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+      'Topic synthesis v2',
+    );
+    expect(screen.queryByText('Pipeline synthesis summary from analyzed sources.')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
     expect(
       screen.queryByTestId('news-card-analysis-source-summaries-news-1'),
     ).not.toBeInTheDocument();
-    expect(screen.getByText('Local Paper: Transit spending must accelerate now.')).toBeInTheDocument();
+    expect(screen.getByText('Public investment is overdue')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('news-card-back-button-news-1'));
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
@@ -425,10 +427,10 @@ describe('NewsCard', () => {
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis({ frames: [] }));
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByText('Provider fallback summary.')).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-analysis-provider-news-1')).toHaveTextContent(
-      'Analysis by openai',
+    expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Council approved a phased transit expansion plan.',
     );
+    expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
   });
   it('omits provenance when analysis metadata is missing', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
@@ -520,8 +522,8 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
-    expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('1 source analyzed');
-    expect(screen.getByTestId('bias-table-provider-badge')).toHaveTextContent('Analysis by gpt-4o-mini');
+    expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('Topic synthesis frames');
+    expect(screen.queryByTestId('bias-table-provider-badge')).not.toBeInTheDocument();
     expect(screen.queryByTestId('news-card-frame-table-news-1')).not.toBeInTheDocument();
   });
   it('renders synthesis loading and synthesis unavailable states when analysis is disabled', () => {

@@ -50,7 +50,8 @@ describe('ForumFeed', () => {
   it('forwards sourceUrl to NewThreadForm', () => {
     render(
       <ForumFeed
-        sourceAnalysisId="analysis-hash"
+        sourceSynthesisId="synth-1"
+        sourceEpoch={5}
         defaultTitle="analysis summary"
         sourceUrl="https://example.com/headline"
       />
@@ -65,14 +66,15 @@ describe('ForumFeed', () => {
 
     const lastProps = newThreadFormPropsMock.mock.calls.at(-1)?.[0];
     expect(lastProps).toMatchObject({
-      sourceAnalysisId: 'analysis-hash',
+      sourceSynthesisId: 'synth-1',
+      sourceEpoch: 5,
       defaultTitle: 'analysis summary',
       sourceUrl: 'https://example.com/headline'
     });
   });
 
   it('forwards undefined sourceUrl when prop is absent', () => {
-    render(<ForumFeed sourceAnalysisId="analysis-hash" defaultTitle="title" />);
+    render(<ForumFeed sourceSynthesisId="synth-2" defaultTitle="title" />);
 
     fireEvent.click(screen.getByTestId('new-thread-btn'));
 

@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useStore } from 'zustand';
-import type { FeedItem, FilterChip, SortMode } from '@vh/data-model';
+import type { FeedItem, FeedPersonalizationConfig, FilterChip, SortMode } from '@vh/data-model';
 import {
   useDiscoveryStore,
   composeFeed,
@@ -22,6 +22,8 @@ export interface UseDiscoveryFeedResult {
   readonly feed: ReadonlyArray<FeedItem>;
   /** Active storyline focus, if any. */
   readonly selectedStorylineId: string | null;
+  /** Preference scaffold for later category/topic controls. */
+  readonly personalization: FeedPersonalizationConfig;
   /** Active filter chip. */
   readonly filter: FilterChip;
   /** Active sort mode. */
@@ -45,6 +47,7 @@ const selectItems = (s: DiscoveryState) => s.items;
 const selectFilter = (s: DiscoveryState) => s.filter;
 const selectSortMode = (s: DiscoveryState) => s.sortMode;
 const selectRankingConfig = (s: DiscoveryState) => s.rankingConfig;
+const selectPersonalization = (s: DiscoveryState) => s.personalization;
 const selectSelectedStorylineId = (s: DiscoveryState) => s.selectedStorylineId;
 const selectLoading = (s: DiscoveryState) => s.loading;
 const selectError = (s: DiscoveryState) => s.error;
@@ -58,6 +61,7 @@ export function useDiscoveryFeed(): UseDiscoveryFeedResult {
   const filter = useStore(useDiscoveryStore, selectFilter);
   const sortMode = useStore(useDiscoveryStore, selectSortMode);
   const rankingConfig = useStore(useDiscoveryStore, selectRankingConfig);
+  const personalization = useStore(useDiscoveryStore, selectPersonalization);
   const selectedStorylineId = useStore(useDiscoveryStore, selectSelectedStorylineId);
   const loading = useStore(useDiscoveryStore, selectLoading);
   const error = useStore(useDiscoveryStore, selectError);
@@ -74,6 +78,7 @@ export function useDiscoveryFeed(): UseDiscoveryFeedResult {
   return {
     feed,
     selectedStorylineId,
+    personalization,
     filter,
     sortMode,
     loading,

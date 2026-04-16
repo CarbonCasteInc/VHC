@@ -25,8 +25,8 @@ export interface ForumState {
     title: string,
     content: string,
     tags: string[],
-    sourceAnalysisId?: string,
-    opts?: { sourceUrl?: string; isHeadline?: boolean }
+    sourceContext?: ThreadSourceContextInput,
+    opts?: { sourceUrl?: string; isHeadline?: boolean; topicId?: string }
   ): Promise<HermesThread>;
   createComment(
     threadId: string,
@@ -44,6 +44,13 @@ export interface ForumState {
   getConcurComments(threadId: string): HermesComment[];
   getCounterComments(threadId: string): HermesComment[];
 }
+
+export interface ThreadSourceContext {
+  readonly sourceSynthesisId?: string;
+  readonly sourceEpoch?: number;
+}
+
+export type ThreadSourceContextInput = string | ThreadSourceContext | null | undefined;
 
 export type ForumIdentity = {
   session: Pick<IdentityRecord['session'], 'nullifier' | 'trustScore' | 'scaledTrustScore' | 'expiresAt'>;

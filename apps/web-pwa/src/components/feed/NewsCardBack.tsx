@@ -19,7 +19,9 @@ export interface NewsCardBackProps {
   readonly headline: string;
   readonly topicId: string;
   readonly summary: string;
+  readonly summaryBasisLabel?: string;
   readonly frameRows: ReadonlyArray<{ frame: string; reframe: string }>;
+  readonly frameBasisLabel?: string;
   readonly analysisProvider: string | null;
   readonly galleryImages: ReadonlyArray<NewsCardMediaAsset>;
   readonly relatedCoverage: ReadonlyArray<{
@@ -59,8 +61,10 @@ export interface NewsCardBackProps {
   readonly fallbackCommentCount?: number;
   readonly createThread?: {
     readonly defaultTitle: string;
-    readonly sourceAnalysisId?: string;
+    readonly sourceSynthesisId?: string;
+    readonly sourceEpoch?: number;
     readonly sourceUrl?: string;
+    readonly topicId?: string;
   } | null;
   readonly onCollapse: () => void;
 }
@@ -73,7 +77,9 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   headline,
   topicId,
   summary,
+  summaryBasisLabel,
   frameRows,
+  frameBasisLabel,
   analysisProvider,
   galleryImages,
   relatedCoverage,
@@ -128,6 +134,14 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
             Synthesis Summary
           </h4>
+          {summaryBasisLabel && (
+            <p
+              className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400"
+              data-testid={`news-card-summary-basis-${topicId}`}
+            >
+              {summaryBasisLabel}
+            </p>
+          )}
           <p className="text-sm leading-7 text-slate-700 dark:text-slate-200" data-testid={`news-card-summary-${topicId}`}>
             {summary}
           </p>
@@ -291,11 +305,12 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
         )}
 
         <div className="mt-2">
-          <BiasTable
-            analyses={analysis?.analyses ?? []}
-            frames={frameRows}
-            providerLabel={analysisProvider ?? undefined}
-            loading={synthesisLoading && frameRows.length === 0}
+            <BiasTable
+              analyses={analysis?.analyses ?? []}
+              frames={frameRows}
+              providerLabel={analysisProvider ?? undefined}
+              basisLabel={frameBasisLabel}
+              loading={synthesisLoading && frameRows.length === 0}
             topicId={topicId}
             analysisId={analysisId ?? undefined}
             synthesisId={synthesisId ?? undefined}

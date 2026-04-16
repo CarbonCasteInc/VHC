@@ -7,6 +7,7 @@ export interface BiasTableProps {
   readonly analyses: ReadonlyArray<NewsCardSourceAnalysis>;
   readonly frames: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly providerLabel?: string;
+  readonly basisLabel?: string;
   readonly loading?: boolean;
   readonly topicId?: string;
   readonly analysisId?: string;
@@ -177,6 +178,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   analyses,
   frames,
   providerLabel,
+  basisLabel,
   loading = false,
   topicId,
   analysisId,
@@ -276,7 +278,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
           className="text-xs font-medium text-slate-700"
           data-testid="bias-table-source-count"
         >
-          {analyses.length} {analyses.length === 1 ? 'source' : 'sources'} analyzed
+          {basisLabel ?? `${analyses.length} ${analyses.length === 1 ? 'source' : 'sources'} analyzed`}
         </span>
         {providerLabel && (
           <span

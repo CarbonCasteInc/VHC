@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-13
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.5
+Version: 0.6
 Status: Canonical for Season 0
 Context: Unified feed composition across News, Topics, Social, Articles, and Civic Action surfaces.
 
@@ -46,6 +46,7 @@ interface FeedItem {
   kind: FeedKind;
   title: string;
   entity_keys?: string[];
+  categories?: string[];
   created_at: number;
   latest_activity_at: number;
   hotness: number;
@@ -108,6 +109,18 @@ hotness =
 ```
 
 All coefficients and decay parameters must be config-driven and versioned.
+Top-window diversification parameters and future personalization weights are also config-driven; consumers must not hard-code storyline caps, entity-overlap penalties, or category preference defaults in card components.
+
+Season 0 personalization scaffold:
+
+```ts
+interface FeedPersonalizationConfig {
+  preferredCategories: string[];
+  preferredTopics: string[];
+  mutedCategories: string[];
+  mutedTopics: string[];
+}
+```
 
 ## 6. Cohort threshold and privacy rules
 
@@ -123,7 +136,28 @@ All coefficients and decay parameters must be config-driven and versioned.
 These objects must remain token-free and person/account-identity-free.
 Content identity fields such as `story_id` are allowed where explicitly specified in this contract.
 
-## 8. Synthesis enrichment (Wave 3)
+## 8. Synthesis enrichment and detail rendering
+
+`NEWS_STORY` feed cards are `StoryBundle` backed and may represent either a singleton source or a clustered story. Card detail rendering must use the accepted `TopicSynthesisV2` object when present:
+
+- `facts_summary` is the canonical story summary for singleton and aggregate stories.
+- `frames` is the canonical frame/reframe table.
+- Per-card or per-source analysis may appear only as a labeled provisional fallback when accepted synthesis is absent.
+- Summaries must not be separated by publication. Source-specific opinions and framing belong in frame/reframe rows, not in the facts summary.
+
+Required card affordances:
+
+- source strip / overlapping source badges on the headline face
+- related-coverage/storyline affordance
+- synthesis summary
+- frame/reframe table
+- stance controls on frame/reframe rows
+- engagement counts
+- forum comments below frame/reframe content
+
+News-created forum threads must link with `sourceSynthesisId` + `sourceEpoch` when available and preserve the feed `topic_id` as the thread `topicId`. Legacy `sourceAnalysisId` is read-only compatibility.
+
+### 8.1 Topic cards
 
 `USER_TOPIC` feed cards are enriched with `TopicSynthesisV2` data when available.
 
@@ -160,3 +194,4 @@ Cross-ref: `docs/specs/topic-synthesis-v2.md` for full `TopicSynthesisV2` schema
 | 0.3 | Wave 3 | Added `ACTION_RECEIPT` kind (All filter only), documented filter-to-kind mapping |
 | 0.4 | Wave 3 | Added synthesis enrichment for USER_TOPIC cards (§8), viewport-aware hydration |
 | 0.5 | 2026-03-13 | Added optional `storyline_id`/`entity_keys` to `FeedItem` and documented storyline-aware HOTTEST diversification |
+| 0.6 | 2026-04-16 | Added NEWS_STORY synthesis precedence, source/detail affordance contract, `categories`, personalization scaffold, and V2 forum-thread linkage |

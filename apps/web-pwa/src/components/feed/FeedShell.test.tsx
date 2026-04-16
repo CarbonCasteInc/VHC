@@ -43,6 +43,7 @@ vi.mock('./useStoryRemoval', () => ({
 // Mock newsCardAnalysis to prevent import side effects
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
+  sanitizePublicationNeutralSummary: (summary: string) => summary,
 }));
 
 // ---- Helpers ----

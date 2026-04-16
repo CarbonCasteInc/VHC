@@ -85,8 +85,8 @@ function shouldBootstrapFeedBridges(): boolean {
 
 async function bootstrapRuntimeFeatures(client: VennClient, context: string): Promise<void> {
   // Production wiring: ingestion runs in the news-aggregator daemon.
-  // Browser clients are strictly consumers and only bootstrap feed bridges.
-  void client;
+  // Browser clients consume feed publication and wire local comment events into
+  // the V2 synthesis trigger path; ingestion still runs in the daemon.
 
   try {
     const [{ useNewsStore }, { bootstrapNewsSnapshotIfConfigured }] = await Promise.all([
@@ -108,6 +108,13 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
     } catch (bridgeError) {
       console.warn(`[vh:feed-bridge] Failed to bootstrap bridges (${context}):`, bridgeError);
     }
+  }
+
+  try {
+    const { bootstrapSynthesisCommentRuntime } = await import('./synthesis/commentRuntime');
+    bootstrapSynthesisCommentRuntime({ resolveClient: () => client });
+  } catch (synthesisError) {
+    console.warn(`[vh:synthesis] Failed to bootstrap comment runtime (${context}):`, synthesisError);
   }
 }
 
