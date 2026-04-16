@@ -1427,7 +1427,13 @@ async function main(): Promise<void> {
 
 /* c8 ignore next 3 */
 if (isDirectExecution()) {
-  await main();
+  try {
+    await main();
+    process.exit(0);
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
 }
 /* c8 ignore stop */
 
