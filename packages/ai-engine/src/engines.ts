@@ -70,6 +70,7 @@ export function createMockEngine(): JsonCompletionEngine {
           justify_bias_claim: ['justification'],
           biases: ['bias'],
           counterpoints: ['counter'],
+          perspectives: [{ frame: 'Mock frame', reframe: 'Mock reframe' }],
           confidence: 0.9
         }
       });

@@ -33,6 +33,7 @@ const VALID_ANALYSIS = {
   justify_bias_claim: ['justification'],
   biases: ['bias'],
   counterpoints: ['counterpoint'],
+  perspectives: [{ frame: 'Public safety requires faster action.', reframe: 'Civil liberties require stricter limits.' }],
 };
 
 function restoreEnv(name: 'OPENAI_API_KEY' | 'ANALYSIS_RELAY_MODEL' | 'VITE_ANALYSIS_MODEL', value?: string) {
@@ -315,10 +316,13 @@ describe('handleAnalyze', () => {
     await handleAnalyze(req as any, res as any);
 
     expect(res.statusCode).toBe(502);
-    expect(res.payload).toEqual({ error: 'No JSON found in OpenAI response' });
+    expect(res.payload).toEqual({
+      error: 'Analysis output failed strict generated schema validation',
+      detail: 'NO_JSON_OBJECT_FOUND',
+    });
   });
 
-  it('returns 500 when schema validation fails', async () => {
+  it('returns 502 when strict generated schema validation fails', async () => {
     process.env.OPENAI_API_KEY = 'test-key';
 
     vi.stubGlobal(
@@ -344,9 +348,86 @@ describe('handleAnalyze', () => {
 
     await handleAnalyze(req as any, res as any);
 
-    expect(res.statusCode).toBe(500);
+    expect(res.statusCode).toBe(502);
     expect(res.payload).toMatchObject({
-      error: expect.stringContaining('Required'),
+      error: 'Analysis output failed strict generated schema validation',
+      detail: 'SCHEMA_VALIDATION_ERROR',
+    });
+  });
+
+  it('rejects generated analysis that omits frame/reframe perspectives', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    final_refined: {
+                      ...VALID_ANALYSIS,
+                      perspectives: undefined,
+                    },
+                  }),
+                },
+              },
+            ],
+          }),
+      }),
+    );
+
+    const req = makeRequest({ articleText: 'hello world' });
+    const res = makeResponse();
+
+    await handleAnalyze(req as any, res as any);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.payload).toMatchObject({
+      error: 'Analysis output failed strict generated schema validation',
+      detail: 'SCHEMA_VALIDATION_ERROR',
+    });
+  });
+
+  it('rejects generated analysis with placeholder frame/reframe rows', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    final_refined: {
+                      ...VALID_ANALYSIS,
+                      perspectives: [{ frame: 'No clear bias detected', reframe: 'N/A' }],
+                    },
+                  }),
+                },
+              },
+            ],
+          }),
+      }),
+    );
+
+    const req = makeRequest({ articleText: 'hello world' });
+    const res = makeResponse();
+
+    await handleAnalyze(req as any, res as any);
+
+    expect(res.statusCode).toBe(502);
+    expect(res.payload).toMatchObject({
+      error: 'Analysis output failed strict generated schema validation',
+      detail: 'SCHEMA_VALIDATION_ERROR',
     });
   });
 

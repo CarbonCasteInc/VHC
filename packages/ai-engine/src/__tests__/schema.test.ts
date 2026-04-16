@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   AnalysisParseError,
+  GeneratedAnalysisResultSchema,
   AnalysisResultSchema,
   parseAnalysisResponse,
+  parseGeneratedAnalysisResponse,
 } from '../schema';
 
 const BASE_ANALYSIS = {
@@ -12,6 +14,10 @@ const BASE_ANALYSIS = {
   biases: ['bias'],
   counterpoints: ['counterpoint'],
 };
+
+const GENERATED_PERSPECTIVES = [
+  { frame: 'Public safety requires faster action.', reframe: 'Civil liberties require stricter limits.' },
+];
 
 describe('AnalysisResultSchema', () => {
   it('allows missing sentimentScore', () => {
@@ -70,6 +76,33 @@ describe('AnalysisResultSchema', () => {
       model_id: 'gpt-5.2',
       kind: 'remote',
     });
+  });
+
+  it('keeps stored legacy payloads backward-compatible while strict generated parsing requires perspectives', () => {
+    expect(AnalysisResultSchema.parse(BASE_ANALYSIS).perspectives).toBeUndefined();
+
+    expect(() => GeneratedAnalysisResultSchema.parse(BASE_ANALYSIS)).toThrow();
+    expect(() => parseGeneratedAnalysisResponse(JSON.stringify(BASE_ANALYSIS))).toThrow(
+      AnalysisParseError.SCHEMA_VALIDATION_ERROR,
+    );
+
+    const parsed = parseGeneratedAnalysisResponse(JSON.stringify({
+      ...BASE_ANALYSIS,
+      perspectives: GENERATED_PERSPECTIVES,
+    }));
+
+    expect(parsed.perspectives).toEqual(GENERATED_PERSPECTIVES);
+  });
+
+  it('rejects placeholder generated frame/reframe rows', () => {
+    const placeholderPayload = {
+      ...BASE_ANALYSIS,
+      perspectives: [{ frame: 'No clear bias detected', reframe: 'N/A' }],
+    };
+
+    expect(() => parseGeneratedAnalysisResponse(JSON.stringify(placeholderPayload))).toThrow(
+      AnalysisParseError.SCHEMA_VALIDATION_ERROR,
+    );
   });
 
   it('throws parse errors for invalid payloads', () => {

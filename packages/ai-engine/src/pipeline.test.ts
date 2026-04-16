@@ -23,6 +23,7 @@ function validWrappedResult(summary = 'Source summary') {
       justify_bias_claim: ['justification'],
       biases: ['bias'],
       counterpoints: ['counterpoint'],
+      perspectives: [{ frame: 'Frame claim', reframe: 'Reframe claim' }],
       confidence: 0.9
     }
   });
@@ -94,6 +95,28 @@ describe('createAnalysisPipeline', () => {
             justify_bias_claim: ['justification'],
             biases: ['bias'],
             counterpoints: ['counterpoint']
+          }
+        })
+      )
+    };
+
+    const pipeline = createAnalysisPipeline(engine);
+
+    await expect(pipeline('article text')).rejects.toThrow(AnalysisParseError.SCHEMA_VALIDATION_ERROR);
+  });
+
+  it('throws schema validation error when generated output omits perspectives', async () => {
+    const engine: JsonCompletionEngine = {
+      name: 'missing-perspectives-engine',
+      kind: 'local',
+      generate: vi.fn().mockResolvedValue(
+        JSON.stringify({
+          final_refined: {
+            summary: 'Summary',
+            bias_claim_quote: ['quote'],
+            justify_bias_claim: ['justification'],
+            biases: ['No clear bias detected'],
+            counterpoints: ['N/A']
           }
         })
       )

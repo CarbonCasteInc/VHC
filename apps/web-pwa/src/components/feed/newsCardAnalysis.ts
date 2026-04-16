@@ -1,7 +1,7 @@
 import type { StoryBundle } from '@vh/data-model';
 import { createRemoteEngine } from '../../../../../packages/ai-engine/src/engines';
 import { createAnalysisPipeline, type PipelineResult } from '../../../../../packages/ai-engine/src/pipeline';
-import type { AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
+import { isPlaceholderPerspectiveText, type AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
 import { getDevModelOverride } from '../dev/DevModelPicker';
 
 const MAX_SOURCE_ANALYSES = 3;
@@ -312,8 +312,8 @@ function normalizePerspectiveRows(
     const frame = row.frame.trim();
     const reframe = row.reframe.trim();
     if (!frame || !reframe) continue;
-    if (/^(?:n\/a|no clear bias detected)$/i.test(frame)) continue;
-    if (/^(?:n\/a|no clear bias detected)$/i.test(reframe)) continue;
+    if (isPlaceholderPerspectiveText(frame)) continue;
+    if (isPlaceholderPerspectiveText(reframe)) continue;
     normalized.push({ frame, reframe });
   }
   return normalized;
@@ -357,6 +357,9 @@ function toFrameRows(
     for (let i = 0; i < count; i++) {
       const bias = sa.biases[i]?.trim() || 'No clear bias detected';
       const cp = sa.counterpoints[i]?.trim() || 'N/A';
+      if (isPlaceholderPerspectiveText(bias) || isPlaceholderPerspectiveText(cp)) {
+        continue;
+      }
       rows.push({ frame: `${sa.publisher}: ${bias}`, reframe: cp });
     }
   }

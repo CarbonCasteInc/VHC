@@ -154,6 +154,12 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const useAnalysisFrames = synthesisFrameRows.length === 0 && analysisFrameRows.length > 0;
   const frameRows = synthesisFrameRows.length > 0 ? synthesisFrameRows : analysisFrameRows;
   const frameAnalysis = useAnalysisFrames ? analysis : null;
+  const analysisNeedsRegeneration =
+    analysisPipelineEnabled
+    && analysisStatus === 'success'
+    && !!analysis
+    && synthesisFrameRows.length === 0
+    && analysisFrameRows.length === 0;
   const analyzedSourceCount = analysis?.analyses.length ?? 0;
   const expectedSourceCount = displaySources.length || story?.sources.length || 0;
   const summaryBasisLabel = hasSynthesisSummary
@@ -322,6 +328,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               analysisFeedbackStatus={analysisFeedbackStatus}
               analysisError={analysisError}
               retryAnalysis={retryAnalysis}
+              analysisNeedsRegeneration={analysisNeedsRegeneration}
               synthesisLoading={synthesisLoading}
               synthesisError={synthesisError}
               analysis={frameAnalysis}

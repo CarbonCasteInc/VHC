@@ -439,6 +439,33 @@ describe('newsCardAnalysis', () => {
     ]);
   });
 
+  it('does not render legacy placeholder bias rows as frame/reframe UI', () => {
+    const rows = newsCardAnalysisInternal.toFrameRows([
+      {
+        source_id: 'source-1',
+        publisher: 'Publisher One',
+        url: 'https://example.com/1',
+        summary: 'Summary.',
+        biases: ['No clear bias detected'],
+        counterpoints: ['N/A'],
+        biasClaimQuotes: ['N/A'],
+        justifyBiasClaims: ['N/A'],
+      },
+      {
+        source_id: 'source-2',
+        publisher: 'Publisher Two',
+        url: 'https://example.com/2',
+        summary: 'Summary.',
+        biases: ['  '],
+        counterpoints: ['not applicable'],
+        biasClaimQuotes: [],
+        justifyBiasClaims: [],
+      },
+    ]);
+
+    expect(rows).toEqual([]);
+  });
+
   it('toSourceAnalysis maps bias_claim_quote and justify_bias_claim', () => {
     const source = makeStoryBundle().sources[0]!;
     const analysis: AnalysisResult = {

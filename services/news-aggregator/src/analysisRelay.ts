@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { AnalysisResultSchema } from '@vh/ai-engine';
+import { parseGeneratedAnalysisResponse, type GeneratedAnalysisResult } from '@vh/ai-engine';
 import { GOALS_AND_GUIDELINES, PRIMARY_OUTPUT_FORMAT_REQ } from '@vh/ai-engine';
 
 export const MAX_TOKENS = 3000;
@@ -43,7 +43,7 @@ export interface AnalyzeRequest {
 }
 
 export interface AnalyzeResponse {
-  analysis: ReturnType<typeof AnalysisResultSchema.parse>;
+  analysis: GeneratedAnalysisResult;
   provenance: {
     provider_id: string;
     model: string;
@@ -125,16 +125,16 @@ export async function handleAnalyze(req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // Parse the JSON response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      res.status(502).json({ error: 'No JSON found in OpenAI response' });
+    let analysis: GeneratedAnalysisResult;
+    try {
+      analysis = parseGeneratedAnalysisResponse(content);
+    } catch (error) {
+      res.status(502).json({
+        error: 'Analysis output failed strict generated schema validation',
+        detail: error instanceof Error ? error.message : 'Unknown parse failure',
+      });
       return;
     }
-
-    const parsed = JSON.parse(jsonMatch[0]);
-    const payload = parsed.final_refined || parsed;
-    const analysis = AnalysisResultSchema.parse(payload);
 
     const result: AnalyzeResponse = {
       analysis: { ...analysis, provider_id: 'openai', model_id: usedModel },
