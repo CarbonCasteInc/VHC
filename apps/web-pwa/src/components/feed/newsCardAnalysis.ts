@@ -22,10 +22,19 @@ export interface NewsCardSourceAnalysis {
   readonly model_id?: string;
 }
 
+export interface NewsCardRelatedLink {
+  readonly source_id: string;
+  readonly publisher: string;
+  readonly url: string;
+  readonly url_hash: string;
+  readonly title: string;
+}
+
 export interface NewsCardAnalysisSynthesis {
   readonly summary: string;
   readonly frames: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly analyses: ReadonlyArray<NewsCardSourceAnalysis>;
+  readonly relatedLinks: ReadonlyArray<NewsCardRelatedLink>;
 }
 
 interface NewsCardAnalysisOptions {
@@ -211,7 +220,7 @@ function selectSourcesForAnalysis(
 function buildAnalysisInput(
   story: StoryBundle,
   source: StoryBundle['sources'][number],
-  articleText: string | null,
+  articleText: string,
 ): string {
   const context = [
     `Publisher: ${source.publisher}`,
@@ -227,19 +236,11 @@ function buildAnalysisInput(
     context.push(`Bundle summary hint: ${story.summary_hint.trim()}`);
   }
 
-  if (articleText && articleText.trim()) {
-    return [
-      context.join('\n'),
-      '',
-      'ARTICLE BODY:',
-      articleText.trim(),
-    ].join('\n');
-  }
-
   return [
     context.join('\n'),
     '',
-    'ARTICLE BODY: unavailable; analyze available metadata only.',
+    'ARTICLE BODY:',
+    articleText.trim(),
   ].join('\n');
 }
 
@@ -286,6 +287,18 @@ function toFrameRows(
   return rows.slice(0, MAX_FRAME_ROWS);
 }
 
+function toRelatedLink(
+  source: StoryBundle['sources'][number],
+): NewsCardRelatedLink {
+  return {
+    source_id: source.source_id,
+    publisher: source.publisher,
+    url: source.url,
+    url_hash: source.url_hash,
+    title: source.title,
+  };
+}
+
 function synthesizeSummary(analyses: ReadonlyArray<NewsCardSourceAnalysis>): string {
   const hl = analyses
     .map((sa) => {
@@ -304,32 +317,46 @@ async function runSynthesis(
 ): Promise<NewsCardAnalysisSynthesis> {
   const selectedSources = selectSourcesForAnalysis(story, maxSourceAnalyses);
   const analyzed: NewsCardSourceAnalysis[] = [];
+  const relatedLinks: NewsCardRelatedLink[] = [];
   const skipArticleTextFetch = shouldSkipArticleTextFetch();
 
   for (const source of selectedSources) {
-    try {
-      let articleText: string | null = null;
-      if (!skipArticleTextFetch) {
-        try {
-          articleText = await fetchArticleText(source.url);
-        } catch (error) {
-          console.warn('[vh:news-card-analysis] article fetch failed; using metadata fallback', {
-            sourceId: source.source_id,
-            url: source.url,
-            error,
-          });
-        }
-      }
+    if (skipArticleTextFetch) {
+      console.info('[vh:news-card-analysis] source analysis skipped; article text disabled', {
+        sourceId: source.source_id,
+        url: source.url,
+      });
+      continue;
+    }
 
+    try {
+      const articleText = await fetchArticleText(source.url);
+      if (!articleText.trim()) {
+        console.warn('[vh:news-card-analysis] source analysis skipped; empty article text', {
+          sourceId: source.source_id,
+          url: source.url,
+        });
+        relatedLinks.push(toRelatedLink(source));
+        continue;
+      }
       const input = buildAnalysisInput(story, source, articleText);
-      const result = await runAnalysis(input);
-      analyzed.push(toSourceAnalysis(source, result.analysis));
+      try {
+        const result = await runAnalysis(input);
+        analyzed.push(toSourceAnalysis(source, result.analysis));
+      } catch (error) {
+        console.warn('[vh:news-card-analysis] source analysis skipped; analysis unavailable', {
+          sourceId: source.source_id,
+          url: source.url,
+          error,
+        });
+      }
     } catch (error) {
-      console.warn('[vh:news-card-analysis] source analysis failed', {
+      console.warn('[vh:news-card-analysis] source analysis skipped; article text unavailable', {
         sourceId: source.source_id,
         url: source.url,
         error,
       });
+      relatedLinks.push(toRelatedLink(source));
     }
   }
 
@@ -341,6 +368,7 @@ async function runSynthesis(
     summary: synthesizeSummary(analyzed),
     frames: toFrameRows(analyzed),
     analyses: analyzed,
+    relatedLinks,
   };
 }
 
@@ -401,6 +429,7 @@ export const newsCardAnalysisInternal = {
   shouldSkipArticleTextFetch,
   synthesizeSummary,
   toFrameRows,
+  toRelatedLink,
   toSourceAnalysis,
   toStoryCacheKey,
 };

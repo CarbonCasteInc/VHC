@@ -143,6 +143,31 @@ describe('daemon-feed-canary shared helpers', () => {
     })).toBe('publish_empty');
   });
 
+  it('classifies blocked source-health reports as feed-stage outage before clustering starts', () => {
+    expect(classifyPublisherCanaryOutcome({
+      observed: { tickCompleted: false, clusterRequestReceived: false, tickFailed: false },
+      waitOutcome: null,
+      storyCount: 0,
+      errorMessage: null,
+      sourceHealthSummary: {
+        readinessStatus: 'blocked',
+        recommendedAction: 'investigate_feed_yield',
+      },
+      sourceHealthReport: {
+        runAssessment: {
+          globalFeedStageFailure: true,
+          latestPublicationAction: 'preserve_previous_latest',
+        },
+        observability: {
+          reasonCounts: {
+            feed_fetch_error: 29,
+            feed_links_unavailable: 29,
+          },
+        },
+      },
+    })).toBe('feed_stage_outage');
+  });
+
   it('classifies consumer smoke outcomes by render and expand state', () => {
     expect(classifyConsumerSmokeOutcome({
       renderCount: 3,

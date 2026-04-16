@@ -24,6 +24,12 @@ export interface NewsCardBackProps {
     title: string;
     url: string;
   }>;
+  readonly relatedLinks: ReadonlyArray<{
+    source_id: string;
+    publisher: string;
+    title: string;
+    url: string;
+  }>;
   readonly storylineHeadline: string | null;
   readonly storylineStoryCount: number;
   readonly analysisFeedbackStatus:
@@ -67,6 +73,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   analysisProvider,
   perSourceSummaries,
   relatedCoverage,
+  relatedLinks,
   storylineHeadline,
   storylineStoryCount,
   analysisFeedbackStatus,
@@ -89,7 +96,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <span className="inline-flex rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
-            {sourceViewer ? 'Story detail + source view' : 'Story detail'}
+            {sourceViewer ? 'Source View' : 'Synthesis Lens'}
           </span>
           <h3 className="text-xl font-semibold tracking-tight text-slate-950">{headline}</h3>
         </div>
@@ -153,6 +160,35 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
           </>
         )}
       </section>
+
+      {relatedLinks.length > 0 && (
+        <section
+          className="space-y-2 rounded-[1.5rem] border border-amber-200/90 bg-amber-50/80 p-4 shadow-sm shadow-amber-900/5"
+          data-testid={`news-card-related-links-${topicId}`}
+        >
+          <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
+            Related Stories
+          </h4>
+          <p className="text-xs text-amber-700/80">
+            These links were not used in the framing table or analysis summary.
+          </p>
+          <ul className="space-y-1.5 text-sm text-amber-900">
+            {relatedLinks.map((entry) => (
+              <li key={`${entry.source_id}|${entry.url}`}>
+                <span className="font-medium">{entry.publisher}:</span>{' '}
+                <a
+                  className="underline decoration-amber-300 underline-offset-2 hover:text-amber-950"
+                  href={entry.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {entry.title}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {relatedCoverage.length > 0 && (
         <section

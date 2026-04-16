@@ -31,6 +31,11 @@ describe('publisher canary defaults', () => {
     expect(publisherCanaryInternal.resolvePublisherCanaryRequireSharedStack()).toBe(true);
   });
 
+  it('supports in-process storycluster mode for sandboxed automation runs', () => {
+    vi.stubEnv('VH_DAEMON_FEED_IN_PROCESS_STORYCLUSTER', 'true');
+    expect(publisherCanaryInternal.resolvePublisherCanaryInProcessStoryCluster()).toBe(true);
+  });
+
   it('honors an explicit canary storycluster openai timeout override', () => {
     vi.stubEnv('VH_DAEMON_FEED_STORYCLUSTER_OPENAI_TIMEOUT_MS', '180000');
     expect(publisherCanaryInternal.resolvePublisherCanaryOpenAITimeoutMs()).toBe(180000);
@@ -69,6 +74,21 @@ describe('publisher canary defaults', () => {
       clusterEndpoint: 'http://127.0.0.1:9000/cluster',
       readyUrl: 'http://127.0.0.1:9000/ready',
       authToken: 'explicit-token',
+    });
+  });
+
+  it('falls back to in-process storycluster when requested and no stack is available', () => {
+    const remote = publisherCanaryInternal.resolvePublisherCanaryRemoteConfig('/repo', {
+      VH_DAEMON_FEED_IN_PROCESS_STORYCLUSTER: 'true',
+    }, {
+      exists: () => false,
+      readFile: () => '',
+    });
+
+    expect(remote).toMatchObject({
+      mode: 'in-process',
+      clusterEndpoint: 'in-process://storycluster/cluster',
+      readyUrl: 'in-process://storycluster/ready',
     });
   });
 });

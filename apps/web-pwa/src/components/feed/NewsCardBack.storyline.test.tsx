@@ -16,6 +16,7 @@ function renderBack(
       frameRows={[]}
       analysisProvider={null}
       perSourceSummaries={[]}
+      relatedLinks={[]}
       relatedCoverage={[
         {
           source_id: 'related-1',

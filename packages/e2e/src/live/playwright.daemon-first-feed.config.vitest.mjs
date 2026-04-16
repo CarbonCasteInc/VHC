@@ -2,11 +2,23 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+function applyEnv(envValues) {
+  for (const [key, value] of Object.entries(envValues)) {
+    if (value === undefined) {
+      delete process.env[key];
+    } else {
+      process.env[key] = value;
+    }
+  }
+}
+
 async function loadConfig(runId, envOverrides = {}) {
   const previous = {
     VH_DAEMON_FEED_RUN_ID: process.env.VH_DAEMON_FEED_RUN_ID,
     VH_DAEMON_FEED_QDRANT_PORT: process.env.VH_DAEMON_FEED_QDRANT_PORT,
     VH_DAEMON_FEED_MANAGED_RELAY: process.env.VH_DAEMON_FEED_MANAGED_RELAY,
+    VH_DAEMON_FEED_SHARED_RELAY_URL: process.env.VH_DAEMON_FEED_SHARED_RELAY_URL,
+    VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL: process.env.VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL,
     VH_STORYCLUSTER_QDRANT_URL: process.env.VH_STORYCLUSTER_QDRANT_URL,
     QDRANT_URL: process.env.QDRANT_URL,
     VH_STORYCLUSTER_VECTOR_BACKEND: process.env.VH_STORYCLUSTER_VECTOR_BACKEND,
@@ -16,13 +28,25 @@ async function loadConfig(runId, envOverrides = {}) {
     ANALYSIS_RELAY_MODEL: process.env.ANALYSIS_RELAY_MODEL,
     ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: process.env.ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS,
   };
-  Object.assign(process.env, {
+  applyEnv({
     VH_DAEMON_FEED_RUN_ID: runId,
+    VH_DAEMON_FEED_QDRANT_PORT: undefined,
+    VH_DAEMON_FEED_MANAGED_RELAY: undefined,
+    VH_DAEMON_FEED_SHARED_RELAY_URL: undefined,
+    VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL: undefined,
+    VH_STORYCLUSTER_QDRANT_URL: undefined,
+    QDRANT_URL: undefined,
+    VH_STORYCLUSTER_VECTOR_BACKEND: undefined,
+    VH_DAEMON_FEED_USE_FIXTURE_FEED: undefined,
+    VH_LIVE_DEV_FEED_SOURCE_IDS: undefined,
+    OPENAI_API_KEY: undefined,
+    ANALYSIS_RELAY_MODEL: undefined,
+    ANALYSIS_RELAY_UPSTREAM_TIMEOUT_MS: undefined,
     ...envOverrides,
   });
   const configUrl = `${pathToFileURL(path.resolve(process.cwd(), 'playwright.daemon-first-feed.config.ts')).href}?runId=${runId}`;
   const mod = await import(configUrl);
-  Object.assign(process.env, previous);
+  applyEnv(previous);
   return mod.default;
 }
 
@@ -126,5 +150,27 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(entries.some((entry) => entry.command.includes('webserver-relay.log'))).toBe(false);
     expect(entries).toHaveLength(1);
     expect(entries[0].command).toContain('webserver-web-pwa.log');
+  });
+
+  it('skips relay webServer startup and points the app at a shared relay when configured', async () => {
+    const config = await loadConfig('run-shared-relay-check', {
+      VH_DAEMON_FEED_SHARED_RELAY_URL: 'http://127.0.0.1:7711/gun',
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'memory',
+    });
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+
+    expect(entries.some((entry) => entry.command.includes('webserver-relay.log'))).toBe(false);
+    expect(appServer.env.VITE_GUN_PEERS).toBe('["http://127.0.0.1:7711/gun"]');
+  });
+
+  it('skips qdrant stub startup when a shared storycluster endpoint is configured', async () => {
+    const config = await loadConfig('run-shared-storycluster-check', {
+      VH_DAEMON_FEED_SHARED_STORYCLUSTER_URL: 'http://127.0.0.1:4310/cluster',
+      VH_STORYCLUSTER_VECTOR_BACKEND: 'qdrant',
+    });
+    const entries = config.webServer;
+
+    expect(entries.some((entry) => entry.command.includes('webserver-qdrant.log'))).toBe(false);
   });
 });

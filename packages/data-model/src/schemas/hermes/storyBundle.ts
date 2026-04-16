@@ -91,6 +91,7 @@ export const StoryBundleSchema = z.object({
   sources: z.array(StoryBundleSourceSchema).min(1),
   primary_sources: z.array(StoryBundleSourceSchema).min(1).optional(),
   secondary_assets: z.array(StoryBundleSourceSchema).optional(),
+  related_links: z.array(StoryBundleSourceSchema).optional(),
   cluster_features: ClusterFeaturesSchema,
   provenance_hash: z.string().min(1),
   created_at: z.number(),

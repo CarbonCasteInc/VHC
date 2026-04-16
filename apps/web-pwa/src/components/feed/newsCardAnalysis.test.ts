@@ -89,6 +89,7 @@ describe('newsCardAnalysis', () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it('analyzes at most 3 sources and synthesizes summary + frame rows', async () => {
@@ -158,6 +159,7 @@ describe('newsCardAnalysis', () => {
     expect(result.summary).toContain('Publisher One: Publisher One says rollout should move fast.');
     expect(result.summary).toContain('Publisher Two: Publisher Two focuses on budget risk.');
     expect(result.summary).toContain('Publisher Three: Publisher Three emphasizes implementation details.');
+    expect(result.relatedLinks).toEqual([]);
 
     expect(result.frames).toEqual([
       {
@@ -233,22 +235,26 @@ describe('newsCardAnalysis', () => {
     expect(input).toContain('FULL ARTICLE TEXT');
   });
 
-  it('falls back to metadata-only input when article fetch fails', async () => {
+  it('skips sources whose article text cannot be fetched', async () => {
+    const baseStory = makeStoryBundle();
     const story = makeStoryBundle({
-      sources: [makeStoryBundle().sources[0]!],
+      sources: [baseStory.sources[0]!, baseStory.sources[1]!],
     });
 
     const analysisInputs: string[] = [];
 
     const result = await synthesizeStoryFromAnalysisPipeline(story, {
-      fetchArticleText: async () => {
-        throw new Error('fetch blocked');
+      fetchArticleText: async (url: string) => {
+        if (url.endsWith('/1')) {
+          throw new Error('fetch blocked');
+        }
+        return 'ARTICLE BODY 2';
       },
       runAnalysis: async (articleText: string) => {
         analysisInputs.push(articleText);
         return {
           analysis: makeAnalysis({
-            summary: 'Metadata fallback still produced analysis.',
+            summary: 'Only fetched article text is analyzed.',
             biases: ['No clear bias detected'],
             counterpoints: ['N/A'],
           }),
@@ -257,37 +263,42 @@ describe('newsCardAnalysis', () => {
     });
 
     expect(analysisInputs).toHaveLength(1);
-    expect(analysisInputs[0]).toContain('ARTICLE BODY: unavailable; analyze available metadata only.');
-    expect(result.summary).toContain('Publisher One: Metadata fallback still produced analysis.');
+    expect(analysisInputs[0]).toContain('ARTICLE BODY 2');
+    expect(result.summary).toContain('Publisher Two: Only fetched article text is analyzed.');
+    expect(result.summary).not.toContain('Publisher One');
+    expect(result.relatedLinks).toEqual([
+      {
+        source_id: 'source-1',
+        publisher: 'Publisher One',
+        url: 'https://example.com/1',
+        url_hash: 'hash-1',
+        title: 'Transit overhaul clears first hurdle',
+      },
+    ]);
   });
 
-  it('skips article fetch entirely when metadata-only analysis is enabled', async () => {
+  it('does not run source analysis when article-text fetching is disabled', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_SKIP_ARTICLE_TEXT', 'true');
     const story = makeStoryBundle({
       sources: [makeStoryBundle().sources[0]!],
     });
     const fetchArticleText = vi.fn(async () => 'UNUSED ARTICLE TEXT');
-    const analysisInputs: string[] = [];
+    const runAnalysis = vi.fn(async (_articleText: string) => ({
+      analysis: makeAnalysis({
+        summary: 'Should not run.',
+        biases: ['Metadata bias'],
+        counterpoints: ['Metadata counterpoint'],
+      }),
+    }));
 
-    const result = await synthesizeStoryFromAnalysisPipeline(story, {
+    await expect(synthesizeStoryFromAnalysisPipeline(story, {
       fetchArticleText,
-      runAnalysis: async (articleText: string) => {
-        analysisInputs.push(articleText);
-        return {
-          analysis: makeAnalysis({
-            summary: 'Metadata-only analysis completed immediately.',
-            biases: ['Metadata bias'],
-            counterpoints: ['Metadata counterpoint'],
-          }),
-        };
-      },
-    });
+      runAnalysis,
+    })).rejects.toThrow('Analysis pipeline unavailable for all story sources');
 
     expect(newsCardAnalysisInternal.shouldSkipArticleTextFetch()).toBe(true);
     expect(fetchArticleText).not.toHaveBeenCalled();
-    expect(analysisInputs).toHaveLength(1);
-    expect(analysisInputs[0]).toContain('ARTICLE BODY: unavailable; analyze available metadata only.');
-    expect(result.summary).toContain('Publisher One: Metadata-only analysis completed immediately.');
+    expect(runAnalysis).not.toHaveBeenCalled();
   });
 
   it('throws when all source analyses fail', async () => {

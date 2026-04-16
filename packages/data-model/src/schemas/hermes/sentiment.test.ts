@@ -42,6 +42,15 @@ const validArtifact = {
       model_id: 'model-y',
     },
   ],
+  relatedLinks: [
+    {
+      source_id: 'src-2',
+      publisher: 'Related Source',
+      url: 'https://example.com/related',
+      url_hash: 'related-hash',
+      title: 'Related coverage',
+    },
+  ],
   provider: {
     provider_id: 'provider-x',
     model: 'model-y',

@@ -11,6 +11,7 @@ import {
   readPositiveInt,
   resolveBindableDaemonFirstPortPlan,
   resolveDaemonFirstPortPlan,
+  resolvePlaywrightTimeoutMs,
   resolvePublicSemanticSoakSpawnEnv,
   sleep,
   startManagedRelayWithPortFallback,
@@ -57,6 +58,20 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
     expect(readNonNegativeInt('PAUSE', 30, { PAUSE: '0' })).toBe(0);
     expect(readNonNegativeInt('PAUSE', 30, {})).toBe(30);
     expect(() => readNonNegativeInt('PAUSE', 30, { PAUSE: '-1' })).toThrow('PAUSE must be a non-negative integer');
+  });
+
+  it('derives a playwright timeout that covers feed readiness plus semantic audit time', () => {
+    expect(resolvePlaywrightTimeoutMs(180_000, {})).toBe(660_000);
+    expect(
+      resolvePlaywrightTimeoutMs(180_000, {
+        VH_DAEMON_FEED_READY_TIMEOUT_MS: '60000',
+      }),
+    ).toBe(360_000);
+    expect(
+      resolvePlaywrightTimeoutMs(180_000, {
+        VH_DAEMON_FEED_SOAK_PLAYWRIGHT_TIMEOUT_MS: '12345',
+      }),
+    ).toBe(12_345);
   });
 
   it('collects the first primary result and decodes attachments', () => {
@@ -310,6 +325,48 @@ describe('daemon-feed-semantic-soak-core helpers', () => {
       VH_LIVE_BASE_URL: 'http://127.0.0.1:2116/',
       VH_STORYCLUSTER_VECTOR_BACKEND: 'memory',
     });
+  });
+
+  it('uses the automation-stack relay when shared relay is required', () => {
+    const env = resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_REQUIRE_SHARED_RELAY: 'true',
+    }, 'semantic-soak-123-1', 8, 180000, {
+      portPlan: {
+        gunPort: 8716,
+        storyclusterPort: 4316,
+        fixturePort: 8916,
+        qdrantPort: 6316,
+        analysisStubPort: 9116,
+        webPort: 2116,
+      },
+      repoRoot: '/Users/bldt/Desktop/VHC/VHC',
+      exists: (filePath) => filePath === '/Users/bldt/Desktop/VHC/VHC/.tmp/automation-stack/state.json',
+      readFile: () => JSON.stringify({
+        services: {
+          relay: { healthy: true },
+        },
+        relayUrl: 'http://127.0.0.1:7711/gun',
+      }),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    });
+
+    expect(env).toMatchObject({
+      VH_DAEMON_FEED_MANAGED_RELAY: 'false',
+      VH_DAEMON_FEED_SHARED_RELAY_URL: 'http://127.0.0.1:7711/gun',
+    });
+  });
+
+  it('fails fast when a shared relay is required but automation-stack relay is unavailable', () => {
+    expect(() => resolvePublicSemanticSoakSpawnEnv({
+      VH_DAEMON_FEED_REQUIRE_SHARED_RELAY: 'true',
+    }, 'semantic-soak-123-1', 8, 180000, {
+      repoRoot: '/Users/bldt/Desktop/VHC/VHC',
+      exists: () => false,
+      readFile: vi.fn(),
+      stat: vi.fn(),
+      now: () => Date.now(),
+    })).toThrow('daemon-feed-semantic-soak-shared-relay-required');
   });
 
   it('formats error objects and non-errors consistently', () => {

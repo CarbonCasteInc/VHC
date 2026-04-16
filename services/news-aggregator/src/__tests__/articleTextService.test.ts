@@ -13,6 +13,7 @@ import {
   articleTextServiceInternal,
 } from '../articleTextService';
 import { urlHash } from '../normalize';
+import { ItemEligibilityLedger } from '../itemEligibilityLedger';
 import { RemovalLedger } from '../removalLedger';
 import { SourceLifecycleTracker } from '../sourceLifecycle';
 
@@ -220,6 +221,53 @@ describe('ArticleTextService', () => {
     expect(result.extractionMethod).toBe('html-fallback');
     expect(result.title).toBe('Fallback');
     expect(result.cacheHit).toBe('none');
+  });
+
+  it('records item eligibility observations for successful and failed extractions', async () => {
+    const ledger = new ItemEligibilityLedger({ now: () => 77 });
+    const successService = new ArticleTextService({
+      allowlist: new Set(['allowed.com']),
+      itemEligibilityLedger: ledger,
+      fetchFn: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(makeHtml(makeWords(220), 'Readable Title'), { status: 200 }),
+      ),
+      primaryExtractor: vi.fn().mockResolvedValue({
+        title: 'Readable Title',
+        text: makeWords(220),
+      }),
+      fallbackExtractor: vi.fn().mockReturnValue(null),
+    });
+
+    await successService.extract('https://allowed.com/success');
+    await expect(ledger.readByUrl('https://allowed.com/success')).resolves.toMatchObject({
+      state: 'analysis_eligible',
+      reason: 'analysis_eligible',
+      analysisEligible: true,
+      displayEligible: true,
+      observationCount: 1,
+    });
+
+    const failedService = new ArticleTextService({
+      allowlist: new Set(['allowed.com']),
+      itemEligibilityLedger: ledger,
+      fetchFn: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(makeHtml('too short'), { status: 200 }),
+      ),
+      primaryExtractor: vi.fn().mockResolvedValue({ title: 'Short', text: 'tiny' }),
+      fallbackExtractor: vi.fn().mockReturnValue({ title: 'Short', text: 'tiny' }),
+    });
+
+    await expect(failedService.extract('https://allowed.com/failure')).rejects.toMatchObject({
+      code: 'quality-too-low',
+      statusCode: 422,
+    });
+    await expect(ledger.readByUrl('https://allowed.com/failure')).resolves.toMatchObject({
+      state: 'link_only',
+      reason: 'quality-too-low',
+      analysisEligible: false,
+      displayEligible: true,
+      observationCount: 1,
+    });
   });
 
   it('raises quality-too-low when both extraction passes fail', async () => {

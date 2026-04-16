@@ -15,11 +15,14 @@ import {
   type SourceFeedContributionReport,
   type SourceFeedContributionSourceReport,
 } from './sourceContributionReport';
+import type { SourceLifecycleState } from './sourceLifecycle';
 
 export const SOURCE_HEALTH_REPORT_SCHEMA_VERSION =
   'news-source-health-report-v1';
 export const SOURCE_HEALTH_TREND_INDEX_SCHEMA_VERSION =
   'news-source-health-trend-v1';
+export const SOURCE_HEALTH_POLICY_VERSION =
+  'news-source-health-policy-v2';
 
 const FEED_STAGE_BLOCKING_REASONS = new Set([
   'feed_links_unavailable',
@@ -156,6 +159,7 @@ export interface SourceHealthRunAssessment {
 
 export interface SourceHealthReport {
   readonly schemaVersion: typeof SOURCE_HEALTH_REPORT_SCHEMA_VERSION;
+  readonly policyVersion: typeof SOURCE_HEALTH_POLICY_VERSION;
   readonly generatedAt: string;
   readonly readinessStatus: SourceHealthReadinessStatus;
   readonly recommendedAction:
@@ -191,11 +195,15 @@ export interface SourceHealthReport {
 export interface SourceHealthArtifactOptions extends SourceAdmissionArtifactOptions {
   readonly admissionReport?: SourceAdmissionReport;
   readonly thresholds?: Partial<SourceHealthThresholds>;
+  readonly globalOutageRetryCount?: number;
+  readonly globalOutageRetryDelayMs?: number;
+  readonly sleepFn?: (ms: number) => Promise<void>;
 }
 
 interface HistoricalSourceHealthRecord {
   readonly generatedAtMs: number;
   readonly generatedAt: string;
+  readonly policyVersion: string;
   readonly globalFeedStageFailure: boolean;
   readonly readinessStatus: SourceHealthReadinessStatus;
   readonly enabledSourceCount: number;
@@ -242,6 +250,19 @@ function parsePositiveInt(raw: string | undefined, fallback: number): number {
   return Math.floor(parsed);
 }
 
+function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
+  if (!raw) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return fallback;
+  }
+
+  return Math.floor(parsed);
+}
+
 function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
   const normalized = raw?.trim().toLowerCase();
   if (!normalized) {
@@ -254,6 +275,12 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
     return false;
   }
   return fallback;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 export function buildSourceHealthThresholds(
@@ -378,6 +405,10 @@ function parseHistoricalSourceHealthRecord(
   return {
     generatedAtMs: generatedAt,
     generatedAt: new Date(generatedAt).toISOString(),
+    policyVersion:
+      typeof record.policyVersion === 'string' && record.policyVersion.trim().length > 0
+        ? record.policyVersion.trim()
+        : 'legacy',
     globalFeedStageFailure:
       typeof (record.runAssessment as Record<string, unknown> | undefined)?.globalFeedStageFailure === 'boolean'
         ? (record.runAssessment as Record<string, boolean>).globalFeedStageFailure ?? false
@@ -514,19 +545,26 @@ function buildSourceSlateKey(sourceIds: readonly string[]): string {
 function filterComparableHistoricalReports(
   currentSourceIds: readonly string[],
   historicalReports: readonly HistoricalSourceHealthRecord[],
+  currentPolicyVersion: string,
 ): HistoricalSourceHealthRecord[] {
   const currentSourceSlateKey = buildSourceSlateKey(currentSourceIds);
   return historicalReports.filter((report) => (
+    report.policyVersion === currentPolicyVersion
+    && (
     buildSourceSlateKey(report.sources.map((source) => source.sourceId)) === currentSourceSlateKey
+    )
   ));
+}
+
+function isLifecycleCurrentlyUnstable(
+  state: Pick<SourceLifecycleState, 'status' | 'consecutiveFailures'>,
+): boolean {
+  return state.status !== 'healthy' || state.consecutiveFailures > 0;
 }
 
 function hasLifecycleInstability(source: SourceAdmissionSourceReport): boolean {
   return source.lifecycle.some(
-    (state) =>
-      state.status !== 'healthy'
-      || state.retryCount > 0
-      || state.consecutiveFailures > 0,
+    (state) => isLifecycleCurrentlyUnstable(state),
   );
 }
 
@@ -536,10 +574,7 @@ function buildDecision(
 ): SourceHealthSourceReport {
   const unstableLifecycleDomains = source.lifecycle
     .filter(
-      (state) =>
-        state.status !== 'healthy'
-        || state.retryCount > 0
-        || state.consecutiveFailures > 0,
+      (state) => isLifecycleCurrentlyUnstable(state),
     )
     .map((state) => state.sourceDomain);
 
@@ -628,14 +663,22 @@ function isFeedStageFailureSource(
   );
 }
 
+function isGlobalFeedStageFailureAdmissionReport(
+  admissionReport: Pick<SourceAdmissionReport, 'sources'>,
+): boolean {
+  return (
+    admissionReport.sources.length > 0
+    && admissionReport.sources.every(isFeedStageFailureSource)
+  );
+}
+
 function shouldPreservePreviousLatestSourceHealthArtifacts(
   admissionReport: Pick<SourceAdmissionReport, 'sources'>,
   latestSourceHealthReportPath: string,
 ): boolean {
   return (
-    admissionReport.sources.length > 0
-    && existsSync(latestSourceHealthReportPath)
-    && admissionReport.sources.every(isFeedStageFailureSource)
+    existsSync(latestSourceHealthReportPath)
+    && isGlobalFeedStageFailureAdmissionReport(admissionReport)
   );
 }
 
@@ -644,6 +687,9 @@ function buildSourceHistory(
   historicalReports: readonly HistoricalSourceHealthRecord[],
   thresholds: SourceHealthThresholds,
   baseDecision: SourceHealthDecision,
+  options: {
+    readonly bypassPendingReadmission?: boolean;
+  } = {},
 ): SourceHealthSourceHistory {
   const priorRecords = historicalReports
     .map((report) => report.sources.find((source) => source.sourceId === sourceId) ?? null)
@@ -665,6 +711,7 @@ function buildSourceHistory(
   const priorRemovalSeen = priorEffectiveDecisions.includes('remove');
   const pendingReadmission =
     baseDecision === 'keep'
+    && !options.bypassPendingReadmission
     && priorRemovalSeen
     && consecutiveBaseKeepRuns + 1 < thresholds.readmissionKeepRunCount;
   const escalatedToRemove =
@@ -971,17 +1018,25 @@ export function buildSourceHealthReport(
   const comparableHistoricalReports = filterComparableHistoricalReports(
     admissionReport.sources.map((source) => source.sourceId),
     historicalReports,
+    SOURCE_HEALTH_POLICY_VERSION,
   );
   const sources = admissionReport.sources.map((source) => {
     const baseDecision = buildDecision(source, thresholds);
+    const contribution =
+      feedContribution.sources.find((entry) => entry.sourceId === source.sourceId) ?? null;
     const history = buildSourceHistory(
       baseDecision.sourceId,
       comparableHistoricalReports,
       thresholds,
       baseDecision.baseDecision,
+      {
+        bypassPendingReadmission:
+          baseDecision.baseDecision === 'keep'
+          && baseDecision.reasons.length === 0
+          && baseDecision.unstableLifecycleDomains.length === 0
+          && contribution?.contributionStatus === 'corroborated',
+      },
     );
-    const contribution =
-      feedContribution.sources.find((entry) => entry.sourceId === source.sourceId) ?? null;
     return {
       ...applyHistoricalDecisionPolicy(baseDecision, history),
       feedContribution: contribution,
@@ -1062,6 +1117,7 @@ export function buildSourceHealthReport(
 
   return {
     schemaVersion: SOURCE_HEALTH_REPORT_SCHEMA_VERSION,
+    policyVersion: SOURCE_HEALTH_POLICY_VERSION,
     generatedAt,
     readinessStatus,
     recommendedAction:
@@ -1133,23 +1189,17 @@ export async function writeSourceHealthArtifact(
     resolvedArtifactDir,
     'source-admission-report.json',
   );
-  const admissionArtifact =
+  let admissionArtifact =
     options.admissionReport
       ? {
           artifactDir: resolvedArtifactDir,
           reportPath: resolvedAdmissionReportPath,
           report: options.admissionReport,
         }
-      : await writeSourceAdmissionArtifact(options);
-
-  mkdirSync(admissionArtifact.artifactDir, { recursive: true });
-  if (options.admissionReport) {
-    writeFileSync(
-      admissionArtifact.reportPath,
-      `${JSON.stringify(admissionArtifact.report, null, 2)}\n`,
-      'utf8',
-    );
-  }
+      : await writeSourceAdmissionArtifact({
+          ...options,
+          artifactDir: resolvedArtifactDir,
+        });
   const latestArtifactDir = path.join(
     path.dirname(admissionArtifact.artifactDir),
     'latest',
@@ -1166,6 +1216,54 @@ export async function writeSourceHealthArtifact(
     latestArtifactDir,
     'source-health-trend.json',
   );
+  const globalOutageRetryCount = Math.max(
+    0,
+    options.globalOutageRetryCount
+    ?? parseNonNegativeInt(
+      process.env.VH_NEWS_SOURCE_HEALTH_GLOBAL_OUTAGE_RETRY_COUNT,
+      2,
+    ),
+  );
+  const globalOutageRetryDelayMs = Math.max(
+    0,
+    options.globalOutageRetryDelayMs
+    ?? parseNonNegativeInt(
+      process.env.VH_NEWS_SOURCE_HEALTH_GLOBAL_OUTAGE_RETRY_DELAY_MS,
+      2_000,
+    ),
+  );
+  const sleepFn = options.sleepFn ?? sleep;
+
+  if (!options.admissionReport) {
+    for (
+      let retryAttempt = 1;
+      retryAttempt <= globalOutageRetryCount
+      && isGlobalFeedStageFailureAdmissionReport(admissionArtifact.report);
+      retryAttempt += 1
+    ) {
+      console.warn('[vh:news-source-health] global feed-stage outage detected; retrying full admission pass', {
+        retryAttempt,
+        globalOutageRetryCount,
+        retryDelayMs: globalOutageRetryDelayMs,
+      });
+      if (globalOutageRetryDelayMs > 0) {
+        await sleepFn(globalOutageRetryDelayMs);
+      }
+      admissionArtifact = await writeSourceAdmissionArtifact({
+        ...options,
+        artifactDir: resolvedArtifactDir,
+      });
+    }
+  }
+
+  mkdirSync(admissionArtifact.artifactDir, { recursive: true });
+  if (options.admissionReport) {
+    writeFileSync(
+      admissionArtifact.reportPath,
+      `${JSON.stringify(admissionArtifact.report, null, 2)}\n`,
+      'utf8',
+    );
+  }
   const preservePreviousLatest = shouldPreservePreviousLatestSourceHealthArtifacts(
     admissionArtifact.report,
     latestSourceHealthReportPath,
@@ -1208,9 +1306,14 @@ export async function writeSourceHealthArtifact(
     admissionArtifact.artifactDir,
     sourceHealthReport.thresholds.historyLookbackRunCount,
   );
+  const comparableHistoricalReports = filterComparableHistoricalReports(
+    admissionArtifact.report.sources.map((source) => source.sourceId),
+    historicalReports,
+    SOURCE_HEALTH_POLICY_VERSION,
+  );
   const sourceHealthTrendIndex = buildSourceHealthTrendIndex(
     sourceHealthReport,
-    historicalReports,
+    comparableHistoricalReports,
   );
 
   writeFileSync(
@@ -1324,7 +1427,13 @@ async function main(): Promise<void> {
 
 /* c8 ignore next 3 */
 if (isDirectExecution()) {
-  await main();
+  try {
+    await main();
+    process.exit(0);
+  } catch (error) {
+    console.error(error);
+    process.exit(1);
+  }
 }
 /* c8 ignore stop */
 
@@ -1340,6 +1449,7 @@ export const sourceHealthReportInternal = {
   hasLifecycleInstability,
   isDirectExecution,
   isFeedStageFailureSource,
+  isGlobalFeedStageFailureAdmissionReport,
   parseBoolean,
   parseHistoricalSourceHealthRecord,
   readHistoricalSourceHealthReports,

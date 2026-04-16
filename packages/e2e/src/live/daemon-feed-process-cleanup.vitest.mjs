@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   PROBE_HOLDER_ID,
+  hasFlag,
   killStaleProbeWriters,
   parseProcessTable,
   processCwdWithinRepo,
@@ -115,6 +116,34 @@ describe('daemon-feed-process-cleanup', () => {
     ).toBe(true);
   });
 
+  it('preserves shared relay and storycluster services when requested', () => {
+    const repoRoot = '/Users/bldt/Desktop/VHC/VHC-hottest-fix';
+    const execSync = vi.fn(() => 'n/Users/bldt/Desktop/VHC/VHC/packages/e2e\n');
+
+    expect(
+      shouldKillStaleProbeWriter(
+        { pid: '118', command: 'node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js' },
+        repoRoot,
+        'http://127.0.0.1:7777/gun',
+        execSync,
+        { preserveRelayServer: true },
+      ),
+    ).toBe(false);
+
+    expect(
+      shouldKillStaleProbeWriter(
+        {
+          pid: '119',
+          command: 'node /Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/dist/server.js',
+        },
+        repoRoot,
+        '',
+        execSync,
+        { preserveStoryclusterServer: true },
+      ),
+    ).toBe(false);
+  });
+
   it('matches stale storycluster servers by cwd when repo root is absent from command', () => {
     const execSync = vi.fn(() => 'n/Users/bldt/Desktop/VHC/VHC-hottest-fix/services/storycluster-engine\n');
 
@@ -196,6 +225,39 @@ describe('daemon-feed-process-cleanup', () => {
     expect(killStaleProbeWriters(repoRoot, gunPeerUrl, execSync, 999, 998)).toEqual(['111', '222', '333', '444']);
   });
 
+  it('does not kill shared relay or storycluster services when preserve flags are set', () => {
+    const repoRoot = '/Users/bldt/Desktop/VHC/VHC-hottest-fix';
+    const gunPeerUrl = 'http://127.0.0.1:7777/gun';
+    const execSync = vi.fn((command, args) => {
+      if (command === 'ps') {
+        return [
+          `111 node dist/daemon.js VH_NEWS_DAEMON_HOLDER_ID=${PROBE_HOLDER_ID} VH_GUN_PEERS=["${gunPeerUrl}"]`,
+          '333 node /Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/dist/server.js',
+          '444 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js',
+        ].join('\n');
+      }
+      if (command === 'lsof') {
+        return 'n/Users/bldt/Desktop/VHC/VHC/packages/e2e\n';
+      }
+      if (command === 'kill') {
+        expect(args).toEqual(['-9', '111']);
+        return '';
+      }
+      throw new Error(`unexpected ${command}`);
+    });
+
+    expect(
+      killStaleProbeWriters(
+        repoRoot,
+        gunPeerUrl,
+        execSync,
+        999,
+        998,
+        { preserveRelayServer: true, preserveStoryclusterServer: true },
+      ),
+    ).toEqual(['111']);
+  });
+
   it('skips the current cleanup process and its parent shell', () => {
     const execSync = vi.fn((command) => {
       if (command === 'ps') {
@@ -268,6 +330,44 @@ describe('daemon-feed-process-cleanup', () => {
     expect(readArg('--repo-root', ['node', 'cleanup', '--repo-root'])).toBe('');
     expect(runCleanup(argv, execSync, log)).toEqual(['111']);
     expect(log).toHaveBeenCalledWith('{\n  "killed": [\n    "111"\n  ]\n}');
+  });
+
+  it('reads preserve flags from argv', () => {
+    expect(hasFlag('--preserve-relay-server', ['node', 'cleanup', '--preserve-relay-server'])).toBe(true);
+    expect(hasFlag('--preserve-relay-server', ['node', 'cleanup'])).toBe(false);
+  });
+
+  it('passes preserve flags through runCleanup', () => {
+    const log = vi.fn();
+    const execSync = vi.fn((command, args) => {
+      if (command === 'ps') {
+        return [
+          `111 node dist/daemon.js VH_NEWS_DAEMON_HOLDER_ID=${PROBE_HOLDER_ID} VH_GUN_PEERS=["http://127.0.0.1:7777/gun"]`,
+          '333 node /Users/bldt/Desktop/VHC/VHC/services/storycluster-engine/dist/server.js',
+          '444 node /Users/bldt/Desktop/VHC/VHC/infra/relay/server.js',
+        ].join('\n');
+      }
+      if (command === 'lsof') {
+        return 'n/Users/bldt/Desktop/VHC/VHC/packages/e2e\n';
+      }
+      if (command === 'kill') {
+        expect(args).toEqual(['-9', '111']);
+        return '';
+      }
+      throw new Error(`unexpected ${command}`);
+    });
+    const argv = [
+      'node',
+      'cleanup',
+      '--repo-root',
+      '/Users/bldt/Desktop/VHC/VHC-hottest-fix',
+      '--gun-peer-url',
+      'http://127.0.0.1:7777/gun',
+      '--preserve-relay-server',
+      '--preserve-storycluster-server',
+    ];
+
+    expect(runCleanup(argv, execSync, log)).toEqual(['111']);
   });
 
   it('throws for missing required args', () => {

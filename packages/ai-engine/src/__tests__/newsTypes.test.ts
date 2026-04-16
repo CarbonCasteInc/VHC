@@ -128,6 +128,15 @@ describe('newsTypes', () => {
             title: 'Story title',
           },
         ],
+        related_links: [
+          {
+            source_id: 'src-2',
+            publisher: 'src-2',
+            url: 'https://example.com/story-2',
+            url_hash: 'deadbeef-2',
+            title: 'Related story title',
+          },
+        ],
         secondary_assets: [
           {
             source_id: 'src-video',
@@ -192,6 +201,15 @@ describe('newsTypes', () => {
           url: 'https://example.com/story',
           url_hash: 'hash-1',
           title: 'Title',
+        },
+      ],
+      related_links: [
+        {
+          source_id: 'src-2',
+          publisher: 'src-2',
+          url: 'https://example.com/related',
+          url_hash: 'hash-2',
+          title: 'Related',
         },
       ],
       cluster_features: {

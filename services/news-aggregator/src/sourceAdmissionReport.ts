@@ -1,3 +1,4 @@
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,12 +21,22 @@ import {
   type SourceLifecycleState,
 } from './sourceLifecycle';
 import { buildSourceDomainAllowlist } from './sourceRegistry';
+import {
+  assessItemEligibilityFromError,
+  assessItemEligibilityFromResult,
+  type ItemEligibilityState,
+} from './itemEligibilityPolicy';
+import { ItemEligibilityLedger } from './itemEligibilityLedger';
 
 const RSS_ITEM_REGEX = /<item\b[\s\S]*?<\/item>/gi;
 const ATOM_ENTRY_REGEX = /<entry\b[\s\S]*?<\/entry>/gi;
 const DEFAULT_SAMPLE_SIZE = 4;
 const DEFAULT_MIN_SUCCESS_COUNT = 2;
 const DEFAULT_MIN_SUCCESS_RATE = 0.75;
+const DEFAULT_SOAK_SAMPLE_SIZE = 8;
+const DEFAULT_SOAK_MIN_SUCCESS_COUNT = 4;
+const DEFAULT_SOAK_MIN_SUCCESS_RATE = 0.5;
+const DEFAULT_SOAK_PROVISIONAL_MIN_SUCCESS_COUNT = 3;
 const REPLACEMENT_SAMPLE_BUFFER = 4;
 const MAX_HTML_FEED_DISCOVERY_DEPTH = 2;
 
@@ -33,6 +44,7 @@ export const SOURCE_ADMISSION_REPORT_SCHEMA_VERSION =
   'news-source-admission-report-v1';
 
 export type SourceAdmissionStatus = 'admitted' | 'rejected' | 'inconclusive';
+export type SourceAdmissionEvaluationMode = 'product' | 'soak';
 
 export interface SourceAdmissionCriteria {
   readonly sampleSize: number;
@@ -43,6 +55,11 @@ export interface SourceAdmissionCriteria {
 export interface SourceAdmissionSampleResult {
   readonly url: string;
   readonly outcome: 'passed' | 'failed';
+  readonly canonicalUrl?: string | null;
+  readonly urlHash?: string | null;
+  readonly eligibilityState?: ItemEligibilityState;
+  readonly eligibilityReason?: string;
+  readonly displayEligible?: boolean;
   readonly title?: string;
   readonly extractionMethod?: ArticleTextResult['extractionMethod'];
   readonly qualityScore?: number;
@@ -79,8 +96,10 @@ export interface SourceAdmissionSourceReport {
   readonly sourceId: string;
   readonly sourceName: string;
   readonly rssUrl: string;
+  readonly evaluationMode: SourceAdmissionEvaluationMode;
   readonly status: SourceAdmissionStatus;
   readonly admitted: boolean;
+  readonly provisionalKeepForSoak?: boolean;
   readonly sampleLinkCount: number;
   readonly readableSampleCount: number;
   readonly readableSampleRate: number | null;
@@ -105,6 +124,7 @@ function countFeedEntryFragments(xml: string): {
 export interface SourceAdmissionReport {
   readonly schemaVersion: typeof SOURCE_ADMISSION_REPORT_SCHEMA_VERSION;
   readonly generatedAt: string;
+  readonly evaluationMode: SourceAdmissionEvaluationMode;
   readonly criteria: SourceAdmissionCriteria;
   readonly sourceCount: number;
   readonly admittedSourceIds: readonly string[];
@@ -115,6 +135,8 @@ export interface SourceAdmissionReport {
 
 export interface SourceAdmissionAuditOptions {
   readonly feedSources?: readonly FeedSource[];
+  readonly evaluationMode?: SourceAdmissionEvaluationMode;
+  readonly itemEligibilityLedger?: ItemEligibilityLedger;
   readonly sampleSize?: number;
   readonly minimumSuccessCount?: number;
   readonly minimumSuccessRate?: number;
@@ -123,6 +145,7 @@ export interface SourceAdmissionAuditOptions {
   readonly now?: () => number;
   readonly feedReadAttemptCount?: number;
   readonly feedReadRetryDelayMs?: number;
+  readonly feedFetchFallback?: typeof fetchFeedViaCurl;
   readonly articleTextServiceOptions?: Omit<
     ArticleTextServiceOptions,
     'allowlist' | 'fetchFn' | 'lifecycle' | 'now'
@@ -166,6 +189,18 @@ function parseRate(raw: string | undefined, fallback: number): number {
   }
 
   return parsed;
+}
+
+function resolveEvaluationMode(
+  options: Pick<SourceAdmissionAuditOptions, 'evaluationMode'> & Pick<SourceAdmissionArtifactOptions, 'env'> = {},
+): SourceAdmissionEvaluationMode {
+  if (options.evaluationMode) {
+    return options.evaluationMode;
+  }
+
+  const env = options.env ?? process.env;
+  const raw = normalizeNonEmpty(env.VH_NEWS_SOURCE_ADMISSION_MODE)?.toLowerCase();
+  return raw === 'soak' ? 'soak' : 'product';
 }
 
 function normalizeNonEmpty(value: string | undefined): string | null {
@@ -445,7 +480,10 @@ function classifyFeedReadError(error: unknown): {
 async function readFeedXml(
   fetchFn: typeof fetch,
   source: FeedSource,
-  options: Pick<SourceAdmissionAuditOptions, 'feedReadAttemptCount' | 'feedReadRetryDelayMs'> = {},
+  options: Pick<
+    SourceAdmissionAuditOptions,
+    'feedReadAttemptCount' | 'feedReadRetryDelayMs' | 'fetchTimeoutMs' | 'feedFetchFallback'
+  > = {},
 ): Promise<{
   readonly xml: string | null;
   readonly responseUrl: string | null;
@@ -456,6 +494,86 @@ async function readFeedXml(
 }> {
   const attemptCount = Math.max(1, options.feedReadAttemptCount ?? 2);
   const retryDelayMs = Math.max(0, options.feedReadRetryDelayMs ?? 250);
+  const feedFetchFallback = options.feedFetchFallback ?? fetchFeedViaCurl;
+
+  async function finalizeFeedPayload(
+    body: string,
+    responseUrl: string,
+    responseMeta: {
+      readonly httpStatus: number;
+      readonly contentType: string | null;
+      readonly payloadKind: 'xml' | 'html_feed';
+      readonly attemptCount: number;
+    },
+  ): Promise<{
+    readonly xml: string;
+    readonly responseUrl: string;
+    readonly diagnostics: Omit<
+      SourceAdmissionFeedReadDiagnostics,
+      'itemFragmentCount' | 'entryFragmentCount' | 'extractedLinkCount'
+    >;
+  } | null> {
+    const { httpStatus, contentType, payloadKind, attemptCount: resolvedAttemptCount } = responseMeta;
+    const bodyLength = body.length;
+    if (body.trim().length === 0) {
+      lastDiagnostics = {
+        ok: false,
+        httpStatus,
+        contentType,
+        bodyLength,
+        resolvedFeedUrl: responseUrl,
+        payloadKind: 'empty',
+        errorCode: 'feed_empty_payload',
+        errorMessage: 'Feed response body was empty',
+        attemptCount: resolvedAttemptCount,
+      };
+      return null;
+    }
+
+    if (!isLikelyXmlPayload(contentType, body)) {
+      const resolvedHtmlFeed = await resolveHtmlFeedPayload(
+        body,
+        responseUrl,
+        resolvedAttemptCount,
+        MAX_HTML_FEED_DISCOVERY_DEPTH,
+      );
+      if (resolvedHtmlFeed) {
+        return {
+          xml: resolvedHtmlFeed.xml,
+          responseUrl: resolvedHtmlFeed.responseUrl,
+          diagnostics: resolvedHtmlFeed.diagnostics,
+        };
+      }
+      lastDiagnostics = {
+        ok: false,
+        httpStatus,
+        contentType,
+        bodyLength,
+        resolvedFeedUrl: responseUrl,
+        payloadKind: 'non_xml',
+        errorCode: 'feed_non_xml_payload',
+        errorMessage: 'Feed response was not parseable XML',
+        attemptCount: resolvedAttemptCount,
+      };
+      return null;
+    }
+
+    return {
+      xml: body,
+      responseUrl,
+      diagnostics: {
+        ok: true,
+        httpStatus,
+        contentType,
+        bodyLength,
+        resolvedFeedUrl: responseUrl,
+        payloadKind,
+        errorCode: null,
+        errorMessage: null,
+        attemptCount: resolvedAttemptCount,
+      },
+    };
+  }
 
   async function resolveHtmlFeedPayload(
     payload: string,
@@ -599,76 +717,51 @@ async function readFeedXml(
           attemptCount: attempt,
         };
       } else {
-        const body = await response.text();
-        const bodyLength = body.length;
-        if (body.trim().length === 0) {
-          lastDiagnostics = {
-            ok: false,
-            httpStatus: response.status,
-            contentType,
-            bodyLength,
-            resolvedFeedUrl: responseUrl,
-            payloadKind: 'empty',
-            errorCode: 'feed_empty_payload',
-            errorMessage: 'Feed response body was empty',
-            attemptCount: attempt,
-          };
-        } else if (!isLikelyXmlPayload(contentType, body)) {
-          const resolvedHtmlFeed = await resolveHtmlFeedPayload(
-            body,
-            responseUrl,
-            attempt,
-            MAX_HTML_FEED_DISCOVERY_DEPTH,
-          );
-          if (resolvedHtmlFeed) {
-            return {
-              xml: resolvedHtmlFeed.xml,
-              responseUrl: resolvedHtmlFeed.responseUrl,
-              diagnostics: resolvedHtmlFeed.diagnostics,
-            };
-          }
-          lastDiagnostics = {
-            ok: false,
-            httpStatus: response.status,
-            contentType,
-            bodyLength,
-            resolvedFeedUrl: responseUrl,
-            payloadKind: 'non_xml',
-            errorCode: 'feed_non_xml_payload',
-            errorMessage: 'Feed response was not parseable XML',
-            attemptCount: attempt,
-          };
-        } else {
-          return {
-            xml: body,
-            responseUrl,
-            diagnostics: {
-              ok: true,
-              httpStatus: response.status,
-              contentType,
-              bodyLength,
-              resolvedFeedUrl: responseUrl,
-              payloadKind: 'xml',
-              errorCode: null,
-              errorMessage: null,
-              attemptCount: attempt,
-            },
-          };
+        const resolved = await finalizeFeedPayload(await response.text(), responseUrl, {
+          httpStatus: response.status,
+          contentType,
+          payloadKind: 'xml',
+          attemptCount: attempt,
+        });
+        if (resolved) {
+          return resolved;
         }
       }
     } catch (error) {
       const classified = classifyFeedReadError(error);
-      lastDiagnostics = {
-        ok: false,
-        httpStatus: null,
-        contentType: null,
-        bodyLength: null,
-        resolvedFeedUrl: null,
-        payloadKind: 'unavailable',
-        errorCode: classified.errorCode,
-        errorMessage: classified.errorMessage,
-        attemptCount: attempt,
-      };
+      const fallbackResult =
+        classified.errorCode === 'feed_fetch_error' || classified.errorCode === 'feed_fetch_timeout'
+          ? feedFetchFallback(source.rssUrl, {
+            timeoutMs: options.fetchTimeoutMs,
+          })
+          : null;
+      if (fallbackResult?.ok) {
+        const resolved = await finalizeFeedPayload(
+          fallbackResult.body,
+          fallbackResult.responseUrl,
+          {
+            httpStatus: fallbackResult.httpStatus,
+            contentType: fallbackResult.contentType,
+            payloadKind: 'xml',
+            attemptCount: attempt,
+          },
+        );
+        if (resolved) {
+          return resolved;
+        }
+      } else if (!fallbackResult?.ok) {
+        lastDiagnostics = {
+          ok: false,
+          httpStatus: null,
+          contentType: null,
+          bodyLength: null,
+          resolvedFeedUrl: null,
+          payloadKind: 'unavailable',
+          errorCode: classified.errorCode,
+          errorMessage: fallbackResult?.errorMessage ?? classified.errorMessage,
+          attemptCount: attempt,
+        };
+      }
     }
 
     if (attempt < attemptCount && retryDelayMs > 0) {
@@ -683,33 +776,130 @@ async function readFeedXml(
   };
 }
 
-function buildCriteria(options: SourceAdmissionAuditOptions): SourceAdmissionCriteria {
+type FeedCurlFallbackResult =
+  | {
+    readonly ok: true;
+    readonly body: string;
+    readonly contentType: string | null;
+    readonly httpStatus: number;
+    readonly responseUrl: string;
+  }
+  | {
+    readonly ok: false;
+    readonly errorMessage: string;
+  };
+
+function fetchFeedViaCurl(
+  url: string,
+  options: {
+    readonly timeoutMs?: number;
+    readonly spawnSyncImpl?: typeof spawnSync;
+  } = {},
+): FeedCurlFallbackResult | null {
+  const spawnSyncImpl = options.spawnSyncImpl ?? spawnSync;
+  const timeoutMs = Number.isFinite(options.timeoutMs) && (options.timeoutMs ?? 0) > 0
+    ? Math.max(1, Math.ceil((options.timeoutMs ?? 0) / 1000))
+    : 10;
+  const marker = '__VH_CURL_META__';
+  let result: SpawnSyncReturns<string>;
+
+  try {
+    result = spawnSyncImpl('curl', [
+      '--silent',
+      '--show-error',
+      '--location',
+      '--max-time',
+      String(timeoutMs),
+      '--output',
+      '-',
+      '--write-out',
+      `\n${marker}http_code=%{http_code};content_type=%{content_type};url_effective=%{url_effective}`,
+      url,
+    ], {
+      encoding: 'utf8',
+      maxBuffer: 16 * 1024 * 1024,
+    });
+  } catch {
+    return null;
+  }
+
+  if (result.error) {
+    if ((result.error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+    return {
+      ok: false,
+      errorMessage: (result.error as Error).message,
+    };
+  }
+
+  if (result.status !== 0) {
+    return {
+      ok: false,
+      errorMessage: (result.stderr || result.stdout || `curl exited ${result.status ?? 'null'}`).trim(),
+    };
+  }
+
+  const rawOutput = result.stdout ?? '';
+  const markerIndex = rawOutput.lastIndexOf(`\n${marker}`);
+  const body = markerIndex >= 0 ? rawOutput.slice(0, markerIndex) : rawOutput;
+  const metadataText = markerIndex >= 0 ? rawOutput.slice(markerIndex + 1 + marker.length) : '';
+  const metadata = new URLSearchParams(metadataText.replace(/;/g, '&'));
+  const httpStatus = Number.parseInt(metadata.get('http_code') ?? '200', 10);
+
+  return {
+    ok: true,
+    body,
+    contentType: normalizeNonEmpty(metadata.get('content_type') ?? undefined),
+    httpStatus: Number.isFinite(httpStatus) ? httpStatus : 200,
+    responseUrl: normalizeNonEmpty(metadata.get('url_effective') ?? undefined) ?? url,
+  };
+}
+
+function buildCriteria(
+  options: SourceAdmissionAuditOptions & Pick<SourceAdmissionArtifactOptions, 'env'>,
+  evaluationMode: SourceAdmissionEvaluationMode = resolveEvaluationMode(options),
+): SourceAdmissionCriteria {
+  const env = options.env ?? process.env;
+  const defaultSampleSize =
+    evaluationMode === 'soak' ? DEFAULT_SOAK_SAMPLE_SIZE : DEFAULT_SAMPLE_SIZE;
+  const defaultMinSuccessCount =
+    evaluationMode === 'soak' ? DEFAULT_SOAK_MIN_SUCCESS_COUNT : DEFAULT_MIN_SUCCESS_COUNT;
+  const defaultMinSuccessRate =
+    evaluationMode === 'soak' ? DEFAULT_SOAK_MIN_SUCCESS_RATE : DEFAULT_MIN_SUCCESS_RATE;
+
   return {
     sampleSize:
       options.sampleSize
       ?? parsePositiveInt(
-        process.env.VH_NEWS_SOURCE_ADMISSION_SAMPLE_SIZE,
-        DEFAULT_SAMPLE_SIZE,
+        env.VH_NEWS_SOURCE_ADMISSION_SAMPLE_SIZE,
+        defaultSampleSize,
       ),
     minimumSuccessCount:
       options.minimumSuccessCount
       ?? parsePositiveInt(
-        process.env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_COUNT,
-        DEFAULT_MIN_SUCCESS_COUNT,
+        env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_COUNT,
+        defaultMinSuccessCount,
       ),
     minimumSuccessRate:
       options.minimumSuccessRate
       ?? parseRate(
-        process.env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_RATE,
-        DEFAULT_MIN_SUCCESS_RATE,
+        env.VH_NEWS_SOURCE_ADMISSION_MIN_SUCCESS_RATE,
+        defaultMinSuccessRate,
       ),
   };
 }
 
 function passSample(result: ArticleTextResult): SourceAdmissionSampleResult {
+  const assessment = assessItemEligibilityFromResult(result);
   return {
     url: result.url,
     outcome: 'passed',
+    canonicalUrl: assessment.canonicalUrl,
+    urlHash: assessment.urlHash,
+    eligibilityState: assessment.state,
+    eligibilityReason: assessment.reason,
+    displayEligible: assessment.displayEligible,
     title: result.title,
     extractionMethod: result.extractionMethod,
     qualityScore: result.quality.score,
@@ -721,10 +911,16 @@ function failSample(
   url: string,
   error: unknown,
 ): SourceAdmissionSampleResult {
+  const assessment = assessItemEligibilityFromError(url, error);
   if (error instanceof ArticleTextServiceError) {
     return {
       url,
       outcome: 'failed',
+      canonicalUrl: assessment.canonicalUrl,
+      urlHash: assessment.urlHash,
+      eligibilityState: assessment.state,
+      eligibilityReason: assessment.reason,
+      displayEligible: assessment.displayEligible,
       errorCode: error.code,
       errorMessage: error.message,
       retryable: error.retryable,
@@ -734,6 +930,11 @@ function failSample(
   return {
     url,
     outcome: 'failed',
+    canonicalUrl: assessment.canonicalUrl,
+    urlHash: assessment.urlHash,
+    eligibilityState: assessment.state,
+    eligibilityReason: assessment.reason,
+    displayEligible: assessment.displayEligible,
     errorCode: 'unexpected-error',
     errorMessage: error instanceof Error ? error.message : 'Unexpected source admission failure',
     retryable: false,
@@ -755,18 +956,22 @@ function canReplaceSampleFailure(
 function classifySource(
   source: FeedSource,
   criteria: SourceAdmissionCriteria,
+  evaluationMode: SourceAdmissionEvaluationMode,
   feedRead: SourceAdmissionSourceReport['feedRead'],
   sampledUrls: readonly string[],
   skippedVideoUrls: readonly string[],
   samples: readonly SourceAdmissionSampleResult[],
   lifecycle: readonly SourceLifecycleState[],
 ): SourceAdmissionSourceReport {
-  const readableSampleCount = samples.filter((sample) => sample.outcome === 'passed').length;
+  const readableSampleCount = samples.filter(
+    (sample) => sample.eligibilityState === 'analysis_eligible' || sample.outcome === 'passed',
+  ).length;
   const readableSampleRate =
     sampledUrls.length > 0 ? readableSampleCount / sampledUrls.length : null;
 
   const reasons: string[] = [];
   let status: SourceAdmissionStatus = 'rejected';
+  let provisionalKeepForSoak = false;
 
   if (sampledUrls.length === 0) {
     status = 'inconclusive';
@@ -781,6 +986,15 @@ function classifySource(
       }
     }
   } else if (
+    evaluationMode === 'soak'
+    && sampledUrls.length >= DEFAULT_SOAK_PROVISIONAL_MIN_SUCCESS_COUNT
+    && sampledUrls.length < criteria.sampleSize
+    && readableSampleCount === sampledUrls.length
+  ) {
+    status = 'admitted';
+    provisionalKeepForSoak = true;
+    reasons.push('provisional_thin_feed_keep');
+  } else if (
     readableSampleCount >= criteria.minimumSuccessCount &&
     readableSampleCount / sampledUrls.length >= criteria.minimumSuccessRate
   ) {
@@ -789,7 +1003,7 @@ function classifySource(
     const failureCodes = new Set(
       samples
         .filter((sample) => sample.outcome === 'failed')
-        .map((sample) => sample.errorCode)
+        .map((sample) => sample.errorCode ?? sample.eligibilityReason)
         .filter((value): value is string => typeof value === 'string' && value.length > 0),
     );
 
@@ -804,8 +1018,10 @@ function classifySource(
     sourceId: source.id,
     sourceName: source.name,
     rssUrl: source.rssUrl,
+    evaluationMode,
     status,
     admitted: status === 'admitted',
+    provisionalKeepForSoak,
     sampleLinkCount: sampledUrls.length,
     readableSampleCount,
     readableSampleRate,
@@ -822,7 +1038,8 @@ export async function auditFeedSourceAdmission(
   source: FeedSource,
   options: SourceAdmissionAuditOptions = {},
 ): Promise<SourceAdmissionSourceReport> {
-  const criteria = buildCriteria(options);
+  const evaluationMode = resolveEvaluationMode(options);
+  const criteria = buildCriteria(options, evaluationMode);
   const fetchTimeoutMs =
     options.fetchTimeoutMs
     ?? parsePositiveInt(process.env.VH_NEWS_SOURCE_ADMISSION_FETCH_TIMEOUT_MS, 10_000);
@@ -835,11 +1052,16 @@ export async function auditFeedSourceAdmission(
     fetchFn,
     lifecycle,
     now,
+    itemEligibilityLedger:
+      options.itemEligibilityLedger
+      ?? options.articleTextServiceOptions?.itemEligibilityLedger,
   });
 
   const feedReadResult = await readFeedXml(fetchFn, source, {
     feedReadAttemptCount: options.feedReadAttemptCount,
     feedReadRetryDelayMs: options.feedReadRetryDelayMs,
+    fetchTimeoutMs,
+    feedFetchFallback: options.feedFetchFallback,
   });
   const parseResult = feedReadResult.xml
     ? parseFeedLinksDetailed(
@@ -882,6 +1104,7 @@ export async function auditFeedSourceAdmission(
   return classifySource(
     source,
     criteria,
+    evaluationMode,
     {
       ...feedReadResult.diagnostics,
       itemFragmentCount: parseResult.itemFragmentCount,
@@ -899,7 +1122,8 @@ export async function buildSourceAdmissionReport(
   options: SourceAdmissionAuditOptions & Pick<SourceAdmissionArtifactOptions, 'cwd' | 'env'> = {},
 ): Promise<SourceAdmissionReport> {
   const feedSources = resolveConfiguredFeedSources(options);
-  const criteria = buildCriteria(options);
+  const evaluationMode = resolveEvaluationMode(options);
+  const criteria = buildCriteria(options, evaluationMode);
   const sources: SourceAdmissionSourceReport[] = [];
 
   for (const source of feedSources) {
@@ -909,6 +1133,7 @@ export async function buildSourceAdmissionReport(
   return {
     schemaVersion: SOURCE_ADMISSION_REPORT_SCHEMA_VERSION,
     generatedAt: new Date((options.now ?? Date.now)()).toISOString(),
+    evaluationMode,
     criteria,
     sourceCount: sources.length,
     admittedSourceIds: sources.filter((source) => source.status === 'admitted').map((source) => source.sourceId),
@@ -935,6 +1160,33 @@ export async function writeSourceAdmissionArtifact(
   const report = await buildSourceAdmissionReport(options);
   const reportPath = path.join(artifactDir, 'source-admission-report.json');
   writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  const allSamples = report.sources.flatMap((source) =>
+    source.samples.map((sample) => ({
+      sourceId: source.sourceId,
+      sourceName: source.sourceName,
+      url: sample.url,
+      canonicalUrl: sample.canonicalUrl ?? null,
+      urlHash: sample.urlHash ?? null,
+      eligibilityState: sample.eligibilityState ?? (sample.outcome === 'passed' ? 'analysis_eligible' : 'link_only'),
+      eligibilityReason: sample.eligibilityReason ?? sample.errorCode ?? null,
+      displayEligible: sample.displayEligible ?? sample.outcome === 'passed',
+    })),
+  );
+  writeFileSync(
+    path.join(artifactDir, 'analysis-eligible-links.json'),
+    `${JSON.stringify(allSamples.filter((sample) => sample.eligibilityState === 'analysis_eligible'), null, 2)}\n`,
+    'utf8',
+  );
+  writeFileSync(
+    path.join(artifactDir, 'link-only-links.json'),
+    `${JSON.stringify(allSamples.filter((sample) => sample.eligibilityState === 'link_only'), null, 2)}\n`,
+    'utf8',
+  );
+  writeFileSync(
+    path.join(artifactDir, 'hard-blocked-links.json'),
+    `${JSON.stringify(allSamples.filter((sample) => sample.eligibilityState === 'hard_blocked'), null, 2)}\n`,
+    'utf8',
+  );
   return { artifactDir, reportPath, report };
 }
 
@@ -965,6 +1217,7 @@ if (isDirectExecution()) {
 
 export const sourceAdmissionReportInternal = {
   buildCriteria,
+  resolveEvaluationMode,
   classifySource,
   classifyFeedReadError,
   decodeXmlEntities,
@@ -978,6 +1231,7 @@ export const sourceAdmissionReportInternal = {
   parseFeedLinksDetailed,
   parseFeedSourcesOverride,
   passSample,
+  fetchFeedViaCurl,
   readFeedXml,
   resolveConfiguredFeedSources,
   wrapFetchWithTimeout,

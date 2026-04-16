@@ -96,6 +96,36 @@ describe('sourceRegistry', () => {
     expect(resolved.sourceHealth.summary?.removedConfiguredSourceIds).toEqual(['cbs-politics']);
   });
 
+  it('autoloads source-health artifacts from the service tmp tree when cwd is the repo root', () => {
+    const repoRoot = mkdtempSync(path.join(os.tmpdir(), 'vh-source-registry-repo-root-'));
+    const latestDir = path.join(
+      repoRoot,
+      'services',
+      'news-aggregator',
+      '.tmp',
+      'news-source-admission',
+      'latest',
+    );
+    mkdirSync(latestDir, { recursive: true });
+    const latestPath = path.join(latestDir, 'source-health-report.json');
+    writeFileSync(
+      latestPath,
+      JSON.stringify({
+        runtimePolicy: {
+          enabledSourceIds: ['fox-latest'],
+          watchSourceIds: [],
+          removeSourceIds: ['guardian-us'],
+        },
+      }),
+      'utf8',
+    );
+
+    expect(findLatestSourceHealthReportPath(repoRoot, {})).toBe(latestPath);
+    const resolved = resolveStarterFeedSources({ cwd: repoRoot, env: {} });
+    expect(resolved.sourceHealth.reportPath).toBe(latestPath);
+    expect(resolved.feedSources.map((source) => source.id)).not.toContain('guardian-us');
+  });
+
   it('can disable source-health enforcement while still parsing the artifact', () => {
     const cwd = mkdtempSync(path.join(os.tmpdir(), 'vh-source-registry-disabled-'));
     const latestDir = path.join(cwd, '.tmp', 'news-source-admission', 'latest');

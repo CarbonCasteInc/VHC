@@ -135,6 +135,7 @@ describe('NewsCard', () => {
           model_id: 'gpt-4o-mini',
         },
       ],
+      relatedLinks: [],
     });
   });
   afterEach(() => {
@@ -273,6 +274,65 @@ describe('NewsCard', () => {
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
   });
+  it('renders related links separately from canonical source badges', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
+    useNewsStore.getState().setStories([
+      makeStoryBundle({
+        sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'Local Paper',
+            url: 'https://example.com/news-1',
+            url_hash: 'hash-1',
+            published_at: NOW - 3_600_000,
+            title: 'City council votes on transit plan',
+          },
+          {
+            source_id: 'src-2',
+            publisher: 'Difficult Extractor',
+            url: 'https://example.com/related-link',
+            url_hash: 'hash-2',
+            published_at: NOW - 3_000_000,
+            title: 'Transit debate follow-up',
+          },
+        ],
+        primary_sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'Local Paper',
+            url: 'https://example.com/news-1',
+            url_hash: 'hash-1',
+            published_at: NOW - 3_600_000,
+            title: 'City council votes on transit plan',
+          },
+        ],
+        related_links: [
+          {
+            source_id: 'src-2',
+            publisher: 'Difficult Extractor',
+            url: 'https://example.com/related-link',
+            url_hash: 'hash-2',
+            published_at: NOW - 3_000_000,
+            title: 'Transit debate follow-up',
+          },
+        ],
+      }),
+    ]);
+    useSynthesisStore
+      .getState()
+      .setTopicSynthesis('news-1', makeSynthesis());
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByTestId('source-badge-src-1')).toBeInTheDocument();
+    expect(screen.queryByTestId('source-badge-src-2')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-related-links-news-1')).toHaveTextContent(
+      'Difficult Extractor: Transit debate follow-up',
+    );
+  });
   it('uses provider_id provenance when model metadata is unavailable', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValueOnce({
@@ -291,6 +351,7 @@ describe('NewsCard', () => {
           provider_id: 'openai',
         },
       ],
+      relatedLinks: [],
     });
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis({ frames: [] }));
@@ -318,6 +379,7 @@ describe('NewsCard', () => {
           justifyBiasClaims: [],
         },
       ],
+      relatedLinks: [],
     });
     useNewsStore.getState().setStories([makeStoryBundle()]);
     render(<NewsCard item={makeNewsItem()} />);
@@ -331,6 +393,7 @@ describe('NewsCard', () => {
       summary: 'Summary with no per-source analyses.',
       frames: [],
       analyses: [],
+      relatedLinks: [],
     });
     useNewsStore.getState().setStories([makeStoryBundle()]);
     render(<NewsCard item={makeNewsItem()} />);

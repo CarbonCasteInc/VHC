@@ -53,7 +53,25 @@ function cwdWithinWorkspace(pid, repoRoot, execSync = execFileSync) {
   return processCwdWithinRepo(pid, workspaceRoot(repoRoot), execSync);
 }
 
-export function shouldKillStaleProbeWriter(entry, repoRoot, gunPeerUrl, execSync = execFileSync) {
+function normalizeCleanupOptions(options = {}) {
+  return {
+    preserveRelayServer: options.preserveRelayServer === true,
+    preserveStoryclusterServer: options.preserveStoryclusterServer === true,
+  };
+}
+
+export function hasFlag(flag, argv = process.argv) {
+  return argv.includes(flag);
+}
+
+export function shouldKillStaleProbeWriter(
+  entry,
+  repoRoot,
+  gunPeerUrl,
+  execSync = execFileSync,
+  options = {},
+) {
+  const cleanupOptions = normalizeCleanupOptions(options);
   if (entry.command.includes(PROBE_RUN_SEGMENT)) {
     return true;
   }
@@ -67,6 +85,12 @@ export function shouldKillStaleProbeWriter(entry, repoRoot, gunPeerUrl, execSync
 
   if (entry.command.includes(NEWS_DAEMON_MARKER)) {
     return true;
+  }
+  if (isRelayServer && cleanupOptions.preserveRelayServer) {
+    return false;
+  }
+  if (isStoryclusterServer && cleanupOptions.preserveStoryclusterServer) {
+    return false;
   }
   if (isRelayServer || isStoryclusterServer) {
     return commandWithinWorkspace(entry.command, repoRoot) || cwdWithinWorkspace(entry.pid, repoRoot, execSync);
@@ -90,6 +114,7 @@ export function killStaleProbeWriters(
   execSync = execFileSync,
   currentPid = process.pid,
   parentPid = process.ppid,
+  options = {},
 ) {
   let output = '';
   try {
@@ -105,7 +130,7 @@ export function killStaleProbeWriters(
   }
   const pids = parseProcessTable(output)
     .filter((entry) => entry.pid !== String(currentPid) && entry.pid !== String(parentPid))
-    .filter((entry) => shouldKillStaleProbeWriter(entry, repoRoot, gunPeerUrl, execSync))
+    .filter((entry) => shouldKillStaleProbeWriter(entry, repoRoot, gunPeerUrl, execSync, options))
     .map((entry) => entry.pid);
 
   if (pids.length > 0) {
@@ -132,7 +157,18 @@ export function runCleanup(argv = process.argv, execSync = execFileSync, log = c
     throw new Error('usage: --repo-root <path> --gun-peer-url <url>');
   }
 
-  const killed = killStaleProbeWriters(repoRoot, gunPeerUrl, execSync, process.pid, process.ppid);
+  const cleanupOptions = normalizeCleanupOptions({
+    preserveRelayServer: hasFlag('--preserve-relay-server', argv),
+    preserveStoryclusterServer: hasFlag('--preserve-storycluster-server', argv),
+  });
+  const killed = killStaleProbeWriters(
+    repoRoot,
+    gunPeerUrl,
+    execSync,
+    process.pid,
+    process.ppid,
+    cleanupOptions,
+  );
   log(JSON.stringify({ killed }, null, 2));
   return killed;
 }

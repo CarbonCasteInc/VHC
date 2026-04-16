@@ -97,6 +97,7 @@ function makeAnalysis(overrides: Partial<NewsCardAnalysisSynthesis> = {}): NewsC
         model_id: 'gpt-4o-mini',
       },
     ],
+    relatedLinks: [],
     ...overrides,
   };
 }

@@ -139,7 +139,20 @@ function readHealthEnv(
 }
 
 function resolveSourceHealthArtifactRoot(cwd: string): string {
-  return path.resolve(cwd, '.tmp/news-source-admission');
+  const directRoot = path.resolve(cwd, '.tmp/news-source-admission');
+  if (existsSync(directRoot)) {
+    return directRoot;
+  }
+
+  const nestedServiceRoot = path.resolve(
+    cwd,
+    'services/news-aggregator/.tmp/news-source-admission',
+  );
+  if (existsSync(nestedServiceRoot)) {
+    return nestedServiceRoot;
+  }
+
+  return directRoot;
 }
 
 function resolveSourceHealthArtifactTimestamp(

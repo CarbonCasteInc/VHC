@@ -25,6 +25,11 @@ import {
   getStarterSourceDomainAllowlist,
   isSourceDomainAllowed,
 } from './sourceRegistry';
+import { ItemEligibilityLedger } from './itemEligibilityLedger';
+import {
+  assessItemEligibilityFromError,
+  assessItemEligibilityFromResult,
+} from './itemEligibilityPolicy';
 
 export type ArticleTextQuality = ArticleTextQualityMetrics;
 
@@ -83,6 +88,7 @@ export interface ArticleTextServiceOptions {
   readonly cache?: ArticleTextCache;
   readonly lifecycle?: SourceLifecycleTracker;
   readonly removalLedger?: RemovalLedger;
+  readonly itemEligibilityLedger?: ItemEligibilityLedger;
   readonly primaryExtractor?: (url: string, html: string) => Promise<{ title: string; text: string } | null>;
   readonly fallbackExtractor?: (url: string, html: string) => { title: string; text: string } | null;
 }
@@ -126,6 +132,7 @@ export class ArticleTextService {
   private readonly cache: ArticleTextCache;
   private readonly lifecycle: SourceLifecycleTracker;
   private readonly removalLedger: RemovalLedger;
+  private readonly itemEligibilityLedger: ItemEligibilityLedger;
   private readonly primaryExtractor: (url: string, html: string) => Promise<{ title: string; text: string } | null>;
   private readonly fallbackExtractor: (url: string, html: string) => { title: string; text: string } | null;
 
@@ -143,6 +150,7 @@ export class ArticleTextService {
     this.cache = options.cache ?? new ArticleTextCache();
     this.lifecycle = options.lifecycle ?? new SourceLifecycleTracker();
     this.removalLedger = options.removalLedger ?? new RemovalLedger();
+    this.itemEligibilityLedger = options.itemEligibilityLedger ?? new ItemEligibilityLedger();
     this.primaryExtractor = options.primaryExtractor ?? defaultPrimaryExtractor;
     this.fallbackExtractor = options.fallbackExtractor ?? defaultFallbackExtractor;
   }
@@ -150,22 +158,28 @@ export class ArticleTextService {
   async extract(inputUrl: string): Promise<ArticleTextResult> {
     const canonicalUrl = canonicalizeUrl(inputUrl);
     if (!canonicalUrl) {
-      throw new ArticleTextServiceError('invalid-url', 'Only valid http/https URLs are supported', 400, false);
+      const error = new ArticleTextServiceError('invalid-url', 'Only valid http/https URLs are supported', 400, false);
+      await this.persistEligibilityFromError(inputUrl, error);
+      throw error;
     }
 
     const domain = new URL(canonicalUrl).hostname.toLowerCase();
     if (!isSourceDomainAllowed(domain, this.allowlist)) {
-      throw new ArticleTextServiceError('domain-not-allowed', `Domain is not allowlisted: ${domain}`, 403, false);
+      const error = new ArticleTextServiceError('domain-not-allowed', `Domain is not allowlisted: ${domain}`, 403, false);
+      await this.persistEligibilityFromError(canonicalUrl, error);
+      throw error;
     }
 
     const hashedUrl = urlHash(canonicalUrl);
     if (await this.removalLedger.readByUrlHash(hashedUrl)) {
-      throw new ArticleTextServiceError('removed', 'Article has been removed from extraction', 410, false);
+      const error = new ArticleTextServiceError('removed', 'Article has been removed from extraction', 410, false);
+      await this.persistEligibilityFromError(canonicalUrl, error);
+      throw error;
     }
 
     const directHit = this.cache.get(hashedUrl);
     if (directHit?.entry.kind === 'success') {
-      return { ...directHit.entry.value, cacheHit: 'urlHash', attempts: 0 };
+      return { ...directHit.entry.value, cacheHit: 'urlHash', attempts: 0 } satisfies ArticleTextResult;
     }
 
     if (directHit?.entry.kind === 'failure') {
@@ -186,7 +200,7 @@ export class ArticleTextService {
         if (contentHit?.entry.kind === 'success') {
           this.cache.linkUrlToContent(hashedUrl, contentHash);
           this.lifecycle.recordSuccess(domain);
-          return {
+          const result: ArticleTextResult = {
             ...contentHit.entry.value,
             url: canonicalUrl,
             urlHash: hashedUrl,
@@ -194,6 +208,8 @@ export class ArticleTextService {
             cacheHit: 'contentHash',
             attempts: attempt,
           };
+          await this.persistEligibilityFromResult(result);
+          return result;
         }
 
         const extracted = await this.extractWithFallback(canonicalUrl, html);
@@ -212,11 +228,13 @@ export class ArticleTextService {
         this.cache.rememberSuccess(success);
         this.lifecycle.recordSuccess(domain);
 
-        return {
+        const result: ArticleTextResult = {
           ...success,
           cacheHit: 'none',
           attempts: attempt,
         };
+        await this.persistEligibilityFromResult(result);
+        return result;
       } catch (error) {
         const serviceError =
           error instanceof ArticleTextServiceError
@@ -241,7 +259,32 @@ export class ArticleTextService {
       }
     }
 
-    throw terminalError ?? new ArticleTextServiceError('fetch-failed', 'Article extraction failed', 502, true);
+    const finalError =
+      terminalError ?? new ArticleTextServiceError('fetch-failed', 'Article extraction failed', 502, true);
+    await this.persistEligibilityFromError(canonicalUrl, finalError);
+    throw finalError;
+  }
+
+  private async persistEligibilityFromResult(result: ArticleTextResult): Promise<void> {
+    try {
+      await this.itemEligibilityLedger.writeAssessment(
+        assessItemEligibilityFromResult(result),
+        { observedBy: 'article-text-service' },
+      );
+    } catch {
+      // Do not let observability writes break extraction.
+    }
+  }
+
+  private async persistEligibilityFromError(url: string, error: unknown): Promise<void> {
+    try {
+      await this.itemEligibilityLedger.writeAssessment(
+        assessItemEligibilityFromError(url, error),
+        { observedBy: 'article-text-service' },
+      );
+    } catch {
+      // Do not let observability writes break extraction.
+    }
   }
 
   private async extractWithFallback(url: string, html: string): Promise<{
