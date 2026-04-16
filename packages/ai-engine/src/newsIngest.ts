@@ -75,6 +75,132 @@ function decodeXmlEntities(input: string): string {
     .replace(/&amp;/g, '&');
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeUrlCandidate(raw: string | undefined): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function extractOpeningTags(xml: string, tag: string): string[] {
+  const regex = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*\\/?>`, 'gi');
+  return Array.from(xml.matchAll(regex), (match) => match[0] ?? '').filter(Boolean);
+}
+
+function readTagAttribute(tag: string, attr: string): string | undefined {
+  const regex = new RegExp(`\\b${escapeRegExp(attr)}\\s*=\\s*["']([^"']+)["']`, 'i');
+  const match = regex.exec(tag);
+  return match?.[1]?.trim() || undefined;
+}
+
+function extractFirstImageFromHtml(html: string): string | undefined {
+  const match = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/i.exec(html);
+  return normalizeUrlCandidate(match?.[1]);
+}
+
+function extractImageFromTagContents(xmlFragment: string, tagNames: readonly string[]): string | undefined {
+  for (const tagName of tagNames) {
+    for (const content of Array.from(xmlFragment.matchAll(new RegExp(`<${tagName.replace(':', '\\:')}[^>]*>([\\s\\S]*?)<\\/${tagName.replace(':', '\\:')}>`, 'gi')), (match) => match[1] ?? '')) {
+      const imageUrl = extractFirstImageFromHtml(content);
+      if (imageUrl) {
+        return imageUrl;
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractRssImageUrl(xmlFragment: string): string | undefined {
+  for (const tag of extractOpeningTags(xmlFragment, 'media:content')) {
+    const medium = readTagAttribute(tag, 'medium');
+    const type = readTagAttribute(tag, 'type');
+    if ((medium && !/^image$/i.test(medium)) || (type && !/^image\//i.test(type))) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(xmlFragment, 'media:thumbnail')) {
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(xmlFragment, 'enclosure')) {
+    const type = readTagAttribute(tag, 'type');
+    if (type && !/^image\//i.test(type)) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(xmlFragment, 'itunes:image')) {
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'href'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  return extractImageFromTagContents(xmlFragment, ['content:encoded', 'description']);
+}
+
+function extractAtomImageUrl(xmlFragment: string): string | undefined {
+  for (const tag of extractOpeningTags(xmlFragment, 'media:content')) {
+    const medium = readTagAttribute(tag, 'medium');
+    const type = readTagAttribute(tag, 'type');
+    if ((medium && !/^image$/i.test(medium)) || (type && !/^image\//i.test(type))) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(xmlFragment, 'media:thumbnail')) {
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(xmlFragment, 'link')) {
+    const rel = readTagAttribute(tag, 'rel');
+    if (!rel?.split(/\s+/).some((value) => value.toLowerCase() === 'enclosure')) {
+      continue;
+    }
+    const type = readTagAttribute(tag, 'type');
+    if (type && !/^image\//i.test(type)) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'href'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  return extractImageFromTagContents(xmlFragment, ['content', 'summary']);
+}
+
 function extractTagText(xmlFragment: string, tagName: string): string | undefined {
   const escapedTagName = tagName.replace(':', '\\:');
   const regex = new RegExp(`<${escapedTagName}[^>]*>([\\s\\S]*?)<\\/${escapedTagName}>`, 'i');
@@ -142,6 +268,9 @@ function parseFeedXml(xml: string, source: FeedSource): RawFeedItem[] {
       author:
         extractTagText(fragment, 'author') ??
         extractTagText(fragment, 'dc:creator'),
+      imageUrl: fragment.includes('<item')
+        ? extractRssImageUrl(fragment)
+        : extractAtomImageUrl(fragment),
     };
 
     const parsed = RawFeedItemSchema.safeParse(candidate);
@@ -271,6 +400,10 @@ export const newsIngestInternal = {
   sortByPublishedDesc,
   decodeXmlEntities,
   extractLink,
+  extractOpeningTags,
+  readTagAttribute,
+  extractRssImageUrl,
+  extractAtomImageUrl,
   extractTagText,
   parseFeedXml,
   parsePublishedAt,

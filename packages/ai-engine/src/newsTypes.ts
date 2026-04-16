@@ -86,6 +86,7 @@ export const StoryBundleSourceSchema = z
     url_hash: z.string().min(1),
     published_at: z.number().int().nonnegative().optional(),
     title: z.string().min(1),
+    imageUrl: z.string().url().optional(),
   })
   .strict();
 

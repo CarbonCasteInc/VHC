@@ -110,6 +110,28 @@ function chunkItems<T>(items: readonly T[], size: number): T[][] {
   return chunks;
 }
 
+function mergeChunkResults(
+  aggregate: StoryClusterBatchResult,
+  next: StoryClusterBatchResult,
+): StoryClusterBatchResult {
+  const bundleByStoryId = new Map(aggregate.bundles.map((bundle) => [bundle.story_id, bundle] as const));
+  for (const bundle of next.bundles) {
+    bundleByStoryId.set(bundle.story_id, bundle);
+  }
+
+  const storylineById = new Map(
+    aggregate.storylines.map((storyline) => [storyline.storyline_id, storyline] as const),
+  );
+  for (const storyline of next.storylines) {
+    storylineById.set(storyline.storyline_id, storyline);
+  }
+
+  return {
+    bundles: [...bundleByStoryId.values()],
+    storylines: [...storylineById.values()],
+  };
+}
+
 async function clusterTopicItems(
   clusterEngine: StoryClusterEngine,
   topicId: string,
@@ -132,7 +154,7 @@ async function clusterTopicItems(
   }
 
   const chunks = chunkItems(topicItems, maxItemsPerRequest);
-  let latestResult: StoryClusterBatchResult = { bundles: [], storylines: [] };
+  let mergedResult: StoryClusterBatchResult = { bundles: [], storylines: [] };
 
   for (let index = 0; index < chunks.length; index += 1) {
     const chunk = chunks[index]!;
@@ -142,21 +164,24 @@ async function clusterTopicItems(
       chunk_count: chunks.length,
       item_count: chunk.length,
     });
-    latestResult = await runStoryClusterBatch(clusterEngine, {
+    const chunkResult = await runStoryClusterBatch(clusterEngine, {
       topicId,
       items: chunk,
     });
+    mergedResult = mergeChunkResults(mergedResult, chunkResult);
     orchestratorTrace('topic_cluster_chunk_completed', {
       topic_id: topicId,
       chunk_index: index + 1,
       chunk_count: chunks.length,
       item_count: chunk.length,
-      bundle_count: latestResult.bundles.length,
-      storyline_count: latestResult.storylines.length,
+      bundle_count: chunkResult.bundles.length,
+      storyline_count: chunkResult.storylines.length,
+      merged_bundle_count: mergedResult.bundles.length,
+      merged_storyline_count: mergedResult.storylines.length,
     });
   }
 
-  return latestResult;
+  return mergedResult;
 }
 
 function resolveClusterEngine(options: NewsOrchestratorOptions = {}): StoryClusterEngine {
@@ -305,6 +330,7 @@ export async function orchestrateNewsPipeline(
 export const newsOrchestratorInternal = {
   clusterTopicItems,
   groupByTopic,
+  mergeChunkResults,
   normalizeRemoteClusterMaxItemsPerRequest,
   resolveClusterEngine,
 };

@@ -16,6 +16,7 @@ export interface SourceVariant {
   url: string;
   canonical_url: string;
   url_hash: string;
+  image_url?: string;
   image_hash?: string;
   published_at: number;
   title: string;
@@ -77,6 +78,7 @@ export interface StoredSourceDocument {
   url: string;
   canonical_url: string;
   url_hash: string;
+  image_url?: string;
   image_hash?: string;
   published_at: number;
   title: string;

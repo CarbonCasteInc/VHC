@@ -37,6 +37,7 @@ const validBundleSource = {
   url_hash: 'abc123hash',
   published_at: 1700000000000,
   title: 'Breaking: markets rise',
+  imageUrl: 'https://reuters.com/image/123.jpg',
 };
 
 const validClusterFeatures = {
@@ -194,6 +195,12 @@ describe('StoryBundleSourceSchema', () => {
     const { published_at: _, ...noPub } = validBundleSource;
     const result = StoryBundleSourceSchema.parse(noPub);
     expect(result.published_at).toBeUndefined();
+  });
+
+  it('accepts without optional imageUrl', () => {
+    const { imageUrl: _, ...noImage } = validBundleSource;
+    const result = StoryBundleSourceSchema.parse(noImage);
+    expect(result.imageUrl).toBeUndefined();
   });
 
   it('rejects empty source_id', () => {

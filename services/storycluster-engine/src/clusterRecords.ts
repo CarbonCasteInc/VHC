@@ -34,7 +34,7 @@ function sumMap(items: readonly string[]): Record<string, number> {
 }
 
 function sourceEntityKeys(document: StoredSourceDocument): string[] {
-  return [...new Set([...document.entities, ...document.linked_entities].filter(Boolean))].sort();
+  return [...new Set([...(document.entities ?? []), ...(document.linked_entities ?? [])].filter(Boolean))].sort();
 }
 
 function rankedKeys(scores: Record<string, number>, limit: number): string[] {
@@ -155,6 +155,7 @@ export function toStoredSource(document: WorkingDocument, variant: SourceVariant
     url: variant.url,
     canonical_url: variant.canonical_url,
     url_hash: variant.url_hash,
+    ...(variant.image_url ? { image_url: variant.image_url } : {}),
     image_hash: variant.image_hash,
     published_at: variant.published_at,
     title: variant.title,
@@ -184,6 +185,8 @@ export function upsertClusterRecord(cluster: StoredClusterRecord, documents: rea
     if (existing) {
       sources.set(document.source_key, {
         ...existing,
+        image_url: existing.image_url ?? document.image_url,
+        image_hash: existing.image_hash ?? document.image_hash,
         published_at: Math.min(existing.published_at, document.published_at),
         title: existing.title.length >= document.title.length ? existing.title : document.title,
         summary: existing.summary ?? document.summary,

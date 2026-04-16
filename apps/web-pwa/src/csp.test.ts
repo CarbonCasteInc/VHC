@@ -51,6 +51,7 @@ describe('index.html content security policy', () => {
     const styleSrc = directives.get('style-src') ?? '';
     const connectSrc = directives.get('connect-src') ?? '';
     const frameSrc = directives.get('frame-src') ?? '';
+    const imgSrc = directives.get('img-src') ?? '';
 
     expect(scriptSrc).toContain("'self'");
     expect(scriptSrc).not.toContain("'unsafe-inline'");
@@ -74,5 +75,12 @@ describe('index.html content security policy', () => {
 
     expect(frameSrc).toContain("'self'");
     expect(frameSrc).toContain('https:');
+
+    expect(imgSrc).toContain("'self'");
+    expect(imgSrc).toContain('https:');
+    expect(imgSrc).toContain('data:');
+    expect(imgSrc).toContain('blob:');
+    expect(imgSrc).toContain('http://localhost:*');
+    expect(imgSrc).toContain('http://127.0.0.1:*');
   });
 });

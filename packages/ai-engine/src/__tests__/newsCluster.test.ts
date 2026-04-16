@@ -111,6 +111,21 @@ describe('newsCluster', () => {
     expect(StoryBundleInputSchema.safeParse(inputContractCandidate).success).toBe(true);
   });
 
+  it('preserves source image URLs in bundled provenance when available', () => {
+    const bundles = clusterItems([
+      makeItem({
+        sourceId: 'src-a',
+        publisher: 'Publisher A',
+        canonicalUrl: 'https://example.com/a',
+        url_hash: 'hash-a',
+        imageUrl: 'https://example.com/a.jpg',
+      }),
+    ], 'topic-images');
+
+    expect(bundles).toHaveLength(1);
+    expect(bundles[0]?.sources[0]?.imageUrl).toBe('https://example.com/a.jpg');
+  });
+
   it('creates separate clusters when there is no overlap or bucket mismatch', () => {
     const items: NormalizedItem[] = [
       makeItem({

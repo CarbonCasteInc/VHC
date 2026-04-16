@@ -117,6 +117,7 @@ describe('newsTypes', () => {
             url: 'https://example.com/story',
             url_hash: 'deadbeef',
             title: 'Story title',
+            imageUrl: 'https://example.com/story.jpg',
           },
         ],
         primary_sources: [
@@ -126,6 +127,7 @@ describe('newsTypes', () => {
             url: 'https://example.com/story',
             url_hash: 'deadbeef',
             title: 'Story title',
+            imageUrl: 'https://example.com/story.jpg',
           },
         ],
         related_links: [
@@ -144,6 +146,7 @@ describe('newsTypes', () => {
             url: 'https://example.com/story/video',
             url_hash: 'deadbeef-video',
             title: 'Video: Story title',
+            imageUrl: 'https://example.com/story/video.jpg',
           },
         ],
         cluster_features: {
@@ -192,6 +195,7 @@ describe('newsTypes', () => {
           url: 'https://example.com/story',
           url_hash: 'hash-1',
           title: 'Title',
+          imageUrl: 'https://example.com/story.jpg',
         },
       ],
       primary_sources: [
@@ -201,6 +205,7 @@ describe('newsTypes', () => {
           url: 'https://example.com/story',
           url_hash: 'hash-1',
           title: 'Title',
+          imageUrl: 'https://example.com/story.jpg',
         },
       ],
       related_links: [

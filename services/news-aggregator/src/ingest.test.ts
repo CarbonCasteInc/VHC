@@ -15,7 +15,7 @@ import type { FeedSource } from '@vh/data-model';
 /* ------------------------------------------------------------------ */
 
 const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
     <title>Test Feed</title>
     <item>
@@ -24,21 +24,23 @@ const rssXml = `<?xml version="1.0" encoding="UTF-8"?>
       <pubDate>Mon, 01 Jan 2024 12:00:00 GMT</pubDate>
       <description>Summary of article one.</description>
       <author>Alice</author>
+      <media:content medium="image" url="https://cdn.example.com/article-1.jpg" />
     </item>
     <item>
       <title>Article Two</title>
       <link>https://example.com/article-2</link>
-      <description><![CDATA[<p>Rich summary</p>]]></description>
+      <description><![CDATA[<p><img src="https://cdn.example.com/article-2.jpg" /></p><p>Rich summary</p>]]></description>
     </item>
   </channel>
 </rss>`;
 
 const atomXml = `<?xml version="1.0" encoding="UTF-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/">
   <title>Atom Feed</title>
   <entry>
     <title>Atom Entry 1</title>
     <link href="https://atom.example.com/1" rel="alternate"/>
+    <link href="https://cdn.atom.example.com/1.jpg" rel="enclosure" type="image/jpeg" />
     <published>2024-01-15T10:00:00Z</published>
     <summary>Atom summary</summary>
     <author><name>Bob</name></author>
@@ -196,11 +198,13 @@ describe('parseFeedXml — RSS', () => {
     expect(items[0].publishedAt).toBeTypeOf('number');
     expect(items[0].summary).toBe('Summary of article one.');
     expect(items[0].author).toBe('Alice');
+    expect(items[0].imageUrl).toBe('https://cdn.example.com/article-1.jpg');
   });
 
   it('handles CDATA in descriptions', () => {
     const items = parseFeedXml(rssXml, 'src-rss');
     expect(items[1].summary).toBe('Rich summary');
+    expect(items[1].imageUrl).toBe('https://cdn.example.com/article-2.jpg');
   });
 
   it('handles items without pubDate', () => {
@@ -242,6 +246,17 @@ describe('parseFeedXml — RSS', () => {
     expect(items[0].publishedAt).toBe(Date.parse('2024-06-01T00:00:00Z'));
     expect(items[0].author).toBe('Eve');
   });
+
+  it('ignores non-image enclosures when resolving card media', () => {
+    const xml = `<rss><channel><item>
+      <title>Video First</title>
+      <link>https://example.com/video-first</link>
+      <enclosure url="https://cdn.example.com/video.mp4" type="video/mp4" />
+      <media:thumbnail url="https://cdn.example.com/video-still.jpg" />
+    </item></channel></rss>`;
+    const items = parseFeedXml(xml, 'src');
+    expect(items[0]?.imageUrl).toBe('https://cdn.example.com/video-still.jpg');
+  });
 });
 
 /* ------------------------------------------------------------------ */
@@ -257,6 +272,7 @@ describe('parseFeedXml — Atom', () => {
     expect(items[0].publishedAt).toBe(Date.parse('2024-01-15T10:00:00Z'));
     expect(items[0].summary).toBe('Atom summary');
     expect(items[0].author).toBe('Bob');
+    expect(items[0].imageUrl).toBe('https://cdn.atom.example.com/1.jpg');
   });
 
   it('uses updated date when published is missing', () => {
@@ -267,6 +283,16 @@ describe('parseFeedXml — Atom', () => {
   it('uses content when summary is missing', () => {
     const items = parseFeedXml(atomXml, 'src-atom');
     expect(items[1].summary).toBe('Atom content body');
+  });
+
+  it('falls back to media tags inside atom entries for image extraction', () => {
+    const xml = `<feed xmlns:media="http://search.yahoo.com/mrss/"><entry>
+      <title>Tagged Atom</title>
+      <link href="https://atom.example.com/3" rel="alternate" />
+      <media:thumbnail url="https://cdn.atom.example.com/3.jpg" />
+    </entry></feed>`;
+    const items = parseFeedXml(xml, 'src');
+    expect(items[0]?.imageUrl).toBe('https://cdn.atom.example.com/3.jpg');
   });
 
   it('extracts link without rel attribute', () => {

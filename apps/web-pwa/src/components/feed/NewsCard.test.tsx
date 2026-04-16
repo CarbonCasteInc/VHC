@@ -57,6 +57,7 @@ function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
         url_hash: 'hash-1',
         published_at: NOW - 3_600_000,
         title: 'City council votes on transit plan',
+        imageUrl: 'https://example.com/news-1.jpg',
       },
     ],
     cluster_features: {
@@ -252,7 +253,7 @@ describe('NewsCard', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
     expect(screen.queryByTestId('analysis-status-message')).not.toBeInTheDocument();
   });
-  it('feature flag on renders analysis summary, provenance, and per-source summaries', async () => {
+  it('feature flag on renders synthesized summary and provenance without per-publication summary bullets', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore
@@ -267,12 +268,78 @@ describe('NewsCard', () => {
       'Analysis by gpt-4o-mini',
     );
     expect(
-      screen.getByTestId('news-card-analysis-source-summaries-news-1'),
-    ).toHaveTextContent('Local Paper: Local coverage emphasizes urgency and commuter demand.');
+      screen.queryByTestId('news-card-analysis-source-summaries-news-1'),
+    ).not.toBeInTheDocument();
     expect(screen.getByText('Local Paper: Transit spending must accelerate now.')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('news-card-back-button-news-1'));
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a hero image on the card and moves additional source images into the expanded summary', async () => {
+    useNewsStore.getState().setStories([
+      makeStoryBundle({
+        sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'Local Paper',
+            url: 'https://example.com/news-1',
+            url_hash: 'hash-1',
+            published_at: NOW - 3_600_000,
+            title: 'City council votes on transit plan',
+            imageUrl: 'https://example.com/news-1.jpg',
+          },
+          {
+            source_id: 'src-2',
+            publisher: 'Metro Desk',
+            url: 'https://example.com/news-2',
+            url_hash: 'hash-2',
+            published_at: NOW - 3_000_000,
+            title: 'Transit vote draws commuter response',
+            imageUrl: 'https://example.com/news-2.jpg',
+          },
+        ],
+        primary_sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'Local Paper',
+            url: 'https://example.com/news-1',
+            url_hash: 'hash-1',
+            published_at: NOW - 3_600_000,
+            title: 'City council votes on transit plan',
+            imageUrl: 'https://example.com/news-1.jpg',
+          },
+        ],
+        secondary_assets: [
+          {
+            source_id: 'src-2',
+            publisher: 'Metro Desk',
+            url: 'https://example.com/news-2',
+            url_hash: 'hash-2',
+            published_at: NOW - 3_000_000,
+            title: 'Transit vote draws commuter response',
+            imageUrl: 'https://example.com/news-2.jpg',
+          },
+        ],
+      }),
+    ]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByTestId('news-card-hero-image-news-1')).toHaveAttribute(
+      'src',
+      'https://example.com/news-1.jpg',
+    );
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-gallery-news-1')).toBeInTheDocument();
+    expect(screen.getByText('Source images')).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-gallery-image-news-1-0')).toHaveAttribute(
+      'src',
+      'https://example.com/news-2.jpg',
+    );
   });
   it('renders related links separately from canonical source badges', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');

@@ -103,6 +103,7 @@ function bundleFromCluster(cluster: StoredClusterRecord): StoryClusterRemoteBund
       url_hash: source.url_hash,
       published_at: source.published_at,
       title: source.title,
+      ...(source.imageUrl ? { imageUrl: source.imageUrl } : {}),
     }))
     .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
   const secondaryAssets = projected.secondary_assets
@@ -113,6 +114,7 @@ function bundleFromCluster(cluster: StoredClusterRecord): StoryClusterRemoteBund
       url_hash: source.url_hash,
       published_at: source.published_at,
       title: source.title,
+      ...(source.imageUrl ? { imageUrl: source.imageUrl } : {}),
     }))
     .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
   return {

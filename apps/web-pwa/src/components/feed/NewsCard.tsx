@@ -7,7 +7,7 @@ import { useSynthesisStore } from '../../store/synthesis';
 import { useForumStore } from '../../store/hermesForum';
 import { SourceBadgeRow } from './SourceBadgeRow';
 import { useAnalysis } from './useAnalysis';
-import { NewsCardBack } from './NewsCardBack';
+import { NewsCardBack, type NewsCardMediaAsset } from './NewsCardBack';
 import { FeedEngagement } from './FeedEngagement';
 import { useExpandedCardStore } from './expandedCardStore';
 import { useDiscoveryStore } from '../../store/discovery';
@@ -129,6 +129,50 @@ function mergeRelatedLinks(
   return [...deduped.values()];
 }
 
+function resolveStoryMedia(
+  story: StoryBundle | null,
+): {
+  heroImage: NewsCardMediaAsset | null;
+  galleryImages: ReadonlyArray<NewsCardMediaAsset>;
+} {
+  if (!story) {
+    return {
+      heroImage: null,
+      galleryImages: [],
+    };
+  }
+
+  const orderedSources = [
+    ...(story.primary_sources ?? story.sources),
+    ...(story.secondary_assets ?? []),
+    ...story.sources,
+  ];
+
+  const deduped = new Map<string, NewsCardMediaAsset>();
+  for (const source of orderedSources) {
+    const imageUrl = source.imageUrl?.trim();
+    if (!imageUrl) {
+      continue;
+    }
+    if (deduped.has(imageUrl)) {
+      continue;
+    }
+    deduped.set(imageUrl, {
+      sourceId: source.source_id,
+      publisher: source.publisher,
+      title: source.title,
+      url: source.url,
+      imageUrl,
+    });
+  }
+
+  const assets = [...deduped.values()];
+  return {
+    heroImage: assets[0] ?? null,
+    galleryImages: assets.slice(1),
+  };
+}
+
 export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const stories = useStore(useNewsStore, (state) => state.stories);
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
@@ -215,13 +259,13 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     analysisPipelineEnabled && analysisStatus === 'success'
       ? resolveAnalysisProviderModel(analysis)
       : null;
-  const perSourceSummaries =
-    analysisPipelineEnabled && analysisStatus === 'success' && analysis
-      ? analysis.analyses.filter((e) => e.summary.trim().length > 0)
-      : [];
   const relatedLinks = useMemo(
     () => mergeRelatedLinks(story, analysis),
     [story, analysis],
+  );
+  const { heroImage, galleryImages } = useMemo(
+    () => resolveStoryMedia(story),
+    [story],
   );
   const detailRegionId = `news-card-detail-region-${item.topic_id}`;
   const sourceSurfaceLabel =
@@ -317,6 +361,33 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     >
       <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-slate-300/80 to-transparent dark:via-slate-600/80" />
       <section data-testid={`news-card-front-${item.topic_id}`} data-story-id={storyId ?? undefined}>
+        {heroImage && (
+          <div
+            className="mb-5"
+            data-testid={`news-card-hero-${item.topic_id}`}
+          >
+            <div className="relative overflow-hidden rounded-[1.6rem] border border-slate-200/80 bg-slate-100 shadow-sm shadow-slate-900/10 dark:border-slate-800 dark:bg-slate-900/80">
+              <img
+                src={heroImage.imageUrl}
+                alt={`${heroImage.publisher}: ${heroImage.title}`}
+                className="h-52 w-full object-cover transition duration-200 group-hover:scale-[1.01] md:h-64"
+                data-testid={`news-card-hero-image-${item.topic_id}`}
+              />
+              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/80 via-slate-950/35 to-transparent p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="rounded-full bg-white/92 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-900">
+                    {heroImage.publisher}
+                  </span>
+                  {galleryImages.length > 0 && (
+                    <span className="rounded-full bg-slate-950/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-white">
+                      +{galleryImages.length} more image{galleryImages.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <header className="mb-4 flex items-start justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2">
             <span
@@ -423,7 +494,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
             summary={summary}
             frameRows={frameRows}
             analysisProvider={analysisProvider}
-            perSourceSummaries={perSourceSummaries}
+            galleryImages={galleryImages}
             relatedCoverage={storyline?.related_coverage ?? []}
             relatedLinks={relatedLinks}
             storylineHeadline={storylineHeadline}

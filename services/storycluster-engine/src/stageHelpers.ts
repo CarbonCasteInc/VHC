@@ -57,6 +57,7 @@ export function normalizeRequest(
       publisher: document.publisher?.trim() || sourceId,
       url,
       url_hash: document.url_hash?.trim() || undefined,
+      image_url: document.image_url?.trim() || undefined,
       image_hash: document.image_hash?.trim() || undefined,
       language_hint: document.language_hint?.trim() || undefined,
       entity_keys: document.entity_keys?.map((value) => value.trim()).filter(Boolean) ?? [],

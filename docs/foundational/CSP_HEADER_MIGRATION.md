@@ -21,7 +21,7 @@ This guide documents TRINITY’s current Content Security Policy (CSP) posture, 
 | `script-src` | `'self'` | Only first-party scripts |
 | `style-src` | `'self' 'unsafe-inline'` | First-party styles + inline styles required by Tailwind utility-class injection and framework-generated inline styles |
 | `connect-src` | `'self'` | Restrict fetch/XHR/WebSocket origins (Gun relay peers will require explicit allowlisting — see §4 Phase 2 step 4) |
-| `img-src` | `'self' data: blob:` | Allow self-hosted images, data URIs, and blob URLs |
+| `img-src` | `'self' https: data: blob: http://localhost:* http://127.0.0.1:*` | Allow self-hosted images, HTTPS feed media, data URIs, blob URLs, and local fixture media |
 | `worker-src` | `'self' blob:` | Restrict worker/service-worker script origins |
 | `object-src` | `'none'` | Block plugin/object embedding |
 | `base-uri` | `'self'` | Prevent base-tag hijacking |
@@ -99,7 +99,7 @@ Content-Security-Policy:
   script-src 'self';
   style-src 'self' 'unsafe-inline';
   connect-src 'self' wss://relay.example.com;
-  img-src 'self' data: blob:;
+  img-src 'self' https: data: blob: http://localhost:* http://127.0.0.1:*;
   worker-src 'self' blob:;
   object-src 'none';
   base-uri 'self';

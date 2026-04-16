@@ -55,6 +55,7 @@ export const StoryBundleSourceSchema = z.object({
   url_hash: z.string().min(1),
   published_at: z.number().optional(),
   title: z.string().min(1),
+  imageUrl: z.string().url().optional(),
 });
 export type StoryBundleSource = z.infer<typeof StoryBundleSourceSchema>;
 

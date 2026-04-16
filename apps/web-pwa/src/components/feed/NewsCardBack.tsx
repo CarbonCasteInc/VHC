@@ -7,17 +7,21 @@ import { FeedDiscussionSection } from './FeedDiscussionSection';
 import { RemovalIndicator } from './RemovalIndicator';
 import { SourceViewerFrame } from './SourceViewerFrame';
 
+export interface NewsCardMediaAsset {
+  readonly sourceId: string;
+  readonly publisher: string;
+  readonly title: string;
+  readonly url: string;
+  readonly imageUrl: string;
+}
+
 export interface NewsCardBackProps {
   readonly headline: string;
   readonly topicId: string;
   readonly summary: string;
   readonly frameRows: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly analysisProvider: string | null;
-  readonly perSourceSummaries: ReadonlyArray<{
-    source_id: string;
-    publisher: string;
-    summary: string;
-  }>;
+  readonly galleryImages: ReadonlyArray<NewsCardMediaAsset>;
   readonly relatedCoverage: ReadonlyArray<{
     source_id: string;
     publisher: string;
@@ -71,7 +75,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   summary,
   frameRows,
   analysisProvider,
-  perSourceSummaries,
+  galleryImages,
   relatedCoverage,
   relatedLinks,
   storylineHeadline,
@@ -128,6 +132,44 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             {summary}
           </p>
 
+          {galleryImages.length > 0 && (
+            <div
+              className="space-y-2 border-t border-slate-200/80 pt-3 dark:border-slate-800"
+              data-testid={`news-card-gallery-${topicId}`}
+            >
+              <h5 className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                Source images
+              </h5>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {galleryImages.map((image, index) => (
+                  <a
+                    key={`${image.sourceId}|${image.imageUrl}`}
+                    href={image.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="overflow-hidden rounded-[1.25rem] border border-slate-200/90 bg-white/88 shadow-sm shadow-slate-900/5 transition hover:border-slate-300 hover:shadow-md dark:border-slate-800 dark:bg-slate-950/80"
+                    data-testid={`news-card-gallery-link-${topicId}-${index}`}
+                  >
+                    <img
+                      src={image.imageUrl}
+                      alt={`${image.publisher}: ${image.title}`}
+                      className="h-40 w-full object-cover"
+                      data-testid={`news-card-gallery-image-${topicId}-${index}`}
+                    />
+                    <div className="space-y-1 p-3">
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                        {image.publisher}
+                      </span>
+                      <p className="text-sm leading-5 text-slate-700 dark:text-slate-200">
+                        {image.title}
+                      </p>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           {analysisFeedbackStatus && (
             <AnalysisLoadingState
               status={analysisFeedbackStatus}
@@ -145,20 +187,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
                 >
                   Analysis by {analysisProvider}
                 </p>
-              )}
-
-              {perSourceSummaries.length > 0 && (
-                <ul
-                  className="list-disc space-y-1 pl-5 text-xs text-slate-600 dark:text-slate-300"
-                  data-testid={`news-card-analysis-source-summaries-${topicId}`}
-                >
-                  {perSourceSummaries.map((entry) => (
-                    <li key={`${entry.source_id}|${entry.publisher}`}>
-                      <span className="font-medium text-slate-700 dark:text-white">{entry.publisher}:</span>{' '}
-                      {entry.summary}
-                    </li>
-                  ))}
-                </ul>
               )}
             </>
           )}

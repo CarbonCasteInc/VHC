@@ -41,6 +41,7 @@ The visual direction intentionally blends:
 Collapsed news cards now emphasize:
 
 - large headline
+- one selected source image when the bundle carries usable media
 - overlapping circular source badges
 - singleton vs cluster count at a glance
 - short synthesis preview
@@ -48,10 +49,19 @@ Collapsed news cards now emphasize:
 
 Expanded news cards expose:
 
-- synthesis summary
+- one synthesized facts summary rather than outlet-by-outlet summary bullets
+- additional source images when multiple distinct source images exist
 - related coverage / related links rail
 - frame / reframe table
 - discussion section with linked forum thread or thread creation affordance
+
+Feed media now survives the bundled remote-clustering path as well:
+
+- source image URLs are extracted during ingest
+- one usable image is promoted to the headline card
+- additional distinct source images remain available in the expanded view
+- chunked StoryCluster remote processing returns a full topic snapshot so hero
+  images are not dropped on later chunk passes
 
 ### Topic Cards
 

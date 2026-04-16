@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
+import { projectStoryBundles } from './bundleProjection';
+import { projectStorylineGroups } from './storylineProjection';
 import type { StoryClusterTelemetryEnvelope } from './contracts';
 import type { StoryClusterCoverageRole } from './documentPolicy';
 import { getDefaultClusterStore } from './clusterStore';
 import { runStoryClusterStagePipeline, type StoryClusterStageRunnerOptions } from './stageRunner';
+import type { ClusterBucket } from './stageState';
 import { tokenizeWords } from './textSignals';
 
 export interface StoryClusterRemoteItem {
@@ -14,6 +17,7 @@ export interface StoryClusterRemoteItem {
   publishedAt?: number;
   summary?: string;
   url_hash: string;
+  imageUrl?: string;
   image_hash?: string;
   language?: string;
   translation_applied?: boolean;
@@ -44,6 +48,7 @@ export interface StoryClusterRemoteBundle {
     url_hash: string;
     published_at?: number;
     title: string;
+    imageUrl?: string;
   }>;
   primary_sources?: Array<{
     source_id: string;
@@ -52,6 +57,7 @@ export interface StoryClusterRemoteBundle {
     url_hash: string;
     published_at?: number;
     title: string;
+    imageUrl?: string;
   }>;
   secondary_assets?: Array<{
     source_id: string;
@@ -60,6 +66,7 @@ export interface StoryClusterRemoteBundle {
     url_hash: string;
     published_at?: number;
     title: string;
+    imageUrl?: string;
   }>;
   cluster_features: {
     entity_keys: string[];
@@ -90,6 +97,7 @@ export interface StoryClusterRemoteStorylineGroup {
     url_hash: string;
     published_at?: number;
     title: string;
+    imageUrl?: string;
   }>;
   entity_keys: string[];
   time_bucket: string;
@@ -182,6 +190,7 @@ function normalizeRequest(payload: unknown, nowMs: number): StoryClusterRemoteRe
       publishedAt: readOptionalNumber(item, 'publishedAt', path),
       summary: readOptionalString(item, 'summary'),
       url_hash: readRequiredString(item, 'url_hash', path),
+      imageUrl: readOptionalString(item, 'imageUrl'),
       image_hash: readOptionalString(item, 'image_hash'),
       language: readOptionalString(item, 'language'),
       translation_applied: item.translation_applied === true,
@@ -227,6 +236,29 @@ function provenanceHash(bundle: StoryClusterRemoteBundle['sources']): string {
     .digest('hex');
 }
 
+function projectTopicBuckets(
+  topicId: string,
+  options: StoryClusterStageRunnerOptions,
+): ClusterBucket[] {
+  const store = options.store ?? getDefaultClusterStore();
+  return store.loadTopic(topicId).clusters.map((record) => ({
+    key: record.story_id,
+    record,
+    docs: [],
+  }));
+}
+
+function mergeStorylineSnapshots(
+  fullSnapshot: ReturnType<typeof projectStorylineGroups>,
+  currentSnapshot: ReturnType<typeof projectStorylineGroups>,
+): ReturnType<typeof projectStorylineGroups> {
+  const storylineById = new Map(fullSnapshot.map((storyline) => [storyline.storyline_id, storyline] as const));
+  for (const storyline of currentSnapshot) {
+    storylineById.set(storyline.storyline_id, storyline);
+  }
+  return [...storylineById.values()].sort((left, right) => left.storyline_id.localeCompare(right.storyline_id));
+}
+
 export async function runStoryClusterRemoteContract(
   payload: unknown,
   options: StoryClusterStageRunnerOptions = {},
@@ -244,6 +276,7 @@ export async function runStoryClusterRemoteContract(
     url: item.url,
     canonical_url: item.canonicalUrl,
     url_hash: item.url_hash,
+    image_url: item.imageUrl,
     image_hash: item.image_hash,
     language_hint: item.language,
     entity_keys: item.entity_keys,
@@ -259,11 +292,18 @@ export async function runStoryClusterRemoteContract(
     },
     { ...options, store: options.store ?? getDefaultClusterStore() },
   );
+  const topicBuckets = projectTopicBuckets(normalized.topic_id, options);
+  const fullStorylines = mergeStorylineSnapshots(
+    projectStorylineGroups(normalized.topic_id, topicBuckets, []),
+    stageResult.storylines ?? [],
+  );
   const storylineIdByStoryId = new Map(
-    (stageResult.storylines ?? []).map((storyline) => [storyline.canonical_story_id, storyline.storyline_id]),
+    fullStorylines.map((storyline) => [storyline.canonical_story_id, storyline.storyline_id]),
   );
 
-  const bundles = stageResult.bundles.map((bundle) => {
+  const bundles = projectStoryBundles(normalized.topic_id, topicBuckets)
+    .sort((left, right) => left.story_id.localeCompare(right.story_id))
+    .map((bundle) => {
     const primarySources = bundle.primary_sources
       .map((source) => ({
         source_id: source.source_id,
@@ -272,6 +312,7 @@ export async function runStoryClusterRemoteContract(
         url_hash: source.url_hash,
         published_at: source.published_at,
         title: source.title,
+        ...(source.imageUrl ? { imageUrl: source.imageUrl } : {}),
       }))
       .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
     const secondaryAssets = bundle.secondary_assets
@@ -282,6 +323,7 @@ export async function runStoryClusterRemoteContract(
         url_hash: source.url_hash,
         published_at: source.published_at,
         title: source.title,
+        ...(source.imageUrl ? { imageUrl: source.imageUrl } : {}),
       }))
       .sort((left, right) => `${left.source_id}:${left.url_hash}`.localeCompare(`${right.source_id}:${right.url_hash}`));
 
@@ -314,7 +356,7 @@ export async function runStoryClusterRemoteContract(
 
   return {
     bundles,
-    storylines: (stageResult.storylines ?? []).map((storyline) => ({
+    storylines: fullStorylines.map((storyline) => ({
       schemaVersion: storyline.schemaVersion,
       storyline_id: storyline.storyline_id,
       topic_id: storyline.topic_id,
@@ -329,6 +371,7 @@ export async function runStoryClusterRemoteContract(
         url_hash: source.url_hash,
         published_at: source.published_at,
         title: source.title,
+        ...(source.imageUrl ? { imageUrl: source.imageUrl } : {}),
       })),
       entity_keys: storyline.entity_keys,
       time_bucket: storyline.time_bucket,

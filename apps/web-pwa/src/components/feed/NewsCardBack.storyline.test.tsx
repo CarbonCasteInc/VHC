@@ -11,11 +11,12 @@ function renderBack(
 ) {
   render(
     <NewsCardBack
+      headline="Transit roundup"
       topicId="news-1"
       summary="Summary"
       frameRows={[]}
       analysisProvider={null}
-      perSourceSummaries={[]}
+      galleryImages={[]}
       relatedLinks={[]}
       relatedCoverage={[
         {
@@ -33,7 +34,8 @@ function renderBack(
       synthesisLoading={false}
       synthesisError={null}
       analysis={null}
-      onFlipBack={() => {}}
+      discussionThread={null}
+      onCollapse={() => {}}
       {...overrides}
     />,
   );
@@ -59,5 +61,26 @@ describe('NewsCardBack storyline presentation', () => {
       'Transit storyline',
     );
     expect(screen.getByTestId('news-card-storyline-headline-news-1')).not.toHaveTextContent('•');
+  });
+
+  it('renders additional source images inside the expanded synthesis section', () => {
+    renderBack({
+      galleryImages: [
+        {
+          sourceId: 'source-2',
+          publisher: 'Metro Desk',
+          title: 'Commuters react to the vote',
+          url: 'https://example.com/gallery-1',
+          imageUrl: 'https://example.com/gallery-1.jpg',
+        },
+      ],
+    });
+
+    expect(screen.getByTestId('news-card-gallery-news-1')).toBeInTheDocument();
+    expect(screen.getByText('Source images')).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-gallery-image-news-1-0')).toHaveAttribute(
+      'src',
+      'https://example.com/gallery-1.jpg',
+    );
   });
 });
