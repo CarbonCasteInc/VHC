@@ -49,6 +49,10 @@ describe('generateArticleAnalysisPrompt', () => {
     expect(prompt).toContain('--- ARTICLE START ---');
     expect(prompt).toContain('Body text here.');
     expect(prompt).toContain('--- ARTICLE END ---');
+    expect(prompt).toContain('strict debate-claim styling');
+    expect(prompt).toContain('Never leave perspectives empty');
+    expect(prompt).toContain('common to the issue');
+    expect(prompt).toContain('Never return "N/A" or "No clear bias detected" as a frame or reframe');
   });
 });
 
@@ -89,6 +93,12 @@ describe('parseArticleAnalysisResponse', () => {
       PromptParseError,
     );
   });
+
+  it('throws PromptParseError when article perspectives are empty', () => {
+    expect(() => parseArticleAnalysisResponse(JSON.stringify({ ...valid, perspectives: [] }), meta)).toThrow(
+      PromptParseError,
+    );
+  });
 });
 
 describe('generateBundleSynthesisPrompt', () => {
@@ -109,6 +119,7 @@ describe('generateBundleSynthesisPrompt', () => {
       articleAnalyses: [{ publisher: 'Publisher A', title: 'Title A', analysis: analysis() }],
     });
     expect(prompt).toContain('single-source-only');
+    expect(prompt).toContain('still generate issue-side frame/reframe rows');
     expect(prompt).toContain('Publisher A');
   });
 
@@ -125,6 +136,9 @@ describe('generateBundleSynthesisPrompt', () => {
     expect(prompt).toContain('Publisher A');
     expect(prompt).toContain('Publisher B');
     expect(prompt).toContain('Eligible sources: 2');
+    expect(prompt).toContain('Frame/reframe rules:');
+    expect(prompt).toContain('never return an empty table');
+    expect(prompt).toContain('If explicit source disagreement is sparse');
   });
 });
 
@@ -179,5 +193,14 @@ describe('parseBundleSynthesisResponse', () => {
 
   it('throws PromptParseError for non-object synthesis payload', () => {
     expect(() => parseBundleSynthesisResponse(JSON.stringify('bad payload'), 2)).toThrow(PromptParseError);
+  });
+
+  it('throws PromptParseError for empty frame/reframe table when sources are eligible', () => {
+    expect(() => parseBundleSynthesisResponse(JSON.stringify({
+      summary: 'combined summary',
+      frame_reframe_table: [],
+      warnings: [],
+      synthesis_ready: true,
+    }), 2)).toThrow(PromptParseError);
   });
 });

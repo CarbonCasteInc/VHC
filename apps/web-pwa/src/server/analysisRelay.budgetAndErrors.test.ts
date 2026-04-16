@@ -33,6 +33,7 @@ function validAnalysisContent(summary = 'Summary text'): string {
       justify_bias_claim: ['reason'],
       biases: ['bias'],
       counterpoints: ['counter'],
+      perspectives: [{ frame: 'Public safety requires faster action.', reframe: 'Civil liberties require stricter limits.' }],
     },
   });
 }
@@ -176,7 +177,7 @@ describe('analysisRelay budget + error paths', () => {
 
   it('handles parse failures that throw non-Error values', async () => {
     const parseSpy = vi
-      .spyOn(schemaModule, 'parseAnalysisResponse')
+      .spyOn(schemaModule, 'parseGeneratedAnalysisResponse')
       .mockImplementation(() => {
         throw 'non-error-parse';
       });

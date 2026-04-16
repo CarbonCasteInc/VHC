@@ -26,6 +26,7 @@ function validAnalysisContent(summary = 'Summary text'): string {
       justify_bias_claim: ['reason'],
       biases: ['bias'],
       counterpoints: ['counter'],
+      perspectives: [{ frame: 'Public safety requires faster action.', reframe: 'Civil liberties require stricter limits.' }],
     },
   });
 }
@@ -376,6 +377,65 @@ describe('analysisRelay config + success paths', () => {
     expect(body.messages[1].role).toBe('user');
     expect(body.messages[1].content).toContain('--- ARTICLE START ---');
     expect(body).not.toHaveProperty('prompt');
+  });
+
+  it('rejects article analysis output that omits generated perspectives', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              final_refined: {
+                summary: 'Article summary',
+                bias_claim_quote: ['quote'],
+                justify_bias_claim: ['reason'],
+                biases: ['No clear bias detected'],
+                counterpoints: ['N/A'],
+              },
+            }),
+          },
+        }],
+      }),
+    );
+
+    const result = await relayAnalysis(
+      { articleText: 'Topic ID: topic-derived\nBody paragraph' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload).toMatchObject({
+      error: 'Relay could not parse analysis output',
+      details: 'SCHEMA_VALIDATION_ERROR',
+    });
+  });
+
+  it('rejects article analysis output with placeholder frame/reframe rows', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      okResponse({
+        content: JSON.stringify({
+          final_refined: {
+            summary: 'Article summary',
+            bias_claim_quote: ['quote'],
+            justify_bias_claim: ['reason'],
+            biases: ['No clear bias detected'],
+            counterpoints: ['N/A'],
+            perspectives: [{ frame: 'No clear bias detected', reframe: 'N/A' }],
+          },
+        }),
+      }),
+    );
+
+    const result = await relayAnalysis(
+      { articleText: 'Topic ID: topic-derived\nBody paragraph' },
+      { env: BASE_ENV, fetchImpl: fetchMock },
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.payload).toMatchObject({
+      error: 'Relay could not parse analysis output',
+      details: 'SCHEMA_VALIDATION_ERROR',
+    });
   });
 
   it('uses explicit topicId for article requests when provided', async () => {

@@ -1,7 +1,7 @@
 import type { StoryBundle } from '@vh/data-model';
 import { createRemoteEngine } from '../../../../../packages/ai-engine/src/engines';
 import { createAnalysisPipeline, type PipelineResult } from '../../../../../packages/ai-engine/src/pipeline';
-import type { AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
+import { isPlaceholderPerspectiveText, type AnalysisResult } from '../../../../../packages/ai-engine/src/schema';
 import { getDevModelOverride } from '../dev/DevModelPicker';
 
 const MAX_SOURCE_ANALYSES = 3;
@@ -18,6 +18,7 @@ export interface NewsCardSourceAnalysis {
   readonly counterpoints: ReadonlyArray<string>;
   readonly biasClaimQuotes: ReadonlyArray<string>;
   readonly justifyBiasClaims: ReadonlyArray<string>;
+  readonly perspectives?: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly provider_id?: string;
   readonly model_id?: string;
 }
@@ -302,6 +303,22 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return n.length > 0 ? n : undefined;
 }
 
+function normalizePerspectiveRows(
+  rows: ReadonlyArray<{ frame: string; reframe: string }> | undefined,
+): ReadonlyArray<{ frame: string; reframe: string }> {
+  if (!rows) return [];
+  const normalized: Array<{ frame: string; reframe: string }> = [];
+  for (const row of rows) {
+    const frame = row.frame.trim();
+    const reframe = row.reframe.trim();
+    if (!frame || !reframe) continue;
+    if (isPlaceholderPerspectiveText(frame)) continue;
+    if (isPlaceholderPerspectiveText(reframe)) continue;
+    normalized.push({ frame, reframe });
+  }
+  return normalized;
+}
+
 function toSourceAnalysis(
   source: StoryBundle['sources'][number],
   analysis: AnalysisResult,
@@ -315,6 +332,7 @@ function toSourceAnalysis(
     counterpoints: analysis.counterpoints,
     biasClaimQuotes: analysis.bias_claim_quote,
     justifyBiasClaims: analysis.justify_bias_claim,
+    perspectives: normalizePerspectiveRows(analysis.perspectives),
     provider_id:
       normalizeOptionalString(analysis.provider_id) ??
       normalizeOptionalString(analysis.provider?.provider_id),
@@ -329,10 +347,19 @@ function toFrameRows(
 ): ReadonlyArray<{ frame: string; reframe: string }> {
   const rows: Array<{ frame: string; reframe: string }> = [];
   for (const sa of analyses) {
+    const perspectiveRows = normalizePerspectiveRows(sa.perspectives);
+    if (perspectiveRows.length > 0) {
+      rows.push(...perspectiveRows);
+      continue;
+    }
+
     const count = Math.max(sa.biases.length, sa.counterpoints.length);
     for (let i = 0; i < count; i++) {
       const bias = sa.biases[i]?.trim() || 'No clear bias detected';
       const cp = sa.counterpoints[i]?.trim() || 'N/A';
+      if (isPlaceholderPerspectiveText(bias) || isPlaceholderPerspectiveText(cp)) {
+        continue;
+      }
       rows.push({ frame: `${sa.publisher}: ${bias}`, reframe: cp });
     }
   }

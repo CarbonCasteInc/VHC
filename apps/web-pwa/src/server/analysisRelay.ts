@@ -1,5 +1,5 @@
 import { buildRemoteRequest } from '../../../../packages/ai-engine/src/modelConfig';
-import { parseAnalysisResponse, type AnalysisResult } from '../../../../packages/ai-engine/src/schema';
+import { parseGeneratedAnalysisResponse, type AnalysisResult } from '../../../../packages/ai-engine/src/schema';
 import { buildLegacyVhcArticlePrompt } from './legacyPrompt';
 
 const DEFAULT_ANALYSES_LIMIT = 25;
@@ -418,7 +418,7 @@ export async function relayAnalysis(
         let analysis: AnalysisResult | undefined;
         if (articleRequest) {
           try {
-            analysis = { ...parseAnalysisResponse(content), provider };
+            analysis = { ...parseGeneratedAnalysisResponse(content), provider };
           } catch (error) {
             return {
               status: 502,

@@ -112,6 +112,14 @@ describe('bundlePrompts', () => {
       const prompt = generateBundleSynthesisPrompt(sampleBundle);
       expect(prompt).toContain('GOALS AND GUIDELINES');
     });
+
+    it('requires issue-side frame rows even when explicit source disagreement is sparse', () => {
+      const prompt = generateBundleSynthesisPrompt(sampleBundle);
+      expect(prompt).toContain('Never return an empty frames array');
+      expect(prompt).toContain('standalone, affirmative, debate-style claim');
+      expect(prompt).toContain('If explicit outlet bias or source disagreement is sparse');
+      expect(prompt).toContain('Never use "N/A" or "No clear bias detected"');
+    });
   });
 
   describe('buildBundlePrompt', () => {

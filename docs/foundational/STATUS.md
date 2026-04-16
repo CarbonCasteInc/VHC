@@ -152,6 +152,9 @@ Current truth for the news bundler and feed hardening lane:
   - sorted `source_article_ids`
   - source count and cluster window
   - latest-analysis reuse is exact-revision only, so regenerated bundles do not overwrite or silently reuse stale analysis records.
+- Generated article and bundle analyses must emit non-empty frame/reframe rows:
+  - bias arrays may use the explicit `No clear bias detected` / `N/A` fallback when source bias is sparse;
+  - frame/reframe rows must instead become terse debate-style issue-side claims and counterclaims grounded in public/political/stakeholder disagreements around the summarized issue.
 - The fixture-backed daemon-first release gates are green on `main` after the latest semantic-fixture expansion:
   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`

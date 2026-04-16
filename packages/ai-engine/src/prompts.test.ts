@@ -17,6 +17,10 @@ describe('prompts', () => {
     const prompt = generateAnalysisPrompt({ articleText: 'Hello world' });
     expect(prompt).toContain('GOALS AND GUIDELINES');
     expect(prompt).toContain('Hello world');
+    expect(prompt).toContain('"perspectives"');
+    expect(prompt).toContain('Always Produce Debate Rows');
+    expect(prompt).toContain('Never leave perspectives empty');
+    expect(prompt).toContain('commonly held disagreements around the issue');
     expect(prompt).not.toContain('SINGLE PREV PASS');
   });
 
@@ -49,6 +53,8 @@ describe('prompts', () => {
     expect(prompt).toContain('Frame and Reframe');
     expect(prompt).toContain('"frame"');
     expect(prompt).toContain('"reframe"');
+    expect(prompt).toContain('Produce 2-4 frame/reframe pairs');
+    expect(prompt).toContain('Never return N/A');
     expect(prompt).toContain(text);
   });
 });

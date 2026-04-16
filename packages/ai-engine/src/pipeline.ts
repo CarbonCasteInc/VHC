@@ -1,5 +1,5 @@
 import { buildPrompt } from './prompts';
-import { parseAnalysisResponse, type AnalysisResult } from './schema';
+import { parseGeneratedAnalysisResponse, type AnalysisResult } from './schema';
 import { validateAnalysisAgainstSource } from './validation';
 import {
   createDefaultEngine,
@@ -77,7 +77,7 @@ export function createAnalysisPipeline(
   return async (articleText: string): Promise<PipelineResult> => {
     const prompt = buildPrompt(articleText);
     const { text, engine } = await runtime.router.generate(prompt);
-    const analysis = parseAnalysisResponse(text);
+    const analysis = parseGeneratedAnalysisResponse(text);
     const warnings = validateAnalysisAgainstSource(articleText, analysis).map((warning) => warning.message);
     const successfulEngine = runtime.candidates.find((candidate) => candidate.name === engine);
     /* v8 ignore next 3 -- defensive guard: router always returns a candidate name */

@@ -42,7 +42,22 @@ GOALS AND GUIDELINES FOR BIAS DETECTION & COUNTERPOINT GENERATION:
     - These may also be used to identify biases/counterpoints.
 6. **No Redundancy**: Ensure each bias and its corresponding counterpoint address unique aspects of the article's slant.
     - Focus on different elements of the text (e.g., language, sourcing, framing) to avoid overlap in the issues or evidence presented.
-7. **Bias Absence**: *THIS IS IMPORTANT*: If no clear bias is detected, you must include a single entry in the biases list stating "No clear bias detected" with a corresponding counterpoint of "N/A".
+7. **Bias Absence**: *THIS IS IMPORTANT*: If no clear article-level bias is detected, you may include a single entry in the biases list stating "No clear bias detected" with a corresponding counterpoint of "N/A"; however, you must still produce frame/reframe perspectives under the perspective requirements below.
+
+GOALS AND GUIDELINES FOR FRAME/REFRAME PERSPECTIVES:
+1. **Always Produce Debate Rows**:
+    - You must produce 2-4 frame/reframe perspective pairs for the issue or event being summarized.
+    - Never leave perspectives empty. Never use "N/A" or "No clear bias detected" as a frame or reframe.
+2. **Frames Are Issue Sides, Not Publication Summaries**:
+    - A frame is the strongest concise claim a reasonable advocate for one public, political, institutional, or stakeholder interpretation would make.
+    - A reframe is the strongest concise counterclaim that directly challenges the frame.
+    - Do not write frames as outlet-by-outlet summaries. Do not prefix frames with publisher names unless the publisher itself is materially part of the dispute.
+3. **When Bias Is Sparse, Infer Common Public Disagreements**:
+    - If the article is straight reporting and no clear bias can be extracted, generate frames from commonly held disagreements around the issue: political divides, stakeholder tradeoffs, public opinion splits, legal/institutional tensions, cost/risk disputes, rights/safety debates, or governance accountability arguments.
+    - Keep these frames anchored to the article's subject matter. Do not invent facts, actors, dates, or outcomes not present in the article.
+4. **Claim Styling Is Mandatory**:
+    - Each frame and reframe must be a standalone, affirmative, debate-style claim.
+    - Avoid labels, questions, hedges, process notes, and vague formulations such as "Some people think..." or "There are concerns about...".
 
 GOALS AND GUIDELINES FOR VOICE AND STYLE:
 1. **Formulate Biases in the Voice of an Authoritative Advocate for the Article's Slant**:
@@ -91,6 +106,17 @@ export const PRIMARY_OUTPUT_FORMAT_REQ = `
     "[A counterpoint challenging the first bias, written as a direct, debate-style counterclaim that challenges the corresponding bias (see examples from GOALS AND GUIDELINES FOR VOICE AND STYLE)]",
     "[A counterpoint challenging the second bias, written as a direct, debate-style counterclaim that challenges the corresponding bias (see examples from GOALS AND GUIDELINES FOR VOICE AND STYLE)]",
     "[A counterpoint challenging the third bias, written as a direct, debate-style counterclaim that challenges the corresponding bias (see examples from GOALS AND GUIDELINES FOR VOICE AND STYLE)]",
+    ...
+  ],
+  "perspectives": [
+    {
+      "frame": "[A standalone, affirmative, debate-style claim representing one public/political/stakeholder side of the article's issue]",
+      "reframe": "[A direct, standalone, affirmative counterclaim that challenges the frame]"
+    },
+    {
+      "frame": "[A second distinct issue-side claim; never N/A, never 'No clear bias detected']",
+      "reframe": "[A second direct counterclaim]"
+    },
     ...
   ]
 }
@@ -168,7 +194,8 @@ Step 3:
     "biases": [...],
     "bias_claim_quote": [...],
     "justify_bias_claim": [...],
-    "counterpoints": [...]
+    "counterpoints": [...],
+    "perspectives": [{"frame": "...", "reframe": "..."}]
 
 Step 4:
   After **carefully considering and integrating** recommendations, produce a final updated JSON in this format:
@@ -236,7 +263,10 @@ export function generateFrameReframePrompt(articleText: string): string {
 
   return [
     'You are generating a balanced analysis with two opposing columns: Frame and Reframe.',
-    'Use terse, debate-style claims for each perspective.',
+    'Use terse, standalone, affirmative debate-style claims for each perspective.',
+    'Produce 2-4 frame/reframe pairs even when the article is straight reporting and no explicit bias is detectable.',
+    'If bias is sparse, use commonly held public disagreements around the issue: political divides, stakeholder tradeoffs, rights/safety tensions, cost/risk disputes, or accountability arguments.',
+    'Never return N/A or "No clear bias detected" as a frame or reframe.',
     'Return JSON only in the format described below.',
     format,
     '--- ARTICLE START ---',

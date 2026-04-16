@@ -83,4 +83,12 @@ describe('NewsCardBack storyline presentation', () => {
       'https://example.com/gallery-1.jpg',
     );
   });
+
+  it('shows regeneration copy when cached analysis lacks usable frame rows', () => {
+    renderBack({ analysisNeedsRegeneration: true });
+
+    expect(screen.getByTestId('news-card-analysis-regeneration-news-1')).toHaveTextContent(
+      'Analysis needs regeneration to produce frame/reframe rows.',
+    );
+  });
 });

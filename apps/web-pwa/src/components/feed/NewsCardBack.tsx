@@ -46,6 +46,7 @@ export interface NewsCardBackProps {
     | null;
   readonly analysisError: string | null;
   readonly retryAnalysis: () => void;
+  readonly analysisNeedsRegeneration?: boolean;
   readonly synthesisLoading: boolean;
   readonly synthesisError: string | null;
   readonly analysis: NewsCardAnalysisSynthesis | null;
@@ -89,6 +90,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   analysisFeedbackStatus,
   analysisError,
   retryAnalysis,
+  analysisNeedsRegeneration = false,
   synthesisLoading,
   synthesisError,
   analysis,
@@ -304,13 +306,22 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
           </p>
         )}
 
+        {analysisNeedsRegeneration && !synthesisLoading && (
+          <p
+            className="mt-2 text-xs text-amber-700"
+            data-testid={`news-card-analysis-regeneration-${topicId}`}
+          >
+            Analysis needs regeneration to produce frame/reframe rows.
+          </p>
+        )}
+
         <div className="mt-2">
-            <BiasTable
-              analyses={analysis?.analyses ?? []}
-              frames={frameRows}
-              providerLabel={analysisProvider ?? undefined}
-              basisLabel={frameBasisLabel}
-              loading={synthesisLoading && frameRows.length === 0}
+          <BiasTable
+            analyses={analysis?.analyses ?? []}
+            frames={frameRows}
+            providerLabel={analysisProvider ?? undefined}
+            basisLabel={frameBasisLabel}
+            loading={synthesisLoading && frameRows.length === 0}
             topicId={topicId}
             analysisId={analysisId ?? undefined}
             synthesisId={synthesisId ?? undefined}

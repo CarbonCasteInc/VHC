@@ -175,6 +175,12 @@ Analysis persistence identity:
 - `source_article_ids` are stable `source_id:url_hash` identifiers sorted across the accepted source set;
 - latest-analysis pointers must not be reused across bundle revision/source-set drift; old artifacts remain readable by their exact analysis key, and regenerated bundles must create a fresh analysis rather than overwriting or silently reusing stale analysis.
 
+Analysis frame/reframe output contract:
+- generated article and bundle analyses must emit non-empty frame/reframe rows for every eligible analysis artifact;
+- bias arrays may use the explicit `No clear bias detected` / `N/A` fallback when the article is straight reporting, but frame/reframe rows must not use those placeholders;
+- when explicit outlet bias is sparse, frame/reframe rows must be inferred as terse debate-style issue-side claims and counterclaims grounded in the story subject: public opinion splits, political divides, stakeholder tradeoffs, legal/institutional tensions, cost/risk disputes, rights/safety debates, or accountability arguments;
+- frame/reframe rows are issue-side claims, not publication-by-publication summaries, and should not prefix publisher names unless the publisher itself is materially part of the dispute.
+
 ## 5. Mesh/storage paths
 
 - `vh/news/stories/<storyId>`
