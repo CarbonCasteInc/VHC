@@ -5,7 +5,7 @@ import {
 } from '@vh/data-model';
 import type { HermesComment, HermesCommentHydratable, HermesThread } from '@vh/types';
 import { getForumCommentsChain, getForumDateIndexChain, getForumTagIndexChain, getForumThreadChain } from '@vh/gun-client';
-import { useAppStore } from '../index';
+import { resolveClientFromAppStore } from '../clientResolver';
 import { useXpLedger } from '../xpLedger';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import type { ForumState, ForumDeps, CommentStanceInput } from './types';
@@ -26,7 +26,7 @@ export { createCommentCountTracker, type CommentCountTracker, type TopicCommentS
 
 export function createForumStore(overrides?: Partial<ForumDeps>) {
   const defaults: ForumDeps = {
-    resolveClient: () => useAppStore.getState().client,
+    resolveClient: resolveClientFromAppStore,
     now: () => Date.now(),
     randomId: () =>
       typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
