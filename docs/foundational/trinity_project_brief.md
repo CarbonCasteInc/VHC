@@ -2,7 +2,7 @@
 
 > Status: Product Intent Contract
 > Owner: VHC Product + Architecture
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/TRINITY_Season0_SoT.md, docs/CANON_MAP.md
 
 
@@ -10,7 +10,7 @@ A local-first civic-and-economic operating system that turns verified human atte
 
 ## 0. One paragraph summary
 
-TRINITY Season 0 ships a unified civic product: one feed that blends clustered news stories, user-born topics, and linked-social notifications; one topic detail view that combines deterministic Topic Synthesis V2 with thread discourse; and one elevation path that turns high-salience topics into editable civic artifacts and user-initiated representative forwarding. Identity and trust (LUMA), discourse/docs/action UX (VENN/HERMES), and economic rails (GWC) are designed to work together while preserving strict privacy boundaries.
+TRINITY Season 0 ships a unified civic product: one compact home feed that blends clustered news stories, user-born topics, linked-social notifications, docs-backed articles, and civic action receipts; one topic/detail view that combines deterministic Topic Synthesis V2 with thread discourse; and one elevation path that turns high-salience topics into editable civic artifacts and user-initiated representative forwarding. Identity and trust (LUMA), discourse/docs/action UX (VENN/HERMES), and economic rails (GWC) are designed to work together while preserving strict privacy boundaries.
 
 ## 1. Problem and thesis
 
@@ -58,10 +58,17 @@ Role ladder:
 
 VENN/HERMES is the visible product experience:
 
-- one feed with three surfaces:
+- one home feed with five source surfaces:
   - News
   - Topics/Threads
   - Linked-social notifications
+  - Articles
+  - Civic action receipts under `All`
+- compact feed chrome:
+  - no required primary `VENN` / `HERMES` / `AGORA` mode switcher
+  - `For You` is first-use orientation, not recurring navigation
+  - forum topics are discovered through `Topics` and card discussions
+  - governance/elevation settings and account controls live through the user/profile surface and card engagement flows
 - one topic detail with two lenses:
   - Synthesis panel (`TopicSynthesisV2`)
   - Thread/forum lens
@@ -84,9 +91,11 @@ GWC provides Season 0 rails:
 
 Feed contract:
 
-- cards from three surfaces in one stream
-- filter chips: `All`, `News`, `Topics`, `Social`
+- cards from five source surfaces in one stream
+- filter chips: `All`, `News`, `Topics`, `Social`, `Articles`
 - sort modes: `Latest`, `Hottest`, `My Activity`
+- civic action receipts render in `All` only for Season 0
+- headline cards optimize for scan density; story media, when available, sits beside the headline/title with additional source images reserved for expanded detail
 
 News contract:
 

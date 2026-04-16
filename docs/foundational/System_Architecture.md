@@ -6,8 +6,8 @@
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/TRINITY_Season0_SoT.md
 
 
-Codename: TRINITY (VENN/HERMES x LUMA x GWC)  
-Version: 0.4.0 (Season 0 Ship Snapshot, V2-first)  
+Codename: TRINITY (VENN/HERMES x LUMA x GWC)
+Version: 0.4.0 (Season 0 Ship Snapshot, V2-first)
 Status: Approved target architecture
 
 This document defines target architecture contracts and defaults for Season 0.
@@ -99,6 +99,21 @@ Feed controls:
 
 - filters: `All`, `News`, `Topics`, `Social`, `Articles`
 - sort modes: `Latest`, `Hottest`, `My Activity`
+
+Product shell defaults:
+
+- the unified feed is the primary home surface; there is no required
+  top-level `VENN` / `HERMES` / `AGORA` feed mode switcher in the public app
+  chrome;
+- forum headlines and engaged user-created topics are discovered through the
+  `Topics` filter and card discussion affordances, while direct forum routes
+  remain available for deep links and internal flows;
+- governance/elevation controls appear through stance, engagement, nomination,
+  and user/profile surfaces instead of a separate primary feed tab;
+- `For You` is a first-use orientation card, not a persistent masthead;
+- collapsed news cards should remain compact and place any primary story image
+  beside the headline/title; additional source images belong in expanded
+  detail galleries.
 
 News-feed publication note:
 
