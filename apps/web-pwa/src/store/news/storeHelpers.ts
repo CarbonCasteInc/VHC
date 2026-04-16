@@ -185,7 +185,7 @@ function storyToDiscoveryItem(
     latest_activity_at: Math.max(0, Math.floor(story.cluster_window_end)),
     hotness: toHotnessScore(hotIndex[story.story_id]),
     eye: 0,
-    lightbulb: Math.max(0, Math.floor(story.sources.length)),
+    lightbulb: 0,
     comments: 0,
   };
 }

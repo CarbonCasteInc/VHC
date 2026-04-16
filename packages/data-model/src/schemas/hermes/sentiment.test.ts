@@ -7,6 +7,8 @@ import {
   STORY_ANALYSIS_ARTIFACT_VERSION,
   StoryAnalysisArtifactSchema,
   StoryAnalysisLatestPointerSchema,
+  TopicEngagementActorNodeSchema,
+  TopicEngagementAggregateV1Schema,
   VoteAdmissionReceiptSchema,
   VoteIntentRecordSchema,
   deriveAggregateVoterId,
@@ -14,6 +16,7 @@ import {
   derivePointId,
   deriveSynthesisPointId,
   deriveSentimentEventId,
+  deriveTopicEngagementActorId,
   deriveVoteIntentId,
   normalizePointText,
 } from './sentiment';
@@ -167,6 +170,45 @@ describe('AggregateVoterNodeSchema', () => {
         weight: 1,
         updated_at: '2026-02-18T22:00:00.000Z',
         nullifier: 'should-not-appear',
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('TopicEngagement aggregate schemas', () => {
+  it('accepts public Eye/Lightbulb actor and summary payloads', () => {
+    expect(
+      TopicEngagementActorNodeSchema.safeParse({
+        schema_version: 'topic-engagement-actor-v1',
+        topic_id: 'topic-1',
+        eye_weight: 1.285,
+        lightbulb_weight: 1.4845,
+        updated_at: '2026-02-18T22:00:00.000Z',
+      }).success,
+    ).toBe(true);
+
+    expect(
+      TopicEngagementAggregateV1Schema.safeParse({
+        schema_version: 'topic-engagement-aggregate-v1',
+        topic_id: 'topic-1',
+        eye_weight: 2.285,
+        lightbulb_weight: 1.4845,
+        readers: 2,
+        engagers: 1,
+        version: 1_700_000_000_000,
+        computed_at: 1_700_000_000_000,
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects actor weights that exceed the strict per-user cap band', () => {
+    expect(
+      TopicEngagementActorNodeSchema.safeParse({
+        schema_version: 'topic-engagement-actor-v1',
+        topic_id: 'topic-1',
+        eye_weight: 2.5,
+        lightbulb_weight: 0,
+        updated_at: '2026-02-18T22:00:00.000Z',
       }).success,
     ).toBe(false);
   });
@@ -374,6 +416,25 @@ describe('sentiment key derivation helpers', () => {
       point_id: 'POINT-7',
     });
     expect(differentSynthesis).not.toBe(eventA);
+  });
+
+  it('deriveTopicEngagementActorId is deterministic and topic-scoped', async () => {
+    const first = await deriveTopicEngagementActorId({
+      localSecret: 'local-secret',
+      topic_id: 'topic-1',
+    });
+    const repeat = await deriveTopicEngagementActorId({
+      localSecret: 'local-secret',
+      topic_id: 'topic-1',
+    });
+    const otherTopic = await deriveTopicEngagementActorId({
+      localSecret: 'local-secret',
+      topic_id: 'topic-2',
+    });
+
+    expect(first).toBe(repeat);
+    expect(first).toMatch(/^[a-f0-9]{64}$/);
+    expect(otherTopic).not.toBe(first);
   });
 });
 

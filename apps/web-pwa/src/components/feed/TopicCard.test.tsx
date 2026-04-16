@@ -5,6 +5,8 @@ import '@testing-library/jest-dom/vitest';
 import { describe, expect, it, afterEach, vi, beforeEach } from 'vitest';
 import type { FeedItem, TopicSynthesisV2 } from '@vh/data-model';
 import type { UseSynthesisResult } from '../../hooks/useSynthesis';
+import { useSentimentState } from '../../hooks/useSentimentState';
+import { useViewTracking } from '../../hooks/useViewTracking';
 
 // ---- Mocks ----
 
@@ -19,9 +21,14 @@ vi.mock('../../hooks/useInView', () => ({
   useInView: () => mockUseInView(),
 }));
 
+vi.mock('../../hooks/useViewTracking', () => ({
+  useViewTracking: vi.fn(),
+}));
+
 // Import after mocks
 import { TopicCard } from './TopicCard';
 import { resetExpandedCardStore } from './expandedCardStore';
+const mockUseViewTracking = vi.mocked(useViewTracking);
 
 // ---- Fixtures ----
 
@@ -90,6 +97,15 @@ describe('TopicCard', () => {
   beforeEach(() => {
     mockUseInView.mockReturnValue([nullRef, true]); // default: visible
     mockUseSynthesis.mockReturnValue(makeSynthesisResult());
+    mockUseViewTracking.mockReturnValue(false);
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      agreements: {},
+      pointIdAliases: {},
+      lightbulb: {},
+      eye: {},
+      signals: [],
+    });
   });
 
   afterEach(() => {
@@ -107,6 +123,27 @@ describe('TopicCard', () => {
     expect(screen.getByTestId('topic-card-eye-topic-42')).toHaveTextContent('14');
     expect(screen.getByTestId('topic-card-lightbulb-topic-42')).toHaveTextContent('9');
     expect(screen.getByTestId('topic-card-comments-topic-42')).toHaveTextContent('12');
+  });
+
+  it('overlays local decayed Eye and Lightbulb weights on topic counters', () => {
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      eye: { 'topic-42': 1.285 },
+      lightbulb: { 'topic-42': 1 },
+    });
+
+    render(<TopicCard item={makeTopicItem()} />);
+
+    expect(screen.getByTestId('topic-card-eye-topic-42')).toHaveTextContent('15.29');
+    expect(screen.getByTestId('topic-card-lightbulb-topic-42')).toHaveTextContent('10');
+  });
+
+  it('arms full-read tracking only while the topic detail is expanded', () => {
+    render(<TopicCard item={makeTopicItem()} />);
+
+    expect(mockUseViewTracking).toHaveBeenLastCalledWith('topic-42', false);
+    expandTopicCard();
+    expect(mockUseViewTracking).toHaveBeenLastCalledWith('topic-42', true);
   });
 
   it('formats my_activity_score with one decimal place', () => {

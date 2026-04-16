@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { useStore } from 'zustand';
 import type { FeedItem } from '@vh/data-model';
+import { useFeedEngagementMetrics } from '../../hooks/useFeedEngagementMetrics';
 import { useSynthesis } from '../../hooks/useSynthesis';
 import { useInView } from '../../hooks/useInView';
+import { useViewTracking } from '../../hooks/useViewTracking';
 import { useForumStore } from '../../store/hermesForum';
 import { renderMarkdown } from '../../utils/markdown';
 import { resolveTopicThread } from '../../utils/feedDiscussionThreads';
@@ -80,10 +82,17 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
   const summary =
     synthesis?.facts_summary ?? stripMarkdown(thread?.content) ?? 'Conversation is building around this topic.';
   const summaryPreview = previewText(summary);
+  const engagement = useFeedEngagementMetrics({
+    topicId: item.topic_id,
+    eye: item.eye,
+    lightbulb: item.lightbulb,
+    comments: item.comments,
+  });
   const threadHeadMarkup = useMemo(
     () => (thread?.content ? renderMarkdown(thread.content) : null),
     [thread?.content],
   );
+  useViewTracking(item.topic_id, isExpanded);
 
   const openDetail = useCallback(() => {
     expandCard(detailId);
@@ -194,9 +203,9 @@ export const TopicCard: React.FC<TopicCardProps> = ({ item }) => {
 
         <FeedEngagement
           topicId={item.topic_id}
-          eye={item.eye}
-          lightbulb={item.lightbulb}
-          comments={item.comments}
+          eye={engagement.eye}
+          lightbulb={engagement.lightbulb}
+          comments={engagement.comments}
           testIdPrefix="topic-card"
           ariaLabel="Topic engagement"
           className="mt-4"

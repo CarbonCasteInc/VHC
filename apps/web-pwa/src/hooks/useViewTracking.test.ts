@@ -1,7 +1,7 @@
 /* @vitest-environment jsdom */
 
 import { renderHook, act } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { useViewTracking } from './useViewTracking';
 import { useSentimentState } from './useSentimentState';
 
@@ -12,6 +12,11 @@ describe('useViewTracking', () => {
       ...useSentimentState.getState(),
       recordRead: vi.fn()
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('marks viewed after timer and scroll', () => {
@@ -51,5 +56,26 @@ describe('useViewTracking', () => {
     });
 
     expect(recordSpy).toHaveBeenCalledWith('item-3');
+  });
+
+  it('resets its one-shot guard when the tracked item changes', () => {
+    const recordSpy = useSentimentState.getState().recordRead as any;
+    const { rerender } = renderHook(({ itemId }) => useViewTracking(itemId), {
+      initialProps: { itemId: 'item-a' },
+    });
+
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(5000);
+    });
+    expect(recordSpy).toHaveBeenCalledWith('item-a');
+
+    rerender({ itemId: 'item-b' });
+    act(() => {
+      window.dispatchEvent(new Event('scroll'));
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(recordSpy).toHaveBeenCalledWith('item-b');
   });
 });

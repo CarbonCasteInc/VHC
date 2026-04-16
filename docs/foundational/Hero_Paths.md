@@ -142,7 +142,7 @@ interface SentimentSignal {
   epoch: number;
   point_id: string;
   agreement: -1 | 0 | 1;
-  weight: number; // [0, 2]
+  weight: number; // [0, 1.95]
   constituency_proof: ConstituencyProof;
   emitted_at: number;
 }
@@ -151,12 +151,12 @@ interface SentimentSignal {
 Civic Decay step:
 
 ```ts
-next = current + 0.3 * (2 - current);
+next = current + 0.3 * (1.95 - current);
 ```
 
 Invariants:
 
-- monotonic and bounded in `[0, 2]`
+- monotonic and bounded in `[0, 1.95]` (strictly below 2)
 - one qualifying interaction = one decay step
 - event-level signals are sensitive and not public plaintext
 

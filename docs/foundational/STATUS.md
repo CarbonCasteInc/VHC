@@ -361,7 +361,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema + artifact generators + budget gates landed (Wave 2 Gamma P2); receipt feed-card rendering support landed, live publication remains partial |
 | D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | ✅ Forum sorting + 240-char reply cap + Convert-to-Article CTA + ArticleFeedCard (Wave 2 Beta S1) |
 | E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟢 Full foundation plus flag-gated ArticleEditor runtime wiring: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control |
-| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
+| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Per-user Eye/Lightbulb decay persists locally and projects topic engagement summaries to mesh; budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
 | G. Provider switching + consent | Default API relay today; local-first when local-agent capability thresholds are met; remote providers opt-in with cost/privacy clarity | ✅ Relay default in live profiles; local engine path retained; model/provider override controls in place |
 
 ---
@@ -577,6 +577,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | Deterministic hotness wiring | ✅ `packages/gun-client/src/newsAdapters.ts` |
 | TopicCard / NewsCard | ✅ Wave 1 |
 | Compact NewsCard side media + source strip + engagement counts | ✅ `components/feed/NewsCardFront.tsx`, `components/feed/SourceBadgeRow.tsx`, `components/feed/FeedEngagement.tsx` |
+| Mesh-backed Eye/Lightbulb topic engagement counters | ✅ `hooks/useSentimentState.ts`, `hooks/useFeedEngagementMetrics.ts`, `packages/gun-client/src/topicEngagementAdapters.ts` |
 | SocialNotificationCard (real data) | ✅ Wave 2 |
 | ArticleFeedCard | ✅ Wave 2 |
 | Discovery store + ranking | ✅ `store/discovery/` |

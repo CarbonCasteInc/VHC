@@ -7,6 +7,9 @@
 
 import React from 'react';
 import type { FeedItem } from '@vh/data-model';
+import { useFeedEngagementMetrics } from '../../hooks/useFeedEngagementMetrics';
+import { useViewTracking } from '../../hooks/useViewTracking';
+import { FeedEngagement } from '../feed/FeedEngagement';
 
 export interface ArticleFeedCardProps {
   /** Discovery feed item; expected kind: ARTICLE. */
@@ -26,6 +29,13 @@ function formatTimestamp(timestampMs: number): string {
  */
 export const ArticleFeedCard: React.FC<ArticleFeedCardProps> = ({ item }) => {
   const publishedDate = formatTimestamp(item.created_at);
+  const engagement = useFeedEngagementMetrics({
+    topicId: item.topic_id,
+    eye: item.eye,
+    lightbulb: item.lightbulb,
+    comments: item.comments,
+  });
+  useViewTracking(item.topic_id, true);
 
   return (
     <article
@@ -51,17 +61,16 @@ export const ArticleFeedCard: React.FC<ArticleFeedCardProps> = ({ item }) => {
         Published article from the community.
       </p>
 
-      <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
-        <span data-testid={`article-card-eye-${item.topic_id}`}>
-          👁️ {item.eye}
-        </span>
-        <span data-testid={`article-card-lightbulb-${item.topic_id}`}>
-          💡 {item.lightbulb}
-        </span>
-        <span data-testid={`article-card-comments-${item.topic_id}`}>
-          💬 {item.comments}
-        </span>
-      </div>
+      <FeedEngagement
+        topicId={item.topic_id}
+        eye={engagement.eye}
+        lightbulb={engagement.lightbulb}
+        comments={engagement.comments}
+        testIdPrefix="article-card"
+        ariaLabel="Article engagement"
+        className="mt-3"
+        compact
+      />
     </article>
   );
 };

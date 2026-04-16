@@ -64,6 +64,7 @@ describe('useSentimentState storage bootstrap/persist guards', () => {
 
     vi.doMock('@vh/data-model', () => ({
       deriveAggregateVoterId: vi.fn().mockResolvedValue('voter-mock'),
+      deriveTopicEngagementActorId: vi.fn().mockResolvedValue('topic-actor-mock'),
       deriveVoteIntentId: vi.fn().mockResolvedValue('intent-mock'),
     }));
 
@@ -73,6 +74,7 @@ describe('useSentimentState storage bootstrap/persist guards', () => {
       readPointAggregateSnapshot: vi.fn().mockResolvedValue(null),
       writePointAggregateSnapshot: vi.fn(),
       writeSentimentEvent: vi.fn(),
+      writeTopicEngagementActorNode: vi.fn(),
       writeVoterNode: vi.fn(),
     }));
 

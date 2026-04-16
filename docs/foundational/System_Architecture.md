@@ -323,7 +323,7 @@ interface SentimentSignal {
 Civic Decay function:
 
 ```ts
-next = current + 0.3 * (2 - current);
+next = current + 0.3 * (1.95 - current);
 ```
 
 ## 6. Identity and Trust Model (Cross-Cutting)

@@ -98,6 +98,27 @@ describe('TopologyGuard', () => {
         source_window: { from_seq: 3, to_seq: 3 },
       })
     ).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/aggregates/topics/topic-1/engagement/actors/actor-1', {
+        schema_version: 'topic-engagement-actor-v1',
+        topic_id: 'topic-1',
+        eye_weight: 1.285,
+        lightbulb_weight: 1,
+        updated_at: '2026-02-18T22:00:00.000Z',
+      })
+    ).not.toThrow();
+    expect(() =>
+      guard.validateWrite('vh/aggregates/topics/topic-1/engagement/summary', {
+        schema_version: 'topic-engagement-aggregate-v1',
+        topic_id: 'topic-1',
+        eye_weight: 3.235,
+        lightbulb_weight: 1,
+        readers: 2,
+        engagers: 1,
+        version: 1,
+        computed_at: 1,
+      })
+    ).not.toThrow();
   });
 
   it('allows news removal entries (public, no PII)', () => {

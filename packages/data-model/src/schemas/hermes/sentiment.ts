@@ -142,6 +142,8 @@ export const VoteIntentRecordSchema = z
   .strict();
 
 export const POINT_AGGREGATE_SNAPSHOT_VERSION = 'point-aggregate-snapshot-v1' as const;
+export const TOPIC_ENGAGEMENT_ACTOR_NODE_VERSION = 'topic-engagement-actor-v1' as const;
+export const TOPIC_ENGAGEMENT_AGGREGATE_VERSION = 'topic-engagement-aggregate-v1' as const;
 
 export const PointAggregateSnapshotV1Schema = z
   .object({
@@ -165,6 +167,39 @@ export const PointAggregateSnapshotV1Schema = z
   })
   .strict();
 
+/**
+ * Public, per-topic pseudonymous projection input for Eye/Lightbulb aggregates.
+ *
+ * The actor id is carried in the mesh path, not the payload, and must be derived
+ * per topic from a local secret so it is not linkable across topics.
+ */
+export const TopicEngagementActorNodeSchema = z
+  .object({
+    schema_version: z.literal(TOPIC_ENGAGEMENT_ACTOR_NODE_VERSION),
+    topic_id: NonEmptyString,
+    eye_weight: z.number().min(0).max(1.95),
+    lightbulb_weight: z.number().min(0).max(1.95),
+    updated_at: NonEmptyString,
+  })
+  .strict();
+
+/**
+ * Public topic-level Eye/Lightbulb aggregate for feed counters.
+ * Path: vh/aggregates/topics/<topicId>/engagement/summary
+ */
+export const TopicEngagementAggregateV1Schema = z
+  .object({
+    schema_version: z.literal(TOPIC_ENGAGEMENT_AGGREGATE_VERSION),
+    topic_id: NonEmptyString,
+    eye_weight: z.number().nonnegative(),
+    lightbulb_weight: z.number().nonnegative(),
+    readers: z.number().int().nonnegative(),
+    engagers: z.number().int().nonnegative(),
+    version: z.number().int().nonnegative(),
+    computed_at: z.number().int().nonnegative(),
+  })
+  .strict();
+
 export type StoryAnalysisFrame = z.infer<typeof StoryAnalysisFrameSchema>;
 export type StoryAnalysisSource = z.infer<typeof StoryAnalysisSourceSchema>;
 export type StoryAnalysisRelatedLink = z.infer<typeof StoryAnalysisRelatedLinkSchema>;
@@ -176,6 +211,8 @@ export type AggregateVoterNode = z.infer<typeof AggregateVoterNodeSchema>;
 export type VoteAdmissionReceipt = z.infer<typeof VoteAdmissionReceiptSchema>;
 export type VoteIntentRecord = z.infer<typeof VoteIntentRecordSchema>;
 export type PointAggregateSnapshotV1 = z.infer<typeof PointAggregateSnapshotV1Schema>;
+export type TopicEngagementActorNode = z.infer<typeof TopicEngagementActorNodeSchema>;
+export type TopicEngagementAggregateV1 = z.infer<typeof TopicEngagementAggregateV1Schema>;
 
 function normalizeHashToken(value: string): string {
   return value.trim().toLowerCase();
@@ -254,6 +291,20 @@ export async function deriveAggregateVoterId(params: {
   topic_id: string;
 }): Promise<string> {
   const payload = [normalizeHashToken(params.nullifier), normalizeHashToken(params.topic_id)].join('|');
+  return sha256(payload);
+}
+
+/**
+ * topic engagement actor id = sha256(localSecret + topicId)
+ *
+ * This key is intentionally topic-scoped so public aggregate input nodes cannot
+ * be joined across unrelated topics.
+ */
+export async function deriveTopicEngagementActorId(params: {
+  localSecret: string;
+  topic_id: string;
+}): Promise<string> {
+  const payload = [normalizeHashToken(params.localSecret), normalizeHashToken(params.topic_id)].join('|');
   return sha256(payload);
 }
 

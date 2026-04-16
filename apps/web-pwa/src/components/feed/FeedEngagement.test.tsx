@@ -41,6 +41,13 @@ describe('FeedEngagement', () => {
     ).toBeInTheDocument();
   });
 
+  it('formats decayed fractional Eye and Lightbulb weights compactly', () => {
+    render(<FeedEngagement topicId="topic-decay" eye={11.285} lightbulb={4.5} comments={0} />);
+
+    expect(screen.getByTestId('news-card-eye-topic-decay')).toHaveTextContent('11.29');
+    expect(screen.getByTestId('news-card-lightbulb-topic-decay')).toHaveTextContent('4.5');
+  });
+
   it('keeps labels accessible but visually compact when requested', () => {
     render(<FeedEngagement topicId="topic-compact" eye={3} lightbulb={2} comments={1} compact />);
 

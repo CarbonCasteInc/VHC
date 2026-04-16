@@ -50,6 +50,7 @@ describe('useSentimentState', () => {
 
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(null);
     vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-1');
+    vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-1');
     vi.spyOn(DataModel, 'deriveVoteIntentId').mockResolvedValue('intent-default');
     vi.spyOn(VoteIntentMaterializer, 'scheduleVoteIntentReplay').mockImplementation(() => {});
     vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
@@ -82,6 +83,16 @@ describe('useSentimentState', () => {
       version: 0,
       computed_at: 0,
       source_window: { from_seq: 0, to_seq: 0 },
+    });
+    vi.spyOn(GunClient, 'writeTopicEngagementActorNode').mockResolvedValue({
+      schema_version: 'topic-engagement-aggregate-v1',
+      topic_id: TOPIC,
+      eye_weight: 1,
+      lightbulb_weight: 0,
+      readers: 1,
+      engagers: 0,
+      version: 1,
+      computed_at: 1,
     });
 
     useSentimentState.setState({
@@ -139,6 +150,33 @@ describe('useSentimentState', () => {
     expect(useSentimentState.getState().getEyeWeight(TOPIC)).toBe(second);
   });
 
+  it('projects read weights to the topic engagement mesh aggregate', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-read');
+    const writeTopicEngagementSpy = vi.spyOn(GunClient, 'writeTopicEngagementActorNode');
+
+    const next = useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(next).toBe(1);
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: expect.any(String),
+      topic_id: TOPIC,
+    });
+    expect(writeTopicEngagementSpy).toHaveBeenCalledWith(
+      fakeClient,
+      TOPIC,
+      'topic-actor-read',
+      expect.objectContaining({
+        eyeWeight: 1,
+        lightbulbWeight: 0,
+      }),
+    );
+  });
+
   it('accumulates lightbulb_weight via recordEngagement with decay', () => {
     const first = useSentimentState.getState().recordEngagement(TOPIC);
     const second = useSentimentState.getState().recordEngagement(TOPIC);
@@ -146,6 +184,45 @@ describe('useSentimentState', () => {
     expect(second).toBeGreaterThan(first);
     expect(second).toBeLessThan(2);
     expect(useSentimentState.getState().getLightbulbWeight(TOPIC)).toBe(second);
+  });
+
+  it('persists per-topic read and engagement weights across reload bootstrap', () => {
+    const eye = useSentimentState.getState().recordRead(TOPIC);
+    const lightbulb = useSentimentState.getState().recordEngagement(TOPIC);
+
+    expect(JSON.parse(localStorage.getItem('vh_eye_weights_v1') ?? '{}')).toMatchObject({
+      [TOPIC]: eye,
+    });
+    expect(JSON.parse(localStorage.getItem('vh_lightbulb_weights_v1') ?? '{}')).toMatchObject({
+      [TOPIC]: lightbulb,
+    });
+  });
+
+  it('projects generic engagement weights to the topic engagement mesh aggregate', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-engage');
+    const writeTopicEngagementSpy = vi.spyOn(GunClient, 'writeTopicEngagementActorNode');
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      eye: { [TOPIC]: 1.285 },
+    });
+
+    const next = useSentimentState.getState().recordEngagement(TOPIC);
+    await flushProjection();
+
+    expect(next).toBe(1);
+    expect(writeTopicEngagementSpy).toHaveBeenCalledWith(
+      fakeClient,
+      TOPIC,
+      'topic-actor-engage',
+      expect.objectContaining({
+        eyeWeight: 1.285,
+        lightbulbWeight: 1,
+      }),
+    );
   });
 
   it('clamps recordRead/recordEngagement weights for NaN, negative, and >2 inputs', () => {

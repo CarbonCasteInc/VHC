@@ -7,7 +7,10 @@ import type { HermesThread } from '@vh/types';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { useForumStore } from '../../store/hermesForum';
+import { useSentimentState } from '../../hooks/useSentimentState';
+import { useViewTracking } from '../../hooks/useViewTracking';
 import { NewsCard } from './NewsCard';
+import { resetExpandedCardStore } from './expandedCardStore';
 import {
   getCachedSynthesisForStory,
   synthesizeStoryFromAnalysisPipeline,
@@ -22,10 +25,14 @@ vi.mock('../../store/identityProvider', () => ({
   publishIdentity: vi.fn(),
   clearPublishedIdentity: vi.fn(),
 }));
+vi.mock('../../hooks/useViewTracking', () => ({
+  useViewTracking: vi.fn(),
+}));
 const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
   synthesizeStoryFromAnalysisPipeline,
 );
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
+const mockUseViewTracking = vi.mocked(useViewTracking);
 const NOW = 1_700_000_000_000;
 const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 function makeNewsItem(overrides: Partial<FeedItem> = {}): FeedItem {
@@ -112,8 +119,18 @@ describe('NewsCard', () => {
   beforeEach(() => {
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    resetExpandedCardStore();
     useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      agreements: {},
+      pointIdAliases: {},
+      lightbulb: {},
+      eye: {},
+      signals: [],
+    });
     localStorage.clear();
+    mockUseViewTracking.mockReturnValue(false);
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
     mockGetCachedSynthesisForStory.mockReset();
@@ -148,7 +165,9 @@ describe('NewsCard', () => {
     vi.unstubAllEnvs();
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    resetExpandedCardStore();
     useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
+    mockUseViewTracking.mockReset();
   });
   it('renders title and news badge', () => {
     render(<NewsCard item={makeNewsItem()} />);
@@ -157,6 +176,27 @@ describe('NewsCard', () => {
     expect(
       screen.getByText('City council votes on transit plan'),
     ).toBeInTheDocument();
+  });
+
+  it('overlays local decayed Eye and Lightbulb weights on feed counters', () => {
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      eye: { 'news-1': 1.285 },
+      lightbulb: { 'news-1': 1 },
+    });
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByTestId('news-card-eye-news-1')).toHaveTextContent('23.29');
+    expect(screen.getByTestId('news-card-lightbulb-news-1')).toHaveTextContent('9');
+  });
+
+  it('arms full-read tracking only while the story detail is expanded', () => {
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(mockUseViewTracking).toHaveBeenLastCalledWith('news-1', false);
+    fireEvent.click(screen.getByTestId('news-card-toggle-news-1'));
+    expect(mockUseViewTracking).toHaveBeenLastCalledWith('news-1', true);
   });
   it('marks headline discussion threads as live on compact cards', () => {
     const headlineThread: HermesThread = {

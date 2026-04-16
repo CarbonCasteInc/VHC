@@ -4,6 +4,7 @@ import type { FeedItem, StoryBundle, StorylineGroup } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { useForumStore } from '../../store/hermesForum';
+import { useViewTracking } from '../../hooks/useViewTracking';
 import { useAnalysis } from './useAnalysis';
 import { NewsCardBack } from './NewsCardBack';
 import { sanitizePublicationNeutralSummary } from './newsCardAnalysis';
@@ -189,6 +190,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const reducedMotion = useMemo(() => prefersReducedMotion(), []);
   const frontFaceStyle = resolveFlipFaceStyle(isExpanded, 'front', reducedMotion);
   const backFaceStyle = resolveFlipFaceStyle(isExpanded, 'back', reducedMotion);
+  useViewTracking(item.topic_id, isExpanded);
 
   const openDetail = useCallback(() => {
     if (story) {

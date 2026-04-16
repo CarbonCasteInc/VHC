@@ -21,6 +21,20 @@ export interface FeedEngagementProps {
   readonly compact?: boolean;
 }
 
+export function formatEngagementMetric(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) {
+    return '0';
+  }
+
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+
+  return value
+    .toFixed(2)
+    .replace(/\.?0+$/, '');
+}
+
 export const FeedEngagement: React.FC<FeedEngagementProps> = ({
   topicId,
   eye,
@@ -52,6 +66,9 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
   const labelClass = compact
     ? 'sr-only'
     : 'text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500';
+  const eyeLabel = formatEngagementMetric(eye);
+  const lightbulbLabel = formatEngagementMetric(lightbulb);
+  const commentsLabel = formatEngagementMetric(comments);
 
   return (
     <div
@@ -79,7 +96,7 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
             aria-hidden="true"
           />
         )}
-        <span>{eye}</span>
+        <span>{eyeLabel}</span>
         <span className={labelClass}>
           Watching
         </span>
@@ -104,7 +121,7 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
             aria-hidden="true"
           />
         )}
-        <span>{lightbulb}</span>
+        <span>{lightbulbLabel}</span>
         <span className={labelClass}>
           Stances
         </span>
@@ -129,7 +146,7 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
             aria-hidden="true"
           />
         )}
-        <span>{comments}</span>
+        <span>{commentsLabel}</span>
         <span className={labelClass}>
           Replies
         </span>

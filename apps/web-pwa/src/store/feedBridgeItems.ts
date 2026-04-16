@@ -75,7 +75,7 @@ export function storyBundleToFeedItem(
     latest_activity_at: toTimestamp(bundle.cluster_window_end),
     hotness: toHotnessScore(hotIndex[bundle.story_id]),
     eye: 0,
-    lightbulb: bundle.sources.length,
+    lightbulb: 0,
     comments: 0,
   };
 }
@@ -89,7 +89,7 @@ export function synthesisToFeedItem(synthesis: TopicSynthesisV2): FeedItem {
     latest_activity_at: toTimestamp(synthesis.created_at),
     hotness: 0,
     eye: 0,
-    lightbulb: synthesis.quorum.received,
+    lightbulb: 0,
     comments: 0,
   };
 }

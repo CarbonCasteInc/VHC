@@ -71,6 +71,17 @@ interface AggregateSentiment {
   eye_weight: number;
   engagement_score?: number;
 }
+
+interface TopicEngagementAggregateV1 {
+  schema_version: 'topic-engagement-aggregate-v1';
+  topic_id: string;
+  eye_weight: number;
+  lightbulb_weight: number;
+  readers: number;
+  engagers: number;
+  version: number;
+  computed_at: number;
+}
 ```
 
 Aggregation requirements:
@@ -78,6 +89,7 @@ Aggregation requirements:
 - only aggregate outputs are public
 - no nullifiers in aggregate payloads
 - district dashboards expose aggregate-only slices
+- feed counters read the public topic engagement aggregate when available, then fall back to feed snapshot counters plus the local user's persisted decayed weight
 
 ## 4. Civic Decay
 
@@ -108,11 +120,15 @@ Lightbulb:
 - driven by stance interactions
 - first active stance sets baseline, further active stances decay toward 1.95
 - vote impact uses active non-neutral stance count per `(topic_id, synthesis_id, epoch)` (not raw click count) to reduce toggle-gaming potential
+- feed bridge code must not seed Lightbulb from story source count, synthesis quorum count, or any non-engagement proxy; source count belongs in source presentation, not sentiment engagement
 
 ## 6. Storage and topology
 
 - `SentimentSignal` event-level records: local or encrypted outbox only
 - public mesh: aggregate-only projections
+- per-user Eye/Lightbulb weights are persisted on-device for stable reload behavior
+- topic engagement summary path: `vh/aggregates/topics/<topicId>/engagement/summary`
+- Season 0 migration projection inputs may use `vh/aggregates/topics/<topicId>/engagement/actors/<topicScopedActorId>`; payloads contain only capped Eye/Lightbulb weights and timestamps, never nullifiers, proofs, district hashes, wallet addresses, or cross-topic actor IDs
 - on-chain civic/economic contracts remain aggregate-only with no district-identity linkage
 
 ## 7. District dashboard privacy rule

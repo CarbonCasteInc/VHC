@@ -187,7 +187,7 @@ describe('storyBundleToFeedItem', () => {
       latest_activity_at: 222,
       hotness: 0.87654321,
       eye: 0,
-      lightbulb: 2,
+      lightbulb: 0,
       comments: 0,
     });
   });
@@ -256,7 +256,7 @@ describe('synthesisToFeedItem', () => {
     expect(item.title).toBe(longSummary.slice(0, 120));
     expect(item.created_at).toBe(401);
     expect(item.latest_activity_at).toBe(401);
-    expect(item.lightbulb).toBe(3);
+    expect(item.lightbulb).toBe(0);
   });
 
   it('output validates against FeedItemSchema', () => {
