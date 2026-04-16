@@ -1,13 +1,15 @@
 /* @vitest-environment jsdom */
 
-import { render, screen, cleanup, within, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, within, fireEvent, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import React from 'react';
 import { FeedShell } from './FeedShell';
+import { FEED_ORIENTATION_STORAGE_KEY } from './FeedShellChrome';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import type { FeedItem } from '@vh/data-model';
 import { resetExpandedCardStore } from './expandedCardStore';
+import { useDiscoveryStore } from '../../store/discovery';
 
 const mockNavigate = vi.fn();
 let mockSearch: Record<string, unknown> = {};
@@ -74,6 +76,7 @@ function makeFeedResult(
     selectedStorylineId: null,
     filter: 'ALL',
     sortMode: 'LATEST',
+    personalization: { preferredCategories: [] },
     loading: false,
     error: null,
     setFilter: vi.fn(),
@@ -90,6 +93,8 @@ describe('FeedShell', () => {
     mockNavigate.mockReset();
     mockSearch = {};
     resetExpandedCardStore();
+    useDiscoveryStore.getState().reset();
+    localStorage.clear();
     delete (window as Window & { __VH_BOOT_SEARCH__?: string }).__VH_BOOT_SEARCH__;
     window.history.replaceState(window.history.state, '', '/');
   });
@@ -101,16 +106,63 @@ describe('FeedShell', () => {
     expect(screen.getByTestId('feed-shell')).toBeInTheDocument();
   });
 
-  it('renders the editorial masthead for the main feed', () => {
+  it('renders compact feed chrome with live item status', () => {
+    const items = [
+      makeFeedItem({ topic_id: 'news-1', kind: 'NEWS_STORY' }),
+      makeFeedItem({ topic_id: 'topic-1', kind: 'USER_TOPIC' }),
+    ];
+
+    render(<FeedShell feedResult={makeFeedResult({ feed: items, filter: 'NEWS', sortMode: 'HOTTEST' })} />);
+
+    const chrome = screen.getByTestId('feed-shell-chrome');
+    expect(chrome).toBeInTheDocument();
+    expect(within(chrome).getByText('Main feed')).toBeInTheDocument();
+    expect(screen.getByTestId('feed-shell-status')).toHaveTextContent('2 live · 1 news · 1 topics');
+    expect(screen.getByTestId('feed-shell-mode')).toHaveTextContent('News/Hottest');
+  });
+
+  it('labels focused storyline mode in the compact chrome', () => {
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'storyline-news', story_id: 'story-a', storyline_id: 'line-1' }),
+    ]);
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          feed: [makeFeedItem({ topic_id: 'storyline-news', story_id: 'story-a', storyline_id: 'line-1' })],
+          selectedStorylineId: 'line-1',
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('feed-shell-mode')).toHaveTextContent('Storyline focus/Latest/1 items');
+  });
+
+  it('shows the For You orientation only on first use', async () => {
     render(<FeedShell feedResult={makeFeedResult()} />);
 
-    const masthead = screen.getByTestId('feed-shell-masthead');
-    expect(masthead).toBeInTheDocument();
-    expect(within(masthead).getByText('Main Feed')).toBeInTheDocument();
-    expect(within(masthead).getByRole('heading', { name: 'For You' })).toBeInTheDocument();
+    const orientation = await screen.findByTestId('feed-orientation-card');
+    expect(within(orientation).getByText('For You')).toBeInTheDocument();
     expect(
-      within(masthead).getByText(/opens every story or topic into summary, frame \/ reframe, and live replies/i),
+      within(orientation).getByText(/open any card for synthesis, frame \/ reframe, and live replies/i),
     ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(localStorage.getItem(FEED_ORIENTATION_STORAGE_KEY)).toBe('true');
+    });
+
+    cleanup();
+    render(<FeedShell feedResult={makeFeedResult()} />);
+    await waitFor(() => {
+      expect(screen.queryByTestId('feed-orientation-card')).not.toBeInTheDocument();
+    });
+  });
+
+  it('dismisses the first-use orientation card', async () => {
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    expect(await screen.findByTestId('feed-orientation-card')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByTestId('feed-orientation-card')).not.toBeInTheDocument();
   });
 
   it('renders FilterChips component', () => {

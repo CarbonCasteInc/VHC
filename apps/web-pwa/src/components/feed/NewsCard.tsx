@@ -263,7 +263,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       data-story-id={storyId ?? undefined}
       data-storyline-id={storylineId ?? undefined}
       data-feed-detail-id={cardInstanceKey}
-      className="group relative overflow-hidden rounded-[2rem] p-6 shadow-[0_28px_70px_-40px_rgba(15,23,42,0.4)] transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-0.5 hover:shadow-[0_32px_80px_-42px_rgba(15,23,42,0.45)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 md:p-7"
+      className="group relative overflow-hidden rounded-[1.5rem] p-4 shadow-[0_20px_52px_-40px_rgba(15,23,42,0.38)] transition-[box-shadow,border-color,transform] duration-150 hover:-translate-y-px hover:shadow-[0_24px_58px_-42px_rgba(15,23,42,0.42)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-2 md:p-5"
       style={{
         backgroundColor: 'var(--headline-card-bg)',
         borderColor: isExpanded ? 'rgba(15, 23, 42, 0.14)' : 'var(--headline-card-border)',
@@ -277,7 +277,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       onKeyDown={handleCardKeyDown}
       onClick={handleCardClick}
     >
-      <div className="absolute inset-x-6 top-0 h-px bg-gradient-to-r from-transparent via-slate-300/80 to-transparent dark:via-slate-600/80" />
+      <div className="absolute inset-x-4 top-0 h-px bg-gradient-to-r from-transparent via-slate-300/80 to-transparent dark:via-slate-600/80" />
       <div id={frontRegionId} data-testid="flip-front" aria-hidden={isExpanded} style={frontFaceStyle}>
         <NewsCardFront
           item={item}
@@ -301,7 +301,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       <div id={backRegionId} data-testid="flip-back" aria-hidden={!isExpanded} style={backFaceStyle}>
         {isExpanded && (
           <section
-            className="mt-6 border-t border-slate-200/80 pt-6 dark:border-slate-800"
+            className="mt-4 border-t border-slate-200/80 pt-4 dark:border-slate-800"
             data-testid={`news-card-detail-${item.topic_id}`}
           >
             <NewsCardBack

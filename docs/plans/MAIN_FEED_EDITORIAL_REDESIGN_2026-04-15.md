@@ -2,7 +2,7 @@
 
 Status: Implemented
 Owner: Codex
-Last Updated: 2026-04-15
+Last Updated: 2026-04-16
 
 This note records the UI implementation decisions for the main-feed redesign on
 `coord/ui-worktree-20260409`. It is an implementation note, not a canonical
@@ -24,8 +24,12 @@ Make the main feed read like a cross between X/Twitter and Apple News:
 
 The redesigned feed uses a single editorial shell:
 
-- a masthead that frames the surface as the main home feed
-- sticky pill controls for filter and sort
+- no primary VENN/HERMES/AGORA mode switcher in the app chrome; VENN is the
+  home feed, forum cards are reached through the Topics feed filter, and
+  governance/settings entry points live behind the User surface
+- a first-use-only `For You` orientation card stored in local safe storage so
+  returning sessions land directly in the feed
+- minimized sticky controls for filter and sort
 - one card stream with shared spacing, elevation, and rounded geometry
 - cards sized for fast scan first, with expansion carrying the detail load
 
@@ -40,12 +44,13 @@ The visual direction intentionally blends:
 
 Collapsed news cards now emphasize:
 
-- large headline
-- one selected source image when the bundle carries usable media
+- compact headline
+- one selected source image to the side of the headline when the bundle carries
+  usable media
 - overlapping circular source badges
 - singleton vs cluster count at a glance
-- short synthesis preview
-- engagement summary
+- one-line synthesis preview
+- compact engagement counts
 
 Expanded news cards expose:
 
@@ -94,10 +99,10 @@ This keeps context stable across refresh, reload, and shareable deep links.
 
 Validated with:
 
-- `pnpm exec vitest run apps/web-pwa/src/components/feed/FeedShell.test.tsx apps/web-pwa/src/components/feed/NewsCard.test.tsx apps/web-pwa/src/components/feed/NewsCardBack.storyline.test.tsx apps/web-pwa/src/components/feed/NewsCard.sharedTopicIsolation.test.tsx apps/web-pwa/src/components/feed/TopicCard.test.tsx apps/web-pwa/src/components/feed/SourceBadge.test.tsx apps/web-pwa/src/components/feed/SourceBadgeRow.test.tsx apps/web-pwa/src/components/feed/FilterChips.test.tsx apps/web-pwa/src/components/feed/SortControls.test.tsx apps/web-pwa/src/components/feed/FeedEngagement.test.tsx`
-- `pnpm exec tsc -p apps/web-pwa/tsconfig.json --noEmit`
+- `pnpm exec vitest run apps/web-pwa/src/components/feed/FeedShell.test.tsx apps/web-pwa/src/components/feed/NewsCard.test.tsx apps/web-pwa/src/components/feed/NewsCard.storyline.test.tsx apps/web-pwa/src/components/feed/FeedEngagement.test.tsx apps/web-pwa/src/components/feed/FilterChips.test.tsx apps/web-pwa/src/components/feed/SortControls.test.tsx --config vitest.config.ts`
+- `pnpm --filter @vh/web-pwa typecheck`
+- Playwright smoke against the fixture-backed local stack at `http://127.0.0.1:2048/`: 11 feed items, primary mode links removed, first-use orientation persists once, side-image layout detected, and three compact cards visible after reload in a 1365x768 viewport
 - `git diff --check`
-- browser screenshot/manual review against the local stack at `http://127.0.0.1:2048/`
 
 ## Follow-on Constraint
 

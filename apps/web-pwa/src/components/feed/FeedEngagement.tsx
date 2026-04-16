@@ -18,6 +18,7 @@ export interface FeedEngagementProps {
   readonly className?: string;
   readonly testIdPrefix?: string;
   readonly ariaLabel?: string;
+  readonly compact?: boolean;
 }
 
 export const FeedEngagement: React.FC<FeedEngagementProps> = ({
@@ -28,6 +29,7 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
   className,
   testIdPrefix = 'news-card',
   ariaLabel = 'Story engagement',
+  compact = false,
 }) => {
   const prefersReducedMotion = useMemo(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return false;
@@ -43,7 +45,13 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
             'drop-shadow(0 0 4px var(--icon-glow)) drop-shadow(0 0 8px var(--icon-glow))',
         };
 
-  const iconBaseClass = 'h-4 w-4';
+  const iconBaseClass = compact ? 'h-3.5 w-3.5' : 'h-4 w-4';
+  const pillClass = compact
+    ? 'inline-flex items-center gap-1 rounded-full border border-slate-200/80 bg-white/80 px-2 py-0.5 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300'
+    : 'inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 px-2.5 py-1 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300';
+  const labelClass = compact
+    ? 'sr-only'
+    : 'text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500';
 
   return (
     <div
@@ -54,7 +62,7 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
     >
       <span
         data-testid={`${testIdPrefix}-eye-${topicId}`}
-        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 px-2.5 py-1 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
+        className={pillClass}
       >
         {eye > 0 ? (
           <EyeSolid
@@ -72,14 +80,14 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
           />
         )}
         <span>{eye}</span>
-        <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+        <span className={labelClass}>
           Watching
         </span>
       </span>
 
       <span
         data-testid={`${testIdPrefix}-lightbulb-${topicId}`}
-        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 px-2.5 py-1 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
+        className={pillClass}
       >
         {lightbulb > 0 ? (
           <LightBulbSolid
@@ -97,14 +105,14 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
           />
         )}
         <span>{lightbulb}</span>
-        <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+        <span className={labelClass}>
           Stances
         </span>
       </span>
 
       <span
         data-testid={`${testIdPrefix}-comments-${topicId}`}
-        className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/80 bg-white/80 px-2.5 py-1 font-medium text-slate-600 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-300"
+        className={pillClass}
       >
         {comments > 0 ? (
           <ChatBubbleLeftRightSolid
@@ -122,7 +130,7 @@ export const FeedEngagement: React.FC<FeedEngagementProps> = ({
           />
         )}
         <span>{comments}</span>
-        <span className="text-[11px] uppercase tracking-[0.16em] text-slate-400 dark:text-slate-500">
+        <span className={labelClass}>
           Replies
         </span>
       </span>

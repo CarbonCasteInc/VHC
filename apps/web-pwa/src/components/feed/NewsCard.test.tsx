@@ -3,8 +3,10 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
+import type { HermesThread } from '@vh/types';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
+import { useForumStore } from '../../store/hermesForum';
 import { NewsCard } from './NewsCard';
 import {
   getCachedSynthesisForStory,
@@ -110,6 +112,7 @@ describe('NewsCard', () => {
   beforeEach(() => {
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
     localStorage.clear();
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
@@ -145,6 +148,7 @@ describe('NewsCard', () => {
     vi.unstubAllEnvs();
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
   });
   it('renders title and news badge', () => {
     render(<NewsCard item={makeNewsItem()} />);
@@ -153,6 +157,30 @@ describe('NewsCard', () => {
     expect(
       screen.getByText('City council votes on transit plan'),
     ).toBeInTheDocument();
+  });
+  it('marks headline discussion threads as live on compact cards', () => {
+    const headlineThread: HermesThread = {
+      id: 'thread-1',
+      schemaVersion: 'hermes-thread-v0',
+      title: 'Transit discussion',
+      content: 'Talk through the transit vote.',
+      author: 'user-1',
+      timestamp: NOW,
+      tags: ['transit'],
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      topicId: 'news-1',
+      isHeadline: true,
+    };
+
+    useForumStore.setState({
+      threads: new Map<string, HermesThread>([['thread-1', headlineThread]]),
+    });
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByText('Live thread')).toBeInTheDocument();
   });
   it('falls back to unknown timestamp and hotness 0.00 for invalid numeric values', () => {
     const malformed = makeNewsItem({

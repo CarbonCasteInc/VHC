@@ -66,8 +66,8 @@ export const FeedContent: React.FC<FeedContentProps> = ({
   }
 
   return (
-    <div className="space-y-4">
-      <ul data-testid="feed-list" className="space-y-5">
+    <div className="space-y-3">
+      <ul data-testid="feed-list" className="space-y-3">
         {feed.map((item) => (
           <FeedItemRow key={getFeedItemKey(item)} item={item} />
         ))}

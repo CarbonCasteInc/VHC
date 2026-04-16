@@ -41,6 +41,14 @@ describe('FeedEngagement', () => {
     ).toBeInTheDocument();
   });
 
+  it('keeps labels accessible but visually compact when requested', () => {
+    render(<FeedEngagement topicId="topic-compact" eye={3} lightbulb={2} comments={1} compact />);
+
+    expect(screen.getByText('Watching')).toHaveClass('sr-only');
+    expect(screen.getByText('Stances')).toHaveClass('sr-only');
+    expect(screen.getByText('Replies')).toHaveClass('sr-only');
+  });
+
   it('applies glow filter when reduced motion is not requested', () => {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,

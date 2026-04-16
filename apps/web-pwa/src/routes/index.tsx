@@ -39,56 +39,25 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
   return (
     <PageWrapper variant={variant}>
       <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
-        <header className="sticky top-4 z-40 mb-8">
-          <div className="rounded-[2rem] border border-white/70 bg-white/80 px-4 py-4 shadow-[0_24px_60px_-38px_rgba(15,23,42,0.4)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/70">
-            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:gap-6">
-                <div className="space-y-1">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-slate-500 dark:text-slate-400">
-                    VHC
-                  </p>
-                  <div className="flex flex-wrap items-center gap-3 text-sm text-slate-600 dark:text-slate-300">
-                    <span className="font-medium text-slate-900 dark:text-slate-100">
-                      News, context, and conversation in one feed
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                      Peers {peersCount}
-                    </span>
-                  </div>
+        <header className="sticky top-3 z-40 mb-4">
+          <div className="rounded-[1.5rem] border border-white/70 bg-white/84 px-4 py-3 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.38)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/74">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-slate-500 dark:text-slate-400">
+                  VHC
+                </p>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  <span className="truncate font-medium text-slate-900 dark:text-slate-100">
+                    News, context, and conversation in one feed
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    Peers: {peersCount}
+                  </span>
                 </div>
-
-                <nav className="flex flex-wrap items-center gap-2 text-sm">
-                  <Link
-                    to="/"
-                    className="rounded-full border border-slate-200 px-4 py-2 font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white [&.active]:border-slate-900 [&.active]:bg-slate-900 [&.active]:text-white dark:[&.active]:border-white dark:[&.active]:bg-white dark:[&.active]:text-slate-900"
-                  >
-                    VENN
-                  </Link>
-                  <Link
-                    to="/hermes"
-                    className="rounded-full border border-slate-200 px-4 py-2 font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white [&.active]:border-slate-900 [&.active]:bg-slate-900 [&.active]:text-white dark:[&.active]:border-white dark:[&.active]:bg-white dark:[&.active]:text-slate-900"
-                  >
-                    HERMES
-                  </Link>
-                  <Link
-                    to="/governance"
-                    className="rounded-full border border-slate-200 px-4 py-2 font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 hover:text-slate-900 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white [&.active]:border-slate-900 [&.active]:bg-slate-900 [&.active]:text-white dark:[&.active]:border-white dark:[&.active]:bg-white dark:[&.active]:text-slate-900"
-                  >
-                    AGORA
-                  </Link>
-                </nav>
               </div>
 
               <div className="flex items-center justify-end gap-2 text-sm text-slate-500 dark:text-slate-300">
                 <ThemeToggle />
-                <Link
-                  to="/hermes/messages"
-                  aria-label="Messages"
-                  className="inline-flex items-center justify-center rounded-full border border-slate-300/80 bg-white/80 p-2 text-slate-600 transition hover:border-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800"
-                  data-testid="nav-messages"
-                >
-                  <span aria-hidden="true">💬</span>
-                </Link>
                 <Link
                   to="/dashboard"
                   aria-label="User"

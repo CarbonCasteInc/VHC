@@ -212,7 +212,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
 
   return (
     <div
-      className="mx-auto flex max-w-[780px] flex-col gap-5"
+      className="mx-auto flex max-w-[760px] flex-col gap-4"
       data-testid="feed-shell"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
@@ -246,7 +246,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         />
       )}
 
-      <div className="rounded-[2rem] border border-white/70 bg-white/70 p-3 shadow-[0_28px_70px_-42px_rgba(15,23,42,0.36)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/55 sm:p-4">
+      <div className="rounded-[1.5rem] border border-white/70 bg-white/70 p-2.5 shadow-[0_22px_58px_-44px_rgba(15,23,42,0.34)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/55 sm:p-3">
         <FeedContent
           feed={pagedFeed}
           loading={loading}
