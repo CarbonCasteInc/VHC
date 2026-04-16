@@ -37,12 +37,41 @@ function badgeColor(sourceId: string): string {
   return colors[index]!;
 }
 
-function publisherInitial(publisher: string): string {
-  return publisher.charAt(0).toUpperCase() || '?';
+function publisherTag(publisher: string): string {
+  const normalizedPublisher = publisher.trim();
+  const lettersOnly = normalizedPublisher.replace(/[^A-Za-z0-9]/g, '');
+  if (lettersOnly.length > 0 && lettersOnly.length <= 4 && lettersOnly === lettersOnly.toUpperCase()) {
+    return lettersOnly.toLowerCase();
+  }
+
+  const words = normalizedPublisher
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((word, index) => !(index === 0 && word === 'the'));
+
+  if (words.length === 0) {
+    return '???';
+  }
+
+  if (words.length === 1) {
+    return words[0]!.slice(0, 3);
+  }
+
+  if (words.length === 2 && words[1] === 'news') {
+    return words[0]!.slice(0, 3);
+  }
+
+  return words
+    .slice(0, 3)
+    .map((word) => word[0]!)
+    .join('')
+    .slice(0, 3);
 }
 
 /**
- * Compact source badge pill showing publisher initial + name.
+ * Compact circular source badge showing a short publisher tag.
  * Color is deterministic from sourceId for visual consistency.
  */
 export const SourceBadge: React.FC<SourceBadgeProps> = ({
@@ -51,21 +80,19 @@ export const SourceBadge: React.FC<SourceBadgeProps> = ({
   url,
 }) => {
   const colorClass = badgeColor(sourceId);
-  const initial = publisherInitial(publisher);
+  const tag = publisherTag(publisher);
 
   return (
     <a
       href={url}
       target="_blank"
       rel="noopener noreferrer"
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${colorClass} underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500`}
+      className={`inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/90 text-[10px] font-semibold uppercase tracking-[0.16em] shadow-sm transition-transform hover:z-10 hover:-translate-y-0.5 focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${colorClass}`}
       aria-label={`Source: ${publisher}`}
+      title={publisher}
       data-testid={`source-badge-${sourceId}`}
     >
-      <span className="font-bold" aria-hidden="true">
-        {initial}
-      </span>
-      <span className="max-w-[6rem] truncate">{publisher}</span>
+      <span aria-hidden="true">{tag}</span>
     </a>
   );
 };

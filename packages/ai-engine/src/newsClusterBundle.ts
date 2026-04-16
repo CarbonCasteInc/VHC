@@ -121,6 +121,7 @@ export function clusterItemsHeuristic(items: NormalizedItem[], topicId: string):
           url_hash: item.url_hash,
           published_at: item.publishedAt ?? cluster.bucketStart,
           title: item.title,
+          ...(item.imageUrl ? { imageUrl: item.imageUrl } : {}),
         }))
         .sort((left, right) => {
           const leftKey = `${left.source_id}|${left.url_hash}`;

@@ -50,6 +50,7 @@ describe('useSentimentState', () => {
 
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(null);
     vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-1');
+    vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-1');
     vi.spyOn(DataModel, 'deriveVoteIntentId').mockResolvedValue('intent-default');
     vi.spyOn(VoteIntentMaterializer, 'scheduleVoteIntentReplay').mockImplementation(() => {});
     vi.spyOn(GunClient, 'writeSentimentEvent').mockResolvedValue({
@@ -83,6 +84,16 @@ describe('useSentimentState', () => {
       computed_at: 0,
       source_window: { from_seq: 0, to_seq: 0 },
     });
+    vi.spyOn(GunClient, 'writeTopicEngagementActorNode').mockResolvedValue({
+      schema_version: 'topic-engagement-aggregate-v1',
+      topic_id: TOPIC,
+      eye_weight: 1,
+      lightbulb_weight: 0,
+      readers: 1,
+      engagers: 0,
+      version: 1,
+      computed_at: 1,
+    });
 
     useSentimentState.setState({
       agreements: {},
@@ -102,6 +113,7 @@ describe('useSentimentState', () => {
   afterEach(() => {
     budgetMock.restore();
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('cycles agreement and emits signals', () => {
@@ -139,6 +151,139 @@ describe('useSentimentState', () => {
     expect(useSentimentState.getState().getEyeWeight(TOPIC)).toBe(second);
   });
 
+  it('projects read weights to the topic engagement mesh aggregate', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-read');
+    const writeTopicEngagementSpy = vi.spyOn(GunClient, 'writeTopicEngagementActorNode');
+
+    const next = useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(next).toBe(1);
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: expect.any(String),
+      topic_id: TOPIC,
+    });
+    expect(writeTopicEngagementSpy).toHaveBeenCalledWith(
+      fakeClient,
+      TOPIC,
+      'topic-actor-read',
+      expect.objectContaining({
+        eyeWeight: 1,
+        lightbulbWeight: 0,
+      }),
+    );
+  });
+
+  it('reuses an existing topic engagement actor secret when projecting reads', async () => {
+    localStorage.setItem('vh_topic_engagement_actor_secret_v1', ' existing-topic-secret ');
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-existing');
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: 'existing-topic-secret',
+      topic_id: TOPIC,
+    });
+  });
+
+  it('creates topic engagement actor secrets from getRandomValues when randomUUID is unavailable', async () => {
+    vi.stubGlobal('crypto', {
+      getRandomValues: vi.fn((array: Uint8Array) => {
+        array.set(Array.from({ length: array.length }, (_, index) => index));
+        return array;
+      }),
+    });
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-random-values');
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: '000102030405060708090a0b0c0d0e0f',
+      topic_id: TOPIC,
+    });
+  });
+
+  it('creates topic engagement actor secrets from time and random fallback when crypto is unavailable', async () => {
+    vi.stubGlobal('crypto', {});
+    vi.spyOn(Date, 'now').mockReturnValue(123456);
+    vi.spyOn(Math, 'random').mockReturnValue(0.5);
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    const deriveActorSpy = vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-fallback');
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(deriveActorSpy).toHaveBeenCalledWith({
+      localSecret: '2n9c-i',
+      topic_id: TOPIC,
+    });
+  });
+
+  it('logs topic engagement mesh projection failures without rolling back reads', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'writeTopicEngagementActorNode').mockRejectedValue(new Error('topic-write-failed'));
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const next = useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(next).toBe(1);
+    expect(useSentimentState.getState().getEyeWeight(TOPIC)).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:topic-engagement:mesh-write]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        success: false,
+        error: 'topic-write-failed',
+      }),
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it('stringifies non-Error topic engagement projection failures', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(GunClient, 'writeTopicEngagementActorNode').mockRejectedValue('topic-write-string-failed');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    useSentimentState.getState().recordRead(TOPIC);
+    await flushProjection();
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:topic-engagement:mesh-write]',
+      expect.objectContaining({
+        topic_id: TOPIC,
+        success: false,
+        error: 'topic-write-string-failed',
+      }),
+    );
+
+    warnSpy.mockRestore();
+  });
+
   it('accumulates lightbulb_weight via recordEngagement with decay', () => {
     const first = useSentimentState.getState().recordEngagement(TOPIC);
     const second = useSentimentState.getState().recordEngagement(TOPIC);
@@ -146,6 +291,45 @@ describe('useSentimentState', () => {
     expect(second).toBeGreaterThan(first);
     expect(second).toBeLessThan(2);
     expect(useSentimentState.getState().getLightbulbWeight(TOPIC)).toBe(second);
+  });
+
+  it('persists per-topic read and engagement weights across reload bootstrap', () => {
+    const eye = useSentimentState.getState().recordRead(TOPIC);
+    const lightbulb = useSentimentState.getState().recordEngagement(TOPIC);
+
+    expect(JSON.parse(localStorage.getItem('vh_eye_weights_v1') ?? '{}')).toMatchObject({
+      [TOPIC]: eye,
+    });
+    expect(JSON.parse(localStorage.getItem('vh_lightbulb_weights_v1') ?? '{}')).toMatchObject({
+      [TOPIC]: lightbulb,
+    });
+  });
+
+  it('projects generic engagement weights to the topic engagement mesh aggregate', async () => {
+    const fakeClient = {
+      mesh: { get: () => ({}) },
+    } as never;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
+    vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-engage');
+    const writeTopicEngagementSpy = vi.spyOn(GunClient, 'writeTopicEngagementActorNode');
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      eye: { [TOPIC]: 1.285 },
+    });
+
+    const next = useSentimentState.getState().recordEngagement(TOPIC);
+    await flushProjection();
+
+    expect(next).toBe(1);
+    expect(writeTopicEngagementSpy).toHaveBeenCalledWith(
+      fakeClient,
+      TOPIC,
+      'topic-actor-engage',
+      expect.objectContaining({
+        eyeWeight: 1.285,
+        lightbulbWeight: 1,
+      }),
+    );
   });
 
   it('clamps recordRead/recordEngagement weights for NaN, negative, and >2 inputs', () => {

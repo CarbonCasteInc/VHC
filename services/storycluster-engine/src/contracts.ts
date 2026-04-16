@@ -27,6 +27,7 @@ export interface StoryClusterInputDocument {
   canonical_url?: string;
   publisher?: string;
   url_hash?: string;
+  image_url?: string;
   image_hash?: string;
   language_hint?: string;
   entity_keys?: string[];
@@ -58,6 +59,7 @@ export interface StoryClusterBundle {
     url_hash: string;
     published_at: number;
     title: string;
+    imageUrl?: string;
   }>;
   primary_sources: Array<{
     source_id: string;
@@ -67,6 +69,7 @@ export interface StoryClusterBundle {
     url_hash: string;
     published_at: number;
     title: string;
+    imageUrl?: string;
   }>;
   secondary_assets: Array<{
     source_id: string;
@@ -76,6 +79,7 @@ export interface StoryClusterBundle {
     url_hash: string;
     published_at: number;
     title: string;
+    imageUrl?: string;
   }>;
   entity_keys: string[];
   time_bucket: string;
@@ -104,6 +108,7 @@ export interface StoryClusterStorylineGroup {
     url_hash: string;
     published_at: number;
     title: string;
+    imageUrl?: string;
   }>;
   entity_keys: string[];
   time_bucket: string;

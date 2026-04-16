@@ -52,6 +52,7 @@ export const FeedItemSchema = z.object({
   kind: FeedKindSchema,
   title: z.string().min(1),
   entity_keys: z.array(z.string().min(1)).optional(),
+  categories: z.array(z.string().min(1)).optional(),
   created_at: z.number().int().nonnegative(),
   latest_activity_at: z.number().int().nonnegative(),
   hotness: z.number().finite(),
@@ -63,6 +64,18 @@ export const FeedItemSchema = z.object({
 
 export type FeedItem = z.infer<typeof FeedItemSchema>;
 
+// ---------- Personalization config ----------
+
+export const FeedPersonalizationConfigSchema = z.object({
+  preferredCategories: z.array(z.string().min(1)),
+});
+
+export type FeedPersonalizationConfig = z.infer<typeof FeedPersonalizationConfigSchema>;
+
+export const DEFAULT_FEED_PERSONALIZATION_CONFIG: FeedPersonalizationConfig = {
+  preferredCategories: [],
+};
+
 // ---------- Ranking config ----------
 
 export const DEFAULT_HOTNESS_WEIGHTS = {
@@ -73,6 +86,12 @@ export const DEFAULT_HOTNESS_WEIGHTS = {
 } as const;
 
 export const DEFAULT_DECAY_HALF_LIFE_HOURS = 48;
+export const DEFAULT_RANKING_CONFIG_VERSION = 'ranking-v0';
+export const DEFAULT_HOTTEST_DIVERSIFICATION = {
+  window: 12,
+  storylineCap: 2,
+  adjacentEntityOverlapPenalty: 0.35,
+} as const;
 
 export const HotnessWeightsSchema = z.object({
   eye: z.number().finite().nonnegative(),
@@ -83,16 +102,26 @@ export const HotnessWeightsSchema = z.object({
 
 export type HotnessWeights = z.infer<typeof HotnessWeightsSchema>;
 
+export const HottestDiversificationSchema = z.object({
+  window: z.number().int().positive(),
+  storylineCap: z.number().int().positive(),
+  adjacentEntityOverlapPenalty: z.number().finite().nonnegative(),
+});
+
 export const RankingConfigSchema = z.object({
+  version: z.string().min(1).optional(),
   weights: HotnessWeightsSchema,
   decayHalfLifeHours: z.number().finite().positive(),
+  hottestDiversification: HottestDiversificationSchema.optional(),
 });
 
 export type RankingConfig = z.infer<typeof RankingConfigSchema>;
 
 export const DEFAULT_RANKING_CONFIG: RankingConfig = {
+  version: DEFAULT_RANKING_CONFIG_VERSION,
   weights: { ...DEFAULT_HOTNESS_WEIGHTS },
   decayHalfLifeHours: DEFAULT_DECAY_HALF_LIFE_HOURS,
+  hottestDiversification: { ...DEFAULT_HOTTEST_DIVERSIFICATION },
 };
 
 // ---------- Filter-to-kind mapping ----------

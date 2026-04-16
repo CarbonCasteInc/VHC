@@ -2,12 +2,12 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.6  
-Status: Canonical for Season 0 (V2-first alignment)  
+Version: 0.7
+Status: Canonical for Season 0 (V2-first alignment)
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.
 
 This spec restores implementation-level details from Sprint 3/3.5 while aligning naming and linkage to V2 topic synthesis.
@@ -180,11 +180,23 @@ Proposal/elevation rules:
 
 ### 3.1 Feed and navigation
 
-- Forum lives under HERMES (`/hermes/forum`) as communication surface.
+- Forum is the discourse layer for topic/thread cards in the unified feed.
+- User-created forum heads and engaged topic conversations surface through the
+  main feed `Topics` filter and through expanded-card discussion affordances.
+- Once a forum topic has enough healthy conversation depth for synthesis, its
+  expanded feed card uses the same constituent parts as a news story detail:
+  synthesized summary, frame/reframe table, stance controls, engagement counts,
+  then user comments/replies below the table.
+- Direct HERMES/forum routes may remain available for deep links, messages, and
+  internal flows, but the public app shell must not require a primary HERMES
+  tab before a user can discover forum cards.
 - Feed lists topics/threads and supports deterministic sort modes.
 - HERMES and AGORA boundary:
   - HERMES: discourse (messaging, forum, docs)
   - AGORA: support/elevation/forwarding and governance rails
+  - In the public feed UI, AGORA functions are woven into stance, engagement,
+    nomination, and user/profile controls rather than exposed as a separate
+    primary feed mode.
 
 ### 3.2 Topic synthesis refresh linkage
 
@@ -507,3 +519,4 @@ UX:
 7. Nomination thresholds trigger elevation jobs.
 8. V2 linkage by `{topicId, synthesisId, epoch}`.
 9. Privacy invariant checks (no secrets in public forum paths).
+10. Feed-shell regression: forum cards remain discoverable through the `Topics` filter without requiring a primary HERMES tab in the public app chrome.

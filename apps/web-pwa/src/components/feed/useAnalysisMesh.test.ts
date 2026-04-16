@@ -132,6 +132,7 @@ describe('useAnalysisMesh', () => {
       ],
       provider: { provider_id: 'openai', model: 'gpt-5.3-codex' },
       created_at: '2026-02-18T22:00:00.000Z',
+      bundle_identity: analysisMeshInternal.buildAnalysisBundleIdentity(story),
     } as any);
 
     await expect(readMeshAnalysis(story, 'model:default')).resolves.toEqual({
@@ -163,6 +164,50 @@ describe('useAnalysisMesh', () => {
         read_path: 'derived-key',
       }),
     );
+  });
+
+  it('sanitizes legacy source-prefixed mesh summaries on read', async () => {
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: story.provenance_hash,
+      analysisKey: 'derived-key',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:default',
+      summary: 'cbs-politics: Emergency talks began. guardian-us: Mediators convened.',
+      frames: [],
+      analyses: [
+        {
+          source_id: 'cbs-politics',
+          publisher: 'CBS News',
+          url: 'https://example.com/news-1',
+          summary: 'Emergency talks began.',
+          biases: [],
+          counterpoints: [],
+          biasClaimQuotes: [],
+          justifyBiasClaims: [],
+        },
+        {
+          source_id: 'guardian-us',
+          publisher: 'The Guardian',
+          url: 'https://example.com/news-2',
+          summary: 'Mediators convened.',
+          biases: [],
+          counterpoints: [],
+          biasClaimQuotes: [],
+          justifyBiasClaims: [],
+        },
+      ],
+      provider: { provider_id: 'openai', model: 'gpt-5.3-codex' },
+      created_at: '2026-02-18T22:00:00.000Z',
+    } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toMatchObject({
+      summary: 'Emergency talks began. Mediators convened.',
+    });
   });
 
   it('falls back to latest pointer when derived-key read misses', async () => {
@@ -261,14 +306,14 @@ describe('useAnalysisMesh', () => {
     );
   });
 
-  it('falls back to latest pointer when same-story latest provenance has advanced', async () => {
+  it('does not reuse latest-pointer analysis when bundle provenance has advanced', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const story = makeStoryBundle();
 
-    mockReadAnalysis.mockResolvedValueOnce(null);
+    mockReadAnalysis.mockResolvedValue(null);
 
     mockReadLatestAnalysis
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         schemaVersion: 'story-analysis-v1',
         story_id: story.story_id,
         topic_id: story.topic_id,
@@ -283,18 +328,13 @@ describe('useAnalysisMesh', () => {
         created_at: '2026-02-18T22:00:00.000Z',
       } as any);
 
-    await expect(readMeshAnalysis(story, 'model:default')).resolves.toEqual({
-      summary: 'Mismatch provenance',
-      frames: [{ frame: 'f', reframe: 'r' }],
-      analyses: [],
-      relatedLinks: [],
-    });
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
 
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:analysis:mesh]',
       expect.objectContaining({
         story_id: story.story_id,
-        read_path: 'latest-pointer',
+        read_path: 'miss',
       }),
     );
   });
@@ -372,6 +412,13 @@ describe('useAnalysisMesh', () => {
       pipeline_version: 'news-card-analysis-v1',
       model_scope: 'model:default',
       summary: synthesis.summary,
+      bundle_identity: {
+        bundle_revision: story.provenance_hash,
+        source_article_ids: ['src-1:hash-1'],
+        source_count: 1,
+        cluster_window_start: story.cluster_window_start,
+        cluster_window_end: story.cluster_window_end,
+      },
     });
     expect((artifact as any).analysisKey).toMatch(/^[a-f0-9]{64}$/);
     expect(infoSpy).toHaveBeenCalledWith(
@@ -470,5 +517,69 @@ describe('useAnalysisMesh', () => {
     const overriddenModelArtifact = await analysisMeshInternal.toArtifact(story, synthesis, 'model:gpt-4o');
 
     expect(defaultModelArtifact.analysisKey).not.toBe(overriddenModelArtifact.analysisKey);
+  });
+
+  it('sorts source article ids into a stable bundle identity', () => {
+    const story = makeStoryBundle({
+      sources: [
+        {
+          source_id: 'src-b',
+          publisher: 'B',
+          url: 'https://example.com/b',
+          url_hash: 'hash-b',
+          title: 'B',
+        },
+        {
+          source_id: 'src-a',
+          publisher: 'A',
+          url: 'https://example.com/a',
+          url_hash: 'hash-a',
+          title: 'A',
+        },
+      ],
+    });
+
+    expect(analysisMeshInternal.buildAnalysisBundleIdentity(story)).toEqual({
+      bundle_revision: 'prov-1',
+      source_article_ids: ['src-a:hash-a', 'src-b:hash-b'],
+      source_count: 2,
+      cluster_window_start: story.cluster_window_start,
+      cluster_window_end: story.cluster_window_end,
+    });
+  });
+
+  it('rejects direct artifacts whose explicit bundle identity does not match the current story', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: story.provenance_hash,
+      analysisKey: 'derived-key',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:default',
+      summary: 'Wrong bundle identity',
+      frames: [{ frame: 'f', reframe: 'r' }],
+      analyses: [],
+      provider: { provider_id: 'p', model: 'm' },
+      created_at: '2026-02-18T22:00:00.000Z',
+      bundle_identity: {
+        ...analysisMeshInternal.buildAnalysisBundleIdentity(story),
+        source_article_ids: ['other:article'],
+      },
+    } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
+
+    expect(mockReadLatestAnalysis).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh]',
+      expect.objectContaining({
+        story_id: story.story_id,
+        read_path: 'derived-key-invalid',
+      }),
+    );
   });
 });

@@ -22,6 +22,7 @@ export function sourceVariantsForDocument(
     url: document.url,
     canonical_url: document.canonical_url,
     url_hash: document.url_hash ?? sha256Hex(document.url, 16),
+    image_url: document.image_url,
     image_hash: document.image_hash,
     published_at: document.published_at,
     title: document.title,

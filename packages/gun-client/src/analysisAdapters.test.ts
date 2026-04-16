@@ -125,6 +125,13 @@ const ARTIFACT: StoryAnalysisArtifact = {
     timestamp: 1_700_000_000,
   },
   created_at: '2026-02-18T22:00:00.000Z',
+  bundle_identity: {
+    bundle_revision: 'prov-1',
+    source_article_ids: ['src-1:url-hash-1'],
+    source_count: 1,
+    cluster_window_start: 1_700_000_000_000,
+    cluster_window_end: 1_700_003_600_000,
+  },
 };
 
 describe('analysisAdapters', () => {
@@ -183,12 +190,38 @@ describe('analysisAdapters', () => {
         provenance_hash: ARTIFACT.provenance_hash,
         model_scope: ARTIFACT.model_scope,
         created_at: ARTIFACT.created_at,
+        bundle_identity: ARTIFACT.bundle_identity,
       }),
     );
 
     const encoded = mesh.writes[0].value as { artifact_json: string };
     expect(JSON.parse(encoded.artifact_json)).toEqual(ARTIFACT);
 
+    expect(mesh.writes[1]).toEqual({
+      path: 'news/stories/story-1/analysis_latest',
+      value: {
+        analysisKey: ARTIFACT.analysisKey,
+        provenance_hash: ARTIFACT.provenance_hash,
+        model_scope: ARTIFACT.model_scope,
+        created_at: ARTIFACT.created_at,
+        bundle_identity: ARTIFACT.bundle_identity,
+      },
+    });
+  });
+
+  it('writeAnalysis preserves legacy artifacts without bundle identity', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const { bundle_identity: _bundleIdentity, ...legacyArtifact } = ARTIFACT;
+
+    await expect(writeAnalysis(client, legacyArtifact)).resolves.toEqual(legacyArtifact);
+
+    expect(mesh.writes[0].value).toEqual(
+      expect.not.objectContaining({
+        bundle_identity: expect.anything(),
+      }),
+    );
     expect(mesh.writes[1]).toEqual({
       path: 'news/stories/story-1/analysis_latest',
       value: {

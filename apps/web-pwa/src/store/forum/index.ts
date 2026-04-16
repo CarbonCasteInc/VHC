@@ -1,35 +1,23 @@
 import { create, type StoreApi } from 'zustand';
 import {
-  computeThreadScore,
-  deriveTopicId,
-  deriveUrlTopicId,
-  HermesCommentSchema,
-  HermesCommentWriteSchema,
-  HermesThreadSchema,
-  migrateCommentToV1
+  computeThreadScore, deriveTopicId, deriveUrlTopicId, HermesCommentSchema,
+  HermesCommentWriteSchema, HermesThreadSchema, migrateCommentToV1
 } from '@vh/data-model';
 import type { HermesComment, HermesCommentHydratable, HermesThread } from '@vh/types';
 import { getForumCommentsChain, getForumDateIndexChain, getForumTagIndexChain, getForumThreadChain } from '@vh/gun-client';
-import { useAppStore } from '../index';
+import { resolveClientFromAppStore } from '../clientResolver';
 import { useXpLedger } from '../xpLedger';
 import { useSentimentState } from '../../hooks/useSentimentState';
 import type { ForumState, ForumDeps, CommentStanceInput } from './types';
 import { loadIdentity, loadVotesFromStorage, persistVotes } from './persistence';
 import {
-  ensureIdentity,
-  ensureClient,
-  stripUndefined,
-  serializeThreadForGun,
-  isCommentSeen,
-  markCommentSeen,
-  addThread,
-  addComment,
-  adjustVoteCounts,
-  findCommentThread
+  ensureIdentity, ensureClient, stripUndefined, serializeThreadForGun, isCommentSeen,
+  markCommentSeen, addThread, addComment, adjustVoteCounts, findCommentThread
 } from './helpers';
 import { hydrateFromGun } from './hydration';
 import { createMockForumStore } from './mockStore';
 import { notifySynthesisPipeline } from './synthesisBridge';
+import { normalizeThreadSourceContext } from './sourceContext';
 
 export type { ForumState } from './types';
 export { stripUndefined } from './helpers';
@@ -38,7 +26,7 @@ export { createCommentCountTracker, type CommentCountTracker, type TopicCommentS
 
 export function createForumStore(overrides?: Partial<ForumDeps>) {
   const defaults: ForumDeps = {
-    resolveClient: () => useAppStore.getState().client,
+    resolveClient: resolveClientFromAppStore,
     now: () => Date.now(),
     randomId: () =>
       typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
@@ -49,7 +37,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
   const initialVotes = identity?.session?.nullifier ? loadVotesFromStorage(identity.session.nullifier) : new Map();
 
   let storeRef: StoreApi<ForumState> | null = null;
-  const subscribedThreads = new Set<string>(); // Track comment subscriptions to prevent duplicates
+  const subscribedThreads = new Set<string>();
   
   const triggerHydration = () => {
     if (storeRef) hydrateFromGun(deps.resolveClient, storeRef);
@@ -59,7 +47,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     threads: new Map(),
     comments: new Map(),
     userVotes: initialVotes,
-    async createThread(title, content, tags, sourceAnalysisId, opts) {
+    async createThread(title, content, tags, sourceContext, opts) {
       triggerHydration();
       const identity = ensureIdentity();
       const budgetCheck = useXpLedger.getState().canPerformAction('posts/day');
@@ -80,12 +68,23 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         downvotes: 0,
         score: 0
       };
-      if (sourceAnalysisId) threadData.sourceAnalysisId = sourceAnalysisId;
+      const normalizedSourceContext = normalizeThreadSourceContext(sourceContext);
+      if (normalizedSourceContext.sourceSynthesisId) {
+        threadData.sourceSynthesisId = normalizedSourceContext.sourceSynthesisId;
+      }
+      if (normalizedSourceContext.sourceEpoch != null) {
+        threadData.sourceEpoch = normalizedSourceContext.sourceEpoch;
+      }
       if (opts?.sourceUrl) {
         const hash = await deriveUrlTopicId(opts.sourceUrl);
         threadData.sourceUrl = opts.sourceUrl;
         threadData.urlHash = hash;
-        threadData.topicId = hash;
+      }
+      const explicitTopicId = opts?.topicId?.trim();
+      if (explicitTopicId) {
+        threadData.topicId = explicitTopicId;
+      } else if (opts?.sourceUrl) {
+        threadData.topicId = threadData.urlHash;
       } else {
         threadData.topicId = await deriveTopicId(threadId);
       }

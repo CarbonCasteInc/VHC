@@ -79,15 +79,17 @@ describe('FeedItemSchema', () => {
     expect(parsed.story_id).toBe('story-abc-123');
   });
 
-  it('accepts optional storyline and entity metadata for storyline-aware ranking', () => {
+  it('accepts optional storyline, entity, and category metadata for feed ranking', () => {
     const parsed = FeedItemSchema.parse({
       ...validFeedItem,
       story_id: 'story-abc-123',
       storyline_id: 'storyline-abc-123',
       entity_keys: ['budget vote', 'city council'],
+      categories: ['transportation', 'city hall'],
     });
     expect(parsed.storyline_id).toBe('storyline-abc-123');
     expect(parsed.entity_keys).toEqual(['budget vote', 'city council']);
+    expect(parsed.categories).toEqual(['transportation', 'city hall']);
   });
 
   it('accepts NEWS_STORY item without story_id during migration', () => {
@@ -262,6 +264,8 @@ describe('RankingConfigSchema', () => {
   it('accepts valid config', () => {
     const parsed = RankingConfigSchema.parse(DEFAULT_RANKING_CONFIG);
     expect(parsed.decayHalfLifeHours).toBe(48);
+    expect(parsed.version).toBe('ranking-v0');
+    expect(parsed.hottestDiversification?.storylineCap).toBe(2);
   });
 
   it('rejects zero half-life', () => {
@@ -287,6 +291,12 @@ describe('DEFAULT_RANKING_CONFIG', () => {
   it('has expected default values', () => {
     expect(DEFAULT_RANKING_CONFIG.weights).toEqual(DEFAULT_HOTNESS_WEIGHTS);
     expect(DEFAULT_RANKING_CONFIG.decayHalfLifeHours).toBe(DEFAULT_DECAY_HALF_LIFE_HOURS);
+    expect(DEFAULT_RANKING_CONFIG.version).toBe('ranking-v0');
+    expect(DEFAULT_RANKING_CONFIG.hottestDiversification).toEqual({
+      window: 12,
+      storylineCap: 2,
+      adjacentEntityOverlapPenalty: 0.35,
+    });
   });
 
   it('passes its own schema validation', () => {

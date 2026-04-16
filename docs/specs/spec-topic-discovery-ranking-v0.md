@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-13
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.5
+Version: 0.7
 Status: Canonical for Season 0
 Context: Unified feed composition across News, Topics, Social, Articles, and Civic Action surfaces.
 
@@ -29,6 +29,36 @@ Required controls:
 
 Note: `ACTION_RECEIPT` items appear under `All` only — no dedicated filter chip for Season 0.
 
+### 2.1 Product shell and card-density contract
+
+The unified feed is the product home surface. Season 0 UI must not require a
+primary `VENN` / `HERMES` / `AGORA` mode switcher in the app chrome:
+
+- `VENN` is represented by the home feed itself.
+- `HERMES Forum` topics surface through the `Topics` filter and through
+  discussion affordances on expanded feed cards. Direct `/hermes` routes may
+  remain for deep links and internal flows, but they are not the primary
+  feed-discovery navigation.
+- `AGORA` / governance affordances should be woven into card engagement,
+  stance, nomination, and user/profile surfaces rather than exposed as a
+  separate primary feed tab.
+
+The `For You` explainer is an onboarding affordance, not a persistent masthead.
+Clients may show it on first use, but returning sessions should land directly
+on the compact feed controls and card stream.
+
+Collapsed cards should optimize for scan density:
+
+- several cards should be visible in a normal desktop viewport after onboarding
+  chrome has been dismissed;
+- one primary source image, when available, belongs beside the headline/title
+  on the card face rather than as a full-width masthead image;
+- additional distinct source images belong in the expanded detail/gallery;
+- card summaries remain synthesized across sources, never split by
+  publication;
+- source presentation uses the overlapping source strip/badge treatment so
+  singleton vs aggregate stories are legible at a glance.
+
 ## 3. Discovery item contract
 
 ```ts
@@ -46,6 +76,7 @@ interface FeedItem {
   kind: FeedKind;
   title: string;
   entity_keys?: string[];
+  categories?: string[];
   created_at: number;
   latest_activity_at: number;
   hotness: number;
@@ -108,6 +139,18 @@ hotness =
 ```
 
 All coefficients and decay parameters must be config-driven and versioned.
+Top-window diversification parameters and future personalization weights are also config-driven; consumers must not hard-code storyline caps, entity-overlap penalties, or category preference defaults in card components.
+
+Season 0 personalization scaffold:
+
+```ts
+interface FeedPersonalizationConfig {
+  preferredCategories: string[];
+  preferredTopics: string[];
+  mutedCategories: string[];
+  mutedTopics: string[];
+}
+```
 
 ## 6. Cohort threshold and privacy rules
 
@@ -123,9 +166,43 @@ All coefficients and decay parameters must be config-driven and versioned.
 These objects must remain token-free and person/account-identity-free.
 Content identity fields such as `story_id` are allowed where explicitly specified in this contract.
 
-## 8. Synthesis enrichment (Wave 3)
+## 8. Synthesis enrichment and detail rendering
+
+`NEWS_STORY` feed cards are `StoryBundle` backed and may represent either a singleton source or a clustered story. Card detail rendering must use the accepted `TopicSynthesisV2` object when present:
+
+- `facts_summary` is the canonical story summary for singleton and aggregate stories.
+- `frames` is the canonical frame/reframe table.
+- Per-card or per-source analysis may appear only as a labeled provisional fallback when accepted synthesis is absent.
+- Summaries must not be separated by publication. Source-specific opinions and framing belong in frame/reframe rows, not in the facts summary.
+
+Required card affordances:
+
+- source strip / overlapping source badges on the headline face
+- related-coverage/storyline affordance
+- synthesis summary
+- frame/reframe table
+- stance controls on frame/reframe rows
+- engagement counts
+- forum comments below frame/reframe content
+
+News-created forum threads must link with `sourceSynthesisId` + `sourceEpoch` when available and preserve the feed `topic_id` as the thread `topicId`. Legacy `sourceAnalysisId` is read-only compatibility.
+
+Continuous stream behavior:
+
+- validated article-automation / publisher-canary snapshots feed the public news store through the configured snapshot bootstrap URL;
+- the snapshot payload is the public feed projection of bundled output, preserving singleton vs aggregate source composition for headline-card source strips;
+- refreshes surface newer clusters without requiring a tab switch or separate feed mode;
+- lazy pagination reveals older stories as the user scrolls, without dropping the current filter, sort, or restored expanded-card route state.
+
+### 8.1 Topic cards
 
 `USER_TOPIC` feed cards are enriched with `TopicSynthesisV2` data when available.
+User-created forum heads and news stories share the same expanded-card anatomy
+once a topic has enough conversation depth for synthesis: synthesized summary,
+frame/reframe table, stance controls, engagement counts, then forum
+comments/replies below the table. Before that threshold, topic cards must keep
+the thread-head and live conversation usable without pretending synthesis is
+available.
 
 **Rendering contract:**
 - `facts_summary` displays as inline paragraph below title
@@ -150,8 +227,10 @@ Cross-ref: `docs/specs/topic-synthesis-v2.md` for full `TopicSynthesisV2` schema
 4. Cohort-threshold fallback behavior.
 5. Privacy checks (no user identifiers in discovery payloads).
 6. FeedItem schema validation: `title` required, `kind` must be one of the 5 defined kinds.
+7. Product-shell regression: no primary `VENN` / `HERMES` / `AGORA` mode switcher is required for feed use; the first-use orientation does not recur after reload.
+8. Collapsed card density/media regression: compact card controls remain accessible, primary story media renders beside the headline when present, and additional source media remains detail-only.
 
-## 9. Changelog
+## 10. Changelog
 
 | Version | Date | Changes |
 |---------|------|---------|
@@ -160,3 +239,5 @@ Cross-ref: `docs/specs/topic-synthesis-v2.md` for full `TopicSynthesisV2` schema
 | 0.3 | Wave 3 | Added `ACTION_RECEIPT` kind (All filter only), documented filter-to-kind mapping |
 | 0.4 | Wave 3 | Added synthesis enrichment for USER_TOPIC cards (§8), viewport-aware hydration |
 | 0.5 | 2026-03-13 | Added optional `storyline_id`/`entity_keys` to `FeedItem` and documented storyline-aware HOTTEST diversification |
+| 0.6 | 2026-04-16 | Added NEWS_STORY synthesis precedence, source/detail affordance contract, `categories`, personalization scaffold, and V2 forum-thread linkage |
+| 0.7 | 2026-04-16 | Added compact product-shell, first-use orientation, forum/governance navigation, and collapsed-card media-density contracts |

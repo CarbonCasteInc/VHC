@@ -737,7 +737,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
         return { latestCards: latest, hottestCards: hottest };
       });
 
-      const { bundledStory, row, cardA, providerA, pointId, pointContext, canonicalPointId: pointCanonicalId, sourceSummaryTexts } = await test.step('open bundled story and verify analysis readiness', async () => {
+      const { bundledStory, row, cardA, providerA, pointId, pointContext, canonicalPointId: pointCanonicalId, summaryText } = await test.step('open bundled story and verify analysis readiness', async () => {
         const seedStory = await findBundledStory(pageA, BUNDLED_CANDIDATE_LIMIT);
         expect(seedStory.sourceBadgeCount).toBeGreaterThanOrEqual(2);
         const seen = new Set<string>();
@@ -778,24 +778,15 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
           const card = await openStory(pageA, candidateRow);
           try {
             const provider = await waitForAnalysisReady(card, candidateRow, BUNDLED_ANALYSIS_TIMEOUT_MS);
-            const sourceSummaries = card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"] li`);
-            await expect.poll(() => sourceSummaries.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
-            const summaries = (await sourceSummaries.allTextContents()).map((value) => value.trim()).filter(Boolean);
             const cardSummaryText = ((await card.getByTestId(`news-card-summary-${candidateRow.topicId}`).textContent()) ?? '').trim();
-            expect(summaries.length).toBeGreaterThanOrEqual(1);
-            expect(summaries.length).toBeLessThanOrEqual(candidate.story.sourceBadgeCount);
-            const semanticallyAnchored = summaries.filter((value) =>
-              overlapCount(value, candidateRow.headline) > 0 || overlapCount(value, cardSummaryText) > 0,
-            );
-            expect(semanticallyAnchored.length).toBeGreaterThanOrEqual(1);
-            if (summaries.length >= 2) {
-              expect(new Set(summaries.map((value) => value.split(':', 1)[0]?.trim() ?? '')).size).toBeGreaterThanOrEqual(2);
-            }
+            expect(cardSummaryText.length).toBeGreaterThan(0);
+            expect(overlapCount(cardSummaryText, candidateRow.headline)).toBeGreaterThanOrEqual(1);
+            await expect(card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"]`)).toHaveCount(0);
             const selectedPointId = await zeroBaselinePointId(card);
             await attachJson(testInfo, 'daemon-first-feed-analysis-a', {
               bundledStory: candidate.story,
               provider,
-              sourceSummaryTexts: summaries,
+              summaryText: cardSummaryText,
               sourceBadgeIds: candidate.story.sourceBadgeIds,
               pointId: selectedPointId,
               canonicalPointId: await canonicalPointId(card, selectedPointId),
@@ -810,7 +801,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               pointId: selectedPointId,
               pointContext: await pointCellContext(card, selectedPointId),
               canonicalPointId: await canonicalPointId(card, selectedPointId),
-              sourceSummaryTexts: summaries,
+              summaryText: cardSummaryText,
             };
           } catch (error) {
             failures.push({
@@ -831,17 +822,12 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
           const card = await openStory(pageA, candidateRow);
           try {
             const provider = await waitForAnalysisReady(card, candidateRow, BUNDLED_ANALYSIS_TIMEOUT_MS);
-            const sourceSummaries = card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"] li`);
-            await expect.poll(() => sourceSummaries.count(), { timeout: 30_000 }).toBeGreaterThanOrEqual(1);
-            const summaries = (await sourceSummaries.allTextContents()).map((value) => value.trim()).filter(Boolean);
             const cardSummaryText = ((await card.getByTestId(`news-card-summary-${candidateRow.topicId}`).textContent()) ?? '').trim();
             const badgeCount = await card.locator('[data-testid^="source-badge-"]').count();
-            expect(summaries.length).toBeGreaterThanOrEqual(1);
-            expect(summaries.length).toBeLessThanOrEqual(Math.max(1, badgeCount));
-            const semanticallyAnchored = summaries.filter((value) =>
-              overlapCount(value, candidateRow.headline) > 0 || overlapCount(value, cardSummaryText) > 0,
-            );
-            expect(semanticallyAnchored.length).toBeGreaterThanOrEqual(1);
+            expect(cardSummaryText.length).toBeGreaterThan(0);
+            expect(overlapCount(cardSummaryText, candidateRow.headline)).toBeGreaterThanOrEqual(1);
+            expect(badgeCount).toBeGreaterThanOrEqual(1);
+            await expect(card.locator(`[data-testid="news-card-analysis-source-summaries-${candidateRow.topicId}"]`)).toHaveCount(0);
             const selectedPointId = await zeroBaselinePointId(card);
             const fallbackStory: BundledStory = {
               storyId: candidateRow.storyId,
@@ -854,7 +840,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
             await attachJson(testInfo, 'daemon-first-feed-analysis-a', {
               bundledStory: fallbackStory,
               provider,
-              sourceSummaryTexts: summaries,
+              summaryText: cardSummaryText,
               sourceBadgeIds: fallbackStory.sourceBadgeIds,
               pointId: selectedPointId,
               canonicalPointId: await canonicalPointId(card, selectedPointId),
@@ -870,7 +856,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
               pointId: selectedPointId,
               pointContext: await pointCellContext(card, selectedPointId),
               canonicalPointId: await canonicalPointId(card, selectedPointId),
-              sourceSummaryTexts: summaries,
+              summaryText: cardSummaryText,
             };
           } catch (error) {
             failures.push({
@@ -956,7 +942,7 @@ test.describe('daemon-first StoryCluster feed integrity', () => {
           canonicalPointId: pointCanonicalId,
           pointIdB,
           pointIdAReloaded,
-          sourceSummaryTexts,
+          summaryText,
         },
         votes: { beforeA, afterA, beforeB, afterB },
       });

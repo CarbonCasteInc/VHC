@@ -11,6 +11,7 @@ function toBundleSource(document: StoredSourceDocument): StoryClusterBundle['sou
     url_hash: document.url_hash,
     published_at: document.published_at,
     title: document.title,
+    ...(document.image_url ? { imageUrl: document.image_url } : {}),
   };
 }
 
@@ -28,6 +29,7 @@ function relatedCoverageVariants(document: WorkingDocument): StoredSourceDocumen
       url: variant.url,
       canonical_url: variant.canonical_url,
       url_hash: variant.url_hash,
+      ...(variant.image_url ? { image_url: variant.image_url } : {}),
       image_hash: variant.image_hash,
       published_at: variant.published_at,
       title: variant.title,

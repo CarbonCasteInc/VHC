@@ -2,6 +2,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+let workspacePackageCache = null;
+
 function isRelativeSpecifier(specifier) {
   return (
     specifier.startsWith('./') ||
@@ -10,7 +13,90 @@ function isRelativeSpecifier(specifier) {
   );
 }
 
+function workspacePackages() {
+  if (workspacePackageCache) {
+    return workspacePackageCache;
+  }
+
+  const packages = new Map();
+  for (const rootName of ['packages', 'services', 'apps']) {
+    const rootDir = path.join(repoRoot, rootName);
+    if (!fs.existsSync(rootDir)) {
+      continue;
+    }
+    for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const packageDir = path.join(rootDir, entry.name);
+      const packageJsonPath = path.join(packageDir, 'package.json');
+      if (!fs.existsSync(packageJsonPath)) {
+        continue;
+      }
+      try {
+        const manifest = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+        if (typeof manifest.name === 'string' && manifest.name.startsWith('@vh/')) {
+          packages.set(manifest.name, { packageDir, manifest });
+        }
+      } catch {
+        // Fall through to default Node resolution for malformed manifests.
+      }
+    }
+  }
+
+  workspacePackageCache = packages;
+  return packages;
+}
+
+function importTargetForExport(exportEntry) {
+  if (typeof exportEntry === 'string') {
+    return exportEntry;
+  }
+  if (!exportEntry || typeof exportEntry !== 'object') {
+    return undefined;
+  }
+  return exportEntry.import ?? exportEntry.default ?? exportEntry.require;
+}
+
+function workspacePackageTarget(specifier) {
+  if (!specifier.startsWith('@vh/')) {
+    return null;
+  }
+
+  const [scope, name, ...subpathParts] = specifier.split('/');
+  const packageName = `${scope}/${name}`;
+  const workspacePackage = workspacePackages().get(packageName);
+  if (!workspacePackage) {
+    return null;
+  }
+
+  const subpath = subpathParts.length > 0 ? `./${subpathParts.join('/')}` : '.';
+  const exportsMap = workspacePackage.manifest.exports;
+  let exportEntry;
+  if (subpath === '.') {
+    exportEntry = exportsMap?.['.'] ?? workspacePackage.manifest.main;
+  } else {
+    exportEntry = exportsMap?.[subpath];
+  }
+
+  const target = importTargetForExport(exportEntry);
+  if (!target) {
+    return null;
+  }
+
+  const candidate = path.resolve(workspacePackage.packageDir, target);
+  return fs.existsSync(candidate) && fs.statSync(candidate).isFile() ? candidate : null;
+}
+
 export async function resolve(specifier, context, defaultResolve) {
+  const workspaceTarget = workspacePackageTarget(specifier);
+  if (workspaceTarget) {
+    return {
+      url: pathToFileURL(workspaceTarget).href,
+      shortCircuit: true,
+    };
+  }
+
   try {
     return await defaultResolve(specifier, context, defaultResolve);
   } catch (error) {

@@ -38,41 +38,42 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
 
   return (
     <PageWrapper variant={variant}>
-      <div className="mx-auto max-w-4xl px-6 py-6 space-y-8">
-        <header className="grid grid-cols-[1fr_auto_1fr] items-center border-b border-slate-200 pb-3 dark:border-slate-800">
-          <div className="text-left">
-            <p className="text-[11px] leading-tight text-slate-500 dark:text-slate-400">Peers: {peersCount}</p>
-          </div>
-          <nav className="flex items-center gap-4 text-[44px] font-light tracking-[0.2em] leading-[1.05] text-slate-900 dark:text-slate-50 uppercase">
-            <Link to="/" className="hover:text-teal-700 dark:hover:text-emerald-300 [&.active]:text-teal-700 dark:[&.active]:text-emerald-300">VENN</Link>
-            <span className="text-slate-400 dark:text-slate-600">/</span>
-            <Link to="/hermes" className="hover:text-teal-700 dark:hover:text-emerald-300 [&.active]:text-teal-700 dark:[&.active]:text-emerald-300">HERMES</Link>
-            <span className="text-slate-400 dark:text-slate-600">/</span>
-            <Link to="/governance" className="hover:text-teal-700 dark:hover:text-emerald-300 [&.active]:text-teal-700 dark:[&.active]:text-emerald-300">AGORA</Link>
-          </nav>
-          <div className="flex items-center justify-end gap-2 text-sm text-slate-500 dark:text-slate-300">
-            <ThemeToggle />
-            <Link
-              to="/hermes/messages"
-              aria-label="Messages"
-              className="inline-flex items-center justify-center rounded-full border border-slate-300 p-2 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-              data-testid="nav-messages"
-            >
-              <span aria-hidden="true">💬</span>
-            </Link>
-            <Link
-              to="/dashboard"
-              aria-label="User"
-              data-testid="user-link"
-              className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-3 py-2 text-slate-600 hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <span className="text-xs font-semibold">User</span>
-            </Link>
+      <div className="mx-auto max-w-6xl px-4 py-4 sm:px-6 lg:px-8">
+        <header className="sticky top-3 z-40 mb-4">
+          <div className="rounded-[1.5rem] border border-white/70 bg-white/84 px-4 py-3 shadow-[0_18px_45px_-34px_rgba(15,23,42,0.38)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/74">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-slate-500 dark:text-slate-400">
+                  VHC
+                </p>
+                <div className="mt-1 flex min-w-0 flex-wrap items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                  <span className="truncate font-medium text-slate-900 dark:text-slate-100">
+                    News, context, and conversation in one feed
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-medium text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                    Peers: {peersCount}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 text-sm text-slate-500 dark:text-slate-300">
+                <ThemeToggle />
+                <Link
+                  to="/dashboard"
+                  aria-label="User"
+                  data-testid="user-link"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-3 py-2 text-slate-600 transition hover:border-slate-400 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                  </svg>
+                  <span className="text-xs font-semibold uppercase tracking-[0.18em]">User</span>
+                </Link>
+              </div>
+            </div>
           </div>
         </header>
+
         <main className="space-y-6">
           {initializing && !client ? (
             <div className="rounded-lg border border-slate-200 bg-card p-4 shadow-sm dark:border-slate-700">
@@ -88,27 +89,7 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
   );
 };
 
-const HomeComponent = () => (
-  <section className="space-y-4">
-    <div
-      className="rounded-2xl p-5 shadow-sm space-y-3"
-      style={{
-        backgroundColor: 'var(--section-container-bg)',
-        borderColor: 'var(--section-container-border)',
-        borderWidth: '1px',
-        borderStyle: 'solid'
-      }}
-    >
-      <p
-        className="text-sm font-semibold tracking-[0.08em] uppercase"
-        style={{ color: 'var(--section-title)' }}
-      >
-        Headlines
-      </p>
-      <FeedList />
-    </div>
-  </section>
-);
+const HomeComponent = () => <FeedList />;
 
 const DashboardComponent = DashboardPage;
 
@@ -135,7 +116,14 @@ const HermesShell: React.FC = () => {
 // /hermes shows the forum feed directly
 const HermesIndexPage: React.FC = () => {
   const { location } = useRouterState();
-  const search = location.search as { sourceAnalysisId?: string; title?: string; sourceUrl?: string };
+  const search = location.search as {
+    sourceSynthesisId?: string;
+    sourceEpoch?: number;
+    sourceAnalysisId?: string;
+    title?: string;
+    sourceUrl?: string;
+  };
+  const sourceSynthesisId = search?.sourceSynthesisId ?? search?.sourceAnalysisId;
   return (
     <div className="space-y-4">
       <div
@@ -153,7 +141,12 @@ const HermesIndexPage: React.FC = () => {
         >
           Forum Threads
         </p>
-        <ForumFeed sourceAnalysisId={search?.sourceAnalysisId} defaultTitle={search?.title} sourceUrl={search?.sourceUrl} />
+        <ForumFeed
+          sourceSynthesisId={sourceSynthesisId}
+          sourceEpoch={search?.sourceEpoch}
+          defaultTitle={search?.title}
+          sourceUrl={search?.sourceUrl}
+        />
       </div>
     </div>
   );
@@ -189,7 +182,12 @@ const rootRoute = createRootRoute({
   notFoundComponent: () => <div className="text-slate-700">Not Found</div>
 });
 
-const indexRoute = createRoute({ getParentRoute: () => rootRoute, path: '/', component: HomeComponent });
+const indexRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/',
+  component: HomeComponent,
+  validateSearch: (search: Record<string, unknown>) => search,
+});
 const hermesRoute = createRoute({ getParentRoute: () => rootRoute, path: '/hermes', component: HermesShell });
 const hermesIndexRoute = createRoute({
   getParentRoute: () => hermesRoute,

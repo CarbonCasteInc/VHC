@@ -94,7 +94,9 @@ describe('summaryBuilder', () => {
   it('builds summaries with lead, coverage, and update sentences', () => {
     const summary = buildClusterSummary(makeCluster('Ports remained shut after the overnight attack.'));
     expect(summary).toContain('Ports remained shut after the overnight attack.');
-    expect(summary).toContain('2 sources across');
+    expect(summary).toContain('2 canonical reports tracked the event');
+    expect(summary).not.toContain('Reuters');
+    expect(summary).not.toContain('AP');
     expect(summary).toContain('Officials say recovery talks begin Friday.');
   });
 
@@ -131,10 +133,11 @@ describe('summaryBuilder', () => {
     const cluster = makeCluster('Ports remained shut after the overnight attack.');
     cluster.source_documents = [cluster.source_documents[0]!];
 
-    expect(buildClusterSummary(cluster)).toContain('1 source across Reuters');
+    expect(buildClusterSummary(cluster)).toContain('1 canonical report tracked the event');
+    expect(buildClusterSummary(cluster)).not.toContain('Reuters');
   });
 
-  it('mentions a singular same-publisher asset tail when applicable', () => {
+  it('keeps same-publisher asset metadata out of the summary', () => {
     const cluster = makeCluster('Ports remained shut after the overnight attack.');
     cluster.source_documents.push({
       ...cluster.source_documents[0]!,
@@ -149,10 +152,10 @@ describe('summaryBuilder', () => {
       doc_ids: ['doc-c'],
     });
 
-    expect(buildClusterSummary(cluster)).toContain('with 1 additional same-publisher asset');
+    expect(buildClusterSummary(cluster)).not.toContain('same-publisher asset');
   });
 
-  it('uses plural same-publisher asset wording when applicable', () => {
+  it('omits plural same-publisher asset metadata from the summary', () => {
     const cluster = makeCluster('Ports remained shut after the overnight attack.');
     cluster.source_documents.push(
       {
@@ -181,7 +184,7 @@ describe('summaryBuilder', () => {
       },
     );
 
-    expect(buildClusterSummary(cluster)).toContain('with 2 additional same-publisher assets');
+    expect(buildClusterSummary(cluster)).not.toContain('same-publisher assets');
   });
 
   it('uses plural hour wording when the cluster spans multiple hours', () => {
@@ -201,6 +204,6 @@ describe('summaryBuilder', () => {
       },
     ];
 
-    expect(buildClusterSummary(cluster)).toContain('1 source across');
+    expect(buildClusterSummary(cluster)).toContain('1 canonical report tracked the event');
   });
 });

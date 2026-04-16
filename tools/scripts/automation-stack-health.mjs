@@ -85,6 +85,23 @@ async function probeHttp(url, timeoutMs = 5000, options = {}) {
   }
 }
 
+async function probeJson(url, timeoutMs = 5000, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    const json = res.ok ? await res.json() : null;
+    clearTimeout(timer);
+    return { ok: res.ok, status: res.status, json, error: null };
+  } catch (err) {
+    clearTimeout(timer);
+    return { ok: false, status: null, json: null, error: err.message };
+  }
+}
+
 // --- main ---
 
 async function checkServices() {
@@ -103,6 +120,9 @@ async function checkServices() {
     }),
     probeHttp(`http://127.0.0.1:${webPort}/`),
   ]);
+  const snapshotMetaProbe = snapshotProbe.ok
+    ? await probeJson(`http://127.0.0.1:${snapshotPort}/meta.json`)
+    : { ok: false, status: null, json: null, error: null };
 
   const snapshotPid = readPid(args['snapshot-pid-file']);
   const relayPid    = readPid(args['relay-pid-file']);
@@ -130,7 +150,14 @@ async function checkServices() {
     ports: { snapshot: snapshotPort, relay: relayPort, storycluster: storyclusterPort, web: webPort },
     pids: { snapshot: snapshotLivePid, relay: relayLivePid, storycluster: storyclusterLivePid, web: webLivePid },
     healthStatus: allHealthy ? 'healthy' : 'degraded',
-    probes: { snapshot: snapshotProbe, relay: relayProbe, storycluster: storyclusterProbe, web: webProbe },
+    snapshotMeta: snapshotMetaProbe.json,
+    probes: {
+      snapshot: snapshotProbe,
+      snapshotMeta: snapshotMetaProbe,
+      relay: relayProbe,
+      storycluster: storyclusterProbe,
+      web: webProbe,
+    },
   };
 }
 
@@ -148,7 +175,9 @@ async function main() {
     services: result.services,
     ports: result.ports,
     pids: result.pids,
-    snapshotPath: null,
+    snapshotPath: result.snapshotMeta?.fixture?.snapshotPath ?? null,
+    snapshotSummary: result.snapshotMeta?.snapshotSummary ?? null,
+    rollingWindow: result.snapshotMeta?.rollingWindow ?? null,
     webBaseUrl: `http://127.0.0.1:${result.ports.web}`,
     storyclusterClusterUrl: `http://127.0.0.1:${result.ports.storycluster}/cluster`,
     storyclusterReadyUrl: `http://127.0.0.1:${result.ports.storycluster}/ready`,

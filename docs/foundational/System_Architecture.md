@@ -2,12 +2,12 @@
 
 > Status: Architecture Contract
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-20
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/TRINITY_Season0_SoT.md
 
 
-Codename: TRINITY (VENN/HERMES x LUMA x GWC)  
-Version: 0.4.0 (Season 0 Ship Snapshot, V2-first)  
+Codename: TRINITY (VENN/HERMES x LUMA x GWC)
+Version: 0.4.0 (Season 0 Ship Snapshot, V2-first)
 Status: Approved target architecture
 
 This document defines target architecture contracts and defaults for Season 0.
@@ -100,6 +100,21 @@ Feed controls:
 - filters: `All`, `News`, `Topics`, `Social`, `Articles`
 - sort modes: `Latest`, `Hottest`, `My Activity`
 
+Product shell defaults:
+
+- the unified feed is the primary home surface; there is no required
+  top-level `VENN` / `HERMES` / `AGORA` feed mode switcher in the public app
+  chrome;
+- forum headlines and engaged user-created topics are discovered through the
+  `Topics` filter and card discussion affordances, while direct forum routes
+  remain available for deep links and internal flows;
+- governance/elevation controls appear through stance, engagement, nomination,
+  and user/profile surfaces instead of a separate primary feed tab;
+- `For You` is a first-use orientation card, not a persistent masthead;
+- collapsed news cards should remain compact and place any primary story image
+  beside the headline/title; additional source images belong in expanded
+  detail galleries.
+
 News-feed publication note:
 
 - a readable news story may appear in the feed with a single canonical source;
@@ -171,39 +186,58 @@ Notes:
 
 ```ts
 interface StoryBundle {
+  schemaVersion: 'story-bundle-v0';
   story_id: string;
   topic_id: TopicId;
   storyline_id?: string;
   headline: string;
+  summary_hint?: string;
   cluster_window_start: number;
   cluster_window_end: number;
   sources: Array<{
     source_id: string;
-    url: string;
     publisher: string;
-    published_at: number;
+    url: string;
     url_hash: string;
+    published_at?: number;
+    title: string;
+    imageUrl?: string;
   }>;
   primary_sources?: Array<{
     source_id: string;
-    url: string;
     publisher: string;
-    published_at: number;
+    url: string;
     url_hash: string;
+    published_at?: number;
+    title: string;
+    imageUrl?: string;
   }>;
   secondary_assets?: Array<{
     source_id: string;
-    url: string;
     publisher: string;
-    published_at: number;
+    url: string;
     url_hash: string;
+    published_at?: number;
+    title: string;
+    imageUrl?: string;
   }>;
-  cluster_method: 'semantic+entity+time';
+  cluster_features: {
+    entity_keys: string[];
+    time_bucket: string;
+    semantic_signature: string;
+    coverage_score?: number;
+    velocity_score?: number;
+    confidence_score?: number;
+    primary_language?: string;
+    translation_applied?: boolean;
+  };
   provenance_hash: string;
+  created_at: number;
 }
 ```
 
 `StorylineGroup` is now a separate published runtime contract used for related coverage grouping and discovery diversification. It does not widen canonical `StoryBundle` membership.
+Source-level `imageUrl` is presentation/provenance metadata for cards and detail galleries. It must not split summaries by publication or affect canonical event-bundle membership.
 
 Publication discipline:
 
@@ -289,7 +323,7 @@ interface SentimentSignal {
 Civic Decay function:
 
 ```ts
-next = current + 0.3 * (2 - current);
+next = current + 0.3 * (1.95 - current);
 ```
 
 ## 6. Identity and Trust Model (Cross-Cutting)

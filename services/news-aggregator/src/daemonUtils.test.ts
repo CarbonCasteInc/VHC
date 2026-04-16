@@ -131,6 +131,7 @@ describe('daemonUtils', () => {
     vi.stubEnv('VH_STORYCLUSTER_REMOTE_AUTH_HEADER', 'x-auth');
     vi.stubEnv('VH_STORYCLUSTER_REMOTE_AUTH_SCHEME', 'Token');
     vi.stubEnv('VH_STORYCLUSTER_REMOTE_TIMEOUT_MS', '9300');
+    vi.stubEnv('VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST', '8');
     vi.stubEnv('VH_STORYCLUSTER_REMOTE_HEALTH_URL', 'https://storycluster.example.com/status');
 
     const parsed = parseStoryClusterRemoteConfig();
@@ -139,6 +140,7 @@ describe('daemonUtils', () => {
       endpointUrl: 'https://storycluster.example.com/cluster',
       healthUrl: 'https://storycluster.example.com/status',
       timeoutMs: 9300,
+      maxItemsPerRequest: 8,
       headers: {
         'x-auth': 'Token token-abc',
       },

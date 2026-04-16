@@ -194,6 +194,7 @@ export * from './synthesisAdapters';
 export * from './newsAdapters';
 export * from './storylineAdapters';
 export * from './analysisAdapters';
+export * from './topicEngagementAdapters';
 export * from './sentimentEventAdapters';
 export * from './aggregateAdapters';
 export * from './sentimentAdapters';

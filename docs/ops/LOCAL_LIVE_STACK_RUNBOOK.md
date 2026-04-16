@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-29
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md, docs/ops/AUTOMATION_STACK_RUNBOOK.md, docs/CANON_MAP.md
 
 
@@ -65,17 +65,38 @@ Public/admitted-source variant:
 pnpm live:stack:up:public
 ```
 
-Latest valid published-snapshot variant:
+Rolling valid published-snapshot variant:
 
 ```bash
 pnpm live:stack:up:validated-snapshot
 ```
 
 Validated-snapshot behavior:
-- uses the latest passing publisher-canary artifact as the news input
+- uses a newest-first rolling stream assembled from recent passing
+  publisher-canary artifacts, deduped by `story_id`
+- re-resolves the latest passing artifacts while the stack is running, so a
+  later passing automation canary can prepend fresh stories without restarting
+  the stack
+- the browser bootstrap refreshes the configured snapshot URL on an interval
+  and mirrors updated `StoryBundle` output into discovery
+- the feed store windows that rolling stream; scrolling reveals older retained
+  stories, while reload or refresh receives the newest passing canary output
 - keeps the stack in consumer mode for news
 - avoids live ingest/runtime volatility while still showing recent, validity-envelope-approved `StoryBundle` output
 - is the preferred manual mode when UI needs fresher realistic data than the deterministic fixture feed without depending on current public ingest luck
+
+Refresh knobs:
+- artifact root: `VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT` or
+  `VH_DAEMON_FEED_PUBLISHER_CANARY_ARTIFACT_ROOT` points at
+  `.tmp/daemon-feed-publisher-canary`; when unset, the local stack uses the
+  current checkout artifact root if it has snapshots, otherwise the `main`
+  worktree artifact root when available
+- snapshot server: `VH_VALIDATED_SNAPSHOT_REFRESH_MS` (default `10000`; `0` freezes the initial artifact)
+- rolling artifact window: `VH_VALIDATED_SNAPSHOT_ROLLING_ARTIFACT_LIMIT`
+  (default `24` passing artifacts)
+- rolling story cap: `VH_VALIDATED_SNAPSHOT_MAX_STORIES` (default `150`
+  deduped stories)
+- browser consumer: `VITE_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS` or `VH_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS` (default `60000`; `0` disables polling)
 
 Status check:
 
@@ -88,6 +109,29 @@ Full regression smoke (vote semantics + 3-user convergence + strict matrix N=1):
 ```bash
 pnpm live:smoke
 ```
+
+Local production preview against the running manual stack:
+
+```bash
+VITE_E2E_MODE=false \
+VITE_VH_ANALYSIS_PIPELINE=true \
+VITE_NEWS_RUNTIME_ENABLED=false \
+VITE_NEWS_RUNTIME_ROLE=consumer \
+VITE_NEWS_BRIDGE_ENABLED=true \
+VITE_GUN_PEERS='["http://localhost:7777/gun"]' \
+VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS=7500 \
+VITE_VH_GUN_PUT_ACK_TIMEOUT_MS=3000 \
+VITE_VH_GUN_READ_TIMEOUT_MS=4000 \
+VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS=8000 \
+VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS=90000 \
+pnpm --filter @vh/web-pwa build
+
+pnpm --filter @vh/web-pwa preview --host 127.0.0.1 --port 2050 --strictPort
+```
+
+Preview notes:
+- Use this command when validating distribution assets locally; the default web build is intentionally feature-flag neutral and can render an empty feed even while the daemon stack is healthy.
+- The local production preview must use the local relay peer only. Browser console attempts to `100.75.18.26:7777` during a localhost preview indicate peer-resolution drift.
 
 Shutdown:
 
@@ -141,12 +185,17 @@ Use this checklist during manual browser validation:
    - `readinessStatus`
    - `promotionBlockingReasons`
    - `promotionAssessment`
-16. If the lane changes source onboarding, extraction, or source reliability behavior, review `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` and confirm the source contract still holds.
-17. Confirm any newly admitted source is accessible and readable in practice:
+16. In validated-snapshot mode, confirm `/meta.json` on the snapshot server
+    points at the expected latest passing publisher-canary artifact, includes a
+    `rollingWindow`, reports enough stories to exceed the initial feed page
+    when artifacts are available, and that the visible feed updates after the
+    browser snapshot refresh interval.
+17. If the lane changes source onboarding, extraction, or source reliability behavior, review `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md` and confirm the source contract still holds.
+18. Confirm any newly admitted source is accessible and readable in practice:
    - no paywall-dependent article path;
    - no persistent truncation/robots-blocked behavior;
    - extraction succeeds at the required quality bar.
-18. Confirm singleton-first publication remains acceptable for the changed lane:
+19. Confirm singleton-first publication remains acceptable for the changed lane:
    - single-source stories may appear in feed;
    - later same-incident / same-developing-episode coverage still attaches without identity churn where covered by the evidence set.
 
@@ -239,7 +288,7 @@ When reviewing StoryCluster release evidence:
   - StoryCluster: `/tmp/vh-local-storycluster.log`
   - fixture feed: `/tmp/vh-local-fixture-feed.log`
 - `pnpm live:stack:up` is the canonical manual browser path and defaults to fixture-backed bundled-headlines mode.
-- `pnpm live:stack:up:validated-snapshot` is the canonical manual browser path when UI work wants the latest passing publisher-canary snapshot instead of deterministic fixture data.
+- `pnpm live:stack:up:validated-snapshot` is the canonical manual browser path when UI work wants the rolling publisher-canary snapshot stream instead of deterministic fixture data.
 - `tools/scripts/manual-dev.sh` is now a compatibility wrapper around the same canonical stack launcher.
 - The launcher script is:
   - `tools/scripts/live-local-stack.sh`

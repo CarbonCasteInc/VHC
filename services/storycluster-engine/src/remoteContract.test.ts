@@ -11,6 +11,7 @@ function makePayload(entityKeys: string[] = ['port_attack']) {
         publisher: 'Reuters',
         url: 'https://example.com/a',
         canonicalUrl: 'https://example.com/a',
+        imageUrl: 'https://example.com/a.jpg',
         title: 'Port attack disrupts terminals overnight',
         publishedAt: 100,
         summary: 'Officials say recovery talks begin Friday.',
@@ -35,7 +36,9 @@ describe('runStoryClusterRemoteContract', () => {
     expect(bundle.schemaVersion).toBe('story-bundle-v0');
     expect(bundle.topic_id).toBe(remoteContractInternal.deriveNewsTopicId(bundle.story_id));
     expect(bundle.sources).toHaveLength(1);
+    expect(bundle.sources[0]?.imageUrl).toBe('https://example.com/a.jpg');
     expect(bundle.primary_sources).toHaveLength(1);
+    expect(bundle.primary_sources?.[0]?.imageUrl).toBe('https://example.com/a.jpg');
     expect(bundle.secondary_assets).toEqual([]);
     expect(bundle.storyline_id).toBeUndefined();
     expect(response.storylines).toEqual([]);
@@ -106,6 +109,51 @@ describe('runStoryClusterRemoteContract', () => {
     expect(second.bundles[0]?.sources.map((source) => source.source_id)).toEqual(['wire-a', 'wire-b', 'wire-c']);
   });
 
+  it('returns the full topic snapshot after a follow-up tick adds a disjoint story', async () => {
+    const store = new MemoryClusterStore();
+    await runStoryClusterRemoteContract({
+      topic_id: 'topic-snapshot',
+      items: [
+        {
+          sourceId: 'wire-a',
+          publisher: 'Reuters',
+          url: 'https://example.com/a',
+          canonicalUrl: 'https://example.com/a',
+          imageUrl: 'https://example.com/a.jpg',
+          title: 'Port attack disrupts terminals overnight',
+          publishedAt: 100,
+          summary: 'Officials say recovery talks begin Friday.',
+          url_hash: 'hash-a',
+          entity_keys: ['port_attack'],
+        },
+      ],
+    }, { clock: () => 200, store });
+
+    const second = await runStoryClusterRemoteContract({
+      topic_id: 'topic-snapshot',
+      items: [
+        {
+          sourceId: 'wire-b',
+          publisher: 'AP',
+          url: 'https://example.com/b',
+          canonicalUrl: 'https://example.com/b',
+          title: 'Capitol transit resumes after morning evacuation',
+          publishedAt: 300,
+          summary: 'Train service resumed after the evacuation was lifted.',
+          url_hash: 'hash-b',
+          entity_keys: ['capitol_evacuation'],
+        },
+      ],
+    }, { clock: () => 400, store });
+
+    expect(second.bundles).toHaveLength(2);
+    expect(second.bundles.map((bundle) => bundle.primary_sources?.[0]?.source_id)).toEqual([
+      'wire-a',
+      'wire-b',
+    ]);
+    expect(second.bundles[0]?.primary_sources?.[0]?.imageUrl).toBe('https://example.com/a.jpg');
+  });
+
   it('projects same-publisher derivative assets into secondary assets only', async () => {
     const response = await runStoryClusterRemoteContract({
       topic_id: 'topic-assets',
@@ -115,6 +163,7 @@ describe('runStoryClusterRemoteContract', () => {
           publisher: 'CBS',
           url: 'https://example.com/article',
           canonicalUrl: 'https://example.com/article',
+          imageUrl: 'https://example.com/article.jpg',
           title: 'Jan. 6 plaque honoring police officers displayed at the Capitol after delay',
           publishedAt: 100,
           summary: 'The plaque was installed after a delay.',
@@ -126,6 +175,7 @@ describe('runStoryClusterRemoteContract', () => {
           publisher: 'CBS',
           url: 'https://example.com/video/plaque',
           canonicalUrl: 'https://example.com/video/plaque',
+          imageUrl: 'https://example.com/video.jpg',
           title: 'Video: Jan. 6 plaque honoring police officers displayed at the Capitol',
           publishedAt: 110,
           summary: undefined,
@@ -137,7 +187,9 @@ describe('runStoryClusterRemoteContract', () => {
 
     expect(response.bundles[0]?.sources.map((source) => source.source_id)).toEqual(['cbs-article']);
     expect(response.bundles[0]?.primary_sources?.map((source) => source.source_id)).toEqual(['cbs-article']);
+    expect(response.bundles[0]?.primary_sources?.[0]?.imageUrl).toBe('https://example.com/article.jpg');
     expect(response.bundles[0]?.secondary_assets?.map((source) => source.source_id)).toEqual(['cbs-video']);
+    expect(response.bundles[0]?.secondary_assets?.[0]?.imageUrl).toBe('https://example.com/video.jpg');
   });
 
   it('publishes storyline groups for related coverage without widening canonical bundle membership', async () => {

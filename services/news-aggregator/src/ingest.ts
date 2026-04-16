@@ -70,6 +70,132 @@ export function parseDate(raw: string | undefined): number | undefined {
   return Number.isNaN(ms) ? undefined : ms;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeUrlCandidate(raw: string | undefined): string | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+function extractOpeningTags(xml: string, tag: string): string[] {
+  const re = new RegExp(`<${escapeRegExp(tag)}\\b[^>]*\\/?>`, 'gi');
+  return Array.from(xml.matchAll(re), (match) => match[0] ?? '').filter(Boolean);
+}
+
+function readTagAttribute(tag: string, attr: string): string | undefined {
+  const re = new RegExp(`\\b${escapeRegExp(attr)}\\s*=\\s*["']([^"']+)["']`, 'i');
+  const match = re.exec(tag);
+  return match?.[1]?.trim() || undefined;
+}
+
+function extractFirstImageFromHtml(html: string): string | undefined {
+  const imgMatch = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/i.exec(html);
+  return normalizeUrlCandidate(imgMatch?.[1]);
+}
+
+function extractImageFromTagContents(block: string, tags: readonly string[]): string | undefined {
+  for (const tag of tags) {
+    for (const content of extractTags(block, tag)) {
+      const imageUrl = extractFirstImageFromHtml(content);
+      if (imageUrl) {
+        return imageUrl;
+      }
+    }
+  }
+  return undefined;
+}
+
+function extractRssImageUrl(block: string): string | undefined {
+  for (const tag of extractOpeningTags(block, 'media:content')) {
+    const medium = readTagAttribute(tag, 'medium');
+    const type = readTagAttribute(tag, 'type');
+    if ((medium && !/^image$/i.test(medium)) || (type && !/^image\//i.test(type))) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(block, 'media:thumbnail')) {
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(block, 'enclosure')) {
+    const type = readTagAttribute(tag, 'type');
+    if (type && !/^image\//i.test(type)) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(block, 'itunes:image')) {
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'href'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  return extractImageFromTagContents(block, ['content:encoded', 'description']);
+}
+
+function extractAtomImageUrl(block: string): string | undefined {
+  for (const tag of extractOpeningTags(block, 'media:content')) {
+    const medium = readTagAttribute(tag, 'medium');
+    const type = readTagAttribute(tag, 'type');
+    if ((medium && !/^image$/i.test(medium)) || (type && !/^image\//i.test(type))) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(block, 'media:thumbnail')) {
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'url'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  for (const tag of extractOpeningTags(block, 'link')) {
+    const rel = readTagAttribute(tag, 'rel');
+    if (!rel?.split(/\s+/).some((value) => value.toLowerCase() === 'enclosure')) {
+      continue;
+    }
+    const type = readTagAttribute(tag, 'type');
+    if (type && !/^image\//i.test(type)) {
+      continue;
+    }
+    const imageUrl = normalizeUrlCandidate(readTagAttribute(tag, 'href'));
+    if (imageUrl) {
+      return imageUrl;
+    }
+  }
+
+  return extractImageFromTagContents(block, ['content', 'summary']);
+}
+
 /* ------------------------------------------------------------------ */
 /*  RSS / Atom parser                                                 */
 /* ------------------------------------------------------------------ */
@@ -120,7 +246,8 @@ function parseRssItems(xml: string, sourceId: string): RawFeedItem[] {
     const summary = firstTag(block, 'description');
     const author =
       firstTag(block, 'author') ?? firstTag(block, 'dc:creator');
-    const raw = { sourceId, url, title, publishedAt, summary, author };
+    const imageUrl = extractRssImageUrl(block);
+    const raw = { sourceId, url, title, publishedAt, summary, author, imageUrl };
     const parsed = RawFeedItemSchema.safeParse(raw);
     return parsed.success ? [parsed.data] : [];
   });
@@ -139,7 +266,8 @@ function parseAtomEntries(xml: string, sourceId: string): RawFeedItem[] {
     const summary =
       firstTag(block, 'summary') ?? firstTag(block, 'content');
     const author = firstTag(block, 'name'); // inside <author><name>
-    const raw = { sourceId, url, title, publishedAt, summary, author };
+    const imageUrl = extractAtomImageUrl(block);
+    const raw = { sourceId, url, title, publishedAt, summary, author, imageUrl };
     const parsed = RawFeedItemSchema.safeParse(raw);
     return parsed.success ? [parsed.data] : [];
   });

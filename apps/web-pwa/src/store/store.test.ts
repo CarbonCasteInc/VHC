@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
-import { useAppStore, isE2EMode } from './index';
+import { useAppStore, isE2EMode, resolveGunPeers } from './index';
 import { createClient } from '@vh/gun-client';
 import * as storeModule from './index';
 
@@ -62,7 +62,10 @@ class MemoryStorage {
 }
 
 beforeEach(() => {
+  vi.unstubAllGlobals();
   (globalThis as any).localStorage = new MemoryStorage();
+  delete (globalThis as any).__VH_GUN_PEERS__;
+  vi.unstubAllEnvs();
   vaultStore = null;
   mockWrite.mockReset();
   mockHydration.prepare.mockClear();
@@ -80,6 +83,37 @@ beforeEach(() => {
 });
 
 describe('useAppStore', () => {
+  it('resolves only the local Gun peer for localhost-hosted UI without overrides', () => {
+    expect(resolveGunPeers('127.0.0.1')).toEqual(['http://localhost:7777/gun']);
+    expect(resolveGunPeers('localhost')).toEqual(['http://localhost:7777/gun']);
+  });
+
+  it('resolves Tailscale first for non-local UI hosts without overrides', () => {
+    expect(resolveGunPeers('ccibootstrap.tail6cc9b5.ts.net')).toEqual([
+      'http://100.75.18.26:7777/gun',
+      'http://localhost:7777/gun',
+    ]);
+  });
+
+  it('treats explicit runtime Gun peer overrides as authoritative', () => {
+    (globalThis as any).__VH_GUN_PEERS__ = [' http://peer.example ', 'http://other.example/gun'];
+    expect(resolveGunPeers('127.0.0.1')).toEqual([
+      'http://peer.example/gun',
+      'http://other.example/gun',
+    ]);
+
+    (globalThis as any).__VH_GUN_PEERS__ = [];
+    expect(resolveGunPeers('127.0.0.1')).toEqual([]);
+  });
+
+  it('passes the locality-aware default peers into the Gun client', async () => {
+    vi.stubGlobal('location', { hostname: '127.0.0.1' });
+    await useAppStore.getState().init();
+    expect((createClient as unknown as Mock).mock.calls[0]?.[0]?.peers).toEqual([
+      'http://localhost:7777/gun',
+    ]);
+  });
+
   it('init sets client after hydration', async () => {
     await useAppStore.getState().init();
     const state = useAppStore.getState();

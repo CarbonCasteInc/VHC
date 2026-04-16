@@ -1,11 +1,19 @@
 /* @vitest-environment jsdom */
 
 import React from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { ArticleFeedCard } from './ArticleFeedCard';
 import type { FeedItem } from '@vh/data-model';
+import { useSentimentState } from '../../hooks/useSentimentState';
+import { useViewTracking } from '../../hooks/useViewTracking';
+
+vi.mock('../../hooks/useViewTracking', () => ({
+  useViewTracking: vi.fn(),
+}));
+
+const mockUseViewTracking = vi.mocked(useViewTracking);
 
 const NOW = 1_700_000_000_000;
 const HOUR_MS = 3_600_000;
@@ -26,7 +34,22 @@ function makeArticleItem(overrides: Partial<FeedItem> = {}): FeedItem {
 }
 
 describe('ArticleFeedCard', () => {
-  afterEach(() => cleanup());
+  beforeEach(() => {
+    mockUseViewTracking.mockReturnValue(false);
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      agreements: {},
+      pointIdAliases: {},
+      lightbulb: {},
+      eye: {},
+      signals: [],
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
 
   it('renders article card with correct testid', () => {
     render(<ArticleFeedCard item={makeArticleItem()} />);
@@ -61,6 +84,25 @@ describe('ArticleFeedCard', () => {
   it('displays comment count', () => {
     render(<ArticleFeedCard item={makeArticleItem({ comments: 15 })} />);
     expect(screen.getByTestId('article-card-comments-article-1')).toHaveTextContent('15');
+  });
+
+  it('overlays local decayed Eye and Lightbulb weights', () => {
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      eye: { 'article-1': 1.285 },
+      lightbulb: { 'article-1': 1 },
+    });
+
+    render(<ArticleFeedCard item={makeArticleItem()} />);
+
+    expect(screen.getByTestId('article-card-eye-article-1')).toHaveTextContent('9.29');
+    expect(screen.getByTestId('article-card-lightbulb-article-1')).toHaveTextContent('5');
+  });
+
+  it('arms read tracking for article feed cards', () => {
+    render(<ArticleFeedCard item={makeArticleItem()} />);
+
+    expect(mockUseViewTracking).toHaveBeenCalledWith('article-1', true);
   });
 
   it('displays formatted date', () => {

@@ -57,6 +57,9 @@ export function parseThreadFromGun(data: Record<string, unknown>): Record<string
   }
   const { proposal: rawProposal, ...rest } = data;
   const result: Record<string, unknown> = { ...rest, tags };
+  if (!result.sourceSynthesisId && typeof result.sourceAnalysisId === 'string') {
+    result.sourceSynthesisId = result.sourceAnalysisId;
+  }
   if (rawProposal && typeof rawProposal === 'object' && !Array.isArray(rawProposal)) {
     const { _: _meta, ...cleanProposal } = rawProposal as Record<string, unknown>;
     result.proposal = cleanProposal;
@@ -138,4 +141,3 @@ export function findCommentThread(comments: Map<string, HermesComment[]>, target
   }
   return null;
 }
-

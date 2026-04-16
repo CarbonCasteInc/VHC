@@ -17,6 +17,13 @@ export function useViewTracking(itemId: string, enabled = true): boolean {
   const isBrowser = useMemo(() => typeof window !== 'undefined', []);
 
   useEffect(() => {
+    timerDone.current = false;
+    scrolled.current = false;
+    recorded.current = false;
+    setHasViewed(false);
+  }, [itemId]);
+
+  useEffect(() => {
     if (!enabled || !isBrowser || recorded.current) return;
 
     const onScroll = () => {

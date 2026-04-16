@@ -139,6 +139,13 @@ export function sanitizeHotIndex(index: Record<string, number>): Record<string, 
   return next;
 }
 
+function toHotnessScore(value: number | undefined): number {
+  if (!Number.isFinite(value) || value == null || value < 0) {
+    return 0;
+  }
+  return value > 10_000 ? 0 : value;
+}
+
 export function sortStories(stories: StoryBundle[], latestIndex: Record<string, number>): StoryBundle[] {
   return [...stories].sort((a, b) => {
     const aRank = latestIndex[a.story_id] ?? a.cluster_window_end ?? a.created_at;
@@ -176,9 +183,9 @@ function storyToDiscoveryItem(
     entity_keys: entityKeys,
     created_at: Math.max(0, Math.floor(story.created_at)),
     latest_activity_at: Math.max(0, Math.floor(story.cluster_window_end)),
-    hotness: Math.max(0, hotIndex[story.story_id] ?? 0),
+    hotness: toHotnessScore(hotIndex[story.story_id]),
     eye: 0,
-    lightbulb: Math.max(0, Math.floor(story.sources.length)),
+    lightbulb: 0,
     comments: 0,
   };
 }
@@ -209,4 +216,5 @@ export async function mirrorStoriesIntoDiscovery(
 
 export const newsStoreHelpersInternal = {
   storyToDiscoveryItem,
+  toHotnessScore,
 };

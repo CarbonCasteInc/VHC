@@ -21,6 +21,7 @@ Defines data placement, mesh path conventions, and privacy constraints for Seaso
 | Topic latest pointer | local cache/index | `vh/topics/<topicId>/latest` | - | - | - | Public |
 | SentimentSignal event | local state | forbidden | `~<devicePub>/outbox/sentiment/<eventId>` | - | - | Sensitive |
 | AggregateSentiment | local cache | `vh/aggregates/topics/<topicId>/epochs/<epoch>` | - | optional aggregate anchor | - | Public |
+| TopicEngagementAggregateV1 | local cache | `vh/aggregates/topics/<topicId>/engagement/summary` | - | optional aggregate anchor | - | Public |
 | Linked-social OAuth tokens | vault (encrypted) | forbidden | optional encrypted backup | - | - | Secret |
 | Linked-social notification objects | vault + local cache | sanitized card projection only | optional encrypted backup | - | - | Sensitive |
 | Docs drafts | vault/E2EE stores | forbidden | `~<devicePub>/docs/<docId>` encrypted | - | encrypted attachments | Sensitive |
@@ -41,6 +42,8 @@ Allowed public V2 namespaces:
 - `vh/topics/*/epochs/*`
 - `vh/topics/*/articles/*`
 - `vh/aggregates/topics/*`
+- `vh/aggregates/topics/*/engagement/summary` (topic Eye/Lightbulb aggregate)
+- `vh/aggregates/topics/*/engagement/actors/*` (Season 0 migration input; topic-scoped actor id only, no proof/nullifier payload)
 - `vh/discovery/*`
 - `vh/civic/reps/*`
 - `vh/aggregates/topics/*/syntheses/*/epochs/*/points/*` (PointAggregateSnapshotV1 delivery)

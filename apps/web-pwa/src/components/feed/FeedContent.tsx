@@ -1,5 +1,4 @@
 import React from 'react';
-import { Link } from '@tanstack/react-router';
 import type { FeedItem } from '@vh/data-model';
 import { useIntersectionLoader } from '../../hooks/useIntersectionLoader';
 import { NewsCardWithRemoval } from './NewsCardWithRemoval';
@@ -7,29 +6,7 @@ import { TopicCard } from './TopicCard';
 import { SocialNotificationCard } from './SocialNotificationCard';
 import { ArticleFeedCard } from '../docs/ArticleFeedCard';
 import { ReceiptFeedCard } from './ReceiptFeedCard';
-
-function normalizeStoryId(storyId: string | undefined): string | null {
-  const normalized = storyId?.trim();
-  return normalized ? normalized : null;
-}
-
-function toFeedItemKey(item: FeedItem): string {
-  if (item.kind === 'NEWS_STORY') {
-    const storyId = normalizeStoryId(item.story_id);
-    if (storyId) {
-      return ['NEWS_STORY', storyId].join('|');
-    }
-
-    const normalizedTitle = item.title.trim().replace(/\s+/g, ' ').toLowerCase();
-    return ['NEWS_STORY', item.topic_id, normalizedTitle].join('|');
-  }
-
-  return [item.kind, item.topic_id].join('|');
-}
-
-function toFeedItemTestIdSuffix(item: FeedItem): string {
-  return normalizeStoryId(item.story_id) ?? item.topic_id;
-}
+import { getFeedItemKey, getFeedItemTestIdSuffix } from '../../utils/feedItemIdentity';
 
 export interface FeedContentProps {
   readonly feed: ReadonlyArray<FeedItem>;
@@ -59,7 +36,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
       <div
         role="alert"
         data-testid="feed-error"
-        className="rounded bg-red-50 p-3 text-sm text-red-700"
+        className="rounded-[1.5rem] border border-rose-200/80 bg-rose-50/90 p-4 text-sm text-rose-700 shadow-sm shadow-rose-900/5 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-100"
       >
         {error}
       </div>
@@ -70,7 +47,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
     return (
       <div
         data-testid="feed-loading"
-        className="py-8 text-center text-sm text-slate-400"
+        className="rounded-[1.5rem] border border-slate-200/80 bg-white/85 px-4 py-10 text-center text-sm text-slate-500 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300"
       >
         Loading feed…
       </div>
@@ -81,7 +58,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
     return (
       <div
         data-testid="feed-empty"
-        className="py-8 text-center text-sm text-slate-400"
+        className="rounded-[1.5rem] border border-dashed border-slate-200/90 bg-white/82 px-4 py-10 text-center text-sm text-slate-500 shadow-sm shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300"
       >
         No items to show.
       </div>
@@ -89,17 +66,17 @@ export const FeedContent: React.FC<FeedContentProps> = ({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3">
       <ul data-testid="feed-list" className="space-y-3">
         {feed.map((item) => (
-          <FeedItemRow key={toFeedItemKey(item)} item={item} />
+          <FeedItemRow key={getFeedItemKey(item)} item={item} />
         ))}
 
         {hasMore && (
           <li
             ref={sentinelRef}
             data-testid="feed-load-sentinel"
-            className="py-1 text-center text-xs text-slate-500"
+            className="rounded-full border border-slate-200/80 bg-white/90 px-4 py-2 text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-400"
             aria-hidden="true"
           >
             Scroll for more…
@@ -110,7 +87,7 @@ export const FeedContent: React.FC<FeedContentProps> = ({
       {loadingMore && (
         <p
           data-testid="feed-loading-more"
-          className="text-center text-xs text-slate-500"
+          className="text-center text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400"
           aria-live="polite"
         >
           Loading more…
@@ -125,26 +102,9 @@ interface FeedItemRowProps {
 }
 
 const FeedItemRow: React.FC<FeedItemRowProps> = ({ item }) => {
-  const testIdSuffix = toFeedItemTestIdSuffix(item);
-
-  if (item.kind === 'NEWS_STORY') {
-    return (
-      <li data-testid={`feed-item-${testIdSuffix}`}>
-        <FeedItemCard item={item} />
-      </li>
-    );
-  }
-
   return (
-    <li data-testid={`feed-item-${testIdSuffix}`}>
-      <Link
-        to="/hermes/$threadId"
-        params={{ threadId: item.topic_id }}
-        className="block no-underline"
-        data-testid={`feed-link-${item.topic_id}`}
-      >
-        <FeedItemCard item={item} />
-      </Link>
+    <li data-testid={`feed-item-${getFeedItemTestIdSuffix(item)}`}>
+      <FeedItemCard item={item} />
     </li>
   );
 };

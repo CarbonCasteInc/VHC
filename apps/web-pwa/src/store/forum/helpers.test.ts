@@ -173,4 +173,15 @@ describe('parseThreadFromGun — field pass-through', () => {
     expect(result._).toEqual({ '#': 'thread-meta' });
     expect(result.proposal).toEqual({ label: 'keep' });
   });
+
+  it('maps legacy sourceAnalysisId to sourceSynthesisId on read', () => {
+    const result = parseThreadFromGun({
+      id: 'thread-legacy',
+      tags: [],
+      sourceAnalysisId: 'legacy-analysis-1'
+    });
+
+    expect(result.sourceAnalysisId).toBe('legacy-analysis-1');
+    expect(result.sourceSynthesisId).toBe('legacy-analysis-1');
+  });
 });

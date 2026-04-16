@@ -18,6 +18,7 @@ describe('runStoryClusterLiveBenchmark bundle projection', () => {
         publisher: 'CBS',
         url: 'https://example.com/article',
         canonical_url: 'https://example.com/article',
+        image_url: 'https://example.com/article.jpg',
         url_hash: 'hash-a',
         published_at: 100,
         title: 'Jan. 6 plaque honoring police officers displayed at the Capitol after delay',
@@ -42,6 +43,7 @@ describe('runStoryClusterLiveBenchmark bundle projection', () => {
         publisher: 'CBS',
         url: 'https://example.com/video/plaque',
         canonical_url: 'https://example.com/video/plaque',
+        image_url: 'https://example.com/video.jpg',
         url_hash: 'hash-b',
         published_at: 101,
         title: 'Video: Jan. 6 plaque honoring police officers displayed at the Capitol',
@@ -64,6 +66,8 @@ describe('runStoryClusterLiveBenchmark bundle projection', () => {
 
     const bundle = liveBenchmarkInternal.bundleFromCluster(cluster);
     expect(bundle.primary_sources?.map((source) => source.source_id)).toEqual(['cbs-article']);
+    expect(bundle.primary_sources?.[0]?.imageUrl).toBe('https://example.com/article.jpg');
     expect(bundle.secondary_assets?.map((source) => source.source_id)).toEqual(['cbs-video']);
+    expect(bundle.secondary_assets?.[0]?.imageUrl).toBe('https://example.com/video.jpg');
   });
 });

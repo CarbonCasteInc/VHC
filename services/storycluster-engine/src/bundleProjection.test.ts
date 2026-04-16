@@ -10,6 +10,7 @@ function makeSource(overrides: Partial<StoredSourceDocument> = {}): StoredSource
     url: overrides.url ?? 'https://example.com/story',
     canonical_url: overrides.canonical_url ?? 'https://example.com/story',
     url_hash: overrides.url_hash ?? 'hash-1',
+    image_url: overrides.image_url,
     image_hash: overrides.image_hash,
     published_at: overrides.published_at ?? 100,
     title: overrides.title ?? 'Specific incident coverage',
@@ -32,6 +33,27 @@ function makeSource(overrides: Partial<StoredSourceDocument> = {}): StoredSource
 }
 
 describe('bundleProjection', () => {
+  it('preserves source image URLs in projected primary and secondary assets', () => {
+    const projected = projectBundleSources([
+      makeSource({
+        source_key: 'guardian-us:hash-primary',
+        url_hash: 'hash-primary',
+        image_url: 'https://example.com/primary.jpg',
+      }),
+      makeSource({
+        source_key: 'guardian-us:hash-gallery',
+        url_hash: 'hash-gallery',
+        title: 'Video: incident gallery',
+        url: 'https://example.com/gallery',
+        canonical_url: 'https://example.com/gallery',
+        image_url: 'https://example.com/gallery.jpg',
+      }),
+    ]);
+
+    expect(projected.primary_sources[0]?.imageUrl).toBe('https://example.com/primary.jpg');
+    expect(projected.secondary_assets[0]?.imageUrl).toBe('https://example.com/gallery.jpg');
+  });
+
   it('prefers canonical publisher coverage over related roundup coverage', () => {
     const projected = projectBundleSources([
       makeSource({

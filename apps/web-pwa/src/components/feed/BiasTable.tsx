@@ -7,12 +7,22 @@ export interface BiasTableProps {
   readonly analyses: ReadonlyArray<NewsCardSourceAnalysis>;
   readonly frames: ReadonlyArray<{ frame: string; reframe: string }>;
   readonly providerLabel?: string;
+  readonly basisLabel?: string;
   readonly loading?: boolean;
   readonly topicId?: string;
   readonly analysisId?: string;
   readonly synthesisId?: string;
   readonly epoch?: number;
   readonly votingEnabled?: boolean;
+}
+
+function biasTableDiagnosticsEnabled(): boolean {
+  const viteValue = (import.meta as unknown as { env?: Record<string, unknown> }).env
+    ?.VITE_BIAS_TABLE_DIAGNOSTICS;
+  const processValue = typeof process !== 'undefined'
+    ? process.env?.VITE_BIAS_TABLE_DIAGNOSTICS
+    : undefined;
+  return `${viteValue ?? processValue ?? ''}`.trim().toLowerCase() === 'true';
 }
 
 function SkeletonRows(): React.ReactElement {
@@ -168,6 +178,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   analyses,
   frames,
   providerLabel,
+  basisLabel,
   loading = false,
   topicId,
   analysisId,
@@ -222,14 +233,11 @@ export const BiasTable: React.FC<BiasTableProps> = ({
       expected_point_mappings: expectedPointMappings,
       legacy_point_mappings: Object.keys(legacyPointIds).length,
       synthesis_point_mappings: Object.keys(synthesisPointIds).length,
+      point_mappings_ready: Object.keys(synthesisPointIds).length === expectedPointMappings,
       voting_context_ready: hasVotingContext,
     };
 
-    const pointMappingsReady =
-      Object.keys(synthesisPointIds).length === expectedPointMappings;
-
-    if (!hasVotingContext || !pointMappingsReady) {
-      console.warn('[vh:bias-table:voting-context]', payload);
+    if (!biasTableDiagnosticsEnabled()) {
       return;
     }
 
@@ -270,7 +278,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
           className="text-xs font-medium text-slate-700"
           data-testid="bias-table-source-count"
         >
-          {analyses.length} {analyses.length === 1 ? 'source' : 'sources'} analyzed
+          {basisLabel ?? `${analyses.length} ${analyses.length === 1 ? 'source' : 'sources'} analyzed`}
         </span>
         {providerLabel && (
           <span

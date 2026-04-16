@@ -3,6 +3,7 @@ import type {
   FilterChip,
   SortMode,
   RankingConfig,
+  FeedPersonalizationConfig,
 } from '@vh/data-model';
 
 /**
@@ -21,6 +22,9 @@ export interface DiscoveryState {
 
   /** Ranking configuration (weights + decay). */
   readonly rankingConfig: RankingConfig;
+
+  /** User preference scaffold for later category/topic personalization. */
+  readonly personalization: FeedPersonalizationConfig;
 
   /** Whether the store is currently loading data. */
   readonly loading: boolean;
@@ -56,6 +60,9 @@ export interface DiscoveryState {
 
   /** Update ranking config at runtime. */
   setRankingConfig(config: RankingConfig): void;
+
+  /** Update category/topic preference scaffold without changing source contracts. */
+  setPersonalization(config: FeedPersonalizationConfig): void;
 
   /** Set loading state. */
   setLoading(loading: boolean): void;

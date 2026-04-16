@@ -2,7 +2,7 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-20
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
@@ -62,6 +62,7 @@ interface RawFeedItem {
   publishedAt?: number;
   summary?: string;
   author?: string;
+  imageUrl?: string;
 }
 ```
 
@@ -70,6 +71,8 @@ Normalization requirements:
 - canonicalize URLs and hash to `url_hash`
 - strip tracking params
 - dedupe exact URL and near-duplicate title+time windows
+- extract an optional source image URL from RSS/Atom media, enclosure, or HTML summary metadata when the feed provides one
+- preserve source image URLs as presentation/provenance metadata only; they must not change clustering semantics by themselves
 
 Readable-article eligibility requirements:
 
@@ -97,6 +100,7 @@ interface StoryBundle {
     url_hash: string;
     published_at?: number;
     title: string;
+    imageUrl?: string;
   }>;
   primary_sources?: Array<{
     source_id: string;
@@ -105,6 +109,7 @@ interface StoryBundle {
     url_hash: string;
     published_at?: number;
     title: string;
+    imageUrl?: string;
   }>;
   secondary_assets?: Array<{
     source_id: string;
@@ -113,6 +118,7 @@ interface StoryBundle {
     url_hash: string;
     published_at?: number;
     title: string;
+    imageUrl?: string;
   }>;
   cluster_features: {
     entity_keys: string[];
@@ -154,11 +160,20 @@ Every story must preserve source-level provenance for the canonical event-bundle
 - publisher and source ID
 - canonical URL and URL hash
 - publication time when available
+- source image URL when available
 - deterministic provenance hash over sorted source list
 
 No source URLs should be dropped from canonical event-bundle provenance if they remain part of published `StoryBundle.sources`, `primary_sources`, or `secondary_assets`.
+No source image URLs should be dropped from canonical event-bundle provenance when present on those source entries, though they are non-semantic presentation metadata.
 Related-coverage sources may be projected separately through `StorylineGroup` and do not need to widen canonical `StoryBundle` provenance.
 Canonical event-bundle publication must remain strict even when related coverage is grouped elsewhere.
+
+Analysis persistence identity:
+- generated story analyses are keyed by `story_id + provenance_hash + pipeline_version + model_scope + schema_version`;
+- new generated analysis artifacts must also persist `bundle_identity.bundle_revision`, `bundle_identity.source_article_ids`, `bundle_identity.source_count`, and the bundle cluster window;
+- `bundle_revision` is the bundle provenance revision used for the analysis key;
+- `source_article_ids` are stable `source_id:url_hash` identifiers sorted across the accepted source set;
+- latest-analysis pointers must not be reused across bundle revision/source-set drift; old artifacts remain readable by their exact analysis key, and regenerated bundles must create a fresh analysis rather than overwriting or silently reusing stale analysis.
 
 ## 5. Mesh/storage paths
 
@@ -166,6 +181,8 @@ Canonical event-bundle publication must remain strict even when related coverage
 - `vh/news/index/latest/<storyId>`
 - `vh/news/storylines/<storylineId>`
 - optional: `vh/news/source/<sourceId>/<itemId>` for debug snapshots
+- analysis artifacts: `vh/news/stories/<storyId>/analysis/<analysisKey>`
+- latest analysis pointer: `vh/news/stories/<storyId>/analysis_latest`
 
 Storyline publication contract:
 
@@ -202,3 +219,4 @@ Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest act
 5. Multi-source cluster generation from overlapping feed items.
 6. Later source growth attaches to an existing story without changing `story_id` when coverage belongs to the same incident or same developing episode.
 7. Optional `storyline_id` and `StorylineGroup` publication do not widen canonical bundle membership.
+8. Optional source image URLs survive ingest, normalization, clustering, and `StoryBundle` primary/secondary-source projection without affecting clustering identity.

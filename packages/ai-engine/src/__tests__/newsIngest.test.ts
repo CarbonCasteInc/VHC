@@ -3,7 +3,7 @@ import { ingestFeeds, newsIngestInternal } from '../newsIngest';
 import type { FeedSource } from '../newsTypes';
 
 const rssXml = `
-  <rss>
+  <rss xmlns:media="http://search.yahoo.com/mrss/">
     <channel>
       <item>
         <title><![CDATA[Markets rally &amp; recover]]></title>
@@ -11,16 +11,18 @@ const rssXml = `
         <description><![CDATA[Detailed <b>summary</b>]]></description>
         <pubDate>Mon, 05 Feb 2024 12:00:00 GMT</pubDate>
         <author>Reporter One</author>
+        <media:content medium="image" url="https://cdn.example.com/markets.jpg" />
       </item>
     </channel>
   </rss>
 `;
 
 const atomXml = `
-  <feed>
+  <feed xmlns:media="http://search.yahoo.com/mrss/">
     <entry>
       <title>Policy update released</title>
       <link href="https://atom.example.com/story/42" />
+      <link href="https://cdn.atom.example.com/story-42.jpg" rel="enclosure" type="image/jpeg" />
       <summary>Atom summary</summary>
       <updated>2024-02-05T13:00:00Z</updated>
       <author><name>Editor Two</name></author>
@@ -122,6 +124,7 @@ describe('newsIngest', () => {
       title: 'Policy update released',
       url: 'https://atom.example.com/story/42',
       summary: 'Atom summary',
+      imageUrl: 'https://cdn.atom.example.com/story-42.jpg',
     });
     expect(items[1]).toMatchObject({
       sourceId: 'src-rss',
@@ -129,6 +132,7 @@ describe('newsIngest', () => {
       url: 'https://example.com/news?id=1',
       summary: 'Detailed summary',
       author: 'Reporter One',
+      imageUrl: 'https://cdn.example.com/markets.jpg',
     });
     expect(items[0]?.publishedAt).toBeTypeOf('number');
   });
@@ -202,6 +206,78 @@ describe('newsIngest', () => {
       1707134400000,
     );
     expect(newsIngestInternal.parsePublishedAt('<item><updated>not-a-date</updated></item>')).toBeUndefined();
+    expect(newsIngestInternal.extractOpeningTags('<media:thumbnail url="https://cdn.example.com/1.jpg" />', 'media:thumbnail')).toEqual([
+      '<media:thumbnail url="https://cdn.example.com/1.jpg" />',
+    ]);
+    expect(newsIngestInternal.readTagAttribute('<media:content url="https://cdn.example.com/1.jpg" />', 'url')).toBe(
+      'https://cdn.example.com/1.jpg',
+    );
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><enclosure url="https://cdn.example.com/video.mp4" type="video/mp4" /><media:thumbnail url="https://cdn.example.com/thumb.jpg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/thumb.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><media:content medium="video" url="https://cdn.example.com/video.mp4" /><enclosure url="https://cdn.example.com/enclosure.jpg" type="image/jpeg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/enclosure.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><media:content type="video/mp4" url="https://cdn.example.com/video.mp4" /><media:thumbnail url="https://cdn.example.com/type-fallback.jpg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/type-fallback.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><enclosure url="https://cdn.example.com/video.mp4" type="video/mp4" /></item>',
+      ),
+    ).toBeUndefined();
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><enclosure url="https://cdn.example.com/no-type.jpg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/no-type.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><media:thumbnail url="not a url" /><itunes:image href="https://cdn.example.com/podcast.jpg" /></item>',
+      ),
+    ).toBe('https://cdn.example.com/podcast.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl('<item><media:thumbnail url="   " /></item>'),
+    ).toBeUndefined();
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><description><![CDATA[<p><img src="https://cdn.example.com/description.jpg" /></p>]]></description></item>',
+      ),
+    ).toBe('https://cdn.example.com/description.jpg');
+    expect(
+      newsIngestInternal.extractRssImageUrl(
+        '<item><description><![CDATA[<p><img src="   " /></p>]]></description></item>',
+      ),
+    ).toBeUndefined();
+    expect(
+      newsIngestInternal.extractAtomImageUrl(
+        '<entry><media:content medium="image" url="https://cdn.atom.example.com/media.jpg" /></entry>',
+      ),
+    ).toBe('https://cdn.atom.example.com/media.jpg');
+    expect(
+      newsIngestInternal.extractAtomImageUrl(
+        '<entry><media:content type="video/mp4" url="https://cdn.atom.example.com/video.mp4" /><media:thumbnail url="https://cdn.atom.example.com/thumb.jpg" /></entry>',
+      ),
+    ).toBe('https://cdn.atom.example.com/thumb.jpg');
+    expect(
+      newsIngestInternal.extractAtomImageUrl(
+        '<entry><link href="https://cdn.atom.example.com/3.jpg" rel="enclosure" type="image/jpeg" /></entry>',
+      ),
+    ).toBe('https://cdn.atom.example.com/3.jpg');
+    expect(
+      newsIngestInternal.extractAtomImageUrl(
+        '<entry><link href="https://cdn.atom.example.com/video.mp4" rel="enclosure" type="video/mp4" /><summary><![CDATA[<img src="https://cdn.atom.example.com/summary.jpg" />]]></summary></entry>',
+      ),
+    ).toBe('https://cdn.atom.example.com/summary.jpg');
+    expect(
+      newsIngestInternal.extractAtomImageUrl('<entry><link href="https://cdn.atom.example.com/not-image" rel="alternate" /></entry>'),
+    ).toBeUndefined();
 
     const parsed = newsIngestInternal.parseFeedXml(
       '<rss><channel><item><title>A</title><link>https://example.com/a</link></item></channel></rss>',
@@ -246,6 +322,24 @@ describe('newsIngest', () => {
         author: undefined,
       }),
     ]);
+  });
+
+  it('extracts image urls from embedded html when feed media tags are absent', () => {
+    const parsed = newsIngestInternal.parseFeedXml(
+      `<rss><channel><item>
+        <title>Image fallback</title>
+        <link>https://example.com/news/image-fallback</link>
+        <description><![CDATA[<p><img src="https://cdn.example.com/fallback.jpg" /></p><p>Fallback summary</p>]]></description>
+      </item></channel></rss>`,
+      {
+        id: 'src',
+        name: 'Source',
+        rssUrl: 'https://example.com/feed.xml',
+        enabled: true,
+      },
+    );
+
+    expect(parsed[0]?.imageUrl).toBe('https://cdn.example.com/fallback.jpg');
   });
 
   it('falls back to AP html hub parsing when no rss or atom entries exist', async () => {

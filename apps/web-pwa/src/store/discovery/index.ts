@@ -1,8 +1,10 @@
 import { create, type StoreApi } from 'zustand';
 import {
+  DEFAULT_FEED_PERSONALIZATION_CONFIG,
   DEFAULT_RANKING_CONFIG,
   FeedItemSchema,
   type FeedItem,
+  type FeedPersonalizationConfig,
   type FilterChip,
   type SortMode,
   type RankingConfig,
@@ -20,6 +22,7 @@ const INITIAL_STATE: Pick<
   | 'filter'
   | 'sortMode'
   | 'rankingConfig'
+  | 'personalization'
   | 'loading'
   | 'error'
   | 'selectedStorylineId'
@@ -28,6 +31,7 @@ const INITIAL_STATE: Pick<
   filter: 'ALL',
   sortMode: 'LATEST',
   rankingConfig: { ...DEFAULT_RANKING_CONFIG },
+  personalization: { ...DEFAULT_FEED_PERSONALIZATION_CONFIG },
   loading: false,
   error: null,
   selectedStorylineId: null,
@@ -132,6 +136,10 @@ export function createDiscoveryStore(
 
     setRankingConfig(config: RankingConfig) {
       set({ rankingConfig: config });
+    },
+
+    setPersonalization(config: FeedPersonalizationConfig) {
+      set({ personalization: config });
     },
 
     setLoading(loading: boolean) {

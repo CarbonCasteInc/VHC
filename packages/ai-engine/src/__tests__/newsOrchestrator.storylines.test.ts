@@ -14,7 +14,7 @@ vi.mock('../newsNormalize', () => ({
   normalizeAndDedup: normalizeAndDedupMock,
 }));
 
-import { orchestrateNewsPipeline } from '../newsOrchestrator';
+import { newsOrchestratorInternal, orchestrateNewsPipeline } from '../newsOrchestrator';
 
 const FEED_SOURCE = {
   id: 'source-1',
@@ -23,7 +23,7 @@ const FEED_SOURCE = {
   enabled: true,
 } as const;
 
-function bundle(storyId: string): StoryBundle {
+function bundle(storyId: string, overrides: Partial<StoryBundle> = {}): StoryBundle {
   return {
     schemaVersion: 'story-bundle-v0',
     story_id: storyId,
@@ -48,6 +48,7 @@ function bundle(storyId: string): StoryBundle {
     },
     provenance_hash: `${storyId}-prov`,
     created_at: 10,
+    ...overrides,
   };
 }
 
@@ -65,6 +66,18 @@ function storyline(overrides: Partial<StorylineGroup> = {}): StorylineGroup {
     created_at: 10,
     updated_at: 20,
     ...overrides,
+  };
+}
+
+function normalizedItem(id: string) {
+  return {
+    sourceId: 'source-1',
+    publisher: 'Source 1',
+    url: `https://example.com/${id}`,
+    canonicalUrl: `https://example.com/${id}`,
+    title: `${id} headline`,
+    url_hash: `${id}-hash`,
+    entity_keys: ['entity'],
   };
 }
 
@@ -158,6 +171,141 @@ describe('newsOrchestrator storyline batches', () => {
       'topic-a:storyline-a',
       'topic-a:storyline-z',
       'topic-z:storyline-b',
+    ]);
+  });
+
+  it('chunks remote-capable topic batches and returns the final topic snapshot', async () => {
+    normalizeAndDedupMock.mockReturnValue([
+      normalizedItem('story-a'),
+      normalizedItem('story-b'),
+      normalizedItem('story-c'),
+      normalizedItem('story-d'),
+      normalizedItem('story-e'),
+    ]);
+
+    const batchSizes: number[] = [];
+    const snapshots = [
+      {
+        bundles: [bundle('story-a')],
+        storylines: [storyline()],
+      },
+      {
+        bundles: [bundle('story-a'), bundle('story-b')],
+        storylines: [storyline({ story_ids: ['story-a', 'story-b'] })],
+      },
+      {
+        bundles: [bundle('story-a'), bundle('story-b'), bundle('story-c')],
+        storylines: [storyline({ story_ids: ['story-a', 'story-b', 'story-c'] })],
+      },
+    ];
+
+    const clusterEngine = {
+      engineId: 'storycluster-chunk-test',
+      async clusterBatch() {
+        return [];
+      },
+      async clusterStoryBatch(input: { items: unknown[] }) {
+        batchSizes.push(input.items.length);
+        return snapshots[batchSizes.length - 1]!;
+      },
+    };
+
+    const result = await orchestrateNewsPipeline(
+      {
+        feedSources: [FEED_SOURCE],
+        topicMapping: { defaultTopicId: 'topic-news', sourceTopics: {} },
+      },
+      {
+        clusterEngine,
+        remoteClusterMaxItemsPerRequest: 2,
+      },
+    );
+
+    expect(batchSizes).toEqual([2, 2, 1]);
+    expect(result).toEqual(snapshots[2]);
+  });
+
+  it('rejects invalid remote chunk sizes before clustering', () => {
+    expect(() => newsOrchestratorInternal.normalizeRemoteClusterMaxItemsPerRequest(0)).toThrow(
+      'remoteClusterMaxItemsPerRequest must be a positive finite number',
+    );
+    expect(() => newsOrchestratorInternal.normalizeRemoteClusterMaxItemsPerRequest(Number.NaN)).toThrow(
+      'remoteClusterMaxItemsPerRequest must be a positive finite number',
+    );
+  });
+
+  it('merges incremental chunk responses when the remote engine returns deltas', async () => {
+    normalizeAndDedupMock.mockReturnValue([
+      normalizedItem('story-a'),
+      normalizedItem('story-b'),
+      normalizedItem('story-c'),
+      normalizedItem('story-d'),
+      normalizedItem('story-e'),
+    ]);
+
+    const batchSizes: number[] = [];
+    const responses = [
+      {
+        bundles: [bundle('story-a')],
+        storylines: [storyline({ storyline_id: 'storyline-a', canonical_story_id: 'story-a' })],
+      },
+      {
+        bundles: [bundle('story-b')],
+        storylines: [storyline({ storyline_id: 'storyline-b', canonical_story_id: 'story-b' })],
+      },
+      {
+        bundles: [
+          bundle('story-b', { headline: 'story-b updated headline' }),
+          bundle('story-c'),
+        ],
+        storylines: [
+          storyline({
+            storyline_id: 'storyline-b',
+            canonical_story_id: 'story-b',
+            story_ids: ['story-b', 'story-c'],
+            updated_at: 30,
+          }),
+        ],
+      },
+    ];
+
+    const clusterEngine = {
+      engineId: 'storycluster-delta-chunk-test',
+      async clusterBatch() {
+        return [];
+      },
+      async clusterStoryBatch(input: { items: unknown[] }) {
+        batchSizes.push(input.items.length);
+        return responses[batchSizes.length - 1]!;
+      },
+    };
+
+    const result = await orchestrateNewsPipeline(
+      {
+        feedSources: [FEED_SOURCE],
+        topicMapping: { defaultTopicId: 'topic-news', sourceTopics: {} },
+      },
+      {
+        clusterEngine,
+        remoteClusterMaxItemsPerRequest: 2,
+      },
+    );
+
+    expect(batchSizes).toEqual([2, 2, 1]);
+    expect(result.bundles.map((item) => item.story_id)).toEqual([
+      'story-a',
+      'story-b',
+      'story-c',
+    ]);
+    expect(result.bundles.find((item) => item.story_id === 'story-b')?.headline).toBe('story-b updated headline');
+    expect(result.storylines).toEqual([
+      storyline({ storyline_id: 'storyline-a', canonical_story_id: 'story-a' }),
+      storyline({
+        storyline_id: 'storyline-b',
+        canonical_story_id: 'story-b',
+        story_ids: ['story-b', 'story-c'],
+        updated_at: 30,
+      }),
     ]);
   });
 });

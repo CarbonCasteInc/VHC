@@ -1,11 +1,18 @@
 import { create } from 'zustand';
 import type { SentimentSignal, ConstituencyProof } from '@vh/types';
-import { deriveAggregateVoterId, deriveVoteIntentId, type VoteAdmissionReceipt, type VoteIntentRecord } from '@vh/data-model';
+import {
+  deriveAggregateVoterId,
+  deriveTopicEngagementActorId,
+  deriveVoteIntentId,
+  type VoteAdmissionReceipt,
+  type VoteIntentRecord,
+} from '@vh/data-model';
 import {
   readAggregateVoterNode,
   readAggregateVoterRows,
   readPointAggregateSnapshot,
   readUserEvents,
+  writeTopicEngagementActorNode,
   writePointAggregateSnapshot,
   writeSentimentEvent,
   writeVoterNode,
@@ -64,6 +71,7 @@ const AGREEMENTS_KEY = 'vh_sentiment_agreements_v1';
 const AGREEMENT_ALIASES_KEY = 'vh_sentiment_agreement_aliases_v1';
 const LIGHTBULB_KEY = 'vh_lightbulb_weights_v1';
 const EYE_KEY = 'vh_eye_weights_v1';
+const TOPIC_ENGAGEMENT_ACTOR_SECRET_KEY = 'vh_topic_engagement_actor_secret_v1';
 const OUTBOX_READBACK_ATTEMPTS = 4;
 const OUTBOX_READBACK_RETRY_MS = 250;
 
@@ -98,6 +106,108 @@ function persistStringMap(key: string, value: Record<string, string>) {
     safeSetItem(key, JSON.stringify(value));
   } catch {
     /* ignore */
+  }
+}
+
+function generateLocalActorSecret(): string {
+  const cryptoApi = globalThis.crypto as
+    | {
+        randomUUID?: () => string;
+        getRandomValues?: (array: Uint8Array) => Uint8Array;
+      }
+    | undefined;
+
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return cryptoApi.randomUUID();
+  }
+
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
+function readOrCreateTopicEngagementActorSecret(): string {
+  const existing = safeGetItem(TOPIC_ENGAGEMENT_ACTOR_SECRET_KEY)?.trim();
+  if (existing) {
+    return existing;
+  }
+
+  const next = generateLocalActorSecret();
+  safeSetItem(TOPIC_ENGAGEMENT_ACTOR_SECRET_KEY, next);
+  return next;
+}
+
+function logTopicEngagementMeshWrite(params: {
+  topic_id: string;
+  success: boolean;
+  latency_ms: number;
+  error?: string;
+  skipped?: boolean;
+  eye_weight?: number;
+  lightbulb_weight?: number;
+  readers?: number;
+  engagers?: number;
+}): void {
+  const payload = Object.fromEntries(
+    Object.entries(params).filter(([, value]) => value !== undefined),
+  );
+
+  if (params.success || params.skipped) {
+    console.info('[vh:topic-engagement:mesh-write]', payload);
+    return;
+  }
+
+  console.warn('[vh:topic-engagement:mesh-write]', payload);
+}
+
+async function projectTopicEngagementToMesh(
+  topicId: string,
+  eyeWeight: number,
+  lightbulbWeight: number,
+): Promise<void> {
+  const startedAt = Date.now();
+  const client = resolveClientFromAppStore();
+  if (!client || typeof (client as { mesh?: { get?: unknown } }).mesh?.get !== 'function') {
+    logTopicEngagementMeshWrite({
+      topic_id: topicId,
+      success: true,
+      skipped: true,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+      error: 'client-unavailable',
+    });
+    return;
+  }
+
+  try {
+    const localSecret = readOrCreateTopicEngagementActorSecret();
+    const actorId = await deriveTopicEngagementActorId({
+      localSecret,
+      topic_id: topicId,
+    });
+    const aggregate = await writeTopicEngagementActorNode(client, topicId, actorId, {
+      eyeWeight,
+      lightbulbWeight,
+      updatedAt: new Date().toISOString(),
+    });
+    logTopicEngagementMeshWrite({
+      topic_id: topicId,
+      success: true,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+      eye_weight: aggregate.eye_weight,
+      lightbulb_weight: aggregate.lightbulb_weight,
+      readers: aggregate.readers,
+      engagers: aggregate.engagers,
+    });
+  } catch (error) {
+    logTopicEngagementMeshWrite({
+      topic_id: topicId,
+      success: false,
+      latency_ms: Math.max(0, Date.now() - startedAt),
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 
@@ -610,6 +720,11 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
 
     useXpLedger.getState().consumeAction('sentiment_votes/day', 1);
     if (emittedSignal) {
+      void projectTopicEngagementToMesh(
+        topicId,
+        get().eye[topicId] ?? 0,
+        get().lightbulb[topicId] ?? 0,
+      );
       recordVoteTimestamp(topicId, normalizedSynthesisPointId);
       // Persist durable intent record before projection
       const signal: SentimentSignal = emittedSignal;
@@ -656,6 +771,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
     const eye = { ...get().eye, [topicId]: next };
     persistNumberMap(EYE_KEY, eye);
     set({ eye });
+    void projectTopicEngagementToMesh(topicId, next, get().lightbulb[topicId] ?? 0);
     return next;
   },
   recordEngagement(topicId) {
@@ -664,6 +780,7 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
     const lightbulb = { ...get().lightbulb, [topicId]: next };
     persistNumberMap(LIGHTBULB_KEY, lightbulb);
     set({ lightbulb });
+    void projectTopicEngagementToMesh(topicId, get().eye[topicId] ?? 0, next);
     return next;
   },
   getAgreement(topicId, pointId, synthesisId, epoch, legacyPointId) {

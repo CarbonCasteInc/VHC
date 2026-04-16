@@ -2,14 +2,14 @@
 
 > Status: Season Scope Contract
 > Owner: VHC Product + Architecture
-> Last Reviewed: 2026-03-20
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/trinity_project_brief.md, docs/foundational/System_Architecture.md
 
 
 **Purpose:** one **single tree** that gives **frontend + backend** devs the full picture (UX surfaces + contracts + privacy boundaries + gates).
 **Stance:** **Design & build for Synthesis V2**. Anything labeled V1 is **legacy/compat only**.
 **Legend:** ✅ Implemented · 🟡 Partial · 🔴 Stubbed · ⚪ Planned
-**Last updated:** 2026-03-20
+**Last updated:** 2026-04-16
 
 > Implementation-truth note: this document is season scope and target framing, not the current implementation ledger. For actual merged state and drift notes, use `/Users/bldt/Desktop/VHC/VHC/docs/foundational/STATUS.md`.
 
@@ -51,11 +51,12 @@
       - E2EE doc draft → publish as topic → thread engagement → auto-nominate (articles) → elevate
 
   - **User-visible UI surfaces (front-end map)** 🟡
-    - **App Shell / Navigation** ✅ - UX: stable app frame; boot/hydrate before high-impact actions
-    - **Unified Topics Feed** 🟡 - UX: one stream; filter chips: All / News / Topics / Social / Articles; sort: Latest / Hottest / My Activity
+    - **App Shell / Navigation** ✅ - UX: stable compact app frame; boot/hydrate before high-impact actions; the public feed chrome no longer exposes a required `VENN` / `HERMES` / `AGORA` mode switcher
+      - **User/Profile surface** 🟡 - UX: settings, account controls, and governance/elevation-adjacent controls are reachable without a separate primary AGORA tab
+    - **Unified Topics Feed** 🟡 - UX: one stream; first-use-only `For You` orientation; compact filter chips: All / News / Topics / Social / Articles; sort: Latest / Hottest / My Activity
       - **TopicCard (shared)** 🟡 - UX: headline/title + category tags + 👁 Eye + 💡 Lightbulb + comment count
-      - **NewsCard (clustered story)** 🟡 - UX: **one headline = one story** when readable reporting exists; single-source stories are allowed, and later outlet coverage should accumulate into the same story when it is the same incident or developing episode; tap expands/flips inline into the story view inside the feed context
-      - **TopicCard (user topic/thread)** 🟡 - UX: looks like news once discussion is rich enough (summary + frames + thread)
+      - **NewsCard (clustered story)** 🟡 - UX: **one headline = one story** when readable reporting exists; single-source stories are allowed, and later outlet coverage should accumulate into the same story when it is the same incident or developing episode; collapsed cards are compact and place available story media beside the headline; tap expands/flips inline into the story view inside the feed context
+      - **TopicCard (user topic/thread)** 🟡 - UX: forum headlines surface through the `Topics` filter and look like news once discussion is rich enough (summary + frames + thread)
       - **SocialNotificationCard** 🟡 - UX: platform badge; tap expands to embedded platform view; swipe-left returns & dismisses card (real-data rendering landed Wave 2 Gamma P3)
       - **ArticleFeedCard** 🟡 - UX: docs-backed longform in the same discovery stream
       - **Action receipts** 🟡 - UX: civic-action confirmations appear in `All` only
@@ -73,7 +74,7 @@
       - **District Dashboard** ⚪/🟡 - UX: per-district aggregates + comparisons; never shows individual stance
     - **Messaging (HERMES)** 🟢 - UX: private chat + group coordination (also where Familiar control lives)
       - **Familiar Control Panel** 🟡/⚪ - UX: create/revoke grants; see what the familiar can do; review "high impact" requests
-    - **Docs (HERMES Docs)** 🟡 - UX: collaborative editor (multi-author), private by default; publish as Topic/Article (store + ArticleEditor + CollabEditor foundation, flag-gated; Wave 2 Beta + Wave 3)
+    - **Docs (HERMES Docs)** 🟢 - UX: collaborative editor (multi-author), private by default; publish as Topic/Article (store + ArticleEditor + CollabEditor wired, flag-gated; Wave 2 Beta + Wave 3)
     - **Civic Action Kit (Bridge)** ⚪ - UX: "make it real" without creepy automation
       - **Rep Contact Directory** ⚪ - UX: picks reps for your district; shows public email + phone
       - **Export/Share actions** ⚪ - UX: generate brief PDF; open mailto/tel/share-sheet; store a receipt locally
@@ -86,7 +87,7 @@
       - **Roles:** Guest (read-only) → Human (PoH) → Constituent (PoH + RegionProof)
     - **Unified Topic (the feed atom)** 🟡 - Tech: one topicId across analysis + thread + metrics; UX: one card type
       - `topicId` (deterministic)
-      - `kind: NEWS_STORY | USER_TOPIC | SOCIAL_NOTIFICATION`
+      - `kind: NEWS_STORY | USER_TOPIC | SOCIAL_NOTIFICATION | ARTICLE | ACTION_RECEIPT`
       - `categories[]` (interest tailoring + discovery)
       - `thread` (always present): Thread carries `{ topicId, isHeadline, sourceUrl?, urlHash? }` ✅
       - `synthesis` (latest): `{ schemaVersion:'topic-synthesis-v2', epoch, synthesisId }` ⚪
@@ -117,7 +118,7 @@
     - **Forum (HERMES Forum)** 🟢 - UX: threaded discourse under every topic
       - Threads/comments are public objects; votes affect visibility (not identity)
       - Stance-aware threading (concur/counter/discuss) ✅/🟡
-    - **Docs (HERMES Docs)** 🟡 - UX: longform + collaboration (CRDT/Yjs provider, E2EE key management, collab editor, presence, sharing, access control - all flag-gated)
+    - **Docs (HERMES Docs)** 🟢 - UX: longform + collaboration (CRDT/Yjs provider, E2EE key management, collab editor, presence, sharing, access control - all flag-gated)
       - Convert Reply → Article; articles can be co-authored privately then published
     - **Projects / Proposals (proposal-threads)** 🟡/⚪ - UX: "topics can become funded projects"
       - Thread has `proposal?: ProposalExtension { fundingRequest, recipient, status, qfProjectId?, ... }` 🟡
@@ -168,10 +169,10 @@
   - **Implementation reality check (what exists today vs target)** 🟡
     - **VENN analysis pipeline** 🟡 - end-to-end pipeline exists; current live profile defaults to API relay; local-first remains a target-state default pending capability thresholds
     - **News Aggregator / StoryCluster** 🟡 - daemon-first bundling is real; fixture-backed browser gates are green; source-admission/health evidence, runtime keep/watch/remove enforcement, source-scouting, and source-health artifact autoload are in force; public semantic soak is still smoke-only; live public headline-soak density and broader overlap-ready source breadth remain the active blocker
-    - **Discovery feed / storyline UX** 🟡 - storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
+    - **Discovery feed / storyline UX** 🟡 - compact one-feed shell, first-use orientation, source-strip/story-media cards, storyline publication, ranking/diversification, focus state, archive presentation, and deep-link restoration are merged; browser/live evidence hardening remains active
     - **HERMES Messaging** 🟢 - E2EE working
     - **HERMES Forum** 🟢 - threads + votes working; unified topics fields landed (`topicId`, `sourceUrl`, `urlHash`, `isHeadline`)
-    - **HERMES Docs** 🟡 — foundation + CollabEditor wired into ArticleEditor (flag-gated; Wave 2 Beta + Wave 3)  
+    - **HERMES Docs** 🟢 — foundation + CollabEditor wired into ArticleEditor (flag-gated; Wave 2 Beta + Wave 3)
     - **Bridge / Civic Action Kit** 🟡 — 5-component UI, trust/XP/budget enforcement, and local receipt capture are real; unified feed receipt publication remains partial (Wave 2 Gamma + Wave 3 CAK)
     - **LUMA** 🟡 - Wave 4 hardened: trust constants consolidated, session lifecycle (expiry/revocation), constituency proof verification (flag-gated). TEE/VIO/sybil still stubbed (Season 0 §9.2 deferred)
     - **GWC contracts** 🟡 - contracts implemented; public testnet deploy incomplete; Season 0 UX should remain XP-first

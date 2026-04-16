@@ -14,6 +14,11 @@ const HealthIndicator = import.meta.env.DEV || import.meta.env.VITE_VH_SHOW_HEAL
   ? lazy(() => import('./components/dev/HealthIndicator'))
   : null;
 
+if (typeof window !== 'undefined' && window.location.search) {
+  (window as Window & { __VH_BOOT_SEARCH__?: string }).__VH_BOOT_SEARCH__ =
+    window.location.search;
+}
+
 console.info('[vh:web-pwa] main.tsx executing, mounting router...');
 
 const router = createRouter({ routeTree });

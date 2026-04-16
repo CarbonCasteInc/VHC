@@ -36,7 +36,7 @@ export const AnalysisFeedCard: React.FC<AnalysisFeedCardProps> = ({ item, onShar
         </button>
         <Link
           to="/hermes"
-          search={{ sourceAnalysisId: item.urlHash, title: item.summary, sourceUrl: item.url }}
+          search={{ sourceSynthesisId: item.urlHash, title: item.summary, sourceUrl: item.url }}
           className="text-xs font-medium text-teal-600 hover:text-teal-700 dark:text-teal-400"
         >
           Discuss in Forum →

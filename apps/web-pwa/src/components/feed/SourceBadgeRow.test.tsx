@@ -78,6 +78,12 @@ describe('SourceBadgeRow', () => {
       />,
     );
     expect(screen.getByLabelText('1 source')).toBeTruthy();
+    expect(screen.getByTestId('source-badge-count')).toHaveTextContent('Singleton');
+  });
+
+  it('shows aggregate count label for multi-source clusters', () => {
+    render(<SourceBadgeRow sources={threeSources} />);
+    expect(screen.getByTestId('source-badge-count')).toHaveTextContent('3 sources');
   });
 
   it('shows overflow indicator when sources exceed maxVisible', () => {

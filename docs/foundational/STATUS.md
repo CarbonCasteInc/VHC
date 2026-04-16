@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-03-28
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-03-28
-**Version:** 0.8.3 (24-source starter surface, AP HTML-hub promotion, wrapper-owned relay startup, and explicit beta distribution posture on `main`)
-**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, but the live corroborated-headlines promise remains beta-gated by production-readiness evidence. Wave 4 is closed; StoryCluster correctness, source-health enforcement, unified production-readiness, background source scouting, stable retained identity anchoring, and AP HTML-hub onboarding are landed. The primary remaining blocker is no longer generic identity churn; it is headline-soak trend recovery and hours-scale later attachment across repeated executions.
+**Last Updated:** 2026-04-16
+**Version:** 0.8.4 (compact one-feed UI shell, first-use orientation, and side-media headline cards)
+**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, but the public product shell now treats the unified feed as the primary home surface rather than asking users to choose VENN/HERMES/AGORA modes. Live corroborated-headlines remain beta-gated by production-readiness evidence. Wave 4 is closed; StoryCluster correctness, source-health enforcement, unified production-readiness, background source scouting, stable retained identity anchoring, and AP HTML-hub onboarding are landed. The primary remaining blocker is no longer generic identity churn; it is headline-soak trend recovery and hours-scale later attachment across repeated executions.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -28,7 +28,7 @@
 | **HERMES Docs** | 🟢 Foundation + CollabEditor wired into ArticleEditor (flag-gated) | ❌ No |
 | **HERMES Bridge (Civic Action Kit)** | 🟡 Full UI (5 components), trust/XP/budget enforcement, local receipt capture, and feed-card rendering support; unified feed publication remains partial | ❌ No |
 | **News Aggregator** | 🟡 Implemented with daemon-first StoryCluster production path, source-admission/health evidence, scout-backed source growth, and unified production-readiness; live public headline-soak density and broader overlap-ready source breadth remain active | ⚠️ Partial |
-| **Discovery Feed** | 🟢 Implemented with fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
+| **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
 
@@ -88,6 +88,13 @@ Current policy state:
   - UI lanes build against the current published feed contract;
   - soak lanes validate the production pipeline behind that contract on merged `main`;
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md`.
+- UI lane current state:
+  - the app shell no longer requires a primary `VENN` / `HERMES` / `AGORA` mode switcher for feed use;
+  - the unified feed is the home surface;
+  - HERMES Forum cards are discovered through the `Topics` filter and card discussion affordances, while direct forum routes remain available for deep links/internal flows;
+  - governance/elevation controls are expected through card/user flows rather than a separate primary feed tab;
+  - `For You` is first-use orientation only;
+  - collapsed news cards are compact and place available story media beside the headline/title, with extra source images kept for expanded detail.
 - Story bundler release claims now have an explicit operational scorecard:
   - see `/Users/bldt/Desktop/VHC/VHC/docs/ops/STORY_BUNDLER_PRODUCTION_READINESS_CHECKLIST.md` for the snapshot-ready vs retained-feed-ready gates, thresholds, and artifact paths.
 - The latest full combined readiness check on `main` is fresh again and currently blocks only on:
@@ -136,6 +143,15 @@ Current truth for the news bundler and feed hardening lane:
   - `secondary_assets` = same-publisher derivatives such as video clips
 - `created_at` is immutable by `story_id`; `cluster_window_end` is the latest-activity source of truth.
 - `Latest` is activity-based and `Hot` remains deterministic/config-versioned.
+- Public feed freshness now has an explicit through-line test from validated article-automation / publisher-canary snapshots into the unified feed:
+  - singleton and aggregate story composition is preserved for the headline-card source strip;
+  - older stories are revealed by scroll pagination;
+  - newer clusters from a later snapshot appear after refresh without changing feed mode.
+- Generated story analyses now persist explicit bundle identity metadata:
+  - `bundle_revision`
+  - sorted `source_article_ids`
+  - source count and cluster window
+  - latest-analysis reuse is exact-revision only, so regenerated bundles do not overwrite or silently reuse stale analysis records.
 - The fixture-backed daemon-first release gates are green on `main` after the latest semantic-fixture expansion:
   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
@@ -310,9 +326,9 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 
 | Item | Reason | Carryover Doc |
 |------|--------|---------------|
-| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needs spec work; additive to landed foundation | Tracked in current STATUS backlog |
+| W2-Gamma Phase 4 (receipt-in-feed) | DeliveryReceipt schema needed spec work at W2 close; additive to landed foundation | Feed-card rendering support landed; live publication remains partial |
 | SoT F: Rep directory + native intents | CAK foundation landed; full delivery pipeline is Wave 3 priority | Tracked in current STATUS backlog |
-| CollabEditor runtime wiring | Foundation built and tested; wiring into ArticleEditor path deferred | Tracked in current STATUS backlog |
+| CollabEditor runtime wiring | Foundation built and tested; ArticleEditor wiring deferred at W2 close | Completed in Wave 3; see Docs status below |
 
 ---
 
@@ -320,7 +336,7 @@ The following items were explicitly deferred to Wave 3 by CEO decision:
 
 | Flag | Purpose | Default | Wave |
 |------|---------|---------|------|
-| `VITE_FEED_V2_ENABLED` | Gates discovery feed v2 UI | `false` | 1 |
+| `VITE_FEED_V2_ENABLED` | Retired; discovery feed shell is permanently mounted | n/a | 1 |
 | `VITE_TOPIC_SYNTHESIS_V2_ENABLED` | Gates synthesis v2 hooks | `false` | 1 |
 | `VITE_NEWS_BRIDGE_ENABLED` | Gates news store → discovery feed bridge bootstrap | `false` | 1 |
 | `VITE_SYNTHESIS_BRIDGE_ENABLED` | Gates synthesis store → discovery feed bridge bootstrap | `false` | 1 |
@@ -350,11 +366,11 @@ Operational live profiles intentionally override selected flags to enable the fu
 | Direction Delta | Target (Ship Snapshot) | Current Implementation |
 |---|---|---|
 | A. V2-first synthesis | `TopicSynthesisV2` (quorum + epochs + divergence) is canonical | ✅ Types, candidate gatherer, quorum engine, epoch scheduler, store, Gun adapters (Wave 1) + re-synthesis triggers, comment tracking, digest builder (Wave 2 Alpha) |
-| B. 3-surface feed | Feed mixes `News`, `Topics`, and `Linked-Social Notifications` | ✅ Discovery feed shell with all three card types + real social notification wiring (Wave 1 + Wave 2 Gamma P3) |
-| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema + artifact generators + budget gates landed (Wave 2 Gamma P2); receipt-in-feed deferred to Wave 3 |
+| B. Unified feed | Feed mixes `News`, `Topics`, `Linked-Social Notifications`, `Articles`, and `Action Receipts` (`All` only) | ✅ Discovery feed shell with all five source surfaces, compact one-feed chrome, source-strip cards, first-use orientation, and real social notification wiring |
+| C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema + artifact generators + budget gates landed (Wave 2 Gamma P2); receipt feed-card rendering support landed, live publication remains partial |
 | D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | ✅ Forum sorting + 240-char reply cap + Convert-to-Article CTA + ArticleFeedCard (Wave 2 Beta S1) |
-| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟡 Full foundation: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control (Wave 2 Beta S2); runtime wiring into ArticleEditor deferred to Wave 3 |
-| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
+| E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟢 Full foundation plus flag-gated ArticleEditor runtime wiring: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control |
+| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Per-user Eye/Lightbulb decay persists locally and projects topic engagement summaries to mesh; budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
 | G. Provider switching + consent | Default API relay today; local-first when local-agent capability thresholds are met; remote providers opt-in with cost/privacy clarity | ✅ Relay default in live profiles; local engine path retained; model/provider override controls in place |
 
 ---
@@ -497,7 +513,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | Feed↔Forum integration | ✅ |
 | Proposal extension on threads | ✅ |
 
-#### Docs — 🟡 Foundation Complete, Runtime Wiring Pending
+#### Docs — 🟢 Foundation Complete, Runtime Wiring Flag-Gated
 
 | Feature | Status |
 |---------|--------|
@@ -511,7 +527,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | ShareModal (access control) | ✅ Foundation (Wave 2 S2) |
 | hermesDocsCollab store | ✅ Foundation (Wave 2 S2) |
 | hermesDocsAccess functions | ✅ Foundation (Wave 2 S2) |
-| CollabEditor wired into ArticleEditor | ❌ Wave 3 |
+| CollabEditor wired into ArticleEditor | ✅ Wave 3, flag-gated by `VITE_HERMES_DOCS_ENABLED` + `VITE_DOCS_COLLAB_ENABLED` |
 
 #### Bridge (Civic Action Kit) — 🟡 Elevation Landed
 
@@ -521,7 +537,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | Elevation artifact generators | ✅ (Wave 2) |
 | civic_actions/day budget gate | ✅ (Wave 2) |
 | Trust threshold for nominations | ✅ (Wave 2) |
-| Receipt-in-feed | ❌ Wave 3 |
+| Receipt-in-feed | 🟡 Feed-card rendering support landed; live publication remains partial |
 | Representative directory | ❌ Wave 3 |
 | Native intents | ❌ Wave 3 |
 
@@ -564,9 +580,15 @@ Operational live profiles intentionally override selected flags to enable the fu
 |---------|----------------|
 | Feed shell + filter chips | ✅ `FeedShell.tsx` |
 | Sort controls | ✅ `SortControls.tsx` |
+| Compact feed chrome + first-use orientation | ✅ `components/feed/FeedShellChrome.tsx` |
+| Primary mode nav retired from app chrome | ✅ `routes/index.tsx` |
 | Latest by activity (`cluster_window_end`) | ✅ `apps/web-pwa/src/store/feedBridge.ts`, `apps/web-pwa/src/store/news/storeHelpers.ts` |
 | Deterministic hotness wiring | ✅ `packages/gun-client/src/newsAdapters.ts` |
 | TopicCard / NewsCard | ✅ Wave 1 |
+| Compact NewsCard side media + source strip + engagement counts | ✅ `components/feed/NewsCardFront.tsx`, `components/feed/SourceBadgeRow.tsx`, `components/feed/FeedEngagement.tsx` |
+| Mesh-backed Eye/Lightbulb topic engagement counters | ✅ `hooks/useSentimentState.ts`, `hooks/useFeedEngagementMetrics.ts`, `packages/gun-client/src/topicEngagementAdapters.ts` |
+| Rolling bundler snapshot -> feed freshness path | ✅ `store/newsSnapshotBootstrap.ts`, `components/feed/FeedShell.lazyLoading.test.tsx` |
+| Bundle-identity analysis persistence | ✅ `components/feed/useAnalysisMesh.ts`, `packages/gun-client/src/analysisAdapters.ts`, `packages/data-model/src/schemas/hermes/sentiment.ts` |
 | SocialNotificationCard (real data) | ✅ Wave 2 |
 | ArticleFeedCard | ✅ Wave 2 |
 | Discovery store + ranking | ✅ `store/discovery/` |

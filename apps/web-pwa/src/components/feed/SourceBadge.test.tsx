@@ -11,7 +11,7 @@ describe('SourceBadge', () => {
     cleanup();
   });
 
-  it('renders publisher name', () => {
+  it('renders a compact publisher tag for the badge face', () => {
     render(
       <SourceBadge
         sourceId="fox-latest"
@@ -19,10 +19,10 @@ describe('SourceBadge', () => {
         url="https://example.com/fox"
       />,
     );
-    expect(screen.getByText('Fox News')).toBeTruthy();
+    expect(screen.getByText('fox')).toBeTruthy();
   });
 
-  it('renders publisher initial', () => {
+  it('derives a compact tag from multi-word publishers', () => {
     render(
       <SourceBadge
         sourceId="guardian-us"
@@ -30,7 +30,7 @@ describe('SourceBadge', () => {
         url="https://example.com/guardian"
       />,
     );
-    expect(screen.getByText('T')).toBeTruthy();
+    expect(screen.getByText('gua')).toBeTruthy();
   });
 
   it('has accessible aria-label', () => {
@@ -100,6 +100,6 @@ describe('SourceBadge', () => {
     render(
       <SourceBadge sourceId="empty" publisher="" url="https://example.com/empty" />,
     );
-    expect(screen.getByText('?')).toBeTruthy();
+    expect(screen.getByText('???')).toBeTruthy();
   });
 });

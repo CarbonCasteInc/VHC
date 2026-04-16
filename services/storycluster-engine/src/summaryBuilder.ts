@@ -27,19 +27,13 @@ function coverageSentence(cluster: StoredClusterRecord): string {
     }
   }
   const sourceCount = groupedPublishers.size;
-  const assetCount = Math.max(0, cluster.source_documents.length - sourceCount);
-  const publishers = [...groupedPublishers.values()]
-    .sort()
-    .slice(0, 3);
   const spanHours = Math.max(
     1,
     Math.round((cluster.cluster_window_end - cluster.cluster_window_start) / (60 * 60 * 1000)),
   );
-  const assetTail = assetCount > 0
-    ? ` with ${assetCount} additional same-publisher asset${assetCount === 1 ? '' : 's'}`
-    : '';
+  const sourceWord = sourceCount === 1 ? 'report' : 'reports';
   return ensureSentence(
-    `${sourceCount} source${sourceCount === 1 ? '' : 's'} across ${publishers.join(', ') || 'multiple outlets'} tracked the event over about ${spanHours} hour${spanHours === 1 ? '' : 's'}${assetTail}`,
+    `${sourceCount} canonical ${sourceWord} tracked the event over about ${spanHours} hour${spanHours === 1 ? '' : 's'}`,
   );
 }
 

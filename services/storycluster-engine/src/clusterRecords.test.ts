@@ -117,6 +117,13 @@ describe('clusterRecords', () => {
     expect(updated.source_documents[0]?.title).toContain('extended');
     expect(updated.source_documents[0]?.doc_ids).toEqual(['doc-9', 'doc-9b']);
 
+    const mediaBackfill = upsertClusterRecord(
+      deriveClusterRecord(topicState, 'topic-news', [{ ...duplicate, image_url: undefined, image_hash: undefined }], 'story-media'),
+      [{ ...duplicate, image_url: 'https://images.example.com/doc-9.jpg', image_hash: 'image-hash-doc-9' }],
+    );
+    expect(mediaBackfill.source_documents[0]?.image_url).toBe('https://images.example.com/doc-9.jpg');
+    expect(mediaBackfill.source_documents[0]?.image_hash).toBe('image-hash-doc-9');
+
     const replacement = upsertClusterRecord(
       deriveClusterRecord(topicState, 'topic-news', [{ ...duplicate, summary: undefined }], 'story-replace'),
       [{ ...duplicate, summary: 'Replacement summary.', coarse_vector: [1], full_vector: [1] }],

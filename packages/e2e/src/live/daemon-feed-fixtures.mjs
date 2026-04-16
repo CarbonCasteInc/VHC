@@ -7,7 +7,7 @@ function rssDate(iso) {
   return new Date(iso).toUTCString();
 }
 
-function articleHtml(title, paragraphs) {
+function articleHtml(title, paragraphs, imageUrl) {
   const body = paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join('');
   return `<!doctype html>
 <html lang="en">
@@ -15,6 +15,7 @@ function articleHtml(title, paragraphs) {
     <meta charset="utf-8" />
     <title>${title}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    ${imageUrl ? `<meta property="og:image" content="${imageUrl}" />` : ''}
   </head>
   <body>
     <main>
@@ -27,46 +28,84 @@ function articleHtml(title, paragraphs) {
 </html>`;
 }
 
+function imageUrl(imageId) {
+  return `${baseUrl}/images/${imageId}.svg`;
+}
+
+function imageSvg(imageId) {
+  const label = imageId
+    .split('-')
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(' ');
+  let hash = 0;
+  for (const char of imageId) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+  const hueA = hash % 360;
+  const hueB = (hueA + 42) % 360;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" role="img" aria-label="${label}">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="hsl(${hueA} 72% 42%)" />
+      <stop offset="100%" stop-color="hsl(${hueB} 82% 58%)" />
+    </linearGradient>
+    <pattern id="p" width="80" height="80" patternUnits="userSpaceOnUse" patternTransform="rotate(12)">
+      <rect width="80" height="80" fill="none" />
+      <path d="M0 40H80" stroke="white" stroke-opacity=".13" stroke-width="14" />
+    </pattern>
+  </defs>
+  <rect width="1200" height="720" fill="url(#g)" />
+  <rect width="1200" height="720" fill="url(#p)" />
+  <circle cx="980" cy="130" r="220" fill="white" fill-opacity=".16" />
+  <circle cx="108" cy="626" r="260" fill="black" fill-opacity=".13" />
+  <text x="72" y="560" fill="white" font-family="Georgia, serif" font-size="68" font-weight="700" letter-spacing="-.04em">${label}</text>
+</svg>`;
+}
+
 const articles = {
   'geneva-guardian': {
     title: 'Geneva ceasefire talks open after overnight missile strike',
     description: 'Mediators convened in Geneva after an overnight missile strike prompted emergency diplomacy.',
     publishedAt: '2026-03-09T16:30:00Z',
+    imageUrl: imageUrl('geneva-guardian'),
     html: articleHtml('Geneva ceasefire talks open after overnight missile strike', [
       'Mediators from three countries opened emergency ceasefire talks in Geneva on Monday morning after an overnight missile strike damaged fuel depots near the capital.',
       'Diplomats said the same negotiating table will address the overnight strike, the release of detainees and guarantees for shipping lanes during the truce window.',
       'Officials described the Geneva meeting as the first direct ceasefire session since the overnight strike escalated the conflict.',
-    ]),
+    ], imageUrl('geneva-guardian')),
   },
   'geneva-cbs': {
     title: 'Emergency Geneva talks begin after overnight missile strike hits fuel depots',
     description: 'Delegations opened emergency Geneva talks after the overnight strike hit fuel depots and forced a diplomatic response.',
     publishedAt: '2026-03-09T16:32:00Z',
+    imageUrl: imageUrl('geneva-cbs'),
     html: articleHtml('Emergency Geneva talks begin after overnight missile strike hits fuel depots', [
       'Emergency ceasefire talks began in Geneva after an overnight missile strike hit fuel depots and forced negotiators back to the table.',
       'Officials said the Geneva session is focused on the overnight strike, protection for shipping routes and a staged ceasefire backed by mediators.',
       'Diplomats described the meeting as the first direct response to the missile strike and said additional talks are planned for Tuesday.',
-    ]),
+    ], imageUrl('geneva-cbs')),
   },
   'tsa-bbc': {
     title: 'Staffing shortage leads to two-hour TSA lines at major US airports',
     description: 'Travelers faced long lines after a staffing shortage slowed security checkpoints at major airports.',
     publishedAt: '2026-03-09T15:10:00Z',
+    imageUrl: imageUrl('tsa-bbc'),
     html: articleHtml('Staffing shortage leads to two-hour TSA lines at major US airports', [
       'Travelers at major U.S. airports faced security lines of up to two hours after a staffing shortage reduced the number of open TSA checkpoints.',
       'Airport managers in Atlanta, Chicago and Dallas said the delays began before sunrise and persisted through the morning departure bank.',
       'Federal officials said they were reassigning staff and extending shifts to reduce the security backlog created by the shortage.',
-    ]),
+    ], imageUrl('tsa-bbc')),
   },
   'tsa-fox': {
     title: 'Travelers face long TSA waits as staffing shortfall hits major airports',
     description: 'Long TSA waits spread across major airports after a staffing shortfall disrupted checkpoint operations.',
     publishedAt: '2026-03-09T15:14:00Z',
+    imageUrl: imageUrl('tsa-fox'),
     html: articleHtml('Travelers face long TSA waits as staffing shortfall hits major airports', [
       'Long TSA waits spread across major airports after a staffing shortfall disrupted checkpoint operations during the morning travel rush.',
       'Passengers in Atlanta, Chicago and Dallas reported lines nearing two hours as officials consolidated lanes and reassigned officers.',
       'Transportation officials said they were deploying backup teams to relieve the backlog caused by the staffing problem.',
-    ]),
+    ], imageUrl('tsa-fox')),
   },
   'iran-roundup-nypost': {
     title: 'Trump says conflict could end soon while oil routes stay under pressure',
@@ -92,21 +131,23 @@ const articles = {
     title: 'City hall attack injures mayor and top aide before budget vote',
     description: 'Investigators said the mayor and a senior aide were injured in a blast outside city hall before a budget vote.',
     publishedAt: '2026-03-09T15:26:00Z',
+    imageUrl: imageUrl('mayor-guardian'),
     html: articleHtml('City hall attack injures mayor and top aide before budget vote', [
       'The mayor and a senior aide were injured in a blast outside city hall hours before a scheduled budget vote, according to investigators.',
       'Police said the attack damaged official vehicles and forced lawmakers to evacuate the surrounding block while bomb technicians secured the area.',
       'Officials described the explosion as a targeted attack tied to the city hall complex and said the mayor was taken to hospital in stable condition.',
-    ]),
+    ], imageUrl('mayor-guardian')),
   },
   'mayor-bbc': {
     title: 'Mayor hospitalised after blast outside city hall ahead of budget session',
     description: 'A blast outside city hall injured the mayor before a budget session and triggered an emergency security response.',
     publishedAt: '2026-03-09T15:31:00Z',
+    imageUrl: imageUrl('mayor-bbc'),
     html: articleHtml('Mayor hospitalised after blast outside city hall ahead of budget session', [
       'The mayor was hospitalised after a blast outside city hall ahead of a budget session, with officials saying a senior aide was also hurt.',
       'Security forces cleared the area around city hall and suspended the scheduled vote while investigators examined damaged vehicles and debris.',
       'Authorities said the explosion targeted the city hall entrance and launched a major emergency response across the district.',
-    ]),
+    ], imageUrl('mayor-bbc')),
   },
   'fraud-cbs': {
     title: 'Brothers convicted in luxury condo fraud trial after six-week case',
@@ -152,21 +193,23 @@ const articles = {
     title: 'Dockworkers extend strike as cargo backlog grows at Atlantic ports',
     description: 'Dockworkers extended a strike at Atlantic ports as cargo backlogs and shipping delays worsened.',
     publishedAt: '2026-03-09T16:24:00Z',
+    imageUrl: imageUrl('port-bbc'),
     html: articleHtml('Dockworkers extend strike as cargo backlog grows at Atlantic ports', [
       'Dockworkers extended a strike at several Atlantic ports as cargo backlogs deepened and shipping schedules slipped into a second day.',
       'Port authorities said containers were piling up while negotiators continued talks over staffing rules and overtime guarantees.',
       'Officials described the disruption as the latest escalation in the same port strike that began before dawn on Sunday.',
-    ]),
+    ], imageUrl('port-bbc')),
   },
   'port-cbs': {
     title: 'Atlantic port strike enters second day, delaying container traffic',
     description: 'Container traffic slowed further as the Atlantic port strike entered a second day and negotiations continued.',
     publishedAt: '2026-03-09T16:26:00Z',
+    imageUrl: imageUrl('port-cbs'),
     html: articleHtml('Atlantic port strike enters second day, delaying container traffic', [
       'Container traffic slowed further as the Atlantic port strike entered a second day, leaving cargo stacked at multiple terminals.',
       'Negotiators met again after talks over overtime and staffing rules failed to produce a settlement overnight.',
       'Port officials said the current delays are part of the same strike that shut down key Atlantic terminals on Sunday morning.',
-    ]),
+    ], imageUrl('port-cbs')),
   },
   'blackout-guardian': {
     title: 'Grid failure leaves capital neighborhoods without power for second night',
@@ -282,10 +325,11 @@ function feedXml(sourceId) {
         <link>${baseUrl}/article/${articleId}</link>
         <description>${article.description}</description>
         <pubDate>${rssDate(article.publishedAt)}</pubDate>
+        ${article.imageUrl ? `<media:content medium="image" url="${article.imageUrl}" />` : ''}
       </item>`;
   }).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
+<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/">
   <channel>
     <title>${sourceId}</title>
 ${items}
@@ -322,6 +366,16 @@ const server = createServer((req, res) => {
     }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(article.html);
+    return;
+  }
+
+  if (url.pathname.startsWith('/images/') && url.pathname.endsWith('.svg')) {
+    const imageId = url.pathname.slice('/images/'.length, -'.svg'.length);
+    res.writeHead(200, {
+      'content-type': 'image/svg+xml; charset=utf-8',
+      'cache-control': 'no-store',
+    });
+    res.end(imageSvg(imageId));
     return;
   }
 

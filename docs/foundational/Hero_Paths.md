@@ -2,11 +2,11 @@
 
 > Status: Foundational Reference
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-04-16
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
-Version: 0.3  
+Version: 0.4
 Status: Canonical storyboards for Season 0 implementation and testing
 
 This document defines the core user loops and maps each loop to concrete contracts, trust gates, privacy boundaries, and test assertions.
@@ -43,11 +43,16 @@ User sentence:
 
 2. I land on one unified feed.
 
-- Feed includes three surfaces:
+- Feed includes five source surfaces:
   - News story cards (clustered multi-source bundles)
   - Topic/thread cards (community-originated discussion)
   - Linked-social notification cards
-- I can filter by `All`, `News`, `Topics`, `Social` and sort by `Latest`, `Hottest`, `My Activity`.
+  - Docs-backed article cards
+  - Civic action receipt cards
+- I can filter by `All`, `News`, `Topics`, `Social`, `Articles` and sort by `Latest`, `Hottest`, `My Activity`.
+- Civic action receipts are visible in `All` only for Season 0.
+- I do not have to choose between `VENN`, `HERMES`, and `AGORA` modes: the home feed is the primary surface, forum cards come through `Topics`, and governance/elevation controls appear through card/user flows.
+- The `For You` explainer may orient me on first use, but returning sessions land directly on the compact feed.
 
 3. I open a topic and get stable synthesis + discussion.
 
@@ -111,7 +116,7 @@ type TopicId = string;
 
 interface TopicRef {
   topic_id: TopicId;
-  kind: 'NEWS_STORY' | 'USER_TOPIC' | 'SOCIAL_NOTIFICATION';
+  kind: 'NEWS_STORY' | 'USER_TOPIC' | 'SOCIAL_NOTIFICATION' | 'ARTICLE' | 'ACTION_RECEIPT';
 }
 
 interface TopicSynthesisRef {
@@ -125,6 +130,7 @@ Notes:
 
 - News topics derive from clustered stories (`StoryBundle`).
 - User topics and social notifications share the same TopicId abstraction.
+- Articles and action receipts share the feed abstraction; action receipts do not receive a dedicated filter chip in Season 0.
 - Legacy `analysis_id` is compatibility-only.
 
 #### 1.2.3 Sentiment, Eye, and Lightbulb
@@ -136,7 +142,7 @@ interface SentimentSignal {
   epoch: number;
   point_id: string;
   agreement: -1 | 0 | 1;
-  weight: number; // [0, 2]
+  weight: number; // [0, 1.95]
   constituency_proof: ConstituencyProof;
   emitted_at: number;
 }
@@ -145,12 +151,12 @@ interface SentimentSignal {
 Civic Decay step:
 
 ```ts
-next = current + 0.3 * (2 - current);
+next = current + 0.3 * (1.95 - current);
 ```
 
 Invariants:
 
-- monotonic and bounded in `[0, 2]`
+- monotonic and bounded in `[0, 1.95]` (strictly below 2)
 - one qualifying interaction = one decay step
 - event-level signals are sensitive and not public plaintext
 
@@ -448,7 +454,7 @@ Data policy:
 
 ## 5. Cross-Loop Invariants
 
-1. One topic abstraction across all surfaces (`NEWS_STORY`, `USER_TOPIC`, `SOCIAL_NOTIFICATION`).
+1. One topic abstraction across all surfaces (`NEWS_STORY`, `USER_TOPIC`, `SOCIAL_NOTIFICATION`, `ARTICLE`, `ACTION_RECEIPT`).
 2. V2 synthesis linkage by `{topicId, synthesisId, epoch}`.
 3. Event-level identity/sentiment/profile data is sensitive and not public plaintext.
 4. Familiars act on behalf of principals and inherit principal budgets.
@@ -458,14 +464,16 @@ Data policy:
 
 Use this checklist before considering a major feed/forum/docs/bridge refactor complete.
 
-1. Feed still supports `All/News/Topics/Social` filtering and canonical sort modes.
-2. Reply hard cap (`240`) still enforced and conversion path still reachable.
-3. Article publication still links docs artifact and returns to topic/feed surfaces.
-4. Nomination thresholding still deterministic under concurrent events.
-5. Artifact generation still emits all required packet artifacts.
-6. Forwarding remains user-initiated with local receipt semantics.
-7. Public projections still pass privacy linting (no nullifier+district linkage).
-8. Trust and budget gates still enforced for familiar and human actions.
+1. Feed still supports `All/News/Topics/Social/Articles` filtering and canonical sort modes; action receipts remain `All` only.
+2. The primary app chrome does not reintroduce a required `VENN/HERMES/AGORA` feed mode switcher.
+3. The first-use `For You` orientation does not recur after reload for returning sessions.
+4. Reply hard cap (`240`) still enforced and conversion path still reachable.
+5. Article publication still links docs artifact and returns to topic/feed surfaces.
+6. Nomination thresholding still deterministic under concurrent events.
+7. Artifact generation still emits all required packet artifacts.
+8. Forwarding remains user-initiated with local receipt semantics.
+9. Public projections still pass privacy linting (no nullifier+district linkage).
+10. Trust and budget gates still enforced for familiar and human actions.
 
 ## 7. Out of Scope for Season 0
 

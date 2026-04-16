@@ -120,16 +120,16 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
   return (
     <section
       data-testid={`storyline-focus-panel-${storyline.storyline_id}`}
-      className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4"
+      className="space-y-4 rounded-[2rem] border border-white/75 bg-white/84 p-5 shadow-[0_24px_60px_-38px_rgba(15,23,42,0.32)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/70"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-1">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-500 dark:text-slate-400">
             Storyline focus
           </p>
-          <h2 className="text-sm font-semibold text-slate-900">{storyline.headline}</h2>
+          <h2 className="text-xl text-slate-950 dark:text-white">{storyline.headline}</h2>
           <p
-            className="text-xs text-slate-600"
+            className="text-sm text-slate-600 dark:text-slate-300"
             data-testid={`storyline-focus-count-${storyline.storyline_id}`}
           >
             Showing {formatStoryCount(visibleStoryCount)} from this storyline in the feed.
@@ -140,7 +140,7 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
           {onBack ? (
             <button
               type="button"
-              className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-white"
+              className="rounded-full border border-slate-300/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
               onClick={onBack}
               data-testid={`storyline-focus-back-${storyline.storyline_id}`}
             >
@@ -149,7 +149,7 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
           ) : null}
           <button
             type="button"
-            className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-white"
+            className="rounded-full border border-slate-300/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:bg-white dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
             onClick={onClear}
             data-testid={`storyline-focus-clear-${storyline.storyline_id}`}
           >
@@ -159,19 +159,19 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
       </div>
 
       {storyline.related_coverage.length > 0 && (
-        <div className="space-y-2">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+        <div className="space-y-2 rounded-[1.5rem] border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/80">
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
             Related coverage
           </h3>
-          <ul className="space-y-1 text-sm text-slate-700">
+          <ul className="space-y-1.5 text-sm text-slate-700 dark:text-slate-200">
             {storyline.related_coverage.map((entry) => (
               <li key={`${entry.source_id}|${entry.url}`}>
-                <span className="font-medium text-slate-900">{entry.publisher}:</span>{' '}
+                <span className="font-medium text-slate-900 dark:text-white">{entry.publisher}:</span>{' '}
                 <a
                   href={entry.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="underline decoration-slate-300 underline-offset-2 hover:text-slate-900"
+                  className="underline decoration-slate-300 underline-offset-2 hover:text-slate-900 dark:decoration-slate-600 dark:hover:text-white"
                 >
                   {entry.title}
                 </a>
@@ -182,18 +182,21 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
       )}
 
       {archiveItems.length > 0 && (
-        <div className="space-y-2" data-testid={`storyline-archive-${storyline.storyline_id}`}>
-          <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">
+        <div
+          className="space-y-3 rounded-[1.5rem] border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/80"
+          data-testid={`storyline-archive-${storyline.storyline_id}`}
+        >
+          <h3 className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-500 dark:text-slate-400">
             Storyline archive
           </h3>
           <ul className="space-y-2">
             {archiveItems.map((entry) => (
               <li
                 key={entry.storyId}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-[1.25rem] border border-white/90 bg-white/90 px-3 py-3 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80"
               >
                 <div className="min-w-0 space-y-1">
-                  <p className="truncate text-sm font-medium text-slate-900">{entry.title}</p>
+                  <p className="truncate text-sm font-medium text-slate-900 dark:text-white">{entry.title}</p>
                   {entry.canonical ? (
                     <p
                       className="text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-700"
@@ -214,7 +217,7 @@ export const StorylineFocusPanel: React.FC<StorylineFocusPanelProps> = ({
 
                 <button
                   type="button"
-                  className="shrink-0 rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                  className="shrink-0 rounded-full border border-slate-300/80 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                   onClick={() => handleOpenStory(entry.storyId)}
                   data-testid={`storyline-archive-jump-${entry.storyId}`}
                 >

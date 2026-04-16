@@ -4,6 +4,7 @@ import type { HermesComment, HermesCommentHydratable, HermesThread } from '@vh/t
 import type { CommentStanceInput, ForumState } from './types';
 import { loadIdentity, loadVotesFromStorage, persistVotes } from './persistence';
 import { ensureIdentity, stripUndefined, serializeThreadForGun, parseThreadFromGun, addComment } from './helpers';
+import { normalizeThreadSourceContext } from './sourceContext';
 
 export function createMockForumStore() {
   const mesh = (() => {
@@ -24,8 +25,9 @@ export function createMockForumStore() {
     threads: new Map(),
     comments: new Map(),
     userVotes: initialVotes,
-    async createThread(title, content, tags, sourceAnalysisId) {
+    async createThread(title, content, tags, sourceContext) {
       const identity = ensureIdentity();
+      const normalizedSourceContext = normalizeThreadSourceContext(sourceContext);
       const thread: HermesThread = {
         id: `mock-thread-${Date.now()}`,
         schemaVersion: 'hermes-thread-v0',
@@ -34,7 +36,7 @@ export function createMockForumStore() {
         author: identity.session.nullifier,
         timestamp: Date.now(),
         tags,
-        ...(sourceAnalysisId ? { sourceAnalysisId } : {}),
+        ...normalizedSourceContext,
         upvotes: 0,
         downvotes: 0,
         score: 0

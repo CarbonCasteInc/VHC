@@ -187,7 +187,7 @@ export function formatConsoleArgs(args) {
   }).join(' ');
 }
 
-export function resolveLatestPassingCanaryArtifact(
+export function resolvePassingCanaryArtifacts(
   artifactRoot,
   {
     exists,
@@ -197,11 +197,16 @@ export function resolveLatestPassingCanaryArtifact(
     summaryFileName,
     requiredArtifactNames,
     passPredicate,
+    maxArtifacts = Number.POSITIVE_INFINITY,
   },
 ) {
   if (!exists(artifactRoot)) {
-    return null;
+    return [];
   }
+
+  const limit = Number.isFinite(maxArtifacts) && maxArtifacts > 0
+    ? Math.floor(maxArtifacts)
+    : Number.POSITIVE_INFINITY;
 
   const candidates = readdir(artifactRoot, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -214,6 +219,7 @@ export function resolveLatestPassingCanaryArtifact(
     })
     .sort((left, right) => right.mtimeMs - left.mtimeMs);
 
+  const passing = [];
   for (const candidate of candidates) {
     const summaryPath = path.join(candidate.artifactDir, summaryFileName);
     if (!exists(summaryPath)) {
@@ -228,17 +234,40 @@ export function resolveLatestPassingCanaryArtifact(
       if (!passPredicate(summary)) {
         continue;
       }
-      return {
+      passing.push({
         artifactDir: candidate.artifactDir,
         summaryPath,
         summary,
-      };
+      });
+      if (passing.length >= limit) {
+        break;
+      }
     } catch {
       continue;
     }
   }
 
-  return null;
+  return passing;
+}
+
+export function resolveLatestPassingCanaryArtifact(
+  artifactRoot,
+  options,
+) {
+  return resolvePassingCanaryArtifacts(artifactRoot, {
+    ...options,
+    maxArtifacts: 1,
+  })[0] ?? null;
+}
+
+export function resolvePublisherCanaryArtifactRoot(repoRoot, env = process.env) {
+  const explicit =
+    env.VH_DAEMON_FEED_PUBLISHER_CANARY_ARTIFACT_ROOT?.trim()
+    || env.VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT?.trim();
+  if (explicit) {
+    return path.resolve(repoRoot, explicit);
+  }
+  return path.join(repoRoot, '.tmp', 'daemon-feed-publisher-canary');
 }
 
 function normalizeUrl(value) {

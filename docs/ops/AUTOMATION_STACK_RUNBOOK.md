@@ -2,12 +2,19 @@
 
 > Status: Operational Runbook
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-04-01
+> Last Reviewed: 2026-04-16
 > Depends On: docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md
 
 ## Purpose
 
 The automation stack is a persistent local infrastructure layer managed by `launchd`. It provides shared services that scheduled automation runs (Publisher Canary, Consumer Smoke, Retained Uplift) consume as clients instead of bootstrapping their own listeners.
+
+The stack also provides the validated-snapshot through-line for UI testing:
+Publisher Canary writes a passing `published-store-snapshot.json`, the snapshot
+server serves a newest-first rolling stream across recent passing snapshots,
+and the web client periodically refreshes that stream into the discovery feed.
+Reloads receive newer canary output; scrolling reveals older retained stories
+from the same validated stream.
 
 This reduces `listen EPERM` failures by making scheduled lanes consume a shared stack and by launching detached stack children from the automation state directory instead of the Desktop-rooted repo cwd.
 
@@ -87,6 +94,8 @@ Schema:
 | `ports`              | object  | `{ snapshot, relay, web }` |
 | `pids`               | object  | `{ snapshot, relay, web }` |
 | `snapshotPath`       | string  | Path to snapshot data (if available) |
+| `snapshotSummary`    | object  | Current validated-snapshot summary from `/meta.json` |
+| `rollingWindow`      | object  | Current validated-snapshot rolling window metadata from `/meta.json` |
 | `webBaseUrl`         | string  | `http://127.0.0.1:2099` |
 | `storyclusterClusterUrl` | string | `http://127.0.0.1:4310/cluster` |
 | `storyclusterReadyUrl` | string | `http://127.0.0.1:4310/ready` |
@@ -99,6 +108,23 @@ Schema:
 `pnpm automation:ensure-stack` compares the current `git rev-parse HEAD` against `state.json.gitHead`. If they diverge, the stack rebuilds `web-pwa` and restarts all services. This ensures automation always runs against the latest merged code.
 
 The comparison uses the canonical repo root HEAD, not a worktree HEAD, to avoid spurious rebuilds during worktree-based automation runs.
+
+Snapshot freshness does not require a rebuild. The snapshot server re-resolves
+the latest passing publisher-canary artifact window on
+`VH_VALIDATED_SNAPSHOT_REFRESH_MS` (default `10000`) and serves a deduped
+rolling stream controlled by `VH_VALIDATED_SNAPSHOT_ROLLING_ARTIFACT_LIMIT`
+(default `24`) and `VH_VALIDATED_SNAPSHOT_MAX_STORIES` (default `150`). The web
+preview refreshes
+`VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL` on
+`VITE_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS` / `VH_NEWS_BOOTSTRAP_SNAPSHOT_REFRESH_MS`
+(default `60000`). Set either interval to `0` only when intentionally freezing a
+debug snapshot.
+
+Artifact root selection is explicit and worktree-safe. Set
+`VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT` or
+`VH_DAEMON_FEED_PUBLISHER_CANARY_ARTIFACT_ROOT` to point at the canary artifact
+root. When unset, the scripts prefer the current checkout artifact root if it
+contains snapshots, otherwise the `main` worktree artifact root when available.
 
 ## Troubleshooting
 

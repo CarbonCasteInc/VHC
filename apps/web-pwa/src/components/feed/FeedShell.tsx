@@ -1,17 +1,15 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useRouterState } from '@tanstack/react-router';
 import { useStore } from 'zustand';
 import type { FeedItem } from '@vh/data-model';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { useFeedStore } from '../../hooks/useFeedStore';
 import { useDiscoveryStore } from '../../store/discovery';
 import { useNewsStore } from '../../store/news';
-import { FilterChips } from './FilterChips';
-import { SortControls } from './SortControls';
-import { useExpandedCardStore } from './expandedCardStore';
+import { feedItemMatchesDetailId } from '../../utils/feedItemIdentity';
 import { FeedContent } from './FeedContent';
+import { FeedShellChrome } from './FeedShellChrome';
 import { StorylineFocusPanel } from './StorylineFocusPanel';
-import { buildStorylineSearch, normalizeStorySearchValue, normalizeStorylineSearchValue } from './storylineSearch';
+import { useFeedShellRouteState } from './useFeedShellRouteState';
 
 const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
@@ -23,16 +21,14 @@ export interface FeedShellProps {
 
 /**
  * Shell container for the V2 discovery feed.
- * Composes FilterChips + SortControls + feed item list.
+ * Composes route state, feed paging, refresh safety, and feed chrome.
  *
  * V2 feed is now the permanent path (Wave 1 flag retired).
- * This component does NOT gate itself — it is unconditionally mounted.
+ * This component does NOT gate itself - it is unconditionally mounted.
  *
  * Spec: docs/specs/spec-topic-discovery-ranking-v0.md §2
  */
 export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
-  const router = useRouter();
-  const { location } = useRouterState();
   const {
     feed,
     selectedStorylineId,
@@ -54,22 +50,43 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const discoveryItems = useStore(useDiscoveryStore, (state) => state.items);
   const refreshLatest = useStore(useNewsStore, (state) => state.refreshLatest);
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
-  const expandedStoryId = useStore(useExpandedCardStore, (state) => state.expandedStoryId);
+  const {
+    expandedStoryId,
+    searchDetailId,
+    searchStoryId,
+    showBackFromStoryline,
+    handleClearStoryline,
+    handleOpenStoryFromStoryline,
+    handleBackFromStoryline,
+  } = useFeedShellRouteState({
+    pagedFeed,
+    filter,
+    sortMode,
+    selectedStorylineId,
+    setFilter,
+    setSortMode,
+    focusStoryline,
+    clearStorylineFocus,
+  });
+
   const deferredFeedRef = useRef<ReadonlyArray<FeedItem> | null>(null);
   const lastModeRef = useRef<{ filter: typeof filter; sortMode: typeof sortMode } | null>(null);
   const touchStartYRef = useRef<number | null>(null);
   const pullTriggeredRef = useRef(false);
-  const previousSearchStorylineIdRef = useRef<string | null>(null);
-  const storylineOpenedFromFeedRef = useRef(false);
-  const pendingStorylineOpenRouteSyncRef = useRef(false);
-  const focusedStoryIdRef = useRef<string | null>(null);
-  const hydratingFromRouteRef = useRef(false);
   const [isNearTop, setIsNearTop] = useState(true);
   const [hasDeferredUpdates, setHasDeferredUpdates] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const searchStorylineId = normalizeStorylineSearchValue(location.search);
-  const searchStoryId = normalizeStorySearchValue(location.search);
+
   const focusedStoryline = selectedStorylineId ? storylinesById[selectedStorylineId] ?? null : null;
+  const totalItems = pagedFeed.length;
+  const newsCount = useMemo(
+    () => pagedFeed.filter((item) => item.kind === 'NEWS_STORY').length,
+    [pagedFeed],
+  );
+  const topicCount = useMemo(
+    () => pagedFeed.filter((item) => item.kind === 'USER_TOPIC').length,
+    [pagedFeed],
+  );
   const focusedStoryCount = useMemo(
     () =>
       selectedStorylineId
@@ -80,50 +97,21 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         : 0,
     [discoveryItems, selectedStorylineId],
   );
-  const showBackFromStoryline =
-    Boolean(selectedStorylineId) &&
-    searchStorylineId === selectedStorylineId &&
-    storylineOpenedFromFeedRef.current;
 
   const applyDeferredFeed = useCallback(
     (resetPagination: boolean) => {
       const deferred = deferredFeedRef.current;
       if (!deferred) return;
-      setDiscoveryFeed(deferred, { resetPagination });
+      setDiscoveryFeed(deferred, {
+        resetPagination,
+        ensureVisibleDetailId: expandedStoryId ?? searchDetailId,
+        ensureVisibleStoryId: searchStoryId,
+      });
       deferredFeedRef.current = null;
       setHasDeferredUpdates(false);
     },
-    [setDiscoveryFeed],
+    [expandedStoryId, searchDetailId, searchStoryId, setDiscoveryFeed],
   );
-
-  const handleClearStoryline = useCallback(() => {
-    storylineOpenedFromFeedRef.current = false;
-    pendingStorylineOpenRouteSyncRef.current = false;
-    focusedStoryIdRef.current = null;
-    clearStorylineFocus();
-  }, [clearStorylineFocus]);
-
-  const handleOpenStoryFromStoryline = useCallback(
-    (storyId: string) => {
-      if (!selectedStorylineId) return;
-      focusedStoryIdRef.current = null;
-      const nextSearch = buildStorylineSearch(location.search, selectedStorylineId, storyId);
-      void router.navigate({
-        to: location.pathname,
-        search: nextSearch as never,
-        replace: false,
-      });
-    },
-    [location.pathname, location.search, router, selectedStorylineId],
-  );
-
-  const handleBackFromStoryline = useCallback(() => {
-    if (typeof window === 'undefined') {
-      handleClearStoryline();
-      return;
-    }
-    window.history.back();
-  }, [handleClearStoryline]);
 
   const handleRefresh = useCallback(async () => {
     if (refreshing) return;
@@ -135,71 +123,6 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       setRefreshing(false);
     }
   }, [applyDeferredFeed, refreshLatest, refreshing]);
-
-  useEffect(() => {
-    const previousSearchStorylineId = previousSearchStorylineIdRef.current;
-    previousSearchStorylineIdRef.current = searchStorylineId;
-
-    if (searchStorylineId === selectedStorylineId) {
-      hydratingFromRouteRef.current = false;
-      pendingStorylineOpenRouteSyncRef.current = false;
-      return;
-    }
-
-    if (previousSearchStorylineId === searchStorylineId) return;
-    storylineOpenedFromFeedRef.current = false;
-    pendingStorylineOpenRouteSyncRef.current = false;
-    hydratingFromRouteRef.current = true;
-    if (searchStorylineId) {
-      focusStoryline(searchStorylineId);
-      return;
-    }
-
-    clearStorylineFocus();
-  }, [clearStorylineFocus, focusStoryline, searchStorylineId, selectedStorylineId]);
-
-  useEffect(() => {
-    if (hydratingFromRouteRef.current) {
-      if (searchStorylineId === selectedStorylineId) {
-        hydratingFromRouteRef.current = false;
-      }
-      return;
-    }
-
-    if (pendingStorylineOpenRouteSyncRef.current) {
-      if (searchStorylineId === selectedStorylineId) pendingStorylineOpenRouteSyncRef.current = false;
-      return;
-    }
-    if (searchStorylineId === selectedStorylineId) return;
-
-    const openingStoryline = Boolean(selectedStorylineId);
-    if (openingStoryline) {
-      storylineOpenedFromFeedRef.current = true;
-      pendingStorylineOpenRouteSyncRef.current = true;
-    } else {
-      storylineOpenedFromFeedRef.current = false;
-    }
-
-    const nextSearch = buildStorylineSearch(location.search, selectedStorylineId, searchStoryId);
-    void router.navigate({
-      to: location.pathname,
-      search: nextSearch as never,
-      replace: !openingStoryline,
-    });
-  }, [location.pathname, location.search, router, searchStoryId, searchStorylineId, selectedStorylineId]);
-
-  useEffect(() => {
-    if (typeof document === 'undefined' || !selectedStorylineId || !searchStoryId) {
-      focusedStoryIdRef.current = null;
-      return;
-    }
-    if (focusedStoryIdRef.current === searchStoryId) return;
-    const target = document.querySelector<HTMLElement>(`[data-story-id="${searchStoryId}"]`);
-    if (!target) return;
-    target.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    target.focus({ preventScroll: true });
-    focusedStoryIdRef.current = searchStoryId;
-  }, [pagedFeed, searchStoryId, selectedStorylineId]);
 
   useEffect(() => {
     const updateNearTop = () => {
@@ -222,17 +145,40 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       lastModeRef.current?.sortMode !== sortMode;
     lastModeRef.current = { filter, sortMode };
 
-    const deferUpdates = expandedStoryId !== null || !isNearTop;
+    const detailToEnsure = expandedStoryId ?? searchDetailId;
+    const pagedFeedHasDetail =
+      detailToEnsure !== null &&
+      pagedFeed.some((item) => feedItemMatchesDetailId(item, detailToEnsure));
+    const pagedFeedHasFocusedStory =
+      searchStoryId !== null &&
+      pagedFeed.some((item) => item.kind === 'NEWS_STORY' && item.story_id?.trim() === searchStoryId);
+    const mustPrimeRestoredRouteState =
+      (detailToEnsure !== null && !pagedFeedHasDetail) ||
+      (searchStoryId !== null && !pagedFeedHasFocusedStory);
+    const deferUpdates = (expandedStoryId !== null || !isNearTop) && !mustPrimeRestoredRouteState;
     if (deferUpdates && !modeChanged) {
       deferredFeedRef.current = feed;
       setHasDeferredUpdates(true);
       return;
     }
 
-    setDiscoveryFeed(feed, { resetPagination: modeChanged });
+    setDiscoveryFeed(feed, {
+      resetPagination: modeChanged,
+      ensureVisibleDetailId: detailToEnsure,
+      ensureVisibleStoryId: searchStoryId,
+    });
     deferredFeedRef.current = null;
     setHasDeferredUpdates(false);
-  }, [expandedStoryId, feed, filter, isNearTop, setDiscoveryFeed, sortMode]);
+  }, [
+    expandedStoryId,
+    feed,
+    filter,
+    isNearTop,
+    searchDetailId,
+    searchStoryId,
+    setDiscoveryFeed,
+    sortMode,
+  ]);
 
   const onTouchStart = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
@@ -266,44 +212,28 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
 
   return (
     <div
-      className="flex flex-col gap-4"
+      className="mx-auto flex max-w-[760px] flex-col gap-4"
       data-testid="feed-shell"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       onTouchCancel={onTouchEnd}
     >
-      {/* Controls row */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <FilterChips active={filter} onSelect={setFilter} />
-        <div className="flex items-center gap-2">
-          <SortControls active={sortMode} onSelect={setSortMode} />
-          <button
-            type="button"
-            onClick={() => void handleRefresh()}
-            data-testid="feed-refresh-button"
-            className="rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
-          >
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </button>
-        </div>
-      </div>
-
-      {hasDeferredUpdates && (
-        <div
-          data-testid="feed-refresh-prompt"
-          className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800"
-        >
-          New headlines are ready. Pull down or press Refresh to load them.
-          <button
-            type="button"
-            className="ml-2 underline underline-offset-2"
-            onClick={() => applyDeferredFeed(true)}
-          >
-            Load now
-          </button>
-        </div>
-      )}
+      <FeedShellChrome
+        filter={filter}
+        sortMode={sortMode}
+        selectedStorylineId={selectedStorylineId}
+        totalItems={totalItems}
+        newsCount={newsCount}
+        topicCount={topicCount}
+        focusedStoryCount={focusedStoryCount}
+        refreshing={refreshing}
+        hasDeferredUpdates={hasDeferredUpdates}
+        onFilterSelect={setFilter}
+        onSortSelect={setSortMode}
+        onRefresh={() => void handleRefresh()}
+        onApplyDeferredFeed={() => applyDeferredFeed(true)}
+      />
 
       {focusedStoryline && (
         <StorylineFocusPanel
@@ -316,15 +246,16 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         />
       )}
 
-      {/* Feed content area */}
-      <FeedContent
-        feed={pagedFeed}
-        loading={loading}
-        error={error}
-        hasMore={hasMore}
-        loadingMore={loadingMore}
-        loadMore={loadMore}
-      />
+      <div className="rounded-[1.5rem] border border-white/70 bg-white/70 p-2.5 shadow-[0_22px_58px_-44px_rgba(15,23,42,0.34)] backdrop-blur dark:border-slate-700/70 dark:bg-slate-950/55 sm:p-3">
+        <FeedContent
+          feed={pagedFeed}
+          loading={loading}
+          error={error}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          loadMore={loadMore}
+        />
+      </div>
     </div>
   );
 };

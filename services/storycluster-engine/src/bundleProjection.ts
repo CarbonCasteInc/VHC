@@ -62,6 +62,7 @@ function toBundleSource(document: StoredSourceDocument): StoryClusterBundle['sou
     url_hash: document.url_hash,
     published_at: document.published_at,
     title: document.title,
+    ...(document.image_url ? { imageUrl: document.image_url } : {}),
   };
 }
 

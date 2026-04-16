@@ -72,6 +72,15 @@ async function loadSubject(options: {
     return {
       ...actual,
       parseFeedSources: vi.fn(() => FEED_SOURCES),
+      resolveFeedSourceConfig: vi.fn(() => ({
+        feedSources: FEED_SOURCES,
+        sourceHealth: {
+          reportSource: null,
+          reportPath: null,
+          report: null,
+          summary: null,
+        },
+      })),
       parseTopicMapping: vi.fn(() => TOPIC_MAPPING),
       parseOptionalPositiveInt: vi.fn(() => options.pollIntervalMs),
       parsePositiveInt: vi.fn(() => options.leaseTtlMs),
@@ -79,6 +88,7 @@ async function loadSubject(options: {
         endpointUrl: 'http://127.0.0.1:4310/cluster',
         healthUrl: 'http://127.0.0.1:4310/ready',
         timeoutMs: 12_000,
+        maxItemsPerRequest: 8,
         headers: { authorization: 'Bearer test' },
       })),
       parseGunPeers: vi.fn(() => options.gunPeers),
@@ -144,6 +154,7 @@ describe('startNewsAggregatorDaemonFromEnv', () => {
           allowHeuristicFallback: false,
           remoteClusterEndpoint: 'http://127.0.0.1:4310/cluster',
           remoteClusterTimeoutMs: 12_000,
+          remoteClusterMaxItemsPerRequest: 8,
         }),
       }),
     );

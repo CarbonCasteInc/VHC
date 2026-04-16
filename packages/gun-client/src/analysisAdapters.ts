@@ -15,6 +15,18 @@ interface PutAckResult {
 
 const ANALYSIS_ARTIFACT_CODEC = 'analysis-artifact-json-v1' as const;
 
+interface StoryAnalysisBundleIdentityPayload {
+  readonly bundle_revision: string;
+  readonly source_article_ids: readonly string[];
+  readonly source_count: number;
+  readonly cluster_window_start: number;
+  readonly cluster_window_end: number;
+}
+
+type StoryAnalysisArtifactWithBundleIdentity = StoryAnalysisArtifact & {
+  readonly bundle_identity?: StoryAnalysisBundleIdentityPayload;
+};
+
 interface EncodedStoryAnalysisArtifact {
   readonly __analysis_artifact_codec: typeof ANALYSIS_ARTIFACT_CODEC;
   readonly artifact_json: string;
@@ -23,6 +35,7 @@ interface EncodedStoryAnalysisArtifact {
   readonly provenance_hash: string;
   readonly model_scope: string;
   readonly created_at: string;
+  readonly bundle_identity?: StoryAnalysisBundleIdentityPayload;
 }
 
 const FORBIDDEN_ANALYSIS_KEYS = new Set<string>([
@@ -129,6 +142,8 @@ function assertNoForbiddenAnalysisFields(payload: unknown): void {
 }
 
 function encodeStoryAnalysisArtifact(artifact: StoryAnalysisArtifact): EncodedStoryAnalysisArtifact {
+  const bundleIdentity = (artifact as StoryAnalysisArtifactWithBundleIdentity).bundle_identity;
+
   return {
     __analysis_artifact_codec: ANALYSIS_ARTIFACT_CODEC,
     artifact_json: JSON.stringify(artifact),
@@ -137,6 +152,7 @@ function encodeStoryAnalysisArtifact(artifact: StoryAnalysisArtifact): EncodedSt
     provenance_hash: artifact.provenance_hash,
     model_scope: artifact.model_scope,
     created_at: artifact.created_at,
+    ...(bundleIdentity ? { bundle_identity: bundleIdentity } : {}),
   };
 }
 
@@ -348,7 +364,7 @@ export async function writeAnalysis(
 ): Promise<StoryAnalysisArtifact> {
   assertNoForbiddenAnalysisFields(artifact);
 
-  const sanitized = StoryAnalysisArtifactSchema.parse(artifact);
+  const sanitized = StoryAnalysisArtifactSchema.parse(artifact) as StoryAnalysisArtifactWithBundleIdentity;
   const normalizedStoryId = normalizeRequiredId(sanitized.story_id, 'story_id');
   const normalizedAnalysisKey = normalizeRequiredId(sanitized.analysisKey, 'analysisKey');
 
@@ -369,6 +385,7 @@ export async function writeAnalysis(
     provenance_hash: sanitized.provenance_hash,
     model_scope: sanitized.model_scope,
     created_at: sanitized.created_at,
+    ...(sanitized.bundle_identity ? { bundle_identity: sanitized.bundle_identity } : {}),
   };
 
   await putWithAck(getStoryAnalysisLatestChain(client, normalizedStoryId), pointer);

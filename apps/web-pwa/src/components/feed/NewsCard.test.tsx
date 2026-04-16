@@ -3,9 +3,14 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
+import type { HermesThread } from '@vh/types';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
+import { useForumStore } from '../../store/hermesForum';
+import { useSentimentState } from '../../hooks/useSentimentState';
+import { useViewTracking } from '../../hooks/useViewTracking';
 import { NewsCard } from './NewsCard';
+import { resetExpandedCardStore } from './expandedCardStore';
 import {
   getCachedSynthesisForStory,
   synthesizeStoryFromAnalysisPipeline,
@@ -13,16 +18,21 @@ import {
 vi.mock('./newsCardAnalysis', () => ({
   synthesizeStoryFromAnalysisPipeline: vi.fn(),
   getCachedSynthesisForStory: vi.fn(),
+  sanitizePublicationNeutralSummary: (summary: string) => summary,
 }));
 vi.mock('../../store/identityProvider', () => ({
   getPublishedIdentity: vi.fn().mockReturnValue(null),
   publishIdentity: vi.fn(),
   clearPublishedIdentity: vi.fn(),
 }));
+vi.mock('../../hooks/useViewTracking', () => ({
+  useViewTracking: vi.fn(),
+}));
 const mockSynthesizeStoryFromAnalysisPipeline = vi.mocked(
   synthesizeStoryFromAnalysisPipeline,
 );
 const mockGetCachedSynthesisForStory = vi.mocked(getCachedSynthesisForStory);
+const mockUseViewTracking = vi.mocked(useViewTracking);
 const NOW = 1_700_000_000_000;
 const CANONICAL_TOPIC_ID = 'a'.repeat(64);
 function makeNewsItem(overrides: Partial<FeedItem> = {}): FeedItem {
@@ -57,6 +67,7 @@ function makeStoryBundle(overrides: Partial<StoryBundle> = {}): StoryBundle {
         url_hash: 'hash-1',
         published_at: NOW - 3_600_000,
         title: 'City council votes on transit plan',
+        imageUrl: 'https://example.com/news-1.jpg',
       },
     ],
     cluster_features: {
@@ -108,7 +119,18 @@ describe('NewsCard', () => {
   beforeEach(() => {
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    resetExpandedCardStore();
+    useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      agreements: {},
+      pointIdAliases: {},
+      lightbulb: {},
+      eye: {},
+      signals: [],
+    });
     localStorage.clear();
+    mockUseViewTracking.mockReturnValue(false);
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
     mockSynthesizeStoryFromAnalysisPipeline.mockReset();
     mockGetCachedSynthesisForStory.mockReset();
@@ -143,6 +165,9 @@ describe('NewsCard', () => {
     vi.unstubAllEnvs();
     useNewsStore.getState().reset();
     useSynthesisStore.getState().reset();
+    resetExpandedCardStore();
+    useForumStore.setState({ threads: new Map(), comments: new Map(), userVotes: new Map() });
+    mockUseViewTracking.mockReset();
   });
   it('renders title and news badge', () => {
     render(<NewsCard item={makeNewsItem()} />);
@@ -151,6 +176,51 @@ describe('NewsCard', () => {
     expect(
       screen.getByText('City council votes on transit plan'),
     ).toBeInTheDocument();
+  });
+
+  it('overlays local decayed Eye and Lightbulb weights on feed counters', () => {
+    useSentimentState.setState({
+      ...useSentimentState.getState(),
+      eye: { 'news-1': 1.285 },
+      lightbulb: { 'news-1': 1 },
+    });
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByTestId('news-card-eye-news-1')).toHaveTextContent('23.29');
+    expect(screen.getByTestId('news-card-lightbulb-news-1')).toHaveTextContent('9');
+  });
+
+  it('arms full-read tracking only while the story detail is expanded', () => {
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(mockUseViewTracking).toHaveBeenLastCalledWith('news-1', false);
+    fireEvent.click(screen.getByTestId('news-card-toggle-news-1'));
+    expect(mockUseViewTracking).toHaveBeenLastCalledWith('news-1', true);
+  });
+  it('marks headline discussion threads as live on compact cards', () => {
+    const headlineThread: HermesThread = {
+      id: 'thread-1',
+      schemaVersion: 'hermes-thread-v0',
+      title: 'Transit discussion',
+      content: 'Talk through the transit vote.',
+      author: 'user-1',
+      timestamp: NOW,
+      tags: ['transit'],
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      topicId: 'news-1',
+      isHeadline: true,
+    };
+
+    useForumStore.setState({
+      threads: new Map<string, HermesThread>([['thread-1', headlineThread]]),
+    });
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByText('Live thread')).toBeInTheDocument();
   });
   it('falls back to unknown timestamp and hotness 0.00 for invalid numeric values', () => {
     const malformed = makeNewsItem({
@@ -252,7 +322,7 @@ describe('NewsCard', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
     expect(screen.queryByTestId('analysis-status-message')).not.toBeInTheDocument();
   });
-  it('feature flag on renders analysis summary, provenance, and per-source summaries', async () => {
+  it('feature flag on prefers canonical V2 synthesis over card analysis when both exist', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore
@@ -260,19 +330,87 @@ describe('NewsCard', () => {
       .setTopicSynthesis('news-1', makeSynthesis());
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(
-      await screen.findByText('Pipeline synthesis summary from analyzed sources.'),
-    ).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-analysis-provider-news-1')).toHaveTextContent(
-      'Analysis by gpt-4o-mini',
+    expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Council approved a phased transit expansion plan.',
     );
+    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+      'Topic synthesis v2',
+    );
+    expect(screen.queryByText('Pipeline synthesis summary from analyzed sources.')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
     expect(
-      screen.getByTestId('news-card-analysis-source-summaries-news-1'),
-    ).toHaveTextContent('Local Paper: Local coverage emphasizes urgency and commuter demand.');
-    expect(screen.getByText('Local Paper: Transit spending must accelerate now.')).toBeInTheDocument();
+      screen.queryByTestId('news-card-analysis-source-summaries-news-1'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText('Public investment is overdue')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('news-card-back-button-news-1'));
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
     expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders a hero image on the card and moves additional source images into the expanded summary', async () => {
+    useNewsStore.getState().setStories([
+      makeStoryBundle({
+        sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'Local Paper',
+            url: 'https://example.com/news-1',
+            url_hash: 'hash-1',
+            published_at: NOW - 3_600_000,
+            title: 'City council votes on transit plan',
+            imageUrl: 'https://example.com/news-1.jpg',
+          },
+          {
+            source_id: 'src-2',
+            publisher: 'Metro Desk',
+            url: 'https://example.com/news-2',
+            url_hash: 'hash-2',
+            published_at: NOW - 3_000_000,
+            title: 'Transit vote draws commuter response',
+            imageUrl: 'https://example.com/news-2.jpg',
+          },
+        ],
+        primary_sources: [
+          {
+            source_id: 'src-1',
+            publisher: 'Local Paper',
+            url: 'https://example.com/news-1',
+            url_hash: 'hash-1',
+            published_at: NOW - 3_600_000,
+            title: 'City council votes on transit plan',
+            imageUrl: 'https://example.com/news-1.jpg',
+          },
+        ],
+        secondary_assets: [
+          {
+            source_id: 'src-2',
+            publisher: 'Metro Desk',
+            url: 'https://example.com/news-2',
+            url_hash: 'hash-2',
+            published_at: NOW - 3_000_000,
+            title: 'Transit vote draws commuter response',
+            imageUrl: 'https://example.com/news-2.jpg',
+          },
+        ],
+      }),
+    ]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+
+    render(<NewsCard item={makeNewsItem()} />);
+
+    expect(screen.getByTestId('news-card-hero-image-news-1')).toHaveAttribute(
+      'src',
+      'https://example.com/news-1.jpg',
+    );
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-gallery-news-1')).toBeInTheDocument();
+    expect(screen.getByText('Source images')).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-gallery-image-news-1-0')).toHaveAttribute(
+      'src',
+      'https://example.com/news-2.jpg',
+    );
   });
   it('renders related links separately from canonical source badges', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'false');
@@ -357,10 +495,10 @@ describe('NewsCard', () => {
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis({ frames: [] }));
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByText('Provider fallback summary.')).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-analysis-provider-news-1')).toHaveTextContent(
-      'Analysis by openai',
+    expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Council approved a phased transit expansion plan.',
     );
+    expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
   });
   it('omits provenance when analysis metadata is missing', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
@@ -412,6 +550,9 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(
+      await screen.findByTestId('news-card-summary-news-1'),
+    ).toHaveTextContent('Transit vote split council members along budget priorities.');
+    expect(
       await screen.findByText('Extracting article text…'),
     ).toBeInTheDocument();
   });
@@ -423,6 +564,9 @@ describe('NewsCard', () => {
     useNewsStore.getState().setStories([makeStoryBundle()]);
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(
+      await screen.findByTestId('news-card-summary-news-1'),
+    ).toHaveTextContent('Transit vote split council members along budget priorities.');
     expect(await screen.findByText('analysis unavailable')).toBeInTheDocument();
     expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
   });
@@ -446,8 +590,8 @@ describe('NewsCard', () => {
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
-    expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('1 source analyzed');
-    expect(screen.getByTestId('bias-table-provider-badge')).toHaveTextContent('Analysis by gpt-4o-mini');
+    expect(screen.getByTestId('bias-table-source-count')).toHaveTextContent('Topic synthesis frames');
+    expect(screen.queryByTestId('bias-table-provider-badge')).not.toBeInTheDocument();
     expect(screen.queryByTestId('news-card-frame-table-news-1')).not.toBeInTheDocument();
   });
   it('renders synthesis loading and synthesis unavailable states when analysis is disabled', () => {

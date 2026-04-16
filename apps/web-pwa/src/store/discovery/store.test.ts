@@ -3,7 +3,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { describe, expect, it, beforeEach, vi, afterEach } from 'vitest';
 import type { FeedItem, RankingConfig } from '@vh/data-model';
-import { DEFAULT_RANKING_CONFIG } from '@vh/data-model';
+import { DEFAULT_FEED_PERSONALIZATION_CONFIG, DEFAULT_RANKING_CONFIG } from '@vh/data-model';
 import { createDiscoveryStore, createMockDiscoveryStore, composeFeed, useDiscoveryStore } from './index';
 import { DISCOVERY_TYPES_MODULE_ID, type DiscoveryState } from './types';
 import type { StoreApi } from 'zustand';
@@ -55,6 +55,10 @@ describe('createDiscoveryStore', () => {
 
   it('initializes with default ranking config', () => {
     expect(store.getState().rankingConfig).toEqual(DEFAULT_RANKING_CONFIG);
+  });
+
+  it('initializes with empty personalization preferences', () => {
+    expect(store.getState().personalization).toEqual(DEFAULT_FEED_PERSONALIZATION_CONFIG);
   });
 
   it('initializes loading as false', () => {
@@ -349,6 +353,15 @@ describe('createDiscoveryStore', () => {
       };
       store.getState().setRankingConfig(custom);
       expect(store.getState().rankingConfig).toEqual(custom);
+    });
+  });
+
+  describe('setPersonalization', () => {
+    it('updates preference scaffold', () => {
+      store.getState().setPersonalization({ preferredCategories: ['transportation'] });
+      expect(store.getState().personalization).toEqual({
+        preferredCategories: ['transportation'],
+      });
     });
   });
 

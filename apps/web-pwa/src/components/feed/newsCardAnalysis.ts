@@ -183,6 +183,58 @@ function firstSentence(value: string): string {
   return (match?.[0] ?? normalized).trim();
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function ensureSummarySentence(value: string): string {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+  const ended = /[.!?]$/.test(normalized) ? normalized : `${normalized}.`;
+  return ended.charAt(0).toUpperCase() + ended.slice(1);
+}
+
+function stripSourceAttributionLead(sentence: string, publisher: string): string {
+  const normalized = sentence.replace(/\s+/g, ' ').trim();
+  const normalizedPublisher = publisher.trim();
+  if (!normalized || !normalizedPublisher) {
+    return normalized;
+  }
+
+  const publisherPattern = escapeRegExp(normalizedPublisher);
+  const withoutLabel = normalized.replace(new RegExp(`^${publisherPattern}\\s*:\\s*`, 'i'), '');
+  const withoutReportVerb = withoutLabel.replace(
+    new RegExp(
+      `^${publisherPattern}\\s+(?:says?|said|reports?|reported|writes(?:\\s+that)?|notes?|noted|focuses\\s+on|emphasizes?|describes?)\\s+`,
+      'i',
+    ),
+    '',
+  );
+  return withoutReportVerb.trim();
+}
+
+export function sanitizePublicationNeutralSummary(
+  summary: string,
+  sourceLabels: ReadonlyArray<string> = [],
+): string {
+  let sanitized = summary;
+
+  for (const label of sourceLabels) {
+    const normalizedLabel = label.trim();
+    if (!normalizedLabel) {
+      continue;
+    }
+    sanitized = sanitized.replace(
+      new RegExp(`(^|[.!?]\\s+)${escapeRegExp(normalizedLabel)}\\s*:\\s+`, 'gi'),
+      '$1',
+    );
+  }
+
+  return sanitized.replace(/\s+/g, ' ').trim();
+}
+
 function parseMaxSourceAnalyses(value: unknown): number | null {
   if (typeof value !== 'string') {
     return null;
@@ -300,13 +352,28 @@ function toRelatedLink(
 }
 
 function synthesizeSummary(analyses: ReadonlyArray<NewsCardSourceAnalysis>): string {
-  const hl = analyses
-    .map((sa) => {
-      const s = firstSentence(sa.summary);
-      return s ? `${sa.publisher}: ${s}` : `${sa.publisher}: Summary unavailable.`;
-    })
-    .filter((l) => l.trim().length > 0);
-  return hl.length === 0 ? 'Summary pending synthesis.' : hl.join(' ');
+  const seen = new Set<string>();
+  const sentences: string[] = [];
+
+  for (const analysis of analyses) {
+    const first = firstSentence(analysis.summary);
+    const neutral = sanitizePublicationNeutralSummary(
+      stripSourceAttributionLead(first, analysis.publisher),
+      [analysis.publisher, analysis.source_id],
+    );
+    const synthesized = ensureSummarySentence(neutral);
+    const key = synthesized.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    if (!synthesized || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    sentences.push(synthesized);
+    if (sentences.length >= 4) {
+      break;
+    }
+  }
+
+  return sentences.length === 0 ? 'Summary pending synthesis.' : sentences.join(' ');
 }
 
 async function runSynthesis(
@@ -427,6 +494,8 @@ export const newsCardAnalysisInternal = {
   runAnalysisViaRelay,
   selectSourcesForAnalysis,
   shouldSkipArticleTextFetch,
+  stripSourceAttributionLead,
+  sanitizePublicationNeutralSummary,
   synthesizeSummary,
   toFrameRows,
   toRelatedLink,

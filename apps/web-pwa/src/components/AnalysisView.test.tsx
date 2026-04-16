@@ -14,7 +14,7 @@ const usePointAggregateMock = vi.hoisted(() => vi.fn());
 const useSynthesisPointIdsMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const forumStoreState = vi.hoisted(() => ({
-  threads: new Map<string, { id: string; sourceAnalysisId?: string }>(),
+  threads: new Map<string, { id: string; sourceSynthesisId?: string; sourceAnalysisId?: string }>(),
 }));
 
 vi.mock('../hooks/useIdentity', () => ({
@@ -388,7 +388,7 @@ describe('AnalysisView', () => {
 
   it('renders linked forum thread on the back face when one exists', () => {
     forumStoreState.threads = new Map([
-      ['thread-1', { id: 'thread-1', sourceAnalysisId: 'analysis-1' }],
+      ['thread-1', { id: 'thread-1', sourceSynthesisId: 'analysis-1' }],
     ]);
 
     render(<AnalysisView item={sample} />);
@@ -397,6 +397,18 @@ describe('AnalysisView', () => {
 
     expect(screen.getByTestId('thread-view')).toHaveTextContent('thread-1');
     expect(screen.queryByText('No forum thread yet')).not.toBeInTheDocument();
+  });
+
+  it('renders linked forum thread when matched by source analysis id', () => {
+    forumStoreState.threads = new Map([
+      ['thread-analysis', { id: 'thread-analysis', sourceAnalysisId: 'analysis-1' }],
+    ]);
+
+    render(<AnalysisView item={sample} />);
+
+    fireEvent.click(screen.getByTestId('flip-to-forum'));
+
+    expect(screen.getByTestId('thread-view')).toHaveTextContent('thread-analysis');
   });
 
   it('navigates to create thread when no linked thread exists', () => {
@@ -408,7 +420,7 @@ describe('AnalysisView', () => {
     expect(screen.getByText('No forum thread yet')).toBeInTheDocument();
     expect(navigateMock).toHaveBeenCalledWith({
       to: '/hermes',
-      search: { sourceAnalysisId: 'analysis-1', title: 'Story' },
+      search: { sourceSynthesisId: 'analysis-1', title: 'Story' },
     });
   });
 });

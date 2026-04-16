@@ -37,6 +37,7 @@ export interface NewsOrchestratorOptions {
   clusterEngine?: StoryClusterEngine;
   remoteClusterEndpoint?: string;
   remoteClusterTimeoutMs?: number;
+  remoteClusterMaxItemsPerRequest?: number;
   remoteClusterHeaders?: Record<string, string>;
   remoteFetchFn?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   onRemoteFailure?: (error: unknown) => void;
@@ -87,6 +88,100 @@ function groupByTopic(
   }
 
   return grouped;
+}
+
+function normalizeRemoteClusterMaxItemsPerRequest(
+  maxItemsPerRequest: number | undefined,
+): number | null {
+  if (maxItemsPerRequest === undefined) {
+    return null;
+  }
+  if (!Number.isFinite(maxItemsPerRequest) || maxItemsPerRequest <= 0) {
+    throw new Error('remoteClusterMaxItemsPerRequest must be a positive finite number');
+  }
+  return Math.floor(maxItemsPerRequest);
+}
+
+function chunkItems<T>(items: readonly T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push([...items.slice(index, index + size)]);
+  }
+  return chunks;
+}
+
+function mergeChunkResults(
+  aggregate: StoryClusterBatchResult,
+  next: StoryClusterBatchResult,
+): StoryClusterBatchResult {
+  const bundleByStoryId = new Map(aggregate.bundles.map((bundle) => [bundle.story_id, bundle] as const));
+  for (const bundle of next.bundles) {
+    bundleByStoryId.set(bundle.story_id, bundle);
+  }
+
+  const storylineById = new Map(
+    aggregate.storylines.map((storyline) => [storyline.storyline_id, storyline] as const),
+  );
+  for (const storyline of next.storylines) {
+    storylineById.set(storyline.storyline_id, storyline);
+  }
+
+  return {
+    bundles: [...bundleByStoryId.values()],
+    storylines: [...storylineById.values()],
+  };
+}
+
+async function clusterTopicItems(
+  clusterEngine: StoryClusterEngine,
+  topicId: string,
+  topicItems: NormalizedItem[],
+  options: NewsOrchestratorOptions,
+): Promise<StoryClusterBatchResult> {
+  const maxItemsPerRequest = normalizeRemoteClusterMaxItemsPerRequest(
+    options.remoteClusterMaxItemsPerRequest,
+  );
+
+  if (
+    !maxItemsPerRequest ||
+    topicItems.length <= maxItemsPerRequest ||
+    typeof clusterEngine.clusterStoryBatch !== 'function'
+  ) {
+    return runStoryClusterBatch(clusterEngine, {
+      topicId,
+      items: topicItems,
+    });
+  }
+
+  const chunks = chunkItems(topicItems, maxItemsPerRequest);
+  let mergedResult: StoryClusterBatchResult = { bundles: [], storylines: [] };
+
+  for (let index = 0; index < chunks.length; index += 1) {
+    const chunk = chunks[index]!;
+    orchestratorTrace('topic_cluster_chunk_started', {
+      topic_id: topicId,
+      chunk_index: index + 1,
+      chunk_count: chunks.length,
+      item_count: chunk.length,
+    });
+    const chunkResult = await runStoryClusterBatch(clusterEngine, {
+      topicId,
+      items: chunk,
+    });
+    mergedResult = mergeChunkResults(mergedResult, chunkResult);
+    orchestratorTrace('topic_cluster_chunk_completed', {
+      topic_id: topicId,
+      chunk_index: index + 1,
+      chunk_count: chunks.length,
+      item_count: chunk.length,
+      bundle_count: chunkResult.bundles.length,
+      storyline_count: chunkResult.storylines.length,
+      merged_bundle_count: mergedResult.bundles.length,
+      merged_storyline_count: mergedResult.storylines.length,
+    });
+  }
+
+  return mergedResult;
 }
 
 function resolveClusterEngine(options: NewsOrchestratorOptions = {}): StoryClusterEngine {
@@ -176,10 +271,7 @@ export async function orchestrateNewsPipeline(
       topic_id: topicId,
       item_count: topicItems.length,
     });
-    const clustered = await runStoryClusterBatch(clusterEngine, {
-      topicId,
-      items: topicItems,
-    });
+    const clustered = await clusterTopicItems(clusterEngine, topicId, topicItems, options);
     orchestratorTrace('topic_cluster_completed', {
       topic_id: topicId,
       duration_ms: Math.max(0, Date.now() - topicStartedAt),
@@ -236,6 +328,9 @@ export async function orchestrateNewsPipeline(
 }
 
 export const newsOrchestratorInternal = {
+  clusterTopicItems,
   groupByTopic,
+  mergeChunkResults,
+  normalizeRemoteClusterMaxItemsPerRequest,
   resolveClusterEngine,
 };

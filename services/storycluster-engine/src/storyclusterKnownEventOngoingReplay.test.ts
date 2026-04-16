@@ -24,15 +24,23 @@ async function runScenario(scenarioId: string): Promise<ReplaySnapshot[]> {
 
   for (let tickIndex = 0; tickIndex < scenario.ticks.length; tickIndex += 1) {
     const tick = scenario.ticks[tickIndex]!;
+    const currentExpectedByKey = new Map<string, string>();
     tick.forEach((item) => {
-      expectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
+      const key = coherenceAuditInternal.itemEventKey(item);
+      expectedByKey.set(key, item.expected_event_id);
+      currentExpectedByKey.set(key, item.expected_event_id);
     });
     const response = await runStoryClusterRemoteContract(
       { topic_id: scenario.topic_id, items: tick.map(({ expected_event_id: _omit, ...item }) => item) },
       { store, clock: () => 1_781_000_000_000 + tickIndex * 1_000 },
     );
     const storyByEvent = new Map<string, string | null>();
-    for (const [eventId, storyIds] of liveBenchmarkInternal.eventStoryIdsFromBundles(response.bundles, expectedByKey)) {
+    for (
+      const [eventId, storyIds] of liveBenchmarkInternal.eventStoryIdsFromBundles(
+        response.bundles,
+        currentExpectedByKey,
+      )
+    ) {
       storyByEvent.set(eventId, liveBenchmarkInternal.singleStoryId(storyIds));
     }
     snapshots.push({

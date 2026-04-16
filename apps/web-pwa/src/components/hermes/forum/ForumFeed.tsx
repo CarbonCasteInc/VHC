@@ -5,12 +5,18 @@ import { NewThreadForm } from './NewThreadForm';
 import { TrustGate } from './TrustGate';
 
 interface ForumFeedProps {
-  sourceAnalysisId?: string;
+  sourceSynthesisId?: string;
+  sourceEpoch?: number;
   defaultTitle?: string;
   sourceUrl?: string;
 }
 
-export const ForumFeed: React.FC<ForumFeedProps> = ({ sourceAnalysisId, defaultTitle, sourceUrl }) => {
+export const ForumFeed: React.FC<ForumFeedProps> = ({
+  sourceSynthesisId,
+  sourceEpoch,
+  defaultTitle,
+  sourceUrl,
+}) => {
   const { threads, userVotes, vote, loadThreads } = useForumStore();
   const [sort, setSort] = useState<'hot' | 'new' | 'top'>('hot');
   const [showNewThread, setShowNewThread] = useState(false);
@@ -55,7 +61,8 @@ export const ForumFeed: React.FC<ForumFeedProps> = ({ sourceAnalysisId, defaultT
       {showNewThread && (
         <TrustGate fallback={<p className="text-xs text-amber-600" data-testid="trust-gate-msg">Verify identity to participate.</p>}>
           <NewThreadForm
-            sourceAnalysisId={sourceAnalysisId}
+            sourceSynthesisId={sourceSynthesisId}
+            sourceEpoch={sourceEpoch}
             defaultTitle={defaultTitle}
             sourceUrl={sourceUrl}
             onSuccess={() => setShowNewThread(false)}

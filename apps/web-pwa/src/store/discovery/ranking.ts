@@ -1,5 +1,6 @@
 import type { FeedItem, FilterChip, SortMode, RankingConfig } from '@vh/data-model';
-import { FILTER_TO_KINDS } from '@vh/data-model';
+import { DEFAULT_HOTTEST_DIVERSIFICATION, FILTER_TO_KINDS } from '@vh/data-model';
+import { ENTITY_STOP_WORDS, STORYLINE_GENERIC_TERMS } from './rankingTerms';
 
 /**
  * Hotness computation and feed sorting utilities.
@@ -13,51 +14,6 @@ import { FILTER_TO_KINDS } from '@vh/data-model';
  */
 
 const MS_PER_HOUR = 3_600_000;
-const HOTTEST_DIVERSIFY_WINDOW = 12;
-const HOTTEST_STORYLINE_CAP = 2;
-const HOTTEST_ADJACENT_ENTITY_OVERLAP_PENALTY = 0.35;
-
-const ENTITY_STOP_WORDS = new Set([
-  'a',
-  'an',
-  'the',
-  'and',
-  'or',
-  'to',
-  'for',
-  'of',
-  'in',
-  'on',
-  'at',
-  'by',
-  'with',
-  'from',
-  'is',
-  'are',
-  'was',
-  'were',
-]);
-
-const STORYLINE_GENERIC_TERMS = new Set([
-  'analysis',
-  'briefing',
-  'coverage',
-  'explainer',
-  'how',
-  'know',
-  'latest',
-  'live',
-  'need',
-  'overview',
-  'preview',
-  'recap',
-  'roundup',
-  'timeline',
-  'update',
-  'updates',
-  'what',
-  'why',
-]);
 
 interface ScoredFeedItem {
   readonly item: FeedItem;
@@ -192,15 +148,17 @@ function compareScoredFeedItems(left: ScoredFeedItem, right: ScoredFeedItem): nu
 function adjustedHotWindowScore(
   candidate: ScoredFeedItem,
   previous: ScoredFeedItem | null,
+  adjacentEntityOverlapPenalty: number,
 ): number {
   const overlap = previous ? overlapRatio(previous.entityTerms, candidate.entityTerms) : 0;
-  return candidate.score - overlap * HOTTEST_ADJACENT_ENTITY_OVERLAP_PENALTY;
+  return candidate.score - overlap * adjacentEntityOverlapPenalty;
 }
 
 function bestCandidateIndex(
   entries: ReadonlyArray<ScoredFeedItem>,
   previous: ScoredFeedItem | null,
   storylineCounts: ReadonlyMap<string, number>,
+  options: { readonly storylineCap: number; readonly adjacentEntityOverlapPenalty: number },
 ): number {
   let bestIndex = -1;
   let bestAdjustedScore = Number.NEGATIVE_INFINITY;
@@ -208,11 +166,15 @@ function bestCandidateIndex(
   for (let index = 0; index < entries.length; index += 1) {
     const candidate = entries[index]!;
     const storylineCount = storylineCounts.get(candidate.storyline) ?? 0;
-    if (storylineCount >= HOTTEST_STORYLINE_CAP) {
+    if (storylineCount >= options.storylineCap) {
       continue;
     }
 
-    const adjusted = adjustedHotWindowScore(candidate, previous);
+    const adjusted = adjustedHotWindowScore(
+      candidate,
+      previous,
+      options.adjacentEntityOverlapPenalty,
+    );
     if (adjusted > bestAdjustedScore) {
       bestAdjustedScore = adjusted;
       bestIndex = index;
@@ -222,8 +184,12 @@ function bestCandidateIndex(
   return bestIndex;
 }
 
-function diversifyHottestWindow(sorted: ScoredFeedItem[]): ScoredFeedItem[] {
-  const topWindowSize = Math.min(HOTTEST_DIVERSIFY_WINDOW, sorted.length);
+function diversifyHottestWindow(sorted: ScoredFeedItem[], config: RankingConfig): ScoredFeedItem[] {
+  const options = {
+    ...DEFAULT_HOTTEST_DIVERSIFICATION,
+    ...(config.hottestDiversification ?? {}),
+  };
+  const topWindowSize = Math.min(options.window, sorted.length);
   if (topWindowSize <= 1) {
     return sorted;
   }
@@ -238,11 +204,11 @@ function diversifyHottestWindow(sorted: ScoredFeedItem[]): ScoredFeedItem[] {
     const previous = selected[selected.length - 1] ?? null;
     let next: ScoredFeedItem | undefined;
 
-    const poolIndex = bestCandidateIndex(pool, previous, storylineCounts);
+    const poolIndex = bestCandidateIndex(pool, previous, storylineCounts, options);
     if (poolIndex >= 0) {
       [next] = pool.splice(poolIndex, 1);
     } else {
-      const tailIndex = bestCandidateIndex(tail, previous, storylineCounts);
+      const tailIndex = bestCandidateIndex(tail, previous, storylineCounts, options);
       if (tailIndex >= 0) {
         [next] = tail.splice(tailIndex, 1);
       } else {
@@ -321,7 +287,7 @@ export function sortItems(
       }));
 
       scored.sort(compareScoredFeedItems);
-      return diversifyHottestWindow(scored).map((entry) => entry.item);
+      return diversifyHottestWindow(scored, config).map((entry) => entry.item);
     }
 
     case 'MY_ACTIVITY':
