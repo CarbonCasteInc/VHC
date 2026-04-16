@@ -8,6 +8,7 @@ import { useForumStore } from '../../store/hermesForum';
 import { SourceBadgeRow } from './SourceBadgeRow';
 import { useAnalysis } from './useAnalysis';
 import { NewsCardBack, type NewsCardMediaAsset } from './NewsCardBack';
+import { sanitizePublicationNeutralSummary } from './newsCardAnalysis';
 import { FeedEngagement } from './FeedEngagement';
 import { useExpandedCardStore } from './expandedCardStore';
 import { useDiscoveryStore } from '../../store/discovery';
@@ -243,11 +244,15 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
       analysisStatus === 'budget_exceeded')
       ? analysisStatus
       : null;
-  const summary =
+  const rawSummary =
     (analysisPipelineEnabled && analysisStatus === 'success' && analysis?.summary?.trim()) ||
     synthesis?.facts_summary?.trim() ||
     story?.summary_hint?.trim() ||
     'Summary pending synthesis.';
+  const summary = sanitizePublicationNeutralSummary(
+    rawSummary,
+    (story?.sources ?? []).flatMap((source) => [source.source_id, source.publisher]),
+  );
   const frameRows =
     analysisPipelineEnabled &&
     analysisStatus === 'success' &&

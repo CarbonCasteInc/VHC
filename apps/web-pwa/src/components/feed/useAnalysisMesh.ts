@@ -6,7 +6,10 @@ import {
 import { readAnalysis, readLatestAnalysis, writeAnalysis } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../../store/clientResolver';
 import { logAnalysisMeshWrite } from '../../utils/analysisTelemetry';
-import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
+import {
+  sanitizePublicationNeutralSummary,
+  type NewsCardAnalysisSynthesis,
+} from './newsCardAnalysis';
 
 const ANALYSIS_PIPELINE_VERSION = 'news-card-analysis-v1';
 const MESH_READ_MAX_ATTEMPTS = 3;
@@ -239,7 +242,10 @@ function logMeshDebug(event: string, payload: Record<string, unknown>): void {
 
 function toSynthesis(artifact: StoryAnalysisArtifact): NewsCardAnalysisSynthesis {
   return {
-    summary: artifact.summary,
+    summary: sanitizePublicationNeutralSummary(
+      artifact.summary,
+      artifact.analyses.flatMap((entry) => [entry.source_id, entry.publisher]),
+    ),
     frames: artifact.frames.map((row) => ({
       frame: row.frame,
       reframe: row.reframe,

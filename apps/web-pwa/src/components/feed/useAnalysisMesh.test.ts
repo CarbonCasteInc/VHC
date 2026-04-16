@@ -165,6 +165,50 @@ describe('useAnalysisMesh', () => {
     );
   });
 
+  it('sanitizes legacy source-prefixed mesh summaries on read', async () => {
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: story.provenance_hash,
+      analysisKey: 'derived-key',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:default',
+      summary: 'cbs-politics: Emergency talks began. guardian-us: Mediators convened.',
+      frames: [],
+      analyses: [
+        {
+          source_id: 'cbs-politics',
+          publisher: 'CBS News',
+          url: 'https://example.com/news-1',
+          summary: 'Emergency talks began.',
+          biases: [],
+          counterpoints: [],
+          biasClaimQuotes: [],
+          justifyBiasClaims: [],
+        },
+        {
+          source_id: 'guardian-us',
+          publisher: 'The Guardian',
+          url: 'https://example.com/news-2',
+          summary: 'Mediators convened.',
+          biases: [],
+          counterpoints: [],
+          biasClaimQuotes: [],
+          justifyBiasClaims: [],
+        },
+      ],
+      provider: { provider_id: 'openai', model: 'gpt-5.3-codex' },
+      created_at: '2026-02-18T22:00:00.000Z',
+    } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toMatchObject({
+      summary: 'Emergency talks began. Mediators convened.',
+    });
+  });
+
   it('falls back to latest pointer when derived-key read misses', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const story = makeStoryBundle();

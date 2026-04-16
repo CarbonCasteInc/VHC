@@ -14,6 +14,15 @@ export interface CellVoteControlsProps {
   readonly disabled?: boolean;
 }
 
+function biasTableDiagnosticsEnabled(): boolean {
+  const viteValue = (import.meta as unknown as { env?: Record<string, unknown> }).env
+    ?.VITE_BIAS_TABLE_DIAGNOSTICS;
+  const processValue = typeof process !== 'undefined'
+    ? process.env?.VITE_BIAS_TABLE_DIAGNOSTICS
+    : undefined;
+  return `${viteValue ?? processValue ?? ''}`.trim().toLowerCase() === 'true';
+}
+
 export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   topicId,
   pointId,
@@ -120,9 +129,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
       id_partition: hasIdPartition,
     };
 
-    if (hasIdPartition && aggregateStatus === 'success' && aggregate && aggregate.agree === 0 && aggregate.disagree === 0) {
-      console.warn('[vh:bias-table:point-map]', payload);
-    } else {
+    if (biasTableDiagnosticsEnabled()) {
       console.info('[vh:bias-table:point-map]', payload);
     }
   }, [

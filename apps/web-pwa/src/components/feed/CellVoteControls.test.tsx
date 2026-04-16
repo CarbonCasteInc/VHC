@@ -287,7 +287,7 @@ describe('CellVoteControls', () => {
     expect(screen.getByTestId('cell-vote-disagree-point-abc')).toHaveAttribute('data-canonical-point-id', 'synth-point-xyz');
   });
 
-  it('warns when partitioned point IDs still resolve to zero aggregate', async () => {
+  it('does not warn for routine partitioned point-id diagnostics', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     usePointAggregateMock.mockReturnValueOnce({
@@ -305,16 +305,9 @@ describe('CellVoteControls', () => {
     render(<CellVoteControls {...BASE_PROPS} synthesisPointId="synth-point-xyz" />);
 
     await waitFor(() => {
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[vh:bias-table:point-map]',
-        expect.objectContaining({
-          display_point_id: 'point-abc',
-          canonical_point_id: 'synth-point-xyz',
-          id_partition: true,
-          aggregate_status: 'success',
-        }),
-      );
+      expect(usePointAggregateMock).toHaveBeenCalled();
     });
+    expect(warnSpy).not.toHaveBeenCalledWith('[vh:bias-table:point-map]', expect.anything());
   });
 
   it('uses contextual agreement key when synthesisPointId is provided', () => {

@@ -156,9 +156,12 @@ describe('newsCardAnalysis', () => {
     expect(runSpyCalls[0]).toContain('ARTICLE BODY 1');
     expect(runSpyCalls[1]).toContain('ARTICLE BODY 2');
     expect(runSpyCalls[2]).toContain('ARTICLE BODY 3');
-    expect(result.summary).toContain('Publisher One: Publisher One says rollout should move fast.');
-    expect(result.summary).toContain('Publisher Two: Publisher Two focuses on budget risk.');
-    expect(result.summary).toContain('Publisher Three: Publisher Three emphasizes implementation details.');
+    expect(result.summary).toContain('Rollout should move fast.');
+    expect(result.summary).toContain('Budget risk.');
+    expect(result.summary).toContain('Implementation details.');
+    expect(result.summary).not.toContain('Publisher One:');
+    expect(result.summary).not.toContain('Publisher Two:');
+    expect(result.summary).not.toContain('Publisher Three:');
     expect(result.relatedLinks).toEqual([]);
 
     expect(result.frames).toEqual([
@@ -175,6 +178,43 @@ describe('newsCardAnalysis', () => {
         reframe: 'Existing transit authority can absorb phased changes.',
       },
     ]);
+  });
+
+  it('keeps synthesized summaries publication-neutral', () => {
+    const summary = newsCardAnalysisInternal.synthesizeSummary([
+      {
+        source_id: 'source-1',
+        publisher: 'Publisher One',
+        url: 'https://example.com/1',
+        summary: 'Publisher One: Officials approved the pilot.',
+        biases: [],
+        counterpoints: [],
+        biasClaimQuotes: [],
+        justifyBiasClaims: [],
+      },
+      {
+        source_id: 'source-2',
+        publisher: 'Publisher Two',
+        url: 'https://example.com/2',
+        summary: 'Publisher Two reports transit crews will add weekend service.',
+        biases: [],
+        counterpoints: [],
+        biasClaimQuotes: [],
+        justifyBiasClaims: [],
+      },
+    ]);
+
+    expect(summary).toBe('Officials approved the pilot. Transit crews will add weekend service.');
+    expect(summary).not.toContain('Publisher One:');
+    expect(summary).not.toContain('Publisher Two reports');
+    expect(newsCardAnalysisInternal.sanitizePublicationNeutralSummary(
+      'cbs-politics: Emergency talks began. guardian-us: Mediators convened.',
+      ['cbs-politics', 'guardian-us'],
+    )).toBe('Emergency talks began. Mediators convened.');
+    expect(newsCardAnalysisInternal.sanitizePublicationNeutralSummary(
+      'COVID-19: health officials updated school guidance.',
+      ['cbs-politics'],
+    )).toBe('COVID-19: health officials updated school guidance.');
   });
 
   it('uses model-scoped cache key derivation', () => {
@@ -264,7 +304,7 @@ describe('newsCardAnalysis', () => {
 
     expect(analysisInputs).toHaveLength(1);
     expect(analysisInputs[0]).toContain('ARTICLE BODY 2');
-    expect(result.summary).toContain('Publisher Two: Only fetched article text is analyzed.');
+    expect(result.summary).toContain('Only fetched article text is analyzed.');
     expect(result.summary).not.toContain('Publisher One');
     expect(result.relatedLinks).toEqual([
       {

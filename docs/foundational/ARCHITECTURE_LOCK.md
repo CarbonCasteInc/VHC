@@ -2,7 +2,7 @@
 
 > Status: Foundational Reference
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-04-16
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
@@ -60,7 +60,9 @@ This document summarizes the non-negotiable guardrails for the TRINITY Bio-Econo
 
 ## 3. Local Dev Networking Guardrails
 - **Gun peers must be reachable without SSH gymnastics**:
-  - Default `VITE_GUN_PEERS` points to the Tailscale-accessible relay (`http://100.75.18.26:7777/gun`) with a localhost fallback.
+  - Explicit `VITE_GUN_PEERS` and `window.__VH_GUN_PEERS__` overrides are authoritative, including an intentional empty peer list for browser-only smoke runs.
+  - Without overrides, localhost/127.0.0.1 UI hosts use only the local relay (`http://localhost:7777/gun`) to avoid noisy unreachable peer attempts during local production previews.
+  - Non-local UI hosts default to the Tailscale-accessible relay (`http://100.75.18.26:7777/gun`) with a localhost fallback.
   - Avoid relying on ad-hoc SSH tunnels for routine dev; configure peers via env instead.
 - **Verifier fallbacks must be fast**:
   - `VITE_ATTESTATION_TIMEOUT_MS` defaults to a short timeout (2s) in dev; on timeout, the mock verifier is used.

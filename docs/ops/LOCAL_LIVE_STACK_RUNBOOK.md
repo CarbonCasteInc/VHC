@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-29
+> Last Reviewed: 2026-04-16
 > Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md, docs/ops/AUTOMATION_STACK_RUNBOOK.md, docs/CANON_MAP.md
 
 
@@ -88,6 +88,29 @@ Full regression smoke (vote semantics + 3-user convergence + strict matrix N=1):
 ```bash
 pnpm live:smoke
 ```
+
+Local production preview against the running manual stack:
+
+```bash
+VITE_E2E_MODE=false \
+VITE_VH_ANALYSIS_PIPELINE=true \
+VITE_NEWS_RUNTIME_ENABLED=false \
+VITE_NEWS_RUNTIME_ROLE=consumer \
+VITE_NEWS_BRIDGE_ENABLED=true \
+VITE_GUN_PEERS='["http://localhost:7777/gun"]' \
+VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS=7500 \
+VITE_VH_GUN_PUT_ACK_TIMEOUT_MS=3000 \
+VITE_VH_GUN_READ_TIMEOUT_MS=4000 \
+VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS=8000 \
+VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS=90000 \
+pnpm --filter @vh/web-pwa build
+
+pnpm --filter @vh/web-pwa preview --host 127.0.0.1 --port 2050 --strictPort
+```
+
+Preview notes:
+- Use this command when validating distribution assets locally; the default web build is intentionally feature-flag neutral and can render an empty feed even while the daemon stack is healthy.
+- The local production preview must use the local relay peer only. Browser console attempts to `100.75.18.26:7777` during a localhost preview indicate peer-resolution drift.
 
 Shutdown:
 

@@ -15,6 +15,15 @@ export interface BiasTableProps {
   readonly votingEnabled?: boolean;
 }
 
+function biasTableDiagnosticsEnabled(): boolean {
+  const viteValue = (import.meta as unknown as { env?: Record<string, unknown> }).env
+    ?.VITE_BIAS_TABLE_DIAGNOSTICS;
+  const processValue = typeof process !== 'undefined'
+    ? process.env?.VITE_BIAS_TABLE_DIAGNOSTICS
+    : undefined;
+  return `${viteValue ?? processValue ?? ''}`.trim().toLowerCase() === 'true';
+}
+
 function SkeletonRows(): React.ReactElement {
   return (
     <>
@@ -222,14 +231,11 @@ export const BiasTable: React.FC<BiasTableProps> = ({
       expected_point_mappings: expectedPointMappings,
       legacy_point_mappings: Object.keys(legacyPointIds).length,
       synthesis_point_mappings: Object.keys(synthesisPointIds).length,
+      point_mappings_ready: Object.keys(synthesisPointIds).length === expectedPointMappings,
       voting_context_ready: hasVotingContext,
     };
 
-    const pointMappingsReady =
-      Object.keys(synthesisPointIds).length === expectedPointMappings;
-
-    if (!hasVotingContext || !pointMappingsReady) {
-      console.warn('[vh:bias-table:voting-context]', payload);
+    if (!biasTableDiagnosticsEnabled()) {
       return;
     }
 
