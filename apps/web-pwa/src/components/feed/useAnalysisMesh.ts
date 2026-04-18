@@ -5,6 +5,7 @@ import {
   type StoryBundle,
 } from '@vh/data-model';
 import { readAnalysis, readLatestAnalysis, writeAnalysis } from '@vh/gun-client';
+import { isPlaceholderPerspectiveText } from '../../../../../packages/ai-engine/src/schema';
 import { resolveClientFromAppStore } from '../../store/clientResolver';
 import { logAnalysisMeshWrite } from '../../utils/analysisTelemetry';
 import {
@@ -83,6 +84,13 @@ const ANALYSIS_PENDING_OWNER =
     ? crypto.randomUUID()
     : `pending-${Math.random().toString(16).slice(2)}`;
 
+class MeshArtifactInvalidError extends Error {
+  constructor(public readonly reason: 'empty_frames') {
+    super(`mesh artifact invalid: ${reason}`);
+    this.name = 'MeshArtifactInvalidError';
+  }
+}
+
 function isCrossModelReuseEnabled(): boolean {
   const viteValue = (import.meta as any).env?.VITE_VH_ANALYSIS_CROSS_MODEL_REUSE;
   const processValue =
@@ -131,6 +139,24 @@ const MESH_DEBUG_ENABLED = isMeshDebugEnabled();
 function ensureNonEmpty(value: string | undefined | null, fallback: string): string {
   const normalized = value?.trim();
   return normalized && normalized.length > 0 ? normalized : fallback;
+}
+
+function filterValidFrameRows(
+  rows: ReadonlyArray<{ frame: string; reframe: string }>,
+): Array<{ frame: string; reframe: string }> {
+  const valid: Array<{ frame: string; reframe: string }> = [];
+  for (const row of rows) {
+    const frame = row.frame?.trim() ?? '';
+    const reframe = row.reframe?.trim() ?? '';
+    if (!frame || !reframe) {
+      continue;
+    }
+    if (isPlaceholderPerspectiveText(frame) || isPlaceholderPerspectiveText(reframe)) {
+      continue;
+    }
+    valid.push({ frame, reframe });
+  }
+  return valid;
 }
 
 function buildAnalysisBundleIdentity(story: StoryBundle): StoryAnalysisBundleIdentity {
@@ -269,10 +295,7 @@ function toSynthesis(artifact: StoryAnalysisArtifact): NewsCardAnalysisSynthesis
       artifact.summary,
       artifact.analyses.flatMap((entry) => [entry.source_id, entry.publisher]),
     ),
-    frames: artifact.frames.map((row) => ({
-      frame: row.frame,
-      reframe: row.reframe,
-    })),
+    frames: filterValidFrameRows(artifact.frames),
     analyses: artifact.analyses.map((entry) => ({
       source_id: entry.source_id,
       publisher: entry.publisher,
@@ -310,6 +333,10 @@ async function toArtifact(
   const firstProvider = synthesis.analyses.find(
     (analysis) => analysis.provider_id?.trim() || analysis.model_id?.trim(),
   );
+  const validFrames = filterValidFrameRows(synthesis.frames);
+  if (validFrames.length === 0) {
+    throw new MeshArtifactInvalidError('empty_frames');
+  }
 
   return {
     schemaVersion: 'story-analysis-v1',
@@ -320,10 +347,7 @@ async function toArtifact(
     pipeline_version: ANALYSIS_PIPELINE_VERSION,
     model_scope: modelScopeKey,
     summary: ensureNonEmpty(synthesis.summary, 'Summary unavailable.'),
-    frames: synthesis.frames.map((row) => ({
-      frame: ensureNonEmpty(row.frame, 'Frame unavailable.'),
-      reframe: ensureNonEmpty(row.reframe, 'Reframe unavailable.'),
-    })),
+    frames: validFrames,
     analyses: synthesis.analyses.map((entry) => ({
       source_id: ensureNonEmpty(entry.source_id, story.story_id),
       publisher: ensureNonEmpty(entry.publisher, 'Unknown publisher'),
@@ -371,10 +395,19 @@ export async function readMeshAnalysis(
   }
 
   const startedAt = Date.now();
-  const emitTelemetry = (readPath: 'derived-key' | 'derived-key-invalid' | 'latest-pointer' | 'miss') => {
+  const emitTelemetry = (
+    readPath:
+      | 'derived-key'
+      | 'derived-key-invalid'
+      | 'latest-pointer'
+      | 'stale-placeholder-rejected'
+      | 'miss',
+    source?: 'derived-key' | 'latest-pointer',
+  ) => {
     console.info('[vh:analysis:mesh]', {
       story_id: story.story_id,
       read_path: readPath,
+      ...(source ? { source } : {}),
       latency_ms: Date.now() - startedAt,
     });
   };
@@ -453,8 +486,20 @@ export async function readMeshAnalysis(
           provenance_hash: directArtifact.provenance_hash,
           model_scope: directArtifact.model_scope,
         });
+        const synthesis = toSynthesis(directArtifact);
+        if (synthesis.frames.length === 0) {
+          logMeshDebug('read-derived-key-placeholder-rejected', {
+            story_id: story.story_id,
+            attempt,
+            analysis_key: directArtifact.analysisKey,
+            provenance_hash: directArtifact.provenance_hash,
+            model_scope: directArtifact.model_scope,
+          });
+          emitTelemetry('stale-placeholder-rejected', 'derived-key');
+          return null;
+        }
         emitTelemetry('derived-key');
-        return toSynthesis(directArtifact);
+        return synthesis;
       }
 
       logMeshDebug('read-derived-key-miss', {
@@ -527,8 +572,20 @@ export async function readMeshAnalysis(
             model_scope: latestArtifact.model_scope,
             provenance_mode: 'exact',
           });
+          const synthesis = toSynthesis(latestArtifact);
+          if (synthesis.frames.length === 0) {
+            logMeshDebug('read-latest-pointer-placeholder-rejected', {
+              story_id: story.story_id,
+              attempt,
+              analysis_key: latestArtifact.analysisKey,
+              provenance_hash: latestArtifact.provenance_hash,
+              model_scope: latestArtifact.model_scope,
+            });
+            emitTelemetry('stale-placeholder-rejected', 'latest-pointer');
+            return null;
+          }
           emitTelemetry('latest-pointer');
-          return toSynthesis(latestArtifact);
+          return synthesis;
         }
       }
 
@@ -608,6 +665,23 @@ export async function writeMeshAnalysis(
       latency_ms: Math.max(0, Date.now() - startedAt),
     });
   } catch (error) {
+    if (error instanceof MeshArtifactInvalidError) {
+      logMeshDebug('write-skipped', {
+        story_id: story.story_id,
+        reason: error.reason,
+        latency_ms: Math.max(0, Date.now() - startedAt),
+      });
+
+      logAnalysisMeshWrite({
+        source: 'news-card',
+        event: 'mesh_write_skipped',
+        story_id: story.story_id,
+        reason: error.reason,
+        latency_ms: Math.max(0, Date.now() - startedAt),
+      });
+      return;
+    }
+
     logMeshDebug('write-failed', {
       story_id: story.story_id,
       analysis_key: debugArtifact?.analysisKey,
@@ -776,6 +850,7 @@ export async function clearPendingMeshAnalysis(
 export const analysisMeshInternal = {
   buildAnalysisBundleIdentity,
   clearPendingMeshAnalysis,
+  filterValidFrameRows,
   readPendingMeshAnalysis,
   toArtifact,
   toSynthesis,

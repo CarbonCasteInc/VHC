@@ -103,6 +103,12 @@ describe('newsCardAnalysis', () => {
             summary: 'Publisher One says rollout should move fast. More context.',
             biases: ['Urgency justifies immediate funding.'],
             counterpoints: ['Fiscal safeguards should gate spending.'],
+            perspectives: [
+              {
+                frame: 'Urgency justifies immediate funding.',
+                reframe: 'Fiscal safeguards should gate spending.',
+              },
+            ],
           }),
         };
       }
@@ -113,6 +119,12 @@ describe('newsCardAnalysis', () => {
             summary: 'Publisher Two focuses on budget risk.',
             biases: ['Costs are spiraling beyond control.'],
             counterpoints: ['Phasing can cap exposure while expanding service.'],
+            perspectives: [
+              {
+                frame: 'Costs are spiraling beyond control.',
+                reframe: 'Phasing can cap exposure while expanding service.',
+              },
+            ],
           }),
         };
       }
@@ -122,6 +134,12 @@ describe('newsCardAnalysis', () => {
           summary: 'Publisher Three emphasizes implementation details.',
           biases: ['Operational complexity will stall delivery.'],
           counterpoints: ['Existing transit authority can absorb phased changes.'],
+          perspectives: [
+            {
+              frame: 'Operational complexity will stall delivery.',
+              reframe: 'Existing transit authority can absorb phased changes.',
+            },
+          ],
         }),
       };
     };
@@ -168,15 +186,15 @@ describe('newsCardAnalysis', () => {
 
     expect(result.frames).toEqual([
       {
-        frame: 'Publisher One: Urgency justifies immediate funding.',
+        frame: 'Urgency justifies immediate funding.',
         reframe: 'Fiscal safeguards should gate spending.',
       },
       {
-        frame: 'Publisher Two: Costs are spiraling beyond control.',
+        frame: 'Costs are spiraling beyond control.',
         reframe: 'Phasing can cap exposure while expanding service.',
       },
       {
-        frame: 'Publisher Three: Operational complexity will stall delivery.',
+        frame: 'Operational complexity will stall delivery.',
         reframe: 'Existing transit authority can absorb phased changes.',
       },
     ]);
@@ -417,7 +435,7 @@ describe('newsCardAnalysis', () => {
     expect(rows[0]!.frame).not.toContain('No clear bias detected');
   });
 
-  it('falls back to legacy bias rows when explicit perspectives are unavailable', () => {
+  it('does not fall back to publication-prefixed bias rows when perspectives are missing', () => {
     const rows = newsCardAnalysisInternal.toFrameRows([
       {
         source_id: 'source-1',
@@ -431,12 +449,7 @@ describe('newsCardAnalysis', () => {
       },
     ]);
 
-    expect(rows).toEqual([
-      {
-        frame: 'Publisher One: Urgency justifies immediate action.',
-        reframe: 'Verification should precede irreversible action.',
-      },
-    ]);
+    expect(rows).toEqual([]);
   });
 
   it('does not render legacy placeholder bias rows as frame/reframe UI', () => {
@@ -464,6 +477,32 @@ describe('newsCardAnalysis', () => {
     ]);
 
     expect(rows).toEqual([]);
+  });
+
+  it('filters individual placeholder perspectives from real rows', () => {
+    const rows = newsCardAnalysisInternal.toFrameRows([
+      {
+        source_id: 'source-1',
+        publisher: 'Publisher One',
+        url: 'https://example.com/1',
+        summary: 'Summary.',
+        biases: [],
+        counterpoints: [],
+        biasClaimQuotes: [],
+        justifyBiasClaims: [],
+        perspectives: [
+          { frame: 'N/A', reframe: 'N/A' },
+          { frame: 'Real frame', reframe: 'Real reframe' },
+        ],
+      },
+    ]);
+
+    expect(rows).toEqual([
+      {
+        frame: 'Real frame',
+        reframe: 'Real reframe',
+      },
+    ]);
   });
 
   it('toSourceAnalysis maps bias_claim_quote and justify_bias_claim', () => {

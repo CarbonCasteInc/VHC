@@ -32,7 +32,10 @@ export function isPlaceholderPerspectiveText(value: string): boolean {
     || normalized === 'na'
     || normalized === 'n.a'
     || normalized === 'not applicable'
-    || normalized === 'no clear bias detected';
+    || normalized === 'no clear bias detected'
+    || normalized === 'frame unavailable'
+    || normalized === 'reframe unavailable'
+    || normalized === 'summary unavailable';
 }
 
 const GeneratedPerspectiveTextSchema = z
