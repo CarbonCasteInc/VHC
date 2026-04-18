@@ -3,6 +3,7 @@ import {
   AnalysisParseError,
   GeneratedAnalysisResultSchema,
   AnalysisResultSchema,
+  isPlaceholderPerspectiveText,
   parseAnalysisResponse,
   parseGeneratedAnalysisResponse,
 } from '../schema';
@@ -103,6 +104,12 @@ describe('AnalysisResultSchema', () => {
     expect(() => parseGeneratedAnalysisResponse(JSON.stringify(placeholderPayload))).toThrow(
       AnalysisParseError.SCHEMA_VALIDATION_ERROR,
     );
+  });
+
+  it('recognizes legacy unavailable sentinels as placeholder perspective text', () => {
+    expect(isPlaceholderPerspectiveText('Frame unavailable.')).toBe(true);
+    expect(isPlaceholderPerspectiveText('Reframe unavailable.')).toBe(true);
+    expect(isPlaceholderPerspectiveText('Summary unavailable.')).toBe(true);
   });
 
   it('throws parse errors for invalid payloads', () => {

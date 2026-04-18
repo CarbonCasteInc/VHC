@@ -178,7 +178,12 @@ describe('useAnalysisMesh', () => {
       pipeline_version: 'news-card-analysis-v1',
       model_scope: 'model:default',
       summary: 'cbs-politics: Emergency talks began. guardian-us: Mediators convened.',
-      frames: [],
+      frames: [
+        {
+          frame: 'Accountability requires rapid public disclosure.',
+          reframe: 'Negotiation integrity requires limited disclosure.',
+        },
+      ],
       analyses: [
         {
           source_id: 'cbs-politics',
@@ -208,6 +213,39 @@ describe('useAnalysisMesh', () => {
     await expect(readMeshAnalysis(story, 'model:default')).resolves.toMatchObject({
       summary: 'Emergency talks began. Mediators convened.',
     });
+  });
+
+  it('treats direct-hit artifacts with only placeholder frames as cache misses', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: story.provenance_hash,
+      analysisKey: 'derived-key',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:default',
+      summary: 'Stale placeholder summary',
+      frames: [{ frame: 'N/A', reframe: 'No clear bias detected' }],
+      analyses: [],
+      provider: { provider_id: 'p', model: 'm' },
+      created_at: '2026-02-18T22:00:00.000Z',
+      bundle_identity: analysisMeshInternal.buildAnalysisBundleIdentity(story),
+    } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
+
+    expect(mockReadLatestAnalysis).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh]',
+      expect.objectContaining({
+        story_id: story.story_id,
+        read_path: 'stale-placeholder-rejected',
+        source: 'derived-key',
+      }),
+    );
   });
 
   it('falls back to latest pointer when derived-key read misses', async () => {
@@ -377,6 +415,38 @@ describe('useAnalysisMesh', () => {
     );
   }, 20_000);
 
+  it('treats latest-pointer artifacts with only placeholder frames as cache misses', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const story = makeStoryBundle();
+
+    mockReadAnalysis.mockResolvedValueOnce(null);
+    mockReadLatestAnalysis.mockResolvedValueOnce({
+      schemaVersion: 'story-analysis-v1',
+      story_id: story.story_id,
+      topic_id: story.topic_id,
+      provenance_hash: story.provenance_hash,
+      analysisKey: 'latest-placeholder',
+      pipeline_version: 'news-card-analysis-v1',
+      model_scope: 'model:default',
+      summary: 'Stale placeholder latest summary',
+      frames: [{ frame: '  ', reframe: 'n/a' }],
+      analyses: [],
+      provider: { provider_id: 'p', model: 'm' },
+      created_at: '2026-02-18T22:00:00.000Z',
+    } as any);
+
+    await expect(readMeshAnalysis(story, 'model:default')).resolves.toBeNull();
+
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh]',
+      expect.objectContaining({
+        story_id: story.story_id,
+        read_path: 'stale-placeholder-rejected',
+        source: 'latest-pointer',
+      }),
+    );
+  });
+
   it('returns null on mesh read errors', async () => {
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
@@ -465,7 +535,7 @@ describe('useAnalysisMesh', () => {
     warnSpy.mockRestore();
   });
 
-  it('normalizes sparse synthesis fields while building artifacts', async () => {
+  it('throws when all synthesis frames are placeholders while building artifacts', async () => {
     const story = makeStoryBundle();
     const synthesis = makeSynthesis({
       summary: '   ',
@@ -486,27 +556,33 @@ describe('useAnalysisMesh', () => {
       ],
     });
 
-    const artifact = await analysisMeshInternal.toArtifact(story, synthesis, 'model:default');
+    await expect(
+      analysisMeshInternal.toArtifact(story, synthesis, 'model:default'),
+    ).rejects.toThrow(/empty_frames/);
+  });
 
-    expect(artifact.summary).toBe('Summary unavailable.');
-    expect(artifact.frames).toEqual([
-      { frame: 'Frame unavailable.', reframe: 'Reframe unavailable.' },
-    ]);
-    expect(artifact.analyses[0]).toMatchObject({
-      source_id: story.story_id,
-      publisher: 'Unknown publisher',
-      url: 'https://example.invalid/analysis',
-      summary: 'Summary unavailable.',
-      biases: [],
-      counterpoints: [],
-      biasClaimQuotes: [],
-      justifyBiasClaims: [],
-    });
-    expect(artifact.provider).toEqual({
-      provider_id: 'unknown-provider',
-      model: 'unknown-model',
-      timestamp: artifact.provider.timestamp,
-    });
+  it('skips mesh writes when synthesis frames are all placeholders', async () => {
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    const story = makeStoryBundle();
+
+    await writeMeshAnalysis(
+      story,
+      makeSynthesis({
+        frames: [{ frame: 'N/A', reframe: 'Frame unavailable.' }],
+      }),
+      'model:default',
+    );
+
+    expect(mockWriteAnalysis).not.toHaveBeenCalled();
+    expect(infoSpy).toHaveBeenCalledWith(
+      '[vh:analysis:mesh-write]',
+      expect.objectContaining({
+        source: 'news-card',
+        event: 'mesh_write_skipped',
+        story_id: story.story_id,
+        reason: 'empty_frames',
+      }),
+    );
   });
 
   it('derives distinct analysis keys when model scope changes', async () => {

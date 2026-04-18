@@ -347,21 +347,7 @@ function toFrameRows(
 ): ReadonlyArray<{ frame: string; reframe: string }> {
   const rows: Array<{ frame: string; reframe: string }> = [];
   for (const sa of analyses) {
-    const perspectiveRows = normalizePerspectiveRows(sa.perspectives);
-    if (perspectiveRows.length > 0) {
-      rows.push(...perspectiveRows);
-      continue;
-    }
-
-    const count = Math.max(sa.biases.length, sa.counterpoints.length);
-    for (let i = 0; i < count; i++) {
-      const bias = sa.biases[i]?.trim() || 'No clear bias detected';
-      const cp = sa.counterpoints[i]?.trim() || 'N/A';
-      if (isPlaceholderPerspectiveText(bias) || isPlaceholderPerspectiveText(cp)) {
-        continue;
-      }
-      rows.push({ frame: `${sa.publisher}: ${bias}`, reframe: cp });
-    }
+    rows.push(...normalizePerspectiveRows(sa.perspectives));
   }
   return rows.slice(0, MAX_FRAME_ROWS);
 }
