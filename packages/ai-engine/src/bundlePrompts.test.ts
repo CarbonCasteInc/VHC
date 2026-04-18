@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BundleSynthesisParseError,
   buildBundlePrompt,
+  buildBundlePromptFromStoryBundle,
   generateBundleSynthesisPrompt,
+  parseGeneratedBundleSynthesis,
   type BundleSynthesisResult,
 } from './bundlePrompts';
-import type { StoryBundleInputCandidate } from './newsTypes';
+import type { StoryBundle, StoryBundleInputCandidate } from './newsTypes';
 
 describe('bundlePrompts', () => {
   const sampleBundle = {
@@ -169,6 +172,207 @@ describe('bundlePrompts', () => {
     it('handles missing verification confidence', () => {
       const prompt = buildBundlePrompt(candidate);
       expect(prompt).toContain('Verification confidence: not available');
+    });
+  });
+
+  describe('buildBundlePromptFromStoryBundle', () => {
+    const storyBundle: StoryBundle = {
+      schemaVersion: 'story-bundle-v0',
+      story_id: 'story-1',
+      topic_id: 'topic-markets',
+      headline: 'Markets rally after policy announcement',
+      summary_hint: 'A policy announcement triggered market rallies worldwide.',
+      cluster_window_start: 1700000000000,
+      cluster_window_end: 1700003600000,
+      sources: [
+        {
+          source_id: 'fox-latest',
+          publisher: 'Fox News',
+          title: 'Markets surge on policy news',
+          url: 'https://example.com/fox',
+          url_hash: 'hash-1',
+          published_at: 1700000001000,
+        },
+        {
+          source_id: 'bbc-general',
+          publisher: 'BBC News',
+          title: 'Global markets up on policy shift',
+          url: 'https://example.com/bbc',
+          url_hash: 'hash-2',
+          published_at: 1700000002000,
+        },
+      ],
+      cluster_features: {
+        entity_keys: ['markets', 'policy'],
+        time_bucket: '2026-04-17T21',
+        semantic_signature: 'sig-markets',
+        confidence_score: 0.82,
+      },
+      provenance_hash: 'prov-1',
+      created_at: 1700000003000,
+    };
+
+    it('preserves source titles and uses bundle confidence by default', () => {
+      const prompt = buildBundlePromptFromStoryBundle(storyBundle);
+
+      expect(prompt).toContain('Markets surge on policy news');
+      expect(prompt).toContain('Global markets up on policy shift');
+      expect(prompt).toContain('Summary hint (from feed):');
+      expect(prompt).toContain('Verification confidence: 82%');
+    });
+
+    it('uses primary_sources when present', () => {
+      const prompt = buildBundlePromptFromStoryBundle({
+        ...storyBundle,
+        primary_sources: [storyBundle.sources[1]!],
+      });
+
+      expect(prompt).toContain('Global markets up on policy shift');
+      expect(prompt).not.toContain('Markets surge on policy news');
+    });
+
+    it('omits hint and confidence when neither is available', () => {
+      const prompt = buildBundlePromptFromStoryBundle({
+        ...storyBundle,
+        summary_hint: undefined,
+        cluster_features: {
+          ...storyBundle.cluster_features,
+          confidence_score: undefined,
+        },
+      });
+
+      expect(prompt).not.toContain('Summary hint (from feed):');
+      expect(prompt).toContain('Verification confidence: not available');
+    });
+
+    it('lets explicit verification confidence override bundle confidence', () => {
+      const prompt = buildBundlePromptFromStoryBundle(storyBundle, {
+        verificationConfidence: 0.91,
+      });
+
+      expect(prompt).toContain('Verification confidence: 91%');
+    });
+  });
+
+  describe('parseGeneratedBundleSynthesis', () => {
+    const validPayload = {
+      summary: 'Markets rallied after a major policy announcement.',
+      frames: [
+        {
+          frame: 'The policy will boost economic growth.',
+          reframe: 'Short-term gains may mask structural issues.',
+        },
+        {
+          frame: 'Officials should move quickly to preserve momentum.',
+          reframe: 'Officials should slow down until safeguards are clear.',
+        },
+      ],
+      source_count: 3,
+      source_publishers: ['Fox News', 'The Guardian', 'BBC News'],
+      verification_confidence: 0.85,
+    };
+
+    it('parses valid JSON and trims persisted text fields', () => {
+      const result = parseGeneratedBundleSynthesis(
+        JSON.stringify({
+          ...validPayload,
+          summary: `  ${validPayload.summary}  `,
+          frames: [
+            {
+              frame: `  ${validPayload.frames[0]!.frame}  `,
+              reframe: validPayload.frames[0]!.reframe,
+            },
+            {
+              frame: validPayload.frames[1]!.frame,
+              reframe: `  ${validPayload.frames[1]!.reframe}  `,
+            },
+          ],
+          source_publishers: ['  Fox News  ', 'The Guardian', 'BBC News'],
+        }),
+      );
+
+      expect(result.summary).toBe(validPayload.summary);
+      expect(result.frames[0]!.frame).toBe(validPayload.frames[0]!.frame);
+      expect(result.frames[1]!.reframe).toBe(validPayload.frames[1]!.reframe);
+      expect(result.source_publishers[0]).toBe('Fox News');
+    });
+
+    it('unwraps final_refined payloads', () => {
+      expect(
+        parseGeneratedBundleSynthesis(JSON.stringify({ final_refined: validPayload })),
+      ).toEqual(validPayload);
+    });
+
+    it('handles fenced JSON and leading prose', () => {
+      expect(parseGeneratedBundleSynthesis(`\`\`\`json\n${JSON.stringify(validPayload)}\n\`\`\``)).toEqual(
+        validPayload,
+      );
+      expect(parseGeneratedBundleSynthesis(`Here it is:\n${JSON.stringify(validPayload)}`)).toEqual(
+        validPayload,
+      );
+    });
+
+    it('rejects blank, too few, too many, placeholder, and invalid-shape payloads', () => {
+      expect(() =>
+        parseGeneratedBundleSynthesis(JSON.stringify({ ...validPayload, summary: '   ' })),
+      ).toThrow(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+
+      expect(() =>
+        parseGeneratedBundleSynthesis(JSON.stringify({ ...validPayload, frames: [validPayload.frames[0]] })),
+      ).toThrow(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+
+      expect(() =>
+        parseGeneratedBundleSynthesis(
+          JSON.stringify({
+            ...validPayload,
+            frames: [
+              ...validPayload.frames,
+              { frame: 'Frame three is valid.', reframe: 'Reframe three is valid.' },
+              { frame: 'Frame four is valid.', reframe: 'Reframe four is valid.' },
+              { frame: 'Frame five is invalid.', reframe: 'Reframe five is invalid.' },
+            ],
+          }),
+        ),
+      ).toThrow(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+
+      for (const placeholder of ['N/A', 'No clear bias detected', 'Frame unavailable.']) {
+        expect(() =>
+          parseGeneratedBundleSynthesis(
+            JSON.stringify({
+              ...validPayload,
+              frames: [
+                { frame: placeholder, reframe: validPayload.frames[0]!.reframe },
+                validPayload.frames[1],
+              ],
+            }),
+          ),
+        ).toThrow(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+      }
+
+      expect(() =>
+        parseGeneratedBundleSynthesis(
+          JSON.stringify({
+            ...validPayload,
+            frames: [
+              validPayload.frames[0],
+              { frame: validPayload.frames[1]!.frame, reframe: '  N/A  ' },
+            ],
+          }),
+        ),
+      ).toThrow(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+
+      expect(() =>
+        parseGeneratedBundleSynthesis(JSON.stringify({ ...validPayload, source_count: -1 })),
+      ).toThrow(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+    });
+
+    it('classifies no-json and malformed-json failures', () => {
+      expect(() => parseGeneratedBundleSynthesis('no json here')).toThrow(
+        BundleSynthesisParseError.NO_JSON_OBJECT_FOUND,
+      );
+      expect(() => parseGeneratedBundleSynthesis('{ "summary": }')).toThrow(
+        BundleSynthesisParseError.JSON_PARSE_ERROR,
+      );
     });
   });
 

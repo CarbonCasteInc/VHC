@@ -9,11 +9,16 @@ import {
 import {
   createNodeMeshClient,
   readNewsIngestionLease,
+  readStoryBundle,
+  readTopicEpochCandidate,
   removeNewsBundle,
   removeNewsStoryline,
   writeNewsIngestionLease,
   writeNewsStoryline,
   writeStoryBundle,
+  writeTopicEpochCandidate,
+  writeTopicEpochSynthesis,
+  writeTopicLatestSynthesisIfNotDowngrade,
   type NewsIngestionLease,
   type VennClient,
 } from '@vh/gun-client';
@@ -36,6 +41,13 @@ import {
 } from './daemonUtils';
 import { createLeaseGuard } from './leaseGuard';
 import { createDaemonFeedClusterCaptureRecorder } from './clusterCapturePersistence';
+import { createBundleSynthesisWorker } from './bundleSynthesisWorker';
+import {
+  getBundleSynthesisMaxTokens,
+  getBundleSynthesisModel,
+  getBundleSynthesisTimeoutMs,
+  postBundleSynthesisCompletion,
+} from './bundleSynthesisRelay';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 type RuntimeOrchestratorOptions = NonNullable<NewsRuntimeConfig['orchestratorOptions']> & {
   remoteClusterMaxItemsPerRequest?: number;
@@ -54,6 +66,7 @@ export interface NewsAggregatorDaemonConfig {
   writeBundle?: (client: VennClient, bundle: unknown) => Promise<unknown>;
   removeBundle?: (client: VennClient, storyId: string) => Promise<unknown>;
   enrichmentWorker?: EnrichmentWorker;
+  enrichmentQueueMaxDepth?: number;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -84,7 +97,17 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const leaseRenewIntervalMs = Math.max(5_000, Math.floor(leaseTtlMs / 2));
   const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
-  const queue = createAsyncEnrichmentQueue(config.enrichmentWorker ?? (() => undefined), logger);
+  const queue = createAsyncEnrichmentQueue(config.enrichmentWorker ?? (() => undefined), logger, {
+    maxDepth: config.enrichmentQueueMaxDepth,
+    onDrop(candidate, reason, queueDepth) {
+      logger.warn('[vh:bundle-synth] queue_full', {
+        story_id: candidate.story_id,
+        queue_depth: queueDepth,
+        max_depth: config.enrichmentQueueMaxDepth,
+        reason,
+      });
+    },
+  });
   const clusterCaptureRecorder = createDaemonFeedClusterCaptureRecorder(
     readEnvVar('VH_DAEMON_FEED_RUN_ID'),
   );
@@ -285,6 +308,38 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     peers: gunPeers.length > 0 ? gunPeers : undefined,
     requireSession: false,
   });
+  const bundleSynthesisEnabled = isEnvTruthy(readEnvVar('VH_BUNDLE_SYNTHESIS_ENABLED'));
+  if (bundleSynthesisEnabled && !process.env.OPENAI_API_KEY?.trim()) {
+    throw new Error('OPENAI_API_KEY is required when VH_BUNDLE_SYNTHESIS_ENABLED=true');
+  }
+
+  const bundleSynthesisModel = getBundleSynthesisModel();
+  const bundleSynthesisTimeoutMs = getBundleSynthesisTimeoutMs();
+  const bundleSynthesisMaxTokens = getBundleSynthesisMaxTokens();
+  const bundleSynthesisQueueDepth = parseOptionalPositiveInt(
+    readEnvVar('VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH'),
+  ) ?? 32;
+  const enrichmentWorker = bundleSynthesisEnabled
+    ? createBundleSynthesisWorker({
+        client,
+        readStoryBundle,
+        readTopicEpochCandidate,
+        writeTopicEpochCandidate,
+        writeTopicEpochSynthesis,
+        writeTopicLatestSynthesisIfNotDowngrade,
+        relay: (prompt, context) =>
+          postBundleSynthesisCompletion(prompt, {
+            model: bundleSynthesisModel,
+            timeoutMs: bundleSynthesisTimeoutMs,
+            maxTokens: bundleSynthesisMaxTokens,
+            rateLimitKey: context ? `bundle-synthesis:${context.storyId}` : 'bundle-synthesis:unknown',
+          }),
+        modelId: bundleSynthesisModel,
+        now: Date.now,
+        logger: console,
+        pipelineVersion: readEnvVar('VH_BUNDLE_SYNTHESIS_PIPELINE_VERSION') ?? 'news-bundle-v1',
+      })
+    : undefined;
   const daemon = createNewsAggregatorDaemon({
     client,
     feedSources,
@@ -292,6 +347,8 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     pollIntervalMs,
     leaseTtlMs,
     leaseHolderId: readEnvVar('VH_NEWS_DAEMON_HOLDER_ID'),
+    enrichmentWorker,
+    enrichmentQueueMaxDepth: bundleSynthesisEnabled ? bundleSynthesisQueueDepth : undefined,
     runtimeOrchestratorOptions: {
       productionMode: true,
       allowHeuristicFallback: false,
@@ -310,6 +367,11 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       await client.shutdown();
     },
   };
+}
+
+function isEnvTruthy(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on';
 }
 
 function isDirectExecution(metaUrl: string): boolean {
@@ -354,6 +416,7 @@ if (isDirectExecution(import.meta.url)) {
 /* c8 ignore stop */
 export const __internal = {
   buildLeasePayload,
+  isEnvTruthy,
   isDirectExecution,
   parseFeedSources,
   parseGunPeers,

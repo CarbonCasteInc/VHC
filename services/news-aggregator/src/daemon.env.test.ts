@@ -48,6 +48,7 @@ async function loadSubject(options: {
   const readNewsIngestionLease = vi.fn().mockResolvedValue(null);
   const writeNewsIngestionLease = vi.fn().mockResolvedValue(makeLease());
   const verifyStoryClusterHealth = vi.fn().mockResolvedValue(undefined);
+  const createBundleSynthesisWorker = vi.fn(() => vi.fn());
 
   vi.doMock('@vh/ai-engine', async () => {
     const actual = await vi.importActual<typeof import('@vh/ai-engine')>('@vh/ai-engine');
@@ -97,11 +98,23 @@ async function loadSubject(options: {
     };
   });
 
+  vi.doMock('./bundleSynthesisWorker', () => ({
+    createBundleSynthesisWorker,
+  }));
+
+  vi.doMock('./bundleSynthesisRelay', () => ({
+    getBundleSynthesisMaxTokens: vi.fn(() => 1200),
+    getBundleSynthesisModel: vi.fn(() => 'gpt-4o-mini'),
+    getBundleSynthesisTimeoutMs: vi.fn(() => 20_000),
+    postBundleSynthesisCompletion: vi.fn(),
+  }));
+
   const subject = await import('./daemon');
   return {
     subject,
     startNewsRuntime,
     createNodeMeshClient,
+    createBundleSynthesisWorker,
     verifyStoryClusterHealth,
     runtimeHandle,
   };
@@ -110,6 +123,7 @@ async function loadSubject(options: {
 describe('startNewsAggregatorDaemonFromEnv', () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it('starts with explicit peers and primary lease ttl env', async () => {
@@ -196,5 +210,53 @@ describe('startNewsAggregatorDaemonFromEnv', () => {
     );
 
     await processHandle.stop();
+  });
+
+  it('wires bundle synthesis worker only when enabled and keyed', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const {
+      subject,
+      createBundleSynthesisWorker,
+    } = await loadSubject({
+      env: {
+        VITE_NEWS_FEED_SOURCES: '[]',
+        VITE_NEWS_TOPIC_MAPPING: '{}',
+        VH_BUNDLE_SYNTHESIS_ENABLED: 'true',
+        VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH: '32',
+      },
+      gunPeers: [],
+      pollIntervalMs: undefined,
+      leaseTtlMs: 60_000,
+    });
+
+    const processHandle = await subject.startNewsAggregatorDaemonFromEnv();
+
+    expect(createBundleSynthesisWorker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: 'gpt-4o-mini',
+        pipelineVersion: 'news-bundle-v1',
+      }),
+    );
+
+    await processHandle.stop();
+  });
+
+  it('fails startup when bundle synthesis is enabled without an OpenAI key', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '');
+    const { subject, createBundleSynthesisWorker } = await loadSubject({
+      env: {
+        VITE_NEWS_FEED_SOURCES: '[]',
+        VITE_NEWS_TOPIC_MAPPING: '{}',
+        VH_BUNDLE_SYNTHESIS_ENABLED: 'true',
+      },
+      gunPeers: [],
+      pollIntervalMs: undefined,
+      leaseTtlMs: 60_000,
+    });
+
+    await expect(subject.startNewsAggregatorDaemonFromEnv()).rejects.toThrow(
+      'OPENAI_API_KEY is required',
+    );
+    expect(createBundleSynthesisWorker).not.toHaveBeenCalled();
   });
 });

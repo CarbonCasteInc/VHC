@@ -147,7 +147,7 @@ export function parseArticleAnalysisResponse(
   };
 }
 
-/** Generate multi-source synthesis prompt from N per-article analyses. */
+/** @deprecated Use @vh/ai-engine bundlePrompts. */
 export function generateBundleSynthesisPrompt(input: BundleSynthesisInput): string {
   const count = input.articleAnalyses.length;
 
@@ -193,7 +193,7 @@ export function generateBundleSynthesisPrompt(input: BundleSynthesisInput): stri
   ].join('\n');
 }
 
-/** Parse raw LLM response into BundleSynthesisResult. */
+/** @deprecated Use @vh/ai-engine bundlePrompts. */
 export function parseBundleSynthesisResponse(raw: string, sourceCount: number): BundleSynthesisResult {
   if (sourceCount === 0) {
     return {

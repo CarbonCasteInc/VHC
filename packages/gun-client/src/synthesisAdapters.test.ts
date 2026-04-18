@@ -17,6 +17,7 @@ import {
   writeTopicDigest,
   writeTopicEpochCandidate,
   writeTopicEpochSynthesis,
+  writeTopicLatestSynthesisIfNotDowngrade,
   writeTopicLatestSynthesis,
   writeTopicSynthesis
 } from './synthesisAdapters';
@@ -331,6 +332,96 @@ describe('synthesisAdapters', () => {
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
   });
 
+  it('writeTopicLatestSynthesisIfNotDowngrade writes when latest is empty', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const ownershipGuard = vi.fn(() => false);
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS, { ownershipGuard }),
+    ).resolves.toEqual({ written: true });
+
+    expect(ownershipGuard).not.toHaveBeenCalled();
+    expect(mesh.writes).toEqual([{ path: 'topics/topic-1/latest', value: SYNTHESIS }]);
+  });
+
+  it('writeTopicLatestSynthesisIfNotDowngrade writes when existing epoch is lower', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/latest', { ...SYNTHESIS, epoch: 1 });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS)).resolves.toEqual({
+      written: true,
+    });
+
+    expect(mesh.writes).toEqual([{ path: 'topics/topic-1/latest', value: SYNTHESIS }]);
+  });
+
+  it('writeTopicLatestSynthesisIfNotDowngrade skips higher existing epoch', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/latest', { ...SYNTHESIS, epoch: 3 });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS)).resolves.toEqual({
+      written: false,
+      reason: 'downgrade_existing_epoch',
+    });
+
+    expect(mesh.writes).toEqual([]);
+  });
+
+  it('writeTopicLatestSynthesisIfNotDowngrade skips higher same-epoch quorum', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/latest', {
+      ...SYNTHESIS,
+      quorum: { ...SYNTHESIS.quorum, received: SYNTHESIS.quorum.received + 1 },
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS)).resolves.toEqual({
+      written: false,
+      reason: 'downgrade_existing_quorum',
+    });
+
+    expect(mesh.writes).toEqual([]);
+  });
+
+  it('writeTopicLatestSynthesisIfNotDowngrade refreshes equal epoch and quorum', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/latest', { ...SYNTHESIS });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS)).resolves.toEqual({
+      written: true,
+    });
+
+    expect(mesh.writes).toEqual([{ path: 'topics/topic-1/latest', value: SYNTHESIS }]);
+  });
+
+  it('writeTopicLatestSynthesisIfNotDowngrade honors ownership guard after downgrade checks', async () => {
+    const mesh = createFakeMesh();
+    const existing = { ...SYNTHESIS, synthesis_id: 'forum:epoch-zero' };
+    mesh.setRead('topics/topic-1/latest', existing);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const ownershipGuard = vi.fn(() => false);
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS, { ownershipGuard }),
+    ).resolves.toEqual({
+      written: false,
+      reason: 'ownership_guard_rejected',
+    });
+
+    expect(ownershipGuard).toHaveBeenCalledWith(existing);
+    expect(mesh.writes).toEqual([]);
+  });
+
   it('writeTopicSynthesis writes epoch and latest paths', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -450,5 +541,9 @@ describe('synthesisAdapters', () => {
     await expect(writeTopicLatestSynthesis(client, { ...SYNTHESIS, refresh_token: 'forbidden' })).rejects.toThrow(
       'forbidden identity/token fields'
     );
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, { ...SYNTHESIS, identity_id: 'forbidden' }),
+    ).rejects.toThrow('forbidden identity/token fields');
   });
 });

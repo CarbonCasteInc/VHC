@@ -323,6 +323,42 @@ export async function writeTopicLatestSynthesis(client: VennClient, synthesis: u
   return sanitized;
 }
 
+export interface SafeLatestWriteOptions {
+  ownershipGuard?: (existing: TopicSynthesisV2) => boolean;
+}
+
+export type SafeLatestWriteResult =
+  | { written: true }
+  | {
+      written: false;
+      reason: 'downgrade_existing_epoch' | 'downgrade_existing_quorum' | 'ownership_guard_rejected';
+    };
+
+export async function writeTopicLatestSynthesisIfNotDowngrade(
+  client: VennClient,
+  synthesis: unknown,
+  opts: SafeLatestWriteOptions = {},
+): Promise<SafeLatestWriteResult> {
+  assertNoForbiddenSynthesisFields(synthesis);
+  const sanitized = TopicSynthesisV2Schema.parse(synthesis);
+  const existing = await readTopicLatestSynthesis(client, sanitized.topic_id);
+
+  if (existing) {
+    if (existing.epoch > sanitized.epoch) {
+      return { written: false, reason: 'downgrade_existing_epoch' };
+    }
+    if (existing.epoch === sanitized.epoch && existing.quorum.received > sanitized.quorum.received) {
+      return { written: false, reason: 'downgrade_existing_quorum' };
+    }
+    if (opts.ownershipGuard && !opts.ownershipGuard(existing)) {
+      return { written: false, reason: 'ownership_guard_rejected' };
+    }
+  }
+
+  await putWithAck(getTopicLatestSynthesisChain(client, normalizeTopicId(sanitized.topic_id)), sanitized);
+  return { written: true };
+}
+
 export async function writeTopicSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
   const sanitized = await writeTopicEpochSynthesis(client, synthesis);
   await writeTopicLatestSynthesis(client, sanitized);

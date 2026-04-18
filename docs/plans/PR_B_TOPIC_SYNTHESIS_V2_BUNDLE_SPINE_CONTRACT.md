@@ -236,7 +236,7 @@ export interface BundleSynthesisWorkerDeps {
   writeTopicEpochCandidate: typeof writeTopicEpochCandidate;
   writeTopicEpochSynthesis: typeof writeTopicEpochSynthesis;
   writeTopicLatestSynthesisIfNotDowngrade: typeof writeTopicLatestSynthesisIfNotDowngrade;
-  relay: (prompt: string) => Promise<string>;
+  relay: (prompt: string, context?: { storyId: string; topicId: string }) => Promise<string>;
   modelId: string;
   now: () => number;
   logger: LoggerLike;
@@ -271,7 +271,7 @@ Required worker flow:
    `provenance_hash`, and `model_id`.
 6. Check idempotency with `readTopicEpochCandidate(client, topicId, 0, candidateId)`.
 7. Build the prompt from the re-read bundle via `buildBundlePromptFromStoryBundle`.
-8. Call relay inside worker-local `try/catch`; map AbortError or timeout-like
+8. Call relay with `{ storyId, topicId }` inside worker-local `try/catch`; map AbortError or timeout-like
    failures to `relay_timeout`, and other failures to `relay_failed`.
 9. Parse with `parseGeneratedBundleSynthesis`.
 10. If parsed `source_count` differs from the bundle-derived source count,
@@ -337,7 +337,8 @@ Create a sibling module to `analysisRelay.ts`:
 - Honor `VH_BUNDLE_SYNTHESIS_TIMEOUT_MS` with `AbortController`.
 - Use a per-story rate limiter, default `20/min`.
 - Export `postBundleSynthesisCompletion(prompt, opts)` returning raw completion
-  text.
+  text. Production worker wiring must pass `rateLimitKey` derived from
+  `context.storyId` so the limiter is story-scoped.
 - Throw `AbortError` on timeout.
 - Throw an `Error` containing HTTP status detail for non-2xx upstream responses.
 
@@ -517,4 +518,3 @@ Dashboard signals for canary:
 9. Summary, frame, and reframe strings are trimmed before storage.
 10. Relay timeouts and upstream failures surface as bundle-synth telemetry.
 11. Model source-count mismatch blocks all writes.
-
