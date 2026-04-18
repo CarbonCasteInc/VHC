@@ -33,7 +33,19 @@ export interface AsyncEnrichmentQueue {
   size(): number;
   stop(): void;
 }
-export function createAsyncEnrichmentQueue(worker: EnrichmentWorker, logger: LoggerLike): AsyncEnrichmentQueue {
+export interface AsyncEnrichmentQueueOptions {
+  maxDepth?: number;
+  onDrop?: (
+    candidate: NewsRuntimeSynthesisCandidate,
+    reason: 'queue_full',
+    queueDepth: number,
+  ) => void;
+}
+export function createAsyncEnrichmentQueue(
+  worker: EnrichmentWorker,
+  logger: LoggerLike,
+  options: AsyncEnrichmentQueueOptions = {},
+): AsyncEnrichmentQueue {
   const pending: NewsRuntimeSynthesisCandidate[] = [];
   let draining = false;
   let stopped = false;
@@ -66,6 +78,11 @@ export function createAsyncEnrichmentQueue(worker: EnrichmentWorker, logger: Log
   return {
     enqueue(candidate: NewsRuntimeSynthesisCandidate) {
       if (stopped) {
+        return;
+      }
+
+      if (options.maxDepth !== undefined && pending.length >= options.maxDepth) {
+        options.onDrop?.(candidate, 'queue_full', pending.length);
         return;
       }
 

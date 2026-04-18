@@ -5,8 +5,10 @@
  * Kept separate from prompts.ts to respect the 350 LOC cap.
  */
 
+import { z } from 'zod';
 import { GOALS_AND_GUIDELINES } from './prompts';
-import type { StoryBundleInputCandidate } from './newsTypes';
+import { isPlaceholderPerspectiveText } from './schema';
+import type { StoryBundle, StoryBundleInputCandidate } from './newsTypes';
 
 /**
  * Deterministic output shape for UI consumption.
@@ -114,4 +116,79 @@ export function buildBundlePrompt(
     })),
     verification_confidence: verificationConfidence,
   });
+}
+
+export function buildBundlePromptFromStoryBundle(
+  bundle: StoryBundle,
+  opts?: { verificationConfidence?: number },
+): string {
+  const sources = bundle.primary_sources ?? bundle.sources;
+  const verificationConfidence =
+    opts?.verificationConfidence ?? bundle.cluster_features.confidence_score;
+
+  return generateBundleSynthesisPrompt({
+    headline: bundle.headline,
+    sources: sources.map((source) => ({
+      publisher: source.publisher,
+      title: source.title,
+      url: source.url,
+    })),
+    summary_hint: bundle.summary_hint,
+    verification_confidence: verificationConfidence,
+  });
+}
+
+const TrimmedNonEmptyString = z
+  .string()
+  .transform((value) => value.trim())
+  .refine((value) => value.length > 0, 'must be non-empty after trimming');
+
+const BundlePerspectiveTextSchema = TrimmedNonEmptyString.refine(
+  (value) => !isPlaceholderPerspectiveText(value),
+  'must not be a placeholder',
+);
+
+const BundleFrameSchema = z
+  .object({
+    frame: BundlePerspectiveTextSchema,
+    reframe: BundlePerspectiveTextSchema,
+  })
+  .strict();
+
+export const GeneratedBundleSynthesisResultSchema = z
+  .object({
+    summary: TrimmedNonEmptyString,
+    frames: z.array(BundleFrameSchema).min(2).max(4),
+    source_count: z.number().int().positive(),
+    source_publishers: z.array(TrimmedNonEmptyString).min(1),
+    verification_confidence: z.number().min(0).max(1),
+  })
+  .strict();
+
+export type GeneratedBundleSynthesisResult = z.infer<
+  typeof GeneratedBundleSynthesisResultSchema
+>;
+
+export enum BundleSynthesisParseError {
+  NO_JSON_OBJECT_FOUND = 'NO_JSON_OBJECT_FOUND',
+  JSON_PARSE_ERROR = 'JSON_PARSE_ERROR',
+  SCHEMA_VALIDATION_ERROR = 'SCHEMA_VALIDATION_ERROR',
+}
+
+export function parseGeneratedBundleSynthesis(raw: string): GeneratedBundleSynthesisResult {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(BundleSynthesisParseError.NO_JSON_OBJECT_FOUND);
+  }
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]);
+    const payload = parsed.final_refined || parsed;
+    return GeneratedBundleSynthesisResultSchema.parse(payload);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+    }
+    throw new Error(BundleSynthesisParseError.JSON_PARSE_ERROR);
+  }
 }

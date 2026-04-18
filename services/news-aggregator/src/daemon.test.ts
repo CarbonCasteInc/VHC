@@ -96,6 +96,12 @@ describe('news aggregator daemon', () => {
   });
 
   it('parses feed + topic env config with safe fallbacks', () => {
+    expect(__internal.isEnvTruthy('true')).toBe(true);
+    expect(__internal.isEnvTruthy('1')).toBe(true);
+    expect(__internal.isEnvTruthy('yes')).toBe(true);
+    expect(__internal.isEnvTruthy('on')).toBe(true);
+    expect(__internal.isEnvTruthy('false')).toBe(false);
+
     expect(__internal.parseFeedSources(undefined).length).toBeGreaterThan(0);
     expect(__internal.parseFeedSources('not-json').length).toBeGreaterThan(0);
 
@@ -340,6 +346,64 @@ describe('news aggregator daemon', () => {
     expect(enrichmentWorker).toHaveBeenCalledTimes(1);
     expect(daemon.enrichmentQueueDepth()).toBe(0);
 
+    resolveEnrichment?.();
+    await Promise.resolve();
+
+    await daemon.stop();
+  });
+
+  it('applies enrichment queue maxDepth and logs dropped candidates', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+
+    let resolveEnrichment: (() => void) | null = null;
+    const enrichmentWorker = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveEnrichment = resolve;
+        }),
+    );
+
+    const heldLease = makeLease();
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(heldLease);
+    const writeLease = vi.fn(async () => heldLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-queue-depth' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      enrichmentWorker,
+      enrichmentQueueMaxDepth: 1,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    const runtimeConfig = startRuntime.mock.calls[0]?.[0] as NewsRuntimeConfig;
+    runtimeConfig.onSynthesisCandidate?.({ ...CANDIDATE, story_id: 'story-1' });
+    runtimeConfig.onSynthesisCandidate?.({ ...CANDIDATE, story_id: 'story-2' });
+
+    expect(daemon.enrichmentQueueDepth()).toBe(1);
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:bundle-synth] queue_full',
+      expect.objectContaining({
+        story_id: 'story-2',
+        queue_depth: 1,
+        max_depth: 1,
+        reason: 'queue_full',
+      }),
+    );
+
+    await Promise.resolve();
+    expect(enrichmentWorker).toHaveBeenCalledTimes(1);
     resolveEnrichment?.();
     await Promise.resolve();
 

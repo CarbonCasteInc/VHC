@@ -69,6 +69,29 @@ export {
 export type { AnalyzeRequest, AnalyzeResponse } from './analysisRelay';
 
 export {
+  BUNDLE_SYNTHESIS_RATE_WINDOW_MS,
+  DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS,
+  DEFAULT_BUNDLE_SYNTHESIS_MODEL,
+  DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN,
+  DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS,
+  buildBundleOpenAIChatRequest,
+  checkBundleSynthesisRateLimit,
+  getBundleSynthesisMaxTokens,
+  getBundleSynthesisModel,
+  getBundleSynthesisRatePerMinute,
+  getBundleSynthesisTimeoutMs,
+  postBundleSynthesisCompletion,
+  resetBundleSynthesisRateLimits,
+} from './bundleSynthesisRelay';
+export type { BundleSynthesisCompletionOptions } from './bundleSynthesisRelay';
+
+export {
+  bundleSynthesisWorkerInternal,
+  createBundleSynthesisWorker,
+} from './bundleSynthesisWorker';
+export type { BundleSynthesisWorkerDeps } from './bundleSynthesisWorker';
+
+export {
   ArticleTextService,
   ArticleTextServiceError,
   FETCH_TIMEOUT_MS,

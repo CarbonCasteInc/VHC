@@ -110,6 +110,37 @@ describe('daemonUtils', () => {
     expect(worker).not.toHaveBeenCalled();
   });
 
+  it('drops candidates above maxDepth and preserves unbounded default behavior', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const worker = vi.fn(async () => undefined);
+    const onDrop = vi.fn();
+    const bounded = createAsyncEnrichmentQueue(worker, logger, {
+      maxDepth: 2,
+      onDrop,
+    });
+
+    bounded.enqueue({ ...CANDIDATE, story_id: 'story-1' });
+    bounded.enqueue({ ...CANDIDATE, story_id: 'story-2' });
+    bounded.enqueue({ ...CANDIDATE, story_id: 'story-3' });
+
+    expect(bounded.size()).toBe(2);
+    expect(onDrop).toHaveBeenCalledWith(
+      expect.objectContaining({ story_id: 'story-3' }),
+      'queue_full',
+      2,
+    );
+
+    const unbounded = createAsyncEnrichmentQueue(worker, logger);
+    unbounded.enqueue({ ...CANDIDATE, story_id: 'story-a' });
+    unbounded.enqueue({ ...CANDIDATE, story_id: 'story-b' });
+    unbounded.enqueue({ ...CANDIDATE, story_id: 'story-c' });
+
+    expect(unbounded.size()).toBe(3);
+
+    bounded.stop();
+    unbounded.stop();
+  });
+
   it('derives StoryCluster health URLs across pathname shapes', () => {
     expect(deriveStoryClusterHealthUrl('https://storycluster.example.com')).toBe(
       'https://storycluster.example.com/health',
