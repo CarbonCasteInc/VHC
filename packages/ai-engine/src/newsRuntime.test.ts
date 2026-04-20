@@ -186,6 +186,58 @@ describe('newsRuntime', () => {
     handle.stop();
   });
 
+  it('prepares bundles before publish and synthesis hooks run', async () => {
+    orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
+
+    const preparedBundle: StoryBundle = {
+      ...STORY_BUNDLE,
+      sources: [
+        {
+          ...STORY_BUNDLE.sources[0]!,
+          title: 'Prepared source title',
+        },
+      ],
+      related_links: [
+        {
+          source_id: 'src-related',
+          publisher: 'Related Publisher',
+          url: 'https://example.com/related-story',
+          url_hash: 'related-hash',
+          title: 'Related story',
+        },
+      ],
+      provenance_hash: 'prepared-provhash',
+    };
+
+    const writeStoryBundle = vi.fn().mockResolvedValue(undefined);
+    const onSynthesisCandidate = vi.fn();
+    const prepareStoryBundle = vi.fn(async () => preparedBundle);
+
+    const handle = startNewsRuntime({
+      ...BASE_CONFIG,
+      prepareStoryBundle,
+      writeStoryBundle,
+      onSynthesisCandidate,
+      pollIntervalMs: 10,
+      runOnStart: true,
+    });
+
+    await flushTasks();
+
+    expect(prepareStoryBundle).toHaveBeenCalledWith(STORY_BUNDLE);
+    expect(writeStoryBundle).toHaveBeenCalledWith(BASE_CONFIG.gunClient, preparedBundle);
+    expect(onSynthesisCandidate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        story_id: 'story-1',
+        advanced_artifact: expect.objectContaining({
+          story_id: 'story-1',
+        }),
+      }),
+    );
+
+    handle.stop();
+  });
+
   it('runs periodic ticks, publishes bundles, and updates lastRun', async () => {
     orchestrateNewsPipelineMock.mockResolvedValue(batch([STORY_BUNDLE]));
 

@@ -214,6 +214,13 @@ export type {
 
 export { SOURCE_SCOUT_CANDIDATE_FEED_SOURCES } from './sourceScoutCandidates';
 
+
+export {
+  createStoryBundleEligibilityEnricher,
+  enrichStoryBundleWithEligibility,
+} from './storyBundleEligibilityEnrichment';
+export type { StoryBundleEligibilityEnricher } from './storyBundleEligibilityEnrichment';
+
 export {
   createArticleTextServer,
   startArticleTextServer,

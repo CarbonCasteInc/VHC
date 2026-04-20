@@ -40,6 +40,7 @@ export interface NewsRuntimeConfig {
   pollIntervalMs?: number;
   runOnStart?: boolean;
   enabled?: boolean;
+  prepareStoryBundle?: (bundle: StoryBundle) => Promise<StoryBundle | null> | StoryBundle | null;
   writeStoryBundle?: (client: unknown, bundle: StoryBundle) => Promise<unknown>;
   removeStoryBundle?: (client: unknown, storyId: string) => Promise<unknown>;
   writeStorylineGroup?: (client: unknown, storyline: StorylineGroup) => Promise<unknown>;
@@ -149,6 +150,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         storyline_count: storylines.length,
       });
 
+      const prepareStoryBundle = config.prepareStoryBundle;
       const writeStoryBundle = config.writeStoryBundle;
       if (!writeStoryBundle) {
         throw new Error('writeStoryBundle adapter is required');
@@ -163,16 +165,50 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
 
       const nextPublishedStoryIds = new Set<string>();
       const nextPublishedStorylineIds = new Set<string>();
+      const preparedBundles: StoryBundle[] = [];
+      const preparedStoryIds = new Set<string>();
+
+      for (const bundle of bundles) {
+        const preparedBundle = prepareStoryBundle
+          ? await prepareStoryBundle(bundle)
+          : bundle;
+        if (!preparedBundle) {
+          runtimeTrace('bundle_skipped', {
+            story_id: bundle.story_id,
+            reason: 'prepareStoryBundle',
+          });
+          continue;
+        }
+        preparedBundles.push(preparedBundle);
+        preparedStoryIds.add(preparedBundle.story_id);
+      }
+
+      const preparedStorylines = storylines
+        .map((storyline) => {
+          const nextStoryIds = storyline.story_ids.filter((storyId) => preparedStoryIds.has(storyId));
+          if (nextStoryIds.length === 0) {
+            return null;
+          }
+
+          return {
+            ...storyline,
+            story_ids: nextStoryIds,
+            canonical_story_id: nextStoryIds.includes(storyline.canonical_story_id)
+              ? storyline.canonical_story_id
+              : nextStoryIds[0]!,
+          };
+        })
+        .filter((storyline): storyline is StorylineGroup => storyline !== null);
 
       if (writeStorylineGroup) {
-        for (const storyline of storylines) {
+        for (const storyline of preparedStorylines) {
           await writeStorylineGroup(config.gunClient, storyline);
           nextPublishedStorylineIds.add(storyline.storyline_id);
           publishedStorylineIds.add(storyline.storyline_id);
         }
       }
 
-      for (const bundle of bundles) {
+      for (const bundle of preparedBundles) {
         const request = buildRemoteRequest(createPrompt(bundle));
         const workItems = buildEnrichmentWorkItems(bundle);
 
@@ -217,7 +253,7 @@ export function startNewsRuntime(config: NewsRuntimeConfig): NewsRuntimeHandle {
         }
       }
 
-      if (removeStoryBundle && nextPublishedStoryIds.size > 0) {
+      if (removeStoryBundle && bundles.length > 0) {
         const staleStoryIds = [...publishedStoryIds]
           .filter((storyId) => !nextPublishedStoryIds.has(storyId))
           .sort();
