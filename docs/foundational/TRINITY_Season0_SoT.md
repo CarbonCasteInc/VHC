@@ -110,10 +110,10 @@
       - **Civic Decay** ✅ - `next = current + 0.3*(1.95-current)` (monotonic; bounded [0,1.95], i.e. strict `< 2`)
       - **Eye** 🟡 - per-user/topic read interest ∈ [0,1.95] (`< 2`); updated on "full read"; aggregate shown in feed/dashboards
       - **Lightbulb** 🟡 - per-user/topic engagement ∈ [0,1.95] (`< 2`); updated on stance changes; aggregate shown in feed/dashboards
-      - **Sentiment** 🟡 - tri-state per `(topic_id, point_id)` in `{+1,0,-1}`
+      - **Sentiment** 🟡 - tri-state per `(topic_id, synthesis_id, epoch, point_id)` in `{+1,0,-1}`
       - **Privacy boundary** ✅:
         - event-level `SentimentSignal` is sensitive (device / encrypted channel only)
-        - public surfaces show aggregates only (`AggregateSentiment`, district rollups)
+        - public surfaces show aggregate projections only (`PointAggregateSnapshotV1`, district rollups)
         - never publish `{district_hash, nullifier}` pairs
     - **Forum (HERMES Forum)** 🟢 - UX: threaded discourse under every topic
       - Threads/comments are public objects; votes affect visibility (not identity)

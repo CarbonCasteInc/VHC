@@ -20,7 +20,7 @@ Defines data placement, mesh path conventions, and privacy constraints for Seaso
 | TopicSynthesisV2 | local cache/index | `vh/topics/<topicId>/epochs/<epoch>/synthesis` | - | optional hash anchor | - | Public |
 | Topic latest pointer | local cache/index | `vh/topics/<topicId>/latest` | - | - | - | Public |
 | SentimentSignal event | local state | forbidden | `~<devicePub>/outbox/sentiment/<eventId>` | - | - | Sensitive |
-| AggregateSentiment | local cache | `vh/aggregates/topics/<topicId>/epochs/<epoch>` | - | optional aggregate anchor | - | Public |
+| AggregateSentiment (legacy summary) | local cache | compatibility-only; canonical public point aggregates use `PointAggregateSnapshotV1` below | - | optional aggregate anchor | - | Public |
 | TopicEngagementAggregateV1 | local cache | `vh/aggregates/topics/<topicId>/engagement/summary` | - | optional aggregate anchor | - | Public |
 | Linked-social OAuth tokens | vault (encrypted) | forbidden | optional encrypted backup | - | - | Secret |
 | Linked-social notification objects | vault + local cache | sanitized card projection only | optional encrypted backup | - | - | Sensitive |

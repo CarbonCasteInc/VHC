@@ -80,6 +80,23 @@ describe('GatheredCandidateSchema', () => {
       GatheredCandidateSchema.safeParse(makeCandidate({ facts_summary: '' })).success,
     ).toBe(false);
   });
+
+  it('rejects blank optional frame point ids', () => {
+    expect(
+      GatheredCandidateSchema.safeParse(
+        makeCandidate({
+          frames: [
+            {
+              frame_point_id: '   ',
+              frame: 'Frame A',
+              reframe_point_id: 'reframe-point-a',
+              reframe: 'Reframe A',
+            },
+          ],
+        }),
+      ).success,
+    ).toBe(false);
+  });
 });
 
 // ── createGathererState ────────────────────────────────────────────

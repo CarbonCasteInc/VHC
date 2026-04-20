@@ -275,6 +275,21 @@ describe('CandidateSynthesisSchema', () => {
     expect(CandidateSynthesisSchema.safeParse(input).success).toBe(true);
   });
 
+  it('rejects blank optional point ids on candidate frames', () => {
+    const input = {
+      ...validCandidate,
+      frames: [
+        {
+          frame_point_id: '   ',
+          frame: 'Candidate frame',
+          reframe_point_id: 'candidate-reframe-point',
+          reframe: 'Candidate reframe',
+        },
+      ],
+    };
+    expect(CandidateSynthesisSchema.safeParse(input).success).toBe(false);
+  });
+
   it('rejects non-integer created_at', () => {
     const input = { ...validCandidate, created_at: 1.5 };
     expect(CandidateSynthesisSchema.safeParse(input).success).toBe(false);
@@ -302,6 +317,21 @@ describe('TopicSynthesisV2Schema', () => {
       frames: [
         {
           frame_point_id: '',
+          frame: 'Frame',
+          reframe_point_id: 'reframe-point',
+          reframe: 'Reframe',
+        },
+      ],
+    };
+    expect(TopicSynthesisV2Schema.safeParse(input).success).toBe(false);
+  });
+
+  it('rejects accepted synthesis frames with blank point ids', () => {
+    const input = {
+      ...validSynthesis,
+      frames: [
+        {
+          frame_point_id: '   ',
           frame: 'Frame',
           reframe_point_id: 'reframe-point',
           reframe: 'Reframe',

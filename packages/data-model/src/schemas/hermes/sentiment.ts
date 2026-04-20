@@ -113,7 +113,8 @@ export const SentimentEventSchema = z
 
 /**
  * Public voter contribution node (per voter + per point).
- * Stored under: vh/aggregates/topics/<topicId>/epochs/<epoch>/voters/<voterId>/<pointId>
+ * Stored under:
+ * vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/voters/<voterId>/<pointId>
  */
 export const AggregateVoterNodeSchema = z
   .object({

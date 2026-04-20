@@ -196,6 +196,22 @@ describe('persisted synthesis point ids', () => {
     expect(after[0]!.frame_point_id).toBe(before[0]!.frame_point_id);
     expect(after[0]!.reframe_point_id).toBe(before[0]!.reframe_point_id);
   });
+
+  it('fills blank supplied point ids instead of preserving unusable ids', () => {
+    const frames = attachPersistedFramePointIds('synth-1', [
+      {
+        frame_point_id: '   ',
+        frame: 'Frame text',
+        reframe_point_id: '\t',
+        reframe: 'Reframe text',
+      },
+    ]);
+
+    expect(frames[0]).toMatchObject({
+      frame_point_id: 'synth-point:synth-1:0:frame',
+      reframe_point_id: 'synth-point:synth-1:0:reframe',
+    });
+  });
 });
 
 describe('computeDivergenceMetrics', () => {

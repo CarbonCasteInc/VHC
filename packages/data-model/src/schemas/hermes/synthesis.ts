@@ -3,7 +3,7 @@ import { z } from 'zod';
 // ── Shared primitives ──────────────────────────────────────────────
 
 const TopicId = z.string().min(1);
-const PointId = z.string().min(1);
+const PointId = z.string().trim().min(1);
 const PositiveTimestamp = z.number().int().nonnegative();
 
 const FrameSchema = z.object({

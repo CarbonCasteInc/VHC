@@ -46,9 +46,9 @@ export const PipelineOutputSchema = z
     facts_summary: z.string().min(1),
     frames: z.array(
       z.object({
-        frame_point_id: z.string().min(1),
+        frame_point_id: z.string().trim().min(1),
         frame: z.string().min(1),
-        reframe_point_id: z.string().min(1),
+        reframe_point_id: z.string().trim().min(1),
         reframe: z.string().min(1),
       }),
     ),
@@ -118,6 +118,11 @@ function normalizePointIdToken(value: string): string {
   return normalized || 'unknown';
 }
 
+function normalizeSuppliedPointId(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
 export function derivePersistedSynthesisPointId(
   synthesisId: string,
   rowIndex: number,
@@ -137,11 +142,11 @@ export function attachPersistedFramePointIds(
 ): PipelineOutput['frames'] {
   return frames.map((row, rowIndex) => ({
     frame_point_id:
-      row.frame_point_id ??
+      normalizeSuppliedPointId(row.frame_point_id) ??
       derivePersistedSynthesisPointId(synthesisId, rowIndex, 'frame'),
     frame: row.frame,
     reframe_point_id:
-      row.reframe_point_id ??
+      normalizeSuppliedPointId(row.reframe_point_id) ??
       derivePersistedSynthesisPointId(synthesisId, rowIndex, 'reframe'),
     reframe: row.reframe,
   }));
