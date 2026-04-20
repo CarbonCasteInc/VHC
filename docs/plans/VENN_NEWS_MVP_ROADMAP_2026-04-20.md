@@ -347,6 +347,45 @@ Public aggregate payloads must not include nullifiers, district proofs, wallet a
 
 Week 0 is mandatory. It prevents the team from starting Week 1 on incompatible assumptions.
 
+### Week 0 implementation PR stack
+
+Week 0 should be executed as a short PR stack, not as an open-ended planning loop. Each PR should be independently reviewable, but Week 1 product implementation should not start until the go/no-go table below is resolved.
+
+| Order | PR slice | Scope | Required output |
+| --- | --- | --- | --- |
+| 1 | `point-id-contract` | Persist stable `point_id` on accepted `TopicSynthesisV2.frames[]`; keep text-derived ids as compatibility aliases. | Schema/tests/generator/readers agree on persisted point ids; alias behavior is documented. |
+| 2 | `sentiment-four-tuple-spec` | Patch sentiment docs/tests around `(topic_id, synthesis_id, epoch, point_id)`. | No active spec text describes final stance as keyed only by `(topic_id, epoch, point_id)`. |
+| 3 | `launch-surface-decision` | Decide Web PWA vs iOS/TestFlight for this four-week launch. | Either Web PWA is recorded as the MVP launch target, or an iOS shell boots with a named build gate. |
+| 4 | `bundle-synthesis-dependency` | Resolve PR B / bundle synthesis dependency for accepted publish-time synthesis. | Story detail can render accepted stored synthesis or an explicit pending/unavailable state. |
+| 5 | `identity-honesty-scope` | Decide beta-local identity vs real constituency proof for MVP copy and stance guarantees. | Product copy, release notes, and stance path claims match the actual proof layer. |
+| 6 | `mvp-release-gates` | Add or name deterministic feed/detail/stance/thread release gates. | Missing smoke/check scripts have owners, fixtures, pass/fail semantics, and report locations. |
+| 7 | `compliance-public-beta-minimums` | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright boundaries. | Public launch cannot proceed unless each compliance artifact has an owner and minimum accepted draft. |
+| 8 | `launch-ops-and-correction-path` | Curated fallback snapshot, bad-analysis suppression/regeneration, report queue, model/cost telemetry, and release artifact visibility. | Operators have minimum levers for stale feed data, bad summaries, abusive threads, and runaway model usage. |
+
+Recommended sequencing:
+
+- PRs 1 and 2 should land first because every stance implementation depends on the point key.
+- PRs 3 and 4 can run in parallel after PR 1 is drafted.
+- PRs 5 through 8 can run in parallel once launch surface is known.
+- Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
+
+### Week 0 go/no-go table
+
+| Blocker | Go condition | No-go consequence |
+| --- | --- | --- |
+| Persisted frame `point_id` | Accepted synthesis frames carry stable `point_id`; regenerated wording can preserve or map ids; legacy text-hash ids are compatibility only. | Do not start point-stance implementation. Building on text-hash ids knowingly ships vote orphaning on frame edits. |
+| Sentiment key | Docs, schemas, readers, writers, and tests agree on `(topic_id, synthesis_id, epoch, point_id)`. | Do not split stance work across contributors; conflicting three-tuple/four-tuple implementations will corrupt compatibility assumptions. |
+| Launch surface | Web PWA is accepted, or iOS shell boots on simulator/device with build command, signing assumptions, and smoke expectations. | Default to Web PWA MVP. TestFlight/App Store becomes a parallel follow-on and is removed from the four-week critical path. |
+| Bundle synthesis path | Accepted publish-time synthesis, source split, model id, generated time, warnings, and provenance are available to story detail, or pending/unavailable fallback is explicitly designed. | Story detail must not claim complete Venn analysis. It may ship with explicit pending/unavailable states, or Week 1 detail work waits. |
+| Topic preferences | Ranking/filter semantics are defined and have at least one deterministic test proving preferences change feed output. | Do not market the feed as tunable. Keep preference UI hidden or label it as inactive. |
+| Identity/proof | Real constituency proof is active, or beta-local identity constraints and copy are approved. | No verified-human, one-human-one-vote, district-proof, or Sybil-resistant claims in product copy. |
+| Story engagement rollup | `StoryEngagementSummary` is either implemented as a derived read model or explicitly deferred from visible UI. | Do not show story-level aggregate sentiment beyond existing per-point aggregate data. |
+| Release gates | Feed, story-detail, point-stance, and story-thread smokes have scripts or named owners/fixtures with pass/fail semantics. | No launch-readiness claim. The MVP can continue feature work, but cannot enter release freeze. |
+| Compliance | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright minimums have accepted drafts. | No public beta or App Store/TestFlight submission. Internal-only testing can continue. |
+| Launch content fallback | A curated validated snapshot exists with enough stories to exercise singleton, bundle, preferences, frames, stance, related links, and threads. | Live ingestion instability can block demos and QA; do not depend on the live feed as the only launch data path. |
+| Correction/admin path | Operators can suppress bad analysis, mark analysis unavailable, hide abusive thread content, and preserve an audit trail. | Public launch is unsafe; a single bad summary or abusive thread has no controlled remediation path. |
+| Ops/cost visibility | Model ids, model invocation counts, source health artifacts, release report path, and bad-analysis reports are visible. | Remote-model spend and product failures remain opaque; do not scale beyond a small internal beta. |
+
 ### W0.1 Persisted point ids
 
 Decision: make persisted `point_id` the canonical path.
