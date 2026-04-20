@@ -157,6 +157,9 @@ describe('persisted synthesis point ids', () => {
     expect(frameId).not.toContain('/');
     expect(reframeId).not.toBe(frameId);
     expect(nextRowId).not.toBe(frameId);
+    expect(derivePersistedSynthesisPointId('   ', 0, 'frame')).toBe(
+      'synth-point:unknown:0:frame',
+    );
   });
 
   it('preserves supplied point ids across frame wording edits', () => {
