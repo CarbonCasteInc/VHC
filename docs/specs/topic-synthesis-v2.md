@@ -80,7 +80,12 @@ interface CandidateSynthesis {
   based_on_prior_epoch?: number;
   critique_notes: string[];
   facts_summary: string;
-  frames: Array<{ frame: string; reframe: string }>;
+  frames: Array<{
+    frame_point_id?: string;
+    frame: string;
+    reframe_point_id?: string;
+    reframe: string;
+  }>;
   warnings: string[];
   divergence_hints: string[];
   provider: {
@@ -179,6 +184,8 @@ Sensitive material (proofs, tokens, identity) is forbidden in these paths.
 3. Public synthesis objects contain no `nullifier`, `district_hash`, or OAuth tokens.
 4. `frames` may be empty only when warnings include explicit insufficiency reason.
 5. Accepted `frames[]` entries must carry stable `frame_point_id` and `reframe_point_id` values. These ids identify the individual stance targets and must not be derived from mutable display text.
+6. Candidate `frames[]` may carry optional `frame_point_id` and `reframe_point_id` values. If present, they must be non-empty after trimming; if absent, selection/promotion must assign accepted point ids before writing `TopicSynthesisV2`.
+7. Re-synthesis/promotion must preserve or map point ids when a conceptual frame/reframe point survives wording edits. Material replacement of a point requires a new point id.
 
 ## 8. Testing requirements
 
