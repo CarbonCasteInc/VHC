@@ -32,7 +32,9 @@ function synthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesisV2 
     facts_summary: 'Summary',
     frames: [
       {
+        frame_point_id: 'frame-point-1',
         frame: 'Frame',
+        reframe_point_id: 'reframe-point-1',
         reframe: 'Reframe'
       }
     ],

@@ -3,10 +3,20 @@ import { z } from 'zod';
 // ── Shared primitives ──────────────────────────────────────────────
 
 const TopicId = z.string().min(1);
+const PointId = z.string().min(1);
 const PositiveTimestamp = z.number().int().nonnegative();
 
 const FrameSchema = z.object({
+  frame_point_id: PointId.optional(),
   frame: z.string().min(1),
+  reframe_point_id: PointId.optional(),
+  reframe: z.string().min(1),
+});
+
+export const SynthesisFrameSchema = z.object({
+  frame_point_id: PointId,
+  frame: z.string().min(1),
+  reframe_point_id: PointId,
   reframe: z.string().min(1),
 });
 
@@ -97,7 +107,7 @@ export const TopicSynthesisV2Schema = z
       selection_rule: z.literal('deterministic'),
     }),
     facts_summary: z.string().min(1),
-    frames: z.array(FrameSchema),
+    frames: z.array(SynthesisFrameSchema),
     warnings: z.array(z.string()),
     divergence_metrics: z.object({
       disagreement_score: z.number().min(0).max(1),
@@ -140,6 +150,7 @@ export type StoryBundleInput = z.infer<typeof StoryBundleInputSchema>;
 export type TopicDigestInput = z.infer<typeof TopicDigestInputSchema>;
 export type TopicSeedInput = z.infer<typeof TopicSeedInputSchema>;
 export type CandidateSynthesis = z.infer<typeof CandidateSynthesisSchema>;
+export type SynthesisFrame = z.infer<typeof SynthesisFrameSchema>;
 export type TopicSynthesisV2 = z.infer<typeof TopicSynthesisV2Schema>;
 export type ResynthesisThresholds = z.infer<typeof ResynthesisThresholdsSchema>;
 export type SynthesisDefaults = z.infer<typeof SynthesisDefaultsSchema>;

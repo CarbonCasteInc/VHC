@@ -277,7 +277,12 @@ interface TopicSynthesisV2 {
     topic_seed_id?: string;
   };
   facts_summary: string;
-  frames: Array<{ frame: string; reframe: string }>;
+  frames: Array<{
+    frame_point_id: string;
+    frame: string;
+    reframe_point_id: string;
+    reframe: string;
+  }>;
   warnings: string[];
   divergence_metrics: {
     disagreement_score: number;

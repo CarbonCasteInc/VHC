@@ -98,8 +98,18 @@ function makeSynthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesi
     },
     facts_summary: 'Council approved a phased transit expansion plan.',
     frames: [
-      { frame: 'Public investment is overdue', reframe: 'Budget risk should slow rollout' },
-      { frame: 'Phased plan balances urgency', reframe: 'Phasing weakens near-term impact' },
+      {
+        frame_point_id: 'syn-1:0:frame',
+        frame: 'Public investment is overdue',
+        reframe_point_id: 'syn-1:0:reframe',
+        reframe: 'Budget risk should slow rollout',
+      },
+      {
+        frame_point_id: 'syn-1:1:frame',
+        frame: 'Phased plan balances urgency',
+        reframe_point_id: 'syn-1:1:reframe',
+        reframe: 'Phasing weakens near-term impact',
+      },
     ],
     warnings: [],
     divergence_metrics: {

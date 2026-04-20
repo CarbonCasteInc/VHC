@@ -2,7 +2,7 @@ import React from 'react';
 import type { HermesThread } from '@vh/types';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 import { AnalysisLoadingState } from './AnalysisLoadingState';
-import { BiasTable } from './BiasTable';
+import { BiasTable, type BiasTableFrameRow } from './BiasTable';
 import { FeedDiscussionSection } from './FeedDiscussionSection';
 import { RemovalIndicator } from './RemovalIndicator';
 import { SourceViewerFrame } from './SourceViewerFrame';
@@ -20,7 +20,7 @@ export interface NewsCardBackProps {
   readonly topicId: string;
   readonly summary: string;
   readonly summaryBasisLabel?: string;
-  readonly frameRows: ReadonlyArray<{ frame: string; reframe: string }>;
+  readonly frameRows: ReadonlyArray<BiasTableFrameRow>;
   readonly frameBasisLabel?: string;
   readonly analysisProvider: string | null;
   readonly galleryImages: ReadonlyArray<NewsCardMediaAsset>;

@@ -109,7 +109,12 @@ interface TopicSynthesisV2 {
     selection_rule: 'deterministic';
   };
   facts_summary: string;
-  frames: Array<{ frame: string; reframe: string }>;
+  frames: Array<{
+    frame_point_id: string;
+    frame: string;
+    reframe_point_id: string;
+    reframe: string;
+  }>;
   warnings: string[];
   divergence_metrics: {
     disagreement_score: number;   // [0,1]
@@ -173,6 +178,7 @@ Sensitive material (proofs, tokens, identity) is forbidden in these paths.
 2. `provenance.candidate_ids.length === quorum.received`.
 3. Public synthesis objects contain no `nullifier`, `district_hash`, or OAuth tokens.
 4. `frames` may be empty only when warnings include explicit insufficiency reason.
+5. Accepted `frames[]` entries must carry stable `frame_point_id` and `reframe_point_id` values. These ids identify the individual stance targets and must not be derived from mutable display text.
 
 ## 8. Testing requirements
 

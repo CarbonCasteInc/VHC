@@ -14,7 +14,13 @@ function HookHarness(props: {
   topicId?: string;
   synthesisId?: string;
   epoch?: number;
-  perspectives: ReadonlyArray<{ id: string; frame: string; reframe: string }>;
+  perspectives: ReadonlyArray<{
+    id: string;
+    frame_point_id?: string;
+    frame: string;
+    reframe_point_id?: string;
+    reframe: string;
+  }>;
   enabled?: boolean;
 }) {
   const pointIds = useSynthesisPointIds(props);
@@ -125,6 +131,77 @@ describe('useSynthesisPointIds', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('point-ids').textContent).toBe(firstRender);
+    });
+  });
+
+  it('prefers persisted point IDs over text-derived fallback IDs', async () => {
+    render(
+      <HookHarness
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={0}
+        perspectives={[
+          {
+            id: 'p1',
+            frame_point_id: 'persisted-frame-point',
+            frame: 'Frame A',
+            reframe_point_id: 'persisted-reframe-point',
+            reframe: 'Reframe A',
+          },
+        ]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"p1:frame":"persisted-frame-point"');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"p1:reframe":"persisted-reframe-point"');
+    });
+
+    expect(deriveSynthesisPointIdMock).not.toHaveBeenCalled();
+  });
+
+  it('uses persisted point IDs across display text edits', async () => {
+    const { rerender } = render(
+      <HookHarness
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={0}
+        perspectives={[
+          {
+            id: 'p1',
+            frame_point_id: 'persisted-frame-point',
+            frame: 'Original frame text',
+            reframe_point_id: 'persisted-reframe-point',
+            reframe: 'Original reframe text',
+          },
+        ]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"p1:frame":"persisted-frame-point"');
+    });
+
+    rerender(
+      <HookHarness
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={0}
+        perspectives={[
+          {
+            id: 'p1',
+            frame_point_id: 'persisted-frame-point',
+            frame: 'Edited frame wording',
+            reframe_point_id: 'persisted-reframe-point',
+            reframe: 'Edited reframe wording',
+          },
+        ]}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"p1:frame":"persisted-frame-point"');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"p1:reframe":"persisted-reframe-point"');
     });
   });
 

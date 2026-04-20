@@ -46,7 +46,14 @@ function validSynthesis(
       selection_rule: 'deterministic',
     },
     facts_summary: 'Summary text',
-    frames: [{ frame: 'Frame', reframe: 'Reframe' }],
+    frames: [
+      {
+        frame_point_id: 'frame-point-1',
+        frame: 'Frame',
+        reframe_point_id: 'reframe-point-1',
+        reframe: 'Reframe',
+      },
+    ],
     warnings: [],
     divergence_metrics: {
       disagreement_score: 0.1,

@@ -30,7 +30,12 @@ export function pointMapKey(rowIndex: number, column: 'frame' | 'reframe'): stri
 }
 
 interface UseBiasPointIdsParams {
-  readonly frames: ReadonlyArray<{ frame: string; reframe: string }>;
+  readonly frames: ReadonlyArray<{
+    frame_point_id?: string;
+    frame: string;
+    reframe_point_id?: string;
+    reframe: string;
+  }>;
   readonly analysisId?: string;
   readonly topicId?: string;
   readonly synthesisId?: string;
@@ -132,20 +137,24 @@ export function useBiasPointIds({
           for (let rowIndex = 0; rowIndex < frames.length; rowIndex += 1) {
             const row = frames[rowIndex]!;
             const [framePointId, reframePointId] = await Promise.all([
-              deriveSynthesisPointId({
-                topic_id: topicId!,
-                synthesis_id: synthesisId!,
-                epoch: epoch!,
-                column: 'frame',
-                text: row.frame,
-              }),
-              deriveSynthesisPointId({
-                topic_id: topicId!,
-                synthesis_id: synthesisId!,
-                epoch: epoch!,
-                column: 'reframe',
-                text: row.reframe,
-              }),
+              row.frame_point_id
+                ? Promise.resolve(row.frame_point_id)
+                : deriveSynthesisPointId({
+                    topic_id: topicId!,
+                    synthesis_id: synthesisId!,
+                    epoch: epoch!,
+                    column: 'frame',
+                    text: row.frame,
+                  }),
+              row.reframe_point_id
+                ? Promise.resolve(row.reframe_point_id)
+                : deriveSynthesisPointId({
+                    topic_id: topicId!,
+                    synthesis_id: synthesisId!,
+                    epoch: epoch!,
+                    column: 'reframe',
+                    text: row.reframe,
+                  }),
             ]);
 
             nextSynthesisPointIds[pointMapKey(rowIndex, 'frame')] = framePointId;

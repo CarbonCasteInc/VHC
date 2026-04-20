@@ -24,7 +24,12 @@ export const GatheredCandidateSchema = z.object({
   critique_notes: z.array(z.string()),
   facts_summary: z.string().min(1),
   frames: z.array(
-    z.object({ frame: z.string().min(1), reframe: z.string().min(1) }),
+    z.object({
+      frame_point_id: z.string().min(1).optional(),
+      frame: z.string().min(1),
+      reframe_point_id: z.string().min(1).optional(),
+      reframe: z.string().min(1),
+    }),
   ),
   warnings: z.array(z.string()),
   divergence_hints: z.array(z.string()),

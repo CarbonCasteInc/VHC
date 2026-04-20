@@ -14,6 +14,7 @@ import {
   deriveAggregateVoterId,
   deriveAnalysisKey,
   derivePointId,
+  deriveSynthesisFramePointId,
   deriveSynthesisPointId,
   deriveSentimentEventId,
   deriveTopicEngagementActorId,
@@ -388,6 +389,55 @@ describe('sentiment key derivation helpers', () => {
     expect(differentTopic).not.toBe(frame);
     expect(differentSynthesis).not.toBe(frame);
     expect(differentText).not.toBe(frame);
+  });
+
+  it('deriveSynthesisFramePointId is independent from frame text edits', async () => {
+    const pointId = await deriveSynthesisFramePointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      row_index: 1,
+      column: 'frame',
+    });
+
+    const sameContext = await deriveSynthesisFramePointId({
+      topic_id: '  TOPIC-1  ',
+      synthesis_id: '  SYNTH-9  ',
+      epoch: 3.9,
+      row_index: 1.8,
+      column: 'frame',
+    });
+
+    expect(sameContext).toBe(pointId);
+  });
+
+  it('deriveSynthesisFramePointId differentiates row and column cells', async () => {
+    const frame = await deriveSynthesisFramePointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      row_index: 1,
+      column: 'frame',
+    });
+
+    const reframe = await deriveSynthesisFramePointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      row_index: 1,
+      column: 'reframe',
+    });
+
+    const nextRow = await deriveSynthesisFramePointId({
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-9',
+      epoch: 3,
+      row_index: 2,
+      column: 'frame',
+    });
+
+    expect(reframe).not.toBe(frame);
+    expect(nextRow).not.toBe(frame);
   });
 
   it('deriveSynthesisPointId does not collide with legacy derivePointId for same conceptual input', async () => {

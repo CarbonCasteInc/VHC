@@ -60,8 +60,18 @@ function makeSynthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesi
     quorum: { required: 3, received: 3, reached_at: NOW, timed_out: false, selection_rule: 'deterministic' },
     facts_summary: 'Transit weekends show 23% ridership increase in pilot districts.',
     frames: [
-      { frame: 'Economic equity', reframe: 'Low-income riders gain disproportionate access benefit.' },
-      { frame: 'Fiscal impact', reframe: 'Revenue loss offset by reduced road maintenance costs.' },
+      {
+        frame_point_id: 'economic-equity-frame-point',
+        frame: 'Economic equity',
+        reframe_point_id: 'economic-equity-reframe-point',
+        reframe: 'Low-income riders gain disproportionate access benefit.',
+      },
+      {
+        frame_point_id: 'fiscal-impact-frame-point',
+        frame: 'Fiscal impact',
+        reframe_point_id: 'fiscal-impact-reframe-point',
+        reframe: 'Revenue loss offset by reduced road maintenance costs.',
+      },
     ],
     warnings: [],
     divergence_metrics: { disagreement_score: 0.2, source_dispersion: 0.3, candidate_count: 3 },
@@ -232,7 +242,16 @@ describe('TopicCard', () => {
   });
 
   it('renders only one frame row when synthesis contains one perspective', () => {
-    const synthesis = makeSynthesis({ frames: [{ frame: 'Only view', reframe: 'Still only view' }] });
+    const synthesis = makeSynthesis({
+      frames: [
+        {
+          frame_point_id: 'only-view-frame-point',
+          frame: 'Only view',
+          reframe_point_id: 'only-view-reframe-point',
+          reframe: 'Still only view',
+        },
+      ],
+    });
     mockUseSynthesis.mockReturnValue(makeSynthesisResult({ synthesis, epoch: 3 }));
     render(<TopicCard item={makeTopicItem()} />);
     expandTopicCard();

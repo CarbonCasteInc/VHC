@@ -81,7 +81,14 @@ const validSynthesis = {
     selection_rule: 'deterministic' as const,
   },
   facts_summary: 'Consolidated facts.',
-  frames: [{ frame: 'Frame 1', reframe: 'Reframe 1' }],
+  frames: [
+    {
+      frame_point_id: 'frame-point-1',
+      frame: 'Frame 1',
+      reframe_point_id: 'reframe-point-1',
+      reframe: 'Reframe 1',
+    },
+  ],
   warnings: [],
   divergence_metrics: {
     disagreement_score: 0.2,
@@ -253,6 +260,21 @@ describe('CandidateSynthesisSchema', () => {
     expect(CandidateSynthesisSchema.safeParse(input).success).toBe(true);
   });
 
+  it('accepts optional persisted point ids on candidate frames', () => {
+    const input = {
+      ...validCandidate,
+      frames: [
+        {
+          frame_point_id: 'candidate-frame-point',
+          frame: 'Candidate frame',
+          reframe_point_id: 'candidate-reframe-point',
+          reframe: 'Candidate reframe',
+        },
+      ],
+    };
+    expect(CandidateSynthesisSchema.safeParse(input).success).toBe(true);
+  });
+
   it('rejects non-integer created_at', () => {
     const input = { ...validCandidate, created_at: 1.5 };
     expect(CandidateSynthesisSchema.safeParse(input).success).toBe(false);
@@ -264,6 +286,29 @@ describe('CandidateSynthesisSchema', () => {
 describe('TopicSynthesisV2Schema', () => {
   it('accepts valid synthesis', () => {
     expect(TopicSynthesisV2Schema.safeParse(validSynthesis).success).toBe(true);
+  });
+
+  it('rejects accepted synthesis frames without persisted point ids', () => {
+    const input = {
+      ...validSynthesis,
+      frames: [{ frame: 'Frame without id', reframe: 'Reframe without id' }],
+    };
+    expect(TopicSynthesisV2Schema.safeParse(input).success).toBe(false);
+  });
+
+  it('rejects accepted synthesis frames with empty point ids', () => {
+    const input = {
+      ...validSynthesis,
+      frames: [
+        {
+          frame_point_id: '',
+          frame: 'Frame',
+          reframe_point_id: 'reframe-point',
+          reframe: 'Reframe',
+        },
+      ],
+    };
+    expect(TopicSynthesisV2Schema.safeParse(input).success).toBe(false);
   });
 
   it('rejects wrong schemaVersion', () => {

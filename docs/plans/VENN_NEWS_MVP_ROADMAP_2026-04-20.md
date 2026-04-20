@@ -16,7 +16,7 @@ The MVP is the vertically complete product loop:
 3. Feed can be tuned by explicit topic preferences.
 4. User taps a headline.
 5. Story detail shows Venn's analysis, the frame/reframe table, source evidence, related links, and threaded replies.
-6. User casts stance on specific frame/reframe rows, not on the story as a whole.
+6. User casts stance on specific frame/reframe items, not on the story as a whole.
 7. Those point-level stances persist, aggregate into public topic/story metadata, and participate in the capped influence-falloff model described by the Season 0 sentiment specs.
 8. User returns later and sees coherent feed state, conversation state, their own stances, and aggregate public metadata.
 
@@ -29,7 +29,7 @@ This roadmap is grounded in the current mainline state rather than the desired a
 | Area | Current state | Roadmap consequence |
 | --- | --- | --- |
 | App shell | `/apps/` contains `web-pwa` only. No Capacitor, Expo, React Native, Xcode project, or iOS shell is present. | Web PWA is the default four-week target. TestFlight requires a Week 0 packaging spike and an explicit go/no-go. |
-| Frame point identity | `TopicSynthesisV2` frames are `{ frame, reframe }` only. Point ids are derived from text by `deriveSynthesisPointId(...)`, and the client carries `vh_sentiment_agreement_aliases_v1`. | Persisted frame `point_id` is a Week 0 blocker. Text-hash ids become a compatibility path, not the future canonical identity. |
+| Frame point identity | `TopicSynthesisV2` frames are `{ frame, reframe }` only. Point ids are derived from text by `deriveSynthesisPointId(...)`, and the client carries `vh_sentiment_agreement_aliases_v1`. | Persisted per-cell `frame_point_id` and `reframe_point_id` values are a Week 0 blocker. Text-hash ids become a compatibility path, not the future canonical identity. |
 | Sentiment key | The sentiment interface includes `synthesis_id`, and implementation paths use `topic_id + synthesis_id + epoch + point_id`, but the normative prose still says one final stance per `(topic_id, epoch, point_id)`. | Patch the spec to the four-tuple before implementation branches split. |
 | Topic preferences | Preference state exists in the discovery store, but ranking/filter composition does not consume it. | Preference tuning is net-new ranking work, not polish. |
 | Story-level engagement summary | Per-point aggregate schemas exist. A materialized `StoryEngagementSummary` rollup does not. | Story aggregate metadata is net-new compute/read model work. |
@@ -43,7 +43,7 @@ This roadmap is grounded in the current mainline state rather than the desired a
 
 Users do not cast sentiment on the story object directly.
 
-Users cast stance on individual frame/reframe table points. Each row is a specific opinion, bias, counterpoint, institutional tension, stakeholder tradeoff, rights/safety dispute, or public argument about the story.
+Users cast stance on individual frame/reframe table items. Each cell is a specific opinion, bias, counterpoint, institutional tension, stakeholder tradeoff, rights/safety dispute, or public argument about the story.
 
 Canonical stance target:
 
@@ -74,14 +74,14 @@ Story-level sentiment is only a derived aggregate over point-level stance activi
 
 Decision for this roadmap:
 
-- `point_id` must become a persisted field on accepted `TopicSynthesisV2.frames[]`.
+- accepted `TopicSynthesisV2.frames[]` must persist a `frame_point_id` for the frame item and a `reframe_point_id` for the reframe item.
 - The canonical final stance key is `(topic_id, synthesis_id, epoch, point_id)`.
 - Runtime text-hash ids from `deriveSynthesisPointId(...)` become a compatibility fallback for existing data and tests.
 - `vh_sentiment_agreement_aliases_v1` remains in scope as a migration/read-compatibility tool until legacy text-hash votes are no longer served.
 
 Required behavior:
 
-- rewording a frame must not orphan prior stance unless the product intentionally creates a new point;
+- rewording a frame or reframe item must not orphan prior stance unless the product intentionally creates a new point;
 - if a synthesis regenerates the same conceptual point with edited wording, generation/promotion must preserve or map the previous `point_id`;
 - if a point is materially replaced, it receives a new `point_id` and old stance remains attached to the old point;
 - migrations must report mapped, unmapped, and orphaned counts;
@@ -90,7 +90,7 @@ Required behavior:
 This requires a normative spec patch before Week 1 implementation:
 
 - update `docs/specs/spec-civic-sentiment.md` so the prose matches the implementation-facing four-tuple;
-- update `TopicSynthesisV2` schema/tests so accepted frames can carry stable `point_id`;
+- update `TopicSynthesisV2` schema/tests so accepted frames carry stable `frame_point_id` and `reframe_point_id`;
 - document the dual-read/alias window.
 
 ### Influence and falloff
@@ -123,7 +123,7 @@ MVP implication:
 
 The MVP must keep the analysis evidence boundary explicit:
 
-- only extractable, analysis-eligible article text may contribute to Venn summaries and frame/reframe rows;
+- only extractable, analysis-eligible article text may contribute to Venn summaries and frame/reframe items;
 - non-extractable or otherwise disqualified links must not be claimed as analysis evidence;
 - relevant but non-analyzed links may appear as related links below the canonical evidence section;
 - a useful source should not be removed globally because some links fail extraction;
@@ -178,7 +178,7 @@ Required sections, in order:
 2. Source strip with singleton/bundle affordance.
 3. Just-the-reported-facts summary.
 4. Frame/reframe table.
-5. Point-level stance controls on each frame/reframe row.
+5. Point-level stance controls on each frame/reframe item.
 6. Aggregate point metadata and story/topic engagement summary.
 7. Analyzed sources.
 8. Related links that were not used as analysis evidence.
@@ -203,7 +203,7 @@ The forum system should be reused. The MVP should not create a second comment mo
 
 Required:
 
-- each frame/reframe row has three-state stance controls: Agree, Neutral, Disagree;
+- each frame/reframe item has three-state stance controls: Agree, Neutral, Disagree;
 - stance writes use the canonical `(topic_id, synthesis_id, epoch, point_id)` key;
 - one active final stance per user per point;
 - toggling from agree to disagree updates the final stance rather than double-counting;
@@ -259,8 +259,9 @@ type AcceptedStorySynthesis = {
 };
 
 type FrameReframePoint = {
-  point_id: string;
+  frame_point_id: string;
   frame: string;
+  reframe_point_id: string;
   reframe: string;
   stance_summary?: PointAggregateSnapshot;
 };
@@ -353,7 +354,7 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 
 | Order | PR slice | Scope | Required output |
 | --- | --- | --- | --- |
-| 1 | `point-id-contract` | Persist stable `point_id` on accepted `TopicSynthesisV2.frames[]`; keep text-derived ids as compatibility aliases. | Schema/tests/generator/readers agree on persisted point ids; alias behavior is documented. |
+| 1 | `point-id-contract` | Persist stable `frame_point_id` and `reframe_point_id` on accepted `TopicSynthesisV2.frames[]`; keep text-derived ids as compatibility aliases. | Schema/tests/generator/readers agree on persisted point ids; alias behavior is documented. |
 | 2 | `sentiment-four-tuple-spec` | Patch sentiment docs/tests around `(topic_id, synthesis_id, epoch, point_id)`. | No active spec text describes final stance as keyed only by `(topic_id, epoch, point_id)`. |
 | 3 | `launch-surface-decision` | Decide Web PWA vs iOS/TestFlight for this four-week launch. | Either Web PWA is recorded as the MVP launch target, or an iOS shell boots with a named build gate. |
 | 4 | `bundle-synthesis-dependency` | Resolve PR B / bundle synthesis dependency for accepted publish-time synthesis. | Story detail can render accepted stored synthesis or an explicit pending/unavailable state. |
@@ -373,7 +374,7 @@ Recommended sequencing:
 
 | Blocker | Go condition | No-go consequence |
 | --- | --- | --- |
-| Persisted frame `point_id` | Accepted synthesis frames carry stable `point_id`; regenerated wording can preserve or map ids; legacy text-hash ids are compatibility only. | Do not start point-stance implementation. Building on text-hash ids knowingly ships vote orphaning on frame edits. |
+| Persisted frame/reframe point ids | Accepted synthesis frames carry stable `frame_point_id` and `reframe_point_id`; regenerated wording can preserve or map ids; legacy text-hash ids are compatibility only. | Do not start point-stance implementation. Building on text-hash ids knowingly ships vote orphaning on frame edits. |
 | Sentiment key | Docs, schemas, readers, writers, and tests agree on `(topic_id, synthesis_id, epoch, point_id)`. | Do not split stance work across contributors; conflicting three-tuple/four-tuple implementations will corrupt compatibility assumptions. |
 | Launch surface | Web PWA is accepted, or iOS shell boots on simulator/device with build command, signing assumptions, and smoke expectations. | Default to Web PWA MVP. TestFlight/App Store becomes a parallel follow-on and is removed from the four-week critical path. |
 | Bundle synthesis path | Accepted publish-time synthesis, source split, model id, generated time, warnings, and provenance are available to story detail, or pending/unavailable fallback is explicitly designed. | Story detail must not claim complete Venn analysis. It may ship with explicit pending/unavailable states, or Week 1 detail work waits. |
@@ -388,11 +389,11 @@ Recommended sequencing:
 
 ### W0.1 Persisted point ids
 
-Decision: make persisted `point_id` the canonical path.
+Decision: make persisted frame/reframe point ids the canonical path.
 
 Required:
 
-- extend `TopicSynthesisV2.frames[]` schema with stable `point_id`;
+- extend `TopicSynthesisV2.frames[]` schema with stable `frame_point_id` and `reframe_point_id`;
 - update synthesis generation/promotion to assign/preserve point ids;
 - keep text-hash derived ids as legacy aliases;
 - document rewording behavior;
@@ -487,7 +488,7 @@ Objective: make the complete product loop explicit and testable in the codebase.
 
 Deliverables:
 
-- `StoryDetail` view model normalized around `topic_id`, `story_id`, `synthesis_id`, `epoch`, and frame `point_id`;
+- `StoryDetail` view model normalized around `topic_id`, `story_id`, `synthesis_id`, `epoch`, and frame/reframe `point_id`;
 - analyzed-source/related-link discriminator plumbed from bundle publication into feed hydration and rendering;
 - topic preference ranking/filter semantics implemented in `composeFeed`;
 - story-to-thread mapping stabilized;
@@ -501,7 +502,7 @@ Acceptance checks:
 - singleton story detail fixture renders;
 - bundled story detail fixture renders;
 - story with related links renders related links separately from analyzed sources;
-- frame/reframe rows expose persisted point ids;
+- frame/reframe items expose persisted point ids;
 - preferences visibly change feed output;
 - no click path performs an unannounced blocking analysis pass;
 - docs and tests reference point-level stance, not story-level voting.
@@ -513,7 +514,7 @@ Objective: make headline click valuable and interactive.
 Deliverables:
 
 - polished story detail surface;
-- frame/reframe stance controls on every eligible row;
+- frame/reframe stance controls on every eligible item;
 - ARIA/keyboard behavior for stance controls;
 - local stance restore after reload;
 - mesh/event enqueue for stance intents;
@@ -621,7 +622,7 @@ Acceptance checks:
 
 ### Summary accuracy and correction path
 
-The MVP's value rests on accurate summaries and frame/reframe rows. The release plan needs a correction path:
+The MVP's value rests on accurate summaries and frame/reframe items. The release plan needs a correction path:
 
 - users can report inaccurate analysis;
 - operators can suppress or regenerate a bad analysis artifact;
@@ -714,7 +715,7 @@ These are foundational-project goals, but they are not required to ship the Venn
 ## Open review questions
 
 1. Do we accept Web PWA as the four-week launch surface, with App Store/TestFlight as a parallel track only after an iOS shell exists?
-2. Should persisted `point_id` be generated deterministically from a semantic point seed, or assigned as a stable id during synthesis promotion and preserved through edits?
+2. Should persisted frame/reframe point ids be generated deterministically from a semantic point seed, or assigned as stable ids during synthesis promotion and preserved through edits?
 3. What is the aggregate freshness budget before counts are labeled stale or hidden?
 4. What is the minimum public aggregate display: raw agree/disagree counts per point, percentage bars, high-divergence badges, or all three?
 5. Should story cards show aggregate stance previews, or should point-level sentiment remain detail-only for MVP?
@@ -727,7 +728,7 @@ These are foundational-project goals, but they are not required to ship the Venn
 The plan is ready to build when reviewers agree on:
 
 - Web PWA vs iOS launch surface;
-- persisted frame `point_id` as canonical, or an explicit alternative with migration cost accepted;
+- persisted frame/reframe point ids as canonical, or an explicit alternative with migration cost accepted;
 - four-tuple sentiment key in docs, schema, and implementation;
 - story-level sentiment as aggregate metadata only;
 - analyzed-source versus related-link evidence boundaries;
