@@ -240,6 +240,18 @@ describe('bundlePrompts', () => {
       expect(prompt).not.toContain('https://example.com/broken');
       expect(prompt).toContain('Verification confidence: 72%');
     });
+
+    it('falls back to all bundle sources when primary sources are absent', () => {
+      const bundleWithoutPrimarySources = {
+        ...bundle,
+        primary_sources: undefined,
+        related_links: undefined,
+      };
+      const prompt = buildBundlePromptFromStoryBundle(bundleWithoutPrimarySources);
+      expect(prompt).toContain('BBC News');
+      expect(prompt).toContain('Broken Publisher');
+      expect(prompt).toContain('covered by 2 sources');
+    });
   });
 
   describe('parseGeneratedBundleSynthesis', () => {
@@ -296,6 +308,9 @@ describe('bundlePrompts', () => {
       );
       expect(() => parseGeneratedBundleSynthesis('{bad json')).toThrow(
         BundleSynthesisParseError.NO_JSON_OBJECT_FOUND,
+      );
+      expect(() => parseGeneratedBundleSynthesis('{bad json}')).toThrow(
+        BundleSynthesisParseError.JSON_PARSE_ERROR,
       );
     });
   });

@@ -409,6 +409,17 @@ describe('synthesisAdapters', () => {
     expect(mesh.writes).toEqual([{ path: 'topics/topic-1/latest', value: next }]);
   });
 
+  it('blocks forbidden identity/token fields before safe latest synthesis writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, { ...SYNTHESIS, bearer_token: 'secret' })
+    ).rejects.toThrow('forbidden identity/token fields');
+    expect(mesh.writes).toHaveLength(0);
+  });
+
   it('writeTopicSynthesis writes epoch and latest paths', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
