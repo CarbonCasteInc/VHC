@@ -3,7 +3,9 @@ import { deriveSynthesisPointId } from '@vh/data-model';
 
 export interface SynthesisPerspectiveInput {
   readonly id: string;
+  readonly frame_point_id?: string;
   readonly frame: string;
+  readonly reframe_point_id?: string;
   readonly reframe: string;
 }
 
@@ -46,20 +48,24 @@ export function useSynthesisPointIds({
 
       for (const perspective of perspectives) {
         const [framePointId, reframePointId] = await Promise.all([
-          deriveSynthesisPointId({
-            topic_id: topicId,
-            synthesis_id: synthesisId,
-            epoch,
-            column: 'frame',
-            text: perspective.frame,
-          }),
-          deriveSynthesisPointId({
-            topic_id: topicId,
-            synthesis_id: synthesisId,
-            epoch,
-            column: 'reframe',
-            text: perspective.reframe,
-          }),
+          perspective.frame_point_id
+            ? Promise.resolve(perspective.frame_point_id)
+            : deriveSynthesisPointId({
+                topic_id: topicId,
+                synthesis_id: synthesisId,
+                epoch,
+                column: 'frame',
+                text: perspective.frame,
+              }),
+          perspective.reframe_point_id
+            ? Promise.resolve(perspective.reframe_point_id)
+            : deriveSynthesisPointId({
+                topic_id: topicId,
+                synthesis_id: synthesisId,
+                epoch,
+                column: 'reframe',
+                text: perspective.reframe,
+              }),
         ]);
 
         nextPointIds[perspectivePointMapKey(perspective.id, 'frame')] = framePointId;

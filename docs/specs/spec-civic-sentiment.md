@@ -16,7 +16,7 @@ Normative contract for sentiment, Eye, and Lightbulb behavior in Season 0.
 - `topic_id`: `TopicId` for a topic object (`NEWS_STORY`, `USER_TOPIC`, or `SOCIAL_NOTIFICATION`)
 - `synthesis_id`: ID of accepted `TopicSynthesisV2` artifact
 - `epoch`: synthesis epoch number for the topic
-- `point_id`: claim/frame row identifier within synthesis
+- `point_id`: claim/frame or reframe item identifier within an accepted synthesis
 - `agreement`: `-1 | 0 | 1`
 - `weight`: per-user Lightbulb contribution in `[0,2)` (runtime cap: **1.95**)
 
@@ -48,7 +48,7 @@ interface SentimentSignal {
 
 Rules:
 
-1. One user has one final stance per `(topic_id, epoch, point_id)`.
+1. One user has one final stance per `(topic_id, synthesis_id, epoch, point_id)`.
 2. `agreement = 0` is neutral and non-counting in point aggregates.
 3. Familiars cannot add separate sentiment identities.
 4. Event-level signals are sensitive and must remain local/encrypted.
@@ -143,7 +143,7 @@ District dashboards must remain aggregate-only:
 
 1. Signal schema validation for every emitted event.
 2. Decay monotonic/bounded tests for Eye and Lightbulb.
-3. Toggle semantics tests (`+/-` and neutral reset).
+3. Toggle semantics tests (`+/-` and neutral reset) by `(topic_id, synthesis_id, epoch, point_id)`.
 4. Aggregate projection determinism tests by `(topic_id, synthesis_id, epoch)`.
 5. Privacy tests: ensure district dashboard payloads are aggregate-only.
 

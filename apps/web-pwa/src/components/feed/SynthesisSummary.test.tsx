@@ -18,8 +18,8 @@ function makeSynthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesi
     quorum: { required: 3, received: 3, reached_at: NOW, timed_out: false, selection_rule: 'deterministic' },
     facts_summary: 'Key facts about the topic.',
     frames: [
-      { frame: 'Frame A', reframe: 'Reframe A' },
-      { frame: 'Frame B', reframe: 'Reframe B' },
+      { frame_point_id: 'frame-point-a', frame: 'Frame A', reframe_point_id: 'reframe-point-a', reframe: 'Reframe A' },
+      { frame_point_id: 'frame-point-b', frame: 'Frame B', reframe_point_id: 'reframe-point-b', reframe: 'Reframe B' },
     ],
     warnings: [],
     divergence_metrics: { disagreement_score: 0.2, source_dispersion: 0.3, candidate_count: 3 },
@@ -96,7 +96,11 @@ describe('SynthesisSummary', () => {
 
   it('shows singular "1 perspective" for single frame', () => {
     render(
-      <SynthesisSummary synthesis={makeSynthesis({ frames: [{ frame: 'Solo', reframe: 'Reframe' }] })} />,
+      <SynthesisSummary
+        synthesis={makeSynthesis({
+          frames: [{ frame_point_id: 'solo-frame-point', frame: 'Solo', reframe_point_id: 'solo-reframe-point', reframe: 'Reframe' }],
+        })}
+      />,
     );
     expect(screen.getByTestId('synthesis-frames-toggle')).toHaveTextContent('1 perspective');
   });

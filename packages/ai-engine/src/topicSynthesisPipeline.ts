@@ -45,7 +45,12 @@ export const PipelineOutputSchema = z
     }),
     facts_summary: z.string().min(1),
     frames: z.array(
-      z.object({ frame: z.string().min(1), reframe: z.string().min(1) }),
+      z.object({
+        frame_point_id: z.string().trim().min(1),
+        frame: z.string().min(1),
+        reframe_point_id: z.string().trim().min(1),
+        reframe: z.string().min(1),
+      }),
     ),
     warnings: z.array(z.string()),
     divergence_metrics: z.object({
@@ -108,6 +113,45 @@ export function deriveSynthesisId(
   return `synth-${topicId}-${epoch}-${candidateId}`;
 }
 
+function normalizePointIdToken(value: string): string {
+  const normalized = value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_');
+  return normalized || 'unknown';
+}
+
+function normalizeSuppliedPointId(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized ? normalized : undefined;
+}
+
+export function derivePersistedSynthesisPointId(
+  synthesisId: string,
+  rowIndex: number,
+  column: 'frame' | 'reframe',
+): string {
+  return [
+    'synth-point',
+    normalizePointIdToken(synthesisId),
+    Math.max(0, Math.floor(rowIndex)),
+    column,
+  ].join(':');
+}
+
+export function attachPersistedFramePointIds(
+  synthesisId: string,
+  frames: RunEpochInput['candidates'][number]['frames'],
+): PipelineOutput['frames'] {
+  return frames.map((row, rowIndex) => ({
+    frame_point_id:
+      normalizeSuppliedPointId(row.frame_point_id) ??
+      derivePersistedSynthesisPointId(synthesisId, rowIndex, 'frame'),
+    frame: row.frame,
+    reframe_point_id:
+      normalizeSuppliedPointId(row.reframe_point_id) ??
+      derivePersistedSynthesisPointId(synthesisId, rowIndex, 'reframe'),
+    reframe: row.reframe,
+  }));
+}
+
 export function computeDivergenceMetrics(
   candidates: readonly GatheredCandidate[],
 ): PipelineOutput['divergence_metrics'] {
@@ -160,16 +204,17 @@ export interface RunEpochInput {
 export function runEpoch(input: RunEpochInput): PipelineOutput | null {
   const selected = selectCandidate(input.candidates);
   if (!selected) return null;
+  const synthesisId = deriveSynthesisId(
+    input.topicId,
+    input.epoch,
+    selected.candidate_id,
+  );
 
   const output: PipelineOutput = {
     schemaVersion: 'topic-synthesis-v2',
     topic_id: input.topicId,
     epoch: input.epoch,
-    synthesis_id: deriveSynthesisId(
-      input.topicId,
-      input.epoch,
-      selected.candidate_id,
-    ),
+    synthesis_id: synthesisId,
     inputs: {
       topic_digest_ids: input.digest ? [input.digest.digest_id] : undefined,
     },
@@ -181,7 +226,7 @@ export function runEpoch(input: RunEpochInput): PipelineOutput | null {
       selection_rule: 'deterministic',
     },
     facts_summary: selected.facts_summary,
-    frames: [...selected.frames],
+    frames: attachPersistedFramePointIds(synthesisId, selected.frames),
     warnings: [...selected.warnings],
     divergence_metrics: computeDivergenceMetrics(input.candidates),
     provenance: {

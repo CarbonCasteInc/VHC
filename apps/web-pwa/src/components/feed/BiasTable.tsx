@@ -3,9 +3,16 @@ import type { NewsCardSourceAnalysis } from './newsCardAnalysis';
 import { CellVoteControls } from './CellVoteControls';
 import { pointMapKey, useBiasPointIds } from './useBiasPointIds';
 
+export interface BiasTableFrameRow {
+  readonly frame_point_id?: string;
+  readonly frame: string;
+  readonly reframe_point_id?: string;
+  readonly reframe: string;
+}
+
 export interface BiasTableProps {
   readonly analyses: ReadonlyArray<NewsCardSourceAnalysis>;
-  readonly frames: ReadonlyArray<{ frame: string; reframe: string }>;
+  readonly frames: ReadonlyArray<BiasTableFrameRow>;
   readonly providerLabel?: string;
   readonly basisLabel?: string;
   readonly loading?: boolean;
@@ -157,7 +164,7 @@ function ExpandableRow({
 }
 
 function buildRowAnalysisMap(
-  frames: ReadonlyArray<{ frame: string; reframe: string }>,
+  frames: ReadonlyArray<BiasTableFrameRow>,
   analyses: ReadonlyArray<NewsCardSourceAnalysis>,
 ): Map<number, NewsCardSourceAnalysis> {
   const map = new Map<number, NewsCardSourceAnalysis>();

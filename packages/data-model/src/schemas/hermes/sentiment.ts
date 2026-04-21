@@ -113,7 +113,8 @@ export const SentimentEventSchema = z
 
 /**
  * Public voter contribution node (per voter + per point).
- * Stored under: vh/aggregates/topics/<topicId>/epochs/<epoch>/voters/<voterId>/<pointId>
+ * Stored under:
+ * vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/voters/<voterId>/<pointId>
  */
 export const AggregateVoterNodeSchema = z
   .object({
@@ -275,7 +276,12 @@ export async function derivePointId(params: {
 }
 
 /**
- * synthesis_point_id = sha256(topic_id + synthesis_id + epoch + column + normalized_text)
+ * legacy synthesis_point_id = sha256(topic_id + synthesis_id + epoch + column + normalized_text)
+ *
+ * New accepted TopicSynthesisV2 frame/reframe points should persist point ids
+ * generated independently from display text. Keep this helper for old artifacts
+ * and alias compatibility reads.
+ *
  * Spec: spec-identity-trust-constituency.md v0.2 §8 (integration map / SentimentSignal contract)
  */
 export async function deriveSynthesisPointId(params: {
@@ -291,6 +297,31 @@ export async function deriveSynthesisPointId(params: {
     String(Math.max(0, Math.floor(params.epoch))),
     params.column,
     normalizePointText(params.text),
+  ].join('|');
+
+  return sha256(payload);
+}
+
+/**
+ * persisted synthesis frame point id = sha256(topic_id + synthesis_id + epoch + row_index + column)
+ *
+ * This is a deterministic backfill/generation helper for accepted synthesis
+ * artifacts that are missing persisted point ids. It deliberately excludes
+ * frame/reframe text so copy edits do not orphan existing stance state.
+ */
+export async function deriveSynthesisFramePointId(params: {
+  topic_id: string;
+  synthesis_id: string;
+  epoch: number;
+  row_index: number;
+  column: 'frame' | 'reframe';
+}): Promise<string> {
+  const payload = [
+    normalizeHashToken(params.topic_id),
+    normalizeHashToken(params.synthesis_id),
+    String(Math.max(0, Math.floor(params.epoch))),
+    String(Math.max(0, Math.floor(params.row_index))),
+    params.column,
   ].join('|');
 
   return sha256(payload);

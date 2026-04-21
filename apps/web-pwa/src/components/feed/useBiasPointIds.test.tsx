@@ -21,7 +21,12 @@ vi.mock('../dev/DevModelPicker', () => ({
 }));
 
 function HookHarness(props: {
-  frames: ReadonlyArray<{ frame: string; reframe: string }>;
+  frames: ReadonlyArray<{
+    frame_point_id?: string;
+    frame: string;
+    reframe_point_id?: string;
+    reframe: string;
+  }>;
   analysisId?: string;
   topicId?: string;
   synthesisId?: string;
@@ -73,6 +78,33 @@ describe('useBiasPointIds', () => {
       pipeline_version: 'news-card-analysis-v1',
       model_scope: 'model:default',
     });
+  });
+
+  it('uses persisted synthesis point IDs when present', async () => {
+    render(
+      <HookHarness
+        frames={[
+          {
+            frame_point_id: 'persisted-frame-point',
+            frame: 'Frame A',
+            reframe_point_id: 'persisted-reframe-point',
+            reframe: 'Reframe A',
+          },
+        ]}
+        analysisId="story-1:prov-1"
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={2}
+        votingEnabled
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"legacyPointIds":{"frame:0":"legacy:frame:Frame A","reframe:0":"legacy:reframe:Reframe A"}');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"persisted-frame-point","reframe:0":"persisted-reframe-point"}');
+    });
+
+    expect(deriveSynthesisPointIdMock).not.toHaveBeenCalled();
   });
 
   it('uses model override in analysis key scope when available', async () => {

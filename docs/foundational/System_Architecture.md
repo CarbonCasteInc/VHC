@@ -277,7 +277,12 @@ interface TopicSynthesisV2 {
     topic_seed_id?: string;
   };
   facts_summary: string;
-  frames: Array<{ frame: string; reframe: string }>;
+  frames: Array<{
+    frame_point_id: string;
+    frame: string;
+    reframe_point_id: string;
+    reframe: string;
+  }>;
   warnings: string[];
   divergence_metrics: {
     disagreement_score: number;
@@ -503,7 +508,7 @@ XP is the Season 0 participation substrate:
 | TopicDigest | Cache/index | `vh/topics/<topicId>/digests/<digestId>` | optional | - | - | Public-derived |
 | TopicSynthesisV2 | Cache/index | `vh/topics/<topicId>/epochs/<epoch>/synthesis` | - | optional anchor hash | - | Public |
 | SentimentSignal (event) | Authoritative | forbidden | `~<devicePub>/outbox/sentiment/*` | - | - | Sensitive |
-| AggregateSentiment | Cache | `vh/aggregates/topics/<topicId>/epochs/<epoch>` | - | optional aggregate anchor | - | Public |
+| AggregateSentiment (legacy summary) | Cache | compatibility-only; canonical public point aggregates use `PointAggregateSnapshotV1` | - | optional aggregate anchor | - | Public |
 | Linked-social OAuth tokens | Vault only | forbidden | optional encrypted backup | - | - | Secret |
 | Linked-social notifications | Vault/local cache | sanitized card projection only | optional | - | - | Sensitive |
 | Docs drafts | Vault/E2EE stores | forbidden | `~<devicePub>/docs/*` encrypted | - | encrypted attachments | Sensitive |

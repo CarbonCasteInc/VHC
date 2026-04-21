@@ -7,6 +7,8 @@ import {
   TopicSynthesisPipeline,
   runEpoch,
   selectCandidate,
+  attachPersistedFramePointIds,
+  derivePersistedSynthesisPointId,
   deriveSynthesisId,
   computeDivergenceMetrics,
   computeProviderMix,
@@ -144,6 +146,74 @@ describe('deriveSynthesisId', () => {
   });
 });
 
+describe('persisted synthesis point ids', () => {
+  it('generates deterministic non-text point ids for each cell', () => {
+    const frameId = derivePersistedSynthesisPointId('synth topic/1', 0, 'frame');
+    const sameAfterTextEdit = derivePersistedSynthesisPointId('synth topic/1', 0, 'frame');
+    const reframeId = derivePersistedSynthesisPointId('synth topic/1', 0, 'reframe');
+    const nextRowId = derivePersistedSynthesisPointId('synth topic/1', 1, 'frame');
+
+    expect(sameAfterTextEdit).toBe(frameId);
+    expect(frameId).not.toContain('/');
+    expect(reframeId).not.toBe(frameId);
+    expect(nextRowId).not.toBe(frameId);
+    expect(derivePersistedSynthesisPointId('   ', 0, 'frame')).toBe(
+      'synth-point:unknown:0:frame',
+    );
+  });
+
+  it('preserves supplied point ids across frame wording edits', () => {
+    const before = attachPersistedFramePointIds('synth-1', [
+      {
+        frame_point_id: 'stable-frame-point',
+        frame: 'Original frame text',
+        reframe_point_id: 'stable-reframe-point',
+        reframe: 'Original reframe text',
+      },
+    ]);
+    const after = attachPersistedFramePointIds('synth-1', [
+      {
+        frame_point_id: 'stable-frame-point',
+        frame: 'Edited frame wording',
+        reframe_point_id: 'stable-reframe-point',
+        reframe: 'Edited reframe wording',
+      },
+    ]);
+
+    expect(after[0]!.frame_point_id).toBe(before[0]!.frame_point_id);
+    expect(after[0]!.reframe_point_id).toBe(before[0]!.reframe_point_id);
+    expect(after[0]!.frame).toBe('Edited frame wording');
+  });
+
+  it('fills missing point ids without hashing frame text', () => {
+    const before = attachPersistedFramePointIds('synth-1', [
+      { frame: 'Original frame text', reframe: 'Original reframe text' },
+    ]);
+    const after = attachPersistedFramePointIds('synth-1', [
+      { frame: 'Edited frame wording', reframe: 'Edited reframe wording' },
+    ]);
+
+    expect(after[0]!.frame_point_id).toBe(before[0]!.frame_point_id);
+    expect(after[0]!.reframe_point_id).toBe(before[0]!.reframe_point_id);
+  });
+
+  it('fills blank supplied point ids instead of preserving unusable ids', () => {
+    const frames = attachPersistedFramePointIds('synth-1', [
+      {
+        frame_point_id: '   ',
+        frame: 'Frame text',
+        reframe_point_id: '\t',
+        reframe: 'Reframe text',
+      },
+    ]);
+
+    expect(frames[0]).toMatchObject({
+      frame_point_id: 'synth-point:synth-1:0:frame',
+      reframe_point_id: 'synth-point:synth-1:0:reframe',
+    });
+  });
+});
+
 describe('computeDivergenceMetrics', () => {
   it('returns zeros for empty candidates', () => {
     const m = computeDivergenceMetrics([]);
@@ -255,6 +325,12 @@ describe('runEpoch', () => {
     expect(result!.quorum.received).toBe(2);
     expect(result!.quorum.selection_rule).toBe('deterministic');
     expect(result!.provenance.candidate_ids).toHaveLength(2);
+    expect(result!.frames[0]).toEqual({
+      frame_point_id: 'synth-point:synth-topic-A-1-cand-A:0:frame',
+      frame: 'F1',
+      reframe_point_id: 'synth-point:synth-topic-A-1-cand-A:0:reframe',
+      reframe: 'R1',
+    });
   });
 
   it('output passes schema validation', () => {

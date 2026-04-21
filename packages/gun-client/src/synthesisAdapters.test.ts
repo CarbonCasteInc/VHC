@@ -88,7 +88,9 @@ const CANDIDATE: CandidateSynthesis = {
   facts_summary: 'Facts summary',
   frames: [
     {
+      frame_point_id: 'frame-point-1',
       frame: 'Frame',
+      reframe_point_id: 'reframe-point-1',
       reframe: 'Reframe'
     }
   ],
@@ -122,7 +124,9 @@ const SYNTHESIS: TopicSynthesisV2 = {
   facts_summary: 'Summary',
   frames: [
     {
+      frame_point_id: 'synth-frame-point-1',
       frame: 'Frame',
+      reframe_point_id: 'synth-reframe-point-1',
       reframe: 'Reframe'
     }
   ],
