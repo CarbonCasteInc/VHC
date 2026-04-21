@@ -1,11 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo } from 'react';
 import { useStore } from 'zustand';
-import type { FeedItem, StoryBundle, StorylineGroup } from '@vh/data-model';
+import type { FeedItem, StorylineGroup } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
 import { useForumStore } from '../../store/hermesForum';
 import { useViewTracking } from '../../hooks/useViewTracking';
-import { useAnalysis } from './useAnalysis';
 import { NewsCardBack } from './NewsCardBack';
 import { sanitizePublicationNeutralSummary } from './newsCardAnalysis';
 import { useExpandedCardStore } from './expandedCardStore';
@@ -18,7 +17,6 @@ import {
   mergeRelatedLinks,
   normalizeStorylineHeadline,
   previewText,
-  resolveAnalysisProviderModel,
   resolveDisplaySources,
   resolveSingletonVideoSource,
   resolveStoryBundle,
@@ -91,99 +89,60 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     [forumThreads, item, story],
   );
   const primaryStorySource = useMemo(() => getPrimaryStorySource(story), [story]);
-  const analysisStoryRef = useRef<StoryBundle | null>(story);
-  const analysisPipelineEnabled = import.meta.env.VITE_VH_ANALYSIS_PIPELINE === 'true';
-  const analysisStory = useMemo(
-    () => (isExpanded ? analysisStoryRef.current ?? story : story),
-    [isExpanded, story],
-  );
   const singletonVideoSource = useMemo(
-    () => resolveSingletonVideoSource(analysisStory),
-    [analysisStory],
+    () => resolveSingletonVideoSource(story),
+    [story],
   );
   const displaySources = useMemo(
     () => resolveDisplaySources(story),
     [story],
   );
-  const {
-    analysis,
-    status: analysisStatus,
-    error: analysisError,
-    retry: retryAnalysis,
-  } = useAnalysis(analysisStory, isExpanded && singletonVideoSource === null);
   const synthesis = synthesisTopicState?.synthesis ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
   const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
-  const computedAnalysisId = analysisStory
-    ? `${analysisStory.story_id}:${analysisStory.provenance_hash}`
-    : null;
   const synthesisId = synthesis?.synthesis_id ?? null;
   const synthesisEpoch = synthesis?.epoch;
-  const analysisFeedbackStatus =
-    analysisPipelineEnabled &&
-    (analysisStatus === 'loading' ||
-      analysisStatus === 'timeout' ||
-      analysisStatus === 'error' ||
-      analysisStatus === 'budget_exceeded')
-      ? analysisStatus
-      : null;
+  const synthesisProvenance = synthesis
+    ? {
+        generatedAt: formatIsoTimestamp(synthesis.created_at),
+        synthesisId: synthesis.synthesis_id,
+        epoch: synthesis.epoch,
+        candidateIds: synthesis.provenance.candidate_ids,
+        providerMix: synthesis.provenance.provider_mix,
+        warnings: synthesis.warnings,
+      }
+    : null;
   const synthesisSummary = synthesis?.facts_summary?.trim() ?? '';
-  const analysisSummary =
-    analysisPipelineEnabled && analysisStatus === 'success'
-      ? analysis?.summary?.trim() ?? ''
-      : '';
   const hasSynthesisSummary = synthesisSummary.length > 0;
-  const hasAnalysisSummary = analysisSummary.length > 0;
   const rawSummary =
     synthesisSummary ||
-    analysisSummary ||
     story?.summary_hint?.trim() ||
-    'Summary pending synthesis.';
+    'Analysis pending publish-time synthesis.';
   const summary = sanitizePublicationNeutralSummary(
     rawSummary,
     (story?.sources ?? []).flatMap((source) => [source.source_id, source.publisher]),
   );
   const synthesisFrameRows = synthesis?.frames ?? [];
-  const analysisFrameRows =
-    analysisPipelineEnabled && analysisStatus === 'success' && analysis
-      ? analysis.frames
-      : [];
-  const useAnalysisFrames = synthesisFrameRows.length === 0 && analysisFrameRows.length > 0;
-  const frameRows = synthesisFrameRows.length > 0 ? synthesisFrameRows : analysisFrameRows;
-  const frameAnalysis = useAnalysisFrames ? analysis : null;
-  const analysisNeedsRegeneration =
-    analysisPipelineEnabled
-    && analysisStatus === 'success'
-    && !!analysis
-    && synthesisFrameRows.length === 0
-    && analysisFrameRows.length === 0;
-  const analyzedSourceCount = analysis?.analyses.length ?? 0;
-  const expectedSourceCount = displaySources.length || story?.sources.length || 0;
+  const frameRows = synthesisFrameRows;
   const summaryBasisLabel = hasSynthesisSummary
     ? 'Topic synthesis v2'
-    : hasAnalysisSummary
-      ? analyzedSourceCount > 0 && expectedSourceCount > analyzedSourceCount
-        ? `Provisional card analysis (${analyzedSourceCount}/${expectedSourceCount} sources)`
-        : 'Provisional card analysis'
-      : undefined;
+    : synthesisLoading
+      ? 'Publish-time synthesis loading'
+      : story?.summary_hint?.trim()
+        ? 'Feed summary hint; synthesis pending'
+        : 'Publish-time synthesis pending';
   const frameBasisLabel = synthesisFrameRows.length > 0
     ? 'Topic synthesis frames'
-    : useAnalysisFrames
-      ? `${analyzedSourceCount} ${analyzedSourceCount === 1 ? 'source' : 'sources'} analyzed`
-      : undefined;
-  const analysisProvider =
-    analysisPipelineEnabled &&
-    analysisStatus === 'success' &&
-    (useAnalysisFrames || (!hasSynthesisSummary && hasAnalysisSummary))
-      ? resolveAnalysisProviderModel(analysis)
-      : null;
+    : undefined;
+  const synthesisUnavailable = !synthesisLoading && !synthesis && !synthesisError;
   const relatedLinks = useMemo(
-    () => mergeRelatedLinks(story, analysis),
-    [story, analysis],
+    () => mergeRelatedLinks(story, null),
+    [story],
   );
+  const retryAnalysis = useCallback(() => undefined, []);
   const { heroImage, galleryImages } = useMemo(
     () => resolveStoryMedia(story),
     [story],
@@ -199,24 +158,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   useViewTracking(item.topic_id, isExpanded);
 
   const openDetail = useCallback(() => {
-    if (story) {
-      analysisStoryRef.current = story;
-    }
     expandCard(cardInstanceKey);
     startSynthesisHydration(item.topic_id);
     void refreshSynthesisTopic(item.topic_id);
-  }, [cardInstanceKey, expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration, story]);
-
-  useEffect(() => {
-    if (isExpanded) {
-      if (!analysisStoryRef.current && story) {
-        analysisStoryRef.current = story;
-      }
-      return;
-    }
-
-    analysisStoryRef.current = story;
-  }, [isExpanded, story]);
+  }, [cardInstanceKey, expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
 
   useEffect(() => {
     if (!isExpanded) return;
@@ -319,21 +264,23 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               summaryBasisLabel={summaryBasisLabel}
               frameRows={frameRows}
               frameBasisLabel={frameBasisLabel}
-              analysisProvider={analysisProvider}
+              analysisProvider={null}
               galleryImages={galleryImages}
               relatedCoverage={hasStorylineCoverage ? storyline?.related_coverage ?? [] : []}
               relatedLinks={relatedLinks}
               storylineHeadline={storylineHeadline}
               storylineStoryCount={storylineStoryCount}
-              analysisFeedbackStatus={analysisFeedbackStatus}
-              analysisError={analysisError}
+              analysisFeedbackStatus={null}
+              analysisError={null}
               retryAnalysis={retryAnalysis}
-              analysisNeedsRegeneration={analysisNeedsRegeneration}
+              analysisNeedsRegeneration={false}
               synthesisLoading={synthesisLoading}
               synthesisError={synthesisError}
-              analysis={frameAnalysis}
-              analysisId={computedAnalysisId}
+              synthesisUnavailable={synthesisUnavailable}
+              analysis={null}
+              analysisId={null}
               synthesisId={synthesisId}
+              synthesisProvenance={synthesisProvenance}
               epoch={synthesisEpoch}
               sourceViewer={singletonVideoSource}
               discussionThread={discussionThread}

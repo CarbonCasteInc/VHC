@@ -15,6 +15,18 @@ export interface NewsCardMediaAsset {
   readonly imageUrl: string;
 }
 
+export interface NewsCardSynthesisProvenance {
+  readonly generatedAt: string;
+  readonly synthesisId: string;
+  readonly epoch: number;
+  readonly candidateIds: ReadonlyArray<string>;
+  readonly providerMix: ReadonlyArray<{
+    readonly provider_id: string;
+    readonly count: number;
+  }>;
+  readonly warnings: ReadonlyArray<string>;
+}
+
 export interface NewsCardBackProps {
   readonly headline: string;
   readonly topicId: string;
@@ -49,9 +61,11 @@ export interface NewsCardBackProps {
   readonly analysisNeedsRegeneration?: boolean;
   readonly synthesisLoading: boolean;
   readonly synthesisError: string | null;
+  readonly synthesisUnavailable?: boolean;
   readonly analysis: NewsCardAnalysisSynthesis | null;
   readonly analysisId?: string | null;
   readonly synthesisId?: string | null;
+  readonly synthesisProvenance?: NewsCardSynthesisProvenance | null;
   readonly epoch?: number;
   readonly sourceViewer?: {
     readonly publisher: string;
@@ -93,9 +107,11 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   analysisNeedsRegeneration = false,
   synthesisLoading,
   synthesisError,
+  synthesisUnavailable = false,
   analysis,
   analysisId,
   synthesisId,
+  synthesisProvenance = null,
   epoch,
   sourceViewer,
   discussionThread,
@@ -121,7 +137,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
           Collapse
         </button>
       </header>
-
       {sourceViewer && (
         <SourceViewerFrame
           topicId={topicId}
@@ -130,7 +145,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
           url={sourceViewer.url}
         />
       )}
-
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.45fr)_minmax(17rem,0.95fr)]">
         <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-slate-50/80 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900/80">
           <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
@@ -143,6 +157,35 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             >
               {summaryBasisLabel}
             </p>
+          )}
+          {synthesisProvenance && (
+            <div
+              className="space-y-1 rounded-lg border border-slate-200/80 bg-white/75 px-3 py-2 text-[11px] leading-5 text-slate-500 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300"
+              data-testid={`news-card-synthesis-provenance-${topicId}`}
+            >
+              <p>
+                Generated {synthesisProvenance.generatedAt} · epoch {synthesisProvenance.epoch}
+              </p>
+              <p className="break-all">
+                Synthesis {synthesisProvenance.synthesisId} · candidates {synthesisProvenance.candidateIds.length}
+              </p>
+              <p>
+                Providers{' '}
+                {synthesisProvenance.providerMix
+                  .map((provider) => `${provider.provider_id} x${provider.count}`)
+                  .join(', ')}
+              </p>
+            </div>
+          )}
+          {synthesisProvenance && synthesisProvenance.warnings.length > 0 && (
+            <div
+              className="space-y-1 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100"
+              data-testid={`news-card-synthesis-warnings-${topicId}`}
+            >
+              {synthesisProvenance.warnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
           )}
           <p className="text-sm leading-7 text-slate-700 dark:text-slate-200" data-testid={`news-card-summary-${topicId}`}>
             {summary}
@@ -185,7 +228,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               </div>
             </div>
           )}
-
           {analysisFeedbackStatus && (
             <AnalysisLoadingState
               status={analysisFeedbackStatus}
@@ -193,7 +235,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               onRetry={retryAnalysis}
             />
           )}
-
           {!analysisFeedbackStatus && (
             <>
               {analysisProvider && (
@@ -207,7 +248,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             </>
           )}
         </section>
-
         <div className="space-y-4">
           {relatedCoverage.length > 0 && (
             <section
@@ -245,7 +285,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               </ul>
             </section>
           )}
-
           {relatedLinks.length > 0 && (
             <section
               className="space-y-2 rounded-[1.5rem] border border-amber-200/90 bg-amber-50/80 p-4 shadow-sm shadow-amber-900/5 dark:border-amber-900/60 dark:bg-amber-950/30"
@@ -276,18 +315,15 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
           )}
         </div>
       </div>
-
       <section className="space-y-3 rounded-[1.5rem] border border-slate-200/90 bg-white/82 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-950/80">
         <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
           Frame / Reframe
         </h4>
-
         {analysisFeedbackStatus === 'error' && (
           <div className="mt-2" data-testid={`news-card-analysis-error-${topicId}`}>
             <RemovalIndicator reason="extraction-failed-permanently" />
           </div>
         )}
-
         {synthesisLoading && (
           <p
             className="mt-2 text-xs text-slate-500"
@@ -296,7 +332,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             Loading synthesis…
           </p>
         )}
-
         {synthesisError && !synthesisLoading && !analysis && (
           <p
             className="mt-2 text-xs text-amber-700"
@@ -305,7 +340,14 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             Synthesis unavailable.
           </p>
         )}
-
+        {synthesisUnavailable && !analysis && (
+          <p
+            className="mt-2 text-xs text-amber-700"
+            data-testid={`news-card-synthesis-unavailable-${topicId}`}
+          >
+            Publish-time synthesis has not been published for this story yet.
+          </p>
+        )}
         {analysisNeedsRegeneration && !synthesisLoading && (
           <p
             className="mt-2 text-xs text-amber-700"
@@ -314,7 +356,6 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             Analysis needs regeneration to produce frame/reframe rows.
           </p>
         )}
-
         <div className="mt-2">
           <BiasTable
             analyses={analysis?.analyses ?? []}
@@ -326,11 +367,10 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             analysisId={analysisId ?? undefined}
             synthesisId={synthesisId ?? undefined}
             epoch={epoch}
-            votingEnabled
+            votingEnabled={Boolean(synthesisId && epoch !== undefined && frameRows.length > 0)}
           />
         </div>
       </section>
-
       <FeedDiscussionSection
         sectionId={`news-card-${topicId}`}
         thread={discussionThread}
@@ -341,5 +381,4 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
     </div>
   );
 };
-
 export default NewsCardBack;

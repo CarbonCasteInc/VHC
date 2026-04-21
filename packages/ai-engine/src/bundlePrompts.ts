@@ -6,7 +6,9 @@
  */
 
 import { GOALS_AND_GUIDELINES } from './prompts';
-import type { StoryBundleInputCandidate } from './newsTypes';
+import { isPlaceholderPerspectiveText } from './schema';
+import type { StoryBundle, StoryBundleInputCandidate } from './newsTypes';
+import { z } from 'zod';
 
 /**
  * Deterministic output shape for UI consumption.
@@ -23,6 +25,59 @@ export interface BundleSynthesisResult {
   source_publishers: string[];
   /** Verification confidence from the bundle verification record. */
   verification_confidence: number;
+}
+
+const GeneratedBundleFrameSchema = z
+  .object({
+    frame: z.string().trim().min(1),
+    reframe: z.string().trim().min(1),
+  })
+  .strict()
+  .refine((row) => !isPlaceholderPerspectiveText(row.frame), {
+    message: 'Bundle synthesis frame cannot be a placeholder',
+    path: ['frame'],
+  })
+  .refine((row) => !isPlaceholderPerspectiveText(row.reframe), {
+    message: 'Bundle synthesis reframe cannot be a placeholder',
+    path: ['reframe'],
+  });
+
+export const GeneratedBundleSynthesisResultSchema = z
+  .object({
+    summary: z.string().trim().min(1),
+    frames: z.array(GeneratedBundleFrameSchema).min(1).max(4),
+    source_count: z.number().int().positive(),
+    source_publishers: z.array(z.string().trim().min(1)).min(1),
+    verification_confidence: z.number().min(0).max(1),
+  })
+  .strict();
+
+export type GeneratedBundleSynthesisResult = z.infer<
+  typeof GeneratedBundleSynthesisResultSchema
+>;
+
+export enum BundleSynthesisParseError {
+  NO_JSON_OBJECT_FOUND = 'NO_JSON_OBJECT_FOUND',
+  JSON_PARSE_ERROR = 'JSON_PARSE_ERROR',
+  SCHEMA_VALIDATION_ERROR = 'SCHEMA_VALIDATION_ERROR',
+}
+
+export function parseGeneratedBundleSynthesis(raw: string): GeneratedBundleSynthesisResult {
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(BundleSynthesisParseError.NO_JSON_OBJECT_FOUND);
+  }
+
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as unknown;
+    const payload = (parsed as { final_refined?: unknown }).final_refined ?? parsed;
+    return GeneratedBundleSynthesisResultSchema.parse(payload);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new Error(BundleSynthesisParseError.SCHEMA_VALIDATION_ERROR);
+    }
+    throw new Error(BundleSynthesisParseError.JSON_PARSE_ERROR);
+  }
 }
 
 const BUNDLE_SYNTHESIS_OUTPUT_FORMAT = `
@@ -113,5 +168,28 @@ export function buildBundlePrompt(
       url: s.url,
     })),
     verification_confidence: verificationConfidence,
+  });
+}
+
+export function buildBundlePromptFromStoryBundle(
+  bundle: Pick<
+    StoryBundle,
+    | 'headline'
+    | 'summary_hint'
+    | 'sources'
+    | 'primary_sources'
+    | 'cluster_features'
+  >,
+): string {
+  const analysisSources = bundle.primary_sources ?? bundle.sources;
+  return generateBundleSynthesisPrompt({
+    headline: bundle.headline,
+    summary_hint: bundle.summary_hint,
+    sources: analysisSources.map((source) => ({
+      publisher: source.publisher,
+      title: source.title,
+      url: source.url,
+    })),
+    verification_confidence: bundle.cluster_features.confidence_score,
   });
 }

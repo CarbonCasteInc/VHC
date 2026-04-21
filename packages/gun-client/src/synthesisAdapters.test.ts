@@ -20,6 +20,7 @@ import {
   writeTopicLatestSynthesis,
   writeTopicSynthesis
 } from './synthesisAdapters';
+import { writeTopicLatestSynthesisIfNotDowngrade } from './safeLatestSynthesisAdapters';
 
 interface FakeMesh {
   root: any;
@@ -333,6 +334,90 @@ describe('synthesisAdapters', () => {
 
     mesh.setRead('topics/topic-1/latest', undefined);
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+  });
+
+  it('safely writes latest synthesis without downgrading newer or stronger latest state', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    mesh.setRead('topics/topic-1/latest', {
+      ...SYNTHESIS,
+      synthesis_id: 'synth-3',
+      epoch: 3
+    });
+
+    await expect(writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS)).resolves.toMatchObject({
+      status: 'skipped',
+      reason: 'newer_epoch'
+    });
+    expect(mesh.writes).toHaveLength(0);
+
+    mesh.setRead('topics/topic-1/latest', {
+      ...SYNTHESIS,
+      synthesis_id: 'synth-2-stronger',
+      quorum: { ...SYNTHESIS.quorum, received: 5 }
+    });
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, {
+        ...SYNTHESIS,
+        synthesis_id: 'synth-2-weaker',
+        quorum: { ...SYNTHESIS.quorum, received: 2 }
+      })
+    ).resolves.toMatchObject({
+      status: 'skipped',
+      reason: 'higher_quorum'
+    });
+    expect(mesh.writes).toHaveLength(0);
+  });
+
+  it('honors latest synthesis ownership guards before overwriting existing latest', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    mesh.setRead('topics/topic-1/latest', SYNTHESIS);
+
+    const next = {
+      ...SYNTHESIS,
+      synthesis_id: 'news-bundle:story-1:abc123',
+      quorum: { ...SYNTHESIS.quorum, received: 3 }
+    };
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, next, {
+        canOverwriteExisting: (existing) => existing.synthesis_id.startsWith('news-bundle:')
+      })
+    ).resolves.toMatchObject({
+      status: 'skipped',
+      reason: 'ownership_guard'
+    });
+    expect(mesh.writes).toHaveLength(0);
+
+    mesh.setRead('topics/topic-1/latest', {
+      ...SYNTHESIS,
+      synthesis_id: 'news-bundle:story-1:old'
+    });
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, next, {
+        canOverwriteExisting: (existing) => existing.synthesis_id.startsWith('news-bundle:')
+      })
+    ).resolves.toMatchObject({
+      status: 'written'
+    });
+    expect(mesh.writes).toEqual([{ path: 'topics/topic-1/latest', value: next }]);
+  });
+
+  it('blocks forbidden identity/token fields before safe latest synthesis writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      writeTopicLatestSynthesisIfNotDowngrade(client, { ...SYNTHESIS, bearer_token: 'secret' })
+    ).rejects.toThrow('forbidden identity/token fields');
+    expect(mesh.writes).toHaveLength(0);
   });
 
   it('writeTopicSynthesis writes epoch and latest paths', async () => {
