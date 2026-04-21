@@ -1,4 +1,3 @@
-import { pathToFileURL } from 'node:url';
 import {
   startNewsRuntime,
   type FeedSource,
@@ -31,11 +30,17 @@ import {
   readEnvVar,
   resolveLeaseHolderId,
   verifyStoryClusterHealth,
+  type AsyncEnrichmentQueueOptions,
   type EnrichmentWorker,
   type LoggerLike,
 } from './daemonUtils';
 import { createLeaseGuard } from './leaseGuard';
 import { createDaemonFeedClusterCaptureRecorder } from './clusterCapturePersistence';
+import {
+  createBundleSynthesisEnrichmentFromEnv,
+  isTruthyFlag,
+} from './bundleSynthesisDaemonConfig';
+import { isDirectExecution, runFromCli } from './daemonCli';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 type RuntimeOrchestratorOptions = NonNullable<NewsRuntimeConfig['orchestratorOptions']> & {
   remoteClusterMaxItemsPerRequest?: number;
@@ -54,6 +59,7 @@ export interface NewsAggregatorDaemonConfig {
   writeBundle?: (client: VennClient, bundle: unknown) => Promise<unknown>;
   removeBundle?: (client: VennClient, storyId: string) => Promise<unknown>;
   enrichmentWorker?: EnrichmentWorker;
+  enrichmentQueueOptions?: AsyncEnrichmentQueueOptions;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -84,7 +90,11 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const leaseRenewIntervalMs = Math.max(5_000, Math.floor(leaseTtlMs / 2));
   const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
-  const queue = createAsyncEnrichmentQueue(config.enrichmentWorker ?? (() => undefined), logger);
+  const queue = createAsyncEnrichmentQueue(
+    config.enrichmentWorker ?? (() => undefined),
+    logger,
+    config.enrichmentQueueOptions,
+  );
   const clusterCaptureRecorder = createDaemonFeedClusterCaptureRecorder(
     readEnvVar('VH_DAEMON_FEED_RUN_ID'),
   );
@@ -285,6 +295,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     peers: gunPeers.length > 0 ? gunPeers : undefined,
     requireSession: false,
   });
+  const bundleSynthesisEnrichment = createBundleSynthesisEnrichmentFromEnv(client, console);
   const daemon = createNewsAggregatorDaemon({
     client,
     feedSources,
@@ -292,6 +303,7 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     pollIntervalMs,
     leaseTtlMs,
     leaseHolderId: readEnvVar('VH_NEWS_DAEMON_HOLDER_ID'),
+    ...bundleSynthesisEnrichment,
     runtimeOrchestratorOptions: {
       productionMode: true,
       allowHeuristicFallback: false,
@@ -312,41 +324,9 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
   };
 }
 
-function isDirectExecution(metaUrl: string): boolean {
-  const argvPath = process.argv[1];
-  if (!argvPath) {
-    return false;
-  }
-  try {
-    return pathToFileURL(argvPath).href === metaUrl;
-  } catch {
-    return false;
-  }
-}
-type ProcessLifecycle = Pick<typeof process, 'once' | 'exit'>;
-type CliLogger = Pick<Console, 'info' | 'error'>;
-
-async function runFromCli(
-  startFromEnv: () => Promise<NewsAggregatorDaemonProcessHandle> = startNewsAggregatorDaemonFromEnv,
-  lifecycle: ProcessLifecycle = process,
-  logger: CliLogger = console,
-): Promise<void> {
-  const processHandle = await startFromEnv();
-  const shutdown = async (signal: string): Promise<void> => {
-    logger.info(`[vh:news-daemon] received ${signal}; shutting down`);
-    await processHandle.stop();
-  };
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    lifecycle.once(signal, () => {
-      void shutdown(signal).finally(() => {
-        lifecycle.exit(0);
-      });
-    });
-  }
-}
 /* c8 ignore start */
 if (isDirectExecution(import.meta.url)) {
-  void runFromCli().catch((error) => {
+  void runFromCli(startNewsAggregatorDaemonFromEnv).catch((error) => {
     console.error('[vh:news-daemon] failed to start', error);
     process.exit(1);
   });
@@ -363,4 +343,5 @@ export const __internal = {
   runFromCli,
   startNewsAggregatorDaemonFromEnv,
   verifyStoryClusterHealth,
+  isTruthyFlag,
 };

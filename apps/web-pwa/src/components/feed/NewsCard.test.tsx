@@ -332,7 +332,7 @@ describe('NewsCard', () => {
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
     expect(screen.queryByTestId('analysis-status-message')).not.toBeInTheDocument();
   });
-  it('feature flag on prefers canonical V2 synthesis over card analysis when both exist', async () => {
+  it('renders accepted canonical V2 synthesis without invoking card-open analysis', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore
@@ -354,7 +354,7 @@ describe('NewsCard', () => {
     expect(screen.getByText('Public investment is overdue')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('news-card-back-button-news-1'));
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
-    expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 
   it('renders a hero image on the card and moves additional source images into the expanded summary', async () => {
@@ -481,7 +481,7 @@ describe('NewsCard', () => {
       'Difficult Extractor: Transit debate follow-up',
     );
   });
-  it('uses provider_id provenance when model metadata is unavailable', async () => {
+  it('omits provisional analysis provenance when accepted synthesis is present', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValueOnce({
       summary: 'Provider fallback summary.',
@@ -509,47 +509,28 @@ describe('NewsCard', () => {
       'Council approved a phased transit expansion plan.',
     );
     expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
-  it('omits provenance when analysis metadata is missing', async () => {
+  it('renders feed summary and pending synthesis state when no accepted synthesis exists', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValueOnce({
-      summary: 'Summary without provenance metadata.',
-      frames: [],
-      analyses: [
-        {
-          source_id: 'src-1',
-          publisher: 'Local Paper',
-          url: 'https://example.com/news-1',
-          summary: 'No provider metadata attached.',
-          biases: [],
-          counterpoints: [],
-          biasClaimQuotes: [],
-          justifyBiasClaims: [],
-        },
-      ],
-      relatedLinks: [],
-    });
     useNewsStore.getState().setStories([makeStoryBundle()]);
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByText('Summary without provenance metadata.')).toBeInTheDocument();
+    expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Transit vote split council members along budget priorities.',
+    );
+    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
+      'Feed summary hint; synthesis pending',
+    );
+    expect(screen.getByTestId('news-card-synthesis-unavailable-news-1')).toHaveTextContent(
+      'Publish-time synthesis has not been published for this story yet.',
+    );
+    expect(screen.getByTestId('bias-table-empty')).toHaveTextContent('No bias analysis available yet');
     expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('analysis-status-message')).not.toBeInTheDocument();
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
-  it('omits provenance when analyses list is empty', async () => {
-    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    mockSynthesizeStoryFromAnalysisPipeline.mockResolvedValueOnce({
-      summary: 'Summary with no per-source analyses.',
-      frames: [],
-      analyses: [],
-      relatedLinks: [],
-    });
-    useNewsStore.getState().setStories([makeStoryBundle()]);
-    render(<NewsCard item={makeNewsItem()} />);
-    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByText('Summary with no per-source analyses.')).toBeInTheDocument();
-    expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
-  });
-  it('feature flag on shows staged loading state while analysis is pending', async () => {
+  it('does not show card-analysis loading state while waiting for publish-time synthesis', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     mockSynthesizeStoryFromAnalysisPipeline.mockReturnValue(
       new Promise(() => {
@@ -562,11 +543,10 @@ describe('NewsCard', () => {
     expect(
       await screen.findByTestId('news-card-summary-news-1'),
     ).toHaveTextContent('Transit vote split council members along budget priorities.');
-    expect(
-      await screen.findByText('Extracting article text…'),
-    ).toBeInTheDocument();
+    expect(screen.queryByText('Extracting article text…')).not.toBeInTheDocument();
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
-  it('feature flag on shows error state with retry action', async () => {
+  it('does not expose card-analysis retry state on runtime analysis failures', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     mockSynthesizeStoryFromAnalysisPipeline.mockRejectedValueOnce(
       new Error('analysis unavailable'),
@@ -577,21 +557,9 @@ describe('NewsCard', () => {
     expect(
       await screen.findByTestId('news-card-summary-news-1'),
     ).toHaveTextContent('Transit vote split council members along budget priorities.');
-    expect(await screen.findByText('analysis unavailable')).toBeInTheDocument();
-    expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
-  });
-  it('shows removal indicator on analysis error alongside retry action', async () => {
-    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
-    mockSynthesizeStoryFromAnalysisPipeline.mockRejectedValueOnce(
-      new Error('extraction failed'),
-    );
-    useNewsStore.getState().setStories([makeStoryBundle()]);
-    render(<NewsCard item={makeNewsItem()} />);
-    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByText('extraction failed')).toBeInTheDocument();
-    expect(screen.getByTestId('news-card-analysis-error-news-1')).toBeInTheDocument();
-    expect(screen.getByTestId('removal-indicator')).toBeInTheDocument();
-    expect(screen.getByTestId('analysis-retry-button')).toBeInTheDocument();
+    expect(screen.queryByText('analysis unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('analysis-retry-button')).not.toBeInTheDocument();
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
   it('renders BiasTable for analyzed stories', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
@@ -634,14 +602,15 @@ describe('NewsCard', () => {
     expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(2);
     expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(2);
   });
-  it('renders voting controls with analysis fallback when synthesis context is missing', async () => {
+  it('does not render stance voting controls when synthesis context is missing', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
-    // intentionally omit setTopicSynthesis; this mirrors analysis-only live mode
+    // intentionally omit setTopicSynthesis; story detail no longer uses analysis-only live mode
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
-    expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
-    expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(1);
-    expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(1);
+    expect(await screen.findByTestId('bias-table-empty')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Agree with /i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Disagree with /i })).not.toBeInTheDocument();
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 });

@@ -126,7 +126,7 @@ describe('NewsCard shared-topic isolation', () => {
     resetExpandedCardStore();
   });
 
-  it('expands only the clicked card and runs one analysis when topic_id is shared', async () => {
+  it('expands only the clicked card and does not run card-open analysis when topic_id is shared', async () => {
     const firstItem = makeNewsItem({
       story_id: 'story-one',
       title: 'Story One',
@@ -175,25 +175,18 @@ describe('NewsCard shared-topic isolation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Story One' }));
 
     await waitFor(() => {
-      expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(1);
       expect(screen.getAllByText('Synthesis Lens')).toHaveLength(1);
     });
 
-    expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledWith(
-      expect.objectContaining({ story_id: 'story-one' }),
-    );
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Story Two' }));
 
     await waitFor(() => {
-      expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenCalledTimes(2);
       expect(screen.getAllByText('Synthesis Lens')).toHaveLength(1);
     });
 
-    expect(mockSynthesizeStoryFromAnalysisPipeline).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ story_id: 'story-two' }),
-    );
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
 
     expect(
       screen.queryByText('Daily analysis limit reached. Try again tomorrow.'),

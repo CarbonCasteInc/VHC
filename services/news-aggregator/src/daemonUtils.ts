@@ -3,11 +3,17 @@ import {
   FeedSourceSchema,
   TopicMappingSchema,
   type FeedSource,
-  type NewsRuntimeSynthesisCandidate,
   type TopicMapping,
 } from '@vh/ai-engine';
 import type { NewsIngestionLease } from '@vh/gun-client';
 import { resolveStarterFeedSources, type ResolvedStarterFeedSources } from './sourceRegistry';
+export {
+  createAsyncEnrichmentQueue,
+  type AsyncEnrichmentQueue,
+  type AsyncEnrichmentQueueOptions,
+  type EnrichmentWorker,
+  type LoggerLike,
+} from './enrichmentQueue';
 
 export const DEFAULT_TOPIC_MAPPING: TopicMapping = {
   defaultTopicId: 'topic-news',
@@ -17,79 +23,12 @@ export const DEFAULT_TOPIC_MAPPING: TopicMapping = {
 export const DEFAULT_LEASE_TTL_MS = 2 * 60 * 1000;
 export const DEFAULT_STORYCLUSTER_REMOTE_TIMEOUT_MS = 90_000;
 
-export type LoggerLike = Pick<Console, 'info' | 'warn' | 'error'>;
-
 export interface StoryClusterRemoteConfig {
   endpointUrl: string;
   healthUrl: string;
   timeoutMs: number;
   maxItemsPerRequest?: number;
   headers: Record<string, string>;
-}
-export type EnrichmentWorker = (candidate: NewsRuntimeSynthesisCandidate) => Promise<void> | void;
-
-export interface AsyncEnrichmentQueue {
-  enqueue(candidate: NewsRuntimeSynthesisCandidate): void;
-  size(): number;
-  stop(): void;
-}
-export function createAsyncEnrichmentQueue(worker: EnrichmentWorker, logger: LoggerLike): AsyncEnrichmentQueue {
-  const pending: NewsRuntimeSynthesisCandidate[] = [];
-  let draining = false;
-  let stopped = false;
-  let drainScheduled = false;
-
-  const drain = async (): Promise<void> => {
-    if (draining || stopped) {
-      return;
-    }
-
-    draining = true;
-    try {
-      while (!stopped && pending.length > 0) {
-        const next = pending.shift();
-        if (!next) {
-          continue;
-        }
-
-        try {
-          await worker(next);
-        } catch (error) {
-          logger.warn('[vh:news-daemon] enrichment worker failed', error);
-        }
-      }
-    } finally {
-      draining = false;
-    }
-  };
-
-  return {
-    enqueue(candidate: NewsRuntimeSynthesisCandidate) {
-      if (stopped) {
-        return;
-      }
-
-      pending.push(candidate);
-      if (drainScheduled || draining) {
-        return;
-      }
-
-      drainScheduled = true;
-      queueMicrotask(() => {
-        drainScheduled = false;
-        void drain();
-      });
-    },
-
-    size() {
-      return pending.length;
-    },
-
-    stop() {
-      stopped = true;
-      pending.length = 0;
-    },
-  };
 }
 
 export function readEnvVar(name: string): string | undefined {

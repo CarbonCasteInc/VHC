@@ -110,6 +110,36 @@ describe('daemonUtils', () => {
     expect(worker).not.toHaveBeenCalled();
   });
 
+  it('drops enrichment candidates when bounded queue is full', async () => {
+    const worker = vi.fn(async () => undefined);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const onDrop = vi.fn();
+
+    const queue = createAsyncEnrichmentQueue(worker, logger, {
+      maxDepth: 2,
+      onDrop,
+    });
+
+    queue.enqueue({ ...CANDIDATE, story_id: 'story-1' });
+    queue.enqueue({ ...CANDIDATE, story_id: 'story-2' });
+    queue.enqueue({ ...CANDIDATE, story_id: 'story-3' });
+
+    expect(onDrop).toHaveBeenCalledWith(
+      expect.objectContaining({ story_id: 'story-3' }),
+      { reason: 'queue_full', maxDepth: 2 },
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[vh:news-daemon] enrichment queue full; dropped candidate',
+      { story_id: 'story-3', max_depth: 2 },
+    );
+
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(worker).toHaveBeenCalledTimes(2);
+    expect(queue.size()).toBe(0);
+  });
+
   it('derives StoryCluster health URLs across pathname shapes', () => {
     expect(deriveStoryClusterHealthUrl('https://storycluster.example.com')).toBe(
       'https://storycluster.example.com/health',

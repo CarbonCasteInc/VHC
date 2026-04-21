@@ -191,6 +191,7 @@ export * from './directoryAdapters';
 export * from './docsAdapters';
 export * from './docsKeyManagement';
 export * from './synthesisAdapters';
+export * from './safeLatestSynthesisAdapters';
 export * from './newsAdapters';
 export * from './storylineAdapters';
 export * from './analysisAdapters';
