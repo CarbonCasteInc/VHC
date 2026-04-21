@@ -160,15 +160,16 @@ describe('bundleSynthesisWorker', () => {
     expect(writeLatest).toHaveBeenCalledTimes(1);
   });
 
-  it('skips duplicate candidates before spending a model call', async () => {
+  it('recovers synthesis writes from duplicate candidates before spending a model call', async () => {
     const relay = vi.fn();
+    const writtenSyntheses: TopicSynthesisV2[] = [];
     const existingCandidate = {
       candidate_id: 'news-bundle:existing',
       topic_id: 'topic-1',
       epoch: 0,
       critique_notes: [],
       facts_summary: 'Existing summary',
-      frames: [],
+      frames: [{ frame: 'Existing frame', reframe: 'Existing reframe' }],
       warnings: [],
       divergence_hints: [],
       provider: { provider_id: 'openai', model_id: 'gpt-4o-mini', kind: 'remote' },
@@ -179,16 +180,26 @@ describe('bundleSynthesisWorker', () => {
       client: {} as VennClient,
       readBundle: async () => BUNDLE,
       readCandidate: vi.fn(async () => existingCandidate),
+      writeSynthesis: vi.fn(async (_client, synthesis) => {
+        writtenSyntheses.push(synthesis);
+        return synthesis;
+      }),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
       relay,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
-    await expect(worker(CANDIDATE)).resolves.toEqual({
-      status: 'skipped',
+    await expect(worker(CANDIDATE)).resolves.toMatchObject({
+      status: 'written',
       storyId: 'story-1',
-      reason: 'duplicate_candidate',
+      latestStatus: 'written',
     });
     expect(relay).not.toHaveBeenCalled();
+    expect(writtenSyntheses).toHaveLength(1);
+    expect(writtenSyntheses[0]).toMatchObject({
+      facts_summary: 'Existing summary',
+      provenance: { candidate_ids: [expect.stringMatching(/^news-bundle:/)] },
+    });
   });
 
   it('scopes idempotency to the configured model', async () => {
@@ -217,6 +228,8 @@ describe('bundleSynthesisWorker', () => {
       model: 'gpt-4o-mini',
       readBundle: async () => BUNDLE,
       readCandidate,
+      writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
       relay: vi.fn(),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })(CANDIDATE);
@@ -225,6 +238,8 @@ describe('bundleSynthesisWorker', () => {
       model: 'gpt-5.2-mini',
       readBundle: async () => BUNDLE,
       readCandidate,
+      writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
       relay: vi.fn(),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     })(CANDIDATE);

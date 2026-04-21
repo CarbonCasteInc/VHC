@@ -31,7 +31,7 @@ const LATEST_OWNER_PREFIX = 'news-bundle:';
 
 export type BundleSynthesisWorkerResult =
   | { status: 'written'; storyId: string; synthesisId: string; latestStatus: 'written' | 'skipped' }
-  | { status: 'skipped'; storyId: string; reason: 'story_missing' | 'duplicate_candidate' | 'no_analysis_sources' }
+  | { status: 'skipped'; storyId: string; reason: 'story_missing' | 'no_analysis_sources' }
   | { status: 'rejected'; storyId: string; reason: 'relay_failed' | 'parse_failed' | 'source_count_mismatch' };
 
 export interface BundleSynthesisWorkerConfig {
@@ -150,6 +150,35 @@ function buildTopicSynthesisPayload(input: {
   };
 }
 
+async function writeAcceptedSynthesis(input: {
+  config: BundleSynthesisWorkerConfig;
+  bundle: StoryBundle;
+  candidateId: string;
+  synthesisId: string;
+  summary: string;
+  frames: CandidateSynthesis['frames'];
+  warnings: string[];
+  createdAt: number;
+  writeSynthesis: (client: VennClient, synthesis: TopicSynthesisV2) => Promise<TopicSynthesisV2>;
+  writeLatest: typeof writeTopicLatestSynthesisIfNotDowngrade;
+}): Promise<{ latestStatus: 'written' | 'skipped' }> {
+  const synthesisPayload = buildTopicSynthesisPayload({
+    synthesisId: input.synthesisId,
+    candidateId: input.candidateId,
+    bundle: input.bundle,
+    summary: input.summary,
+    frames: input.frames,
+    warnings: input.warnings,
+    now: input.createdAt,
+  });
+
+  await input.writeSynthesis(input.config.client, synthesisPayload);
+  const latestResult = await input.writeLatest(input.config.client, synthesisPayload, {
+    canOverwriteExisting: (existing) => existing.synthesis_id.startsWith(LATEST_OWNER_PREFIX),
+  });
+  return { latestStatus: latestResult.status };
+}
+
 export function createBundleSynthesisWorker(
   config: BundleSynthesisWorkerConfig,
 ): (candidate: NewsRuntimeSynthesisCandidate) => Promise<BundleSynthesisWorkerResult> {
@@ -186,11 +215,25 @@ export function createBundleSynthesisWorker(
     const synthesisId = `news-bundle:${normalizeIdToken(bundle.story_id)}:${fingerprint.slice(0, 16)}`;
     const existingCandidate = await readCandidate(config.client, bundle.topic_id, BUNDLE_SYNTHESIS_EPOCH, candidateId);
     if (existingCandidate) {
-      logger.info('[vh:bundle-synthesis] duplicate candidate; skipped model call', {
+      const { latestStatus } = await writeAcceptedSynthesis({
+        config,
+        bundle,
+        candidateId,
+        synthesisId,
+        summary: existingCandidate.facts_summary,
+        frames: existingCandidate.frames,
+        warnings: existingCandidate.warnings,
+        createdAt: existingCandidate.created_at,
+        writeSynthesis,
+        writeLatest,
+      });
+      logger.info('[vh:bundle-synthesis] duplicate candidate recovered synthesis; skipped model call', {
         story_id: storyId,
         candidate_id: candidateId,
+        synthesis_id: synthesisId,
+        latest_status: latestStatus,
       });
-      return { status: 'skipped', storyId, reason: 'duplicate_candidate' };
+      return { status: 'written', storyId, synthesisId, latestStatus };
     }
 
     let response: BundleSynthesisRelayResponse;
@@ -242,20 +285,18 @@ export function createBundleSynthesisWorker(
       model: response.model,
       now: createdAt,
     });
-    const synthesisPayload = buildTopicSynthesisPayload({
+    await writeCandidate(config.client, candidatePayload);
+    const { latestStatus } = await writeAcceptedSynthesis({
+      config,
+      bundle,
       synthesisId,
       candidateId,
-      bundle,
       summary: parsed.summary,
       frames,
       warnings,
-      now: createdAt,
-    });
-
-    await writeCandidate(config.client, candidatePayload);
-    await writeSynthesis(config.client, synthesisPayload);
-    const latestResult = await writeLatest(config.client, synthesisPayload, {
-      canOverwriteExisting: (existing) => existing.synthesis_id.startsWith(LATEST_OWNER_PREFIX),
+      createdAt,
+      writeSynthesis,
+      writeLatest,
     });
 
     logger.info('[vh:bundle-synthesis] synthesis written', {
@@ -263,14 +304,14 @@ export function createBundleSynthesisWorker(
       topic_id: bundle.topic_id,
       candidate_id: candidateId,
       synthesis_id: synthesisId,
-      latest_status: latestResult.status,
+      latest_status: latestStatus,
     });
 
     return {
       status: 'written',
       storyId,
       synthesisId,
-      latestStatus: latestResult.status,
+      latestStatus,
     };
   };
 }
