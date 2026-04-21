@@ -15,6 +15,18 @@ export interface NewsCardMediaAsset {
   readonly imageUrl: string;
 }
 
+export interface NewsCardSynthesisProvenance {
+  readonly generatedAt: string;
+  readonly synthesisId: string;
+  readonly epoch: number;
+  readonly candidateIds: ReadonlyArray<string>;
+  readonly providerMix: ReadonlyArray<{
+    readonly provider_id: string;
+    readonly count: number;
+  }>;
+  readonly warnings: ReadonlyArray<string>;
+}
+
 export interface NewsCardBackProps {
   readonly headline: string;
   readonly topicId: string;
@@ -53,6 +65,7 @@ export interface NewsCardBackProps {
   readonly analysis: NewsCardAnalysisSynthesis | null;
   readonly analysisId?: string | null;
   readonly synthesisId?: string | null;
+  readonly synthesisProvenance?: NewsCardSynthesisProvenance | null;
   readonly epoch?: number;
   readonly sourceViewer?: {
     readonly publisher: string;
@@ -98,6 +111,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   analysis,
   analysisId,
   synthesisId,
+  synthesisProvenance = null,
   epoch,
   sourceViewer,
   discussionThread,
@@ -143,6 +157,35 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             >
               {summaryBasisLabel}
             </p>
+          )}
+          {synthesisProvenance && (
+            <div
+              className="space-y-1 rounded-lg border border-slate-200/80 bg-white/75 px-3 py-2 text-[11px] leading-5 text-slate-500 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300"
+              data-testid={`news-card-synthesis-provenance-${topicId}`}
+            >
+              <p>
+                Generated {synthesisProvenance.generatedAt} · epoch {synthesisProvenance.epoch}
+              </p>
+              <p className="break-all">
+                Synthesis {synthesisProvenance.synthesisId} · candidates {synthesisProvenance.candidateIds.length}
+              </p>
+              <p>
+                Providers{' '}
+                {synthesisProvenance.providerMix
+                  .map((provider) => `${provider.provider_id} x${provider.count}`)
+                  .join(', ')}
+              </p>
+            </div>
+          )}
+          {synthesisProvenance && synthesisProvenance.warnings.length > 0 && (
+            <div
+              className="space-y-1 rounded-lg border border-amber-200/80 bg-amber-50/80 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-100"
+              data-testid={`news-card-synthesis-warnings-${topicId}`}
+            >
+              {synthesisProvenance.warnings.map((warning) => (
+                <p key={warning}>{warning}</p>
+              ))}
+            </div>
           )}
           <p className="text-sm leading-7 text-slate-700 dark:text-slate-200" data-testid={`news-card-summary-${topicId}`}>
             {summary}

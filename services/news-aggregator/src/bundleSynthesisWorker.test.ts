@@ -191,6 +191,48 @@ describe('bundleSynthesisWorker', () => {
     expect(relay).not.toHaveBeenCalled();
   });
 
+  it('scopes idempotency to the configured model', async () => {
+    const candidateIds: string[] = [];
+    const existingCandidate = {
+      candidate_id: 'news-bundle:existing',
+      topic_id: 'topic-1',
+      epoch: 0,
+      critique_notes: [],
+      facts_summary: 'Existing summary',
+      frames: [],
+      warnings: [],
+      divergence_hints: [],
+      provider: { provider_id: 'openai', model_id: 'gpt-4o-mini', kind: 'remote' },
+      created_at: 1700000003000,
+    } satisfies CandidateSynthesis;
+    const readCandidate = vi.fn(
+      async (_client: VennClient, _topicId: string, _epoch: number, candidateId: string) => {
+        candidateIds.push(candidateId);
+        return existingCandidate;
+      },
+    );
+
+    await createBundleSynthesisWorker({
+      client: {} as VennClient,
+      model: 'gpt-4o-mini',
+      readBundle: async () => BUNDLE,
+      readCandidate,
+      relay: vi.fn(),
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })(CANDIDATE);
+    await createBundleSynthesisWorker({
+      client: {} as VennClient,
+      model: 'gpt-5.2-mini',
+      readBundle: async () => BUNDLE,
+      readCandidate,
+      relay: vi.fn(),
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    })(CANDIDATE);
+
+    expect(candidateIds).toHaveLength(2);
+    expect(candidateIds[0]).not.toBe(candidateIds[1]);
+  });
+
   it('rejects generated output that widens analysis source count', async () => {
     const worker = createBundleSynthesisWorker({
       client: {} as VennClient,

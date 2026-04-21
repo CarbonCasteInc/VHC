@@ -346,6 +346,16 @@ describe('NewsCard', () => {
     expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent(
       'Topic synthesis v2',
     );
+    expect(screen.getByTestId('news-card-synthesis-provenance-news-1')).toHaveTextContent(
+      'Generated 2023-11-14T22:13:20.000Z · epoch 2',
+    );
+    expect(screen.getByTestId('news-card-synthesis-provenance-news-1')).toHaveTextContent(
+      'Synthesis syn-1 · candidates 3',
+    );
+    expect(screen.getByTestId('news-card-synthesis-provenance-news-1')).toHaveTextContent(
+      'Providers remote-analysis x3',
+    );
+    expect(screen.queryByTestId('news-card-synthesis-warnings-news-1')).not.toBeInTheDocument();
     expect(screen.queryByText('Pipeline synthesis summary from analyzed sources.')).not.toBeInTheDocument();
     expect(screen.queryByTestId('news-card-analysis-provider-news-1')).not.toBeInTheDocument();
     expect(
@@ -354,6 +364,19 @@ describe('NewsCard', () => {
     expect(screen.getByText('Public investment is overdue')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('news-card-back-button-news-1'));
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
+    expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
+  });
+  it('renders accepted synthesis warnings as provenance callouts', async () => {
+    vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore
+      .getState()
+      .setTopicSynthesis('news-1', makeSynthesis({ warnings: ['related_links_excluded_from_analysis'] }));
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+    expect(await screen.findByTestId('news-card-synthesis-warnings-news-1')).toHaveTextContent(
+      'related_links_excluded_from_analysis',
+    );
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 

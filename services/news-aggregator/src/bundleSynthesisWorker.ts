@@ -69,9 +69,10 @@ function resolveAnalysisSources(bundle: StoryBundle): StoryBundle['sources'] {
   return bundle.primary_sources ?? bundle.sources;
 }
 
-function buildBundleFingerprint(bundle: StoryBundle, pipelineVersion: string): string {
+function buildBundleFingerprint(bundle: StoryBundle, pipelineVersion: string, model: string): string {
   return digest({
     pipelineVersion,
+    model_id: model,
     story_id: bundle.story_id,
     topic_id: bundle.topic_id,
     provenance_hash: bundle.provenance_hash,
@@ -180,7 +181,7 @@ export function createBundleSynthesisWorker(
       return { status: 'skipped', storyId, reason: 'no_analysis_sources' };
     }
 
-    const fingerprint = buildBundleFingerprint(bundle, pipelineVersion);
+    const fingerprint = buildBundleFingerprint(bundle, pipelineVersion, model);
     const candidateId = `news-bundle:${fingerprint.slice(0, 32)}`;
     const synthesisId = `news-bundle:${normalizeIdToken(bundle.story_id)}:${fingerprint.slice(0, 16)}`;
     const existingCandidate = await readCandidate(config.client, bundle.topic_id, BUNDLE_SYNTHESIS_EPOCH, candidateId);

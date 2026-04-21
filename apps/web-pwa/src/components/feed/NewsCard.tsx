@@ -105,6 +105,16 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
   const synthesisId = synthesis?.synthesis_id ?? null;
   const synthesisEpoch = synthesis?.epoch;
+  const synthesisProvenance = synthesis
+    ? {
+        generatedAt: formatIsoTimestamp(synthesis.created_at),
+        synthesisId: synthesis.synthesis_id,
+        epoch: synthesis.epoch,
+        candidateIds: synthesis.provenance.candidate_ids,
+        providerMix: synthesis.provenance.provider_mix,
+        warnings: synthesis.warnings,
+      }
+    : null;
   const synthesisSummary = synthesis?.facts_summary?.trim() ?? '';
   const hasSynthesisSummary = synthesisSummary.length > 0;
   const rawSummary =
@@ -270,6 +280,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               analysis={null}
               analysisId={null}
               synthesisId={synthesisId}
+              synthesisProvenance={synthesisProvenance}
               epoch={synthesisEpoch}
               sourceViewer={singletonVideoSource}
               discussionThread={discussionThread}
