@@ -311,7 +311,12 @@ type RelatedLink = {
 };
 ```
 
-The split exists in schema/service work but must be plumbed through bundle publication, feed store hydration, and `NewsCardBack` rendering with the discriminator preserved.
+The split exists in schema/service work, feed hydration, and `NewsCardBack`
+rendering. PR #528 preserves the analysis boundary for bundle synthesis by using
+`primary_sources` when present and excluding `related_links` from prompt input.
+The remaining source-split implementation gap is ledger-driven enrichment in
+the generic bundle publication path, so bundled stories reliably publish
+`primary_sources` and `related_links` with the discriminator preserved.
 
 ### Point stance intent
 
