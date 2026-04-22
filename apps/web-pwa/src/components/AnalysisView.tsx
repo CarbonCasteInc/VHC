@@ -55,9 +55,9 @@ function PerspectiveRow({
   const setAgreement = useSentimentState((s) => s.setAgreement);
   const { proof, error: proofError } = useConstituencyProof();
   const { identity } = useIdentity();
-  const canVote = Boolean(identity) && proof !== null;
+  const canVote = Boolean(identity) && proof != null;
   const blockedReason: 'identity' | 'proof' =
-    !identity || proofError?.includes('Identity nullifier unavailable')
+    !identity || proofError?.includes('Identity unavailable')
       ? 'identity'
       : 'proof';
   const { aggregate: frameAggregate } = usePointAggregate({
@@ -86,7 +86,7 @@ function PerspectiveRow({
       epoch: 0,
       analysisId: itemId,
       desired,
-      constituency_proof: proof ?? undefined,
+      constituency_proof: proof!,
     });
   };
 
@@ -263,8 +263,8 @@ export const AnalysisView: React.FC<AnalysisViewProps> = ({ item }) => {
           {warn && (
             <span className="inline-flex items-center rounded-full bg-amber-100 px-3 py-1 text-[11px] font-semibold text-amber-800 shadow-sm animate-pulse">
               {warnReason === 'proof'
-                ? 'Proof verification required to cast votes'
-                : 'Create an account to cast votes'}
+                ? 'Beta-local identity proof required to save stance'
+                : 'Create or sign in to save stance'}
             </span>
           )}
         </div>

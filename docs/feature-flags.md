@@ -20,6 +20,9 @@ This document defines compile-time flags used by the web PWA for FPD rollout.
   - **MVP beta note:** A Web PWA beta may run with `false` only if product copy
     explicitly uses beta-local identity/proof language and avoids verified-human,
     one-human-one-vote, district-proof, and Sybil-resistance claims.
+  - **Runtime copy contract:** stance UI must follow `useConstituencyProof()`
+    assurance metadata. Current accepted proofs are `beta_local`; this supports
+    point-level stance persistence but not production proof claims.
 
 - **`VITE_E2E_MODE`**
   - **Default:** `false`
