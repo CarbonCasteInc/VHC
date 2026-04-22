@@ -139,7 +139,16 @@ export function createDiscoveryStore(
     },
 
     setPersonalization(config: FeedPersonalizationConfig) {
-      set({ personalization: config });
+      set({
+        personalization: {
+          ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+          ...config,
+          preferredCategories: [...(config.preferredCategories ?? [])],
+          preferredTopics: [...(config.preferredTopics ?? [])],
+          mutedCategories: [...(config.mutedCategories ?? [])],
+          mutedTopics: [...(config.mutedTopics ?? [])],
+        },
+      });
     },
 
     setLoading(loading: boolean) {

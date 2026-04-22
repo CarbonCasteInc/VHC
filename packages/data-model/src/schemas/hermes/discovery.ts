@@ -68,12 +68,18 @@ export type FeedItem = z.infer<typeof FeedItemSchema>;
 
 export const FeedPersonalizationConfigSchema = z.object({
   preferredCategories: z.array(z.string().min(1)),
+  preferredTopics: z.array(z.string().min(1)),
+  mutedCategories: z.array(z.string().min(1)),
+  mutedTopics: z.array(z.string().min(1)),
 });
 
 export type FeedPersonalizationConfig = z.infer<typeof FeedPersonalizationConfigSchema>;
 
 export const DEFAULT_FEED_PERSONALIZATION_CONFIG: FeedPersonalizationConfig = {
   preferredCategories: [],
+  preferredTopics: [],
+  mutedCategories: [],
+  mutedTopics: [],
 };
 
 // ---------- Ranking config ----------
@@ -92,6 +98,10 @@ export const DEFAULT_HOTTEST_DIVERSIFICATION = {
   storylineCap: 2,
   adjacentEntityOverlapPenalty: 0.35,
 } as const;
+export const DEFAULT_PERSONALIZATION_WEIGHTS = {
+  preferredCategoryBoost: 0.25,
+  preferredTopicBoost: 0.35,
+} as const;
 
 export const HotnessWeightsSchema = z.object({
   eye: z.number().finite().nonnegative(),
@@ -108,11 +118,17 @@ export const HottestDiversificationSchema = z.object({
   adjacentEntityOverlapPenalty: z.number().finite().nonnegative(),
 });
 
+export const PersonalizationWeightsSchema = z.object({
+  preferredCategoryBoost: z.number().finite().nonnegative(),
+  preferredTopicBoost: z.number().finite().nonnegative(),
+});
+
 export const RankingConfigSchema = z.object({
   version: z.string().min(1).optional(),
   weights: HotnessWeightsSchema,
   decayHalfLifeHours: z.number().finite().positive(),
   hottestDiversification: HottestDiversificationSchema.optional(),
+  personalization: PersonalizationWeightsSchema.optional(),
 });
 
 export type RankingConfig = z.infer<typeof RankingConfigSchema>;
@@ -122,6 +138,7 @@ export const DEFAULT_RANKING_CONFIG: RankingConfig = {
   weights: { ...DEFAULT_HOTNESS_WEIGHTS },
   decayHalfLifeHours: DEFAULT_DECAY_HALF_LIFE_HOURS,
   hottestDiversification: { ...DEFAULT_HOTTEST_DIVERSIFICATION },
+  personalization: { ...DEFAULT_PERSONALIZATION_WEIGHTS },
 };
 
 // ---------- Filter-to-kind mapping ----------

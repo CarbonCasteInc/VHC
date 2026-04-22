@@ -7,7 +7,7 @@ import React from 'react';
 import { FeedShell } from './FeedShell';
 import { FEED_ORIENTATION_STORAGE_KEY } from './FeedShellChrome';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
-import type { FeedItem } from '@vh/data-model';
+import { DEFAULT_FEED_PERSONALIZATION_CONFIG, type FeedItem } from '@vh/data-model';
 import { resetExpandedCardStore } from './expandedCardStore';
 import { useDiscoveryStore } from '../../store/discovery';
 
@@ -76,9 +76,10 @@ function makeFeedResult(
     selectedStorylineId: null,
     filter: 'ALL',
     sortMode: 'LATEST',
-    personalization: { preferredCategories: [] },
+    personalization: { ...DEFAULT_FEED_PERSONALIZATION_CONFIG },
     loading: false,
     error: null,
+    setPersonalization: vi.fn(),
     setFilter: vi.fn(),
     focusStoryline: vi.fn(),
     clearStorylineFocus: vi.fn(),
@@ -173,6 +174,171 @@ describe('FeedShell', () => {
   it('renders SortControls component', () => {
     render(<FeedShell feedResult={makeFeedResult()} />);
     expect(screen.getByTestId('sort-controls')).toBeInTheDocument();
+  });
+
+  it('renders category feed tuning controls from discovered categories', () => {
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'energy', categories: ['Energy'] }),
+      makeFeedItem({ topic_id: 'policy', categories: ['Policy'] }),
+    ]);
+
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    expect(screen.getByTestId('feed-tuning-controls')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Prefer Energy' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Prefer Policy' })).toBeInTheDocument();
+  });
+
+  it('renders topic feed tuning controls from discovered entity keys', () => {
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'law', entity_keys: ['Election Law'] }),
+      makeFeedItem({ topic_id: 'border', entity_keys: ['Border Wall'] }),
+    ]);
+
+    render(<FeedShell feedResult={makeFeedResult()} />);
+
+    expect(screen.getByTestId('feed-topic-tuning')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow Election Law' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow Border Wall' })).toBeInTheDocument();
+  });
+
+  it('toggles preferred and muted category preferences from feed chrome', () => {
+    const setPersonalization = vi.fn();
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'energy', categories: ['Energy'] }),
+    ]);
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          personalization: { ...DEFAULT_FEED_PERSONALIZATION_CONFIG },
+          setPersonalization,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prefer Energy' }));
+    expect(setPersonalization).toHaveBeenCalledWith({
+      ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+      preferredCategories: ['Energy'],
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+    expect(setPersonalization).toHaveBeenLastCalledWith({
+      ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+      mutedCategories: ['Energy'],
+    });
+  });
+
+  it('toggles preferred and muted topic preferences from feed chrome', () => {
+    const setPersonalization = vi.fn();
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'law', entity_keys: ['Election Law'] }),
+    ]);
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          personalization: { ...DEFAULT_FEED_PERSONALIZATION_CONFIG },
+          setPersonalization,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Follow Election Law' }));
+    expect(setPersonalization).toHaveBeenCalledWith({
+      ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+      preferredTopics: ['Election Law'],
+    });
+
+    const topicControls = screen.getByTestId('feed-topic-tuning');
+    fireEvent.click(within(topicControls).getByRole('button', { name: 'Mute' }));
+    expect(setPersonalization).toHaveBeenLastCalledWith({
+      ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+      mutedTopics: ['Election Law'],
+    });
+  });
+
+  it('marks active preferred and muted category controls', () => {
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'energy', categories: ['Energy'] }),
+      makeFeedItem({ topic_id: 'sports', categories: ['Sports'] }),
+    ]);
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          personalization: {
+            ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+            preferredCategories: ['energy'],
+            mutedCategories: ['sports'],
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Prefer Energy' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getAllByRole('button', { name: 'Mute' })[1]).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('marks active preferred and muted topic controls', () => {
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'law', entity_keys: ['Election Law'] }),
+      makeFeedItem({ topic_id: 'wall', entity_keys: ['Border Wall'] }),
+    ]);
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          personalization: {
+            ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+            preferredTopics: ['election law'],
+            mutedTopics: ['border wall'],
+          },
+        })}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Follow Election Law' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    const topicControls = screen.getByTestId('feed-topic-tuning');
+    expect(within(topicControls).getAllByRole('button', { name: 'Mute' })[0]).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+  });
+
+  it('clears an active category preference when toggled again', () => {
+    const setPersonalization = vi.fn();
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'energy', categories: ['Energy'] }),
+    ]);
+
+    render(
+      <FeedShell
+        feedResult={makeFeedResult({
+          personalization: {
+            ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+            preferredCategories: ['energy'],
+          },
+          setPersonalization,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Prefer Energy' }));
+    expect(setPersonalization).toHaveBeenCalledWith({
+      ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+      preferredCategories: [],
+    });
   });
 
   // ---- Empty state ----

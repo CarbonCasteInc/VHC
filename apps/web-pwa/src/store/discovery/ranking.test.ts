@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { FeedItem, RankingConfig, SortMode } from '@vh/data-model';
-import { DEFAULT_RANKING_CONFIG } from '@vh/data-model';
+import type {
+  FeedItem,
+  FeedPersonalizationConfig,
+  RankingConfig,
+  SortMode,
+} from '@vh/data-model';
+import { DEFAULT_FEED_PERSONALIZATION_CONFIG, DEFAULT_RANKING_CONFIG } from '@vh/data-model';
 import {
   freshnessDecay,
   computeHotness,
@@ -30,6 +35,9 @@ function makeFeedItem(overrides: Partial<FeedItem> = {}): FeedItem {
 }
 
 const CONFIG: RankingConfig = { ...DEFAULT_RANKING_CONFIG };
+const EMPTY_PERSONALIZATION: FeedPersonalizationConfig = {
+  ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+};
 
 // ---- freshnessDecay ----
 
@@ -233,6 +241,171 @@ describe('sortItems', () => {
     const result = sortItems([low, high], 'HOTTEST', CONFIG, NOW);
     expect(result[0].topic_id).toBe('high');
     expect(result[1].topic_id).toBe('low');
+  });
+
+  it('HOTTEST preserves current ordering when personalization is empty', () => {
+    const low = makeFeedItem({ topic_id: 'low', hotness: 0.2, categories: ['Policy'] });
+    const high = makeFeedItem({ topic_id: 'high', hotness: 0.9, categories: ['Sports'] });
+
+    const defaultResult = sortItems([low, high], 'HOTTEST', CONFIG, NOW);
+    const personalizedResult = sortItems(
+      [low, high],
+      'HOTTEST',
+      CONFIG,
+      NOW,
+      EMPTY_PERSONALIZATION,
+    );
+
+    expect(personalizedResult.map((item) => item.topic_id)).toEqual(
+      defaultResult.map((item) => item.topic_id),
+    );
+  });
+
+  it('HOTTEST applies preferred category boosts before sorting', () => {
+    const preferred = makeFeedItem({
+      topic_id: 'policy',
+      hotness: 0.8,
+      categories: ['Policy'],
+    });
+    const unpreferred = makeFeedItem({
+      topic_id: 'sports',
+      hotness: 0.9,
+      categories: ['Sports'],
+    });
+
+    const result = sortItems([unpreferred, preferred], 'HOTTEST', CONFIG, NOW, {
+      ...EMPTY_PERSONALIZATION,
+      preferredCategories: ['policy'],
+    });
+
+    expect(result.map((item) => item.topic_id)).toEqual(['policy', 'sports']);
+  });
+
+  it('HOTTEST matches preferred category tokens across punctuation variants', () => {
+    const preferred = makeFeedItem({
+      topic_id: 'election-law',
+      hotness: 0.8,
+      categories: ['Election-Law'],
+    });
+    const unpreferred = makeFeedItem({
+      topic_id: 'sports',
+      hotness: 0.9,
+      categories: ['Sports'],
+    });
+
+    const result = sortItems([unpreferred, preferred], 'HOTTEST', CONFIG, NOW, {
+      ...EMPTY_PERSONALIZATION,
+      preferredCategories: ['election law'],
+    });
+
+    expect(result.map((item) => item.topic_id)).toEqual(['election-law', 'sports']);
+  });
+
+  it('HOTTEST applies preferred topic boosts from entity keys and identifiers', () => {
+    const preferredEntity = makeFeedItem({
+      topic_id: 'legal-update',
+      hotness: 0.8,
+      entity_keys: ['Election Law'],
+    });
+    const preferredStoryline = makeFeedItem({
+      topic_id: 'local-update',
+      storyline_id: 'big-bend-border',
+      hotness: 0.79,
+    });
+    const unpreferred = makeFeedItem({
+      topic_id: 'sports',
+      hotness: 0.9,
+      entity_keys: ['college sports'],
+    });
+
+    const result = sortItems(
+      [unpreferred, preferredStoryline, preferredEntity],
+      'HOTTEST',
+      CONFIG,
+      NOW,
+      {
+        ...EMPTY_PERSONALIZATION,
+        preferredTopics: ['election-law', 'big bend border'],
+      },
+    );
+
+    expect(result.map((item) => item.topic_id)).toEqual([
+      'legal-update',
+      'local-update',
+      'sports',
+    ]);
+  });
+
+  it('HOTTEST stacks preferred category and topic boosts with config-driven weights', () => {
+    const customConfig: RankingConfig = {
+      ...CONFIG,
+      personalization: {
+        preferredCategoryBoost: 0.1,
+        preferredTopicBoost: 0.2,
+      },
+    };
+    const doubleMatch = makeFeedItem({
+      topic_id: 'double',
+      hotness: 0.62,
+      categories: ['Policy'],
+      entity_keys: ['Election Law'],
+    });
+    const categoryOnly = makeFeedItem({
+      topic_id: 'category',
+      hotness: 0.7,
+      categories: ['Policy'],
+      entity_keys: ['budget'],
+    });
+    const unpreferred = makeFeedItem({
+      topic_id: 'baseline',
+      hotness: 0.9,
+      categories: ['Sports'],
+      entity_keys: ['college sports'],
+    });
+
+    const result = sortItems(
+      [unpreferred, categoryOnly, doubleMatch],
+      'HOTTEST',
+      customConfig,
+      NOW,
+      {
+        ...EMPTY_PERSONALIZATION,
+        preferredCategories: ['policy'],
+        preferredTopics: ['election law'],
+      },
+    );
+
+    expect(result.map((item) => item.topic_id)).toEqual([
+      'double',
+      'baseline',
+      'category',
+    ]);
+  });
+
+  it('HOTTEST falls back to default preference weights when ranking config omits them', () => {
+    const configWithoutPreferenceWeights: RankingConfig = {
+      version: 'ranking-no-personalization-weights',
+      weights: CONFIG.weights,
+      decayHalfLifeHours: CONFIG.decayHalfLifeHours,
+      hottestDiversification: CONFIG.hottestDiversification,
+    };
+    const preferred = makeFeedItem({
+      topic_id: 'policy',
+      hotness: 0.8,
+      categories: ['Policy'],
+    });
+    const unpreferred = makeFeedItem({
+      topic_id: 'sports',
+      hotness: 0.9,
+      categories: ['Sports'],
+    });
+
+    const result = sortItems([unpreferred, preferred], 'HOTTEST', configWithoutPreferenceWeights, NOW, {
+      ...EMPTY_PERSONALIZATION,
+      preferredCategories: ['policy'],
+    });
+
+    expect(result.map((item) => item.topic_id)).toEqual(['policy', 'sports']);
   });
 
   it('HOTTEST uses topic_id as stable tiebreaker', () => {
@@ -605,6 +778,79 @@ describe('composeFeed', () => {
     expect(a.map((i) => i.topic_id)).toEqual(b.map((i) => i.topic_id));
   });
 
+  it('filters muted categories before sorting', () => {
+    const result = composeFeed(
+      [
+        makeFeedItem({ topic_id: 'policy', latest_activity_at: NOW, categories: ['Policy'] }),
+        makeFeedItem({ topic_id: 'sports', latest_activity_at: NOW + HOUR_MS, categories: ['Sports'] }),
+      ],
+      'ALL',
+      'LATEST',
+      CONFIG,
+      NOW,
+      null,
+      {
+        ...EMPTY_PERSONALIZATION,
+        mutedCategories: ['sports'],
+      },
+    );
+
+    expect(result.map((item) => item.topic_id)).toEqual(['policy']);
+  });
+
+  it('filters muted topics using topic, storyline, and entity keys', () => {
+    const result = composeFeed(
+      [
+        makeFeedItem({ topic_id: 'topic-muted', latest_activity_at: NOW }),
+        makeFeedItem({ topic_id: 'storyline-muted', storyline_id: 'line-one', latest_activity_at: NOW }),
+        makeFeedItem({ topic_id: 'entity-muted', entity_keys: ['Election Law'], latest_activity_at: NOW }),
+        makeFeedItem({ topic_id: 'kept', entity_keys: ['Energy Grid'], latest_activity_at: NOW }),
+      ],
+      'ALL',
+      'LATEST',
+      CONFIG,
+      NOW,
+      null,
+      {
+        ...EMPTY_PERSONALIZATION,
+        mutedTopics: ['topic muted', 'line-one', 'election-law'],
+      },
+    );
+
+    expect(result.map((item) => item.topic_id)).toEqual(['kept']);
+  });
+
+  it('keeps LATEST chronological while applying mutes, not preference boosts', () => {
+    const olderPreferred = makeFeedItem({
+      topic_id: 'older-preferred',
+      latest_activity_at: NOW - HOUR_MS,
+      categories: ['Policy'],
+    });
+    const newerUnpreferred = makeFeedItem({
+      topic_id: 'newer-unpreferred',
+      latest_activity_at: NOW,
+      categories: ['Sports'],
+    });
+
+    const result = composeFeed(
+      [olderPreferred, newerUnpreferred],
+      'ALL',
+      'LATEST',
+      CONFIG,
+      NOW,
+      null,
+      {
+        ...EMPTY_PERSONALIZATION,
+        preferredCategories: ['policy'],
+      },
+    );
+
+    expect(result.map((item) => item.topic_id)).toEqual([
+      'newer-unpreferred',
+      'older-preferred',
+    ]);
+  });
+
   it('MY_ACTIVITY filter + sort combined', () => {
     const scored = [
       makeFeedItem({
@@ -627,5 +873,75 @@ describe('composeFeed', () => {
     expect(result).toHaveLength(2);
     expect(result[0].topic_id).toBe('n2');
     expect(result[1].topic_id).toBe('n1');
+  });
+
+  it('keeps MY_ACTIVITY score-led while applying mutes, not preference boosts', () => {
+    const highActivity = makeFeedItem({
+      topic_id: 'high-activity',
+      categories: ['Sports'],
+      my_activity_score: 10,
+    });
+    const preferredLowerActivity = makeFeedItem({
+      topic_id: 'preferred-lower-activity',
+      categories: ['Policy'],
+      my_activity_score: 3,
+    });
+    const mutedHighestActivity = makeFeedItem({
+      topic_id: 'muted-highest-activity',
+      categories: ['Noise'],
+      my_activity_score: 20,
+    });
+
+    const result = composeFeed(
+      [preferredLowerActivity, mutedHighestActivity, highActivity],
+      'ALL',
+      'MY_ACTIVITY',
+      CONFIG,
+      NOW,
+      null,
+      {
+        ...EMPTY_PERSONALIZATION,
+        preferredCategories: ['policy'],
+        mutedCategories: ['noise'],
+      },
+    );
+
+    expect(result.map((item) => item.topic_id)).toEqual([
+      'high-activity',
+      'preferred-lower-activity',
+    ]);
+  });
+
+  it('applies mutes before storyline focus', () => {
+    const result = composeFeed(
+      [
+        makeFeedItem({
+          topic_id: 'focused-muted',
+          storyline_id: 'line-1',
+          categories: ['Noise'],
+        }),
+        makeFeedItem({
+          topic_id: 'focused-kept',
+          storyline_id: 'line-1',
+          categories: ['Policy'],
+        }),
+        makeFeedItem({
+          topic_id: 'other-line',
+          storyline_id: 'line-2',
+          categories: ['Policy'],
+        }),
+      ],
+      'ALL',
+      'HOTTEST',
+      CONFIG,
+      NOW,
+      'line-1',
+      {
+        ...EMPTY_PERSONALIZATION,
+        mutedCategories: ['noise'],
+      },
+    );
+
+    expect(result.map((item) => item.topic_id)).toEqual(['focused-kept']);
   });
 });

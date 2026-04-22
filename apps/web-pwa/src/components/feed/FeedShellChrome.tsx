@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import type { FilterChip, SortMode } from '@vh/data-model';
+import type { FeedPersonalizationConfig, FilterChip, SortMode } from '@vh/data-model';
 import { safeGetItem, safeSetItem } from '../../utils/safeStorage';
 import { FilterChips } from './FilterChips';
 import { SortControls } from './SortControls';
@@ -23,6 +23,9 @@ const SORT_LABELS: Record<SortMode, string> = {
 interface FeedShellChromeProps {
   readonly filter: FilterChip;
   readonly sortMode: SortMode;
+  readonly personalization: FeedPersonalizationConfig;
+  readonly availableCategories: ReadonlyArray<string>;
+  readonly availableTopics: ReadonlyArray<string>;
   readonly selectedStorylineId: string | null;
   readonly totalItems: number;
   readonly newsCount: number;
@@ -32,13 +35,29 @@ interface FeedShellChromeProps {
   readonly hasDeferredUpdates: boolean;
   onFilterSelect: (filter: FilterChip) => void;
   onSortSelect: (mode: SortMode) => void;
+  onPreferredCategoryToggle: (category: string) => void;
+  onMutedCategoryToggle: (category: string) => void;
+  onPreferredTopicToggle: (topic: string) => void;
+  onMutedTopicToggle: (topic: string) => void;
   onRefresh: () => void;
   onApplyDeferredFeed: () => void;
+}
+
+function normalizePreference(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function includesPreference(values: ReadonlyArray<string>, value: string): boolean {
+  const target = normalizePreference(value);
+  return values.some((entry) => normalizePreference(entry) === target);
 }
 
 export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
   filter,
   sortMode,
+  personalization,
+  availableCategories,
+  availableTopics,
   selectedStorylineId,
   totalItems,
   newsCount,
@@ -48,6 +67,10 @@ export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
   hasDeferredUpdates,
   onFilterSelect,
   onSortSelect,
+  onPreferredCategoryToggle,
+  onMutedCategoryToggle,
+  onPreferredTopicToggle,
+  onMutedTopicToggle,
   onRefresh,
   onApplyDeferredFeed,
 }) => {
@@ -151,6 +174,102 @@ export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
               </button>
             </div>
           </div>
+          {(availableCategories.length > 0 || availableTopics.length > 0) && (
+            <div
+              className="mt-2 border-t border-slate-200/70 pt-2 dark:border-slate-800"
+              data-testid="feed-tuning-controls"
+            >
+              <div className="mb-1 flex flex-wrap items-center gap-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
+                  Tune feed
+                </p>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                  Preference boosts affect Hottest; muted categories and topics are hidden.
+                </p>
+              </div>
+              {availableCategories.length > 0 && (
+                <div className="mb-1 flex flex-wrap gap-1.5" data-testid="feed-category-tuning">
+                  {availableCategories.map((category) => {
+                    const preferred = includesPreference(
+                      personalization.preferredCategories,
+                      category,
+                    );
+                    const muted = includesPreference(personalization.mutedCategories, category);
+                    return (
+                      <div
+                        key={category}
+                        className="inline-flex overflow-hidden rounded-full border border-slate-200/80 bg-white/85 text-[10px] font-semibold uppercase tracking-[0.12em] shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={preferred}
+                          className={`px-2 py-1 transition ${
+                            preferred
+                              ? 'bg-emerald-700 text-white dark:bg-emerald-400 dark:text-emerald-950'
+                              : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-800 dark:text-slate-300 dark:hover:bg-emerald-950/50 dark:hover:text-emerald-100'
+                          }`}
+                          onClick={() => onPreferredCategoryToggle(category)}
+                        >
+                          Prefer {category}
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={muted}
+                          className={`border-l border-slate-200/80 px-2 py-1 transition dark:border-slate-700 ${
+                            muted
+                              ? 'bg-rose-700 text-white dark:bg-rose-400 dark:text-rose-950'
+                              : 'text-slate-600 hover:bg-rose-50 hover:text-rose-800 dark:text-slate-300 dark:hover:bg-rose-950/50 dark:hover:text-rose-100'
+                          }`}
+                          onClick={() => onMutedCategoryToggle(category)}
+                        >
+                          Mute
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {availableTopics.length > 0 && (
+                <div className="flex flex-wrap gap-1.5" data-testid="feed-topic-tuning">
+                  {availableTopics.map((topic) => {
+                    const preferred = includesPreference(personalization.preferredTopics, topic);
+                    const muted = includesPreference(personalization.mutedTopics, topic);
+                    return (
+                      <div
+                        key={topic}
+                        className="inline-flex overflow-hidden rounded-full border border-slate-200/80 bg-white/85 text-[10px] font-semibold uppercase tracking-[0.12em] shadow-sm dark:border-slate-700 dark:bg-slate-900/80"
+                      >
+                        <button
+                          type="button"
+                          aria-pressed={preferred}
+                          className={`px-2 py-1 transition ${
+                            preferred
+                              ? 'bg-emerald-700 text-white dark:bg-emerald-400 dark:text-emerald-950'
+                              : 'text-slate-600 hover:bg-emerald-50 hover:text-emerald-800 dark:text-slate-300 dark:hover:bg-emerald-950/50 dark:hover:text-emerald-100'
+                          }`}
+                          onClick={() => onPreferredTopicToggle(topic)}
+                        >
+                          Follow {topic}
+                        </button>
+                        <button
+                          type="button"
+                          aria-pressed={muted}
+                          className={`border-l border-slate-200/80 px-2 py-1 transition dark:border-slate-700 ${
+                            muted
+                              ? 'bg-rose-700 text-white dark:bg-rose-400 dark:text-rose-950'
+                              : 'text-slate-600 hover:bg-rose-50 hover:text-rose-800 dark:text-slate-300 dark:hover:bg-rose-950/50 dark:hover:text-rose-100'
+                          }`}
+                          onClick={() => onMutedTopicToggle(topic)}
+                        >
+                          Mute
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

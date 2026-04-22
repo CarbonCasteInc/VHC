@@ -32,10 +32,12 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const {
     feed,
     selectedStorylineId,
+    personalization,
     filter,
     sortMode,
     loading,
     error,
+    setPersonalization,
     setFilter,
     focusStoryline,
     clearStorylineFocus,
@@ -96,6 +98,89 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
           ).length
         : 0,
     [discoveryItems, selectedStorylineId],
+  );
+  const availableCategories = useMemo(() => {
+    const categories = new Set<string>();
+    for (const item of discoveryItems) {
+      for (const category of item.categories ?? []) {
+        const normalized = category.trim();
+        if (normalized) {
+          categories.add(normalized);
+        }
+      }
+    }
+    return [...categories].sort((left, right) => left.localeCompare(right)).slice(0, 8);
+  }, [discoveryItems]);
+  const availableTopics = useMemo(() => {
+    const topics = new Set<string>();
+    for (const item of discoveryItems) {
+      for (const entityKey of item.entity_keys ?? []) {
+        const normalized = entityKey.trim();
+        if (normalized) {
+          topics.add(normalized);
+        }
+      }
+    }
+    return [...topics].sort((left, right) => left.localeCompare(right)).slice(0, 8);
+  }, [discoveryItems]);
+
+  const toggleListValue = useCallback((values: ReadonlyArray<string>, value: string): string[] => {
+    const normalized = value.trim();
+    const target = normalized.toLowerCase();
+    const withoutValue = values.filter((entry) => entry.trim().toLowerCase() !== target);
+    if (withoutValue.length !== values.length) {
+      return withoutValue;
+    }
+    return [...values, normalized];
+  }, []);
+
+  const removeListValue = useCallback((values: ReadonlyArray<string>, value: string): string[] => {
+    const target = value.trim().toLowerCase();
+    return values.filter((entry) => entry.trim().toLowerCase() !== target);
+  }, []);
+
+  const handlePreferredCategoryToggle = useCallback(
+    (category: string) => {
+      setPersonalization({
+        ...personalization,
+        preferredCategories: toggleListValue(personalization.preferredCategories, category),
+        mutedCategories: removeListValue(personalization.mutedCategories, category),
+      });
+    },
+    [personalization, removeListValue, setPersonalization, toggleListValue],
+  );
+
+  const handleMutedCategoryToggle = useCallback(
+    (category: string) => {
+      setPersonalization({
+        ...personalization,
+        preferredCategories: removeListValue(personalization.preferredCategories, category),
+        mutedCategories: toggleListValue(personalization.mutedCategories, category),
+      });
+    },
+    [personalization, removeListValue, setPersonalization, toggleListValue],
+  );
+
+  const handlePreferredTopicToggle = useCallback(
+    (topic: string) => {
+      setPersonalization({
+        ...personalization,
+        preferredTopics: toggleListValue(personalization.preferredTopics, topic),
+        mutedTopics: removeListValue(personalization.mutedTopics, topic),
+      });
+    },
+    [personalization, removeListValue, setPersonalization, toggleListValue],
+  );
+
+  const handleMutedTopicToggle = useCallback(
+    (topic: string) => {
+      setPersonalization({
+        ...personalization,
+        preferredTopics: removeListValue(personalization.preferredTopics, topic),
+        mutedTopics: toggleListValue(personalization.mutedTopics, topic),
+      });
+    },
+    [personalization, removeListValue, setPersonalization, toggleListValue],
   );
 
   const applyDeferredFeed = useCallback(
@@ -222,6 +307,9 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
       <FeedShellChrome
         filter={filter}
         sortMode={sortMode}
+        personalization={personalization}
+        availableCategories={availableCategories}
+        availableTopics={availableTopics}
         selectedStorylineId={selectedStorylineId}
         totalItems={totalItems}
         newsCount={newsCount}
@@ -231,6 +319,10 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
         hasDeferredUpdates={hasDeferredUpdates}
         onFilterSelect={setFilter}
         onSortSelect={setSortMode}
+        onPreferredCategoryToggle={handlePreferredCategoryToggle}
+        onMutedCategoryToggle={handleMutedCategoryToggle}
+        onPreferredTopicToggle={handlePreferredTopicToggle}
+        onMutedTopicToggle={handleMutedTopicToggle}
         onRefresh={() => void handleRefresh()}
         onApplyDeferredFeed={() => applyDeferredFeed(true)}
       />
