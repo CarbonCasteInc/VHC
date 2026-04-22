@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { VoteAdmissionReceipt } from '@vh/data-model';
 import { CellVoteControls } from './CellVoteControls';
 import { useSentimentState } from '../../hooks/useSentimentState';
 
@@ -24,6 +25,19 @@ const BASE_PROPS = {
   analysisId: 'story-1:prov-1',
 };
 
+function deniedReceipt(reason?: string): VoteAdmissionReceipt {
+  const receipt: VoteAdmissionReceipt = {
+    receipt_id: 'test-denial',
+    accepted: false,
+    topic_id: BASE_PROPS.topicId,
+    synthesis_id: BASE_PROPS.synthesisId,
+    epoch: BASE_PROPS.epoch,
+    point_id: BASE_PROPS.pointId,
+    admitted_at: 0,
+  };
+  return reason ? { ...receipt, reason } : receipt;
+}
+
 function seedValidProof(): void {
   useConstituencyProofMock.mockReturnValue({
     proof: {
@@ -32,6 +46,10 @@ function seedValidProof(): void {
       merkle_root: 'root-1',
     },
     error: null,
+    assurance: 'beta_local',
+    canClaimVerifiedHuman: false,
+    canClaimDistrictProof: false,
+    canClaimSybilResistance: false,
   });
 }
 
@@ -41,7 +59,7 @@ function invokeReactClick(element: HTMLElement): void {
     throw new Error('React props key not found on rendered button');
   }
   const reactProps = (element as unknown as Record<string, { onClick?: () => void }>)[reactPropsKey];
-  reactProps.onClick?.();
+  reactProps?.onClick?.();
 }
 
 describe('CellVoteControls', () => {
@@ -75,6 +93,15 @@ describe('CellVoteControls', () => {
     render(<CellVoteControls {...BASE_PROPS} />);
     expect(screen.getByTestId('cell-vote-agree-point-abc')).toBeInTheDocument();
     expect(screen.getByTestId('cell-vote-disagree-point-abc')).toBeInTheDocument();
+  });
+
+  it('labels accepted deterministic proof as beta-local stance assurance', () => {
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    expect(screen.getByTestId('cell-vote-assurance-point-abc')).toHaveTextContent(
+      'Beta-local stance',
+    );
+    expect(screen.queryByText(/verified proof/i)).not.toBeInTheDocument();
   });
 
   it('click agree calls setAgreement with synthesis_id + epoch context', () => {
@@ -126,10 +153,9 @@ describe('CellVoteControls', () => {
   });
 
   it('budget exceeded shows "Daily vote limit reached"', () => {
-    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue({
-      denied: true,
-      reason: 'Daily limit reached for sentiment_votes/day',
-    });
+    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue(
+      deniedReceipt('Daily limit reached for sentiment_votes/day'),
+    );
 
     render(<CellVoteControls {...BASE_PROPS} />);
     fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
@@ -142,22 +168,25 @@ describe('CellVoteControls', () => {
   it('missing proof shows proof warning and sign-in denial text on vote', () => {
     useConstituencyProofMock.mockReturnValue({
       proof: null,
-      error: 'Mock constituency proof detected; voting requires a verified proof source',
+      error: 'Mock proof detected; beta-local identity required to save stance',
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
     });
-    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue({
-      denied: true,
-      reason: 'Missing constituency proof',
-    });
+    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue(
+      deniedReceipt('Missing constituency proof'),
+    );
 
     render(<CellVoteControls {...BASE_PROPS} />);
 
     expect(screen.getByTestId('cell-vote-unweighted-point-abc')).toHaveTextContent(
-      'Mock constituency proof detected; voting requires a verified proof source',
+      'Mock proof detected; beta-local identity required to save stance',
     );
 
     fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
     expect(screen.getByTestId('cell-vote-denial-point-abc')).toHaveTextContent(
-      'Sign in to make your vote count',
+      'Create or sign in to save your stance',
     );
   });
 
@@ -165,24 +194,41 @@ describe('CellVoteControls', () => {
     useConstituencyProofMock.mockReturnValue({
       proof: null,
       error: null,
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
     });
 
     render(<CellVoteControls {...BASE_PROPS} />);
 
     expect(screen.getByTestId('cell-vote-unweighted-point-abc')).toHaveTextContent(
-      'Voting requires verified proof',
+      'Create or sign in to save your stance',
+    );
+  });
+
+  it('treats undefined proof as unavailable proof for display safety', () => {
+    useConstituencyProofMock.mockReturnValue({
+      proof: undefined,
+      error: null,
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
+    });
+
+    render(<CellVoteControls {...BASE_PROPS} />);
+
+    expect(screen.queryByTestId('cell-vote-assurance-point-abc')).not.toBeInTheDocument();
+    expect(screen.getByTestId('cell-vote-unweighted-point-abc')).toHaveTextContent(
+      'Create or sign in to save your stance',
     );
   });
 
   it('denial with no reason clears visible denial message', () => {
     vi.spyOn(useSentimentState.getState(), 'setAgreement')
-      .mockReturnValueOnce({
-        denied: true,
-        reason: 'Daily limit reached for sentiment_votes/day',
-      })
-      .mockReturnValueOnce({
-        denied: true,
-      } as never);
+      .mockReturnValueOnce(deniedReceipt('Daily limit reached for sentiment_votes/day'))
+      .mockReturnValueOnce(deniedReceipt());
 
     render(<CellVoteControls {...BASE_PROPS} />);
 
@@ -194,10 +240,9 @@ describe('CellVoteControls', () => {
   });
 
   it('synthesis-context denial shows waiting message', () => {
-    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue({
-      denied: true,
-      reason: 'Missing synthesis context',
-    });
+    vi.spyOn(useSentimentState.getState(), 'setAgreement').mockReturnValue(
+      deniedReceipt('Missing synthesis context'),
+    );
 
     render(<CellVoteControls {...BASE_PROPS} />);
     fireEvent.click(screen.getByTestId('cell-vote-agree-point-abc'));
@@ -326,6 +371,7 @@ describe('CellVoteControls', () => {
           synthesis_id: 'synth-1',
           display_point_id: 'point-abc',
           canonical_point_id: 'synth-point-xyz',
+          proof_assurance: 'beta_local',
           id_partition: true,
         }),
       );

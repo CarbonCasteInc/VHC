@@ -47,9 +47,10 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   );
   const setAgreement = useSentimentState((s) => s.setAgreement);
   const [denial, setDenial] = useState<string | null>(null);
-  const { proof, error: proofError } = useConstituencyProof();
+  const { proof, error: proofError, assurance } = useConstituencyProof();
 
-  const hasProof = proof !== null;
+  const hasProof = proof != null;
+  const isBetaLocalProof = hasProof && assurance === 'beta_local';
   const optimisticAgrees = currentVote === 1 ? 1 : 0;
   const optimisticDisagrees = currentVote === -1 ? 1 : 0;
   const { aggregate, status: aggregateStatus } = usePointAggregate({
@@ -125,6 +126,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
       canonical_point_id: canonicalPointId,
       synthesis_point_id: synthesisPointId ?? null,
       has_proof: hasProof,
+      proof_assurance: assurance,
       aggregate_status: aggregateStatus,
       id_partition: hasIdPartition,
     };
@@ -135,6 +137,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   }, [
     aggregate,
     aggregateStatus,
+    assurance,
     canonicalPointId,
     epoch,
     hasIdPartition,
@@ -195,7 +198,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
     ? denial.includes('synthesis context')
       ? 'Waiting for synthesis context'
       : denial.includes('constituency') || denial.includes('proof')
-        ? 'Sign in to make your vote count'
+        ? 'Create or sign in to save your stance'
         : 'Daily vote limit reached'
     : null;
 
@@ -245,12 +248,20 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
           - {displayDisagrees}
         </button>
       </div>
+      {isBetaLocalProof && (
+        <span
+          className="text-[10px] text-slate-500"
+          data-testid={`cell-vote-assurance-${pointId}`}
+        >
+          Beta-local stance
+        </span>
+      )}
       {!hasProof && (
         <span
           className="text-[10px] text-amber-600"
           data-testid={`cell-vote-unweighted-${pointId}`}
         >
-          {proofError ?? 'Voting requires verified proof'}
+          {proofError ?? 'Create or sign in to save your stance'}
         </span>
       )}
       {denialText && (

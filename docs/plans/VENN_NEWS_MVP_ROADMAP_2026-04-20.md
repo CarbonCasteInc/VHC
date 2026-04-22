@@ -37,7 +37,7 @@ This roadmap is grounded in the current codebase state rather than the desired a
 | Source split / related links | `StoryBundle.related_links`, item eligibility policy/ledger, and UI related-link rendering exist. PR #528 ensures bundle synthesis excludes `related_links` when present and uses `primary_sources` as the analysis source set. The generic cluster publication path still does not derive `primary_sources` / `related_links` from the item-eligibility ledger by default. | Related links may display below evidence, but only analysis-eligible sources may feed summaries/frame tables. Ledger-driven source-split enrichment remains a follow-on. |
 | Bundle synthesis worker | PR #528 is merged into `main`. The news-aggregator now has `bundleSynthesisWorker`, `bundleSynthesisRelay`, queue wiring, guarded latest writes, model-sensitive idempotency, and story-detail UI provenance. | W0.4 is complete for publish-time accepted synthesis. Story detail can render accepted stored synthesis or explicit pending/unavailable state without hidden card-open analysis. |
 | Click-time analysis | `NewsCard` now hydrates stored `TopicSynthesisV2` on expansion and no longer calls `useAnalysis(...)` as the normal detail path. The legacy `useAnalysis` hook remains for non-card/runtime analysis paths and tests. | The headline-click contract is accepted synthesis first. Missing synthesis is surfaced as loading/pending/unavailable instead of silently generating card-open analysis. |
-| Constituency proof | Runtime proof acquisition derives an attestation-bound deterministic proof from the identity nullifier and configured district; mock proofs are rejected by voting paths. This is still not cryptographic residency proof or production Sybil resistance. | `identity-honesty-scope` remains the next Week 0 decision: MVP copy must say beta-local identity/proof semantics unless real cryptographic proof is explicitly pulled into scope. |
+| Constituency proof | Runtime proof acquisition derives an attestation-bound deterministic proof from the identity nullifier and configured district; mock proofs are rejected by voting paths; accepted stance proof is exposed as beta-local assurance. This is still not cryptographic residency proof or production Sybil resistance. | `identity-honesty-scope` resolves the Web PWA beta path: copy must say beta-local identity/proof semantics unless real cryptographic proof is explicitly pulled into scope later. |
 | Release gates | Core repo gates exist. MVP feed/detail/stance/thread smokes and compliance checklist scripts do not. | Week 3 must build the release evidence harness; it cannot simply "run the gates." |
 
 ## Non-negotiable product contract
@@ -374,7 +374,7 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 | 2 | `sentiment-four-tuple-spec` | Complete; merged in PR #527. | Patch sentiment docs/tests around `(topic_id, synthesis_id, epoch, point_id)`. | No active spec text describes final stance as keyed only by `(topic_id, epoch, point_id)`. |
 | 3 | `launch-surface-decision` | Resolved: Web PWA. | Remove native iOS/TestFlight from the four-week critical path. | Web PWA is recorded as the MVP launch target; native packaging is a parallel follow-on. |
 | 4 | `bundle-synthesis-dependency` | Complete; merged in PR #528. | Resolve PR B / bundle synthesis dependency for accepted publish-time synthesis and source split handling. | Story detail renders accepted stored synthesis or explicit pending/unavailable state without a hidden card-open analysis pass. |
-| 5 | `identity-honesty-scope` | Open; next right slice. | Decide beta-local identity vs real constituency proof for MVP copy and stance guarantees. | Product copy, release notes, and stance path claims match the actual proof layer. |
+| 5 | `identity-honesty-scope` | Complete in this slice: Web PWA beta uses beta-local proof assurance; real constituency proof remains deferred. | Decide beta-local identity vs real constituency proof for MVP copy and stance guarantees. | Product copy, release notes, and stance path claims match the actual proof layer. |
 | 6 | `mvp-release-gates` | Open. | Add or name deterministic feed/detail/stance/thread release gates. | Missing smoke/check scripts have owners, fixtures, pass/fail semantics, and report locations. |
 | 7 | `compliance-public-beta-minimums` | Open. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright boundaries. | Public launch cannot proceed unless each compliance artifact has an owner and minimum accepted draft. |
 | 8 | `launch-ops-and-correction-path` | Open. | Curated fallback snapshot, bad-analysis suppression/regeneration, report queue, model/cost telemetry, and release artifact visibility. | Operators have minimum levers for stale feed data, bad summaries, abusive threads, and runaway model usage. |
@@ -382,7 +382,7 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 Recommended sequencing:
 
 - PR #527 and PR #528 are now in `main`; feed/detail stance work can base on stable point ids and accepted publish-time synthesis.
-- PR 5 is now the next critical-path decision because stance UX depends on honest identity/proof claims.
+- PR 5 resolves the stance UX identity/proof claim boundary for Web PWA beta. The next product implementation slice should be feed-personalization ranking because `preferredCategories` exists but ranking does not yet consume it.
 - PRs 6 through 8 can run in parallel once PR 5 is underway, but they should not block the feed-personalization and stance-detail implementation slices.
 - Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
 
@@ -395,7 +395,7 @@ Recommended sequencing:
 | Launch surface | Go: Web PWA. | Web PWA remains the launch target; native shell work is outside the four-week critical path. | If native packaging becomes required again, restart scope and schedule around a real iOS build gate. |
 | Bundle synthesis path | Go; PR #528 is merged into `main`. | Accepted publish-time synthesis, model id, generated time, warnings, and provenance are available to story detail; missing synthesis has explicit loading/pending/unavailable states. | Do not reintroduce hidden card-open analysis as the normal path. |
 | Topic preferences | No-go. | Ranking/filter semantics are defined and have at least one deterministic test proving preferences change feed output. | Do not market the feed as tunable. Keep preference UI hidden or label it as inactive. |
-| Identity/proof | Open; next right slice. | Real cryptographic constituency proof is active, or beta-local identity constraints and copy are approved. | No verified-human, one-human-one-vote, district-proof, or Sybil-resistant claims in product copy. |
+| Identity/proof | Go for Web PWA beta. Current stance path is beta-local and must stay labeled that way. | Real cryptographic constituency proof is active, or beta-local identity constraints and copy are approved. | No verified-human, one-human-one-vote, district-proof, or Sybil-resistant claims in product copy. |
 | Story engagement rollup | No-go for visible story aggregate sentiment. | `StoryEngagementSummary` is either implemented as a derived read model or explicitly deferred from visible UI. | Do not show story-level aggregate sentiment beyond existing per-point aggregate data. |
 | Release gates | No-go. | Feed, story-detail, point-stance, and story-thread smokes have scripts or named owners/fixtures with pass/fail semantics. | No launch-readiness claim. The MVP can continue feature work, but cannot enter release freeze. |
 | Compliance | No-go for public beta. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright minimums have accepted drafts. | No public beta or App Store/TestFlight submission. Internal-only testing can continue. |
@@ -495,10 +495,13 @@ Required:
 - product copy must avoid verified-human or one-human-one-vote claims if proof remains beta-local and non-cryptographic;
 - stance path must still enforce local final stance and budgets;
 - release notes must distinguish beta-local identity from future LUMA proof.
+- runtime proof state must expose assurance metadata so UI copy can distinguish beta-local stance persistence from future production proof.
 
 Exit criteria:
 
-- no user-facing claim exceeds the actual proof layer.
+- no user-facing claim exceeds the actual proof layer;
+- accepted deterministic proof is labeled beta-local in the stance UI;
+- missing-proof and blocked-stance copy tells the user to create/sign in or restore beta-local proof without claiming production verification.
 
 ### W0.6 Release evidence backlog
 

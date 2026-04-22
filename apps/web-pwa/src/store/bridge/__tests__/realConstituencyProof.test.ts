@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { verifyConstituencyProof } from '@vh/types';
 import { ConstituencyProofSchema } from '@vh/data-model';
-import { getRealConstituencyProof } from '../realConstituencyProof';
+import {
+  BETA_LOCAL_MERKLE_ROOT_PREFIX,
+  getRealConstituencyProof,
+  isBetaLocalConstituencyProof,
+} from '../realConstituencyProof';
 
 function isMockProof(proof: { district_hash: string; merkle_root: string }): boolean {
   return proof.district_hash === 'mock-district-hash' || proof.merkle_root === 'mock-root';
@@ -22,6 +26,15 @@ describe('getRealConstituencyProof', () => {
     expect(proof.district_hash).toBe(district);
     expect(proof.nullifier).toBe(nullifier);
     expect(proof.merkle_root).toBeTruthy();
+    expect(proof.merkle_root).toMatch(
+      new RegExp(`^${BETA_LOCAL_MERKLE_ROOT_PREFIX}`),
+    );
+  });
+
+  it('labels generated proof material as beta-local, not cryptographic residency proof', () => {
+    const proof = getRealConstituencyProof(nullifier, district);
+
+    expect(isBetaLocalConstituencyProof(proof)).toBe(true);
   });
 
   it('is not mock', () => {

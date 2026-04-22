@@ -239,6 +239,9 @@ from session nullifier + configured district.
 Current runtime behavior:
 - `useRegion()` derives proof from identity session nullifier and configured district hash.
 - `useConstituencyProof()` hard-rejects mock proofs (`mock-*`) on voting paths.
+- `useConstituencyProof()` exposes assurance metadata. Accepted runtime proofs
+  are labeled `assurance: "beta_local"` and `canClaimVerifiedHuman`,
+  `canClaimDistrictProof`, and `canClaimSybilResistance` are all `false`.
 - Freshness remains non-cryptographic in Season 0 (non-empty root check).
 - This is beta-local proof semantics, not production Sybil resistance or
   cryptographic residency proof. Product copy must not claim verified-human,

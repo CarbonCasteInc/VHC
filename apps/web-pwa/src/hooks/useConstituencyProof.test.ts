@@ -45,7 +45,11 @@ describe('useConstituencyProof', () => {
     const { result } = renderHook(() => useConstituencyProof());
 
     expect(result.current.proof).toBeNull();
-    expect(result.current.error).toMatch(/nullifier unavailable/i);
+    expect(result.current.error).toMatch(/create or sign in to save your stance/i);
+    expect(result.current.assurance).toBe('none');
+    expect(result.current.canClaimVerifiedHuman).toBe(false);
+    expect(result.current.canClaimDistrictProof).toBe(false);
+    expect(result.current.canClaimSybilResistance).toBe(false);
   });
 
   it('returns explicit error when region proof is missing', () => {
@@ -57,7 +61,8 @@ describe('useConstituencyProof', () => {
     const { result } = renderHook(() => useConstituencyProof());
 
     expect(result.current.proof).toBeNull();
-    expect(result.current.error).toMatch(/proof unavailable/i);
+    expect(result.current.error).toMatch(/beta-local identity proof unavailable/i);
+    expect(result.current.assurance).toBe('none');
   });
 
   it('returns explicit error when proof nullifier mismatches identity', () => {
@@ -75,7 +80,8 @@ describe('useConstituencyProof', () => {
     const { result } = renderHook(() => useConstituencyProof());
 
     expect(result.current.proof).toBeNull();
-    expect(result.current.error).toMatch(/nullifier_mismatch/i);
+    expect(result.current.error).toMatch(/invalid beta-local proof: nullifier_mismatch/i);
+    expect(result.current.assurance).toBe('none');
   });
 
   it('returns explicit error when proof is stale', () => {
@@ -93,7 +99,8 @@ describe('useConstituencyProof', () => {
     const { result } = renderHook(() => useConstituencyProof());
 
     expect(result.current.proof).toBeNull();
-    expect(result.current.error).toMatch(/stale_proof/i);
+    expect(result.current.error).toMatch(/invalid beta-local proof: stale_proof/i);
+    expect(result.current.assurance).toBe('none');
   });
 
   it('hard-stops when proof source is mock-backed', () => {
@@ -111,7 +118,8 @@ describe('useConstituencyProof', () => {
     const { result } = renderHook(() => useConstituencyProof());
 
     expect(result.current.proof).toBeNull();
-    expect(result.current.error).toMatch(/mock constituency proof/i);
+    expect(result.current.error).toMatch(/mock proof detected/i);
+    expect(result.current.assurance).toBe('none');
   });
 
   it('rejects transitional proof when real mode is enabled', () => {
@@ -131,6 +139,7 @@ describe('useConstituencyProof', () => {
 
     expect(result.current.proof).toBeNull();
     expect(result.current.error).toMatch(/transitional proof rejected/i);
+    expect(result.current.assurance).toBe('none');
   });
 
   it('validates real mode against configured district (not proof district self-reference)', () => {
@@ -150,10 +159,11 @@ describe('useConstituencyProof', () => {
     const { result } = renderHook(() => useConstituencyProof());
 
     expect(result.current.proof).toBeNull();
-    expect(result.current.error).toMatch(/district_mismatch/i);
+    expect(result.current.error).toMatch(/invalid beta-local proof: district_mismatch/i);
+    expect(result.current.assurance).toBe('none');
   });
 
-  it('accepts real proof when real mode is enabled and configured district matches', () => {
+  it('accepts strict-mode proof as beta-local when configured district matches', () => {
     const proof: ConstituencyProof = {
       district_hash: 'district-expected',
       nullifier: 'null-1',
@@ -171,9 +181,13 @@ describe('useConstituencyProof', () => {
 
     expect(result.current.error).toBeNull();
     expect(result.current.proof).toEqual(proof);
+    expect(result.current.assurance).toBe('beta_local');
+    expect(result.current.canClaimVerifiedHuman).toBe(false);
+    expect(result.current.canClaimDistrictProof).toBe(false);
+    expect(result.current.canClaimSybilResistance).toBe(false);
   });
 
-  it('accepts transitional proof when real mode is disabled', () => {
+  it('accepts transitional proof as beta-local when strict mode is disabled', () => {
     const proof: ConstituencyProof = {
       district_hash: 't9n-district-1',
       nullifier: 'null-1',
@@ -190,9 +204,11 @@ describe('useConstituencyProof', () => {
 
     expect(result.current.error).toBeNull();
     expect(result.current.proof).toEqual(proof);
+    expect(result.current.assurance).toBe('beta_local');
+    expect(result.current.canClaimVerifiedHuman).toBe(false);
   });
 
-  it('returns verified proof when identity and region proof align', () => {
+  it('returns beta-local proof when identity and region proof align', () => {
     const proof: ConstituencyProof = {
       district_hash: 'district-1',
       nullifier: 'null-1',
@@ -208,5 +224,7 @@ describe('useConstituencyProof', () => {
 
     expect(result.current.error).toBeNull();
     expect(result.current.proof).toEqual(proof);
+    expect(result.current.assurance).toBe('beta_local');
+    expect(result.current.canClaimVerifiedHuman).toBe(false);
   });
 });

@@ -88,6 +88,10 @@ function seedDefaults(): void {
       merkle_root: 'root-1',
     },
     error: null,
+    assurance: 'beta_local',
+    canClaimVerifiedHuman: false,
+    canClaimDistrictProof: false,
+    canClaimSybilResistance: false,
   });
 
   useSynthesisPointIdsMock.mockReturnValue({
@@ -140,7 +144,7 @@ describe('AnalysisView', () => {
     cleanup();
   });
 
-  it('submits votes with validated constituency proof from useConstituencyProof', () => {
+  it('submits votes with beta-local proof from useConstituencyProof', () => {
     const setAgreementSpy = vi.spyOn(useSentimentState.getState(), 'setAgreement');
 
     render(<AnalysisView item={sample} />);
@@ -163,7 +167,7 @@ describe('AnalysisView', () => {
       }),
     );
 
-    expect(screen.queryByText('Create an account to cast votes')).not.toBeInTheDocument();
+    expect(screen.queryByText('Create or sign in to save stance')).not.toBeInTheDocument();
   });
 
   it('submits reframe votes using synthesis reframe point IDs', () => {
@@ -288,7 +292,11 @@ describe('AnalysisView', () => {
     useIdentityMock.mockReturnValue({ identity: null, status: 'ready' });
     useConstituencyProofMock.mockReturnValue({
       proof: null,
-      error: 'Identity nullifier unavailable; create/sign in before voting',
+      error: 'Identity unavailable; create or sign in to save your stance',
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
     });
 
     render(<AnalysisView item={sample} />);
@@ -297,7 +305,7 @@ describe('AnalysisView', () => {
     fireEvent.click(screen.getByLabelText('Disagree reframe'));
 
     expect(setAgreementSpy).not.toHaveBeenCalled();
-    expect(screen.getByText('Create an account to cast votes')).toBeInTheDocument();
+    expect(screen.getByText('Create or sign in to save stance')).toBeInTheDocument();
   });
 
   it('clears prior warning timer on repeated blocked vote attempts', () => {
@@ -305,7 +313,11 @@ describe('AnalysisView', () => {
     useIdentityMock.mockReturnValue({ identity: null, status: 'ready' });
     useConstituencyProofMock.mockReturnValue({
       proof: null,
-      error: 'Identity nullifier unavailable; create/sign in before voting',
+      error: 'Identity unavailable; create or sign in to save your stance',
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
     });
 
     try {
@@ -314,7 +326,7 @@ describe('AnalysisView', () => {
       fireEvent.click(screen.getByLabelText('Agree reframe'));
       fireEvent.click(screen.getByLabelText('Agree reframe'));
 
-      expect(screen.getByText('Create an account to cast votes')).toBeInTheDocument();
+      expect(screen.getByText('Create or sign in to save stance')).toBeInTheDocument();
       expect(clearTimeoutSpy).toHaveBeenCalled();
     } finally {
       clearTimeoutSpy.mockRestore();
@@ -325,43 +337,54 @@ describe('AnalysisView', () => {
     useIdentityMock.mockReturnValue({ identity: null, status: 'ready' });
     useConstituencyProofMock.mockReturnValue({
       proof: null,
-      error: 'Identity nullifier unavailable; create/sign in before voting',
+      error: 'Identity unavailable; create or sign in to save your stance',
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
     });
 
     render(<AnalysisView item={sample} />);
 
     fireEvent.click(screen.getByLabelText('Agree frame'));
 
-    expect(screen.getByText('Create an account to cast votes')).toBeInTheDocument();
+    expect(screen.getByText('Create or sign in to save stance')).toBeInTheDocument();
   });
 
   it('shows proof-specific vote block message when proof validation fails', () => {
     useConstituencyProofMock.mockReturnValue({
       proof: null,
-      error: 'Mock constituency proof detected; voting requires a verified proof source',
+      error: 'Mock proof detected; beta-local identity required to save stance',
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
     });
 
     render(<AnalysisView item={sample} />);
 
     fireEvent.click(screen.getByLabelText('Agree frame'));
 
-    expect(screen.getByText('Proof verification required to cast votes')).toBeInTheDocument();
+    expect(screen.getByText('Beta-local identity proof required to save stance')).toBeInTheDocument();
   });
 
-  it('forwards undefined proof payload when hook returns undefined proof', () => {
+  it('blocks stance writes when the proof payload is undefined', () => {
     const setAgreementSpy = vi.spyOn(useSentimentState.getState(), 'setAgreement');
-    useConstituencyProofMock.mockReturnValue({ proof: undefined, error: null });
+    useConstituencyProofMock.mockReturnValue({
+      proof: undefined,
+      error: null,
+      assurance: 'none',
+      canClaimVerifiedHuman: false,
+      canClaimDistrictProof: false,
+      canClaimSybilResistance: false,
+    });
 
     render(<AnalysisView item={sample} />);
 
     fireEvent.click(screen.getByLabelText('Agree frame'));
 
-    expect(setAgreementSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        pointId: 'pa:frame',
-        constituency_proof: undefined,
-      }),
-    );
+    expect(setAgreementSpy).not.toHaveBeenCalled();
+    expect(screen.getByText('Beta-local identity proof required to save stance')).toBeInTheDocument();
   });
 
   it('renders zero aggregate fallback when mesh aggregates are unavailable', () => {
