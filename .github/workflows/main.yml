@@ -69,12 +69,10 @@ jobs:
               - 'pnpm-lock.yaml'
               - '.github/workflows/main.yml'
             run-source-health:
-              - 'apps/web-pwa/**'
               - 'packages/ai-engine/**'
               - 'services/news-aggregator/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
-              - '.github/workflows/main.yml'
             run-storycluster-correctness:
               - 'services/storycluster-engine/**'
               - 'packages/e2e/**'
