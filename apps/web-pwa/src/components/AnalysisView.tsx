@@ -86,7 +86,7 @@ function PerspectiveRow({
       epoch: 0,
       analysisId: itemId,
       desired,
-      constituency_proof: proof ?? undefined,
+      constituency_proof: proof!,
     });
   };
 
