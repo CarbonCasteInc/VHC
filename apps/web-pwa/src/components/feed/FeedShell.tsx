@@ -92,12 +92,12 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const focusedStoryCount = useMemo(
     () =>
       selectedStorylineId
-        ? discoveryItems.filter(
+        ? feed.filter(
             (item) =>
               item.kind === 'NEWS_STORY' && item.storyline_id?.trim() === selectedStorylineId,
           ).length
         : 0,
-    [discoveryItems, selectedStorylineId],
+    [feed, selectedStorylineId],
   );
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();

@@ -185,8 +185,8 @@ describe('FeedShell', () => {
     render(<FeedShell feedResult={makeFeedResult()} />);
 
     expect(screen.getByTestId('feed-tuning-controls')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Prefer Energy' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Prefer Policy' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Prefer Energy category' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Prefer Policy category' })).toBeInTheDocument();
   });
 
   it('renders topic feed tuning controls from discovered entity keys', () => {
@@ -198,8 +198,8 @@ describe('FeedShell', () => {
     render(<FeedShell feedResult={makeFeedResult()} />);
 
     expect(screen.getByTestId('feed-topic-tuning')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Follow Election Law' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Follow Border Wall' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow Election Law topic' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Follow Border Wall topic' })).toBeInTheDocument();
   });
 
   it('toggles preferred and muted category preferences from feed chrome', () => {
@@ -217,13 +217,13 @@ describe('FeedShell', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Prefer Energy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Prefer Energy category' }));
     expect(setPersonalization).toHaveBeenCalledWith({
       ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
       preferredCategories: ['Energy'],
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mute Energy category' }));
     expect(setPersonalization).toHaveBeenLastCalledWith({
       ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
       mutedCategories: ['Energy'],
@@ -245,14 +245,14 @@ describe('FeedShell', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Follow Election Law' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Follow Election Law topic' }));
     expect(setPersonalization).toHaveBeenCalledWith({
       ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
       preferredTopics: ['Election Law'],
     });
 
     const topicControls = screen.getByTestId('feed-topic-tuning');
-    fireEvent.click(within(topicControls).getByRole('button', { name: 'Mute' }));
+    fireEvent.click(within(topicControls).getByRole('button', { name: 'Mute Election Law topic' }));
     expect(setPersonalization).toHaveBeenLastCalledWith({
       ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
       mutedTopics: ['Election Law'],
@@ -277,11 +277,11 @@ describe('FeedShell', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Prefer Energy' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Prefer Energy category' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
-    expect(screen.getAllByRole('button', { name: 'Mute' })[1]).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Mute Sports category' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
@@ -305,12 +305,12 @@ describe('FeedShell', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Follow Election Law' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Follow Election Law topic' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
     const topicControls = screen.getByTestId('feed-topic-tuning');
-    expect(within(topicControls).getAllByRole('button', { name: 'Mute' })[0]).toHaveAttribute(
+    expect(within(topicControls).getByRole('button', { name: 'Mute Border Wall topic' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
@@ -334,7 +334,7 @@ describe('FeedShell', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Prefer Energy' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Prefer Energy category' }));
     expect(setPersonalization).toHaveBeenCalledWith({
       ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
       preferredCategories: [],

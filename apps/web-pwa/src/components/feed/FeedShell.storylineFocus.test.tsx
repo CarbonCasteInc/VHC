@@ -137,7 +137,7 @@ describe('FeedShell storyline focus', () => {
 
     expect(screen.getByTestId('storyline-focus-panel-storyline-1')).toBeInTheDocument();
     expect(screen.getByTestId('storyline-focus-count-storyline-1')).toHaveTextContent(
-      'Showing 2 stories from this storyline in the feed.',
+      'Showing 1 story from this storyline in the feed.',
     );
     expect(screen.getByText('Metro Daily:')).toBeInTheDocument();
     expect(screen.getByText('Mayor pushes for the transit package')).toBeInTheDocument();

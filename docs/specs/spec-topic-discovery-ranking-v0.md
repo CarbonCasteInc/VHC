@@ -261,3 +261,4 @@ Cross-ref: `docs/specs/topic-synthesis-v2.md` for full `TopicSynthesisV2` schema
 | 0.5 | 2026-03-13 | Added optional `storyline_id`/`entity_keys` to `FeedItem` and documented storyline-aware HOTTEST diversification |
 | 0.6 | 2026-04-16 | Added NEWS_STORY synthesis precedence, source/detail affordance contract, `categories`, personalization scaffold, and V2 forum-thread linkage |
 | 0.7 | 2026-04-16 | Added compact product-shell, first-use orientation, forum/governance navigation, and collapsed-card media-density contracts |
+| 0.8 | 2026-04-22 | Added active local personalization semantics: category/topic mutes, HOTTEST preference boosts, and private client-only tuning controls |

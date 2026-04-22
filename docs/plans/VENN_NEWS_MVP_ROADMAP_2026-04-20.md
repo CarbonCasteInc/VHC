@@ -382,7 +382,7 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 Recommended sequencing:
 
 - PR #527, PR #528, and PR #530 are now in `main`; feed/detail stance work can base on stable point ids, accepted publish-time synthesis, and honest beta-local proof semantics.
-- Feed-personalization ranking is now the active implementation slice: local category/topic preferences must affect the canonical `composeFeed(...)` path without widening public feed payloads.
+- Feed-personalization ranking is implemented in PR #531: local category/topic preferences affect the canonical `composeFeed(...)` path without widening public feed payloads.
 - PRs 6 through 8 can run in parallel once the feed-personalization slice is underway, but they should not block the stance-detail implementation slices.
 - Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
 
@@ -394,7 +394,7 @@ Recommended sequencing:
 | Sentiment key | Go; PR #527 is merged into `main`. | Docs, schemas, readers, writers, and tests agree on `(topic_id, synthesis_id, epoch, point_id)`. | Do not split stance work across contributors; conflicting three-tuple/four-tuple implementations will corrupt compatibility assumptions. |
 | Launch surface | Go: Web PWA. | Web PWA remains the launch target; native shell work is outside the four-week critical path. | If native packaging becomes required again, restart scope and schedule around a real iOS build gate. |
 | Bundle synthesis path | Go; PR #528 is merged into `main`. | Accepted publish-time synthesis, model id, generated time, warnings, and provenance are available to story detail; missing synthesis has explicit loading/pending/unavailable states. | Do not reintroduce hidden card-open analysis as the normal path. |
-| Topic preferences | No-go. | Ranking/filter semantics are defined and have at least one deterministic test proving preferences change feed output. | Do not market the feed as tunable. Keep preference UI hidden or label it as inactive. |
+| Topic preferences | Go when PR #531 is in the implementation base. | Ranking/filter semantics are defined and have deterministic tests proving preferences change feed output. | Do not market the feed as tunable. Keep preference UI hidden or label it as inactive. |
 | Identity/proof | Go for Web PWA beta. Current stance path is beta-local and must stay labeled that way. | Real cryptographic constituency proof is active, or beta-local identity constraints and copy are approved. | No verified-human, one-human-one-vote, district-proof, or Sybil-resistant claims in product copy. |
 | Story engagement rollup | No-go for visible story aggregate sentiment. | `StoryEngagementSummary` is either implemented as a derived read model or explicitly deferred from visible UI. | Do not show story-level aggregate sentiment beyond existing per-point aggregate data. |
 | Release gates | No-go. | Feed, story-detail, point-stance, and story-thread smokes have scripts or named owners/fixtures with pass/fail semantics. | No launch-readiness claim. The MVP can continue feature work, but cannot enter release freeze. |

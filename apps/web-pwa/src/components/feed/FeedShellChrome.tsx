@@ -183,9 +183,6 @@ export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
                 <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">
                   Tune feed
                 </p>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Preference boosts affect Hottest; muted categories and topics are hidden.
-                </p>
               </div>
               {availableCategories.length > 0 && (
                 <div className="mb-1 flex flex-wrap gap-1.5" data-testid="feed-category-tuning">
@@ -203,6 +200,7 @@ export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
                         <button
                           type="button"
                           aria-pressed={preferred}
+                          aria-label={`Prefer ${category} category`}
                           className={`px-2 py-1 transition ${
                             preferred
                               ? 'bg-emerald-700 text-white dark:bg-emerald-400 dark:text-emerald-950'
@@ -215,6 +213,7 @@ export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
                         <button
                           type="button"
                           aria-pressed={muted}
+                          aria-label={`Mute ${category} category`}
                           className={`border-l border-slate-200/80 px-2 py-1 transition dark:border-slate-700 ${
                             muted
                               ? 'bg-rose-700 text-white dark:bg-rose-400 dark:text-rose-950'
@@ -242,6 +241,7 @@ export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
                         <button
                           type="button"
                           aria-pressed={preferred}
+                          aria-label={`Follow ${topic} topic`}
                           className={`px-2 py-1 transition ${
                             preferred
                               ? 'bg-emerald-700 text-white dark:bg-emerald-400 dark:text-emerald-950'
@@ -254,6 +254,7 @@ export const FeedShellChrome: React.FC<FeedShellChromeProps> = ({
                         <button
                           type="button"
                           aria-pressed={muted}
+                          aria-label={`Mute ${topic} topic`}
                           className={`border-l border-slate-200/80 px-2 py-1 transition dark:border-slate-700 ${
                             muted
                               ? 'bg-rose-700 text-white dark:bg-rose-400 dark:text-rose-950'
