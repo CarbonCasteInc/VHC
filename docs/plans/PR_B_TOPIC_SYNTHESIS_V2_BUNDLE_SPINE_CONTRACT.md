@@ -1,11 +1,13 @@
 # PR B TopicSynthesisV2 Bundle Spine Implementation Contract
 
-Status: Queued after PR #523
+Status: Implemented by PR #528; historical contract retained for audit
 Owner: VHC Core Engineering
-Last Updated: 2026-04-17
+Last Updated: 2026-04-21
 
-This plan preserves the implementation contract for the PR B follow-on to PR
-#523. It is a non-authoritative execution artifact. Normative behavior remains
+This plan preserved the implementation contract for the PR B follow-on to PR
+#523. PR #528 merged the bundle synthesis worker and story-detail accepted
+synthesis path into `main`; this file is now a non-authoritative historical
+audit artifact. Normative behavior remains
 owned by `docs/specs/topic-synthesis-v2.md`,
 `docs/specs/spec-news-aggregator-v0.md`,
 `docs/specs/spec-topic-discovery-ranking-v0.md`, and the canonical docs listed
@@ -13,12 +15,36 @@ in `docs/CANON_MAP.md`.
 
 ## Branch Strategy
 
-- PR #523 (`coord/analysis-cache-hygiene`) lands standalone on `main` first.
-- PR B is cut fresh from `main` after PR #523 merges.
-- PR B depends on the PR #523 expansion of `isPlaceholderPerspectiveText` to
+- PR #523 (`coord/analysis-cache-hygiene`) landed standalone on `main` first.
+- PR B was cut fresh from `main` after PR #523 merged.
+- PR B depended on the PR #523 expansion of `isPlaceholderPerspectiveText` to
   include `Frame unavailable`, `Reframe unavailable`, and `Summary unavailable`.
-- Expected conflict surface is near zero: PR B adds bundle-synthesis spine code
-  and does not touch the PR #523 feed-analysis hygiene files.
+- The PR B work landed as PR #528, adding bundle-synthesis spine code and story
+  detail rendering from accepted `TopicSynthesisV2`.
+
+## Landed In PR #528
+
+- `services/news-aggregator/src/bundleSynthesisWorker.ts`
+- `services/news-aggregator/src/bundleSynthesisRelay.ts`
+- `services/news-aggregator/src/bundleSynthesisDaemonConfig.ts`
+- `services/news-aggregator/src/enrichmentQueue.ts`
+- `packages/ai-engine/src/bundlePrompts.ts`
+- `packages/gun-client/src/safeLatestSynthesisAdapters.ts`
+- story-detail rendering updates in `apps/web-pwa/src/components/feed/NewsCard.tsx`
+  and `apps/web-pwa/src/components/feed/NewsCardBack.tsx`
+
+Known follow-ons after PR #528:
+
+- ledger-driven `primary_sources` / `related_links` enrichment in the generic
+  bundle publication path;
+- correction/admin controls for suppressing or regenerating bad accepted
+  synthesis artifacts;
+- deterministic release smoke coverage for accepted synthesis availability in
+  launch snapshots.
+
+The remaining sections intentionally preserve the original imperative contract
+language for auditability. Do not read those sections as current "not built yet"
+backlog unless they are also listed as follow-ons above.
 
 ## Short Recommendation
 
@@ -517,4 +543,3 @@ Dashboard signals for canary:
 9. Summary, frame, and reframe strings are trimmed before storage.
 10. Relay timeouts and upstream failures surface as bundle-synth telemetry.
 11. Model source-count mismatch blocks all writes.
-

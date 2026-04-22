@@ -2,8 +2,8 @@
 
 > Status: Draft v3 docs-aligned implementation tracker
 > Date: 2026-04-20
-> Last alignment audit: 2026-04-20 on `coord/point-id-contract` after PR #527 verification
-> Target: Four-week Web PWA MVP launch path after remaining Week 0 blockers are resolved
+> Last alignment audit: 2026-04-21 on `main` at `92186d6c` after PR #527 and PR #528 merged
+> Target: Four-week Web PWA MVP launch path after remaining Week 0 decisions and launch blockers are resolved
 > Scope: News feed, story analysis, frame/reframe stance, threaded discussion, and durable aggregate civic metadata
 
 ## Executive decision
@@ -30,14 +30,14 @@ This roadmap is grounded in the current codebase state rather than the desired a
 | Area | Current state | Roadmap consequence |
 | --- | --- | --- |
 | App shell | `/apps/` contains `web-pwa` only. No Capacitor, Expo, React Native, Xcode project, or iOS shell is present. | Web PWA is the selected four-week MVP target. TestFlight/App Store is a parallel follow-on, not a launch blocker. |
-| Frame point identity | PR #527 / `coord/point-id-contract` requires accepted `TopicSynthesisV2.frames[]` to carry `frame_point_id` and `reframe_point_id`; candidate frames may supply optional ids; the pipeline fills missing ids; web readers prefer persisted ids with legacy text-derived alias fallback. | W0.1 is implemented in PR #527 and must be in the implementation base before feed/detail stance UI work begins. Semantic id mapping across future regenerated syntheses remains a promotion-time responsibility. |
-| Sentiment key | Active sentiment docs, schemas, readers, writers, and aggregate paths now use `(topic_id, synthesis_id, epoch, point_id)`. Only archival sprint history still references older keys. | W0.2 is implemented in PR #527; new stance work should use the four-tuple only. |
+| Frame point identity | PR #527 is merged into `main`. Accepted `TopicSynthesisV2.frames[]` carry `frame_point_id` and `reframe_point_id`; candidate frames may supply optional ids; the pipeline fills missing ids; web readers prefer persisted ids with legacy text-derived alias fallback. | W0.1 is complete for the MVP base. Semantic id mapping across future regenerated syntheses remains a promotion-time responsibility. |
+| Sentiment key | PR #527 is merged into `main`. Active sentiment docs, schemas, readers, writers, and aggregate paths now use `(topic_id, synthesis_id, epoch, point_id)`. Only archival sprint history still references older keys. | W0.2 is complete for the MVP base; new stance work should use the four-tuple only. |
 | Topic preferences | Preference state exists in the discovery store, but ranking/filter composition does not consume it. | Preference tuning is net-new ranking work, not polish. |
 | Story-level engagement summary | `PointAggregateSnapshotV1` and `TopicEngagementAggregateV1` exist. A materialized `StoryEngagementSummary` rollup does not. | Story aggregate metadata is net-new compute/read model work; do not show story-level sentiment beyond per-point aggregates until this lands. |
-| Source split / related links | `StoryBundle.related_links`, item eligibility policy/ledger, and UI related-link rendering exist. Publish-time enrichment from the ledger and discriminator-preserving hydration are incomplete. | Related links may display below evidence, but only `analysis_eligible` sources may feed summaries/frame tables. W0.4 must carry the split through publication. |
-| Bundle synthesis worker | Bundle synthesis is specified in the PR B contract and prompt/helper work exists, but the news-aggregator worker is not landed. | Publish-time accepted synthesis, model/provenance metadata, and source split enrichment are the next hard dependency. |
-| Click-time analysis | `NewsCard` hydrates stored `TopicSynthesisV2` on expansion, but with `VITE_VH_ANALYSIS_PIPELINE=true` it can still call `useAnalysis(...)` and render provisional card analysis as a fallback. | W0.4 must remove hidden blocking card-open analysis as the normal path: accepted synthesis first; explicit pending/unavailable state on miss. |
-| Constituency proof | Stance paths currently rely on mocked/permissive constituency proof plumbing. | MVP can ship with beta-local identity semantics only if the product copy is honest; verified-human claims are out of scope until real proof is active. |
+| Source split / related links | `StoryBundle.related_links`, item eligibility policy/ledger, and UI related-link rendering exist. PR #528 ensures bundle synthesis excludes `related_links` when present and uses `primary_sources` as the analysis source set. The generic cluster publication path still does not derive `primary_sources` / `related_links` from the item-eligibility ledger by default. | Related links may display below evidence, but only analysis-eligible sources may feed summaries/frame tables. Ledger-driven source-split enrichment remains a follow-on. |
+| Bundle synthesis worker | PR #528 is merged into `main`. The news-aggregator now has `bundleSynthesisWorker`, `bundleSynthesisRelay`, queue wiring, guarded latest writes, model-sensitive idempotency, and story-detail UI provenance. | W0.4 is complete for publish-time accepted synthesis. Story detail can render accepted stored synthesis or explicit pending/unavailable state without hidden card-open analysis. |
+| Click-time analysis | `NewsCard` now hydrates stored `TopicSynthesisV2` on expansion and no longer calls `useAnalysis(...)` as the normal detail path. The legacy `useAnalysis` hook remains for non-card/runtime analysis paths and tests. | The headline-click contract is accepted synthesis first. Missing synthesis is surfaced as loading/pending/unavailable instead of silently generating card-open analysis. |
+| Constituency proof | Runtime proof acquisition derives an attestation-bound deterministic proof from the identity nullifier and configured district; mock proofs are rejected by voting paths. This is still not cryptographic residency proof or production Sybil resistance. | `identity-honesty-scope` remains the next Week 0 decision: MVP copy must say beta-local identity/proof semantics unless real cryptographic proof is explicitly pulled into scope. |
 | Release gates | Core repo gates exist. MVP feed/detail/stance/thread smokes and compliance checklist scripts do not. | Week 3 must build the release evidence harness; it cannot simply "run the gates." |
 
 ## Non-negotiable product contract
@@ -127,7 +127,7 @@ MVP implication:
 
 - no generic story like/dislike button as the primary sentiment mechanic;
 - no public per-user/nullifier stance payloads;
-- no claim that public beta stance equals verified one-human-one-vote while constituency proofs remain mocked;
+- no claim that public beta stance equals verified one-human-one-vote while proof semantics remain beta-local and non-cryptographic;
 - local/beta identity can enforce "one local final stance" but not full Sybil resistance.
 
 ### Source and analysis semantics
@@ -365,32 +365,32 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 
 | Order | PR slice | Current status | Scope | Required output |
 | --- | --- | --- | --- | --- |
-| 1 | `point-id-contract` | Implemented in PR #527; dependent branches must base on it. | Persist stable `frame_point_id` and `reframe_point_id` on accepted `TopicSynthesisV2.frames[]`; keep text-derived ids as compatibility aliases. | Schema/tests/generator/readers agree on persisted point ids; alias behavior is documented. |
-| 2 | `sentiment-four-tuple-spec` | Paired into PR #527; dependent branches must base on it. | Patch sentiment docs/tests around `(topic_id, synthesis_id, epoch, point_id)`. | No active spec text describes final stance as keyed only by `(topic_id, epoch, point_id)`. |
+| 1 | `point-id-contract` | Complete; merged in PR #527. | Persist stable `frame_point_id` and `reframe_point_id` on accepted `TopicSynthesisV2.frames[]`; keep text-derived ids as compatibility aliases. | Schema/tests/generator/readers agree on persisted point ids; alias behavior is documented. |
+| 2 | `sentiment-four-tuple-spec` | Complete; merged in PR #527. | Patch sentiment docs/tests around `(topic_id, synthesis_id, epoch, point_id)`. | No active spec text describes final stance as keyed only by `(topic_id, epoch, point_id)`. |
 | 3 | `launch-surface-decision` | Resolved: Web PWA. | Remove native iOS/TestFlight from the four-week critical path. | Web PWA is recorded as the MVP launch target; native packaging is a parallel follow-on. |
-| 4 | `bundle-synthesis-dependency` | Next slice. | Resolve PR B / bundle synthesis dependency for accepted publish-time synthesis and source split enrichment. | Story detail can render accepted stored synthesis or an explicit pending/unavailable state without a hidden card-open analysis pass. |
-| 5 | `identity-honesty-scope` | Open. | Decide beta-local identity vs real constituency proof for MVP copy and stance guarantees. | Product copy, release notes, and stance path claims match the actual proof layer. |
+| 4 | `bundle-synthesis-dependency` | Complete; merged in PR #528. | Resolve PR B / bundle synthesis dependency for accepted publish-time synthesis and source split handling. | Story detail renders accepted stored synthesis or explicit pending/unavailable state without a hidden card-open analysis pass. |
+| 5 | `identity-honesty-scope` | Open; next right slice. | Decide beta-local identity vs real constituency proof for MVP copy and stance guarantees. | Product copy, release notes, and stance path claims match the actual proof layer. |
 | 6 | `mvp-release-gates` | Open. | Add or name deterministic feed/detail/stance/thread release gates. | Missing smoke/check scripts have owners, fixtures, pass/fail semantics, and report locations. |
 | 7 | `compliance-public-beta-minimums` | Open. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright boundaries. | Public launch cannot proceed unless each compliance artifact has an owner and minimum accepted draft. |
 | 8 | `launch-ops-and-correction-path` | Open. | Curated fallback snapshot, bad-analysis suppression/regeneration, report queue, model/cost telemetry, and release artifact visibility. | Operators have minimum levers for stale feed data, bad summaries, abusive threads, and runaway model usage. |
 
 Recommended sequencing:
 
-- PR #527 should land before any feed/detail stance UI branch.
-- PR 4 is the next critical-path product slice because headline detail needs accepted publish-time synthesis.
-- PRs 5 through 8 can run in parallel once PR 4 is underway, but they should not block the bundle synthesis path.
+- PR #527 and PR #528 are now in `main`; feed/detail stance work can base on stable point ids and accepted publish-time synthesis.
+- PR 5 is now the next critical-path decision because stance UX depends on honest identity/proof claims.
+- PRs 6 through 8 can run in parallel once PR 5 is underway, but they should not block the feed-personalization and stance-detail implementation slices.
 - Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
 
 ### Week 0 go/no-go table
 
 | Blocker | Current decision | Go condition | No-go consequence |
 | --- | --- | --- | --- |
-| Persisted frame/reframe point ids | Go when PR #527 is in the implementation base. | Accepted synthesis frames carry stable `frame_point_id` and `reframe_point_id`; legacy text-hash ids are compatibility only. | Do not start point-stance implementation. Building on text-hash ids knowingly ships vote orphaning on frame edits. |
-| Sentiment key | Go when PR #527 is in the implementation base. | Docs, schemas, readers, writers, and tests agree on `(topic_id, synthesis_id, epoch, point_id)`. | Do not split stance work across contributors; conflicting three-tuple/four-tuple implementations will corrupt compatibility assumptions. |
+| Persisted frame/reframe point ids | Go; PR #527 is merged into `main`. | Accepted synthesis frames carry stable `frame_point_id` and `reframe_point_id`; legacy text-hash ids are compatibility only. | Do not regress to text-hash ids. Building on text-hash ids knowingly ships vote orphaning on frame edits. |
+| Sentiment key | Go; PR #527 is merged into `main`. | Docs, schemas, readers, writers, and tests agree on `(topic_id, synthesis_id, epoch, point_id)`. | Do not split stance work across contributors; conflicting three-tuple/four-tuple implementations will corrupt compatibility assumptions. |
 | Launch surface | Go: Web PWA. | Web PWA remains the launch target; native shell work is outside the four-week critical path. | If native packaging becomes required again, restart scope and schedule around a real iOS build gate. |
-| Bundle synthesis path | No-go; next slice. | Accepted publish-time synthesis, source split, model id, generated time, warnings, and provenance are available to story detail, or pending/unavailable fallback is explicitly designed. | Story detail must not claim complete Venn analysis. It may ship with explicit pending/unavailable states, or Week 1 detail work waits. |
+| Bundle synthesis path | Go; PR #528 is merged into `main`. | Accepted publish-time synthesis, model id, generated time, warnings, and provenance are available to story detail; missing synthesis has explicit loading/pending/unavailable states. | Do not reintroduce hidden card-open analysis as the normal path. |
 | Topic preferences | No-go. | Ranking/filter semantics are defined and have at least one deterministic test proving preferences change feed output. | Do not market the feed as tunable. Keep preference UI hidden or label it as inactive. |
-| Identity/proof | Open. | Real constituency proof is active, or beta-local identity constraints and copy are approved. | No verified-human, one-human-one-vote, district-proof, or Sybil-resistant claims in product copy. |
+| Identity/proof | Open; next right slice. | Real cryptographic constituency proof is active, or beta-local identity constraints and copy are approved. | No verified-human, one-human-one-vote, district-proof, or Sybil-resistant claims in product copy. |
 | Story engagement rollup | No-go for visible story aggregate sentiment. | `StoryEngagementSummary` is either implemented as a derived read model or explicitly deferred from visible UI. | Do not show story-level aggregate sentiment beyond existing per-point aggregate data. |
 | Release gates | No-go. | Feed, story-detail, point-stance, and story-thread smokes have scripts or named owners/fixtures with pass/fail semantics. | No launch-readiness claim. The MVP can continue feature work, but cannot enter release freeze. |
 | Compliance | No-go for public beta. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright minimums have accepted drafts. | No public beta or App Store/TestFlight submission. Internal-only testing can continue. |
@@ -402,7 +402,7 @@ Recommended sequencing:
 
 Decision: make persisted frame/reframe point ids the canonical path.
 
-Status: implemented in PR #527; dependent branches must base on it.
+Status: implemented in PR #527 and merged into `main`.
 
 Implemented:
 
@@ -426,7 +426,7 @@ Exit criteria:
 
 Decision: the canonical key is `(topic_id, synthesis_id, epoch, point_id)`.
 
-Status: implemented in PR #527; dependent branches must base on it.
+Status: implemented in PR #527 and merged into `main`.
 
 Implemented:
 
@@ -460,16 +460,26 @@ Exit criteria:
 
 Decision: launch detail should use accepted publish-time synthesis.
 
-Required:
+Status: implemented in PR #528 and merged into `main`.
 
-- merge or replace PR B / bundle synthesis worker;
-- ensure bundle publication carries accepted synthesis, source split, model id, generated time, warnings, and provenance;
-- define fallback when accepted synthesis is absent;
-- stop treating card-open runtime analysis as the normal detail path.
+Implemented:
+
+- news-aggregator bundle synthesis worker and relay;
+- model-sensitive idempotency and duplicate-candidate recovery;
+- guarded latest synthesis writes;
+- publish-time synthesis provenance surfaced in story detail;
+- explicit loading, pending, and unavailable states when accepted synthesis is absent;
+- card detail no longer treats runtime `useAnalysis(...)` as the normal path.
+
+Remaining follow-on:
+
+- ledger-driven `primary_sources` / `related_links` enrichment in the generic bundle publication path;
+- correction/admin controls for suppressing or regenerating bad accepted synthesis artifacts;
+- deterministic release smoke that proves current feed snapshots contain accepted synthesis coverage.
 
 Exit criteria:
 
-- headline click can render from stored bundle/detail data without an invisible blocking analysis pass.
+- headline click renders from stored bundle/detail data without an invisible blocking analysis pass.
 
 ### W0.5 Identity honesty
 
@@ -477,7 +487,7 @@ Decision: MVP ships with beta-local identity unless real constituency proof is p
 
 Required:
 
-- product copy must avoid verified-human or one-human-one-vote claims if proof remains mocked;
+- product copy must avoid verified-human or one-human-one-vote claims if proof remains beta-local and non-cryptographic;
 - stance path must still enforce local final stance and budgets;
 - release notes must distinguish beta-local identity from future LUMA proof.
 
@@ -758,6 +768,7 @@ The plan is ready to build when reviewers agree on:
 
 - Web PWA launch surface remains accepted;
 - PR #527 is in the implementation base for persisted point ids and the four-tuple sentiment contract;
+- PR #528 is in the implementation base for accepted publish-time bundle synthesis;
 - story-level sentiment as aggregate metadata only;
 - analyzed-source versus related-link evidence boundaries;
 - accepted publish-time synthesis as the headline-click data contract;

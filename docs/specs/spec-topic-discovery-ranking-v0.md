@@ -141,7 +141,21 @@ hotness =
 All coefficients and decay parameters must be config-driven and versioned.
 Top-window diversification parameters and future personalization weights are also config-driven; consumers must not hard-code storyline caps, entity-overlap penalties, or category preference defaults in card components.
 
-Season 0 personalization scaffold:
+Season 0 active implementation:
+
+The active `FeedPersonalizationConfig` schema currently persists only
+`preferredCategories`. The discovery store carries this value through state,
+but `composeFeed(...)` and feed pagination do not yet consume it, so the feed
+must not be marketed as tunable until the ranking slice lands with deterministic
+tests proving changed ordering or filtering.
+
+```ts
+interface FeedPersonalizationConfig {
+  preferredCategories: string[];
+}
+```
+
+Target personalization scaffold:
 
 ```ts
 interface FeedPersonalizationConfig {

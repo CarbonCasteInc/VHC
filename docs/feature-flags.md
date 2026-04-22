@@ -11,9 +11,12 @@ This document defines compile-time flags used by the web PWA for FPD rollout.
 - **`VITE_CONSTITUENCY_PROOF_REAL`**
   - **Default:** `false`
   - **Description:** Enables strict production proof validation policy.
-    - `false`: non-production tolerance (still uses real attestation-bound proof generation)
+    - `false`: non-production tolerance (still uses attestation-bound deterministic beta-local proof generation)
     - `true`: strict production mode (configured district enforcement + production guard)
   - **Production requirement:** `true`
+  - **MVP beta note:** A Web PWA beta may run with `false` only if product copy
+    explicitly uses beta-local identity/proof language and avoids verified-human,
+    one-human-one-vote, district-proof, and Sybil-resistance claims.
 
 - **`VITE_E2E_MODE`**
   - **Default:** `false`
@@ -45,5 +48,7 @@ This document defines compile-time flags used by the web PWA for FPD rollout.
 ## Deployment guardrails
 
 1. Production builds must enforce `VITE_CONSTITUENCY_PROOF_REAL=true`.
+   Public beta builds that intentionally keep this flag `false` are not
+   production-proof builds and must be labeled/copy-reviewed accordingly.
 2. E2E-mode (`VITE_E2E_MODE=true`) is test-only and cannot ship.
 3. Any flag change requires a new build artifact because flags are compile-time constants.
