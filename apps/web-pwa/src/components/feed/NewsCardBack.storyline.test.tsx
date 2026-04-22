@@ -91,4 +91,21 @@ describe('NewsCardBack storyline presentation', () => {
       'Analysis needs regeneration to produce frame/reframe rows.',
     );
   });
+
+  it('does not present stance controls for frame rows without persisted point IDs', () => {
+    renderBack({
+      frameRows: [
+        {
+          frame: 'A funding frame',
+          reframe: 'A budget-risk reframe',
+        },
+      ],
+      synthesisId: 'synthesis-1',
+      epoch: 1,
+    });
+
+    expect(screen.queryByTestId('news-card-stance-scope-news-1')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Agree with/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Disagree with/i })).not.toBeInTheDocument();
+  });
 });
