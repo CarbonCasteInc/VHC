@@ -12,6 +12,7 @@ export interface CellVoteControlsProps {
   readonly epoch: number;
   readonly analysisId?: string;
   readonly disabled?: boolean;
+  readonly pointLabel?: string;
 }
 
 function biasTableDiagnosticsEnabled(): boolean {
@@ -31,6 +32,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   epoch,
   analysisId,
   disabled = false,
+  pointLabel,
 }) => {
   type AggregateSnapshot = {
     readonly contextKey: string;
@@ -115,6 +117,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
   }
 
   const hasIdPartition = !!(legacyPointId && legacyPointId !== canonicalPointId);
+  const accessibleTarget = pointLabel?.trim() || pointId;
 
   useEffect(() => {
     const payload = {
@@ -218,7 +221,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
               ? 'bg-green-200 text-green-800'
               : 'bg-slate-100 text-slate-600 hover:bg-green-50'
           }`}
-          aria-label={`Agree with ${pointId}`}
+          aria-label={`Agree with ${accessibleTarget}`}
           aria-pressed={currentVote === 1}
           disabled={disabled}
           onClick={() => handleVote(1)}
@@ -236,7 +239,7 @@ export const CellVoteControls: React.FC<CellVoteControlsProps> = ({
               ? 'bg-red-200 text-red-800'
               : 'bg-slate-100 text-slate-600 hover:bg-red-50'
           }`}
-          aria-label={`Disagree with ${pointId}`}
+          aria-label={`Disagree with ${accessibleTarget}`}
           aria-pressed={currentVote === -1}
           disabled={disabled}
           onClick={() => handleVote(-1)}

@@ -614,16 +614,38 @@ describe('NewsCard', () => {
       'Synthesis unavailable.',
     );
   });
-  it('threads analysisId from story through to BiasTable voting controls', async () => {
+  it('renders story-detail stance controls from accepted synthesis point IDs', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);
     useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+    const setAgreementSpy = vi.spyOn(useSentimentState.getState(), 'setAgreement');
     render(<NewsCard item={makeNewsItem()} />);
     fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
     expect(await screen.findByTestId('bias-table')).toBeInTheDocument();
-    // Voting controls appear because topic + synthesis context are threaded
-    expect((await screen.findAllByRole('button', { name: /Agree with /i })).length).toBeGreaterThanOrEqual(2);
-    expect((await screen.findAllByRole('button', { name: /Disagree with /i })).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId('news-card-stance-scope-news-1')).toHaveTextContent(
+      'Stance controls apply to individual frame and reframe items about this story, not to the story as a whole.',
+    );
+
+    const agreeFrame = await screen.findByTestId('cell-vote-agree-syn-1:0:frame');
+    const disagreeReframe = await screen.findByTestId('cell-vote-disagree-syn-1:0:reframe');
+    expect(agreeFrame).toHaveAccessibleName('Agree with Public investment is overdue');
+    expect(agreeFrame).toHaveAttribute('data-display-point-id', 'syn-1:0:frame');
+    expect(agreeFrame).toHaveAttribute('data-canonical-point-id', 'syn-1:0:frame');
+    expect(disagreeReframe).toHaveAccessibleName('Disagree with Budget risk should slow rollout');
+    expect(disagreeReframe).toHaveAttribute('data-display-point-id', 'syn-1:0:reframe');
+    expect(disagreeReframe).toHaveAttribute('data-canonical-point-id', 'syn-1:0:reframe');
+
+    fireEvent.click(agreeFrame);
+    expect(setAgreementSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        topicId: 'news-1',
+        pointId: 'syn-1:0:frame',
+        synthesisPointId: 'syn-1:0:frame',
+        synthesisId: 'syn-1',
+        epoch: 2,
+        desired: 1,
+      }),
+    );
   });
   it('does not render stance voting controls when synthesis context is missing', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');

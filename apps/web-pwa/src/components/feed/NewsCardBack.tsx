@@ -319,6 +319,14 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
         <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
           Frame / Reframe
         </h4>
+        {frameRows.length > 0 && synthesisId && epoch !== undefined && (
+          <p
+            className="text-xs leading-5 text-slate-500 dark:text-slate-400"
+            data-testid={`news-card-stance-scope-${topicId}`}
+          >
+            Stance controls apply to individual frame and reframe items about this story, not to the story as a whole.
+          </p>
+        )}
         {analysisFeedbackStatus === 'error' && (
           <div className="mt-2" data-testid={`news-card-analysis-error-${topicId}`}>
             <RemovalIndicator reason="extraction-failed-permanently" />
@@ -368,6 +376,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             synthesisId={synthesisId ?? undefined}
             epoch={epoch}
             votingEnabled={Boolean(synthesisId && epoch !== undefined && frameRows.length > 0)}
+            votingPointIdMode="accepted-synthesis"
           />
         </div>
       </section>

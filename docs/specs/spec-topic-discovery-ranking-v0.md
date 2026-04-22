@@ -205,6 +205,8 @@ Required card affordances:
 - engagement counts
 - forum comments below frame/reframe content
 
+Stance controls on `NEWS_STORY` detail are enabled only for accepted synthesis frame/reframe cells that carry persisted `frame_point_id` / `reframe_point_id` values. Missing point ids must produce a non-votable cell rather than deriving a canonical write id from mutable display text.
+
 News-created forum threads must link with `sourceSynthesisId` + `sourceEpoch` when available and preserve the feed `topic_id` as the thread `topicId`. Legacy `sourceAnalysisId` is read-only compatibility.
 
 Continuous stream behavior:
