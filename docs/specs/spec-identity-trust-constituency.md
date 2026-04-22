@@ -80,7 +80,12 @@ attestation_input (VIO liveness / dev stub)
 
 ### 2.1.2 Session Expiry and Refresh
 
-**Current state (Season 0 transitional):** Sessions have no TTL - once created, they persist in local storage indefinitely until the user clears app data or re-attests. `useIdentity` has no expiry check.
+**Current state (Season 0 transitional):** Session lifecycle fields and helpers
+exist (`createdAt`, `expiresAt`, `DEFAULT_SESSION_TTL_MS`, near-expiry checks).
+`useIdentity` migrates legacy sessions and enforces expiry only when
+`VITE_SESSION_LIFECYCLE_ENABLED=true`. With the flag disabled, new and migrated
+sessions use `expiresAt = 0` and remain non-expiring until the user clears app
+data, revokes identity, or re-attests.
 
 **Target state (Season 0 v0.2):**
 - Sessions SHOULD carry an `expiresAt` timestamp (recommended: 7 days from creation for Silver assurance).
@@ -103,7 +108,9 @@ interface SessionResponse {
 
 ### 2.1.3 Session Revocation
 
-**Current state:** Session revocation is not implemented. There is no mechanism to invalidate a session.
+**Current state:** Local session revocation is implemented. `useIdentity.revokeSession()`
+clears identity state, published identity, sentiment signal state, and the local
+identity vault. Remote lost-device revocation remains deferred.
 
 **Target contract:**
 - A user MAY revoke their own session via an explicit "Sign Out" / "Clear Identity" action.
@@ -117,7 +124,9 @@ interface SessionResponse {
 
 ### 2.1.4 Timeout Semantics
 
-**Current state:** `useIdentity` has no TTL or timeout. Sessions are checked only at creation time.
+**Current state:** `useIdentity.checkSessionExpiry()` checks expiry at action
+boundaries when `VITE_SESSION_LIFECYCLE_ENABLED=true`; E2E and lifecycle-disabled
+profiles treat sessions as valid for transitional compatibility.
 
 **Target contract:**
 - Each trust-gated action SHOULD re-validate `expiresAt` before proceeding.
@@ -144,7 +153,7 @@ The following mock behaviors exist in the codebase and are documented here as **
 |------|-----------|-----------|--------|
 | E2E (`VITE_E2E_MODE=true`) | `1.0` | `mock-nullifier-<random>` | `useIdentity.ts:93` |
 | Dev fallback (attestation timeout) | `0.95` | real derivation | `useIdentity.ts:106` |
-| Stub constituency proof | N/A | `mock-nullifier` | `constituencyProof.ts:17` |
+| Stub constituency proof | N/A | `mock-nullifier` | `constituencyProof.ts:17`; test/dev helper only, voting paths reject mock proofs |
 
 **Invariants for mock sessions:**
 - Mock sessions MUST pass all trust gates (they use scores ≥ 0.95).
@@ -182,7 +191,11 @@ The following mock behaviors exist in the codebase and are documented here as **
 
 ### 4.1 Constituency Proof Interface (Canonical)
 
-The `ConstituencyProof` interface is the canonical shape for all constituency verification across the system. Current implementation in `getMockConstituencyProof()` (`apps/web-pwa/src/store/bridge/constituencyProof.ts`) returns this shape.
+The `ConstituencyProof` interface is the canonical shape for all constituency
+verification across the system. The active runtime proof acquisition path uses
+`getRealConstituencyProof()` (`apps/web-pwa/src/store/bridge/realConstituencyProof.ts`)
+through `useRegion()`. `getMockConstituencyProof()` remains a test/dev shape
+helper only and must not be the basis for production-like voting paths.
 
 ```ts
 interface ConstituencyProof {
@@ -219,12 +232,18 @@ interface ProofVerificationResult {
 
 ### 4.3 Proof Acquisition: Current Season 0 Runtime State
 
-**Season 0 reality (runtime):** Constituency proof acquisition uses an attestation-bound deterministic provider (`getRealConstituencyProof`) built from session nullifier + configured district.
+**Season 0 reality (runtime):** Constituency proof acquisition uses an
+attestation-bound deterministic provider (`getRealConstituencyProof`) built
+from session nullifier + configured district.
 
 Current runtime behavior:
 - `useRegion()` derives proof from identity session nullifier and configured district hash.
 - `useConstituencyProof()` hard-rejects mock proofs (`mock-*`) on voting paths.
 - Freshness remains non-cryptographic in Season 0 (non-empty root check).
+- This is beta-local proof semantics, not production Sybil resistance or
+  cryptographic residency proof. Product copy must not claim verified-human,
+  one-human-one-vote, district-proof, or Sybil-resistant guarantees until the
+  cryptographic acquisition and verification steps below are active.
 
 Transitional/test helpers:
 - `getMockConstituencyProof()` remains for tests/dev scaffolding only.
@@ -332,10 +351,11 @@ interface OnBehalfOfAssertion {
 
 | Component | Path | Status | Notes |
 |-----------|------|--------|-------|
-| `useIdentity` hook | `apps/web-pwa/src/hooks/useIdentity.ts` | Season 0 transitional | Session creation, trust check at 0.5, dev fallback at 0.95. No TTL/expiry yet. |
+| `useIdentity` hook | `apps/web-pwa/src/hooks/useIdentity.ts` | Season 0 transitional | Session creation, trust check at 0.5, dev fallback at 0.95, flag-gated lifecycle expiry, and local revocation. |
 | `useIdentity` tests | `apps/web-pwa/src/hooks/useIdentity.test.ts` | Season 0 transitional | Covers mock session paths. |
 | `TrustGate` component | `apps/web-pwa/src/components/hermes/forum/TrustGate.tsx` | Spec-aligned | Threshold-gated UI wrapper; checks `trustScore < 0.5`. |
-| `getMockConstituencyProof()` | `apps/web-pwa/src/store/bridge/constituencyProof.ts` | Season 0 transitional (STUB) | Returns mock proof shape. Will be replaced by real acquisition in Phase 4–5. |
+| `getRealConstituencyProof()` | `apps/web-pwa/src/store/bridge/realConstituencyProof.ts` | Season 0 beta-local | Deterministic proof shape derived from nullifier + configured district; not cryptographic residency proof. |
+| `getMockConstituencyProof()` | `apps/web-pwa/src/store/bridge/constituencyProof.ts` | Test/dev helper | Returns mock proof shape; voting paths reject mock proof values. |
 | `useGovernance` hook | `apps/web-pwa/src/hooks/useGovernance.ts` | Spec-aligned | `normalizeTrustScore()`, `MIN_TRUST_TO_VOTE = 0.7`. |
 | `ActionComposer` | `apps/web-pwa/src/components/bridge/ActionComposer.tsx` | Spec-aligned | Draft gate at 0.5, send gate at 0.7 (per CAK §7.1). |
 | `RepresentativeSelector` | `apps/web-pwa/src/components/bridge/RepresentativeSelector.tsx` | Spec-aligned | View gate at 0.5 with constituency proof requirement. |
@@ -358,7 +378,7 @@ This section explicitly defines the boundary between what Season 0 implements an
 | Off-chain session model | `SessionResponse` with `trustScore`, `nullifier`, `scaledTrustScore` | Phase 1 |
 | Trust-gated surfaces | All UI/action boundaries enforce `TRUST_THRESHOLDS` (§2) | Phase 1 |
 | Constituency proof interface | `ConstituencyProof { district_hash, nullifier, merkle_root }` shape is stable | Phase 1 |
-| Stub proof acquisition | `getMockConstituencyProof()` — satisfies interface, not cryptographically valid | Phase 1 (stub) |
+| Beta-local proof acquisition | `getRealConstituencyProof()` derives deterministic proof shape from nullifier + configured district; not cryptographic residency proof | Phase 1 beta-local |
 | On-chain scaled attestation | Attestor bridge writes `scaledTrustScore` and `bytes32Nullifier` to UBE/QF/Faucet | Phase 1 |
 | Daily participation budgets | Per-nullifier action caps (posts, comments, votes, analyses, shares, moderation, civic_actions) | Phase 1 |
 | Familiar delegation | Scoped, expiring, revocable grants; trust + budget inheritance; Tier 3 human approval | Phase 1 |
@@ -387,10 +407,10 @@ This section explicitly defines the boundary between what Season 0 implements an
 
 These items work in Season 0 but are explicitly marked as transitional and MUST be addressed before Season 1:
 
-1. **Hardcoded magic numbers:** Trust thresholds (0.5, 0.7) are inline across 10+ files. Target: single `TRUST_THRESHOLDS` constant (see §2 consolidation target).
-2. **No session expiry:** `useIdentity` has no TTL. Target: `expiresAt` field + lazy expiry check (see §2.1.2).
-3. **No session revocation UI:** No "Sign Out" or "Clear Identity" flow. Target: explicit revocation path (see §2.1.3).
-4. **Mock constituency proofs:** `getMockConstituencyProof()` is a stub. Target: real acquisition flow (see §4.4).
+1. **Threshold consolidation still incomplete on older surfaces:** Shared trust constants exist, but some older docs/surfaces still reference raw `0.5` and `0.7` boundaries. Target: active code paths should import canonical constants where practical.
+2. **Session expiry is flag-gated:** lifecycle fields and lazy expiry checks exist, but lifecycle enforcement depends on `VITE_SESSION_LIFECYCLE_ENABLED=true`; lifecycle-disabled sessions remain transitional non-expiring sessions.
+3. **No session revocation UI:** `useIdentity.revokeSession()` exists, but a user-facing "Sign Out" or "Clear Identity" flow still needs product wiring.
+4. **Beta-local constituency proof:** voting paths reject mock proof values and use deterministic proof derivation, but cryptographic residency proof acquisition is still deferred (see §4.4).
 5. **Device-bound nullifier:** Nullifier is per-device, not per-human. Target: multi-device linking with higher assurance (see §5).
 6. **Dev fallback trust score:** `0.95` fallback on attestation timeout is convenient but masks real verifier issues. Target: remove or gate behind explicit dev flag.
 
