@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import type { FeedItem } from '@vh/data-model';
+import { DEFAULT_FEED_PERSONALIZATION_CONFIG, type FeedItem } from '@vh/data-model';
 import { FEED_PAGE_SIZE, useFeedStore } from '../../hooks/useFeedStore';
 import { useDiscoveryFeed } from '../../hooks/useDiscoveryFeed';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
@@ -77,8 +77,10 @@ function makeFeedResult(feed: ReadonlyArray<FeedItem>): UseDiscoveryFeedResult {
     selectedStorylineId: null,
     filter: 'ALL',
     sortMode: 'LATEST',
+    personalization: { ...DEFAULT_FEED_PERSONALIZATION_CONFIG },
     loading: false,
     error: null,
+    setPersonalization: vi.fn(),
     setFilter: vi.fn(),
     focusStoryline: vi.fn(),
     clearStorylineFocus: vi.fn(),

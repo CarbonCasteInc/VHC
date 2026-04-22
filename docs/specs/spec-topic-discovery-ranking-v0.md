@@ -139,23 +139,16 @@ hotness =
 ```
 
 All coefficients and decay parameters must be config-driven and versioned.
-Top-window diversification parameters and future personalization weights are also config-driven; consumers must not hard-code storyline caps, entity-overlap penalties, or category preference defaults in card components.
+Top-window diversification and personalization weights are config-driven;
+consumers must not hard-code storyline caps, entity-overlap penalties, or
+category/topic preference defaults in card components.
 
 Season 0 active implementation:
 
-The active `FeedPersonalizationConfig` schema currently persists only
-`preferredCategories`. The discovery store carries this value through state,
-but `composeFeed(...)` and feed pagination do not yet consume it, so the feed
-must not be marketed as tunable until the ranking slice lands with deterministic
-tests proving changed ordering or filtering.
-
-```ts
-interface FeedPersonalizationConfig {
-  preferredCategories: string[];
-}
-```
-
-Target personalization scaffold:
+The active `FeedPersonalizationConfig` is private, local client state. It is
+not written into public discovery payloads and must not include person-level
+identifiers. `composeFeed(...)` consumes it as part of the canonical feed
+derivation path used by both `useDiscoveryFeed` and feed pagination.
 
 ```ts
 interface FeedPersonalizationConfig {
@@ -165,6 +158,19 @@ interface FeedPersonalizationConfig {
   mutedTopics: string[];
 }
 ```
+
+Semantics:
+
+- `mutedCategories` and `mutedTopics` are hard local exclusions before sorting;
+- `preferredCategories` and `preferredTopics` are soft boosts for `Hottest`;
+- `Latest` remains chronological after muted items are removed;
+- `My Activity` remains local-activity-led after muted items are removed;
+- preferred boosts happen before top-window diversification, so one preferred
+  storyline still cannot monopolize the top window.
+
+Topic matching uses `topic_id`, `story_id`, `storyline_id`, and `entity_keys`.
+Category matching uses `categories`. Matching is case-insensitive and tolerant
+of simple punctuation/spacing variants.
 
 ## 6. Cohort threshold and privacy rules
 
@@ -255,3 +261,4 @@ Cross-ref: `docs/specs/topic-synthesis-v2.md` for full `TopicSynthesisV2` schema
 | 0.5 | 2026-03-13 | Added optional `storyline_id`/`entity_keys` to `FeedItem` and documented storyline-aware HOTTEST diversification |
 | 0.6 | 2026-04-16 | Added NEWS_STORY synthesis precedence, source/detail affordance contract, `categories`, personalization scaffold, and V2 forum-thread linkage |
 | 0.7 | 2026-04-16 | Added compact product-shell, first-use orientation, forum/governance navigation, and collapsed-card media-density contracts |
+| 0.8 | 2026-04-22 | Added active local personalization semantics: category/topic mutes, HOTTEST preference boosts, and private client-only tuning controls |

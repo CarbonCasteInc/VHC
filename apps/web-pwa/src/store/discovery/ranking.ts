@@ -1,5 +1,16 @@
-import type { FeedItem, FilterChip, SortMode, RankingConfig } from '@vh/data-model';
-import { DEFAULT_HOTTEST_DIVERSIFICATION, FILTER_TO_KINDS } from '@vh/data-model';
+import type {
+  FeedItem,
+  FeedPersonalizationConfig,
+  FilterChip,
+  SortMode,
+  RankingConfig,
+} from '@vh/data-model';
+import {
+  DEFAULT_FEED_PERSONALIZATION_CONFIG,
+  DEFAULT_HOTTEST_DIVERSIFICATION,
+  DEFAULT_PERSONALIZATION_WEIGHTS,
+  FILTER_TO_KINDS,
+} from '@vh/data-model';
 import { ENTITY_STOP_WORDS, STORYLINE_GENERIC_TERMS } from './rankingTerms';
 
 /**
@@ -20,6 +31,13 @@ interface ScoredFeedItem {
   readonly score: number;
   readonly storyline: string;
   readonly entityTerms: ReadonlySet<string>;
+}
+
+interface NormalizedPersonalization {
+  readonly preferredCategories: ReadonlySet<string>;
+  readonly preferredTopics: ReadonlySet<string>;
+  readonly mutedCategories: ReadonlySet<string>;
+  readonly mutedTopics: ReadonlySet<string>;
 }
 
 /**
@@ -59,6 +77,132 @@ function resolveItemHotness(item: FeedItem, config: RankingConfig, nowMs: number
     return item.hotness;
   }
   return computeHotness(item, config, nowMs);
+}
+
+function normalizePreferenceToken(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function normalizeSearchToken(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function addNormalizedValue(target: Set<string>, value: string | undefined): void {
+  if (!value) {
+    return;
+  }
+
+  const exact = normalizePreferenceToken(value);
+  if (exact) {
+    target.add(exact);
+  }
+
+  const searchable = normalizeSearchToken(value);
+  if (searchable) {
+    target.add(searchable);
+  }
+}
+
+function normalizePreferenceList(values: ReadonlyArray<string>): ReadonlySet<string> {
+  const normalized = new Set<string>();
+  for (const value of values) {
+    addNormalizedValue(normalized, value);
+  }
+  return normalized;
+}
+
+function normalizePersonalization(
+  personalization: FeedPersonalizationConfig = DEFAULT_FEED_PERSONALIZATION_CONFIG,
+): NormalizedPersonalization {
+  return {
+    preferredCategories: normalizePreferenceList(personalization.preferredCategories),
+    preferredTopics: normalizePreferenceList(personalization.preferredTopics),
+    mutedCategories: normalizePreferenceList(personalization.mutedCategories),
+    mutedTopics: normalizePreferenceList(personalization.mutedTopics),
+  };
+}
+
+function itemCategoryKeys(item: FeedItem): ReadonlySet<string> {
+  const keys = new Set<string>();
+  for (const category of item.categories ?? []) {
+    addNormalizedValue(keys, category);
+  }
+  return keys;
+}
+
+function itemTopicKeys(item: FeedItem): ReadonlySet<string> {
+  const keys = new Set<string>();
+  addNormalizedValue(keys, item.topic_id);
+  addNormalizedValue(keys, item.story_id);
+  addNormalizedValue(keys, item.storyline_id);
+
+  for (const entityKey of item.entity_keys ?? []) {
+    addNormalizedValue(keys, entityKey);
+  }
+
+  return keys;
+}
+
+function hasAnyOverlap(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
+  if (left.size === 0 || right.size === 0) {
+    return false;
+  }
+
+  for (const value of left) {
+    if (right.has(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function itemMatchesCategoryPreferences(
+  item: FeedItem,
+  preferredCategories: ReadonlySet<string>,
+): boolean {
+  return hasAnyOverlap(itemCategoryKeys(item), preferredCategories);
+}
+
+function itemMatchesTopicPreferences(
+  item: FeedItem,
+  preferredTopics: ReadonlySet<string>,
+): boolean {
+  return hasAnyOverlap(itemTopicKeys(item), preferredTopics);
+}
+
+function isMutedByPersonalization(
+  item: FeedItem,
+  personalization: NormalizedPersonalization,
+): boolean {
+  return (
+    itemMatchesCategoryPreferences(item, personalization.mutedCategories) ||
+    itemMatchesTopicPreferences(item, personalization.mutedTopics)
+  );
+}
+
+function personalizationBoost(
+  item: FeedItem,
+  personalization: NormalizedPersonalization,
+  config: RankingConfig,
+): number {
+  const weights = {
+    ...DEFAULT_PERSONALIZATION_WEIGHTS,
+    ...(config.personalization ?? {}),
+  };
+
+  let boost = 0;
+  if (itemMatchesCategoryPreferences(item, personalization.preferredCategories)) {
+    boost += weights.preferredCategoryBoost;
+  }
+  if (itemMatchesTopicPreferences(item, personalization.preferredTopics)) {
+    boost += weights.preferredTopicBoost;
+  }
+  return boost;
 }
 
 function toEntityTerms(value: string): string[] {
@@ -266,8 +410,10 @@ export function sortItems(
   mode: SortMode,
   config: RankingConfig,
   nowMs: number,
+  personalization: FeedPersonalizationConfig = DEFAULT_FEED_PERSONALIZATION_CONFIG,
 ): FeedItem[] {
   const sorted = [...items];
+  const normalizedPersonalization = normalizePersonalization(personalization);
 
   switch (mode) {
     case 'LATEST':
@@ -281,7 +427,9 @@ export function sortItems(
     case 'HOTTEST': {
       const scored = sorted.map((item) => ({
         item,
-        score: resolveItemHotness(item, config, nowMs),
+        score:
+          resolveItemHotness(item, config, nowMs) +
+          personalizationBoost(item, normalizedPersonalization, config),
         storyline: storylineKey(item),
         entityTerms: entityTermsForItem(item),
       }));
@@ -318,8 +466,13 @@ export function composeFeed(
   config: RankingConfig,
   nowMs: number,
   selectedStorylineId: string | null = null,
+  personalization: FeedPersonalizationConfig = DEFAULT_FEED_PERSONALIZATION_CONFIG,
 ): FeedItem[] {
+  const normalizedPersonalization = normalizePersonalization(personalization);
   const filtered = filterItems(items, filter);
-  const focused = filterItemsByStoryline(filtered, selectedStorylineId);
-  return sortItems(focused, sortMode, config, nowMs);
+  const unmuted = filtered.filter(
+    (item) => !isMutedByPersonalization(item, normalizedPersonalization),
+  );
+  const focused = filterItemsByStoryline(unmuted, selectedStorylineId);
+  return sortItems(focused, sortMode, config, nowMs, personalization);
 }

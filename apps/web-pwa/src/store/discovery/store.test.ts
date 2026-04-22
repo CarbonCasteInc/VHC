@@ -357,10 +357,19 @@ describe('createDiscoveryStore', () => {
   });
 
   describe('setPersonalization', () => {
-    it('updates preference scaffold', () => {
-      store.getState().setPersonalization({ preferredCategories: ['transportation'] });
+    it('updates category and topic tuning preferences', () => {
+      store.getState().setPersonalization({
+        ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+        preferredCategories: ['transportation'],
+        preferredTopics: ['transit-budget'],
+        mutedCategories: ['sports'],
+        mutedTopics: ['celebrity-trial'],
+      });
       expect(store.getState().personalization).toEqual({
         preferredCategories: ['transportation'],
+        preferredTopics: ['transit-budget'],
+        mutedCategories: ['sports'],
+        mutedTopics: ['celebrity-trial'],
       });
     });
   });
@@ -533,6 +542,7 @@ describe('useDiscoveryFeed hook (unit-level)', () => {
     expect(result.current.sortMode).toBe('LATEST');
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
+    expect(typeof result.current.setPersonalization).toBe('function');
     expect(typeof result.current.setFilter).toBe('function');
     expect(typeof result.current.setSortMode).toBe('function');
 
@@ -572,6 +582,30 @@ describe('useDiscoveryFeed hook (unit-level)', () => {
     expect(result.current.sortMode).toBe('LATEST');
     expect(result.current.feed).toHaveLength(1);
     expect(result.current.feed[0]?.kind).toBe('NEWS_STORY');
+
+    unmount();
+  });
+
+  it('hook recomposes feed when personalization changes', async () => {
+    useDiscoveryStore.getState().setItems([
+      makeFeedItem({ topic_id: 'sports', hotness: 0.9, categories: ['Sports'] }),
+      makeFeedItem({ topic_id: 'policy', hotness: 0.8, categories: ['Policy'] }),
+    ]);
+    useDiscoveryStore.getState().setSortMode('HOTTEST');
+
+    const { useDiscoveryFeed } = await import('../../hooks/useDiscoveryFeed');
+    const { result, unmount } = renderHook(() => useDiscoveryFeed());
+
+    expect(result.current.feed.map((item) => item.topic_id)).toEqual(['sports', 'policy']);
+
+    act(() => {
+      result.current.setPersonalization({
+        ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+        preferredCategories: ['policy'],
+      });
+    });
+
+    expect(result.current.feed.map((item) => item.topic_id)).toEqual(['policy', 'sports']);
 
     unmount();
   });

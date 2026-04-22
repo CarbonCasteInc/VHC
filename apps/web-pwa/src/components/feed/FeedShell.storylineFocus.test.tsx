@@ -4,7 +4,11 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
-import type { FeedItem, StorylineGroup } from '@vh/data-model';
+import {
+  DEFAULT_FEED_PERSONALIZATION_CONFIG,
+  type FeedItem,
+  type StorylineGroup,
+} from '@vh/data-model';
 import { FeedShell } from './FeedShell';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 import { useNewsStore } from '../../store/news';
@@ -68,8 +72,10 @@ function makeFeedResult(
     selectedStorylineId: 'storyline-1',
     filter: 'ALL',
     sortMode: 'LATEST',
+    personalization: { ...DEFAULT_FEED_PERSONALIZATION_CONFIG },
     loading: false,
     error: null,
+    setPersonalization: vi.fn(),
     setFilter: vi.fn(),
     focusStoryline: vi.fn(),
     clearStorylineFocus: vi.fn(),
@@ -131,7 +137,7 @@ describe('FeedShell storyline focus', () => {
 
     expect(screen.getByTestId('storyline-focus-panel-storyline-1')).toBeInTheDocument();
     expect(screen.getByTestId('storyline-focus-count-storyline-1')).toHaveTextContent(
-      'Showing 2 stories from this storyline in the feed.',
+      'Showing 1 story from this storyline in the feed.',
     );
     expect(screen.getByText('Metro Daily:')).toBeInTheDocument();
     expect(screen.getByText('Mayor pushes for the transit package')).toBeInTheDocument();

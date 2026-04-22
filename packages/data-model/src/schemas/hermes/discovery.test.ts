@@ -1,15 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_DECAY_HALF_LIFE_HOURS,
+  DEFAULT_FEED_PERSONALIZATION_CONFIG,
   DEFAULT_HOTNESS_WEIGHTS,
+  DEFAULT_PERSONALIZATION_WEIGHTS,
   DEFAULT_RANKING_CONFIG,
   FEED_KINDS,
   FeedItemSchema,
   FeedKindSchema,
+  FeedPersonalizationConfigSchema,
   FILTER_CHIPS,
   FILTER_TO_KINDS,
   FilterChipSchema,
   HotnessWeightsSchema,
+  PersonalizationWeightsSchema,
   RankingConfigSchema,
   SORT_MODES,
   SortModeSchema,
@@ -260,12 +264,64 @@ describe('HotnessWeightsSchema', () => {
   });
 });
 
+describe('FeedPersonalizationConfigSchema', () => {
+  it('accepts preferred and muted category/topic preferences', () => {
+    const parsed = FeedPersonalizationConfigSchema.parse({
+      preferredCategories: ['politics'],
+      preferredTopics: ['election-law'],
+      mutedCategories: ['sports'],
+      mutedTopics: ['celebrity-trial'],
+    });
+
+    expect(parsed).toEqual({
+      preferredCategories: ['politics'],
+      preferredTopics: ['election-law'],
+      mutedCategories: ['sports'],
+      mutedTopics: ['celebrity-trial'],
+    });
+  });
+
+  it('rejects blank preference tokens', () => {
+    expect(
+      FeedPersonalizationConfigSchema.safeParse({
+        ...DEFAULT_FEED_PERSONALIZATION_CONFIG,
+        preferredCategories: [''],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('passes default feed personalization config', () => {
+    expect(
+      FeedPersonalizationConfigSchema.safeParse(DEFAULT_FEED_PERSONALIZATION_CONFIG).success,
+    ).toBe(true);
+  });
+});
+
+describe('PersonalizationWeightsSchema', () => {
+  it('accepts default personalization ranking weights', () => {
+    const parsed = PersonalizationWeightsSchema.parse(DEFAULT_PERSONALIZATION_WEIGHTS);
+
+    expect(parsed.preferredCategoryBoost).toBe(0.25);
+    expect(parsed.preferredTopicBoost).toBe(0.35);
+  });
+
+  it('rejects negative personalization ranking weights', () => {
+    expect(
+      PersonalizationWeightsSchema.safeParse({
+        ...DEFAULT_PERSONALIZATION_WEIGHTS,
+        preferredTopicBoost: -0.1,
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe('RankingConfigSchema', () => {
   it('accepts valid config', () => {
     const parsed = RankingConfigSchema.parse(DEFAULT_RANKING_CONFIG);
     expect(parsed.decayHalfLifeHours).toBe(48);
     expect(parsed.version).toBe('ranking-v0');
     expect(parsed.hottestDiversification?.storylineCap).toBe(2);
+    expect(parsed.personalization?.preferredTopicBoost).toBe(0.35);
   });
 
   it('rejects zero half-life', () => {
@@ -297,6 +353,7 @@ describe('DEFAULT_RANKING_CONFIG', () => {
       storylineCap: 2,
       adjacentEntityOverlapPenalty: 0.35,
     });
+    expect(DEFAULT_RANKING_CONFIG.personalization).toEqual(DEFAULT_PERSONALIZATION_WEIGHTS);
   });
 
   it('passes its own schema validation', () => {

@@ -117,6 +117,7 @@ function selectDiscoveryFeedItems(): DiscoveryFeedItem[] {
     discovery.rankingConfig,
     Date.now(),
     discovery.selectedStorylineId,
+    discovery.personalization,
   );
 }
 

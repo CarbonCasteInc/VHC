@@ -12,7 +12,8 @@ import {
  *
  * Composes the visible feed from the discovery store by applying:
  * 1. Filter chip → kind subset
- * 2. Sort mode → ordering
+ * 2. Local personalization → muted-topic/category exclusions
+ * 3. Sort mode → ordering, with HOTTEST applying preference boosts
  *
  * Spec: docs/specs/spec-topic-discovery-ranking-v0.md §2–4
  */
@@ -32,6 +33,8 @@ export interface UseDiscoveryFeedResult {
   readonly loading: boolean;
   /** Last error, if any. */
   readonly error: string | null;
+  /** Update private, local feed tuning preferences. */
+  setPersonalization: (config: FeedPersonalizationConfig) => void;
   /** Change filter chip. */
   setFilter: (filter: FilterChip) => void;
   /** Focus a specific storyline in discovery. */
@@ -52,6 +55,7 @@ const selectSelectedStorylineId = (s: DiscoveryState) => s.selectedStorylineId;
 const selectLoading = (s: DiscoveryState) => s.loading;
 const selectError = (s: DiscoveryState) => s.error;
 const selectSetFilter = (s: DiscoveryState) => s.setFilter;
+const selectSetPersonalization = (s: DiscoveryState) => s.setPersonalization;
 const selectFocusStoryline = (s: DiscoveryState) => s.focusStoryline;
 const selectClearStorylineFocus = (s: DiscoveryState) => s.clearStorylineFocus;
 const selectSetSortMode = (s: DiscoveryState) => s.setSortMode;
@@ -66,13 +70,23 @@ export function useDiscoveryFeed(): UseDiscoveryFeedResult {
   const loading = useStore(useDiscoveryStore, selectLoading);
   const error = useStore(useDiscoveryStore, selectError);
   const setFilter = useStore(useDiscoveryStore, selectSetFilter);
+  const setPersonalization = useStore(useDiscoveryStore, selectSetPersonalization);
   const focusStoryline = useStore(useDiscoveryStore, selectFocusStoryline);
   const clearStorylineFocus = useStore(useDiscoveryStore, selectClearStorylineFocus);
   const setSortMode = useStore(useDiscoveryStore, selectSetSortMode);
 
   const feed = useMemo(
-    () => composeFeed(items, filter, sortMode, rankingConfig, Date.now(), selectedStorylineId),
-    [items, filter, sortMode, rankingConfig, selectedStorylineId],
+    () =>
+      composeFeed(
+        items,
+        filter,
+        sortMode,
+        rankingConfig,
+        Date.now(),
+        selectedStorylineId,
+        personalization,
+      ),
+    [items, filter, sortMode, rankingConfig, selectedStorylineId, personalization],
   );
 
   return {
@@ -83,6 +97,7 @@ export function useDiscoveryFeed(): UseDiscoveryFeedResult {
     sortMode,
     loading,
     error,
+    setPersonalization,
     setFilter,
     focusStoryline,
     clearStorylineFocus,

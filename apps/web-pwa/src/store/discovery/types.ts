@@ -23,7 +23,7 @@ export interface DiscoveryState {
   /** Ranking configuration (weights + decay). */
   readonly rankingConfig: RankingConfig;
 
-  /** User preference scaffold for later category/topic personalization. */
+  /** User-local category/topic tuning applied during feed composition. */
   readonly personalization: FeedPersonalizationConfig;
 
   /** Whether the store is currently loading data. */
@@ -61,7 +61,7 @@ export interface DiscoveryState {
   /** Update ranking config at runtime. */
   setRankingConfig(config: RankingConfig): void;
 
-  /** Update category/topic preference scaffold without changing source contracts. */
+  /** Update private category/topic feed tuning without changing public feed payloads. */
   setPersonalization(config: FeedPersonalizationConfig): void;
 
   /** Set loading state. */
