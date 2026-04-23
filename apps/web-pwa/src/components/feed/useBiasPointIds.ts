@@ -41,6 +41,7 @@ interface UseBiasPointIdsParams {
   readonly synthesisId?: string;
   readonly epoch?: number;
   readonly votingEnabled?: boolean;
+  readonly synthesisPointIdMode?: 'persisted-or-derived' | 'persisted-only';
 }
 
 export interface UseBiasPointIdsResult {
@@ -55,6 +56,7 @@ export function useBiasPointIds({
   synthesisId,
   epoch,
   votingEnabled,
+  synthesisPointIdMode = 'persisted-or-derived',
 }: UseBiasPointIdsParams): UseBiasPointIdsResult {
   const [modelScopeKey, setModelScopeKey] = useState(getModelScopeKey);
   const [legacyPointIds, setLegacyPointIds] = useState<Record<string, string>>({});
@@ -136,29 +138,35 @@ export function useBiasPointIds({
           const nextSynthesisPointIds: Record<string, string> = {};
           for (let rowIndex = 0; rowIndex < frames.length; rowIndex += 1) {
             const row = frames[rowIndex]!;
-            const [framePointId, reframePointId] = await Promise.all([
-              row.frame_point_id
-                ? Promise.resolve(row.frame_point_id)
-                : deriveSynthesisPointId({
+            const framePointId = row.frame_point_id
+              ? row.frame_point_id
+              : synthesisPointIdMode === 'persisted-only'
+                ? null
+                : await deriveSynthesisPointId({
                     topic_id: topicId!,
                     synthesis_id: synthesisId!,
                     epoch: epoch!,
                     column: 'frame',
                     text: row.frame,
-                  }),
-              row.reframe_point_id
-                ? Promise.resolve(row.reframe_point_id)
-                : deriveSynthesisPointId({
+                  });
+            const reframePointId = row.reframe_point_id
+              ? row.reframe_point_id
+              : synthesisPointIdMode === 'persisted-only'
+                ? null
+                : await deriveSynthesisPointId({
                     topic_id: topicId!,
                     synthesis_id: synthesisId!,
                     epoch: epoch!,
                     column: 'reframe',
                     text: row.reframe,
-                  }),
-            ]);
+                  });
 
-            nextSynthesisPointIds[pointMapKey(rowIndex, 'frame')] = framePointId;
-            nextSynthesisPointIds[pointMapKey(rowIndex, 'reframe')] = reframePointId;
+            if (framePointId) {
+              nextSynthesisPointIds[pointMapKey(rowIndex, 'frame')] = framePointId;
+            }
+            if (reframePointId) {
+              nextSynthesisPointIds[pointMapKey(rowIndex, 'reframe')] = reframePointId;
+            }
           }
 
           return nextSynthesisPointIds;
@@ -194,6 +202,7 @@ export function useBiasPointIds({
     modelScopeKey,
     shouldDeriveLegacyIds,
     shouldDeriveSynthesisIds,
+    synthesisPointIdMode,
     synthesisId,
     topicId,
   ]);

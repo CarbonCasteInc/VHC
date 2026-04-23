@@ -21,6 +21,7 @@ export interface BiasTableProps {
   readonly synthesisId?: string;
   readonly epoch?: number;
   readonly votingEnabled?: boolean;
+  readonly votingPointIdMode?: 'legacy-compatible' | 'accepted-synthesis';
 }
 
 function biasTableDiagnosticsEnabled(): boolean {
@@ -63,6 +64,7 @@ interface ExpandableRowProps {
   readonly synthesisFramePointId?: string;
   readonly synthesisReframePointId?: string;
   readonly votingEnabled?: boolean;
+  readonly votingPointIdMode?: 'legacy-compatible' | 'accepted-synthesis';
 }
 
 function ExpandableRow({
@@ -79,6 +81,7 @@ function ExpandableRow({
   synthesisFramePointId,
   synthesisReframePointId,
   votingEnabled,
+  votingPointIdMode = 'legacy-compatible',
 }: ExpandableRowProps): React.ReactElement {
   const [expanded, setExpanded] = useState(false);
   const toggle = useCallback(() => setExpanded((v) => !v), []);
@@ -88,8 +91,14 @@ function ExpandableRow({
     (analysis?.justifyBiasClaims?.length ?? 0) > 0;
 
   const showVoting = !!(votingEnabled && topicId && synthesisId && epoch !== undefined);
-  const voteFramePointId = framePointId ?? synthesisFramePointId;
-  const voteReframePointId = reframePointId ?? synthesisReframePointId;
+  const voteFramePointId = votingPointIdMode === 'accepted-synthesis'
+    ? synthesisFramePointId
+    : framePointId ?? synthesisFramePointId;
+  const voteReframePointId = votingPointIdMode === 'accepted-synthesis'
+    ? synthesisReframePointId
+    : reframePointId ?? synthesisReframePointId;
+  const frameSynthesisPointId = synthesisFramePointId ?? voteFramePointId;
+  const reframeSynthesisPointId = synthesisReframePointId ?? voteReframePointId;
 
   return (
     <>
@@ -105,10 +114,11 @@ function ExpandableRow({
             <CellVoteControls
               topicId={topicId!}
               pointId={voteFramePointId}
-              synthesisPointId={synthesisFramePointId}
+              synthesisPointId={frameSynthesisPointId}
               synthesisId={synthesisId!}
               epoch={epoch!}
               analysisId={analysisId}
+              pointLabel={frame}
             />
           )}
         </td>
@@ -118,10 +128,11 @@ function ExpandableRow({
             <CellVoteControls
               topicId={topicId!}
               pointId={voteReframePointId}
-              synthesisPointId={synthesisReframePointId}
+              synthesisPointId={reframeSynthesisPointId}
               synthesisId={synthesisId!}
               epoch={epoch!}
               analysisId={analysisId}
+              pointLabel={reframe}
             />
           )}
         </td>
@@ -192,6 +203,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
   synthesisId,
   epoch,
   votingEnabled = false,
+  votingPointIdMode = 'legacy-compatible',
 }) => {
   const hasExplicitSynthesisContext = synthesisId !== undefined && epoch !== undefined;
   const stableVotingContextId = hasExplicitSynthesisContext
@@ -213,6 +225,9 @@ export const BiasTable: React.FC<BiasTableProps> = ({
     synthesisId: hasVotingContext ? effectiveSynthesisId : undefined,
     epoch: hasVotingContext ? effectiveEpoch : undefined,
     votingEnabled: hasVotingContext,
+    synthesisPointIdMode: votingPointIdMode === 'accepted-synthesis'
+      ? 'persisted-only'
+      : 'persisted-or-derived',
   });
 
   useEffect(() => {
@@ -241,6 +256,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
       legacy_point_mappings: Object.keys(legacyPointIds).length,
       synthesis_point_mappings: Object.keys(synthesisPointIds).length,
       point_mappings_ready: Object.keys(synthesisPointIds).length === expectedPointMappings,
+      point_id_mode: votingPointIdMode,
       voting_context_ready: hasVotingContext,
     };
 
@@ -263,6 +279,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
     synthesisPointIds,
     topicId,
     votingEnabled,
+    votingPointIdMode,
   ]);
 
   const rowAnalysisMap = buildRowAnalysisMap(frames, analyses);
@@ -328,6 +345,7 @@ export const BiasTable: React.FC<BiasTableProps> = ({
                   synthesisFramePointId={synthesisPointIds[pointMapKey(index, 'frame')]}
                   synthesisReframePointId={synthesisPointIds[pointMapKey(index, 'reframe')]}
                   votingEnabled={hasVotingContext}
+                  votingPointIdMode={votingPointIdMode}
                 />
               ))
             ) : (

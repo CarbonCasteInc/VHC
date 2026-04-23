@@ -52,6 +52,7 @@ Rules:
 2. `agreement = 0` is neutral and non-counting in point aggregates.
 3. Familiars cannot add separate sentiment identities.
 4. Event-level signals are sensitive and must remain local/encrypted.
+5. New feed/story-detail stance writes must use persisted `frame_point_id` or `reframe_point_id` values from the accepted `TopicSynthesisV2`; text-derived point ids are compatibility aliases, not the canonical write path for accepted synthesis.
 
 ## 3. Aggregate contract (public)
 

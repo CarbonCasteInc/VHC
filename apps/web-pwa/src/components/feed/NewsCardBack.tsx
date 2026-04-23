@@ -119,6 +119,10 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   createThread = null,
   onCollapse,
 }) => {
+  const hasAcceptedStanceTargets = frameRows.some(
+    (row) => Boolean(row.frame_point_id?.trim() || row.reframe_point_id?.trim()),
+  );
+
   return (
     <div data-testid={`news-card-back-${topicId}`} className="space-y-5">
       <header className="flex flex-wrap items-start justify-between gap-4 rounded-[1.75rem] border border-slate-200/90 bg-slate-50/85 p-4 shadow-sm shadow-slate-900/5 dark:border-slate-800 dark:bg-slate-900/80">
@@ -319,6 +323,14 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
         <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
           Frame / Reframe
         </h4>
+        {hasAcceptedStanceTargets && synthesisId && epoch !== undefined && (
+          <p
+            className="text-xs leading-5 text-slate-500 dark:text-slate-400"
+            data-testid={`news-card-stance-scope-${topicId}`}
+          >
+            Stance controls apply to individual frame and reframe items about this story, not to the story as a whole.
+          </p>
+        )}
         {analysisFeedbackStatus === 'error' && (
           <div className="mt-2" data-testid={`news-card-analysis-error-${topicId}`}>
             <RemovalIndicator reason="extraction-failed-permanently" />
@@ -367,7 +379,8 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             analysisId={analysisId ?? undefined}
             synthesisId={synthesisId ?? undefined}
             epoch={epoch}
-            votingEnabled={Boolean(synthesisId && epoch !== undefined && frameRows.length > 0)}
+            votingEnabled={Boolean(synthesisId && epoch !== undefined && hasAcceptedStanceTargets)}
+            votingPointIdMode="accepted-synthesis"
           />
         </div>
       </section>

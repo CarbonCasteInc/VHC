@@ -7,7 +7,7 @@ import { useBiasPointIds } from './useBiasPointIds';
 const deriveAnalysisKeyMock = vi.hoisted(() => vi.fn());
 const derivePointIdMock = vi.hoisted(() => vi.fn());
 const deriveSynthesisPointIdMock = vi.hoisted(() => vi.fn());
-const getDevModelOverrideMock = vi.hoisted(() => vi.fn(() => null));
+const getDevModelOverrideMock = vi.hoisted(() => vi.fn<() => string | null>(() => null));
 
 vi.mock('@vh/data-model', () => ({
   deriveAnalysisKey: (...args: unknown[]) => deriveAnalysisKeyMock(...args),
@@ -32,6 +32,7 @@ function HookHarness(props: {
   synthesisId?: string;
   epoch?: number;
   votingEnabled?: boolean;
+  synthesisPointIdMode?: 'persisted-or-derived' | 'persisted-only';
 }) {
   const pointIds = useBiasPointIds(props);
   return <pre data-testid="point-ids">{JSON.stringify(pointIds)}</pre>;
@@ -102,6 +103,32 @@ describe('useBiasPointIds', () => {
     await waitFor(() => {
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"legacyPointIds":{"frame:0":"legacy:frame:Frame A","reframe:0":"legacy:reframe:Reframe A"}');
       expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"persisted-frame-point","reframe:0":"persisted-reframe-point"}');
+    });
+
+    expect(deriveSynthesisPointIdMock).not.toHaveBeenCalled();
+  });
+
+  it('persisted-only synthesis mode never derives text-based canonical point IDs', async () => {
+    render(
+      <HookHarness
+        frames={[
+          {
+            frame_point_id: 'persisted-frame-point',
+            frame: 'Frame A',
+            reframe: 'Reframe A',
+          },
+        ]}
+        topicId="topic-1"
+        synthesisId="synth-1"
+        epoch={2}
+        votingEnabled
+        synthesisPointIdMode="persisted-only"
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"legacyPointIds":{}');
+      expect(screen.getByTestId('point-ids')).toHaveTextContent('"synthesisPointIds":{"frame:0":"persisted-frame-point"}');
     });
 
     expect(deriveSynthesisPointIdMock).not.toHaveBeenCalled();

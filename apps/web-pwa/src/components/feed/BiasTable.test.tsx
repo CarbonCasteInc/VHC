@@ -243,6 +243,58 @@ describe('BiasTable', () => {
     expect(screen.queryByTestId(`cell-vote-${synthesisPointIds.frame0}`)).not.toBeInTheDocument();
   });
 
+  it('accepted synthesis mode uses persisted point IDs as display and canonical IDs', async () => {
+    const legacyPointIds = await deriveExpectedPointIds();
+    render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={[
+          {
+            frame_point_id: 'persisted-frame-0',
+            frame: FRAMES[0]!.frame,
+            reframe_point_id: 'persisted-reframe-0',
+            reframe: FRAMES[0]!.reframe,
+          },
+        ]}
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
+        votingEnabled
+        votingPointIdMode="accepted-synthesis"
+      />,
+    );
+
+    expect(await screen.findByTestId('cell-vote-persisted-frame-0')).toHaveAttribute(
+      'data-canonical-point-id',
+      'persisted-frame-0',
+    );
+    expect(screen.getByTestId('cell-vote-persisted-reframe-0')).toHaveAttribute(
+      'data-canonical-point-id',
+      'persisted-reframe-0',
+    );
+    expect(screen.queryByTestId(`cell-vote-${legacyPointIds.frame0}`)).not.toBeInTheDocument();
+  });
+
+  it('accepted synthesis mode does not render stance controls for rows missing persisted point IDs', async () => {
+    const legacyPointIds = await deriveExpectedPointIds();
+    const { container } = render(
+      <BiasTable
+        analyses={[makeAnalysis()]}
+        frames={FRAMES}
+        topicId={TOPIC_ID}
+        analysisId={ANALYSIS_ID}
+        synthesisId={SYNTHESIS_ID}
+        epoch={EPOCH}
+        votingEnabled
+        votingPointIdMode="accepted-synthesis"
+      />,
+    );
+
+    expect(container.querySelector('[data-testid^="cell-vote-"]')).not.toBeInTheDocument();
+    expect(screen.queryByTestId(`cell-vote-${legacyPointIds.frame0}`)).not.toBeInTheDocument();
+  });
+
   it('derives canonical vote ids from the explicit synthesis context when it exists', async () => {
     const legacyPointIds = await deriveExpectedPointIds();
     const stableSynthesisPointIds = await deriveExpectedSynthesisPointIds(SYNTHESIS_ID);
