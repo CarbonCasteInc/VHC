@@ -116,6 +116,28 @@ describe('feed discussion thread resolution', () => {
       .toBe('by-url');
   });
 
+  it('prefers the deterministic story thread over legacy story and topic matches', () => {
+    const item = makeFeedItem();
+    const story = makeStory();
+    const exact = makeThread({ id: 'news-story:story-1', timestamp: 1 });
+    const newerTopicMatch = makeThread({
+      id: 'newer-topic-match',
+      topicId: 'topic-1',
+      isHeadline: true,
+      timestamp: 10_000,
+    });
+    const newerSourceMatch = makeThread({
+      id: 'newer-source-match',
+      sourceSynthesisId: 'story-1',
+      isHeadline: true,
+      timestamp: 20_000,
+    });
+
+    expect(resolveStoryDiscussionThread([newerTopicMatch, newerSourceMatch, exact], item, story)?.id).toBe(
+      'news-story:story-1',
+    );
+  });
+
   it('falls back to feed story id and ignores invalid source urls that do not match', () => {
     const item = makeFeedItem({ topic_id: 'other-topic', story_id: 'fallback-story' });
     const story = makeStory({

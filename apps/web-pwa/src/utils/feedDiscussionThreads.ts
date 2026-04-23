@@ -74,9 +74,16 @@ export function resolveStoryDiscussionThread(
       .filter((hash): hash is string => hash !== null),
   );
 
+  const candidateThreads = Array.from(threads);
+  const exactThreadMatches = candidateThreads.filter(
+    (thread) => normalizeToken(thread.id) === expectedThreadId,
+  );
+  if (exactThreadMatches.length > 0) {
+    return pickThread(exactThreadMatches);
+  }
+
   return pickThread(
-    Array.from(threads).filter((thread) => {
-      const threadId = normalizeToken(thread.id);
+    candidateThreads.filter((thread) => {
       const threadTopicId = normalizeToken(thread.topicId);
       const threadSourceSynthesisId = normalizeToken(thread.sourceSynthesisId);
       const threadSourceAnalysisId = normalizeToken(thread.sourceAnalysisId);
@@ -84,7 +91,6 @@ export function resolveStoryDiscussionThread(
       const threadSourceUrl = normalizeUrl(thread.sourceUrl);
 
       return (
-        (threadId !== null && threadId === expectedThreadId) ||
         (topicId !== null && threadTopicId === topicId) ||
         (storyId !== null && threadSourceSynthesisId === storyId) ||
         (storyId !== null && threadSourceAnalysisId === storyId) ||
