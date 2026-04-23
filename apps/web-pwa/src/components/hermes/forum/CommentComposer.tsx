@@ -33,6 +33,7 @@ export const CommentComposer: React.FC<Props> = ({
   const [busy, setBusy] = useState(false);
   const [sliderValue, setSliderValue] = useState(50);
   const [overflowAttempted, setOverflowAttempted] = useState(false);
+  const [postError, setPostError] = useState<string | null>(null);
 
   const enforceLimit = !isThreadCreation;
   const charCount = content.length;
@@ -48,9 +49,11 @@ export const CommentComposer: React.FC<Props> = ({
       if (enforceLimit && raw.length > REPLY_CHAR_LIMIT) {
         setContent(raw.slice(0, REPLY_CHAR_LIMIT));
         setOverflowAttempted(true);
+        setPostError(null);
         return;
       }
       setContent(raw);
+      setPostError(null);
     },
     [enforceLimit],
   );
@@ -71,6 +74,7 @@ export const CommentComposer: React.FC<Props> = ({
         const truncated = before + paste.slice(0, Math.max(0, allowed)) + after;
         setContent(truncated.slice(0, REPLY_CHAR_LIMIT));
         setOverflowAttempted(true);
+        setPostError(null);
       }
     },
     [enforceLimit, content],
@@ -99,6 +103,7 @@ export const CommentComposer: React.FC<Props> = ({
     if (!content.trim() || busy || submitBlocked) return;
 
     setBusy(true);
+    setPostError(null);
     try {
       const stance = sliderToStance(sliderValue);
       await createComment(threadId, content.trim(), stance, parentId);
@@ -108,7 +113,9 @@ export const CommentComposer: React.FC<Props> = ({
       incrementCommentPostCount();
       await onSubmit?.();
     } catch (err) {
+      const message = err instanceof Error ? err.message : 'Comment post failed';
       console.warn('[vh:forum] Comment post failed:', err);
+      setPostError(message);
     } finally {
       setBusy(false);
     }
@@ -195,6 +202,7 @@ export const CommentComposer: React.FC<Props> = ({
         )}
         <div className="flex justify-end">
           <button
+            type="button"
             className="rounded-lg px-6 py-2 text-sm font-semibold text-white shadow-sm transition-all hover:shadow-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ backgroundColor: getButtonColor(sliderValue) }}
             onClick={() => void handlePost()}
@@ -204,6 +212,15 @@ export const CommentComposer: React.FC<Props> = ({
             {busy ? 'Posting…' : 'Post Comment'}
           </button>
         </div>
+        {postError && (
+          <p
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200"
+            role="alert"
+            data-testid="comment-composer-error"
+          >
+            {postError}
+          </p>
+        )}
       </div>
     </div>
   );

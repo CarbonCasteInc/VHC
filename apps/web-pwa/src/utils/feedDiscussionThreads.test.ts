@@ -3,6 +3,7 @@ import type { FeedItem, StoryBundle } from '@vh/data-model';
 import type { HermesThread } from '@vh/types';
 import {
   getPrimaryStorySource,
+  getStoryDiscussionThreadId,
   resolveStoryDiscussionThread,
   resolveTopicThread,
 } from './feedDiscussionThreads';
@@ -96,6 +97,9 @@ describe('feed discussion thread resolution', () => {
     const item = makeFeedItem();
     const story = makeStory();
 
+    expect(resolveStoryDiscussionThread([
+      makeThread({ id: 'news-story:story-1', topicId: 'renamed-topic' }),
+    ], item, story)?.id).toBe('news-story:story-1');
     expect(resolveStoryDiscussionThread([makeThread({ id: 'by-topic', topicId: 'topic-1' })], item, story)?.id)
       .toBe('by-topic');
     expect(resolveStoryDiscussionThread([makeThread({ id: 'by-synthesis', sourceSynthesisId: 'story-1' })], item, story)?.id)
@@ -110,6 +114,28 @@ describe('feed discussion thread resolution', () => {
       .toBe('by-url-hash');
     expect(resolveStoryDiscussionThread([makeThread({ id: 'by-url', sourceUrl: ' https://example.com/story ' })], item, story)?.id)
       .toBe('by-url');
+  });
+
+  it('prefers the deterministic story thread over legacy story and topic matches', () => {
+    const item = makeFeedItem();
+    const story = makeStory();
+    const exact = makeThread({ id: 'news-story:story-1', timestamp: 1 });
+    const newerTopicMatch = makeThread({
+      id: 'newer-topic-match',
+      topicId: 'topic-1',
+      isHeadline: true,
+      timestamp: 10_000,
+    });
+    const newerSourceMatch = makeThread({
+      id: 'newer-source-match',
+      sourceSynthesisId: 'story-1',
+      isHeadline: true,
+      timestamp: 20_000,
+    });
+
+    expect(resolveStoryDiscussionThread([newerTopicMatch, newerSourceMatch, exact], item, story)?.id).toBe(
+      'news-story:story-1',
+    );
   });
 
   it('falls back to feed story id and ignores invalid source urls that do not match', () => {
@@ -136,6 +162,26 @@ describe('feed discussion thread resolution', () => {
     expect(resolveStoryDiscussionThread([
       makeThread({ id: 'feed-story', sourceAnalysisId: 'fallback-story' }),
     ], item, null)?.id).toBe('feed-story');
+  });
+
+  it('derives a deterministic story discussion thread id from story identity', () => {
+    expect(getStoryDiscussionThreadId(makeFeedItem(), makeStory())).toBe('news-story:story-1');
+    expect(getStoryDiscussionThreadId(makeFeedItem({ story_id: 'feed story/id' }), null)).toBe(
+      'news-story:feed%20story%2Fid',
+    );
+    expect(getStoryDiscussionThreadId(makeFeedItem({ story_id: undefined, topic_id: 'topic/fallback' }), null)).toBe(
+      'news-story:topic%2Ffallback',
+    );
+    expect(getStoryDiscussionThreadId(makeFeedItem({
+      story_id: undefined,
+      topic_id: '   ',
+      title: 'Title fallback',
+    }), null)).toBe('news-story:Title%20fallback');
+    expect(getStoryDiscussionThreadId(makeFeedItem({
+      story_id: undefined,
+      topic_id: '   ',
+      title: '   ',
+    }), null)).toBe('news-story:unknown');
   });
 
   it('returns the primary source projection when story provenance exists', () => {

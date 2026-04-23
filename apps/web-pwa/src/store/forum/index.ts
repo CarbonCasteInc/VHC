@@ -55,7 +55,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         throw new Error(`Budget denied: ${budgetCheck.reason}`);
       }
       const client = ensureClient(deps.resolveClient);
-      const threadId = deps.randomId();
+      const threadId = opts?.threadId?.trim() || deps.randomId();
       const threadData: Record<string, unknown> = {
         id: threadId,
         schemaVersion: 'hermes-thread-v0',

@@ -70,11 +70,13 @@ Back-compat notes:
 - Threads without proposal remain valid.
 - Read path accepts `sourceAnalysisId`; write path emits `sourceSynthesisId`.
 - Missing `sourceEpoch` is valid for legacy records.
+- News story detail may pass an explicit deterministic `threadId` when creating a headline thread. This is limited to story-linked forum threads and does not change native forum thread id generation.
 
 ### 2.2 Topic linkage rules
 
 - One topic can have many threads; each thread has exactly one `topicId`.
 - For externally sourced stories, `topicId` may be derived from clustered story identity.
+- Story-linked headline threads keep `topicId` on the feed topic, link back to accepted synthesis with `sourceSynthesisId` + `sourceEpoch` when available, and may use a deterministic `news-story:<encoded story-or-topic token>` id so detail cards and `/hermes/$threadId` open the same conversation.
 - For native user threads, derive deterministic topic IDs using a prefix + thread ID.
 
 ```ts

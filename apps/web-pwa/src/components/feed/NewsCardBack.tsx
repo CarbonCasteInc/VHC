@@ -80,6 +80,7 @@ export interface NewsCardBackProps {
     readonly sourceEpoch?: number;
     readonly sourceUrl?: string;
     readonly topicId?: string;
+    readonly threadId?: string;
   } | null;
   readonly onCollapse: () => void;
 }

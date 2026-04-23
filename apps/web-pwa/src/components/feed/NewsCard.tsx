@@ -9,7 +9,11 @@ import { NewsCardBack } from './NewsCardBack';
 import { sanitizePublicationNeutralSummary } from './newsCardAnalysis';
 import { useExpandedCardStore } from './expandedCardStore';
 import { useDiscoveryStore } from '../../store/discovery';
-import { getPrimaryStorySource, resolveStoryDiscussionThread } from '../../utils/feedDiscussionThreads';
+import {
+  getPrimaryStorySource,
+  getStoryDiscussionThreadId,
+  resolveStoryDiscussionThread,
+} from '../../utils/feedDiscussionThreads';
 import { getFeedItemDetailId, normalizeStoryId } from '../../utils/feedItemIdentity';
 import { NewsCardFront } from './NewsCardFront';
 import {
@@ -87,6 +91,10 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const discussionThread = useMemo(
     () => resolveStoryDiscussionThread(forumThreads.values(), item, story),
     [forumThreads, item, story],
+  );
+  const storyDiscussionThreadId = useMemo(
+    () => getStoryDiscussionThreadId(item, story),
+    [item, story],
   );
   const primaryStorySource = useMemo(() => getPrimaryStorySource(story), [story]);
   const singletonVideoSource = useMemo(
@@ -293,6 +301,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
                       sourceEpoch: synthesisEpoch,
                       sourceUrl: primaryStorySource.url,
                       topicId: item.topic_id,
+                      threadId: storyDiscussionThreadId,
                     }
                   : null
               }

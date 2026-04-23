@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import type { HermesThread } from '@vh/types';
 import { useForumStore } from '../../../store/hermesForum';
 
 interface Props {
@@ -7,7 +8,8 @@ interface Props {
   defaultTitle?: string;
   sourceUrl?: string;
   topicId?: string;
-  onSuccess?: () => void;
+  threadId?: string;
+  onSuccess?: (thread: HermesThread) => void;
 }
 
 export const NewThreadForm: React.FC<Props> = ({
@@ -16,6 +18,7 @@ export const NewThreadForm: React.FC<Props> = ({
   defaultTitle,
   sourceUrl,
   topicId,
+  threadId,
   onSuccess,
 }) => {
   const { createThread } = useForumStore();
@@ -23,16 +26,23 @@ export const NewThreadForm: React.FC<Props> = ({
   const [content, setContent] = useState('');
   const [tags, setTags] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     if (!title.trim() || !content.trim() || busy) return;
     setBusy(true);
+    setError(null);
     try {
       const parsedTags = tags.split(',').map((t) => t.trim()).filter(Boolean);
-      const opts = sourceUrl || topicId
-        ? { ...(sourceUrl ? { sourceUrl } : {}), ...(topicId ? { topicId } : {}), isHeadline: true as const }
+      const opts = sourceUrl || topicId || threadId
+        ? {
+            ...(sourceUrl ? { sourceUrl } : {}),
+            ...(topicId ? { topicId } : {}),
+            ...(threadId ? { threadId } : {}),
+            isHeadline: true as const,
+          }
         : undefined;
-      await createThread(
+      const thread = await createThread(
         title.trim(),
         content.trim(),
         parsedTags,
@@ -42,7 +52,11 @@ export const NewThreadForm: React.FC<Props> = ({
       setTitle('');
       setContent('');
       setTags('');
-      onSuccess?.();
+      onSuccess?.(thread);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Thread creation failed';
+      console.warn('[vh:forum] Thread creation failed:', err);
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -79,6 +93,7 @@ export const NewThreadForm: React.FC<Props> = ({
           onChange={(e) => setTags(e.target.value)}
         />
         <button
+          type="button"
           className="rounded-lg px-4 py-2 text-sm font-medium shadow-sm transition hover:shadow-md disabled:opacity-50"
           style={{ backgroundColor: 'var(--btn-primary-bg)', color: 'var(--btn-primary-text)' }}
           onClick={() => void handleSubmit()}
@@ -87,6 +102,15 @@ export const NewThreadForm: React.FC<Props> = ({
         >
           {busy ? 'Posting…' : 'Post thread'}
         </button>
+        {error && (
+          <p
+            className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-200"
+            role="alert"
+            data-testid="thread-form-error"
+          >
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );

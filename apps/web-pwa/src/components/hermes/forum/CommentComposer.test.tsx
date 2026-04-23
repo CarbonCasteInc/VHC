@@ -67,6 +67,19 @@ describe('CommentComposer', () => {
     expect(onSubmit).toHaveBeenCalled();
   });
 
+  it('surfaces post failures without clearing the reply draft', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    createCommentMock.mockRejectedValueOnce(new Error('Gun client not ready'));
+    render(<CommentComposer threadId="thread-1" parentId="parent-1" />);
+
+    typeIntoComposer('A reply that should remain editable');
+    fireEvent.click(screen.getByTestId('submit-comment-btn'));
+
+    expect(await screen.findByTestId('comment-composer-error')).toHaveTextContent('Gun client not ready');
+    expect(screen.getByTestId('comment-composer')).toHaveValue('A reply that should remain editable');
+    warnSpy.mockRestore();
+  });
+
   // ── Counter display at various lengths ──
 
   describe('character counter', () => {
