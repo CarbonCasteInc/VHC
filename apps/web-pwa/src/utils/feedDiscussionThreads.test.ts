@@ -150,6 +150,16 @@ describe('feed discussion thread resolution', () => {
     expect(getStoryDiscussionThreadId(makeFeedItem({ story_id: undefined, topic_id: 'topic/fallback' }), null)).toBe(
       'news-story:topic%2Ffallback',
     );
+    expect(getStoryDiscussionThreadId(makeFeedItem({
+      story_id: undefined,
+      topic_id: '   ',
+      title: 'Title fallback',
+    }), null)).toBe('news-story:Title%20fallback');
+    expect(getStoryDiscussionThreadId(makeFeedItem({
+      story_id: undefined,
+      topic_id: '   ',
+      title: '   ',
+    }), null)).toBe('news-story:unknown');
   });
 
   it('returns the primary source projection when story provenance exists', () => {
