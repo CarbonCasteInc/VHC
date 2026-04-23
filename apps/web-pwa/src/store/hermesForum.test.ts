@@ -189,6 +189,28 @@ describe('hermesForum store', () => {
     expect(thread.topicId).toBe('story-topic-1');
   });
 
+  it('createThread uses an explicit threadId for deterministic story discussion threads', async () => {
+    setIdentity('story-thread-id');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'random-thread', now: () => 1 });
+
+    const thread = await store
+      .getState()
+      .createThread('title', 'content', ['news'], undefined, {
+        threadId: 'news-story:story-1',
+        topicId: 'story-topic-1',
+        isHeadline: true,
+      });
+
+    expect(thread.id).toBe('news-story:story-1');
+    expect(thread.topicId).toBe('story-topic-1');
+    expect(thread.isHeadline).toBe(true);
+    expect(threadWrites[0]).toMatchObject({
+      id: 'news-story:story-1',
+      topicId: 'story-topic-1',
+      isHeadline: true,
+    });
+  });
+
   it('createThread writes synthesis source context and not legacy analysis context', async () => {
     setIdentity('synthesis-thread');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-synth', now: () => 1 });

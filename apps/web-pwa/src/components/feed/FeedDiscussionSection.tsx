@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import type { HermesComment, HermesThread } from '@vh/types';
 import { useForumStore } from '../../store/hermesForum';
@@ -21,6 +21,7 @@ export interface FeedDiscussionSectionProps {
     readonly sourceEpoch?: number;
     readonly sourceUrl?: string;
     readonly topicId?: string;
+    readonly threadId?: string;
   } | null;
 }
 
@@ -32,14 +33,46 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
   fallbackCommentCount = 0,
   createThread = null,
 }) => {
-  const threadId = thread?.id ?? null;
+  const [createdThread, setCreatedThread] = useState<HermesThread | null>(null);
+  const effectiveThread = thread ?? createdThread;
+  const threadId = effectiveThread?.id ?? null;
   const loadComments = useForumStore((state) => state.loadComments);
   const comments = useForumStore((state) =>
     threadId ? state.comments.get(threadId) ?? EMPTY_COMMENTS : EMPTY_COMMENTS,
   );
   const [loaded, setLoaded] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showComposer, setShowComposer] = useState(false);
   const [showNewThreadForm, setShowNewThreadForm] = useState(false);
+  const createThreadKey = useMemo(
+    () =>
+      createThread
+        ? [
+            createThread.defaultTitle,
+            createThread.sourceSynthesisId ?? '',
+            createThread.sourceEpoch ?? '',
+            createThread.sourceUrl ?? '',
+            createThread.topicId ?? '',
+            createThread.threadId ?? '',
+          ].join('|')
+        : 'none',
+    [createThread],
+  );
+
+  useEffect(() => {
+    if (thread) {
+      setCreatedThread(null);
+    }
+  }, [thread]);
+
+  useEffect(() => {
+    if (thread) {
+      return;
+    }
+    setCreatedThread(null);
+    setShowNewThreadForm(false);
+  }, [createThreadKey, sectionId, thread]);
 
   useEffect(() => {
     setShowComposer(false);
@@ -48,23 +81,33 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
   useEffect(() => {
     if (!threadId) {
       setLoaded(false);
+      setLoadError(null);
       return;
     }
 
     let active = true;
     setLoaded(false);
-    void loadComments(threadId).then(() => {
-      if (active) {
-        setLoaded(true);
-      }
-    });
+    setLoadError(null);
+    void loadComments(threadId)
+      .then(() => {
+        if (active) {
+          setLoaded(true);
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setLoadError(err instanceof Error ? err.message : 'Unable to load comments');
+        }
+      });
 
     return () => {
       active = false;
     };
-  }, [loadComments, threadId]);
+  }, [loadAttempt, loadComments, threadId]);
 
-  const commentCount = Math.max(fallbackCommentCount, comments.length);
+  const commentCount = loaded || comments.length > 0
+    ? comments.length
+    : Math.max(fallbackCommentCount, comments.length);
 
   return (
     <section
@@ -83,14 +126,14 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
             </span>
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {thread ? 'Threaded replies stay attached to this topic.' : emptyMessage}
+            {effectiveThread ? 'Threaded replies stay attached to this story.' : emptyMessage}
           </p>
         </div>
 
-        {thread && (
+        {effectiveThread && (
           <Link
             to="/hermes/$threadId"
-            params={{ threadId: thread.id }}
+            params={{ threadId: effectiveThread.id }}
             className="rounded-full border border-slate-200/80 bg-white/90 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.16em] text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 dark:border-slate-700 dark:bg-slate-900/80 dark:text-slate-200 dark:hover:bg-slate-800"
             data-testid={`${sectionId}-open-thread`}
           >
@@ -99,7 +142,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
         )}
       </header>
 
-      {thread ? (
+      {effectiveThread ? (
         <>
           <div
             className="rounded-[1.5rem] border border-slate-200/80 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-900/80"
@@ -107,17 +150,35 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
           >
             <div className="flex flex-wrap items-center gap-2">
               <span className="rounded-full bg-slate-900 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-white dark:bg-white dark:text-slate-900">
-                {thread.isHeadline ? 'Headline thread' : 'Forum thread'}
+                {effectiveThread.isHeadline ? 'Headline thread' : 'Forum thread'}
               </span>
             </div>
-            <p className="mt-3 text-lg text-slate-900 dark:text-white">{thread.title}</p>
+            <p className="mt-3 text-lg text-slate-900 dark:text-white">{effectiveThread.title}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-              <span>By {thread.author.slice(0, 10)}…</span>
-              <span>{new Date(thread.timestamp).toLocaleString()}</span>
+              <span>By {effectiveThread.author.slice(0, 10)}…</span>
+              <span>{new Date(effectiveThread.timestamp).toLocaleString()}</span>
             </div>
           </div>
 
-          {!loaded && (
+          {loadError && (
+            <div
+              className="space-y-2 rounded-[1.25rem] border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-100"
+              role="alert"
+              data-testid={`${sectionId}-discussion-load-error`}
+            >
+              <p>Could not load comments: {loadError}</p>
+              <button
+                type="button"
+                className="rounded-full border border-amber-300 bg-white/80 px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800 transition hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-100"
+                onClick={() => setLoadAttempt((value) => value + 1)}
+                data-testid={`${sectionId}-discussion-retry-load`}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {!loaded && !loadError && (
             <p className="text-sm text-slate-500 dark:text-slate-400" data-testid={`${sectionId}-discussion-loading`}>
               Loading comments…
             </p>
@@ -134,7 +195,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
 
           {comments.length > 0 && (
             <div className="rounded-[1.5rem] border border-slate-200/80 bg-slate-50/55 p-2 dark:border-slate-800 dark:bg-slate-900/70">
-              <CommentStream threadId={thread.id} comments={comments} />
+              <CommentStream threadId={effectiveThread.id} comments={comments} />
             </div>
           )}
 
@@ -165,7 +226,7 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
             {showComposer && (
               <TrustGate>
                 <CommentComposer
-                  threadId={thread.id}
+                  threadId={effectiveThread.id}
                   onSubmit={async () => setShowComposer(false)}
                 />
               </TrustGate>
@@ -200,7 +261,11 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
                 sourceEpoch={createThread.sourceEpoch}
                 sourceUrl={createThread.sourceUrl}
                 topicId={createThread.topicId}
-                onSuccess={() => setShowNewThreadForm(false)}
+                threadId={createThread.threadId}
+                onSuccess={(nextThread) => {
+                  setCreatedThread(nextThread);
+                  setShowNewThreadForm(false);
+                }}
               />
             </TrustGate>
           )}

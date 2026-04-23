@@ -26,7 +26,7 @@ export interface ForumState {
     content: string,
     tags: string[],
     sourceContext?: ThreadSourceContextInput,
-    opts?: { sourceUrl?: string; isHeadline?: boolean; topicId?: string }
+    opts?: { sourceUrl?: string; isHeadline?: boolean; topicId?: string; threadId?: string }
   ): Promise<HermesThread>;
   createComment(
     threadId: string,

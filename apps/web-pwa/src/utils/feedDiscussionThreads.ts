@@ -62,6 +62,7 @@ export function resolveStoryDiscussionThread(
 ): HermesThread | null {
   const topicId = normalizeToken(item.topic_id);
   const storyId = normalizeToken(story?.story_id) ?? normalizeStoryId(item.story_id);
+  const expectedThreadId = getStoryDiscussionThreadId(item, story);
   const sourceUrlSet = new Set(
     (story?.sources ?? [])
       .map((source) => normalizeUrl(source.url))
@@ -75,6 +76,7 @@ export function resolveStoryDiscussionThread(
 
   return pickThread(
     Array.from(threads).filter((thread) => {
+      const threadId = normalizeToken(thread.id);
       const threadTopicId = normalizeToken(thread.topicId);
       const threadSourceSynthesisId = normalizeToken(thread.sourceSynthesisId);
       const threadSourceAnalysisId = normalizeToken(thread.sourceAnalysisId);
@@ -82,6 +84,7 @@ export function resolveStoryDiscussionThread(
       const threadSourceUrl = normalizeUrl(thread.sourceUrl);
 
       return (
+        (threadId !== null && threadId === expectedThreadId) ||
         (topicId !== null && threadTopicId === topicId) ||
         (storyId !== null && threadSourceSynthesisId === storyId) ||
         (storyId !== null && threadSourceAnalysisId === storyId) ||
@@ -92,6 +95,15 @@ export function resolveStoryDiscussionThread(
       );
     }),
   );
+}
+
+export function getStoryDiscussionThreadId(
+  item: FeedItem,
+  story: StoryBundle | null,
+): string {
+  const storyId = normalizeToken(story?.story_id) ?? normalizeStoryId(item.story_id);
+  const stableToken = storyId ?? normalizeToken(item.topic_id) ?? normalizeToken(item.title) ?? 'unknown';
+  return `news-story:${encodeURIComponent(stableToken)}`;
 }
 
 export function getPrimaryStorySource(story: StoryBundle | null): {
