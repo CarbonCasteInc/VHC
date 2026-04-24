@@ -1,4 +1,5 @@
 import React from 'react';
+import type { TopicSynthesisCorrection } from '@vh/data-model';
 import type { HermesThread } from '@vh/types';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 import { AnalysisLoadingState } from './AnalysisLoadingState';
@@ -62,6 +63,7 @@ export interface NewsCardBackProps {
   readonly synthesisLoading: boolean;
   readonly synthesisError: string | null;
   readonly synthesisUnavailable?: boolean;
+  readonly synthesisCorrection?: TopicSynthesisCorrection | null;
   readonly analysis: NewsCardAnalysisSynthesis | null;
   readonly analysisId?: string | null;
   readonly synthesisId?: string | null;
@@ -109,6 +111,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   synthesisLoading,
   synthesisError,
   synthesisUnavailable = false,
+  synthesisCorrection = null,
   analysis,
   analysisId,
   synthesisId,
@@ -123,6 +126,11 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   const hasAcceptedStanceTargets = frameRows.some(
     (row) => Boolean(row.frame_point_id?.trim() || row.reframe_point_id?.trim()),
   );
+  const correctionBlocksSynthesis = Boolean(synthesisCorrection);
+  const correctionTimestamp = synthesisCorrection ? new Date(synthesisCorrection.created_at).toISOString() : null;
+  const correctionStateLabel = synthesisCorrection?.status === 'suppressed'
+    ? 'Accepted synthesis suppressed'
+    : 'Accepted synthesis unavailable';
 
   return (
     <div data-testid={`news-card-back-${topicId}`} className="space-y-5">
@@ -190,6 +198,22 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               {synthesisProvenance.warnings.map((warning) => (
                 <p key={warning}>{warning}</p>
               ))}
+            </div>
+          )}
+          {synthesisCorrection && (
+            <div
+              className="space-y-1 rounded-lg border border-rose-200/80 bg-rose-50/80 px-3 py-2 text-xs leading-5 text-rose-800 dark:border-rose-900/70 dark:bg-rose-950/30 dark:text-rose-100"
+              data-testid={`news-card-synthesis-correction-${topicId}`}
+            >
+              <p className="font-semibold">{correctionStateLabel}</p>
+              <p>
+                Reason {synthesisCorrection.reason_code}
+                {synthesisCorrection.reason ? `: ${synthesisCorrection.reason}` : ''}
+              </p>
+              <p>
+                Operator {synthesisCorrection.operator_id} · {correctionTimestamp}
+              </p>
+              <p className="break-all">Correction {synthesisCorrection.correction_id}</p>
             </div>
           )}
           <p className="text-sm leading-7 text-slate-700 dark:text-slate-200" data-testid={`news-card-summary-${topicId}`}>
@@ -324,7 +348,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
         <h4 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
           Frame / Reframe
         </h4>
-        {hasAcceptedStanceTargets && synthesisId && epoch !== undefined && (
+        {hasAcceptedStanceTargets && synthesisId && epoch !== undefined && !correctionBlocksSynthesis && (
           <p
             className="text-xs leading-5 text-slate-500 dark:text-slate-400"
             data-testid={`news-card-stance-scope-${topicId}`}
@@ -353,7 +377,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             Synthesis unavailable.
           </p>
         )}
-        {synthesisUnavailable && !analysis && (
+        {synthesisUnavailable && !analysis && !correctionBlocksSynthesis && (
           <p
             className="mt-2 text-xs text-amber-700"
             data-testid={`news-card-synthesis-unavailable-${topicId}`}
@@ -361,7 +385,17 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             Publish-time synthesis has not been published for this story yet.
           </p>
         )}
-        {analysisNeedsRegeneration && !synthesisLoading && (
+        {synthesisCorrection && (
+          <p
+            className="mt-2 text-xs text-rose-700 dark:text-rose-100"
+            data-testid={`news-card-synthesis-correction-state-${topicId}`}
+          >
+            {synthesisCorrection.status === 'suppressed'
+              ? 'Accepted synthesis was suppressed by an operator and is not shown.'
+              : 'Accepted synthesis was marked unavailable by an operator and is not shown.'}
+          </p>
+        )}
+        {analysisNeedsRegeneration && !synthesisLoading && !correctionBlocksSynthesis && (
           <p
             className="mt-2 text-xs text-amber-700"
             data-testid={`news-card-analysis-regeneration-${topicId}`}
@@ -369,21 +403,23 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
             Analysis needs regeneration to produce frame/reframe rows.
           </p>
         )}
-        <div className="mt-2">
-          <BiasTable
-            analyses={analysis?.analyses ?? []}
-            frames={frameRows}
-            providerLabel={analysisProvider ?? undefined}
-            basisLabel={frameBasisLabel}
-            loading={synthesisLoading && frameRows.length === 0}
-            topicId={topicId}
-            analysisId={analysisId ?? undefined}
-            synthesisId={synthesisId ?? undefined}
-            epoch={epoch}
-            votingEnabled={Boolean(synthesisId && epoch !== undefined && hasAcceptedStanceTargets)}
-            votingPointIdMode="accepted-synthesis"
-          />
-        </div>
+        {!correctionBlocksSynthesis && (
+          <div className="mt-2">
+            <BiasTable
+              analyses={analysis?.analyses ?? []}
+              frames={frameRows}
+              providerLabel={analysisProvider ?? undefined}
+              basisLabel={frameBasisLabel}
+              loading={synthesisLoading && frameRows.length === 0}
+              topicId={topicId}
+              analysisId={analysisId ?? undefined}
+              synthesisId={synthesisId ?? undefined}
+              epoch={epoch}
+              votingEnabled={Boolean(synthesisId && epoch !== undefined && hasAcceptedStanceTargets)}
+              votingPointIdMode="accepted-synthesis"
+            />
+          </div>
+        )}
       </section>
       <FeedDiscussionSection
         sectionId={`news-card-${topicId}`}

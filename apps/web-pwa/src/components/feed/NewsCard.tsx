@@ -106,36 +106,53 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     [story],
   );
   const synthesis = synthesisTopicState?.synthesis ?? null;
+  const synthesisCorrection = synthesisTopicState?.correction ?? null;
   const synthesisLoading = synthesisTopicState?.loading ?? false;
   const synthesisError = synthesisTopicState?.error ?? null;
+  const correctionBlocksSynthesis = Boolean(
+    synthesisCorrection
+      && (!synthesis
+        || (
+          synthesisCorrection.synthesis_id === synthesis.synthesis_id
+          && synthesisCorrection.epoch === synthesis.epoch
+          && synthesisCorrection.topic_id === synthesis.topic_id
+        ))
+  );
+  const effectiveSynthesis = correctionBlocksSynthesis ? null : synthesis;
   const latestActivity = formatIsoTimestamp(item.latest_activity_at);
   const createdAt = formatIsoTimestamp(item.created_at);
   const storyId = normalizeStoryId(item.story_id) ?? story?.story_id ?? null;
-  const synthesisId = synthesis?.synthesis_id ?? null;
-  const synthesisEpoch = synthesis?.epoch;
-  const synthesisProvenance = synthesis
+  const synthesisId = effectiveSynthesis?.synthesis_id ?? null;
+  const synthesisEpoch = effectiveSynthesis?.epoch;
+  const synthesisProvenance = effectiveSynthesis
     ? {
-        generatedAt: formatIsoTimestamp(synthesis.created_at),
-        synthesisId: synthesis.synthesis_id,
-        epoch: synthesis.epoch,
-        candidateIds: synthesis.provenance.candidate_ids,
-        providerMix: synthesis.provenance.provider_mix,
-        warnings: synthesis.warnings,
+        generatedAt: formatIsoTimestamp(effectiveSynthesis.created_at),
+        synthesisId: effectiveSynthesis.synthesis_id,
+        epoch: effectiveSynthesis.epoch,
+        candidateIds: effectiveSynthesis.provenance.candidate_ids,
+        providerMix: effectiveSynthesis.provenance.provider_mix,
+        warnings: effectiveSynthesis.warnings,
       }
     : null;
-  const synthesisSummary = synthesis?.facts_summary?.trim() ?? '';
+  const synthesisSummary = effectiveSynthesis?.facts_summary?.trim() ?? '';
   const hasSynthesisSummary = synthesisSummary.length > 0;
   const rawSummary =
-    synthesisSummary ||
-    story?.summary_hint?.trim() ||
-    'Analysis pending publish-time synthesis.';
+    correctionBlocksSynthesis
+      ? synthesisCorrection?.status === 'suppressed'
+        ? 'Accepted synthesis was suppressed by an operator.'
+        : 'Accepted synthesis was marked unavailable by an operator.'
+      : synthesisSummary ||
+        story?.summary_hint?.trim() ||
+        'Analysis pending publish-time synthesis.';
   const summary = sanitizePublicationNeutralSummary(
     rawSummary,
     (story?.sources ?? []).flatMap((source) => [source.source_id, source.publisher]),
   );
-  const synthesisFrameRows = synthesis?.frames ?? [];
+  const synthesisFrameRows = effectiveSynthesis?.frames ?? [];
   const frameRows = synthesisFrameRows;
-  const summaryBasisLabel = hasSynthesisSummary
+  const summaryBasisLabel = correctionBlocksSynthesis
+    ? 'Operator correction'
+    : hasSynthesisSummary
     ? 'Topic synthesis v2'
     : synthesisLoading
       ? 'Publish-time synthesis loading'
@@ -145,7 +162,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const frameBasisLabel = synthesisFrameRows.length > 0
     ? 'Topic synthesis frames'
     : undefined;
-  const synthesisUnavailable = !synthesisLoading && !synthesis && !synthesisError;
+  const synthesisUnavailable = !synthesisLoading && !effectiveSynthesis && !synthesisError && !correctionBlocksSynthesis;
   const relatedLinks = useMemo(
     () => mergeRelatedLinks(story, null),
     [story],
@@ -285,6 +302,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               synthesisLoading={synthesisLoading}
               synthesisError={synthesisError}
               synthesisUnavailable={synthesisUnavailable}
+              synthesisCorrection={correctionBlocksSynthesis ? synthesisCorrection : null}
               analysis={null}
               analysisId={null}
               synthesisId={synthesisId}

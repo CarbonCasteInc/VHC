@@ -1,22 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CandidateSynthesis, StoryBundle, TopicDigest, TopicSynthesisV2 } from '@vh/data-model';
+import type { CandidateSynthesis, StoryBundle, TopicDigest, TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import { HydrationBarrier } from './sync/barrier';
 import {
   getTopicEpochCandidateChain,
   getTopicEpochCandidatesChain,
+  getTopicLatestSynthesisCorrectionChain,
+  getTopicSynthesisCorrectionChain,
   hasForbiddenSynthesisPayloadFields,
   readStoryBundle,
   readTopicDigest,
   readTopicEpochCandidate,
   readTopicEpochCandidates,
   readTopicEpochSynthesis,
+  readTopicLatestSynthesisCorrection,
   readTopicLatestSynthesis,
+  readTopicSynthesisCorrection,
   writeStoryBundle,
   writeTopicDigest,
   writeTopicEpochCandidate,
   writeTopicEpochSynthesis,
+  writeTopicSynthesisCorrection,
   writeTopicLatestSynthesis,
   writeTopicSynthesis
 } from './synthesisAdapters';
@@ -149,6 +154,23 @@ const SYNTHESIS: TopicSynthesisV2 = {
   created_at: 1700000002000
 };
 
+const CORRECTION: TopicSynthesisCorrection = {
+  schemaVersion: 'topic-synthesis-correction-v1',
+  correction_id: 'correction-1',
+  topic_id: 'topic-1',
+  synthesis_id: 'synth-2',
+  epoch: 2,
+  status: 'suppressed',
+  reason_code: 'inaccurate_summary',
+  reason: 'Summary overstates what the source material supports.',
+  operator_id: 'ops-user-1',
+  created_at: 1700000003000,
+  audit: {
+    action: 'synthesis_correction',
+    notes: 'Suppressed from release gate fixture.',
+  },
+};
+
 const DIGEST: TopicDigest = {
   digest_id: 'digest-1',
   topic_id: 'topic-1',
@@ -209,6 +231,24 @@ describe('synthesisAdapters', () => {
     await chain.put(CANDIDATE);
 
     expect(guard.validateWrite).toHaveBeenCalledWith('vh/topics/topic-1/epochs/2/candidates/candidate-1/', CANDIDATE);
+  });
+
+  it('builds synthesis correction chains and guards writes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await getTopicSynthesisCorrectionChain(client, 'topic-1', 'correction-1').put(CORRECTION);
+    await getTopicLatestSynthesisCorrectionChain(client, 'topic-1').put(CORRECTION);
+
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/topics/topic-1/synthesis_corrections/correction-1/',
+      CORRECTION
+    );
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/topics/topic-1/synthesis_corrections/latest/',
+      CORRECTION
+    );
   });
 
   it('detects forbidden synthesis payload fields recursively', () => {
@@ -334,6 +374,57 @@ describe('synthesisAdapters', () => {
 
     mesh.setRead('topics/topic-1/latest', undefined);
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+  });
+
+  it('writes and reads synthesis correction payloads with audit metadata', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', {
+      _: { '#': 'meta' },
+      ...CORRECTION
+    });
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', {
+      _: { '#': 'meta' },
+      ...CORRECTION
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    const written = await writeTopicSynthesisCorrection(client, CORRECTION);
+    expect(written).toEqual(CORRECTION);
+    expect(mesh.writes).toEqual([
+      { path: 'topics/topic-1/synthesis_corrections/correction-1', value: CORRECTION },
+      { path: 'topics/topic-1/synthesis_corrections/latest', value: CORRECTION }
+    ]);
+
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', undefined);
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', undefined);
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', { invalid: true });
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', { ...CORRECTION, token: 'bad' });
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+  });
+
+  it('rejects malformed correction writes and surfaces correction ack errors', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(writeTopicSynthesisCorrection(client, { ...CORRECTION, status: 'hidden' })).rejects.toThrow();
+    await expect(writeTopicSynthesisCorrection(client, { ...CORRECTION, oauth_token: 'secret' })).rejects.toThrow(
+      'forbidden identity/token fields'
+    );
+
+    mesh.setPutError('topics/topic-1/synthesis_corrections/correction-1', 'correction write failed');
+    await expect(writeTopicSynthesisCorrection(client, CORRECTION)).rejects.toThrow('correction write failed');
   });
 
   it('safely writes latest synthesis without downgrading newer or stronger latest state', async () => {
@@ -539,5 +630,6 @@ describe('synthesisAdapters', () => {
     await expect(writeTopicLatestSynthesis(client, { ...SYNTHESIS, refresh_token: 'forbidden' })).rejects.toThrow(
       'forbidden identity/token fields'
     );
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', '   ')).rejects.toThrow('correctionId is required');
   });
 });

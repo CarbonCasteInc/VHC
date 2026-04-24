@@ -1,6 +1,12 @@
-import { TopicSynthesisV2Schema, type TopicSynthesisV2 } from '@vh/data-model';
+import {
+  TopicSynthesisCorrectionSchema,
+  TopicSynthesisV2Schema,
+  type TopicSynthesisCorrection,
+  type TopicSynthesisV2,
+} from '@vh/data-model';
 import {
   getTopicLatestSynthesisChain,
+  getTopicLatestSynthesisCorrectionChain,
   hasForbiddenSynthesisPayloadFields,
   type ChainWithGet,
   type VennClient
@@ -30,6 +36,16 @@ function parseSynthesis(data: unknown): TopicSynthesisV2 | null {
   }
 
   const parsed = TopicSynthesisV2Schema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
+}
+
+function parseCorrection(data: unknown): TopicSynthesisCorrection | null {
+  const payload = stripGunMetadata(data);
+  if (hasForbiddenSynthesisPayloadFields(payload)) {
+    return null;
+  }
+
+  const parsed = TopicSynthesisCorrectionSchema.safeParse(payload);
   return parsed.success ? parsed.data : null;
 }
 
@@ -68,22 +84,38 @@ export function hydrateSynthesisStore(
   }
 
   const latestChain = getTopicLatestSynthesisChain(client, normalizedTopicId);
-  if (!canSubscribe(latestChain)) {
+  const correctionChain = getTopicLatestSynthesisCorrectionChain(client, normalizedTopicId);
+  if (!canSubscribe(latestChain) && !canSubscribe(correctionChain)) {
     return false;
   }
 
   hydratedTopics.add(normalizedTopicId);
 
-  latestChain.on!((data: unknown) => {
-    const synthesis = parseSynthesis(data);
-    if (!synthesis) {
-      return;
-    }
+  if (canSubscribe(latestChain)) {
+    latestChain.on!((data: unknown) => {
+      const synthesis = parseSynthesis(data);
+      if (!synthesis) {
+        return;
+      }
 
-    store.getState().setTopicSynthesis(normalizedTopicId, synthesis);
-    store.getState().setTopicHydrated(normalizedTopicId, true);
-    store.getState().setTopicError(normalizedTopicId, null);
-  });
+      store.getState().setTopicSynthesis(normalizedTopicId, synthesis);
+      store.getState().setTopicHydrated(normalizedTopicId, true);
+      store.getState().setTopicError(normalizedTopicId, null);
+    });
+  }
+
+  if (canSubscribe(correctionChain)) {
+    correctionChain.on!((data: unknown) => {
+      const correction = parseCorrection(data);
+      if (!correction || correction.topic_id !== normalizedTopicId) {
+        return;
+      }
+
+      store.getState().setTopicCorrection(normalizedTopicId, correction);
+      store.getState().setTopicHydrated(normalizedTopicId, true);
+      store.getState().setTopicError(normalizedTopicId, null);
+    });
+  }
 
   return true;
 }
