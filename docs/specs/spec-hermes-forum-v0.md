@@ -486,27 +486,33 @@ All XP values must be applied through XP ledger budgets; no separate forum-only 
 
 Core:
 
-- [ ] Thread/comment/post schemas in `packages/data-model`
-- [ ] Forum store supports threads + comments + reply/article posts
-- [ ] Trust gating for write/vote/elevate boundaries
-- [ ] Ranking (`Hot/New/Top`) and score computation
+- [x] Thread/comment/post schemas in `packages/data-model`
+- [x] Forum store supports threads + comments for the MVP story-detail path
+- [ ] Reply/article post publication path beyond comments
+- [x] Trust gating for write/vote/elevate boundaries
+- [x] Ranking (`Hot/New/Top`) and score computation
 
 Storage and sync:
 
-- [ ] Gun adapters for threads/comments/posts/indexes
-- [ ] Hydration with required-field checks and Zod validation
-- [ ] Deduplication TTL map
-- [ ] Serialization helpers for `undefined` + `tags[]`
+- [x] Gun adapters for threads/comments/indexes
+- [ ] Gun adapters for standalone post publication path
+- [x] Hydration with required-field checks and Zod validation
+- [x] Deduplication TTL map
+- [x] Serialization helpers for `undefined` + `tags[]`
 
 V2 alignment:
 
-- [ ] `sourceSynthesisId` + epoch linkage wired
-- [ ] Legacy read alias for `sourceAnalysisId`
+- [x] `sourceSynthesisId` + epoch linkage wired for story-created forum threads
+- [x] Deterministic `news-story:*` story-thread ids wired for story detail; exact id matches win before legacy topic/source heuristics
+- [x] Legacy read alias for `sourceAnalysisId`
 - [ ] Nomination/elevation writes with policy enforcement
 
 UX:
 
-- [ ] Reply 240-char hard cap
+- [x] Reply 240-char hard cap
+- [x] Story-detail reply list/composer renders below accepted synthesis frame/reframe table
+- [x] Thread create/comment load/comment post failures surface as recoverable UI states
+- [ ] Report/hide/block/moderation queue affordances for story replies
 - [ ] Convert-to-article CTA + docs handoff
 - [ ] Article publish back into topic/forum surface
 

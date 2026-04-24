@@ -1,8 +1,8 @@
 # Venn News MVP Roadmap
 
-> Status: Draft v3 docs-aligned implementation tracker
+> Status: Draft v4 docs-aligned implementation tracker
 > Date: 2026-04-20
-> Last alignment audit: 2026-04-21 on `main` at `92186d6c` after PR #527 and PR #528 merged
+> Last alignment audit: 2026-04-24 on `main` at `7e3c818e` after PR #533 merged
 > Target: Four-week Web PWA MVP launch path after remaining Week 0 decisions and launch blockers are resolved
 > Scope: News feed, story analysis, frame/reframe stance, threaded discussion, and durable aggregate civic metadata
 
@@ -37,6 +37,8 @@ This roadmap is grounded in the current codebase state rather than the desired a
 | Source split / related links | `StoryBundle.related_links`, item eligibility policy/ledger, and UI related-link rendering exist. PR #528 ensures bundle synthesis excludes `related_links` when present and uses `primary_sources` as the analysis source set. The generic cluster publication path still does not derive `primary_sources` / `related_links` from the item-eligibility ledger by default. | Related links may display below evidence, but only analysis-eligible sources may feed summaries/frame tables. Ledger-driven source-split enrichment remains a follow-on. |
 | Bundle synthesis worker | PR #528 is merged into `main`. The news-aggregator now has `bundleSynthesisWorker`, `bundleSynthesisRelay`, queue wiring, guarded latest writes, model-sensitive idempotency, and story-detail UI provenance. | W0.4 is complete for publish-time accepted synthesis. Story detail can render accepted stored synthesis or explicit pending/unavailable state without hidden card-open analysis. |
 | Click-time analysis | `NewsCard` now hydrates stored `TopicSynthesisV2` on expansion and no longer calls `useAnalysis(...)` as the normal detail path. The legacy `useAnalysis` hook remains for non-card/runtime analysis paths and tests. | The headline-click contract is accepted synthesis first. Missing synthesis is surfaced as loading/pending/unavailable instead of silently generating card-open analysis. |
+| Story detail stance UI | PR #532 is merged into `main`. `NewsCardBack` renders accepted synthesis frame/reframe rows with persisted `frame_point_id` / `reframe_point_id` stance targets and disables voting when accepted point ids are absent. | W2 point-stance UI is implemented at MVP level. Remaining stance work is release evidence, aggregate freshness policy, and any product polish found in smoke testing. |
+| Story discussion UI | PR #533 is merged into `main`. Story detail uses deterministic `news-story:<encoded story-or-topic token>` headline thread ids, resolves exact deterministic matches before legacy topic/source matches, renders the thread below the frame/reframe table, and exposes recoverable load/create/post errors. | W2 story-thread rendering and reply composer are implemented at MVP level. Remaining thread work is moderation/report/hide/block affordances and a story-thread persistence release gate. |
 | Constituency proof | Runtime proof acquisition derives an attestation-bound deterministic proof from the identity nullifier and configured district; mock proofs are rejected by voting paths; accepted stance proof is exposed as beta-local assurance. This is still not cryptographic residency proof or production Sybil resistance. | `identity-honesty-scope` resolves the Web PWA beta path: copy must say beta-local identity/proof semantics unless real cryptographic proof is explicitly pulled into scope later. |
 | Release gates | Core repo gates exist. MVP feed/detail/stance/thread smokes and compliance checklist scripts do not. | Week 3 must build the release evidence harness; it cannot simply "run the gates." |
 
@@ -201,12 +203,12 @@ The detail experience may start as an expanded card, but MVP quality requires st
 
 Required:
 
-- every news story has a stable thread identity;
-- thread identity is derived from the story/topic identity, not transient route state;
-- users can reply to the story thread;
-- replies persist across reload;
+- every news story has a stable thread identity (implemented for story detail in PR #533);
+- thread identity is derived from the story/topic identity, not transient route state (implemented as deterministic `news-story:*` ids in PR #533);
+- users can reply to the story thread (implemented in story detail in PR #533);
+- replies persist across reload (covered by forum storage paths and component/store tests; still needs a release smoke);
 - thread count and latest activity can appear on feed cards;
-- basic safety affordances exist: report, hide, block, and moderation queue/path.
+- basic safety affordances exist: report, hide, block, and moderation queue/path (still open).
 
 The forum system should be reused. The MVP should not create a second comment model.
 
@@ -381,9 +383,8 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 
 Recommended sequencing:
 
-- PR #527, PR #528, and PR #530 are now in `main`; feed/detail stance work can base on stable point ids, accepted publish-time synthesis, and honest beta-local proof semantics.
-- Feed-personalization ranking is implemented in PR #531: local category/topic preferences affect the canonical `composeFeed(...)` path without widening public feed payloads.
-- PRs 6 through 8 can run in parallel once the feed-personalization slice is underway, but they should not block the stance-detail implementation slices.
+- PR #527, PR #528, PR #530, PR #531, PR #532, and PR #533 are now in `main`; feed/detail stance/thread work can base on stable point ids, accepted publish-time synthesis, honest beta-local proof semantics, active personalization ranking, and deterministic story discussion threads.
+- PRs 6 through 8 are now the highest-value Week 0 blockers because the core feed/detail/stance/thread product loop has implementation coverage but not launch-grade evidence, compliance, or operator correction controls.
 - Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
 
 ### Week 0 go/no-go table
@@ -394,8 +395,10 @@ Recommended sequencing:
 | Sentiment key | Go; PR #527 is merged into `main`. | Docs, schemas, readers, writers, and tests agree on `(topic_id, synthesis_id, epoch, point_id)`. | Do not split stance work across contributors; conflicting three-tuple/four-tuple implementations will corrupt compatibility assumptions. |
 | Launch surface | Go: Web PWA. | Web PWA remains the launch target; native shell work is outside the four-week critical path. | If native packaging becomes required again, restart scope and schedule around a real iOS build gate. |
 | Bundle synthesis path | Go; PR #528 is merged into `main`. | Accepted publish-time synthesis, model id, generated time, warnings, and provenance are available to story detail; missing synthesis has explicit loading/pending/unavailable states. | Do not reintroduce hidden card-open analysis as the normal path. |
-| Topic preferences | Go when PR #531 is in the implementation base. | Ranking/filter semantics are defined and have deterministic tests proving preferences change feed output. | Do not market the feed as tunable. Keep preference UI hidden or label it as inactive. |
+| Topic preferences | Go; PR #531 is merged into `main`. | Ranking/filter semantics are defined and have deterministic tests proving preferences change feed output. | Do not regress to inert preference controls. |
 | Identity/proof | Go for Web PWA beta. Current stance path is beta-local and must stay labeled that way. | Real cryptographic constituency proof is active, or beta-local identity constraints and copy are approved. | No verified-human, one-human-one-vote, district-proof, or Sybil-resistant claims in product copy. |
+| Story detail stance UI | Go; PR #532 is merged into `main`. | Accepted synthesis frame/reframe items expose persisted point ids and missing point ids produce non-votable cells. | Do not reintroduce text-derived canonical write ids for accepted synthesis. |
+| Story discussion UI | Go for MVP interaction; PR #533 is merged into `main`. | Story detail uses deterministic `news-story:*` ids, exact deterministic ids win over legacy topic/source matches, and load/create/post failures are visible. | Do not create a second story comment model or route story replies through transient card state. |
 | Story engagement rollup | No-go for visible story aggregate sentiment. | `StoryEngagementSummary` is either implemented as a derived read model or explicitly deferred from visible UI. | Do not show story-level aggregate sentiment beyond existing per-point aggregate data. |
 | Release gates | No-go. | Feed, story-detail, point-stance, and story-thread smokes have scripts or named owners/fixtures with pass/fail semantics. | No launch-readiness claim. The MVP can continue feature work, but cannot enter release freeze. |
 | Compliance | No-go for public beta. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright minimums have accepted drafts. | No public beta or App Store/TestFlight submission. Internal-only testing can continue. |
@@ -528,12 +531,12 @@ Objective: make the complete product loop explicit and testable in the codebase.
 
 Deliverables:
 
-- `StoryDetail` view model normalized around `topic_id`, `story_id`, `synthesis_id`, `epoch`, and frame/reframe `point_id`;
+- `StoryDetail` view model normalized around `topic_id`, `story_id`, `synthesis_id`, `epoch`, and frame/reframe `point_id` (implemented through the accepted `NewsCardBack` story detail path in PR #532);
 - analyzed-source/related-link discriminator plumbed from bundle publication into feed hydration and rendering;
-- topic preference ranking/filter semantics implemented in `composeFeed`;
-- story-to-thread mapping stabilized;
+- topic preference ranking/filter semantics implemented in `composeFeed` (implemented in PR #531);
+- story-to-thread mapping stabilized (implemented in PR #533 with deterministic `news-story:*` ids);
 - story engagement summary designed as a derived read model, with privacy limits for `readers` and `engagers`;
-- analysis cache contract implemented: accepted synthesis first, explicit pending/unavailable state on miss;
+- analysis cache contract implemented: accepted synthesis first, explicit pending/unavailable state on miss (implemented in PR #528);
 - deep-link/shareability decision made and implemented or explicitly deferred as beta limitation;
 - launch branch has clear MVP gate commands.
 
@@ -553,16 +556,16 @@ Objective: make headline click valuable and interactive.
 
 Deliverables:
 
-- polished story detail surface;
-- frame/reframe stance controls on every eligible item;
-- ARIA/keyboard behavior for stance controls;
+- polished story detail surface (implemented for accepted synthesis detail in PR #528, PR #532, and PR #533; smoke testing may still force polish fixes);
+- frame/reframe stance controls on every eligible item (implemented in PR #532);
+- ARIA/keyboard behavior for stance controls (implemented for current stance controls; retain in release smoke coverage);
 - local stance restore after reload;
 - mesh/event enqueue for stance intents;
 - rate limits and budgets on stance write attempts;
 - aggregate counters render from public aggregate or a clearly labeled fallback;
 - aggregate freshness labels;
-- story thread renders below the frame/reframe table;
-- reply composer and reply list are usable on story detail;
+- story thread renders below the frame/reframe table (implemented in PR #533);
+- reply composer and reply list are usable on story detail (implemented in PR #533);
 - report/hide/block affordances exist for replies.
 
 Acceptance checks:
@@ -654,7 +657,7 @@ Acceptance checks:
 | Feed smoke | Missing dedicated MVP script | Add Week 3A. |
 | Story-detail smoke | Missing dedicated MVP script | Add Week 3A. |
 | Point-stance persistence/convergence smoke | Existing sentiment tests exist, but no MVP release gate | Add Week 3A release gate around story detail. |
-| Thread persistence smoke | Forum tests exist, but no story-thread release gate | Add Week 3A. |
+| Thread persistence smoke | Forum and story-thread component/store tests exist, but no story-thread release gate | Add Week 3A. |
 | iOS build | Missing because no iOS shell | Only required if Week 0 chooses iOS. |
 | Privacy/UGC/deletion checklist | Missing | Add Week 3B; public launch blocker. |
 
@@ -760,6 +763,7 @@ These are foundational-project goals, but they are not required to ship the Venn
 4. The canonical stance key is `(topic_id, synthesis_id, epoch, point_id)`.
 5. Text-derived point ids are compatibility aliases, not the future write identity.
 6. Story sentiment remains derived metadata over point-level stance; there is no generic story vote in the MVP.
+7. Story discussion uses the existing Hermes forum model with deterministic story-linked headline threads; no second comment model is needed for the MVP.
 
 ## Open review questions
 
@@ -777,6 +781,9 @@ The plan is ready to build when reviewers agree on:
 - Web PWA launch surface remains accepted;
 - PR #527 is in the implementation base for persisted point ids and the four-tuple sentiment contract;
 - PR #528 is in the implementation base for accepted publish-time bundle synthesis;
+- PR #531 is in the implementation base for feed personalization ranking;
+- PR #532 is in the implementation base for accepted-synthesis stance UI;
+- PR #533 is in the implementation base for deterministic story-thread detail integration;
 - story-level sentiment as aggregate metadata only;
 - analyzed-source versus related-link evidence boundaries;
 - accepted publish-time synthesis as the headline-click data contract;
