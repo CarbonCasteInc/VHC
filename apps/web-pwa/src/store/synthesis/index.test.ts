@@ -226,6 +226,7 @@ describe('synthesis store', () => {
 
     store.getState().setTopicSynthesis('topic-1', { ...synthesis(), token: 'bad' } as TopicSynthesisV2);
     store.getState().setTopicSynthesis('topic-1', { invalid: true } as unknown as TopicSynthesisV2);
+    store.getState().setTopicSynthesis('topic-1', synthesis({ topic_id: 'topic-2' }));
     store.getState().setTopicSynthesis('   ', synthesis());
 
     expect(store.getState().topics).toEqual({});
@@ -369,6 +370,22 @@ describe('synthesis store', () => {
     const topic = store.getState().getTopicState('topic-1');
     expect(topic.synthesis).toBeNull();
     expect(topic.epoch).toBeNull();
+  });
+
+  it('refreshTopic drops cross-topic latest synthesis payloads', async () => {
+    readTopicLatestSynthesisMock.mockResolvedValue(synthesis({ topic_id: 'topic-2' }));
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValue(correction());
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis).toBeNull();
+    expect(topic.epoch).toBeNull();
+    expect(topic.correction?.correction_id).toBe('correction-1');
+    expect(topic.effectiveStatus).toBe('synthesis_suppressed');
   });
 
   it('refreshTopic captures thrown errors', async () => {
