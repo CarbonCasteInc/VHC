@@ -207,7 +207,7 @@ Required card affordances:
 
 Stance controls on `NEWS_STORY` detail are enabled only for accepted synthesis frame/reframe cells that carry persisted `frame_point_id` / `reframe_point_id` values. Missing point ids must produce a non-votable cell rather than deriving a canonical write id from mutable display text.
 
-News-created forum threads must link with `sourceSynthesisId` + `sourceEpoch` when available and preserve the feed `topic_id` as the thread `topicId`. Story detail must create deterministic headline-thread ids from accepted story/feed identity (`news-story:<encoded story-or-topic token>`) so the same story reopens the same conversation. Legacy `sourceAnalysisId` is read-only compatibility.
+News-created forum threads must link with `sourceSynthesisId` + `sourceEpoch` when available and preserve the feed `topic_id` as the thread `topicId`. Story detail must create deterministic headline-thread ids from accepted story/feed identity (`news-story:<encoded story-or-topic token>`) so the same story reopens the same conversation. Exact deterministic thread-id matches take precedence over older topic/source matching heuristics. Legacy `sourceAnalysisId` is read-only compatibility.
 
 The forum block below the frame/reframe table is the canonical story conversation surface for the MVP. It must render from the linked Hermes thread, expose comment-load and post-write failures as recoverable UI states, and must not trigger or reinterpret synthesis, summary, or stance semantics.
 
@@ -266,3 +266,4 @@ Cross-ref: `docs/specs/topic-synthesis-v2.md` for full `TopicSynthesisV2` schema
 | 0.6 | 2026-04-16 | Added NEWS_STORY synthesis precedence, source/detail affordance contract, `categories`, personalization scaffold, and V2 forum-thread linkage |
 | 0.7 | 2026-04-16 | Added compact product-shell, first-use orientation, forum/governance navigation, and collapsed-card media-density contracts |
 | 0.8 | 2026-04-22 | Added active local personalization semantics: category/topic mutes, HOTTEST preference boosts, and private client-only tuning controls |
+| 0.9 | 2026-04-24 | Added exact-first deterministic story-thread resolution and story-detail discussion failure-state contract |
