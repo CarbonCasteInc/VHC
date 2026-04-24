@@ -14,7 +14,6 @@ import { useSentimentState } from '../../hooks/useSentimentState';
 import { composeFeed } from '../../store/discovery';
 import { getStoryDiscussionThreadId } from '../../utils/feedDiscussionThreads';
 import { FeedShell } from './FeedShell';
-import { FeedDiscussionSection } from './FeedDiscussionSection';
 import { NewsCard } from './NewsCard';
 import { resetExpandedCardStore } from './expandedCardStore';
 import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
@@ -26,6 +25,11 @@ const forumState = vi.hoisted(() => ({
   loadComments: vi.fn(),
   createThread: vi.fn(),
   createComment: vi.fn(),
+}));
+
+const analysisPipelineState = vi.hoisted(() => ({
+  synthesizeStoryFromAnalysisPipeline: vi.fn(),
+  getCachedSynthesisForStory: vi.fn().mockReturnValue(null),
 }));
 
 vi.mock('../../store/hermesForum', () => ({
@@ -51,8 +55,8 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 vi.mock('./newsCardAnalysis', () => ({
-  synthesizeStoryFromAnalysisPipeline: vi.fn(),
-  getCachedSynthesisForStory: vi.fn().mockReturnValue(null),
+  synthesizeStoryFromAnalysisPipeline: analysisPipelineState.synthesizeStoryFromAnalysisPipeline,
+  getCachedSynthesisForStory: analysisPipelineState.getCachedSynthesisForStory,
   sanitizePublicationNeutralSummary: (summary: string) => summary,
 }));
 
@@ -283,6 +287,8 @@ describe('MVP Web PWA news loop release gates', () => {
     forumState.loadComments.mockReset().mockResolvedValue([]);
     forumState.createThread.mockReset();
     forumState.createComment.mockReset();
+    analysisPipelineState.synthesizeStoryFromAnalysisPipeline.mockReset();
+    analysisPipelineState.getCachedSynthesisForStory.mockReset().mockReturnValue(null);
   });
 
   afterEach(() => {
@@ -333,6 +339,7 @@ describe('MVP Web PWA news loop release gates', () => {
     expect(screen.getByTestId('news-card-synthesis-provenance-news-1')).toHaveTextContent('syn-accepted-mvp');
     expect(screen.getByTestId('bias-table')).toHaveTextContent('Public investment is overdue');
     expect(screen.getByTestId('news-card-stance-scope-news-1')).toHaveTextContent('not to the story as a whole');
+    expect(analysisPipelineState.synthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 
   it('mvp gate: point stance writes and restores against accepted synthesis point ids', async () => {
@@ -364,15 +371,26 @@ describe('MVP Web PWA news loop release gates', () => {
     );
   });
 
-  it('mvp gate: story thread keeps replies attached to the same deterministic news-story id after reload', async () => {
-    const item = makeFeedItem();
+  it('mvp gate: story thread resolves through NewsCard and keeps replies attached to the same deterministic news-story id after reload', async () => {
+    const item = seedAcceptedStory();
     const story = makeStoryBundle();
     const deterministicThreadId = getStoryDiscussionThreadId(item, story);
-    const thread = makeThread({ id: deterministicThreadId });
+    const canonicalThread = makeThread({
+      id: deterministicThreadId,
+      title: 'Canonical story thread',
+      timestamp: NOW,
+    });
+    const legacyTopicThread = makeThread({
+      id: 'legacy-topic-news-1',
+      title: 'Legacy topic thread',
+      timestamp: NOW + 5_000,
+    });
     const reply = makeComment({ threadId: deterministicThreadId });
 
-    forumState.threads.set(thread.id, thread);
-    forumState.comments.set(thread.id, []);
+    forumState.threads.set(legacyTopicThread.id, legacyTopicThread);
+    forumState.threads.set(canonicalThread.id, canonicalThread);
+    forumState.comments.set(canonicalThread.id, []);
+    forumState.comments.set(legacyTopicThread.id, []);
     forumState.loadComments.mockImplementation(async (threadId: string) => {
       if (threadId === deterministicThreadId && !forumState.comments.get(threadId)?.length) {
         forumState.comments.set(threadId, [reply]);
@@ -384,7 +402,8 @@ describe('MVP Web PWA news loop release gates', () => {
       return comment;
     });
 
-    render(<FeedDiscussionSection sectionId="news-card-news-1" thread={thread} />);
+    render(<NewsCard item={item} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
     expect(await screen.findByTestId(`comment-stream-${deterministicThreadId}`)).toHaveTextContent(
       'This reply stays on the story thread.',
@@ -393,6 +412,8 @@ describe('MVP Web PWA news loop release gates', () => {
       'href',
       `/hermes/${deterministicThreadId}`,
     );
+    expect(within(screen.getByTestId('news-card-news-1-thread-head')).getByText('Canonical story thread')).toBeInTheDocument();
+    expect(screen.queryByText('Legacy topic thread')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('news-card-news-1-discussion-compose-toggle'));
     fireEvent.change(screen.getByTestId('comment-composer'), {
@@ -410,11 +431,18 @@ describe('MVP Web PWA news loop release gates', () => {
     });
 
     cleanup();
-    render(<FeedDiscussionSection sectionId="news-card-news-1" thread={thread} />);
+    resetExpandedCardStore();
+    render(<NewsCard item={item} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
 
+    expect(within(screen.getByTestId('news-card-news-1-thread-head')).getByText('Canonical story thread')).toBeInTheDocument();
     expect(await screen.findByTestId(`comment-stream-${deterministicThreadId}`)).toHaveTextContent(
       'Reload should keep this reply on the same story.',
     );
-    expect(within(screen.getByTestId('news-card-news-1-thread-head')).getByText(thread.title)).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-news-1-open-thread')).toHaveAttribute(
+      'href',
+      `/hermes/${deterministicThreadId}`,
+    );
+    expect(screen.queryByText('Legacy topic thread')).not.toBeInTheDocument();
   });
 });
