@@ -340,11 +340,14 @@ export async function writeTopicEpochCandidate(client: VennClient, candidate: un
 }
 
 export async function readTopicEpochSynthesis(client: VennClient, topicId: string, epoch: number): Promise<TopicSynthesisV2 | null> {
-  const raw = await readOnce(getTopicEpochSynthesisChain(client, normalizeTopicId(topicId), normalizeEpoch(epoch)));
+  const normalizedTopicId = normalizeTopicId(topicId);
+  const normalizedEpoch = normalizeEpoch(epoch);
+  const raw = await readOnce(getTopicEpochSynthesisChain(client, normalizedTopicId, normalizedEpoch));
   if (raw === null) {
     return null;
   }
-  return parseSynthesis(raw);
+  const parsed = parseSynthesis(raw);
+  return parsed?.topic_id === normalizedTopicId && String(parsed.epoch) === normalizedEpoch ? parsed : null;
 }
 
 export async function writeTopicEpochSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
@@ -358,11 +361,13 @@ export async function writeTopicEpochSynthesis(client: VennClient, synthesis: un
 }
 
 export async function readTopicLatestSynthesis(client: VennClient, topicId: string): Promise<TopicSynthesisV2 | null> {
-  const raw = await readOnce(getTopicLatestSynthesisChain(client, normalizeTopicId(topicId)));
+  const normalizedTopicId = normalizeTopicId(topicId);
+  const raw = await readOnce(getTopicLatestSynthesisChain(client, normalizedTopicId));
   if (raw === null) {
     return null;
   }
-  return parseSynthesis(raw);
+  const parsed = parseSynthesis(raw);
+  return parsed?.topic_id === normalizedTopicId ? parsed : null;
 }
 
 export async function writeTopicLatestSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
@@ -377,28 +382,33 @@ export async function readTopicSynthesisCorrection(
   topicId: string,
   correctionId: string
 ): Promise<TopicSynthesisCorrection | null> {
+  const normalizedTopicId = normalizeTopicId(topicId);
+  const normalizedCorrectionId = normalizeId(correctionId, 'correctionId');
   const raw = await readOnce(
     getTopicSynthesisCorrectionChain(
       client,
-      normalizeTopicId(topicId),
-      normalizeId(correctionId, 'correctionId')
+      normalizedTopicId,
+      normalizedCorrectionId
     )
   );
   if (raw === null) {
     return null;
   }
-  return parseSynthesisCorrection(raw);
+  const parsed = parseSynthesisCorrection(raw);
+  return parsed?.topic_id === normalizedTopicId && parsed.correction_id === normalizedCorrectionId ? parsed : null;
 }
 
 export async function readTopicLatestSynthesisCorrection(
   client: VennClient,
   topicId: string
 ): Promise<TopicSynthesisCorrection | null> {
-  const raw = await readOnce(getTopicLatestSynthesisCorrectionChain(client, normalizeTopicId(topicId)));
+  const normalizedTopicId = normalizeTopicId(topicId);
+  const raw = await readOnce(getTopicLatestSynthesisCorrectionChain(client, normalizedTopicId));
   if (raw === null) {
     return null;
   }
-  return parseSynthesisCorrection(raw);
+  const parsed = parseSynthesisCorrection(raw);
+  return parsed?.topic_id === normalizedTopicId ? parsed : null;
 }
 
 export async function writeTopicSynthesisCorrection(

@@ -137,7 +137,7 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
       }
 
       const validated = synthesis === null ? null : parseSynthesis(synthesis);
-      if (synthesis !== null && !validated) {
+      if (synthesis !== null && (!validated || validated.topic_id !== normalizedTopicId)) {
         return;
       }
 
@@ -239,17 +239,16 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
         ]);
         const validatedLatest = latest === null ? null : parseSynthesis(latest);
         const validatedCorrection = latestCorrection === null ? null : parseCorrection(latestCorrection);
+        const topicLatest = validatedLatest?.topic_id === normalizedTopicId ? validatedLatest : null;
+        const topicCorrection = validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null;
 
         set((state) => ({
           topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
             ...current,
-            synthesis: validatedLatest,
-            epoch: validatedLatest?.epoch ?? null,
-            correction: validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null,
-            effectiveStatus: resolveEffectiveStatus(
-              validatedLatest,
-              validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null
-            ),
+            synthesis: topicLatest,
+            epoch: topicLatest?.epoch ?? null,
+            correction: topicCorrection,
+            effectiveStatus: resolveEffectiveStatus(topicLatest, topicCorrection),
             loading: false,
             error: null
           }))

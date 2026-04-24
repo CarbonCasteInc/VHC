@@ -346,6 +346,12 @@ describe('synthesisAdapters', () => {
 
     await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
 
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', { ...SYNTHESIS, topic_id: 'topic-2' });
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', { ...SYNTHESIS, epoch: 3 });
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+
     mesh.setRead('topics/topic-1/epochs/2/synthesis', undefined);
     await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
 
@@ -371,6 +377,9 @@ describe('synthesisAdapters', () => {
     expect(mesh.writes[0]).toEqual({ path: 'topics/topic-1/latest', value: SYNTHESIS });
 
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/latest', { ...SYNTHESIS, topic_id: 'topic-2' });
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/latest', undefined);
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
@@ -399,6 +408,18 @@ describe('synthesisAdapters', () => {
 
     await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
     await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', { ...CORRECTION, topic_id: 'topic-2' });
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', {
+      ...CORRECTION,
+      correction_id: 'correction-2'
+    });
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', { ...CORRECTION, topic_id: 'topic-2' });
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', undefined);
     await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
