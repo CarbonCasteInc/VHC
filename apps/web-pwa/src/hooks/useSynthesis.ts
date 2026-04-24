@@ -1,6 +1,6 @@
 import { useCallback, useEffect } from 'react';
 import { useStore } from 'zustand';
-import type { TopicSynthesisV2 } from '@vh/data-model';
+import type { TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 import { useSynthesisStore, type SynthesisState, type SynthesisTopicState } from '../store/synthesis';
 
 export interface UseSynthesisResult {
@@ -15,6 +15,12 @@ export interface UseSynthesisResult {
 
   /** Latest synthesis payload for the topic. */
   readonly synthesis: TopicSynthesisV2 | null;
+
+  /** Latest operator correction for the accepted synthesis artifact. */
+  readonly correction: TopicSynthesisCorrection | null;
+
+  /** Effective detail status after applying correction state. */
+  readonly effectiveStatus: SynthesisTopicState['effectiveStatus'];
 
   /** Whether live hydration has been attached for the topic. */
   readonly hydrated: boolean;
@@ -33,6 +39,8 @@ const EMPTY_TOPIC_STATE: SynthesisTopicState = {
   topicId: '',
   epoch: null,
   synthesis: null,
+  correction: null,
+  effectiveStatus: 'synthesis_unavailable',
   hydrated: false,
   loading: false,
   error: null
@@ -73,6 +81,8 @@ export function useSynthesis(topicId?: string | null): UseSynthesisResult {
     topicId: normalizedTopicId || null,
     epoch: topicState.epoch,
     synthesis: topicState.synthesis,
+    correction: topicState.correction,
+    effectiveStatus: topicState.effectiveStatus,
     hydrated: topicState.hydrated,
     loading: topicState.loading,
     error: topicState.error,

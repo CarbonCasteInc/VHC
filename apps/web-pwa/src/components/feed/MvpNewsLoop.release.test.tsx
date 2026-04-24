@@ -4,7 +4,7 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
+import type { FeedItem, StoryBundle, TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 import type { HermesComment, HermesThread } from '@vh/types';
 import { DEFAULT_RANKING_CONFIG } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
@@ -221,6 +221,26 @@ function makeSynthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesi
   };
 }
 
+function makeCorrection(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSynthesisCorrection {
+  return {
+    schemaVersion: 'topic-synthesis-correction-v1',
+    correction_id: 'correction-mvp-1',
+    topic_id: 'news-1',
+    synthesis_id: 'syn-accepted-mvp',
+    epoch: 2,
+    status: 'suppressed',
+    reason_code: 'inaccurate_summary',
+    reason: 'Operator verified this accepted synthesis should not be shown.',
+    operator_id: 'release-ops',
+    created_at: NOW + 2,
+    audit: {
+      action: 'synthesis_correction',
+      notes: 'MVP release gate correction fixture.',
+    },
+    ...overrides,
+  };
+}
+
 function makeThread(overrides: Partial<HermesThread> = {}): HermesThread {
   return {
     id: 'news-story:story-news-1',
@@ -339,6 +359,26 @@ describe('MVP Web PWA news loop release gates', () => {
     expect(screen.getByTestId('news-card-synthesis-provenance-news-1')).toHaveTextContent('syn-accepted-mvp');
     expect(screen.getByTestId('bias-table')).toHaveTextContent('Public investment is overdue');
     expect(screen.getByTestId('news-card-stance-scope-news-1')).toHaveTextContent('not to the story as a whole');
+    expect(analysisPipelineState.synthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
+  });
+
+  it('mvp gate: synthesis correction hides bad accepted analysis with audit provenance', async () => {
+    const item = seedAcceptedStory();
+    useSynthesisStore.getState().setTopicCorrection(item.topic_id, makeCorrection());
+
+    render(<NewsCard item={item} />);
+
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-detail-news-1')).toBeInTheDocument();
+    expect(screen.getByTestId('news-card-summary-basis-news-1')).toHaveTextContent('Operator correction');
+    expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent('suppressed by an operator');
+    expect(screen.getByTestId('news-card-synthesis-correction-news-1')).toHaveTextContent('correction-mvp-1');
+    expect(screen.getByTestId('news-card-synthesis-correction-news-1')).toHaveTextContent('release-ops');
+    expect(screen.getByTestId('news-card-synthesis-correction-state-news-1')).toHaveTextContent('not shown');
+    expect(screen.queryByTestId('news-card-synthesis-provenance-news-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Public investment is overdue')).not.toBeInTheDocument();
     expect(analysisPipelineState.synthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
 

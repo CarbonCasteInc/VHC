@@ -99,6 +99,20 @@ describe('TopologyGuard', () => {
       })
     ).not.toThrow();
     expect(() =>
+      guard.validateWrite('vh/topics/topic-1/synthesis_corrections/latest', {
+        schemaVersion: 'topic-synthesis-correction-v1',
+        correction_id: 'correction-1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 2,
+        status: 'suppressed',
+        reason_code: 'inaccurate_summary',
+        operator_id: 'ops-user-1',
+        created_at: 1700000000000,
+        audit: { action: 'synthesis_correction' },
+      })
+    ).not.toThrow();
+    expect(() =>
       guard.validateWrite('vh/aggregates/topics/topic-1/engagement/actors/actor-1', {
         schema_version: 'topic-engagement-actor-v1',
         topic_id: 'topic-1',

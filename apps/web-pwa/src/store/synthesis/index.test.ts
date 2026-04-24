@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TopicSynthesisV2 } from '@vh/data-model';
+import type { TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 
 const hydrateSynthesisStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const hasForbiddenSynthesisPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
 const readTopicLatestSynthesisMock = vi.fn<(client: unknown, topicId: string) => Promise<TopicSynthesisV2 | null>>();
+const readTopicLatestSynthesisCorrectionMock = vi.fn<
+  (client: unknown, topicId: string) => Promise<TopicSynthesisCorrection | null>
+>();
 
 vi.mock('./hydration', () => ({
   hydrateSynthesisStore: hydrateSynthesisStoreMock
@@ -11,6 +14,7 @@ vi.mock('./hydration', () => ({
 
 vi.mock('@vh/gun-client', () => ({
   hasForbiddenSynthesisPayloadFields: hasForbiddenSynthesisPayloadFieldsMock,
+  readTopicLatestSynthesisCorrection: readTopicLatestSynthesisCorrectionMock,
   readTopicLatestSynthesis: readTopicLatestSynthesisMock
 }));
 
@@ -61,15 +65,37 @@ function synthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesisV2 
   };
 }
 
+function correction(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSynthesisCorrection {
+  return {
+    schemaVersion: 'topic-synthesis-correction-v1',
+    correction_id: 'correction-1',
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 1,
+    status: 'suppressed',
+    reason_code: 'inaccurate_summary',
+    reason: 'Summary overstates the source material.',
+    operator_id: 'ops-user-1',
+    created_at: 300,
+    audit: {
+      action: 'synthesis_correction',
+      notes: 'fixture correction',
+    },
+    ...overrides
+  };
+}
+
 describe('synthesis store', () => {
   beforeEach(() => {
     hydrateSynthesisStoreMock.mockReset();
     hasForbiddenSynthesisPayloadFieldsMock.mockReset();
     readTopicLatestSynthesisMock.mockReset();
+    readTopicLatestSynthesisCorrectionMock.mockReset();
 
     hydrateSynthesisStoreMock.mockReturnValue(false);
     hasForbiddenSynthesisPayloadFieldsMock.mockReturnValue(false);
     readTopicLatestSynthesisMock.mockResolvedValue(null);
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValue(null);
 
     vi.resetModules();
   });
@@ -90,6 +116,8 @@ describe('synthesis store', () => {
       topicId: 'topic-1',
       epoch: null,
       synthesis: null,
+      correction: null,
+      effectiveStatus: 'synthesis_unavailable',
       hydrated: false,
       loading: false,
       error: null
@@ -99,6 +127,8 @@ describe('synthesis store', () => {
       topicId: '',
       epoch: null,
       synthesis: null,
+      correction: null,
+      effectiveStatus: 'synthesis_unavailable',
       hydrated: false,
       loading: false,
       error: null
@@ -115,12 +145,75 @@ describe('synthesis store', () => {
     const first = store.getState().getTopicState('topic-1');
     expect(first.epoch).toBe(1);
     expect(first.synthesis?.synthesis_id).toBe('synth-1');
+    expect(first.effectiveStatus).toBe('accepted_available');
     expect(first.error).toBeNull();
 
     store.getState().setTopicSynthesis('topic-1', null);
     const cleared = store.getState().getTopicState('topic-1');
     expect(cleared.epoch).toBeNull();
     expect(cleared.synthesis).toBeNull();
+    expect(cleared.effectiveStatus).toBe('synthesis_unavailable');
+  });
+
+  it('setTopicCorrection validates payloads and suppresses matching accepted synthesis', async () => {
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => null });
+
+    store.getState().setTopicSynthesis('topic-1', synthesis());
+    store.getState().setTopicCorrection('topic-1', correction());
+
+    const suppressed = store.getState().getTopicState('topic-1');
+    expect(suppressed.correction?.correction_id).toBe('correction-1');
+    expect(suppressed.effectiveStatus).toBe('synthesis_suppressed');
+
+    store.getState().setTopicSynthesis('topic-1', synthesis({ synthesis_id: 'synth-2', epoch: 2 }));
+    expect(store.getState().getTopicState('topic-1').effectiveStatus).toBe('accepted_available');
+
+    store.getState().setTopicCorrection('topic-1', null);
+    expect(store.getState().getTopicState('topic-1').correction).toBeNull();
+  });
+
+  it('setTopicCorrection can mark a topic unavailable before latest synthesis is hydrated', async () => {
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => null });
+
+    store.getState().setTopicCorrection('topic-1', correction({ status: 'unavailable' }));
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis).toBeNull();
+    expect(topic.correction?.status).toBe('unavailable');
+    expect(topic.effectiveStatus).toBe('synthesis_unavailable');
+  });
+
+  it('setTopicCorrection clears correction state and restores accepted synthesis availability', async () => {
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => null });
+
+    store.getState().setTopicSynthesis('topic-1', synthesis());
+    store.getState().setTopicCorrection('topic-1', correction());
+    expect(store.getState().getTopicState('topic-1').effectiveStatus).toBe('synthesis_suppressed');
+
+    store.getState().setTopicCorrection('topic-1', null);
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.correction).toBeNull();
+    expect(topic.effectiveStatus).toBe('accepted_available');
+  });
+
+  it('setTopicCorrection ignores invalid, forbidden, and cross-topic correction payloads', async () => {
+    hasForbiddenSynthesisPayloadFieldsMock.mockImplementation((payload: unknown) => {
+      return typeof payload === 'object' && payload !== null && 'token' in payload;
+    });
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => null });
+
+    store.getState().setTopicCorrection('topic-1', { ...correction(), token: 'bad' } as TopicSynthesisCorrection);
+    store.getState().setTopicCorrection('topic-1', { invalid: true } as unknown as TopicSynthesisCorrection);
+    store.getState().setTopicCorrection('topic-1', correction({ topic_id: 'topic-2' }));
+    store.getState().setTopicCorrection('   ', correction());
+
+    expect(store.getState().topics).toEqual({});
   });
 
   it('setTopicSynthesis ignores forbidden/invalid payloads and invalid topic ids', async () => {
@@ -154,6 +247,8 @@ describe('synthesis store', () => {
         topicId: 'topic-1',
         epoch: null,
         synthesis: null,
+        correction: null,
+        effectiveStatus: 'synthesis_unavailable',
         hydrated: true,
         loading: true,
         error: 'oops'
@@ -192,6 +287,7 @@ describe('synthesis store', () => {
     await enabled.getState().refreshTopic('   ');
 
     expect(readTopicLatestSynthesisMock).not.toHaveBeenCalled();
+    expect(readTopicLatestSynthesisCorrectionMock).not.toHaveBeenCalled();
   });
 
   it('refreshTopic clears loading when no client is available', async () => {
@@ -203,6 +299,7 @@ describe('synthesis store', () => {
     expect(store.getState().getTopicState('topic-1').loading).toBe(false);
     expect(store.getState().getTopicState('topic-1').error).toBeNull();
     expect(readTopicLatestSynthesisMock).not.toHaveBeenCalled();
+    expect(readTopicLatestSynthesisCorrectionMock).not.toHaveBeenCalled();
   });
 
   it('refreshTopic hydrates + loads latest synthesis', async () => {
@@ -220,6 +317,7 @@ describe('synthesis store', () => {
 
     expect(hydrateSynthesisStoreMock).toHaveBeenCalled();
     expect(readTopicLatestSynthesisMock).toHaveBeenCalledWith(client, 'topic-x');
+    expect(readTopicLatestSynthesisCorrectionMock).toHaveBeenCalledWith(client, 'topic-x');
 
     const state = store.getState().getTopicState('topic-x');
     expect(state.hydrated).toBe(true);
@@ -227,6 +325,21 @@ describe('synthesis store', () => {
     expect(state.error).toBeNull();
     expect(state.epoch).toBe(8);
     expect(state.synthesis?.synthesis_id).toBe('synth-8');
+    expect(state.effectiveStatus).toBe('accepted_available');
+  });
+
+  it('refreshTopic hydrates correction state and exposes effective unavailable/suppressed state', async () => {
+    readTopicLatestSynthesisMock.mockResolvedValue(synthesis());
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValue(correction({ status: 'unavailable' }));
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.correction?.status).toBe('unavailable');
+    expect(topic.effectiveStatus).toBe('synthesis_unavailable');
   });
 
   it('refreshTopic handles null latest (no synthesis available)', async () => {
@@ -240,6 +353,7 @@ describe('synthesis store', () => {
     const topic = store.getState().getTopicState('topic-1');
     expect(topic.synthesis).toBeNull();
     expect(topic.epoch).toBeNull();
+    expect(topic.effectiveStatus).toBe('synthesis_unavailable');
     expect(topic.loading).toBe(false);
     expect(topic.error).toBeNull();
   });

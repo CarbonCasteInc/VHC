@@ -5,6 +5,13 @@ import { z } from 'zod';
 const TopicId = z.string().min(1);
 const PointId = z.string().trim().min(1);
 const PositiveTimestamp = z.number().int().nonnegative();
+const CorrectionReasonCode = z.enum([
+  'inaccurate_summary',
+  'bad_frame',
+  'source_attribution_error',
+  'policy_violation',
+  'operator_override',
+]);
 
 const FrameSchema = z.object({
   frame_point_id: PointId.optional(),
@@ -127,6 +134,30 @@ export const TopicSynthesisV2Schema = z
   })
   .strict();
 
+// ── Accepted synthesis correction state ────────────────────────────
+
+export const TopicSynthesisCorrectionSchema = z
+  .object({
+    schemaVersion: z.literal('topic-synthesis-correction-v1'),
+    correction_id: z.string().trim().min(1),
+    topic_id: TopicId,
+    synthesis_id: z.string().trim().min(1),
+    epoch: z.number().int().nonnegative(),
+    status: z.enum(['suppressed', 'unavailable']),
+    reason_code: CorrectionReasonCode,
+    reason: z.string().trim().min(1).optional(),
+    operator_id: z.string().trim().min(1),
+    created_at: PositiveTimestamp,
+    audit: z
+      .object({
+        action: z.literal('synthesis_correction'),
+        supersedes_correction_id: z.string().trim().min(1).optional(),
+        notes: z.string().trim().min(1).optional(),
+      })
+      .strict(),
+  })
+  .strict();
+
 // ── Re-synthesis trigger thresholds (spec §5.4) ───────────────────
 
 export const ResynthesisThresholdsSchema = z.object({
@@ -152,6 +183,7 @@ export type TopicSeedInput = z.infer<typeof TopicSeedInputSchema>;
 export type CandidateSynthesis = z.infer<typeof CandidateSynthesisSchema>;
 export type SynthesisFrame = z.infer<typeof SynthesisFrameSchema>;
 export type TopicSynthesisV2 = z.infer<typeof TopicSynthesisV2Schema>;
+export type TopicSynthesisCorrection = z.infer<typeof TopicSynthesisCorrectionSchema>;
 export type ResynthesisThresholds = z.infer<typeof ResynthesisThresholdsSchema>;
 export type SynthesisDefaults = z.infer<typeof SynthesisDefaultsSchema>;
 

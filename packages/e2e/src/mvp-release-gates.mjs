@@ -47,6 +47,20 @@ const GATES = [
     artifactRefs: ['apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx'],
   },
   {
+    id: 'synthesis_correction',
+    label: 'Operator correction hides bad accepted synthesis with audit provenance',
+    command: [
+      'pnpm',
+      ['exec', 'vitest', 'run', 'apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx', '-t', 'mvp gate: synthesis correction'],
+    ],
+    artifactRefs: [
+      'apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx',
+      'apps/web-pwa/src/store/synthesis/index.ts',
+      'packages/data-model/src/schemas/hermes/synthesis.ts',
+      'packages/gun-client/src/synthesisAdapters.ts',
+    ],
+  },
+  {
     id: 'point_stance',
     label: 'Frame/reframe point stance persists and restores',
     command: [

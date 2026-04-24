@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   CandidateSynthesisSchema,
+  TopicDigestInputSchema,
+  TopicSynthesisCorrectionSchema,
   TopicSynthesisV2Schema,
   StoryBundleInputSchema,
-  TopicDigestInputSchema,
   TopicSeedInputSchema,
   ResynthesisThresholdsSchema,
   SynthesisDefaultsSchema,
@@ -463,6 +464,69 @@ describe('TopicSynthesisV2Schema', () => {
 
     const withOauthToken = { ...validSynthesis, oauth_token: 'tok' };
     expect(TopicSynthesisV2Schema.safeParse(withOauthToken).success).toBe(false);
+  });
+});
+
+// ── TopicSynthesisCorrectionSchema ─────────────────────────────────
+
+describe('TopicSynthesisCorrectionSchema', () => {
+  const validCorrection = {
+    schemaVersion: 'topic-synthesis-correction-v1' as const,
+    correction_id: 'correction-1',
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 2,
+    status: 'suppressed' as const,
+    reason_code: 'inaccurate_summary' as const,
+    reason: 'Operator verified the summary overstated the vote outcome.',
+    operator_id: 'ops-user-1',
+    created_at: 1700000000000,
+    audit: {
+      action: 'synthesis_correction' as const,
+      notes: 'Suppressed before public beta handoff.',
+    },
+  };
+
+  it('accepts valid correction records with audit metadata', () => {
+    const parsed = TopicSynthesisCorrectionSchema.safeParse(validCorrection);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.audit.action).toBe('synthesis_correction');
+      expect(parsed.data.operator_id).toBe('ops-user-1');
+    }
+  });
+
+  it('accepts unavailable correction records and supersession audit links', () => {
+    expect(
+      TopicSynthesisCorrectionSchema.safeParse({
+        ...validCorrection,
+        status: 'unavailable',
+        reason_code: 'operator_override',
+        audit: {
+          action: 'synthesis_correction',
+          supersedes_correction_id: 'correction-0',
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('rejects malformed correction payloads', () => {
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, correction_id: '   ' }).success).toBe(false);
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, synthesis_id: '' }).success).toBe(false);
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, epoch: -1 }).success).toBe(false);
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, status: 'hidden' }).success).toBe(false);
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, reason_code: 'misc' }).success).toBe(false);
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, operator_id: '' }).success).toBe(false);
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, audit: { action: 'other' } }).success).toBe(false);
+  });
+
+  it('is strict so correction records cannot smuggle unrelated fields', () => {
+    expect(
+      TopicSynthesisCorrectionSchema.safeParse({
+        ...validCorrection,
+        wallet: '0x123',
+      }).success,
+    ).toBe(false);
   });
 });
 

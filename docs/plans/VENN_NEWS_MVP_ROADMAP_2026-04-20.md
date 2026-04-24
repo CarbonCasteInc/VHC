@@ -403,7 +403,7 @@ Recommended sequencing:
 | Release gates | Go for the core Web PWA news loop. | `pnpm check:mvp-release-gates` passes and writes `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json`. | Do not claim release-readiness from source health or story correctness alone; the MVP gate report is the required loop evidence. |
 | Compliance | No-go for public beta. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright minimums have accepted drafts. | No public beta or App Store/TestFlight submission. Internal-only testing can continue. |
 | Launch content fallback | No-go. | A curated validated snapshot exists with enough stories to exercise singleton, bundle, preferences, frames, stance, related links, and threads. | Live ingestion instability can block demos and QA; do not depend on the live feed as the only launch data path. |
-| Correction/admin path | No-go. | Operators can suppress bad analysis, mark analysis unavailable, hide abusive thread content, and preserve an audit trail. | Public launch is unsafe; a single bad summary or abusive thread has no controlled remediation path. |
+| Correction/admin path | Partial; accepted synthesis correction path implemented in `coord/synthesis-correction-path`. | Operators can suppress or mark an accepted `TopicSynthesisV2` unavailable with typed audit metadata; story detail hides stale summary/frame rows and `pnpm check:mvp-release-gates` includes a deterministic `synthesis_correction` smoke. Abusive thread moderation remains open. | Public launch still needs thread moderation and compliance artifacts; do not claim this row fully green until abusive thread content can be hidden with an audit trail. |
 | Ops/cost visibility | Partial. | Model ids, model invocation counts, source health artifacts, release report path, and bad-analysis reports are visible. | Remote-model spend and product failures remain opaque; do not scale beyond a small internal beta. |
 
 ### W0.1 Persisted point ids
@@ -656,6 +656,7 @@ Acceptance checks:
 | Source health | `pnpm check:news-sources:health` exists | Required from a reliable runner. |
 | Feed smoke | `pnpm check:mvp-release-gates` includes `feed_render` | Fixture-backed Web PWA smoke proves feed render plus preference ranking/filtering. |
 | Story-detail smoke | `pnpm check:mvp-release-gates` includes `story_detail` | Fixture-backed smoke opens headline detail from accepted `TopicSynthesisV2`. |
+| Synthesis correction smoke | `pnpm check:mvp-release-gates` includes `synthesis_correction` | Fixture-backed smoke proves a corrected accepted synthesis does not render stale summary/frame rows and exposes audit provenance. |
 | Point-stance persistence/convergence smoke | `pnpm check:mvp-release-gates` includes `point_stance` | Story detail smoke writes/restores final stance against accepted synthesis point ids. |
 | Thread persistence smoke | `pnpm check:mvp-release-gates` includes `story_thread` | Deterministic `news-story:*` thread id, reply persistence, and reload attachment are covered. |
 | iOS build | Missing because no iOS shell | Only required if Week 0 chooses iOS. |
@@ -669,8 +670,11 @@ The MVP's value rests on accurate summaries and frame/reframe items. The release
 
 - users can report inaccurate analysis;
 - operators can suppress or regenerate a bad analysis artifact;
-- story detail can show corrected/updated provenance;
+- accepted `TopicSynthesisV2` artifacts now have a typed correction record for `suppressed` or `unavailable` state, with operator id, reason code, timestamp, and audit metadata;
+- story detail hides corrected accepted synthesis summaries/frame rows and shows the correction provenance instead;
 - launch copy does not imply editorial omniscience.
+
+Still required: report intake/regeneration workflow polish and audited abusive-thread moderation.
 
 ### Cost and model budget
 

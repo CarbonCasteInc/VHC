@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FeedItem, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
+import type { FeedItem, StoryBundle, TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 import type { HermesThread } from '@vh/types';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
@@ -122,6 +122,26 @@ function makeSynthesis(overrides: Partial<TopicSynthesisV2> = {}): TopicSynthesi
       provider_mix: [{ provider_id: 'remote-analysis', count: 3 }],
     },
     created_at: NOW,
+    ...overrides,
+  };
+}
+
+function makeCorrection(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSynthesisCorrection {
+  return {
+    schemaVersion: 'topic-synthesis-correction-v1',
+    correction_id: 'correction-1',
+    topic_id: 'news-1',
+    synthesis_id: 'syn-1',
+    epoch: 2,
+    status: 'suppressed',
+    reason_code: 'inaccurate_summary',
+    reason: 'Operator verified the accepted synthesis should not be displayed.',
+    operator_id: 'ops-user-1',
+    created_at: NOW + 1,
+    audit: {
+      action: 'synthesis_correction',
+      notes: 'component test fixture',
+    },
     ...overrides,
   };
 }
@@ -366,6 +386,63 @@ describe('NewsCard', () => {
     expect(screen.getByTestId('news-card-headline-news-1')).toBeInTheDocument();
     expect(mockSynthesizeStoryFromAnalysisPipeline).not.toHaveBeenCalled();
   });
+
+  it('renders suppressed synthesis as corrected and hides stale summary, provenance, and frame rows', async () => {
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+    useSynthesisStore.getState().setTopicCorrection('news-1', makeCorrection());
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-summary-basis-news-1')).toHaveTextContent('Operator correction');
+    expect(screen.getByTestId('news-card-summary-news-1')).toHaveTextContent('suppressed by an operator');
+    expect(screen.getByTestId('news-card-synthesis-correction-news-1')).toHaveTextContent('correction-1');
+    expect(screen.getByTestId('news-card-synthesis-correction-news-1')).toHaveTextContent('ops-user-1');
+    expect(screen.getByTestId('news-card-synthesis-correction-state-news-1')).toHaveTextContent('not shown');
+    expect(screen.queryByTestId('news-card-synthesis-provenance-news-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
+    expect(screen.queryByText('Council approved a phased transit expansion plan.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Public investment is overdue')).not.toBeInTheDocument();
+  });
+
+  it('renders operator unavailable state without treating stale accepted synthesis as valid', async () => {
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+    useSynthesisStore.getState().setTopicCorrection(
+      'news-1',
+      makeCorrection({
+        status: 'unavailable',
+        reason_code: 'operator_override',
+        reason: 'Operator pulled the artifact pending regeneration.',
+      }),
+    );
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent('marked unavailable by an operator');
+    expect(screen.getByTestId('news-card-synthesis-correction-state-news-1')).toHaveTextContent(
+      'marked unavailable by an operator',
+    );
+    expect(screen.queryByTestId('bias-table')).not.toBeInTheDocument();
+  });
+
+  it('ignores stale corrections when a newer accepted synthesis is current', async () => {
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis({ synthesis_id: 'syn-2', epoch: 3 }));
+    useSynthesisStore.getState().setTopicCorrection('news-1', makeCorrection());
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    expect(await screen.findByTestId('news-card-summary-news-1')).toHaveTextContent(
+      'Council approved a phased transit expansion plan.',
+    );
+    expect(screen.queryByTestId('news-card-synthesis-correction-news-1')).not.toBeInTheDocument();
+    expect(screen.getByTestId('bias-table')).toHaveTextContent('Public investment is overdue');
+  });
+
   it('renders accepted synthesis warnings as provenance callouts', async () => {
     vi.stubEnv('VITE_VH_ANALYSIS_PIPELINE', 'true');
     useNewsStore.getState().setStories([makeStoryBundle()]);

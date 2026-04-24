@@ -87,6 +87,8 @@ function makeSynthesisResult(overrides: Partial<UseSynthesisResult> = {}): UseSy
     topicId: 'topic-42',
     epoch: null,
     synthesis: null,
+    correction: null,
+    effectiveStatus: 'synthesis_unavailable',
     hydrated: false,
     loading: false,
     error: null,

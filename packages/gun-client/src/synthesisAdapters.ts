@@ -1,9 +1,11 @@
 import {
   CandidateSynthesisSchema,
   TopicDigestInputSchema,
+  TopicSynthesisCorrectionSchema,
   TopicSynthesisV2Schema,
   type CandidateSynthesis,
   type TopicDigest,
+  type TopicSynthesisCorrection,
   type TopicSynthesisV2
 } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
@@ -40,6 +42,14 @@ function topicEpochSynthesisPath(topicId: string, epoch: string): string {
 
 function topicLatestPath(topicId: string): string {
   return `vh/topics/${topicId}/latest/`;
+}
+
+function topicSynthesisCorrectionPath(topicId: string, correctionId: string): string {
+  return `vh/topics/${topicId}/synthesis_corrections/${correctionId}/`;
+}
+
+function topicLatestSynthesisCorrectionPath(topicId: string): string {
+  return `vh/topics/${topicId}/synthesis_corrections/latest/`;
 }
 
 function topicDigestPath(topicId: string, digestId: string): string {
@@ -152,6 +162,15 @@ function parseSynthesis(data: unknown): TopicSynthesisV2 | null {
   return parsed.success ? parsed.data : null;
 }
 
+function parseSynthesisCorrection(data: unknown): TopicSynthesisCorrection | null {
+  const payload = stripGunMetadata(data);
+  if (hasForbiddenSynthesisPayloadFields(payload)) {
+    return null;
+  }
+  const parsed = TopicSynthesisCorrectionSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
+}
+
 function parseDigest(data: unknown): TopicDigest | null {
   const payload = stripGunMetadata(data);
   if (hasForbiddenSynthesisPayloadFields(payload)) {
@@ -238,6 +257,36 @@ export function getTopicLatestSynthesisChain(client: VennClient, topicId: string
   return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, topicLatestPath(topicId));
 }
 
+export function getTopicSynthesisCorrectionChain(
+  client: VennClient,
+  topicId: string,
+  correctionId: string
+): ChainWithGet<TopicSynthesisCorrection> {
+  const chain = client.mesh
+    .get('topics')
+    .get(topicId)
+    .get('synthesis_corrections')
+    .get(correctionId) as unknown as ChainWithGet<TopicSynthesisCorrection>;
+  return createGuardedChain(
+    chain,
+    client.hydrationBarrier,
+    client.topologyGuard,
+    topicSynthesisCorrectionPath(topicId, correctionId)
+  );
+}
+
+export function getTopicLatestSynthesisCorrectionChain(
+  client: VennClient,
+  topicId: string
+): ChainWithGet<TopicSynthesisCorrection> {
+  const chain = client.mesh
+    .get('topics')
+    .get(topicId)
+    .get('synthesis_corrections')
+    .get('latest') as unknown as ChainWithGet<TopicSynthesisCorrection>;
+  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, topicLatestSynthesisCorrectionPath(topicId));
+}
+
 export function getTopicDigestChain(client: VennClient, topicId: string, digestId: string): ChainWithGet<TopicDigest> {
   const chain = client.mesh.get('topics').get(topicId).get('digests').get(digestId) as unknown as ChainWithGet<TopicDigest>;
   return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, topicDigestPath(topicId, digestId));
@@ -320,6 +369,48 @@ export async function writeTopicLatestSynthesis(client: VennClient, synthesis: u
   assertNoForbiddenSynthesisFields(synthesis);
   const sanitized = TopicSynthesisV2Schema.parse(synthesis);
   await putWithAck(getTopicLatestSynthesisChain(client, normalizeTopicId(sanitized.topic_id)), sanitized);
+  return sanitized;
+}
+
+export async function readTopicSynthesisCorrection(
+  client: VennClient,
+  topicId: string,
+  correctionId: string
+): Promise<TopicSynthesisCorrection | null> {
+  const raw = await readOnce(
+    getTopicSynthesisCorrectionChain(
+      client,
+      normalizeTopicId(topicId),
+      normalizeId(correctionId, 'correctionId')
+    )
+  );
+  if (raw === null) {
+    return null;
+  }
+  return parseSynthesisCorrection(raw);
+}
+
+export async function readTopicLatestSynthesisCorrection(
+  client: VennClient,
+  topicId: string
+): Promise<TopicSynthesisCorrection | null> {
+  const raw = await readOnce(getTopicLatestSynthesisCorrectionChain(client, normalizeTopicId(topicId)));
+  if (raw === null) {
+    return null;
+  }
+  return parseSynthesisCorrection(raw);
+}
+
+export async function writeTopicSynthesisCorrection(
+  client: VennClient,
+  correction: unknown
+): Promise<TopicSynthesisCorrection> {
+  assertNoForbiddenSynthesisFields(correction);
+  const sanitized = TopicSynthesisCorrectionSchema.parse(correction);
+  const topicId = normalizeTopicId(sanitized.topic_id);
+  const correctionId = normalizeId(sanitized.correction_id, 'correctionId');
+  await putWithAck(getTopicSynthesisCorrectionChain(client, topicId, correctionId), sanitized);
+  await putWithAck(getTopicLatestSynthesisCorrectionChain(client, topicId), sanitized);
   return sanitized;
 }
 

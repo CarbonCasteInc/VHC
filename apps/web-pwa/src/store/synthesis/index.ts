@@ -1,7 +1,13 @@
 import { create, type StoreApi } from 'zustand';
-import { TopicSynthesisV2Schema, type TopicSynthesisV2 } from '@vh/data-model';
+import {
+  TopicSynthesisCorrectionSchema,
+  TopicSynthesisV2Schema,
+  type TopicSynthesisCorrection,
+  type TopicSynthesisV2,
+} from '@vh/data-model';
 import {
   hasForbiddenSynthesisPayloadFields,
+  readTopicLatestSynthesisCorrection,
   readTopicLatestSynthesis,
   type VennClient
 } from '@vh/gun-client';
@@ -18,6 +24,7 @@ type InternalDeps = SynthesisDeps & {
     topicId: string
   ) => boolean;
   readLatest: (client: VennClient, topicId: string) => Promise<TopicSynthesisV2 | null>;
+  readLatestCorrection: (client: VennClient, topicId: string) => Promise<TopicSynthesisCorrection | null>;
 };
 
 const INITIAL_STATE: Pick<SynthesisState, 'topics'> = {
@@ -29,6 +36,8 @@ function createEmptyTopicState(topicId: string): SynthesisTopicState {
     topicId,
     epoch: null,
     synthesis: null,
+    correction: null,
+    effectiveStatus: 'synthesis_unavailable',
     hydrated: false,
     loading: false,
     error: null
@@ -49,6 +58,37 @@ function parseSynthesis(value: unknown): TopicSynthesisV2 | null {
   return parsed.success ? parsed.data : null;
 }
 
+function parseCorrection(value: unknown): TopicSynthesisCorrection | null {
+  if (hasForbiddenSynthesisPayloadFields(value)) {
+    return null;
+  }
+
+  const parsed = TopicSynthesisCorrectionSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function correctionApplies(
+  synthesis: TopicSynthesisV2 | null,
+  correction: TopicSynthesisCorrection
+): boolean {
+  if (!synthesis) {
+    return true;
+  }
+  return correction.topic_id === synthesis.topic_id
+    && correction.synthesis_id === synthesis.synthesis_id
+    && correction.epoch === synthesis.epoch;
+}
+
+function resolveEffectiveStatus(
+  synthesis: TopicSynthesisV2 | null,
+  correction: TopicSynthesisCorrection | null
+): SynthesisTopicState['effectiveStatus'] {
+  if (correction && correctionApplies(synthesis, correction)) {
+    return correction.status === 'suppressed' ? 'synthesis_suppressed' : 'synthesis_unavailable';
+  }
+  return synthesis ? 'accepted_available' : 'synthesis_unavailable';
+}
+
 function upsertTopicState(
   topics: Readonly<Record<string, SynthesisTopicState>>,
   topicId: string,
@@ -67,7 +107,8 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
     resolveClient: resolveClientFromAppStore,
     enabled: true,
     hydrateTopic: hydrateSynthesisStore,
-    readLatest: readTopicLatestSynthesis
+    readLatest: readTopicLatestSynthesis,
+    readLatestCorrection: readTopicLatestSynthesisCorrection
   };
 
   const deps: InternalDeps = {
@@ -105,6 +146,28 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
           ...current,
           synthesis: validated,
           epoch: validated?.epoch ?? null,
+          effectiveStatus: resolveEffectiveStatus(validated, current.correction),
+          error: null
+        }))
+      }));
+    },
+
+    setTopicCorrection(topicId: string, correction: TopicSynthesisCorrection | null) {
+      const normalizedTopicId = normalizeTopicId(topicId);
+      if (!normalizedTopicId) {
+        return;
+      }
+
+      const validated = correction === null ? null : parseCorrection(correction);
+      if (correction !== null && (!validated || validated.topic_id !== normalizedTopicId)) {
+        return;
+      }
+
+      set((state) => ({
+        topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
+          ...current,
+          correction: validated,
+          effectiveStatus: resolveEffectiveStatus(current.synthesis, validated),
           error: null
         }))
       }));
@@ -170,14 +233,23 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
       get().setTopicError(normalizedTopicId, null);
 
       try {
-        const latest = await deps.readLatest(client, normalizedTopicId);
+        const [latest, latestCorrection] = await Promise.all([
+          deps.readLatest(client, normalizedTopicId),
+          deps.readLatestCorrection(client, normalizedTopicId)
+        ]);
         const validatedLatest = latest === null ? null : parseSynthesis(latest);
+        const validatedCorrection = latestCorrection === null ? null : parseCorrection(latestCorrection);
 
         set((state) => ({
           topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
             ...current,
             synthesis: validatedLatest,
             epoch: validatedLatest?.epoch ?? null,
+            correction: validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null,
+            effectiveStatus: resolveEffectiveStatus(
+              validatedLatest,
+              validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null
+            ),
             loading: false,
             error: null
           }))
@@ -223,7 +295,8 @@ export function createMockSynthesisStore(seedSynthesis: TopicSynthesisV2[] = [])
     resolveClient: () => null,
     enabled: true,
     hydrateTopic: () => false,
-    readLatest: async () => null
+    readLatest: async () => null,
+    readLatestCorrection: async () => null
   });
 
   for (const synthesis of seedSynthesis) {
