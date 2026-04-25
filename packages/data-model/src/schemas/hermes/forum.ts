@@ -127,11 +127,29 @@ export const ModerationEventSchema = z.object({
   signature: z.string().min(1)
 });
 
+export const HermesCommentModerationSchema = z.object({
+  schemaVersion: z.literal('hermes-comment-moderation-v1'),
+  moderation_id: z.string().min(1),
+  thread_id: z.string().min(1),
+  comment_id: z.string().min(1),
+  status: z.enum(['hidden', 'restored']),
+  reason_code: z.string().min(1),
+  reason: z.string().min(1).optional(),
+  operator_id: z.string().min(1),
+  created_at: z.number().int().nonnegative(),
+  audit: z.object({
+    action: z.literal('comment_moderation'),
+    supersedes_moderation_id: z.string().min(1).optional(),
+    notes: z.string().min(1).optional()
+  }).strict()
+}).strict();
+
 export type HermesThread = z.infer<typeof HermesThreadSchema>;
 export type HermesCommentV0 = z.infer<typeof HermesCommentSchemaV0>;
 export type HermesCommentV1 = z.infer<typeof HermesCommentSchemaV1>;
 export type HermesComment = HermesCommentV1;
 export type ModerationEvent = z.infer<typeof ModerationEventSchema>;
+export type HermesCommentModeration = z.infer<typeof HermesCommentModerationSchema>;
 
 // -- Forum Post schema (§2.4 — reply vs article post type) --
 

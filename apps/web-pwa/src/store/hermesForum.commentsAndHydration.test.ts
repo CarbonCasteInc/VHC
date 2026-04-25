@@ -6,15 +6,18 @@ import { publishIdentity, clearPublishedIdentity } from './identityProvider';
 const {
   threadWrites,
   commentWrites,
+  moderationHandlers,
   dateIndexWrites,
   tagIndexWrites,
   threadChain,
   commentsChain,
+  moderationChain,
   getForumDateIndexChainMock,
   getForumTagIndexChainMock
 } = vi.hoisted(() => {
   const threadWrites: any[] = [];
   const commentWrites: any[] = [];
+  const moderationHandlers: Array<(data: any, key: string) => void> = [];
   const dateIndexWrites: Array<{ id: string; value: any }> = [];
   const tagIndexWrites: Array<{ tag: string; id: string; value: any }> = [];
 
@@ -33,6 +36,15 @@ const {
     }),
     map: vi.fn(() => ({
       on: vi.fn()
+    }))
+  } as any;
+
+  const moderationChain = {
+    get: vi.fn(() => moderationChain),
+    map: vi.fn(() => ({
+      on: vi.fn((cb: (data: any, key: string) => void) => {
+        moderationHandlers.push(cb);
+      })
     }))
   } as any;
 
@@ -55,10 +67,12 @@ const {
   return {
     threadWrites,
     commentWrites,
+    moderationHandlers,
     dateIndexWrites,
     tagIndexWrites,
     threadChain,
     commentsChain,
+    moderationChain,
     getForumDateIndexChainMock,
     getForumTagIndexChainMock
   };
@@ -70,6 +84,7 @@ vi.mock('@vh/gun-client', async (orig) => {
     ...actual,
     getForumThreadChain: vi.fn(() => threadChain),
     getForumCommentsChain: vi.fn(() => commentsChain),
+    getForumLatestCommentModerationsChain: vi.fn(() => moderationChain),
     getForumDateIndexChain: getForumDateIndexChainMock,
     getForumTagIndexChain: getForumTagIndexChainMock
   };
@@ -108,6 +123,7 @@ beforeEach(() => {
   useXpLedger.getState().setActiveNullifier(null);
   threadWrites.length = 0;
   commentWrites.length = 0;
+  moderationHandlers.length = 0;
   dateIndexWrites.length = 0;
   tagIndexWrites.length = 0;
   threadChain.put.mockClear();
@@ -224,6 +240,78 @@ describe('hermesForum store (comments & hydration)', () => {
     expect(store.getState().getCommentsByStance('thread-sel', 'counter').map((c) => c.id)).toEqual(['c2']);
   });
 
+  it('hides and restores comments through moderation state selectors', async () => {
+    setIdentity('selector');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'sel', now: () => 1 });
+    const comment = {
+      id: 'c1',
+      schemaVersion: 'hermes-comment-v1' as const,
+      threadId: 'thread-sel',
+      parentId: null,
+      content: 'visible before moderation',
+      author: 'selector',
+      timestamp: 1,
+      stance: 'concur' as const,
+      upvotes: 0,
+      downvotes: 0,
+      type: 'reply' as const
+    };
+    store.setState((state) => ({
+      ...state,
+      comments: new Map(state.comments).set('thread-sel', [comment])
+    }));
+
+    store.getState().setCommentModeration('thread-sel', {
+      schemaVersion: 'hermes-comment-moderation-v1',
+      moderation_id: 'mod-hide',
+      thread_id: 'thread-sel',
+      comment_id: 'c1',
+      status: 'hidden',
+      reason_code: 'abusive_content',
+      operator_id: 'ops-1',
+      created_at: 2,
+      audit: { action: 'comment_moderation' }
+    });
+    expect(store.getState().getVisibleComments('thread-sel')).toEqual([]);
+    expect(store.getState().getRootComments('thread-sel')).toEqual([]);
+
+    store.getState().setCommentModeration('thread-sel', {
+      schemaVersion: 'hermes-comment-moderation-v1',
+      moderation_id: 'mod-restore',
+      thread_id: 'thread-sel',
+      comment_id: 'c1',
+      status: 'restored',
+      reason_code: 'appeal_accepted',
+      operator_id: 'ops-2',
+      created_at: 3,
+      audit: {
+        action: 'comment_moderation',
+        supersedes_moderation_id: 'mod-hide'
+      }
+    });
+    expect(store.getState().getVisibleComments('thread-sel').map((c) => c.id)).toEqual(['c1']);
+  });
+
+  it('rejects malformed and path-mismatched moderation state', async () => {
+    setIdentity('selector');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'sel', now: () => 1 });
+
+    store.getState().setCommentModeration('thread-sel', {
+      schemaVersion: 'hermes-comment-moderation-v1',
+      moderation_id: 'mod-hide',
+      thread_id: 'other-thread',
+      comment_id: 'c1',
+      status: 'hidden',
+      reason_code: 'abusive_content',
+      operator_id: 'ops-1',
+      created_at: 2,
+      audit: { action: 'comment_moderation' }
+    });
+    store.getState().setCommentModeration('thread-sel', { invalid: true } as any);
+
+    expect(store.getState().commentModeration.size).toBe(0);
+  });
+
   it('getRootComments returns roots in chronological order', async () => {
     setIdentity('selector');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'sel', now: () => 1 });
@@ -276,6 +364,41 @@ describe('hermesForum store (comments & hydration)', () => {
     }));
 
     expect(store.getState().getRootComments('thread-sel').map((c) => c.id)).toEqual(['root-1', 'root-2']);
+  });
+
+  it('hydrates latest comment moderation records and rejects path mismatches', async () => {
+    setIdentity('hydrator');
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'sel', now: () => 1 });
+
+    await store.getState().loadComments('news-story:story-1');
+    expect(moderationHandlers).toHaveLength(1);
+
+    moderationHandlers[0]({
+      schemaVersion: 'hermes-comment-moderation-v1',
+      moderation_id: 'mod-hide',
+      thread_id: 'news-story:story-1',
+      comment_id: 'comment-1',
+      status: 'hidden',
+      reason_code: 'abusive_content',
+      reason: 'Abusive language.',
+      operator_id: 'ops-1',
+      created_at: 2,
+      audit: { action: 'comment_moderation' }
+    }, 'comment-1');
+    moderationHandlers[0]({
+      schemaVersion: 'hermes-comment-moderation-v1',
+      moderation_id: 'mod-wrong',
+      thread_id: 'news-story:story-1',
+      comment_id: 'comment-2',
+      status: 'hidden',
+      reason_code: 'abusive_content',
+      operator_id: 'ops-1',
+      created_at: 2,
+      audit: { action: 'comment_moderation' }
+    }, 'comment-3');
+
+    expect(store.getState().getCommentModeration('news-story:story-1', 'comment-1')?.moderation_id).toBe('mod-hide');
+    expect(store.getState().getCommentModeration('news-story:story-1', 'comment-2')).toBeNull();
   });
 
   it('vote on comment adjusts counts', async () => {
@@ -400,4 +523,3 @@ describe('stripUndefined', () => {
     expect('b' in result).toBe(false);
   });
 });
-

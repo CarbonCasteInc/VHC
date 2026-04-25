@@ -1,10 +1,16 @@
 import { create, type StoreApi } from 'zustand';
 import {
   computeThreadScore, deriveTopicId, deriveUrlTopicId, HermesCommentSchema,
-  HermesCommentWriteSchema, HermesThreadSchema, migrateCommentToV1
+  HermesCommentModerationSchema, HermesCommentWriteSchema, HermesThreadSchema, migrateCommentToV1
 } from '@vh/data-model';
 import type { HermesComment, HermesCommentHydratable, HermesThread } from '@vh/types';
-import { getForumCommentsChain, getForumDateIndexChain, getForumTagIndexChain, getForumThreadChain } from '@vh/gun-client';
+import {
+  getForumCommentsChain,
+  getForumDateIndexChain,
+  getForumLatestCommentModerationsChain,
+  getForumTagIndexChain,
+  getForumThreadChain
+} from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../clientResolver';
 import { useXpLedger } from '../xpLedger';
 import { useSentimentState } from '../../hooks/useSentimentState';
@@ -12,7 +18,8 @@ import type { ForumState, ForumDeps, CommentStanceInput } from './types';
 import { loadIdentity, loadVotesFromStorage, persistVotes } from './persistence';
 import {
   ensureIdentity, ensureClient, stripUndefined, serializeThreadForGun, isCommentSeen,
-  markCommentSeen, addThread, addComment, adjustVoteCounts, findCommentThread
+  markCommentSeen, addThread, addComment, adjustVoteCounts, findCommentThread,
+  setCommentModerationState, getCommentModerationState, visibleCommentsForThread
 } from './helpers';
 import { hydrateFromGun } from './hydration';
 import { createMockForumStore } from './mockStore';
@@ -46,6 +53,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
   const store = create<ForumState>((set, get) => ({
     threads: new Map(),
     comments: new Map(),
+    commentModeration: new Map(),
     userVotes: initialVotes,
     async createThread(title, content, tags, sourceContext, opts) {
       triggerHydration();
@@ -273,6 +281,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       if (client && !subscribedThreads.has(threadId)) {
         subscribedThreads.add(threadId);
         const commentsChain = getForumCommentsChain(client, threadId);
+        const moderationChain = getForumLatestCommentModerationsChain(client, threadId);
         console.debug('[vh:forum] subscribing to comments for thread:', threadId);
         const mapped = commentsChain.map?.();
         if (mapped?.on) {
@@ -314,15 +323,61 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
             }
           });
         }
+        const moderationMapped = moderationChain.map?.();
+        if (moderationMapped?.on) {
+          moderationMapped.on((data: unknown, key?: string) => {
+            if (!data || typeof data !== 'object') {
+              return;
+            }
+            const obj = data as Record<string, unknown>;
+            const resolvedKey = key ?? (typeof obj.comment_id === 'string' ? obj.comment_id : undefined);
+            if (!resolvedKey) {
+              return;
+            }
+            const { _, ...cleanObj } = obj as Record<string, unknown> & { _?: unknown };
+            const result = HermesCommentModerationSchema.safeParse(cleanObj);
+            if (!result.success) {
+              console.debug('[vh:forum] Comment moderation validation failed:', resolvedKey, result.error.issues);
+              return;
+            }
+            if (result.data.thread_id !== threadId || result.data.comment_id !== resolvedKey) {
+              console.debug('[vh:forum] Comment moderation path mismatch:', {
+                threadId,
+                key: resolvedKey,
+                payloadThreadId: result.data.thread_id,
+                payloadCommentId: result.data.comment_id
+              });
+              return;
+            }
+            set((s) => setCommentModerationState(s, threadId, result.data));
+          });
+        }
       }
       return (get().comments.get(threadId) ?? []).slice().sort((a, b) => a.timestamp - b.timestamp);
     },
+    setCommentModeration(threadId, moderation) {
+      const normalizedThreadId = threadId.trim();
+      if (!normalizedThreadId || moderation === null) {
+        return;
+      }
+      const result = HermesCommentModerationSchema.safeParse(moderation);
+      if (!result.success || result.data.thread_id !== normalizedThreadId) {
+        return;
+      }
+      set((state) => setCommentModerationState(state, normalizedThreadId, result.data));
+    },
+    getCommentModeration(threadId, commentId) {
+      return getCommentModerationState(get(), threadId, commentId);
+    },
+    getVisibleComments(threadId) {
+      return visibleCommentsForThread(get(), threadId).sort((a, b) => a.timestamp - b.timestamp);
+    },
     getRootComments(threadId) {
-      const list = get().comments.get(threadId) ?? [];
+      const list = get().getVisibleComments(threadId);
       return list.filter((c) => c.parentId === null).sort((a, b) => a.timestamp - b.timestamp);
     },
     getCommentsByStance(threadId, stance) {
-      const list = get().comments.get(threadId) ?? [];
+      const list = get().getVisibleComments(threadId);
       return list.filter((c) => c.stance === stance).sort((a, b) => a.timestamp - b.timestamp);
     },
     getConcurComments(threadId) {

@@ -1,4 +1,4 @@
-import type { HermesComment, HermesThread } from '@vh/types';
+import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/types';
 import { isSessionExpired } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 import type { ForumState, ForumIdentity } from './types';
@@ -118,6 +118,46 @@ export function addComment(state: ForumState, comment: HermesComment): ForumStat
     next.set(comment.threadId, list);
   }
   return { ...state, comments: next };
+}
+
+export function setCommentModerationState(
+  state: ForumState,
+  threadId: string,
+  moderation: HermesCommentModeration | null
+): ForumState {
+  const normalizedThreadId = threadId.trim();
+  if (!normalizedThreadId) {
+    return state;
+  }
+  const next = new Map(state.commentModeration);
+  const existing = new Map(next.get(normalizedThreadId) ?? []);
+  if (moderation === null) {
+    next.set(normalizedThreadId, existing);
+    return { ...state, commentModeration: next };
+  }
+  if (moderation.thread_id !== normalizedThreadId) {
+    return state;
+  }
+  existing.set(moderation.comment_id, moderation);
+  next.set(normalizedThreadId, existing);
+  return { ...state, commentModeration: next };
+}
+
+export function getCommentModerationState(
+  state: ForumState,
+  threadId: string,
+  commentId: string
+): HermesCommentModeration | null {
+  return state.commentModeration.get(threadId)?.get(commentId) ?? null;
+}
+
+export function isCommentHidden(state: ForumState, comment: HermesComment): boolean {
+  return getCommentModerationState(state, comment.threadId, comment.id)?.status === 'hidden';
+}
+
+export function visibleCommentsForThread(state: ForumState, threadId: string): HermesComment[] {
+  const list = state.comments.get(threadId) ?? [];
+  return list.filter((comment) => !isCommentHidden(state, comment));
 }
 
 export function adjustVoteCounts<T extends { upvotes: number; downvotes: number }>(

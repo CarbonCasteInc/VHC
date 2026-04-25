@@ -25,6 +25,7 @@ const c = (overrides: any) => ({
 });
 
 const mockStore = {
+  commentModeration: new Map<string, Map<string, any>>(),
   userVotes: new Map<string, 'up' | 'down' | null>(),
   vote: voteMock,
   createComment: createCommentMock
@@ -42,10 +43,81 @@ describe('CommentStream', () => {
   afterEach(() => cleanup());
 
   beforeEach(() => {
+    mockStore.commentModeration = new Map();
     mockStore.userVotes = new Map();
     voteMock.mockReset();
     createCommentMock.mockReset();
     trustScore = 1;
+  });
+
+  it('renders a moderation placeholder without original hidden comment content', () => {
+    const comments: any[] = [
+      c({ id: 'hidden-comment', content: 'abusive original content', author: 'alice', timestamp: 1, stance: 'concur' })
+    ];
+    mockStore.commentModeration = new Map([
+      [
+        't',
+        new Map([
+          [
+            'hidden-comment',
+            {
+              schemaVersion: 'hermes-comment-moderation-v1',
+              moderation_id: 'mod-1',
+              thread_id: 't',
+              comment_id: 'hidden-comment',
+              status: 'hidden',
+              reason_code: 'abusive_content',
+              reason: 'Abusive language.',
+              operator_id: 'ops-1',
+              created_at: 10,
+              audit: { action: 'comment_moderation' }
+            }
+          ]
+        ])
+      ]
+    ]);
+
+    render(<CommentStream threadId="t" comments={comments as any} />);
+
+    expect(screen.getByTestId('comment-hidden-hidden-comment')).toHaveTextContent('Comment hidden by moderation.');
+    expect(screen.getByTestId('comment-hidden-hidden-comment')).toHaveTextContent('abusive_content');
+    expect(screen.queryByText('abusive original content')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('reply-btn-hidden-comment')).not.toBeInTheDocument();
+  });
+
+  it('renders restored comments normally', () => {
+    const comments: any[] = [
+      c({ id: 'restored-comment', content: 'restored content', author: 'alice', timestamp: 1, stance: 'concur' })
+    ];
+    mockStore.commentModeration = new Map([
+      [
+        't',
+        new Map([
+          [
+            'restored-comment',
+            {
+              schemaVersion: 'hermes-comment-moderation-v1',
+              moderation_id: 'mod-2',
+              thread_id: 't',
+              comment_id: 'restored-comment',
+              status: 'restored',
+              reason_code: 'appeal_accepted',
+              operator_id: 'ops-1',
+              created_at: 20,
+              audit: {
+                action: 'comment_moderation',
+                supersedes_moderation_id: 'mod-1'
+              }
+            }
+          ]
+        ])
+      ]
+    ]);
+
+    render(<CommentStream threadId="t" comments={comments as any} />);
+
+    expect(screen.getByText('restored content')).toBeInTheDocument();
+    expect(screen.queryByTestId('comment-hidden-restored-comment')).not.toBeInTheDocument();
   });
 
   it('renders root comments in chronological order', () => {

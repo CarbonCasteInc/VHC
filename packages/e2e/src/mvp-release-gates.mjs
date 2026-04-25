@@ -81,6 +81,21 @@ const GATES = [
       'apps/web-pwa/src/utils/feedDiscussionThreads.ts',
     ],
   },
+  {
+    id: 'story_thread_moderation',
+    label: 'Story-thread moderation hides abusive replies with audit provenance',
+    command: [
+      'pnpm',
+      ['exec', 'vitest', 'run', 'apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx', '-t', 'mvp gate: story thread moderation'],
+    ],
+    artifactRefs: [
+      'apps/web-pwa/src/components/feed/MvpNewsLoop.release.test.tsx',
+      'apps/web-pwa/src/components/hermes/CommentStream.tsx',
+      'apps/web-pwa/src/store/forum/index.ts',
+      'packages/data-model/src/schemas/hermes/forum.ts',
+      'packages/gun-client/src/forumAdapters.ts',
+    ],
+  },
 ];
 
 function nowIso() {

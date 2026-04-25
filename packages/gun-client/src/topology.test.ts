@@ -113,6 +113,19 @@ describe('TopologyGuard', () => {
       })
     ).not.toThrow();
     expect(() =>
+      guard.validateWrite('vh/forum/threads/news-story:story-1/comment_moderations/latest/comment-1', {
+        schemaVersion: 'hermes-comment-moderation-v1',
+        moderation_id: 'mod-1',
+        thread_id: 'news-story:story-1',
+        comment_id: 'comment-1',
+        status: 'hidden',
+        reason_code: 'abusive_content',
+        operator_id: 'ops-user-1',
+        created_at: 1700000000000,
+        audit: { action: 'comment_moderation' },
+      })
+    ).not.toThrow();
+    expect(() =>
       guard.validateWrite('vh/aggregates/topics/topic-1/engagement/actors/actor-1', {
         schema_version: 'topic-engagement-actor-v1',
         topic_id: 'topic-1',
