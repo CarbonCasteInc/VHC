@@ -1,4 +1,5 @@
 import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/types';
+import { HermesCommentModerationSchema } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
 
@@ -120,40 +121,32 @@ function normalizeId(value: string, name: string): string {
   return normalized;
 }
 
+function hasBlankModerationFields(moderation: HermesCommentModeration): boolean {
+  if (
+    moderation.moderation_id.trim() === '' ||
+    moderation.thread_id.trim() === '' ||
+    moderation.comment_id.trim() === '' ||
+    moderation.reason_code.trim() === '' ||
+    moderation.operator_id.trim() === ''
+  ) {
+    return true;
+  }
+  if (moderation.reason !== undefined && moderation.reason.trim() === '') {
+    return true;
+  }
+  return (
+    moderation.audit.supersedes_moderation_id !== undefined &&
+    moderation.audit.supersedes_moderation_id.trim() === ''
+  ) || (moderation.audit.notes !== undefined && moderation.audit.notes.trim() === '');
+}
+
 function parseCommentModeration(data: unknown): HermesCommentModeration | null {
   const payload = stripGunMetadata(data);
-  if (!isRecord(payload)) {
+  const parsed = HermesCommentModerationSchema.safeParse(payload);
+  if (!parsed.success || hasBlankModerationFields(parsed.data)) {
     return null;
   }
-  const audit = payload.audit;
-  if (!isRecord(audit) || audit.action !== 'comment_moderation') {
-    return null;
-  }
-  if (
-    payload.schemaVersion !== 'hermes-comment-moderation-v1' ||
-    typeof payload.moderation_id !== 'string' || payload.moderation_id.trim() === '' ||
-    typeof payload.thread_id !== 'string' || payload.thread_id.trim() === '' ||
-    typeof payload.comment_id !== 'string' || payload.comment_id.trim() === '' ||
-    (payload.status !== 'hidden' && payload.status !== 'restored') ||
-    typeof payload.reason_code !== 'string' || payload.reason_code.trim() === '' ||
-    typeof payload.operator_id !== 'string' || payload.operator_id.trim() === '' ||
-    typeof payload.created_at !== 'number' || !Number.isInteger(payload.created_at) || payload.created_at < 0
-  ) {
-    return null;
-  }
-  if ('reason' in payload && (typeof payload.reason !== 'string' || payload.reason.trim() === '')) {
-    return null;
-  }
-  if (
-    'supersedes_moderation_id' in audit &&
-    (typeof audit.supersedes_moderation_id !== 'string' || audit.supersedes_moderation_id.trim() === '')
-  ) {
-    return null;
-  }
-  if ('notes' in audit && (typeof audit.notes !== 'string' || audit.notes.trim() === '')) {
-    return null;
-  }
-  return payload as unknown as HermesCommentModeration;
+  return parsed.data;
 }
 
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
