@@ -274,6 +274,32 @@ describe('validated snapshot server', () => {
     expect(resolver.getFixture().snapshot.stories[0].story_id).toBe('story-1');
   });
 
+  it('falls back to the committed curated launch-content snapshot when canary artifacts are absent', () => {
+    const repoRoot = mkdtempSync(path.join(tmpdir(), 'vh-validated-snapshot-'));
+    tempRoots.push(repoRoot);
+    const curatedFixturePath = path.join(repoRoot, 'fixtures', 'launch-content.json');
+    mkdirSync(path.dirname(curatedFixturePath), { recursive: true });
+    writeFileSync(curatedFixturePath, JSON.stringify({
+      schemaVersion: 'vh-launch-content-validated-snapshot-v1',
+      stories: [{ story_id: 'curated-story' }],
+    }), 'utf8');
+
+    const fixture = resolveValidatedSnapshotFixture({
+      repoRoot,
+      env: {
+        VH_VALIDATED_SNAPSHOT_CURATED_FALLBACK_PATH: curatedFixturePath,
+      },
+    });
+
+    expect(fixture.snapshotPath).toBe(curatedFixturePath);
+    expect(fixture.fallback).toBe('curated-launch-content');
+    expect(fixture.summary).toMatchObject({
+      pass: true,
+      source: 'curated-launch-content-fallback',
+    });
+    expect(fixture.snapshot.stories[0].story_id).toBe('curated-story');
+  });
+
   it('serves health and snapshot payloads from an explicit fixture path', async () => {
     const repoRoot = mkdtempSync(path.join(tmpdir(), 'vh-validated-snapshot-'));
     tempRoots.push(repoRoot);

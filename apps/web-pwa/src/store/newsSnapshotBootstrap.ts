@@ -1,4 +1,13 @@
-import type { StorylineGroup } from '@vh/data-model';
+import {
+  HermesCommentModerationSchema,
+  HermesCommentSchema,
+  HermesThreadSchema,
+  TopicSynthesisCorrectionSchema,
+  TopicSynthesisV2Schema,
+  migrateCommentToV1,
+  type StorylineGroup,
+} from '@vh/data-model';
+import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/types';
 import type { StoreApi } from 'zustand';
 import type { NewsState } from './news';
 import { mirrorStoriesIntoDiscovery } from './news/storeHelpers';
@@ -11,6 +20,15 @@ interface PublishedStoreSnapshot {
   generatedAt?: string;
   runId?: string;
   schemaVersion?: string;
+  launchContent?: {
+    syntheses?: unknown[];
+    synthesisCorrections?: unknown[];
+    forum?: {
+      threads?: unknown[];
+      comments?: unknown[];
+      commentModerations?: unknown[];
+    };
+  };
 }
 
 const SNAPSHOT_BOOTSTRAP_TIMEOUT_MS = 5_000;
@@ -79,6 +97,151 @@ function normalizeStorylines(storylines: unknown): StorylineGroup[] {
   return storylines.filter(isStorylineGroup);
 }
 
+function normalizeSyntheses(snapshot: PublishedStoreSnapshot) {
+  const syntheses = snapshot.launchContent?.syntheses;
+  if (!Array.isArray(syntheses)) {
+    return [];
+  }
+
+  return syntheses.flatMap((value) => {
+    const result = TopicSynthesisV2Schema.safeParse(value);
+    return result.success ? [result.data] : [];
+  });
+}
+
+function normalizeSynthesisCorrections(snapshot: PublishedStoreSnapshot) {
+  const corrections = snapshot.launchContent?.synthesisCorrections;
+  if (!Array.isArray(corrections)) {
+    return [];
+  }
+
+  return corrections.flatMap((value) => {
+    const result = TopicSynthesisCorrectionSchema.safeParse(value);
+    return result.success ? [result.data] : [];
+  });
+}
+
+function normalizeThreads(snapshot: PublishedStoreSnapshot): HermesThread[] {
+  const threads = snapshot.launchContent?.forum?.threads;
+  if (!Array.isArray(threads)) {
+    return [];
+  }
+
+  return threads.flatMap((value) => {
+    const result = HermesThreadSchema.safeParse(value);
+    return result.success ? [result.data] : [];
+  });
+}
+
+function normalizeComments(snapshot: PublishedStoreSnapshot): HermesComment[] {
+  const comments = snapshot.launchContent?.forum?.comments;
+  if (!Array.isArray(comments)) {
+    return [];
+  }
+
+  return comments.flatMap((value) => {
+    const result = HermesCommentSchema.safeParse(value);
+    return result.success ? [migrateCommentToV1(result.data)] : [];
+  });
+}
+
+function normalizeCommentModerations(snapshot: PublishedStoreSnapshot): HermesCommentModeration[] {
+  const moderations = snapshot.launchContent?.forum?.commentModerations;
+  if (!Array.isArray(moderations)) {
+    return [];
+  }
+
+  return moderations.flatMap((value) => {
+    const result = HermesCommentModerationSchema.safeParse(value);
+    return result.success ? [result.data] : [];
+  });
+}
+
+function hasLaunchContentRuntime(snapshot: PublishedStoreSnapshot): boolean {
+  const launchContent = snapshot.launchContent;
+  return Boolean(
+    launchContent
+    && (
+      Array.isArray(launchContent.syntheses)
+      || Array.isArray(launchContent.synthesisCorrections)
+      || Array.isArray(launchContent.forum?.threads)
+      || Array.isArray(launchContent.forum?.comments)
+      || Array.isArray(launchContent.forum?.commentModerations)
+    ),
+  );
+}
+
+async function applyLaunchContentRuntime(
+  snapshot: PublishedStoreSnapshot,
+  log: (...args: unknown[]) => void,
+): Promise<void> {
+  if (!hasLaunchContentRuntime(snapshot)) {
+    return;
+  }
+
+  const [
+    { useSynthesisStore },
+    { useForumStore },
+  ] = await Promise.all([
+    import('./synthesis'),
+    import('./hermesForum'),
+  ]);
+
+  const syntheses = normalizeSyntheses(snapshot);
+  const corrections = normalizeSynthesisCorrections(snapshot);
+  const threads = normalizeThreads(snapshot);
+  const comments = normalizeComments(snapshot);
+  const commentModerations = normalizeCommentModerations(snapshot);
+
+  for (const synthesis of syntheses) {
+    useSynthesisStore.getState().setTopicSynthesis(synthesis.topic_id, synthesis);
+  }
+  for (const correction of corrections) {
+    useSynthesisStore.getState().setTopicCorrection(correction.topic_id, correction);
+  }
+
+  if (threads.length > 0 || comments.length > 0 || commentModerations.length > 0) {
+    useForumStore.setState((state) => {
+      const nextThreads = new Map(state.threads);
+      for (const thread of threads) {
+        nextThreads.set(thread.id, thread);
+      }
+
+      const nextComments = new Map(state.comments);
+      for (const comment of comments) {
+        const existing = nextComments.get(comment.threadId) ?? [];
+        const withoutDuplicate = existing.filter((candidate) => candidate.id !== comment.id);
+        nextComments.set(
+          comment.threadId,
+          [...withoutDuplicate, comment].sort((left, right) => left.timestamp - right.timestamp),
+        );
+      }
+
+      const nextCommentModeration = new Map(state.commentModeration);
+      for (const moderation of commentModerations) {
+        const existing = new Map(nextCommentModeration.get(moderation.thread_id) ?? []);
+        existing.set(moderation.comment_id, moderation);
+        nextCommentModeration.set(moderation.thread_id, existing);
+      }
+
+      return {
+        ...state,
+        threads: nextThreads,
+        comments: nextComments,
+        commentModeration: nextCommentModeration,
+      };
+    });
+  }
+
+  log('[vh:web-pwa] applied launch content snapshot runtime', {
+    syntheses: syntheses.length,
+    synthesisCorrections: corrections.length,
+    threads: threads.length,
+    comments: comments.length,
+    commentModerations: commentModerations.length,
+  });
+}
+
 async function fetchSnapshot(url: string, fetchImpl: typeof fetch): Promise<PublishedStoreSnapshot> {
   const response = await fetchImpl(url, {
     cache: 'no-store',
@@ -132,6 +295,7 @@ async function applySnapshot(
     refreshedState.hotIndex,
     refreshedState.storylinesById,
   );
+  await applyLaunchContentRuntime(snapshot, log);
   lastAppliedSnapshotKey = snapshotKey;
   if (changed) {
     log(`[vh:web-pwa] ${action} news snapshot`, snapshotUrl);
@@ -248,5 +412,11 @@ export const newsSnapshotBootstrapInternal = {
   readSnapshotRefreshMs,
   parseSnapshotRefreshMs,
   normalizeStorylines,
+  normalizeSyntheses,
+  normalizeSynthesisCorrections,
+  normalizeThreads,
+  normalizeComments,
+  normalizeCommentModerations,
+  hasLaunchContentRuntime,
   buildSnapshotKey,
 };

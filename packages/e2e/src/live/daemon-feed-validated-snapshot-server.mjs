@@ -17,6 +17,10 @@ const DEFAULT_REPO_ROOT = path.resolve(
 const DEFAULT_SNAPSHOT_REFRESH_MS = 10_000;
 const DEFAULT_ROLLING_ARTIFACT_LIMIT = 24;
 const DEFAULT_ROLLING_STORY_LIMIT = 150;
+const DEFAULT_CURATED_LAUNCH_CONTENT_SNAPSHOT_PATH = path.join(
+  DEFAULT_REPO_ROOT,
+  'packages/e2e/fixtures/launch-content/validated-snapshot.json',
+);
 
 function readJson(filePath, readFile = readFileSync) {
   return JSON.parse(readFile(filePath, 'utf8'));
@@ -233,6 +237,9 @@ export function resolveValidatedSnapshotFixture({
     };
   }
 
+  const curatedFallbackPath = env.VH_VALIDATED_SNAPSHOT_CURATED_FALLBACK_PATH?.trim()
+    || path.join(repoRoot, path.relative(DEFAULT_REPO_ROOT, DEFAULT_CURATED_LAUNCH_CONTENT_SNAPSHOT_PATH));
+
   const artifactRoot = resolvePublisherCanaryArtifactRoot(repoRoot, env);
   const maxArtifacts = parsePositiveInt(
     env.VH_VALIDATED_SNAPSHOT_ROLLING_ARTIFACT_LIMIT,
@@ -253,6 +260,19 @@ export function resolveValidatedSnapshotFixture({
     maxArtifacts,
   });
   if (artifacts.length === 0) {
+    if (exists(curatedFallbackPath)) {
+      return {
+        snapshotPath: curatedFallbackPath,
+        snapshot: readJson(curatedFallbackPath, readFile),
+        artifactDir: path.dirname(curatedFallbackPath),
+        summaryPath: null,
+        summary: {
+          pass: true,
+          source: 'curated-launch-content-fallback',
+        },
+        fallback: 'curated-launch-content',
+      };
+    }
     throw new Error(`no passing publisher-canary artifact found under ${artifactRoot}`);
   }
 
@@ -270,6 +290,19 @@ export function resolveValidatedSnapshotFixture({
     }
   }
   if (sources.length === 0) {
+    if (exists(curatedFallbackPath)) {
+      return {
+        snapshotPath: curatedFallbackPath,
+        snapshot: readJson(curatedFallbackPath, readFile),
+        artifactDir: path.dirname(curatedFallbackPath),
+        summaryPath: null,
+        summary: {
+          pass: true,
+          source: 'curated-launch-content-fallback',
+        },
+        fallback: 'curated-launch-content',
+      };
+    }
     throw new Error(`no readable publisher-canary snapshots found under ${artifactRoot}`);
   }
 
@@ -381,6 +414,7 @@ export async function startValidatedSnapshotServer({
           summaryPath: fixture.summaryPath,
           snapshotPath: fixture.snapshotPath,
           sourceArtifactCount: fixture.sourceArtifacts?.length ?? 1,
+          fallback: fixture.fallback ?? null,
         },
         rollingWindow: fixture.snapshot?.rollingWindow ?? null,
         refreshMs: resolver.getRefreshMs(),
@@ -403,6 +437,7 @@ export async function startValidatedSnapshotServer({
           summaryPath: fixture.summaryPath,
           snapshotPath: fixture.snapshotPath,
           sourceArtifactCount: fixture.sourceArtifacts?.length ?? 1,
+          fallback: fixture.fallback ?? null,
         },
         rollingWindow: fixture.snapshot?.rollingWindow ?? null,
         refreshMs: resolver.getRefreshMs(),
