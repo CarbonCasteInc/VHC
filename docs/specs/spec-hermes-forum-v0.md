@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-16
+> Last Reviewed: 2026-04-25
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.7
+Version: 0.8
 Status: Canonical for Season 0 (V2-first alignment)
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.
 
@@ -28,7 +28,7 @@ This spec restores implementation-level details from Sprint 3/3.5 while aligning
 ```ts
 interface Thread {
   id: string;
-  schemaVersion: 'hermes-thread-v1';
+  schemaVersion: 'hermes-thread-v0';
   title: string; // <= 200
   content: string; // markdown, <= 10_000
   author: string; // principal nullifier
@@ -101,7 +101,7 @@ interface Comment {
   timestamp: number;
 
   // stance model (Sprint 3.5+)
-  stance: 'concur' | 'counter';
+  stance: 'concur' | 'counter' | 'discuss';
 
   // legacy, read-only
   type?: 'reply' | 'counterpoint';
@@ -126,6 +126,8 @@ Write path requirements:
 - Always write `schemaVersion: 'hermes-comment-v1'`
 - Always write `stance`
 - Never write `type` for new comments
+- New comments may use `concur`, `counter`, or `discuss`; legacy `type`
+  migration maps only `reply` -> `concur` and `counterpoint` -> `counter`.
 
 Zod contract pattern:
 
@@ -135,6 +137,50 @@ export const HermesCommentSchema = z.union([
   HermesCommentSchemaV1, // read/write
 ]);
 ```
+
+### 2.3.2 Comment moderation schema
+
+Story-thread comment moderation is an appendable audited record plus a
+latest-by-comment pointer. It does not delete the original comment payload.
+Readers apply the latest record for a comment; `hidden` records hide content and
+reply/vote controls, while `restored` records render the comment normally.
+
+```ts
+interface CommentModeration {
+  schemaVersion: 'hermes-comment-moderation-v1';
+  moderation_id: string;
+  thread_id: string;
+  comment_id: string;
+  status: 'hidden' | 'restored';
+  reason_code: string;
+  reason?: string;
+  operator_id: string;
+  created_at: number;
+  audit: {
+    action: 'comment_moderation';
+    supersedes_moderation_id?: string;
+    notes?: string;
+  };
+}
+```
+
+Storage paths:
+
+- Append/audit path:
+  `vh/forum/threads/<thread_id>/comment_moderations/<moderation_id>/`
+- Latest effective state path:
+  `vh/forum/threads/<thread_id>/comment_moderations/latest/<comment_id>/`
+
+Read/write requirements:
+
+- validate the record with `HermesCommentModerationSchema`;
+- reject records whose embedded `thread_id`, `comment_id`, or `moderation_id`
+  does not match the path being read;
+- preserve audit metadata;
+- never render a hidden comment's original markdown, reply composer, or vote
+  controls in story detail;
+- do not claim report intake, user blocking, or a full admin queue exists from
+  this minimum hide/restore path alone.
 
 ### 2.4 Post type contract (reply vs article)
 
@@ -495,6 +541,7 @@ Core:
 Storage and sync:
 
 - [x] Gun adapters for threads/comments/indexes
+- [x] Gun adapters for audited comment hide/restore moderation
 - [ ] Gun adapters for standalone post publication path
 - [x] Hydration with required-field checks and Zod validation
 - [x] Deduplication TTL map
@@ -512,7 +559,8 @@ UX:
 - [x] Reply 240-char hard cap
 - [x] Story-detail reply list/composer renders below accepted synthesis frame/reframe table
 - [x] Thread create/comment load/comment post failures surface as recoverable UI states
-- [ ] Report/hide/block/moderation queue affordances for story replies
+- [x] Audited hide/restore moderation state hides story-reply content with provenance
+- [ ] Report intake, user block UX, and broader moderation queue/admin affordances for story replies
 - [ ] Convert-to-article CTA + docs handoff
 - [ ] Article publish back into topic/forum surface
 
@@ -528,3 +576,4 @@ UX:
 8. V2 linkage by `{topicId, synthesisId, epoch}`.
 9. Privacy invariant checks (no secrets in public forum paths).
 10. Feed-shell regression: forum cards remain discoverable through the `Topics` filter without requiring a primary HERMES tab in the public app chrome.
+11. Comment moderation schema rejects malformed/path-mismatched payloads, preserves audit metadata, and hides moderated story-reply content without changing deterministic `news-story:*` thread identity.
