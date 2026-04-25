@@ -8,6 +8,7 @@ import { CommentStream } from './CommentStream';
 
 const voteMock = vi.fn();
 const createCommentMock = vi.fn(async () => undefined);
+const submitCommentReportMock = vi.fn(async () => undefined);
 let trustScore = 1;
 
 const c = (overrides: any) => ({
@@ -35,6 +36,13 @@ vi.mock('../../store/hermesForum', () => ({
   useForumStore: (selector?: (s: typeof mockStore) => any) => (selector ? selector(mockStore) : mockStore)
 }));
 
+vi.mock('../../store/newsReports', () => ({
+  useNewsReportStore: (selector?: (s: { submitCommentReport: typeof submitCommentReportMock }) => any) => {
+    const state = { submitCommentReport: submitCommentReportMock };
+    return selector ? selector(state) : state;
+  }
+}));
+
 vi.mock('../../hooks/useIdentity', () => ({
   useIdentity: () => ({ identity: { session: { trustScore } } })
 }));
@@ -47,6 +55,7 @@ describe('CommentStream', () => {
     mockStore.userVotes = new Map();
     voteMock.mockReset();
     createCommentMock.mockReset();
+    submitCommentReportMock.mockReset();
     trustScore = 1;
   });
 
@@ -118,6 +127,23 @@ describe('CommentStream', () => {
 
     expect(screen.getByText('restored content')).toBeInTheDocument();
     expect(screen.queryByTestId('comment-hidden-restored-comment')).not.toBeInTheDocument();
+  });
+
+  it('submits a story-thread comment report without hiding the comment directly', async () => {
+    const comments: any[] = [
+      c({ id: 'reported-comment', content: 'visible reported content', author: 'alice', timestamp: 1, stance: 'concur' })
+    ];
+
+    render(<CommentStream threadId="news-story:story-1" comments={comments as any} />);
+    fireEvent.click(screen.getByTestId('comment-report-submit-reported-comment'));
+
+    await waitFor(() => expect(submitCommentReportMock).toHaveBeenCalledWith({
+      threadId: 'news-story:story-1',
+      commentId: 'reported-comment',
+      reasonCode: 'abusive_content'
+    }));
+    expect(screen.getByText('visible reported content')).toBeInTheDocument();
+    expect(screen.queryByTestId('comment-hidden-reported-comment')).not.toBeInTheDocument();
   });
 
   it('renders root comments in chronological order', () => {

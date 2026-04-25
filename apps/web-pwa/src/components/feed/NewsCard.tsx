@@ -285,6 +285,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
             <NewsCardBack
               headline={item.title}
               topicId={item.topic_id}
+              storyId={storyId}
               summary={summary}
               summaryBasisLabel={summaryBasisLabel}
               frameRows={frameRows}

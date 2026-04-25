@@ -33,6 +33,8 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: 'vh/news/index/hot/*', classification: 'public' },
   { pathPrefix: 'vh/news/runtime/lease/*', classification: 'public' },
   { pathPrefix: 'vh/news/removed/*', classification: 'public' },
+  { pathPrefix: 'vh/news/reports/*', classification: 'public' },
+  { pathPrefix: 'vh/news/reports/index/status/*', classification: 'public' },
   { pathPrefix: 'vh/topics/*/epochs/*/candidates/*', classification: 'public' },
   { pathPrefix: 'vh/topics/*/epochs/*/synthesis', classification: 'public' },
   { pathPrefix: 'vh/topics/*/latest', classification: 'public' },

@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import type { HermesNewsReportReasonCode } from '@vh/data-model';
 import type { HermesComment, HermesCommentModeration } from '@vh/types';
 import { useForumStore } from '../../store/hermesForum';
+import { useNewsReportStore } from '../../store/newsReports';
 import { renderMarkdown } from '../../utils/markdown';
 import { cardMaxWidth, ChildrenContainer, stanceMeta } from './commentStreamLayout';
 import { CommentComposer } from './forum/CommentComposer';
@@ -49,11 +51,15 @@ const CommentItem: React.FC<CommentItemProps> = ({
   );
 
   const meta = stanceMeta(comment.stance);
+  const submitCommentReport = useNewsReportStore((state) => state.submitCommentReport);
   const score = comment.upvotes - comment.downvotes;
   const maxW = cardMaxWidth(depth);
   const isHidden = moderation?.status === 'hidden';
 
   const [showReply, setShowReply] = useState(false);
+  const [reportReason, setReportReason] = useState<HermesNewsReportReasonCode>('abusive_content');
+  const [reportStatus, setReportStatus] = useState<'idle' | 'submitting' | 'submitted' | 'error'>('idle');
+  const [reportError, setReportError] = useState<string | null>(null);
   const [childrenCollapsed, setChildrenCollapsed] = useState(() => depth >= 3 && children.length > 0);
   const [userToggled, setUserToggled] = useState(false);
 
@@ -66,6 +72,22 @@ const CommentItem: React.FC<CommentItemProps> = ({
   const handleToggle = () => {
     setUserToggled(true);
     setChildrenCollapsed((v) => !v);
+  };
+
+  const handleReportComment = async () => {
+    setReportStatus('submitting');
+    setReportError(null);
+    try {
+      await submitCommentReport({
+        threadId,
+        commentId: comment.id,
+        reasonCode: reportReason,
+      });
+      setReportStatus('submitted');
+    } catch (error: unknown) {
+      setReportStatus('error');
+      setReportError(error instanceof Error ? error.message : 'Unable to submit report');
+    }
   };
 
   const isDiscuss = comment.stance === 'discuss';
@@ -192,6 +214,42 @@ const CommentItem: React.FC<CommentItemProps> = ({
                         ↩ Reply
                       </button>
                     </TrustGate>
+                  )}
+
+                  {!isHidden && (
+                    <div className="flex flex-wrap items-center gap-2" data-testid={`comment-report-${comment.id}`}>
+                      <label className="sr-only" htmlFor={`comment-report-reason-${comment.id}`}>
+                        Report reason
+                      </label>
+                      <select
+                        id={`comment-report-reason-${comment.id}`}
+                        value={reportReason}
+                        onChange={(event) => setReportReason(event.currentTarget.value as HermesNewsReportReasonCode)}
+                        className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                        data-testid={`comment-report-reason-${comment.id}`}
+                      >
+                        <option value="abusive_content">Abusive content</option>
+                        <option value="spam">Spam</option>
+                        <option value="policy_violation">Policy issue</option>
+                        <option value="other">Other</option>
+                      </select>
+                      <button
+                        className="font-medium text-slate-500 hover:text-slate-800 disabled:cursor-not-allowed disabled:opacity-60 dark:hover:text-slate-200"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void handleReportComment();
+                        }}
+                        disabled={reportStatus === 'submitting' || reportStatus === 'submitted'}
+                        data-testid={`comment-report-submit-${comment.id}`}
+                      >
+                        {reportStatus === 'submitted' ? 'Reported' : reportStatus === 'submitting' ? 'Reporting' : 'Report'}
+                      </button>
+                      {reportStatus === 'error' && reportError && (
+                        <span className="text-rose-700 dark:text-rose-200" role="alert">
+                          {reportError}
+                        </span>
+                      )}
+                    </div>
                   )}
 
                   {children.length > 0 && (

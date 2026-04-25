@@ -152,6 +152,7 @@ export const TopicSynthesisCorrectionSchema = z
       .object({
         action: z.literal('synthesis_correction'),
         supersedes_correction_id: z.string().trim().min(1).optional(),
+        source_report_id: z.string().trim().min(1).optional(),
         notes: z.string().trim().min(1).optional(),
       })
       .strict(),

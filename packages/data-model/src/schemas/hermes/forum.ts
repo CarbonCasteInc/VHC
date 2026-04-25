@@ -140,6 +140,7 @@ export const HermesCommentModerationSchema = z.object({
   audit: z.object({
     action: z.literal('comment_moderation'),
     supersedes_moderation_id: z.string().min(1).optional(),
+    source_report_id: z.string().min(1).optional(),
     notes: z.string().min(1).optional()
   }).strict()
 }).strict();

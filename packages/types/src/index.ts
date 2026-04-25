@@ -252,6 +252,7 @@ export interface HermesCommentModeration {
   audit: {
     action: 'comment_moderation';
     supersedes_moderation_id?: string;
+    source_report_id?: string;
     notes?: string;
   };
 }

@@ -126,6 +126,23 @@ describe('TopologyGuard', () => {
       })
     ).not.toThrow();
     expect(() =>
+      guard.validateWrite('vh/news/reports/report-1', {
+        schemaVersion: 'hermes-news-report-v1',
+        report_id: 'report-1',
+        target: {
+          type: 'synthesis',
+          topic_id: 'topic-1',
+          synthesis_id: 'synthesis-1',
+          epoch: 1,
+        },
+        reason_code: 'inaccurate_summary',
+        reporter_id: 'reporter-1',
+        created_at: 123,
+        status: 'pending',
+        audit: { action: 'news_report' },
+      })
+    ).not.toThrow();
+    expect(() =>
       guard.validateWrite('vh/aggregates/topics/topic-1/engagement/actors/actor-1', {
         schema_version: 'topic-engagement-actor-v1',
         topic_id: 'topic-1',

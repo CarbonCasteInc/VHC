@@ -1,6 +1,7 @@
-import React from 'react';
-import type { TopicSynthesisCorrection } from '@vh/data-model';
+import React, { useState } from 'react';
+import type { HermesNewsReportReasonCode, TopicSynthesisCorrection } from '@vh/data-model';
 import type { HermesThread } from '@vh/types';
+import { useNewsReportStore } from '../../store/newsReports';
 import type { NewsCardAnalysisSynthesis } from './newsCardAnalysis';
 import { AnalysisLoadingState } from './AnalysisLoadingState';
 import { BiasTable, type BiasTableFrameRow } from './BiasTable';
@@ -31,6 +32,7 @@ export interface NewsCardSynthesisProvenance {
 export interface NewsCardBackProps {
   readonly headline: string;
   readonly topicId: string;
+  readonly storyId?: string | null;
   readonly summary: string;
   readonly summaryBasisLabel?: string;
   readonly frameRows: ReadonlyArray<BiasTableFrameRow>;
@@ -94,6 +96,7 @@ export interface NewsCardBackProps {
 export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   headline,
   topicId,
+  storyId,
   summary,
   summaryBasisLabel,
   frameRows,
@@ -123,6 +126,7 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   createThread = null,
   onCollapse,
 }) => {
+  const submitSynthesisReport = useNewsReportStore((state) => state.submitSynthesisReport);
   const hasAcceptedStanceTargets = frameRows.some(
     (row) => Boolean(row.frame_point_id?.trim() || row.reframe_point_id?.trim()),
   );
@@ -131,6 +135,30 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
   const correctionStateLabel = synthesisCorrection?.status === 'suppressed'
     ? 'Accepted synthesis suppressed'
     : 'Accepted synthesis unavailable';
+  const [reportReason, setReportReason] = useState<HermesNewsReportReasonCode>('inaccurate_summary');
+  const [reportStatus, setReportStatus] = useState<'idle' | 'submitting' | 'submitted' | 'error'>('idle');
+  const [reportError, setReportError] = useState<string | null>(null);
+  const canReportSynthesis = Boolean(synthesisId && epoch !== undefined && !correctionBlocksSynthesis);
+  const handleReportSynthesis = async () => {
+    if (!synthesisId || epoch === undefined) {
+      return;
+    }
+    setReportStatus('submitting');
+    setReportError(null);
+    try {
+      await submitSynthesisReport({
+        topicId,
+        synthesisId,
+        epoch,
+        storyId,
+        reasonCode: reportReason,
+      });
+      setReportStatus('submitted');
+    } catch (error: unknown) {
+      setReportStatus('error');
+      setReportError(error instanceof Error ? error.message : 'Unable to submit report');
+    }
+  };
 
   return (
     <div data-testid={`news-card-back-${topicId}`} className="space-y-5">
@@ -219,6 +247,42 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
           <p className="text-sm leading-7 text-slate-700 dark:text-slate-200" data-testid={`news-card-summary-${topicId}`}>
             {summary}
           </p>
+          {canReportSynthesis && (
+            <div
+              className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200/80 bg-white/75 px-3 py-2 text-xs text-slate-600 dark:border-slate-800 dark:bg-slate-950/50 dark:text-slate-300"
+              data-testid={`news-card-synthesis-report-${topicId}`}
+            >
+              <label className="sr-only" htmlFor={`news-card-synthesis-report-reason-${topicId}`}>
+                Report reason
+              </label>
+              <select
+                id={`news-card-synthesis-report-reason-${topicId}`}
+                value={reportReason}
+                onChange={(event) => setReportReason(event.currentTarget.value as HermesNewsReportReasonCode)}
+                className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                data-testid={`news-card-synthesis-report-reason-${topicId}`}
+              >
+                <option value="inaccurate_summary">Inaccurate summary</option>
+                <option value="bad_frame">Bad frame</option>
+                <option value="source_attribution_error">Source attribution</option>
+                <option value="policy_violation">Policy issue</option>
+              </select>
+              <button
+                type="button"
+                className="rounded-full border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                onClick={handleReportSynthesis}
+                disabled={reportStatus === 'submitting' || reportStatus === 'submitted'}
+                data-testid={`news-card-synthesis-report-submit-${topicId}`}
+              >
+                {reportStatus === 'submitted' ? 'Reported' : reportStatus === 'submitting' ? 'Reporting' : 'Report synthesis'}
+              </button>
+              {reportStatus === 'error' && reportError && (
+                <span className="text-rose-700 dark:text-rose-200" role="alert">
+                  {reportError}
+                </span>
+              )}
+            </div>
+          )}
 
           {galleryImages.length > 0 && (
             <div
