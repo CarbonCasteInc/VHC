@@ -1,0 +1,613 @@
+{
+  "schemaVersion": "vh-launch-content-validated-snapshot-v1",
+  "generatedAt": "2026-04-25T12:00:00.000Z",
+  "runId": "launch-content-curated-2026-04-25",
+  "stories": [
+    {
+      "schemaVersion": "story-bundle-v0",
+      "story_id": "launch-singleton-transit-20260425",
+      "topic_id": "1a5736a61e66a5b4aab411c4086221a649dfaec413e11c8fdd05c6b2ccde2668",
+      "headline": "Transit board approves overnight bus pilot",
+      "summary_hint": "The transit board approved a six-month overnight bus pilot focused on hospital and airport routes.",
+      "cluster_window_start": 1777108500000,
+      "cluster_window_end": 1777113900000,
+      "sources": [
+        {
+          "source_id": "metro-desk",
+          "publisher": "Metro Desk",
+          "url": "https://example.com/metro/transit-overnight-pilot",
+          "url_hash": "urlhash-transit-overnight-pilot",
+          "published_at": 1777112100000,
+          "title": "Transit board approves overnight bus pilot",
+          "imageUrl": "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957"
+        }
+      ],
+      "primary_sources": [
+        {
+          "source_id": "metro-desk",
+          "publisher": "Metro Desk",
+          "url": "https://example.com/metro/transit-overnight-pilot",
+          "url_hash": "urlhash-transit-overnight-pilot",
+          "published_at": 1777112100000,
+          "title": "Transit board approves overnight bus pilot",
+          "imageUrl": "https://images.unsplash.com/photo-1544620347-c4fd4a3d5957"
+        }
+      ],
+      "related_links": [
+        {
+          "source_id": "city-budget-office",
+          "publisher": "City Budget Office",
+          "url": "https://example.com/budget/transit-pilot-cost-note",
+          "url_hash": "urlhash-transit-budget-note",
+          "published_at": 1777111200000,
+          "title": "Budget note outlines overnight transit pilot costs"
+        }
+      ],
+      "cluster_features": {
+        "entity_keys": ["transit board", "overnight buses", "airport workers"],
+        "time_bucket": "2026-04-25T11",
+        "semantic_signature": "launch-singleton-transit",
+        "coverage_score": 0.62,
+        "velocity_score": 0.31,
+        "confidence_score": 0.82,
+        "primary_language": "en"
+      },
+      "provenance_hash": "prov-launch-transit-singleton",
+      "created_at": 1777108500000
+    },
+    {
+      "schemaVersion": "story-bundle-v0",
+      "story_id": "launch-bundle-housing-20260425",
+      "topic_id": "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04",
+      "storyline_id": "launch-storyline-housing-zoning-20260425",
+      "headline": "Council advances missing-middle zoning package",
+      "summary_hint": "Council advanced a zoning package that would allow small multi-unit housing near frequent transit.",
+      "cluster_window_start": 1777108500000,
+      "cluster_window_end": 1777116600000,
+      "sources": [
+        {
+          "source_id": "civic-wire",
+          "publisher": "Civic Wire",
+          "url": "https://example.com/civic/zoning-package-advances",
+          "url_hash": "urlhash-housing-civic-wire",
+          "published_at": 1777114800000,
+          "title": "Council advances missing-middle zoning package",
+          "imageUrl": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab"
+        },
+        {
+          "source_id": "public-radio",
+          "publisher": "Public Radio",
+          "url": "https://example.com/radio/zoning-package-neighborhoods",
+          "url_hash": "urlhash-housing-public-radio",
+          "published_at": 1777113900000,
+          "title": "Neighborhood groups split over zoning package",
+          "imageUrl": "https://images.unsplash.com/photo-1494526585095-c41746248156"
+        },
+        {
+          "source_id": "business-journal",
+          "publisher": "Business Journal",
+          "url": "https://example.com/business/builders-zoning-response",
+          "url_hash": "urlhash-housing-business-journal",
+          "published_at": 1777113000000,
+          "title": "Builders say zoning vote could unlock small projects"
+        }
+      ],
+      "primary_sources": [
+        {
+          "source_id": "civic-wire",
+          "publisher": "Civic Wire",
+          "url": "https://example.com/civic/zoning-package-advances",
+          "url_hash": "urlhash-housing-civic-wire",
+          "published_at": 1777114800000,
+          "title": "Council advances missing-middle zoning package",
+          "imageUrl": "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab"
+        },
+        {
+          "source_id": "public-radio",
+          "publisher": "Public Radio",
+          "url": "https://example.com/radio/zoning-package-neighborhoods",
+          "url_hash": "urlhash-housing-public-radio",
+          "published_at": 1777113900000,
+          "title": "Neighborhood groups split over zoning package",
+          "imageUrl": "https://images.unsplash.com/photo-1494526585095-c41746248156"
+        }
+      ],
+      "related_links": [
+        {
+          "source_id": "housing-authority",
+          "publisher": "Housing Authority",
+          "url": "https://example.com/housing/missing-middle-explainer",
+          "url_hash": "urlhash-housing-explainer",
+          "published_at": 1777110300000,
+          "title": "What missing-middle zoning would change"
+        }
+      ],
+      "cluster_features": {
+        "entity_keys": ["city council", "zoning", "missing-middle housing"],
+        "time_bucket": "2026-04-25T11",
+        "semantic_signature": "launch-bundle-housing",
+        "coverage_score": 0.88,
+        "velocity_score": 0.55,
+        "confidence_score": 0.91,
+        "primary_language": "en"
+      },
+      "provenance_hash": "prov-launch-housing-bundle",
+      "created_at": 1777108500000
+    },
+    {
+      "schemaVersion": "story-bundle-v0",
+      "story_id": "launch-bundle-housing-related-20260425",
+      "topic_id": "f4a954ca43df9a80e58a4d8830ec536360957b7a083a5d3c6b74f9862f434ad4",
+      "storyline_id": "launch-storyline-housing-zoning-20260425",
+      "headline": "Planning staff publish zoning impact map",
+      "summary_hint": "Planning staff published a parcel-level map showing where the zoning package would apply.",
+      "cluster_window_start": 1777104900000,
+      "cluster_window_end": 1777111200000,
+      "sources": [
+        {
+          "source_id": "planning-office",
+          "publisher": "Planning Office",
+          "url": "https://example.com/planning/zoning-impact-map",
+          "url_hash": "urlhash-planning-impact-map",
+          "published_at": 1777110300000,
+          "title": "Planning staff publish zoning impact map"
+        },
+        {
+          "source_id": "neighborhood-ledger",
+          "publisher": "Neighborhood Ledger",
+          "url": "https://example.com/neighborhood/zoning-map-reactions",
+          "url_hash": "urlhash-neighborhood-map-reactions",
+          "published_at": 1777109400000,
+          "title": "Neighborhood associations react to zoning map"
+        }
+      ],
+      "primary_sources": [
+        {
+          "source_id": "planning-office",
+          "publisher": "Planning Office",
+          "url": "https://example.com/planning/zoning-impact-map",
+          "url_hash": "urlhash-planning-impact-map",
+          "published_at": 1777110300000,
+          "title": "Planning staff publish zoning impact map"
+        }
+      ],
+      "cluster_features": {
+        "entity_keys": ["planning office", "zoning", "impact map"],
+        "time_bucket": "2026-04-25T10",
+        "semantic_signature": "launch-bundle-housing-related",
+        "coverage_score": 0.73,
+        "velocity_score": 0.42,
+        "confidence_score": 0.84,
+        "primary_language": "en"
+      },
+      "provenance_hash": "prov-launch-housing-related",
+      "created_at": 1777104900000
+    },
+    {
+      "schemaVersion": "story-bundle-v0",
+      "story_id": "launch-correction-water-20260425",
+      "topic_id": "59fe5471f5ec1b539eabcc6f14afaf97fc736c2f68c29cec22389fbbcd24c7d0",
+      "headline": "Water board delays reservoir maintenance vote",
+      "summary_hint": "The water board delayed a maintenance vote after engineers requested a revised outage schedule.",
+      "cluster_window_start": 1777103100000,
+      "cluster_window_end": 1777110300000,
+      "sources": [
+        {
+          "source_id": "infrastructure-daily",
+          "publisher": "Infrastructure Daily",
+          "url": "https://example.com/infrastructure/water-board-delay",
+          "url_hash": "urlhash-water-board-delay",
+          "published_at": 1777109400000,
+          "title": "Water board delays reservoir maintenance vote"
+        },
+        {
+          "source_id": "utility-watch",
+          "publisher": "Utility Watch",
+          "url": "https://example.com/utilities/reservoir-vote-schedule",
+          "url_hash": "urlhash-water-utility-watch",
+          "published_at": 1777108500000,
+          "title": "Reservoir vote delayed pending outage schedule"
+        }
+      ],
+      "primary_sources": [
+        {
+          "source_id": "infrastructure-daily",
+          "publisher": "Infrastructure Daily",
+          "url": "https://example.com/infrastructure/water-board-delay",
+          "url_hash": "urlhash-water-board-delay",
+          "published_at": 1777109400000,
+          "title": "Water board delays reservoir maintenance vote"
+        },
+        {
+          "source_id": "utility-watch",
+          "publisher": "Utility Watch",
+          "url": "https://example.com/utilities/reservoir-vote-schedule",
+          "url_hash": "urlhash-water-utility-watch",
+          "published_at": 1777108500000,
+          "title": "Reservoir vote delayed pending outage schedule"
+        }
+      ],
+      "cluster_features": {
+        "entity_keys": ["water board", "reservoir maintenance", "outage schedule"],
+        "time_bucket": "2026-04-25T10",
+        "semantic_signature": "launch-correction-water",
+        "coverage_score": 0.79,
+        "velocity_score": 0.36,
+        "confidence_score": 0.86,
+        "primary_language": "en"
+      },
+      "provenance_hash": "prov-launch-water-correction",
+      "created_at": 1777103100000
+    }
+  ],
+  "storylines": [
+    {
+      "schemaVersion": "storyline-group-v0",
+      "storyline_id": "launch-storyline-housing-zoning-20260425",
+      "topic_id": "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04",
+      "canonical_story_id": "launch-bundle-housing-20260425",
+      "story_ids": [
+        "launch-bundle-housing-20260425",
+        "launch-bundle-housing-related-20260425"
+      ],
+      "headline": "Missing-middle zoning package moves through council",
+      "summary_hint": "Council action, planning maps, and neighborhood reactions are part of the same zoning storyline.",
+      "related_coverage": [
+        {
+          "source_id": "planning-office",
+          "publisher": "Planning Office",
+          "url": "https://example.com/planning/zoning-impact-map",
+          "url_hash": "urlhash-planning-impact-map",
+          "published_at": 1777110300000,
+          "title": "Planning staff publish zoning impact map"
+        },
+        {
+          "source_id": "neighborhood-ledger",
+          "publisher": "Neighborhood Ledger",
+          "url": "https://example.com/neighborhood/zoning-map-reactions",
+          "url_hash": "urlhash-neighborhood-map-reactions",
+          "published_at": 1777109400000,
+          "title": "Neighborhood associations react to zoning map"
+        }
+      ],
+      "entity_keys": ["city council", "zoning", "missing-middle housing"],
+      "time_bucket": "2026-04-25T11",
+      "created_at": 1777108500000,
+      "updated_at": 1777116600000
+    }
+  ],
+  "latestIndex": {
+    "launch-singleton-transit-20260425": 1777113900000,
+    "launch-bundle-housing-20260425": 1777116600000,
+    "launch-bundle-housing-related-20260425": 1777111200000,
+    "launch-correction-water-20260425": 1777110300000
+  },
+  "hotIndex": {
+    "launch-singleton-transit-20260425": 4.2,
+    "launch-bundle-housing-20260425": 7.8,
+    "launch-bundle-housing-related-20260425": 3.3,
+    "launch-correction-water-20260425": 4.9
+  },
+  "launchContent": {
+    "preferenceProbe": {
+      "now": 1777118400000,
+      "feedItems": [
+        {
+          "topic_id": "1a5736a61e66a5b4aab411c4086221a649dfaec413e11c8fdd05c6b2ccde2668",
+          "story_id": "launch-singleton-transit-20260425",
+          "kind": "NEWS_STORY",
+          "title": "Transit board approves overnight bus pilot",
+          "categories": ["Transit"],
+          "entity_keys": ["transit board", "overnight buses"],
+          "created_at": 1777108500000,
+          "latest_activity_at": 1777113900000,
+          "hotness": 4.9,
+          "eye": 9,
+          "lightbulb": 3,
+          "comments": 1
+        },
+        {
+          "topic_id": "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04",
+          "story_id": "launch-bundle-housing-20260425",
+          "storyline_id": "launch-storyline-housing-zoning-20260425",
+          "kind": "NEWS_STORY",
+          "title": "Council advances missing-middle zoning package",
+          "categories": ["Housing"],
+          "entity_keys": ["city council", "zoning"],
+          "created_at": 1777108500000,
+          "latest_activity_at": 1777116600000,
+          "hotness": 4.3,
+          "eye": 11,
+          "lightbulb": 4,
+          "comments": 3
+        },
+        {
+          "topic_id": "launch-sports-topic",
+          "story_id": "launch-sports-arena-lease",
+          "kind": "NEWS_STORY",
+          "title": "Arena lease vote moves to committee",
+          "categories": ["Sports"],
+          "entity_keys": ["arena lease"],
+          "created_at": 1777104900000,
+          "latest_activity_at": 1777117200000,
+          "hotness": 5.1,
+          "eye": 13,
+          "lightbulb": 1,
+          "comments": 2
+        }
+      ],
+      "scenarios": [
+        {
+          "id": "baseline",
+          "personalization": {
+            "preferredCategories": [],
+            "preferredTopics": [],
+            "mutedCategories": [],
+            "mutedTopics": []
+          },
+          "expectedTopicOrder": ["launch-sports-topic", "1a5736a61e66a5b4aab411c4086221a649dfaec413e11c8fdd05c6b2ccde2668", "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04"]
+        },
+        {
+          "id": "preferred-transit",
+          "personalization": {
+            "preferredCategories": ["Transit"],
+            "preferredTopics": [],
+            "mutedCategories": [],
+            "mutedTopics": []
+          },
+          "expectedTopicOrder": ["1a5736a61e66a5b4aab411c4086221a649dfaec413e11c8fdd05c6b2ccde2668", "launch-sports-topic", "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04"]
+        },
+        {
+          "id": "muted-sports",
+          "personalization": {
+            "preferredCategories": [],
+            "preferredTopics": [],
+            "mutedCategories": ["Sports"],
+            "mutedTopics": []
+          },
+          "expectedTopicOrder": ["1a5736a61e66a5b4aab411c4086221a649dfaec413e11c8fdd05c6b2ccde2668", "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04"]
+        }
+      ]
+    },
+    "syntheses": [
+      {
+        "schemaVersion": "topic-synthesis-v2",
+        "topic_id": "1a5736a61e66a5b4aab411c4086221a649dfaec413e11c8fdd05c6b2ccde2668",
+        "epoch": 1,
+        "synthesis_id": "launch-syn-transit-accepted",
+        "inputs": {
+          "story_bundle_ids": ["launch-singleton-transit-20260425"],
+          "topic_digest_ids": [],
+          "topic_seed_id": "launch-seed-transit"
+        },
+        "quorum": {
+          "required": 3,
+          "received": 3,
+          "reached_at": 1777114200000,
+          "timed_out": false,
+          "selection_rule": "deterministic"
+        },
+        "facts_summary": "The transit board approved a time-limited overnight bus pilot serving airport and hospital corridors.",
+        "frames": [
+          {
+            "frame_point_id": "launch-frame-transit-access",
+            "frame": "Overnight service expands access for shift workers.",
+            "reframe_point_id": "launch-reframe-transit-cost",
+            "reframe": "A pilot structure is needed because overnight routes can run below cost recovery."
+          }
+        ],
+        "warnings": [],
+        "divergence_metrics": {
+          "disagreement_score": 0.28,
+          "source_dispersion": 0.15,
+          "candidate_count": 3
+        },
+        "provenance": {
+          "candidate_ids": ["launch-transit-candidate-a", "launch-transit-candidate-b", "launch-transit-candidate-c"],
+          "provider_mix": [
+            {
+              "provider_id": "curated-launch-snapshot",
+              "count": 3
+            }
+          ]
+        },
+        "created_at": 1777114200000
+      },
+      {
+        "schemaVersion": "topic-synthesis-v2",
+        "topic_id": "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04",
+        "epoch": 2,
+        "synthesis_id": "launch-syn-housing-accepted",
+        "inputs": {
+          "story_bundle_ids": ["launch-bundle-housing-20260425"],
+          "topic_digest_ids": [],
+          "topic_seed_id": "launch-seed-housing"
+        },
+        "quorum": {
+          "required": 3,
+          "received": 3,
+          "reached_at": 1777116900000,
+          "timed_out": false,
+          "selection_rule": "deterministic"
+        },
+        "facts_summary": "Council advanced a missing-middle zoning package after testimony from housing advocates, neighborhood groups, and builders.",
+        "frames": [
+          {
+            "frame_point_id": "launch-frame-housing-supply",
+            "frame": "Allowing small multi-unit homes near transit can add supply without tower-scale redevelopment.",
+            "reframe_point_id": "launch-reframe-housing-neighborhood-fit",
+            "reframe": "Neighborhood groups argue the package still needs clearer infrastructure and parking constraints."
+          }
+        ],
+        "warnings": ["Council has not taken a final vote."],
+        "divergence_metrics": {
+          "disagreement_score": 0.46,
+          "source_dispersion": 0.34,
+          "candidate_count": 3
+        },
+        "provenance": {
+          "candidate_ids": ["launch-housing-candidate-a", "launch-housing-candidate-b", "launch-housing-candidate-c"],
+          "provider_mix": [
+            {
+              "provider_id": "curated-launch-snapshot",
+              "count": 3
+            }
+          ]
+        },
+        "created_at": 1777116900000
+      },
+      {
+        "schemaVersion": "topic-synthesis-v2",
+        "topic_id": "59fe5471f5ec1b539eabcc6f14afaf97fc736c2f68c29cec22389fbbcd24c7d0",
+        "epoch": 4,
+        "synthesis_id": "launch-syn-water-suppressed",
+        "inputs": {
+          "story_bundle_ids": ["launch-correction-water-20260425"],
+          "topic_digest_ids": [],
+          "topic_seed_id": "launch-seed-water"
+        },
+        "quorum": {
+          "required": 3,
+          "received": 3,
+          "reached_at": 1777110600000,
+          "timed_out": false,
+          "selection_rule": "deterministic"
+        },
+        "facts_summary": "Stale summary that must not render after operator suppression.",
+        "frames": [
+          {
+            "frame_point_id": "launch-frame-water-urgency",
+            "frame": "Maintenance is urgent because reservoir equipment is aging.",
+            "reframe_point_id": "launch-reframe-water-outage-risk",
+            "reframe": "The revised outage schedule should be reviewed before approval."
+          }
+        ],
+        "warnings": [],
+        "divergence_metrics": {
+          "disagreement_score": 0.53,
+          "source_dispersion": 0.29,
+          "candidate_count": 3
+        },
+        "provenance": {
+          "candidate_ids": ["launch-water-candidate-a", "launch-water-candidate-b", "launch-water-candidate-c"],
+          "provider_mix": [
+            {
+              "provider_id": "curated-launch-snapshot",
+              "count": 3
+            }
+          ]
+        },
+        "created_at": 1777110600000
+      }
+    ],
+    "synthesisCorrections": [
+      {
+        "schemaVersion": "topic-synthesis-correction-v1",
+        "correction_id": "launch-correction-water-suppressed-1",
+        "topic_id": "59fe5471f5ec1b539eabcc6f14afaf97fc736c2f68c29cec22389fbbcd24c7d0",
+        "synthesis_id": "launch-syn-water-suppressed",
+        "epoch": 4,
+        "status": "suppressed",
+        "reason_code": "inaccurate_summary",
+        "reason": "Launch snapshot exercises operator suppression of a bad accepted synthesis.",
+        "operator_id": "launch-ops",
+        "created_at": 1777110900000,
+        "audit": {
+          "action": "synthesis_correction",
+          "notes": "Curated launch-content fallback suppression fixture."
+        }
+      }
+    ],
+    "forum": {
+      "threads": [
+        {
+          "id": "news-story:launch-bundle-housing-20260425",
+          "schemaVersion": "hermes-thread-v0",
+          "title": "Council advances missing-middle zoning package",
+          "content": "Discuss the launch-content housing storyline.",
+          "author": "launch-ops",
+          "timestamp": 1777117000000,
+          "tags": ["news", "housing"],
+          "sourceSynthesisId": "launch-syn-housing-accepted",
+          "sourceEpoch": 2,
+          "topicId": "4327601eeff2c48bfe3f059498589f47c68e51c37a7e468f4a79280c831beb04",
+          "isHeadline": true,
+          "upvotes": 0,
+          "downvotes": 0,
+          "score": 0
+        }
+      ],
+      "comments": [
+        {
+          "id": "launch-comment-visible",
+          "schemaVersion": "hermes-comment-v1",
+          "threadId": "news-story:launch-bundle-housing-20260425",
+          "parentId": null,
+          "content": "This persisted reply stays attached to the curated story thread.",
+          "author": "launch-reader-1",
+          "timestamp": 1777117100000,
+          "stance": "discuss",
+          "upvotes": 1,
+          "downvotes": 0
+        },
+        {
+          "id": "launch-comment-hidden",
+          "schemaVersion": "hermes-comment-v1",
+          "threadId": "news-story:launch-bundle-housing-20260425",
+          "parentId": null,
+          "content": "This hidden abusive launch fixture content must not render.",
+          "author": "launch-reader-2",
+          "timestamp": 1777117200000,
+          "stance": "counter",
+          "upvotes": 0,
+          "downvotes": 2
+        },
+        {
+          "id": "launch-comment-restored",
+          "schemaVersion": "hermes-comment-v1",
+          "threadId": "news-story:launch-bundle-housing-20260425",
+          "parentId": null,
+          "content": "This restored moderation fixture remains visible after review.",
+          "author": "launch-reader-3",
+          "timestamp": 1777117300000,
+          "stance": "concur",
+          "upvotes": 2,
+          "downvotes": 0
+        }
+      ],
+      "commentModerations": [
+        {
+          "schemaVersion": "hermes-comment-moderation-v1",
+          "moderation_id": "launch-moderation-hidden-1",
+          "thread_id": "news-story:launch-bundle-housing-20260425",
+          "comment_id": "launch-comment-hidden",
+          "status": "hidden",
+          "reason_code": "abusive_content",
+          "reason": "Curated launch-content snapshot hidden-comment fixture.",
+          "operator_id": "launch-ops",
+          "created_at": 1777117400000,
+          "audit": {
+            "action": "comment_moderation",
+            "notes": "Curated launch-content fallback hidden moderation fixture."
+          }
+        },
+        {
+          "schemaVersion": "hermes-comment-moderation-v1",
+          "moderation_id": "launch-moderation-restored-1",
+          "thread_id": "news-story:launch-bundle-housing-20260425",
+          "comment_id": "launch-comment-restored",
+          "status": "restored",
+          "reason_code": "reviewed_visible",
+          "reason": "Moderator restored this comment after review.",
+          "operator_id": "launch-ops",
+          "created_at": 1777117500000,
+          "audit": {
+            "action": "comment_moderation",
+            "supersedes_moderation_id": "launch-moderation-hidden-restored-0",
+            "notes": "Curated launch-content fallback restored moderation fixture."
+          }
+        }
+      ]
+    }
+  }
+}

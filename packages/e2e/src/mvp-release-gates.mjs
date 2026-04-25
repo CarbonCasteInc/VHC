@@ -96,6 +96,16 @@ const GATES = [
       'packages/gun-client/src/forumAdapters.ts',
     ],
   },
+  {
+    id: 'launch_content_snapshot',
+    label: 'Curated launch-content snapshot validates representative MVP fallback content',
+    command: ['pnpm', ['check:launch-content-snapshot']],
+    artifactRefs: [
+      'packages/e2e/fixtures/launch-content/validated-snapshot.json',
+      '.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json',
+      'apps/web-pwa/src/store/newsSnapshotBootstrap.launchContent.test.tsx',
+    ],
+  },
 ];
 
 function nowIso() {

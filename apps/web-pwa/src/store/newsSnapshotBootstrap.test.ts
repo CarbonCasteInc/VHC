@@ -185,6 +185,93 @@ describe('news snapshot bootstrap', () => {
     expect(mirrorStoriesIntoDiscoveryMock).toHaveBeenCalledWith([], {}, {});
   });
 
+  it('normalizes launch-content runtime fields defensively', async () => {
+    const { newsSnapshotBootstrapInternal } = await import('./newsSnapshotBootstrap');
+
+    expect(newsSnapshotBootstrapInternal.normalizeSyntheses({} as any)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeSynthesisCorrections({} as any)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeThreads({} as any)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeComments({} as any)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeCommentModerations({} as any)).toEqual([]);
+
+    const invalidLaunchContent = {
+      launchContent: {
+        syntheses: [{ schemaVersion: 'bad' }],
+        synthesisCorrections: [{ schemaVersion: 'bad' }],
+        forum: {
+          threads: [{ schemaVersion: 'bad' }],
+          comments: [{ schemaVersion: 'bad' }],
+          commentModerations: [{ schemaVersion: 'bad' }],
+        },
+      },
+    } as any;
+
+    expect(newsSnapshotBootstrapInternal.normalizeSyntheses(invalidLaunchContent)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeSynthesisCorrections(invalidLaunchContent)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeThreads(invalidLaunchContent)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeComments(invalidLaunchContent)).toEqual([]);
+    expect(newsSnapshotBootstrapInternal.normalizeCommentModerations(invalidLaunchContent)).toEqual([]);
+
+    expect(newsSnapshotBootstrapInternal.hasLaunchContentRuntime({} as any)).toBe(false);
+    expect(newsSnapshotBootstrapInternal.hasLaunchContentRuntime({ launchContent: { syntheses: [] } } as any)).toBe(true);
+    expect(newsSnapshotBootstrapInternal.hasLaunchContentRuntime({ launchContent: { synthesisCorrections: [] } } as any)).toBe(true);
+    expect(newsSnapshotBootstrapInternal.hasLaunchContentRuntime({ launchContent: { forum: { threads: [] } } } as any)).toBe(true);
+    expect(newsSnapshotBootstrapInternal.hasLaunchContentRuntime({ launchContent: { forum: { comments: [] } } } as any)).toBe(true);
+    expect(newsSnapshotBootstrapInternal.hasLaunchContentRuntime({ launchContent: { forum: { commentModerations: [] } } } as any)).toBe(true);
+  });
+
+  it('applies launch-content snapshots when runtime arrays are intentionally empty', async () => {
+    vi.stubEnv('VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL', 'http://127.0.0.1:8790/snapshot.json');
+    const { bootstrapNewsSnapshotIfConfigured } = await import('./newsSnapshotBootstrap');
+    const state = {
+      stories: [],
+      hotIndex: {},
+      storylinesById: {},
+      latestIndex: {},
+      setStorylines(storylines: Array<{ storyline_id: string }>) {
+        this.storylinesById = Object.fromEntries(storylines.map((storyline) => [storyline.storyline_id, storyline]));
+      },
+      setStories(stories: Array<{ story_id: string }>) {
+        this.stories = stories;
+      },
+      setLatestIndex(index: Record<string, number>) {
+        this.latestIndex = index;
+      },
+      setHotIndex(index: Record<string, number>) {
+        this.hotIndex = index;
+      },
+    } as any;
+    const store = { getState: () => state } as any;
+    const log = vi.fn();
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        stories: [],
+        storylines: [],
+        latestIndex: {},
+        hotIndex: {},
+        launchContent: {
+          syntheses: [],
+        },
+      }),
+    }));
+
+    await expect(
+      bootstrapNewsSnapshotIfConfigured(store, {
+        fetchImpl: fetchImpl as any,
+        log,
+      }),
+    ).resolves.toBe(true);
+
+    expect(log).toHaveBeenCalledWith('[vh:web-pwa] applied launch content snapshot runtime', {
+      syntheses: 0,
+      synthesisCorrections: 0,
+      threads: 0,
+      comments: 0,
+      commentModerations: 0,
+    });
+  });
+
   it('resets bootstrap state after a failed fetch so a later retry can succeed', async () => {
     vi.stubEnv('VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL', 'http://127.0.0.1:8790/snapshot.json');
     const { bootstrapNewsSnapshotIfConfigured } = await import('./newsSnapshotBootstrap');
