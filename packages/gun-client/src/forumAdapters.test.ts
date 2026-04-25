@@ -156,6 +156,7 @@ describe('forumAdapters', () => {
       { ...MODERATION, audit: null },
       { ...MODERATION, audit: { action: 'wrong' } },
       { ...MODERATION, reason: '' },
+      { ...MODERATION, reason: ' ' },
       { ...MODERATION, reason: 42 },
       { ...MODERATION, audit: { action: 'comment_moderation', supersedes_moderation_id: '' } },
       { ...MODERATION, audit: { action: 'comment_moderation', supersedes_moderation_id: 42 } },
@@ -167,7 +168,9 @@ describe('forumAdapters', () => {
       { ...MODERATION, reason_code: ' ' },
       { ...MODERATION, operator_id: ' ' },
       { ...MODERATION, created_at: -1 },
-      { ...MODERATION, created_at: 1.5 }
+      { ...MODERATION, created_at: 1.5 },
+      { ...MODERATION, token: 'secret' },
+      { ...MODERATION, audit: { action: 'comment_moderation', notes: 'fixture', token: 'secret' } }
     ];
 
     for (const payload of invalidPayloads) {
@@ -213,6 +216,9 @@ describe('forumAdapters', () => {
 
     chain.once.mockImplementationOnce((cb?: (data: unknown) => void) => cb?.({ ...MODERATION, audit: { action: 'wrong' } }));
     await expect(readForumLatestCommentModeration(client, 'news-story:story-1', 'comment-1')).resolves.toBeNull();
+
+    chain.once.mockImplementationOnce((cb?: (data: unknown) => void) => cb?.({ ...MODERATION, token: 'secret' }));
+    await expect(readForumCommentModeration(client, 'news-story:story-1', 'mod-1')).resolves.toBeNull();
   });
 
   it('surfaces moderation write ack failures', async () => {
