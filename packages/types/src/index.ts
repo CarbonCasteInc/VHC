@@ -239,6 +239,23 @@ export interface HermesModerationEvent {
   signature: string;
 }
 
+export interface HermesCommentModeration {
+  schemaVersion: 'hermes-comment-moderation-v1';
+  moderation_id: string;
+  thread_id: string;
+  comment_id: string;
+  status: 'hidden' | 'restored';
+  reason_code: string;
+  reason?: string;
+  operator_id: string;
+  created_at: number;
+  audit: {
+    action: 'comment_moderation';
+    supersedes_moderation_id?: string;
+    notes?: string;
+  };
+}
+
 export { z };
 
 export function decodeRegionProof(tuple: RegionProofTuple): ConstituencyProof {

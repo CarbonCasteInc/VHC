@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import type { HermesComment } from '@vh/types';
+import type { HermesComment, HermesCommentModeration } from '@vh/types';
+import { useForumStore } from '../../store/hermesForum';
 import { renderMarkdown } from '../../utils/markdown';
 import { cardMaxWidth, ChildrenContainer, stanceMeta } from './commentStreamLayout';
 import { CommentComposer } from './forum/CommentComposer';
@@ -27,6 +28,8 @@ interface CommentItemProps {
   threadId: string;
   comments: HermesComment[];
   comment: HermesComment;
+  moderation: HermesCommentModeration | null;
+  moderationByComment: Map<string, HermesCommentModeration> | undefined;
   depth: number;
   parentTrunkOffset: number;
 }
@@ -35,6 +38,8 @@ const CommentItem: React.FC<CommentItemProps> = ({
   threadId,
   comments,
   comment,
+  moderation,
+  moderationByComment,
   depth,
   parentTrunkOffset,
 }) => {
@@ -46,6 +51,7 @@ const CommentItem: React.FC<CommentItemProps> = ({
   const meta = stanceMeta(comment.stance);
   const score = comment.upvotes - comment.downvotes;
   const maxW = cardMaxWidth(depth);
+  const isHidden = moderation?.status === 'hidden';
 
   const [showReply, setShowReply] = useState(false);
   const [childrenCollapsed, setChildrenCollapsed] = useState(() => depth >= 3 && children.length > 0);
@@ -144,32 +150,49 @@ const CommentItem: React.FC<CommentItemProps> = ({
                   <span>• {new Date(comment.timestamp).toLocaleString()}</span>
                 </div>
 
-                <div
-                  className="prose prose-sm max-w-none dark:prose-invert"
-                  style={{ color: 'var(--comment-text)' }}
-                  dangerouslySetInnerHTML={{ __html: renderMarkdown(comment.content) }}
-                />
+                {isHidden ? (
+                  <div
+                    className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300"
+                    data-testid={`comment-hidden-${comment.id}`}
+                  >
+                    <p className="font-medium">Comment hidden by moderation.</p>
+                    <p className="mt-1 text-xs">
+                      {moderation.reason_code}
+                      {moderation.reason ? `: ${moderation.reason}` : ''}
+                      {' '}• {new Date(moderation.created_at).toLocaleString()}
+                    </p>
+                    <p className="mt-1 text-xs">Moderation id: {moderation.moderation_id}</p>
+                  </div>
+                ) : (
+                  <div
+                    className="prose prose-sm max-w-none dark:prose-invert"
+                    style={{ color: 'var(--comment-text)' }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(comment.content) }}
+                  />
+                )}
 
                 <div className="flex items-center gap-3 text-xs">
-                  <TrustGate
-                    fallback={
-                      <span className="text-xs text-slate-400" data-testid="reply-trust-gate">
-                        Verify to reply
-                      </span>
-                    }
-                  >
-                    <button
-                      className="font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowReply((v) => !v);
-                      }}
-                      aria-label="Reply"
-                      data-testid={`reply-btn-${comment.id}`}
+                  {!isHidden && (
+                    <TrustGate
+                      fallback={
+                        <span className="text-xs text-slate-400" data-testid="reply-trust-gate">
+                          Verify to reply
+                        </span>
+                      }
                     >
-                      ↩ Reply
-                    </button>
-                  </TrustGate>
+                      <button
+                        className="font-medium text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowReply((v) => !v);
+                        }}
+                        aria-label="Reply"
+                        data-testid={`reply-btn-${comment.id}`}
+                      >
+                        ↩ Reply
+                      </button>
+                    </TrustGate>
+                  )}
 
                   {children.length > 0 && (
                     <button
@@ -187,7 +210,7 @@ const CommentItem: React.FC<CommentItemProps> = ({
                   )}
                 </div>
 
-                {showReply && (
+                {!isHidden && showReply && (
                   <div className="mt-2">
                     <CommentComposer
                       threadId={threadId}
@@ -198,7 +221,7 @@ const CommentItem: React.FC<CommentItemProps> = ({
                 )}
               </div>
 
-              <VoteControl commentId={comment.id} score={score} />
+              {!isHidden && <VoteControl commentId={comment.id} score={score} />}
             </div>
           </div>
 
@@ -308,6 +331,8 @@ const CommentItem: React.FC<CommentItemProps> = ({
                         threadId={threadId}
                         comments={comments}
                         comment={child}
+                        moderation={moderationByComment?.get(child.id) ?? null}
+                        moderationByComment={moderationByComment}
                         depth={depth + 1}
                         parentTrunkOffset={childParentTrunkOffset}
                       />
@@ -324,6 +349,7 @@ const CommentItem: React.FC<CommentItemProps> = ({
 };
 
 export const CommentStream: React.FC<Props> = ({ threadId, comments, parentId = null, depth = 0 }) => {
+  const moderationMap = useForumStore((state) => state.commentModeration.get(threadId));
   const rootComments = useMemo(
     () => comments.filter((c) => c.parentId === parentId).sort((a, b) => a.timestamp - b.timestamp),
     [comments, parentId]
@@ -337,6 +363,8 @@ export const CommentStream: React.FC<Props> = ({ threadId, comments, parentId = 
           threadId={threadId}
           comments={comments}
           comment={comment}
+          moderation={moderationMap?.get(comment.id) ?? null}
+          moderationByComment={moderationMap}
           depth={depth}
           parentTrunkOffset={0}
         />

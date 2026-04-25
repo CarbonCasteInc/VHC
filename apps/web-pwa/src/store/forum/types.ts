@@ -1,4 +1,4 @@
-import type { HermesComment, HermesThread, IdentityRecord } from '@vh/types';
+import type { HermesComment, HermesCommentModeration, HermesThread, IdentityRecord } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 import { TRUST_MINIMUM } from '@vh/data-model';
 
@@ -20,6 +20,7 @@ export function isLifecycleEnabled(): boolean {
 export interface ForumState {
   threads: Map<string, HermesThread>;
   comments: Map<string, HermesComment[]>;
+  commentModeration: Map<string, Map<string, HermesCommentModeration>>;
   userVotes: Map<string, 'up' | 'down' | null>;
   createThread(
     title: string,
@@ -39,6 +40,9 @@ export interface ForumState {
   vote(targetId: string, direction: 'up' | 'down' | null): Promise<void>;
   loadThreads(sort: 'hot' | 'new' | 'top'): Promise<HermesThread[]>;
   loadComments(threadId: string): Promise<HermesComment[]>;
+  setCommentModeration(threadId: string, moderation: HermesCommentModeration | null): void;
+  getCommentModeration(threadId: string, commentId: string): HermesCommentModeration | null;
+  getVisibleComments(threadId: string): HermesComment[];
   getRootComments(threadId: string): HermesComment[];
   getCommentsByStance(threadId: string, stance: 'concur' | 'counter'): HermesComment[];
   getConcurComments(threadId: string): HermesComment[];

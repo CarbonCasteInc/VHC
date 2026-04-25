@@ -4,6 +4,7 @@ import {
   deriveTopicId,
   deriveUrlTopicId,
   ForumPostSchema,
+  HermesCommentModerationSchema,
   HermesCommentSchema,
   HermesCommentSchemaV0,
   HermesCommentSchemaV1,
@@ -365,6 +366,49 @@ describe('HermesCommentWriteSchema', () => {
     const parsed = HermesCommentWriteSchema.parse({ ...baseCommentV1, stance: 'discuss' as const });
     expect(parsed.stance).toBe('discuss');
     expect((parsed as any).type).toBeUndefined();
+  });
+});
+
+describe('HermesCommentModerationSchema', () => {
+  const moderation = {
+    schemaVersion: 'hermes-comment-moderation-v1',
+    moderation_id: 'mod-1',
+    thread_id: 'news-story:story-1',
+    comment_id: 'comment-1',
+    status: 'hidden',
+    reason_code: 'abusive_content',
+    reason: 'Contains abusive language.',
+    operator_id: 'ops-1',
+    created_at: 123,
+    audit: {
+      action: 'comment_moderation',
+      notes: 'fixture'
+    }
+  } as const;
+
+  it('accepts hidden and restored moderation records with audit metadata', () => {
+    const hidden = HermesCommentModerationSchema.parse(moderation);
+    expect(hidden.status).toBe('hidden');
+    expect(hidden.audit.action).toBe('comment_moderation');
+
+    const restored = HermesCommentModerationSchema.parse({
+      ...moderation,
+      moderation_id: 'mod-2',
+      status: 'restored',
+      audit: {
+        action: 'comment_moderation',
+        supersedes_moderation_id: 'mod-1'
+      }
+    });
+    expect(restored.status).toBe('restored');
+    expect(restored.audit.supersedes_moderation_id).toBe('mod-1');
+  });
+
+  it('rejects malformed moderation payloads', () => {
+    expect(HermesCommentModerationSchema.safeParse({ ...moderation, status: 'deleted' }).success).toBe(false);
+    expect(HermesCommentModerationSchema.safeParse({ ...moderation, operator_id: '' }).success).toBe(false);
+    expect(HermesCommentModerationSchema.safeParse({ ...moderation, audit: { action: 'other' } }).success).toBe(false);
+    expect(HermesCommentModerationSchema.safeParse({ ...moderation, token: 'secret' }).success).toBe(false);
   });
 });
 

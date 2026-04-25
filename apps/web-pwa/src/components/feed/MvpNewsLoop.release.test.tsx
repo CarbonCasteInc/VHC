@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FeedItem, StoryBundle, TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
-import type { HermesComment, HermesThread } from '@vh/types';
+import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/types';
 import { DEFAULT_RANKING_CONFIG } from '@vh/data-model';
 import { useNewsStore } from '../../store/news';
 import { useSynthesisStore } from '../../store/synthesis';
@@ -20,6 +20,7 @@ import type { UseDiscoveryFeedResult } from '../../hooks/useDiscoveryFeed';
 
 const forumState = vi.hoisted(() => ({
   comments: new Map<string, HermesComment[]>(),
+  commentModeration: new Map<string, Map<string, HermesCommentModeration>>(),
   threads: new Map<string, HermesThread>(),
   userVotes: new Map<string, unknown>(),
   loadComments: vi.fn(),
@@ -87,9 +88,16 @@ vi.mock('../../hooks/usePointAggregate', () => ({
 vi.mock('../hermes/CommentStream', () => ({
   CommentStream: ({ threadId, comments }: { threadId: string; comments: HermesComment[] }) => (
     <div data-testid={`comment-stream-${threadId}`}>
-      {comments.map((comment) => (
-        <p key={comment.id}>{comment.content}</p>
-      ))}
+      {comments.map((comment) => {
+        const moderation = forumState.commentModeration.get(threadId)?.get(comment.id);
+        return moderation?.status === 'hidden' ? (
+          <p key={comment.id} data-testid={`comment-hidden-${comment.id}`}>
+            Comment hidden by moderation. {moderation.reason_code}
+          </p>
+        ) : (
+          <p key={comment.id}>{comment.content}</p>
+        );
+      })}
     </div>
   ),
 }));
@@ -278,6 +286,25 @@ function makeComment(overrides: Partial<HermesComment> = {}): HermesComment {
   };
 }
 
+function makeCommentModeration(overrides: Partial<HermesCommentModeration> = {}): HermesCommentModeration {
+  return {
+    schemaVersion: 'hermes-comment-moderation-v1',
+    moderation_id: 'moderation-mvp-1',
+    thread_id: 'news-story:story-news-1',
+    comment_id: 'comment-abusive',
+    status: 'hidden',
+    reason_code: 'abusive_content',
+    reason: 'Moderator hid abusive thread content.',
+    operator_id: 'release-ops',
+    created_at: NOW + 2,
+    audit: {
+      action: 'comment_moderation',
+      notes: 'mvp release gate fixture',
+    },
+    ...overrides,
+  };
+}
+
 function seedAcceptedStory(): FeedItem {
   const item = makeFeedItem();
   useNewsStore.getState().setStories([makeStoryBundle()]);
@@ -302,6 +329,7 @@ describe('MVP Web PWA news loop release gates', () => {
       signals: [],
     });
     forumState.comments = new Map();
+    forumState.commentModeration = new Map();
     forumState.threads = new Map();
     forumState.userVotes = new Map();
     forumState.loadComments.mockReset().mockResolvedValue([]);
@@ -484,5 +512,46 @@ describe('MVP Web PWA news loop release gates', () => {
       `/hermes/${deterministicThreadId}`,
     );
     expect(screen.queryByText('Legacy topic thread')).not.toBeInTheDocument();
+  });
+
+  it('mvp gate: story thread moderation hides abusive replies while preserving the story thread', async () => {
+    const item = seedAcceptedStory();
+    const story = makeStoryBundle();
+    const deterministicThreadId = getStoryDiscussionThreadId(item, story);
+    const canonicalThread = makeThread({
+      id: deterministicThreadId,
+      title: 'Canonical story thread',
+      timestamp: NOW,
+    });
+    const abusiveReply = makeComment({
+      id: 'comment-abusive',
+      threadId: deterministicThreadId,
+      content: 'abusive content should not render',
+    });
+    const normalReply = makeComment({
+      id: 'comment-normal',
+      threadId: deterministicThreadId,
+      content: 'This reply remains visible.',
+      timestamp: NOW + 2,
+    });
+
+    forumState.threads.set(canonicalThread.id, canonicalThread);
+    forumState.comments.set(canonicalThread.id, [abusiveReply, normalReply]);
+    forumState.commentModeration.set(canonicalThread.id, new Map([
+      ['comment-abusive', makeCommentModeration({ thread_id: canonicalThread.id })],
+    ]));
+    forumState.loadComments.mockResolvedValue(undefined);
+
+    render(<NewsCard item={item} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    const stream = await screen.findByTestId(`comment-stream-${deterministicThreadId}`);
+    expect(stream).toHaveTextContent('This reply remains visible.');
+    expect(screen.getByTestId('comment-hidden-comment-abusive')).toHaveTextContent('abusive_content');
+    expect(screen.queryByText('abusive content should not render')).not.toBeInTheDocument();
+    expect(screen.getByTestId('news-card-news-1-open-thread')).toHaveAttribute(
+      'href',
+      `/hermes/${deterministicThreadId}`,
+    );
   });
 });

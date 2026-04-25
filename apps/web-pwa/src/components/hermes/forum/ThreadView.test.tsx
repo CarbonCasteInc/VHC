@@ -21,6 +21,7 @@ const baseThread = {
 const mockStore = {
   threads: new Map<string, any>(),
   comments: new Map<string, any[]>(),
+  commentModeration: new Map<string, Map<string, any>>(),
   loadComments: vi.fn().mockResolvedValue(undefined),
   createComment: vi.fn().mockResolvedValue(undefined),
   userVotes: new Map<string, 'up' | 'down' | null>(),
@@ -58,6 +59,7 @@ describe('ThreadView threaded layout', () => {
   beforeEach(() => {
     mockStore.threads = new Map([[baseThread.id, baseThread]]);
     mockStore.comments = new Map();
+    mockStore.commentModeration = new Map();
     mockStore.loadComments.mockClear();
     mockStore.createComment.mockClear();
     mockStore.vote.mockClear();

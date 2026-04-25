@@ -57,6 +57,7 @@ const DEFAULT_RULES: TopologyRule[] = [
   { pathPrefix: '~*/hermes/docKeys/*', classification: 'sensitive' },
   // Forum
   { pathPrefix: 'vh/forum/threads/', classification: 'public' },
+  { pathPrefix: 'vh/forum/threads/*/comment_moderations/*', classification: 'public' },
   { pathPrefix: 'vh/forum/indexes/', classification: 'public' }
 ];
 
