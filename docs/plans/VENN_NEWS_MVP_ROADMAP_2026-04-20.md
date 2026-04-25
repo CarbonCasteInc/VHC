@@ -2,7 +2,7 @@
 
 > Status: Draft v4 docs-aligned implementation tracker
 > Date: 2026-04-20
-> Last alignment audit: 2026-04-24 on `main` at `7e3c818e` after PR #533 merged
+> Last alignment audit: 2026-04-25 on `main` at `ee77ec15` after PR #539 merged
 > Target: Four-week Web PWA MVP launch path after remaining Week 0 decisions and launch blockers are resolved
 > Scope: News feed, story analysis, frame/reframe stance, threaded discussion, and durable aggregate civic metadata
 
@@ -208,7 +208,7 @@ Required:
 - users can reply to the story thread (implemented in story detail in PR #533);
 - replies persist across reload (covered by forum storage paths and component/store tests; still needs a release smoke);
 - thread count and latest activity can appear on feed cards;
-- basic safety affordances exist: report, hide, block, and moderation queue/path (still open).
+- basic safety affordances exist: audited hide/restore moderation exists for story-thread comments; report intake, user block UX, and a broader moderation queue/admin workflow remain open.
 
 The forum system should be reused. The MVP should not create a second comment model.
 
@@ -377,14 +377,14 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 | 3 | `launch-surface-decision` | Resolved: Web PWA. | Remove native iOS/TestFlight from the four-week critical path. | Web PWA is recorded as the MVP launch target; native packaging is a parallel follow-on. |
 | 4 | `bundle-synthesis-dependency` | Complete; merged in PR #528. | Resolve PR B / bundle synthesis dependency for accepted publish-time synthesis and source split handling. | Story detail renders accepted stored synthesis or explicit pending/unavailable state without a hidden card-open analysis pass. |
 | 5 | `identity-honesty-scope` | Complete; merged in PR #530. Web PWA beta uses beta-local proof assurance; real constituency proof remains deferred. | Decide beta-local identity vs real constituency proof for MVP copy and stance guarantees. | Product copy, release notes, and stance path claims match the actual proof layer. |
-| 6 | `mvp-release-gates` | Complete; `pnpm check:mvp-release-gates`. | Deterministic feed/detail/stance/thread release gates are named and report-backed. | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` records command, artifact refs, timestamps, and pass/fail/setup-scarcity semantics for source health, story correctness, feed render, story detail, point stance, and story thread gates. |
+| 6 | `mvp-release-gates` | Complete; merged in PR #535 and hardened in PR #536. | Deterministic feed/detail/stance/thread/correction/moderation release gates are named and report-backed. | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` records command, artifact refs, timestamps, and pass/fail/setup-scarcity semantics for source health, story correctness, feed render, story detail, synthesis correction, point stance, story thread, and story-thread moderation gates. |
 | 7 | `compliance-public-beta-minimums` | Open. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright boundaries. | Public launch cannot proceed unless each compliance artifact has an owner and minimum accepted draft. |
-| 8 | `launch-ops-and-correction-path` | Open. | Curated fallback snapshot, bad-analysis suppression/regeneration, report queue, model/cost telemetry, and release artifact visibility. | Operators have minimum levers for stale feed data, bad summaries, abusive threads, and runaway model usage. |
+| 8 | `launch-ops-and-correction-path` | Partial; accepted synthesis correction merged in PR #537 and hardened in PR #538; story-thread comment hide/restore moderation merged in PR #539. | Curated fallback snapshot, report queue, model/cost telemetry, and release artifact visibility remain open; bad accepted synthesis and abusive story-thread comments now have minimum audited remediation paths. | Operators have typed audit records for suppressing/unavailable accepted synthesis artifacts and hiding/restoring story-thread comments. Remaining launch-ops work must cover stale feed fallback content, report intake, broader admin workflow UX, and runaway model visibility. |
 
 Recommended sequencing:
 
-- PR #527, PR #528, PR #530, PR #531, PR #532, and PR #533 are now in `main`; feed/detail stance/thread work can base on stable point ids, accepted publish-time synthesis, honest beta-local proof semantics, active personalization ranking, and deterministic story discussion threads.
-- PRs 6 through 8 are now the highest-value Week 0 blockers because the core feed/detail/stance/thread product loop has implementation coverage but not launch-grade evidence, compliance, or operator correction controls.
+- PR #527, PR #528, PR #530, PR #531, PR #532, PR #533, PR #535, PR #536, PR #537, PR #538, and PR #539 are now in `main`; feed/detail stance/thread work can base on stable point ids, accepted publish-time synthesis, honest beta-local proof semantics, active personalization ranking, deterministic story discussion threads, release-gate evidence, accepted synthesis correction, and story-thread comment hide/restore moderation.
+- Compliance, launch-content fallback, report intake, broader admin workflow UX, and ops/cost visibility are now the highest-value Week 0 blockers. The core feed/detail/stance/thread product loop and minimum correction/moderation remediation paths have implementation and deterministic release-gate coverage.
 - Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
 
 ### Week 0 go/no-go table
@@ -659,6 +659,7 @@ Acceptance checks:
 | Synthesis correction smoke | `pnpm check:mvp-release-gates` includes `synthesis_correction` | Fixture-backed smoke proves a corrected accepted synthesis does not render stale summary/frame rows and exposes audit provenance. |
 | Point-stance persistence/convergence smoke | `pnpm check:mvp-release-gates` includes `point_stance` | Story detail smoke writes/restores final stance against accepted synthesis point ids. |
 | Thread persistence smoke | `pnpm check:mvp-release-gates` includes `story_thread` | Deterministic `news-story:*` thread id, reply persistence, and reload attachment are covered. |
+| Story-thread moderation smoke | `pnpm check:mvp-release-gates` includes `story_thread_moderation` | Fixture-backed smoke proves audited hide/restore moderation hides abusive reply content while preserving the deterministic story thread. |
 | iOS build | Missing because no iOS shell | Only required if Week 0 chooses iOS. |
 | Privacy/UGC/deletion checklist | Missing | Add Week 3B; public launch blocker. |
 
@@ -790,6 +791,9 @@ The plan is ready to build when reviewers agree on:
 - PR #531 is in the implementation base for feed personalization ranking;
 - PR #532 is in the implementation base for accepted-synthesis stance UI;
 - PR #533 is in the implementation base for deterministic story-thread detail integration;
+- PR #535 and PR #536 are in the implementation base for deterministic MVP release-gate evidence;
+- PR #537 and PR #538 are in the implementation base for accepted synthesis correction;
+- PR #539 is in the implementation base for audited story-thread comment hide/restore moderation;
 - story-level sentiment as aggregate metadata only;
 - analyzed-source versus related-link evidence boundaries;
 - accepted publish-time synthesis as the headline-click data contract;
