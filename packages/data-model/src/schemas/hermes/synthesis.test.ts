@@ -505,6 +505,7 @@ describe('TopicSynthesisCorrectionSchema', () => {
         audit: {
           action: 'synthesis_correction',
           supersedes_correction_id: 'correction-0',
+          source_report_id: 'report-1',
         },
       }).success,
     ).toBe(true);
@@ -518,6 +519,7 @@ describe('TopicSynthesisCorrectionSchema', () => {
     expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, reason_code: 'misc' }).success).toBe(false);
     expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, operator_id: '' }).success).toBe(false);
     expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, audit: { action: 'other' } }).success).toBe(false);
+    expect(TopicSynthesisCorrectionSchema.safeParse({ ...validCorrection, audit: { action: 'synthesis_correction', source_report_id: ' ' } }).success).toBe(false);
   });
 
   it('is strict so correction records cannot smuggle unrelated fields', () => {

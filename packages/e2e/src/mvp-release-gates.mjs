@@ -106,6 +106,27 @@ const GATES = [
       'apps/web-pwa/src/store/newsSnapshotBootstrap.launchContent.test.tsx',
     ],
   },
+  {
+    id: 'report_intake_admin_action',
+    label: 'Report intake queue routes bad synthesis and thread reports to audited operator actions',
+    command: [
+      'pnpm',
+      [
+        'exec',
+        'vitest',
+        'run',
+        'apps/web-pwa/src/components/admin/NewsReportAdminQueue.test.tsx',
+        '-t',
+        'mvp gate: report intake admin action',
+      ],
+    ],
+    artifactRefs: [
+      'apps/web-pwa/src/components/admin/NewsReportAdminQueue.test.tsx',
+      'apps/web-pwa/src/store/newsReports.ts',
+      'packages/data-model/src/schemas/hermes/newsReport.ts',
+      'packages/gun-client/src/newsReportAdapters.ts',
+    ],
+  },
 ];
 
 function nowIso() {

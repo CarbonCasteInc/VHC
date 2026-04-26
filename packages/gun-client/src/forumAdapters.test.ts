@@ -160,6 +160,8 @@ describe('forumAdapters', () => {
       { ...MODERATION, reason: 42 },
       { ...MODERATION, audit: { action: 'comment_moderation', supersedes_moderation_id: '' } },
       { ...MODERATION, audit: { action: 'comment_moderation', supersedes_moderation_id: 42 } },
+      { ...MODERATION, audit: { action: 'comment_moderation', source_report_id: '' } },
+      { ...MODERATION, audit: { action: 'comment_moderation', source_report_id: 42 } },
       { ...MODERATION, audit: { action: 'comment_moderation', notes: '' } },
       { ...MODERATION, audit: { action: 'comment_moderation', notes: 42 } },
       { ...MODERATION, moderation_id: ' ' },
@@ -190,6 +192,7 @@ describe('forumAdapters', () => {
       status: 'restored' as const,
       audit: {
         action: 'comment_moderation' as const,
+        source_report_id: 'report-1',
         supersedes_moderation_id: 'mod-1'
       }
     };

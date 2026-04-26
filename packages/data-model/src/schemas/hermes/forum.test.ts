@@ -397,11 +397,13 @@ describe('HermesCommentModerationSchema', () => {
       status: 'restored',
       audit: {
         action: 'comment_moderation',
-        supersedes_moderation_id: 'mod-1'
+        supersedes_moderation_id: 'mod-1',
+        source_report_id: 'report-1'
       }
     });
     expect(restored.status).toBe('restored');
     expect(restored.audit.supersedes_moderation_id).toBe('mod-1');
+    expect(restored.audit.source_report_id).toBe('report-1');
   });
 
   it('rejects malformed moderation payloads', () => {

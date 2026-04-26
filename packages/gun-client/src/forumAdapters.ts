@@ -137,6 +137,9 @@ function hasBlankModerationFields(moderation: HermesCommentModeration): boolean 
   return (
     moderation.audit.supersedes_moderation_id !== undefined &&
     moderation.audit.supersedes_moderation_id.trim() === ''
+  ) || (
+    moderation.audit.source_report_id !== undefined &&
+    moderation.audit.source_report_id.trim() === ''
   ) || (moderation.audit.notes !== undefined && moderation.audit.notes.trim() === '');
 }
 

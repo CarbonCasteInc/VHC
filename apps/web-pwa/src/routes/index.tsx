@@ -13,6 +13,7 @@ import { IDChip } from '../components/hermes/IDChip';
 import { ScanContact } from '../components/hermes/ScanContact';
 import { DashboardPage } from './dashboardContent';
 import { DevColorPanel } from '../components/DevColorPanel';
+import { NewsReportAdminQueue } from '../components/admin/NewsReportAdminQueue';
 
 const RootComponent = () => (
   <RootShell>
@@ -92,6 +93,8 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
 const HomeComponent = () => <FeedList />;
 
 const DashboardComponent = DashboardPage;
+
+const AdminReportsComponent = () => <NewsReportAdminQueue />;
 
 const GovernanceComponent = () => (
   <section className="space-y-4">
@@ -219,10 +222,16 @@ const dashboardRoute = createRoute({
   path: '/dashboard',
   component: DashboardComponent
 });
+const adminReportsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/admin/reports',
+  component: AdminReportsComponent
+});
 
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   hermesRoute.addChildren([hermesIndexRoute, hermesMessagesRoute, hermesMessagesChannelRoute, hermesThreadRoute]),
   governanceRoute,
-  dashboardRoute
+  dashboardRoute,
+  adminReportsRoute
 ]);

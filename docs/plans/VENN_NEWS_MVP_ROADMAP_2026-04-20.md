@@ -2,7 +2,7 @@
 
 > Status: Draft v4 docs-aligned implementation tracker
 > Date: 2026-04-20
-> Last alignment audit: 2026-04-25 in PR #542, based on `main` at `d9eb8114` after PR #541 merged
+> Last alignment audit: 2026-04-25 after PR #542 merged into `main` at `fd7ed17e`
 > Target: Four-week Web PWA MVP launch path after remaining Week 0 decisions and launch blockers are resolved
 > Scope: News feed, story analysis, frame/reframe stance, threaded discussion, and durable aggregate civic metadata
 
@@ -38,9 +38,9 @@ This roadmap is grounded in the current codebase state rather than the desired a
 | Bundle synthesis worker | PR #528 is merged into `main`. The news-aggregator now has `bundleSynthesisWorker`, `bundleSynthesisRelay`, queue wiring, guarded latest writes, model-sensitive idempotency, and story-detail UI provenance. | W0.4 is complete for publish-time accepted synthesis. Story detail can render accepted stored synthesis or explicit pending/unavailable state without hidden card-open analysis. |
 | Click-time analysis | `NewsCard` now hydrates stored `TopicSynthesisV2` on expansion and no longer calls `useAnalysis(...)` as the normal detail path. The legacy `useAnalysis` hook remains for non-card/runtime analysis paths and tests. | The headline-click contract is accepted synthesis first. Missing synthesis is surfaced as loading/pending/unavailable instead of silently generating card-open analysis. |
 | Story detail stance UI | PR #532 is merged into `main`. `NewsCardBack` renders accepted synthesis frame/reframe rows with persisted `frame_point_id` / `reframe_point_id` stance targets and disables voting when accepted point ids are absent. | W2 point-stance UI is implemented at MVP level. Remaining stance work is release evidence, aggregate freshness policy, and any product polish found in smoke testing. |
-| Story discussion UI | PR #533 is merged into `main`. Story detail uses deterministic `news-story:<encoded story-or-topic token>` headline thread ids, resolves exact deterministic matches before legacy topic/source matches, renders the thread below the frame/reframe table, and exposes recoverable load/create/post errors. Story-thread comment hide/restore moderation now has a typed audit path and deterministic gate coverage. | W2 story-thread rendering, reply composer, and minimum audited hide/restore moderation are implemented at MVP level. Remaining thread work is report intake, user block UX, and compliance/policy artifacts. |
+| Story discussion UI | PR #533 is merged into `main`. Story detail uses deterministic `news-story:<encoded story-or-topic token>` headline thread ids, resolves exact deterministic matches before legacy topic/source matches, renders the thread below the frame/reframe table, and exposes recoverable load/create/post errors. Story-thread comment hide/restore moderation now has a typed audit path and deterministic gate coverage. Story-thread comments can be reported into the operator queue and actioned through the existing audited hide/restore records. | W2 story-thread rendering, reply composer, minimum audited hide/restore moderation, and minimum report-to-action workflow are implemented at MVP level. Remaining thread work is user block UX, compliance/policy artifacts, and richer operator workflow polish. |
 | Constituency proof | Runtime proof acquisition derives an attestation-bound deterministic proof from the identity nullifier and configured district; mock proofs are rejected by voting paths; accepted stance proof is exposed as beta-local assurance. This is still not cryptographic residency proof or production Sybil resistance. | `identity-honesty-scope` resolves the Web PWA beta path: copy must say beta-local identity/proof semantics unless real cryptographic proof is explicitly pulled into scope later. |
-| Release gates | `pnpm check:mvp-release-gates` now composes source health, StoryCluster correctness, deterministic Web PWA feed/detail/stance/thread/moderation smokes, and the curated launch-content snapshot gate. It writes `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` with per-gate `pass`, `fail`, `setup_scarcity`, or `skipped_not_in_scope` status. Compliance checklist scripts remain separate. | Week 3A release evidence harness is present for the core news loop and curated fallback content; public launch still needs compliance artifacts and broader ops/admin polish. |
+| Release gates | `pnpm check:mvp-release-gates` now composes source health, StoryCluster correctness, deterministic Web PWA feed/detail/stance/thread/moderation smokes, the curated launch-content snapshot gate, and the report-intake/admin-action smoke. It writes `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` with per-gate `pass`, `fail`, `setup_scarcity`, or `skipped_not_in_scope` status. Compliance checklist scripts remain separate. | Week 3A release evidence harness is present for the core news loop, curated fallback content, and minimum report-to-action workflow; public launch still needs compliance artifacts and broader ops/admin polish. |
 | Launch content fallback | `packages/e2e/fixtures/launch-content/validated-snapshot.json` is the committed curated fallback snapshot. `pnpm check:launch-content-snapshot` validates coverage and writes `.tmp/launch-content-snapshot/latest/launch-content-snapshot-report.json`; validated-snapshot local stack mode falls back to this committed fixture when passing publisher-canary artifacts are absent. | Internal demo/QA can exercise representative singleton, bundled, preference, accepted synthesis, correction, thread, and moderation states without live ingestion. This does not prove live ingestion freshness or source operations. |
 
 ## Non-negotiable product contract
@@ -207,9 +207,9 @@ Required:
 - every news story has a stable thread identity (implemented for story detail in PR #533);
 - thread identity is derived from the story/topic identity, not transient route state (implemented as deterministic `news-story:*` ids in PR #533);
 - users can reply to the story thread (implemented in story detail in PR #533);
-- replies persist across reload (covered by forum storage paths and component/store tests; still needs a release smoke);
+- replies persist across reload (covered by forum storage paths, component/store tests, and the `story_thread` MVP gate);
 - thread count and latest activity can appear on feed cards;
-- basic safety affordances exist: audited hide/restore moderation exists for story-thread comments; report intake, user block UX, and a broader moderation queue/admin workflow remain open.
+- basic safety affordances exist: audited hide/restore moderation exists for story-thread comments, and report intake can route story-thread reports to audited hide/restore actions; user block UX, trust-gated operator roles, and broader moderation workflow polish remain open.
 
 The forum system should be reused. The MVP should not create a second comment model.
 
@@ -378,14 +378,14 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 | 3 | `launch-surface-decision` | Resolved: Web PWA. | Remove native iOS/TestFlight from the four-week critical path. | Web PWA is recorded as the MVP launch target; native packaging is a parallel follow-on. |
 | 4 | `bundle-synthesis-dependency` | Complete; merged in PR #528. | Resolve PR B / bundle synthesis dependency for accepted publish-time synthesis and source split handling. | Story detail renders accepted stored synthesis or explicit pending/unavailable state without a hidden card-open analysis pass. |
 | 5 | `identity-honesty-scope` | Complete; merged in PR #530. Web PWA beta uses beta-local proof assurance; real constituency proof remains deferred. | Decide beta-local identity vs real constituency proof for MVP copy and stance guarantees. | Product copy, release notes, and stance path claims match the actual proof layer. |
-| 6 | `mvp-release-gates` | Complete; merged in PR #535 and hardened in PR #536; launch-content snapshot gate added as a follow-on closeout slice. | Deterministic feed/detail/stance/thread/correction/moderation and launch-content fallback release gates are named and report-backed. | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` records command, artifact refs, timestamps, and pass/fail/setup-scarcity semantics for source health, story correctness, feed render, story detail, synthesis correction, point stance, story thread, story-thread moderation, and `launch_content_snapshot` gates. |
+| 6 | `mvp-release-gates` | Complete; merged in PR #535 and hardened in PR #536; launch-content snapshot and report-intake/admin-action gates added as follow-on closeout slices. | Deterministic feed/detail/stance/thread/correction/moderation, launch-content fallback, and report-to-action release gates are named and report-backed. | `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json` records command, artifact refs, timestamps, and pass/fail/setup-scarcity semantics for source health, story correctness, feed render, story detail, synthesis correction, point stance, story thread, story-thread moderation, `launch_content_snapshot`, and `report_intake_admin_action` gates. |
 | 7 | `compliance-public-beta-minimums` | Open. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright boundaries. | Public launch cannot proceed unless each compliance artifact has an owner and minimum accepted draft. |
-| 8 | `launch-ops-and-correction-path` | Partial; accepted synthesis correction merged in PR #537 and hardened in PR #538; story-thread comment hide/restore moderation merged in PR #539; curated validated snapshot fallback is implemented. | Report queue, model/cost telemetry, broader admin UX, and release artifact visibility remain open; bad accepted synthesis, abusive story-thread comments, and stale live-feed/demo scarcity now have minimum audited or deterministic fallback paths. | Operators have typed audit records for suppressing/unavailable accepted synthesis artifacts and hiding/restoring story-thread comments. Internal QA/demo has a committed curated fallback snapshot and `pnpm check:launch-content-snapshot`. Remaining launch-ops work must cover report intake, broader admin workflow UX, compliance artifacts, and runaway model visibility. |
+| 8 | `launch-ops-and-correction-path` | Partial; accepted synthesis correction merged in PR #537 and hardened in PR #538; story-thread comment hide/restore moderation merged in PR #539; curated validated snapshot fallback is implemented; minimum report intake and operator action queue are implemented. | Model/cost telemetry, richer admin UX, and release artifact visibility remain open; bad accepted synthesis, abusive story-thread comments, and stale live-feed/demo scarcity now have minimum audited or deterministic fallback paths. | Operators have typed audit records for suppressing/unavailable accepted synthesis artifacts and hiding/restoring story-thread comments, plus a typed report queue that routes user reports to those existing actions or dismissal. Internal QA/demo has a committed curated fallback snapshot and `pnpm check:launch-content-snapshot`. Remaining launch-ops work must cover broader admin workflow UX, compliance artifacts, trust-gated operator roles, escalation policy, and runaway model visibility. |
 
 Recommended sequencing:
 
-- PR #527, PR #528, PR #530, PR #531, PR #532, PR #533, PR #535, PR #536, PR #537, PR #538, and PR #539 are now in `main`; feed/detail stance/thread work can base on stable point ids, accepted publish-time synthesis, honest beta-local proof semantics, active personalization ranking, deterministic story discussion threads, release-gate evidence, accepted synthesis correction, and story-thread comment hide/restore moderation.
-- Compliance, report intake, broader admin workflow UX, and ops/cost visibility are now the highest-value Week 0 blockers. The core feed/detail/stance/thread product loop, minimum correction/moderation remediation paths, and curated fallback launch content have implementation and deterministic release-gate coverage.
+- PR #527, PR #528, PR #530, PR #531, PR #532, PR #533, PR #535, PR #536, PR #537, PR #538, PR #539, and PR #542 are now in `main`; feed/detail stance/thread work can base on stable point ids, accepted publish-time synthesis, honest beta-local proof semantics, active personalization ranking, deterministic story discussion threads, release-gate evidence, accepted synthesis correction, story-thread comment hide/restore moderation, and curated fallback launch content.
+- Compliance, broader admin workflow UX, trust-gated operator roles, and ops/cost visibility are now the highest-value Week 0 blockers. The core feed/detail/stance/thread product loop, minimum correction/moderation remediation paths, report intake/admin action path, and curated fallback launch content have implementation and deterministic release-gate coverage.
 - Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
 
 ### Week 0 go/no-go table
@@ -404,7 +404,7 @@ Recommended sequencing:
 | Release gates | Go for the core Web PWA news loop. | `pnpm check:mvp-release-gates` passes and writes `.tmp/mvp-release-gates/latest/mvp-release-gates-report.json`. | Do not claim release-readiness from source health or story correctness alone; the MVP gate report is the required loop evidence. |
 | Compliance | No-go for public beta. | Privacy, terms, UGC/moderation, support, data deletion, telemetry consent, and content/copyright minimums have accepted drafts. | No public beta or App Store/TestFlight submission. Internal-only testing can continue. |
 | Launch content fallback | Go for internal demo/QA fallback. | A curated validated snapshot exists with enough stories to exercise singleton, bundle, preferences, accepted synthesis frames, stance targets, analyzed sources, related links, deterministic story threads, synthesis correction, and comment moderation states. `pnpm check:launch-content-snapshot` passes and `pnpm check:mvp-release-gates` includes `launch_content_snapshot`. | This does not make live ingestion healthy or compliant for public launch. Keep live freshness/source-ops claims separate from curated fallback readiness. |
-| Correction/admin path | Go for minimum MVP remediation controls; accepted synthesis correction and story-thread comment hide/restore moderation are implemented. | Operators can suppress or mark an accepted `TopicSynthesisV2` unavailable with typed audit metadata; story detail hides stale summary/frame rows; operators can hide or restore abusive story-thread comments with typed audit metadata; `pnpm check:mvp-release-gates` includes deterministic `synthesis_correction` and `story_thread_moderation` smokes. | Public launch still needs compliance artifacts, report intake, policy text, and broader admin workflow polish; do not imply a full trust-and-safety operations console exists. |
+| Correction/admin path | Go for minimum MVP remediation controls; accepted synthesis correction, story-thread comment hide/restore moderation, and report intake/admin action queue are implemented. | Users can report accepted synthesis artifacts and story-thread comments; operators can dismiss reports or apply existing suppress/unavailable/hide/restore actions with typed audit metadata and `source_report_id` provenance; story detail hides stale summary/frame rows and moderated comment content; `pnpm check:mvp-release-gates` includes deterministic `synthesis_correction`, `story_thread_moderation`, and `report_intake_admin_action` smokes. | Public launch still needs compliance artifacts, policy text, trust-gated operator roles, notification/escalation workflow, and broader admin UX polish; do not imply a full trust-and-safety operations console exists. |
 | Ops/cost visibility | Partial. | Model ids, model invocation counts, source health artifacts, release report path, and bad-analysis reports are visible. | Remote-model spend and product failures remain opaque; do not scale beyond a small internal beta. |
 
 ### W0.1 Persisted point ids
@@ -662,6 +662,7 @@ Acceptance checks:
 | Thread persistence smoke | `pnpm check:mvp-release-gates` includes `story_thread` | Deterministic `news-story:*` thread id, reply persistence, and reload attachment are covered. |
 | Story-thread moderation smoke | `pnpm check:mvp-release-gates` includes `story_thread_moderation` | Fixture-backed smoke proves audited hide/restore moderation hides abusive reply content while preserving the deterministic story thread. |
 | Launch-content fallback snapshot | `pnpm check:mvp-release-gates` includes `launch_content_snapshot`; separate command is `pnpm check:launch-content-snapshot` | Curated snapshot validates singleton stories, bundles, preference ranking/filtering, accepted synthesis point ids, analyzed-source versus related-link boundaries, deterministic story threads, persisted replies, synthesis correction, and hidden/restored comment moderation states. |
+| Report intake/admin action smoke | `pnpm check:mvp-release-gates` includes `report_intake_admin_action` | Deterministic Web PWA smoke proves pending synthesis and story-thread reports appear in the operator queue and route to audited remediation/dismissal actions. |
 | iOS build | Missing because no iOS shell | Only required if Week 0 chooses iOS. |
 | Privacy/UGC/deletion checklist | Missing | Add Week 3B; public launch blocker. |
 
@@ -672,14 +673,17 @@ Acceptance checks:
 The MVP's value rests on accurate summaries and frame/reframe items. The release plan needs a correction path:
 
 - users can report inaccurate analysis;
-- operators can suppress or regenerate a bad analysis artifact;
+- users can report abusive story-thread comments;
+- operators can dismiss reports or route them to existing remediation records;
+- operators can suppress or mark unavailable a bad analysis artifact;
+- report audit metadata links operator remediation artifacts back through `source_report_id`;
 - accepted `TopicSynthesisV2` artifacts now have a typed correction record for `suppressed` or `unavailable` state, with operator id, reason code, timestamp, and audit metadata;
 - story detail hides corrected accepted synthesis summaries/frame rows and shows the correction provenance instead;
 - story-thread comments now have a typed hide/restore moderation record with operator id, reason code, timestamp, and audit metadata;
 - story detail hides moderated abusive reply content and shows a moderation placeholder instead;
 - launch copy does not imply editorial omniscience.
 
-Still required: report intake/regeneration workflow polish, compliance policy artifacts, and broader admin workflow UX.
+Still required: regeneration workflow polish, compliance policy artifacts, trust-gated operator roles, notifications/escalation policy, and broader admin workflow UX.
 
 ### Cost and model budget
 
@@ -725,7 +729,7 @@ The stance path must be budgeted:
 - bounded write attempts;
 - local cooldown against rapid toggling;
 - aggregate projection must not count raw clicks;
-- moderation/reporting budgets for thread abuse.
+- moderation/reporting budgets for thread abuse beyond the minimum report queue.
 
 ### Data retention and deletion
 
