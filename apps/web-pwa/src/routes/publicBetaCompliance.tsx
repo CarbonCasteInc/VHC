@@ -16,6 +16,17 @@ interface PublicBetaComplianceSection {
   readonly body: readonly string[];
 }
 
+export const PUBLIC_BETA_SUPPORT_CONTACT = {
+  label: 'Open VHC public beta support request',
+  channel: 'GitHub Issues',
+  href: 'https://github.com/CarbonCasteInc/VHC/issues/new?template=public-beta-support.yml',
+  issueTemplatePath: '.github/ISSUE_TEMPLATE/public-beta-support.yml',
+  publicNotice:
+    'This creates a public GitHub issue. Do not include private contact details, identity documents, raw proof material, provider secrets, confidential support correspondence, or legal notices.',
+  sensitiveEscalation:
+    'For deletion, copyright, abuse, or account concerns that require private details, open the request with only public-safe context and ask for an operator handoff.',
+} as const;
+
 export interface PublicBetaCompliancePage {
   readonly id: PublicBetaCompliancePageId;
   readonly route: string;
@@ -56,13 +67,13 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
     eyebrow: 'Privacy',
     title: 'Privacy Notice',
     summary:
-      'The beta keeps sensitive stance events local where possible and publishes only the public news, discussion, report, correction, moderation, and aggregate records needed for the MVP loop.',
+      'The beta keeps sensitive stance events local where possible and publishes only the public news, discussion, report, correction, moderation, support-intake, and aggregate records needed for the MVP loop.',
     sections: [
       {
         heading: 'Public records',
         body: [
-          'Story threads, story replies, report records, correction records, moderation records, and aggregate civic metadata are public workflow or audit surfaces. They can include public pseudonymous reporter and operator identifiers.',
-          'Do not submit private contact details, identity documents, raw proof material, provider secrets, or support correspondence into story replies or report reasons.',
+          'Story threads, story replies, report records, correction records, moderation records, public beta support requests, and aggregate civic metadata are public workflow or audit surfaces. They can include public pseudonymous reporter and operator identifiers.',
+          'Do not submit private contact details, identity documents, raw proof material, provider secrets, legal notices, or confidential support correspondence into story replies, report reasons, or public support requests.',
         ],
       },
       {
@@ -104,7 +115,7 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
     eyebrow: 'UGC and Moderation',
     title: 'UGC and Moderation Policy',
     summary:
-      'Story-thread replies and report reasons are user-generated content. The current beta supports report intake and audited operator actions, not a full moderation operations program.',
+      'Story-thread replies, report reasons, and public support requests are user-generated content. The current beta supports report intake and audited operator actions, not a full moderation operations program.',
     sections: [
       {
         heading: 'User-generated content rules',
@@ -117,7 +128,8 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
         heading: 'Operator actions',
         body: [
           'Operators can dismiss reports, suppress accepted synthesis, mark synthesis unavailable, hide story-thread comments, and restore story-thread comments with audit metadata.',
-          'User blocking, trust-gated operator roles, notifications, appeals, escalation workflow, and broader case management remain outside this minimum beta surface.',
+          `Use ${PUBLIC_BETA_SUPPORT_CONTACT.channel} support requests for account, access, deletion, copyright, or urgent escalation needs that do not belong in public story-thread reports.`,
+          'User blocking, trust-gated operator roles, notifications, appeals, automated escalation workflow, and broader case management remain outside this minimum beta surface.',
         ],
       },
     ],
@@ -128,13 +140,14 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
     eyebrow: 'Support',
     title: 'Beta Support and Contact',
     summary:
-      'Public beta participation requires a reachable beta operator contact channel. The app does not collect private support correspondence in public report records.',
+      `Public beta support is provisioned through ${PUBLIC_BETA_SUPPORT_CONTACT.channel}. The app does not collect private support correspondence in public report records.`,
     sections: [
       {
-        heading: 'How to get help',
+        heading: 'Provisioned support channel',
         body: [
-          'Use the support or escalation channel supplied with your beta invitation for account, access, safety, deletion, copyright, or urgent operational questions.',
-          'If you do not have a beta operator contact channel, do not submit personal support information into the app; wait for an operator-provided contact path before using the public beta.',
+          `Use the ${PUBLIC_BETA_SUPPORT_CONTACT.label} form for account, access, safety, deletion, copyright, feedback, or urgent operational questions.`,
+          PUBLIC_BETA_SUPPORT_CONTACT.publicNotice,
+          PUBLIC_BETA_SUPPORT_CONTACT.sensitiveEscalation,
         ],
       },
       {
@@ -164,7 +177,8 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
       {
         heading: 'Public records',
         body: [
-          'Ask the beta operator contact channel for deletion or correction review of public records tied to your pseudonymous beta activity.',
+          `Use the ${PUBLIC_BETA_SUPPORT_CONTACT.label} form for deletion or correction review of public records tied to your pseudonymous beta activity.`,
+          PUBLIC_BETA_SUPPORT_CONTACT.sensitiveEscalation,
           'Deletion requests may be fulfilled as suppression, moderation, correction, or retention of an audit placeholder depending on the public workflow record involved.',
         ],
       },
@@ -213,7 +227,7 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
         heading: 'Copyright and attribution',
         body: [
           'Do not paste full copyrighted articles into story replies, report reasons, or support requests.',
-          'Report source attribution errors, infringing user content, or content boundary concerns through the beta operator contact channel or in-product report controls where appropriate.',
+          `Report source attribution errors, infringing user content, or content boundary concerns through the ${PUBLIC_BETA_SUPPORT_CONTACT.label} form or in-product report controls where appropriate.`,
         ],
       },
     ],
@@ -331,6 +345,29 @@ export const PublicBetaCompliancePageView: React.FC<{ pageId: PublicBetaComplian
           </section>
         ))}
       </div>
+
+      {page.id === 'support' && (
+        <section
+          className="space-y-3 rounded-[1rem] border border-slate-300 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-900"
+          data-testid="public-beta-support-contact-panel"
+        >
+          <div className="space-y-1">
+            <h2 className="text-sm font-semibold text-slate-950 dark:text-white">Reach the beta support queue</h2>
+            <p className="text-sm leading-6 text-slate-600 dark:text-slate-300">
+              {PUBLIC_BETA_SUPPORT_CONTACT.publicNotice} {PUBLIC_BETA_SUPPORT_CONTACT.sensitiveEscalation}
+            </p>
+          </div>
+          <a
+            href={PUBLIC_BETA_SUPPORT_CONTACT.href}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex rounded-md bg-slate-950 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 dark:bg-white dark:text-slate-950 dark:hover:bg-slate-200"
+            data-testid="public-beta-support-contact-link"
+          >
+            {PUBLIC_BETA_SUPPORT_CONTACT.label}
+          </a>
+        </section>
+      )}
 
       <div className="flex flex-wrap gap-3 border-t border-slate-200/80 pt-4 text-sm dark:border-slate-800">
         <Link to="/compliance" className="font-medium text-slate-600 underline underline-offset-4 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white">

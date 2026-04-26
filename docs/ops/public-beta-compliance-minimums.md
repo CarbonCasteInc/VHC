@@ -5,7 +5,7 @@
 > Last Reviewed: 2026-04-26
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-hermes-forum-v0.md
 
-Version: 0.1
+Version: 0.2
 Scope: Web PWA public beta policy surfaces and release evidence.
 
 ## 1. Purpose
@@ -20,15 +20,23 @@ This is not legal approval. It is the minimum product and documentation surface 
 | --- | --- | --- |
 | `/compliance` | Public beta policy surfaces | Index page for the public beta policy routes and their implemented boundaries. |
 | `/beta` | VHC Public Beta Scope | Web PWA beta scope, beta-local identity/proof limits, no native release claim, and no verified-human or one-human-one-vote assurance. |
-| `/privacy` | Privacy Notice | Public workflow/audit records are public; sensitive identity/proof/contact data must not be submitted into reports or replies. |
+| `/privacy` | Privacy Notice | Public workflow/audit records are public; sensitive identity/proof/contact data must not be submitted into reports, replies, or public support requests. |
 | `/terms` | Beta Terms | Informational beta use only; no legal, medical, financial, election, emergency, or safety-critical reliance. |
 | `/moderation` | UGC and Moderation Policy | Report intake and audited remediation actions exist; user blocking, appeals, notifications, escalation, and broader case management remain out of scope. |
-| `/support` | Beta Support and Contact | Beta users must have an operator-provided contact channel; public reports are not a private support inbox. |
+| `/support` | Beta Support and Contact | The reachable public beta support channel is the VHC GitHub Issue Form; public reports are not a private support inbox. |
 | `/data-deletion` | Data Deletion and Local State | Local browser state can be cleared locally; public audit records require operator review and may remain as placeholders. |
 | `/telemetry` | Telemetry and Remote AI Consent | Remote AI fallback is opt-in when configured and can send article text to a remote AI server. |
 | `/copyright` | Content and Copyright Boundaries | VHC links and summarizes sources; users must not paste full copyrighted articles into public replies or report reasons. |
 
 The `/compliance` index and individual policy routes are linked from the global Web PWA footer. Remote-AI consent copy links to `/telemetry`; synthesis and comment report controls link to `/moderation`.
+
+The provisioned support/contact path is:
+
+- User-facing page: `/support`
+- Support channel: [Open VHC public beta support request](https://github.com/CarbonCasteInc/VHC/issues/new?template=public-beta-support.yml)
+- Issue template: `.github/ISSUE_TEMPLATE/public-beta-support.yml`
+
+The support request form creates a public GitHub issue. Users must not include private personal data, legal notices, identity documents, raw proof material, provider secrets, confidential support correspondence, or full copyrighted articles. For deletion, copyright, abuse, or account concerns that require private details, users should submit only public-safe context and ask for an operator handoff.
 
 ## 3. Release Checklist
 
@@ -38,7 +46,7 @@ The `/compliance` index and individual policy routes are linked from the global 
 | Privacy notice exists | Implemented | `/privacy` route and public mesh boundary copy. |
 | Terms page exists | Implemented | `/terms` route and beta reliance limits. |
 | UGC/moderation policy exists | Implemented | `/moderation` route, report-control policy links, and report/admin action docs. |
-| Support/contact page exists | Implemented with beta-cohort constraint | `/support` route tells users to use the operator-provided beta contact channel. Public beta remains blocked if an operator cannot provide a reachable support/contact channel. |
+| Support/contact page exists | Implemented with provisioned public channel | `/support` route links to the VHC GitHub Issue Form and the repository includes `.github/ISSUE_TEMPLATE/public-beta-support.yml` with public-record warnings and deletion/copyright/moderation categories. |
 | Data deletion instructions exist | Implemented | `/data-deletion` route distinguishes local browser data from public audit records. |
 | Telemetry/remote AI consent exists | Implemented | `/telemetry` route and Engine Settings policy link. |
 | Content/copyright boundaries exist | Implemented | `/copyright` route and user copy restrictions. |
@@ -50,6 +58,7 @@ The `/compliance` index and individual policy routes are linked from the global 
 - trust-gated operator roles remain outside this minimum.
 - User blocking, appeals, notifications, escalation policy, and broader case management remain outside this minimum.
 - Public reports are workflow records, not a private support inbox.
+- Support requests are public workflow records, not private correspondence.
 - The validated snapshot does not prove live-feed freshness.
 - Native App Store or TestFlight readiness remains out of scope because no native shell is present.
 - Remote model cost governance and broader launch operations visibility remain separate from these policy pages.
