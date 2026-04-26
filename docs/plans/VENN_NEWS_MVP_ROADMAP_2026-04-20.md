@@ -2,7 +2,7 @@
 
 > Status: Draft v4 docs-aligned implementation tracker
 > Date: 2026-04-20
-> Last alignment audit: 2026-04-25 after PR #542 merged into `main` at `fd7ed17e`
+> Last alignment audit: 2026-04-26 after PR #543 merged into `main` at `5ea6558c`
 > Target: Four-week Web PWA MVP launch path after remaining Week 0 decisions and launch blockers are resolved
 > Scope: News feed, story analysis, frame/reframe stance, threaded discussion, and durable aggregate civic metadata
 
@@ -384,7 +384,7 @@ Week 0 should be executed as a short PR stack, not as an open-ended planning loo
 
 Recommended sequencing:
 
-- PR #527, PR #528, PR #530, PR #531, PR #532, PR #533, PR #535, PR #536, PR #537, PR #538, PR #539, and PR #542 are now in `main`; feed/detail stance/thread work can base on stable point ids, accepted publish-time synthesis, honest beta-local proof semantics, active personalization ranking, deterministic story discussion threads, release-gate evidence, accepted synthesis correction, story-thread comment hide/restore moderation, and curated fallback launch content.
+- PR #527, PR #528, PR #530, PR #531, PR #532, PR #533, PR #535, PR #536, PR #537, PR #538, PR #539, PR #542, and PR #543 are now in `main`; feed/detail stance/thread work can base on stable point ids, accepted publish-time synthesis, honest beta-local proof semantics, active personalization ranking, deterministic story discussion threads, release-gate evidence, accepted synthesis correction, story-thread comment hide/restore moderation, curated fallback launch content, and minimum report-to-action admin workflow.
 - Compliance, broader admin workflow UX, trust-gated operator roles, and ops/cost visibility are now the highest-value Week 0 blockers. The core feed/detail/stance/thread product loop, minimum correction/moderation remediation paths, report intake/admin action path, and curated fallback launch content have implementation and deterministic release-gate coverage.
 - Week 1 starts only after every row in the go/no-go table has a `go` decision or an explicit accepted no-go consequence.
 
