@@ -14,6 +14,8 @@ const requiredPages = [
   { id: 'copyright', route: '/copyright', title: 'Content and Copyright Boundaries' },
 ];
 
+const complianceIndex = { route: '/compliance', title: 'Public beta policy surfaces' };
+
 const files = {
   packageJson: 'package.json',
   routes: 'apps/web-pwa/src/routes/index.tsx',
@@ -64,7 +66,10 @@ if (packageJson.scripts?.['check:public-beta-compliance'] !== 'node ./tools/scri
 }
 
 requireIncludes(files.routes, routes, '<ComplianceFooter />', 'global compliance footer');
-requireIncludes(files.routes, routes, "path: '/compliance'", '/compliance route');
+requireIncludes(files.routes, routes, `path: '${complianceIndex.route}'`, `${complianceIndex.route} route`);
+requireIncludes(files.compliance, compliance, `to="${complianceIndex.route}"`, 'footer link to compliance index');
+requireIncludes(files.compliance, compliance, complianceIndex.title, `${complianceIndex.title} page title`);
+requireIncludes(files.docs, docs, `| \`${complianceIndex.route}\` |`, `${complianceIndex.route} checklist row`);
 requireIncludes(files.engineSettings, engineSettings, 'href="/telemetry"', 'remote AI telemetry policy link');
 requireIncludes(files.newsCardBack, newsCardBack, 'href="/moderation"', 'synthesis report moderation policy link');
 requireIncludes(files.commentStream, commentStream, 'href="/moderation"', 'comment report moderation policy link');

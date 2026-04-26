@@ -18,6 +18,7 @@ This is not legal approval. It is the minimum product and documentation surface 
 
 | Route | Page | Minimum user-facing claim |
 | --- | --- | --- |
+| `/compliance` | Public beta policy surfaces | Index page for the public beta policy routes and their implemented boundaries. |
 | `/beta` | VHC Public Beta Scope | Web PWA beta scope, beta-local identity/proof limits, no native release claim, and no verified-human or one-human-one-vote assurance. |
 | `/privacy` | Privacy Notice | Public workflow/audit records are public; sensitive identity/proof/contact data must not be submitted into reports or replies. |
 | `/terms` | Beta Terms | Informational beta use only; no legal, medical, financial, election, emergency, or safety-critical reliance. |
@@ -27,7 +28,7 @@ This is not legal approval. It is the minimum product and documentation surface 
 | `/telemetry` | Telemetry and Remote AI Consent | Remote AI fallback is opt-in when configured and can send article text to a remote AI server. |
 | `/copyright` | Content and Copyright Boundaries | VHC links and summarizes sources; users must not paste full copyrighted articles into public replies or report reasons. |
 
-These routes are linked from the global Web PWA footer. Remote-AI consent copy links to `/telemetry`; synthesis and comment report controls link to `/moderation`.
+The `/compliance` index and individual policy routes are linked from the global Web PWA footer. Remote-AI consent copy links to `/telemetry`; synthesis and comment report controls link to `/moderation`.
 
 ## 3. Release Checklist
 

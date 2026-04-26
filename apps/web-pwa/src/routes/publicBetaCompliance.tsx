@@ -236,6 +236,9 @@ export const ComplianceFooter: React.FC = () => (
     data-testid="public-beta-compliance-footer"
   >
     <nav aria-label="Public beta policies" className="flex flex-wrap gap-x-4 gap-y-2 border-t border-slate-200/80 pt-4 dark:border-slate-800">
+      <Link to="/compliance" className="font-medium hover:text-slate-800 dark:hover:text-slate-100">
+        Compliance
+      </Link>
       <Link to="/beta" className="font-medium hover:text-slate-800 dark:hover:text-slate-100">
         Beta scope
       </Link>

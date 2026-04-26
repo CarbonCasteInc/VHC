@@ -65,6 +65,7 @@ describe('public beta compliance surfaces', () => {
     render(<ComplianceFooter />);
 
     const links = screen.getAllByRole('link').map((link) => link.getAttribute('href'));
+    expect(links).toContain('/compliance');
     for (const route of REQUIRED_PUBLIC_BETA_COMPLIANCE_ROUTES) {
       expect(links).toContain(route);
     }
