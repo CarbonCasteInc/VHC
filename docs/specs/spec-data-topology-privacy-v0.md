@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-04-26
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.2
+Version: 0.3
 Status: Canonical (V2-first)
 
 Defines data placement, mesh path conventions, and privacy constraints for Season 0.
@@ -18,7 +18,9 @@ Defines data placement, mesh path conventions, and privacy constraints for Seaso
 | StoryBundle | local cache/index | `vh/news/stories/<storyId>` | optional | optional hash anchor | optional blob | Public |
 | TopicDigest | local cache/index | `vh/topics/<topicId>/digests/<digestId>` | optional | - | - | Public-derived |
 | TopicSynthesisV2 | local cache/index | `vh/topics/<topicId>/epochs/<epoch>/synthesis` | - | optional hash anchor | - | Public |
+| TopicSynthesisCorrection | local cache/index | `vh/topics/<topicId>/synthesis_corrections/*` | - | optional hash anchor | - | Public audit |
 | Topic latest pointer | local cache/index | `vh/topics/<topicId>/latest` | - | - | - | Public |
+| HermesNewsReport | local cache/operator queue | `vh/news/reports/*` and `vh/news/reports/index/status/*` | - | - | - | Public workflow/audit |
 | SentimentSignal event | local state | forbidden | `~<devicePub>/outbox/sentiment/<eventId>` | - | - | Sensitive |
 | AggregateSentiment (legacy summary) | local cache | compatibility-only; canonical public point aggregates use `PointAggregateSnapshotV1` below | - | optional aggregate anchor | - | Public |
 | TopicEngagementAggregateV1 | local cache | `vh/aggregates/topics/<topicId>/engagement/summary` | - | optional aggregate anchor | - | Public |
@@ -32,20 +34,25 @@ Defines data placement, mesh path conventions, and privacy constraints for Seaso
 | PointAggregateSnapshotV1 | local cache | `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/points/<pointId>` | - | optional hash anchor | - | Public |
 | VoteIntentRecord | local durable queue | forbidden | optional encrypted backup | - | - | Sensitive |
 | VoteAdmissionReceipt | local state | forbidden | - | - | - | Internal |
+| Hermes forum thread/comment/moderation | local cache/index | `vh/forum/*` including `comment_moderations/*` | - | optional hash anchor for public audit | - | Public/Public audit |
 
 ## 2. Canonical path conventions (V2)
 
 Allowed public V2 namespaces:
 
 - `vh/news/stories/*`
+- `vh/news/reports/*`
+- `vh/news/reports/index/status/*`
 - `vh/topics/*/digests/*`
 - `vh/topics/*/epochs/*`
 - `vh/topics/*/articles/*`
+- `vh/topics/*/synthesis_corrections/*`
 - `vh/aggregates/topics/*`
 - `vh/aggregates/topics/*/engagement/summary` (topic Eye/Lightbulb aggregate)
 - `vh/aggregates/topics/*/engagement/actors/*` (Season 0 migration input; topic-scoped actor id only, no proof/nullifier payload)
 - `vh/discovery/*`
 - `vh/civic/reps/*`
+- `vh/forum/*`
 - `vh/aggregates/topics/*/syntheses/*/epochs/*/points/*` (PointAggregateSnapshotV1 delivery)
 
 Disallowed in public namespaces:
@@ -56,6 +63,13 @@ Disallowed in public namespaces:
 - raw constituency proofs
 - per-user sentiment events
 - local receipt payloads containing personal contact details
+
+News report and moderation paths are public audit/workflow surfaces. They MUST
+NOT include private contact information, raw identity artifacts, private proof
+material, provider secrets, or personal support correspondence. `reporter_id`
+and `operator_id` are public pseudonymous identifiers; product copy must not
+present these records as a complete compliance, appeal, or case-management
+system.
 
 ## 3. Sensitive data rules
 

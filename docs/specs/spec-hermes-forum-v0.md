@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-25
+> Last Reviewed: 2026-04-26
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.8
+Version: 0.9
 Status: Canonical for Season 0 (V2-first alignment)
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.
 
@@ -159,6 +159,7 @@ interface CommentModeration {
   audit: {
     action: 'comment_moderation';
     supersedes_moderation_id?: string;
+    source_report_id?: string;
     notes?: string;
   };
 }
@@ -179,8 +180,102 @@ Read/write requirements:
 - preserve audit metadata;
 - never render a hidden comment's original markdown, reply composer, or vote
   controls in story detail;
-- do not claim report intake, user blocking, or a full admin queue exists from
-  this minimum hide/restore path alone.
+- when the action originates from the news report queue, preserve
+  `audit.source_report_id`;
+- do not claim user blocking, trust-gated operator roles, notification
+  workflow, or a full trust-and-safety console exists from this minimum
+  hide/restore path alone.
+
+### 2.3.3 News report intake and operator action records
+
+Accepted synthesis artifacts and story-thread comments can be reported into a
+minimum audited operator queue. Reports are workflow/audit records; submitting a
+report does not by itself suppress synthesis or hide comment content.
+
+```ts
+type NewsReportReasonCode =
+  | 'inaccurate_summary'
+  | 'bad_frame'
+  | 'source_attribution_error'
+  | 'policy_violation'
+  | 'abusive_content'
+  | 'spam'
+  | 'other';
+
+type NewsReportStatus = 'pending' | 'reviewed' | 'actioned';
+
+type NewsReportResolution =
+  | 'dismissed'
+  | 'synthesis_suppressed'
+  | 'synthesis_unavailable'
+  | 'comment_hidden'
+  | 'comment_restored';
+
+type NewsReportTarget =
+  | {
+      type: 'synthesis';
+      topic_id: string;
+      synthesis_id: string;
+      epoch: number;
+      story_id?: string;
+    }
+  | {
+      type: 'story_thread_comment';
+      thread_id: string;
+      comment_id: string;
+      story_id?: string;
+      topic_id?: string;
+    };
+
+interface NewsReport {
+  schemaVersion: 'hermes-news-report-v1';
+  report_id: string;
+  target: NewsReportTarget;
+  reason_code: NewsReportReasonCode;
+  reason?: string;
+  reporter_id: string;
+  reporter_handle?: string;
+  created_at: number;
+  status: NewsReportStatus;
+  audit: {
+    action: 'news_report';
+    operator_id?: string;
+    reviewed_at?: number;
+    resolution?: NewsReportResolution;
+    correction_id?: string;
+    moderation_id?: string;
+    notes?: string;
+  };
+}
+```
+
+Storage paths:
+
+- Report record path: `vh/news/reports/<report_id>/`
+- Status queue/index path:
+  `vh/news/reports/index/status/<status>/<report_id>/`
+
+Read/write requirements:
+
+- validate records with `HermesNewsReportSchema`;
+- reject report records whose embedded `report_id` does not match the path
+  being read;
+- validate status queue pointers and filter stale queue entries by the actual
+  report status;
+- `pending` reports must not contain operator review metadata;
+- `reviewed` reports are dismissals only;
+- `actioned` reports must link to a remediation artifact through
+  `correction_id` or `moderation_id` as appropriate;
+- synthesis actions write existing `topic-synthesis-correction-v1` records
+  with `audit.source_report_id`;
+- comment actions write existing `hermes-comment-moderation-v1` records with
+  `audit.source_report_id`;
+- `/admin/reports` is a minimal internal operator queue for refresh, dismiss,
+  suppress/unavailable synthesis, and hide/restore comment actions.
+
+Out of scope for the current implementation: public policy text, user block UX,
+trust-gated operator-role enforcement, notifications/escalation, and a broader
+case-management console.
 
 ### 2.4 Post type contract (reply vs article)
 
@@ -542,6 +637,7 @@ Storage and sync:
 
 - [x] Gun adapters for threads/comments/indexes
 - [x] Gun adapters for audited comment hide/restore moderation
+- [x] Gun adapters for typed news report intake and status queue indexes
 - [ ] Gun adapters for standalone post publication path
 - [x] Hydration with required-field checks and Zod validation
 - [x] Deduplication TTL map
@@ -560,7 +656,8 @@ UX:
 - [x] Story-detail reply list/composer renders below accepted synthesis frame/reframe table
 - [x] Thread create/comment load/comment post failures surface as recoverable UI states
 - [x] Audited hide/restore moderation state hides story-reply content with provenance
-- [ ] Report intake, user block UX, and broader moderation queue/admin affordances for story replies
+- [x] Minimum report intake and `/admin/reports` operator action queue for accepted synthesis and story replies
+- [ ] User block UX, trust-gated operator roles, notifications/escalation, and broader moderation queue/admin affordances
 - [ ] Convert-to-article CTA + docs handoff
 - [ ] Article publish back into topic/forum surface
 
@@ -577,3 +674,4 @@ UX:
 9. Privacy invariant checks (no secrets in public forum paths).
 10. Feed-shell regression: forum cards remain discoverable through the `Topics` filter without requiring a primary HERMES tab in the public app chrome.
 11. Comment moderation schema rejects malformed/path-mismatched payloads, preserves audit metadata, and hides moderated story-reply content without changing deterministic `news-story:*` thread identity.
+12. News report schema and Gun adapters reject malformed/path-mismatched payloads, preserve operator audit metadata, and route pending reports to audited synthesis correction or comment moderation actions.

@@ -276,6 +276,12 @@ export const NewsCardBack: React.FC<NewsCardBackProps> = ({
               >
                 {reportStatus === 'submitted' ? 'Reported' : reportStatus === 'submitting' ? 'Reporting' : 'Report synthesis'}
               </button>
+              <a
+                className="font-medium underline underline-offset-2 hover:text-slate-900 dark:hover:text-white"
+                href="/moderation"
+              >
+                Policy
+              </a>
               {reportStatus === 'error' && reportError && (
                 <span className="text-rose-700 dark:text-rose-200" role="alert">
                   {reportError}
