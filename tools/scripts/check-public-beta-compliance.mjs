@@ -15,6 +15,11 @@ const requiredPages = [
 ];
 
 const complianceIndex = { route: '/compliance', title: 'Public beta policy surfaces' };
+const supportContact = {
+  label: 'Open VHC public beta support request',
+  href: 'https://github.com/CarbonCasteInc/VHC/issues/new?template=public-beta-support.yml',
+  issueTemplatePath: '.github/ISSUE_TEMPLATE/public-beta-support.yml',
+};
 
 const files = {
   packageJson: 'package.json',
@@ -25,6 +30,7 @@ const files = {
   commentStream: 'apps/web-pwa/src/components/hermes/CommentStream.tsx',
   docs: 'docs/ops/public-beta-compliance-minimums.md',
   roadmap: 'docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md',
+  supportIssueTemplate: supportContact.issueTemplatePath,
 };
 
 const issues = [];
@@ -60,6 +66,7 @@ const newsCardBack = readRepoFile(files.newsCardBack);
 const commentStream = readRepoFile(files.commentStream);
 const docs = readRepoFile(files.docs);
 const roadmap = readRepoFile(files.roadmap);
+const supportIssueTemplate = readRepoFile(files.supportIssueTemplate);
 
 if (packageJson.scripts?.['check:public-beta-compliance'] !== 'node ./tools/scripts/check-public-beta-compliance.mjs') {
   issues.push('package.json: missing check:public-beta-compliance script');
@@ -73,6 +80,35 @@ requireIncludes(files.docs, docs, `| \`${complianceIndex.route}\` |`, `${complia
 requireIncludes(files.engineSettings, engineSettings, 'href="/telemetry"', 'remote AI telemetry policy link');
 requireIncludes(files.newsCardBack, newsCardBack, 'href="/moderation"', 'synthesis report moderation policy link');
 requireIncludes(files.commentStream, commentStream, 'href="/moderation"', 'comment report moderation policy link');
+requireIncludes(files.compliance, compliance, 'PUBLIC_BETA_SUPPORT_CONTACT', 'typed support contact config');
+requireIncludes(files.compliance, compliance, supportContact.href, 'provisioned support contact URL');
+requireIncludes(files.compliance, compliance, supportContact.label, 'provisioned support contact label');
+requireIncludes(files.compliance, compliance, 'data-testid="public-beta-support-contact-link"', 'support contact link');
+requireIncludes(files.compliance, compliance, 'public GitHub issue', 'public issue support notice');
+requireIncludes(files.docs, docs, supportContact.href, 'provisioned support contact URL docs reference');
+requireIncludes(files.docs, docs, supportContact.issueTemplatePath, 'support issue template docs reference');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'name: Public beta support request', 'support issue template name');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Do not include private personal data', 'support issue template privacy warning');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Data deletion or correction', 'support issue deletion category');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Copyright or attribution concern', 'support issue copyright category');
+
+try {
+  const parsedSupportUrl = new URL(supportContact.href);
+  if (parsedSupportUrl.protocol !== 'https:') {
+    issues.push('support contact: URL must use https');
+  }
+  if (parsedSupportUrl.hostname !== 'github.com') {
+    issues.push('support contact: URL must point to github.com');
+  }
+  if (parsedSupportUrl.pathname !== '/CarbonCasteInc/VHC/issues/new') {
+    issues.push('support contact: URL must open a new issue in CarbonCasteInc/VHC');
+  }
+  if (parsedSupportUrl.searchParams.get('template') !== 'public-beta-support.yml') {
+    issues.push('support contact: URL must select the public beta support issue template');
+  }
+} catch {
+  issues.push('support contact: URL is malformed');
+}
 
 for (const page of requiredPages) {
   requireIncludes(files.compliance, compliance, `id: '${page.id}'`, `${page.id} page id`);
@@ -86,9 +122,10 @@ for (const page of requiredPages) {
 const requiredDocsPhrases = [
   'Privacy, terms, UGC/moderation, support/contact, data deletion, telemetry/remote AI consent, and content/copyright boundaries',
   'This is not legal approval',
-  'Public beta remains blocked if an operator cannot provide a reachable support/contact channel',
+  'The reachable public beta support channel is the VHC GitHub Issue Form',
   'trust-gated operator roles remain outside this minimum',
   'Public reports are workflow records, not a private support inbox',
+  'Support requests are public workflow records, not private correspondence',
   'validated snapshot does not prove live-feed freshness',
 ];
 
@@ -99,7 +136,7 @@ for (const phrase of requiredDocsPhrases) {
 requireRegex(
   files.roadmap,
   roadmap,
-  /Compliance \| Go for public beta policy surfaces;/,
+  /Compliance \| Go for public beta policy surfaces and provisioned support\/contact;/,
   'compliance go/no-go row updated for policy surfaces',
 );
 requireRegex(
@@ -126,11 +163,29 @@ const forbiddenOverclaimPatterns = [
   /\bfull moderation operations program is implemented\b/i,
 ];
 
+const forbiddenSupportPlaceholderPatterns = [
+  /\boperator-provided contact channel\b/i,
+  /\bbeta operator contact channel\b/i,
+  /\bchannel supplied with your beta invitation\b/i,
+  /\bwait for an operator-provided contact path\b/i,
+  /\bPublic beta remains blocked if an operator cannot provide\b/i,
+  /\bsupport@example\.com\b/i,
+  /\bTODO\b[^\n]*(support|contact)/i,
+  /\bTBD\b[^\n]*(support|contact)/i,
+  /\bplaceholder\b[^\n]*(support|contact)/i,
+];
+
 for (const [relPath, content] of overclaimFiles) {
   for (const pattern of forbiddenOverclaimPatterns) {
     const match = content.match(pattern);
     if (match) {
       issues.push(`${relPath}: forbidden public-beta overclaim "${match[0]}"`);
+    }
+  }
+  for (const pattern of forbiddenSupportPlaceholderPatterns) {
+    const match = content.match(pattern);
+    if (match) {
+      issues.push(`${relPath}: forbidden support/contact placeholder "${match[0]}"`);
     }
   }
 }
@@ -143,4 +198,4 @@ if (issues.length > 0) {
   process.exit(1);
 }
 
-console.log(`Public Beta Compliance: PASS (${requiredPages.length} policy routes checked)`);
+console.log(`Public Beta Compliance: PASS (${requiredPages.length} policy routes and support channel checked)`);
