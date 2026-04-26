@@ -127,6 +127,16 @@ const GATES = [
       'packages/gun-client/src/newsReportAdapters.ts',
     ],
   },
+  {
+    id: 'public_beta_compliance',
+    label: 'Public beta policy routes and release checklist match implemented scope',
+    command: ['pnpm', ['check:public-beta-compliance']],
+    artifactRefs: [
+      'apps/web-pwa/src/routes/publicBetaCompliance.tsx',
+      'docs/ops/public-beta-compliance-minimums.md',
+      'tools/scripts/check-public-beta-compliance.mjs',
+    ],
+  },
 ];
 
 function nowIso() {

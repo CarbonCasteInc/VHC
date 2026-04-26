@@ -14,6 +14,11 @@ import { ScanContact } from '../components/hermes/ScanContact';
 import { DashboardPage } from './dashboardContent';
 import { DevColorPanel } from '../components/DevColorPanel';
 import { NewsReportAdminQueue } from '../components/admin/NewsReportAdminQueue';
+import {
+  ComplianceFooter,
+  PublicBetaComplianceIndex,
+  PublicBetaCompliancePageView,
+} from './publicBetaCompliance';
 
 const RootComponent = () => (
   <RootShell>
@@ -85,6 +90,7 @@ const RootShell = ({ children }: { children: React.ReactNode }) => {
           )}
         </main>
       </div>
+      <ComplianceFooter />
       {import.meta.env.DEV && <DevColorPanel />}
     </PageWrapper>
   );
@@ -95,6 +101,16 @@ const HomeComponent = () => <FeedList />;
 const DashboardComponent = DashboardPage;
 
 const AdminReportsComponent = () => <NewsReportAdminQueue />;
+
+const ComplianceIndexComponent = () => <PublicBetaComplianceIndex />;
+const BetaScopeComponent = () => <PublicBetaCompliancePageView pageId="beta" />;
+const PrivacyComponent = () => <PublicBetaCompliancePageView pageId="privacy" />;
+const TermsComponent = () => <PublicBetaCompliancePageView pageId="terms" />;
+const ModerationComponent = () => <PublicBetaCompliancePageView pageId="moderation" />;
+const SupportComponent = () => <PublicBetaCompliancePageView pageId="support" />;
+const DataDeletionComponent = () => <PublicBetaCompliancePageView pageId="data-deletion" />;
+const TelemetryComponent = () => <PublicBetaCompliancePageView pageId="telemetry" />;
+const CopyrightComponent = () => <PublicBetaCompliancePageView pageId="copyright" />;
 
 const GovernanceComponent = () => (
   <section className="space-y-4">
@@ -227,11 +243,65 @@ const adminReportsRoute = createRoute({
   path: '/admin/reports',
   component: AdminReportsComponent
 });
+const complianceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/compliance',
+  component: ComplianceIndexComponent
+});
+const betaRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/beta',
+  component: BetaScopeComponent
+});
+const privacyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/privacy',
+  component: PrivacyComponent
+});
+const termsRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/terms',
+  component: TermsComponent
+});
+const moderationRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/moderation',
+  component: ModerationComponent
+});
+const supportRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/support',
+  component: SupportComponent
+});
+const dataDeletionRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/data-deletion',
+  component: DataDeletionComponent
+});
+const telemetryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/telemetry',
+  component: TelemetryComponent
+});
+const copyrightRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/copyright',
+  component: CopyrightComponent
+});
 
 export const routeTree = rootRoute.addChildren([
   indexRoute,
   hermesRoute.addChildren([hermesIndexRoute, hermesMessagesRoute, hermesMessagesChannelRoute, hermesThreadRoute]),
   governanceRoute,
   dashboardRoute,
-  adminReportsRoute
+  adminReportsRoute,
+  complianceRoute,
+  betaRoute,
+  privacyRoute,
+  termsRoute,
+  moderationRoute,
+  supportRoute,
+  dataDeletionRoute,
+  telemetryRoute,
+  copyrightRoute
 ]);

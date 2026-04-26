@@ -42,6 +42,10 @@ describe('EngineSettings', () => {
       screen.getByText(/Allow remote AI fallback when on-device AI is unavailable\./i)
     ).toBeInTheDocument();
     expect(screen.getByText(/remote AI server/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /telemetry and remote AI policy/i })).toHaveAttribute(
+      'href',
+      '/telemetry',
+    );
   });
 
   it('clicking toggle calls setOptIn with the next value', () => {

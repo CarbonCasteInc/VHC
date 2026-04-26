@@ -32,7 +32,7 @@ export const EngineSettings: React.FC = () => {
         />
         <span>
           Allow remote AI fallback when on-device AI is unavailable. Article text will be sent to a remote AI
-          server.
+          server. Review the <a className="underline underline-offset-2" href="/telemetry">telemetry and remote AI policy</a>.
         </span>
       </label>
     </div>

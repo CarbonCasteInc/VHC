@@ -244,6 +244,12 @@ const CommentItem: React.FC<CommentItemProps> = ({
                       >
                         {reportStatus === 'submitted' ? 'Reported' : reportStatus === 'submitting' ? 'Reporting' : 'Report'}
                       </button>
+                      <a
+                        className="font-medium text-slate-500 underline underline-offset-2 hover:text-slate-800 dark:hover:text-slate-200"
+                        href="/moderation"
+                      >
+                        Policy
+                      </a>
                       {reportStatus === 'error' && reportError && (
                         <span className="text-rose-700 dark:text-rose-200" role="alert">
                           {reportError}
