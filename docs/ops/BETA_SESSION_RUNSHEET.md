@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook
 > Owner: VHC Ops
-> Last Reviewed: 2026-03-20
+> Last Reviewed: 2026-04-26
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
@@ -49,6 +49,23 @@ Required operator decision:
 2. if production-readiness is `blocked` because of headline-soak / live-feed reasons, do not present the session as public-feed validation;
 3. either pause the session or explicitly scope it to fixture-backed / non-public-feed validation;
 4. if the scout reports a promotable candidate, note it in the session log, but do not change the source surface mid-session.
+
+### 0.1 Public beta policy/support check
+
+Before any session is described as a public beta session, verify the public
+policy and support/contact surface:
+
+```
+pnpm check:public-beta-compliance
+```
+
+The support path is `/support`, which links to the VHC public beta GitHub Issue
+Form. That form is public. Do not ask testers to post private personal data,
+legal notices, identity documents, raw proof material, provider secrets,
+confidential support correspondence, or full copyrighted articles into support
+issues, story replies, or report reasons. If a deletion, copyright, abuse, or
+account issue requires private details, record only public-safe context and
+arrange an operator handoff outside the public issue body.
 
 ### 1. Infrastructure health
 
@@ -159,4 +176,4 @@ Flip-switch:    eligible (day N of 2) | not eligible (reason)
 1. **Identity:** single browser profile per tester. No incognito, no storage clears, no device switching. Clearing browser data = new identity; prior votes become orphaned.
 2. **Vote mutation:** last-write-wins per user. You can change your vote; aggregate updates accordingly.
 3. **Degradation:** if the bias table doesn't load within ~10s after clicking a headline, reload once. If it still doesn't load, report to operator. Do not repeatedly click — it burns analysis budget.
-4. **Feedback:** report issues immediately to operator with: what you clicked, what you expected, what you saw, browser console screenshot if possible.
+4. **Feedback:** report live-session issues immediately to the operator with: what you clicked, what you expected, what you saw, browser console screenshot if possible. Out-of-session public beta support uses `/support`; do not post private details into public GitHub issues.

@@ -6,7 +6,7 @@
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.3
+Version: 0.4
 Status: Canonical (V2-first)
 
 Defines data placement, mesh path conventions, and privacy constraints for Season 0.
@@ -70,6 +70,14 @@ material, provider secrets, or personal support correspondence. `reporter_id`
 and `operator_id` are public pseudonymous identifiers; product copy must not
 present these records as a complete compliance, appeal, or case-management
 system.
+
+Public beta support requests are currently handled by the repository GitHub
+Issue Form linked from `/support`, not by a private mesh support desk. Those
+issues are public workflow records and MUST NOT request or include private
+personal data, legal notices, raw identity/proof material, provider secrets, or
+confidential support correspondence. Deletion, copyright, abuse, or account
+matters that require private details need an operator handoff outside the public
+issue body.
 
 ## 3. Sensitive data rules
 
