@@ -56,6 +56,36 @@ const REVIEWED_REPORT: HermesNewsReport = {
   },
 };
 
+const ACTIONED_SYNTHESIS_REPORT: HermesNewsReport = {
+  ...REPORT,
+  status: 'actioned',
+  audit: {
+    action: 'news_report',
+    operator_id: 'ops-1',
+    reviewed_at: 201,
+    resolution: 'synthesis_suppressed',
+    correction_id: 'correction-1',
+  },
+};
+
+const ACTIONED_COMMENT_REPORT: HermesNewsReport = {
+  ...REPORT,
+  target: {
+    type: 'story_thread_comment',
+    thread_id: 'news-story:story-1',
+    comment_id: 'comment-1',
+  },
+  reason_code: 'abusive_content',
+  status: 'actioned',
+  audit: {
+    action: 'news_report',
+    operator_id: 'ops-1',
+    reviewed_at: 202,
+    resolution: 'comment_hidden',
+    moderation_id: 'moderation-1',
+  },
+};
+
 function createMockChain() {
   const chain: any = {};
   chain.once = vi.fn((cb?: (data: unknown) => void) => cb?.({}));
@@ -132,6 +162,32 @@ describe('newsReportAdapters', () => {
       }),
     ).rejects.toThrow('lacks review_news_report');
     await expect(writeNewsReport(client, REVIEWED_REPORT, OPERATOR_AUTHORIZATION)).resolves.toEqual(REVIEWED_REPORT);
+  });
+
+  it('requires remediation capabilities when actioned report writes claim remediation', async () => {
+    const chain = createMockChain();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+
+    await expect(
+      writeNewsReport(client, ACTIONED_SYNTHESIS_REPORT, {
+        ...OPERATOR_AUTHORIZATION,
+        capabilities: ['review_news_report'],
+      }),
+    ).rejects.toThrow('lacks write_synthesis_correction');
+    await expect(
+      writeNewsReport(client, ACTIONED_COMMENT_REPORT, {
+        ...OPERATOR_AUTHORIZATION,
+        capabilities: ['review_news_report'],
+      }),
+    ).rejects.toThrow('lacks moderate_story_thread');
+
+    await expect(writeNewsReport(client, ACTIONED_SYNTHESIS_REPORT, OPERATOR_AUTHORIZATION)).resolves.toEqual(
+      ACTIONED_SYNTHESIS_REPORT,
+    );
+    await expect(writeNewsReport(client, ACTIONED_COMMENT_REPORT, OPERATOR_AUTHORIZATION)).resolves.toEqual(
+      ACTIONED_COMMENT_REPORT,
+    );
   });
 
   it('reads path-bound report records and rejects mismatched ids', async () => {

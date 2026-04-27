@@ -176,6 +176,12 @@ export async function writeNewsReport(
   if (sanitized.status !== 'pending') {
     const operatorId = normalizeId(sanitized.audit.operator_id as string, 'operatorId');
     assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'review_news_report');
+    if (sanitized.audit.resolution?.startsWith('synthesis_')) {
+      assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'write_synthesis_correction');
+    }
+    if (sanitized.audit.resolution?.startsWith('comment_')) {
+      assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'moderate_story_thread');
+    }
   }
   await putWithAck(getNewsReportChain(client, reportId), sanitized);
   await putWithAck(getNewsReportStatusIndexEntryChain(client, sanitized.status, reportId), {
