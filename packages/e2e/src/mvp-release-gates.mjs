@@ -162,6 +162,17 @@ const GATES = [
       'tools/scripts/check-public-beta-compliance.mjs',
     ],
   },
+  {
+    id: 'public_beta_launch_closeout',
+    label: 'Public beta launch closeout maps launch gates to deterministic evidence',
+    command: ['pnpm', ['check:public-beta-launch-closeout']],
+    artifactRefs: [
+      'docs/ops/public-beta-launch-readiness-closeout.md',
+      'tools/scripts/check-public-beta-launch-closeout.mjs',
+      'docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md',
+      'docs/foundational/STATUS.md',
+    ],
+  },
 ];
 
 function nowIso() {
