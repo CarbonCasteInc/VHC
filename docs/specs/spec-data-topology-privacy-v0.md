@@ -6,7 +6,7 @@
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.4
+Version: 0.5
 Status: Canonical (V2-first)
 
 Defines data placement, mesh path conventions, and privacy constraints for Season 0.
@@ -74,10 +74,14 @@ system.
 Public beta support requests are currently handled by the repository GitHub
 Issue Form linked from `/support`, not by a private mesh support desk. Those
 issues are public workflow records and MUST NOT request or include private
-personal data, legal notices, raw identity/proof material, provider secrets, or
-confidential support correspondence. Deletion, copyright, abuse, or account
-matters that require private details need an operator handoff outside the public
-issue body.
+personal data, legal notices, raw identity/proof material, provider secrets,
+confidential support correspondence, private abuse evidence, or full copyrighted
+material. Deletion, copyright, abuse, or account matters that require private
+details use a public-safe issue stub plus operator private handoff through the
+pre-existing non-public beta contact channel or counsel path outside the public
+GitHub issue body. Private handoff details MUST NOT be copied back into public
+mesh, public GitHub issues, report records, moderation records, or public audit
+records.
 
 ## 3. Sensitive data rules
 

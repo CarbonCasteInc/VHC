@@ -21,6 +21,21 @@ const supportContact = {
   issueTemplatePath: '.github/ISSUE_TEMPLATE/public-beta-support.yml',
 };
 
+const sensitiveSupportRequestTypes = [
+  'Account or access',
+  'Data deletion or correction',
+  'Abuse, safety, or moderation escalation',
+  'Copyright or attribution concern',
+];
+
+const privateEscalationPhrases = {
+  publicSafeStub: 'public-safe issue stub',
+  noPrivateGitHubAsk: 'Operators must not ask users to post private details in GitHub',
+  privateChannel: 'pre-existing non-public beta contact channel',
+  counselPath: 'counsel path outside',
+  noPrivateChannelFallback: 'If no private channel exists',
+};
+
 const files = {
   packageJson: 'package.json',
   routes: 'apps/web-pwa/src/routes/index.tsx',
@@ -29,6 +44,9 @@ const files = {
   newsCardBack: 'apps/web-pwa/src/components/feed/NewsCardBack.tsx',
   commentStream: 'apps/web-pwa/src/components/hermes/CommentStream.tsx',
   docs: 'docs/ops/public-beta-compliance-minimums.md',
+  betaRunbook: 'docs/ops/BETA_SESSION_RUNSHEET.md',
+  dataTopology: 'docs/specs/spec-data-topology-privacy-v0.md',
+  status: 'docs/foundational/STATUS.md',
   roadmap: 'docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md',
   supportIssueTemplate: supportContact.issueTemplatePath,
 };
@@ -65,6 +83,9 @@ const engineSettings = readRepoFile(files.engineSettings);
 const newsCardBack = readRepoFile(files.newsCardBack);
 const commentStream = readRepoFile(files.commentStream);
 const docs = readRepoFile(files.docs);
+const betaRunbook = readRepoFile(files.betaRunbook);
+const dataTopology = readRepoFile(files.dataTopology);
+const status = readRepoFile(files.status);
 const roadmap = readRepoFile(files.roadmap);
 const supportIssueTemplate = readRepoFile(files.supportIssueTemplate);
 
@@ -89,8 +110,34 @@ requireIncludes(files.docs, docs, supportContact.href, 'provisioned support cont
 requireIncludes(files.docs, docs, supportContact.issueTemplatePath, 'support issue template docs reference');
 requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'name: Public beta support request', 'support issue template name');
 requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Do not include private personal data', 'support issue template privacy warning');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, privateEscalationPhrases.publicSafeStub, 'support issue public-safe stub instruction');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'private handoff outside this public GitHub issue', 'support issue private handoff instruction');
 requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Data deletion or correction', 'support issue deletion category');
 requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Copyright or attribution concern', 'support issue copyright category');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Abuse, safety, or moderation escalation', 'support issue abuse/safety category');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Account or access', 'support issue account/access category');
+requireIncludes(files.supportIssueTemplate, supportIssueTemplate, 'Do not paste private details', 'support issue public context no-private placeholder');
+
+for (const requestType of sensitiveSupportRequestTypes) {
+  requireIncludes(files.supportIssueTemplate, supportIssueTemplate, requestType, `${requestType} support issue option`);
+  requireIncludes(files.docs, docs, requestType, `${requestType} private escalation docs category`);
+}
+
+for (const phrase of Object.values(privateEscalationPhrases)) {
+  requireIncludes(files.docs, docs, phrase, `private escalation protocol phrase "${phrase}"`);
+}
+
+requireIncludes(files.compliance, compliance, privateEscalationPhrases.publicSafeStub, 'support page public-safe issue stub copy');
+requireIncludes(files.compliance, compliance, 'outside the public GitHub issue body', 'support page private handoff boundary');
+requireIncludes(files.compliance, compliance, 'private beta contact channel or counsel path', 'support page private handoff path');
+requireIncludes(files.compliance, compliance, 'Operators must not ask you to post private details in GitHub', 'support page operator no-private ask boundary');
+requireIncludes(files.betaRunbook, betaRunbook, 'Private escalation operator protocol', 'beta runbook private escalation operator protocol');
+requireIncludes(files.betaRunbook, betaRunbook, privateEscalationPhrases.publicSafeStub, 'beta runbook public-safe issue stub');
+requireIncludes(files.betaRunbook, betaRunbook, privateEscalationPhrases.privateChannel, 'beta runbook private contact channel');
+requireIncludes(files.dataTopology, dataTopology, privateEscalationPhrases.publicSafeStub, 'data topology public-safe issue stub');
+requireIncludes(files.dataTopology, dataTopology, 'Private handoff details MUST NOT be copied back into public', 'data topology private handoff data boundary');
+requireIncludes(files.status, status, 'minimum private escalation protocol', 'status private escalation protocol');
+requireIncludes(files.roadmap, roadmap, 'private escalation protocol coverage', 'roadmap private escalation coverage');
 
 try {
   const parsedSupportUrl = new URL(supportContact.href);
@@ -123,9 +170,11 @@ const requiredDocsPhrases = [
   'Privacy, terms, UGC/moderation, support/contact, data deletion, telemetry/remote AI consent, and content/copyright boundaries',
   'This is not legal approval',
   'The reachable public beta support channel is the VHC GitHub Issue Form',
+  'Private Escalation Protocol',
   'trust-gated operator roles remain outside this minimum',
   'Public reports are workflow records, not a private support inbox',
   'Support requests are public workflow records, not private correspondence',
+  'The private escalation protocol is an operator handoff rule, not a private support desk',
   'validated snapshot does not prove live-feed freshness',
 ];
 
@@ -136,8 +185,8 @@ for (const phrase of requiredDocsPhrases) {
 requireRegex(
   files.roadmap,
   roadmap,
-  /Compliance \| Go for public beta policy surfaces and provisioned support\/contact;/,
-  'compliance go/no-go row updated for policy surfaces',
+  /Compliance \| Go for public beta policy surfaces, provisioned support\/contact, and minimum private escalation protocol;/,
+  'compliance go/no-go row updated for policy surfaces and private escalation protocol',
 );
 requireRegex(
   files.roadmap,
@@ -175,6 +224,24 @@ const forbiddenSupportPlaceholderPatterns = [
   /\bplaceholder\b[^\n]*(support|contact)/i,
 ];
 
+const forbiddenIssueFormPrivateCollectionPatterns = [
+  /^\s*id:\s*(email|phone|contact|address|legal_notice|identity_document|raw_proof|provider_secret|confidential_correspondence|copyrighted_article)\b/im,
+  /\b(provide|paste|include|upload|attach|enter|share|submit)\b.{0,80}\b(email address|phone number|mailing address|private contact details|private personal data|legal notice|legal notices|identity document|identity documents|raw proof|provider secret|provider secrets|confidential support correspondence|full copyrighted article|full copyrighted articles|private details)\b/i,
+];
+
+function isNoPrivateDataWarning(line) {
+  return /\b(do not|don't|never|not included|have not included|without posting|without including)\b/i.test(line);
+}
+
+for (const [index, line] of supportIssueTemplate.split('\n').entries()) {
+  for (const pattern of forbiddenIssueFormPrivateCollectionPatterns) {
+    const match = line.match(pattern);
+    if (match && !isNoPrivateDataWarning(line)) {
+      issues.push(`${files.supportIssueTemplate}:${index + 1}: public support issue form appears to request private details "${match[0]}"`);
+    }
+  }
+}
+
 for (const [relPath, content] of overclaimFiles) {
   for (const pattern of forbiddenOverclaimPatterns) {
     const match = content.match(pattern);
@@ -198,4 +265,4 @@ if (issues.length > 0) {
   process.exit(1);
 }
 
-console.log(`Public Beta Compliance: PASS (${requiredPages.length} policy routes and support channel checked)`);
+console.log(`Public Beta Compliance: PASS (${requiredPages.length} policy routes, support channel, and private escalation protocol checked)`);

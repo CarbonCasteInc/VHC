@@ -7,8 +7,8 @@
 
 
 **Last Updated:** 2026-04-26
-**Version:** 0.8.5 (MVP release gates, public-beta policy/support surfaces, and curated fallback content)
-**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, and the Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path, curated launch-content fallback, accepted synthesis correction, story-thread moderation, and report-intake/admin-action coverage. Live corroborated headlines remain beta-gated by production-readiness evidence; legal review, private support escalation handling, trust-gated operator roles, broader admin workflow UX, and model/cost operations visibility remain separate launch approvals.
+**Version:** 0.8.6 (MVP release gates, public-beta policy/support surfaces, private escalation protocol, and curated fallback content)
+**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, and the Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, and report-intake/admin-action coverage. Live corroborated headlines remain beta-gated by production-readiness evidence; legal review, trust-gated operator roles, broader admin workflow UX, and model/cost operations visibility remain separate launch approvals.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -31,7 +31,7 @@
 | **Discovery Feed** | 🟢 Implemented with compact one-feed chrome, first-use orientation, fixture-backed integrity/semantic release gates, storyline-aware ranking/presentation, and deep-link focus state; public semantic soak remains smoke-only | ⚠️ Partial |
 | **Delegation Runtime** | 🟢 Store + hooks + control panel + 8/8 budget keys (all wired or deferred-with-rationale) | ⚠️ Partial |
 | **Linked-Social** | 🟡 Substrate + notification ingestion + feed cards | ⚠️ Partial |
-| **Public Beta Compliance** | 🟢 Web PWA policy routes, footer links, public support/contact GitHub Issue Form, and deterministic compliance gate | ⚠️ Partial |
+| **Public Beta Compliance** | 🟢 Web PWA policy routes, footer links, public support/contact GitHub Issue Form, minimum private escalation protocol, and deterministic compliance gate | ⚠️ Partial |
 
 ---
 
@@ -73,9 +73,10 @@ Current policy state:
 - Web PWA public-beta support/compliance minimums are implemented and gated:
   - route surface: `/compliance`, `/beta`, `/privacy`, `/terms`, `/moderation`, `/support`, `/data-deletion`, `/telemetry`, `/copyright`;
   - support/contact path: VHC public beta GitHub Issue Form linked from `/support`;
+  - private escalation protocol: deletion/correction, copyright/attribution, abuse/safety, and account/access cases stay as public-safe issue stubs while private details move to a non-public beta contact channel or counsel path outside GitHub;
   - focused gate: `pnpm check:public-beta-compliance`;
   - MVP report gate: `public_beta_compliance` inside `pnpm check:mvp-release-gates`;
-  - this is not legal approval, a private support inbox, trust-gated operator-role enforcement, or a full trust-and-safety operations console.
+  - this is not legal approval, a private support inbox, trust-gated operator-role enforcement, automated escalation/SLA handling, or a full trust-and-safety operations console.
 - Source-readiness evidence is now a concrete runtime/ops surface on `main`:
   - `pnpm report:news-sources:admission`
   - `pnpm report:news-sources:health`

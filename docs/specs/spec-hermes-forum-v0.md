@@ -6,7 +6,7 @@
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.10
+Version: 0.11
 Status: Canonical for Season 0 (V2-first alignment)
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.
 
@@ -275,10 +275,11 @@ Read/write requirements:
 
 Current Web PWA beta policy/support surfaces live outside the forum schema in
 `/compliance`, `/moderation`, `/support`, and
-`docs/ops/public-beta-compliance-minimums.md`. Out of scope for the current
-forum implementation: user block UX, trust-gated operator-role enforcement,
-private escalation handling for public support requests,
-notifications/escalation, and a broader case-management console.
+`docs/ops/public-beta-compliance-minimums.md`. The minimum private escalation
+protocol for public support requests is an operator process outside the forum
+schema. Out of scope for the current forum implementation: user block UX,
+trust-gated operator-role enforcement, notification/escalation automation, and
+a broader case-management console.
 
 ### 2.4 Post type contract (reply vs article)
 

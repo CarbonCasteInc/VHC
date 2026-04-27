@@ -67,6 +67,22 @@ issues, story replies, or report reasons. If a deletion, copyright, abuse, or
 account issue requires private details, record only public-safe context and
 arrange an operator handoff outside the public issue body.
 
+Private escalation operator protocol:
+
+1. Classify deletion/correction, copyright/attribution, abuse/safety, and
+   account/access requests as sensitive when the next useful fact would require
+   private details.
+2. Keep the GitHub issue as a public-safe issue stub containing only category,
+   public URLs, public story/topic/comment/report ids, and status.
+3. Do not ask users to post private details in GitHub. Move private details to
+   the pre-existing non-public beta contact channel, or to the counsel path for
+   legal/copyright matters, outside the public GitHub issue body.
+4. If no private channel exists, mark the public issue as `private handoff
+   required` and pause rather than collecting private details publicly.
+5. If sensitive details are posted accidentally, do not quote them back; use
+   available repository moderation/edit controls when available and continue
+   only from public-safe status text.
+
 ### 1. Infrastructure health
 
 ```

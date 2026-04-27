@@ -70,7 +70,10 @@ describe('public beta compliance surfaces', () => {
     expect(supportLink).toHaveAttribute('href', PUBLIC_BETA_SUPPORT_CONTACT.href);
     expect(supportLink).toHaveTextContent(PUBLIC_BETA_SUPPORT_CONTACT.label);
     expect(within(contactPanel).getByText(/creates a public GitHub issue/i)).toBeInTheDocument();
-    expect(within(contactPanel).getByText(/ask for an operator handoff/i)).toBeInTheDocument();
+    expect(within(contactPanel).getByText(/public-safe issue stub/i)).toBeInTheDocument();
+    expect(within(contactPanel).getByText(/outside the public GitHub issue body/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /private handoff boundary/i })).toBeInTheDocument();
+    expect(screen.getByText(/Operators must not ask you to post private details in GitHub/i)).toBeInTheDocument();
   });
 
   it('routes policy pages that need support escalation back to support', () => {
@@ -103,6 +106,7 @@ describe('public beta compliance surfaces', () => {
     expect(text).not.toContain('operator-provided contact path');
     expect(text).not.toContain('channel supplied with your beta invitation');
     expect(text).toContain('not a full moderation operations program');
+    expect(text).toContain('operators must not ask you to post private details in github');
     expect(text).toContain('beta-local');
   });
 });

@@ -22,9 +22,9 @@ export const PUBLIC_BETA_SUPPORT_CONTACT = {
   href: 'https://github.com/CarbonCasteInc/VHC/issues/new?template=public-beta-support.yml',
   issueTemplatePath: '.github/ISSUE_TEMPLATE/public-beta-support.yml',
   publicNotice:
-    'This creates a public GitHub issue. Do not include private contact details, identity documents, raw proof material, provider secrets, confidential support correspondence, or legal notices.',
+    'This creates a public GitHub issue. Do not include private contact details, personal data, legal notices, identity documents, raw proof material, provider secrets, confidential support correspondence, abuse evidence that exposes private people, or full copyrighted articles.',
   sensitiveEscalation:
-    'For deletion, copyright, abuse, or account concerns that require private details, open the request with only public-safe context and ask for an operator handoff.',
+    'For deletion, copyright, abuse, or account concerns that require private details, open only a public-safe issue stub; an operator must move the details to a private beta contact channel or counsel path outside the public GitHub issue body.',
 } as const;
 
 export interface PublicBetaCompliancePage {
@@ -148,6 +148,13 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
           `Use the ${PUBLIC_BETA_SUPPORT_CONTACT.label} form for account, access, safety, deletion, copyright, feedback, or urgent operational questions.`,
           PUBLIC_BETA_SUPPORT_CONTACT.publicNotice,
           PUBLIC_BETA_SUPPORT_CONTACT.sensitiveEscalation,
+        ],
+      },
+      {
+        heading: 'Private handoff boundary',
+        body: [
+          'Operators must not ask you to post private details in GitHub.',
+          'If a case needs private details, the public issue should track only the category, public ids or URLs, and handoff status; the private details must stay outside GitHub.',
         ],
       },
       {
