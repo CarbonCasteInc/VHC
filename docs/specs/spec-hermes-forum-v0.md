@@ -6,7 +6,7 @@
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.9
+Version: 0.10
 Status: Canonical for Season 0 (V2-first alignment)
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.
 
@@ -273,9 +273,12 @@ Read/write requirements:
 - `/admin/reports` is a minimal internal operator queue for refresh, dismiss,
   suppress/unavailable synthesis, and hide/restore comment actions.
 
-Out of scope for the current implementation: public policy text, user block UX,
-trust-gated operator-role enforcement, notifications/escalation, and a broader
-case-management console.
+Current Web PWA beta policy/support surfaces live outside the forum schema in
+`/compliance`, `/moderation`, `/support`, and
+`docs/ops/public-beta-compliance-minimums.md`. Out of scope for the current
+forum implementation: user block UX, trust-gated operator-role enforcement,
+private escalation handling for public support requests,
+notifications/escalation, and a broader case-management console.
 
 ### 2.4 Post type contract (reply vs article)
 
