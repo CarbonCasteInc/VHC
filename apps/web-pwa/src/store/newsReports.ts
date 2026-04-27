@@ -1,11 +1,14 @@
 import { create } from 'zustand';
 import {
+  assertTrustedOperatorAuthorization,
   HermesNewsReportSchema,
   type HermesCommentModeration,
   type HermesNewsReport,
   type HermesNewsReportReasonCode,
   type HermesNewsReportStatus,
   type TopicSynthesisCorrection,
+  type TrustedOperatorAuthorization,
+  type TrustedOperatorCapability,
 } from '@vh/data-model';
 import {
   readNewsReport,
@@ -60,7 +63,7 @@ export interface NewsReportsState {
   applyOperatorAction(
     reportId: string,
     action: NewsReportOperatorAction,
-    operatorId?: string,
+    operatorAuthorization?: TrustedOperatorAuthorization | null,
     notes?: string
   ): Promise<HermesNewsReport>;
   reset(): void;
@@ -73,9 +76,21 @@ interface NewsReportsDeps {
   getReporterId: () => string | null;
   readReport: (client: VennClient, reportId: string) => Promise<HermesNewsReport | null>;
   readQueue: (client: VennClient, status: HermesNewsReportStatus) => Promise<HermesNewsReport[]>;
-  writeReport: (client: VennClient, report: HermesNewsReport) => Promise<HermesNewsReport>;
-  writeCorrection: (client: VennClient, correction: TopicSynthesisCorrection) => Promise<TopicSynthesisCorrection>;
-  writeModeration: (client: VennClient, moderation: HermesCommentModeration) => Promise<HermesCommentModeration>;
+  writeReport: (
+    client: VennClient,
+    report: HermesNewsReport,
+    operatorAuthorization?: TrustedOperatorAuthorization | null
+  ) => Promise<HermesNewsReport>;
+  writeCorrection: (
+    client: VennClient,
+    correction: TopicSynthesisCorrection,
+    operatorAuthorization: TrustedOperatorAuthorization
+  ) => Promise<TopicSynthesisCorrection>;
+  writeModeration: (
+    client: VennClient,
+    moderation: HermesCommentModeration,
+    operatorAuthorization: TrustedOperatorAuthorization
+  ) => Promise<HermesCommentModeration>;
 }
 
 function normalizeOptional(value: string | null | undefined): string | undefined {
@@ -143,6 +158,16 @@ function ensureReporter(reporterId: string | null): string {
     throw new Error('Identity is required to submit a report');
   }
   return reporterId;
+}
+
+function ensureTrustedOperatorAuthorization(
+  authorization: TrustedOperatorAuthorization | null | undefined,
+  capability: TrustedOperatorCapability,
+): TrustedOperatorAuthorization {
+  if (!authorization) {
+    throw new Error('Trusted operator authorization is required');
+  }
+  return assertTrustedOperatorAuthorization(authorization, authorization.operator_id, capability);
 }
 
 export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
@@ -260,9 +285,10 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
       return written;
     },
 
-    async applyOperatorAction(reportId, action, operatorId = 'operator-local', notes) {
+    async applyOperatorAction(reportId, action, operatorAuthorization, notes) {
       const normalizedReportId = normalizeRequired(reportId, 'reportId');
-      const normalizedOperatorId = normalizeRequired(operatorId, 'operatorId');
+      const authorization = ensureTrustedOperatorAuthorization(operatorAuthorization, 'review_news_report');
+      const normalizedOperatorId = authorization.operator_id;
       const client = ensureClient(deps.resolveClient());
       const existingReport = get().reports.get(normalizedReportId) ?? await deps.readReport(client, normalizedReportId);
       if (!existingReport) {
@@ -287,7 +313,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
             notes: normalizeOptional(notes),
           },
         });
-        const written = await deps.writeReport(client, updated);
+        const written = await deps.writeReport(client, updated, authorization);
         get().setReport(written);
         return written;
       }
@@ -296,6 +322,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
         if (action !== 'suppress_synthesis' && action !== 'mark_synthesis_unavailable') {
           throw new Error('Operator action does not match report target');
         }
+        assertTrustedOperatorAuthorization(authorization, normalizedOperatorId, 'write_synthesis_correction');
         const correctionId = makeArtifactId(
           'correction',
           existingReport.report_id,
@@ -318,7 +345,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
             notes: normalizeOptional(notes),
           },
         };
-        const writtenCorrection = await deps.writeCorrection(client, correction);
+        const writtenCorrection = await deps.writeCorrection(client, correction, authorization);
         useSynthesisStore.getState().setTopicCorrection(writtenCorrection.topic_id, writtenCorrection);
         updated = HermesNewsReportSchema.parse({
           ...existingReport,
@@ -332,7 +359,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
             notes: normalizeOptional(notes),
           },
         });
-        const written = await deps.writeReport(client, updated);
+        const written = await deps.writeReport(client, updated, authorization);
         get().setReport(written);
         return written;
       }
@@ -340,6 +367,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
       if (action !== 'hide_comment' && action !== 'restore_comment') {
         throw new Error('Operator action does not match report target');
       }
+      assertTrustedOperatorAuthorization(authorization, normalizedOperatorId, 'moderate_story_thread');
       const moderationId = makeArtifactId(
         'moderation',
         existingReport.report_id,
@@ -361,7 +389,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
           notes: normalizeOptional(notes),
         },
       };
-      const writtenModeration = await deps.writeModeration(client, moderation);
+      const writtenModeration = await deps.writeModeration(client, moderation, authorization);
       useForumStore.getState().setCommentModeration(writtenModeration.thread_id, writtenModeration);
       updated = HermesNewsReportSchema.parse({
         ...existingReport,
@@ -375,7 +403,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
           notes: normalizeOptional(notes),
         },
       });
-      const written = await deps.writeReport(client, updated);
+      const written = await deps.writeReport(client, updated, authorization);
       get().setReport(written);
       return written;
     },

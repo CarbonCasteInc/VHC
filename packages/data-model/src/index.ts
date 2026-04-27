@@ -15,6 +15,7 @@ export * from './schemas/hermes/storyBundle';
 export * from './schemas/hermes/storylineGroup';
 export * from './schemas/hermes/synthesis';
 export * from './schemas/hermes/newsReport';
+export * from './schemas/hermes/operatorTrust';
 export * from './schemas/hermes/sentiment';
 export * from './schemas/hermes/notification';
 export * from './schemas/hermes/elevation';

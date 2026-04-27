@@ -2,11 +2,11 @@
 
 > Status: Normative Spec (Canonical)
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-26
+> Last Reviewed: 2026-04-27
 > Depends On: docs/foundational/System_Architecture.md, docs/foundational/LUMA_BriefWhitePaper.md
 
 
-Version: 0.3
+Version: 0.4
 Status: Canonical for Season 0 (Sprints 2-5)
 
 This spec is the single contract for identity, trustScore, and constituency across LUMA (identity), GWC (economics/governance), and VENN (civic signals). All client, mesh, and chain components must conform to these types and invariants.
@@ -52,7 +52,7 @@ References:
   | Dashboard tier display | ≥ 0.5 / ≥ 0.7 | ≥ 5000 / ≥ 7000 | Visual tier indicator | `dashboardContent.tsx:183,178` |
   | QF / governance votes | ≥ 0.7 | ≥ 7000 | High-impact civic action | `useGovernance.ts:30` (`MIN_TRUST_TO_VOTE`) |
   | CAK send/finalize + receipt | ≥ 0.7 | ≥ 7000 | Outbound civic forwarding | `ActionComposer.tsx:73` (per CAK §7.1) |
-  | Moderation/admin actions | ≥ 0.7 | ≥ 7000 | High-impact remediation path; minimum `/admin/reports` operator UI and audited report-to-action records exist, trust-gated operator roles still TBD | `HermesNewsReportSchema`, `NewsReportAdminQueue.tsx`, `newsReportAdapters.ts` |
+  | Moderation/admin actions | ≥ 0.7 | ≥ 7000 | High-impact remediation path; minimum `/admin/reports` operator UI, audited report-to-action records, and trusted beta operator authorization exist; full RBAC/admin membership management remains TBD | `TrustedOperatorAuthorizationSchema`, `useOperatorTrustStore`, `HermesNewsReportSchema`, `NewsReportAdminQueue.tsx`, `newsReportAdapters.ts` |
   | Future high-privilege | 0.7-0.8 | 7000-8000 | Reserved range for Season 1+ | - |
 
   **Consolidation target (impl guidance, not spec-normative):** Extract a single `TRUST_THRESHOLDS` constant (e.g., in `packages/types/src/identity.ts` or a shared constants module) and replace all inline magic numbers. This is an implementation task, not a spec requirement - but implementations SHOULD converge on one import.

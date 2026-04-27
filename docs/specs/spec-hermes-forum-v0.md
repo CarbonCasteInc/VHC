@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-26
+> Last Reviewed: 2026-04-27
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.11
+Version: 0.12
 Status: Canonical for Season 0 (V2-first alignment)
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.
 
@@ -182,9 +182,11 @@ Read/write requirements:
   controls in story detail;
 - when the action originates from the news report queue, preserve
   `audit.source_report_id`;
-- do not claim user blocking, trust-gated operator roles, notification
-  workflow, or a full trust-and-safety console exists from this minimum
-  hide/restore path alone.
+- comment moderation writes require `TrustedOperatorAuthorizationSchema` with
+  the `moderate_story_thread` capability;
+- do not claim user blocking, full RBAC/admin membership management,
+  notification workflow, appeals, or a full trust-and-safety console exists
+  from this minimum hide/restore path alone.
 
 ### 2.3.3 News report intake and operator action records
 
@@ -270,6 +272,14 @@ Read/write requirements:
   with `audit.source_report_id`;
 - comment actions write existing `hermes-comment-moderation-v1` records with
   `audit.source_report_id`;
+- reviewed/actioned report writes require a `TrustedOperatorAuthorizationSchema`
+  record with `review_news_report`;
+- synthesis correction writes require `write_synthesis_correction`;
+- comment moderation writes require `moderate_story_thread`;
+- `/admin/reports` resolves the current trusted beta operator from the
+  explicit `VITE_VH_TRUSTED_OPERATOR_IDS` allowlist plus `VITE_VH_OPERATOR_ID`
+  or the current identity nullifier; it fails closed when no allowlisted
+  operator is present;
 - `/admin/reports` is a minimal internal operator queue for refresh, dismiss,
   suppress/unavailable synthesis, and hide/restore comment actions.
 
@@ -278,8 +288,8 @@ Current Web PWA beta policy/support surfaces live outside the forum schema in
 `docs/ops/public-beta-compliance-minimums.md`. The minimum private escalation
 protocol for public support requests is an operator process outside the forum
 schema. Out of scope for the current forum implementation: user block UX,
-trust-gated operator-role enforcement, notification/escalation automation, and
-a broader case-management console.
+full RBAC/admin membership management, notification/escalation automation,
+appeals, and a broader case-management console.
 
 ### 2.4 Post type contract (reply vs article)
 
@@ -642,6 +652,7 @@ Storage and sync:
 - [x] Gun adapters for threads/comments/indexes
 - [x] Gun adapters for audited comment hide/restore moderation
 - [x] Gun adapters for typed news report intake and status queue indexes
+- [x] Gun adapters require trusted beta operator authorization for reviewed reports, synthesis corrections, and comment moderation writes
 - [ ] Gun adapters for standalone post publication path
 - [x] Hydration with required-field checks and Zod validation
 - [x] Deduplication TTL map
@@ -661,7 +672,8 @@ UX:
 - [x] Thread create/comment load/comment post failures surface as recoverable UI states
 - [x] Audited hide/restore moderation state hides story-reply content with provenance
 - [x] Minimum report intake and `/admin/reports` operator action queue for accepted synthesis and story replies
-- [ ] User block UX, trust-gated operator roles, notifications/escalation, and broader moderation queue/admin affordances
+- [x] Minimum trusted beta operator gate for current report dismissal, synthesis correction, and comment moderation actions
+- [ ] User block UX, full RBAC/admin membership management, notifications/escalation, appeals, and broader moderation queue/admin affordances
 - [ ] Convert-to-article CTA + docs handoff
 - [ ] Article publish back into topic/forum surface
 

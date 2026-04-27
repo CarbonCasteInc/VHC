@@ -1,4 +1,5 @@
 import {
+  assertTrustedOperatorAuthorization,
   CandidateSynthesisSchema,
   TopicDigestInputSchema,
   TopicSynthesisCorrectionSchema,
@@ -6,7 +7,8 @@ import {
   type CandidateSynthesis,
   type TopicDigest,
   type TopicSynthesisCorrection,
-  type TopicSynthesisV2
+  type TopicSynthesisV2,
+  type TrustedOperatorAuthorization
 } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
@@ -413,12 +415,15 @@ export async function readTopicLatestSynthesisCorrection(
 
 export async function writeTopicSynthesisCorrection(
   client: VennClient,
-  correction: unknown
+  correction: unknown,
+  operatorAuthorization: TrustedOperatorAuthorization | null | undefined
 ): Promise<TopicSynthesisCorrection> {
   assertNoForbiddenSynthesisFields(correction);
   const sanitized = TopicSynthesisCorrectionSchema.parse(correction);
   const topicId = normalizeTopicId(sanitized.topic_id);
   const correctionId = normalizeId(sanitized.correction_id, 'correctionId');
+  const operatorId = normalizeId(sanitized.operator_id, 'operatorId');
+  assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'write_synthesis_correction');
   await putWithAck(getTopicSynthesisCorrectionChain(client, topicId, correctionId), sanitized);
   await putWithAck(getTopicLatestSynthesisCorrectionChain(client, topicId), sanitized);
   return sanitized;

@@ -3,6 +3,8 @@ import type {
   HermesCommentModeration,
   HermesNewsReport,
   TopicSynthesisCorrection,
+  TrustedOperatorAuthorization,
+  TrustedOperatorCapability,
 } from '@vh/data-model';
 import type { VennClient } from '@vh/gun-client';
 import { createNewsReportsStore } from './newsReports';
@@ -10,6 +12,27 @@ import { useForumStore } from './hermesForum';
 import { useSynthesisStore } from './synthesis';
 
 const CLIENT = {} as VennClient;
+
+function operatorAuthorization(
+  operatorId: string,
+  capabilities: readonly TrustedOperatorCapability[] = [
+    'review_news_report',
+    'write_synthesis_correction',
+    'moderate_story_thread',
+    'private_support_handoff',
+  ],
+): TrustedOperatorAuthorization {
+  return {
+    schemaVersion: 'vh-trusted-operator-authorization-v1',
+    operator_id: operatorId,
+    role: 'trusted_beta_operator',
+    capabilities: [...capabilities],
+    granted_at: 100,
+  };
+}
+
+const OPERATOR_AUTH_OPS_1 = operatorAuthorization('ops-1');
+const OPERATOR_AUTH_OPS_2 = operatorAuthorization('ops-2');
 
 const SYNTHESIS_REPORT: HermesNewsReport = {
   schemaVersion: 'hermes-news-report-v1',
@@ -166,10 +189,12 @@ describe('news report store', () => {
 
   it('applies synthesis suppression actions and links correction audit back to the report', async () => {
     let writtenCorrection: TopicSynthesisCorrection | null = null;
-    const writeCorrection = vi.fn(async (_client: VennClient, correction: TopicSynthesisCorrection) => {
-      writtenCorrection = correction;
-      return correction;
-    });
+    const writeCorrection = vi.fn(
+      async (_client: VennClient, correction: TopicSynthesisCorrection, _authorization: TrustedOperatorAuthorization) => {
+        writtenCorrection = correction;
+        return correction;
+      },
+    );
     const writeReport = vi.fn(async (_client: VennClient, report: HermesNewsReport) => report);
     const store = createNewsReportsStore({
       resolveClient: () => CLIENT,
@@ -183,7 +208,7 @@ describe('news report store', () => {
     const updated = await store.getState().applyOperatorAction(
       'report-synthesis-1',
       'suppress_synthesis',
-      'ops-1',
+      OPERATOR_AUTH_OPS_1,
       'Confirmed bad attribution.',
     );
 
@@ -213,11 +238,15 @@ describe('news report store', () => {
         correction_id: 'correction-report-synthesis-1-suppress',
       },
     });
-    expect(writeReport).toHaveBeenLastCalledWith(CLIENT, updated);
+    expect(writeCorrection).toHaveBeenCalledWith(CLIENT, expect.anything(), OPERATOR_AUTH_OPS_1);
+    expect(writeReport).toHaveBeenLastCalledWith(CLIENT, updated, OPERATOR_AUTH_OPS_1);
   });
 
   it('maps non-synthesis report reasons when applying synthesis correction actions', async () => {
-    const writeCorrection = vi.fn(async (_client: VennClient, correction: TopicSynthesisCorrection) => correction);
+    const writeCorrection = vi.fn(
+      async (_client: VennClient, correction: TopicSynthesisCorrection, _authorization: TrustedOperatorAuthorization) =>
+        correction,
+    );
     const store = createNewsReportsStore({
       resolveClient: () => CLIENT,
       now: () => 203,
@@ -228,33 +257,38 @@ describe('news report store', () => {
     store.getState().setReport({ ...SYNTHESIS_REPORT, report_id: 'report-abusive', reason_code: 'abusive_content' });
     store.getState().setReport({ ...SYNTHESIS_REPORT, report_id: 'report-other', reason_code: 'other' });
 
-    await store.getState().applyOperatorAction('report-spam', 'mark_synthesis_unavailable', 'ops-1');
-    await store.getState().applyOperatorAction('report-abusive', 'mark_synthesis_unavailable', 'ops-1');
-    await store.getState().applyOperatorAction('report-other', 'suppress_synthesis', 'ops-1');
+    await store.getState().applyOperatorAction('report-spam', 'mark_synthesis_unavailable', OPERATOR_AUTH_OPS_1);
+    await store.getState().applyOperatorAction('report-abusive', 'mark_synthesis_unavailable', OPERATOR_AUTH_OPS_1);
+    await store.getState().applyOperatorAction('report-other', 'suppress_synthesis', OPERATOR_AUTH_OPS_1);
 
     expect(writeCorrection).toHaveBeenNthCalledWith(
       1,
       CLIENT,
       expect.objectContaining({ reason_code: 'policy_violation' }),
+      OPERATOR_AUTH_OPS_1,
     );
     expect(writeCorrection).toHaveBeenNthCalledWith(
       2,
       CLIENT,
       expect.objectContaining({ reason_code: 'policy_violation' }),
+      OPERATOR_AUTH_OPS_1,
     );
     expect(writeCorrection).toHaveBeenNthCalledWith(
       3,
       CLIENT,
       expect.objectContaining({ reason_code: 'operator_override' }),
+      OPERATOR_AUTH_OPS_1,
     );
   });
 
   it('applies comment hide actions and links moderation audit back to the report', async () => {
     let writtenModeration: HermesCommentModeration | null = null;
-    const writeModeration = vi.fn(async (_client: VennClient, moderation: HermesCommentModeration) => {
-      writtenModeration = moderation;
-      return moderation;
-    });
+    const writeModeration = vi.fn(
+      async (_client: VennClient, moderation: HermesCommentModeration, _authorization: TrustedOperatorAuthorization) => {
+        writtenModeration = moderation;
+        return moderation;
+      },
+    );
     const store = createNewsReportsStore({
       resolveClient: () => CLIENT,
       now: () => 201,
@@ -264,7 +298,7 @@ describe('news report store', () => {
     });
     store.getState().setReport(COMMENT_REPORT);
 
-    const updated = await store.getState().applyOperatorAction('report-comment-1', 'hide_comment', 'ops-2');
+    const updated = await store.getState().applyOperatorAction('report-comment-1', 'hide_comment', OPERATOR_AUTH_OPS_2);
 
     expect(writtenModeration).toMatchObject({
       moderation_id: 'moderation-report-comment-1-hide',
@@ -282,10 +316,14 @@ describe('news report store', () => {
       'moderation-report-comment-1-hide',
     );
     expect(updated.audit.resolution).toBe('comment_hidden');
+    expect(writeModeration).toHaveBeenCalledWith(CLIENT, expect.anything(), OPERATOR_AUTH_OPS_2);
   });
 
   it('applies comment restore actions and rejects synthesis actions on comment reports', async () => {
-    const writeModeration = vi.fn(async (_client: VennClient, moderation: HermesCommentModeration) => moderation);
+    const writeModeration = vi.fn(
+      async (_client: VennClient, moderation: HermesCommentModeration, _authorization: TrustedOperatorAuthorization) =>
+        moderation,
+    );
     const store = createNewsReportsStore({
       resolveClient: () => CLIENT,
       now: () => 204,
@@ -294,17 +332,18 @@ describe('news report store', () => {
     });
     store.getState().setReport(COMMENT_REPORT);
 
-    await expect(store.getState().applyOperatorAction('report-comment-1', 'suppress_synthesis', 'ops-2')).rejects.toThrow(
-      'Operator action does not match report target',
-    );
+    await expect(
+      store.getState().applyOperatorAction('report-comment-1', 'suppress_synthesis', OPERATOR_AUTH_OPS_2),
+    ).rejects.toThrow('Operator action does not match report target');
 
-    const restored = await store.getState().applyOperatorAction('report-comment-1', 'restore_comment', 'ops-2');
+    const restored = await store.getState().applyOperatorAction('report-comment-1', 'restore_comment', OPERATOR_AUTH_OPS_2);
     expect(writeModeration).toHaveBeenCalledWith(
       CLIENT,
       expect.objectContaining({
         moderation_id: 'moderation-report-comment-1-restore',
         status: 'restored',
       }),
+      OPERATOR_AUTH_OPS_2,
     );
     expect(restored.audit.resolution).toBe('comment_restored');
   });
@@ -317,11 +356,11 @@ describe('news report store', () => {
     });
     store.getState().setReport(SYNTHESIS_REPORT);
 
-    await expect(store.getState().applyOperatorAction('report-synthesis-1', 'hide_comment', 'ops-1')).rejects.toThrow(
-      'Operator action does not match report target',
-    );
+    await expect(
+      store.getState().applyOperatorAction('report-synthesis-1', 'hide_comment', OPERATOR_AUTH_OPS_1),
+    ).rejects.toThrow('Operator action does not match report target');
 
-    const dismissed = await store.getState().applyOperatorAction('report-synthesis-1', 'dismiss', 'ops-1');
+    const dismissed = await store.getState().applyOperatorAction('report-synthesis-1', 'dismiss', OPERATOR_AUTH_OPS_1);
     expect(dismissed).toMatchObject({
       status: 'reviewed',
       audit: {
@@ -341,8 +380,12 @@ describe('news report store', () => {
       writeReport: vi.fn(async (_client, report) => report),
     });
 
-    await expect(store.getState().applyOperatorAction(' ', 'dismiss', 'ops-1')).rejects.toThrow('reportId is required');
-    await expect(store.getState().applyOperatorAction('missing', 'dismiss', 'ops-1')).rejects.toThrow('Report not found');
+    await expect(store.getState().applyOperatorAction(' ', 'dismiss', OPERATOR_AUTH_OPS_1)).rejects.toThrow(
+      'reportId is required',
+    );
+    await expect(store.getState().applyOperatorAction('missing', 'dismiss', OPERATOR_AUTH_OPS_1)).rejects.toThrow(
+      'Report not found',
+    );
 
     store.getState().setReport({ ...SYNTHESIS_REPORT, status: 'reviewed', audit: {
       action: 'news_report',
@@ -350,14 +393,67 @@ describe('news report store', () => {
       reviewed_at: 1,
       resolution: 'dismissed',
     } });
-    await expect(store.getState().applyOperatorAction('report-synthesis-1', 'dismiss', 'ops-1')).rejects.toThrow(
+    await expect(store.getState().applyOperatorAction('report-synthesis-1', 'dismiss', OPERATOR_AUTH_OPS_1)).rejects.toThrow(
       'Report has already been reviewed',
     );
 
     store.getState().setReport(SYNTHESIS_REPORT);
-    await expect(store.getState().applyOperatorAction('report-synthesis-1', 'dismiss', ' ')).rejects.toThrow(
-      'operatorId is required',
+    await expect(store.getState().applyOperatorAction('report-synthesis-1', 'dismiss', null)).rejects.toThrow(
+      'Trusted operator authorization is required',
     );
+  });
+
+  it('mvp gate: operator trust gate rejects unauthorized remediation and permits trusted operators', async () => {
+    const writeCorrection = vi.fn(
+      async (_client: VennClient, correction: TopicSynthesisCorrection, _authorization: TrustedOperatorAuthorization) =>
+        correction,
+    );
+    const writeModeration = vi.fn(
+      async (_client: VennClient, moderation: HermesCommentModeration, _authorization: TrustedOperatorAuthorization) =>
+        moderation,
+    );
+    const writeReport = vi.fn(
+      async (_client: VennClient, report: HermesNewsReport, _authorization?: TrustedOperatorAuthorization | null) => report,
+    );
+    const store = createNewsReportsStore({
+      resolveClient: () => CLIENT,
+      now: () => 206,
+      writeCorrection,
+      writeModeration,
+      writeReport,
+    });
+
+    store.getState().setReport(SYNTHESIS_REPORT);
+    await expect(
+      store.getState().applyOperatorAction(
+        'report-synthesis-1',
+        'suppress_synthesis',
+        operatorAuthorization('ops-1', ['review_news_report']),
+      ),
+    ).rejects.toThrow('lacks write_synthesis_correction');
+    expect(writeCorrection).not.toHaveBeenCalled();
+
+    await expect(
+      store.getState().applyOperatorAction('report-synthesis-1', 'suppress_synthesis', OPERATOR_AUTH_OPS_1),
+    ).resolves.toMatchObject({
+      status: 'actioned',
+      audit: { operator_id: 'ops-1', resolution: 'synthesis_suppressed' },
+    });
+
+    store.getState().setReport(COMMENT_REPORT);
+    await expect(
+      store.getState().applyOperatorAction(
+        'report-comment-1',
+        'hide_comment',
+        operatorAuthorization('ops-2', ['review_news_report']),
+      ),
+    ).rejects.toThrow('lacks moderate_story_thread');
+    await expect(
+      store.getState().applyOperatorAction('report-comment-1', 'hide_comment', OPERATOR_AUTH_OPS_2),
+    ).resolves.toMatchObject({
+      status: 'actioned',
+      audit: { operator_id: 'ops-2', resolution: 'comment_hidden' },
+    });
   });
 
   it('rejects submissions without mesh client or identity', async () => {

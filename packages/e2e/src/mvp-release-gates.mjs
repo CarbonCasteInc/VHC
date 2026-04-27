@@ -128,6 +128,31 @@ const GATES = [
     ],
   },
   {
+    id: 'operator_trust_gate',
+    label: 'Trusted beta operator authorization gates report remediation writes',
+    command: [
+      'pnpm',
+      [
+        'exec',
+        'vitest',
+        'run',
+        'apps/web-pwa/src/store/newsReports.test.ts',
+        'apps/web-pwa/src/components/admin/NewsReportAdminQueue.test.tsx',
+        '-t',
+        'mvp gate: operator trust gate',
+      ],
+    ],
+    artifactRefs: [
+      'packages/data-model/src/schemas/hermes/operatorTrust.ts',
+      'apps/web-pwa/src/store/operatorTrust.ts',
+      'apps/web-pwa/src/store/newsReports.ts',
+      'apps/web-pwa/src/components/admin/NewsReportAdminQueue.tsx',
+      'packages/gun-client/src/newsReportAdapters.ts',
+      'packages/gun-client/src/synthesisAdapters.ts',
+      'packages/gun-client/src/forumAdapters.ts',
+    ],
+  },
+  {
     id: 'public_beta_compliance',
     label: 'Public beta policy routes and release checklist match implemented scope',
     command: ['pnpm', ['check:public-beta-compliance']],

@@ -1,8 +1,10 @@
 import {
+  assertTrustedOperatorAuthorization,
   HermesNewsReportSchema,
   HermesNewsReportStatusSchema,
   type HermesNewsReport,
   type HermesNewsReportStatus,
+  type TrustedOperatorAuthorization,
 } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
@@ -164,9 +166,17 @@ export async function readNewsReportsByStatus(
     .sort((a, b) => a.created_at - b.created_at || a.report_id.localeCompare(b.report_id));
 }
 
-export async function writeNewsReport(client: VennClient, report: unknown): Promise<HermesNewsReport> {
+export async function writeNewsReport(
+  client: VennClient,
+  report: unknown,
+  operatorAuthorization?: TrustedOperatorAuthorization | null,
+): Promise<HermesNewsReport> {
   const sanitized = HermesNewsReportSchema.parse(report);
   const reportId = normalizeId(sanitized.report_id, 'reportId');
+  if (sanitized.status !== 'pending') {
+    const operatorId = normalizeId(sanitized.audit.operator_id as string, 'operatorId');
+    assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'review_news_report');
+  }
   await putWithAck(getNewsReportChain(client, reportId), sanitized);
   await putWithAck(getNewsReportStatusIndexEntryChain(client, sanitized.status, reportId), {
     report_id: reportId,

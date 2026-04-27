@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { CandidateSynthesis, StoryBundle, TopicDigest, TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
+import type {
+  CandidateSynthesis,
+  StoryBundle,
+  TopicDigest,
+  TopicSynthesisCorrection,
+  TopicSynthesisV2,
+  TrustedOperatorAuthorization,
+} from '@vh/data-model';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import { HydrationBarrier } from './sync/barrier';
@@ -169,6 +176,19 @@ const CORRECTION: TopicSynthesisCorrection = {
     action: 'synthesis_correction',
     notes: 'Suppressed from release gate fixture.',
   },
+};
+
+const OPERATOR_AUTHORIZATION: TrustedOperatorAuthorization = {
+  schemaVersion: 'vh-trusted-operator-authorization-v1',
+  operator_id: 'ops-user-1',
+  role: 'trusted_beta_operator',
+  capabilities: [
+    'review_news_report',
+    'write_synthesis_correction',
+    'moderate_story_thread',
+    'private_support_handoff',
+  ],
+  granted_at: 1700000000000,
 };
 
 const DIGEST: TopicDigest = {
@@ -399,7 +419,7 @@ describe('synthesisAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    const written = await writeTopicSynthesisCorrection(client, CORRECTION);
+    const written = await writeTopicSynthesisCorrection(client, CORRECTION, OPERATOR_AUTHORIZATION);
     expect(written).toEqual(CORRECTION);
     expect(mesh.writes).toEqual([
       { path: 'topics/topic-1/synthesis_corrections/correction-1', value: CORRECTION },
@@ -439,13 +459,34 @@ describe('synthesisAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    await expect(writeTopicSynthesisCorrection(client, { ...CORRECTION, status: 'hidden' })).rejects.toThrow();
-    await expect(writeTopicSynthesisCorrection(client, { ...CORRECTION, oauth_token: 'secret' })).rejects.toThrow(
+    await expect(writeTopicSynthesisCorrection(client, { ...CORRECTION, status: 'hidden' }, OPERATOR_AUTHORIZATION)).rejects.toThrow();
+    await expect(writeTopicSynthesisCorrection(client, { ...CORRECTION, oauth_token: 'secret' }, OPERATOR_AUTHORIZATION)).rejects.toThrow(
       'forbidden identity/token fields'
     );
 
     mesh.setPutError('topics/topic-1/synthesis_corrections/correction-1', 'correction write failed');
-    await expect(writeTopicSynthesisCorrection(client, CORRECTION)).rejects.toThrow('correction write failed');
+    await expect(writeTopicSynthesisCorrection(client, CORRECTION, OPERATOR_AUTHORIZATION)).rejects.toThrow(
+      'correction write failed'
+    );
+  });
+
+  it('requires trusted operator authorization for synthesis corrections', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(writeTopicSynthesisCorrection(client, CORRECTION, null)).rejects.toThrow(
+      'Trusted operator authorization is required'
+    );
+    await expect(
+      writeTopicSynthesisCorrection(client, CORRECTION, { ...OPERATOR_AUTHORIZATION, operator_id: 'other-ops' })
+    ).rejects.toThrow('does not match operator audit id');
+    await expect(
+      writeTopicSynthesisCorrection(client, CORRECTION, {
+        ...OPERATOR_AUTHORIZATION,
+        capabilities: ['review_news_report'],
+      })
+    ).rejects.toThrow('lacks write_synthesis_correction');
   });
 
   it('safely writes latest synthesis without downgrading newer or stronger latest state', async () => {

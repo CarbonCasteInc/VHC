@@ -3,9 +3,10 @@ import React from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HermesNewsReport } from '@vh/data-model';
+import type { HermesNewsReport, TrustedOperatorAuthorization } from '@vh/data-model';
 import { NewsReportAdminQueue } from './NewsReportAdminQueue';
 import { useNewsReportStore, type NewsReportOperatorAction } from '../../store/newsReports';
+import { createTrustedOperatorAuthorization, useOperatorTrustStore } from '../../store/operatorTrust';
 
 const SYNTHESIS_REPORT: HermesNewsReport = {
   schemaVersion: 'hermes-news-report-v1',
@@ -41,6 +42,8 @@ const COMMENT_REPORT: HermesNewsReport = {
 };
 
 const originalState = useNewsReportStore.getState();
+const originalOperatorTrustState = useOperatorTrustStore.getState();
+const OPERATOR_AUTHORIZATION = createTrustedOperatorAuthorization('ops-1');
 
 describe('NewsReportAdminQueue', () => {
   beforeEach(() => {
@@ -49,15 +52,16 @@ describe('NewsReportAdminQueue', () => {
       [COMMENT_REPORT.report_id, COMMENT_REPORT],
     ]);
     const applyOperatorAction = vi.fn(
-      async (reportId: string, action: NewsReportOperatorAction, operatorId = 'operator-local') => {
+      async (reportId: string, action: NewsReportOperatorAction, authorization: TrustedOperatorAuthorization | null) => {
         const current = useNewsReportStore.getState().reports.get(reportId);
         if (!current) throw new Error('Report not found');
+        if (!authorization) throw new Error('Trusted operator authorization is required');
         const updated: HermesNewsReport = {
           ...current,
           status: action === 'dismiss' ? 'reviewed' : 'actioned',
           audit: {
             action: 'news_report',
-            operator_id: operatorId,
+            operator_id: authorization.operator_id,
             reviewed_at: 200,
             resolution:
               action === 'dismiss'
@@ -88,11 +92,19 @@ describe('NewsReportAdminQueue', () => {
       refreshQueue: vi.fn(async () => Array.from(reports.values())),
       applyOperatorAction,
     }, true);
+
+    useOperatorTrustStore.setState({
+      ...originalOperatorTrustState,
+      authorization: OPERATOR_AUTHORIZATION,
+      error: null,
+      refreshAuthorization: vi.fn(() => OPERATOR_AUTHORIZATION),
+    }, true);
   });
 
   afterEach(() => {
     cleanup();
     useNewsReportStore.setState(originalState, true);
+    useOperatorTrustStore.setState(originalOperatorTrustState, true);
   });
 
   it('mvp gate: report intake admin action queue routes reports to audited remediation', async () => {
@@ -100,15 +112,15 @@ describe('NewsReportAdminQueue', () => {
 
     expect(screen.getByTestId('news-report-row-report-synthesis-1')).toHaveTextContent('Wrong source attribution.');
     expect(screen.getByTestId('news-report-row-report-comment-1')).toHaveTextContent('abusive_content');
+    expect(screen.getByTestId('news-report-operator-auth-status')).toHaveTextContent('Trusted operator: ops-1');
 
-    fireEvent.change(screen.getByTestId('news-report-operator-id'), { target: { value: 'ops-1' } });
     fireEvent.click(screen.getByTestId('news-report-suppress-report-synthesis-1'));
 
     await waitFor(() =>
       expect(useNewsReportStore.getState().applyOperatorAction).toHaveBeenCalledWith(
         'report-synthesis-1',
         'suppress_synthesis',
-        'ops-1',
+        OPERATOR_AUTHORIZATION,
       ),
     );
     await waitFor(() => expect(screen.queryByTestId('news-report-row-report-synthesis-1')).not.toBeInTheDocument());
@@ -124,7 +136,7 @@ describe('NewsReportAdminQueue', () => {
       expect(useNewsReportStore.getState().applyOperatorAction).toHaveBeenCalledWith(
         'report-comment-1',
         'hide_comment',
-        'ops-1',
+        OPERATOR_AUTHORIZATION,
       ),
     );
     expect(useNewsReportStore.getState().reports.get('report-comment-1')?.audit.resolution).toBe('comment_hidden');
@@ -138,9 +150,29 @@ describe('NewsReportAdminQueue', () => {
       expect(useNewsReportStore.getState().applyOperatorAction).toHaveBeenCalledWith(
         'report-comment-1',
         'dismiss',
-        'operator-local',
+        OPERATOR_AUTHORIZATION,
       ),
     );
     expect(useNewsReportStore.getState().reports.get('report-comment-1')?.audit.resolution).toBe('dismissed');
+  });
+
+  it('mvp gate: operator trust gate disables operator actions until trusted beta operator authorization is present', () => {
+    useOperatorTrustStore.setState({
+      ...originalOperatorTrustState,
+      authorization: null,
+      error: 'Trusted operator allowlist is not configured',
+      refreshAuthorization: vi.fn(() => null),
+    }, true);
+
+    render(<NewsReportAdminQueue />);
+
+    expect(screen.getByTestId('news-report-operator-auth-status')).toHaveTextContent(
+      'Trusted operator authorization required',
+    );
+    expect(screen.getByTestId('news-report-suppress-report-synthesis-1')).toBeDisabled();
+    expect(screen.getByTestId('news-report-dismiss-report-comment-1')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('news-report-suppress-report-synthesis-1'));
+    expect(useNewsReportStore.getState().applyOperatorAction).not.toHaveBeenCalled();
   });
 });

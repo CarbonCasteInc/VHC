@@ -1,5 +1,9 @@
 import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/types';
-import { HermesCommentModerationSchema } from '@vh/data-model';
+import {
+  assertTrustedOperatorAuthorization,
+  HermesCommentModerationSchema,
+  type TrustedOperatorAuthorization,
+} from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
 
@@ -204,7 +208,8 @@ export async function readForumLatestCommentModeration(
 
 export async function writeForumCommentModeration(
   client: VennClient,
-  moderation: unknown
+  moderation: unknown,
+  operatorAuthorization: TrustedOperatorAuthorization | null | undefined
 ): Promise<HermesCommentModeration> {
   const sanitized = parseCommentModeration(moderation);
   if (!sanitized) {
@@ -213,6 +218,8 @@ export async function writeForumCommentModeration(
   const threadId = normalizeId(sanitized.thread_id, 'threadId');
   const commentId = normalizeId(sanitized.comment_id, 'commentId');
   const moderationId = normalizeId(sanitized.moderation_id, 'moderationId');
+  const operatorId = normalizeId(sanitized.operator_id, 'operatorId');
+  assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'moderate_story_thread');
   await putWithAck(getForumCommentModerationChain(client, threadId, moderationId), sanitized);
   await putWithAck(getForumLatestCommentModerationChain(client, threadId, commentId), sanitized);
   return sanitized;

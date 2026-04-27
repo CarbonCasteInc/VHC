@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-04-26
+> Last Reviewed: 2026-04-27
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-04-26
-**Version:** 0.8.6 (MVP release gates, public-beta policy/support surfaces, private escalation protocol, and curated fallback content)
-**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, and the Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, and report-intake/admin-action coverage. Live corroborated headlines remain beta-gated by production-readiness evidence; legal review, trust-gated operator roles, broader admin workflow UX, and model/cost operations visibility remain separate launch approvals.
+**Last Updated:** 2026-04-27
+**Version:** 0.8.7 (MVP release gates, public-beta policy/support surfaces, private escalation protocol, operator trust gate, and curated fallback content)
+**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, and the Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, and minimum trusted beta operator authorization for current remediation writes. Live corroborated headlines remain beta-gated by production-readiness evidence; legal review, broader admin workflow UX, notification/escalation automation, and model/cost operations visibility remain separate launch approvals.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -74,9 +74,10 @@ Current policy state:
   - route surface: `/compliance`, `/beta`, `/privacy`, `/terms`, `/moderation`, `/support`, `/data-deletion`, `/telemetry`, `/copyright`;
   - support/contact path: VHC public beta GitHub Issue Form linked from `/support`;
   - private escalation protocol: deletion/correction, copyright/attribution, abuse/safety, and account/access cases stay as public-safe issue stubs while private details move to a non-public beta contact channel or counsel path outside GitHub;
+  - trusted operator gate: `TrustedOperatorAuthorizationSchema`, `useOperatorTrustStore`, `/admin/reports`, and Gun adapter guards require an allowlisted trusted beta operator capability record before reviewed reports, synthesis corrections, or comment moderation records are written;
   - focused gate: `pnpm check:public-beta-compliance`;
-  - MVP report gate: `public_beta_compliance` inside `pnpm check:mvp-release-gates`;
-  - this is not legal approval, a private support inbox, trust-gated operator-role enforcement, automated escalation/SLA handling, or a full trust-and-safety operations console.
+  - MVP report gates: `operator_trust_gate` and `public_beta_compliance` inside `pnpm check:mvp-release-gates`;
+  - this is not legal approval, a private support inbox, full RBAC/admin membership management, automated escalation/SLA handling, or a full trust-and-safety operations console.
 - Source-readiness evidence is now a concrete runtime/ops surface on `main`:
   - `pnpm report:news-sources:admission`
   - `pnpm report:news-sources:health`
