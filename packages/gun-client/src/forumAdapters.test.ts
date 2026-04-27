@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { TrustedOperatorAuthorization } from '@vh/data-model';
 import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './index';
@@ -30,6 +31,19 @@ const MODERATION = {
     notes: 'fixture'
   }
 } as const;
+
+const OPERATOR_AUTHORIZATION: TrustedOperatorAuthorization = {
+  schemaVersion: 'vh-trusted-operator-authorization-v1',
+  operator_id: 'ops-1',
+  role: 'trusted_beta_operator',
+  capabilities: [
+    'review_news_report',
+    'write_synthesis_correction',
+    'moderate_story_thread',
+    'private_support_handoff',
+  ],
+  granted_at: 100,
+};
 
 function createMockChain() {
   const chain: any = {};
@@ -112,7 +126,7 @@ describe('forumAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(chain, guard);
 
-    await expect(writeForumCommentModeration(client, MODERATION)).resolves.toEqual(MODERATION);
+    await expect(writeForumCommentModeration(client, MODERATION, OPERATOR_AUTHORIZATION)).resolves.toEqual(MODERATION);
     expect(guard.validateWrite).toHaveBeenCalledWith(
       'vh/forum/threads/news-story:story-1/comment_moderations/mod-1/',
       MODERATION
@@ -134,7 +148,7 @@ describe('forumAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(chain, guard);
 
-    await expect(writeForumCommentModeration(client, { ...MODERATION, status: 'deleted' })).rejects.toThrow();
+    await expect(writeForumCommentModeration(client, { ...MODERATION, status: 'deleted' }, OPERATOR_AUTHORIZATION)).rejects.toThrow();
 
     chain.once.mockImplementationOnce((cb?: (data: unknown) => void) => cb?.({ ...MODERATION, thread_id: 'other' }));
     await expect(readForumCommentModeration(client, 'news-story:story-1', 'mod-1')).resolves.toBeNull();
@@ -176,7 +190,9 @@ describe('forumAdapters', () => {
     ];
 
     for (const payload of invalidPayloads) {
-      await expect(writeForumCommentModeration(client, payload)).rejects.toThrow('Invalid comment moderation payload');
+      await expect(writeForumCommentModeration(client, payload, OPERATOR_AUTHORIZATION)).rejects.toThrow(
+        'Invalid comment moderation payload',
+      );
     }
     expect(chain.put).not.toHaveBeenCalled();
   });
@@ -197,7 +213,7 @@ describe('forumAdapters', () => {
       }
     };
 
-    await expect(writeForumCommentModeration(client, restored)).resolves.toEqual(restored);
+    await expect(writeForumCommentModeration(client, restored, OPERATOR_AUTHORIZATION)).resolves.toEqual(restored);
     await expect(readForumCommentModeration(client, ' ', 'mod-1')).rejects.toThrow('threadId is required');
     await expect(readForumCommentModeration(client, 'thread-1', ' ')).rejects.toThrow('moderationId is required');
     await expect(readForumLatestCommentModeration(client, 'thread-1', ' ')).rejects.toThrow('commentId is required');
@@ -230,6 +246,25 @@ describe('forumAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(chain, guard);
 
-    await expect(writeForumCommentModeration(client, MODERATION)).rejects.toThrow('boom');
+    await expect(writeForumCommentModeration(client, MODERATION, OPERATOR_AUTHORIZATION)).rejects.toThrow('boom');
+  });
+
+  it('requires trusted operator authorization for comment moderation writes', async () => {
+    const chain = createMockChain();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+
+    await expect(writeForumCommentModeration(client, MODERATION, null)).rejects.toThrow(
+      'Trusted operator authorization is required',
+    );
+    await expect(
+      writeForumCommentModeration(client, MODERATION, { ...OPERATOR_AUTHORIZATION, operator_id: 'ops-2' }),
+    ).rejects.toThrow('does not match operator audit id');
+    await expect(
+      writeForumCommentModeration(client, MODERATION, {
+        ...OPERATOR_AUTHORIZATION,
+        capabilities: ['review_news_report'],
+      }),
+    ).rejects.toThrow('lacks moderate_story_thread');
   });
 });

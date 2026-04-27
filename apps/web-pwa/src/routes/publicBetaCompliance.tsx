@@ -48,7 +48,7 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
       {
         heading: 'What is in scope',
         body: [
-          'The beta covers the Web PWA news feed, curated fallback launch content, accepted synthesis story detail, frame/reframe stance controls, story-thread replies, report intake, synthesis correction, and audited comment hide/restore actions.',
+          'The beta covers the Web PWA news feed, curated fallback launch content, accepted synthesis story detail, frame/reframe stance controls, story-thread replies, report intake, synthesis correction, audited comment hide/restore actions, and a minimum trusted beta operator authorization gate for those remediation actions.',
           'Beta-local identity and proof surfaces are labeled as beta-local. They must not be presented as district verification, Sybil resistance, residency proof, or one-human-one-vote assurance.',
         ],
       },
@@ -129,7 +129,7 @@ export const PUBLIC_BETA_COMPLIANCE_PAGES: readonly PublicBetaCompliancePage[] =
         body: [
           'Operators can dismiss reports, suppress accepted synthesis, mark synthesis unavailable, hide story-thread comments, and restore story-thread comments with audit metadata.',
           `Use ${PUBLIC_BETA_SUPPORT_CONTACT.channel} support requests for account, access, deletion, copyright, or urgent escalation needs that do not belong in public story-thread reports.`,
-          'User blocking, trust-gated operator roles, notifications, appeals, automated escalation workflow, and broader case management remain outside this minimum beta surface.',
+          'The minimum trusted beta operator gate is implemented for current remediation actions. User blocking, full RBAC/admin membership management, notifications, appeals, automated escalation workflow, and broader case management remain outside this minimum beta surface.',
         ],
       },
     ],

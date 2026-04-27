@@ -43,6 +43,11 @@ const files = {
   engineSettings: 'apps/web-pwa/src/components/EngineSettings.tsx',
   newsCardBack: 'apps/web-pwa/src/components/feed/NewsCardBack.tsx',
   commentStream: 'apps/web-pwa/src/components/hermes/CommentStream.tsx',
+  operatorTrustStore: 'apps/web-pwa/src/store/operatorTrust.ts',
+  newsReportsStore: 'apps/web-pwa/src/store/newsReports.ts',
+  adminQueue: 'apps/web-pwa/src/components/admin/NewsReportAdminQueue.tsx',
+  operatorTrustSchema: 'packages/data-model/src/schemas/hermes/operatorTrust.ts',
+  mvpReleaseGates: 'packages/e2e/src/mvp-release-gates.mjs',
   docs: 'docs/ops/public-beta-compliance-minimums.md',
   betaRunbook: 'docs/ops/BETA_SESSION_RUNSHEET.md',
   dataTopology: 'docs/specs/spec-data-topology-privacy-v0.md',
@@ -82,6 +87,11 @@ const compliance = readRepoFile(files.compliance);
 const engineSettings = readRepoFile(files.engineSettings);
 const newsCardBack = readRepoFile(files.newsCardBack);
 const commentStream = readRepoFile(files.commentStream);
+const operatorTrustStore = readRepoFile(files.operatorTrustStore);
+const newsReportsStore = readRepoFile(files.newsReportsStore);
+const adminQueue = readRepoFile(files.adminQueue);
+const operatorTrustSchema = readRepoFile(files.operatorTrustSchema);
+const mvpReleaseGates = readRepoFile(files.mvpReleaseGates);
 const docs = readRepoFile(files.docs);
 const betaRunbook = readRepoFile(files.betaRunbook);
 const dataTopology = readRepoFile(files.dataTopology);
@@ -101,6 +111,13 @@ requireIncludes(files.docs, docs, `| \`${complianceIndex.route}\` |`, `${complia
 requireIncludes(files.engineSettings, engineSettings, 'href="/telemetry"', 'remote AI telemetry policy link');
 requireIncludes(files.newsCardBack, newsCardBack, 'href="/moderation"', 'synthesis report moderation policy link');
 requireIncludes(files.commentStream, commentStream, 'href="/moderation"', 'comment report moderation policy link');
+requireIncludes(files.operatorTrustSchema, operatorTrustSchema, 'TrustedOperatorAuthorizationSchema', 'trusted operator authorization schema');
+requireIncludes(files.operatorTrustSchema, operatorTrustSchema, 'trusted_beta_operator', 'trusted beta operator role');
+requireIncludes(files.operatorTrustStore, operatorTrustStore, 'VITE_VH_TRUSTED_OPERATOR_IDS', 'trusted operator allowlist env');
+requireIncludes(files.operatorTrustStore, operatorTrustStore, 'VITE_VH_OPERATOR_ID', 'trusted operator id env');
+requireIncludes(files.newsReportsStore, newsReportsStore, 'assertTrustedOperatorAuthorization', 'news report store operator authorization guard');
+requireIncludes(files.adminQueue, adminQueue, 'news-report-operator-auth-status', 'admin queue operator authorization status');
+requireIncludes(files.mvpReleaseGates, mvpReleaseGates, "id: 'operator_trust_gate'", 'MVP operator trust gate');
 requireIncludes(files.compliance, compliance, 'PUBLIC_BETA_SUPPORT_CONTACT', 'typed support contact config');
 requireIncludes(files.compliance, compliance, supportContact.href, 'provisioned support contact URL');
 requireIncludes(files.compliance, compliance, supportContact.label, 'provisioned support contact label');
@@ -171,10 +188,11 @@ const requiredDocsPhrases = [
   'This is not legal approval',
   'The reachable public beta support channel is the VHC GitHub Issue Form',
   'Private Escalation Protocol',
-  'trust-gated operator roles remain outside this minimum',
+  'minimum trusted beta operator authorization gate is implemented',
   'Public reports are workflow records, not a private support inbox',
   'Support requests are public workflow records, not private correspondence',
   'The private escalation protocol is an operator handoff rule, not a private support desk',
+  'full RBAC system',
   'validated snapshot does not prove live-feed freshness',
 ];
 
@@ -265,4 +283,6 @@ if (issues.length > 0) {
   process.exit(1);
 }
 
-console.log(`Public Beta Compliance: PASS (${requiredPages.length} policy routes, support channel, and private escalation protocol checked)`);
+console.log(
+  `Public Beta Compliance: PASS (${requiredPages.length} policy routes, support channel, operator trust gate, and private escalation protocol checked)`,
+);

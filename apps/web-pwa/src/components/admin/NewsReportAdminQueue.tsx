@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import type { HermesNewsReport } from '@vh/data-model';
 import { useNewsReportStore, type NewsReportOperatorAction } from '../../store/newsReports';
+import { useOperatorTrustStore } from '../../store/operatorTrust';
 
 function targetLabel(report: HermesNewsReport): string {
   if (report.target.type === 'synthesis') {
@@ -19,6 +20,9 @@ export const NewsReportAdminQueue: React.FC = () => {
   const error = useNewsReportStore((state) => state.error);
   const refreshQueue = useNewsReportStore((state) => state.refreshQueue);
   const applyOperatorAction = useNewsReportStore((state) => state.applyOperatorAction);
+  const operatorAuthorization = useOperatorTrustStore((state) => state.authorization);
+  const operatorTrustError = useOperatorTrustStore((state) => state.error);
+  const refreshAuthorization = useOperatorTrustStore((state) => state.refreshAuthorization);
   const reports = useMemo(
     () =>
       Array.from(reportMap.values())
@@ -26,19 +30,23 @@ export const NewsReportAdminQueue: React.FC = () => {
         .sort((a, b) => a.created_at - b.created_at || a.report_id.localeCompare(b.report_id)),
     [reportMap],
   );
-  const [operatorId, setOperatorId] = useState('operator-local');
   const [busyReportId, setBusyReportId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
+    refreshAuthorization();
     void refreshQueue().catch(() => undefined);
-  }, [refreshQueue]);
+  }, [refreshAuthorization, refreshQueue]);
 
   const runAction = async (reportId: string, action: NewsReportOperatorAction) => {
+    if (!operatorAuthorization) {
+      setActionError('Trusted operator authorization is required');
+      return;
+    }
     setBusyReportId(reportId);
     setActionError(null);
     try {
-      await applyOperatorAction(reportId, action, operatorId);
+      await applyOperatorAction(reportId, action, operatorAuthorization);
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : 'Unable to apply report action');
     } finally {
@@ -59,16 +67,14 @@ export const NewsReportAdminQueue: React.FC = () => {
           <h2 className="text-xl font-semibold text-slate-950 dark:text-white">News Reports</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          <label className="font-semibold uppercase tracking-[0.14em] text-slate-500" htmlFor="news-report-operator-id">
-            Operator
-          </label>
-          <input
-            id="news-report-operator-id"
-            value={operatorId}
-            onChange={(event) => setOperatorId(event.currentTarget.value)}
-            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-            data-testid="news-report-operator-id"
-          />
+          <span
+            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+            data-testid="news-report-operator-auth-status"
+          >
+            {operatorAuthorization
+              ? `Trusted operator: ${operatorAuthorization.operator_id}`
+              : 'Trusted operator authorization required'}
+          </span>
           <button
             type="button"
             className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
@@ -89,6 +95,11 @@ export const NewsReportAdminQueue: React.FC = () => {
       {actionError && (
         <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800" role="alert">
           {actionError}
+        </p>
+      )}
+      {!operatorAuthorization && operatorTrustError && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800" role="status">
+          {operatorTrustError}
         </p>
       )}
 
@@ -133,7 +144,7 @@ export const NewsReportAdminQueue: React.FC = () => {
                       <button
                         type="button"
                         className="rounded-full bg-rose-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-rose-800 disabled:opacity-60"
-                        disabled={busy}
+                        disabled={busy || !operatorAuthorization}
                         onClick={() => void runAction(report.report_id, 'suppress_synthesis')}
                         data-testid={`news-report-suppress-${report.report_id}`}
                       >
@@ -142,7 +153,7 @@ export const NewsReportAdminQueue: React.FC = () => {
                       <button
                         type="button"
                         className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-amber-800 transition hover:bg-amber-100 disabled:opacity-60"
-                        disabled={busy}
+                        disabled={busy || !operatorAuthorization}
                         onClick={() => void runAction(report.report_id, 'mark_synthesis_unavailable')}
                         data-testid={`news-report-unavailable-${report.report_id}`}
                       >
@@ -154,7 +165,7 @@ export const NewsReportAdminQueue: React.FC = () => {
                       <button
                         type="button"
                         className="rounded-full bg-rose-700 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-rose-800 disabled:opacity-60"
-                        disabled={busy}
+                        disabled={busy || !operatorAuthorization}
                         onClick={() => void runAction(report.report_id, 'hide_comment')}
                         data-testid={`news-report-hide-${report.report_id}`}
                       >
@@ -163,7 +174,7 @@ export const NewsReportAdminQueue: React.FC = () => {
                       <button
                         type="button"
                         className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-800 transition hover:bg-emerald-100 disabled:opacity-60"
-                        disabled={busy}
+                        disabled={busy || !operatorAuthorization}
                         onClick={() => void runAction(report.report_id, 'restore_comment')}
                         data-testid={`news-report-restore-${report.report_id}`}
                       >
@@ -174,7 +185,7 @@ export const NewsReportAdminQueue: React.FC = () => {
                   <button
                     type="button"
                     className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
-                    disabled={busy}
+                    disabled={busy || !operatorAuthorization}
                     onClick={() => void runAction(report.report_id, 'dismiss')}
                     data-testid={`news-report-dismiss-${report.report_id}`}
                   >

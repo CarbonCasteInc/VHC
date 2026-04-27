@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { HermesNewsReport } from '@vh/data-model';
+import type { HermesNewsReport, TrustedOperatorAuthorization } from '@vh/data-model';
 import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './index';
@@ -29,6 +29,60 @@ const REPORT: HermesNewsReport = {
   status: 'pending',
   audit: {
     action: 'news_report',
+  },
+};
+
+const OPERATOR_AUTHORIZATION: TrustedOperatorAuthorization = {
+  schemaVersion: 'vh-trusted-operator-authorization-v1',
+  operator_id: 'ops-1',
+  role: 'trusted_beta_operator',
+  capabilities: [
+    'review_news_report',
+    'write_synthesis_correction',
+    'moderate_story_thread',
+    'private_support_handoff',
+  ],
+  granted_at: 100,
+};
+
+const REVIEWED_REPORT: HermesNewsReport = {
+  ...REPORT,
+  status: 'reviewed',
+  audit: {
+    action: 'news_report',
+    operator_id: 'ops-1',
+    reviewed_at: 200,
+    resolution: 'dismissed',
+  },
+};
+
+const ACTIONED_SYNTHESIS_REPORT: HermesNewsReport = {
+  ...REPORT,
+  status: 'actioned',
+  audit: {
+    action: 'news_report',
+    operator_id: 'ops-1',
+    reviewed_at: 201,
+    resolution: 'synthesis_suppressed',
+    correction_id: 'correction-1',
+  },
+};
+
+const ACTIONED_COMMENT_REPORT: HermesNewsReport = {
+  ...REPORT,
+  target: {
+    type: 'story_thread_comment',
+    thread_id: 'news-story:story-1',
+    comment_id: 'comment-1',
+  },
+  reason_code: 'abusive_content',
+  status: 'actioned',
+  audit: {
+    action: 'news_report',
+    operator_id: 'ops-1',
+    reviewed_at: 202,
+    resolution: 'comment_hidden',
+    moderation_id: 'moderation-1',
   },
 };
 
@@ -89,6 +143,50 @@ describe('newsReportAdapters', () => {
     expect(guard.validateWrite).toHaveBeenCalledWith(
       'vh/news/reports/index/status/pending/report-1/',
       { report_id: 'report-1', created_at: 123, target_type: 'synthesis' },
+    );
+  });
+
+  it('requires trusted operator authorization for reviewed or actioned report writes', async () => {
+    const chain = createMockChain();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+
+    await expect(writeNewsReport(client, REVIEWED_REPORT)).rejects.toThrow('Trusted operator authorization is required');
+    await expect(
+      writeNewsReport(client, REVIEWED_REPORT, { ...OPERATOR_AUTHORIZATION, operator_id: 'ops-2' }),
+    ).rejects.toThrow('does not match operator audit id');
+    await expect(
+      writeNewsReport(client, REVIEWED_REPORT, {
+        ...OPERATOR_AUTHORIZATION,
+        capabilities: ['write_synthesis_correction'],
+      }),
+    ).rejects.toThrow('lacks review_news_report');
+    await expect(writeNewsReport(client, REVIEWED_REPORT, OPERATOR_AUTHORIZATION)).resolves.toEqual(REVIEWED_REPORT);
+  });
+
+  it('requires remediation capabilities when actioned report writes claim remediation', async () => {
+    const chain = createMockChain();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+
+    await expect(
+      writeNewsReport(client, ACTIONED_SYNTHESIS_REPORT, {
+        ...OPERATOR_AUTHORIZATION,
+        capabilities: ['review_news_report'],
+      }),
+    ).rejects.toThrow('lacks write_synthesis_correction');
+    await expect(
+      writeNewsReport(client, ACTIONED_COMMENT_REPORT, {
+        ...OPERATOR_AUTHORIZATION,
+        capabilities: ['review_news_report'],
+      }),
+    ).rejects.toThrow('lacks moderate_story_thread');
+
+    await expect(writeNewsReport(client, ACTIONED_SYNTHESIS_REPORT, OPERATOR_AUTHORIZATION)).resolves.toEqual(
+      ACTIONED_SYNTHESIS_REPORT,
+    );
+    await expect(writeNewsReport(client, ACTIONED_COMMENT_REPORT, OPERATOR_AUTHORIZATION)).resolves.toEqual(
+      ACTIONED_COMMENT_REPORT,
     );
   });
 
