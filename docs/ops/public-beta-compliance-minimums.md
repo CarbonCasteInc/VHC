@@ -5,8 +5,8 @@
 > Last Reviewed: 2026-04-26
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-hermes-forum-v0.md
 
-Version: 0.2
-Scope: Web PWA public beta policy surfaces and release evidence.
+Version: 0.3
+Scope: Web PWA public beta policy surfaces, private support escalation protocol, and release evidence.
 
 ## 1. Purpose
 
@@ -36,9 +36,45 @@ The provisioned support/contact path is:
 - Support channel: [Open VHC public beta support request](https://github.com/CarbonCasteInc/VHC/issues/new?template=public-beta-support.yml)
 - Issue template: `.github/ISSUE_TEMPLATE/public-beta-support.yml`
 
-The support request form creates a public GitHub issue. Users must not include private personal data, legal notices, identity documents, raw proof material, provider secrets, confidential support correspondence, or full copyrighted articles. For deletion, copyright, abuse, or account concerns that require private details, users should submit only public-safe context and ask for an operator handoff.
+The support request form creates a public GitHub issue. Users must not include private personal data, legal notices, identity documents, raw proof material, provider secrets, confidential support correspondence, abuse evidence that exposes private people, or full copyrighted articles. For deletion, copyright, abuse, or account concerns that require private details, users should submit only a public-safe issue stub and wait for operator private handoff outside the public GitHub issue body.
 
-## 3. Release Checklist
+## 3. Private Escalation Protocol
+
+This is the minimum private escalation protocol for public beta support. It is
+an operator process, not a private support desk product surface.
+
+Sensitive support categories:
+
+- Account or access
+- Data deletion or correction
+- Abuse, safety, or moderation escalation
+- Copyright or attribution concern
+
+Operator handling rules:
+
+1. Treat a support issue as sensitive when it is in one of the categories above
+   or when the next useful fact would require private personal data, legal
+   notices, identity/proof material, provider secrets, confidential
+   correspondence, private abuse evidence, or full copyrighted material.
+2. Keep the GitHub issue as a public-safe issue stub only. The public record may
+   contain the request type, public URLs, public story/topic/comment/report ids,
+   a short public-safe summary, and handoff status.
+3. Operators must not ask users to post private details in GitHub issues,
+   story-thread replies, report reasons, or public audit records.
+4. Move private details to the pre-existing non-public beta contact channel or,
+   for copyright/legal matters, the appropriate counsel path outside the public
+   GitHub issue body. If no private channel exists for the requester, pause the
+   case publicly as `private handoff required` rather than collecting details in
+   GitHub.
+5. Do not quote, duplicate, or summarize private details back into the public
+   issue. If sensitive material is accidentally posted, do not echo it; use the
+   available repository moderation/edit controls when available and continue only
+   from a public-safe status update.
+6. Close or update the public issue with only public-safe disposition text:
+   `private handoff started`, `public-safe follow-up requested`, `dismissed as
+   not enough public-safe context`, or `resolved outside public issue`.
+
+## 4. Release Checklist
 
 | Requirement | Status | Evidence |
 | --- | --- | --- |
@@ -46,24 +82,25 @@ The support request form creates a public GitHub issue. Users must not include p
 | Privacy notice exists | Implemented | `/privacy` route and public mesh boundary copy. |
 | Terms page exists | Implemented | `/terms` route and beta reliance limits. |
 | UGC/moderation policy exists | Implemented | `/moderation` route, report-control policy links, and report/admin action docs. |
-| Support/contact page exists | Implemented with provisioned public channel | `/support` route links to the VHC GitHub Issue Form and the repository includes `.github/ISSUE_TEMPLATE/public-beta-support.yml` with public-record warnings and deletion/copyright/moderation categories. |
+| Support/contact page exists | Implemented with provisioned public channel and private escalation protocol | `/support` route links to the VHC GitHub Issue Form and the repository includes `.github/ISSUE_TEMPLATE/public-beta-support.yml` with public-record warnings, deletion/copyright/moderation/account categories, public-safe issue stub language, and operator private handoff rules. |
 | Data deletion instructions exist | Implemented | `/data-deletion` route distinguishes local browser data from public audit records. |
 | Telemetry/remote AI consent exists | Implemented | `/telemetry` route and Engine Settings policy link. |
 | Content/copyright boundaries exist | Implemented | `/copyright` route and user copy restrictions. |
-| Deterministic release check exists | Implemented | `pnpm check:public-beta-compliance`. |
+| Deterministic release check exists | Implemented | `pnpm check:public-beta-compliance` verifies route wiring, support-channel wiring, no-overclaim language, and private escalation protocol coverage. |
 
-## 4. Boundaries That Remain Open
+## 5. Boundaries That Remain Open
 
 - This minimum does not create production legal signoff.
 - trust-gated operator roles remain outside this minimum.
-- User blocking, appeals, notifications, escalation policy, and broader case management remain outside this minimum.
+- User blocking, appeals, notifications, automated escalation workflow, SLA handling, and broader case management remain outside this minimum.
 - Public reports are workflow records, not a private support inbox.
 - Support requests are public workflow records, not private correspondence.
+- The private escalation protocol is an operator handoff rule, not a private support desk, user account system, or trust-gated operator console.
 - The validated snapshot does not prove live-feed freshness.
 - Native App Store or TestFlight readiness remains out of scope because no native shell is present.
 - Remote model cost governance and broader launch operations visibility remain separate from these policy pages.
 
-## 5. Required Commands
+## 6. Required Commands
 
 Before public beta claims are made from a release branch, run:
 

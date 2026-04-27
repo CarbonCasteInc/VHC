@@ -10,6 +10,8 @@ body:
         This creates a public GitHub issue in the VHC repository.
 
         Do not include private personal data, legal notices, identity documents, raw proof material, provider secrets, confidential support correspondence, or full copyrighted articles. If the issue requires private details, describe only the public-safe category and ask for an operator handoff.
+
+        Deletion, copyright, abuse/safety, and account/access reports that need private details must use a public-safe issue stub. An operator will arrange private handoff outside this public GitHub issue; do not post the private details here.
   - type: dropdown
     id: request_type
     attributes:
@@ -28,8 +30,8 @@ body:
     id: public_context
     attributes:
       label: Public-safe context
-      description: Provide enough context for triage without posting private or confidential information.
-      placeholder: Topic/story/comment/report id, public URL, or short public-safe summary.
+      description: Provide only public-safe ids, URLs, and a short triage summary. For sensitive cases, say that private handoff is needed.
+      placeholder: Public topic/story/comment/report id, public URL, category, or short public-safe summary. Do not paste private details.
     validations:
       required: true
   - type: checkboxes
@@ -38,4 +40,6 @@ body:
       label: Public-record acknowledgement
       options:
         - label: I understand this issue is public and have not included private personal data, legal notices, secrets, raw proof material, confidential support correspondence, or full copyrighted articles.
+          required: true
+        - label: If private escalation is needed, I used only a public-safe issue stub and will wait for operator private handoff outside this public issue.
           required: true
