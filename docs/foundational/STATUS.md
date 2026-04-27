@@ -7,8 +7,8 @@
 
 
 **Last Updated:** 2026-04-27
-**Version:** 0.8.7 (MVP release gates, public-beta policy/support surfaces, private escalation protocol, operator trust gate, and curated fallback content)
-**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained beta, and the Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, and minimum trusted beta operator authorization for current remediation writes. Live corroborated headlines remain beta-gated by production-readiness evidence; legal review, broader admin workflow UX, notification/escalation automation, and model/cost operations visibility remain separate launch approvals.
+**Version:** 0.8.8 (public-beta launch closeout audit and gate evidence map)
+**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained Web PWA beta when the release commit has a passing public-beta evidence packet. The Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, minimum trusted beta operator authorization for current remediation writes, and a public-beta launch closeout audit in `docs/ops/public-beta-launch-readiness-closeout.md`. Live corroborated headlines remain beta-gated by production-readiness evidence; legal/commercial approval remains outside repo automation; broader admin workflow UX, notification/escalation automation, and model/cost operations visibility are classified as post-beta follow-up unless release copy claims production-grade live headline readiness.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -78,6 +78,12 @@ Current policy state:
   - focused gate: `pnpm check:public-beta-compliance`;
   - MVP report gates: `operator_trust_gate` and `public_beta_compliance` inside `pnpm check:mvp-release-gates`;
   - this is not legal approval, a private support inbox, full RBAC/admin membership management, automated escalation/SLA handling, or a full trust-and-safety operations console.
+- Web PWA public-beta launch closeout is implemented as an explicit evidence map:
+  - closeout doc: `docs/ops/public-beta-launch-readiness-closeout.md`;
+  - focused gate: `pnpm check:public-beta-launch-closeout`;
+  - MVP report gate: `public_beta_launch_closeout` inside `pnpm check:mvp-release-gates`;
+  - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
+  - remaining work is labeled `ship_blocker` only when the release commit evidence packet is missing/failing, external approval is required but unrecorded, or release copy claims production-grade live headlines without `release_ready`; otherwise known admin/support/native/ops polish is `post_beta_follow_up`.
 - Source-readiness evidence is now a concrete runtime/ops surface on `main`:
   - `pnpm report:news-sources:admission`
   - `pnpm report:news-sources:health`
@@ -139,6 +145,7 @@ Current policy state:
   - the integrated VENN/HERMES/AGORA application may be distributed in constrained beta on current `main`;
   - live corroborated headlines remain beta-gated by `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/latest/production-readiness-report.json`;
   - public-beta policy/support minimums are gated by `pnpm check:public-beta-compliance` and represented in the MVP gate report;
+  - public-beta launch closeout is gated by `pnpm check:public-beta-launch-closeout` and recorded in `docs/ops/public-beta-launch-readiness-closeout.md`;
   - do not market the live headlines lane as production-grade until combined readiness resolves to `release_ready`.
 - Live analysis default remains relay-backed remote analysis; local-first remains the target default once local-agent capability thresholds are met.
 

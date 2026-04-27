@@ -29,6 +29,7 @@
     "check:mvp-release-gates": "node ./packages/e2e/src/mvp-release-gates.mjs",
     "check:launch-content-snapshot": "node ./packages/e2e/src/launch-content-snapshot.mjs",
     "check:public-beta-compliance": "node ./tools/scripts/check-public-beta-compliance.mjs",
+    "check:public-beta-launch-closeout": "node ./tools/scripts/check-public-beta-launch-closeout.mjs",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",

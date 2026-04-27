@@ -3,9 +3,9 @@
 > Status: Accepted Draft for Web PWA public beta minimums
 > Owner: VHC Launch Ops
 > Last Reviewed: 2026-04-27
-> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-hermes-forum-v0.md
+> Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-hermes-forum-v0.md, docs/ops/public-beta-launch-readiness-closeout.md
 
-Version: 0.4
+Version: 0.5
 Scope: Web PWA public beta policy surfaces, private support escalation protocol, and release evidence.
 
 ## 1. Purpose
@@ -88,6 +88,7 @@ Operator handling rules:
 | Content/copyright boundaries exist | Implemented | `/copyright` route and user copy restrictions. |
 | Minimum trusted operator gate exists | Implemented | `TrustedOperatorAuthorizationSchema`, `useOperatorTrustStore`, `/admin/reports`, Gun adapter authorization checks, and the `operator_trust_gate` MVP release gate require trusted beta operator capability records before reviewed reports, synthesis corrections, or comment moderation records are written. |
 | Deterministic release check exists | Implemented | `pnpm check:public-beta-compliance` verifies route wiring, support-channel wiring, operator trust-gate wiring, no-overclaim language, and private escalation protocol coverage. |
+| Public-beta launch closeout exists | Implemented | `docs/ops/public-beta-launch-readiness-closeout.md` maps launch gates to deterministic commands/reports, classifies remaining work as `ship_blocker` or `post_beta_follow_up`, and is checked by `pnpm check:public-beta-launch-closeout`. |
 
 ## 5. Boundaries That Remain Open
 
@@ -108,6 +109,7 @@ Before public beta claims are made from a release branch, run:
 
 ```bash
 pnpm check:public-beta-compliance
+pnpm check:public-beta-launch-closeout
 pnpm docs:check
 pnpm check:mvp-release-gates
 ```

@@ -50,14 +50,19 @@ Required operator decision:
 3. either pause the session or explicitly scope it to fixture-backed / non-public-feed validation;
 4. if the scout reports a promotable candidate, note it in the session log, but do not change the source surface mid-session.
 
-### 0.1 Public beta policy/support check
+### 0.1 Public beta policy/support and closeout checks
 
 Before any session is described as a public beta session, verify the public
-policy and support/contact surface:
+policy, support/contact surface, and launch-readiness closeout map:
 
 ```
 pnpm check:public-beta-compliance
+pnpm check:public-beta-launch-closeout
 ```
+
+The closeout artifact is `docs/ops/public-beta-launch-readiness-closeout.md`.
+It maps every public-beta launch gate to deterministic command/report evidence
+and classifies remaining work as `ship_blocker` or `post_beta_follow_up`.
 
 The support path is `/support`, which links to the VHC public beta GitHub Issue
 Form. That form is public. Do not ask testers to post private personal data,
