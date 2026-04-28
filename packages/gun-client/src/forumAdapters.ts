@@ -19,6 +19,14 @@ function commentModerationPath(threadId: string, moderationId: string): string {
   return `vh/forum/threads/${threadId}/comment_moderations/${moderationId}/`;
 }
 
+function commentIndexKey(threadId: string): string {
+  return encodeURIComponent(threadId);
+}
+
+function commentIndexPath(threadId: string): string {
+  return `vh/forum/indexes/comment_ids/${commentIndexKey(threadId)}/`;
+}
+
 function latestCommentModerationPath(threadId: string, commentId: string): string {
   return `vh/forum/threads/${threadId}/comment_moderations/latest/${commentId}/`;
 }
@@ -47,6 +55,15 @@ export function getForumCommentsChain(client: VennClient, threadId: string): Cha
     .get(threadId)
     .get('comments') as unknown as ChainWithGet<HermesComment>;
   return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, commentsPath(threadId));
+}
+
+export function getForumCommentIndexChain(client: VennClient, threadId: string): ChainWithGet<Record<string, unknown>> {
+  const chain = client.mesh
+    .get('forum')
+    .get('indexes')
+    .get('comment_ids')
+    .get(commentIndexKey(threadId)) as unknown as ChainWithGet<Record<string, unknown>>;
+  return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, commentIndexPath(threadId));
 }
 
 export function getForumCommentModerationChain(

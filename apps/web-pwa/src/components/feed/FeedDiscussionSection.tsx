@@ -8,6 +8,8 @@ import { NewThreadForm } from '../hermes/forum/NewThreadForm';
 import { TrustGate } from '../hermes/forum/TrustGate';
 
 const EMPTY_COMMENTS: HermesComment[] = [];
+const COMMENT_REFRESH_INTERVAL_MS = 2_000;
+const THREAD_REFRESH_INTERVAL_MS = 2_000;
 
 export interface FeedDiscussionSectionProps {
   readonly sectionId: string;
@@ -34,8 +36,17 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
   createThread = null,
 }) => {
   const [createdThread, setCreatedThread] = useState<HermesThread | null>(null);
-  const effectiveThread = thread ?? createdThread;
+  const deterministicThreadId = createThread?.threadId?.trim() || null;
+  const deterministicPropThread =
+    thread && deterministicThreadId && thread.id === deterministicThreadId ? thread : null;
+  const deterministicCreatedThread =
+    createdThread && deterministicThreadId && createdThread.id === deterministicThreadId ? createdThread : null;
+  const fallbackThread = deterministicThreadId ? null : thread;
+  const fallbackCreatedThread = deterministicThreadId ? null : createdThread;
+  const effectiveThread =
+    deterministicPropThread ?? deterministicCreatedThread ?? fallbackThread ?? fallbackCreatedThread;
   const threadId = effectiveThread?.id ?? null;
+  const loadThread = useForumStore((state) => state.loadThread);
   const loadComments = useForumStore((state) => state.loadComments);
   const comments = useForumStore((state) =>
     threadId ? state.comments.get(threadId) ?? EMPTY_COMMENTS : EMPTY_COMMENTS,
@@ -62,17 +73,74 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
 
   useEffect(() => {
     if (thread) {
-      setCreatedThread(null);
+      setCreatedThread((current) => {
+        if (current && deterministicThreadId && current.id === deterministicThreadId && thread.id !== deterministicThreadId) {
+          return current;
+        }
+        return null;
+      });
     }
-  }, [thread]);
+  }, [deterministicThreadId, thread]);
 
   useEffect(() => {
     if (thread) {
       return;
     }
-    setCreatedThread(null);
-    setShowNewThreadForm(false);
-  }, [createThreadKey, sectionId, thread]);
+    setCreatedThread((current) => {
+      if (current && createThread?.threadId && current.id === createThread.threadId) {
+        return current;
+      }
+      return null;
+    });
+  }, [createThread?.threadId, createThreadKey, sectionId, thread]);
+
+  useEffect(() => {
+    if (thread || !createThread) {
+      setShowNewThreadForm(false);
+    }
+  }, [createThread, sectionId, thread]);
+
+  useEffect(() => {
+    const threadIdToLoad = deterministicThreadId;
+    if (
+      !threadIdToLoad
+      || thread?.id === threadIdToLoad
+      || createdThread?.id === threadIdToLoad
+    ) {
+      return;
+    }
+
+    let active = true;
+    let timer: number | null = null;
+
+    const loadDeterministicThread = () => {
+      void loadThread(threadIdToLoad)
+        .then((resolvedThread) => {
+          if (!active) {
+            return;
+          }
+          if (resolvedThread) {
+            setCreatedThread(resolvedThread);
+            setShowNewThreadForm(false);
+            return;
+          }
+          timer = window.setTimeout(loadDeterministicThread, THREAD_REFRESH_INTERVAL_MS);
+        })
+        .catch(() => {
+          if (active) {
+            timer = window.setTimeout(loadDeterministicThread, THREAD_REFRESH_INTERVAL_MS);
+          }
+        });
+    };
+
+    loadDeterministicThread();
+    return () => {
+      active = false;
+      if (timer) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [createdThread?.id, deterministicThreadId, loadThread, thread?.id]);
 
   useEffect(() => {
     setShowComposer(false);
@@ -104,6 +172,20 @@ export const FeedDiscussionSection: React.FC<FeedDiscussionSectionProps> = ({
       active = false;
     };
   }, [loadAttempt, loadComments, threadId]);
+
+  useEffect(() => {
+    if (!threadId) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      void loadComments(threadId).catch((err) => {
+        setLoadError(err instanceof Error ? err.message : 'Unable to load comments');
+      });
+    }, COMMENT_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [loadComments, threadId]);
 
   const commentCount = loaded || comments.length > 0
     ? comments.length

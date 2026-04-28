@@ -54,6 +54,20 @@ function story(overrides: Partial<StoryBundle> = {}): StoryBundle {
   };
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason?: unknown) => void;
+} {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe('news store', () => {
   it('exports news store type surface version marker', async () => {
     const { getNewsStoreTypesVersion } = await import('./types');
@@ -612,6 +626,92 @@ describe('news store', () => {
     await store.getState().refreshLatest();
 
     expect(store.getState().error).toBe('Failed to refresh latest news');
+  });
+
+  it('refreshLatest clears loading when mesh reads stall', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('VITE_NEWS_REFRESH_TIMEOUT_MS', '1000');
+    vi.resetModules();
+
+    readNewsLatestIndexMock.mockReturnValue(new Promise(() => undefined));
+    readNewsHotIndexMock.mockResolvedValue({});
+
+    try {
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => ({}) as never });
+
+      const refresh = store.getState().refreshLatest();
+      expect(store.getState().loading).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1_001);
+      await expect(refresh).resolves.toBeUndefined();
+
+      expect(store.getState().loading).toBe(false);
+      expect(store.getState().error).toBe('News refresh timed out after 1000ms');
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  });
+
+  it('refreshLatest ignores stale results when a newer refresh has started', async () => {
+    const client = { id: 'client-stale-refresh' };
+    const firstLatest = deferred<Record<string, number>>();
+
+    readNewsLatestIndexMock
+      .mockReturnValueOnce(firstLatest.promise)
+      .mockResolvedValueOnce({ s2: 200 });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockImplementation(async (_client, storyId) =>
+      story({ story_id: storyId, created_at: storyId === 's1' ? 10 : 20 }));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    const firstRefresh = store.getState().refreshLatest(10);
+    const secondRefresh = store.getState().refreshLatest(10);
+
+    await secondRefresh;
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s2']);
+    expect(store.getState().latestIndex).toEqual({ s2: 200 });
+
+    firstLatest.resolve({ s1: 100 });
+    await firstRefresh;
+
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s2']);
+    expect(store.getState().latestIndex).toEqual({ s2: 200 });
+    expect(store.getState().loading).toBe(false);
+  });
+
+  it('refreshLatest ignores stale errors when a newer refresh has started', async () => {
+    const client = { id: 'client-stale-error' };
+    const firstLatest = deferred<Record<string, number>>();
+
+    readNewsLatestIndexMock
+      .mockReturnValueOnce(firstLatest.promise)
+      .mockResolvedValueOnce({ s2: 200 });
+    readNewsHotIndexMock.mockResolvedValue({});
+    readNewsStoryMock.mockImplementation(async (_client, storyId) =>
+      story({ story_id: storyId, created_at: storyId === 's1' ? 10 : 20 }));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    const firstRefresh = store.getState().refreshLatest(10);
+    const secondRefresh = store.getState().refreshLatest(10);
+
+    await secondRefresh;
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s2']);
+    expect(store.getState().error).toBeNull();
+
+    firstLatest.reject(new Error('stale boom'));
+    await firstRefresh;
+
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['s2']);
+    expect(store.getState().latestIndex).toEqual({ s2: 200 });
+    expect(store.getState().loading).toBe(false);
+    expect(store.getState().error).toBeNull();
   });
 
   it('setLoading/setError/reset manage lifecycle state', async () => {

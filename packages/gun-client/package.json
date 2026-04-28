@@ -9,6 +9,10 @@
     ".": {
       "types": "./src/index.ts",
       "import": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./src/nodeMeshClient.ts",
+      "import": "./dist/nodeMeshClient.js"
     }
   },
   "scripts": {

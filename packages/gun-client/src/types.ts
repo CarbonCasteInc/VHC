@@ -9,6 +9,9 @@ export interface VennClientConfig {
   storage?: StorageAdapter;
   requireSession?: boolean;
   topologyGuard?: TopologyGuard;
+  gunLocalStorage?: boolean;
+  gunRadisk?: boolean;
+  gunFile?: string | false;
 }
 
 export interface Namespace<T = unknown> {

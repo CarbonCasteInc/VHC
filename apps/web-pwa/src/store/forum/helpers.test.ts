@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseThreadFromGun } from './helpers';
+import { THREAD_JSON_FIELD, parseThreadFromGun, serializeThreadForGun } from './helpers';
 
 describe('parseThreadFromGun — tags parsing', () => {
   it('T-1 parses stringified JSON array tags', () => {
@@ -183,5 +183,55 @@ describe('parseThreadFromGun — field pass-through', () => {
 
     expect(result.sourceAnalysisId).toBe('legacy-analysis-1');
     expect(result.sourceSynthesisId).toBe('legacy-analysis-1');
+  });
+
+  it('recovers a complete thread from the JSON envelope when Gun returns a partial node', () => {
+    const fullThread = {
+      id: 'news-story:story-1',
+      schemaVersion: 'hermes-thread-v0',
+      title: 'Canonical story thread',
+      content: 'Thread content',
+      author: 'author-1',
+      timestamp: 1_700_000_000,
+      tags: ['news'],
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      topicId: 'topic-1',
+      isHeadline: true
+    };
+
+    const result = parseThreadFromGun({
+      _: { '#': 'thread-meta' },
+      id: 'news-story:story-1',
+      schemaVersion: 'hermes-thread-v0',
+      [THREAD_JSON_FIELD]: JSON.stringify(fullThread)
+    });
+
+    expect(result).toEqual(fullThread);
+  });
+});
+
+describe('serializeThreadForGun', () => {
+  it('writes scalar thread fields plus a complete JSON envelope', () => {
+    const thread = {
+      id: 'news-story:story-1',
+      schemaVersion: 'hermes-thread-v0',
+      title: 'Canonical story thread',
+      content: 'Thread content',
+      author: 'author-1',
+      timestamp: 1_700_000_000,
+      tags: ['news'],
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      topicId: 'topic-1',
+      isHeadline: true
+    } as const;
+
+    const serialized = serializeThreadForGun(thread);
+
+    expect(serialized.tags).toBe('[\"news\"]');
+    expect(JSON.parse(String(serialized[THREAD_JSON_FIELD]))).toEqual(thread);
   });
 });

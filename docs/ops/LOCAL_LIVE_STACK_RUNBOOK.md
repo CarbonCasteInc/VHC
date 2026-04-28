@@ -19,7 +19,7 @@ Avoid drift between:
 - live Playwright strict/smoke runs
 
 All commands below use:
-- local relay (`http://localhost:7777/gun`)
+- local relay (`http://127.0.0.1:7777/gun`)
 - local web app (`http://localhost:2048/`)
 - `packages/e2e/.env.dev-small` profile
 - analysis relay env (`ANALYSIS_RELAY_UPSTREAM_URL`, `ANALYSIS_RELAY_API_KEY`)
@@ -71,6 +71,27 @@ Rolling valid published-snapshot variant:
 pnpm live:stack:up:validated-snapshot
 ```
 
+Deterministic full-product analysis-lane variant:
+
+```bash
+pnpm live:stack:up:analysis-stub
+```
+
+Analysis-stub behavior:
+- runs the same local web app, relay, StoryCluster server, fixture feed server,
+  and news daemon used by `pnpm live:stack:up`;
+- uses the fixture lane's immediate first daemon tick plus a long default poll
+  interval, so manual/browser QA does not repeatedly rewrite the same curated
+  corpus through the local mesh;
+- enables publish-time bundle synthesis and points both Web PWA analysis relay
+  health checks and the daemon bundle-synthesis worker at the deterministic
+  local chat-completions stub;
+- produces accepted `TopicSynthesisV2` records with non-empty frame/reframe
+  rows and stable point IDs without depending on a live OpenAI key;
+- is the preferred manual lane for testing multi-user stance/comment flows when
+  release-like service wiring matters but live model credentials are absent,
+  exhausted, or intentionally out of scope for the session.
+
 Validated-snapshot behavior:
 - uses a newest-first rolling stream assembled from recent passing
   publisher-canary artifacts, deduped by `story_id`
@@ -118,7 +139,7 @@ VITE_VH_ANALYSIS_PIPELINE=true \
 VITE_NEWS_RUNTIME_ENABLED=false \
 VITE_NEWS_RUNTIME_ROLE=consumer \
 VITE_NEWS_BRIDGE_ENABLED=true \
-VITE_GUN_PEERS='["http://localhost:7777/gun"]' \
+VITE_GUN_PEERS='["http://127.0.0.1:7777/gun"]' \
 VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS=7500 \
 VITE_VH_GUN_PUT_ACK_TIMEOUT_MS=3000 \
 VITE_VH_GUN_READ_TIMEOUT_MS=4000 \
@@ -198,6 +219,13 @@ Use this checklist during manual browser validation:
 19. Confirm singleton-first publication remains acceptable for the changed lane:
    - single-source stories may appear in feed;
    - later same-incident / same-developing-episode coverage still attaches without identity churn where covered by the evidence set.
+20. For five-user local product engagement validation, run:
+   - `pnpm live:stack:up:analysis-stub`
+   - `pnpm test:live:five-user-engagement`
+   This creates five beta-local identities in isolated browser contexts, opens
+   analysis-ready singleton and bundled stories, records reads and point-level
+   stances, posts story-thread replies, and verifies aggregate stance/read
+   metrics plus comments are visible across users.
 
 ## Release Gate Wiring
 

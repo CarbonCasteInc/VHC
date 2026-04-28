@@ -799,6 +799,65 @@ describe('aggregateAdapters', () => {
     ]);
   });
 
+  it('readAggregateVoterRows merges partial map fan-in with recovered root leaf rows', async () => {
+    const mesh = createFakeMesh();
+    mesh.setMapRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', [
+      {
+        key: 'voterA',
+        value: {
+          pointA: {
+            point_id: 'pointA',
+            agreement: 1,
+            weight: 1,
+            updated_at: '2026-02-18T22:19:00.000Z',
+          },
+        },
+      },
+    ]);
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: { '#': 'soul-voter-a' },
+      voterB: { '#': 'soul-voter-b' },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voterA/pointA', {
+      point_id: 'pointA',
+      agreement: -1,
+      weight: 1,
+      updated_at: '2026-02-18T22:20:00.000Z',
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voterB/pointA', {
+      point_id: 'pointA',
+      agreement: 1,
+      weight: 2,
+      updated_at: '2026-02-18T22:21:00.000Z',
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregateVoterRows(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual([
+      {
+        voter_id: 'voterA',
+        node: {
+          point_id: 'pointA',
+          agreement: -1,
+          weight: 1,
+          updated_at: '2026-02-18T22:20:00.000Z',
+        },
+        updated_at_ms: Date.parse('2026-02-18T22:20:00.000Z'),
+      },
+      {
+        voter_id: 'voterB',
+        node: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 2,
+          updated_at: '2026-02-18T22:21:00.000Z',
+        },
+        updated_at_ms: Date.parse('2026-02-18T22:21:00.000Z'),
+      },
+    ]);
+  });
+
   it('readAggregates falls back to materialized points snapshot when voter rows are unavailable', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
@@ -954,6 +1013,80 @@ describe('aggregateAdapters', () => {
       disagree: 0,
       weight: 1,
       participants: 1,
+    });
+  });
+
+  it('readAggregates surfaces voter rows when snapshot source window covers an under-counted projection', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/pointA', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'pointA',
+      agree: 3,
+      disagree: 1,
+      weight: 4,
+      participants: 4,
+      version: Date.parse('2026-02-18T22:30:00.000Z'),
+      computed_at: Date.parse('2026-02-18T22:30:00.000Z'),
+      source_window: {
+        from_seq: Date.parse('2026-02-18T22:20:00.000Z'),
+        to_seq: Date.parse('2026-02-18T22:30:00.000Z'),
+      },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters', {
+      voterA: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:20:00.000Z',
+        },
+      },
+      voterB: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: -1,
+          weight: 1,
+          updated_at: '2026-02-18T22:21:00.000Z',
+        },
+      },
+      voterC: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:22:00.000Z',
+        },
+      },
+      voterD: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: -1,
+          weight: 1,
+          updated_at: '2026-02-18T22:23:00.000Z',
+        },
+      },
+      voterE: {
+        pointA: {
+          point_id: 'pointA',
+          agreement: 1,
+          weight: 1,
+          updated_at: '2026-02-18T22:24:00.000Z',
+        },
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregates(client, 'topic-1', 'synth-1', 4, 'pointA')).resolves.toEqual({
+      point_id: 'pointA',
+      agree: 3,
+      disagree: 2,
+      weight: 5,
+      participants: 5,
     });
   });
 

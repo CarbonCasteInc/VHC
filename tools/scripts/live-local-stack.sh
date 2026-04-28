@@ -7,17 +7,24 @@ source "$ROOT/tools/scripts/local-stack-lib.sh"
 
 ENV_FILE="${ENV_FILE:-$ROOT/packages/e2e/.env.dev-small}"
 STACK_MODE_FILE="${STACK_MODE_FILE:-/tmp/vh-local-stack.mode}"
+STACK_ANALYSIS_MODE_FILE="${STACK_ANALYSIS_MODE_FILE:-/tmp/vh-local-stack.analysis.mode}"
 STACK_MODE="${VH_LOCAL_STACK_FEED_MODE:-}"
 if [[ -z "$STACK_MODE" && -f "$STACK_MODE_FILE" ]]; then
   STACK_MODE="$(cat "$STACK_MODE_FILE")"
 fi
 STACK_MODE="${STACK_MODE:-fixture}"
+STACK_ANALYSIS_MODE="${VH_LOCAL_STACK_ANALYSIS_MODE:-}"
+if [[ -z "$STACK_ANALYSIS_MODE" && -f "$STACK_ANALYSIS_MODE_FILE" ]]; then
+  STACK_ANALYSIS_MODE="$(cat "$STACK_ANALYSIS_MODE_FILE")"
+fi
+STACK_ANALYSIS_MODE="${STACK_ANALYSIS_MODE:-remote}"
 
 WEB_PORT="${WEB_PORT:-2048}"
 RELAY_PORT="${RELAY_PORT:-7777}"
 STORYCLUSTER_PORT="${STORYCLUSTER_PORT:-4310}"
 FIXTURE_PORT="${FIXTURE_PORT:-8788}"
 SNAPSHOT_PORT="${SNAPSHOT_PORT:-8790}"
+ANALYSIS_STUB_PORT="${ANALYSIS_STUB_PORT:-9040}"
 
 WEB_LOG="${WEB_LOG:-/tmp/vh-local-web.log}"
 RELAY_LOG="${RELAY_LOG:-/tmp/vh-local-relay.log}"
@@ -25,6 +32,7 @@ DAEMON_LOG="${DAEMON_LOG:-/tmp/vh-local-news-daemon.log}"
 STORYCLUSTER_LOG="${STORYCLUSTER_LOG:-/tmp/vh-local-storycluster.log}"
 FIXTURE_LOG="${FIXTURE_LOG:-/tmp/vh-local-fixture-feed.log}"
 SNAPSHOT_LOG="${SNAPSHOT_LOG:-/tmp/vh-local-validated-snapshot.log}"
+ANALYSIS_STUB_LOG="${ANALYSIS_STUB_LOG:-/tmp/vh-local-analysis-stub.log}"
 
 WEB_PID_FILE="${WEB_PID_FILE:-/tmp/vh-local-web.pid}"
 RELAY_PID_FILE="${RELAY_PID_FILE:-/tmp/vh-local-relay.pid}"
@@ -32,6 +40,7 @@ DAEMON_PID_FILE="${DAEMON_PID_FILE:-/tmp/vh-local-news-daemon.pid}"
 STORYCLUSTER_PID_FILE="${STORYCLUSTER_PID_FILE:-/tmp/vh-local-storycluster.pid}"
 FIXTURE_PID_FILE="${FIXTURE_PID_FILE:-/tmp/vh-local-fixture-feed.pid}"
 SNAPSHOT_PID_FILE="${SNAPSHOT_PID_FILE:-/tmp/vh-local-validated-snapshot.pid}"
+ANALYSIS_STUB_PID_FILE="${ANALYSIS_STUB_PID_FILE:-/tmp/vh-local-analysis-stub.pid}"
 
 RELAY_DATA_PATH="${RELAY_DATA_PATH:-$ROOT/.tmp/live-local-stack/relay-data}"
 STORYCLUSTER_STATE_DIR="${STORYCLUSTER_STATE_DIR:-$ROOT/.tmp/live-local-stack/storycluster-state}"
@@ -77,6 +86,12 @@ validate_stack_mode() {
       die "Unsupported VH_LOCAL_STACK_FEED_MODE: $STACK_MODE (expected fixture, public, or validated-snapshot)"
       ;;
   esac
+  case "$STACK_ANALYSIS_MODE" in
+    remote|stub) ;;
+    *)
+      die "Unsupported VH_LOCAL_STACK_ANALYSIS_MODE: $STACK_ANALYSIS_MODE (expected remote or stub)"
+      ;;
+  esac
 }
 
 fixture_feed_sources_json() {
@@ -96,6 +111,7 @@ load_profile_env() {
     VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS \
     VITE_VH_GUN_PUT_ACK_TIMEOUT_MS \
     VITE_VH_GUN_READ_TIMEOUT_MS \
+    VITE_VH_GUN_LOCAL_STORAGE \
     VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS \
     VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS \
     ANALYSIS_RELAY_MODEL
@@ -108,11 +124,12 @@ load_profile_env() {
   export VITE_NEWS_RUNTIME_ENABLED=false
   export VITE_NEWS_RUNTIME_ROLE=consumer
   export VITE_NEWS_BRIDGE_ENABLED=true
-  export VITE_GUN_PEERS="[\"http://localhost:${RELAY_PORT}/gun\"]"
+  export VITE_GUN_PEERS="[\"http://127.0.0.1:${RELAY_PORT}/gun\"]"
   export VH_GUN_PEERS="${VH_GUN_PEERS:-$VITE_GUN_PEERS}"
   export VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS="${VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS:-7500}"
   export VITE_VH_GUN_PUT_ACK_TIMEOUT_MS="${VITE_VH_GUN_PUT_ACK_TIMEOUT_MS:-3000}"
   export VITE_VH_GUN_READ_TIMEOUT_MS="${VITE_VH_GUN_READ_TIMEOUT_MS:-4000}"
+  export VITE_VH_GUN_LOCAL_STORAGE="${VITE_VH_GUN_LOCAL_STORAGE:-false}"
   export VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS="${VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS:-8000}"
   export VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS="${VITE_VH_ANALYSIS_PENDING_READ_TIMEOUT_MS:-500}"
   export VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS="${VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS:-90000}"
@@ -121,6 +138,20 @@ load_profile_env() {
   export ANALYSIS_RELAY_UPSTREAM_URL="${ANALYSIS_RELAY_UPSTREAM_URL:-https://api.openai.com/v1/chat/completions}"
   export ANALYSIS_RELAY_API_KEY="${ANALYSIS_RELAY_API_KEY:-${OPENAI_API_KEY:-}}"
   export ANALYSIS_RELAY_MODEL="${ANALYSIS_RELAY_MODEL:-${VITE_ANALYSIS_MODEL:-gpt-5-nano}}"
+
+  if [[ "$STACK_MODE" != 'validated-snapshot' && "$STACK_ANALYSIS_MODE" == 'stub' ]]; then
+    export VH_DAEMON_FEED_ANALYSIS_STUB_PORT="$ANALYSIS_STUB_PORT"
+    export ANALYSIS_RELAY_UPSTREAM_URL="http://127.0.0.1:${ANALYSIS_STUB_PORT}/v1/chat/completions"
+    export ANALYSIS_RELAY_API_KEY="fixture-analysis-stub-key"
+    export ANALYSIS_RELAY_MODEL="fixture-analysis-stub"
+    export VH_BUNDLE_SYNTHESIS_ENABLED="${VH_BUNDLE_SYNTHESIS_ENABLED:-true}"
+    export VH_BUNDLE_SYNTHESIS_UPSTREAM_URL="$ANALYSIS_RELAY_UPSTREAM_URL"
+    export VH_BUNDLE_SYNTHESIS_API_KEY="$ANALYSIS_RELAY_API_KEY"
+    export VH_BUNDLE_SYNTHESIS_MODEL="${VH_BUNDLE_SYNTHESIS_MODEL:-fixture-analysis-stub}"
+    export VH_BUNDLE_SYNTHESIS_TIMEOUT_MS="${VH_BUNDLE_SYNTHESIS_TIMEOUT_MS:-15000}"
+    export VH_BUNDLE_SYNTHESIS_RATE_PER_MIN="${VH_BUNDLE_SYNTHESIS_RATE_PER_MIN:-240}"
+    export VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH="${VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH:-512}"
+  fi
 
   export VH_STORYCLUSTER_REMOTE_URL="http://127.0.0.1:${STORYCLUSTER_PORT}/cluster"
   export VH_STORYCLUSTER_REMOTE_HEALTH_URL="http://127.0.0.1:${STORYCLUSTER_PORT}/ready"
@@ -134,7 +165,7 @@ load_profile_env() {
     export VH_DAEMON_FEED_USE_FIXTURE_FEED=true
     export VH_STORYCLUSTER_USE_TEST_PROVIDER=true
     unset VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
-    export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-5000}"
+    export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-1800000}"
     export VITE_NEWS_FEED_SOURCES="$(fixture_feed_sources_json)"
   else
     unset VH_DAEMON_FEED_USE_FIXTURE_FEED
@@ -213,17 +244,37 @@ start_validated_snapshot_server() {
     packages/e2e/src/live/daemon-feed-validated-snapshot-server.mjs
 }
 
+start_analysis_stub() {
+  info "Starting deterministic analysis stub on :${ANALYSIS_STUB_PORT}"
+  : > "$ANALYSIS_STUB_LOG"
+  env VH_DAEMON_FEED_ANALYSIS_STUB_PORT="$ANALYSIS_STUB_PORT" \
+    node "$ROOT/tools/scripts/spawn-detached.mjs" \
+    "$ANALYSIS_STUB_PID_FILE" \
+    "$ROOT" \
+    "$ANALYSIS_STUB_LOG" \
+    node \
+    packages/e2e/src/live/daemon-feed-analysis-stub.mjs
+}
+
 start_relay() {
   mkdir -p "$(dirname "$RELAY_DATA_PATH")"
-  rm -rf "$RELAY_DATA_PATH"
+  rm -rf \
+    "$RELAY_DATA_PATH" \
+    "$RELAY_DATA_PATH"-* \
+    "$ROOT/data" \
+    "$ROOT/radata" \
+    "$ROOT/packages/gun-client/radata" \
+    "$ROOT/packages/e2e/radata" \
+    "$ROOT/services/news-aggregator/radata"
   info "Starting local Gun relay on :${RELAY_PORT}"
   : > "$RELAY_LOG"
-  env GUN_PORT="$RELAY_PORT" GUN_FILE="$RELAY_DATA_PATH" \
+  env GUN_PORT="$RELAY_PORT" GUN_FILE="$RELAY_DATA_PATH" GUN_RADISK="${GUN_RADISK:-true}" \
     node "$ROOT/tools/scripts/spawn-detached.mjs" \
     "$RELAY_PID_FILE" \
     "$ROOT" \
     "$RELAY_LOG" \
     node \
+    --max-old-space-size="${GUN_MAX_OLD_SPACE_SIZE:-8192}" \
     infra/relay/server.js
 }
 
@@ -247,13 +298,50 @@ start_web() {
 start_daemon() {
   info "Starting news-aggregator daemon (canonical ingester)"
   : > "$DAEMON_LOG"
-  spawn_detached \
+  env \
+    VH_BUNDLE_SYNTHESIS_ENABLED="${VH_BUNDLE_SYNTHESIS_ENABLED:-}" \
+    VH_BUNDLE_SYNTHESIS_UPSTREAM_URL="${VH_BUNDLE_SYNTHESIS_UPSTREAM_URL:-}" \
+    VH_BUNDLE_SYNTHESIS_API_KEY="${VH_BUNDLE_SYNTHESIS_API_KEY:-}" \
+    VH_BUNDLE_SYNTHESIS_MODEL="${VH_BUNDLE_SYNTHESIS_MODEL:-}" \
+    VH_BUNDLE_SYNTHESIS_MAX_TOKENS="${VH_BUNDLE_SYNTHESIS_MAX_TOKENS:-}" \
+    VH_BUNDLE_SYNTHESIS_TIMEOUT_MS="${VH_BUNDLE_SYNTHESIS_TIMEOUT_MS:-}" \
+    VH_BUNDLE_SYNTHESIS_RATE_PER_MIN="${VH_BUNDLE_SYNTHESIS_RATE_PER_MIN:-}" \
+    VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH="${VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH:-}" \
+    VH_BUNDLE_SYNTHESIS_PIPELINE_VERSION="${VH_BUNDLE_SYNTHESIS_PIPELINE_VERSION:-}" \
+    node "$ROOT/tools/scripts/spawn-detached.mjs" \
     "$DAEMON_PID_FILE" \
+    "$ROOT" \
     "$DAEMON_LOG" \
     pnpm \
     --filter \
     @vh/news-aggregator \
     daemon
+}
+
+kill_news_daemon_processes() {
+  local pids
+  pids="$(
+    ps -axo pid=,comm=,command= \
+      | awk '$2 == "node" && (index($0, "@vh/news-aggregator daemon") || index($0, "dist/daemon.js")) { print $1 }' \
+      | tr '\n' ' '
+  )"
+  if [[ -z "${pids// }" ]]; then
+    return
+  fi
+
+  info "Stopping orphaned news-aggregator daemon process(es): ${pids}"
+  # shellcheck disable=SC2086
+  kill $pids >/dev/null 2>&1 || true
+  sleep 0.5
+  pids="$(
+    ps -axo pid=,comm=,command= \
+      | awk '$2 == "node" && (index($0, "@vh/news-aggregator daemon") || index($0, "dist/daemon.js")) { print $1 }' \
+      | tr '\n' ' '
+  )"
+  if [[ -n "${pids// }" ]]; then
+    # shellcheck disable=SC2086
+    kill -9 $pids >/dev/null 2>&1 || true
+  fi
 }
 
 stack_up() {
@@ -267,14 +355,17 @@ stack_up() {
   kill_pid_file "$WEB_PID_FILE"
   kill_pid_file "$RELAY_PID_FILE"
   kill_pid_file "$DAEMON_PID_FILE"
+  kill_news_daemon_processes
   kill_pid_file "$STORYCLUSTER_PID_FILE"
   kill_pid_file "$FIXTURE_PID_FILE"
   kill_pid_file "$SNAPSHOT_PID_FILE"
+  kill_pid_file "$ANALYSIS_STUB_PID_FILE"
   kill_port "$WEB_PORT"
   kill_port "$RELAY_PORT"
   kill_port "$STORYCLUSTER_PORT"
   kill_port "$FIXTURE_PORT"
   kill_port "$SNAPSHOT_PORT"
+  kill_port "$ANALYSIS_STUB_PORT"
 
   if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
     start_storycluster
@@ -293,6 +384,12 @@ stack_up() {
     start_validated_snapshot_server
     wait_for_http "http://127.0.0.1:${SNAPSHOT_PORT}/health" "$READY_TIMEOUT_SECS" \
       || die "Validated snapshot server did not become ready in ${READY_TIMEOUT_SECS}s (log: $SNAPSHOT_LOG)"
+  fi
+
+  if [[ "$STACK_MODE" != 'validated-snapshot' && "$STACK_ANALYSIS_MODE" == 'stub' ]]; then
+    start_analysis_stub
+    wait_for_http "http://127.0.0.1:${ANALYSIS_STUB_PORT}/health" "$READY_TIMEOUT_SECS" \
+      || die "Analysis stub did not become ready in ${READY_TIMEOUT_SECS}s (log: $ANALYSIS_STUB_LOG)"
   fi
 
   start_relay
@@ -315,7 +412,9 @@ stack_up() {
 
   info "Stack ready"
   info "Mode:     ${STACK_MODE}"
+  info "Analysis: ${STACK_ANALYSIS_MODE}"
   printf '%s\n' "$STACK_MODE" > "$STACK_MODE_FILE"
+  printf '%s\n' "$STACK_ANALYSIS_MODE" > "$STACK_ANALYSIS_MODE_FILE"
   info "App URL:  http://127.0.0.1:${WEB_PORT}/"
   info "Relay:    http://127.0.0.1:${RELAY_PORT}/gun"
   if [[ "$STACK_MODE" == 'fixture' ]]; then
@@ -330,6 +429,10 @@ stack_up() {
   fi
   if [[ "$STACK_MODE" != 'validated-snapshot' ]]; then
     info "Daemon log:$DAEMON_LOG"
+    if [[ "$STACK_ANALYSIS_MODE" == 'stub' ]]; then
+      info "Analysis stub: http://127.0.0.1:${ANALYSIS_STUB_PORT}/health"
+      info "Analysis log: $ANALYSIS_STUB_LOG"
+    fi
   fi
   info "Web log:  $WEB_LOG"
   info "Relay log:$RELAY_LOG"
@@ -342,24 +445,29 @@ stack_down() {
   kill_pid_file "$STORYCLUSTER_PID_FILE"
   kill_pid_file "$FIXTURE_PID_FILE"
   kill_pid_file "$SNAPSHOT_PID_FILE"
+  kill_pid_file "$ANALYSIS_STUB_PID_FILE"
   kill_port "$WEB_PORT"
   kill_port "$RELAY_PORT"
   kill_port "$STORYCLUSTER_PORT"
   kill_port "$FIXTURE_PORT"
   kill_port "$SNAPSHOT_PORT"
+  kill_port "$ANALYSIS_STUB_PORT"
   rm -f "$STACK_MODE_FILE"
+  rm -f "$STACK_ANALYSIS_MODE_FILE"
   info "Stack stopped"
 }
 
 stack_status() {
   info "mode=${STACK_MODE}"
+  info "analysis=${STACK_ANALYSIS_MODE}"
   for label in \
     "web-pwa:$WEB_PID_FILE:${WEB_PORT}" \
     "relay:$RELAY_PID_FILE:${RELAY_PORT}" \
     "news-daemon:$DAEMON_PID_FILE:-" \
     "storycluster:$STORYCLUSTER_PID_FILE:${STORYCLUSTER_PORT}" \
     "fixture-feed:$FIXTURE_PID_FILE:${FIXTURE_PORT}" \
-    "validated-snapshot:$SNAPSHOT_PID_FILE:${SNAPSHOT_PORT}"; do
+    "validated-snapshot:$SNAPSHOT_PID_FILE:${SNAPSHOT_PORT}" \
+    "analysis-stub:$ANALYSIS_STUB_PID_FILE:${ANALYSIS_STUB_PORT}"; do
     IFS=':' read -r name pid_file port <<<"$label"
     local_pid="$(read_pid_file "$pid_file" || true)"
     if is_pid_alive "$local_pid"; then
@@ -370,6 +478,9 @@ stack_status() {
         continue
       fi
       if [[ "$name" == 'validated-snapshot' && "$STACK_MODE" != 'validated-snapshot' ]]; then
+        continue
+      fi
+      if [[ "$name" == 'analysis-stub' && ( "$STACK_MODE" == 'validated-snapshot' || "$STACK_ANALYSIS_MODE" != 'stub' ) ]]; then
         continue
       fi
       if [[ "$port" == '-' ]]; then
@@ -385,6 +496,9 @@ stack_status() {
         continue
       fi
       if [[ "$name" == 'validated-snapshot' && "$STACK_MODE" != 'validated-snapshot' ]]; then
+        continue
+      fi
+      if [[ "$name" == 'analysis-stub' && ( "$STACK_MODE" == 'validated-snapshot' || "$STACK_ANALYSIS_MODE" != 'stub' ) ]]; then
         continue
       fi
       warn "$name not running"

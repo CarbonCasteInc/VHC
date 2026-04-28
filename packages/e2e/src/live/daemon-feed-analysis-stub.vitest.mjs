@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   buildFixtureAnalysis,
+  buildFixtureBundleSynthesis,
   buildFixturePairLabelResponse,
   fixtureAnalysisStubInternal,
   startFixtureAnalysisStub,
@@ -42,6 +43,29 @@ describe('daemon-feed-analysis-stub', () => {
     expect(analysis.summary).toContain('Atlantic port strike enters second day');
     expect(analysis.counterpoints).toHaveLength(1);
     expect(analysis.biases).toEqual(['Urgency framing']);
+  });
+
+  it('builds bundle-synthesis responses with frame/reframe point material', () => {
+    const synthesis = buildFixtureBundleSynthesis([
+      'You are synthesizing a news story covered by multiple sources.',
+      'This story is covered by 2 sources:',
+      '  1. [CBS News] "City budget deal advances" (https://example.test/a)',
+      '  2. [The Guardian] "City budget deal advances" (https://example.test/b)',
+      '',
+      'Headline: City budget deal advances after overnight negotiations',
+      '',
+      'OUTPUT FORMAT:',
+      'Return exactly one JSON object with these keys and no extraneous text:',
+      '"source_count": <number of sources>',
+      '"source_publishers": ["<publisher 1>"]',
+      '"verification_confidence": <0..1 confidence score>',
+    ].join('\n'));
+
+    expect(synthesis.summary).toContain('City budget deal advances');
+    expect(synthesis.frames).toHaveLength(2);
+    expect(synthesis.source_count).toBe(2);
+    expect(synthesis.source_publishers).toEqual(['CBS News', 'The Guardian']);
+    expect(synthesis.verification_confidence).toBeGreaterThan(0);
   });
 
   it('builds deterministic pair-label responses for semantic-audit prompts', () => {
@@ -130,6 +154,16 @@ describe('daemon-feed-analysis-stub', () => {
     ).toBe('one\ntwo\nthree');
     expect(fixtureAnalysisStubInternal.readTaggedLine('Article title: Hello world', 'Article title')).toBe('Hello world');
     expect(fixtureAnalysisStubInternal.readTaggedLine('No tagged line here', 'Article title')).toBe('');
+    expect(fixtureAnalysisStubInternal.readBundleHeadline('Headline: Bundle title')).toBe('Bundle title');
+    expect(fixtureAnalysisStubInternal.readBundlePublishers('  1. [CBS News] "A"\n- publisher: BBC')).toEqual([
+      'CBS News',
+      'BBC',
+    ]);
+    expect(
+      fixtureAnalysisStubInternal.isBundleSynthesisPrompt(
+        'OUTPUT FORMAT:\nReturn exactly one JSON object\n"source_count"\n"source_publishers"\n"verification_confidence"',
+      ),
+    ).toBe(true);
     expect(
       fixtureAnalysisStubInternal.readArticleBody('ARTICLE BODY: unavailable; analyze available metadata only.'),
     ).toBe('');
@@ -216,6 +250,33 @@ describe('daemon-feed-analysis-stub', () => {
     const pairPayload = await pairCompletion.json();
     const pairContent = JSON.parse(pairPayload.choices?.[0]?.message?.content ?? '{}');
     expect(pairContent.pair_labels?.[0]?.label).toBe('same_incident');
+
+    const bundleCompletion = await fetch(`${fixtureAnalysisStubInternal.baseUrl}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        model: 'fixture-analysis-stub',
+        messages: [{
+          role: 'user',
+          content: [
+            'You are synthesizing a news story covered by multiple sources.',
+            '  1. [CBS News] "City budget deal advances" (https://example.test/a)',
+            '  2. [The Guardian] "City budget deal advances" (https://example.test/b)',
+            'Headline: City budget deal advances after overnight negotiations',
+            'OUTPUT FORMAT:',
+            'Return exactly one JSON object with these keys and no extraneous text:',
+            '"source_count"',
+            '"source_publishers"',
+            '"verification_confidence"',
+          ].join('\n'),
+        }],
+      }),
+    });
+    expect(bundleCompletion.status).toBe(200);
+    const bundlePayload = await bundleCompletion.json();
+    const bundleContent = JSON.parse(bundlePayload.choices?.[0]?.message?.content ?? '{}');
+    expect(bundleContent.frames).toHaveLength(2);
+    expect(bundleContent.source_count).toBe(2);
   });
 
   it('covers direct-launch startup branch and signal shutdown', async () => {

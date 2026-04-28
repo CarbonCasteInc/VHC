@@ -23,6 +23,8 @@ const forumState = vi.hoisted(() => ({
   commentModeration: new Map<string, Map<string, HermesCommentModeration>>(),
   threads: new Map<string, HermesThread>(),
   userVotes: new Map<string, unknown>(),
+  loadThread: vi.fn(),
+  loadThreads: vi.fn(),
   loadComments: vi.fn(),
   createThread: vi.fn(),
   createComment: vi.fn(),
@@ -332,6 +334,8 @@ describe('MVP Web PWA news loop release gates', () => {
     forumState.commentModeration = new Map();
     forumState.threads = new Map();
     forumState.userVotes = new Map();
+    forumState.loadThread.mockReset().mockImplementation(async (threadId: string) => forumState.threads.get(threadId) ?? null);
+    forumState.loadThreads.mockReset().mockImplementation(async () => [...forumState.threads.values()]);
     forumState.loadComments.mockReset().mockResolvedValue([]);
     forumState.createThread.mockReset();
     forumState.createComment.mockReset();

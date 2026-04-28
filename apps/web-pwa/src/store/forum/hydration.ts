@@ -15,14 +15,13 @@ export function hydrateFromGun(resolveClient: () => VennClient | null, store: St
   hydratedStores.add(store);
   const threadsChain = client.gun.get('vh').get('forum').get('threads');
 
-  console.info('[vh:forum] Starting hydration subscription');
-
   threadsChain.map().on((data: unknown, key: string) => {
-    console.debug('[vh:forum] hydration callback:', { key, dataType: typeof data, hasData: !!data });
-
     // Skip non-objects
     if (!data || typeof data !== 'object') {
-      console.debug('[vh:forum] skipping: not an object');
+      return;
+    }
+
+    if (isThreadSeen(key) && store.getState().threads.has(key)) {
       return;
     }
 
@@ -31,17 +30,6 @@ export function hydrateFromGun(resolveClient: () => VennClient | null, store: St
 
     // Skip if this is ONLY metadata (no actual thread fields)
     if (!obj.id || !obj.schemaVersion || !obj.title) {
-      console.debug('[vh:forum] skipping: missing required fields', {
-        hasId: !!obj.id,
-        hasSchema: !!obj.schemaVersion,
-        hasTitle: !!obj.title,
-        keys: Object.keys(obj).filter((k) => k !== '_')
-      });
-      return;
-    }
-
-    if (isThreadSeen(key)) {
-      console.debug('[vh:forum] skipping: already seen', key);
       return;
     }
 
@@ -50,13 +38,11 @@ export function hydrateFromGun(resolveClient: () => VennClient | null, store: St
     const parsedData = parseThreadFromGun(cleanObj);
     const result = HermesThreadSchema.safeParse(parsedData);
     if (result.success) {
+      if (isThreadSeen(key) && store.getState().threads.has(result.data.id)) {
+        return;
+      }
       markThreadSeen(key); // Only mark as seen after successful validation
-      console.info('[vh:forum] Hydrated thread:', result.data.id);
       store.setState((s) => addThread(s, result.data));
-    } else {
-      // Don't mark as seen - Gun may fire again with complete data
-      console.debug('[vh:forum] Thread validation failed, will retry:', key, result.error.issues);
     }
   });
 }
-

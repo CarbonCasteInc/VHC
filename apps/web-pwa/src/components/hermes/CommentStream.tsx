@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import type { HermesNewsReportReasonCode } from '@vh/data-model';
 import type { HermesComment, HermesCommentModeration } from '@vh/types';
 import { useForumStore } from '../../store/hermesForum';
@@ -60,17 +60,9 @@ const CommentItem: React.FC<CommentItemProps> = ({
   const [reportReason, setReportReason] = useState<HermesNewsReportReasonCode>('abusive_content');
   const [reportStatus, setReportStatus] = useState<'idle' | 'submitting' | 'submitted' | 'error'>('idle');
   const [reportError, setReportError] = useState<string | null>(null);
-  const [childrenCollapsed, setChildrenCollapsed] = useState(() => depth >= 3 && children.length > 0);
-  const [userToggled, setUserToggled] = useState(false);
-
-  useEffect(() => {
-    if (!userToggled && depth >= 3 && children.length > 0 && !childrenCollapsed) {
-      setChildrenCollapsed(true);
-    }
-  }, [children.length, depth, userToggled, childrenCollapsed]);
+  const [childrenCollapsed, setChildrenCollapsed] = useState(false);
 
   const handleToggle = () => {
-    setUserToggled(true);
     setChildrenCollapsed((v) => !v);
   };
 

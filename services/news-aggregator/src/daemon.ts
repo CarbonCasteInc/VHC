@@ -6,7 +6,6 @@ import {
   type TopicMapping,
 } from '@vh/ai-engine';
 import {
-  createNodeMeshClient,
   readNewsIngestionLease,
   removeNewsBundle,
   removeNewsStoryline,
@@ -16,6 +15,7 @@ import {
   type NewsIngestionLease,
   type VennClient,
 } from '@vh/gun-client';
+import { createNodeMeshClient } from '@vh/gun-client/node';
 import {
   buildLeasePayload,
   createAsyncEnrichmentQueue,
