@@ -31,6 +31,7 @@ Services exposed (default localhost):
 - WebCrypto requires a secure context; using a raw IP over HTTP can blank the app. For remote browsers, tunnel to localhost or use HTTPS.
 - Canonical bundled-headlines helper: `pnpm live:stack:up` (fixture-backed StoryCluster + relay + daemon + web on `http://127.0.0.1:2048/`). Stop with `pnpm live:stack:down`.
 - Public/admitted-source variant: `pnpm live:stack:up:public`.
+- Deterministic analysis/full-product engagement variant: `pnpm live:stack:up:analysis-stub`, then `pnpm test:live:five-user-engagement`.
 - Compatibility wrapper: `./tools/scripts/manual-dev.sh up` now delegates to the same canonical local stack path.
 - Remote tunnel example (from your laptop): `ssh -L 2048:localhost:2048 <user>@<server-ip>` then open `http://localhost:2048`.
 - If you prefer direct IP, trust a cert and use HTTPS (self-signed or via Traefik); otherwise stay on localhost via tunnel to avoid secure-context issues.

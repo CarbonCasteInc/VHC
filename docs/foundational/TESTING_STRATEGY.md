@@ -2,7 +2,7 @@
 
 > Status: Foundational Reference
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-04-28
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
@@ -135,6 +135,25 @@ RIGHT: Separate browser contexts
 **Operational note**:
 - Live strict failures can be environmental (feed/analysis readiness), not only functional regressions.
 - Treat `blocked_setup_scarcity` as setup-readiness failure class and triage environment before code-path debugging.
+
+### Layer 8: Full-Product Five-User Engagement (Playwright Live)
+**Scope**: Five isolated browser contexts against the production-shaped local stack: Web PWA, local Gun relay, news daemon, StoryCluster, fixture feed, and deterministic analysis stub
+**Execution**: Manual release-like product validation / PR evidence for feed-detail-stance-thread changes
+**Entry points**:
+- `pnpm live:stack:up:analysis-stub`
+- `pnpm test:live:five-user-engagement`
+
+**Current contract (PR #551 lane):**
+- Creates five beta-local identities: `alice`, `bruno`, `chandra`, `devon`, and `elena`.
+- Discovers at least two analysis-ready singleton stories and two analysis-ready bundled stories.
+- Opens accepted `TopicSynthesisV2` detail and requires non-empty frame/reframe rows with stable point ids.
+- Records read engagement and point-level stance from each user, waits for mesh write telemetry, and verifies aggregate agree/disagree counts from another user.
+- Creates deterministic `news-story:*` story threads, posts chained replies, reloads users, and verifies comments remain attached and visible across users.
+- Verifies feed-level Eye/Lightbulb metrics become visible after reads and stances.
+
+**Operational note**:
+- This lane supplements the deterministic release reports in `pnpm check:mvp-release-gates`; it is not the source-health or live-headline production-readiness proof.
+- `pnpm live:stack:up:analysis-stub` clears the local relay data path before startup so the run starts from a deterministic beta-local mesh.
 
 ---
 
@@ -324,6 +343,7 @@ jobs:
 | Single-User E2E | ✅ 2 Passing | None |
 | Multi-User E2E | ✅ 7 Passing | None |
 | Live Strict Matrix | ✅ Shipped in CI/ops lane | Environment readiness required (feed + analysis) |
+| Full-Product Five-User Engagement | ✅ Service-backed local live lane | Requires `pnpm live:stack:up:analysis-stub` |
 | Cross-Device | 📋 Planned | BrowserStack setup |
 
 **Sprint 3 Complete (Dec 3, 2025):**
@@ -333,4 +353,4 @@ jobs:
 - All HERMES components have `data-testid` attributes
 - Forum and Messaging E2E flows implemented
 
-**Next step**: Proceed to Sprint 4 (Agentic Foundation) or add BrowserStack for real cross-device testing.
+**Current beta-readiness note:** Cross-device BrowserStack/Sauce coverage remains Season 1/post-beta. For Web PWA public-beta product-loop evidence, use the deterministic release gates plus the service-backed five-user engagement lane above.

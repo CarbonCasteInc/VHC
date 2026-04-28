@@ -2,7 +2,7 @@
 
 > Status: Operational Runbook (Canonical)
 > Owner: VHC Ops
-> Last Reviewed: 2026-04-16
+> Last Reviewed: 2026-04-28
 > Depends On: docs/foundational/STATUS.md, docs/ops/NEWS_SOURCE_ADMISSION_RUNBOOK.md, docs/ops/NEWS_UI_SOAK_LANE_SEPARATION.md, docs/ops/AUTOMATION_STACK_RUNBOOK.md, docs/CANON_MAP.md
 
 
@@ -20,16 +20,19 @@ Avoid drift between:
 
 All commands below use:
 - local relay (`http://127.0.0.1:7777/gun`)
-- local web app (`http://localhost:2048/`)
+- local web app (`http://127.0.0.1:2048/`)
 - `packages/e2e/.env.dev-small` profile
 - analysis relay env (`ANALYSIS_RELAY_UPSTREAM_URL`, `ANALYSIS_RELAY_API_KEY`)
 
 ## Prerequisites
 
-1. Export one of:
+1. Export one of the following for the remote-analysis lane:
    - `ANALYSIS_RELAY_API_KEY`
    - `OPENAI_API_KEY` (used as fallback)
 2. Node/pnpm installed.
+
+The deterministic analysis-stub lane (`pnpm live:stack:up:analysis-stub`) does
+not require a live model key.
 
 ## Related: Automation Stack
 
