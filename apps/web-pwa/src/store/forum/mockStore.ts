@@ -97,6 +97,9 @@ export function createMockForumStore() {
         return { ...state, userVotes: nextVotes };
       });
     },
+    async loadThread(threadId) {
+      return get().threads.get(threadId.trim()) ?? null;
+    },
     async loadThreads() {
       return Array.from(get().threads.values());
     },

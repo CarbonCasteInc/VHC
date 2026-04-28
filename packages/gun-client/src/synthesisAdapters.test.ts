@@ -34,22 +34,40 @@ import {
 } from './synthesisAdapters';
 import { writeTopicLatestSynthesisIfNotDowngrade } from './safeLatestSynthesisAdapters';
 
+const CANDIDATE_SYNTHESIS_JSON_KEY = '__candidate_synthesis_json';
+const TOPIC_SYNTHESIS_JSON_KEY = '__topic_synthesis_json';
+const TOPIC_SYNTHESIS_CORRECTION_JSON_KEY = '__topic_synthesis_correction_json';
+const TOPIC_DIGEST_JSON_KEY = '__topic_digest_json';
+
 interface FakeMesh {
   root: any;
   writes: Array<{ path: string; value: unknown }>;
   setRead: (path: string, value: unknown) => void;
+  setDelayedRead: (path: string) => (value: unknown) => void;
+  setPendingRead: (path: string) => void;
   setPutError: (path: string, err: string) => void;
 }
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
+  const pendingReads = new Set<string>();
+  const delayedReads = new Map<string, (data: unknown) => void>();
   const putErrors = new Map<string, string>();
   const writes: Array<{ path: string; value: unknown }> = [];
 
   const makeNode = (segments: string[]): any => {
     const path = segments.join('/');
     return {
-      once: vi.fn((cb?: (data: unknown) => void) => cb?.(reads.get(path))),
+      once: vi.fn((cb?: (data: unknown) => void) => {
+        if (delayedReads.has(path)) {
+          delayedReads.set(path, cb ?? (() => undefined));
+          return;
+        }
+        if (pendingReads.has(path)) {
+          return;
+        }
+        cb?.(reads.get(path));
+      }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
         const err = putErrors.get(path);
@@ -63,7 +81,24 @@ function createFakeMesh(): FakeMesh {
     root: makeNode([]),
     writes,
     setRead(path: string, value: unknown) {
+      pendingReads.delete(path);
+      delayedReads.delete(path);
       reads.set(path, value);
+    },
+    setDelayedRead(path: string) {
+      pendingReads.delete(path);
+      reads.delete(path);
+      delayedReads.set(path, () => undefined);
+      return (value: unknown) => {
+        const cb = delayedReads.get(path);
+        delayedReads.delete(path);
+        cb?.(value);
+      };
+    },
+    setPendingRead(path: string) {
+      reads.delete(path);
+      delayedReads.delete(path);
+      pendingReads.add(path);
     },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
@@ -90,6 +125,24 @@ function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
     linkDevice: vi.fn(),
     shutdown: vi.fn()
   };
+}
+
+function expectGunJsonEnvelope(
+  value: unknown,
+  key: string,
+  expectedPayload: unknown,
+  expectedTopLevel: Record<string, unknown>
+): void {
+  expect(value).toMatchObject(expectedTopLevel);
+  const record = value as Record<string, unknown>;
+  expect(typeof record[key]).toBe('string');
+  expect(JSON.parse(String(record[key]))).toEqual(expectedPayload);
+  for (const [field, fieldValue] of Object.entries(record)) {
+    if (field === key) {
+      continue;
+    }
+    expect(['string', 'number', 'boolean'].includes(typeof fieldValue) || fieldValue === null).toBe(true);
+  }
 }
 
 const CANDIDATE: CandidateSynthesis = {
@@ -295,9 +348,25 @@ describe('synthesisAdapters', () => {
 
     const written = await writeTopicEpochCandidate(client, CANDIDATE);
     expect(written).toEqual(CANDIDATE);
-    expect(mesh.writes[0]).toEqual({
-      path: 'topics/topic-1/epochs/2/candidates/candidate-1',
-      value: CANDIDATE
+    expect(mesh.writes[0]?.path).toBe('topics/topic-1/epochs/2/candidates/candidate-1');
+    expectGunJsonEnvelope(mesh.writes[0]?.value, CANDIDATE_SYNTHESIS_JSON_KEY, CANDIDATE, {
+      candidate_id: CANDIDATE.candidate_id,
+      topic_id: CANDIDATE.topic_id,
+      epoch: CANDIDATE.epoch,
+      created_at: CANDIDATE.created_at
+    });
+
+    await expect(readTopicEpochCandidate(client, 'topic-1', 2, 'candidate-1')).resolves.toEqual(CANDIDATE);
+  });
+
+  it('reads Gun-safe candidate envelopes', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    await writeTopicEpochCandidate(client, CANDIDATE);
+    mesh.setRead('topics/topic-1/epochs/2/candidates/candidate-1', {
+      _: { '#': 'meta' },
+      ...(mesh.writes[0]?.value as Record<string, unknown>)
     });
 
     await expect(readTopicEpochCandidate(client, 'topic-1', 2, 'candidate-1')).resolves.toEqual(CANDIDATE);
@@ -362,9 +431,44 @@ describe('synthesisAdapters', () => {
 
     const written = await writeTopicEpochSynthesis(client, SYNTHESIS);
     expect(written).toEqual(SYNTHESIS);
-    expect(mesh.writes[0]).toEqual({ path: 'topics/topic-1/epochs/2/synthesis', value: SYNTHESIS });
+    expect(mesh.writes[0]?.path).toBe('topics/topic-1/epochs/2/synthesis');
+    expectGunJsonEnvelope(mesh.writes[0]?.value, TOPIC_SYNTHESIS_JSON_KEY, SYNTHESIS, {
+      schemaVersion: SYNTHESIS.schemaVersion,
+      topic_id: SYNTHESIS.topic_id,
+      epoch: SYNTHESIS.epoch,
+      synthesis_id: SYNTHESIS.synthesis_id,
+      created_at: SYNTHESIS.created_at
+    });
 
     await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', {
+      _: { '#': 'meta' },
+      ...(mesh.writes[0]?.value as Record<string, unknown>)
+    });
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', { _: { '#': 'meta' } });
+    mesh.setRead('topics/topic-1/epochs/2/synthesis/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis/__topic_synthesis_json', JSON.stringify({
+      ...SYNTHESIS,
+      epoch: 3
+    }));
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', {
+      _: { '#': 'meta' },
+      [TOPIC_SYNTHESIS_JSON_KEY]: 42
+    });
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', {
+      _: { '#': 'meta' },
+      [TOPIC_SYNTHESIS_JSON_KEY]: '{'
+    });
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/epochs/2/synthesis', { ...SYNTHESIS, topic_id: 'topic-2' });
     await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
@@ -394,9 +498,44 @@ describe('synthesisAdapters', () => {
 
     const written = await writeTopicLatestSynthesis(client, SYNTHESIS);
     expect(written).toEqual(SYNTHESIS);
-    expect(mesh.writes[0]).toEqual({ path: 'topics/topic-1/latest', value: SYNTHESIS });
+    expect(mesh.writes[0]?.path).toBe('topics/topic-1/latest');
+    expectGunJsonEnvelope(mesh.writes[0]?.value, TOPIC_SYNTHESIS_JSON_KEY, SYNTHESIS, {
+      schemaVersion: SYNTHESIS.schemaVersion,
+      topic_id: SYNTHESIS.topic_id,
+      epoch: SYNTHESIS.epoch,
+      synthesis_id: SYNTHESIS.synthesis_id,
+      created_at: SYNTHESIS.created_at
+    });
 
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/latest', {
+      _: { '#': 'meta' },
+      ...(mesh.writes[0]?.value as Record<string, unknown>)
+    });
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/latest', { _: { '#': 'meta' } });
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', JSON.stringify({
+      ...SYNTHESIS,
+      topic_id: 'topic-2'
+    }));
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', JSON.stringify({
+      ...SYNTHESIS,
+      token: 'bad'
+    }));
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', 42);
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', '{');
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/latest', { ...SYNTHESIS, topic_id: 'topic-2' });
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
@@ -421,13 +560,65 @@ describe('synthesisAdapters', () => {
 
     const written = await writeTopicSynthesisCorrection(client, CORRECTION, OPERATOR_AUTHORIZATION);
     expect(written).toEqual(CORRECTION);
-    expect(mesh.writes).toEqual([
-      { path: 'topics/topic-1/synthesis_corrections/correction-1', value: CORRECTION },
-      { path: 'topics/topic-1/synthesis_corrections/latest', value: CORRECTION }
-    ]);
+    expect(mesh.writes[0]?.path).toBe('topics/topic-1/synthesis_corrections/correction-1');
+    expect(mesh.writes[1]?.path).toBe('topics/topic-1/synthesis_corrections/latest');
+    for (const write of mesh.writes) {
+      expectGunJsonEnvelope(write.value, TOPIC_SYNTHESIS_CORRECTION_JSON_KEY, CORRECTION, {
+        schemaVersion: CORRECTION.schemaVersion,
+        correction_id: CORRECTION.correction_id,
+        topic_id: CORRECTION.topic_id,
+        synthesis_id: CORRECTION.synthesis_id,
+        epoch: CORRECTION.epoch,
+        status: CORRECTION.status,
+        operator_id: CORRECTION.operator_id,
+        created_at: CORRECTION.created_at
+      });
+    }
 
     await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
     await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', {
+      _: { '#': 'meta' },
+      ...(mesh.writes[0]?.value as Record<string, unknown>)
+    });
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', {
+      _: { '#': 'meta' },
+      ...(mesh.writes[1]?.value as Record<string, unknown>)
+    });
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', { _: { '#': 'meta' } });
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json',
+      JSON.stringify(CORRECTION)
+    );
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', { _: { '#': 'meta' } });
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/latest/__topic_synthesis_correction_json',
+      JSON.stringify(CORRECTION)
+    );
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json',
+      JSON.stringify({ ...CORRECTION, correction_id: 'correction-2' })
+    );
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json',
+      JSON.stringify({ ...CORRECTION, token: 'bad' })
+    );
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json', 42);
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
+
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json', '{');
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', { ...CORRECTION, topic_id: 'topic-2' });
     await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
@@ -445,6 +636,7 @@ describe('synthesisAdapters', () => {
     await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/synthesis_corrections/latest', undefined);
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest/__topic_synthesis_correction_json', undefined);
     await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/synthesis_corrections/latest', { invalid: true });
@@ -452,6 +644,68 @@ describe('synthesisAdapters', () => {
 
     mesh.setRead('topics/topic-1/synthesis_corrections/latest', { ...CORRECTION, token: 'bad' });
     await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toBeNull();
+  });
+
+  it('recovers synthesis and correction payloads from scalar envelopes when root nodes are absent', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', undefined);
+    mesh.setRead('topics/topic-1/epochs/2/synthesis/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+    mesh.setRead('topics/topic-1/latest', undefined);
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+    mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', undefined);
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/correction-1/__topic_synthesis_correction_json',
+      JSON.stringify(CORRECTION)
+    );
+    mesh.setRead('topics/topic-1/synthesis_corrections/latest', undefined);
+    mesh.setRead(
+      'topics/topic-1/synthesis_corrections/latest/__topic_synthesis_correction_json',
+      JSON.stringify(CORRECTION)
+    );
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+    await expect(readTopicSynthesisCorrection(client, 'topic-1', 'correction-1')).resolves.toEqual(CORRECTION);
+    await expect(readTopicLatestSynthesisCorrection(client, 'topic-1')).resolves.toEqual(CORRECTION);
+  });
+
+  it('bounds synthesis reads when Gun never resolves absent optional nodes', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPendingRead('topics/topic-1/synthesis_corrections/latest');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const readPromise = readTopicLatestSynthesisCorrection(client, 'topic-1');
+      await vi.advanceTimersByTimeAsync(2_500);
+
+      await expect(readPromise).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('ignores late synthesis read callbacks after timeout recovery', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      const emitLate = mesh.setDelayedRead('topics/topic-1/latest');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const readPromise = readTopicLatestSynthesis(client, 'topic-1');
+      await vi.advanceTimersByTimeAsync(2_500);
+      await expect(readPromise).resolves.toBeNull();
+
+      emitLate(SYNTHESIS);
+      await Promise.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects malformed correction writes and surfaces correction ack errors', async () => {
@@ -559,7 +813,14 @@ describe('synthesisAdapters', () => {
     ).resolves.toMatchObject({
       status: 'written'
     });
-    expect(mesh.writes).toEqual([{ path: 'topics/topic-1/latest', value: next }]);
+    expect(mesh.writes[0]?.path).toBe('topics/topic-1/latest');
+    expectGunJsonEnvelope(mesh.writes[0]?.value, TOPIC_SYNTHESIS_JSON_KEY, next, {
+      schemaVersion: next.schemaVersion,
+      topic_id: next.topic_id,
+      epoch: next.epoch,
+      synthesis_id: next.synthesis_id,
+      created_at: next.created_at
+    });
   });
 
   it('blocks forbidden identity/token fields before safe latest synthesis writes', async () => {
@@ -581,10 +842,22 @@ describe('synthesisAdapters', () => {
     const written = await writeTopicSynthesis(client, SYNTHESIS);
 
     expect(written).toEqual(SYNTHESIS);
-    expect(mesh.writes).toEqual([
-      { path: 'topics/topic-1/epochs/2/synthesis', value: SYNTHESIS },
-      { path: 'topics/topic-1/latest', value: SYNTHESIS }
-    ]);
+    expect(mesh.writes[0]?.path).toBe('topics/topic-1/epochs/2/synthesis');
+    expect(mesh.writes[1]?.path).toBe('topics/topic-1/latest');
+    expectGunJsonEnvelope(mesh.writes[0]?.value, TOPIC_SYNTHESIS_JSON_KEY, SYNTHESIS, {
+      schemaVersion: SYNTHESIS.schemaVersion,
+      topic_id: SYNTHESIS.topic_id,
+      epoch: SYNTHESIS.epoch,
+      synthesis_id: SYNTHESIS.synthesis_id,
+      created_at: SYNTHESIS.created_at
+    });
+    expectGunJsonEnvelope(mesh.writes[1]?.value, TOPIC_SYNTHESIS_JSON_KEY, SYNTHESIS, {
+      schemaVersion: SYNTHESIS.schemaVersion,
+      topic_id: SYNTHESIS.topic_id,
+      epoch: SYNTHESIS.epoch,
+      synthesis_id: SYNTHESIS.synthesis_id,
+      created_at: SYNTHESIS.created_at
+    });
   });
 
   it('surfaces synthesis write acknowledgement errors', async () => {
@@ -609,8 +882,20 @@ describe('synthesisAdapters', () => {
 
     const written = await writeTopicDigest(client, DIGEST);
     expect(written).toEqual(DIGEST);
-    expect(mesh.writes[0]).toEqual({ path: 'topics/topic-1/digests/digest-1', value: DIGEST });
+    expect(mesh.writes[0]?.path).toBe('topics/topic-1/digests/digest-1');
+    expectGunJsonEnvelope(mesh.writes[0]?.value, TOPIC_DIGEST_JSON_KEY, DIGEST, {
+      digest_id: DIGEST.digest_id,
+      topic_id: DIGEST.topic_id,
+      window_start: DIGEST.window_start,
+      window_end: DIGEST.window_end
+    });
 
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
+
+    mesh.setRead('topics/topic-1/digests/digest-1', {
+      _: { '#': 'meta' },
+      ...(mesh.writes[0]?.value as Record<string, unknown>)
+    });
     await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
 
     mesh.setRead('topics/topic-1/digests/digest-1', undefined);

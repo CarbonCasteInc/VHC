@@ -11,6 +11,7 @@ import {
   type TrustedOperatorAuthorization
 } from '@vh/data-model';
 import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
   'identity',
@@ -30,6 +31,14 @@ const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
   'wallet',
   'address'
 ]);
+const CANDIDATE_SYNTHESIS_JSON_KEY = '__candidate_synthesis_json';
+const TOPIC_SYNTHESIS_JSON_KEY = '__topic_synthesis_json';
+const TOPIC_SYNTHESIS_CORRECTION_JSON_KEY = '__topic_synthesis_correction_json';
+const TOPIC_DIGEST_JSON_KEY = '__topic_digest_json';
+const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_SYNTHESIS_READ_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_READ_TIMEOUT_MS', 'VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
+  2_500,
+);
 function topicEpochCandidatesPath(topicId: string, epoch: string): string {
   return `vh/topics/${topicId}/epochs/${epoch}/candidates/`;
 }
@@ -146,8 +155,71 @@ function stripGunMetadata(data: unknown): unknown {
   return rest;
 }
 
+function decodeGunJsonEnvelope(payload: unknown, key: string): unknown {
+  if (!isRecord(payload)) {
+    return payload;
+  }
+  if (!(key in payload)) {
+    return payload;
+  }
+  const encoded = payload[key];
+  if (typeof encoded !== 'string') {
+    return null;
+  }
+  try {
+    return JSON.parse(encoded);
+  } catch {
+    return null;
+  }
+}
+
+function encodeCandidateForGun(candidate: CandidateSynthesis): Record<string, unknown> {
+  return {
+    [CANDIDATE_SYNTHESIS_JSON_KEY]: JSON.stringify(candidate),
+    candidate_id: candidate.candidate_id,
+    topic_id: candidate.topic_id,
+    epoch: candidate.epoch,
+    created_at: candidate.created_at
+  };
+}
+
+function encodeSynthesisForGun(synthesis: TopicSynthesisV2): Record<string, unknown> {
+  return {
+    [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(synthesis),
+    schemaVersion: synthesis.schemaVersion,
+    topic_id: synthesis.topic_id,
+    epoch: synthesis.epoch,
+    synthesis_id: synthesis.synthesis_id,
+    created_at: synthesis.created_at
+  };
+}
+
+function encodeSynthesisCorrectionForGun(correction: TopicSynthesisCorrection): Record<string, unknown> {
+  return {
+    [TOPIC_SYNTHESIS_CORRECTION_JSON_KEY]: JSON.stringify(correction),
+    schemaVersion: correction.schemaVersion,
+    correction_id: correction.correction_id,
+    topic_id: correction.topic_id,
+    synthesis_id: correction.synthesis_id,
+    epoch: correction.epoch,
+    status: correction.status,
+    operator_id: correction.operator_id,
+    created_at: correction.created_at
+  };
+}
+
+function encodeDigestForGun(digest: TopicDigest): Record<string, unknown> {
+  return {
+    [TOPIC_DIGEST_JSON_KEY]: JSON.stringify(digest),
+    digest_id: digest.digest_id,
+    topic_id: digest.topic_id,
+    window_start: digest.window_start,
+    window_end: digest.window_end
+  };
+}
+
 function parseCandidate(data: unknown): CandidateSynthesis | null {
-  const payload = stripGunMetadata(data);
+  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), CANDIDATE_SYNTHESIS_JSON_KEY);
   if (hasForbiddenSynthesisPayloadFields(payload)) {
     return null;
   }
@@ -156,7 +228,7 @@ function parseCandidate(data: unknown): CandidateSynthesis | null {
 }
 
 function parseSynthesis(data: unknown): TopicSynthesisV2 | null {
-  const payload = stripGunMetadata(data);
+  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), TOPIC_SYNTHESIS_JSON_KEY);
   if (hasForbiddenSynthesisPayloadFields(payload)) {
     return null;
   }
@@ -165,7 +237,7 @@ function parseSynthesis(data: unknown): TopicSynthesisV2 | null {
 }
 
 function parseSynthesisCorrection(data: unknown): TopicSynthesisCorrection | null {
-  const payload = stripGunMetadata(data);
+  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), TOPIC_SYNTHESIS_CORRECTION_JSON_KEY);
   if (hasForbiddenSynthesisPayloadFields(payload)) {
     return null;
   }
@@ -174,7 +246,7 @@ function parseSynthesisCorrection(data: unknown): TopicSynthesisCorrection | nul
 }
 
 function parseDigest(data: unknown): TopicDigest | null {
-  const payload = stripGunMetadata(data);
+  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), TOPIC_DIGEST_JSON_KEY);
   if (hasForbiddenSynthesisPayloadFields(payload)) {
     return null;
   }
@@ -182,9 +254,63 @@ function parseDigest(data: unknown): TopicDigest | null {
   return parsed.success ? parsed.data : null;
 }
 
+function parseSynthesisPayload(payload: unknown): TopicSynthesisV2 | null {
+  if (hasForbiddenSynthesisPayloadFields(payload)) {
+    return null;
+  }
+  const parsed = TopicSynthesisV2Schema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
+}
+
+function parseSynthesisCorrectionPayload(payload: unknown): TopicSynthesisCorrection | null {
+  if (hasForbiddenSynthesisPayloadFields(payload)) {
+    return null;
+  }
+  const parsed = TopicSynthesisCorrectionSchema.safeParse(payload);
+  return parsed.success ? parsed.data : null;
+}
+
+async function readJsonEnvelopeScalar<T>(
+  chain: ChainWithGet<T>,
+  key: string
+): Promise<unknown | null> {
+  const raw = await readOnce(chain.get(key) as unknown as ChainWithGet<unknown>);
+  if (typeof raw !== 'string') {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+async function readSynthesisFromEnvelopeScalar<T>(chain: ChainWithGet<T>): Promise<TopicSynthesisV2 | null> {
+  return parseSynthesisPayload(await readJsonEnvelopeScalar(chain, TOPIC_SYNTHESIS_JSON_KEY));
+}
+
+async function readSynthesisCorrectionFromEnvelopeScalar<T>(
+  chain: ChainWithGet<T>
+): Promise<TopicSynthesisCorrection | null> {
+  return parseSynthesisCorrectionPayload(
+    await readJsonEnvelopeScalar(chain, TOPIC_SYNTHESIS_CORRECTION_JSON_KEY)
+  );
+}
+
 function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      resolve(null);
+    }, READ_ONCE_TIMEOUT_MS);
+
     chain.once((data) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
       resolve((data ?? null) as T | null);
     });
   });
@@ -337,18 +463,23 @@ export async function writeTopicEpochCandidate(client: VennClient, candidate: un
   const topicId = normalizeTopicId(sanitized.topic_id);
   const epoch = normalizeEpoch(sanitized.epoch);
   const candidateId = normalizeId(sanitized.candidate_id, 'candidateId');
-  await putWithAck(getTopicEpochCandidateChain(client, topicId, epoch, candidateId), sanitized);
+  await putWithAck(
+    getTopicEpochCandidateChain(client, topicId, epoch, candidateId) as unknown as ChainWithGet<Record<string, unknown>>,
+    encodeCandidateForGun(sanitized)
+  );
   return sanitized;
 }
 
 export async function readTopicEpochSynthesis(client: VennClient, topicId: string, epoch: number): Promise<TopicSynthesisV2 | null> {
   const normalizedTopicId = normalizeTopicId(topicId);
   const normalizedEpoch = normalizeEpoch(epoch);
-  const raw = await readOnce(getTopicEpochSynthesisChain(client, normalizedTopicId, normalizedEpoch));
+  const chain = getTopicEpochSynthesisChain(client, normalizedTopicId, normalizedEpoch);
+  const raw = await readOnce(chain);
   if (raw === null) {
-    return null;
+    const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
+    return scalarParsed?.topic_id === normalizedTopicId && String(scalarParsed.epoch) === normalizedEpoch ? scalarParsed : null;
   }
-  const parsed = parseSynthesis(raw);
+  const parsed = parseSynthesis(raw) ?? await readSynthesisFromEnvelopeScalar(chain);
   return parsed?.topic_id === normalizedTopicId && String(parsed.epoch) === normalizedEpoch ? parsed : null;
 }
 
@@ -356,26 +487,35 @@ export async function writeTopicEpochSynthesis(client: VennClient, synthesis: un
   assertNoForbiddenSynthesisFields(synthesis);
   const sanitized = TopicSynthesisV2Schema.parse(synthesis);
   await putWithAck(
-    getTopicEpochSynthesisChain(client, normalizeTopicId(sanitized.topic_id), normalizeEpoch(sanitized.epoch)),
-    sanitized
+    getTopicEpochSynthesisChain(
+      client,
+      normalizeTopicId(sanitized.topic_id),
+      normalizeEpoch(sanitized.epoch)
+    ) as unknown as ChainWithGet<Record<string, unknown>>,
+    encodeSynthesisForGun(sanitized)
   );
   return sanitized;
 }
 
 export async function readTopicLatestSynthesis(client: VennClient, topicId: string): Promise<TopicSynthesisV2 | null> {
   const normalizedTopicId = normalizeTopicId(topicId);
-  const raw = await readOnce(getTopicLatestSynthesisChain(client, normalizedTopicId));
+  const chain = getTopicLatestSynthesisChain(client, normalizedTopicId);
+  const raw = await readOnce(chain);
   if (raw === null) {
-    return null;
+    const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
+    return scalarParsed?.topic_id === normalizedTopicId ? scalarParsed : null;
   }
-  const parsed = parseSynthesis(raw);
+  const parsed = parseSynthesis(raw) ?? await readSynthesisFromEnvelopeScalar(chain);
   return parsed?.topic_id === normalizedTopicId ? parsed : null;
 }
 
 export async function writeTopicLatestSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
   assertNoForbiddenSynthesisFields(synthesis);
   const sanitized = TopicSynthesisV2Schema.parse(synthesis);
-  await putWithAck(getTopicLatestSynthesisChain(client, normalizeTopicId(sanitized.topic_id)), sanitized);
+  await putWithAck(
+    getTopicLatestSynthesisChain(client, normalizeTopicId(sanitized.topic_id)) as unknown as ChainWithGet<Record<string, unknown>>,
+    encodeSynthesisForGun(sanitized)
+  );
   return sanitized;
 }
 
@@ -386,17 +526,19 @@ export async function readTopicSynthesisCorrection(
 ): Promise<TopicSynthesisCorrection | null> {
   const normalizedTopicId = normalizeTopicId(topicId);
   const normalizedCorrectionId = normalizeId(correctionId, 'correctionId');
-  const raw = await readOnce(
-    getTopicSynthesisCorrectionChain(
-      client,
-      normalizedTopicId,
-      normalizedCorrectionId
-    )
+  const chain = getTopicSynthesisCorrectionChain(
+    client,
+    normalizedTopicId,
+    normalizedCorrectionId
   );
+  const raw = await readOnce(chain);
   if (raw === null) {
-    return null;
+    const scalarParsed = await readSynthesisCorrectionFromEnvelopeScalar(chain);
+    return scalarParsed?.topic_id === normalizedTopicId && scalarParsed.correction_id === normalizedCorrectionId
+      ? scalarParsed
+      : null;
   }
-  const parsed = parseSynthesisCorrection(raw);
+  const parsed = parseSynthesisCorrection(raw) ?? await readSynthesisCorrectionFromEnvelopeScalar(chain);
   return parsed?.topic_id === normalizedTopicId && parsed.correction_id === normalizedCorrectionId ? parsed : null;
 }
 
@@ -405,11 +547,13 @@ export async function readTopicLatestSynthesisCorrection(
   topicId: string
 ): Promise<TopicSynthesisCorrection | null> {
   const normalizedTopicId = normalizeTopicId(topicId);
-  const raw = await readOnce(getTopicLatestSynthesisCorrectionChain(client, normalizedTopicId));
+  const chain = getTopicLatestSynthesisCorrectionChain(client, normalizedTopicId);
+  const raw = await readOnce(chain);
   if (raw === null) {
-    return null;
+    const scalarParsed = await readSynthesisCorrectionFromEnvelopeScalar(chain);
+    return scalarParsed?.topic_id === normalizedTopicId ? scalarParsed : null;
   }
-  const parsed = parseSynthesisCorrection(raw);
+  const parsed = parseSynthesisCorrection(raw) ?? await readSynthesisCorrectionFromEnvelopeScalar(chain);
   return parsed?.topic_id === normalizedTopicId ? parsed : null;
 }
 
@@ -424,8 +568,15 @@ export async function writeTopicSynthesisCorrection(
   const correctionId = normalizeId(sanitized.correction_id, 'correctionId');
   const operatorId = normalizeId(sanitized.operator_id, 'operatorId');
   assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'write_synthesis_correction');
-  await putWithAck(getTopicSynthesisCorrectionChain(client, topicId, correctionId), sanitized);
-  await putWithAck(getTopicLatestSynthesisCorrectionChain(client, topicId), sanitized);
+  const encoded = encodeSynthesisCorrectionForGun(sanitized);
+  await putWithAck(
+    getTopicSynthesisCorrectionChain(client, topicId, correctionId) as unknown as ChainWithGet<Record<string, unknown>>,
+    encoded
+  );
+  await putWithAck(
+    getTopicLatestSynthesisCorrectionChain(client, topicId) as unknown as ChainWithGet<Record<string, unknown>>,
+    encoded
+  );
   return sanitized;
 }
 
@@ -447,8 +598,12 @@ export async function writeTopicDigest(client: VennClient, digest: unknown): Pro
   assertNoForbiddenSynthesisFields(digest);
   const sanitized = TopicDigestInputSchema.parse(digest);
   await putWithAck(
-    getTopicDigestChain(client, normalizeTopicId(sanitized.topic_id), normalizeId(sanitized.digest_id, 'digestId')),
-    sanitized
+    getTopicDigestChain(
+      client,
+      normalizeTopicId(sanitized.topic_id),
+      normalizeId(sanitized.digest_id, 'digestId')
+    ) as unknown as ChainWithGet<Record<string, unknown>>,
+    encodeDigestForGun(sanitized)
   );
   return sanitized;
 }

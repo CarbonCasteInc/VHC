@@ -336,6 +336,14 @@ function rowsContainWritesNewerThanSnapshot(
   return rows.some((row) => row.updated_at_ms > snapshotToSeq);
 }
 
+function rowsOverlapSnapshotWindow(
+  rows: readonly AggregateVoterPointRow[],
+  snapshot: PointAggregateSnapshotV1,
+): boolean {
+  const snapshotFromSeq = normalizeNonNegativeInt(snapshot.source_window.from_seq);
+  return rows.some((row) => row.updated_at_ms >= snapshotFromSeq);
+}
+
 function parseVoterPointRow(
   voterId: string,
   voterPayload: unknown,
@@ -377,6 +385,17 @@ function collectVoterRows(raw: unknown, pointId: string): AggregateVoterPointRow
   }
 
   return rows;
+}
+
+function mergeRowsByVoter(rows: readonly AggregateVoterPointRow[]): AggregateVoterPointRow[] {
+  const byVoter = new Map<string, AggregateVoterPointRow>();
+  for (const row of rows) {
+    const existing = byVoter.get(row.voter_id);
+    if (!existing || row.updated_at_ms >= existing.updated_at_ms) {
+      byVoter.set(row.voter_id, row);
+    }
+  }
+  return Array.from(byVoter.values());
 }
 
 const MAP_FANIN_IDLE_MS = 200;
@@ -542,8 +561,6 @@ async function readVoterPointRow(
     updated_at_ms: parseUpdatedAtMs(parsed.data.updated_at),
   };
 }
-
-// mergeRowsByVoter removed: candidate voter ids are de-duplicated before leaf reads.
 
 export function getAggregateVotersChain(
   client: VennClient,
@@ -862,31 +879,34 @@ export async function readAggregateVoterRows(
   ) as unknown as ChainWithGet<unknown>;
 
   const mapRows = await collectVoterRowsViaMap(votersChain, normalizedPointId);
-  if (mapRows.length > 0) {
-    return mapRows;
-  }
-
   const raw = await readOnce(votersChain);
   const rawRows = collectVoterRows(raw, normalizedPointId);
-  if (rawRows.length > 0) {
-    return rawRows;
-  }
 
   const candidateVoterIds = new Set<string>(collectVoterIds(raw));
+  for (const row of mapRows) {
+    candidateVoterIds.add(row.voter_id);
+  }
+  for (const row of rawRows) {
+    candidateVoterIds.add(row.voter_id);
+  }
   const mapVoterIds = await collectVoterIdsViaMap(votersChain);
   for (const voterId of mapVoterIds) {
     candidateVoterIds.add(voterId);
   }
 
   if (candidateVoterIds.size === 0) {
-    return [];
+    return mergeRowsByVoter([...mapRows, ...rawRows]);
   }
 
   const recoveredRows = await Promise.all(
     Array.from(candidateVoterIds).map((voterId) => readVoterPointRow(votersChain, voterId, normalizedPointId)),
   );
 
-  return recoveredRows.filter((row): row is AggregateVoterPointRow => row !== null);
+  return mergeRowsByVoter([
+    ...mapRows,
+    ...rawRows,
+    ...recoveredRows.filter((row): row is AggregateVoterPointRow => row !== null),
+  ]);
 }
 
 export async function readPointAggregateSnapshot(
@@ -980,6 +1000,14 @@ async function readAggregatesAttempt(
     }
     await sleep(STALE_ZERO_READ_RETRY_MS);
     return readAggregatesAttempt(client, topicId, synthesisId, epoch, pointId, attempt + 1);
+  }
+
+  if (
+    rowsOverlapSnapshotWindow(rows, materializedSnapshot) &&
+    (rowSummary.participants > snapshotAggregate.participants ||
+      rowSummary.weight > snapshotAggregate.weight)
+  ) {
+    return rowSummary;
   }
 
   // Materialized snapshots are the best-known complete view for a point. Only

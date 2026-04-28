@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { pathToFileURL } from 'node:url';
 
 function readStubPort(env = process.env) {
-  return Number.parseInt(env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT ?? '9040', 10);
+  const defaultPort = env.VITEST || env.VITEST_WORKER_ID ? '9140' : '9040';
+  return Number.parseInt(env.VH_DAEMON_FEED_ANALYSIS_STUB_PORT ?? defaultPort, 10);
 }
 
 function resolveRequestUrl(requestUrl, serviceBaseUrl = baseUrl) {
@@ -23,7 +24,13 @@ function resolveResponseModel(body) {
 
 function closeListeningServer(listener) {
   return new Promise((resolve, reject) => {
-    listener.close((error) => (error ? reject(error) : resolve(undefined)));
+    listener.close((error) => {
+      if (!error || error.code === 'ERR_SERVER_NOT_RUNNING') {
+        resolve(undefined);
+        return;
+      }
+      reject(error);
+    });
   });
 }
 
@@ -63,6 +70,25 @@ function readMessageText(messages) {
 function readTaggedLine(prompt, label) {
   const match = prompt.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'));
   return match?.[1]?.trim() ?? '';
+}
+
+function readBundleHeadline(prompt) {
+  return readTaggedLine(prompt, 'Headline')
+    || readTaggedLine(prompt, 'Story headline')
+    || 'Fixture story';
+}
+
+function readBundlePublishers(prompt) {
+  const publishers = new Set();
+  for (const match of prompt.matchAll(/^\s*\d+\.\s+\[([^\]]+)\]/gm)) {
+    const publisher = match[1]?.trim();
+    if (publisher) publishers.add(publisher);
+  }
+  for (const match of prompt.matchAll(/^- publisher:\s*(.+)$/gim)) {
+    const publisher = match[1]?.trim();
+    if (publisher) publishers.add(publisher);
+  }
+  return [...publishers];
 }
 
 function readArticleBody(prompt) {
@@ -223,6 +249,39 @@ export function buildFixtureAnalysis(prompt) {
   };
 }
 
+export function buildFixtureBundleSynthesis(prompt) {
+  const headline = readBundleHeadline(prompt);
+  const publishers = readBundlePublishers(prompt);
+  const sourcePublishers = publishers.length > 0 ? publishers : ['Fixture Source'];
+  const sourceCount = Math.max(1, sourcePublishers.length);
+  const subject = firstSentence(headline).replace(/[.!?]+$/, '') || 'the story';
+  const lowerSubject = subject.toLowerCase();
+
+  return {
+    summary: `${subject} is covered by ${sourceCount} source${sourceCount === 1 ? '' : 's'} in the deterministic local analysis lane. The synthesis captures shared facts while keeping disputed implications in the frame and reframe rows.`,
+    frames: [
+      {
+        frame: `Public officials should treat ${lowerSubject} as requiring fast action.`,
+        reframe: `Public officials should slow decisions on ${lowerSubject} until the evidence is clearer.`,
+      },
+      {
+        frame: `The main accountability question is whether institutions responded early enough to ${lowerSubject}.`,
+        reframe: `The main accountability question is whether coverage is overstating unresolved parts of ${lowerSubject}.`,
+      },
+    ],
+    source_count: sourceCount,
+    source_publishers: sourcePublishers,
+    verification_confidence: 0.91,
+  };
+}
+
+function isBundleSynthesisPrompt(prompt) {
+  return /OUTPUT FORMAT:\s*Return exactly one JSON object/i.test(prompt)
+    && /"source_count"/.test(prompt)
+    && /"source_publishers"/.test(prompt)
+    && /"verification_confidence"/.test(prompt);
+}
+
 function sendJson(res, statusCode, payload) {
   res.statusCode = statusCode;
   res.setHeader('content-type', 'application/json; charset=utf-8');
@@ -245,7 +304,9 @@ const server = createServer(async (req, res) => {
   const model = resolveResponseModel(body);
   const prompt = readMessageText(body?.messages);
   const content = JSON.stringify(
-    buildFixturePairLabelResponse(prompt) ?? buildFixtureAnalysis(prompt),
+    buildFixturePairLabelResponse(prompt)
+      ?? (isBundleSynthesisPrompt(prompt) ? buildFixtureBundleSynthesis(prompt) : null)
+      ?? buildFixtureAnalysis(prompt),
   );
   sendJson(res, 200, {
     id: 'chatcmpl-fixture-analysis',
@@ -300,6 +361,8 @@ export const fixtureAnalysisStubInternal = {
   baseUrl,
   readMessageText,
   readTaggedLine,
+  readBundleHeadline,
+  readBundlePublishers,
   readArticleBody,
   firstSentence,
   readStubPort,
@@ -310,6 +373,8 @@ export const fixtureAnalysisStubInternal = {
   jaccardOverlap,
   readPairLabelRequests,
   classifyPairLabel,
+  buildFixtureBundleSynthesis,
+  isBundleSynthesisPrompt,
   closeListeningServer,
   removeShutdownHandler,
 };

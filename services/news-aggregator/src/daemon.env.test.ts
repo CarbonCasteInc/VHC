@@ -61,11 +61,14 @@ async function loadSubject(options: {
     const actual = await vi.importActual<typeof import('@vh/gun-client')>('@vh/gun-client');
     return {
       ...actual,
-      createNodeMeshClient,
       readNewsIngestionLease,
       writeNewsIngestionLease,
     };
   });
+
+  vi.doMock('@vh/gun-client/node', () => ({
+    createNodeMeshClient,
+  }));
 
   vi.doMock('./daemonUtils', async () => {
     const actual = await vi.importActual<typeof import('./daemonUtils')>('./daemonUtils');

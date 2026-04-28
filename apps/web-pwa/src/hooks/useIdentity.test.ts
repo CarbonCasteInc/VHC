@@ -86,6 +86,10 @@ describe('useIdentity', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.identity?.handle).toBe('alice');
     expect(result.current.identity?.session.nullifier).toBe('null1');
+
+    const { useXpLedger } = await import('../store/xpLedger');
+    expect(useXpLedger.getState().activeNullifier).toBe('null1');
+    expect(useXpLedger.getState().budget?.nullifier).toBe('null1');
   });
 
   it('migrates legacy localStorage identity to vault on startup', async () => {
@@ -143,9 +147,12 @@ describe('useIdentity', () => {
 
     // Identity provider must have public snapshot (no secrets)
     const { getPublishedIdentity } = await import('../store/identityProvider');
+    const { useXpLedger } = await import('../store/xpLedger');
     const snapshot = getPublishedIdentity();
     expect(snapshot).not.toBeNull();
     expect(snapshot!.session.nullifier).toBe('stable-nullifier');
+    expect(useXpLedger.getState().activeNullifier).toBe('stable-nullifier');
+    expect(useXpLedger.getState().budget?.nullifier).toBe('stable-nullifier');
     expect(snapshot!.session.trustScore).toBe(0.751);
     // Provider must NOT contain private keys
     expect((snapshot as any).devicePair).toBeUndefined();

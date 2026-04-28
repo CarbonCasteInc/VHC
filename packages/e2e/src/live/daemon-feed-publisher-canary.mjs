@@ -243,7 +243,7 @@ async function loadPublisherCanaryModules(repoRoot = DEFAULT_REPO_ROOT) {
   ] = await Promise.all([
     load('services/news-aggregator/dist/index.js'),
     load('packages/ai-engine/dist/index.js'),
-    load('packages/gun-client/dist/index.js'),
+    load('packages/gun-client/dist/nodeMeshClient.js'),
     load('services/storycluster-engine/dist/server.js'),
     load('services/storycluster-engine/dist/openaiProvider.js'),
     load('services/storycluster-engine/dist/remoteContract.js'),

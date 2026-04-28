@@ -38,6 +38,7 @@ export interface ForumState {
     via?: 'human' | 'familiar'
   ): Promise<HermesComment>;
   vote(targetId: string, direction: 'up' | 'down' | null): Promise<void>;
+  loadThread(threadId: string): Promise<HermesThread | null>;
   loadThreads(sort: 'hot' | 'new' | 'top'): Promise<HermesThread[]>;
   loadComments(threadId: string): Promise<HermesComment[]>;
   setCommentModeration(threadId: string, moderation: HermesCommentModeration | null): void;
@@ -64,6 +65,8 @@ export interface ForumDeps {
   resolveClient: () => VennClient | null;
   now: () => number;
   randomId: () => string;
+  confirmCommentDurability: boolean;
+  commentDurabilityTimeoutMs: number;
 }
 
 export type CommentStanceInput = 'concur' | 'counter' | 'discuss' | 'reply' | 'counterpoint';

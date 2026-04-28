@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
-import { useAppStore, isE2EMode, resolveGunPeers } from './index';
+import { useAppStore, isE2EMode, resolveGunPeers, resolveGunLocalStorage } from './index';
 import { createClient } from '@vh/gun-client';
 import * as storeModule from './index';
 
 const mockWrite = vi.fn();
-const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), ready: true };
+const mockHydration = { prepare: vi.fn().mockResolvedValue(undefined), markReady: vi.fn(), ready: true };
 const mockPublishDirectory = vi.fn();
 const mockGunAuth = vi.fn((_pair?: any, cb?: (ack?: any) => void) => cb?.({}));
 const mockGunUser = { is: null as any, auth: mockGunAuth };
@@ -34,7 +34,7 @@ vi.mock('@vh/identity-vault', () => ({
 vi.mock('@vh/gun-client', () => ({
   createClient: vi.fn(() => ({
     hydrationBarrier: mockHydration,
-    config: { peers: ['http://localhost:7777/gun'] },
+    config: { peers: ['http://127.0.0.1:7777/gun'] },
     user: { write: mockWrite },
     chat: { read: vi.fn(), write: vi.fn() },
     outbox: { read: vi.fn(), write: vi.fn() },
@@ -69,6 +69,9 @@ beforeEach(() => {
   vaultStore = null;
   mockWrite.mockReset();
   mockHydration.prepare.mockClear();
+  mockHydration.prepare.mockResolvedValue(undefined);
+  mockHydration.markReady.mockClear();
+  mockHydration.ready = true;
   mockPublishDirectory.mockReset();
   mockGunAuth.mockClear();
   mockGunUser.is = null;
@@ -84,14 +87,14 @@ beforeEach(() => {
 
 describe('useAppStore', () => {
   it('resolves only the local Gun peer for localhost-hosted UI without overrides', () => {
-    expect(resolveGunPeers('127.0.0.1')).toEqual(['http://localhost:7777/gun']);
-    expect(resolveGunPeers('localhost')).toEqual(['http://localhost:7777/gun']);
+    expect(resolveGunPeers('127.0.0.1')).toEqual(['http://127.0.0.1:7777/gun']);
+    expect(resolveGunPeers('localhost')).toEqual(['http://127.0.0.1:7777/gun']);
   });
 
   it('resolves Tailscale first for non-local UI hosts without overrides', () => {
     expect(resolveGunPeers('ccibootstrap.tail6cc9b5.ts.net')).toEqual([
       'http://100.75.18.26:7777/gun',
-      'http://localhost:7777/gun',
+      'http://127.0.0.1:7777/gun',
     ]);
   });
 
@@ -110,8 +113,17 @@ describe('useAppStore', () => {
     vi.stubGlobal('location', { hostname: '127.0.0.1' });
     await useAppStore.getState().init();
     expect((createClient as unknown as Mock).mock.calls[0]?.[0]?.peers).toEqual([
-      'http://localhost:7777/gun',
+      'http://127.0.0.1:7777/gun',
     ]);
+  });
+
+  it('passes explicit Gun localStorage runtime overrides into the Gun client', async () => {
+    vi.stubEnv('VITE_VH_GUN_LOCAL_STORAGE', 'false');
+    expect(resolveGunLocalStorage()).toBe(false);
+
+    await useAppStore.getState().init();
+
+    expect((createClient as unknown as Mock).mock.calls[0]?.[0]?.gunLocalStorage).toBe(false);
   });
 
   it('init sets client after hydration', async () => {
@@ -120,6 +132,23 @@ describe('useAppStore', () => {
     expect(state.client).toBeTruthy();
     expect(mockHydration.prepare).toHaveBeenCalled();
     expect(state.identityStatus === 'idle' || state.identityStatus === 'ready').toBe(true);
+  });
+
+  it('marks the hydration barrier ready when init continues after timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      mockHydration.ready = false;
+      mockHydration.prepare.mockReturnValueOnce(new Promise(() => {}));
+      const pending = useAppStore.getState().init();
+
+      await vi.advanceTimersByTimeAsync(15_000);
+      await pending;
+
+      expect(mockHydration.markReady).toHaveBeenCalled();
+      expect(useAppStore.getState().client).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('init remains idempotent across repeated init calls', async () => {

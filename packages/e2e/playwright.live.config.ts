@@ -212,7 +212,7 @@ const localWebServers: TestConfig['webServer'] = isLocalTarget
   ? [
     {
       command: 'node ../../infra/relay/server.js',
-      url: 'http://localhost:7777',
+      url: 'http://127.0.0.1:7777',
       reuseExistingServer: !process.env.CI,
       timeout: 30_000,
       env: {
@@ -228,9 +228,10 @@ const localWebServers: TestConfig['webServer'] = isLocalTarget
         `VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS=${process.env.VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS ?? '7500'}`,
         `VITE_VH_GUN_PUT_ACK_TIMEOUT_MS=${process.env.VITE_VH_GUN_PUT_ACK_TIMEOUT_MS ?? '3000'}`,
         `VITE_VH_GUN_READ_TIMEOUT_MS=${process.env.VITE_VH_GUN_READ_TIMEOUT_MS ?? '4000'}`,
+        `VITE_VH_GUN_LOCAL_STORAGE=${process.env.VITE_VH_GUN_LOCAL_STORAGE ?? 'false'}`,
         `VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS=${process.env.VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS ?? '8000'}`,
         `VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS=${process.env.VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS ?? '90000'}`,
-        `VITE_GUN_PEERS='[\"http://localhost:7777/gun\"]'`,
+        `VITE_GUN_PEERS='[\"http://127.0.0.1:7777/gun\"]'`,
         `pnpm --filter @vh/web-pwa dev --port ${extractPort(baseUrl)} --strictPort`,
       ].join(' '),
       url: baseUrl,
@@ -244,9 +245,10 @@ const localWebServers: TestConfig['webServer'] = isLocalTarget
         VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS: process.env.VITE_VH_GUN_WAIT_FOR_REMOTE_TIMEOUT_MS ?? '7500',
         VITE_VH_GUN_PUT_ACK_TIMEOUT_MS: process.env.VITE_VH_GUN_PUT_ACK_TIMEOUT_MS ?? '3000',
         VITE_VH_GUN_READ_TIMEOUT_MS: process.env.VITE_VH_GUN_READ_TIMEOUT_MS ?? '4000',
+        VITE_VH_GUN_LOCAL_STORAGE: process.env.VITE_VH_GUN_LOCAL_STORAGE ?? 'false',
         VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS: process.env.VITE_VH_ANALYSIS_MESH_READ_BUDGET_MS ?? '8000',
         VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS: process.env.VITE_NEWS_BRIDGE_REFRESH_TIMEOUT_MS ?? '90000',
-        VITE_GUN_PEERS: '["http://localhost:7777/gun"]',
+        VITE_GUN_PEERS: '["http://127.0.0.1:7777/gun"]',
         VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
       },
     },

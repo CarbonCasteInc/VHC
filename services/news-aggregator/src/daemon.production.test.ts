@@ -21,13 +21,16 @@ vi.mock('@vh/gun-client', async () => {
   const actual = await vi.importActual<typeof import('@vh/gun-client')>('@vh/gun-client');
   return {
     ...actual,
-    createNodeMeshClient: mocks.createNodeMeshClient,
     readNewsIngestionLease: mocks.readNewsIngestionLease,
     removeNewsBundle: mocks.removeNewsBundle,
     writeNewsIngestionLease: mocks.writeNewsIngestionLease,
     writeStoryBundle: mocks.writeStoryBundle,
   };
 });
+
+vi.mock('@vh/gun-client/node', () => ({
+  createNodeMeshClient: mocks.createNodeMeshClient,
+}));
 
 import {
   __internal,

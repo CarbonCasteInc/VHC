@@ -171,7 +171,7 @@ load_automation_env() {
   export VITE_SYNTHESIS_BRIDGE_ENABLED=false
   export VITE_NEWS_BOOTSTRAP_SNAPSHOT_URL="http://127.0.0.1:${AUTO_SNAPSHOT_PORT}/snapshot.json"
   export VH_VALIDATED_SNAPSHOT_ARTIFACT_ROOT="$(resolve_publisher_canary_artifact_root)"
-  export VITE_GUN_PEERS="[\"http://localhost:${AUTO_RELAY_PORT}/gun\"]"
+  export VITE_GUN_PEERS="[\"http://127.0.0.1:${AUTO_RELAY_PORT}/gun\"]"
   export VH_STORYCLUSTER_VECTOR_BACKEND=memory
   export ANALYSIS_RELAY_MODEL="${ANALYSIS_RELAY_MODEL:-gpt-4o-mini}"
   export VITE_ANALYSIS_MODEL="${VITE_ANALYSIS_MODEL:-gpt-4o-mini}"

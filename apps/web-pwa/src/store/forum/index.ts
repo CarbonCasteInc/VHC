@@ -5,6 +5,7 @@ import {
 } from '@vh/data-model';
 import type { HermesComment, HermesCommentHydratable, HermesThread } from '@vh/types';
 import {
+  getForumCommentIndexChain,
   getForumCommentsChain,
   getForumDateIndexChain,
   getForumLatestCommentModerationsChain,
@@ -19,7 +20,7 @@ import { loadIdentity, loadVotesFromStorage, persistVotes } from './persistence'
 import {
   ensureIdentity, ensureClient, stripUndefined, serializeThreadForGun, isCommentSeen,
   markCommentSeen, addThread, addComment, adjustVoteCounts, findCommentThread,
-  setCommentModerationState, getCommentModerationState, visibleCommentsForThread
+  setCommentModerationState, getCommentModerationState, visibleCommentsForThread, parseThreadFromGun
 } from './helpers';
 import { hydrateFromGun } from './hydration';
 import { createMockForumStore } from './mockStore';
@@ -31,12 +32,501 @@ export { stripUndefined } from './helpers';
 export { createMockForumStore } from './mockStore';
 export { createCommentCountTracker, type CommentCountTracker, type TopicCommentSnapshot } from './commentCounts';
 
+const COMMENT_PUT_ACK_TIMEOUT_MS = 5_000;
+const COMMENT_FIELD_PUT_ACK_TIMEOUT_MS = 1_500;
+const COMMENT_INDEX_ACK_TIMEOUT_MS = 1_500;
+const COMMENT_INDEX_READ_TIMEOUT_MS = 1_500;
+const COMMENT_INDEX_SUBSCRIBE_TIMEOUT_MS = 120_000;
+const COMMENT_INDEX_SCALAR_READ_TIMEOUT_MS = 750;
+const COMMENT_INDEX_SCALAR_POLL_MS = 1_000;
+const COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS = 1_000;
+const COMMENT_SNAPSHOT_REPLAY_INTERVAL_MS = 5_000;
+const COMMENT_DURABILITY_READBACK_TIMEOUT_MS = 15_000;
+const COMMENT_DURABILITY_READBACK_POLL_MS = 500;
+const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
+const COMMENT_INDEX_ENTRY_KEY = 'current';
+const COMMENT_INDEX_ENTRIES_KEY = 'entries';
+const COMMENT_JSON_FIELD = '__comment_json';
+const THREAD_READ_TIMEOUT_MS = 1_500;
+const COMMENT_SCALAR_FIELDS = [
+  'id',
+  'schemaVersion',
+  'threadId',
+  'parentId',
+  'content',
+  'author',
+  'timestamp',
+  'stance',
+  'targetId',
+  'via',
+  'upvotes',
+  'downvotes'
+] as const;
+const THREAD_SCALAR_FIELDS = [
+  'id',
+  'schemaVersion',
+  'title',
+  'content',
+  'author',
+  'timestamp',
+  'tags',
+  'upvotes',
+  'downvotes',
+  'score',
+  'topicId',
+  'isHeadline',
+  'sourceSynthesisId',
+  'sourceAnalysisId',
+  'sourceEpoch',
+  'sourceUrl',
+  'urlHash'
+] as const;
+
+type CommentWriteChain = ReturnType<typeof getForumCommentsChain>;
+type CommentIndexChain = ReturnType<typeof getForumCommentIndexChain>;
+type CommentScalarField = typeof COMMENT_SCALAR_FIELDS[number];
+type ThreadScalarField = typeof THREAD_SCALAR_FIELDS[number];
+type CommentPutOutcome = 'ack' | 'timeout';
+type ForumClient = NonNullable<ReturnType<ForumDeps['resolveClient']>>;
+type PutChain<T> = {
+  put(value: T, callback?: (ack?: { err?: string }) => void): unknown;
+};
+type ReadChain = {
+  get?: (key: string) => ReadChain;
+  map?: () => {
+    once?: (callback: (value: unknown, key?: string) => void) => unknown;
+    on?: (callback: (value: unknown, key?: string) => void) => unknown;
+  };
+  on?: (callback: (value: unknown, key?: string) => void) => unknown;
+  once?: (callback: (value: unknown) => void) => unknown;
+};
+
+interface CommentIndexPayload extends Record<string, unknown> {
+  readonly schemaVersion: typeof COMMENT_INDEX_SCHEMA_VERSION;
+  readonly threadId: string;
+  readonly idsJson: string;
+  readonly updatedAt: number;
+}
+
+interface CommentIndexEntryPayload extends Record<string, unknown> {
+  readonly schemaVersion: typeof COMMENT_INDEX_SCHEMA_VERSION;
+  readonly threadId: string;
+  readonly commentId: string;
+  readonly updatedAt: number;
+}
+
+function putWithBoundedAck<T>(
+  chain: PutChain<T>,
+  value: T,
+  timeoutMs: number
+): Promise<CommentPutOutcome> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const startTimer = () => {
+      if (timer || settled) {
+        return;
+      }
+      timer = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        resolve('timeout');
+      }, timeoutMs);
+    };
+    const clearTimer = () => {
+      if (timer) {
+        clearTimeout(timer);
+        timer = null;
+      }
+    };
+
+    startTimer();
+
+    const putResult = chain.put(value as never, (ack?: { err?: string }) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimer();
+      if (ack?.err) {
+        reject(new Error(ack.err));
+        return;
+      }
+      resolve('ack');
+    });
+
+    if (putResult && typeof (putResult as PromiseLike<unknown>).then === 'function') {
+      (putResult as PromiseLike<unknown>).then(undefined, (error: unknown) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimer();
+        reject(error instanceof Error ? error : new Error(String(error)));
+      });
+    } else {
+      startTimer();
+    }
+  });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
+}
+
+function shouldConfirmCommentDurability(): boolean {
+  try {
+    return (import.meta as { env?: { MODE?: string } }).env?.MODE !== 'test';
+  } catch {
+    return true;
+  }
+}
+
+function parseCommentEnvelope(value: unknown, threadId: string, commentId?: string): HermesComment | null {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return null;
+  }
+
+  const result = HermesCommentSchema.safeParse(parsed);
+  if (!result.success) {
+    return null;
+  }
+
+  const normalized = migrateCommentToV1(result.data as HermesCommentHydratable);
+  if (normalized.threadId !== threadId) {
+    return null;
+  }
+  if (commentId && normalized.id !== commentId) {
+    return null;
+  }
+  return normalized;
+}
+
+async function putCommentEnvelopeWithBoundedAck(
+  commentNode: CommentWriteChain,
+  cleanComment: HermesComment
+): Promise<CommentPutOutcome> {
+  try {
+    return await putWithBoundedAck(
+      commentNode.get(COMMENT_JSON_FIELD) as unknown as PutChain<string>,
+      JSON.stringify(cleanComment),
+      COMMENT_FIELD_PUT_ACK_TIMEOUT_MS
+    );
+  } catch (error) {
+    console.warn('[vh:forum] Comment JSON envelope write failed:', cleanComment.id, error);
+    return 'timeout';
+  }
+}
+
+async function putScalarFieldsWithBoundedAck(
+  commentNode: CommentWriteChain,
+  cleanComment: Record<string, unknown>
+): Promise<void> {
+  await Promise.all(
+    Object.entries(cleanComment).map(async ([key, value]) => {
+      const fieldNode = commentNode.get(key);
+      await putWithBoundedAck(fieldNode, value, COMMENT_FIELD_PUT_ACK_TIMEOUT_MS);
+    })
+  );
+}
+
+async function putRecordScalarFieldsWithBoundedAck(
+  node: { get(key: string): PutChain<unknown> },
+  record: Record<string, unknown>,
+  timeoutMs: number
+): Promise<void> {
+  await Promise.all(
+    Object.entries(record).map(async ([key, value]) => {
+      if (value === undefined) {
+        return;
+      }
+      await putWithBoundedAck(node.get(key), value, timeoutMs);
+    })
+  );
+}
+
+function parseCommentIndex(data: unknown, threadId: string): string[] {
+  if (!data || typeof data !== 'object') {
+    return [];
+  }
+  const obj = data as Record<string, unknown>;
+  if (obj.schemaVersion !== COMMENT_INDEX_SCHEMA_VERSION || obj.threadId !== threadId) {
+    return [];
+  }
+  if (typeof obj.idsJson !== 'string') {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(obj.idsJson);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
+  } catch {
+    return [];
+  }
+}
+
+function parseCommentIndexEntry(data: unknown, threadId: string, key?: string): string | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+  const obj = data as Record<string, unknown>;
+  if (obj.schemaVersion !== COMMENT_INDEX_SCHEMA_VERSION || obj.threadId !== threadId) {
+    return null;
+  }
+  if (typeof obj.commentId !== 'string' || obj.commentId.trim().length === 0) {
+    return null;
+  }
+  if (key && key !== obj.commentId) {
+    return null;
+  }
+  return obj.commentId;
+}
+
+function parseThreadSnapshot(data: unknown, threadId: string): HermesThread | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const { _, ...cleanObj } = data as Record<string, unknown> & { _?: unknown };
+  const result = HermesThreadSchema.safeParse(parseThreadFromGun(cleanObj));
+  if (!result.success || result.data.id !== threadId) {
+    return null;
+  }
+  return result.data;
+}
+
+function readCommentIndex(indexChain: CommentIndexChain, threadId: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve([]);
+      }
+    }, COMMENT_INDEX_READ_TIMEOUT_MS);
+
+    indexChain.once((data: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timer);
+      resolve(parseCommentIndex(data, threadId));
+    });
+  });
+}
+
+function readScalar(
+  node: ReadChain,
+  field: string,
+  timeoutMs = COMMENT_INDEX_SCALAR_READ_TIMEOUT_MS
+): Promise<unknown> {
+  return new Promise((resolve) => {
+    const fieldNode = node.get?.(field);
+    if (!fieldNode?.once) {
+      resolve(undefined);
+      return;
+    }
+    let settled = false;
+    const timer = globalThis.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(undefined);
+    }, timeoutMs);
+    fieldNode.once((value: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timer);
+      resolve(value);
+    });
+  });
+}
+
+function readNodeOnce(node: ReadChain, timeoutMs = COMMENT_INDEX_READ_TIMEOUT_MS): Promise<unknown> {
+  return new Promise((resolve) => {
+    if (!node.once) {
+      resolve(undefined);
+      return;
+    }
+    let settled = false;
+    const timer = globalThis.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve(undefined);
+    }, timeoutMs);
+    node.once((value: unknown) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timer);
+      resolve(value);
+    });
+  });
+}
+
+function readCommentScalar(
+  commentNode: ReadChain,
+  field: CommentScalarField | typeof COMMENT_JSON_FIELD
+): Promise<unknown> {
+  return readScalar(commentNode, field);
+}
+
+async function readCommentIndexScalars(indexChain: ReadChain, threadId: string): Promise<string[]> {
+  const entries = await Promise.all(
+    (['schemaVersion', 'threadId', 'idsJson', 'updatedAt'] as const).map(async (field) => [
+      field,
+      await readScalar(indexChain, field, COMMENT_INDEX_READ_TIMEOUT_MS)
+    ] as const)
+  );
+  return parseCommentIndex(stripUndefined(Object.fromEntries(entries)), threadId);
+}
+
+async function readThreadSnapshot(threadChain: ReadChain, threadId: string): Promise<HermesThread | null> {
+  const direct = parseThreadSnapshot(await readNodeOnce(threadChain, THREAD_READ_TIMEOUT_MS), threadId);
+  if (direct) {
+    return direct;
+  }
+
+  const entries = await Promise.all(
+    THREAD_SCALAR_FIELDS.map(async (field) => [
+      field,
+      await readScalar(threadChain, field, THREAD_READ_TIMEOUT_MS)
+    ] as const)
+  );
+  return parseThreadSnapshot(
+    stripUndefined(Object.fromEntries(entries) as Partial<Record<ThreadScalarField, unknown>>),
+    threadId
+  );
+}
+
+function readCommentIndexEntrySnapshot(entriesChain: ReadChain, threadId: string): Promise<string[]> {
+  return new Promise((resolve) => {
+    const mapped = entriesChain.map?.();
+    if (!mapped?.once) {
+      resolve([]);
+      return;
+    }
+
+    const ids = new Set<string>();
+    let settled = false;
+    const timeout = globalThis.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve([...ids]);
+    }, COMMENT_INDEX_READ_TIMEOUT_MS);
+
+    mapped.once((data: unknown, key?: string) => {
+      if (settled) {
+        return;
+      }
+      const commentId = parseCommentIndexEntry(data, threadId, key);
+      if (commentId) {
+        ids.add(commentId);
+      }
+    });
+
+    globalThis.setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      resolve([...ids]);
+    }, COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS);
+  });
+}
+
+async function updateCommentIndex(
+  client: ForumClient,
+  threadId: string,
+  commentId: string
+): Promise<void> {
+  const indexRoot = getForumCommentIndexChain(client, threadId);
+  const indexChain = indexRoot.get(COMMENT_INDEX_ENTRY_KEY);
+  const entryChain = indexRoot.get(COMMENT_INDEX_ENTRIES_KEY).get(commentId);
+  const existingIds = new Set([
+    ...await readCommentIndex(indexChain, threadId),
+    ...await readCommentIndexScalars(indexChain as unknown as ReadChain, threadId),
+    ...await readCommentIndexEntrySnapshot(
+      indexRoot.get(COMMENT_INDEX_ENTRIES_KEY) as unknown as ReadChain,
+      threadId
+    )
+  ]);
+  existingIds.add(commentId);
+  const ids = [...existingIds];
+  const updatedAt = Date.now();
+  const entryPayload: CommentIndexEntryPayload = {
+    schemaVersion: COMMENT_INDEX_SCHEMA_VERSION,
+    threadId,
+    commentId,
+    updatedAt
+  };
+  const payload: CommentIndexPayload = {
+    schemaVersion: COMMENT_INDEX_SCHEMA_VERSION,
+    threadId,
+    idsJson: JSON.stringify(ids),
+    updatedAt
+  };
+  await putWithBoundedAck(entryChain, entryPayload, COMMENT_INDEX_ACK_TIMEOUT_MS);
+  await putRecordScalarFieldsWithBoundedAck(entryChain, entryPayload, COMMENT_INDEX_ACK_TIMEOUT_MS);
+  await putWithBoundedAck(indexChain, payload, COMMENT_INDEX_ACK_TIMEOUT_MS);
+  await putRecordScalarFieldsWithBoundedAck(indexChain, payload, COMMENT_INDEX_ACK_TIMEOUT_MS);
+}
+
+async function writeCommentToGun(
+  client: ForumClient,
+  threadId: string,
+  cleanComment: HermesComment
+): Promise<void> {
+  const commentNode = getForumCommentsChain(client, threadId).get(cleanComment.id);
+  const result = await putWithBoundedAck(commentNode, cleanComment, COMMENT_PUT_ACK_TIMEOUT_MS);
+  await putCommentEnvelopeWithBoundedAck(commentNode, cleanComment);
+  if (result === 'ack') {
+    console.info('[vh:forum] Comment written successfully to path: vh/forum/threads/' + threadId + '/comments/' + cleanComment.id);
+    return;
+  }
+
+  console.warn('[vh:forum] Comment write ack timed out; retrying scalar field projection:', cleanComment.id);
+  await putScalarFieldsWithBoundedAck(commentNode, cleanComment as unknown as Record<string, unknown>);
+  console.info('[vh:forum] Comment field projection completed for path: vh/forum/threads/' + threadId + '/comments/' + cleanComment.id);
+}
+
+export const __FORUM_TESTING__ = {
+  COMMENT_PUT_ACK_TIMEOUT_MS,
+  COMMENT_FIELD_PUT_ACK_TIMEOUT_MS,
+  COMMENT_SNAPSHOT_REPLAY_INTERVAL_MS,
+  COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS,
+  COMMENT_JSON_FIELD
+};
+
 export function createForumStore(overrides?: Partial<ForumDeps>) {
   const defaults: ForumDeps = {
     resolveClient: resolveClientFromAppStore,
     now: () => Date.now(),
     randomId: () =>
-      typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+      typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+    confirmCommentDurability: shouldConfirmCommentDurability(),
+    commentDurabilityTimeoutMs: COMMENT_DURABILITY_READBACK_TIMEOUT_MS
   };
   const deps = { ...defaults, ...overrides };
 
@@ -45,9 +535,304 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
 
   let storeRef: StoreApi<ForumState> | null = null;
   const subscribedThreads = new Set<string>();
+  const snapshotPulledAtByThread = new Map<string, number>();
   
   const triggerHydration = () => {
     if (storeRef) hydrateFromGun(deps.resolveClient, storeRef);
+  };
+
+  const ingestComment = (threadId: string, data: unknown, key?: string): boolean => {
+    if (!data || typeof data !== 'object') {
+      return false;
+    }
+    const obj = data as Record<string, unknown>;
+    const envelopeComment = parseCommentEnvelope(obj[COMMENT_JSON_FIELD], threadId, key);
+    if (envelopeComment) {
+      const withLegacyType: HermesComment = {
+        ...envelopeComment,
+        type: envelopeComment.stance === 'counter' ? 'counterpoint' : 'reply'
+      };
+      const resolvedKey = key ?? envelopeComment.id;
+      if (
+        isCommentSeen(resolvedKey)
+        && (store.getState().comments.get(envelopeComment.threadId) ?? []).some((comment) => comment.id === envelopeComment.id)
+      ) {
+        return true;
+      }
+      markCommentSeen(resolvedKey);
+      store.setState((s) => addComment(s, withLegacyType));
+      return true;
+    }
+    if (!obj.id || !obj.schemaVersion || !obj.threadId) {
+      return false;
+    }
+    const resolvedKey = key ?? (typeof obj.id === 'string' ? obj.id : undefined);
+    if (!resolvedKey) return false;
+    const { _, ...cleanObj } = obj as Record<string, unknown> & { _?: unknown };
+    const result = HermesCommentSchema.safeParse(cleanObj);
+    if (result.success) {
+      const normalized = migrateCommentToV1(result.data as HermesCommentHydratable);
+      if (normalized.threadId !== threadId) {
+        return false;
+      }
+      if (
+        isCommentSeen(resolvedKey)
+        && (store.getState().comments.get(normalized.threadId) ?? []).some((comment) => comment.id === normalized.id)
+      ) {
+        return true;
+      }
+      markCommentSeen(resolvedKey);
+      const withLegacyType: HermesComment = {
+        ...normalized,
+        type: normalized.stance === 'counter' ? 'counterpoint' : 'reply'
+      };
+      store.setState((s) => addComment(s, withLegacyType));
+      return true;
+    }
+    return false;
+  };
+
+  const hydrateCommentNode = (
+    threadId: string,
+    commentsChain: CommentWriteChain,
+    data: unknown,
+    key?: string
+  ): void => {
+    if (
+      key
+      && data
+      && typeof data === 'object'
+      && (!('id' in data) || !('schemaVersion' in data) || !('threadId' in data))
+    ) {
+      commentsChain.get(key).once?.((resolved: unknown) => ingestComment(threadId, resolved, key));
+      return;
+    }
+    ingestComment(threadId, data, key);
+  };
+
+  const hydrateIndexedCommentScalars = async (
+    threadId: string,
+    commentNode: ReadChain,
+    commentId: string
+  ): Promise<boolean> => {
+    const envelope = await readCommentScalar(commentNode, COMMENT_JSON_FIELD);
+    const envelopeComment = parseCommentEnvelope(envelope, threadId, commentId);
+    if (envelopeComment) {
+      return ingestComment(threadId, { [COMMENT_JSON_FIELD]: envelope }, commentId);
+    }
+
+    const entries = await Promise.all(
+      COMMENT_SCALAR_FIELDS.map(async (field) => [field, await readCommentScalar(commentNode, field)] as const)
+    );
+    const fields = Object.fromEntries(entries) as Record<CommentScalarField, unknown>;
+    const assembled = stripUndefined({
+      id: typeof fields.id === 'string' && fields.id.trim().length > 0 ? fields.id : commentId,
+      schemaVersion: fields.schemaVersion,
+      threadId: fields.threadId,
+      parentId: fields.parentId === undefined ? null : fields.parentId,
+      content: fields.content,
+      author: fields.author,
+      timestamp: fields.timestamp,
+      stance: fields.stance,
+      targetId: fields.targetId,
+      via: fields.via,
+      upvotes: fields.upvotes ?? 0,
+      downvotes: fields.downvotes ?? 0
+    });
+    return ingestComment(threadId, assembled, commentId);
+  };
+
+  const hydrateIndexedCommentNode = (
+    threadId: string,
+    commentsChain: CommentWriteChain,
+    commentId: string
+  ): void => {
+    const commentNode = commentsChain.get(commentId);
+    let accepted = false;
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    let scalarPoll: ReturnType<typeof setInterval> | null = null;
+    const stop = () => {
+      if (timeout) {
+        globalThis.clearTimeout(timeout);
+        timeout = null;
+      }
+      if (scalarPoll) {
+        globalThis.clearInterval(scalarPoll);
+        scalarPoll = null;
+      }
+      if (typeof commentNode.off === 'function') {
+        commentNode.off(listener);
+      }
+    };
+    const attemptScalarHydration = () => {
+      if (accepted) {
+        return;
+      }
+      void hydrateIndexedCommentScalars(threadId, commentNode as ReadChain, commentId).then((didHydrate) => {
+        if (accepted || !didHydrate) {
+          return;
+        }
+        accepted = true;
+        stop();
+      });
+      if (!scalarPoll) {
+        scalarPoll = globalThis.setInterval(() => {
+          if (accepted) {
+            stop();
+            return;
+          }
+          void hydrateIndexedCommentScalars(threadId, commentNode as ReadChain, commentId).then((didHydrate) => {
+            if (accepted || !didHydrate) {
+              return;
+            }
+            accepted = true;
+            stop();
+          });
+        }, COMMENT_INDEX_SCALAR_POLL_MS);
+      }
+    };
+    const listener = (resolved: unknown) => {
+      if (accepted) {
+        return;
+      }
+      accepted = ingestComment(threadId, resolved, commentId);
+      if (accepted) {
+        stop();
+      } else {
+        attemptScalarHydration();
+      }
+    };
+
+    if (typeof commentNode.on === 'function') {
+      commentNode.on(listener);
+      attemptScalarHydration();
+      timeout = globalThis.setTimeout(() => {
+        if (!accepted) {
+          stop();
+        }
+      }, COMMENT_INDEX_SUBSCRIBE_TIMEOUT_MS);
+      return;
+    }
+
+    commentNode.once?.(listener);
+    attemptScalarHydration();
+  };
+
+  const hydrateIndexedCommentSnapshot = async (
+    threadId: string,
+    commentsChain: CommentWriteChain,
+    commentId: string
+  ): Promise<boolean> => {
+    if ((store.getState().comments.get(threadId) ?? []).some((comment) => comment.id === commentId)) {
+      return true;
+    }
+    const commentNode = commentsChain.get(commentId);
+    const resolved = await readNodeOnce(commentNode as ReadChain, COMMENT_INDEX_READ_TIMEOUT_MS);
+    if (ingestComment(threadId, resolved, commentId)) {
+      return true;
+    }
+    return hydrateIndexedCommentScalars(threadId, commentNode as ReadChain, commentId);
+  };
+
+  const hydrateIndexedCommentSnapshots = async (
+    threadId: string,
+    commentsChain: CommentWriteChain,
+    commentIds: readonly string[]
+  ): Promise<void> => {
+    await Promise.all(
+      commentIds.map((commentId) => hydrateIndexedCommentSnapshot(threadId, commentsChain, commentId))
+    );
+  };
+
+  const waitForDurableCommentReadback = async (
+    client: ForumClient,
+    threadId: string,
+    commentId: string
+  ): Promise<void> => {
+    if (!deps.confirmCommentDurability) {
+      return;
+    }
+
+    const commentsChain = getForumCommentsChain(client, threadId);
+    const commentNode = commentsChain.get(commentId);
+    const readNode = commentNode as unknown as ReadChain;
+    const canReadComment =
+      typeof readNode.once === 'function'
+      || typeof readNode.get?.(COMMENT_JSON_FIELD)?.once === 'function'
+      || COMMENT_SCALAR_FIELDS.some((field) => typeof readNode.get?.(field)?.once === 'function');
+    if (!canReadComment) {
+      return;
+    }
+
+    const indexRoot = getForumCommentIndexChain(client, threadId);
+    const indexChain = indexRoot.get(COMMENT_INDEX_ENTRY_KEY);
+    const indexEntriesChain = indexRoot.get(COMMENT_INDEX_ENTRIES_KEY);
+    const deadline = Date.now() + deps.commentDurabilityTimeoutMs;
+    let commentReadable = false;
+    let indexReadable = false;
+
+    while (Date.now() < deadline) {
+      if (!commentReadable) {
+        commentReadable = await hydrateIndexedCommentSnapshot(threadId, commentsChain, commentId);
+      }
+      if (!indexReadable) {
+        const ids = new Set([
+          ...parseCommentIndex(
+            await readNodeOnce(indexChain as unknown as ReadChain, COMMENT_INDEX_READ_TIMEOUT_MS),
+            threadId
+          ),
+          ...await readCommentIndexScalars(indexChain as unknown as ReadChain, threadId),
+          ...await readCommentIndexEntrySnapshot(indexEntriesChain as unknown as ReadChain, threadId)
+        ]);
+        indexReadable = ids.has(commentId);
+      }
+      if (commentReadable && indexReadable) {
+        return;
+      }
+      await sleep(COMMENT_DURABILITY_READBACK_POLL_MS);
+    }
+
+    throw new Error(
+      `Comment durability readback failed for ${commentId} on ${threadId}`
+    );
+  };
+
+  const hydrateCommentIndex = (
+    threadId: string,
+    commentsChain: CommentWriteChain,
+    data: unknown
+  ): void => {
+    parseCommentIndex(data, threadId).forEach((commentId) => {
+      if ((store.getState().comments.get(threadId) ?? []).some((comment) => comment.id === commentId)) {
+        return;
+      }
+      hydrateIndexedCommentNode(threadId, commentsChain, commentId);
+    });
+  };
+
+  const hydrateCommentIndexEntry = (
+    threadId: string,
+    commentsChain: CommentWriteChain,
+    data: unknown,
+    key?: string
+  ): void => {
+    const commentId = parseCommentIndexEntry(data, threadId, key);
+    if (commentId) {
+      if ((store.getState().comments.get(threadId) ?? []).some((comment) => comment.id === commentId)) {
+        return;
+      }
+      hydrateIndexedCommentNode(threadId, commentsChain, commentId);
+    }
+  };
+
+  const hydrateScalarCommentIndex = (
+    threadId: string,
+    commentsChain: CommentWriteChain,
+    indexChain: ReadChain
+  ): void => {
+    void readCommentIndexScalars(indexChain, threadId).then((commentIds) =>
+      hydrateIndexedCommentSnapshots(threadId, commentsChain, commentIds)
+    );
   };
 
   const store = create<ForumState>((set, get) => ({
@@ -170,20 +955,9 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       };
       console.info('[vh:forum] Creating comment:', cleanComment.id, 'for thread:', threadId);
       console.debug('[vh:forum] Comment data:', JSON.stringify(cleanComment, null, 2));
-      await new Promise<void>((resolve, reject) => {
-        getForumCommentsChain(client, threadId)
-          .get(cleanComment.id)
-          .put(cleanComment, (ack?: { err?: string }) => {
-            console.debug('[vh:forum] Comment put ack:', ack);
-            if (ack?.err) {
-              console.error('[vh:forum] Comment write failed:', ack.err);
-              reject(new Error(ack.err));
-              return;
-            }
-            console.info('[vh:forum] Comment written successfully to path: vh/forum/threads/' + threadId + '/comments/' + cleanComment.id);
-            resolve();
-          });
-      });
+      await writeCommentToGun(client, threadId, cleanComment);
+      await updateCommentIndex(client, threadId, cleanComment.id);
+      await waitForDurableCommentReadback(client, threadId, cleanComment.id);
       // TOCTOU: consumeAction runs after async Gun write. Concurrent createComment calls
       // at budget limit-1 can both pass canPerformAction, both persist to Gun, then the
       // second consume throws. The orphaned Gun record is a known local-first tradeoff.
@@ -266,6 +1040,30 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       // Record engagement for lightbulb icon (comment vote - track on thread)
       useSentimentState.getState().recordEngagement(threadId);
     },
+    async loadThread(threadId) {
+      triggerHydration();
+      const normalizedThreadId = threadId.trim();
+      if (!normalizedThreadId) {
+        return null;
+      }
+      const existing = get().threads.get(normalizedThreadId);
+      if (existing) {
+        return existing;
+      }
+      const client = deps.resolveClient();
+      if (!client) {
+        return null;
+      }
+      const thread = await readThreadSnapshot(
+        getForumThreadChain(client, normalizedThreadId) as unknown as ReadChain,
+        normalizedThreadId
+      );
+      if (!thread) {
+        return null;
+      }
+      set((state) => addThread(state, thread));
+      return thread;
+    },
     async loadThreads(sort) {
       triggerHydration();
       const now = deps.now();
@@ -277,83 +1075,84 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     async loadComments(threadId) {
       triggerHydration();
       const client = deps.resolveClient();
+      const normalizedThreadId = threadId.trim();
       // Only set up subscription once per thread to prevent infinite loops
-      if (client && !subscribedThreads.has(threadId)) {
-        subscribedThreads.add(threadId);
-        const commentsChain = getForumCommentsChain(client, threadId);
-        const moderationChain = getForumLatestCommentModerationsChain(client, threadId);
-        console.debug('[vh:forum] subscribing to comments for thread:', threadId);
-        const mapped = commentsChain.map?.();
-        if (mapped?.on) {
-          mapped.on((data: unknown, key?: string) => {
-            console.debug('[vh:forum] comment callback:', { key, dataType: typeof data, hasData: !!data });
-            if (!data || typeof data !== 'object') {
-              console.debug('[vh:forum] skipping comment: not an object');
-              return;
-            }
-            const obj = data as Record<string, unknown>;
-            if (!obj.id || !obj.schemaVersion || !obj.threadId) {
-              console.debug('[vh:forum] skipping comment: missing required fields', {
-                hasId: !!obj.id,
-                hasSchema: !!obj.schemaVersion,
-                hasThreadId: !!obj.threadId,
-                keys: Object.keys(obj).filter((k) => k !== '_')
-              });
-              return;
-            }
-            const resolvedKey = key ?? (typeof obj.id === 'string' ? obj.id : undefined);
-            if (!resolvedKey) return;
-            if (isCommentSeen(resolvedKey)) {
-              console.debug('[vh:forum] skipping comment: already seen', resolvedKey);
-              return;
-            }
-            const { _, ...cleanObj } = obj as Record<string, unknown> & { _?: unknown };
-            const result = HermesCommentSchema.safeParse(cleanObj);
-            if (result.success) {
-              markCommentSeen(resolvedKey);
-              const normalized = migrateCommentToV1(result.data as HermesCommentHydratable);
-              console.info('[vh:forum] Hydrated comment:', normalized.id);
-              const withLegacyType: HermesComment = {
-                ...normalized,
-                type: normalized.stance === 'counter' ? 'counterpoint' : 'reply'
-              };
-              set((s) => addComment(s, withLegacyType));
-            } else {
-              console.debug('[vh:forum] Comment validation failed, will retry:', resolvedKey, result.error.issues);
-            }
-          });
+      if (client) {
+        const commentsChain = getForumCommentsChain(client, normalizedThreadId);
+        const commentIndexRoot = getForumCommentIndexChain(client, normalizedThreadId);
+        const commentIndexChain = commentIndexRoot.get(COMMENT_INDEX_ENTRY_KEY);
+        const commentIndexEntriesChain = commentIndexRoot.get(COMMENT_INDEX_ENTRIES_KEY);
+        const moderationChain = getForumLatestCommentModerationsChain(client, normalizedThreadId);
+        if (!subscribedThreads.has(normalizedThreadId)) {
+          subscribedThreads.add(normalizedThreadId);
+          const mapped = commentsChain.map?.();
+          if (mapped?.on) {
+            mapped.on((data: unknown, key?: string) => hydrateCommentNode(normalizedThreadId, commentsChain, data, key));
+          }
+          commentIndexChain.on?.((data: unknown) => hydrateCommentIndex(normalizedThreadId, commentsChain, data));
+          (commentIndexChain.get?.('idsJson') as ReadChain | undefined)?.on?.(() =>
+            hydrateScalarCommentIndex(normalizedThreadId, commentsChain, commentIndexChain as ReadChain)
+          );
+          (commentIndexChain.get?.('updatedAt') as ReadChain | undefined)?.on?.(() =>
+            hydrateScalarCommentIndex(normalizedThreadId, commentsChain, commentIndexChain as ReadChain)
+          );
+          const commentIndexEntriesMapped = commentIndexEntriesChain.map?.();
+          if (commentIndexEntriesMapped?.on) {
+            commentIndexEntriesMapped.on((data: unknown, key?: string) =>
+              hydrateCommentIndexEntry(normalizedThreadId, commentsChain, data, key)
+            );
+          }
+          const moderationMapped = moderationChain.map?.();
+          if (moderationMapped?.on) {
+            moderationMapped.on((data: unknown, key?: string) => {
+              if (!data || typeof data !== 'object') {
+                return;
+              }
+              const obj = data as Record<string, unknown>;
+              const resolvedKey = key ?? (typeof obj.comment_id === 'string' ? obj.comment_id : undefined);
+              if (!resolvedKey) {
+                return;
+              }
+              const { _, ...cleanObj } = obj as Record<string, unknown> & { _?: unknown };
+              const result = HermesCommentModerationSchema.safeParse(cleanObj);
+              if (!result.success) {
+                console.debug('[vh:forum] Comment moderation validation failed:', resolvedKey, result.error.issues);
+                return;
+              }
+              if (result.data.thread_id !== normalizedThreadId || result.data.comment_id !== resolvedKey) {
+                console.debug('[vh:forum] Comment moderation path mismatch:', {
+                  threadId: normalizedThreadId,
+                  key: resolvedKey,
+                  payloadThreadId: result.data.thread_id,
+                  payloadCommentId: result.data.comment_id
+                });
+                return;
+              }
+              set((s) => setCommentModerationState(s, normalizedThreadId, result.data));
+            });
+          }
         }
-        const moderationMapped = moderationChain.map?.();
-        if (moderationMapped?.on) {
-          moderationMapped.on((data: unknown, key?: string) => {
-            if (!data || typeof data !== 'object') {
-              return;
-            }
-            const obj = data as Record<string, unknown>;
-            const resolvedKey = key ?? (typeof obj.comment_id === 'string' ? obj.comment_id : undefined);
-            if (!resolvedKey) {
-              return;
-            }
-            const { _, ...cleanObj } = obj as Record<string, unknown> & { _?: unknown };
-            const result = HermesCommentModerationSchema.safeParse(cleanObj);
-            if (!result.success) {
-              console.debug('[vh:forum] Comment moderation validation failed:', resolvedKey, result.error.issues);
-              return;
-            }
-            if (result.data.thread_id !== threadId || result.data.comment_id !== resolvedKey) {
-              console.debug('[vh:forum] Comment moderation path mismatch:', {
-                threadId,
-                key: resolvedKey,
-                payloadThreadId: result.data.thread_id,
-                payloadCommentId: result.data.comment_id
-              });
-              return;
-            }
-            set((s) => setCommentModerationState(s, threadId, result.data));
-          });
+        const lastSnapshotPull = snapshotPulledAtByThread.get(normalizedThreadId) ?? 0;
+        const hasLocalComments = (get().comments.get(normalizedThreadId)?.length ?? 0) > 0;
+        const now = deps.now();
+        if (!hasLocalComments || now - lastSnapshotPull >= COMMENT_SNAPSHOT_REPLAY_INTERVAL_MS) {
+          snapshotPulledAtByThread.set(normalizedThreadId, now);
+          const mapped = commentsChain.map?.();
+          mapped?.once?.((data: unknown, key?: string) => hydrateCommentNode(normalizedThreadId, commentsChain, data, key));
         }
+        const compactIndexData = await readNodeOnce(commentIndexChain as ReadChain, COMMENT_INDEX_READ_TIMEOUT_MS);
+        const compactIndexIds = parseCommentIndex(compactIndexData, normalizedThreadId);
+        hydrateCommentIndex(normalizedThreadId, commentsChain, compactIndexData);
+        await hydrateIndexedCommentSnapshots(normalizedThreadId, commentsChain, compactIndexIds);
+        const scalarIndexIds = await readCommentIndexScalars(commentIndexChain as ReadChain, normalizedThreadId);
+        await hydrateIndexedCommentSnapshots(normalizedThreadId, commentsChain, scalarIndexIds);
+        const entryIndexIds = await readCommentIndexEntrySnapshot(commentIndexEntriesChain as ReadChain, normalizedThreadId);
+        await hydrateIndexedCommentSnapshots(normalizedThreadId, commentsChain, entryIndexIds);
+        commentIndexEntriesChain.map?.()?.once?.((data: unknown, key?: string) =>
+          hydrateCommentIndexEntry(normalizedThreadId, commentsChain, data, key)
+        );
       }
-      return (get().comments.get(threadId) ?? []).slice().sort((a, b) => a.timestamp - b.timestamp);
+      return (get().comments.get(normalizedThreadId) ?? []).slice().sort((a, b) => a.timestamp - b.timestamp);
     },
     setCommentModeration(threadId, moderation) {
       const normalizedThreadId = threadId.trim();

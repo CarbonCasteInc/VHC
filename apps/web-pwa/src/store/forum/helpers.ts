@@ -5,6 +5,8 @@ import type { ForumState, ForumIdentity } from './types';
 import { TRUST_THRESHOLD, SEEN_TTL_MS, SEEN_CLEANUP_THRESHOLD, isLifecycleEnabled } from './types';
 import { loadIdentity } from './persistence';
 
+export const THREAD_JSON_FIELD = '__thread_json';
+
 export function ensureIdentity(): ForumIdentity {
   const record = loadIdentity();
   if (!record?.session?.nullifier) {
@@ -39,6 +41,7 @@ export function serializeThreadForGun(thread: HermesThread): Record<string, unkn
   const clean = stripUndefined(thread);
   return {
     ...clean,
+    [THREAD_JSON_FIELD]: JSON.stringify(clean),
     tags: JSON.stringify(clean.tags),
     // TODO: serialize nested proposal for Gun when elevation is implemented (see #77 maint S1)
   };
@@ -46,6 +49,18 @@ export function serializeThreadForGun(thread: HermesThread): Record<string, unkn
 
 /** Parse thread from Gun storage (handles stringified arrays) */
 export function parseThreadFromGun(data: Record<string, unknown>): Record<string, unknown> {
+  const envelope = data[THREAD_JSON_FIELD];
+  if (typeof envelope === 'string') {
+    try {
+      const parsed = JSON.parse(envelope);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parseThreadFromGun(parsed as Record<string, unknown>);
+      }
+    } catch {
+      // Fall through to scalar fields below.
+    }
+  }
+
   let tags = data.tags;
   if (typeof tags === 'string') {
     try {
@@ -55,7 +70,7 @@ export function parseThreadFromGun(data: Record<string, unknown>): Record<string
       tags = [];
     }
   }
-  const { proposal: rawProposal, ...rest } = data;
+  const { [THREAD_JSON_FIELD]: _threadEnvelope, proposal: rawProposal, ...rest } = data;
   const result: Record<string, unknown> = { ...rest, tags };
   if (!result.sourceSynthesisId && typeof result.sourceAnalysisId === 'string') {
     result.sourceSynthesisId = result.sourceAnalysisId;

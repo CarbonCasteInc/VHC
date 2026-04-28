@@ -31,6 +31,9 @@ export interface NewsCardProps {
   readonly item: FeedItem;
 }
 
+const PENDING_SYNTHESIS_REFRESH_INTERVAL_MS = 2_000;
+const PENDING_SYNTHESIS_REFRESH_ATTEMPTS = 45;
+
 function prefersReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
@@ -67,6 +70,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   const refreshSynthesisTopic = useStore(useSynthesisStore, (s) => s.refreshTopic);
   const synthesisTopicState = useStore(useSynthesisStore, (s) => s.topics[item.topic_id]);
   const forumThreads = useStore(useForumStore, (state) => state.threads);
+  const loadForumThreads = useStore(useForumStore, (state) => state.loadThreads);
   const cardInstanceKey = useMemo(() => getFeedItemDetailId(item), [item]);
   const isExpanded = useStore(
     useExpandedCardStore,
@@ -189,7 +193,51 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
   }, [cardInstanceKey, expandCard, item.topic_id, refreshSynthesisTopic, startSynthesisHydration]);
 
   useEffect(() => {
+    if (!isExpanded || effectiveSynthesis || synthesisCorrection || synthesisLoading || synthesisError) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const refreshPendingSynthesis = () => {
+      if (cancelled || attempt >= PENDING_SYNTHESIS_REFRESH_ATTEMPTS) {
+        return;
+      }
+      attempt += 1;
+      void refreshSynthesisTopic(item.topic_id).finally(() => {
+        if (cancelled || attempt >= PENDING_SYNTHESIS_REFRESH_ATTEMPTS) {
+          return;
+        }
+        const latest = useSynthesisStore.getState().topics[item.topic_id];
+        if (latest?.synthesis || latest?.correction || latest?.error) {
+          return;
+        }
+        timer = setTimeout(refreshPendingSynthesis, PENDING_SYNTHESIS_REFRESH_INTERVAL_MS);
+      });
+    };
+
+    timer = setTimeout(refreshPendingSynthesis, PENDING_SYNTHESIS_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [
+    effectiveSynthesis,
+    isExpanded,
+    item.topic_id,
+    refreshSynthesisTopic,
+    synthesisCorrection,
+    synthesisError,
+    synthesisLoading,
+  ]);
+
+  useEffect(() => {
     if (!isExpanded) return;
+    void loadForumThreads('new');
     const handleDocumentKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
@@ -197,7 +245,7 @@ export const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
     };
     document.addEventListener('keydown', handleDocumentKeyDown);
     return () => document.removeEventListener('keydown', handleDocumentKeyDown);
-  }, [collapseCard, isExpanded]);
+  }, [collapseCard, isExpanded, loadForumThreads]);
 
   const handleCardKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLElement>) => {

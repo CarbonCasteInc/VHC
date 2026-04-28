@@ -79,23 +79,49 @@ function correction(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSyn
 }
 
 interface SubscribableChain {
-  chain: { on: ReturnType<typeof vi.fn> };
+  chain: {
+    on: ReturnType<typeof vi.fn>;
+    once: ReturnType<typeof vi.fn>;
+    get: ReturnType<typeof vi.fn>;
+  };
   emit: (data: unknown) => void;
+  setSnapshot: (data: unknown) => void;
+  setScalarSnapshot: (key: string, data: unknown) => void;
   onSpy: ReturnType<typeof vi.fn>;
+  onceSpy: ReturnType<typeof vi.fn>;
+  getSpy: ReturnType<typeof vi.fn>;
 }
 
 function createSubscribableChain(): SubscribableChain {
   let callback: ((data: unknown) => void) | undefined;
+  let snapshot: unknown = null;
+  const scalarSnapshots = new Map<string, unknown>();
   const onSpy = vi.fn((cb: (data: unknown) => void) => {
     callback = cb;
   });
+  const onceSpy = vi.fn((cb: (data: unknown) => void) => {
+    cb(snapshot);
+  });
+  const getSpy = vi.fn((key: string) => ({
+    once: vi.fn((cb: (data: unknown) => void) => {
+      cb(scalarSnapshots.get(key) ?? null);
+    })
+  }));
 
   return {
-    chain: { on: onSpy },
+    chain: { on: onSpy, once: onceSpy, get: getSpy },
     emit(data: unknown) {
       callback?.(data);
     },
-    onSpy
+    setSnapshot(data: unknown) {
+      snapshot = data;
+    },
+    setScalarSnapshot(key: string, data: unknown) {
+      scalarSnapshots.set(key, data);
+    },
+    onSpy,
+    onceSpy,
+    getSpy
   };
 }
 
@@ -169,6 +195,118 @@ describe('hydrateSynthesisStore', () => {
     expect(chain.onSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('pulls a latest synthesis snapshot when hydration is started again for an existing topic', async () => {
+    const chain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    chain.setSnapshot({
+      __topic_synthesis_json: JSON.stringify(synthesis()),
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-3',
+      epoch: 3
+    });
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+
+    expect(chain.onSpy).toHaveBeenCalledTimes(1);
+    expect(chain.onceSpy).toHaveBeenCalledTimes(2);
+    expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-3' }));
+  });
+
+  it('recovers latest synthesis from the scalar JSON envelope when the root node is metadata-only', async () => {
+    const chain = createSubscribableChain();
+    chain.setSnapshot({ _: { '#': 'vh/topics/topic-1/latest' } });
+    chain.setScalarSnapshot('__topic_synthesis_json', JSON.stringify(synthesis({ synthesis_id: 'synth-scalar' })));
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(chain.getSpy).toHaveBeenCalledWith('__topic_synthesis_json');
+    expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-scalar' }));
+  });
+
+  it('recovers latest correction from the scalar JSON envelope when the root node is metadata-only', async () => {
+    const chain = createSubscribableChain();
+    const correctionChain = createSubscribableChain();
+    correctionChain.setSnapshot({ _: { '#': 'vh/topics/topic-1/synthesis_corrections/latest' } });
+    correctionChain.setScalarSnapshot('__topic_synthesis_correction_json', JSON.stringify(correction({ correction_id: 'correction-scalar' })));
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue(correctionChain.chain);
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(correctionChain.getSpy).toHaveBeenCalledWith('__topic_synthesis_correction_json');
+    expect(state.setTopicCorrection).toHaveBeenCalledWith('topic-1', expect.objectContaining({ correction_id: 'correction-scalar' }));
+  });
+
+  it('ignores malformed scalar JSON envelopes and unsupported scalar reads', async () => {
+    const chain = createSubscribableChain();
+    chain.setSnapshot({ _: { '#': 'vh/topics/topic-1/latest' } });
+    chain.setScalarSnapshot('__topic_synthesis_json', '{');
+    const correctionChain = {
+      on: vi.fn(),
+      once: vi.fn((cb: (data: unknown) => void) => cb({ _: { '#': 'vh/topics/topic-1/correction' } })),
+      get: vi.fn(() => ({}))
+    };
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue(correctionChain);
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(state.setTopicSynthesis).not.toHaveBeenCalled();
+    expect(state.setTopicCorrection).not.toHaveBeenCalled();
+  });
+
+  it('ignores non-string JSON envelopes and late scalar callbacks after timeout', async () => {
+    vi.useFakeTimers();
+    let scalarCallback: ((data: unknown) => void) | undefined;
+    const chain = {
+      on: vi.fn(),
+      once: vi.fn((cb: (data: unknown) => void) => cb({ __topic_synthesis_json: 42 })),
+      get: vi.fn(() => ({
+        once: vi.fn((cb: (data: unknown) => void) => {
+          scalarCallback = cb;
+        })
+      }))
+    };
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    try {
+      const { hydrateSynthesisStore } = await import('./hydration');
+      const { store, state } = createStore();
+
+      expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+      await vi.advanceTimersByTimeAsync(2_501);
+      scalarCallback?.(JSON.stringify(synthesis({ synthesis_id: 'late-synth' })));
+      await Promise.resolve();
+
+      expect(state.setTopicSynthesis).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('hydrates each topic independently', async () => {
     const chainA = createSubscribableChain();
     const chainB = createSubscribableChain();
@@ -205,6 +343,29 @@ describe('hydrateSynthesisStore', () => {
     expect(state.setTopicError).toHaveBeenCalledWith('topic-1', null);
   });
 
+  it('hydrates Gun-safe synthesis envelopes from live topic subscriptions', async () => {
+    const chain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
+
+    chain.emit({
+      _: { '#': 'meta' },
+      __topic_synthesis_json: JSON.stringify(synthesis()),
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-3',
+      epoch: 3
+    });
+
+    expect(state.setTopicSynthesis).toHaveBeenCalledWith('topic-1', expect.objectContaining({ synthesis_id: 'synth-3' }));
+    expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-1', true);
+    expect(state.setTopicError).toHaveBeenCalledWith('topic-1', null);
+  });
+
   it('hydrates valid synthesis correction payloads', async () => {
     const synthesisChain = { on: undefined };
     const correctionChain = createSubscribableChain();
@@ -217,6 +378,34 @@ describe('hydrateSynthesisStore', () => {
     hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
 
     correctionChain.emit({ _: { '#': 'meta' }, ...correction() });
+
+    expect(state.setTopicCorrection).toHaveBeenCalledWith(
+      'topic-1',
+      expect.objectContaining({ correction_id: 'correction-1' })
+    );
+    expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-1', true);
+    expect(state.setTopicError).toHaveBeenCalledWith('topic-1', null);
+  });
+
+  it('hydrates Gun-safe synthesis correction envelopes from live topic subscriptions', async () => {
+    const synthesisChain = { on: undefined };
+    const correctionChain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(synthesisChain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue(correctionChain.chain);
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateSynthesisStore(() => ({}) as never, store, 'topic-1');
+
+    correctionChain.emit({
+      _: { '#': 'meta' },
+      __topic_synthesis_correction_json: JSON.stringify(correction()),
+      topic_id: 'topic-1',
+      correction_id: 'correction-1',
+      synthesis_id: 'synth-3',
+      epoch: 3
+    });
 
     expect(state.setTopicCorrection).toHaveBeenCalledWith(
       'topic-1',
@@ -264,6 +453,9 @@ describe('hydrateSynthesisStore', () => {
     chain.emit(null);
     chain.emit({ invalid: true });
     chain.emit({ ...synthesis(), token: 'forbidden' });
+    chain.emit(synthesis({ topic_id: 'topic-2' }));
+    chain.emit({ __topic_synthesis_json: '{' });
+    chain.emit({ __topic_synthesis_json: JSON.stringify({ ...synthesis(), token: 'forbidden' }) });
 
     expect(state.setTopicSynthesis).not.toHaveBeenCalled();
     expect(state.setTopicCorrection).not.toHaveBeenCalled();

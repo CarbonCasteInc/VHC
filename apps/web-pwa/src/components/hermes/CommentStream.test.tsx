@@ -206,7 +206,7 @@ describe('CommentStream', () => {
     expect(nested).toHaveClass('rounded-l-lg', 'border-r-[3px]');
   });
 
-  it('collapses children by default at depth >= 3', () => {
+  it('keeps deep reply branches visible by default', () => {
     const comments: any[] = [
       c({ id: 'r', content: 'Root', timestamp: 1, stance: 'concur' }),
       c({ id: 'c1', parentId: 'r', content: 'L1', timestamp: 2 }),
@@ -217,13 +217,16 @@ describe('CommentStream', () => {
 
     render(<CommentStream threadId="t" comments={comments as any} />);
 
-    // Depth 3+ should be collapsed by default
+    expect(screen.getByText('L4')).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByTestId('comment-wrap-c3').querySelector('button[aria-label="Collapse replies"]') as HTMLButtonElement
+    );
     expect(screen.queryByText('L4')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /show 1 replies/i }));
+    fireEvent.click(screen.getByTestId('comment-wrap-c3').querySelector('button[aria-label^="Show"]') as HTMLButtonElement);
     expect(screen.getByText('L4')).toBeInTheDocument();
   });
 
-  it('does not override user collapse toggle on live updates', async () => {
+  it('keeps newly added deep replies visible until the user collapses them', async () => {
     const base: any[] = [
       c({ id: 'r', content: 'Root', timestamp: 1, stance: 'concur' }),
       c({ id: 'c1', parentId: 'r', content: 'L1', timestamp: 2 }),
@@ -232,9 +235,9 @@ describe('CommentStream', () => {
     ];
 
     const { rerender } = render(<CommentStream threadId="t" comments={base as any} />);
-    expect(screen.queryByText('L4')).not.toBeInTheDocument();
+    expect(screen.getByText('L3')).toBeInTheDocument();
 
-    // Live update adds a child at depth 4: depth>=3 should auto-collapse.
+    // Live update adds a child at depth 4: it should stay visible until the user collapses it.
     rerender(
       <CommentStream
         threadId="t"
@@ -245,9 +248,12 @@ describe('CommentStream', () => {
       />
     );
 
-    // Should be collapsed by default after live update (until user expands).
-    await waitFor(() => expect(screen.queryByText('L4')).not.toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: /show 1 replies/i }));
+    await waitFor(() => expect(screen.getByText('L4')).toBeInTheDocument());
+    fireEvent.click(
+      screen.getByTestId('comment-wrap-c3').querySelector('button[aria-label="Collapse replies"]') as HTMLButtonElement
+    );
+    expect(screen.queryByText('L4')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('comment-wrap-c3').querySelector('button[aria-label^="Show"]') as HTMLButtonElement);
     expect(screen.getByText('L4')).toBeInTheDocument();
 
     // Another live update should not auto-collapse after the user toggles.

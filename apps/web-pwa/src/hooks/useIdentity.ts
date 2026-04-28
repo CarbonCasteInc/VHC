@@ -7,6 +7,7 @@ import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../stor
 import { getHandleError, isValidHandle } from '../utils/handle';
 import { migrateLegacyLocalStorage, clearIdentity as vaultClear } from '@vh/identity-vault';
 import { publishIdentity, clearPublishedIdentity } from '../store/identityProvider';
+import { useXpLedger } from '../store/xpLedger';
 import { loadIdentityRecord, saveIdentityRecord } from '../utils/vaultTyped';
 import { useSentimentState } from './useSentimentState';
 
@@ -43,6 +44,7 @@ async function persistIdentity(record: IdentityRecord): Promise<void> {
   await saveIdentityRecord(record);
   // Publish identity for downstream consumers.
   publishIdentity(record);
+  useXpLedger.getState().setActiveNullifier(record.session.nullifier);
 }
 
 function randomToken(): string {
@@ -87,6 +89,7 @@ export function useIdentity() {
         setIdentity(migrated);
         setStatus('ready');
         publishIdentity(migrated);
+        useXpLedger.getState().setActiveNullifier(migrated.session.nullifier);
       } else {
         setStatus('anonymous');
       }
@@ -257,6 +260,7 @@ export function useIdentity() {
     setStatus('anonymous');
     setError(undefined);
     clearPublishedIdentity();
+    useXpLedger.getState().setActiveNullifier(null);
     // Constituency proof is derived from identity — clearing identity invalidates all proofs (spec §2.1.3)
     useSentimentState.setState({ signals: [] });
     await vaultClear().catch(() => {});
@@ -321,4 +325,3 @@ function clampScaledTrustScore(value: number): number {
   if (value > 10000) return 10000;
   return value;
 }
-
