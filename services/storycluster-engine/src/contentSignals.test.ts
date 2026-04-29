@@ -126,6 +126,9 @@ describe('contentSignals', () => {
       extractTrigger('Cyber attack forces city hospital network offline'),
     ).toBe('cyberattack');
     expect(
+      extractTrigger('Substation blast cuts power across capital districts'),
+    ).toBe('blackout');
+    expect(
       extractTrigger('Trump tells Starmer help not needed even as US uses UK bases for Iran strikes'),
     ).toBe('tells');
     expect(

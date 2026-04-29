@@ -28,6 +28,47 @@ const REVIEW_THRESHOLD = 0.52;
 const MERGE_THRESHOLD = 0.84;
 const SPLIT_SIMILARITY_THRESHOLD = 0.57;
 const HYBRID_SCORING_VERSION = 'storycluster-hybrid-v2';
+const NAMED_EPISODE_ANCHOR_TOKENS = new Set([
+  'market',
+  'blackout',
+  'outage',
+  'shutdown',
+  'strike',
+  'ceasefire',
+  'vote',
+  'talk',
+  'talks',
+  'negotiation',
+  'deal',
+  'recovery',
+  'fire',
+  'bridge',
+  'crash',
+  'flood',
+  'wildfire',
+  'collapse',
+  'detention',
+  'deportation',
+  'lawsuit',
+  'access',
+  'dismantling',
+  'citizenship',
+  'subpoena',
+  'dismissal',
+  'postdismissal',
+  'probe',
+  'prank',
+  'extortion',
+  'flag',
+  'burning',
+  'takeover',
+  'airport',
+  'wall',
+  'voter',
+  'mail',
+  'pay',
+]);
+
 function timeScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
   const anchor = document.event_tuple?.when_ms ?? document.temporal_ms ?? document.published_at;
   const clusterAnchors = clusterTemporalAnchors(cluster);
@@ -65,6 +106,33 @@ function specificCanonicalEntityScore(document: WorkingDocument, cluster: Stored
     canonicalEntities(document.linked_entities).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
     canonicalEntities(clusterEntities(cluster)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
   );
+}
+
+function sharedSpecificCanonicalEntities(document: WorkingDocument, cluster: StoredClusterRecord): string[] {
+  const clusterSpecific = new Set(
+    canonicalEntities(clusterEntities(cluster)).filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value)),
+  );
+  return canonicalEntities(document.linked_entities)
+    .filter((value) => !LOW_SIGNAL_CANONICAL_ENTITIES.has(value))
+    .filter((value, index, values) => values.indexOf(value) === index)
+    .filter((value) => clusterSpecific.has(value));
+}
+
+function specificCanonicalEntityOverlapCount(document: WorkingDocument, cluster: StoredClusterRecord): number {
+  return sharedSpecificCanonicalEntities(document, cluster).length;
+}
+
+function hasNamedEpisodeAnchor(document: WorkingDocument, cluster: StoredClusterRecord): boolean {
+  return sharedSpecificCanonicalEntities(document, cluster)
+    .flatMap((entity) => entity.split('_'))
+    .some((token) => NAMED_EPISODE_ANCHOR_TOKENS.has(token));
+}
+
+function normalizedSupportKeys(values: readonly string[]): string[] {
+  return [...new Set(values
+    .map((value) => value.trim().toLowerCase().replace(/\s+/g, '_'))
+    .filter(Boolean))]
+    .sort();
 }
 
 function actorScore(document: WorkingDocument, cluster: StoredClusterRecord): number {
@@ -184,6 +252,40 @@ function withinOngoingEventWindow(document: WorkingDocument, cluster: StoredClus
   );
 }
 
+function hasExplicitOngoingEventSupport(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  actor: number,
+  location: number,
+): boolean {
+  const documentActors = normalizedSupportKeys(document.event_tuple?.who ?? []);
+  const clusterActors = normalizedSupportKeys(cluster.source_documents.flatMap((source) => source.event_tuple?.who ?? []));
+  const documentLocations = documentEventLocations(document);
+  const clusterLocations = clusterEventLocations(cluster);
+  return (
+    (documentActors.length > 0 && clusterActors.length > 0 && actor >= 0.75) ||
+    (documentLocations.length > 0 && clusterLocations.length > 0 && location >= 0.45)
+  );
+}
+
+function hasStructuredEpisodeAnchor(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  canonicalScore: number,
+  specificCanonicalScore: number,
+  eventFrame: { score: number; hardReject: boolean },
+  actor: number,
+  location: number,
+): boolean {
+  return (
+    (specificCanonicalEntityOverlapCount(document, cluster) >= 2 || hasNamedEpisodeAnchor(document, cluster)) &&
+    specificCanonicalScore >= 0.75 &&
+    canonicalScore >= 0.75 &&
+    eventFrame.score >= 0.24 &&
+    hasExplicitOngoingEventSupport(document, cluster, actor, location)
+  );
+}
+
 function hasLongWindowContinuitySupport(
   document: WorkingDocument,
   cluster: StoredClusterRecord,
@@ -195,23 +297,46 @@ function hasLongWindowContinuitySupport(
   if (eventFrame.hardReject || !withinOngoingEventWindow(document, cluster)) {
     return false;
   }
+  const actor = actorScore(document, cluster);
+  const location = eventLocationScore(document, cluster);
+  const structuredEpisodeAnchor = hasStructuredEpisodeAnchor(
+    document,
+    cluster,
+    canonicalScore,
+    specificCanonicalScore,
+    eventFrame,
+    actor,
+    location,
+  );
   const categoryConflict = hasTriggerCategoryConflict(document, cluster);
   if (
     categoryConflict &&
-    !(
-      specificCanonicalScore >= 0.75 &&
-      canonicalScore >= 0.75 &&
-      lexical >= 0.08 &&
-      eventFrame.score >= 0.24
-    )
+    !structuredEpisodeAnchor
   ) {
     return false;
   }
-  return (
+  return structuredEpisodeAnchor || (
     specificCanonicalScore >= 0.5 &&
     canonicalScore >= 0.5 &&
     lexical >= 0.08 &&
     eventFrame.score >= 0.24
+  );
+}
+
+function hasStrongOngoingContinuityOverride(
+  document: WorkingDocument,
+  cluster: StoredClusterRecord,
+  canonicalScore: number,
+  specificCanonicalScore: number,
+  lexical: number,
+  eventFrame: { score: number; hardReject: boolean },
+  actor: number,
+  location: number,
+): boolean {
+  return (
+    hasTriggerCategoryConflict(document, cluster) &&
+    hasLongWindowContinuitySupport(document, cluster, canonicalScore, specificCanonicalScore, lexical, eventFrame) &&
+    hasStructuredEpisodeAnchor(document, cluster, canonicalScore, specificCanonicalScore, eventFrame, actor, location)
   );
 }
 
@@ -235,12 +360,16 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     lexical,
     eventFrame,
   );
-  const strongOngoingContinuityOverride =
-    categoryConflict &&
-    longWindowContinuity &&
-    specificCanonicalScore >= 0.75 &&
-    canonicalScore >= 0.75 &&
-    location >= 0.45;
+  const strongOngoingContinuityOverride = hasStrongOngoingContinuityOverride(
+    document,
+    cluster,
+    canonicalScore,
+    specificCanonicalScore,
+    lexical,
+    eventFrame,
+    actor,
+    location,
+  );
   const prefilter =
     coarseVectorScore * 0.22 +
     entityScore * 0.14 +
@@ -273,7 +402,12 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     reason = 'related-coverage-conflict';
   } else if (eventFrame.hardReject) {
     reason = 'event-frame-conflict';
-  } else if (rerank >= ACCEPT_THRESHOLD && eventFrame.score >= 0.42) {
+  } else if (
+    rerank >= ACCEPT_THRESHOLD &&
+    eventFrame.score >= 0.42 &&
+    (time >= 0.25 || longWindowContinuity || strongOngoingContinuityOverride) &&
+    (!categoryConflict || strongOngoingContinuityOverride)
+  ) {
     adjudication = 'accepted';
     reason = 'high-confidence';
   } else if (
@@ -281,7 +415,7 @@ export function buildCandidateMatch(document: WorkingDocument, cluster: StoredCl
     (time >= 0.25 || longWindowContinuity || strongOngoingContinuityOverride) &&
     eventFrame.score >= 0.3 &&
     (!categoryConflict || strongOngoingContinuityOverride) &&
-    /* v8 ignore next 4 -- triggerScore cannot evaluate false while categoryConflict is false */
+    /* v8 ignore next 5 -- triggerScore cannot evaluate false while categoryConflict is false */
     (
       trigger >= 0.5 ||
       strongOngoingContinuityOverride ||
@@ -329,11 +463,27 @@ export function candidateEligible(document: WorkingDocument, cluster: StoredClus
   }
   const vectorScore = cosineSimilarity(document.coarse_vector, cluster.centroid_coarse);
   const entityScore = overlapRatio(document.entities, clusterEntities(cluster));
+  const categoryConflict = hasTriggerCategoryConflict(document, cluster);
+  const location = eventLocationScore(document, cluster);
+  const actor = actorScore(document, cluster);
+  const strongOngoingContinuityOverride = hasStrongOngoingContinuityOverride(
+    document,
+    cluster,
+    canonicalScore,
+    specificCanonicalScore,
+    lexical,
+    eventFrame,
+    actor,
+    location,
+  );
   if (
     eventFrame.hardReject ||
     isRelatedCoverageAttachmentConflict(document, cluster) ||
     isSecondaryAssetAttachmentConflict(document, cluster)
   ) {
+    return false;
+  }
+  if (categoryConflict && !strongOngoingContinuityOverride) {
     return false;
   }
   const structuredEventSupport = triggerScore(document, cluster) > 0.5 ||

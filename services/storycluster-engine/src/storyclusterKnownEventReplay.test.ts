@@ -14,13 +14,13 @@ function scenarioById(id: string) {
 async function runScenario(scenarioId: string) {
   const scenario = scenarioById(scenarioId);
   const store = new MemoryClusterStore();
-  const expectedByKey = new Map<string, string>();
   const snapshots = [];
 
   for (let tickIndex = 0; tickIndex < scenario.ticks.length; tickIndex += 1) {
     const tick = scenario.ticks[tickIndex]!;
+    const currentExpectedByKey = new Map<string, string>();
     tick.forEach((item) => {
-      expectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
+      currentExpectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
     });
     const response = await runStoryClusterRemoteContract(
       { topic_id: scenario.topic_id, items: tick.map(({ expected_event_id: _omit, ...item }) => item) },
@@ -28,7 +28,7 @@ async function runScenario(scenarioId: string) {
     );
     const bundles = response.bundles;
     const storyByEvent = new Map<string, string | null>();
-    for (const [eventId, storyIds] of liveBenchmarkInternal.eventStoryIdsFromBundles(bundles, expectedByKey)) {
+    for (const [eventId, storyIds] of liveBenchmarkInternal.eventStoryIdsFromBundles(bundles, currentExpectedByKey)) {
       storyByEvent.set(eventId, liveBenchmarkInternal.singleStoryId(storyIds));
     }
     snapshots.push({

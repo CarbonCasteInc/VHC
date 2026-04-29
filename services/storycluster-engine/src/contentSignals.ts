@@ -259,6 +259,9 @@ function extractLeadTrigger(text: string): string | null {
 }
 
 function extractPhraseTrigger(text: string): string | null {
+  if (/\bcuts?\s+(?:electricity|power)\b|\bpower\s+cuts?\b/.test(text)) {
+    return 'blackout';
+  }
   if (/\bransomware attack\b/.test(text)) {
     return 'ransomware';
   }

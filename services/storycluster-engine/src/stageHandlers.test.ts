@@ -258,7 +258,7 @@ describe('stageHandlers', () => {
       async analyzeDocuments(items) {
         return items.map((item) => ({
           doc_id: item.doc_id,
-          doc_type: 'analysis',
+          doc_type: 'hard_news',
           entities: ['sanctions_dispute'],
           linked_entities: [],
           locations: ['washington'],
