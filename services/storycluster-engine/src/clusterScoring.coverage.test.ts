@@ -359,6 +359,94 @@ describe('clusterScoring coverage', () => {
     expect(candidateEligible(candidate, cluster)).toBe(true);
   });
 
+  it('rejects candidates outside the ongoing-event window at both cluster edges', () => {
+    const cluster = makeCluster(makeWorkingDocument({
+      doc_id: 'doc-window-old',
+      source_id: 'wire-window-old',
+      title: 'Federal Reserve probe opens with subpoena threat',
+      summary: 'The Justice Department opens the Powell subpoena episode.',
+      raw_text: 'The Justice Department opens the Powell subpoena episode.',
+      normalized_text: 'justice department opens powell subpoena episode',
+      translated_text: 'The Justice Department opens the Powell subpoena episode.',
+      published_at: 1_700_000_000_000,
+      temporal_ms: 1_700_000_000_000,
+      entities: ['fed_powell_subpoena_episode', 'jerome_powell', 'federal_reserve'],
+      linked_entities: ['fed_powell_subpoena_episode', 'jerome_powell', 'federal_reserve'],
+      locations: ['washington'],
+      trigger: 'subpoenaed',
+      coarse_vector: [0.9, 0.1],
+      full_vector: [0.9, 0.1],
+    }));
+    cluster.cluster_window_start = 1_700_000_000_000;
+    cluster.cluster_window_end = 1_700_100_000_000;
+
+    const candidate = makeWorkingDocument({
+      doc_id: 'doc-window-late',
+      source_id: 'wire-window-late',
+      title: 'Powell subpoenas draw judge scrutiny years later',
+      summary: 'The same Powell subpoena episode is referenced years later.',
+      raw_text: 'The same Powell subpoena episode is referenced years later.',
+      normalized_text: 'same powell subpoena episode referenced years later',
+      translated_text: 'The same Powell subpoena episode is referenced years later.',
+      published_at: 1_740_000_000_000,
+      temporal_ms: 1_740_000_000_000,
+      entities: ['fed_powell_subpoena_episode', 'jerome_powell', 'federal_reserve'],
+      linked_entities: ['fed_powell_subpoena_episode', 'jerome_powell', 'federal_reserve'],
+      locations: ['washington'],
+      trigger: 'subpoenaed',
+      coarse_vector: [0.9, 0.1],
+      full_vector: [0.9, 0.1],
+    });
+
+    expect(candidateEligible(candidate, cluster)).toBe(false);
+    expect(buildCandidateMatch(candidate, cluster).adjudication).not.toBe('accepted');
+  });
+
+  it('marks video attachments against broad related clusters as secondary-asset conflicts', () => {
+    const cluster = makeCluster(makeWorkingDocument({
+      doc_id: 'doc-related',
+      source_id: 'wire-related',
+      title: 'Analysis: market fallout after sanctions dispute',
+      summary: 'Analysts discuss market fallout after the sanctions dispute.',
+      raw_text: 'Analysts discuss market fallout after the sanctions dispute.',
+      normalized_text: 'analysts discuss market fallout sanctions dispute',
+      translated_text: 'Analysts discuss market fallout after the sanctions dispute.',
+      doc_type: 'analysis',
+      coverage_role: 'related',
+      entities: ['sanctions_dispute'],
+      linked_entities: ['sanctions_dispute'],
+      locations: [],
+      trigger: null,
+      event_tuple: null,
+      coarse_vector: [0.9, 0.1],
+      full_vector: [0.9, 0.1],
+    }));
+
+    const candidate = buildCandidateMatch(makeWorkingDocument({
+      doc_id: 'doc-video',
+      source_id: 'wire-video',
+      title: 'Video: market fallout after sanctions dispute',
+      summary: 'Video footage recaps the sanctions dispute.',
+      raw_text: 'Video footage recaps the sanctions dispute.',
+      normalized_text: 'video footage recaps sanctions dispute',
+      translated_text: 'Video footage recaps the sanctions dispute.',
+      doc_type: 'video_clip',
+      coverage_role: 'related',
+      entities: ['sanctions_dispute'],
+      linked_entities: ['sanctions_dispute'],
+      locations: [],
+      trigger: null,
+      event_tuple: null,
+      coarse_vector: [0.9, 0.1],
+      full_vector: [0.9, 0.1],
+    }), cluster);
+
+    expect(candidate).toMatchObject({
+      adjudication: 'rejected',
+      reason: 'secondary-asset-conflict',
+    });
+  });
+
   it('keeps year-scale legal dismantling episodes eligible when the canonical entity spine remains strong', () => {
     const cluster = makeClusterFromDocuments([
       makeWorkingDocument({

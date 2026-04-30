@@ -47,7 +47,8 @@ gunRequire('gun/lib/ws');
 
 const port = Number(process.env.GUN_PORT || 7777);
 const host = process.env.GUN_HOST || '127.0.0.1';
-const gunFile = process.env.GUN_FILE || 'data';
+const radiskEnabled = process.env.GUN_RADISK !== 'false';
+const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
 
 const server = http.createServer((req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -57,7 +58,7 @@ const server = http.createServer((req, res) => {
 // Minimal, stable Gun relay (no custom hooks)
 Gun({
   web: server,
-  radisk: true,
+  radisk: radiskEnabled,
   file: gunFile,
   axe: false,
   peers: [] // explicit empty list to keep ws adapter happy

@@ -1,10 +1,10 @@
 import { resolveTokenParam } from './analysisRelay';
 
 export const DEFAULT_BUNDLE_SYNTHESIS_MODEL = 'gpt-4o-mini';
-export const DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS = 1200;
+export const DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS = 2400;
 export const DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS = 20_000;
 export const DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN = 20;
-export const DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION = 'news-bundle-v1';
+export const DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION = 'news-bundle-v2-fulltext';
 
 const RATE_WINDOW_MS = 60_000;
 let requestTimestamps: number[] = [];
@@ -16,6 +16,7 @@ export interface BundleSynthesisRelayRequest {
   timeoutMs?: number;
   ratePerMinute?: number;
   apiKey?: string;
+  upstreamUrl?: string;
   fetchFn?: typeof fetch;
   now?: () => number;
 }
@@ -27,6 +28,25 @@ export interface BundleSynthesisRelayResponse {
 
 export function getBundleSynthesisModel(): string {
   return process.env.VH_BUNDLE_SYNTHESIS_MODEL || DEFAULT_BUNDLE_SYNTHESIS_MODEL;
+}
+
+function readEnv(name: string): string | undefined {
+  const value = process.env[name]?.trim();
+  return value ? value : undefined;
+}
+
+function resolveBundleSynthesisApiKey(request: BundleSynthesisRelayRequest): string | undefined {
+  return request.apiKey
+    ?? readEnv('VH_BUNDLE_SYNTHESIS_API_KEY')
+    ?? readEnv('ANALYSIS_RELAY_API_KEY')
+    ?? readEnv('OPENAI_API_KEY');
+}
+
+function resolveBundleSynthesisUpstreamUrl(request: BundleSynthesisRelayRequest, apiKey?: string): string | undefined {
+  return request.upstreamUrl
+    ?? readEnv('VH_BUNDLE_SYNTHESIS_UPSTREAM_URL')
+    ?? readEnv('ANALYSIS_RELAY_UPSTREAM_URL')
+    ?? (apiKey ? 'https://api.openai.com/v1/chat/completions' : undefined);
 }
 
 function assertBundleRateLimit(ratePerMinute: number, nowMs: number): void {
@@ -45,9 +65,14 @@ export function resetBundleSynthesisRelayState(): void {
 export async function postBundleSynthesisCompletion(
   request: BundleSynthesisRelayRequest,
 ): Promise<BundleSynthesisRelayResponse> {
-  const apiKey = request.apiKey ?? process.env.OPENAI_API_KEY;
+  const apiKey = resolveBundleSynthesisApiKey(request);
   if (!apiKey) {
-    throw new Error('Bundle synthesis service not configured (missing OPENAI_API_KEY)');
+    throw new Error('Bundle synthesis service not configured (missing API key)');
+  }
+
+  const upstreamUrl = resolveBundleSynthesisUpstreamUrl(request, apiKey);
+  if (!upstreamUrl) {
+    throw new Error('Bundle synthesis service not configured (missing upstream URL)');
   }
 
   const prompt = request.prompt.trim();
@@ -68,7 +93,7 @@ export async function postBundleSynthesisCompletion(
   const tokenParam = resolveTokenParam(model);
 
   try {
-    const response = await fetchFn('https://api.openai.com/v1/chat/completions', {
+    const response = await fetchFn(upstreamUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

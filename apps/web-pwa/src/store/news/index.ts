@@ -47,6 +47,54 @@ function selectLatestStoryIds(latestIndex: Record<string, number>, limit = 50): 
     .map(([storyId]) => storyId);
 }
 
+function readNewsStoreNumber(
+  keys: ReadonlyArray<string>,
+  fallback: number,
+  min: number,
+): number {
+  for (const key of keys) {
+    const nodeValue =
+      typeof process !== 'undefined'
+        ? process.env?.[key]
+        : undefined;
+    const viteValue = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[key];
+    const raw = nodeValue ?? viteValue;
+    if (!raw) {
+      continue;
+    }
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed >= min) {
+      return Math.floor(parsed);
+    }
+  }
+  return fallback;
+}
+
+const NEWS_REFRESH_TIMEOUT_MS = readNewsStoreNumber(
+  ['VITE_NEWS_REFRESH_TIMEOUT_MS', 'VH_NEWS_REFRESH_TIMEOUT_MS'],
+  15_000,
+  1_000,
+);
+
+async function withNewsRefreshTimeout<T>(work: Promise<T>): Promise<T> {
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timeoutHandle = setTimeout(
+          () => reject(new Error(`News refresh timed out after ${NEWS_REFRESH_TIMEOUT_MS}ms`)),
+          NEWS_REFRESH_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeoutHandle !== null) {
+      clearTimeout(timeoutHandle);
+    }
+  }
+}
+
 export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsState> {
   const defaults: NewsDeps = {
     resolveClient: resolveClientFromAppStore
@@ -57,6 +105,7 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
   };
 
   let storeRef!: StoreApi<NewsState>;
+  let refreshGeneration = 0;
 
   const startHydration = () => {
     const started = hydrateNewsStore(deps.resolveClient, storeRef);
@@ -262,19 +311,34 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
       }
 
       get().startHydration();
+      const generation = ++refreshGeneration;
       set({ loading: true, error: null });
 
       try {
-        const [latestIndex, hotIndex] = await Promise.all([
-          readNewsLatestIndex(client).then(sanitizeLatestIndex),
-          readNewsHotIndex(client).then(sanitizeHotIndex),
-        ]);
+        const { filteredStories, hotIndex, latestIndex, storylines } =
+          await withNewsRefreshTimeout((async () => {
+            const [nextLatestIndex, nextHotIndex] = await Promise.all([
+              readNewsLatestIndex(client).then(sanitizeLatestIndex),
+              readNewsHotIndex(client).then(sanitizeHotIndex),
+            ]);
 
-        const storyIds = selectLatestStoryIds(latestIndex, limit);
-        const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
-        const validStories = parseStories(stories);
-        const filteredStories = filterStoriesToConfiguredSources(validStories);
-        const storylines = await loadStorylinesForStories(client, filteredStories);
+            const storyIds = selectLatestStoryIds(nextLatestIndex, limit);
+            const stories = await Promise.all(storyIds.map((storyId) => readNewsStory(client, storyId)));
+            const validStories = parseStories(stories);
+            const nextFilteredStories = filterStoriesToConfiguredSources(validStories);
+            const nextStorylines = await loadStorylinesForStories(client, nextFilteredStories);
+
+            return {
+              filteredStories: nextFilteredStories,
+              hotIndex: nextHotIndex,
+              latestIndex: nextLatestIndex,
+              storylines: nextStorylines,
+            };
+          })());
+
+        if (generation !== refreshGeneration) {
+          return;
+        }
 
         let mergedStories: StoryBundle[] = [];
         set((state) => {
@@ -291,6 +355,9 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
 
         void mirrorStoriesIntoDiscovery(mergedStories, hotIndex, createStorylineRecord(storylines));
       } catch (error: unknown) {
+        if (generation !== refreshGeneration) {
+          return;
+        }
         set({
           loading: false,
           error: error instanceof Error ? error.message : 'Failed to refresh latest news'

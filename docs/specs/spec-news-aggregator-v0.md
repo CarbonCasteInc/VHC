@@ -180,6 +180,9 @@ Analysis frame/reframe output contract:
 - bias arrays may use the explicit `No clear bias detected` / `N/A` fallback when the article is straight reporting, but frame/reframe rows must not use those placeholders;
 - when explicit outlet bias is sparse, frame/reframe rows must be inferred as terse debate-style issue-side claims and counterclaims grounded in the story subject: public opinion splits, political divides, stakeholder tradeoffs, legal/institutional tensions, cost/risk disputes, rights/safety debates, or accountability arguments;
 - frame/reframe rows are issue-side claims, not publication-by-publication summaries, and should not prefix publisher names unless the publisher itself is materially part of the dispute.
+- publish-time bundle synthesis must analyze extracted full text for each readable canonical primary source before producing accepted `TopicSynthesisV2`; headline/source metadata alone is not a sufficient synthesis basis for eligible text stories.
+- per-source generated analyses must persist key facts, direct quote evidence, and bias-claim justifications on the hidden candidate/audit record. The public story card renders the accepted `facts_summary` plus frame/reframe rows by default and must not expose quote justifications unless an explicit audit/operator surface asks for them.
+- accepted `facts_summary` must be derived from merged per-source key facts. Source framing, blame, advocacy, and interpretation belong in frame/reframe rows rather than in the facts summary.
 
 ## 5. Mesh/storage paths
 

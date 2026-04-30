@@ -2,13 +2,13 @@
 
 > Status: Implementation Truth Ledger
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-04-27
+> Last Reviewed: 2026-04-28
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-**Last Updated:** 2026-04-27
-**Version:** 0.8.8 (public-beta launch closeout audit and gate evidence map)
-**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained Web PWA beta when the release commit has a passing public-beta evidence packet. The Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, minimum trusted beta operator authorization for current remediation writes, and a public-beta launch closeout audit in `docs/ops/public-beta-launch-readiness-closeout.md`. Live corroborated headlines remain beta-gated by production-readiness evidence; legal/commercial approval remains outside repo automation; broader admin workflow UX, notification/escalation automation, and model/cost operations visibility are classified as post-beta follow-up unless release copy claims production-grade live headline readiness.
+**Last Updated:** 2026-04-28
+**Version:** 0.8.9 (full-product multi-user engagement lane aligned with public-beta closeout docs)
+**Assessment:** Controlled beta candidate. The integrated VENN/HERMES/AGORA app is distributable in constrained Web PWA beta when the release commit has a passing public-beta evidence packet. The Web PWA now has deterministic MVP release-gate evidence, public-beta policy surfaces, a provisioned public support/contact path with minimum private escalation protocol, curated launch-content fallback, accepted synthesis correction, story-thread moderation, report-intake/admin-action coverage, minimum trusted beta operator authorization for current remediation writes, a public-beta launch closeout audit in `docs/ops/public-beta-launch-readiness-closeout.md`, and a service-backed five-user local engagement lane for validating the full feed/detail/stance/thread loop across real app, relay, daemon, StoryCluster, fixture feed, and deterministic analysis-stub wiring. Live corroborated headlines remain beta-gated by production-readiness evidence; legal/commercial approval remains outside repo automation; broader admin workflow UX, notification/escalation automation, and model/cost operations visibility are classified as post-beta follow-up unless release copy claims production-grade live headline readiness.
 
 > ⚠️ **This document reflects actual implementation status, not target architecture.**
 > For the full vision, see `System_Architecture.md` and whitepapers in `docs/`.
@@ -84,6 +84,11 @@ Current policy state:
   - MVP report gate: `public_beta_launch_closeout` inside `pnpm check:mvp-release-gates`;
   - required release packet: `pnpm check:mvp-release-gates`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks on the release commit;
   - remaining work is labeled `ship_blocker` only when the release commit evidence packet is missing/failing, external approval is required but unrecorded, or release copy claims production-grade live headlines without `release_ready`; otherwise known admin/support/native/ops polish is `post_beta_follow_up`.
+- Full-product local engagement validation is now a named service-backed lane:
+  - stack command: `pnpm live:stack:up:analysis-stub`;
+  - test command: `pnpm test:live:five-user-engagement`;
+  - coverage: five beta-local identities in isolated browser contexts; at least two singleton stories and two bundled stories; accepted `TopicSynthesisV2` detail with non-empty frame/reframe rows; point-level stance writes with mesh write confirmation and aggregate readback; Eye/Lightbulb feed metrics; deterministic `news-story:*` discussion threads; chained comments/replies that remain visible across users and reloads;
+  - scope: release-like manual QA against the production-shaped local stack. It supplements the deterministic report gates above and does not replace `pnpm check:mvp-release-gates`, `pnpm check:launch-content-snapshot`, or live headline production-readiness evidence.
 - Source-readiness evidence is now a concrete runtime/ops surface on `main`:
   - `pnpm report:news-sources:admission`
   - `pnpm report:news-sources:health`
@@ -172,6 +177,10 @@ Current truth for the news bundler and feed hardening lane:
 - Generated article and bundle analyses must emit non-empty frame/reframe rows:
   - bias arrays may use the explicit `No clear bias detected` / `N/A` fallback when source bias is sparse;
   - frame/reframe rows must instead become terse debate-style issue-side claims and counterclaims grounded in public/political/stakeholder disagreements around the summarized issue.
+- Publish-time story synthesis is fact-first:
+  - readable canonical primary sources are full-text extracted and analyzed before bundle synthesis;
+  - source-level key facts, quote evidence, and bias justifications persist on the hidden candidate/audit record;
+  - accepted story detail renders only the fact summary and frame/reframe rows by default.
 - The fixture-backed daemon-first release gates are green on `main` after the latest semantic-fixture expansion:
   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`
@@ -390,7 +399,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | C. Elevation loop | Nomination thresholds produce BriefDoc + ProposalScaffold + TalkingPoints + rep forwarding | 🟡 Elevation schema + artifact generators + budget gates landed (Wave 2 Gamma P2); receipt feed-card rendering support landed, live publication remains partial |
 | D. Thread + longform rules | Reddit-like sorting, 240-char replies, overflow to Docs article | ✅ Forum sorting + 240-char reply cap + Convert-to-Article CTA + ArticleFeedCard (Wave 2 Beta S1) |
 | E. Collaborative docs | Multi-author encrypted docs, draft-to-publish workflow | 🟢 Full foundation plus flag-gated ArticleEditor runtime wiring: CRDT/Yjs, E2EE key management, collab editor, presence, sharing, access control |
-| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Per-user Eye/Lightbulb decay persists locally and projects topic engagement summaries to mesh; budget guards (7/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
+| F. Civic signal → value rails | Eye/Lightbulb capture thought-effort; aggregate civic signal drives future REL/AU | 🟡 Per-user Eye/Lightbulb decay persists locally and projects topic engagement summaries to mesh; the five-user engagement lane now verifies cross-user read/stance metrics and discussion visibility through the local mesh; budget guards (8/8 keys active), elevation artifacts landed; rep directory + native intents deferred to Wave 3 |
 | G. Provider switching + consent | Default API relay today; local-first when local-agent capability thresholds are met; remote providers opt-in with cost/privacy clarity | ✅ Relay default in live profiles; local engine path retained; model/provider override controls in place |
 
 ---
@@ -471,7 +480,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | `useFamiliar` hook | ✅ Landed | `store/delegation/useFamiliar.test.ts` |
 | FamiliarControlPanel UI | ✅ Landed | `components/hermes/FamiliarControlPanel.tsx` |
 | Delegation utility functions | ✅ Landed | `packages/types/src/delegation-utils.ts` |
-| Budget enforcement (7/8 keys) | ✅ Wired | posts, comments, governance/sentiment votes, analyses, shares, civic_actions |
+| Budget enforcement (8/8 keys) | ✅ Wired | posts, comments, governance/sentiment votes, analyses, shares, civic_actions, moderation/day |
 | Full familiar orchestration | ❌ Not implemented | No autonomous agent loop |
 
 ---

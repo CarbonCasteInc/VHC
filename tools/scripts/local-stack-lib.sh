@@ -53,10 +53,10 @@ kill_pid_file() {
   local pid
   pid="$(read_pid_file "$file" || true)"
   if is_pid_alive "$pid"; then
-    kill "$pid" >/dev/null 2>&1 || true
+    kill "-$pid" >/dev/null 2>&1 || kill "$pid" >/dev/null 2>&1 || true
     sleep 0.5
     if is_pid_alive "$pid"; then
-      kill -9 "$pid" >/dev/null 2>&1 || true
+      kill -9 "-$pid" >/dev/null 2>&1 || kill -9 "$pid" >/dev/null 2>&1 || true
     fi
   fi
   rm -f "$file"

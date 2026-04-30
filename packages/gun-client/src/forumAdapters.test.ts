@@ -4,6 +4,7 @@ import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './index';
 import {
+  getForumCommentIndexChain,
   getForumCommentModerationChain,
   getForumCommentsChain,
   getForumDateIndexChain,
@@ -90,6 +91,22 @@ describe('forumAdapters', () => {
     const commentsChain = getForumCommentsChain(client, 'thread-2');
     await commentsChain.get('comment-1').put({ content: 'reply' } as any);
     expect(guard.validateWrite).toHaveBeenCalledWith('vh/forum/threads/thread-2/comments/comment-1/', expect.anything());
+  });
+
+  it('guards comment index writes', async () => {
+    const chain = createMockChain();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+    const indexChain = getForumCommentIndexChain(client, 'news-story:story-2');
+    await indexChain.get('current').put({
+      schemaVersion: 'hermes-comment-index-v1',
+      threadId: 'news-story:story-2',
+      idsJson: '[]'
+    });
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/forum/indexes/comment_ids/news-story%3Astory-2/current/',
+      expect.anything()
+    );
   });
 
   it('guards forum indexes', async () => {

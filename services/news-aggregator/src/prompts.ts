@@ -1,3 +1,4 @@
+import { isPlaceholderPerspectiveText } from '@vh/ai-engine';
 import { z } from 'zod';
 
 export interface ArticleAnalysisResult {
@@ -5,6 +6,7 @@ export interface ArticleAnalysisResult {
   source_id: string;
   url: string;
   url_hash: string;
+  key_facts: string[];
   summary: string;
   bias_claim_quote: string[];
   justify_bias_claim: string[];
@@ -27,6 +29,7 @@ export interface BundleSynthesisInput {
 }
 
 export interface BundleSynthesisResult {
+  key_facts: string[];
   summary: string;
   frame_reframe_table: Array<{ frame: string; reframe: string }>;
   source_count: number;
@@ -45,11 +48,22 @@ export class PromptParseError extends Error {
   }
 }
 
-const perspectiveSchema = z.object({ frame: z.string().min(1), reframe: z.string().min(1) }).strict();
+const perspectiveSchema = z
+  .object({ frame: z.string().min(1), reframe: z.string().min(1) })
+  .strict()
+  .refine((row) => !isPlaceholderPerspectiveText(row.frame), {
+    message: 'Frame cannot be a placeholder',
+    path: ['frame'],
+  })
+  .refine((row) => !isPlaceholderPerspectiveText(row.reframe), {
+    message: 'Reframe cannot be a placeholder',
+    path: ['reframe'],
+  });
 
 const articlePayloadSchema = z
   .object({
-    summary: z.string().min(1),
+    key_facts: z.array(z.string().trim().min(1)).min(1),
+    summary: z.string().trim().min(1),
     bias_claim_quote: z.array(z.string()),
     justify_bias_claim: z.array(z.string()),
     biases: z.array(z.string()),
@@ -61,8 +75,10 @@ const articlePayloadSchema = z
 
 const bundlePayloadSchema = z
   .object({
-    summary: z.string(),
+    key_facts: z.array(z.string().trim().min(1)).min(1),
+    summary: z.string().trim().min(1),
     frame_reframe_table: z.array(perspectiveSchema).min(1),
+    source_count: z.number().int().positive(),
     warnings: z.array(z.string()).optional(),
     synthesis_ready: z.boolean().optional(),
     synthesis_unavailable_reason: z.string().optional(),
@@ -104,10 +120,13 @@ export function generateArticleAnalysisPrompt(
     `URL: ${metadata.url}`,
     '',
     'Output schema (meta fields are added by the caller):',
-    '{"summary":"string","bias_claim_quote":["string"],"justify_bias_claim":["string"],"biases":["string"],"counterpoints":["string"],"confidence":0.0,"perspectives":[{"frame":"string","reframe":"string"}]}',
+    '{"key_facts":["string"],"summary":"string","bias_claim_quote":["string"],"justify_bias_claim":["string"],"biases":["string"],"counterpoints":["string"],"confidence":0.0,"perspectives":[{"frame":"string","reframe":"string"}]}',
     'Instructions:',
-    '- Summarize core claims neutrally.',
+    '- First strip the article to fundamental report facts: who, what, when, where, official actions, verified numbers, named institutions, and directly reported outcomes.',
+    '- Put those facts in key_facts. Do not include interpretation, advocacy, blame, speculation, loaded adjectives, or source framing in key_facts.',
+    '- Write summary only from key_facts as neutral factual prose. Do not narrate publisher framing or separate the summary by publication.',
     '- Identify biases with direct supporting quotes.',
+    '- Persist justification text for audit, but do not rely on justification text as user-visible summary copy.',
     '- Bias rows must use strict debate-claim styling: each bias is an affirmative claim stated as if an advocate for the article slant were making it; each counterpoint is a direct affirmative counterclaim.',
     '- If no clear article-level bias can be extracted, use one bias row of "No clear bias detected" with counterpoint "N/A"; do not use that fallback in perspectives.',
     '- Provide 2-4 frame/reframe perspective pairs. Never leave perspectives empty.',
@@ -135,6 +154,7 @@ export function parseArticleAnalysisResponse(
     source_id: meta.source_id,
     url: meta.url,
     url_hash: meta.url_hash,
+    key_facts: payload.data.key_facts,
     summary: payload.data.summary,
     bias_claim_quote: payload.data.bias_claim_quote,
     justify_bias_claim: payload.data.justify_bias_claim,
@@ -166,6 +186,7 @@ export function generateBundleSynthesisPrompt(input: BundleSynthesisInput): stri
         `Source ${index + 1}:`,
         `- publisher: ${entry.publisher}`,
         `- title: ${entry.title}`,
+        `- key_facts: ${JSON.stringify(entry.analysis.key_facts)}`,
         `- summary: ${entry.analysis.summary}`,
         `- biases: ${JSON.stringify(entry.analysis.biases)}`,
         `- counterpoints: ${JSON.stringify(entry.analysis.counterpoints)}`,
@@ -188,8 +209,9 @@ export function generateBundleSynthesisPrompt(input: BundleSynthesisInput): stri
     '',
     sourceList,
     '',
+    'Fact-summary rules: merge source key_facts into a compact fact ledger first. The summary must be neutral factual prose from that ledger only; source framing, blame, advocacy, and interpretation belong in frame/reframe rows, not in the summary.',
     'Frame/reframe rules: return at least 2 rows when possible; never return an empty table for eligible sources. If explicit source disagreement is sparse, infer common public/political/stakeholder disagreements around the issue. Use standalone affirmative debate claims, not labels, questions, publication summaries, "N/A", or "No clear bias detected".',
-    'Output schema: {"summary":"string","frame_reframe_table":[{"frame":"string","reframe":"string"}],"warnings":["string"],"synthesis_ready":true}',
+    'Output schema: {"key_facts":["string"],"summary":"string","frame_reframe_table":[{"frame":"string","reframe":"string"}],"source_count":1,"warnings":["string"],"synthesis_ready":true}',
   ].join('\n');
 }
 
@@ -197,6 +219,7 @@ export function generateBundleSynthesisPrompt(input: BundleSynthesisInput): stri
 export function parseBundleSynthesisResponse(raw: string, sourceCount: number): BundleSynthesisResult {
   if (sourceCount === 0) {
     return {
+      key_facts: [],
       summary: '',
       frame_reframe_table: [],
       source_count: 0,
@@ -210,6 +233,12 @@ export function parseBundleSynthesisResponse(raw: string, sourceCount: number): 
   if (!payload.success) {
     throw new PromptParseError('invalid-shape', issueText(payload.error));
   }
+  if (payload.data.source_count !== sourceCount) {
+    throw new PromptParseError(
+      'invalid-shape',
+      `source_count: expected ${sourceCount}, received ${payload.data.source_count}`,
+    );
+  }
 
   const warnings = [...(payload.data.warnings ?? [])];
   if (sourceCount === 1 && !warnings.includes('single-source-only')) {
@@ -217,9 +246,10 @@ export function parseBundleSynthesisResponse(raw: string, sourceCount: number): 
   }
 
   return {
+    key_facts: payload.data.key_facts,
     summary: payload.data.summary,
     frame_reframe_table: payload.data.frame_reframe_table,
-    source_count: sourceCount,
+    source_count: payload.data.source_count,
     warnings,
     synthesis_ready: payload.data.synthesis_ready ?? true,
     synthesis_unavailable_reason: payload.data.synthesis_unavailable_reason,

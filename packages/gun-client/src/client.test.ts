@@ -77,7 +77,7 @@ describe('createClient', () => {
     expect(mockGun).toHaveBeenCalledWith({
       peers: ['http://host:7777/gun'],
       localStorage: false,
-      radisk: false,
+      radisk: true,
       axe: false,
       file: '/tmp/vh-gun-run',
     });
@@ -102,6 +102,11 @@ describe('createClient', () => {
       axe: false,
       file: false,
     });
+  });
+
+  it('keeps browser Gun local storage enabled by default for mesh writes', () => {
+    expect(__internal.resolveBrowserGunLocalStorage({})).toBe(true);
+    expect(__internal.resolveBrowserGunLocalStorage({ gunLocalStorage: false })).toBe(false);
   });
 
   it('shutdown closes storage and marks ready', async () => {

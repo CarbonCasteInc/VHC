@@ -164,6 +164,78 @@ describe('clusterScoring', () => {
     expect(shouldMergeClusters(shipCluster, fuelCluster)).toBe(false);
   });
 
+  it('rejects trigger-category conflicts when only one specific event anchor overlaps', () => {
+    const cluster = makeCluster();
+    const inflationAftershock = makeWorkingDocument({
+      title: 'Port attack bulletin',
+      summary: 'Markets now price inflation risk after the port attack.',
+      raw_text: 'Port attack bulletin. Markets now price inflation risk after the port attack.',
+      normalized_text: 'port attack bulletin markets now price inflation risk after the port attack',
+      translated_title: 'Port attack bulletin',
+      translated_text: 'Port attack bulletin. Markets now price inflation risk after the port attack.',
+      entities: ['port_attack'],
+      linked_entities: ['port_attack'],
+      trigger: 'inflation',
+      coarse_vector: [1, 0],
+      full_vector: [1, 0],
+      published_at: 130,
+      temporal_ms: 130,
+    });
+
+    const match = buildCandidateMatch(inflationAftershock, cluster);
+
+    expect(match.adjudication).toBe('rejected');
+    expect(candidateEligible(inflationAftershock, cluster)).toBe(false);
+  });
+
+  it('keeps developing-episode phase changes eligible when multiple specific anchors overlap', () => {
+    const topicState: StoredTopicState = {
+      schema_version: 'storycluster-state-v1',
+      topic_id: 'topic-news',
+      next_cluster_seq: 1,
+      clusters: [],
+    };
+    const draftDeal = makeWorkingDocument({
+      doc_id: 'doc-gaza-draft',
+      source_id: 'wire-gaza-draft',
+      title: 'Israel and Hamas work through Gaza ceasefire deal details',
+      summary: 'Negotiators work through hostage and ceasefire terms.',
+      raw_text: 'Israel and Hamas work through Gaza ceasefire deal details. Negotiators work through hostage and ceasefire terms.',
+      normalized_text: 'israel and hamas work through gaza ceasefire deal details negotiators work through hostage and ceasefire terms',
+      entities: ['gaza_ceasefire_2025_episode', 'hostage_ceasefire_negotiations', 'gaza', 'hamas', 'israel'],
+      linked_entities: ['gaza_ceasefire_2025_episode', 'hostage_ceasefire_negotiations', 'gaza', 'hamas', 'israel'],
+      trigger: 'ceasefire',
+      locations: ['gaza', 'israel'],
+      published_at: 1_710_000_000_000,
+      temporal_ms: 1_710_000_000_000,
+    });
+    const breakdown = makeWorkingDocument({
+      doc_id: 'doc-gaza-breakdown',
+      source_id: 'wire-gaza-breakdown',
+      title: 'Israeli strikes shatter weeks of relative calm in Gaza',
+      summary: 'The renewed strikes break the same hostage-ceasefire sequence.',
+      raw_text: 'Israeli strikes shatter weeks of relative calm in Gaza. The renewed strikes break the same hostage-ceasefire sequence.',
+      normalized_text: 'israeli strikes shatter weeks of relative calm in gaza renewed strikes break same hostage ceasefire sequence',
+      entities: ['gaza_ceasefire_2025_episode', 'hostage_ceasefire_negotiations', 'gaza', 'hamas', 'israel'],
+      linked_entities: ['gaza_ceasefire_2025_episode', 'hostage_ceasefire_negotiations', 'gaza', 'hamas', 'israel'],
+      trigger: 'strikes',
+      locations: ['gaza', 'israel'],
+      published_at: 1_710_400_000_000,
+      temporal_ms: 1_710_400_000_000,
+      coarse_vector: [0.94, 0.06],
+      full_vector: [0.94, 0.06],
+    });
+    const cluster = deriveClusterRecord(topicState, 'topic-news', [
+      toStoredSource(draftDeal, draftDeal.source_variants[0]!),
+    ]);
+
+    const match = buildCandidateMatch(breakdown, cluster);
+
+    expect(candidateEligible(breakdown, cluster)).toBe(true);
+    expect(match.adjudication).toBe('accepted');
+    expect(match.reason).not.toBe('below-threshold');
+  });
+
   it('rejects sports stories that share only broad topic similarity', () => {
     const topicState: StoredTopicState = {
       schema_version: 'storycluster-state-v1',

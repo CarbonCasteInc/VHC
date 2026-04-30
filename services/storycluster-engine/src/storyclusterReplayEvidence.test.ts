@@ -144,22 +144,34 @@ describe('StoryCluster replay evidence', () => {
   it('drops an event from emitted bundles during a gap tick and restores the same story id on return', async () => {
     const scenario = scenarioById('replay-harbor-fire-gap-return');
     const store = new MemoryClusterStore();
-    const emittedStoryIds: string[][] = [];
+    const currentEventStoryIds: string[][] = [];
+    const snapshotStoryIds: string[][] = [];
     const storedStoryIds: string[][] = [];
 
     for (let tickIndex = 0; tickIndex < scenario.ticks.length; tickIndex += 1) {
       const tick = scenario.ticks[tickIndex]!;
+      const currentExpectedByKey = new Map<string, string>();
+      tick.forEach((item) => {
+        currentExpectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
+      });
       const response = await runStoryClusterRemoteContract(
         { topic_id: scenario.topic_id, items: tick.map(({ expected_event_id: _omit, ...item }) => item) },
         { store, clock: () => 1_715_100_000_000 + tickIndex * 1_000 },
       );
-      emittedStoryIds.push(response.bundles.map((bundle) => bundle.story_id));
+      const currentStoryByEvent = new Map<string, string | null>();
+      for (const [eventId, storyIds] of liveBenchmarkInternal.eventStoryIdsFromBundles(response.bundles, currentExpectedByKey)) {
+        currentStoryByEvent.set(eventId, liveBenchmarkInternal.singleStoryId(storyIds));
+      }
+      const currentStoryId = currentStoryByEvent.get('harbor_fire_gap') ?? null;
+      currentEventStoryIds.push(currentStoryId ? [currentStoryId] : []);
+      snapshotStoryIds.push(response.bundles.map((bundle) => bundle.story_id));
       storedStoryIds.push(store.loadTopic(scenario.topic_id).clusters.map((cluster) => cluster.story_id));
     }
 
-    const stableStoryId = emittedStoryIds[0]?.[0];
+    const stableStoryId = currentEventStoryIds[0]?.[0];
     expect(stableStoryId).toBeTruthy();
-    expect(emittedStoryIds).toEqual([[stableStoryId!], [], [stableStoryId!]]);
+    expect(currentEventStoryIds).toEqual([[stableStoryId!], [], [stableStoryId!]]);
+    expect(snapshotStoryIds[1]).toContain(stableStoryId);
     expect(storedStoryIds[1]).toContain(stableStoryId);
     expect(store.loadTopic(scenario.topic_id).clusters[0]?.source_documents.map((document) => document.source_id)).toEqual([
       'replay-gap-a',
@@ -176,17 +188,25 @@ describe('StoryCluster replay evidence', () => {
 
     for (let tickIndex = 0; tickIndex < scenario.ticks.length; tickIndex += 1) {
       const tick = scenario.ticks[tickIndex]!;
+      const currentExpectedByKey = new Map<string, string>();
+      tick.forEach((item) => {
+        currentExpectedByKey.set(coherenceAuditInternal.itemEventKey(item), item.expected_event_id);
+      });
       const response = await runStoryClusterRemoteContract(
         { topic_id: scenario.topic_id, items: tick.map(({ expected_event_id: _omit, ...item }) => item) },
         { store, clock: () => 1_715_110_000_000 + tickIndex * 1_000 },
       );
+      const currentStoryByEvent = new Map<string, string | null>();
+      for (const [eventId, storyIds] of liveBenchmarkInternal.eventStoryIdsFromBundles(response.bundles, currentExpectedByKey)) {
+        currentStoryByEvent.set(eventId, liveBenchmarkInternal.singleStoryId(storyIds));
+      }
       if (tickIndex === 0) {
-        firstStoryId = response.bundles[0]?.story_id;
+        firstStoryId = currentStoryByEvent.get('harbor_fire_gap_shadow') ?? undefined;
       } else if (tickIndex === 1) {
-        shadowStoryId = response.bundles[0]?.story_id;
+        shadowStoryId = currentStoryByEvent.get('pipeline_blast_shadow') ?? undefined;
         expect(store.loadTopic(scenario.topic_id).clusters.map((cluster) => cluster.story_id)).toContain(firstStoryId);
       } else {
-        returnStoryId = response.bundles[0]?.story_id;
+        returnStoryId = currentStoryByEvent.get('harbor_fire_gap_shadow') ?? undefined;
       }
     }
 

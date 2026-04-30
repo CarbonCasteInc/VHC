@@ -208,6 +208,46 @@ describe('NewsCard', () => {
     ).toBeInTheDocument();
   });
 
+  it('starts forum thread hydration when story detail opens', async () => {
+    const loadThreadsSpy = vi.spyOn(useForumStore.getState(), 'loadThreads').mockResolvedValue([]);
+    useNewsStore.getState().setStories([makeStoryBundle()]);
+    useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+
+    render(<NewsCard item={makeNewsItem()} />);
+    fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+    await waitFor(() => expect(loadThreadsSpy).toHaveBeenCalledWith('new'));
+    loadThreadsSpy.mockRestore();
+  });
+
+  it('retries pending synthesis refresh while story detail remains open', async () => {
+    vi.useFakeTimers();
+    const refreshSpy = vi.spyOn(useSynthesisStore.getState(), 'refreshTopic').mockResolvedValue(undefined);
+    try {
+      useNewsStore.getState().setStories([makeStoryBundle()]);
+
+      render(<NewsCard item={makeNewsItem()} />);
+      fireEvent.click(screen.getByTestId('news-card-headline-news-1'));
+
+      expect(refreshSpy).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(refreshSpy).toHaveBeenCalledTimes(2);
+
+      act(() => {
+        useSynthesisStore.getState().setTopicSynthesis('news-1', makeSynthesis());
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2_000);
+      });
+      expect(refreshSpy).toHaveBeenCalledTimes(2);
+    } finally {
+      refreshSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('overlays local decayed Eye and Lightbulb weights on feed counters', () => {
     useSentimentState.setState({
       ...useSentimentState.getState(),

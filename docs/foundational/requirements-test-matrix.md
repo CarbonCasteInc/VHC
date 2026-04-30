@@ -2,7 +2,7 @@
 
 > Status: Foundational Reference
 > Owner: VHC Core Architecture
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-04-28
 > Depends On: docs/README.md, docs/CANON_MAP.md
 
 
@@ -15,6 +15,7 @@ Status: draft helper to keep coverage aligned with `docs/foundational/ARCHITECTU
 - Engagement decay (first click = 1, then decay to 2): `apps/web-pwa/src/hooks/useSentimentState.test.ts`
 - Read decay (Eye): `apps/web-pwa/src/hooks/useSentimentState.test.ts`
 - Aggregate per-cell counts + aggregate Lightbulb across users: `packages/data-model/src/sentiment-aggregate.test.ts`
+- Full product read/stance aggregate visibility across five beta-local users: `packages/e2e/src/live/five-user-news-engagement.live.spec.ts` (script: `pnpm test:live:five-user-engagement` after `pnpm live:stack:up:analysis-stub`)
 - Public topology guard (no `{district_hash, nullifier}` in public mesh): `packages/gun-client/src/topology.test.ts`
 
 ## Identity & Trust
@@ -38,3 +39,4 @@ Status: draft helper to keep coverage aligned with `docs/foundational/ARCHITECTU
 - Live A↔B vote convergence (strict/full matrix contract): `packages/e2e/src/live/bias-vote-convergence.live.spec.ts`
 - Multi-run strict stability gate (`N=3` default) + machine-readable packet: `packages/e2e/src/live/live-matrix-stability-gate.mjs` (script: `pnpm --filter @vh/e2e test:live:matrix:strict:stability`)
 - Setup-scarcity verdict path (`blocked_setup_scarcity`) with preflight reject diagnostics: `packages/e2e/src/live/bias-vote-convergence.live.spec.ts`
+- Five-user feed/detail/stance/thread engagement against local app, relay, daemon, StoryCluster, fixture feed, and deterministic analysis stub: `packages/e2e/src/live/five-user-news-engagement.live.spec.ts` (scripts: `pnpm live:stack:up:analysis-stub`, then `pnpm test:live:five-user-engagement`)

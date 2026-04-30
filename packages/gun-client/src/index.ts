@@ -8,7 +8,7 @@ import { HydrationBarrier, createHydrationBarrier } from './sync/barrier';
 import type { Namespace, VennClient, VennClientConfig } from './types';
 import { TopologyGuard } from './topology';
 
-const DEFAULT_PEERS = ['http://localhost:7777/gun'];
+const DEFAULT_PEERS = ['http://127.0.0.1:7777/gun'];
 const NODE_GUN_FILE_ENV_VARS = ['VH_GUN_FILE', 'VITE_VH_GUN_FILE'] as const;
 
 function normalizePeers(peers?: string[]): string[] {
@@ -34,6 +34,13 @@ function resolveNodeGunFile(): string | undefined {
 
 function shouldDisableNodeGunDisk(): boolean {
   return typeof window === 'undefined' && typeof process !== 'undefined';
+}
+
+function resolveBrowserGunLocalStorage(config: VennClientConfig): boolean {
+  if (typeof config.gunLocalStorage === 'boolean') {
+    return config.gunLocalStorage;
+  }
+  return true;
 }
 
 function createNamespace<T>(
@@ -92,26 +99,30 @@ export function createClient(config: VennClientConfig = {}): VennClient {
   const peers = normalizePeers(config.peers);
   const storage = config.storage ?? createStorageAdapter(hydrationBarrier);
   const guard = config.topologyGuard ?? new TopologyGuard();
-  const nodeGunFile = resolveNodeGunFile();
+  const nodeRuntime = shouldDisableNodeGunDisk();
+  const nodeGunFile = config.gunFile ?? resolveNodeGunFile();
   const gunFileOption =
     nodeGunFile !== undefined
       ? nodeGunFile
-      : shouldDisableNodeGunDisk()
+      : nodeRuntime
         ? false
         : undefined;
   const gunConfig: Record<string, unknown> = {
     peers,
-    localStorage: false,
   };
-  if (shouldDisableNodeGunDisk()) {
-    gunConfig.radisk = false;
+  if (nodeRuntime) {
+    gunConfig.localStorage = false;
+    gunConfig.radisk = config.gunRadisk ?? (nodeGunFile !== false && nodeGunFile !== undefined);
     gunConfig.axe = false;
+  } else {
+    gunConfig.localStorage = resolveBrowserGunLocalStorage(config);
   }
   if (gunFileOption !== undefined) {
     gunConfig.file = gunFileOption;
   }
-  // Disable Gun's localStorage adapter to avoid quota crashes in long-lived
-  // browser sessions. VHC persists app data through its own IndexedDB adapter.
+  // Browser peers need a Gun storage adapter enabled for this Gun version to
+  // emit durable put/ack flow to the relay. App data is still stored through
+  // VHC's own storage adapter; Gun storage is the local mesh write journal.
   const gun = Gun(gunConfig as never) as IGunInstance;
   let sessionReady = false;
 
@@ -182,7 +193,6 @@ export { HydrationBarrier } from './sync/barrier';
 export { createStorageAdapter } from './storage/adapter';
 export type { StorageAdapter, StorageRecord } from './storage/types';
 export type { VennClient, VennClientConfig, Namespace } from './types';
-export { createNodeMeshClient } from './nodeMeshClient';
 export { createSession } from './auth';
 export * from './hermesAdapters';
 export * from './hermesCrypto';
@@ -207,4 +217,5 @@ export const __internal = {
   normalizePeers,
   resolveNodeGunFile,
   shouldDisableNodeGunDisk,
+  resolveBrowserGunLocalStorage,
 };

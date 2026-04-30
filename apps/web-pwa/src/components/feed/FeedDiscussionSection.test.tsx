@@ -9,6 +9,7 @@ import { FeedDiscussionSection } from './FeedDiscussionSection';
 
 const forumState = vi.hoisted(() => ({
   comments: new Map<string, HermesComment[]>(),
+  loadThread: vi.fn(),
   loadComments: vi.fn(),
   createThread: vi.fn(),
   createComment: vi.fn(),
@@ -87,9 +88,11 @@ function makeComment(overrides: Partial<HermesComment> = {}): HermesComment {
 describe('FeedDiscussionSection', () => {
   beforeEach(() => {
     forumState.comments = new Map();
+    forumState.loadThread.mockReset();
     forumState.loadComments.mockReset();
     forumState.createThread.mockReset();
     forumState.createComment.mockReset();
+    forumState.loadThread.mockResolvedValue(null);
     forumState.loadComments.mockResolvedValue([]);
     forumState.createThread.mockResolvedValue(makeThread());
     forumState.createComment.mockResolvedValue(makeComment());
@@ -195,5 +198,207 @@ describe('FeedDiscussionSection', () => {
       '/hermes/news-story:story-news-1',
     );
     expect(screen.queryByTestId('news-card-news-1-discussion-new-thread-toggle')).not.toBeInTheDocument();
+  });
+
+  it('loads an existing deterministic story thread directly before offering a new discussion', async () => {
+    const remoteThread = makeThread({
+      id: 'news-story:story-news-1',
+      title: 'Existing deterministic story discussion',
+    });
+    forumState.loadThread.mockResolvedValueOnce(remoteThread);
+    forumState.comments.set(remoteThread.id, [
+      makeComment({
+        id: 'comment-remote',
+        threadId: remoteThread.id,
+        content: 'Remote comment recovered through the deterministic thread id',
+      }),
+    ]);
+
+    render(
+      <FeedDiscussionSection
+        sectionId="news-card-news-1"
+        thread={null}
+        createThread={{
+          defaultTitle: 'City council votes on transit plan',
+          sourceSynthesisId: 'syn-1',
+          sourceEpoch: 2,
+          sourceUrl: 'https://example.com/news-1',
+          topicId: 'news-1',
+          threadId: 'news-story:story-news-1',
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(forumState.loadThread).toHaveBeenCalledWith('news-story:story-news-1'));
+    expect(await screen.findByTestId('news-card-news-1-thread-head')).toHaveTextContent(
+      'Existing deterministic story discussion',
+    );
+    expect(screen.getByTestId('comment-stream-news-story:story-news-1')).toHaveTextContent(
+      'Remote comment recovered through the deterministic thread id',
+    );
+    expect(screen.queryByTestId('news-card-news-1-discussion-new-thread-toggle')).not.toBeInTheDocument();
+  });
+
+  it('prefers a recovered deterministic story thread over a legacy topic thread prop', async () => {
+    const legacyThread = makeThread({
+      id: 'legacy-topic-news-1',
+      title: 'Legacy topic thread',
+      timestamp: 1_700_000_005_000,
+    });
+    const remoteThread = makeThread({
+      id: 'news-story:story-news-1',
+      title: 'Canonical deterministic story discussion',
+      timestamp: 1_700_000_000_000,
+    });
+    forumState.loadThread.mockResolvedValueOnce(remoteThread);
+    forumState.comments.set(remoteThread.id, [
+      makeComment({
+        id: 'comment-remote',
+        threadId: remoteThread.id,
+        content: 'Remote comment recovered through the canonical story id',
+      }),
+    ]);
+
+    render(
+      <FeedDiscussionSection
+        sectionId="news-card-news-1"
+        thread={legacyThread}
+        createThread={{
+          defaultTitle: 'City council votes on transit plan',
+          sourceSynthesisId: 'syn-1',
+          sourceEpoch: 2,
+          sourceUrl: 'https://example.com/news-1',
+          topicId: 'news-1',
+          threadId: 'news-story:story-news-1',
+        }}
+      />,
+    );
+
+    await waitFor(() => expect(forumState.loadThread).toHaveBeenCalledWith('news-story:story-news-1'));
+    expect(await screen.findByTestId('comment-stream-news-story:story-news-1')).toHaveTextContent(
+      'Remote comment recovered through the canonical story id',
+    );
+    expect(screen.getByTestId('news-card-news-1-open-thread')).toHaveAttribute(
+      'href',
+      '/hermes/news-story:story-news-1',
+    );
+    expect(screen.getByTestId('news-card-news-1-thread-head')).toHaveTextContent(
+      'Canonical deterministic story discussion',
+    );
+    expect(screen.queryByText('Legacy topic thread')).not.toBeInTheDocument();
+  });
+
+  it('keeps a loaded deterministic story thread mounted when synthesis context refreshes', async () => {
+    const remoteThread = makeThread({
+      id: 'news-story:story-news-1',
+      title: 'Existing deterministic story discussion',
+    });
+    forumState.loadThread.mockResolvedValue(remoteThread);
+
+    const { rerender } = render(
+      <FeedDiscussionSection
+        sectionId="news-card-news-1"
+        thread={null}
+        createThread={{
+          defaultTitle: 'City council votes on transit plan',
+          sourceSynthesisId: 'syn-1',
+          sourceEpoch: 2,
+          sourceUrl: 'https://example.com/news-1',
+          topicId: 'news-1',
+          threadId: 'news-story:story-news-1',
+        }}
+      />,
+    );
+
+    expect(await screen.findByTestId('news-card-news-1-thread-head')).toHaveTextContent(
+      'Existing deterministic story discussion',
+    );
+
+    rerender(
+      <FeedDiscussionSection
+        sectionId="news-card-news-1"
+        thread={null}
+        createThread={{
+          defaultTitle: 'City council votes on transit plan',
+          sourceSynthesisId: 'syn-2',
+          sourceEpoch: 3,
+          sourceUrl: 'https://example.com/news-1',
+          topicId: 'news-1',
+          threadId: 'news-story:story-news-1',
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('news-card-news-1-thread-head')).toHaveTextContent(
+      'Existing deterministic story discussion',
+    );
+    expect(screen.getByTestId('news-card-news-1-discussion-compose-toggle')).toBeVisible();
+  });
+
+  it('keeps an in-progress story discussion open when accepted synthesis context refreshes', async () => {
+    const created = makeThread({
+      id: 'news-story:story-news-1',
+      title: 'City council votes on transit plan',
+      sourceSynthesisId: 'syn-2',
+      sourceEpoch: 3,
+      sourceUrl: 'https://example.com/news-1',
+      topicId: 'news-1',
+    });
+    forumState.createThread.mockResolvedValueOnce(created);
+
+    const { rerender } = render(
+      <FeedDiscussionSection
+        sectionId="news-card-news-1"
+        thread={null}
+        createThread={{
+          defaultTitle: 'City council votes on transit plan',
+          sourceSynthesisId: 'syn-1',
+          sourceEpoch: 2,
+          sourceUrl: 'https://example.com/news-1',
+          topicId: 'news-1',
+          threadId: 'news-story:story-news-1',
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('news-card-news-1-discussion-new-thread-toggle'));
+    fireEvent.change(screen.getByTestId('thread-content'), {
+      target: { value: 'Opening the story thread while synthesis catches up.' },
+    });
+
+    rerender(
+      <FeedDiscussionSection
+        sectionId="news-card-news-1"
+        thread={null}
+        createThread={{
+          defaultTitle: 'City council votes on transit plan',
+          sourceSynthesisId: 'syn-2',
+          sourceEpoch: 3,
+          sourceUrl: 'https://example.com/news-1',
+          topicId: 'news-1',
+          threadId: 'news-story:story-news-1',
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('thread-content')).toHaveValue(
+      'Opening the story thread while synthesis catches up.',
+    );
+
+    fireEvent.click(screen.getByTestId('submit-thread-btn'));
+
+    await waitFor(() => expect(forumState.createThread).toHaveBeenCalledTimes(1));
+    expect(forumState.createThread).toHaveBeenCalledWith(
+      'City council votes on transit plan',
+      'Opening the story thread while synthesis catches up.',
+      [],
+      { sourceSynthesisId: 'syn-2', sourceEpoch: 3 },
+      {
+        sourceUrl: 'https://example.com/news-1',
+        topicId: 'news-1',
+        threadId: 'news-story:story-news-1',
+        isHeadline: true,
+      },
+    );
   });
 });

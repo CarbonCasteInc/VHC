@@ -9,15 +9,19 @@ import { useSentimentState } from '../hooks/useSentimentState';
 const {
   threadWrites,
   commentWrites,
+  commentIndexWrites,
   dateIndexWrites,
   tagIndexWrites,
   threadChain,
   commentsChain,
+  commentIndexChain,
+  getForumCommentIndexChainMock,
   getForumDateIndexChainMock,
   getForumTagIndexChainMock
 } = vi.hoisted(() => {
   const threadWrites: any[] = [];
   const commentWrites: any[] = [];
+  const commentIndexWrites: any[] = [];
   const dateIndexWrites: Array<{ id: string; value: any }> = [];
   const tagIndexWrites: Array<{ tag: string; id: string; value: any }> = [];
 
@@ -39,6 +43,20 @@ const {
     }))
   } as any;
 
+  const commentIndexChain = {
+    get: vi.fn(() => commentIndexChain),
+    once: vi.fn(),
+    map: vi.fn(() => ({
+      once: vi.fn()
+    })),
+    put: vi.fn((value: any, cb?: (ack?: { err?: string }) => void) => {
+      commentIndexWrites.push(value);
+      cb?.({});
+    })
+  } as any;
+
+  const getForumCommentIndexChainMock = vi.fn(() => commentIndexChain);
+
   const getForumDateIndexChainMock = vi.fn(() => ({
     get: vi.fn((id: string) => ({
       put: vi.fn((value: any) => {
@@ -58,10 +76,13 @@ const {
   return {
     threadWrites,
     commentWrites,
+    commentIndexWrites,
     dateIndexWrites,
     tagIndexWrites,
     threadChain,
     commentsChain,
+    commentIndexChain,
+    getForumCommentIndexChainMock,
     getForumDateIndexChainMock,
     getForumTagIndexChainMock
   };
@@ -73,6 +94,7 @@ vi.mock('@vh/gun-client', async (orig) => {
     ...actual,
     getForumThreadChain: vi.fn(() => threadChain),
     getForumCommentsChain: vi.fn(() => commentsChain),
+    getForumCommentIndexChain: getForumCommentIndexChainMock,
     getForumDateIndexChain: getForumDateIndexChainMock,
     getForumTagIndexChain: getForumTagIndexChainMock
   };
@@ -111,12 +133,18 @@ beforeEach(() => {
   useXpLedger.getState().setActiveNullifier(null);
   threadWrites.length = 0;
   commentWrites.length = 0;
+  commentIndexWrites.length = 0;
   dateIndexWrites.length = 0;
   tagIndexWrites.length = 0;
   threadChain.put.mockClear();
   commentsChain.put.mockClear();
   commentsChain.get.mockClear();
   commentsChain.map.mockClear();
+  commentIndexChain.put.mockClear();
+  commentIndexChain.get.mockClear();
+  commentIndexChain.once.mockClear();
+  commentIndexChain.map.mockClear();
+  getForumCommentIndexChainMock.mockClear();
   getForumDateIndexChainMock.mockClear();
   getForumTagIndexChainMock.mockClear();
 });
@@ -504,6 +532,13 @@ describe('hermesForum store', () => {
     await store.getState().createComment('thread-1', 'hello', 'reply');
 
     expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'comments/day')?.count).toBe(1);
+    expect(getForumCommentIndexChainMock).toHaveBeenCalledWith(expect.anything(), 'thread-1');
+    expect(commentIndexWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ threadId: 'thread-1', commentId: 'comment-budget-ok' }),
+        expect.objectContaining({ threadId: 'thread-1', idsJson: JSON.stringify(['comment-budget-ok']) })
+      ])
+    );
   });
 
   it('createComment denied at comments/day limit throws and does not write to Gun', async () => {

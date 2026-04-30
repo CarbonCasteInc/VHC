@@ -14,7 +14,7 @@ import { setClientResolver } from './clientResolver';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
-const LOCAL_GUN_PEER = 'http://localhost:7777/gun';
+const LOCAL_GUN_PEER = 'http://127.0.0.1:7777/gun';
 const TAILSCALE_GUN_PEER = 'http://100.75.18.26:7777/gun';
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
 
@@ -153,6 +153,22 @@ function getRuntimeHostname(): string | undefined {
     : undefined;
 }
 
+export function resolveGunLocalStorage(): boolean | undefined {
+  const raw = (import.meta as any).env?.VITE_VH_GUN_LOCAL_STORAGE
+    ?? (typeof process !== 'undefined' ? process.env?.VITE_VH_GUN_LOCAL_STORAGE : undefined);
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+  const normalized = raw.trim().toLowerCase();
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+  return undefined;
+}
+
 export function resolveGunPeers(runtimeHostname = getRuntimeHostname()): string[] {
   const globalOverride = (globalThis as { __VH_GUN_PEERS__?: unknown }).__VH_GUN_PEERS__;
   if (Array.isArray(globalOverride)) {
@@ -259,6 +275,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         const client = createClient({
           peers: resolveGunPeers(),
+          gunLocalStorage: resolveGunLocalStorage(),
           requireSession: true
         });
         console.info('[vh:web-pwa] using Gun peers', client.config.peers);
@@ -269,6 +286,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           ),
         ]).catch((err) => {
           console.warn('[vh:web-pwa] hydration barrier did not resolve, continuing:', err);
+          client.hydrationBarrier.markReady();
         });
         const profile = loadProfile();
         // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)

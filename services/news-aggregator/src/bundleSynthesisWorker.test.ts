@@ -84,24 +84,142 @@ const CANDIDATE: NewsRuntimeSynthesisCandidate = {
   ],
 };
 
-describe('bundleSynthesisWorker', () => {
-  it('writes publish-time candidate, epoch synthesis, and guarded latest from accepted StoryBundle', async () => {
-    const writtenCandidates: CandidateSynthesis[] = [];
-    const writtenSyntheses: TopicSynthesisV2[] = [];
-    const relay = vi.fn(async () => ({
-      model: 'gpt-4o-mini',
-      content: JSON.stringify({
-        summary: 'Council members approved a housing plan after public debate.',
-        frames: [
+function makeArticleText(text = 'Council approved a housing plan after hours of public testimony.'): {
+  url: string;
+  urlHash: string;
+  contentHash: string;
+  sourceDomain: string;
+  title: string;
+  text: string;
+  extractionMethod: 'article-extractor';
+  cacheHit: 'none';
+  attempts: number;
+  fetchedAt: number;
+  quality: { charCount: number; wordCount: number; sentenceCount: number; score: number };
+} {
+  return {
+    url: 'https://example.com/local',
+    urlHash: 'hash-local',
+    contentHash: 'content-hash-local',
+    sourceDomain: 'example.com',
+    title: 'Council approves housing plan',
+    text,
+    extractionMethod: 'article-extractor',
+    cacheHit: 'none',
+    attempts: 1,
+    fetchedAt: 1700000002500,
+    quality: { charCount: text.length, wordCount: 9, sentenceCount: 1, score: 0.9 },
+  };
+}
+
+function articleAnalysisPayload() {
+  return {
+    key_facts: ['Council approved a housing plan after public testimony.'],
+    summary: 'Council approved a housing plan after public testimony.',
+    bias_claim_quote: ['public testimony'],
+    justify_bias_claim: ['The quote shows the approval followed public input.'],
+    biases: ['No clear bias detected'],
+    counterpoints: ['N/A'],
+    confidence: 0.86,
+    perspectives: [
+      {
+        frame: 'The plan will expand needed housing supply.',
+        reframe: 'The plan may strain existing neighborhood infrastructure.',
+      },
+    ],
+  };
+}
+
+function bundleSynthesisPayload(sourceCount = 1) {
+  return {
+    key_facts: ['Council approved a housing plan after public testimony.'],
+    summary: 'Council approved a housing plan after public testimony.',
+    frame_reframe_table: [
+      {
+        frame: 'The plan will expand needed housing supply.',
+        reframe: 'The plan may strain existing neighborhood infrastructure.',
+      },
+    ],
+    source_count: sourceCount,
+    warnings: [],
+    synthesis_ready: true,
+  };
+}
+
+function makeArticleTextService() {
+  return {
+    extract: vi.fn(async () => makeArticleText()),
+  };
+}
+
+function auditedCandidate(overrides: Partial<CandidateSynthesis> = {}): CandidateSynthesis {
+  return {
+    candidate_id: 'news-bundle:existing',
+    topic_id: 'topic-1',
+    epoch: 0,
+    critique_notes: [],
+    key_facts: ['Council approved a housing plan after public testimony.'],
+    facts_summary: 'Existing summary',
+    frames: [{ frame: 'Existing frame', reframe: 'Existing reframe' }],
+    source_analyses: [
+      {
+        source_id: 'source-analysis',
+        publisher: 'Local Daily',
+        title: 'Council approves housing plan',
+        url: 'https://example.com/local',
+        url_hash: 'hash-local',
+        key_facts: ['Council approved a housing plan after public testimony.'],
+        summary: 'Council approved a housing plan after public testimony.',
+        bias_claim_quote: ['public testimony'],
+        justify_bias_claim: ['The quote shows the approval followed public input.'],
+        biases: ['No clear bias detected'],
+        counterpoints: ['N/A'],
+        perspectives: [
           {
             frame: 'The plan will expand needed housing supply.',
             reframe: 'The plan may strain existing neighborhood infrastructure.',
           },
         ],
-        source_count: 1,
-        source_publishers: ['Local Daily'],
-        verification_confidence: 0.8,
-      }),
+        confidence: 0.86,
+        analyzed_at: 1700000003000,
+        provider: { provider_id: 'openai', model_id: 'gpt-4o-mini', kind: 'remote' },
+      },
+    ],
+    warnings: [],
+    divergence_hints: [],
+    provider: { provider_id: 'openai', model_id: 'gpt-4o-mini', kind: 'remote' },
+    created_at: 1700000003000,
+    ...overrides,
+  };
+}
+
+function legacyCandidateWithoutAudit(): CandidateSynthesis {
+  return {
+    candidate_id: 'news-bundle:existing',
+    topic_id: 'topic-1',
+    epoch: 0,
+    critique_notes: [],
+    facts_summary: 'Existing summary',
+    frames: [{ frame: 'Existing frame', reframe: 'Existing reframe' }],
+    warnings: [],
+    divergence_hints: [],
+    provider: { provider_id: 'openai', model_id: 'gpt-4o-mini', kind: 'remote' },
+    created_at: 1700000003000,
+  };
+}
+
+describe('bundleSynthesisWorker', () => {
+  it('writes publish-time candidate, epoch synthesis, and guarded latest from accepted StoryBundle', async () => {
+    const writtenCandidates: CandidateSynthesis[] = [];
+    const writtenSyntheses: TopicSynthesisV2[] = [];
+    const articleTextService = makeArticleTextService();
+    const relay = vi.fn(async ({ prompt }: { prompt: string }) => ({
+      model: 'gpt-4o-mini',
+      content: JSON.stringify(
+        prompt.includes('--- ARTICLE START ---')
+          ? articleAnalysisPayload()
+          : bundleSynthesisPayload(),
+      ),
     }));
     const writeLatest = vi.fn(async (_client, synthesis: TopicSynthesisV2, options) => {
       expect(options?.canOverwriteExisting?.({ ...synthesis, synthesis_id: 'manual-synth' }, synthesis)).toBe(false);
@@ -123,6 +241,7 @@ describe('bundleSynthesisWorker', () => {
         return synthesis;
       }),
       writeLatest,
+      articleTextService,
       relay,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
@@ -132,19 +251,28 @@ describe('bundleSynthesisWorker', () => {
       latestStatus: 'written',
     });
 
-    expect(relay).toHaveBeenCalledTimes(1);
-    const relayPrompt = relay.mock.calls[0]?.[0].prompt;
-    expect(relayPrompt).toContain('Local Daily');
-    expect(relayPrompt).not.toContain('Link Only');
+    expect(articleTextService.extract).toHaveBeenCalledWith('https://example.com/local');
+    expect(relay).toHaveBeenCalledTimes(2);
+    const articlePrompt = relay.mock.calls[0]?.[0].prompt;
+    const synthesisPrompt = relay.mock.calls[1]?.[0].prompt;
+    expect(articlePrompt).toContain('Council approved a housing plan');
+    expect(synthesisPrompt).toContain('Local Daily');
+    expect(synthesisPrompt).toContain('key_facts');
+    expect(synthesisPrompt).not.toContain('Link Only');
 
     expect(writtenCandidates).toHaveLength(1);
     expect(writtenCandidates[0]).toMatchObject({
       topic_id: 'topic-1',
       epoch: 0,
-      facts_summary: 'Council members approved a housing plan after public debate.',
+      key_facts: ['Council approved a housing plan after public testimony.'],
+      facts_summary: 'Council approved a housing plan after public testimony.',
       warnings: ['single_source_story_bundle', 'related_links_excluded_from_analysis'],
     });
     expect(writtenCandidates[0]?.candidate_id).toMatch(/^news-bundle:/);
+    expect(writtenCandidates[0]?.source_analyses?.[0]).toMatchObject({
+      source_id: 'source-analysis',
+      justify_bias_claim: ['The quote shows the approval followed public input.'],
+    });
 
     expect(writtenSyntheses).toHaveLength(1);
     expect(writtenSyntheses[0]).toMatchObject({
@@ -163,23 +291,14 @@ describe('bundleSynthesisWorker', () => {
   it('recovers synthesis writes from duplicate candidates before spending a model call', async () => {
     const relay = vi.fn();
     const writtenSyntheses: TopicSynthesisV2[] = [];
-    const existingCandidate = {
-      candidate_id: 'news-bundle:existing',
-      topic_id: 'topic-1',
-      epoch: 0,
-      critique_notes: [],
-      facts_summary: 'Existing summary',
-      frames: [{ frame: 'Existing frame', reframe: 'Existing reframe' }],
-      warnings: [],
-      divergence_hints: [],
-      provider: { provider_id: 'openai', model_id: 'gpt-4o-mini', kind: 'remote' },
-      created_at: 1700000003000,
-    } satisfies CandidateSynthesis;
+    const articleTextService = makeArticleTextService();
+    const existingCandidate = auditedCandidate();
 
     const worker = createBundleSynthesisWorker({
       client: {} as VennClient,
       readBundle: async () => BUNDLE,
       readCandidate: vi.fn(async () => existingCandidate),
+      articleTextService,
       writeSynthesis: vi.fn(async (_client, synthesis) => {
         writtenSyntheses.push(synthesis);
         return synthesis;
@@ -195,6 +314,7 @@ describe('bundleSynthesisWorker', () => {
       latestStatus: 'written',
     });
     expect(relay).not.toHaveBeenCalled();
+    expect(articleTextService.extract).toHaveBeenCalledTimes(1);
     expect(writtenSyntheses).toHaveLength(1);
     expect(writtenSyntheses[0]).toMatchObject({
       facts_summary: 'Existing summary',
@@ -204,18 +324,7 @@ describe('bundleSynthesisWorker', () => {
 
   it('scopes idempotency to the configured model', async () => {
     const candidateIds: string[] = [];
-    const existingCandidate = {
-      candidate_id: 'news-bundle:existing',
-      topic_id: 'topic-1',
-      epoch: 0,
-      critique_notes: [],
-      facts_summary: 'Existing summary',
-      frames: [],
-      warnings: [],
-      divergence_hints: [],
-      provider: { provider_id: 'openai', model_id: 'gpt-4o-mini', kind: 'remote' },
-      created_at: 1700000003000,
-    } satisfies CandidateSynthesis;
+    const existingCandidate = auditedCandidate();
     const readCandidate = vi.fn(
       async (_client: VennClient, _topicId: string, _epoch: number, candidateId: string) => {
         candidateIds.push(candidateId);
@@ -228,6 +337,7 @@ describe('bundleSynthesisWorker', () => {
       model: 'gpt-4o-mini',
       readBundle: async () => BUNDLE,
       readCandidate,
+      articleTextService: makeArticleTextService(),
       writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
       writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
       relay: vi.fn(),
@@ -238,6 +348,7 @@ describe('bundleSynthesisWorker', () => {
       model: 'gpt-5.2-mini',
       readBundle: async () => BUNDLE,
       readCandidate,
+      articleTextService: makeArticleTextService(),
       writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
       writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
       relay: vi.fn(),
@@ -248,20 +359,56 @@ describe('bundleSynthesisWorker', () => {
     expect(candidateIds[0]).not.toBe(candidateIds[1]);
   });
 
+  it('regenerates duplicate candidates that are missing hidden source-audit data', async () => {
+    const writtenCandidates: CandidateSynthesis[] = [];
+    const articleTextService = makeArticleTextService();
+    const relay = vi.fn(async ({ prompt }: { prompt: string }) => ({
+      model: 'gpt-4o-mini',
+      content: JSON.stringify(
+        prompt.includes('--- ARTICLE START ---')
+          ? articleAnalysisPayload()
+          : bundleSynthesisPayload(),
+      ),
+    }));
+
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => legacyCandidateWithoutAudit()),
+      articleTextService,
+      writeCandidate: vi.fn(async (_client, candidate) => {
+        writtenCandidates.push(candidate);
+        return candidate;
+      }),
+      writeSynthesis: vi.fn(async (_client, synthesis) => synthesis),
+      writeLatest: vi.fn(async (_client, synthesis) => ({ status: 'written' as const, synthesis, previous: null })),
+      relay,
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toMatchObject({
+      status: 'written',
+      storyId: 'story-1',
+    });
+    expect(relay).toHaveBeenCalledTimes(2);
+    expect(writtenCandidates[0]?.source_analyses?.[0]?.justify_bias_claim).toEqual([
+      'The quote shows the approval followed public input.',
+    ]);
+  });
+
   it('rejects generated output that widens analysis source count', async () => {
     const worker = createBundleSynthesisWorker({
       client: {} as VennClient,
       readBundle: async () => BUNDLE,
       readCandidate: vi.fn(async () => null),
-      relay: vi.fn(async () => ({
+      articleTextService: makeArticleTextService(),
+      relay: vi.fn(async ({ prompt }: { prompt: string }) => ({
         model: 'gpt-4o-mini',
-        content: JSON.stringify({
-          summary: 'Summary.',
-          frames: [{ frame: 'One side supports the plan.', reframe: 'Another side questions the plan.' }],
-          source_count: 2,
-          source_publishers: ['Local Daily', 'Link Only'],
-          verification_confidence: 0.8,
-        }),
+        content: JSON.stringify(
+          prompt.includes('--- ARTICLE START ---')
+            ? articleAnalysisPayload()
+            : bundleSynthesisPayload(2),
+        ),
       })),
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });

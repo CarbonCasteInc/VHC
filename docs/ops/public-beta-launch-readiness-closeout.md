@@ -2,12 +2,12 @@
 
 > Status: Engineering Closeout Audit
 > Owner: VHC Launch Ops
-> Last Reviewed: 2026-04-27
+> Last Reviewed: 2026-04-28
 > Depends On: docs/plans/VENN_NEWS_MVP_ROADMAP_2026-04-20.md, docs/ops/public-beta-compliance-minimums.md, docs/ops/BETA_SESSION_RUNSHEET.md
 
-Version: 0.1
+Version: 0.2
 Document path: `docs/ops/public-beta-launch-readiness-closeout.md`
-Audit baseline: `main` at `9a51e89f5f23ad8e74a1e0b7488bcaccdf3a4607` after the operator trust-gate merge.
+Audit baseline: `main` at `cf961e731b15aba675305f62d72a6cc16c1567d2` after the public-beta launch closeout merge, plus the full-product multi-user engagement slice carried by PR #551 for local service-backed QA.
 Scope: Web PWA public beta launch-readiness evidence, deterministic gate inventory, and remaining-work classification.
 
 ## 1. Closeout Verdict
@@ -15,6 +15,8 @@ Scope: Web PWA public beta launch-readiness evidence, deterministic gate invento
 Engineering closeout status: Web PWA public beta candidate, constrained to the implemented beta scope.
 
 No repository feature gap is currently classified as a Web PWA public-beta ship blocker when the release owner produces a passing evidence packet on the release commit. The implemented beta scope includes the core news loop, accepted synthesis detail, point stance persistence, deterministic story threads, correction/moderation/report remediation paths, operator trust gate, public policy routes, public support issue intake, private escalation protocol, and curated fallback launch content.
+
+The full-product five-user engagement lane supplements the deterministic report packet with a production-shaped local-stack run: five beta-local users open singleton and bundled stories, read accepted synthesis/frame tables, register point-level stances, confirm mesh aggregate readback, and hold threaded story discussions across reloads. This lane is release-like manual QA; it does not replace the named deterministic command/report gates below.
 
 This closeout does not claim legal approval, production-grade live headline freshness, full RBAC/admin membership management, a private support desk, native App Store/TestFlight readiness, automated escalation/SLA handling, or a complete trust-and-safety operations console.
 
@@ -30,6 +32,12 @@ Run these commands on the final public-beta release commit and preserve their ou
 | Public-beta compliance minimums | `pnpm check:public-beta-compliance` | `tools/scripts/check-public-beta-compliance.mjs` and `docs/ops/public-beta-compliance-minimums.md` | `pass` |
 | Documentation governance | `pnpm docs:check` | `tools/scripts/check-docs-governance.mjs` | `pass` |
 | Standard repo health | `pnpm lint`, `pnpm deps:check`, touched package typechecks | CI and local command output | `pass` |
+
+Supplemental release-like product validation:
+
+| Evidence | Command | Artifact | Required result |
+| --- | --- | --- | --- |
+| Full-product five-user engagement | `pnpm live:stack:up:analysis-stub` followed by `pnpm test:live:five-user-engagement` | Playwright attachment `five-user-news-engagement-summary` plus local command output | `pass` before claiming the full multi-user feed/detail/stance/thread loop was exercised against the production-shaped local stack |
 
 ## 3. MVP Gate Coverage
 
@@ -78,6 +86,7 @@ Every known remaining item is classified below. `ship_blocker` means public-beta
 | `release_commit_gate_packet_missing_or_failing` | ship_blocker | A public-beta release commit must have passing `pnpm check:public-beta-launch-closeout`, `pnpm check:mvp-release-gates`, `pnpm check:launch-content-snapshot`, `pnpm check:public-beta-compliance`, `pnpm docs:check`, lint/dependency checks, and touched package typechecks. |
 | `external_release_approval_not_recorded` | ship_blocker | This repo does not create legal/commercial approval. If the organization requires legal/operator approval before public distribution, that signoff must be recorded outside the code gates before public launch claims are made. |
 | `production_live_headline_claim_without_release_ready` | ship_blocker | Do not market live public headlines as production-grade unless `pnpm check:storycluster:production-readiness` resolves to `release_ready`. The Web PWA beta may still use the constrained beta and validated-snapshot scope. |
+| `full_product_engagement_claim_without_live_lane` | ship_blocker | Do not claim the full multi-user product loop was exercised against release-like service wiring unless `pnpm live:stack:up:analysis-stub` and `pnpm test:live:five-user-engagement` pass on the release candidate or the claim is removed. |
 | `full_rbac_admin_membership` | post_beta_follow_up | Minimum trusted beta operator authorization exists; full RBAC, admin membership management, and cryptographic server-side enforcement remain future hardening. |
 | `notifications_escalation_appeals` | post_beta_follow_up | Report intake, private handoff protocol, and audited remediation records exist; automated notifications, escalation workflow, appeals, and user-block UX remain broader trust-and-safety work. |
 | `private_support_desk_or_sla` | post_beta_follow_up | Public GitHub support issues plus private handoff rules are implemented; a private support desk, account system, SLA handling, and case-management UI are not part of the minimum beta. |

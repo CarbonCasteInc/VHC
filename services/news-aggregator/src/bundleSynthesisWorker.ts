@@ -1,8 +1,5 @@
-import { createHash } from 'node:crypto';
 import {
   attachPersistedFramePointIds,
-  buildBundlePromptFromStoryBundle,
-  parseGeneratedBundleSynthesis,
   type NewsRuntimeSynthesisCandidate,
 } from '@vh/ai-engine';
 import type { CandidateSynthesis, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
@@ -24,6 +21,18 @@ import {
   postBundleSynthesisCompletion,
   type BundleSynthesisRelayResponse,
 } from './bundleSynthesisRelay';
+import { ArticleTextService } from './articleTextService';
+import {
+  analyzeReadableBundleSources,
+  buildFullTextBundleFingerprint,
+  candidateHasReusableFullTextAudit,
+  dedupeWarnings,
+  extractReadableBundleSources,
+  resolveAnalysisSources,
+  toBundleSynthesisInput,
+  toSourceAnalysisAudit,
+} from './bundleSynthesisFullText';
+import { generateBundleSynthesisPrompt, parseBundleSynthesisResponse, PromptParseError } from './prompts';
 
 const BUNDLE_SYNTHESIS_EPOCH = 0;
 const PROVIDER_ID = 'openai';
@@ -32,7 +41,7 @@ const LATEST_OWNER_PREFIX = 'news-bundle:';
 export type BundleSynthesisWorkerResult =
   | { status: 'written'; storyId: string; synthesisId: string; latestStatus: 'written' | 'skipped' }
   | { status: 'skipped'; storyId: string; reason: 'story_missing' | 'no_analysis_sources' }
-  | { status: 'rejected'; storyId: string; reason: 'relay_failed' | 'parse_failed' | 'source_count_mismatch' };
+  | { status: 'rejected'; storyId: string; reason: 'relay_failed' | 'parse_failed' | 'source_count_mismatch' | 'source_text_unavailable' };
 
 export interface BundleSynthesisWorkerConfig {
   client: VennClient;
@@ -43,6 +52,7 @@ export interface BundleSynthesisWorkerConfig {
   timeoutMs?: number;
   ratePerMinute?: number;
   pipelineVersion?: string;
+  articleTextService?: Pick<ArticleTextService, 'extract'>;
   relay?: (request: {
     prompt: string;
     model: string;
@@ -57,37 +67,17 @@ export interface BundleSynthesisWorkerConfig {
   writeLatest?: typeof writeTopicLatestSynthesisIfNotDowngrade;
 }
 
-function digest(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
-
 function normalizeIdToken(value: string): string {
   return value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_') || 'story';
-}
-
-function resolveAnalysisSources(bundle: StoryBundle): StoryBundle['sources'] {
-  return bundle.primary_sources ?? bundle.sources;
-}
-
-function buildBundleFingerprint(bundle: StoryBundle, pipelineVersion: string, model: string): string {
-  return digest({
-    pipelineVersion,
-    model_id: model,
-    story_id: bundle.story_id,
-    topic_id: bundle.topic_id,
-    provenance_hash: bundle.provenance_hash,
-    source_hashes: resolveAnalysisSources(bundle).map((source) => ({
-      source_id: source.source_id,
-      url_hash: source.url_hash,
-    })),
-  });
 }
 
 function buildCandidatePayload(input: {
   candidateId: string;
   bundle: StoryBundle;
+  keyFacts: string[];
   summary: string;
   frames: CandidateSynthesis['frames'];
+  sourceAnalyses: NonNullable<CandidateSynthesis['source_analyses']>;
   warnings: string[];
   model: string;
   now: number;
@@ -96,9 +86,11 @@ function buildCandidatePayload(input: {
     candidate_id: input.candidateId,
     topic_id: input.bundle.topic_id,
     epoch: BUNDLE_SYNTHESIS_EPOCH,
-    critique_notes: ['publish-time story bundle synthesis'],
+    critique_notes: ['publish-time full-text story bundle synthesis'],
+    key_facts: input.keyFacts,
     facts_summary: input.summary,
     frames: input.frames,
+    source_analyses: input.sourceAnalyses,
     warnings: input.warnings,
     divergence_hints: [],
     provider: {
@@ -190,6 +182,7 @@ export function createBundleSynthesisWorker(
   const ratePerMinute = Math.max(1, Math.floor(config.ratePerMinute ?? DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN));
   const pipelineVersion = config.pipelineVersion?.trim() || DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION;
   const relay = config.relay ?? postBundleSynthesisCompletion;
+  const articleTextService = config.articleTextService ?? new ArticleTextService();
   const readBundle = config.readBundle ?? readStoryBundle;
   const readCandidate = config.readCandidate ?? readTopicEpochCandidate;
   const writeCandidate = config.writeCandidate ?? writeTopicEpochCandidate;
@@ -210,11 +203,27 @@ export function createBundleSynthesisWorker(
       return { status: 'skipped', storyId, reason: 'no_analysis_sources' };
     }
 
-    const fingerprint = buildBundleFingerprint(bundle, pipelineVersion, model);
+    const extracted = await extractReadableBundleSources({
+      storyId,
+      sources: analysisSources,
+      articleTextService,
+      logger,
+    });
+    if (extracted.readableSources.length === 0) {
+      logger.warn('[vh:bundle-synthesis] no readable analysis sources; rejected', { story_id: storyId });
+      return { status: 'rejected', storyId, reason: 'source_text_unavailable' };
+    }
+
+    const fingerprint = buildFullTextBundleFingerprint({
+      bundle,
+      pipelineVersion,
+      model,
+      readableSources: extracted.readableSources,
+    });
     const candidateId = `news-bundle:${fingerprint.slice(0, 32)}`;
     const synthesisId = `news-bundle:${normalizeIdToken(bundle.story_id)}:${fingerprint.slice(0, 16)}`;
     const existingCandidate = await readCandidate(config.client, bundle.topic_id, BUNDLE_SYNTHESIS_EPOCH, candidateId);
-    if (existingCandidate) {
+    if (existingCandidate && candidateHasReusableFullTextAudit(existingCandidate)) {
       const { latestStatus } = await writeAcceptedSynthesis({
         config,
         bundle,
@@ -235,11 +244,34 @@ export function createBundleSynthesisWorker(
       });
       return { status: 'written', storyId, synthesisId, latestStatus };
     }
+    if (existingCandidate) {
+      logger.warn('[vh:bundle-synthesis] existing candidate lacked full-text audit data; regenerating', {
+        story_id: storyId,
+        candidate_id: candidateId,
+      });
+    }
+
+    const articleAnalysis = await analyzeReadableBundleSources({
+      storyId,
+      readableSources: extracted.readableSources,
+      relay,
+      model,
+      maxTokens,
+      timeoutMs,
+      ratePerMinute,
+      logger,
+    });
+    if (articleAnalysis.analyzedSources.length === 0) {
+      logger.warn('[vh:bundle-synthesis] no source analyses completed; rejected', { story_id: storyId });
+      return { status: 'rejected', storyId, reason: 'relay_failed' };
+    }
 
     let response: BundleSynthesisRelayResponse;
     try {
       response = await relay({
-        prompt: buildBundlePromptFromStoryBundle(bundle),
+        prompt: generateBundleSynthesisPrompt(
+          toBundleSynthesisInput(bundle, articleAnalysis.analyzedSources),
+        ),
         model,
         maxTokens,
         timeoutMs,
@@ -250,37 +282,36 @@ export function createBundleSynthesisWorker(
       return { status: 'rejected', storyId, reason: 'relay_failed' };
     }
 
-    let parsed: ReturnType<typeof parseGeneratedBundleSynthesis>;
+    let parsed: ReturnType<typeof parseBundleSynthesisResponse>;
     try {
-      parsed = parseGeneratedBundleSynthesis(response.content);
+      parsed = parseBundleSynthesisResponse(response.content, articleAnalysis.analyzedSources.length);
     } catch (error) {
       logger.warn('[vh:bundle-synthesis] generated output rejected', { story_id: storyId, error });
-      return { status: 'rejected', storyId, reason: 'parse_failed' };
+      const reason = error instanceof PromptParseError && error.message.startsWith('source_count:')
+        ? 'source_count_mismatch'
+        : 'parse_failed';
+      return { status: 'rejected', storyId, reason };
     }
 
-    if (parsed.source_count !== analysisSources.length) {
-      logger.warn('[vh:bundle-synthesis] generated output source count mismatch', {
-        story_id: storyId,
-        expected_source_count: analysisSources.length,
-        generated_source_count: parsed.source_count,
-      });
-      return { status: 'rejected', storyId, reason: 'source_count_mismatch' };
-    }
-
-    const warnings = [
-      ...(analysisSources.length === 1 ? ['single_source_story_bundle'] : []),
+    const warnings = dedupeWarnings([
+      ...(articleAnalysis.analyzedSources.length === 1 ? ['single_source_story_bundle'] : []),
       ...((bundle.related_links?.length ?? 0) > 0 ? ['related_links_excluded_from_analysis'] : []),
-    ];
+      ...extracted.warnings,
+      ...articleAnalysis.warnings,
+      ...parsed.warnings.filter((warning) => warning !== 'single-source-only'),
+    ]);
     const createdAt = now();
-    const frames = parsed.frames.map((frame) => ({
-      frame: frame.frame,
-      reframe: frame.reframe,
-    }));
+    const frames = parsed.frame_reframe_table.map(({ frame, reframe }) => ({ frame, reframe }));
+    const sourceAnalyses = articleAnalysis.analyzedSources.map((analyzed) => (
+      toSourceAnalysisAudit(analyzed, PROVIDER_ID)
+    ));
     const candidatePayload = buildCandidatePayload({
       candidateId,
       bundle,
+      keyFacts: parsed.key_facts,
       summary: parsed.summary,
       frames,
+      sourceAnalyses,
       warnings,
       model: response.model,
       now: createdAt,
