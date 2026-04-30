@@ -69,7 +69,6 @@ const PUBLIC_SMOKE_SOURCE_IDS = [
   'canarymedia-main',
   'abc-politics',
   'huffpost-us',
-  'washingtonexaminer-politics',
   'npr-news',
   'npr-politics',
   'pbs-politics',

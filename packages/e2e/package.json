@@ -9,6 +9,7 @@
     "test:live:matrix": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=false playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
     "test:live:matrix:strict": "VH_RUN_LIVE_MATRIX=true VH_LIVE_MATRIX_REQUIRE_FULL=true playwright test --config=playwright.live.config.ts src/live/bias-vote-convergence.live.spec.ts",
     "test:live:five-user-engagement": "VH_RUN_FULL_PRODUCT_MOCK_USERS=true VH_LIVE_BASE_URL=${VH_LIVE_BASE_URL:-http://127.0.0.1:2048/} playwright test --config=playwright.live.config.ts src/live/five-user-news-engagement.live.spec.ts",
+    "test:live:two-user-engagement": "VH_RUN_FULL_PRODUCT_MOCK_USERS=true VH_FULL_PRODUCT_MOCK_USER_COUNT=2 VH_FULL_PRODUCT_REQUIRED_SINGLETON_STORIES=1 VH_FULL_PRODUCT_REQUIRED_BUNDLED_STORIES=1 VH_LIVE_BASE_URL=${VH_LIVE_BASE_URL:-http://127.0.0.1:2048/} playwright test --config=playwright.live.config.ts src/live/five-user-news-engagement.live.spec.ts",
     "test:live:matrix:strict:stability": "node ./src/live/live-matrix-stability-gate.mjs",
     "test:live:matrix:strict:stability:dev-small": "env $(grep -v '^#' .env.dev-small | xargs) node ./src/live/live-matrix-stability-gate.mjs",
     "test:live:matrix:strict:stability:beta-scale": "env $(grep -v '^#' .env.beta-scale | xargs) node ./src/live/live-matrix-stability-gate.mjs",

@@ -28,8 +28,9 @@ describe('daemon-feed-analysis-stub', () => {
     ].join('\n'));
 
     expect(analysis.summary).toContain('Emergency ceasefire talks began in Geneva');
-    expect(analysis.bias_claim_quote[0]).toContain('Emergency Geneva talks begin');
-    expect(analysis.perspectives[0]?.frame).toContain('Emergency Geneva talks begin');
+    expect(analysis.key_facts[0]).toContain('Emergency ceasefire talks began in Geneva');
+    expect(analysis.bias_claim_quote[0]).toContain('Emergency ceasefire talks began in Geneva');
+    expect(analysis.perspectives[0]?.frame).toContain('emergency geneva talks begin');
   });
 
   it('falls back cleanly when the body is unavailable', () => {
@@ -42,7 +43,8 @@ describe('daemon-feed-analysis-stub', () => {
 
     expect(analysis.summary).toContain('Atlantic port strike enters second day');
     expect(analysis.counterpoints).toHaveLength(1);
-    expect(analysis.biases).toEqual(['Urgency framing']);
+    expect(analysis.key_facts).toEqual(['Atlantic port strike enters second day, delaying container traffic']);
+    expect(analysis.biases[0]).toContain('urgent action');
   });
 
   it('builds bundle-synthesis responses with frame/reframe point material', () => {
@@ -57,15 +59,16 @@ describe('daemon-feed-analysis-stub', () => {
       'OUTPUT FORMAT:',
       'Return exactly one JSON object with these keys and no extraneous text:',
       '"source_count": <number of sources>',
-      '"source_publishers": ["<publisher 1>"]',
-      '"verification_confidence": <0..1 confidence score>',
+      '"frame_reframe_table": [{"frame":"string","reframe":"string"}]',
+      '"synthesis_ready": true',
     ].join('\n'));
 
     expect(synthesis.summary).toContain('City budget deal advances');
-    expect(synthesis.frames).toHaveLength(2);
+    expect(synthesis.key_facts[0]).toContain('City budget deal advances');
+    expect(synthesis.frame_reframe_table).toHaveLength(2);
     expect(synthesis.source_count).toBe(2);
-    expect(synthesis.source_publishers).toEqual(['CBS News', 'The Guardian']);
-    expect(synthesis.verification_confidence).toBeGreaterThan(0);
+    expect(synthesis.warnings).toEqual([]);
+    expect(synthesis.synthesis_ready).toBe(true);
   });
 
   it('builds deterministic pair-label responses for semantic-audit prompts', () => {
@@ -180,7 +183,8 @@ describe('daemon-feed-analysis-stub', () => {
 
     const fallbackAnalysis = buildFixtureAnalysis('No useful prompt');
     expect(fallbackAnalysis.summary).toBe('Fixture analysis summary.');
-    expect(fallbackAnalysis.bias_claim_quote[0]).toBe('Primary report emphasis');
+    expect(fallbackAnalysis.bias_claim_quote[0]).toBe('Fixture analysis summary.');
+    expect(fallbackAnalysis.key_facts).toEqual(['Fixture analysis summary.']);
 
     const startedServer = startFixtureAnalysisStub();
     const health = await fetch(`${fixtureAnalysisStubInternal.baseUrl}/health`);
@@ -266,8 +270,8 @@ describe('daemon-feed-analysis-stub', () => {
             'OUTPUT FORMAT:',
             'Return exactly one JSON object with these keys and no extraneous text:',
             '"source_count"',
-            '"source_publishers"',
-            '"verification_confidence"',
+            '"frame_reframe_table"',
+            '"synthesis_ready"',
           ].join('\n'),
         }],
       }),
@@ -275,8 +279,9 @@ describe('daemon-feed-analysis-stub', () => {
     expect(bundleCompletion.status).toBe(200);
     const bundlePayload = await bundleCompletion.json();
     const bundleContent = JSON.parse(bundlePayload.choices?.[0]?.message?.content ?? '{}');
-    expect(bundleContent.frames).toHaveLength(2);
+    expect(bundleContent.frame_reframe_table).toHaveLength(2);
     expect(bundleContent.source_count).toBe(2);
+    expect(bundleContent.synthesis_ready).toBe(true);
   });
 
   it('covers direct-launch startup branch and signal shutdown', async () => {

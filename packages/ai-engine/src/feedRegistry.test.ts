@@ -9,7 +9,7 @@ import { FeedSourceSchema, type FeedSource } from './newsTypes';
 describe('feedRegistry', () => {
   describe('STARTER_FEED_SOURCES', () => {
     it('contains the baseline starter surface and evidence-admitted additions', () => {
-      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(29);
+      expect(STARTER_FEED_SOURCES.length).toBeGreaterThanOrEqual(28);
     });
 
     it('all sources pass FeedSourceSchema validation', () => {
@@ -28,7 +28,7 @@ describe('feedRegistry', () => {
       const conservative = STARTER_FEED_SOURCES.filter(
         (s) => s.perspectiveTag === 'conservative',
       );
-      expect(conservative.length).toBeGreaterThanOrEqual(3);
+      expect(conservative.length).toBeGreaterThanOrEqual(2);
     });
 
     it('preserves the progressive coverage floor', () => {
@@ -140,20 +140,6 @@ describe('feedRegistry', () => {
         rssUrl: 'https://feeds.nbcnews.com/feeds/nbcpolitics',
         perspectiveTag: 'broadcast-news',
         iconKey: 'nbc',
-        enabled: true,
-      });
-    });
-
-    it('includes evidence-admitted washington examiner politics coverage', () => {
-      expect(
-        STARTER_FEED_SOURCES.find(
-          (source) => source.id === 'washingtonexaminer-politics',
-        ),
-      ).toMatchObject({
-        name: 'Washington Examiner Politics',
-        rssUrl: 'https://www.washingtonexaminer.com/tag/politics.rss',
-        perspectiveTag: 'conservative',
-        iconKey: 'washingtonexaminer',
         enabled: true,
       });
     });
@@ -303,15 +289,6 @@ describe('feedRegistry', () => {
       });
     });
 
-    it('returns metadata for evidence-admitted washington examiner politics', () => {
-      const meta = getSourceMetadata('washingtonexaminer-politics');
-      expect(meta).toEqual({
-        displayName: 'Washington Examiner',
-        perspectiveTag: 'conservative',
-        iconKey: 'washingtonexaminer',
-      });
-    });
-
     it('returns metadata for evidence-admitted pbs politics', () => {
       const meta = getSourceMetadata('pbs-politics');
       expect(meta).toEqual({
@@ -379,6 +356,7 @@ describe('feedRegistry', () => {
 
     it('returns undefined for sources pruned from the starter surface', () => {
       expect(getSourceMetadata('sky-world')).toBeUndefined();
+      expect(getSourceMetadata('washingtonexaminer-politics')).toBeUndefined();
     });
 
     it('falls back to name when displayName is absent', () => {

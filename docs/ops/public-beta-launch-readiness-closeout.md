@@ -38,6 +38,7 @@ Supplemental release-like product validation:
 | Evidence | Command | Artifact | Required result |
 | --- | --- | --- | --- |
 | Full-product five-user engagement | `pnpm live:stack:up:analysis-stub` followed by `pnpm test:live:five-user-engagement` | Playwright attachment `five-user-news-engagement-summary` plus local command output | `pass` before claiming the full multi-user feed/detail/stance/thread loop was exercised against the production-shaped local stack |
+| Full-product two-user engagement smoke | `pnpm live:stack:up:analysis-stub` followed by `pnpm test:live:two-user-engagement` | Same Playwright attachment with two isolated identities, one singleton, and one bundled analysis-ready story | `pass` for fast test-group validation; does not replace the five-user release-like lane when release copy claims the broader multi-user loop |
 
 ## 3. MVP Gate Coverage
 

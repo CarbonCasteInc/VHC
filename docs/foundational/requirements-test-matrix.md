@@ -15,7 +15,7 @@ Status: draft helper to keep coverage aligned with `docs/foundational/ARCHITECTU
 - Engagement decay (first click = 1, then decay to 2): `apps/web-pwa/src/hooks/useSentimentState.test.ts`
 - Read decay (Eye): `apps/web-pwa/src/hooks/useSentimentState.test.ts`
 - Aggregate per-cell counts + aggregate Lightbulb across users: `packages/data-model/src/sentiment-aggregate.test.ts`
-- Full product read/stance aggregate visibility across five beta-local users: `packages/e2e/src/live/five-user-news-engagement.live.spec.ts` (script: `pnpm test:live:five-user-engagement` after `pnpm live:stack:up:analysis-stub`)
+- Full product read/stance aggregate visibility across beta-local users: `packages/e2e/src/live/five-user-news-engagement.live.spec.ts` (scripts: `pnpm test:live:five-user-engagement` for release-like five-user evidence, or `pnpm test:live:two-user-engagement` for two-account smoke, after `pnpm live:stack:up:analysis-stub`)
 - Public topology guard (no `{district_hash, nullifier}` in public mesh): `packages/gun-client/src/topology.test.ts`
 
 ## Identity & Trust

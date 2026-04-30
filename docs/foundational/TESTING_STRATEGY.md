@@ -142,6 +142,7 @@ RIGHT: Separate browser contexts
 **Entry points**:
 - `pnpm live:stack:up:analysis-stub`
 - `pnpm test:live:five-user-engagement`
+- `pnpm test:live:two-user-engagement` for the same product loop with two isolated identities and lower story-count thresholds
 
 **Current contract (PR #551 lane):**
 - Creates five beta-local identities: `alice`, `bruno`, `chandra`, `devon`, and `elena`.

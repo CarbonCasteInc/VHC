@@ -47,6 +47,15 @@ function firstSentence(text) {
   return (match?.[0] ?? normalized).trim();
 }
 
+function sentenceList(text) {
+  const normalized = `${text ?? ''}`.replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return [];
+  }
+  const matches = normalized.match(/[^.!?]+[.!?]+/g) ?? [normalized];
+  return matches.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
 function readMessageText(messages) {
   if (!Array.isArray(messages)) {
     return '';
@@ -232,20 +241,33 @@ export function buildFixturePairLabelResponse(prompt) {
 }
 
 export function buildFixtureAnalysis(prompt) {
-  const articleTitle = readTaggedLine(prompt, 'Article title');
+  const articleTitle = readTaggedLine(prompt, 'Title') || readTaggedLine(prompt, 'Article title');
   const storyHeadline = readTaggedLine(prompt, 'Story headline');
-  const bodySentence = firstSentence(readArticleBody(prompt));
-  const summary = bodySentence || articleTitle || storyHeadline || 'Fixture analysis summary.';
-  const frame = storyHeadline || articleTitle || 'Core event frame';
+  const body = readArticleBody(prompt);
+  const bodyFacts = sentenceList(body).slice(0, 3);
+  const fallbackFact = articleTitle || storyHeadline || 'Fixture analysis summary.';
+  const keyFacts = bodyFacts.length > 0 ? bodyFacts : [fallbackFact];
+  const summary = keyFacts.slice(0, 2).join(' ');
+  const frameSubject = storyHeadline || articleTitle || firstSentence(summary) || 'the reported event';
+  const lowerSubject = frameSubject.toLowerCase();
   return {
+    key_facts: keyFacts,
     summary,
-    bias_claim_quote: [articleTitle || storyHeadline || 'Primary report emphasis'],
-    justify_bias_claim: ['Deterministic fixture relay response for browser gate validation.'],
-    biases: ['Urgency framing'],
-    counterpoints: ['Additional sourcing may widen context.'],
-    sentimentScore: 0.1,
+    bias_claim_quote: [keyFacts[0] ?? fallbackFact],
+    justify_bias_claim: ['Deterministic fixture relay identified the article emphasis for browser gate validation.'],
+    biases: [`Institutions should treat ${lowerSubject} as requiring urgent action.`],
+    counterpoints: [`Institutions should wait for more verified details before escalating ${lowerSubject}.`],
     confidence: 0.92,
-    perspectives: [{ frame, reframe: 'Context and verification around the same event.' }],
+    perspectives: [
+      {
+        frame: `Public officials should act quickly on ${lowerSubject}.`,
+        reframe: `Public officials should wait for verified details about ${lowerSubject}.`,
+      },
+      {
+        frame: `Accountability should focus on the institutions involved in ${lowerSubject}.`,
+        reframe: `Accountability should focus first on confirming unresolved facts about ${lowerSubject}.`,
+      },
+    ],
   };
 }
 
@@ -258,8 +280,12 @@ export function buildFixtureBundleSynthesis(prompt) {
   const lowerSubject = subject.toLowerCase();
 
   return {
+    key_facts: [
+      `${subject} is represented by ${sourceCount} eligible full-text source${sourceCount === 1 ? '' : 's'}.`,
+      `The deterministic synthesis input includes ${sourcePublishers.join(', ')}.`,
+    ],
     summary: `${subject} is covered by ${sourceCount} source${sourceCount === 1 ? '' : 's'} in the deterministic local analysis lane. The synthesis captures shared facts while keeping disputed implications in the frame and reframe rows.`,
-    frames: [
+    frame_reframe_table: [
       {
         frame: `Public officials should treat ${lowerSubject} as requiring fast action.`,
         reframe: `Public officials should slow decisions on ${lowerSubject} until the evidence is clearer.`,
@@ -270,16 +296,18 @@ export function buildFixtureBundleSynthesis(prompt) {
       },
     ],
     source_count: sourceCount,
-    source_publishers: sourcePublishers,
-    verification_confidence: 0.91,
+    warnings: sourceCount === 1 ? ['single-source-only'] : [],
+    synthesis_ready: true,
   };
 }
 
 function isBundleSynthesisPrompt(prompt) {
-  return /OUTPUT FORMAT:\s*Return exactly one JSON object/i.test(prompt)
-    && /"source_count"/.test(prompt)
-    && /"source_publishers"/.test(prompt)
-    && /"verification_confidence"/.test(prompt);
+  return /"source_count"/.test(prompt)
+    && (
+      /"frame_reframe_table"/.test(prompt)
+      || /"source_publishers"/.test(prompt)
+      || /"verification_confidence"/.test(prompt)
+    );
 }
 
 function sendJson(res, statusCode, payload) {
@@ -365,6 +393,7 @@ export const fixtureAnalysisStubInternal = {
   readBundlePublishers,
   readArticleBody,
   firstSentence,
+  sentenceList,
   readStubPort,
   resolveRequestUrl,
   readJsonBody,
