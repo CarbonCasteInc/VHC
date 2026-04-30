@@ -101,6 +101,44 @@ export const MIN_SENTENCE_COUNT = 4;
 export const MIN_QUALITY_SCORE = 0.7;
 export { BACKOFF_BASE_MS };
 
+function normalizeAllowlistDomain(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+
+  try {
+    const candidate = trimmed.includes('://') ? trimmed : `http://${trimmed}`;
+    const hostname = new URL(candidate).hostname.toLowerCase();
+    return hostname.length > 0 ? hostname : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseExtraAllowlistDomains(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  const raw = env.VH_ARTICLE_TEXT_EXTRA_ALLOWLIST_DOMAINS?.trim() ?? '';
+  if (!raw) {
+    return [];
+  }
+
+  return raw
+    .split(',')
+    .map(normalizeAllowlistDomain)
+    .filter((domain): domain is string => domain !== null);
+}
+
+function buildDefaultAllowlist(
+  env: Record<string, string | undefined> = process.env,
+): ReadonlySet<string> {
+  return new Set([
+    ...getStarterSourceDomainAllowlist(),
+    ...parseExtraAllowlistDomains(env),
+  ]);
+}
+
 function toCachedFailure(
   error: ArticleTextServiceError,
   url: string,
@@ -137,7 +175,7 @@ export class ArticleTextService {
   private readonly fallbackExtractor: (url: string, html: string) => { title: string; text: string } | null;
 
   constructor(options: ArticleTextServiceOptions = {}) {
-    this.allowlist = options.allowlist ?? getStarterSourceDomainAllowlist();
+    this.allowlist = options.allowlist ?? buildDefaultAllowlist();
     this.maxAttempts = options.maxAttempts ?? MAX_ATTEMPTS;
     this.timeoutMs = options.timeoutMs ?? FETCH_TIMEOUT_MS;
     this.minCharCount = options.minCharCount ?? MIN_CHAR_COUNT;
@@ -365,6 +403,7 @@ export class ArticleTextService {
 export const articleTextServiceInternal = {
   assessQuality,
   backoffForAttempt,
+  buildDefaultAllowlist,
   countSentences,
   countWords,
   defaultFallbackExtractor,
@@ -373,5 +412,6 @@ export const articleTextServiceInternal = {
   extractTitle,
   isRetryableStatus,
   normalizeWhitespace,
+  parseExtraAllowlistDomains,
   stripNonContentTags,
 };

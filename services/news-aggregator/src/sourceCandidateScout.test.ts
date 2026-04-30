@@ -42,6 +42,13 @@ describe('sourceCandidateScout', () => {
     expect(candidates.map((source) => source.id)).toEqual(['beta']);
   });
 
+  it('keeps demoted starter sources available for scout-first readmission', () => {
+    const candidates = sourceCandidateScoutInternal.resolveCandidateFeedSources();
+
+    expect(STARTER_FEED_SOURCES.map((source) => source.id)).not.toContain('washingtonexaminer-politics');
+    expect(candidates.map((source) => source.id)).toContain('washingtonexaminer-politics');
+  });
+
   it('ranks promotable corroborating candidates ahead of blocked candidates', () => {
     const ranked = [
       {

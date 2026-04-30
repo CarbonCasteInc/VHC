@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ArticleTextCache } from '../articleTextCache';
 import {
   ArticleTextService,
@@ -37,6 +37,10 @@ beforeEach(() => {
   extractMock.mockReset();
 });
 
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('ArticleTextService', () => {
   it('uses the default starter-source allowlist when none is provided', async () => {
     const service = new ArticleTextService({
@@ -58,6 +62,30 @@ describe('ArticleTextService', () => {
     const result = await service.extract('https://www.foxnews.com/politics/starter-source-story');
 
     expect(result.sourceDomain).toBe('www.foxnews.com');
+    expect(result.cacheHit).toBe('none');
+  });
+
+  it('allows explicit fixture/article domains through the default allowlist', async () => {
+    vi.stubEnv('VH_ARTICLE_TEXT_EXTRA_ALLOWLIST_DOMAINS', 'http://127.0.0.1:8788,localhost');
+    const service = new ArticleTextService({
+      fetchFn: vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(makeHtml(`${makeWords(220)}. Additional sentence. Another sentence. Final sentence.`), {
+          status: 200,
+        }),
+      ),
+      primaryExtractor: vi.fn().mockResolvedValue({
+        title: 'Fixture Source',
+        text: Array.from(
+          { length: 24 },
+          () => 'This sentence keeps the local fixture article readable with factual detail.',
+        ).join(' '),
+      }),
+      fallbackExtractor: vi.fn().mockReturnValue(null),
+    });
+
+    const result = await service.extract('http://127.0.0.1:8788/article/geneva-guardian');
+
+    expect(result.sourceDomain).toBe('127.0.0.1');
     expect(result.cacheHit).toBe('none');
   });
 

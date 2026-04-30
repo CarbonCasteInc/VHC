@@ -229,6 +229,10 @@ Use this checklist during manual browser validation:
    analysis-ready singleton and bundled stories, records reads and point-level
    stances, posts story-thread replies, and verifies aggregate stance/read
    metrics plus comments are visible across users.
+   For a faster two-account test-group smoke over the same product loop, run
+   `pnpm test:live:two-user-engagement`; it uses the same Playwright spec with
+   two isolated identities and requires at least one singleton plus one bundled
+   analysis-ready story.
 
 ## Release Gate Wiring
 

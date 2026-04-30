@@ -7,9 +7,17 @@ const FEED_TIMEOUT_MS = 180_000;
 const ANALYSIS_TIMEOUT_MS = 180_000;
 const AGGREGATE_TIMEOUT_MS = 90_000;
 const COMMENT_TIMEOUT_MS = 120_000;
-const REQUIRED_SINGLETON_STORIES = 2;
-const REQUIRED_BUNDLED_STORIES = 2;
+const DEFAULT_LABELS = ['alice', 'bruno', 'chandra', 'devon', 'elena'];
 const RUN_ID = process.env.VH_FULL_PRODUCT_MOCK_USERS_RUN_ID ?? `mock-users-${Date.now().toString(36)}`;
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const value = Number.parseInt(process.env[name] ?? '', 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const USER_COUNT = readPositiveIntEnv('VH_FULL_PRODUCT_MOCK_USER_COUNT', 5);
+const REQUIRED_SINGLETON_STORIES = readPositiveIntEnv('VH_FULL_PRODUCT_REQUIRED_SINGLETON_STORIES', 2);
+const REQUIRED_BUNDLED_STORIES = readPositiveIntEnv('VH_FULL_PRODUCT_REQUIRED_BUNDLED_STORIES', 2);
 
 type StoryKind = 'singleton' | 'bundle';
 
@@ -495,13 +503,21 @@ async function readFeedMetric(page: Page, topicId: string, metric: 'eye' | 'ligh
   return Number.isFinite(value) ? value : 0;
 }
 
-test.describe('full product five-user news engagement', () => {
-  test.skip(!SHOULD_RUN, 'Set VH_RUN_FULL_PRODUCT_MOCK_USERS=true to run the five-user live engagement test');
+function buildUserLabels(count: number): string[] {
+  return Array.from({ length: count }, (_unused, index) => DEFAULT_LABELS[index] ?? `user${index + 1}`);
+}
 
-  test('five users read, vote, and discuss singleton and bundled news stories through the mesh', async ({ browser }, testInfo) => {
+test.describe('full product mock-user news engagement', () => {
+  test.skip(!SHOULD_RUN, 'Set VH_RUN_FULL_PRODUCT_MOCK_USERS=true to run the mock-user live engagement test');
+
+  test(`${USER_COUNT} users read, vote, and discuss singleton and bundled news stories through the mesh`, async ({ browser }, testInfo) => {
     test.setTimeout(30 * 60_000);
 
-    const labels = ['alice', 'bruno', 'chandra', 'devon', 'elena'];
+    if (USER_COUNT < 2) {
+      throw new Error(`mock-user-count-too-low:${USER_COUNT}`);
+    }
+
+    const labels = buildUserLabels(USER_COUNT);
     const users: UserSession[] = [];
 
     try {
@@ -566,9 +582,14 @@ test.describe('full product five-user news engagement', () => {
           agree: baseline.agree + agreeAdds,
           disagree: baseline.disagree + disagreeAdds,
         };
-        reopened[4] = await openStoryForUser(reopened[4]!.user, target);
-        await waitForVoteCountsAtLeast(reopened[4]!.card, reopened[4]!.pointId, expectedMinimumVotes);
-        reopened[4] = await waitForComments(reopened[4]!, target, comments);
+        const observerIndex = reopened.length - 1;
+        reopened[observerIndex] = await openStoryForUser(reopened[observerIndex]!.user, target);
+        await waitForVoteCountsAtLeast(
+          reopened[observerIndex]!.card,
+          reopened[observerIndex]!.pointId,
+          expectedMinimumVotes,
+        );
+        reopened[observerIndex] = await waitForComments(reopened[observerIndex]!, target, comments);
 
         for (let index = 0; index < reopened.length; index += 1) {
           reopened[index] = await openStoryForUser(reopened[index]!.user, target);
@@ -582,7 +603,7 @@ test.describe('full product five-user news engagement', () => {
       }
 
       for (const result of storyResults) {
-        const observer = users[4]!.page;
+        const observer = users[users.length - 1]!.page;
         await expect.poll(() => readFeedMetric(observer, result.target.topicId, 'eye'), { timeout: AGGREGATE_TIMEOUT_MS })
           .toBeGreaterThan(0);
         await expect.poll(() => readFeedMetric(observer, result.target.topicId, 'lightbulb'), { timeout: AGGREGATE_TIMEOUT_MS })

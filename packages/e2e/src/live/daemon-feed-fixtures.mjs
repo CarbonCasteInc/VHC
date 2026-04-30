@@ -8,7 +8,8 @@ function rssDate(iso) {
 }
 
 function articleHtml(title, paragraphs, imageUrl) {
-  const body = paragraphs.map((paragraph) => `<p>${paragraph}</p>`).join('');
+  const expandedParagraphs = expandArticleParagraphs(title, paragraphs);
+  const body = expandedParagraphs.map((paragraph) => `<p>${paragraph}</p>`).join('');
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -26,6 +27,17 @@ function articleHtml(title, paragraphs, imageUrl) {
     </main>
   </body>
 </html>`;
+}
+
+function expandArticleParagraphs(title, paragraphs) {
+  const lead = paragraphs[0] ?? title;
+  const second = paragraphs[1] ?? lead;
+  const third = paragraphs[2] ?? second;
+  return [
+    ...paragraphs,
+    `The report identifies the central development as "${title}" and keeps the account tied to the same dated event. It says ${lead.charAt(0).toLowerCase()}${lead.slice(1)} It also says ${second.charAt(0).toLowerCase()}${second.slice(1)} The article uses those details to establish the immediate timeline, the affected people or institutions, and the official response described in the report.`,
+    `For readers following the story, the article separates the confirmed report from still-open implications. It repeats the core factual basis that ${third.charAt(0).toLowerCase()}${third.slice(1)} It then leaves broader interpretation to follow-up reporting, while preserving enough source text for summary generation, frame extraction, and singleton-or-bundle validation in the local product lane.`,
+  ];
 }
 
 function imageUrl(imageId) {
