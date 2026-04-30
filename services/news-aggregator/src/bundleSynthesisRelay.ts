@@ -1,10 +1,10 @@
 import { resolveTokenParam } from './analysisRelay';
 
 export const DEFAULT_BUNDLE_SYNTHESIS_MODEL = 'gpt-4o-mini';
-export const DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS = 1200;
+export const DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS = 2400;
 export const DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS = 20_000;
 export const DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN = 20;
-export const DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION = 'news-bundle-v1';
+export const DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION = 'news-bundle-v2-fulltext';
 
 const RATE_WINDOW_MS = 60_000;
 let requestTimestamps: number[] = [];

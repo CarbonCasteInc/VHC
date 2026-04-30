@@ -177,6 +177,10 @@ Current truth for the news bundler and feed hardening lane:
 - Generated article and bundle analyses must emit non-empty frame/reframe rows:
   - bias arrays may use the explicit `No clear bias detected` / `N/A` fallback when source bias is sparse;
   - frame/reframe rows must instead become terse debate-style issue-side claims and counterclaims grounded in public/political/stakeholder disagreements around the summarized issue.
+- Publish-time story synthesis is fact-first:
+  - readable canonical primary sources are full-text extracted and analyzed before bundle synthesis;
+  - source-level key facts, quote evidence, and bias justifications persist on the hidden candidate/audit record;
+  - accepted story detail renders only the fact summary and frame/reframe rows by default.
 - The fixture-backed daemon-first release gates are green on `main` after the latest semantic-fixture expansion:
   - `pnpm --filter @vh/e2e test:live:daemon-feed:integrity-gate`
   - `pnpm --filter @vh/e2e test:live:daemon-feed:semantic-gate`

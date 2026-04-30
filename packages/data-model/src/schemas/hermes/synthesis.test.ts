@@ -53,8 +53,32 @@ const validCandidate = {
   topic_id: 'topic-42',
   epoch: 0,
   critique_notes: ['Noted bias in source 2'],
+  key_facts: ['Council approved the plan.'],
   facts_summary: 'Summary of key facts.',
   frames: [{ frame: 'Pro regulation', reframe: 'Anti regulation' }],
+  source_analyses: [
+    {
+      source_id: 'src-1',
+      publisher: 'Example News',
+      title: 'Example article',
+      url: 'https://example.com/article',
+      url_hash: 'abc123hash',
+      key_facts: ['Council approved the plan.'],
+      summary: 'Council approved the plan.',
+      bias_claim_quote: ['quoted claim'],
+      justify_bias_claim: ['quoted claim frames the plan as urgent'],
+      biases: ['The plan is urgent.'],
+      counterpoints: ['The plan requires more review.'],
+      perspectives: [{ frame: 'The plan is needed now.', reframe: 'The plan should be slowed down.' }],
+      confidence: 0.8,
+      analyzed_at: now,
+      provider: {
+        provider_id: 'provider-local',
+        model_id: 'model-a',
+        kind: 'local' as const,
+      },
+    },
+  ],
   warnings: [],
   divergence_hints: [],
   provider: {
@@ -215,6 +239,19 @@ describe('CandidateSynthesisSchema', () => {
   it('accepts candidate with based_on_prior_epoch', () => {
     const input = { ...validCandidate, epoch: 2, based_on_prior_epoch: 1 };
     expect(CandidateSynthesisSchema.safeParse(input).success).toBe(true);
+  });
+
+  it('persists hidden source-analysis audit evidence on candidates', () => {
+    const result = CandidateSynthesisSchema.parse(validCandidate);
+    expect(result.key_facts).toEqual(['Council approved the plan.']);
+    expect(result.source_analyses?.[0]?.justify_bias_claim).toEqual([
+      'quoted claim frames the plan as urgent',
+    ]);
+  });
+
+  it('rejects empty persisted source-analysis audit arrays when present', () => {
+    expect(CandidateSynthesisSchema.safeParse({ ...validCandidate, key_facts: [] }).success).toBe(false);
+    expect(CandidateSynthesisSchema.safeParse({ ...validCandidate, source_analyses: [] }).success).toBe(false);
   });
 
   it('rejects missing provider', () => {

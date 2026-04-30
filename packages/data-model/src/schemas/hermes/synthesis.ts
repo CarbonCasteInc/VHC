@@ -33,6 +33,26 @@ const ProviderSchema = z.object({
   kind: z.enum(['local', 'remote']),
 });
 
+const SourceAnalysisAuditSchema = z
+  .object({
+    source_id: z.string().min(1),
+    publisher: z.string().min(1),
+    title: z.string().min(1),
+    url: z.string().min(1),
+    url_hash: z.string().min(1),
+    key_facts: z.array(z.string().trim().min(1)).min(1),
+    summary: z.string().trim().min(1),
+    bias_claim_quote: z.array(z.string()),
+    justify_bias_claim: z.array(z.string()),
+    biases: z.array(z.string()),
+    counterpoints: z.array(z.string()),
+    perspectives: z.array(FrameSchema).min(1),
+    confidence: z.number().min(0).max(1).optional(),
+    analyzed_at: PositiveTimestamp,
+    provider: ProviderSchema.optional(),
+  })
+  .strict();
+
 // ── Input contracts ────────────────────────────────────────────────
 
 export const StoryBundleInputSchema = z
@@ -84,8 +104,10 @@ export const CandidateSynthesisSchema = z
     epoch: z.number().int().nonnegative(),
     based_on_prior_epoch: z.number().int().nonnegative().optional(),
     critique_notes: z.array(z.string()),
+    key_facts: z.array(z.string().trim().min(1)).min(1).optional(),
     facts_summary: z.string().min(1),
     frames: z.array(FrameSchema),
+    source_analyses: z.array(SourceAnalysisAuditSchema).min(1).optional(),
     warnings: z.array(z.string()),
     divergence_hints: z.array(z.string()),
     provider: ProviderSchema,
@@ -182,6 +204,7 @@ export type StoryBundleInput = z.infer<typeof StoryBundleInputSchema>;
 export type TopicDigestInput = z.infer<typeof TopicDigestInputSchema>;
 export type TopicSeedInput = z.infer<typeof TopicSeedInputSchema>;
 export type CandidateSynthesis = z.infer<typeof CandidateSynthesisSchema>;
+export type SourceAnalysisAudit = z.infer<typeof SourceAnalysisAuditSchema>;
 export type SynthesisFrame = z.infer<typeof SynthesisFrameSchema>;
 export type TopicSynthesisV2 = z.infer<typeof TopicSynthesisV2Schema>;
 export type TopicSynthesisCorrection = z.infer<typeof TopicSynthesisCorrectionSchema>;

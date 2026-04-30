@@ -22,6 +22,7 @@ function analysis(overrides: Partial<ArticleAnalysisResult> = {}): ArticleAnalys
     source_id: 'source-1',
     url: 'https://example.com/a1',
     url_hash: 'hash-1',
+    key_facts: ['fact-a'],
     summary: 'A summary',
     bias_claim_quote: ['quoted claim'],
     justify_bias_claim: ['justification'],
@@ -49,6 +50,8 @@ describe('generateArticleAnalysisPrompt', () => {
     expect(prompt).toContain('--- ARTICLE START ---');
     expect(prompt).toContain('Body text here.');
     expect(prompt).toContain('--- ARTICLE END ---');
+    expect(prompt).toContain('key_facts');
+    expect(prompt).toContain('fundamental report facts');
     expect(prompt).toContain('strict debate-claim styling');
     expect(prompt).toContain('Never leave perspectives empty');
     expect(prompt).toContain('common to the issue');
@@ -58,6 +61,7 @@ describe('generateArticleAnalysisPrompt', () => {
 
 describe('parseArticleAnalysisResponse', () => {
   const valid = {
+    key_facts: ['fact 1'],
     summary: 'summary text',
     bias_claim_quote: ['quote 1'],
     justify_bias_claim: ['reason 1'],
@@ -146,7 +150,9 @@ describe('parseBundleSynthesisResponse', () => {
   it('parses valid JSON for multi-source input', () => {
     const raw = JSON.stringify({
       summary: 'combined summary',
+      key_facts: ['fact 1'],
       frame_reframe_table: [{ frame: 'f1', reframe: 'r1' }],
+      source_count: 2,
       warnings: [],
       synthesis_ready: true,
     });
@@ -160,7 +166,9 @@ describe('parseBundleSynthesisResponse', () => {
   it('defaults warnings and synthesis_ready when omitted', () => {
     const raw = JSON.stringify({
       summary: 'combined summary',
+      key_facts: ['fact 1'],
       frame_reframe_table: [{ frame: 'f1', reframe: 'r1' }],
+      source_count: 2,
     });
 
     const result = parseBundleSynthesisResponse(raw, 2);
@@ -178,7 +186,9 @@ describe('parseBundleSynthesisResponse', () => {
   it('adds single-source-only warning when sourceCount=1', () => {
     const raw = JSON.stringify({
       summary: 'single summary',
+      key_facts: ['fact 1'],
       frame_reframe_table: [{ frame: 'f1', reframe: 'r1' }],
+      source_count: 1,
       warnings: [],
       synthesis_ready: true,
     });
@@ -198,7 +208,9 @@ describe('parseBundleSynthesisResponse', () => {
   it('throws PromptParseError for empty frame/reframe table when sources are eligible', () => {
     expect(() => parseBundleSynthesisResponse(JSON.stringify({
       summary: 'combined summary',
+      key_facts: ['fact 1'],
       frame_reframe_table: [],
+      source_count: 2,
       warnings: [],
       synthesis_ready: true,
     }), 2)).toThrow(PromptParseError);
