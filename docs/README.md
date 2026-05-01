@@ -55,6 +55,7 @@ CI enforces this via docs governance checks.
 ## Local Development and Operations
 
 - `docs/ops/LOCAL_LIVE_STACK_RUNBOOK.md`
+- `docs/ops/ANALYSIS_EVAL_ARTIFACTS.md`
 - `docs/ops/analysis-backend-3001.md`
 - `docs/ops/public-beta-compliance-minimums.md`
 - `docs/feature-flags.md`

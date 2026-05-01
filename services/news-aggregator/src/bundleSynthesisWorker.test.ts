@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
 import type { CandidateSynthesis, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
 import type { VennClient } from '@vh/gun-client';
+import type { AnalysisEvalArtifact } from './analysisEvalArtifacts';
 import { createBundleSynthesisWorker } from './bundleSynthesisWorker';
 
 const BUNDLE: StoryBundle = {
@@ -212,6 +213,7 @@ describe('bundleSynthesisWorker', () => {
   it('writes publish-time candidate, epoch synthesis, and guarded latest from accepted StoryBundle', async () => {
     const writtenCandidates: CandidateSynthesis[] = [];
     const writtenSyntheses: TopicSynthesisV2[] = [];
+    const artifacts: AnalysisEvalArtifact[] = [];
     const articleTextService = makeArticleTextService();
     const relay = vi.fn(async ({ prompt }: { prompt: string }) => ({
       model: 'gpt-4o-mini',
@@ -241,6 +243,11 @@ describe('bundleSynthesisWorker', () => {
         return synthesis;
       }),
       writeLatest,
+      analysisEvalArtifactWriter: {
+        write: vi.fn(async (artifact) => {
+          artifacts.push(artifact);
+        }),
+      },
       articleTextService,
       relay,
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -286,6 +293,60 @@ describe('bundleSynthesisWorker', () => {
     expect(writtenSyntheses[0]?.frames[0]?.frame_point_id).toMatch(/^synth-point:/);
     expect(writtenSyntheses[0]?.synthesis_id).toMatch(/^news-bundle:story-1:/);
     expect(writeLatest).toHaveBeenCalledTimes(1);
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      schema_version: 'analysis-eval-artifact-v1',
+      lifecycle_status: 'accepted',
+      usage_policy: {
+        label_status: 'weak_label_unreviewed',
+        training_state: 'not_training_ready',
+        raw_article_text_training_use: 'requires_rights_review',
+      },
+      request: {
+        model: 'gpt-4o-mini',
+        temperature: 0.2,
+        pipeline_version: 'news-bundle-v2-fulltext',
+      },
+      story: {
+        story_id: 'story-1',
+        topic_id: 'topic-1',
+        story_kind: 'bundle',
+        analysis_kind: 'singleton',
+        analysis_source_ids: ['source-analysis'],
+        readable_source_ids: ['source-analysis'],
+        analyzed_source_ids: ['source-analysis'],
+      },
+      generated: {
+        facts: ['Council approved a housing plan after public testimony.'],
+        summary: 'Council approved a housing plan after public testimony.',
+        frame_reframe_table: [
+          {
+            frame: 'The plan will expand needed housing supply.',
+            reframe: 'The plan may strain existing neighborhood infrastructure.',
+          },
+        ],
+      },
+      human_review: {
+        status: 'unreviewed',
+        human_edits: [],
+        human_approvals: [],
+        human_rejections: [],
+        user_facing_corrections: [],
+      },
+    });
+    expect(artifacts[0]?.source_articles[0]).toMatchObject({
+      source: { source_id: 'source-analysis', url: 'https://example.com/local' },
+      extraction: {
+        raw_extracted_article_text: 'Council approved a housing plan after hours of public testimony.',
+        extraction_method: 'article-extractor',
+        extraction_version: 'article-text-v1',
+      },
+    });
+    expect(artifacts[0]?.source_articles[0]?.article_analysis.request.prompt).toContain('--- ARTICLE START ---');
+    expect(artifacts[0]?.bundle_synthesis.request?.prompt).toContain('Eligible sources: 1');
+    expect(artifacts[0]?.candidate_synthesis?.candidate_id).toMatch(/^news-bundle:/);
+    expect(artifacts[0]?.final_accepted_synthesis?.schemaVersion).toBe('topic-synthesis-v2');
+    expect(artifacts[0]?.validator_failures).toEqual([]);
   });
 
   it('recovers synthesis writes from duplicate candidates before spending a model call', async () => {
@@ -397,6 +458,7 @@ describe('bundleSynthesisWorker', () => {
   });
 
   it('rejects generated output that widens analysis source count', async () => {
+    const artifacts: AnalysisEvalArtifact[] = [];
     const worker = createBundleSynthesisWorker({
       client: {} as VennClient,
       readBundle: async () => BUNDLE,
@@ -410,6 +472,11 @@ describe('bundleSynthesisWorker', () => {
             : bundleSynthesisPayload(2),
         ),
       })),
+      analysisEvalArtifactWriter: {
+        write: vi.fn(async (artifact) => {
+          artifacts.push(artifact);
+        }),
+      },
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -418,5 +485,23 @@ describe('bundleSynthesisWorker', () => {
       storyId: 'story-1',
       reason: 'source_count_mismatch',
     });
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      lifecycle_status: 'rejected',
+      rejection_reason: 'source_count_mismatch',
+      story: {
+        story_id: 'story-1',
+        analyzed_source_ids: ['source-analysis'],
+      },
+      usage_policy: {
+        training_state: 'not_training_ready',
+      },
+    });
+    expect(artifacts[0]?.validator_failures[0]).toMatchObject({
+      stage: 'bundle_synthesis_source_count',
+      code: 'source_count_mismatch',
+    });
+    expect(artifacts[0]?.bundle_synthesis.response?.content).toContain('"source_count":2');
+    expect(artifacts[0]?.source_articles[0]?.extraction.raw_extracted_article_text).toContain('Council approved');
   });
 });

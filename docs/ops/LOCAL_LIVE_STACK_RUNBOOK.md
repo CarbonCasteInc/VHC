@@ -91,6 +91,11 @@ Analysis-stub behavior:
   local chat-completions stub;
 - produces accepted `TopicSynthesisV2` records with non-empty frame/reframe
   rows and stable point IDs without depending on a live OpenAI key;
+- persists weak-label analysis/eval artifacts under
+  `/Users/bldt/Desktop/VHC/VHC/.tmp/analysis-eval-artifacts` by default,
+  including raw extracted article text, prompts, model/request metadata,
+  generated facts/summaries/frame rows, validator events, and review
+  placeholders; see `/Users/bldt/Desktop/VHC/VHC/docs/ops/ANALYSIS_EVAL_ARTIFACTS.md`;
 - is the preferred manual lane for testing multi-user stance/comment flows when
   release-like service wiring matters but live model credentials are absent,
   exhausted, or intentionally out of scope for the session.
