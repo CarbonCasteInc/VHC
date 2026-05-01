@@ -378,7 +378,7 @@ describe('ingestFeed', () => {
 
   it('captures fetch exception', async () => {
     const fn = vi.fn().mockRejectedValue(new Error('network down'));
-    const result = await ingestFeed(enabledSource, fn as FetchFn);
+    const result = await ingestFeed(enabledSource, fn as FetchFn, undefined, null);
     expect(result.items).toEqual([]);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]).toContain('network down');
@@ -386,8 +386,19 @@ describe('ingestFeed', () => {
 
   it('captures non-Error exception', async () => {
     const fn = vi.fn().mockRejectedValue('string error');
-    const result = await ingestFeed(enabledSource, fn as FetchFn);
+    const result = await ingestFeed(enabledSource, fn as FetchFn, undefined, null);
     expect(result.errors[0]).toContain('string error');
+  });
+
+  it('falls back to curl-compatible feed text when fetch throws', async () => {
+    const fn = vi.fn().mockRejectedValue(new Error('fetch failed'));
+    const fallback = vi.fn().mockResolvedValue({ text: rssXml, finalUrl: enabledSource.rssUrl });
+
+    const result = await ingestFeed(enabledSource, fn as FetchFn, undefined, fallback);
+
+    expect(fallback).toHaveBeenCalledWith(enabledSource.rssUrl, { timeoutMs: 10_000 });
+    expect(result.errors).toEqual([]);
+    expect(result.items).toHaveLength(2);
   });
 
   it('passes abort signal to fetch', async () => {

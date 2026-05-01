@@ -7,6 +7,8 @@
  * @module @vh/news-aggregator/ingest
  */
 
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import {
   parseApNewsHtmlFeedItems,
   type FeedSource,
@@ -20,6 +22,12 @@ import {
 
 /** Injectable fetch signature (defaults to global fetch). */
 export type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
+export type FeedTextFallback = (
+  url: string,
+  options: { readonly timeoutMs: number },
+) => Promise<{ readonly text: string; readonly finalUrl?: string }>;
+
+const execFileAsync = promisify(execFile);
 
 /** Result of a single feed ingest attempt. */
 export interface IngestResult {
@@ -290,6 +298,44 @@ export function parseFeedXml(xml: string, sourceId: string): RawFeedItem[] {
 /* ------------------------------------------------------------------ */
 
 const DEFAULT_TIMEOUT_MS = 10_000;
+const CURL_MAX_BUFFER_BYTES = 6 * 1024 * 1024;
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function parseFeedPayload(source: FeedSource, payload: string, responseUrl: string): RawFeedItem[] {
+  const parsedXmlItems = parseFeedXml(payload, source.id);
+  return parsedXmlItems.length > 0
+    ? parsedXmlItems
+    : parseApNewsHtmlFeedItems(source, payload, responseUrl || source.rssUrl);
+}
+
+async function fetchFeedTextViaCurl(
+  url: string,
+  options: { readonly timeoutMs: number },
+): Promise<{ readonly text: string; readonly finalUrl?: string }> {
+  const timeoutSeconds = Math.max(1, Math.ceil(options.timeoutMs / 1000));
+  const { stdout } = await execFileAsync(
+    'curl',
+    [
+      '--fail',
+      '--location',
+      '--silent',
+      '--show-error',
+      '--max-time',
+      String(timeoutSeconds),
+      '--user-agent',
+      'VHCNewsAggregator/0.1',
+      url,
+    ],
+    {
+      maxBuffer: CURL_MAX_BUFFER_BYTES,
+      timeout: options.timeoutMs + 1_000,
+    },
+  );
+  return { text: stdout };
+}
 
 /**
  * Fetch and parse a single feed source.
@@ -299,6 +345,7 @@ export async function ingestFeed(
   source: FeedSource,
   fetchFn: FetchFn = globalThis.fetch,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  feedTextFallback: FeedTextFallback | null = fetchFn === globalThis.fetch ? fetchFeedTextViaCurl : null,
 ): Promise<IngestResult> {
   const result: IngestResult = { sourceId: source.id, items: [], errors: [] };
 
@@ -316,15 +363,24 @@ export async function ingestFeed(
         return result;
       }
       const payload = await resp.text();
-      const parsedXmlItems = parseFeedXml(payload, source.id);
-      result.items = parsedXmlItems.length > 0
-        ? parsedXmlItems
-        : parseApNewsHtmlFeedItems(source, payload, resp.url || source.rssUrl);
+      result.items = parseFeedPayload(source, payload, resp.url || source.rssUrl);
     } finally {
       clearTimeout(timer);
     }
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errorMessage(err);
+    if (feedTextFallback) {
+      try {
+        const fallback = await feedTextFallback(source.rssUrl, { timeoutMs });
+        result.items = parseFeedPayload(source, fallback.text, fallback.finalUrl || source.rssUrl);
+        return result;
+      } catch (fallbackError) {
+        result.errors.push(
+          `Fetch failed for ${source.rssUrl}: ${msg}; fallback failed: ${errorMessage(fallbackError)}`,
+        );
+        return result;
+      }
+    }
     result.errors.push(`Fetch failed for ${source.rssUrl}: ${msg}`);
   }
 
@@ -339,6 +395,7 @@ export async function ingestFeeds(
   sources: FeedSource[],
   fetchFn: FetchFn = globalThis.fetch,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  feedTextFallback: FeedTextFallback | null = fetchFn === globalThis.fetch ? fetchFeedTextViaCurl : null,
 ): Promise<IngestResult[]> {
-  return Promise.all(sources.map((s) => ingestFeed(s, fetchFn, timeoutMs)));
+  return Promise.all(sources.map((s) => ingestFeed(s, fetchFn, timeoutMs, feedTextFallback)));
 }
