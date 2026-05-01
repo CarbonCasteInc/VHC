@@ -1,7 +1,4 @@
-import {
-  attachPersistedFramePointIds,
-  type NewsRuntimeSynthesisCandidate,
-} from '@vh/ai-engine';
+import type { NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
 import type { CandidateSynthesis, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
 import {
   readStoryBundle,
@@ -17,6 +14,7 @@ import {
   DEFAULT_BUNDLE_SYNTHESIS_MODEL,
   DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION,
   DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN,
+  DEFAULT_BUNDLE_SYNTHESIS_TEMPERATURE,
   DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS,
   postBundleSynthesisCompletion,
   type BundleSynthesisRelayResponse,
@@ -32,11 +30,21 @@ import {
   toBundleSynthesisInput,
   toSourceAnalysisAudit,
 } from './bundleSynthesisFullText';
+import type { AnalysisEvalArtifactWriter } from './analysisEvalArtifacts';
+import { createAnalysisEvalArtifactWriterFromEnv } from './analysisEvalArtifactWriter';
+import {
+  persistAcceptedBundleSynthesisEvalArtifact,
+  persistRejectedBundleSynthesisEvalArtifact,
+} from './bundleSynthesisEvalArtifact';
+import {
+  BUNDLE_SYNTHESIS_EPOCH,
+  buildCandidatePayload,
+  normalizeIdToken,
+  writeAcceptedSynthesis,
+} from './bundleSynthesisPayloads';
 import { generateBundleSynthesisPrompt, parseBundleSynthesisResponse, PromptParseError } from './prompts';
 
-const BUNDLE_SYNTHESIS_EPOCH = 0;
 const PROVIDER_ID = 'openai';
-const LATEST_OWNER_PREFIX = 'news-bundle:';
 
 export type BundleSynthesisWorkerResult =
   | { status: 'written'; storyId: string; synthesisId: string; latestStatus: 'written' | 'skipped' }
@@ -51,124 +59,23 @@ export interface BundleSynthesisWorkerConfig {
   maxTokens?: number;
   timeoutMs?: number;
   ratePerMinute?: number;
+  temperature?: number;
   pipelineVersion?: string;
   articleTextService?: Pick<ArticleTextService, 'extract'>;
+  analysisEvalArtifactWriter?: AnalysisEvalArtifactWriter;
   relay?: (request: {
     prompt: string;
     model: string;
     maxTokens: number;
     timeoutMs: number;
     ratePerMinute: number;
+    temperature: number;
   }) => Promise<BundleSynthesisRelayResponse>;
   readBundle?: (client: VennClient, storyId: string) => Promise<StoryBundle | null>;
   readCandidate?: typeof readTopicEpochCandidate;
   writeCandidate?: (client: VennClient, candidate: CandidateSynthesis) => Promise<CandidateSynthesis>;
   writeSynthesis?: (client: VennClient, synthesis: TopicSynthesisV2) => Promise<TopicSynthesisV2>;
   writeLatest?: typeof writeTopicLatestSynthesisIfNotDowngrade;
-}
-
-function normalizeIdToken(value: string): string {
-  return value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_') || 'story';
-}
-
-function buildCandidatePayload(input: {
-  candidateId: string;
-  bundle: StoryBundle;
-  keyFacts: string[];
-  summary: string;
-  frames: CandidateSynthesis['frames'];
-  sourceAnalyses: NonNullable<CandidateSynthesis['source_analyses']>;
-  warnings: string[];
-  model: string;
-  now: number;
-}): CandidateSynthesis {
-  return {
-    candidate_id: input.candidateId,
-    topic_id: input.bundle.topic_id,
-    epoch: BUNDLE_SYNTHESIS_EPOCH,
-    critique_notes: ['publish-time full-text story bundle synthesis'],
-    key_facts: input.keyFacts,
-    facts_summary: input.summary,
-    frames: input.frames,
-    source_analyses: input.sourceAnalyses,
-    warnings: input.warnings,
-    divergence_hints: [],
-    provider: {
-      provider_id: PROVIDER_ID,
-      model_id: input.model,
-      kind: 'remote',
-    },
-    created_at: input.now,
-  };
-}
-
-function buildTopicSynthesisPayload(input: {
-  synthesisId: string;
-  candidateId: string;
-  bundle: StoryBundle;
-  summary: string;
-  frames: CandidateSynthesis['frames'];
-  warnings: string[];
-  now: number;
-}): TopicSynthesisV2 {
-  return {
-    schemaVersion: 'topic-synthesis-v2',
-    topic_id: input.bundle.topic_id,
-    epoch: BUNDLE_SYNTHESIS_EPOCH,
-    synthesis_id: input.synthesisId,
-    inputs: {
-      story_bundle_ids: [input.bundle.story_id],
-    },
-    quorum: {
-      required: 1,
-      received: 1,
-      reached_at: input.now,
-      timed_out: false,
-      selection_rule: 'deterministic',
-    },
-    facts_summary: input.summary,
-    frames: attachPersistedFramePointIds(input.synthesisId, input.frames),
-    warnings: input.warnings,
-    divergence_metrics: {
-      disagreement_score: input.frames.length > 0 ? 0.5 : 0,
-      source_dispersion: resolveAnalysisSources(input.bundle).length > 1 ? 1 : 0,
-      candidate_count: 1,
-    },
-    provenance: {
-      candidate_ids: [input.candidateId],
-      provider_mix: [{ provider_id: PROVIDER_ID, count: 1 }],
-    },
-    created_at: input.now,
-  };
-}
-
-async function writeAcceptedSynthesis(input: {
-  config: BundleSynthesisWorkerConfig;
-  bundle: StoryBundle;
-  candidateId: string;
-  synthesisId: string;
-  summary: string;
-  frames: CandidateSynthesis['frames'];
-  warnings: string[];
-  createdAt: number;
-  writeSynthesis: (client: VennClient, synthesis: TopicSynthesisV2) => Promise<TopicSynthesisV2>;
-  writeLatest: typeof writeTopicLatestSynthesisIfNotDowngrade;
-}): Promise<{ latestStatus: 'written' | 'skipped' }> {
-  const synthesisPayload = buildTopicSynthesisPayload({
-    synthesisId: input.synthesisId,
-    candidateId: input.candidateId,
-    bundle: input.bundle,
-    summary: input.summary,
-    frames: input.frames,
-    warnings: input.warnings,
-    now: input.createdAt,
-  });
-
-  await input.writeSynthesis(input.config.client, synthesisPayload);
-  const latestResult = await input.writeLatest(input.config.client, synthesisPayload, {
-    canOverwriteExisting: (existing) => existing.synthesis_id.startsWith(LATEST_OWNER_PREFIX),
-  });
-  return { latestStatus: latestResult.status };
 }
 
 export function createBundleSynthesisWorker(
@@ -180,9 +87,13 @@ export function createBundleSynthesisWorker(
   const maxTokens = Math.max(1, Math.floor(config.maxTokens ?? DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS));
   const timeoutMs = Math.max(1, Math.floor(config.timeoutMs ?? DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS));
   const ratePerMinute = Math.max(1, Math.floor(config.ratePerMinute ?? DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN));
+  const temperature = typeof config.temperature === 'number' && Number.isFinite(config.temperature)
+    ? config.temperature
+    : DEFAULT_BUNDLE_SYNTHESIS_TEMPERATURE;
   const pipelineVersion = config.pipelineVersion?.trim() || DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION;
   const relay = config.relay ?? postBundleSynthesisCompletion;
   const articleTextService = config.articleTextService ?? new ArticleTextService();
+  const analysisEvalArtifactWriter = config.analysisEvalArtifactWriter ?? createAnalysisEvalArtifactWriterFromEnv();
   const readBundle = config.readBundle ?? readStoryBundle;
   const readCandidate = config.readCandidate ?? readTopicEpochCandidate;
   const writeCandidate = config.writeCandidate ?? writeTopicEpochCandidate;
@@ -225,7 +136,7 @@ export function createBundleSynthesisWorker(
     const existingCandidate = await readCandidate(config.client, bundle.topic_id, BUNDLE_SYNTHESIS_EPOCH, candidateId);
     if (existingCandidate && candidateHasReusableFullTextAudit(existingCandidate)) {
       const { latestStatus } = await writeAcceptedSynthesis({
-        config,
+        client: config.client,
         bundle,
         candidateId,
         synthesisId,
@@ -259,26 +170,63 @@ export function createBundleSynthesisWorker(
       maxTokens,
       timeoutMs,
       ratePerMinute,
+      temperature,
       logger,
     });
+    const artifactContext = {
+      writer: analysisEvalArtifactWriter,
+      logger,
+      bundle,
+      analysisSources,
+      readableSources: extracted.readableSources,
+      extractionWarnings: extracted.warnings,
+      articleAnalysis,
+      request: {
+        provider_id: PROVIDER_ID,
+        model,
+        max_tokens: maxTokens,
+        timeout_ms: timeoutMs,
+        rate_per_minute: ratePerMinute,
+        temperature,
+        pipeline_version: pipelineVersion,
+      },
+      candidateId,
+      synthesisId,
+    };
     if (articleAnalysis.analyzedSources.length === 0) {
       logger.warn('[vh:bundle-synthesis] no source analyses completed; rejected', { story_id: storyId });
+      await persistRejectedBundleSynthesisEvalArtifact({
+        context: artifactContext,
+        capturedAt: now(),
+        rejectionReason: 'relay_failed',
+        warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
+      });
       return { status: 'rejected', storyId, reason: 'relay_failed' };
     }
 
     let response: BundleSynthesisRelayResponse;
+    const bundlePrompt = generateBundleSynthesisPrompt(
+      toBundleSynthesisInput(bundle, articleAnalysis.analyzedSources),
+    );
     try {
       response = await relay({
-        prompt: generateBundleSynthesisPrompt(
-          toBundleSynthesisInput(bundle, articleAnalysis.analyzedSources),
-        ),
+        prompt: bundlePrompt,
         model,
         maxTokens,
         timeoutMs,
         ratePerMinute,
+        temperature,
       });
     } catch (error) {
       logger.warn('[vh:bundle-synthesis] relay failed', { story_id: storyId, error });
+      await persistRejectedBundleSynthesisEvalArtifact({
+        context: artifactContext,
+        capturedAt: now(),
+        rejectionReason: 'relay_failed',
+        bundlePrompt,
+        warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
+        error,
+      });
       return { status: 'rejected', storyId, reason: 'relay_failed' };
     }
 
@@ -290,6 +238,15 @@ export function createBundleSynthesisWorker(
       const reason = error instanceof PromptParseError && error.message.startsWith('source_count:')
         ? 'source_count_mismatch'
         : 'parse_failed';
+      await persistRejectedBundleSynthesisEvalArtifact({
+        context: artifactContext,
+        capturedAt: now(),
+        rejectionReason: reason,
+        bundlePrompt,
+        bundleResponse: response,
+        warnings: dedupeWarnings([...extracted.warnings, ...articleAnalysis.warnings]),
+        error,
+      });
       return { status: 'rejected', storyId, reason };
     }
 
@@ -317,8 +274,8 @@ export function createBundleSynthesisWorker(
       now: createdAt,
     });
     await writeCandidate(config.client, candidatePayload);
-    const { latestStatus } = await writeAcceptedSynthesis({
-      config,
+    const { latestStatus, synthesis } = await writeAcceptedSynthesis({
+      client: config.client,
       bundle,
       synthesisId,
       candidateId,
@@ -328,6 +285,16 @@ export function createBundleSynthesisWorker(
       createdAt,
       writeSynthesis,
       writeLatest,
+    });
+    await persistAcceptedBundleSynthesisEvalArtifact({
+      context: artifactContext,
+      capturedAt: createdAt,
+      bundlePrompt,
+      bundleResponse: response,
+      bundleGenerated: parsed,
+      candidateSynthesis: candidatePayload,
+      finalAcceptedSynthesis: synthesis,
+      warnings,
     });
 
     logger.info('[vh:bundle-synthesis] synthesis written', {

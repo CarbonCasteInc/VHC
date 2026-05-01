@@ -4,6 +4,7 @@ export const DEFAULT_BUNDLE_SYNTHESIS_MODEL = 'gpt-4o-mini';
 export const DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS = 2400;
 export const DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS = 20_000;
 export const DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN = 20;
+export const DEFAULT_BUNDLE_SYNTHESIS_TEMPERATURE = 0.2;
 export const DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION = 'news-bundle-v2-fulltext';
 
 const RATE_WINDOW_MS = 60_000;
@@ -15,6 +16,7 @@ export interface BundleSynthesisRelayRequest {
   maxTokens?: number;
   timeoutMs?: number;
   ratePerMinute?: number;
+  temperature?: number;
   apiKey?: string;
   upstreamUrl?: string;
   fetchFn?: typeof fetch;
@@ -84,6 +86,9 @@ export async function postBundleSynthesisCompletion(
   const maxTokens = Math.max(1, Math.floor(request.maxTokens ?? DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS));
   const timeoutMs = Math.max(1, Math.floor(request.timeoutMs ?? DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS));
   const ratePerMinute = Math.max(1, Math.floor(request.ratePerMinute ?? DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN));
+  const temperature = typeof request.temperature === 'number' && Number.isFinite(request.temperature)
+    ? request.temperature
+    : DEFAULT_BUNDLE_SYNTHESIS_TEMPERATURE;
   const now = request.now ?? Date.now;
   assertBundleRateLimit(ratePerMinute, now());
 
@@ -109,7 +114,7 @@ export async function postBundleSynthesisCompletion(
           { role: 'user', content: prompt },
         ],
         [tokenParam]: maxTokens,
-        temperature: 0.2,
+        temperature,
         response_format: { type: 'json_object' },
       }),
       signal: controller.signal,

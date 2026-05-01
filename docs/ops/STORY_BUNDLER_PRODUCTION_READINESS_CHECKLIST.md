@@ -75,6 +75,10 @@ Primary paths:
   - `/Users/bldt/Desktop/VHC/VHC/services/news-aggregator/.tmp/news-source-admission/latest/source-health-trend.json`
 - Unified readiness:
   - `/Users/bldt/Desktop/VHC/VHC/.tmp/storycluster-production-readiness/<run>/production-readiness-report.json`
+- Analysis/eval artifacts:
+  - `/Users/bldt/Desktop/VHC/VHC/.tmp/analysis-eval-artifacts/analysis-eval-artifacts.jsonl`
+  - `/Users/bldt/Desktop/VHC/VHC/.tmp/analysis-eval-artifacts/artifacts/analysis-eval:<hash>.json`
+  - See `/Users/bldt/Desktop/VHC/VHC/docs/ops/ANALYSIS_EVAL_ARTIFACTS.md` for the weak-label policy and review workflow.
 
 ## Release Profiles
 

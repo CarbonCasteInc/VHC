@@ -10,6 +10,7 @@ import {
   DEFAULT_BUNDLE_SYNTHESIS_MAX_TOKENS,
   DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION,
   DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN,
+  DEFAULT_BUNDLE_SYNTHESIS_TEMPERATURE,
   DEFAULT_BUNDLE_SYNTHESIS_TIMEOUT_MS,
   getBundleSynthesisModel,
 } from './bundleSynthesisRelay';
@@ -26,6 +27,14 @@ export function isTruthyFlag(value: string | undefined): boolean {
   }
   const normalized = value.trim().toLowerCase();
   return normalized.length > 0 && !['0', 'false', 'off', 'no'].includes(normalized);
+}
+
+function parseFiniteNumber(raw: string | undefined, fallback: number): number {
+  if (!raw) {
+    return fallback;
+  }
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 export function createBundleSynthesisEnrichmentFromEnv(
@@ -46,6 +55,10 @@ export function createBundleSynthesisEnrichmentFromEnv(
     ratePerMinute: parsePositiveInt(
       readEnvVar('VH_BUNDLE_SYNTHESIS_RATE_PER_MIN'),
       DEFAULT_BUNDLE_SYNTHESIS_RATE_PER_MIN,
+    ),
+    temperature: parseFiniteNumber(
+      readEnvVar('VH_BUNDLE_SYNTHESIS_TEMPERATURE'),
+      DEFAULT_BUNDLE_SYNTHESIS_TEMPERATURE,
     ),
     pipelineVersion: readEnvVar('VH_BUNDLE_SYNTHESIS_PIPELINE_VERSION') ?? DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION,
     logger,

@@ -1,5 +1,10 @@
 import { createHash } from 'node:crypto';
 import type { CandidateSynthesis, SourceAnalysisAudit, StoryBundle } from '@vh/data-model';
+import {
+  serializeAnalysisEvalError,
+  sha256Text,
+  type AnalysisEvalValidatorEvent,
+} from './analysisEvalArtifactPrimitives';
 import type { ArticleTextResult, ArticleTextService } from './articleTextService';
 import type { BundleSynthesisRelayResponse } from './bundleSynthesisRelay';
 import type { LoggerLike } from './daemonUtils';
@@ -16,6 +21,7 @@ export type BundleSynthesisRelay = (request: {
   maxTokens: number;
   timeoutMs: number;
   ratePerMinute: number;
+  temperature: number;
 }) => Promise<BundleSynthesisRelayResponse>;
 
 export interface ReadableBundleSource {
@@ -25,6 +31,18 @@ export interface ReadableBundleSource {
 
 export interface AnalyzedBundleSource extends ReadableBundleSource {
   readonly analysis: ArticleAnalysisResult;
+  readonly analysisPrompt: string;
+  readonly analysisPromptHash: string;
+  readonly analysisResponse: BundleSynthesisRelayResponse;
+  readonly validatorEvents: AnalysisEvalValidatorEvent[];
+}
+
+export interface FailedBundleSourceAnalysis extends ReadableBundleSource {
+  readonly analysisPrompt: string;
+  readonly analysisPromptHash: string;
+  readonly analysisResponse?: BundleSynthesisRelayResponse;
+  readonly validatorEvents: AnalysisEvalValidatorEvent[];
+  readonly error: ReturnType<typeof serializeAnalysisEvalError>;
 }
 
 export function resolveAnalysisSources(bundle: StoryBundle): StoryBundle['sources'] {
@@ -96,24 +114,33 @@ export async function analyzeReadableBundleSources(input: {
   readonly maxTokens: number;
   readonly timeoutMs: number;
   readonly ratePerMinute: number;
+  readonly temperature: number;
   readonly logger: LoggerLike;
-}): Promise<{ analyzedSources: AnalyzedBundleSource[]; warnings: string[] }> {
+}): Promise<{
+  analyzedSources: AnalyzedBundleSource[];
+  failedSources: FailedBundleSourceAnalysis[];
+  warnings: string[];
+}> {
   const analyzedSources: AnalyzedBundleSource[] = [];
+  const failedSources: FailedBundleSourceAnalysis[] = [];
   const warnings: string[] = [];
 
   for (const readable of input.readableSources) {
     const { source, article } = readable;
+    const prompt = generateArticleAnalysisPrompt(article.text, {
+      publisher: source.publisher,
+      title: source.title,
+      url: source.url,
+    });
+    let response: BundleSynthesisRelayResponse | undefined;
     try {
-      const response = await input.relay({
-        prompt: generateArticleAnalysisPrompt(article.text, {
-          publisher: source.publisher,
-          title: source.title,
-          url: source.url,
-        }),
+      response = await input.relay({
+        prompt,
         model: input.model,
         maxTokens: input.maxTokens,
         timeoutMs: input.timeoutMs,
         ratePerMinute: input.ratePerMinute,
+        temperature: input.temperature,
       });
       const analysis = parseArticleAnalysisResponse(response.content, {
         article_id: `${source.source_id}:${source.url_hash}`,
@@ -122,9 +149,36 @@ export async function analyzeReadableBundleSources(input: {
         url_hash: source.url_hash,
         engine: response.model,
       });
-      analyzedSources.push({ ...readable, analysis });
+      analyzedSources.push({
+        ...readable,
+        analysis,
+        analysisPrompt: prompt,
+        analysisPromptHash: sha256Text(prompt),
+        analysisResponse: response,
+        validatorEvents: [{
+          stage: 'article_analysis_parse',
+          status: 'accepted',
+          code: 'article_analysis_schema_valid',
+          message: 'Article analysis response parsed against the required schema.',
+          source_id: source.source_id,
+        }],
+      });
     } catch (error) {
       warnings.push(`source_analysis_failed:${source.source_id}`);
+      failedSources.push({
+        ...readable,
+        analysisPrompt: prompt,
+        analysisPromptHash: sha256Text(prompt),
+        ...(response ? { analysisResponse: response } : {}),
+        error: serializeAnalysisEvalError(error),
+        validatorEvents: [{
+          stage: response ? 'article_analysis_parse' : 'article_analysis_relay',
+          status: 'rejected',
+          code: response ? 'article_analysis_schema_rejected' : 'article_analysis_relay_failed',
+          message: error instanceof Error ? error.message : String(error),
+          source_id: source.source_id,
+        }],
+      });
       input.logger.warn('[vh:bundle-synthesis] source analysis failed', {
         story_id: input.storyId,
         source_id: source.source_id,
@@ -134,7 +188,7 @@ export async function analyzeReadableBundleSources(input: {
     }
   }
 
-  return { analyzedSources, warnings };
+  return { analyzedSources, failedSources, warnings };
 }
 
 export function toBundleSynthesisInput(
