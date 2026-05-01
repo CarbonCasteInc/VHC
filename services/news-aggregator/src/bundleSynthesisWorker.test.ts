@@ -457,6 +457,58 @@ describe('bundleSynthesisWorker', () => {
     ]);
   });
 
+  it('persists rejected eval artifacts when no source text is readable', async () => {
+    const artifacts: AnalysisEvalArtifact[] = [];
+    const articleTextService = {
+      extract: vi.fn(async () => {
+        throw new Error('fetch failed');
+      }),
+    };
+    const relay = vi.fn();
+
+    const worker = createBundleSynthesisWorker({
+      client: {} as VennClient,
+      now: () => 1700000003000,
+      readBundle: async () => BUNDLE,
+      readCandidate: vi.fn(async () => null),
+      articleTextService,
+      relay,
+      analysisEvalArtifactWriter: {
+        write: vi.fn(async (artifact) => {
+          artifacts.push(artifact);
+        }),
+      },
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    });
+
+    await expect(worker(CANDIDATE)).resolves.toEqual({
+      status: 'rejected',
+      storyId: 'story-1',
+      reason: 'source_text_unavailable',
+    });
+
+    expect(relay).not.toHaveBeenCalled();
+    expect(artifacts).toHaveLength(1);
+    expect(artifacts[0]).toMatchObject({
+      lifecycle_status: 'rejected',
+      rejection_reason: 'source_text_unavailable',
+      story: {
+        story_id: 'story-1',
+        analysis_source_ids: ['source-analysis'],
+        readable_source_ids: [],
+        analyzed_source_ids: [],
+      },
+      source_articles: [],
+      warnings: ['source_text_unavailable:source-analysis'],
+    });
+    expect(artifacts[0]?.validator_failures).toContainEqual(
+      expect.objectContaining({
+        stage: 'source_extraction',
+        code: 'source_text_unavailable',
+      }),
+    );
+  });
+
   it('rejects generated output that widens analysis source count', async () => {
     const artifacts: AnalysisEvalArtifact[] = [];
     const worker = createBundleSynthesisWorker({
