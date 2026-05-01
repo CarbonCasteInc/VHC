@@ -88,6 +88,26 @@ describe('parseArticleAnalysisResponse', () => {
     expect(result.justify_bias_claim).toEqual(valid.justify_bias_claim);
   });
 
+  it('normalizes singleton string list fields from model responses', () => {
+    const result = parseArticleAnalysisResponse(
+      JSON.stringify({
+        ...valid,
+        key_facts: 'fact 1',
+        bias_claim_quote: 'quote 1',
+        justify_bias_claim: 'reason 1',
+        biases: 'bias 1',
+        counterpoints: 'counterpoint 1',
+      }),
+      meta,
+    );
+
+    expect(result.key_facts).toEqual(['fact 1']);
+    expect(result.bias_claim_quote).toEqual(['quote 1']);
+    expect(result.justify_bias_claim).toEqual(['reason 1']);
+    expect(result.biases).toEqual(['bias 1']);
+    expect(result.counterpoints).toEqual(['counterpoint 1']);
+  });
+
   it('throws PromptParseError for garbage input', () => {
     expect(() => parseArticleAnalysisResponse('not json', meta)).toThrow(PromptParseError);
   });
