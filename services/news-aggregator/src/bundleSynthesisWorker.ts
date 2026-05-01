@@ -114,6 +114,16 @@ export function createBundleSynthesisWorker(
       return { status: 'skipped', storyId, reason: 'no_analysis_sources' };
     }
 
+    const request = {
+      provider_id: PROVIDER_ID,
+      model,
+      max_tokens: maxTokens,
+      timeout_ms: timeoutMs,
+      rate_per_minute: ratePerMinute,
+      temperature,
+      pipeline_version: pipelineVersion,
+    };
+
     const extracted = await extractReadableBundleSources({
       storyId,
       sources: analysisSources,
@@ -122,6 +132,28 @@ export function createBundleSynthesisWorker(
     });
     if (extracted.readableSources.length === 0) {
       logger.warn('[vh:bundle-synthesis] no readable analysis sources; rejected', { story_id: storyId });
+      await persistRejectedBundleSynthesisEvalArtifact({
+        context: {
+          writer: analysisEvalArtifactWriter,
+          logger,
+          bundle,
+          analysisSources,
+          readableSources: [],
+          extractionWarnings: extracted.warnings,
+          articleAnalysis: {
+            analyzedSources: [],
+            failedSources: [],
+            warnings: [],
+          },
+          request,
+          candidateId: `news-bundle:unreadable:${normalizeIdToken(bundle.story_id)}:${bundle.provenance_hash.slice(0, 12)}`,
+          synthesisId: `news-bundle:${normalizeIdToken(bundle.story_id)}:unreadable-${bundle.provenance_hash.slice(0, 12)}`,
+        },
+        capturedAt: now(),
+        rejectionReason: 'source_text_unavailable',
+        warnings: dedupeWarnings(extracted.warnings),
+        error: new Error('No readable article text was available for the analysis sources.'),
+      });
       return { status: 'rejected', storyId, reason: 'source_text_unavailable' };
     }
 
@@ -181,15 +213,7 @@ export function createBundleSynthesisWorker(
       readableSources: extracted.readableSources,
       extractionWarnings: extracted.warnings,
       articleAnalysis,
-      request: {
-        provider_id: PROVIDER_ID,
-        model,
-        max_tokens: maxTokens,
-        timeout_ms: timeoutMs,
-        rate_per_minute: ratePerMinute,
-        temperature,
-        pipeline_version: pipelineVersion,
-      },
+      request,
       candidateId,
       synthesisId,
     };

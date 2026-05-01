@@ -220,7 +220,7 @@ export class ArticleTextService {
       return { ...directHit.entry.value, cacheHit: 'urlHash', attempts: 0 } satisfies ArticleTextResult;
     }
 
-    if (directHit?.entry.kind === 'failure') {
+    if (directHit?.entry.kind === 'failure' && !directHit.entry.value.retryable) {
       const failure = directHit.entry.value;
       throw new ArticleTextServiceError(failure.code, failure.message, failure.statusCode, failure.retryable);
     }

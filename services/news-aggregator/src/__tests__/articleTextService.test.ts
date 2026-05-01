@@ -198,6 +198,41 @@ describe('ArticleTextService', () => {
     });
   });
 
+  it('retries live extraction instead of returning cached retryable failures', async () => {
+    const cache = new ArticleTextCache();
+    const url = 'https://allowed.com/transient';
+
+    cache.rememberFailure({
+      url,
+      urlHash: urlHash(url),
+      code: 'fetch-failed',
+      message: 'temporary network failure',
+      statusCode: 502,
+      retryable: true,
+      failedAt: 1,
+    });
+
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(makeHtml(makeWords(220), 'Recovered'), { status: 200 }),
+    );
+    const primaryExtractor = vi.fn().mockResolvedValue({
+      title: 'Recovered',
+      text: makeWords(220),
+    });
+    const service = new ArticleTextService({
+      allowlist: new Set(['allowed.com']),
+      cache,
+      fetchFn,
+      primaryExtractor,
+    });
+
+    const result = await service.extract(url);
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    expect(result.title).toBe('Recovered');
+    expect(result.cacheHit).toBe('none');
+  });
+
   it('retries retryable fetch failures, then succeeds and records lifecycle metadata', async () => {
     const fetchFn = vi
       .fn<typeof fetch>()

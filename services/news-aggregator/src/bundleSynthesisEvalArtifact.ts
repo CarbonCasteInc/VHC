@@ -61,6 +61,9 @@ function rejectedBundleStage(input: {
   rejectionReason: string;
   bundleResponse?: BundleSynthesisRelayResponse;
 }): AnalysisEvalValidatorEvent['stage'] {
+  if (input.rejectionReason === 'source_text_unavailable') {
+    return 'source_extraction';
+  }
   if (input.rejectionReason === 'source_count_mismatch') {
     return 'bundle_synthesis_source_count';
   }
