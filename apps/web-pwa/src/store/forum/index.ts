@@ -43,6 +43,7 @@ const COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS = 1_000;
 const COMMENT_SNAPSHOT_REPLAY_INTERVAL_MS = 5_000;
 const COMMENT_DURABILITY_READBACK_TIMEOUT_MS = 15_000;
 const COMMENT_DURABILITY_READBACK_POLL_MS = 500;
+const THREAD_PUT_ACK_TIMEOUT_MS = 5_000;
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
 const COMMENT_INDEX_ENTRY_KEY = 'current';
 const COMMENT_INDEX_ENTRIES_KEY = 'entries';
@@ -526,7 +527,8 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     randomId: () =>
       typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
     confirmCommentDurability: shouldConfirmCommentDurability(),
-    commentDurabilityTimeoutMs: COMMENT_DURABILITY_READBACK_TIMEOUT_MS
+    commentDurabilityTimeoutMs: COMMENT_DURABILITY_READBACK_TIMEOUT_MS,
+    threadPutAckTimeoutMs: THREAD_PUT_ACK_TIMEOUT_MS
   };
   const deps = { ...defaults, ...overrides };
 
@@ -893,18 +895,16 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       }
       console.info('[vh:forum] Creating thread:', threadForGun.id);
       console.debug('[vh:forum] Thread data for Gun:', JSON.stringify(threadForGun, null, 2));
-      await new Promise<void>((resolve, reject) => {
-        getForumThreadChain(client, threadForGun.id as string).put(threadForGun as any, (ack?: { err?: string }) => {
-          console.debug('[vh:forum] Put ack received:', ack);
-          if (ack?.err) {
-            console.error('[vh:forum] Thread write failed:', ack.err);
-            reject(new Error(ack.err));
-            return;
-          }
-          console.info('[vh:forum] Thread written successfully to path: vh/forum/threads/' + threadForGun.id);
-          resolve();
-        });
-      });
+      const threadWriteOutcome = await putWithBoundedAck(
+        getForumThreadChain(client, threadForGun.id as string) as unknown as PutChain<Record<string, unknown>>,
+        threadForGun,
+        deps.threadPutAckTimeoutMs
+      );
+      if (threadWriteOutcome === 'timeout') {
+        console.warn('[vh:forum] Thread write ack timed out, continuing after local write:', threadForGun.id);
+      } else {
+        console.info('[vh:forum] Thread written successfully to path: vh/forum/threads/' + threadForGun.id);
+      }
       // TOCTOU: consumeAction runs after async Gun write. Concurrent createThread calls
       // at budget limit-1 can both pass canPerformAction, both persist to Gun, then the
       // second consume throws. The orphaned Gun record is a known local-first tradeoff.
