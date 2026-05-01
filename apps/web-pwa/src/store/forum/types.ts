@@ -67,6 +67,7 @@ export interface ForumDeps {
   randomId: () => string;
   confirmCommentDurability: boolean;
   commentDurabilityTimeoutMs: number;
+  threadPutAckTimeoutMs: number;
 }
 
 export type CommentStanceInput = 'concur' | 'counter' | 'discuss' | 'reply' | 'counterpoint';

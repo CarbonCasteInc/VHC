@@ -239,6 +239,25 @@ describe('hermesForum store', () => {
     });
   });
 
+  it('createThread resolves when the local Gun write does not acknowledge', async () => {
+    setIdentity('unacked-thread-id');
+    threadChain.put.mockImplementationOnce((value: any) => {
+      threadWrites.push(value);
+    });
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => 'thread-unacked',
+      now: () => 1,
+      threadPutAckTimeoutMs: 1,
+    });
+
+    const thread = await store.getState().createThread('title', 'content', ['news']);
+
+    expect(thread).toMatchObject({ id: 'thread-unacked' });
+    expect(store.getState().threads.get('thread-unacked')).toMatchObject({ id: 'thread-unacked' });
+    expect(threadWrites[0]).toMatchObject({ id: 'thread-unacked' });
+  });
+
   it('createThread writes synthesis source context and not legacy analysis context', async () => {
     setIdentity('synthesis-thread');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-synth', now: () => 1 });
