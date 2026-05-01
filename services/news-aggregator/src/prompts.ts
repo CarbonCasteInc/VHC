@@ -60,14 +60,24 @@ const perspectiveSchema = z
     path: ['reframe'],
   });
 
+const stringArraySchema = z.preprocess(
+  (value) => (typeof value === 'string' ? [value] : value),
+  z.array(z.string()),
+);
+
+const nonEmptyStringArraySchema = z.preprocess(
+  (value) => (typeof value === 'string' ? [value] : value),
+  z.array(z.string().trim().min(1)).min(1),
+);
+
 const articlePayloadSchema = z
   .object({
-    key_facts: z.array(z.string().trim().min(1)).min(1),
+    key_facts: nonEmptyStringArraySchema,
     summary: z.string().trim().min(1),
-    bias_claim_quote: z.array(z.string()),
-    justify_bias_claim: z.array(z.string()),
-    biases: z.array(z.string()),
-    counterpoints: z.array(z.string()),
+    bias_claim_quote: stringArraySchema,
+    justify_bias_claim: stringArraySchema,
+    biases: stringArraySchema,
+    counterpoints: stringArraySchema,
     confidence: z.number().min(0).max(1),
     perspectives: z.array(perspectiveSchema).min(1),
   })
