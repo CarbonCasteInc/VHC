@@ -5,6 +5,7 @@ import {
   type StoryAnalysisLatestPointer,
 } from '@vh/data-model';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
+import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -238,7 +239,7 @@ const WRITE_READBACK_RETRY_MS = 250;
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
   return putWithAckTimeout(chain, value, {
     timeoutMs: PUT_ACK_TIMEOUT_MS,
-    onTimeout: () => console.warn('[vh:gun-client] analysis put ack timed out, proceeding best-effort'),
+    onTimeout: () => console.warn('[vh:gun-client] analysis put ack timed out, requiring readback confirmation'),
   });
 }
 
@@ -357,7 +358,24 @@ export async function writeAnalysis(
     ...(sanitized.bundle_identity ? { bundle_identity: sanitized.bundle_identity } : {}),
   };
 
-  await putWithAck(getStoryAnalysisLatestChain(client, normalizedStoryId), pointer);
+  await writeWithDurability({
+    chain: getStoryAnalysisLatestChain(client, normalizedStoryId),
+    value: pointer,
+    writeClass: 'analysis-latest-pointer',
+    timeoutMs: PUT_ACK_TIMEOUT_MS,
+    timeoutError: 'analysis latest pointer write timed out and readback did not confirm persistence',
+    onAckTimeout: () => console.warn('[vh:gun-client] analysis latest pointer ack timed out, requiring readback confirmation'),
+    readback: async () => parseLatestPointer(await readOnce(getStoryAnalysisLatestChain(client, normalizedStoryId))),
+    readbackPredicate: (observed) => {
+      const candidate = observed as StoryAnalysisLatestPointer | null;
+      return Boolean(
+        candidate
+        && candidate.analysisKey === pointer.analysisKey
+        && candidate.provenance_hash === pointer.provenance_hash
+        && candidate.model_scope === pointer.model_scope
+      );
+    },
+  });
   return sanitized;
 }
 

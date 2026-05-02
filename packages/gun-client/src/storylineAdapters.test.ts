@@ -198,11 +198,12 @@ describe('storylineAdapters', () => {
     timedReadMesh.triggerOnce('news/storylines/storyline-1', STORYLINE);
 
     const timeoutMesh = createFakeMesh({ putAck: 'skip' });
+    timeoutMesh.setRead('news/storylines/storyline-1', STORYLINE);
     const timeoutClient = createClient(timeoutMesh, { validateWrite: vi.fn() } as unknown as TopologyGuard);
     const pendingWrite = writeNewsStoryline(timeoutClient, STORYLINE);
     await vi.advanceTimersByTimeAsync(1_000);
     await expect(pendingWrite).resolves.toEqual(STORYLINE);
-    expect(warnSpy).toHaveBeenCalledWith('[vh:storylines] put ack timed out, proceeding without ack');
+    expect(warnSpy).toHaveBeenCalledWith('[vh:storylines] put ack timed out, requiring readback confirmation');
     timeoutMesh.triggerAck('news/storylines/storyline-1', {});
 
     const errorClient = createClient(

@@ -266,6 +266,27 @@ describe('forumAdapters', () => {
     await expect(writeForumCommentModeration(client, MODERATION, OPERATOR_AUTHORIZATION)).rejects.toThrow('boom');
   });
 
+  it('recovers moderation writes from ack timeout when readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const chain = createMockChain();
+    chain.put.mockImplementation((_value: any, _cb?: (ack?: any) => void) => undefined);
+    chain.once.mockImplementation((cb?: (data: unknown) => void) => cb?.(MODERATION));
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const writePromise = writeForumCommentModeration(client, MODERATION, OPERATOR_AUTHORIZATION);
+      await vi.advanceTimersByTimeAsync(6_000);
+      await expect(writePromise).resolves.toEqual(MODERATION);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:forum] moderation put ack timed out, requiring readback confirmation');
+      expect(warnSpy).toHaveBeenCalledWith('[vh:forum] latest moderation put ack timed out, requiring readback confirmation');
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('requires trusted operator authorization for comment moderation writes', async () => {
     const chain = createMockChain();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;

@@ -4,7 +4,8 @@ import {
   deriveSentimentEventId,
   type SentimentEvent,
 } from '@vh/data-model';
-import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
+import { createGuardedChain, type ChainWithGet, type PutAckResult } from './chain';
+import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -121,11 +122,27 @@ const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   1_000,
 );
 
-async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
-  return putWithAckTimeout(chain, value, {
+async function putWithAck<T>(
+  chain: ChainWithGet<T>,
+  value: T,
+  options: {
+    readonly writeClass: string;
+    readonly timeoutError?: string;
+    readonly readback?: () => Promise<unknown>;
+    readonly readbackPredicate?: (observed: unknown) => boolean;
+  },
+): Promise<PutAckResult> {
+  const result = await writeWithDurability({
+    chain,
+    value,
+    writeClass: options.writeClass,
     timeoutMs: PUT_ACK_TIMEOUT_MS,
-    onTimeout: () => console.warn('[vh:gun-client] sentiment outbox put ack timed out, proceeding best-effort'),
+    timeoutError: options.timeoutError,
+    readback: options.readback,
+    readbackPredicate: options.readbackPredicate,
+    onAckTimeout: () => console.warn('[vh:gun-client] sentiment outbox put ack timed out, requiring readback confirmation'),
   });
+  return result.ack;
 }
 
 export function getSentimentOutboxChain(client: VennClient): ChainWithGet<EncryptedSentimentEnvelope> {
@@ -155,7 +172,22 @@ export async function writeSentimentEvent(
   });
 
   const envelope = await encryptSentimentEvent(client, sanitized);
-  const ack = await putWithAck(getSentimentOutboxChain(client).get(eventId), envelope);
+  const eventChain = getSentimentOutboxChain(client).get(eventId);
+  const ack = await putWithAck(eventChain, envelope, {
+    writeClass: 'sentiment-outbox',
+    timeoutError: 'sentiment outbox write timed out and readback did not confirm persistence',
+    readback: async () => decryptSentimentEvent(client, stripGunMetadata(await readOnce(eventChain))),
+    readbackPredicate: (observed) => {
+      const candidate = observed as SentimentEvent | null;
+      return Boolean(
+        candidate
+        && candidate.topic_id === sanitized.topic_id
+        && candidate.synthesis_id === sanitized.synthesis_id
+        && candidate.epoch === sanitized.epoch
+        && candidate.point_id === sanitized.point_id
+      );
+    },
+  });
 
   return { eventId, event: sanitized, ack };
 }

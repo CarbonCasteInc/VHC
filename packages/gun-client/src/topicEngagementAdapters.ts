@@ -6,7 +6,8 @@ import {
   type TopicEngagementActorNode,
   type TopicEngagementAggregateV1,
 } from '@vh/data-model';
-import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
+import { createGuardedChain, type ChainWithGet } from './chain';
+import { writeWithDurability, type DurableWriteResult } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -100,8 +101,26 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
-function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
-  return putWithAckTimeout(chain, value, { timeoutMs: PUT_ACK_TIMEOUT_MS });
+function putWithAck<T>(
+  chain: ChainWithGet<T>,
+  value: T,
+  options: {
+    readonly writeClass: string;
+    readonly timeoutError?: string;
+    readonly readback?: () => Promise<unknown>;
+    readonly readbackPredicate?: (observed: unknown) => boolean;
+  },
+): Promise<DurableWriteResult> {
+  return writeWithDurability({
+    chain,
+    value,
+    writeClass: options.writeClass,
+    timeoutMs: PUT_ACK_TIMEOUT_MS,
+    timeoutError: options.timeoutError,
+    readback: options.readback,
+    readbackPredicate: options.readbackPredicate,
+    onAckTimeout: () => console.warn('[vh:topic-engagement] put ack timed out, requiring readback confirmation'),
+  });
 }
 
 function parseActorNode(raw: unknown): TopicEngagementActorNode | null {
@@ -329,7 +348,21 @@ export async function writeTopicEngagementActorNode(
   };
 
   TopicEngagementActorNodeSchema.parse(actorNode);
-  await putWithAck(getTopicEngagementActorChain(client, normalizedTopicId, normalizedActorId), actorNode);
+  await putWithAck(getTopicEngagementActorChain(client, normalizedTopicId, normalizedActorId), actorNode, {
+    writeClass: 'topic-engagement-actor',
+    timeoutError: 'topic engagement actor write timed out and readback did not confirm persistence',
+    readback: () => readTopicEngagementActorNode(client, normalizedTopicId, normalizedActorId),
+    readbackPredicate: (observed) => {
+      const candidate = observed as TopicEngagementActorNode | null;
+      return Boolean(
+        candidate
+        && candidate.topic_id === actorNode.topic_id
+        && candidate.updated_at === actorNode.updated_at
+        && candidate.eye_weight === actorNode.eye_weight
+        && candidate.lightbulb_weight === actorNode.lightbulb_weight
+      );
+    },
+  });
 
   const actorsChain = getTopicEngagementActorsChain(client, normalizedTopicId) as unknown as ChainWithGet<unknown>;
   const rawActors = await readOnce(actorsChain);
@@ -343,6 +376,23 @@ export async function writeTopicEngagementActorNode(
     actorNodes,
   });
 
-  await putWithAck(getTopicEngagementSummaryChain(client, normalizedTopicId), aggregate);
+  await putWithAck(getTopicEngagementSummaryChain(client, normalizedTopicId), aggregate, {
+    writeClass: 'topic-engagement-summary',
+    timeoutError: 'topic engagement summary write timed out and readback did not confirm persistence',
+    readback: () => readTopicEngagementSummary(client, normalizedTopicId),
+    readbackPredicate: (observed) => {
+      const candidate = observed as TopicEngagementAggregateV1 | null;
+      return Boolean(
+        candidate
+        && candidate.topic_id === aggregate.topic_id
+        && candidate.eye_weight === aggregate.eye_weight
+        && candidate.lightbulb_weight === aggregate.lightbulb_weight
+        && candidate.readers === aggregate.readers
+        && candidate.engagers === aggregate.engagers
+        && candidate.version === aggregate.version
+        && candidate.computed_at === aggregate.computed_at
+      );
+    },
+  });
   return aggregate;
 }

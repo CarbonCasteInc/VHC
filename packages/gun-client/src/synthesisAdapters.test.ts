@@ -597,6 +597,31 @@ describe('synthesisAdapters', () => {
     }
   });
 
+  it('recovers latest synthesis writes from epoch readback before relay fallback', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPendingPut('topics/topic-1/latest');
+      mesh.setRead('topics/topic-1/epochs/2/synthesis', {
+        _: { '#': 'meta' },
+        ...SYNTHESIS,
+      });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(writePromise).resolves.toEqual(SYNTHESIS);
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it('ignores late synthesis put acknowledgements after the bounded timeout fires', async () => {
     vi.useFakeTimers();
     try {
@@ -606,7 +631,9 @@ describe('synthesisAdapters', () => {
       const client = createClient(mesh, guard);
 
       const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
-      const assertion = expect(writePromise).rejects.toThrow('synthesis-put-ack-timeout');
+      const assertion = expect(writePromise).rejects.toThrow(
+        'synthesis write timed out and readback/fallback did not confirm persistence',
+      );
       await vi.advanceTimersByTimeAsync(6_000);
       await assertion;
     } finally {
@@ -623,7 +650,9 @@ describe('synthesisAdapters', () => {
       invalidPeerMesh.setPendingPut('topics/topic-1/latest');
       const invalidPeerClient = createClient(invalidPeerMesh, guard, ['http://[']);
       const invalidPeerWrite = writeTopicLatestSynthesis(invalidPeerClient, SYNTHESIS);
-      const invalidPeerAssertion = expect(invalidPeerWrite).rejects.toThrow('synthesis-put-ack-timeout');
+      const invalidPeerAssertion = expect(invalidPeerWrite).rejects.toThrow(
+        'synthesis write timed out and readback/fallback did not confirm persistence',
+      );
       await vi.advanceTimersByTimeAsync(5_000);
       await invalidPeerAssertion;
 
@@ -632,7 +661,9 @@ describe('synthesisAdapters', () => {
       const declinedClient = createClient(declinedMesh, guard, ['http://127.0.0.1:7777/gun']);
       vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
       const declinedWrite = writeTopicLatestSynthesis(declinedClient, SYNTHESIS);
-      const declinedAssertion = expect(declinedWrite).rejects.toThrow('synthesis-put-ack-timeout');
+      const declinedAssertion = expect(declinedWrite).rejects.toThrow(
+        'synthesis write timed out and readback/fallback did not confirm persistence',
+      );
       await vi.advanceTimersByTimeAsync(5_000);
       await declinedAssertion;
     } finally {
@@ -653,7 +684,9 @@ describe('synthesisAdapters', () => {
       }));
 
       const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
-      const assertion = expect(writePromise).rejects.toThrow('synthesis-put-ack-timeout');
+      const assertion = expect(writePromise).rejects.toThrow(
+        'synthesis write timed out and readback/fallback did not confirm persistence',
+      );
       await vi.advanceTimersByTimeAsync(5_000);
 
       await assertion;
@@ -989,6 +1022,23 @@ describe('synthesisAdapters', () => {
     await expect(writeTopicEpochSynthesis(client, SYNTHESIS)).rejects.toThrow('synthesis write failed');
   });
 
+  it('surfaces candidate write acknowledgement timeouts', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPendingPut('topics/topic-1/epochs/2/candidates/candidate-1');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const writePromise = writeTopicEpochCandidate(client, CANDIDATE);
+      const assertion = expect(writePromise).rejects.toThrow('synthesis-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('rejects synthesis writes when the put acknowledgement never arrives', async () => {
     vi.useFakeTimers();
     try {
@@ -999,7 +1049,9 @@ describe('synthesisAdapters', () => {
       const client = createClient(mesh, guard);
 
       const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
-      const assertion = expect(writePromise).rejects.toThrow('synthesis-put-ack-timeout');
+      const assertion = expect(writePromise).rejects.toThrow(
+        'synthesis write timed out and readback/fallback did not confirm persistence',
+      );
       await vi.advanceTimersByTimeAsync(5_000);
       await assertion;
     } finally {

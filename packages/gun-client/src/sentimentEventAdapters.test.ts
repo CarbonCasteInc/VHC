@@ -267,7 +267,9 @@ describe('sentimentEventAdapters', () => {
       point_id: EVENT.point_id,
     });
     userNode.setPutHang(`outbox/sentiment/${eventId}`);
+    userNode.setRead(`outbox/sentiment/${eventId}`, { __encrypted: true, ciphertext: 'encrypted-payload' });
     encryptMock.mockResolvedValueOnce('encrypted-payload');
+    decryptMock.mockResolvedValueOnce(JSON.stringify(EVENT));
 
     await expect(writeSentimentEvent(client, EVENT)).resolves.toEqual({
       eventId,

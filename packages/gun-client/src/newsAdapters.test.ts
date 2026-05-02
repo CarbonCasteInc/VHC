@@ -409,7 +409,7 @@ describe('newsAdapters', () => {
     await expect(writeNewsStory(client, STORY)).rejects.toThrow('write failed');
   });
 
-  it('writeNewsStory resolves when put ack times out', async () => {
+  it('writeNewsStory resolves when put ack times out and readback confirms persistence', async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     const identityGuard = vi.spyOn(dataModel, 'assertCanonicalNewsTopicId').mockResolvedValue();
@@ -417,13 +417,14 @@ describe('newsAdapters', () => {
     try {
       const mesh = createFakeMesh();
       mesh.setPutHang('news/stories/story-123');
+      mesh.setRead('news/stories/story-123', STORY);
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard);
 
       const writePromise = writeNewsStory(client, STORY);
       await vi.advanceTimersByTimeAsync(1000);
       await expect(writePromise).resolves.toEqual(STORY);
-      expect(warning).toHaveBeenCalledWith('[vh:news] put ack timed out, proceeding without ack');
+      expect(warning).toHaveBeenCalledWith('[vh:news] put ack timed out, requiring readback confirmation');
     } finally {
       identityGuard.mockRestore();
       warning.mockRestore();
@@ -461,6 +462,10 @@ describe('newsAdapters', () => {
         topic_id: '59512f69ced0a62872ec237f8f7ddbe3c33b407fca881e92b0829d9493ae79ff',
       };
 
+      mesh.setRead('news/stories/story-timeout-1', storyOne);
+      mesh.setRead('news/stories/story-timeout-2', storyTwo);
+      mesh.setRead('news/stories/story-timeout-3', storyThree);
+
       const firstWrite = writeNewsStory(client, storyOne);
       await vi.advanceTimersByTimeAsync(1000);
       await expect(firstWrite).resolves.toEqual(storyOne);
@@ -477,7 +482,7 @@ describe('newsAdapters', () => {
       await vi.advanceTimersByTimeAsync(1000);
       await expect(thirdWrite).resolves.toEqual(storyThree);
       expect(warning).toHaveBeenLastCalledWith(
-        '[vh:news] put ack timed out, proceeding without ack (suppressed 1 repeats)',
+        '[vh:news] put ack timed out, requiring readback confirmation (suppressed 1 repeats)',
       );
     } finally {
       identityGuard.mockRestore();
@@ -1075,6 +1080,30 @@ describe('newsAdapters', () => {
         expires_at: 40,
       },
     });
+  });
+
+  it('recovers ingestion lease writes from ack timeout when readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    const lease = {
+      holder_id: 'holder-timeout',
+      lease_token: 'token-timeout',
+      acquired_at: 20,
+      heartbeat_at: 21,
+      expires_at: 40,
+    };
+    mesh.setPutHang('news/runtime/lease/ingester');
+    mesh.setRead('news/runtime/lease/ingester', lease);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    try {
+      const writePromise = writeNewsIngestionLease(client, lease);
+      await vi.advanceTimersByTimeAsync(1_001);
+      await expect(writePromise).resolves.toEqual(lease);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects malformed ingestion lease writes and ignores malformed reads', async () => {

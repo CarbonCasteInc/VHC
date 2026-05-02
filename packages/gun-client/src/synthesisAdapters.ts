@@ -11,6 +11,7 @@ import {
   type TrustedOperatorAuthorization
 } from '@vh/data-model';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
+import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
@@ -373,18 +374,32 @@ async function putSynthesisWithAckOrRelayFallback(
   encoded: Record<string, unknown>,
   synthesis: TopicSynthesisV2
 ): Promise<void> {
-  try {
-    await putWithAck(chain, encoded);
-    return;
-  } catch (error) {
-    if (!(error instanceof Error) || error.message !== 'synthesis-put-ack-timeout') {
-      throw error;
-    }
-    if (await writeSynthesisViaRelayFallback(client, synthesis)) {
-      return;
-    }
-    throw error;
-  }
+  await writeWithDurability({
+    chain,
+    value: encoded,
+    writeClass: 'topic-synthesis',
+    timeoutMs: PUT_ACK_TIMEOUT_MS,
+    timeoutError: 'synthesis write timed out and readback/fallback did not confirm persistence',
+    readback: async () => {
+      const byEpoch = await readTopicEpochSynthesis(client, synthesis.topic_id, synthesis.epoch);
+      if (byEpoch?.synthesis_id === synthesis.synthesis_id) {
+        return byEpoch;
+      }
+      return readTopicLatestSynthesis(client, synthesis.topic_id);
+    },
+    readbackAttempts: 1,
+    readbackPredicate: (observed) => {
+      const candidate = observed as TopicSynthesisV2 | null;
+      return Boolean(
+        candidate
+        && candidate.topic_id === synthesis.topic_id
+        && candidate.synthesis_id === synthesis.synthesis_id
+        && candidate.epoch === synthesis.epoch
+      );
+    },
+    relayFallback: () => writeSynthesisViaRelayFallback(client, synthesis),
+    onAckTimeout: () => console.warn('[vh:synthesis] put ack timed out, requiring readback or relay fallback'),
+  });
 }
 
 export function getTopicEpochCandidatesChain(

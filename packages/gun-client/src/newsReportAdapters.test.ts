@@ -294,6 +294,26 @@ describe('newsReportAdapters', () => {
     await expect(writeNewsReport(client, REPORT)).rejects.toThrow('boom');
   });
 
+  it('recovers report writes from ack timeout when readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const chain = createMockChain();
+    chain.put.mockImplementationOnce((_value: unknown, _cb?: (ack?: { err?: string }) => void) => undefined);
+    chain.once.mockImplementation((cb?: (data: unknown) => void) => cb?.(REPORT));
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const writePromise = writeNewsReport(client, REPORT);
+      await vi.advanceTimersByTimeAsync(2_501);
+      await expect(writePromise).resolves.toEqual(REPORT);
+      expect(warnSpy).toHaveBeenCalledWith('[vh:news-report] report put ack timed out, requiring readback confirmation');
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it('surfaces status index write ack failures', async () => {
     const chain = createMockChain();
     chain.put
