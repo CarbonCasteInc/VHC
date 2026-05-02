@@ -26,11 +26,13 @@ describe('bundleSynthesisDaemonConfig', () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     vi.stubEnv('VH_BUNDLE_SYNTHESIS_ENABLED', 'true');
     vi.stubEnv('VH_BUNDLE_SYNTHESIS_QUEUE_DEPTH', '7');
+    vi.stubEnv('VH_DAEMON_FEED_ARTIFACT_ROOT', '/tmp/vh-artifacts');
 
     const enrichment = createBundleSynthesisEnrichmentFromEnv({} as VennClient, logger);
 
     expect(typeof enrichment.enrichmentWorker).toBe('function');
     expect(enrichment.enrichmentQueueOptions?.maxDepth).toBe(7);
+    expect(enrichment.enrichmentQueueOptions?.persistenceDir).toBe('/tmp/vh-artifacts/bundle-synthesis-queue');
 
     enrichment.enrichmentQueueOptions?.onDrop?.(
       {
@@ -43,7 +45,7 @@ describe('bundleSynthesisDaemonConfig', () => {
     );
 
     expect(logger.warn).toHaveBeenCalledWith(
-      '[vh:bundle-synthesis] queue full; candidate dropped',
+      '[vh:bundle-synthesis] queue full; candidate dead-lettered for replay',
       { story_id: 'story-1', max_depth: 7 },
     );
   });

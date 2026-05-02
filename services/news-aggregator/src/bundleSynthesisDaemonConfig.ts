@@ -1,3 +1,5 @@
+import os from 'node:os';
+import path from 'node:path';
 import type { VennClient } from '@vh/gun-client';
 import {
   parsePositiveInt,
@@ -21,6 +23,14 @@ export interface BundleSynthesisDaemonEnrichment {
   enrichmentQueueOptions?: AsyncEnrichmentQueueOptions;
 }
 
+export interface BundleSynthesisDaemonOptions {
+  runWrite?: <T>(
+    writeClass: string,
+    attributes: Record<string, unknown>,
+    task: () => Promise<T>,
+  ) => Promise<T>;
+}
+
 export function isTruthyFlag(value: string | undefined): boolean {
   if (!value) {
     return false;
@@ -40,6 +50,7 @@ function parseFiniteNumber(raw: string | undefined, fallback: number): number {
 export function createBundleSynthesisEnrichmentFromEnv(
   client: VennClient,
   logger: LoggerLike = console,
+  options: BundleSynthesisDaemonOptions = {},
 ): BundleSynthesisDaemonEnrichment {
   const enabled = isTruthyFlag(readEnvVar('VH_BUNDLE_SYNTHESIS_ENABLED'));
   if (!enabled) {
@@ -62,7 +73,16 @@ export function createBundleSynthesisEnrichmentFromEnv(
     ),
     pipelineVersion: readEnvVar('VH_BUNDLE_SYNTHESIS_PIPELINE_VERSION') ?? DEFAULT_BUNDLE_SYNTHESIS_PIPELINE_VERSION,
     logger,
+    runWrite: options.runWrite,
   });
+  const artifactRoot = readEnvVar('VH_DAEMON_FEED_ARTIFACT_ROOT');
+  const stateRoot = readEnvVar('VH_NEWS_DAEMON_STATE_DIR');
+  const queuePersistenceDir =
+    readEnvVar('VH_BUNDLE_SYNTHESIS_QUEUE_DIR') ??
+    path.join(
+      (stateRoot?.trim() || artifactRoot?.trim() || path.join(os.tmpdir(), 'vh-news-daemon')),
+      'bundle-synthesis-queue',
+    );
 
   return {
     enrichmentWorker: async (candidate) => {
@@ -70,8 +90,9 @@ export function createBundleSynthesisEnrichmentFromEnv(
     },
     enrichmentQueueOptions: {
       maxDepth: queueDepth,
+      persistenceDir: queuePersistenceDir,
       onDrop(candidate) {
-        logger.warn('[vh:bundle-synthesis] queue full; candidate dropped', {
+        logger.warn('[vh:bundle-synthesis] queue full; candidate dead-lettered for replay', {
           story_id: candidate.story_id,
           max_depth: queueDepth,
         });

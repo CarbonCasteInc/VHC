@@ -76,6 +76,11 @@ export interface BundleSynthesisWorkerConfig {
   writeCandidate?: (client: VennClient, candidate: CandidateSynthesis) => Promise<CandidateSynthesis>;
   writeSynthesis?: (client: VennClient, synthesis: TopicSynthesisV2) => Promise<TopicSynthesisV2>;
   writeLatest?: typeof writeTopicLatestSynthesisIfNotDowngrade;
+  runWrite?: <T>(
+    writeClass: string,
+    attributes: Record<string, unknown>,
+    task: () => Promise<T>,
+  ) => Promise<T>;
 }
 
 export function createBundleSynthesisWorker(
@@ -99,6 +104,37 @@ export function createBundleSynthesisWorker(
   const writeCandidate = config.writeCandidate ?? writeTopicEpochCandidate;
   const writeSynthesis = config.writeSynthesis ?? writeTopicEpochSynthesis;
   const writeLatest = config.writeLatest ?? writeTopicLatestSynthesisIfNotDowngrade;
+  const runWrite = config.runWrite ?? (<T>(_: string, __: Record<string, unknown>, task: () => Promise<T>) => task());
+  const writeCandidateWithLane = (client: VennClient, candidatePayload: CandidateSynthesis) =>
+    runWrite(
+      'synthesis_candidate',
+      {
+        topic_id: candidatePayload.topic_id,
+        candidate_id: candidatePayload.candidate_id,
+      },
+      () => writeCandidate(client, candidatePayload),
+    );
+  const writeSynthesisWithLane = (client: VennClient, synthesis: TopicSynthesisV2) =>
+    runWrite(
+      'synthesis_epoch',
+      {
+        topic_id: synthesis.topic_id,
+        synthesis_id: synthesis.synthesis_id,
+      },
+      () => writeSynthesis(client, synthesis),
+    );
+  const writeLatestWithLane: typeof writeTopicLatestSynthesisIfNotDowngrade = (client, synthesis, options) =>
+    {
+      const candidateSynthesis = synthesis as Partial<TopicSynthesisV2>;
+      return runWrite(
+        'synthesis_latest',
+        {
+          topic_id: candidateSynthesis.topic_id ?? null,
+          synthesis_id: candidateSynthesis.synthesis_id ?? null,
+        },
+        () => writeLatest(client, synthesis, options),
+      );
+    };
 
   return async (candidate) => {
     const storyId = candidate.story_id;
@@ -176,8 +212,8 @@ export function createBundleSynthesisWorker(
         frames: existingCandidate.frames,
         warnings: existingCandidate.warnings,
         createdAt: existingCandidate.created_at,
-        writeSynthesis,
-        writeLatest,
+        writeSynthesis: writeSynthesisWithLane,
+        writeLatest: writeLatestWithLane,
       });
       logger.info('[vh:bundle-synthesis] duplicate candidate recovered synthesis; skipped model call', {
         story_id: storyId,
@@ -297,7 +333,7 @@ export function createBundleSynthesisWorker(
       model: response.model,
       now: createdAt,
     });
-    await writeCandidate(config.client, candidatePayload);
+    await writeCandidateWithLane(config.client, candidatePayload);
     const { latestStatus, synthesis } = await writeAcceptedSynthesis({
       client: config.client,
       bundle,
@@ -307,8 +343,8 @@ export function createBundleSynthesisWorker(
       frames,
       warnings,
       createdAt,
-      writeSynthesis,
-      writeLatest,
+      writeSynthesis: writeSynthesisWithLane,
+      writeLatest: writeLatestWithLane,
     });
     await persistAcceptedBundleSynthesisEvalArtifact({
       context: artifactContext,

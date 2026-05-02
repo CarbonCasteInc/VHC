@@ -145,6 +145,8 @@ describe('startNewsAggregatorDaemonFromEnv', () => {
     expect(createNodeMeshClient).toHaveBeenCalledWith({
       peers: ['http://127.0.0.1:7777/gun'],
       requireSession: false,
+      gunRadisk: true,
+      gunFile: expect.stringContaining('vh-news-daemon:test'),
     });
     expect(startNewsRuntime).toHaveBeenCalledWith(
       expect.objectContaining<Partial<NewsRuntimeConfig>>({
@@ -191,12 +193,47 @@ describe('startNewsAggregatorDaemonFromEnv', () => {
     expect(createNodeMeshClient).toHaveBeenCalledWith({
       peers: undefined,
       requireSession: false,
+      gunRadisk: true,
+      gunFile: expect.stringContaining('default'),
     });
     expect(startNewsRuntime).toHaveBeenCalledWith(
       expect.objectContaining<Partial<NewsRuntimeConfig>>({
         pollIntervalMs: undefined,
       }),
     );
+
+    await processHandle.stop();
+  });
+
+  it('allows daemon radisk to be explicitly disabled for hermetic tests', async () => {
+    const {
+      subject,
+      createNodeMeshClient,
+    } = await loadSubject({
+      env: {
+        VITE_NEWS_FEED_SOURCES: '[]',
+        VITE_NEWS_TOPIC_MAPPING: '{}',
+        VITE_NEWS_POLL_INTERVAL_MS: null,
+        VH_NEWS_RUNTIME_LEASE_TTL_MS: null,
+        VITE_NEWS_RUNTIME_LEASE_TTL_MS: '60000',
+        VH_GUN_PEERS: null,
+        VITE_GUN_PEERS: null,
+        VH_NEWS_DAEMON_HOLDER_ID: null,
+        VH_NEWS_DAEMON_GUN_RADISK: 'false',
+      },
+      gunPeers: [],
+      pollIntervalMs: undefined,
+      leaseTtlMs: 60_000,
+    });
+
+    const processHandle = await subject.startNewsAggregatorDaemonFromEnv();
+
+    expect(createNodeMeshClient).toHaveBeenCalledWith({
+      peers: undefined,
+      requireSession: false,
+      gunRadisk: false,
+      gunFile: false,
+    });
 
     await processHandle.stop();
   });

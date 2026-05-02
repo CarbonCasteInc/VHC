@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -160,6 +160,141 @@ describe('daemonUtils', () => {
         request: expect.objectContaining({ prompt: 'fresh' }),
       }),
     );
+  });
+
+  it('persists pending enrichment candidates and replays them on restart', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-enrichment-queue-'));
+    try {
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const firstWorker = vi.fn(async () => undefined);
+      const firstQueue = createAsyncEnrichmentQueue(firstWorker, logger, {
+        autoStart: false,
+        persistenceDir: tmpDir,
+      });
+
+      firstQueue.enqueue({ ...CANDIDATE, story_id: 'story-persisted' });
+      expect(firstQueue.size()).toBe(1);
+      firstQueue.stop();
+
+      const replayWorker = vi.fn(async () => undefined);
+      const replayQueue = createAsyncEnrichmentQueue(replayWorker, logger, {
+        autoStart: false,
+        persistenceDir: tmpDir,
+      });
+
+      expect(replayQueue.size()).toBe(1);
+      replayQueue.start();
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(replayWorker).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-persisted' }));
+      expect(replayQueue.size()).toBe(0);
+    } finally {
+      rmSync(tmpDir, { force: true, recursive: true });
+    }
+  });
+
+  it('keeps in-flight enrichment candidates in the persisted replay file until completion', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-enrichment-inflight-'));
+    try {
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      let resolveWorker: (() => void) | null = null;
+      const queue = createAsyncEnrichmentQueue(
+        vi.fn(
+          () =>
+            new Promise<void>((resolve) => {
+              resolveWorker = resolve;
+            }),
+        ),
+        logger,
+        {
+          persistenceDir: tmpDir,
+        },
+      );
+
+      queue.enqueue({ ...CANDIDATE, story_id: 'story-in-flight' });
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(queue.snapshot()).toMatchObject({ pending_depth: 0, in_flight: 1 });
+      const pendingDuringWork = readFileSync(path.join(tmpDir, 'pending.json'), 'utf8');
+      expect(pendingDuringWork).toContain('"story_id": "story-in-flight"');
+
+      resolveWorker?.();
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      const pendingAfterWork = readFileSync(path.join(tmpDir, 'pending.json'), 'utf8');
+      expect(pendingAfterWork).not.toContain('"story_id": "story-in-flight"');
+    } finally {
+      rmSync(tmpDir, { force: true, recursive: true });
+    }
+  });
+
+  it('dead-letters queue overflow candidates and replays them on restart', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-enrichment-dlq-'));
+    try {
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const firstQueue = createAsyncEnrichmentQueue(vi.fn(async () => undefined), logger, {
+        autoStart: false,
+        maxDepth: 1,
+        persistenceDir: tmpDir,
+        now: () => 1_700_000_000_000,
+      });
+
+      firstQueue.enqueue({ ...CANDIDATE, story_id: 'story-overflow' });
+      firstQueue.enqueue({ ...CANDIDATE, story_id: 'story-current' });
+
+      expect(firstQueue.size()).toBe(1);
+      expect(firstQueue.deadLetterCount()).toBe(1);
+      firstQueue.stop();
+
+      const replayWorker = vi.fn(async () => undefined);
+      const replayQueue = createAsyncEnrichmentQueue(replayWorker, logger, {
+        autoStart: false,
+        persistenceDir: tmpDir,
+      });
+
+      expect(replayQueue.size()).toBe(2);
+      expect(replayQueue.deadLetterCount()).toBe(0);
+      replayQueue.start();
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(replayWorker).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-current' }));
+      expect(replayWorker).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-overflow' }));
+      expect(replayQueue.size()).toBe(0);
+    } finally {
+      rmSync(tmpDir, { force: true, recursive: true });
+    }
+  });
+
+  it('records terminal worker failures in the enrichment DLQ', async () => {
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), 'vh-enrichment-failed-'));
+    try {
+      const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+      const queue = createAsyncEnrichmentQueue(
+        vi.fn(async () => {
+          throw new Error('permanent worker failure');
+        }),
+        logger,
+        {
+          persistenceDir: tmpDir,
+          now: () => 1_700_000_000_000,
+        },
+      );
+
+      queue.enqueue({ ...CANDIDATE, story_id: 'story-failed' });
+      await flushMicrotasks();
+      await flushMicrotasks();
+
+      expect(queue.deadLetterCount()).toBe(1);
+      const deadLetter = readFileSync(path.join(tmpDir, 'dead-letter.jsonl'), 'utf8');
+      expect(deadLetter).toContain('"reason":"worker_failed"');
+      expect(deadLetter).toContain('"story_id":"story-failed"');
+    } finally {
+      rmSync(tmpDir, { force: true, recursive: true });
+    }
   });
 
   it('derives StoryCluster health URLs across pathname shapes', () => {

@@ -188,6 +188,50 @@ describe('news aggregator daemon', () => {
     await daemon.stop();
   });
 
+  it('replays accepted synthesis artifacts once after acquiring leadership', async () => {
+    const logger = makeLogger();
+    const runtimeHandle = makeRuntimeHandle();
+    const timers = makeTimerControls();
+    const replayAcceptedSynthesis = vi.fn().mockResolvedValue({ written: 1 });
+
+    const startRuntime = vi.fn(() => runtimeHandle);
+    const readLease = vi.fn().mockResolvedValue(null);
+    const writeLease = vi.fn(async (_client: VennClient, lease: unknown) => lease as NewsIngestionLease);
+
+    const daemon = createNewsAggregatorDaemon({
+      client: { id: 'client-replay' } as VennClient,
+      feedSources: [...FEED_SOURCES],
+      topicMapping: { ...TOPIC_MAPPING },
+      startRuntime,
+      readLease,
+      writeLease,
+      replayAcceptedSynthesis,
+      logger,
+      setIntervalFn: timers.setIntervalFn,
+      clearIntervalFn: timers.clearIntervalFn,
+      now: () => 1_700_000_000_000,
+      random: () => 0.12345,
+      leaseHolderId: 'vh-news-daemon:test',
+    });
+
+    await daemon.start();
+
+    expect(replayAcceptedSynthesis).toHaveBeenCalledTimes(1);
+    expect(replayAcceptedSynthesis).toHaveBeenCalledWith({ id: 'client-replay' });
+    expect(replayAcceptedSynthesis.mock.invocationCallOrder[0]).toBeLessThan(
+      startRuntime.mock.invocationCallOrder[0],
+    );
+
+    const heartbeatTick = timers.ticks[0];
+    heartbeatTick?.();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(replayAcceptedSynthesis).toHaveBeenCalledTimes(1);
+
+    await daemon.stop();
+  });
+
   it('refuses publish writes when daemon lease is no longer held', async () => {
     const logger = makeLogger();
     const runtimeHandle = makeRuntimeHandle();
