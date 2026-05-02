@@ -45,12 +45,14 @@ interface FakeMesh {
   setRead: (path: string, value: unknown) => void;
   setDelayedRead: (path: string) => (value: unknown) => void;
   setPendingRead: (path: string) => void;
+  setPendingPut: (path: string) => void;
   setPutError: (path: string, err: string) => void;
 }
 
 function createFakeMesh(): FakeMesh {
   const reads = new Map<string, unknown>();
   const pendingReads = new Set<string>();
+  const pendingPuts = new Set<string>();
   const delayedReads = new Map<string, (data: unknown) => void>();
   const putErrors = new Map<string, string>();
   const writes: Array<{ path: string; value: unknown }> = [];
@@ -70,6 +72,9 @@ function createFakeMesh(): FakeMesh {
       }),
       put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
         writes.push({ path, value });
+        if (pendingPuts.has(path)) {
+          return;
+        }
         const err = putErrors.get(path);
         cb?.(err ? { err } : {});
       }),
@@ -100,18 +105,21 @@ function createFakeMesh(): FakeMesh {
       delayedReads.delete(path);
       pendingReads.add(path);
     },
+    setPendingPut(path: string) {
+      pendingPuts.add(path);
+    },
     setPutError(path: string, err: string) {
       putErrors.set(path, err);
     }
   };
 }
 
-function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
+function createClient(mesh: FakeMesh, guard: TopologyGuard, peers: string[] = []): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
 
   return {
-    config: { peers: [] },
+    config: { peers },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: guard,
@@ -544,6 +552,41 @@ describe('synthesisAdapters', () => {
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
   });
 
+  it('falls back to relay synthesis writes when latest synthesis put acknowledgements time out', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPendingPut('topics/topic-1/latest');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: SYNTHESIS.topic_id,
+          synthesis_id: SYNTHESIS.synthesis_id
+        })
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      await expect(writePromise).resolves.toEqual(SYNTHESIS);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:7777/vh/topics/synthesis',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ synthesis: SYNTHESIS })
+        })
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it('writes and reads synthesis correction payloads with audit metadata', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('topics/topic-1/synthesis_corrections/correction-1', {
@@ -868,6 +911,24 @@ describe('synthesisAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(writeTopicEpochSynthesis(client, SYNTHESIS)).rejects.toThrow('synthesis write failed');
+  });
+
+  it('rejects synthesis writes when the put acknowledgement never arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPendingPut('topics/topic-1/latest');
+
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
+      const assertion = expect(writePromise).rejects.toThrow('synthesis-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(5_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('writes and reads digest payloads', async () => {

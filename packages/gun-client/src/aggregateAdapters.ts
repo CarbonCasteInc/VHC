@@ -160,7 +160,7 @@ const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   2_500,
 );
 
-function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
+function readOnce<T>(chain: ChainWithGet<T>, timeoutMs = READ_ONCE_TIMEOUT_MS): Promise<T | null> {
   return new Promise<T | null>((resolve) => {
     let settled = false;
     const timeout = setTimeout(() => {
@@ -169,7 +169,7 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
       }
       settled = true;
       resolve(null);
-    }, READ_ONCE_TIMEOUT_MS);
+    }, timeoutMs);
 
     chain.once((data) => {
       if (settled) {
@@ -192,6 +192,13 @@ const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
 );
 const WRITE_READBACK_ATTEMPTS = 4;
 const WRITE_READBACK_RETRY_MS = 250;
+const WRITE_READBACK_READ_TIMEOUT_MS = readGunTimeoutMs(
+  [
+    'VITE_VH_GUN_AGGREGATE_WRITE_READBACK_TIMEOUT_MS',
+    'VH_GUN_AGGREGATE_WRITE_READBACK_TIMEOUT_MS',
+  ],
+  Math.min(READ_ONCE_TIMEOUT_MS, 1_000),
+);
 const STALE_ZERO_READ_ATTEMPTS = 4;
 const STALE_ZERO_READ_RETRY_MS = 500;
 
@@ -239,6 +246,101 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckRe
       });
     });
   });
+}
+
+function resolveRelayAggregateEndpoint(client: VennClient, path: 'voter' | 'point-snapshot'): string | null {
+  const peer = client.config?.peers?.[0];
+  if (!peer || typeof fetch !== 'function') {
+    return null;
+  }
+  try {
+    const url = new URL(peer, 'http://127.0.0.1/');
+    return `${url.origin}/vh/aggregates/${path}`;
+  } catch {
+    return null;
+  }
+}
+
+async function writeVoterNodeViaRelayFallback(
+  client: VennClient,
+  params: {
+    readonly topicId: string;
+    readonly synthesisId: string;
+    readonly epoch: number;
+    readonly voterId: string;
+    readonly node: AggregateVoterNode;
+  },
+): Promise<boolean> {
+  const endpoint = resolveRelayAggregateEndpoint(client, 'voter');
+  if (!endpoint) {
+    return false;
+  }
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        topic_id: params.topicId,
+        synthesis_id: params.synthesisId,
+        epoch: params.epoch,
+        voter_id: params.voterId,
+        node: params.node,
+      }),
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const payload = await response.json().catch(() => null) as {
+      ok?: unknown;
+      topic_id?: unknown;
+      synthesis_id?: unknown;
+      epoch?: unknown;
+      voter_id?: unknown;
+      point_id?: unknown;
+    } | null;
+    return payload?.ok === true
+      && payload.topic_id === params.topicId
+      && payload.synthesis_id === params.synthesisId
+      && payload.epoch === params.epoch
+      && payload.voter_id === params.voterId
+      && payload.point_id === params.node.point_id;
+  } catch {
+    return false;
+  }
+}
+
+async function writePointSnapshotViaRelayFallback(
+  client: VennClient,
+  snapshot: PointAggregateSnapshotV1,
+): Promise<boolean> {
+  const endpoint = resolveRelayAggregateEndpoint(client, 'point-snapshot');
+  if (!endpoint) {
+    return false;
+  }
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ snapshot }),
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const payload = await response.json().catch(() => null) as {
+      ok?: unknown;
+      topic_id?: unknown;
+      synthesis_id?: unknown;
+      epoch?: unknown;
+      point_id?: unknown;
+    } | null;
+    return payload?.ok === true
+      && payload.topic_id === snapshot.topic_id
+      && payload.synthesis_id === snapshot.synthesis_id
+      && payload.epoch === snapshot.epoch
+      && payload.point_id === snapshot.point_id;
+  } catch {
+    return false;
+  }
 }
 
 function aggregateVoterNodeMatches(left: AggregateVoterNode, right: AggregateVoterNode): boolean {
@@ -680,6 +782,29 @@ export async function writeVoterNode(
         });
         return recovered;
       }
+
+      const relayed = await writeVoterNodeViaRelayFallback(client, {
+        topicId: normalizedTopicId,
+        synthesisId: normalizedSynthesisId,
+        epoch: Number(normalizedEpoch),
+        voterId: normalizedVoterId,
+        node: sanitized,
+      });
+      if (relayed) {
+        console.info('[vh:aggregate:voter-write]', {
+          topic_id: normalizedTopicId,
+          synthesis_id: normalizedSynthesisId,
+          epoch: Number(normalizedEpoch),
+          voter_id: normalizedVoterId,
+          point_id: normalizedPointId,
+          acknowledged: false,
+          timed_out: true,
+          latency_ms: undefined,
+          path,
+          relay_fallback: true,
+        });
+        return sanitized;
+      }
     }
 
     console.warn('[vh:aggregate:voter-write]', {
@@ -767,6 +892,27 @@ export async function writePointAggregateSnapshot(
         });
         return recovered;
       }
+
+      const relayed = await writePointSnapshotViaRelayFallback(client, sanitized);
+      if (relayed) {
+        console.info('[vh:aggregate:point-snapshot-write]', {
+          topic_id: normalizedTopicId,
+          synthesis_id: normalizedSynthesisId,
+          epoch: Number(normalizedEpoch),
+          point_id: normalizedPointId,
+          acknowledged: false,
+          timed_out: true,
+          latency_ms: undefined,
+          path,
+          agree: sanitized.agree,
+          disagree: sanitized.disagree,
+          participants: sanitized.participants,
+          weight: sanitized.weight,
+          version: sanitized.version,
+          relay_fallback: true,
+        });
+        return sanitized;
+      }
     }
 
     console.warn('[vh:aggregate:point-snapshot-write]', {
@@ -810,6 +956,7 @@ export async function readAggregateVoterNode(
   epoch: number,
   voterId: string,
   pointId: string,
+  options?: { readonly readTimeoutMs?: number },
 ): Promise<AggregateVoterNode | null> {
   const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
   const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
@@ -826,7 +973,7 @@ export async function readAggregateVoterNode(
     .get(normalizedVoterId)
     .get(normalizedPointId) as unknown as ChainWithGet<unknown>;
 
-  const raw = await readOnce(chain);
+  const raw = await readOnce(chain, options?.readTimeoutMs);
   const parsed = AggregateVoterNodeSchema.safeParse(stripGunMetadata(raw));
   return parsed.success ? parsed.data : null;
 }
@@ -848,6 +995,7 @@ async function confirmAggregateVoterNodeReadback(
       epoch,
       voterId,
       pointId,
+      { readTimeoutMs: WRITE_READBACK_READ_TIMEOUT_MS },
     );
     if (recovered && aggregateVoterNodeMatches(recovered, expected)) {
       return recovered;
@@ -915,6 +1063,7 @@ export async function readPointAggregateSnapshot(
   synthesisId: string,
   epoch: number,
   pointId: string,
+  options?: { readonly readTimeoutMs?: number },
 ): Promise<PointAggregateSnapshotV1 | null> {
   const normalizedTopicId = normalizeRequiredId(topicId, 'topicId');
   const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
@@ -928,11 +1077,25 @@ export async function readPointAggregateSnapshot(
     normalizedEpoch,
   ).get(normalizedPointId) as unknown as ChainWithGet<unknown>;
 
-  const raw = await readOnce(pointChain);
+  const raw = await readOnce(pointChain, options?.readTimeoutMs);
+  const stripped = stripGunMetadata(raw);
 
-  const parsed = PointAggregateSnapshotV1Schema.safeParse(stripGunMetadata(raw));
+  const parsed = PointAggregateSnapshotV1Schema.safeParse(stripped);
   if (!parsed.success) {
-    return null;
+    if (!isRecord(stripped)) {
+      return null;
+    }
+
+    const rawSourceWindow = await readOnce(
+      pointChain.get('source_window') as unknown as ChainWithGet<unknown>,
+      options?.readTimeoutMs,
+    );
+    const withResolvedSourceWindow = {
+      ...stripped,
+      source_window: stripGunMetadata(rawSourceWindow),
+    };
+    const resolved = PointAggregateSnapshotV1Schema.safeParse(withResolvedSourceWindow);
+    return resolved.success ? resolved.data : null;
   }
 
   return parsed.data;
@@ -953,6 +1116,7 @@ async function confirmPointAggregateSnapshotReadback(
       synthesisId,
       epoch,
       pointId,
+      { readTimeoutMs: WRITE_READBACK_READ_TIMEOUT_MS },
     );
     if (recovered && aggregateSnapshotMatches(recovered, expected)) {
       return recovered;

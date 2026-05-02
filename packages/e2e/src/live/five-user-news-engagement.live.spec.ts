@@ -1,14 +1,20 @@
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import { test, expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 
 const LIVE_BASE_URL = process.env.VH_LIVE_BASE_URL ?? 'http://127.0.0.1:2048/';
 const SHOULD_RUN = process.env.VH_RUN_FULL_PRODUCT_MOCK_USERS === 'true';
 const NAV_TIMEOUT_MS = 90_000;
 const FEED_TIMEOUT_MS = 180_000;
-const ANALYSIS_TIMEOUT_MS = 180_000;
+const ANALYSIS_TIMEOUT_MS = readPositiveIntEnv('VH_FULL_PRODUCT_ANALYSIS_TIMEOUT_MS', 360_000);
+const DISCOVERY_ANALYSIS_PROBE_MS = readPositiveIntEnv('VH_FULL_PRODUCT_DISCOVERY_ANALYSIS_PROBE_MS', 10_000);
 const AGGREGATE_TIMEOUT_MS = 90_000;
 const COMMENT_TIMEOUT_MS = 120_000;
 const DEFAULT_LABELS = ['alice', 'bruno', 'chandra', 'devon', 'elena'];
 const RUN_ID = process.env.VH_FULL_PRODUCT_MOCK_USERS_RUN_ID ?? `mock-users-${Date.now().toString(36)}`;
+const execFileAsync = promisify(execFile);
 
 function readPositiveIntEnv(name: string, fallback: number): number {
   const value = Number.parseInt(process.env[name] ?? '', 10);
@@ -18,6 +24,7 @@ function readPositiveIntEnv(name: string, fallback: number): number {
 const USER_COUNT = readPositiveIntEnv('VH_FULL_PRODUCT_MOCK_USER_COUNT', 5);
 const REQUIRED_SINGLETON_STORIES = readPositiveIntEnv('VH_FULL_PRODUCT_REQUIRED_SINGLETON_STORIES', 2);
 const REQUIRED_BUNDLED_STORIES = readPositiveIntEnv('VH_FULL_PRODUCT_REQUIRED_BUNDLED_STORIES', 2);
+const MESH_SYNTHESIS_READ_TIMEOUT_MS = readPositiveIntEnv('VH_FULL_PRODUCT_MESH_SYNTHESIS_READ_TIMEOUT_MS', 6_000);
 
 type StoryKind = 'singleton' | 'bundle';
 
@@ -49,6 +56,77 @@ interface VoteCounts {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseGunPeers(): string[] {
+  const raw = process.env.VH_GUN_PEERS ?? process.env.VITE_GUN_PEERS ?? '["http://127.0.0.1:7777/gun"]';
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return ['http://127.0.0.1:7777/gun'];
+  }
+  if (trimmed.startsWith('[')) {
+    const parsed = JSON.parse(trimmed);
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : ['http://127.0.0.1:7777/gun'];
+  }
+  return trimmed.split(',').map((peer) => peer.trim()).filter(Boolean);
+}
+
+function resolveRepoRoot(): string {
+  let current = process.cwd();
+  for (let depth = 0; depth < 5; depth += 1) {
+    if (fs.existsSync(path.join(current, 'pnpm-workspace.yaml'))) {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  return path.resolve(process.cwd(), '../..');
+}
+
+async function meshAcceptedRows(
+  rows: ReadonlyArray<Omit<StoryTarget, 'pointId'> & { kind: StoryKind }>,
+): Promise<Array<Omit<StoryTarget, 'pointId'> & { kind: StoryKind }>> {
+  if (rows.length === 0) {
+    return [];
+  }
+  const repoRoot = resolveRepoRoot();
+  const e2eRoot = path.join(repoRoot, 'packages/e2e');
+  const scriptPath = path.join(e2eRoot, 'src/live/mesh-synthesis-prefilter.mjs');
+  const loaderPath = path.join(repoRoot, 'tools/node/esm-resolve-loader.mjs');
+  const topicIds = [...new Set(rows.map((row) => row.topicId))];
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      '--loader',
+      loaderPath,
+      scriptPath,
+      '--peers',
+      JSON.stringify(parseGunPeers()),
+      ...topicIds,
+    ],
+    {
+      cwd: e2eRoot,
+      env: {
+        ...process.env,
+        VH_FULL_PRODUCT_MESH_SYNTHESIS_READ_TIMEOUT_MS: String(MESH_SYNTHESIS_READ_TIMEOUT_MS),
+      },
+      maxBuffer: 1024 * 1024,
+      timeout: MESH_SYNTHESIS_READ_TIMEOUT_MS + 8_000,
+    },
+  );
+  const payload = JSON.parse(stdout.trim().split('\n').at(-1) ?? '{}') as {
+    accepted?: Record<string, boolean>;
+  };
+  return rows.filter((row) => payload.accepted?.[row.topicId] === true);
+}
+
+function isRecoverablePageError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes('Page crashed')
+    || message.includes('Target crashed')
+    || message.includes('Target page')
+    || message.includes('has been closed');
 }
 
 async function waitFor(condition: () => Promise<boolean>, timeoutMs: number, stepMs = 500): Promise<boolean> {
@@ -91,9 +169,9 @@ async function gotoUserFeed(user: UserSession): Promise<Page> {
     if (
       !user.page.isClosed()
       && !message.includes('Page crashed')
-      && !message.includes('Target crashed')
       && !message.includes('Target page')
       && !message.includes('feed-not-ready')
+      && !isRecoverablePageError(error)
     ) {
       throw error;
     }
@@ -187,6 +265,18 @@ async function openStory(page: Page, target: { topicId: string; storyId: string 
     await gotoFeed(page);
     await nudgeFeed(page);
   }
+  const detailUrl = new URL(LIVE_BASE_URL);
+  detailUrl.searchParams.set('detail', `news:${target.storyId}`);
+  await page.goto(detailUrl.toString(), { waitUntil: 'domcontentloaded', timeout: NAV_TIMEOUT_MS });
+  const detail = page.locator(`[data-testid="news-card-detail-${target.topicId}"]`).first();
+  const opened = await waitFor(
+    async () => detail.isVisible().catch(() => false),
+    15_000,
+    250,
+  );
+  if (opened) {
+    return detail.locator('xpath=ancestor::article[1]');
+  }
   throw new Error(`story-open-failed:${target.storyId}`);
 }
 
@@ -205,73 +295,167 @@ async function closeStory(card: Locator, topicId: string): Promise<void> {
 }
 
 async function firstVotePointId(card: Locator): Promise<string | null> {
-  const button = card.locator('[data-testid^="cell-vote-agree-"]').first();
-  if (!(await button.count())) return null;
-  const testId = await button.getAttribute('data-testid');
-  return testId?.replace('cell-vote-agree-', '') ?? null;
+  const prefix = 'cell-vote-agree-';
+  const testIds = await card.locator(`[data-testid^="${prefix}"]`)
+    .evaluateAll((nodes, expectedPrefix) =>
+      nodes
+        .map((node) => node.getAttribute('data-testid') ?? '')
+        .filter((testId) => testId.length > expectedPrefix.length),
+      prefix
+    )
+    .catch((error: unknown) => {
+      if (isRecoverablePageError(error)) {
+        throw error;
+      }
+      return [];
+    });
+  return testIds[0]?.slice(prefix.length) ?? null;
 }
 
-async function waitForAnalysisReady(card: Locator, topicId: string): Promise<string> {
+async function textContentOrEmpty(locator: Locator): Promise<string> {
+  try {
+    return ((await locator.textContent()) ?? '').trim();
+  } catch (error) {
+    if (isRecoverablePageError(error)) {
+      throw error;
+    }
+    return '';
+  }
+}
+
+async function countOrZero(locator: Locator): Promise<number> {
+  try {
+    return await locator.count();
+  } catch (error) {
+    if (isRecoverablePageError(error)) {
+      throw error;
+    }
+    return 0;
+  }
+}
+
+async function waitForAnalysisReady(
+  card: Locator,
+  topicId: string,
+  timeoutMs = ANALYSIS_TIMEOUT_MS,
+): Promise<string> {
+  let readyPointId: string | null = null;
   const ready = await waitFor(async () => {
-    const basis = ((await card.getByTestId(`news-card-summary-basis-${topicId}`).textContent().catch(() => '')) ?? '').trim();
-    const rows = await card.locator('[data-testid^="bias-table-row-"]').count().catch(() => 0);
-    const votes = await card.locator('[data-testid^="cell-vote-agree-"]').count().catch(() => 0);
-    const correction = await card.locator(`[data-testid="news-card-synthesis-correction-state-${topicId}"]`).count().catch(() => 0);
-    return correction === 0 && basis.includes('Topic synthesis v2') && rows > 0 && votes > 0;
-  }, ANALYSIS_TIMEOUT_MS);
+    const basis = await textContentOrEmpty(card.getByTestId(`news-card-summary-basis-${topicId}`));
+    const rows = await countOrZero(card.locator('[data-testid^="bias-table-row-"]'));
+    const correction = await countOrZero(card.locator(`[data-testid="news-card-synthesis-correction-state-${topicId}"]`));
+    const pointId = await firstVotePointId(card);
+    if (correction === 0 && basis.includes('Topic synthesis v2') && rows > 0 && pointId) {
+      readyPointId = pointId;
+      return true;
+    }
+    return false;
+  }, timeoutMs);
   if (!ready) {
-    const basis = ((await card.getByTestId(`news-card-summary-basis-${topicId}`).textContent().catch(() => '')) ?? '').trim();
-    const rowCount = await card.locator('[data-testid^="bias-table-row-"]').count().catch(() => 0);
-    const voteCount = await card.locator('[data-testid^="cell-vote-agree-"]').count().catch(() => 0);
+    const basis = await textContentOrEmpty(card.getByTestId(`news-card-summary-basis-${topicId}`));
+    const rowCount = await countOrZero(card.locator('[data-testid^="bias-table-row-"]'));
+    const voteCount = await countOrZero(card.locator('[data-testid^="cell-vote-agree-"]'));
     throw new Error(`analysis-not-ready:${topicId}:basis=${basis}:rows=${rowCount}:votes=${voteCount}`);
   }
 
-  const pointId = await firstVotePointId(card);
-  if (!pointId) {
+  if (!readyPointId) {
     throw new Error(`analysis-ready-without-point:${topicId}`);
   }
-  return pointId;
+  return readyPointId;
 }
 
-async function discoverTargets(page: Page): Promise<StoryTarget[]> {
+async function discoverTargets(user: UserSession): Promise<StoryTarget[]> {
   const targets: StoryTarget[] = [];
-  const seen = new Set<string>();
+  const selectedStoryIds = new Set<string>();
+  const nextProbeAtByStoryId = new Map<string, number>();
   const enough = () =>
     targets.filter((target) => target.kind === 'singleton').length >= REQUIRED_SINGLETON_STORIES
     && targets.filter((target) => target.kind === 'bundle').length >= REQUIRED_BUNDLED_STORIES;
 
+  let page = await gotoUserFeed(user);
   const startedAt = Date.now();
   while (Date.now() - startedAt < ANALYSIS_TIMEOUT_MS && !enough()) {
-    await gotoFeed(page);
-    const rows = await visibleStoryRows(page);
-    for (const row of rows) {
-      if (seen.has(row.storyId)) continue;
+    page = await gotoUserFeed(user);
+    let rows: Array<Omit<StoryTarget, 'kind' | 'pointId'> & { kind: StoryKind }>;
+    try {
+      rows = await visibleStoryRows(page);
+    } catch (error) {
+      if (isRecoverablePageError(error)) {
+        page = await replaceUserPage(user);
+        continue;
+      }
+      throw error;
+    }
+
+    const eligibleRows = rows.filter((row) => {
+      if (selectedStoryIds.has(row.storyId)) {
+        return false;
+      }
       if (
         row.kind === 'singleton'
         && targets.filter((target) => target.kind === 'singleton').length >= REQUIRED_SINGLETON_STORIES
       ) {
-        continue;
+        return false;
       }
       if (
         row.kind === 'bundle'
         && targets.filter((target) => target.kind === 'bundle').length >= REQUIRED_BUNDLED_STORIES
       ) {
-        continue;
+        return false;
       }
-      seen.add(row.storyId);
-      const card = await openStory(page, row);
-      try {
-        const pointId = await waitForAnalysisReady(card, row.topicId);
-        targets.push({ ...row, pointId });
-        if (enough()) break;
-      } catch {
-        // Keep scanning until the daemon has enough accepted syntheses.
-      } finally {
-        await closeStory(card, row.topicId).catch(() => undefined);
+      const nextProbeAt = nextProbeAtByStoryId.get(row.storyId) ?? 0;
+      return nextProbeAt <= Date.now();
+    });
+    const acceptedRows = await meshAcceptedRows(eligibleRows);
+    const acceptedStoryIds = new Set(acceptedRows.map((row) => row.storyId));
+    for (const row of eligibleRows) {
+      if (!acceptedStoryIds.has(row.storyId)) {
+        nextProbeAtByStoryId.set(row.storyId, Date.now() + 5_000);
       }
     }
+
+    let restartedAfterPageRecovery = false;
+    for (const row of acceptedRows) {
+      let card: Locator | null = null;
+      try {
+        card = await openStory(page, row);
+        const pointId = await waitForAnalysisReady(card, row.topicId, DISCOVERY_ANALYSIS_PROBE_MS);
+        targets.push({ ...row, pointId });
+        selectedStoryIds.add(row.storyId);
+        nextProbeAtByStoryId.delete(row.storyId);
+        if (enough()) break;
+      } catch (error) {
+        if (isRecoverablePageError(error)) {
+          nextProbeAtByStoryId.set(row.storyId, Date.now() + 5_000);
+          page = await replaceUserPage(user);
+          restartedAfterPageRecovery = true;
+          break;
+        }
+        // Keep scanning; live public syntheses can land after the first card probe.
+        nextProbeAtByStoryId.set(row.storyId, Date.now() + 5_000);
+      } finally {
+        if (card && !restartedAfterPageRecovery) {
+          await closeStory(card, row.topicId).catch((error: unknown) => {
+            if (isRecoverablePageError(error)) {
+              restartedAfterPageRecovery = true;
+            }
+          });
+        }
+      }
+    }
+    if (restartedAfterPageRecovery) {
+      continue;
+    }
     if (!enough()) {
-      await nudgeFeed(page);
+      try {
+        await nudgeFeed(page);
+      } catch (error) {
+        if (isRecoverablePageError(error)) {
+          page = await replaceUserPage(user);
+          continue;
+        }
+        throw error;
+      }
       await sleep(2_000);
     }
   }
@@ -528,7 +712,7 @@ test.describe('full product mock-user news engagement', () => {
         users.push({ label, context, page });
       }
 
-      const targets = await discoverTargets(users[0]!.page);
+      const targets = await discoverTargets(users[0]!);
       const storyResults: Array<{
         target: StoryTarget;
         expectedMinimumVotes: VoteCounts;

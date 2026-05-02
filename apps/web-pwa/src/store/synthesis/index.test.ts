@@ -359,6 +359,43 @@ describe('synthesis store', () => {
     expect(topic.error).toBeNull();
   });
 
+  it('refreshTopic preserves an accepted synthesis across transient null latest reads', async () => {
+    readTopicLatestSynthesisMock.mockResolvedValue(null);
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValue(null);
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+    store.getState().setTopicSynthesis('topic-1', synthesis({ epoch: 4, synthesis_id: 'synth-4' }));
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis?.synthesis_id).toBe('synth-4');
+    expect(topic.epoch).toBe(4);
+    expect(topic.effectiveStatus).toBe('accepted_available');
+    expect(topic.loading).toBe(false);
+    expect(topic.error).toBeNull();
+  });
+
+  it('refreshTopic preserves durable corrections across transient null correction reads', async () => {
+    readTopicLatestSynthesisMock.mockResolvedValue(null);
+    readTopicLatestSynthesisCorrectionMock.mockResolvedValue(null);
+
+    const { createSynthesisStore } = await import('./index');
+    const store = createSynthesisStore({ enabled: true, resolveClient: () => ({}) as never });
+    store.getState().setTopicSynthesis('topic-1', synthesis());
+    store.getState().setTopicCorrection('topic-1', correction());
+
+    await store.getState().refreshTopic('topic-1');
+
+    const topic = store.getState().getTopicState('topic-1');
+    expect(topic.synthesis?.synthesis_id).toBe('synth-1');
+    expect(topic.correction?.correction_id).toBe('correction-1');
+    expect(topic.effectiveStatus).toBe('synthesis_suppressed');
+    expect(topic.loading).toBe(false);
+    expect(topic.error).toBeNull();
+  });
+
   it('refreshTopic drops invalid latest payloads after defensive parse', async () => {
     readTopicLatestSynthesisMock.mockResolvedValue({ invalid: true } as unknown as TopicSynthesisV2);
 

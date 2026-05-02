@@ -114,6 +114,7 @@ function createStore() {
     setStorylines: vi.fn(),
     upsertStoryline: vi.fn(),
     removeStoryline: vi.fn(),
+    ensureStory: vi.fn(),
     refreshLatest: vi.fn(),
     startHydration: vi.fn(),
     setLoading: vi.fn(),

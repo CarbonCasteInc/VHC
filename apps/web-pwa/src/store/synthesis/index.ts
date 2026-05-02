@@ -243,15 +243,19 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
         const topicCorrection = validatedCorrection?.topic_id === normalizedTopicId ? validatedCorrection : null;
 
         set((state) => ({
-          topics: upsertTopicState(state.topics, normalizedTopicId, (current) => ({
-            ...current,
-            synthesis: topicLatest,
-            epoch: topicLatest?.epoch ?? null,
-            correction: topicCorrection,
-            effectiveStatus: resolveEffectiveStatus(topicLatest, topicCorrection),
-            loading: false,
-            error: null
-          }))
+          topics: upsertTopicState(state.topics, normalizedTopicId, (current) => {
+            const nextSynthesis = topicLatest ?? current.synthesis;
+            const nextCorrection = topicCorrection ?? current.correction;
+            return {
+              ...current,
+              synthesis: nextSynthesis,
+              epoch: nextSynthesis?.epoch ?? null,
+              correction: nextCorrection,
+              effectiveStatus: resolveEffectiveStatus(nextSynthesis, nextCorrection),
+              loading: false,
+              error: null
+            };
+          })
         }));
       } catch (error: unknown) {
         set((state) => ({

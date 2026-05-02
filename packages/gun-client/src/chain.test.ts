@@ -66,4 +66,24 @@ describe('createGuardedChain', () => {
 
     expect(mockGuard.validateWrite).toHaveBeenCalledWith('root/child/', { baz: 'qux' });
   });
+
+  it('does not adopt a Gun thenable returned from put', async () => {
+    const gunThenable = { then: vi.fn() };
+    const mockNode = {
+      once: vi.fn((cb: () => void) => cb()),
+      get: vi.fn().mockReturnThis(),
+      put: vi.fn((_val: any, cb?: () => void) => {
+        cb?.();
+        return gunThenable;
+      })
+    };
+    const mockBarrier = { prepare: vi.fn().mockResolvedValue(undefined) };
+    const mockGuard = { validateWrite: vi.fn() };
+
+    const guarded = createGuardedChain(mockNode as any, mockBarrier as any, mockGuard as any, 'test/path');
+    await guarded.put({ foo: 'bar' } as any);
+
+    expect(mockNode.put).toHaveBeenCalledWith({ foo: 'bar' }, undefined);
+    expect(gunThenable.then).not.toHaveBeenCalled();
+  });
 });

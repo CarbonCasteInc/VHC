@@ -61,13 +61,28 @@ export function createAsyncEnrichmentQueue(
         return;
       }
 
+      const candidateStoryId =
+        typeof candidate === 'object' && candidate !== null
+          ? (candidate as Partial<NewsRuntimeSynthesisCandidate>).story_id
+          : undefined;
+      const existingIndex = candidateStoryId
+        ? pending.findIndex((queued) => queued?.story_id === candidateStoryId)
+        : -1;
+      if (existingIndex >= 0) {
+        pending[existingIndex] = candidate;
+        return;
+      }
+
       if (maxDepth !== undefined && pending.length >= maxDepth) {
-        options.onDrop?.(candidate, { reason: 'queue_full', maxDepth });
-        logger.warn('[vh:news-daemon] enrichment queue full; dropped candidate', {
-          story_id: candidate.story_id,
+        const dropped = pending.shift();
+        if (dropped) {
+          options.onDrop?.(dropped, { reason: 'queue_full', maxDepth });
+        }
+        logger.warn('[vh:news-daemon] enrichment queue full; evicted oldest candidate', {
+          story_id: dropped?.story_id ?? null,
+          replacement_story_id: candidateStoryId ?? null,
           max_depth: maxDepth,
         });
-        return;
       }
 
       pending.push(candidate);

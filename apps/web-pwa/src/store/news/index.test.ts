@@ -147,7 +147,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       store.getState().setStories([
         story({
           story_id: 's-one',
@@ -189,7 +189,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       store.getState().setStories([
         story({
           story_id: 'object-config-1',
@@ -218,7 +218,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       store.getState().setStories([
         story({
           story_id: 'empty-config-1',
@@ -250,7 +250,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       const allowed = story({
         story_id: 'allowed',
         sources: [{ ...baseSource, source_id: 'source-allowed', url_hash: '55ee66ff' }]
@@ -470,6 +470,65 @@ describe('news store', () => {
     expect(store.getState().loading).toBe(false);
     expect(readNewsLatestIndexMock).not.toHaveBeenCalled();
     expect(readNewsHotIndexMock).not.toHaveBeenCalled();
+  });
+
+  it('ensureStory reads a persisted story by id and mirrors it into discovery', async () => {
+    const client = { id: 'client-direct-story' };
+    const directStory = story({
+      story_id: 'story-direct',
+      topic_id: 'b'.repeat(64),
+      headline: 'Direct story headline',
+      cluster_window_end: 555,
+    });
+    readNewsStoryMock.mockResolvedValue(directStory);
+
+    const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+    useDiscoveryStore.getState().reset();
+
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await expect(store.getState().ensureStory(' story-direct ')).resolves.toBe(true);
+
+    expect(readNewsStoryMock).toHaveBeenCalledWith(client, 'story-direct');
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['story-direct']);
+    expect(store.getState().latestIndex).toEqual({ 'story-direct': 555 });
+    expect(useDiscoveryStore.getState().items).toEqual([
+      expect.objectContaining({
+        kind: 'NEWS_STORY',
+        story_id: 'story-direct',
+        topic_id: directStory.topic_id,
+        title: 'Direct story headline',
+      }),
+    ]);
+  });
+
+  it('ensureStory remirrors an already loaded story without rereading the mesh', async () => {
+    const directStory = story({
+      story_id: 'story-existing',
+      topic_id: 'c'.repeat(64),
+      headline: 'Existing story headline',
+      cluster_window_end: 777,
+    });
+
+    const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+    useDiscoveryStore.getState().reset();
+
+    const store = createNewsStore({ resolveClient: () => ({ id: 'client' }) as never });
+    store.getState().setStories([directStory]);
+
+    await expect(store.getState().ensureStory('story-existing')).resolves.toBe(true);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+    expect(store.getState().latestIndex).toEqual({ 'story-existing': 777 });
+    expect(useDiscoveryStore.getState().items).toEqual([
+      expect.objectContaining({
+        kind: 'NEWS_STORY',
+        story_id: 'story-existing',
+        topic_id: directStory.topic_id,
+      }),
+    ]);
   });
 
   it('refreshLatest loads latest/hot indexes + stories and clears loading', async () => {

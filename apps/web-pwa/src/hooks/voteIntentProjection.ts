@@ -28,6 +28,8 @@ export interface ReplayProjectionResult {
   timed_out: boolean;
 }
 
+const SNAPSHOT_MATERIALIZATION_CRITICAL_TIMEOUT_MS = 3_000;
+
 export function toPointTuple(record: VoteIntentRecord): PointTuple {
   return {
     topic_id: record.topic_id,
@@ -116,6 +118,50 @@ function rowToIntent(row: AggregateVoterPointRow, tuple: PointTuple): VoteIntent
   };
 }
 
+async function awaitSnapshotMaterialization(params: {
+  readonly tuple: PointTuple;
+  readonly run: () => Promise<void>;
+}): Promise<boolean> {
+  let settled = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+  const materialization = params.run()
+    .then(() => {
+      settled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      return true;
+    })
+    .catch((error) => {
+      settled = true;
+      if (timeoutId) clearTimeout(timeoutId);
+      console.warn('[vh:vote:intent-replay:snapshot-materialization-failed]', {
+        topic_id: params.tuple.topic_id,
+        synthesis_id: params.tuple.synthesis_id,
+        epoch: params.tuple.epoch,
+        point_id: params.tuple.point_id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    });
+
+  const deadline = new Promise<boolean>((resolve) => {
+    timeoutId = setTimeout(() => {
+      if (!settled) {
+        console.warn('[vh:vote:intent-replay:snapshot-materialization-deferred]', {
+          topic_id: params.tuple.topic_id,
+          synthesis_id: params.tuple.synthesis_id,
+          epoch: params.tuple.epoch,
+          point_id: params.tuple.point_id,
+          timeout_ms: SNAPSHOT_MATERIALIZATION_CRITICAL_TIMEOUT_MS,
+        });
+        resolve(false);
+      }
+    }, SNAPSHOT_MATERIALIZATION_CRITICAL_TIMEOUT_MS);
+  });
+
+  return Promise.race([materialization, deadline]);
+}
+
 export async function projectIntentRecord(params: {
   client: VennClient;
   record: VoteIntentRecord;
@@ -128,132 +174,126 @@ export async function projectIntentRecord(params: {
   }) => PointAggregateSnapshotV1;
 }): Promise<ReplayProjectionResult> {
   const tuple = toPointTuple(params.record);
-  const currentRows = await readAggregateVoterRows(
-    params.client,
-    tuple.topic_id,
-    tuple.synthesis_id,
-    tuple.epoch,
-    tuple.point_id,
-  );
-
-  const existingRow = currentRows.find((row) => row.voter_id === params.record.voter_id);
-  const existingIntent = existingRow ? rowToIntent(existingRow, tuple) : null;
-  const incomingWins = !existingIntent || compareIntentLww(params.record, existingIntent) >= 0;
-  const nextRows = [...currentRows];
   let voterNodeOk = false;
   let readbackRecovered = false;
   let timedOut = false;
+  let nextRow: AggregateVoterPointRow | null = null;
 
-  if (incomingWins) {
-    const updatedAtIso = new Date(normalizeNonNegativeInt(params.record.emitted_at)).toISOString();
-    let nextRow: AggregateVoterPointRow | null = null;
+  const updatedAtIso = new Date(normalizeNonNegativeInt(params.record.emitted_at)).toISOString();
 
-    try {
-      await writeVoterNode(
+  try {
+    await writeVoterNode(
+      params.client,
+      tuple.topic_id,
+      tuple.synthesis_id,
+      tuple.epoch,
+      params.record.voter_id,
+      {
+        point_id: tuple.point_id,
+        agreement: params.record.agreement,
+        weight: params.record.weight,
+        updated_at: updatedAtIso,
+      },
+    );
+
+    nextRow = {
+      voter_id: params.record.voter_id,
+      node: {
+        point_id: tuple.point_id,
+        agreement: params.record.agreement,
+        weight: params.record.weight,
+        updated_at: updatedAtIso,
+      },
+      updated_at_ms: normalizeNonNegativeInt(params.record.emitted_at),
+    };
+    voterNodeOk = true;
+  } catch (error) {
+    if (!isAckTimeoutError(error)) {
+      throw error;
+    }
+
+    const recovered = await readAggregateVoterNode(
+      params.client,
+      tuple.topic_id,
+      tuple.synthesis_id,
+      tuple.epoch,
+      params.record.voter_id,
+      tuple.point_id,
+    );
+
+    if (!recovered || !matchesRecoveredIntentNode({
+      record: params.record,
+      tuple,
+      recovered,
+    })) {
+      throw error;
+    }
+
+    nextRow = {
+      voter_id: params.record.voter_id,
+      node: recovered,
+      updated_at_ms: normalizeMaybeTimestampMs(recovered.updated_at),
+    };
+    voterNodeOk = true;
+    readbackRecovered = true;
+    timedOut = true;
+    console.warn('[vh:vote:intent-replay:timeout-recovered]', {
+      topic_id: tuple.topic_id,
+      synthesis_id: tuple.synthesis_id,
+      epoch: tuple.epoch,
+      point_id: tuple.point_id,
+      voter_id: params.record.voter_id,
+      intent_id: params.record.intent_id,
+    });
+  }
+
+  /* c8 ignore next 3 */
+  if (!nextRow) {
+    throw new Error('intent-replay-next-row-missing');
+  }
+
+  const snapshotOk = await awaitSnapshotMaterialization({
+    tuple,
+    run: async () => {
+      const currentRows = await readAggregateVoterRows(
         params.client,
         tuple.topic_id,
         tuple.synthesis_id,
         tuple.epoch,
-        params.record.voter_id,
-        {
-          point_id: tuple.point_id,
-          agreement: params.record.agreement,
-          weight: params.record.weight,
-          updated_at: updatedAtIso,
-        },
+        tuple.point_id,
       );
-
-      nextRow = {
-        voter_id: params.record.voter_id,
-        node: {
-          point_id: tuple.point_id,
-          agreement: params.record.agreement,
-          weight: params.record.weight,
-          updated_at: updatedAtIso,
-        },
-        updated_at_ms: normalizeNonNegativeInt(params.record.emitted_at),
-      };
-      voterNodeOk = true;
-    } catch (error) {
-      if (!isAckTimeoutError(error)) {
-        throw error;
+      const nextRows = [...currentRows];
+      const replaceIndex = nextRows.findIndex((row) => row.voter_id === params.record.voter_id);
+      if (replaceIndex >= 0) {
+        nextRows[replaceIndex] = nextRow;
+      } else {
+        nextRows.push(nextRow);
       }
-
-      const recovered = await readAggregateVoterNode(
+      const previousSnapshot = await readPointAggregateSnapshot(
         params.client,
         tuple.topic_id,
         tuple.synthesis_id,
         tuple.epoch,
-        params.record.voter_id,
         tuple.point_id,
       );
 
-      if (!recovered || !matchesRecoveredIntentNode({
-        record: params.record,
+      const intentsForSnapshot = nextRows.map((row) => rowToIntent(row, tuple));
+      const snapshot = params.materializePointSnapshot({
         tuple,
-        recovered,
-      })) {
-        throw error;
-      }
-
-      nextRow = {
-        voter_id: params.record.voter_id,
-        node: recovered,
-        updated_at_ms: normalizeMaybeTimestampMs(recovered.updated_at),
-      };
-      voterNodeOk = true;
-      readbackRecovered = true;
-      timedOut = true;
-      console.warn('[vh:vote:intent-replay:timeout-recovered]', {
-        topic_id: tuple.topic_id,
-        synthesis_id: tuple.synthesis_id,
-        epoch: tuple.epoch,
-        point_id: tuple.point_id,
-        voter_id: params.record.voter_id,
-        intent_id: params.record.intent_id,
+        intents: intentsForSnapshot,
+        previousSnapshot,
+        computedAtMs: params.now(),
       });
-    }
 
-    /* c8 ignore next 3 */
-    if (!nextRow) {
-      throw new Error('intent-replay-next-row-missing');
-    }
-
-    const replaceIndex = nextRows.findIndex((row) => row.voter_id === params.record.voter_id);
-    if (replaceIndex >= 0) {
-      nextRows[replaceIndex] = nextRow;
-    } else {
-      nextRows.push(nextRow);
-    }
-  }
-
-  const previousSnapshot = await readPointAggregateSnapshot(
-    params.client,
-    tuple.topic_id,
-    tuple.synthesis_id,
-    tuple.epoch,
-    tuple.point_id,
-  );
-
-  const intentsForSnapshot = nextRows.map((row) => rowToIntent(row, tuple));
-  const snapshot = params.materializePointSnapshot({
-    tuple,
-    intents: intentsForSnapshot,
-    previousSnapshot,
-    computedAtMs: params.now(),
+      await writePointAggregateSnapshot(params.client, snapshot);
+    },
   });
-
-  await writePointAggregateSnapshot(params.client, snapshot);
-
-  if (readbackRecovered) {
-    throw new Error('aggregate-write-needs-replay');
-  }
 
   return {
     topic_id: tuple.topic_id,
     point_id: tuple.point_id,
     voter_node_ok: voterNodeOk,
-    snapshot_ok: true,
+    snapshot_ok: snapshotOk,
     readback_recovered: readbackRecovered,
     timed_out: timedOut,
   };

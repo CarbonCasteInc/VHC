@@ -39,6 +39,10 @@ const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_SYNTHESIS_READ_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_READ_TIMEOUT_MS', 'VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
 );
+const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
+  ['VITE_VH_GUN_SYNTHESIS_PUT_ACK_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_PUT_ACK_TIMEOUT_MS', 'VITE_VH_GUN_PUT_ACK_TIMEOUT_MS', 'VH_GUN_PUT_ACK_TIMEOUT_MS'],
+  5_000,
+);
 function topicEpochCandidatesPath(topicId: string, epoch: string): string {
   return `vh/topics/${topicId}/epochs/${epoch}/candidates/`;
 }
@@ -318,7 +322,18 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timeout = setTimeout(() => {
+      settled = true;
+      reject(new Error('synthesis-put-ack-timeout'));
+    }, PUT_ACK_TIMEOUT_MS);
+
     chain.put(value, (ack?: ChainAck) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clearTimeout(timeout);
       if (ack?.err) {
         reject(new Error(ack.err));
         return;
@@ -326,6 +341,66 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
       resolve();
     });
   });
+}
+
+function resolveRelaySynthesisEndpoint(client: VennClient): string | null {
+  const peer = client.config?.peers?.[0];
+  if (!peer || typeof fetch !== 'function') {
+    return null;
+  }
+  try {
+    const url = new URL(peer, 'http://127.0.0.1/');
+    return `${url.origin}/vh/topics/synthesis`;
+  } catch {
+    return null;
+  }
+}
+
+async function writeSynthesisViaRelayFallback(client: VennClient, synthesis: TopicSynthesisV2): Promise<boolean> {
+  const endpoint = resolveRelaySynthesisEndpoint(client);
+  if (!endpoint) {
+    return false;
+  }
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ synthesis }),
+    });
+    if (!response.ok) {
+      return false;
+    }
+    const payload = await response.json().catch(() => null) as {
+      ok?: unknown;
+      topic_id?: unknown;
+      synthesis_id?: unknown;
+    } | null;
+    return payload?.ok === true
+      && payload.topic_id === synthesis.topic_id
+      && payload.synthesis_id === synthesis.synthesis_id;
+  } catch {
+    return false;
+  }
+}
+
+async function putSynthesisWithAckOrRelayFallback(
+  client: VennClient,
+  chain: ChainWithGet<Record<string, unknown>>,
+  encoded: Record<string, unknown>,
+  synthesis: TopicSynthesisV2
+): Promise<void> {
+  try {
+    await putWithAck(chain, encoded);
+    return;
+  } catch (error) {
+    if (!(error instanceof Error) || error.message !== 'synthesis-put-ack-timeout') {
+      throw error;
+    }
+    if (await writeSynthesisViaRelayFallback(client, synthesis)) {
+      return;
+    }
+    throw error;
+  }
 }
 
 export function getTopicEpochCandidatesChain(
@@ -486,13 +561,15 @@ export async function readTopicEpochSynthesis(client: VennClient, topicId: strin
 export async function writeTopicEpochSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
   assertNoForbiddenSynthesisFields(synthesis);
   const sanitized = TopicSynthesisV2Schema.parse(synthesis);
-  await putWithAck(
+  await putSynthesisWithAckOrRelayFallback(
+    client,
     getTopicEpochSynthesisChain(
       client,
       normalizeTopicId(sanitized.topic_id),
       normalizeEpoch(sanitized.epoch)
     ) as unknown as ChainWithGet<Record<string, unknown>>,
-    encodeSynthesisForGun(sanitized)
+    encodeSynthesisForGun(sanitized),
+    sanitized
   );
   return sanitized;
 }
@@ -512,9 +589,11 @@ export async function readTopicLatestSynthesis(client: VennClient, topicId: stri
 export async function writeTopicLatestSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
   assertNoForbiddenSynthesisFields(synthesis);
   const sanitized = TopicSynthesisV2Schema.parse(synthesis);
-  await putWithAck(
+  await putSynthesisWithAckOrRelayFallback(
+    client,
     getTopicLatestSynthesisChain(client, normalizeTopicId(sanitized.topic_id)) as unknown as ChainWithGet<Record<string, unknown>>,
-    encodeSynthesisForGun(sanitized)
+    encodeSynthesisForGun(sanitized),
+    sanitized
   );
   return sanitized;
 }
