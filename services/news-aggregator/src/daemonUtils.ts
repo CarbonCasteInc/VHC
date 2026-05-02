@@ -11,6 +11,7 @@ export {
   createAsyncEnrichmentQueue,
   type AsyncEnrichmentQueue,
   type AsyncEnrichmentQueueOptions,
+  type EnrichmentQueueSnapshot,
   type EnrichmentWorker,
   type LoggerLike,
 } from './enrichmentQueue';

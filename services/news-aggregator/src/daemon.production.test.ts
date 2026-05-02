@@ -174,6 +174,8 @@ describe('news daemon production wiring', () => {
       expect(mocks.createNodeMeshClient).toHaveBeenCalledWith({
         peers: ['https://peer-a.example/gun', 'https://peer-b.example/gun'],
         requireSession: false,
+        gunRadisk: true,
+        gunFile: expect.any(String),
       });
     } finally {
       await handle.stop();

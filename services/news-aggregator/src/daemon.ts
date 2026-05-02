@@ -1,3 +1,6 @@
+import { mkdirSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
   startNewsRuntime,
   type FeedSource,
@@ -31,6 +34,7 @@ import {
   resolveLeaseHolderId,
   verifyStoryClusterHealth,
   type AsyncEnrichmentQueueOptions,
+  type EnrichmentQueueSnapshot,
   type EnrichmentWorker,
   type LoggerLike,
 } from './daemonUtils';
@@ -41,6 +45,15 @@ import {
   isTruthyFlag,
 } from './bundleSynthesisDaemonConfig';
 import { isDirectExecution, runFromCli } from './daemonCli';
+import {
+  createDaemonWriteLaneRegistry,
+  type DaemonWriteLaneRegistry,
+  type DaemonWriteLaneSnapshot,
+} from './daemonWriteLane';
+import {
+  replayAcceptedAnalysisEvalSyntheses,
+  resolveAnalysisEvalReplayArtifactDirFromEnv,
+} from './analysisEvalReplay';
 type RuntimeStarter = (config: NewsRuntimeConfig) => NewsRuntimeHandle;
 type RuntimeOrchestratorOptions = NonNullable<NewsRuntimeConfig['orchestratorOptions']> & {
   remoteClusterMaxItemsPerRequest?: number;
@@ -60,6 +73,8 @@ export interface NewsAggregatorDaemonConfig {
   removeBundle?: (client: VennClient, storyId: string) => Promise<unknown>;
   enrichmentWorker?: EnrichmentWorker;
   enrichmentQueueOptions?: AsyncEnrichmentQueueOptions;
+  writeLanes?: DaemonWriteLaneRegistry;
+  replayAcceptedSynthesis?: (client: VennClient) => Promise<unknown>;
   runtimeOrchestratorOptions?: NewsRuntimeConfig['orchestratorOptions'];
   now?: () => number;
   random?: () => number;
@@ -74,6 +89,9 @@ export interface NewsAggregatorDaemonHandle {
   isRunning(): boolean;
   currentLease(): NewsIngestionLease | null;
   enrichmentQueueDepth(): number;
+  enrichmentQueueDeadLetterCount(): number;
+  enrichmentQueueStats(): EnrichmentQueueSnapshot;
+  writeLaneStats(): DaemonWriteLaneSnapshot[];
 }
 export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): NewsAggregatorDaemonHandle {
   const logger = config.logger ?? console;
@@ -90,10 +108,14 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   const leaseRenewIntervalMs = Math.max(5_000, Math.floor(leaseTtlMs / 2));
   const leaseVerificationWindowMs = Math.max(500, Math.min(5_000, Math.floor(leaseTtlMs / 6)));
   const holderId = resolveLeaseHolderId(config.leaseHolderId);
+  const writeLanes = config.writeLanes ?? createDaemonWriteLaneRegistry({ logger, now: nowFn });
   const queue = createAsyncEnrichmentQueue(
     config.enrichmentWorker ?? (() => undefined),
     logger,
-    config.enrichmentQueueOptions,
+    {
+      ...(config.enrichmentQueueOptions ?? {}),
+      autoStart: false,
+    },
   );
   const clusterCaptureRecorder = createDaemonFeedClusterCaptureRecorder(
     readEnvVar('VH_DAEMON_FEED_RUN_ID'),
@@ -102,6 +124,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
   let runtimeHandle: NewsRuntimeHandle | null = null;
   let leaseHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
   let leadershipTickPromise: Promise<void> | null = null;
+  let acceptedSynthesisReplayAttempted = false;
   const leaseGuard = createLeaseGuard({ client: config.client, readLease, verificationWindowMs: leaseVerificationWindowMs });
   const stopRuntime = () => {
     if (!runtimeHandle) {
@@ -133,23 +156,40 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       gunClient: config.client,
       pollIntervalMs: config.pollIntervalMs,
       writeStoryBundle: async (runtimeClient: unknown, bundle: unknown) => {
+        const storyId = typeof bundle === 'object' && bundle !== null ? (bundle as { story_id?: unknown }).story_id : null;
         await leaseGuard.assertHeld(nowFn());
-        return writeBundle(runtimeClient as VennClient, bundle);
+        return writeLanes.run('news_bundle', { story_id: storyId ?? null }, async () => {
+          return writeBundle(runtimeClient as VennClient, bundle);
+        });
       },
       removeStoryBundle: async (runtimeClient: unknown, storyId: string) => {
         await leaseGuard.assertHeld(nowFn());
-        return removeBundle(runtimeClient as VennClient, storyId);
+        return writeLanes.run('news_bundle_remove', { story_id: storyId }, async () => {
+          return removeBundle(runtimeClient as VennClient, storyId);
+        });
       },
       writeStorylineGroup: async (runtimeClient: unknown, storyline: unknown) => {
+        const storylineId =
+          typeof storyline === 'object' && storyline !== null
+            ? (storyline as { storyline_id?: unknown }).storyline_id
+            : null;
         await leaseGuard.assertHeld(nowFn());
-        return writeNewsStoryline(runtimeClient as VennClient, storyline);
+        return writeLanes.run('storyline', { storyline_id: storylineId ?? null }, async () => {
+          return writeNewsStoryline(runtimeClient as VennClient, storyline);
+        });
       },
       removeStorylineGroup: async (runtimeClient: unknown, storylineId: string) => {
         await leaseGuard.assertHeld(nowFn());
-        return removeNewsStoryline(runtimeClient as VennClient, storylineId);
+        return writeLanes.run('storyline_remove', { storyline_id: storylineId }, async () => {
+          return removeNewsStoryline(runtimeClient as VennClient, storylineId);
+        });
       },
       onSynthesisCandidate(candidate) {
         queue.enqueue(candidate);
+        logger.info('[vh:news-daemon] enrichment candidate enqueued', {
+          story_id: candidate.story_id,
+          ...queue.snapshot(),
+        });
       },
       onError(error) {
         logger.warn('[vh:news-daemon] runtime tick failed', error);
@@ -157,7 +197,12 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       orchestratorOptions,
     });
     if (runtimeHandle.isRunning()) {
-      logger.info('[vh:news-daemon] runtime started', { holder_id: holderId, poll_interval_ms: config.pollIntervalMs ?? null });
+      queue.start();
+      logger.info('[vh:news-daemon] runtime started', {
+        holder_id: holderId,
+        poll_interval_ms: config.pollIntervalMs ?? null,
+        enrichment_queue: queue.snapshot(),
+      });
       return;
     }
     runtimeHandle = null;
@@ -178,6 +223,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     if (currentLease && currentLease.holder_id !== holderId && currentLease.expires_at > nowMs) {
       logger.warn('[vh:news-daemon] lease held by another writer; runtime stays stopped', { holder_id: holderId, observed_lease_holder_id: currentLease.holder_id, observed_lease_expires_at: currentLease.expires_at });
       leaseGuard.clear();
+      queue.pause();
       stopRuntime();
       return;
     }
@@ -188,9 +234,19 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       leaseTtlMs,
       randomFn,
     );
-    const lease = await writeLease(config.client, nextLease);
+    const lease = await writeLanes.run('lease', { holder_id: holderId, operation: 'heartbeat' }, async () =>
+      writeLease(config.client, nextLease),
+    );
     leaseGuard.accept(lease, nowMs);
     logger.info('[vh:news-daemon] lease acquired', { holder_id: holderId, lease_holder_id: lease.holder_id, lease_token: lease.lease_token, expires_at: lease.expires_at });
+    if (!acceptedSynthesisReplayAttempted && config.replayAcceptedSynthesis) {
+      acceptedSynthesisReplayAttempted = true;
+      try {
+        await config.replayAcceptedSynthesis(config.client);
+      } catch (error) {
+        logger.warn('[vh:news-daemon] accepted synthesis replay failed', error);
+      }
+    }
     startRuntimeIfNeeded();
   };
   const runLeadershipTick = async (): Promise<void> => {
@@ -216,7 +272,9 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       return;
     }
     try {
-      await writeLease(config.client, releaseLease);
+      await writeLanes.run('lease', { holder_id: holderId, operation: 'release' }, async () =>
+        writeLease(config.client, releaseLease),
+      );
     } catch (error) {
       logger.warn('[vh:news-daemon] failed to release lease', error);
     } finally {
@@ -248,6 +306,7 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
       queue.stop();
       stopRuntime();
       await releaseLease();
+      writeLanes.stop();
       logger.info('[vh:news-daemon] stopped', { holder_id: holderId });
     },
     isRunning() {
@@ -259,12 +318,49 @@ export function createNewsAggregatorDaemon(config: NewsAggregatorDaemonConfig): 
     enrichmentQueueDepth() {
       return queue.size();
     },
+    enrichmentQueueDeadLetterCount() {
+      return queue.deadLetterCount();
+    },
+    enrichmentQueueStats() {
+      return queue.snapshot();
+    },
+    writeLaneStats() {
+      return writeLanes.snapshot();
+    },
   };
 }
 export interface NewsAggregatorDaemonProcessHandle {
   daemon: NewsAggregatorDaemonHandle;
   client: VennClient;
   stop(): Promise<void>;
+}
+
+function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) {
+      return trimmed;
+    }
+  }
+  return undefined;
+}
+
+function isDisabledFlag(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === '0' || normalized === 'false' || normalized === 'off' || normalized === 'no';
+}
+
+function safePathToken(value: string): string {
+  return value.trim().replace(/[^a-zA-Z0-9._:-]+/g, '_') || 'default';
+}
+
+function resolveNewsDaemonGunFile(holderId: string | undefined): string {
+  const stateRoot =
+    firstNonEmpty(
+      readEnvVar('VH_NEWS_DAEMON_STATE_DIR'),
+      readEnvVar('VH_DAEMON_FEED_ARTIFACT_ROOT'),
+    ) ?? path.join(os.tmpdir(), 'vh-news-daemon');
+  return path.join(stateRoot, 'node-mesh-radisk', safePathToken(holderId ?? 'default'));
 }
 
 export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregatorDaemonProcessHandle> {
@@ -291,18 +387,42 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
       reportPath: feedSourceResolution.sourceHealth.reportPath,
     });
   }
+  const holderId = readEnvVar('VH_NEWS_DAEMON_HOLDER_ID');
+  const gunRadisk = !isDisabledFlag(readEnvVar('VH_NEWS_DAEMON_GUN_RADISK'));
+  const gunFile = gunRadisk
+    ? firstNonEmpty(readEnvVar('VH_NEWS_DAEMON_GUN_FILE')) ?? resolveNewsDaemonGunFile(holderId)
+    : false;
+  if (typeof gunFile === 'string') {
+    mkdirSync(path.dirname(gunFile), { recursive: true });
+  }
+  const writeLanes = createDaemonWriteLaneRegistry({ logger: console });
   const client = createNodeMeshClient({
     peers: gunPeers.length > 0 ? gunPeers : undefined,
     requireSession: false,
+    gunRadisk,
+    gunFile,
   });
-  const bundleSynthesisEnrichment = createBundleSynthesisEnrichmentFromEnv(client, console);
+  const bundleSynthesisEnrichment = createBundleSynthesisEnrichmentFromEnv(client, console, {
+    runWrite: writeLanes.run,
+  });
+  const replayArtifactDir = resolveAnalysisEvalReplayArtifactDirFromEnv();
   const daemon = createNewsAggregatorDaemon({
     client,
     feedSources,
     topicMapping,
     pollIntervalMs,
     leaseTtlMs,
-    leaseHolderId: readEnvVar('VH_NEWS_DAEMON_HOLDER_ID'),
+    leaseHolderId: holderId,
+    writeLanes,
+    replayAcceptedSynthesis: replayArtifactDir
+      ? (runtimeClient) =>
+          replayAcceptedAnalysisEvalSyntheses({
+            client: runtimeClient,
+            artifactDir: replayArtifactDir,
+            logger: console,
+            runWrite: writeLanes.run,
+          })
+      : undefined,
     ...bundleSynthesisEnrichment,
     runtimeOrchestratorOptions: {
       productionMode: true,

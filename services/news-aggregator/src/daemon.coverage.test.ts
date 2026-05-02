@@ -64,6 +64,12 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
 }
 
+async function flushAsyncTasks(): Promise<void> {
+  await flushMicrotasks();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await flushMicrotasks();
+}
+
 describe('news daemon coverage guards', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -267,7 +273,7 @@ describe('news daemon coverage guards', () => {
     await daemon.start();
     const heartbeatTick = timers.ticks[0];
     heartbeatTick?.();
-    await flushMicrotasks();
+    await flushAsyncTasks();
 
     expect(runtimeHandle.stop).toHaveBeenCalledTimes(1);
     expect(logger.warn).toHaveBeenCalledWith('[vh:news-daemon] lease heartbeat failed', expect.any(Error));
@@ -278,7 +284,7 @@ describe('news daemon coverage guards', () => {
 
     const writesAfterStop = writeLease.mock.calls.length;
     heartbeatTick?.();
-    await flushMicrotasks();
+    await flushAsyncTasks();
     expect(writeLease).toHaveBeenCalledTimes(writesAfterStop);
   });
 

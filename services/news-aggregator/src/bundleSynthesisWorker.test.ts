@@ -3,7 +3,7 @@ import type { NewsRuntimeSynthesisCandidate } from '@vh/ai-engine';
 import type { CandidateSynthesis, StoryBundle, TopicSynthesisV2 } from '@vh/data-model';
 import type { VennClient } from '@vh/gun-client';
 import type { AnalysisEvalArtifact } from './analysisEvalArtifacts';
-import { createBundleSynthesisWorker } from './bundleSynthesisWorker';
+import { createBundleSynthesisWorker, type BundleSynthesisWorkerConfig } from './bundleSynthesisWorker';
 
 const BUNDLE: StoryBundle = {
   schemaVersion: 'story-bundle-v0',
@@ -228,6 +228,10 @@ describe('bundleSynthesisWorker', () => {
       expect(options?.canOverwriteExisting?.({ ...synthesis, synthesis_id: 'news-bundle:old' }, synthesis)).toBe(true);
       return { status: 'written' as const, synthesis, previous: null };
     });
+    const runWriteMock = vi.fn(
+      async <T,>(_writeClass: string, _attributes: Record<string, unknown>, task: () => Promise<T>) => task(),
+    );
+    const runWrite: NonNullable<BundleSynthesisWorkerConfig['runWrite']> = runWriteMock;
 
     const worker = createBundleSynthesisWorker({
       client: {} as VennClient,
@@ -243,6 +247,7 @@ describe('bundleSynthesisWorker', () => {
         return synthesis;
       }),
       writeLatest,
+      runWrite,
       analysisEvalArtifactWriter: {
         write: vi.fn(async (artifact) => {
           artifacts.push(artifact);
@@ -293,6 +298,11 @@ describe('bundleSynthesisWorker', () => {
     expect(writtenSyntheses[0]?.frames[0]?.frame_point_id).toMatch(/^synth-point:/);
     expect(writtenSyntheses[0]?.synthesis_id).toMatch(/^news-bundle:story-1:/);
     expect(writeLatest).toHaveBeenCalledTimes(1);
+    expect(runWriteMock.mock.calls.map((call) => call[0])).toEqual([
+      'synthesis_candidate',
+      'synthesis_epoch',
+      'synthesis_latest',
+    ]);
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0]).toMatchObject({
       schema_version: 'analysis-eval-artifact-v1',
