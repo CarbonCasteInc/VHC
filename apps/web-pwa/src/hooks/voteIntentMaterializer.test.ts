@@ -14,6 +14,7 @@ import {
   scheduleVoteIntentReplay,
   voteIntentMaterializerInternal,
 } from './voteIntentMaterializer';
+import { projectIntentRecord } from './voteIntentProjection';
 
 function makeIntent(overrides: Partial<VoteIntentRecord> = {}): VoteIntentRecord {
   return {
@@ -333,6 +334,96 @@ describe('voteIntentMaterializer', () => {
 
     await expect(replayVoteIntentQueue({ limit: 10, now: () => 500 })).resolves.toEqual({ replayed: 1, failed: 0 });
     expect(writeVoterSpy.mock.invocationCallOrder[0]!).toBeLessThan(readRowsSpy.mock.invocationCallOrder[0]!);
+  });
+
+  it('projectIntentRecord defers snapshot materialization when aggregate fan-in hangs', async () => {
+    vi.useFakeTimers();
+    const client = {} as VennClient;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: new Date(100).toISOString(),
+      });
+      vi.spyOn(GunClient, 'readAggregateVoterRows').mockReturnValue(new Promise(() => {}));
+      const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+      const result = projectIntentRecord({
+        client,
+        record: makeIntent({ intent_id: 'snapshot-critical-timeout', seq: 100, emitted_at: 100 }),
+        now: () => 500,
+        materializePointSnapshot,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(result).resolves.toEqual({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        voter_node_ok: true,
+        snapshot_ok: false,
+        readback_recovered: false,
+        timed_out: false,
+      });
+      expect(writeSnapshotSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:vote:intent-replay:snapshot-materialization-deferred]',
+        expect.objectContaining({
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 1,
+          point_id: 'point-1',
+          timeout_ms: 3_000,
+        }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('projectIntentRecord logs string snapshot materialization failures without retrying the voter row', async () => {
+    const client = {} as VennClient;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: new Date(100).toISOString(),
+      });
+      vi.spyOn(GunClient, 'readAggregateVoterRows').mockRejectedValue('rows-failed-string');
+      const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+      await expect(projectIntentRecord({
+        client,
+        record: makeIntent({ intent_id: 'snapshot-string-failure', seq: 100, emitted_at: 100 }),
+        now: () => 500,
+        materializePointSnapshot,
+      })).resolves.toEqual({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        voter_node_ok: true,
+        snapshot_ok: false,
+        readback_recovered: false,
+        timed_out: false,
+      });
+
+      expect(writeSnapshotSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:vote:intent-replay:snapshot-materialization-failed]',
+        expect.objectContaining({
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 1,
+          point_id: 'point-1',
+          error: 'rows-failed-string',
+        }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('replayVoteIntentQueue clears readback-confirmed timeout recovery after snapshot projection', async () => {
