@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoryBundle } from '@vh/data-model';
 import {
   LEGACY_LATEST_INDEX_EXPECTED_FIXTURE,
@@ -151,6 +151,10 @@ describe('hydrateNewsStore', () => {
     vi.resetModules();
   });
 
+  afterEach(() => {
+    delete process.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT;
+  });
+
   it('returns false when no client is available', async () => {
     const { hydrateNewsStore } = await import('./hydration');
     const { store } = createStore();
@@ -159,9 +163,9 @@ describe('hydrateNewsStore', () => {
   });
 
   it('returns false when subscriptions are unsupported', async () => {
-    gunMocks.getNewsStoriesChain.mockReturnValue({ map: undefined });
+    gunMocks.getNewsStoriesChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
     gunMocks.getNewsStorylinesChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
-    gunMocks.getNewsLatestIndexChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
+    gunMocks.getNewsLatestIndexChain.mockReturnValue({ map: undefined });
     gunMocks.getNewsHotIndexChain.mockReturnValue({ map: vi.fn(() => ({ on: vi.fn() })) });
 
     const { hydrateNewsStore } = await import('./hydration');
@@ -186,13 +190,14 @@ describe('hydrateNewsStore', () => {
     expect(hydrateNewsStore(() => ({}) as never, store)).toBe(true);
     expect(hydrateNewsStore(() => ({}) as never, store)).toBe(true);
 
-    expect(storyChain.onSpy).toHaveBeenCalledTimes(1);
-    expect(storylineChain.onSpy).toHaveBeenCalledTimes(1);
+    expect(storyChain.onSpy).not.toHaveBeenCalled();
+    expect(storylineChain.onSpy).not.toHaveBeenCalled();
     expect(latestChain.onSpy).toHaveBeenCalledTimes(1);
     expect(hotChain.onSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('hydrates stories without synthesizing latest-index entries from story updates', async () => {
+  it('hydrates stories from latest-index entries without synthesizing extra index writes', async () => {
+    const client = { id: 'client-latest-story' };
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -200,21 +205,21 @@ describe('hydrateNewsStore', () => {
     gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
     gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
 
+    gunMocks.readNewsStory.mockResolvedValue(story({ story_id: 's1', created_at: 321, cluster_window_end: 654 }));
+
     const { hydrateNewsStore } = await import('./hydration');
     const { store, state } = createStore();
 
-    hydrateNewsStore(() => ({}) as never, store);
+    hydrateNewsStore(() => client as never, store);
 
-    storyChain.emit(
-      { _: { '#': 'meta' }, ...story({ story_id: 's1', created_at: 321, cluster_window_end: 654 }) },
-      's1',
-    );
+    latestChain.emit(654, 's1');
+    await Promise.resolve();
 
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 's1' }));
-    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
+    expect(state.upsertLatestIndex).toHaveBeenCalledWith('s1', 654);
 
     storyChain.emit(story({ story_id: 's1', created_at: 999, cluster_window_end: 888 }), 's1');
-    expect(state.upsertLatestIndex).not.toHaveBeenCalled();
+    expect(state.upsertStory).toHaveBeenCalledTimes(1);
   });
 
   it('drops story updates excluded by an authoritative latest index', async () => {
@@ -248,7 +253,7 @@ describe('hydrateNewsStore', () => {
 
     hydrateNewsStore(() => ({}) as never, store);
 
-    storyChain.emit(null, 's1');
+    latestChain.emit(null, 's1');
 
     expect(state.removeStory).toHaveBeenCalledWith('s1');
   });
@@ -274,6 +279,32 @@ describe('hydrateNewsStore', () => {
     expect(state.removeHotIndex).toHaveBeenCalledWith('s1');
   });
 
+  it('prunes stale latest-index stories beyond the bounded hydration window', async () => {
+    process.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT = '2';
+    vi.resetModules();
+    const client = { id: 'bounded-client' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    gunMocks.readNewsStory.mockResolvedValue(null);
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit(100, 'story-old');
+    latestChain.emit(300, 'story-newest');
+    latestChain.emit(200, 'story-middle');
+
+    expect(state.removeLatestIndex).toHaveBeenCalledWith('story-old');
+    expect(state.removeHotIndex).toHaveBeenCalledWith('story-old');
+    expect(state.removeStory).toHaveBeenCalledWith('story-old');
+  });
+
   it('skips fetching stories already present and hydrates missing stories from latest-index updates', async () => {
     const client = { id: 'client-latest-fetch' };
     const storyChain = createSubscribableChain();
@@ -291,7 +322,8 @@ describe('hydrateNewsStore', () => {
     hydrateNewsStore(() => client as never, store);
 
     latestChain.emit(123, 'story-present');
-    expect(gunMocks.readNewsStory).not.toHaveBeenCalled();
+    expect(gunMocks.readNewsStory).toHaveBeenCalledWith(client, 'story-present');
+    gunMocks.readNewsStory.mockClear();
 
     latestChain.emit(456, 'story-missing');
     await Promise.resolve();
@@ -300,7 +332,47 @@ describe('hydrateNewsStore', () => {
     expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-missing' }));
   });
 
-  it('prefers StoryBundle.story_id over Gun map key when hydrating story updates', async () => {
+  it('deduplicates in-flight and already-fetched latest-index story reads', async () => {
+    process.env.VITE_VH_NEWS_HYDRATION_INDEX_LIMIT = 'not-a-number';
+    vi.resetModules();
+    const client = { id: 'client-dedupe-fetch' };
+    const storyChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+
+    let resolveRead: ((value: StoryBundle) => void) | undefined;
+    gunMocks.readNewsStory.mockReturnValue(
+      new Promise<StoryBundle>((resolve) => {
+        resolveRead = resolve;
+      }),
+    );
+
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    hydrateNewsStore(() => client as never, store);
+
+    latestChain.emit(456, 'story-dedupe');
+    latestChain.emit(456, 'story-dedupe');
+    expect(gunMocks.readNewsStory).toHaveBeenCalledTimes(1);
+
+    resolveRead?.(story({ story_id: 'story-dedupe' }));
+    for (let i = 0; i < 5; i += 1) {
+      await Promise.resolve();
+    }
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    gunMocks.readNewsStory.mockClear();
+
+    latestChain.emit(456, 'story-dedupe');
+
+    expect(gunMocks.readNewsStory).not.toHaveBeenCalled();
+    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'story-dedupe' }));
+  });
+
+  it('ignores direct root-story updates so the latest index stays authoritative', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -315,11 +387,11 @@ describe('hydrateNewsStore', () => {
 
     storyChain.emit(story({ story_id: 'canonical-story', cluster_window_end: 901 }), 'legacy-map-key');
 
-    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: 'canonical-story' }));
+    expect(state.upsertStory).not.toHaveBeenCalled();
     expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
-  it('falls back to Gun map key when payload story_id is blank', async () => {
+  it('ignores blank-id root-story updates', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -334,11 +406,11 @@ describe('hydrateNewsStore', () => {
 
     storyChain.emit(story({ story_id: '   ', cluster_window_end: 902 }), 'fallback-key');
 
-    expect(state.upsertStory).toHaveBeenCalledTimes(1);
+    expect(state.upsertStory).not.toHaveBeenCalled();
     expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
-  it('uses payload story_id when map key is missing or non-string', async () => {
+  it('ignores payload-only root-story updates until a latest-index entry references them', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -353,7 +425,7 @@ describe('hydrateNewsStore', () => {
 
     storyChain.emit(story({ story_id: 'payload-only-id', cluster_window_end: 902 }));
 
-    expect(state.upsertStory).toHaveBeenCalledTimes(1);
+    expect(state.upsertStory).not.toHaveBeenCalled();
     expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
@@ -376,7 +448,7 @@ describe('hydrateNewsStore', () => {
     expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 
-  it('hydrates stories from encoded story-bundle payloads', async () => {
+  it('ignores encoded root-story payloads because hydration is latest-index bounded', async () => {
     const storyChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
     const hotChain = createSubscribableChain();
@@ -392,7 +464,7 @@ describe('hydrateNewsStore', () => {
     const s = story({ story_id: 'encoded-1', created_at: 444, cluster_window_end: 777 });
     storyChain.emit({ __story_bundle_json: JSON.stringify(s), story_id: s.story_id }, s.story_id);
 
-    expect(state.upsertStory).toHaveBeenCalledWith(expect.objectContaining({ story_id: s.story_id }));
+    expect(state.upsertStory).not.toHaveBeenCalled();
     expect(state.upsertLatestIndex).not.toHaveBeenCalled();
   });
 

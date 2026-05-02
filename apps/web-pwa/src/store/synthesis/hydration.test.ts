@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 import type { SynthesisState } from './types';
 
@@ -81,6 +81,7 @@ function correction(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSyn
 interface SubscribableChain {
   chain: {
     on: ReturnType<typeof vi.fn>;
+    off: ReturnType<typeof vi.fn>;
     once: ReturnType<typeof vi.fn>;
     get: ReturnType<typeof vi.fn>;
   };
@@ -88,6 +89,7 @@ interface SubscribableChain {
   setSnapshot: (data: unknown) => void;
   setScalarSnapshot: (key: string, data: unknown) => void;
   onSpy: ReturnType<typeof vi.fn>;
+  offSpy: ReturnType<typeof vi.fn>;
   onceSpy: ReturnType<typeof vi.fn>;
   getSpy: ReturnType<typeof vi.fn>;
 }
@@ -99,6 +101,11 @@ function createSubscribableChain(): SubscribableChain {
   const onSpy = vi.fn((cb: (data: unknown) => void) => {
     callback = cb;
   });
+  const offSpy = vi.fn((cb: (data: unknown) => void) => {
+    if (callback === cb) {
+      callback = undefined;
+    }
+  });
   const onceSpy = vi.fn((cb: (data: unknown) => void) => {
     cb(snapshot);
   });
@@ -109,7 +116,7 @@ function createSubscribableChain(): SubscribableChain {
   }));
 
   return {
-    chain: { on: onSpy, once: onceSpy, get: getSpy },
+    chain: { on: onSpy, off: offSpy, once: onceSpy, get: getSpy },
     emit(data: unknown) {
       callback?.(data);
     },
@@ -120,6 +127,7 @@ function createSubscribableChain(): SubscribableChain {
       scalarSnapshots.set(key, data);
     },
     onSpy,
+    offSpy,
     onceSpy,
     getSpy
   };
@@ -137,6 +145,7 @@ function createStore() {
     setTopicError: vi.fn(),
     refreshTopic: vi.fn(),
     startHydration: vi.fn(),
+    stopHydration: vi.fn(),
     reset: vi.fn()
   };
 
@@ -155,6 +164,10 @@ describe('hydrateSynthesisStore', () => {
     gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
     gunMocks.hasForbiddenSynthesisPayloadFields.mockReturnValue(false);
     vi.resetModules();
+  });
+
+  afterEach(() => {
+    delete process.env.VITE_VH_SYNTHESIS_HYDRATION_TOPIC_LIMIT;
   });
 
   it('returns false for empty topic id', async () => {
@@ -324,6 +337,81 @@ describe('hydrateSynthesisStore', () => {
 
     expect(chainA.onSpy).toHaveBeenCalledTimes(1);
     expect(chainB.onSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('releases topic subscriptions explicitly', async () => {
+    const chain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    const { hydrateSynthesisStore, releaseSynthesisHydration } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    releaseSynthesisHydration(store, 'topic-1');
+    chain.emit(synthesis());
+
+    expect(chain.offSpy).toHaveBeenCalledTimes(2);
+    expect(chain.offSpy).toHaveBeenNthCalledWith(1, expect.any(Function));
+    expect(chain.offSpy).toHaveBeenNthCalledWith(2);
+    expect(state.setTopicSynthesis).not.toHaveBeenCalledWith(
+      'topic-1',
+      expect.objectContaining({ synthesis_id: 'synth-3' }),
+    );
+  });
+
+  it('ignores late callbacks after release when Gun keeps the old handler alive', async () => {
+    const chain = createSubscribableChain();
+    chain.offSpy.mockImplementation(() => undefined);
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    const { hydrateSynthesisStore, releaseSynthesisHydration } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    releaseSynthesisHydration(store, 'topic-1');
+    releaseSynthesisHydration(store, '   ');
+    chain.emit(synthesis());
+
+    expect(state.setTopicSynthesis).not.toHaveBeenCalled();
+  });
+
+  it('evicts least-recent topic subscriptions beyond the bounded hydration limit', async () => {
+    process.env.VITE_VH_SYNTHESIS_HYDRATION_TOPIC_LIMIT = '1';
+    vi.resetModules();
+    const chainA = createSubscribableChain();
+    const chainB = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain
+      .mockReturnValueOnce(chainA.chain)
+      .mockReturnValueOnce(chainB.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store, state } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-a')).toBe(true);
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-b')).toBe(true);
+
+    expect(chainA.offSpy).toHaveBeenCalledTimes(2);
+    expect(chainA.offSpy).toHaveBeenNthCalledWith(1, expect.any(Function));
+    expect(chainA.offSpy).toHaveBeenNthCalledWith(2);
+    expect(chainB.offSpy).not.toHaveBeenCalled();
+    expect(state.setTopicHydrated).toHaveBeenCalledWith('topic-a', false);
+  });
+
+  it('falls back to the default topic limit when the environment value is invalid', async () => {
+    process.env.VITE_VH_SYNTHESIS_HYDRATION_TOPIC_LIMIT = 'invalid';
+    vi.resetModules();
+    const chain = createSubscribableChain();
+    gunMocks.getTopicLatestSynthesisChain.mockReturnValue(chain.chain);
+    gunMocks.getTopicLatestSynthesisCorrectionChain.mockReturnValue({ on: undefined });
+
+    const { hydrateSynthesisStore } = await import('./hydration');
+    const { store } = createStore();
+
+    expect(hydrateSynthesisStore(() => ({}) as never, store, 'topic-1')).toBe(true);
+    expect(chain.offSpy).not.toHaveBeenCalled();
   });
 
   it('hydrates valid synthesis payloads', async () => {

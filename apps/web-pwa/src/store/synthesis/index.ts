@@ -12,7 +12,7 @@ import {
   type VennClient
 } from '@vh/gun-client';
 import { resolveClientFromAppStore } from '../clientResolver';
-import { hydrateSynthesisStore } from './hydration';
+import { hydrateSynthesisStore, releaseSynthesisHydration } from './hydration';
 import type { SynthesisState, SynthesisDeps, SynthesisTopicState } from './types';
 
 export type { SynthesisState, SynthesisDeps, SynthesisTopicState } from './types';
@@ -23,6 +23,7 @@ type InternalDeps = SynthesisDeps & {
     store: StoreApi<SynthesisState>,
     topicId: string
   ) => boolean;
+  releaseTopic: (store: StoreApi<SynthesisState>, topicId: string) => void;
   readLatest: (client: VennClient, topicId: string) => Promise<TopicSynthesisV2 | null>;
   readLatestCorrection: (client: VennClient, topicId: string) => Promise<TopicSynthesisCorrection | null>;
 };
@@ -107,6 +108,7 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
     resolveClient: resolveClientFromAppStore,
     enabled: true,
     hydrateTopic: hydrateSynthesisStore,
+    releaseTopic: releaseSynthesisHydration,
     readLatest: readTopicLatestSynthesis,
     readLatestCorrection: readTopicLatestSynthesisCorrection
   };
@@ -280,6 +282,15 @@ export function createSynthesisStore(overrides?: Partial<InternalDeps>): StoreAp
       }
     },
 
+    stopHydration(topicId: string) {
+      const normalizedTopicId = normalizeTopicId(topicId);
+      if (!normalizedTopicId) {
+        return;
+      }
+      deps.releaseTopic(storeRef, normalizedTopicId);
+      get().setTopicHydrated(normalizedTopicId, false);
+    },
+
     reset() {
       set({
         enabled: deps.enabled,
@@ -298,6 +309,7 @@ export function createMockSynthesisStore(seedSynthesis: TopicSynthesisV2[] = [])
     resolveClient: () => null,
     enabled: true,
     hydrateTopic: () => false,
+    releaseTopic: () => {},
     readLatest: async () => null,
     readLatestCorrection: async () => null
   });

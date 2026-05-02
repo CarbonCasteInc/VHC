@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { createGuardedChain, waitForRemote } from './chain';
+import { createGuardedChain, putWithAckTimeout, waitForRemote } from './chain';
 
 describe('waitForRemote', () => {
   afterEach(() => {
@@ -85,5 +85,37 @@ describe('createGuardedChain', () => {
 
     expect(mockNode.put).toHaveBeenCalledWith({ foo: 'bar' }, undefined);
     expect(gunThenable.then).not.toHaveBeenCalled();
+  });
+
+  it('starts ack timeout after guarded waitForRemote reaches the physical put', async () => {
+    vi.useFakeTimers();
+    const gunThenable = { then: vi.fn() };
+    let onceCallback: (() => void) | null = null;
+    const mockNode = {
+      once: vi.fn((cb: () => void) => {
+        onceCallback = cb;
+      }),
+      get: vi.fn().mockReturnThis(),
+      put: vi.fn((_val: any, cb?: () => void) => {
+        cb?.();
+        return gunThenable;
+      })
+    };
+    const mockBarrier = { prepare: vi.fn().mockResolvedValue(undefined) };
+    const mockGuard = { validateWrite: vi.fn() };
+
+    const guarded = createGuardedChain(mockNode as any, mockBarrier as any, mockGuard as any, 'test/path');
+    const pending = putWithAckTimeout(guarded, { foo: 'bar' } as any, { timeoutMs: 250 });
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mockNode.put).not.toHaveBeenCalled();
+
+    onceCallback?.();
+    await expect(pending).resolves.toMatchObject({
+      acknowledged: true,
+      timedOut: false
+    });
+    expect(gunThenable.then).not.toHaveBeenCalled();
+    vi.useRealTimers();
   });
 });

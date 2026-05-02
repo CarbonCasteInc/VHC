@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TopicSynthesisCorrection, TopicSynthesisV2 } from '@vh/data-model';
 
 const hydrateSynthesisStoreMock = vi.fn<(...args: unknown[]) => boolean>();
+const releaseSynthesisHydrationMock = vi.fn<(...args: unknown[]) => void>();
 const hasForbiddenSynthesisPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
 const readTopicLatestSynthesisMock = vi.fn<(client: unknown, topicId: string) => Promise<TopicSynthesisV2 | null>>();
 const readTopicLatestSynthesisCorrectionMock = vi.fn<
@@ -9,7 +10,8 @@ const readTopicLatestSynthesisCorrectionMock = vi.fn<
 >();
 
 vi.mock('./hydration', () => ({
-  hydrateSynthesisStore: hydrateSynthesisStoreMock
+  hydrateSynthesisStore: hydrateSynthesisStoreMock,
+  releaseSynthesisHydration: releaseSynthesisHydrationMock
 }));
 
 vi.mock('@vh/gun-client', () => ({
@@ -88,6 +90,7 @@ function correction(overrides: Partial<TopicSynthesisCorrection> = {}): TopicSyn
 describe('synthesis store', () => {
   beforeEach(() => {
     hydrateSynthesisStoreMock.mockReset();
+    releaseSynthesisHydrationMock.mockReset();
     hasForbiddenSynthesisPayloadFieldsMock.mockReset();
     readTopicLatestSynthesisMock.mockReset();
     readTopicLatestSynthesisCorrectionMock.mockReset();
@@ -265,6 +268,11 @@ describe('synthesis store', () => {
 
     store.getState().startHydration('topic-1');
     expect(store.getState().getTopicState('topic-1').hydrated).toBe(true);
+    store.getState().stopHydration('topic-1');
+    expect(releaseSynthesisHydrationMock).toHaveBeenCalledWith(expect.anything(), 'topic-1');
+    expect(store.getState().getTopicState('topic-1').hydrated).toBe(false);
+    store.getState().stopHydration('   ');
+    expect(releaseSynthesisHydrationMock).toHaveBeenCalledTimes(1);
 
     hydrateSynthesisStoreMock.mockReturnValue(false);
     store.getState().setTopicHydrated('topic-2', false);

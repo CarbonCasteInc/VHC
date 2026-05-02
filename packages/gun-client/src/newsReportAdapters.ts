@@ -6,7 +6,7 @@ import {
   type HermesNewsReportStatus,
   type TrustedOperatorAuthorization,
 } from '@vh/data-model';
-import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import type { VennClient } from './types';
 
 function newsReportPath(reportId: string): string {
@@ -76,15 +76,7 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 }
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    chain.put(value, (ack?: ChainAck) => {
-      if (ack?.err) {
-        reject(new Error(ack.err));
-        return;
-      }
-      resolve();
-    });
-  });
+  await putWithAckTimeout(chain, value, { timeoutMs: 2_500 });
 }
 
 export function getNewsReportChain(client: VennClient, reportId: string): ChainWithGet<HermesNewsReport> {

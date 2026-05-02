@@ -10,7 +10,7 @@ import {
   type TopicSynthesisV2,
   type TrustedOperatorAuthorization
 } from '@vh/data-model';
-import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
@@ -321,26 +321,10 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 }
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const timeout = setTimeout(() => {
-      settled = true;
-      reject(new Error('synthesis-put-ack-timeout'));
-    }, PUT_ACK_TIMEOUT_MS);
-
-    chain.put(value, (ack?: ChainAck) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      if (ack?.err) {
-        reject(new Error(ack.err));
-        return;
-      }
-      resolve();
-    });
-  });
+  const result = await putWithAckTimeout(chain, value, { timeoutMs: PUT_ACK_TIMEOUT_MS });
+  if (result.timedOut) {
+    throw new Error('synthesis-put-ack-timeout');
+  }
 }
 
 function resolveRelaySynthesisEndpoint(client: VennClient): string | null {

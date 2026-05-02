@@ -16,6 +16,7 @@ import { publishIdentity, clearPublishedIdentity } from './identityProvider';
   commentIndexEntrySnapshots,
   commentIndexEntryHandlers,
   moderationHandlers,
+  dateIndexHandlers,
   dateIndexWrites,
   tagIndexWrites,
   threadChain,
@@ -37,6 +38,7 @@ import { publishIdentity, clearPublishedIdentity } from './identityProvider';
   const commentIndexEntrySnapshots: Array<{ data: any; key: string }> = [];
   const commentIndexEntryHandlers: Array<(data: any, key: string) => void> = [];
   const moderationHandlers: Array<(data: any, key: string) => void> = [];
+  const dateIndexHandlers: Array<(data: any, key?: string) => void> = [];
   const dateIndexWrites: Array<{ id: string; value: any }> = [];
   const tagIndexWrites: Array<{ tag: string; id: string; value: any }> = [];
 
@@ -122,6 +124,12 @@ import { publishIdentity, clearPublishedIdentity } from './identityProvider';
   } as any;
 
   const getForumDateIndexChainMock = vi.fn(() => ({
+    map: vi.fn(() => ({
+      on: vi.fn((cb: (data: any, key?: string) => void) => {
+        dateIndexHandlers.push(cb);
+      }),
+      off: vi.fn(),
+    })),
     get: vi.fn((id: string) => ({
       put: vi.fn((value: any) => {
         dateIndexWrites.push({ id, value });
@@ -151,6 +159,7 @@ import { publishIdentity, clearPublishedIdentity } from './identityProvider';
     commentIndexEntrySnapshots,
     commentIndexEntryHandlers,
     moderationHandlers,
+    dateIndexHandlers,
     dateIndexWrites,
     tagIndexWrites,
     threadChain,
@@ -187,20 +196,17 @@ const memoryStorage = () => {
 };
 
 const createHydrationClient = () => {
-  const handlers: Array<(data: any, key: string) => void> = [];
-  const threadsChain = {
-    map: vi.fn(() => ({
-      on: (cb: any) => {
-        handlers.push(cb);
-      }
-    })),
-    get: vi.fn(() => threadsChain)
-  };
-  const forumNode = { get: vi.fn(() => threadsChain) };
+  const forumNode = { get: vi.fn(() => ({})) };
   const vhNode = { get: vi.fn(() => forumNode) };
   const gun = { get: vi.fn(() => vhNode) };
   const client = { gun } as any;
-  return { client, emitThread: (data: any, key: string) => handlers.forEach((handler) => handler(data, key)) };
+  return {
+    client,
+    emitThread: (data: any, key: string) => {
+      threadSnapshots.push(data);
+      dateIndexHandlers.forEach((handler) => handler(true, key));
+    },
+  };
 };
 
 beforeEach(() => {
@@ -218,6 +224,7 @@ beforeEach(() => {
   commentIndexEntrySnapshots.length = 0;
   commentIndexEntryHandlers.length = 0;
   moderationHandlers.length = 0;
+  dateIndexHandlers.length = 0;
   dateIndexWrites.length = 0;
   tagIndexWrites.length = 0;
   threadChain.put.mockClear();

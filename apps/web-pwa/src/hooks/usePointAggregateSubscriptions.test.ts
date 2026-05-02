@@ -96,4 +96,30 @@ describe('subscribePointAggregateSignals', () => {
 
     expect(() => unsubscribe()).not.toThrow();
   });
+
+  it('ignores late signal callbacks when a Gun chain cannot unsubscribe precisely', async () => {
+    const pointChain = createSignalChain();
+    const voterChain = createSignalChain();
+    pointChain.off = () => pointChain;
+    voterChain.off = () => voterChain;
+    getAggregatePointsChainMock.mockReturnValue(pointChain);
+    getAggregateVotersChainMock.mockReturnValue(voterChain);
+    const onSignal = vi.fn();
+
+    const unsubscribe = subscribePointAggregateSignals({
+      client: {} as never,
+      topicId: 'topic-1',
+      synthesisId: 'synth-1',
+      epoch: 0,
+      pointId: 'point-1',
+      onSignal,
+    });
+
+    unsubscribe();
+    pointChain.emit();
+    voterChain.emit();
+    await Promise.resolve();
+
+    expect(onSignal).not.toHaveBeenCalled();
+  });
 });

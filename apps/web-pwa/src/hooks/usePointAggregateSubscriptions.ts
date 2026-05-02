@@ -24,13 +24,19 @@ function bindChainSignal(
     return () => {};
   }
 
+  let disposed = false;
   const handler = () => {
+    if (disposed) {
+      return;
+    }
     callback();
   };
   chain.on(handler);
 
   return () => {
+    disposed = true;
     chain.off?.(handler);
+    chain.off?.();
   };
 }
 

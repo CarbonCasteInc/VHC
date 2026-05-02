@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { useHealthStore, startHealthMonitor } from '../../hooks/useHealthMonitor';
+import React, { useState } from 'react';
+import { useHealthStore, type DegradationReason } from '../../hooks/useHealthMonitor';
 
 function statusColor(mode: string): string {
   switch (mode) {
@@ -31,6 +31,29 @@ function statusLabel(mode: string): string {
   }
 }
 
+function reasonLabel(reason: DegradationReason): string {
+  switch (reason) {
+    case 'probe-ack-timeout':
+      return 'Probe ack timeout';
+    case 'write-readback-failed':
+      return 'Write readback failed';
+    case 'convergence-lagging':
+      return 'Convergence lagging';
+    case 'peer-quorum-missing':
+      return 'Peer quorum missing';
+    case 'analysis-relay-unavailable':
+      return 'Analysis relay unavailable';
+    case 'local-storage-hydration-failed':
+      return 'Local storage hydration failed';
+    case 'client-out-of-date':
+      return 'Client out of date';
+    case 'message-rate-high':
+      return 'Gun message rate high';
+    default:
+      return reason;
+  }
+}
+
 export const HealthIndicator: React.FC = () => {
   const [expanded, setExpanded] = useState(false);
 
@@ -40,12 +63,11 @@ export const HealthIndicator: React.FC = () => {
   const analysisRelayAvailable = useHealthStore((s) => s.analysisRelayAvailable);
   const convergenceLagP95Ms = useHealthStore((s) => s.convergenceLagP95Ms);
   const degradationMode = useHealthStore((s) => s.degradationMode);
+  const degradationReasons = useHealthStore((s) => s.degradationReasons);
   const lastHealthCheck = useHealthStore((s) => s.lastHealthCheck);
-
-  useEffect(() => {
-    const stop = startHealthMonitor();
-    return stop;
-  }, []);
+  const meshWriteAckLabel = meshWriteAckRate === null
+    ? `unknown (${meshWriteAckSamples} samples)`
+    : `${(meshWriteAckRate * 100).toFixed(1)}% (${meshWriteAckSamples} samples)`;
 
   return (
     <div
@@ -77,7 +99,7 @@ export const HealthIndicator: React.FC = () => {
               </tr>
               <tr>
                 <td className="pr-2 text-slate-500">Mesh write ack</td>
-                <td>{(meshWriteAckRate * 100).toFixed(1)}% ({meshWriteAckSamples} samples)</td>
+                <td>{meshWriteAckLabel}</td>
               </tr>
               <tr>
                 <td className="pr-2 text-slate-500">Analysis relay</td>
@@ -90,6 +112,14 @@ export const HealthIndicator: React.FC = () => {
               <tr>
                 <td className="pr-2 text-slate-500">Last check</td>
                 <td>{lastHealthCheck ? new Date(lastHealthCheck).toLocaleTimeString() : 'n/a'}</td>
+              </tr>
+              <tr>
+                <td className="pr-2 align-top text-slate-500">Reasons</td>
+                <td>
+                  {degradationReasons.length > 0
+                    ? degradationReasons.map(reasonLabel).join(', ')
+                    : 'none'}
+                </td>
               </tr>
             </tbody>
           </table>

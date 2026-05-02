@@ -49,6 +49,7 @@ const EMPTY_TOPIC_STATE: SynthesisTopicState = {
 const selectEnabled = (state: SynthesisState) => state.enabled;
 const selectTopics = (state: SynthesisState) => state.topics;
 const selectStartHydration = (state: SynthesisState) => state.startHydration;
+const selectStopHydration = (state: SynthesisState) => state.stopHydration;
 const selectRefreshTopic = (state: SynthesisState) => state.refreshTopic;
 
 export function useSynthesis(topicId?: string | null): UseSynthesisResult {
@@ -57,6 +58,7 @@ export function useSynthesis(topicId?: string | null): UseSynthesisResult {
   const enabled = useStore(useSynthesisStore, selectEnabled);
   const topics = useStore(useSynthesisStore, selectTopics);
   const startHydration = useStore(useSynthesisStore, selectStartHydration);
+  const stopHydration = useStore(useSynthesisStore, selectStopHydration);
   const refreshTopic = useStore(useSynthesisStore, selectRefreshTopic);
   const topicState = normalizedTopicId ? topics[normalizedTopicId] ?? EMPTY_TOPIC_STATE : EMPTY_TOPIC_STATE;
 
@@ -67,7 +69,10 @@ export function useSynthesis(topicId?: string | null): UseSynthesisResult {
 
     startHydration(normalizedTopicId);
     void refreshTopic(normalizedTopicId);
-  }, [enabled, normalizedTopicId, refreshTopic, startHydration]);
+    return () => {
+      stopHydration(normalizedTopicId);
+    };
+  }, [enabled, normalizedTopicId, refreshTopic, startHydration, stopHydration]);
 
   const refresh = useCallback(async () => {
     if (!enabled || !normalizedTopicId) {
