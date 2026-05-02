@@ -18,6 +18,7 @@ const {
   commentIndexChain,
   getForumCommentsChainMock,
   getForumCommentIndexChainMock,
+  getForumLatestCommentModerationsChainMock,
   getForumDateIndexChainMock,
   getForumTagIndexChainMock
 } = vi.hoisted(() => {
@@ -50,15 +51,20 @@ const {
       cb?.({});
     }),
     map: vi.fn(() => ({
-      on: vi.fn()
+      on: vi.fn(),
+      off: vi.fn()
     }))
   } as any;
 
   const commentIndexChain = {
     get: vi.fn(() => commentIndexChain),
-    once: vi.fn(),
+    once: vi.fn((cb?: (value: any) => void) => cb?.(null)),
+    on: vi.fn(),
+    off: vi.fn(),
     map: vi.fn(() => ({
-      once: vi.fn()
+      once: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn()
     })),
     put: vi.fn((value: any, cb?: (ack?: { err?: string }) => void) => {
       commentIndexWrites.push(value);
@@ -66,8 +72,15 @@ const {
     })
   } as any;
 
-  const getForumCommentsChainMock = vi.fn(() => commentsChain);
-  const getForumCommentIndexChainMock = vi.fn(() => commentIndexChain);
+  const getForumCommentsChainMock = vi.fn((_client?: any, _threadId?: string) => commentsChain);
+  const getForumCommentIndexChainMock = vi.fn((_client?: any, _threadId?: string) => commentIndexChain);
+  const moderationChain = {
+    map: vi.fn(() => ({
+      on: vi.fn(),
+      off: vi.fn()
+    }))
+  } as any;
+  const getForumLatestCommentModerationsChainMock = vi.fn((_client?: any, _threadId?: string) => moderationChain);
 
   const getForumDateIndexChainMock = vi.fn(() => ({
     get: vi.fn((id: string) => ({
@@ -97,6 +110,7 @@ const {
     commentIndexChain,
     getForumCommentsChainMock,
     getForumCommentIndexChainMock,
+    getForumLatestCommentModerationsChainMock,
     getForumDateIndexChainMock,
     getForumTagIndexChainMock
   };
@@ -109,6 +123,7 @@ vi.mock('@vh/gun-client', async (orig) => {
     getForumThreadChain: vi.fn(() => threadChain),
     getForumCommentsChain: getForumCommentsChainMock,
     getForumCommentIndexChain: getForumCommentIndexChainMock,
+    getForumLatestCommentModerationsChain: getForumLatestCommentModerationsChainMock,
     getForumDateIndexChain: getForumDateIndexChainMock,
     getForumTagIndexChain: getForumTagIndexChainMock
   };
@@ -176,6 +191,7 @@ beforeEach(() => {
   getForumCommentsChainMock.mockReturnValue(commentsChain);
   getForumCommentIndexChainMock.mockClear();
   getForumCommentIndexChainMock.mockReturnValue(commentIndexChain);
+  getForumLatestCommentModerationsChainMock.mockClear();
   getForumDateIndexChainMock.mockClear();
   getForumTagIndexChainMock.mockClear();
 });
@@ -282,6 +298,71 @@ describe('hermesForum store', () => {
       topicId: 'story-topic-1',
       isHeadline: true,
     });
+  });
+
+  it('caps live comment subscriptions and tears down the least-recent thread', async () => {
+    vi.useFakeTimers();
+    const chainsByThread = new Map<
+      string,
+      {
+        commentsChain: any;
+        commentsMapped: { on: ReturnType<typeof vi.fn>; off: ReturnType<typeof vi.fn> };
+        indexChain: any;
+        moderationChain: any;
+      }
+    >();
+    const chainForThread = (threadId: string) => {
+      const existing = chainsByThread.get(threadId);
+      if (existing) {
+        return existing;
+      }
+      const commentsMapped = { on: vi.fn(), off: vi.fn() };
+      const commentsChainForThread = {
+        get: vi.fn(() => commentsChainForThread),
+        map: vi.fn(() => commentsMapped),
+      } as any;
+      const indexMapped = { once: vi.fn((cb?: (value: any, key?: string) => void) => cb?.(null)), on: vi.fn(), off: vi.fn() };
+      const indexChainForThread = {
+        get: vi.fn(() => indexChainForThread),
+        once: vi.fn((cb?: (value: any) => void) => cb?.(null)),
+        on: vi.fn(),
+        off: vi.fn(),
+        map: vi.fn(() => indexMapped),
+      } as any;
+      const moderationMapped = { on: vi.fn(), off: vi.fn() };
+      const moderationChainForThread = {
+        map: vi.fn(() => moderationMapped),
+      } as any;
+      const created = {
+        commentsChain: commentsChainForThread,
+        commentsMapped,
+        indexChain: indexChainForThread,
+        moderationChain: moderationChainForThread,
+      };
+      chainsByThread.set(threadId, created);
+      return created;
+    };
+    getForumCommentsChainMock.mockImplementation((_client?: any, threadId?: string) => chainForThread(threadId ?? '').commentsChain);
+    getForumCommentIndexChainMock.mockImplementation((_client?: any, threadId?: string) => chainForThread(threadId ?? '').indexChain);
+    getForumLatestCommentModerationsChainMock.mockImplementation(
+      (_client?: any, threadId?: string) => chainForThread(threadId ?? '').moderationChain,
+    );
+    const store = createForumStore({ resolveClient: () => ({} as any), now: () => 1 });
+
+    try {
+      const pendingLoads: Array<Promise<unknown>> = [];
+      for (let i = 0; i < 9; i += 1) {
+        pendingLoads.push(store.getState().loadComments(`thread-${i}`));
+      }
+
+      expect(chainForThread('thread-0').commentsMapped.off).toHaveBeenCalled();
+      expect(chainForThread('thread-1').commentsMapped.off).not.toHaveBeenCalled();
+
+      await vi.runOnlyPendingTimersAsync();
+      await Promise.all(pendingLoads);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('createThread resolves when an unacknowledged write is readable', async () => {

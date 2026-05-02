@@ -133,16 +133,18 @@ describe('useSynthesis', () => {
     useSynthesisStore.getState().setTopicHydrated('topic-1', true);
 
     const startHydrationSpy = vi.fn();
+    const stopHydrationSpy = vi.fn();
     const refreshTopicSpy = vi.fn(async () => undefined);
 
     useSynthesisStore.setState({
       enabled: true,
       startHydration: startHydrationSpy,
+      stopHydration: stopHydrationSpy,
       refreshTopic: refreshTopicSpy
     });
 
     const { useSynthesis } = await import('./useSynthesis');
-    const { result } = renderHook(() => useSynthesis(' topic-1 '));
+    const { result, unmount } = renderHook(() => useSynthesis(' topic-1 '));
 
     await waitFor(() => {
       expect(startHydrationSpy).toHaveBeenCalledWith('topic-1');
@@ -160,5 +162,7 @@ describe('useSynthesis', () => {
     });
 
     expect(refreshTopicSpy).toHaveBeenCalledTimes(2);
+    unmount();
+    expect(stopHydrationSpy).toHaveBeenCalledWith('topic-1');
   });
 });

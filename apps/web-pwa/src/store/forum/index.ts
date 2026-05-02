@@ -27,6 +27,7 @@ import { hydrateFromGun } from './hydration';
 import { createMockForumStore } from './mockStore';
 import { notifySynthesisPipeline } from './synthesisBridge';
 import { normalizeThreadSourceContext } from './sourceContext';
+import { recordGunMessageActivity } from '../../hooks/useHealthMonitor';
 
 export type { ForumState } from './types';
 export { stripUndefined } from './helpers';
@@ -42,6 +43,7 @@ const COMMENT_INDEX_SCALAR_READ_TIMEOUT_MS = 750;
 const COMMENT_INDEX_SCALAR_POLL_MS = 1_000;
 const COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS = 1_000;
 const COMMENT_SNAPSHOT_REPLAY_INTERVAL_MS = 5_000;
+const COMMENT_THREAD_SUBSCRIPTION_LIMIT = 8;
 const COMMENT_DURABILITY_READBACK_TIMEOUT_MS = 15_000;
 const COMMENT_DURABILITY_READBACK_POLL_MS = 500;
 const COMMENT_DURABILITY_WRITE_ATTEMPTS = 3;
@@ -108,8 +110,10 @@ type ReadChain = {
   map?: () => {
     once?: (callback: (value: unknown, key?: string) => void) => unknown;
     on?: (callback: (value: unknown, key?: string) => void) => unknown;
+    off?: (callback?: (value: unknown, key?: string) => void) => unknown;
   };
   on?: (callback: (value: unknown, key?: string) => void) => unknown;
+  off?: (callback?: (value: unknown, key?: string) => void) => unknown;
   once?: (callback: (value: unknown) => void) => unknown;
 };
 
@@ -824,7 +828,60 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
 
   let storeRef: StoreApi<ForumState> | null = null;
   const subscribedThreads = new Set<string>();
+  const subscriptionCleanupsByThread = new Map<string, Array<() => void>>();
+  const subscriptionLru: string[] = [];
   const snapshotPulledAtByThread = new Map<string, number>();
+
+  const touchThreadSubscription = (threadId: string) => {
+    const existingIndex = subscriptionLru.indexOf(threadId);
+    if (existingIndex >= 0) {
+      subscriptionLru.splice(existingIndex, 1);
+    }
+    subscriptionLru.push(threadId);
+
+    while (subscriptionLru.length > COMMENT_THREAD_SUBSCRIPTION_LIMIT) {
+      const evictedThreadId = subscriptionLru.shift();
+      if (!evictedThreadId) {
+        break;
+      }
+      const cleanups = subscriptionCleanupsByThread.get(evictedThreadId) ?? [];
+      for (const cleanup of cleanups) {
+        cleanup();
+      }
+      subscriptionCleanupsByThread.delete(evictedThreadId);
+      subscribedThreads.delete(evictedThreadId);
+    }
+  };
+
+  const addThreadSubscriptionCleanup = (threadId: string, cleanup: () => void) => {
+    const cleanups = subscriptionCleanupsByThread.get(threadId) ?? [];
+    cleanups.push(cleanup);
+    subscriptionCleanupsByThread.set(threadId, cleanups);
+  };
+
+  const bindThreadSubscription = (
+    threadId: string,
+    chain: Pick<ReadChain, 'on' | 'off'> | undefined,
+    listener: (value: unknown, key?: string) => void,
+  ) => {
+    if (!chain?.on) {
+      return;
+    }
+    let disposed = false;
+    const wrapped = (value: unknown, key?: string) => {
+      if (disposed) {
+        return;
+      }
+      recordGunMessageActivity();
+      listener(value, key);
+    };
+    chain.on(wrapped);
+    addThreadSubscriptionCleanup(threadId, () => {
+      disposed = true;
+      chain.off?.(wrapped);
+      chain.off?.();
+    });
+  };
   
   const triggerHydration = () => {
     if (storeRef) hydrateFromGun(deps.resolveClient, storeRef);
@@ -951,6 +1008,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       }
       if (typeof commentNode.off === 'function') {
         commentNode.off(listener);
+        commentNode.off();
       }
     };
     const attemptScalarHydration = () => {
@@ -981,6 +1039,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       }
     };
     const listener = (resolved: unknown) => {
+      recordGunMessageActivity();
       if (accepted) {
         return;
       }
@@ -1419,26 +1478,39 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         const moderationChain = getForumLatestCommentModerationsChain(client, normalizedThreadId);
         if (!subscribedThreads.has(normalizedThreadId)) {
           subscribedThreads.add(normalizedThreadId);
+          touchThreadSubscription(normalizedThreadId);
           const mapped = commentsChain.map?.();
-          if (mapped?.on) {
-            mapped.on((data: unknown, key?: string) => hydrateCommentNode(normalizedThreadId, commentsChain, data, key));
-          }
-          commentIndexChain.on?.((data: unknown) => hydrateCommentIndex(normalizedThreadId, commentsChain, data));
-          (commentIndexChain.get?.('idsJson') as ReadChain | undefined)?.on?.(() =>
-            hydrateScalarCommentIndex(normalizedThreadId, commentsChain, commentIndexChain as ReadChain)
+          bindThreadSubscription(
+            normalizedThreadId,
+            mapped,
+            (data: unknown, key?: string) => hydrateCommentNode(normalizedThreadId, commentsChain, data, key),
           );
-          (commentIndexChain.get?.('updatedAt') as ReadChain | undefined)?.on?.(() =>
-            hydrateScalarCommentIndex(normalizedThreadId, commentsChain, commentIndexChain as ReadChain)
+          bindThreadSubscription(
+            normalizedThreadId,
+            commentIndexChain,
+            (data: unknown) => hydrateCommentIndex(normalizedThreadId, commentsChain, data),
+          );
+          bindThreadSubscription(
+            normalizedThreadId,
+            commentIndexChain.get?.('idsJson') as ReadChain | undefined,
+            () => hydrateScalarCommentIndex(normalizedThreadId, commentsChain, commentIndexChain as ReadChain),
+          );
+          bindThreadSubscription(
+            normalizedThreadId,
+            commentIndexChain.get?.('updatedAt') as ReadChain | undefined,
+            () => hydrateScalarCommentIndex(normalizedThreadId, commentsChain, commentIndexChain as ReadChain),
           );
           const commentIndexEntriesMapped = commentIndexEntriesChain.map?.();
-          if (commentIndexEntriesMapped?.on) {
-            commentIndexEntriesMapped.on((data: unknown, key?: string) =>
-              hydrateCommentIndexEntry(normalizedThreadId, commentsChain, data, key)
-            );
-          }
+          bindThreadSubscription(
+            normalizedThreadId,
+            commentIndexEntriesMapped,
+            (data: unknown, key?: string) => hydrateCommentIndexEntry(normalizedThreadId, commentsChain, data, key),
+          );
           const moderationMapped = moderationChain.map?.();
-          if (moderationMapped?.on) {
-            moderationMapped.on((data: unknown, key?: string) => {
+          bindThreadSubscription(
+            normalizedThreadId,
+            moderationMapped,
+            (data: unknown, key?: string) => {
               if (!data || typeof data !== 'object') {
                 return;
               }
@@ -1463,8 +1535,10 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
                 return;
               }
               set((s) => setCommentModerationState(s, normalizedThreadId, result.data));
-            });
-          }
+            },
+          );
+        } else {
+          touchThreadSubscription(normalizedThreadId);
         }
         const lastSnapshotPull = snapshotPulledAtByThread.get(normalizedThreadId) ?? 0;
         const hasLocalComments = (get().comments.get(normalizedThreadId)?.length ?? 0) > 0;

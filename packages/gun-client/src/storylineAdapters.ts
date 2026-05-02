@@ -1,5 +1,5 @@
 import { StorylineGroupSchema, type StorylineGroup } from '@vh/data-model';
-import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -38,26 +38,9 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 }
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const timeout = setTimeout(() => {
-      settled = true;
-      console.warn('[vh:storylines] put ack timed out, proceeding without ack');
-      resolve();
-    }, STORYLINE_ACK_TIMEOUT_MS);
-
-    chain.put(value, (ack?: ChainAck) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timeout);
-      if (ack?.err) {
-        reject(new Error(ack.err));
-        return;
-      }
-      resolve();
-    });
+  await putWithAckTimeout(chain, value, {
+    timeoutMs: STORYLINE_ACK_TIMEOUT_MS,
+    onTimeout: () => console.warn('[vh:storylines] put ack timed out, proceeding without ack'),
   });
 }
 

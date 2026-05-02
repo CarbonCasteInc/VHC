@@ -1,16 +1,7 @@
-import {
-  isCanonicalNewsTopicIdShape,
-  StoryBundleSchema,
-  StorylineGroupSchema,
-  type StoryBundle,
-  type StorylineGroup,
-} from '@vh/data-model';
+import type { StoryBundle } from '@vh/data-model';
 import {
   getNewsHotIndexChain,
   getNewsLatestIndexChain,
-  getNewsStoriesChain,
-  getNewsStorylinesChain,
-  hasForbiddenNewsPayloadFields,
   readNewsStory,
   type ChainWithGet,
   type VennClient
@@ -18,10 +9,23 @@ import {
 import type { StoreApi } from 'zustand';
 import type { NewsState } from './types';
 import { loadStorylinesForStories } from './storylines';
+import { recordGunMessageActivity } from '../../hooks/useHealthMonitor';
 
 const hydratedStores = new WeakSet<StoreApi<NewsState>>();
-const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
-const STORYLINE_GROUP_JSON_KEY = '__storyline_group_json';
+const NEWS_HYDRATION_INDEX_LIMIT = readPositiveIntEnv('VITE_VH_NEWS_HYDRATION_INDEX_LIMIT', 80);
+
+const pendingStoryReadsByStore = new WeakMap<StoreApi<NewsState>, Set<string>>();
+const fetchedStoryTimestampsByStore = new WeakMap<StoreApi<NewsState>, Map<string, number>>();
+
+/* c8 ignore start -- environment-source branching is runtime-host defensive; behavior is covered via callers. */
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const raw = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.[name]
+    ?? (typeof process !== 'undefined' ? process.env?.[name] : undefined);
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+}
+/* c8 ignore stop */
 
 /**
  * Latest-index migration parser.
@@ -85,63 +89,92 @@ function parseHotnessScore(value: unknown): number | null {
   return null;
 }
 
-function decodeStoryPayload(payload: Record<string, unknown>): unknown {
-  const encoded = payload[STORY_BUNDLE_JSON_KEY];
-  if (typeof encoded !== 'string') {
-    return payload;
-  }
-
-  try {
-    return JSON.parse(encoded);
-  } catch {
-    return null;
-  }
-}
-
-function parseStory(data: unknown): StoryBundle | null {
-  if (!data || typeof data !== 'object') {
-    return null;
-  }
-
-  const { _, ...clean } = data as Record<string, unknown> & { _?: unknown };
-  const decoded = decodeStoryPayload(clean);
-  if (hasForbiddenNewsPayloadFields(decoded)) {
-    return null;
-  }
-
-  const parsed = StoryBundleSchema.safeParse(decoded);
-  if (!parsed.success || !isCanonicalNewsTopicIdShape(parsed.data.topic_id)) {
-    return null;
-  }
-  return parsed.data;
-}
-
-function decodeStorylinePayload(payload: Record<string, unknown>): unknown {
-  const encoded = payload[STORYLINE_GROUP_JSON_KEY];
-  if (typeof encoded !== 'string') {
-    return payload;
-  }
-
-  try {
-    return JSON.parse(encoded);
-  } catch {
-    return null;
-  }
-}
-
-function parseStoryline(data: unknown): StorylineGroup | null {
-  if (!data || typeof data !== 'object') {
-    return null;
-  }
-
-  const { _, ...clean } = data as Record<string, unknown> & { _?: unknown };
-  const parsed = StorylineGroupSchema.safeParse(decodeStorylinePayload(clean));
-  return parsed.success ? parsed.data : null;
-}
-
 function canSubscribe<T>(chain: ChainWithGet<T>): chain is ChainWithGet<T> & Required<Pick<ChainWithGet<T>, 'map' | 'on'>> {
   const mapped = chain.map?.();
   return Boolean(mapped && typeof mapped.on === 'function');
+}
+
+function getPendingStoryReads(store: StoreApi<NewsState>): Set<string> {
+  const existing = pendingStoryReadsByStore.get(store);
+  if (existing) {
+    return existing;
+  }
+  const created = new Set<string>();
+  pendingStoryReadsByStore.set(store, created);
+  return created;
+}
+
+function getFetchedStoryTimestamps(store: StoreApi<NewsState>): Map<string, number> {
+  const existing = fetchedStoryTimestampsByStore.get(store);
+  if (existing) {
+    return existing;
+  }
+  const created = new Map<string, number>();
+  fetchedStoryTimestampsByStore.set(store, created);
+  return created;
+}
+
+function pruneLatestWindow(store: StoreApi<NewsState>): void {
+  const latestIndex = store.getState().latestIndex;
+  const entries = Object.entries(latestIndex);
+  if (entries.length <= NEWS_HYDRATION_INDEX_LIMIT) {
+    return;
+  }
+
+  const keep = new Set(
+    entries
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, NEWS_HYDRATION_INDEX_LIMIT)
+      .map(([storyId]) => storyId),
+  );
+  for (const [storyId] of entries) {
+    if (keep.has(storyId)) {
+      continue;
+    }
+    store.getState().removeLatestIndex(storyId);
+    store.getState().removeHotIndex(storyId);
+    store.getState().removeStory(storyId);
+    getFetchedStoryTimestamps(store).delete(storyId);
+  }
+}
+
+function loadStoryFromIndex(
+  client: VennClient,
+  store: StoreApi<NewsState>,
+  storyId: string,
+  latestActivityAt: number,
+): void {
+  const pending = getPendingStoryReads(store);
+  if (pending.has(storyId)) {
+    return;
+  }
+  const fetchedTimestamps = getFetchedStoryTimestamps(store);
+  if (fetchedTimestamps.get(storyId) === latestActivityAt) {
+    return;
+  }
+
+  pending.add(storyId);
+  void readNewsStory(client, storyId)
+    .then((story) => {
+      if (!story) {
+        return null;
+      }
+      store.getState().upsertStory(story);
+      fetchedTimestamps.set(storyId, latestActivityAt);
+      return loadStorylinesForStories(client, [story]);
+    })
+    .then((storylines) => {
+      if (!storylines) {
+        return;
+      }
+      for (const storyline of storylines) {
+        store.getState().upsertStoryline(storyline);
+      }
+    })
+    .catch(() => {})
+    .finally(() => {
+      pending.delete(storyId);
+    });
 }
 
 /**
@@ -158,54 +191,20 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
     return false;
   }
 
-  const storiesChain = getNewsStoriesChain(client);
   const latestChain = getNewsLatestIndexChain(client);
   const hotChain = getNewsHotIndexChain(client);
-  const storylinesChain = getNewsStorylinesChain(client);
 
   if (
-    !canSubscribe(storiesChain) ||
     !canSubscribe(latestChain) ||
-    !canSubscribe(hotChain) ||
-    !canSubscribe(storylinesChain)
+    !canSubscribe(hotChain)
   ) {
     return false;
   }
 
   hydratedStores.add(store);
 
-  storiesChain.map!().on!((data: unknown, key?: string) => {
-    const normalizedKey = typeof key === 'string' ? key.trim() : '';
-    const story = parseStory(data);
-    if (!story) {
-      if (data === null && normalizedKey) {
-        store.getState().removeStory(normalizedKey);
-      }
-      return;
-    }
-
-    const storyId = story.story_id.trim() || normalizedKey;
-    if (!storyId) {
-      return;
-    }
-
-    const latestIndex = store.getState().latestIndex;
-    const hasAuthoritativeLatestIndex = Object.keys(latestIndex).length > 0;
-    if (hasAuthoritativeLatestIndex && !(storyId in latestIndex)) {
-      return;
-    }
-
-    store.getState().upsertStory(story);
-    void loadStorylinesForStories(client, [story])
-      .then((storylines) => {
-        for (const storyline of storylines) {
-          store.getState().upsertStoryline(storyline);
-        }
-      })
-      .catch(() => {});
-  });
-
   latestChain.map!().on!((data: unknown, key?: string) => {
+    recordGunMessageActivity();
     if (!key) {
       return;
     }
@@ -213,34 +212,21 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
     if (timestamp === null) {
       if (data === null) {
         store.getState().removeLatestIndex(key);
+        store.getState().removeHotIndex(key);
+        store.getState().removeStory(key);
+        getFetchedStoryTimestamps(store).delete(key);
       }
       return;
     }
     store.getState().upsertLatestIndex(key, timestamp);
-    const storyExists = store.getState().stories.some((story) => story.story_id === key);
-    if (storyExists) {
-      return;
+    pruneLatestWindow(store);
+    if (key in store.getState().latestIndex) {
+      loadStoryFromIndex(client, store, key, timestamp);
     }
-    void readNewsStory(client, key)
-      .then((story) => {
-        if (!story) {
-          return;
-        }
-        store.getState().upsertStory(story);
-        return loadStorylinesForStories(client, [story]);
-      })
-      .then((storylines) => {
-        if (!storylines) {
-          return;
-        }
-        for (const storyline of storylines) {
-          store.getState().upsertStoryline(storyline);
-        }
-      })
-      .catch(() => {});
   });
 
   hotChain.map!().on!((data: unknown, key?: string) => {
+    recordGunMessageActivity();
     if (!key) {
       return;
     }
@@ -252,19 +238,6 @@ export function hydrateNewsStore(resolveClient: () => VennClient | null, store: 
       return;
     }
     store.getState().upsertHotIndex(key, hotness);
-  });
-
-  storylinesChain.map!().on!((data: unknown, key?: string) => {
-    const normalizedKey = typeof key === 'string' ? key.trim() : '';
-    const storyline = parseStoryline(data);
-    if (!storyline) {
-      if (data === null && normalizedKey) {
-        store.getState().removeStoryline(normalizedKey);
-      }
-      return;
-    }
-
-    store.getState().upsertStoryline(storyline);
   });
 
   return true;

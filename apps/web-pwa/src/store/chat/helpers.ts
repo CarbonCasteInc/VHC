@@ -55,7 +55,11 @@ export function subscribeToChain(chain: any, set: (updater: (state: ChatState) =
     return () => {};
   }
   if (isChatDebug()) console.info('[vh:chat] subscribeToChain: subscribing to chain', { hasMap: !!mapped });
+  let disposed = false;
   const handler = (data?: HermesMessage, key?: string) => {
+    if (disposed) {
+      return;
+    }
     if (isChatDebug()) console.info('[vh:chat] subscribeToChain: received data', { key, hasData: !!data, dataType: typeof data });
     const payload = data && typeof data === 'object' ? data : key && data ? (data as any)[key] : data;
     if (!payload || typeof payload !== 'object') {
@@ -87,7 +91,9 @@ export function subscribeToChain(chain: any, set: (updater: (state: ChatState) =
   target.on(handler);
   const off = target.off ?? chain.off;
   return () => {
+    disposed = true;
     off?.(handler);
+    off?.();
   };
 }
 
@@ -145,4 +151,3 @@ export function updateStatus(state: ChatState, messageId: string, status: Messag
   nextStatuses.set(messageId, status);
   return { ...state, statuses: nextStatuses };
 }
-

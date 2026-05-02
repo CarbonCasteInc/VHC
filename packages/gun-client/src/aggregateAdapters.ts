@@ -4,7 +4,7 @@ import {
   type AggregateVoterNode,
   type PointAggregateSnapshotV1,
 } from '@vh/data-model';
-import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -202,12 +202,6 @@ const WRITE_READBACK_READ_TIMEOUT_MS = readGunTimeoutMs(
 const STALE_ZERO_READ_ATTEMPTS = 4;
 const STALE_ZERO_READ_RETRY_MS = 500;
 
-interface PutAckResult {
-  readonly acknowledged: boolean;
-  readonly timedOut: boolean;
-  readonly latencyMs: number;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
@@ -215,37 +209,11 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
-  const startedAt = Date.now();
-
-  return new Promise<PutAckResult>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      reject(new Error('aggregate-put-ack-timeout'));
-    }, PUT_ACK_TIMEOUT_MS);
-
-    chain.put(value, (ack?: ChainAck) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-
-      if (ack?.err) {
-        reject(new Error(ack.err));
-        return;
-      }
-
-      resolve({
-        acknowledged: true,
-        timedOut: false,
-        latencyMs: Math.max(0, Date.now() - startedAt),
-      });
-    });
-  });
+  const result = await putWithAckTimeout(chain, value, { timeoutMs: PUT_ACK_TIMEOUT_MS });
+  if (result.timedOut) {
+    throw new Error('aggregate-put-ack-timeout');
+  }
+  return result as PutAckResult;
 }
 
 function resolveRelayAggregateEndpoint(client: VennClient, path: 'voter' | 'point-snapshot'): string | null {

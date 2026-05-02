@@ -1,8 +1,14 @@
 import type { StoreApi } from 'zustand';
 import { HermesThreadSchema } from '@vh/data-model';
-import type { VennClient } from '@vh/gun-client';
+import {
+  getForumDateIndexChain,
+  getForumThreadChain,
+  type ChainWithGet,
+  type VennClient,
+} from '@vh/gun-client';
 import type { ForumState } from './types';
 import { parseThreadFromGun, isThreadSeen, markThreadSeen, addThread } from './helpers';
+import { recordGunMessageActivity } from '../../hooks/useHealthMonitor';
 
 // Track which stores have been hydrated (WeakSet allows GC of old stores)
 const hydratedStores = new WeakSet<StoreApi<ForumState>>();
@@ -12,10 +18,13 @@ export function hydrateFromGun(resolveClient: () => VennClient | null, store: St
   const client = resolveClient();
   if (!client?.gun?.get) return;
 
+  const dateIndexChain = getForumDateIndexChain(client);
+  const mappedDateIndex = dateIndexChain.map?.();
+  if (!mappedDateIndex?.on) return;
   hydratedStores.add(store);
-  const threadsChain = client.gun.get('vh').get('forum').get('threads');
 
-  threadsChain.map().on((data: unknown, key: string) => {
+  const ingestThread = (data: unknown, key: string) => {
+    recordGunMessageActivity();
     // Skip non-objects
     if (!data || typeof data !== 'object') {
       return;
@@ -44,5 +53,22 @@ export function hydrateFromGun(resolveClient: () => VennClient | null, store: St
       markThreadSeen(key); // Only mark as seen after successful validation
       store.setState((s) => addThread(s, result.data));
     }
+  };
+
+  const readThread = (threadId: string) => {
+    const threadChain = getForumThreadChain(client, threadId) as unknown as ChainWithGet<unknown>;
+    threadChain.once?.((data: unknown) => ingestThread(data, threadId));
+  };
+
+  mappedDateIndex.on((data: unknown, key?: string) => {
+    recordGunMessageActivity();
+    const threadId = key?.trim();
+    if (!threadId || data === null) {
+      return;
+    }
+    if (isThreadSeen(threadId) && store.getState().threads.has(threadId)) {
+      return;
+    }
+    readThread(threadId);
   });
 }

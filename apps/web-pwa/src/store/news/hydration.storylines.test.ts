@@ -106,8 +106,12 @@ function createStore() {
     upsertStory: vi.fn(),
     removeStory: vi.fn(),
     setLatestIndex: vi.fn(),
-    upsertLatestIndex: vi.fn(),
-    removeLatestIndex: vi.fn(),
+    upsertLatestIndex: vi.fn((storyId: string, latestActivityAt: number) => {
+      (state.latestIndex as Record<string, number>)[storyId] = latestActivityAt;
+    }),
+    removeLatestIndex: vi.fn((storyId: string) => {
+      delete (state.latestIndex as Record<string, number>)[storyId];
+    }),
     setHotIndex: vi.fn(),
     upsertHotIndex: vi.fn(),
     removeHotIndex: vi.fn(),
@@ -136,76 +140,7 @@ describe('hydrateNewsStore storylines', () => {
     gunMocks.hasForbiddenNewsPayloadFields.mockReturnValue(false);
   });
 
-  it('loads and upserts storylines when story updates arrive', async () => {
-    const storyChain = createSubscribableChain();
-    const storylineChain = createSubscribableChain();
-    const latestChain = createSubscribableChain();
-    const hotChain = createSubscribableChain();
-    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
-    gunMocks.getNewsStorylinesChain.mockReturnValue(storylineChain.chain);
-    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
-    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
-    gunMocks.readNewsStoryline.mockResolvedValue(storyline());
-
-    const { hydrateNewsStore } = await import('./hydration');
-    const { store, state } = createStore();
-
-    hydrateNewsStore(() => ({}) as never, store);
-    storyChain.emit(story(), 'story-1');
-    expect(gunMocks.readNewsStoryline).toHaveBeenCalledWith(expect.anything(), 'storyline-1');
-    await vi.waitFor(() => {
-      expect(state.upsertStoryline).toHaveBeenCalledWith(storyline());
-    });
-  });
-
-  it('upserts and removes storyline groups from storyline hydration updates', async () => {
-    const storyChain = createSubscribableChain();
-    const storylineChain = createSubscribableChain();
-    const latestChain = createSubscribableChain();
-    const hotChain = createSubscribableChain();
-    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
-    gunMocks.getNewsStorylinesChain.mockReturnValue(storylineChain.chain);
-    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
-    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
-    gunMocks.readNewsStoryline.mockResolvedValue(null);
-
-    const { hydrateNewsStore } = await import('./hydration');
-    const { store, state } = createStore();
-
-    hydrateNewsStore(() => ({}) as never, store);
-
-    storylineChain.emit(
-      {
-        __storyline_group_json: JSON.stringify(storyline()),
-      },
-      'storyline-1',
-    );
-    storylineChain.emit(null, 'storyline-1');
-
-    expect(state.upsertStoryline).toHaveBeenCalledWith(storyline());
-    expect(state.removeStoryline).toHaveBeenCalledWith('storyline-1');
-  });
-
-  it('ignores null storyline removals without a usable key', async () => {
-    const storyChain = createSubscribableChain();
-    const storylineChain = createSubscribableChain();
-    const latestChain = createSubscribableChain();
-    const hotChain = createSubscribableChain();
-    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
-    gunMocks.getNewsStorylinesChain.mockReturnValue(storylineChain.chain);
-    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
-    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
-
-    const { hydrateNewsStore } = await import('./hydration');
-    const { store, state } = createStore();
-
-    hydrateNewsStore(() => ({}) as never, store);
-    storylineChain.emit(null);
-
-    expect(state.removeStoryline).not.toHaveBeenCalled();
-  });
-
-  it('parses raw storyline payloads, ignores invalid payloads, and backfills storylines from latest index hydration', async () => {
+  it('loads and upserts storylines when latest-index hydration reads a story', async () => {
     const storyChain = createSubscribableChain();
     const storylineChain = createSubscribableChain();
     const latestChain = createSubscribableChain();
@@ -221,17 +156,33 @@ describe('hydrateNewsStore storylines', () => {
     const { store, state } = createStore();
 
     hydrateNewsStore(() => ({}) as never, store);
-
-    storylineChain.emit(storyline(), 'storyline-1');
-    storylineChain.emit({ __storyline_group_json: '{not json' }, 'storyline-1');
     latestChain.emit(55, 'story-1');
 
     await vi.waitFor(() => {
-      expect(state.upsertStoryline).toHaveBeenCalledTimes(2);
+      expect(state.upsertStoryline).toHaveBeenCalledWith(storyline());
     });
     expect(gunMocks.readNewsStory).toHaveBeenCalledWith(expect.anything(), 'story-1');
     expect(gunMocks.readNewsStoryline).toHaveBeenCalledWith(expect.anything(), 'storyline-1');
-    expect(state.upsertStoryline).toHaveBeenNthCalledWith(1, storyline());
-    expect(state.upsertStoryline).toHaveBeenNthCalledWith(2, storyline());
+  });
+
+  it('does not subscribe the root stories or storylines namespaces', async () => {
+    const storyChain = createSubscribableChain();
+    const storylineChain = createSubscribableChain();
+    const latestChain = createSubscribableChain();
+    const hotChain = createSubscribableChain();
+    gunMocks.getNewsStoriesChain.mockReturnValue(storyChain.chain);
+    gunMocks.getNewsStorylinesChain.mockReturnValue(storylineChain.chain);
+    gunMocks.getNewsLatestIndexChain.mockReturnValue(latestChain.chain);
+    gunMocks.getNewsHotIndexChain.mockReturnValue(hotChain.chain);
+    const { hydrateNewsStore } = await import('./hydration');
+    const { store } = createStore();
+
+    hydrateNewsStore(() => ({}) as never, store);
+
+    storyChain.emit(story(), 'story-1');
+    storylineChain.emit(storyline(), 'storyline-1');
+
+    expect(gunMocks.readNewsStory).not.toHaveBeenCalled();
+    expect(gunMocks.readNewsStoryline).not.toHaveBeenCalled();
   });
 });

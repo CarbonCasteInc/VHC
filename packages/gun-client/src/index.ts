@@ -135,6 +135,12 @@ export function createClient(config: VennClientConfig = {}): VennClient {
     })
     .catch((error: unknown) => {
       console.warn('[vh] storage hydration failed', error);
+      if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+        const message = error instanceof Error ? error.message : String(error);
+        globalThis.dispatchEvent(
+          new CustomEvent('vh:gun-client-storage-hydration-failed', { detail: { message } })
+        );
+      }
       if (!hydrationBarrier.ready) {
         hydrationBarrier.markReady();
       }

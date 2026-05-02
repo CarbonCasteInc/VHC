@@ -5,6 +5,7 @@ import { RouterProvider, createRouter } from '@tanstack/react-router';
 import { routeTree } from './routes';
 import './index.css';
 import { ThemeProvider } from './components/ThemeProvider';
+import { startHealthMonitor } from './hooks/useHealthMonitor';
 
 const DevModelPicker = import.meta.env.DEV
   ? lazy(() => import('./components/dev/DevModelPicker'))
@@ -20,6 +21,9 @@ if (typeof window !== 'undefined' && window.location.search) {
 }
 
 console.info('[vh:web-pwa] main.tsx executing, mounting router...');
+if (typeof window !== 'undefined') {
+  startHealthMonitor();
+}
 
 const router = createRouter({ routeTree });
 
@@ -52,6 +56,12 @@ if (root) {
 }
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if ((event.data as { type?: string } | undefined)?.type !== 'VH_CLIENT_OUT_OF_DATE') {
+      return;
+    }
+    window.dispatchEvent(new CustomEvent('vh:client-out-of-date', { detail: event.data }));
+  });
   navigator.serviceWorker
     .register('/sw.js')
     .then((reg) => console.log('[vh:web-pwa] SW registered:', reg))

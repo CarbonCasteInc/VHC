@@ -46,6 +46,7 @@ export interface SynthesisState {
   setTopicError(topicId: string, error: string | null): void;
   refreshTopic(topicId: string): Promise<void>;
   startHydration(topicId: string): void;
+  stopHydration(topicId: string): void;
   reset(): void;
 }
 

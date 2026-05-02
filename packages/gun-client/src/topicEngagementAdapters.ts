@@ -6,7 +6,7 @@ import {
   type TopicEngagementActorNode,
   type TopicEngagementAggregateV1,
 } from '@vh/data-model';
-import { createGuardedChain, type ChainAck, type ChainWithGet } from './chain';
+import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -29,11 +29,6 @@ const PUT_ACK_TIMEOUT_MS = readGunTimeoutMs(
   ],
   1_000,
 );
-
-interface PutAckResult {
-  readonly acknowledged: boolean;
-  readonly timedOut: boolean;
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -106,32 +101,7 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
 }
 
 function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckResult> {
-  return new Promise<PutAckResult>((resolve, reject) => {
-    let settled = false;
-    const timer = setTimeout(() => {
-      settled = true;
-      resolve({
-        acknowledged: false,
-        timedOut: true,
-      });
-    }, PUT_ACK_TIMEOUT_MS);
-
-    chain.put(value, (ack?: ChainAck) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clearTimeout(timer);
-      if (ack?.err) {
-        reject(new Error(ack.err));
-        return;
-      }
-      resolve({
-        acknowledged: true,
-        timedOut: false,
-      });
-    });
-  });
+  return putWithAckTimeout(chain, value, { timeoutMs: PUT_ACK_TIMEOUT_MS });
 }
 
 function parseActorNode(raw: unknown): TopicEngagementActorNode | null {
