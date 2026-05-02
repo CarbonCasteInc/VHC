@@ -12,6 +12,7 @@ import {
 } from '@vh/data-model';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
+import { createRelayDaemonAuthHeaders } from './relayAuth';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
@@ -349,7 +350,7 @@ async function writeSynthesisViaRelayFallback(client: VennClient, synthesis: Top
   try {
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...createRelayDaemonAuthHeaders() },
       body: JSON.stringify({ synthesis }),
     });
     if (!response.ok) {

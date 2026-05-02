@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import SEA from 'gun/sea';
 import type { ChainWithGet } from './chain';
 import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
@@ -528,6 +529,8 @@ describe('aggregateAdapters', () => {
       mesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1');
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const pair = await SEA.pair() as { pub: string; priv: string };
+      (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
       const snapshot = {
         schema_version: 'point-aggregate-snapshot-v1' as const,
         topic_id: 'topic-1',
@@ -562,7 +565,11 @@ describe('aggregateAdapters', () => {
         'http://127.0.0.1:7777/vh/aggregates/point-snapshot',
         expect.objectContaining({
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: expect.objectContaining({
+            'content-type': 'application/json',
+            'x-vh-relay-device-pub': pair.pub,
+            'x-vh-relay-signature': expect.any(String),
+          }),
           body: JSON.stringify({ snapshot }),
         }),
       );
@@ -602,6 +609,9 @@ describe('aggregateAdapters', () => {
       const declinedMesh = createFakeMesh();
       declinedMesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1');
       const declinedClient = createClient(declinedMesh, guard, ['http://127.0.0.1:7777/gun']);
+      (declinedClient.gun.user as any).mockImplementation(() => {
+        throw new Error('identity unavailable');
+      });
       const fetchMock = vi.fn(async () => ({ ok: false }));
       vi.stubGlobal('fetch', fetchMock);
       const declinedWrite = writePointAggregateSnapshot(declinedClient, snapshot);
@@ -783,6 +793,8 @@ describe('aggregateAdapters', () => {
       mesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1');
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const pair = await SEA.pair() as { pub: string; priv: string };
+      (client.gun.user as any).mockReturnValue({ _: { sea: pair } });
       const node = {
         point_id: 'point-1',
         agreement: 1 as const,
@@ -810,7 +822,11 @@ describe('aggregateAdapters', () => {
         'http://127.0.0.1:7777/vh/aggregates/voter',
         expect.objectContaining({
           method: 'POST',
-          headers: { 'content-type': 'application/json' },
+          headers: expect.objectContaining({
+            'content-type': 'application/json',
+            'x-vh-relay-device-pub': pair.pub,
+            'x-vh-relay-signature': expect.any(String),
+          }),
           body: JSON.stringify({
             topic_id: 'topic-1',
             synthesis_id: 'synth-1',

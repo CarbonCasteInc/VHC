@@ -3,8 +3,9 @@ import {
   computeThreadScore, deriveTopicId, deriveUrlTopicId, HermesCommentSchema,
   HermesCommentModerationSchema, HermesCommentWriteSchema, HermesThreadSchema, migrateCommentToV1
 } from '@vh/data-model';
-import type { HermesComment, HermesCommentHydratable, HermesThread } from '@vh/types';
+import type { HermesComment, HermesCommentHydratable, HermesThread, IdentityRecord } from '@vh/types';
 import {
+  createRelayUserSignatureHeaders,
   getForumCommentIndexChain,
   getForumCommentsChain,
   getForumDateIndexChain,
@@ -28,6 +29,7 @@ import { createMockForumStore } from './mockStore';
 import { notifySynthesisPipeline } from './synthesisBridge';
 import { normalizeThreadSourceContext } from './sourceContext';
 import { recordGunMessageActivity } from '../../hooks/useHealthMonitor';
+import { getFullIdentity } from '../identityProvider';
 
 export type { ForumState } from './types';
 export { stripUndefined } from './helpers';
@@ -540,10 +542,14 @@ async function writeThreadViaRelayFallback(
     return false;
   }
   try {
+    const body = { thread: threadForGun };
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ thread: threadForGun }),
+      headers: {
+        'content-type': 'application/json',
+        ...await createRelayUserSignatureHeaders('/vh/forum/thread', body, getFullIdentity<IdentityRecord>()?.devicePair),
+      },
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
       return false;
@@ -568,10 +574,14 @@ async function writeCommentViaRelayFallback(
     return false;
   }
   try {
+    const body = { comment };
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ comment }),
+      headers: {
+        'content-type': 'application/json',
+        ...await createRelayUserSignatureHeaders('/vh/forum/comment', body, getFullIdentity<IdentityRecord>()?.devicePair),
+      },
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
       return false;

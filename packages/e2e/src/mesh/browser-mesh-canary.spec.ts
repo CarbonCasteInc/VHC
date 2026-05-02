@@ -60,6 +60,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('built preview mesh can write, read back, stay quiet, tear down, and reconnect', async ({ page }) => {
+  const health = await page.request.get(`http://127.0.0.1:${relayPort}/healthz`);
+  expect(health.ok()).toBe(true);
+  await expect(health.json()).resolves.toMatchObject({ ok: true, service: 'vh-relay' });
+  const ready = await page.request.get(`http://127.0.0.1:${relayPort}/readyz`);
+  expect(ready.ok()).toBe(true);
+
   await page.goto('/');
   await expect(page.locator('[data-testid="feed-shell"]')).toBeVisible({ timeout: 20_000 });
 
@@ -257,4 +263,8 @@ test('built preview mesh can write, read back, stay quiet, tear down, and reconn
 
   expect(reconnect.readPrevious).toBe(true);
   expect(reconnect.readNext).toBe(true);
+
+  const metrics = await page.request.get(`http://127.0.0.1:${relayPort}/metrics`);
+  expect(metrics.ok()).toBe(true);
+  await expect(metrics.text()).resolves.toContain('vh_relay_http_requests_total');
 });
