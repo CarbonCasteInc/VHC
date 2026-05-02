@@ -6,7 +6,8 @@ import {
   type HermesNewsReportStatus,
   type TrustedOperatorAuthorization,
 } from '@vh/data-model';
-import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
+import { createGuardedChain, type ChainWithGet } from './chain';
+import { writeWithDurability } from './durableWrite';
 import type { VennClient } from './types';
 
 function newsReportPath(reportId: string): string {
@@ -73,10 +74,6 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
       resolve((data ?? null) as T | null);
     });
   });
-}
-
-async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await putWithAckTimeout(chain, value, { timeoutMs: 2_500 });
 }
 
 export function getNewsReportChain(client: VennClient, reportId: string): ChainWithGet<HermesNewsReport> {
@@ -175,11 +172,38 @@ export async function writeNewsReport(
       assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'moderate_story_thread');
     }
   }
-  await putWithAck(getNewsReportChain(client, reportId), sanitized);
-  await putWithAck(getNewsReportStatusIndexEntryChain(client, sanitized.status, reportId), {
+  await writeWithDurability({
+    chain: getNewsReportChain(client, reportId),
+    value: sanitized,
+    writeClass: 'news-report',
+    timeoutMs: 2_500,
+    timeoutError: 'news report write timed out and readback did not confirm persistence',
+    onAckTimeout: () => console.warn('[vh:news-report] report put ack timed out, requiring readback confirmation'),
+    readback: () => readNewsReport(client, reportId),
+    readbackPredicate: (observed) => {
+      const candidate = observed as HermesNewsReport | null;
+      return Boolean(
+        candidate
+        && candidate.report_id === reportId
+        && candidate.status === sanitized.status
+        && candidate.created_at === sanitized.created_at
+      );
+    },
+  });
+  const indexValue = {
     report_id: reportId,
     created_at: sanitized.created_at,
     target_type: sanitized.target.type,
+  };
+  await writeWithDurability({
+    chain: getNewsReportStatusIndexEntryChain(client, sanitized.status, reportId),
+    value: indexValue,
+    writeClass: 'news-report-index',
+    timeoutMs: 2_500,
+    timeoutError: 'news report status-index write timed out and readback did not confirm persistence',
+    onAckTimeout: () => console.warn('[vh:news-report] status-index put ack timed out, requiring readback confirmation'),
+    readback: () => readOnce(getNewsReportStatusIndexEntryChain(client, sanitized.status, reportId)),
+    readbackPredicate: (observed) => parseQueuePointer(observed, reportId) === reportId,
   });
   return sanitized;
 }

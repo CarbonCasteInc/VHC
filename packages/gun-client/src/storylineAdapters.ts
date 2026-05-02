@@ -1,5 +1,6 @@
 import { StorylineGroupSchema, type StorylineGroup } from '@vh/data-model';
-import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
+import { createGuardedChain, type ChainWithGet } from './chain';
+import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -37,22 +38,47 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
-async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await putWithAckTimeout(chain, value, {
+async function putWithAck<T>(
+  chain: ChainWithGet<T>,
+  value: T,
+  options: {
+    readonly writeClass: string;
+    readonly timeoutError?: string;
+    readonly readback?: () => Promise<unknown>;
+    readonly readbackPredicate?: (observed: unknown) => boolean;
+  },
+): Promise<void> {
+  await writeWithDurability({
+    chain,
+    value,
+    writeClass: options.writeClass,
     timeoutMs: STORYLINE_ACK_TIMEOUT_MS,
-    onTimeout: () => console.warn('[vh:storylines] put ack timed out, proceeding without ack'),
+    timeoutError: options.timeoutError,
+    readback: options.readback,
+    readbackPredicate: options.readbackPredicate,
+    onAckTimeout: () => console.warn('[vh:storylines] put ack timed out, requiring readback confirmation'),
   });
 }
 
 async function clearWithAck<T>(chain: ChainWithGet<T>): Promise<void> {
-  await putWithAck(chain as unknown as ChainWithGet<T | null>, null as T | null);
+  await putWithAck(chain as unknown as ChainWithGet<T | null>, null as T | null, {
+    writeClass: 'storyline-clear',
+    timeoutError: 'storyline clear timed out and readback did not confirm removal',
+    readback: () => readOnce(chain as unknown as ChainWithGet<T | null>),
+    readbackPredicate: (observed) => observed === null,
+  });
 }
 
 async function clearMapEntryWithAck(
   chain: ChainWithGet<Record<string, unknown>>,
   storylineId: string,
 ): Promise<void> {
-  await putWithAck(chain, { [storylineId]: null });
+  await putWithAck(chain, { [storylineId]: null }, {
+    writeClass: 'storyline-map-clear',
+    timeoutError: 'storyline map clear timed out and readback did not confirm removal',
+    readback: () => readOnce(chain.get(storylineId) as unknown as ChainWithGet<unknown>),
+    readbackPredicate: (observed) => observed === null,
+  });
 }
 
 function encodeStorylineGroup(group: StorylineGroup): Record<string, unknown> {
@@ -139,6 +165,20 @@ export async function writeNewsStoryline(
   await putWithAck(
     getNewsStorylineChain(client, sanitized.storyline_id),
     encodeStorylineGroup(sanitized),
+    {
+      writeClass: 'storyline',
+      timeoutError: 'storyline write timed out and readback did not confirm persistence',
+      readback: () => readNewsStoryline(client, sanitized.storyline_id),
+      readbackPredicate: (observed) => {
+        const candidate = observed as StorylineGroup | null;
+        return Boolean(
+          candidate
+          && candidate.storyline_id === sanitized.storyline_id
+          && candidate.canonical_story_id === sanitized.canonical_story_id
+          && candidate.updated_at === sanitized.updated_at
+        );
+      },
+    },
   );
   return sanitized;
 }

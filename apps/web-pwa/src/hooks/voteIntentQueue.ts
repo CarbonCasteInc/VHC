@@ -1,5 +1,5 @@
 import type { VoteIntentRecord } from '@vh/data-model';
-import { safeGetItem, safeSetItem } from '../utils/safeStorage';
+import { createIntentQueue } from './intentQueue';
 
 /**
  * Durable local intent queue for vote intents.
@@ -40,63 +40,33 @@ function compareReplayOrder(a: VoteIntentRecord, b: VoteIntentRecord): number {
   return a.intent_id.localeCompare(b.intent_id);
 }
 
-function loadQueue(): VoteIntentRecord[] {
-  try {
-    const raw = safeGetItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as VoteIntentRecord[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function persistQueue(queue: VoteIntentRecord[]): void {
-  try {
-    safeSetItem(STORAGE_KEY, JSON.stringify(queue));
-  } catch {
-    /* ignore — quota exceeded, etc. */
-  }
-}
+const queue = createIntentQueue<VoteIntentRecord>({
+  storageKey: STORAGE_KEY,
+  maxQueueSize: MAX_QUEUE_SIZE,
+  getId: (record) => record.intent_id,
+  compareReplayOrder,
+});
 
 /**
  * Enqueue a vote intent record. Idempotent: duplicate intent_ids are silently deduped.
  * When the queue exceeds MAX_QUEUE_SIZE, the oldest intent is evicted.
  */
 export function enqueueIntent(record: VoteIntentRecord): void {
-  const queue = loadQueue();
-
-  // Dedup by intent_id
-  if (queue.some((r) => r.intent_id === record.intent_id)) {
-    return;
-  }
-
-  queue.push(record);
-
-  // Evict oldest if over cap
-  while (queue.length > MAX_QUEUE_SIZE) {
-    queue.shift();
-  }
-
-  persistQueue(queue);
+  queue.enqueue(record);
 }
 
 /**
  * Mark a vote intent as projected (remove from pending queue).
  */
 export function markIntentProjected(intentId: string): void {
-  const queue = loadQueue();
-  const filtered = queue.filter((r) => r.intent_id !== intentId);
-
-  // Only persist if something changed
-  if (filtered.length !== queue.length) {
-    persistQueue(filtered);
-  }
+  queue.markProjected(intentId);
 }
 
 /**
  * Get all un-projected (pending) intents.
  */
 export function getPendingIntents(): VoteIntentRecord[] {
-  return loadQueue();
+  return queue.getPending();
 }
 
 /**
@@ -112,24 +82,5 @@ export async function replayPendingIntents(
     limit?: number;
   },
 ): Promise<{ replayed: number; failed: number }> {
-  const pending = loadQueue().sort(compareReplayOrder);
-  const normalizedLimit = options?.limit && options.limit > 0
-    ? Math.floor(options.limit)
-    : pending.length;
-  const replayBatch = pending.slice(0, normalizedLimit);
-
-  let replayed = 0;
-  let failed = 0;
-
-  for (const record of replayBatch) {
-    try {
-      await project(record);
-      markIntentProjected(record.intent_id);
-      replayed++;
-    } catch {
-      failed++;
-    }
-  }
-
-  return { replayed, failed };
+  return queue.replay(project, options);
 }

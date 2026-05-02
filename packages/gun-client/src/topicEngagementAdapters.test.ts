@@ -403,6 +403,7 @@ describe('topicEngagementAdapters', () => {
     });
     mesh.setPutHandler((path, value, cb) => {
       mesh.writes.push({ path, value });
+      mesh.setRead(path, value);
       setTimeout(() => cb?.({}), 1_100);
     });
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;

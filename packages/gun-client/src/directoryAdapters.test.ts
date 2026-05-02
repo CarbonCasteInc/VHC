@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { getDirectoryChain, lookupByNullifier, publishToDirectory } from './directoryAdapters';
+import { HydrationBarrier } from './sync/barrier';
 import type { VennClient } from './types';
 
 function createMockChain() {
@@ -18,8 +19,12 @@ function createMockChain() {
 }
 
 function createClient(chain: any): VennClient {
+  const hydrationBarrier = new HydrationBarrier();
+  hydrationBarrier.markReady();
   return {
-    gun: { get: vi.fn((key: string) => chain.get(key)) } as any
+    gun: { get: vi.fn((key: string) => chain.get(key)) } as any,
+    hydrationBarrier,
+    topologyGuard: { validateWrite: vi.fn() } as any,
   } as VennClient;
 }
 
@@ -53,7 +58,7 @@ describe('directoryAdapters', () => {
   it('propagates errors from publish', async () => {
     const failingChain: any = {
       get: vi.fn(() => failingChain),
-      once: vi.fn(),
+      once: vi.fn((cb?: (data: unknown) => void) => cb?.(undefined)),
       put: vi.fn((_value: any, cb?: (ack?: { err?: string }) => void) => cb?.({ err: 'boom' }))
     };
     const client = createClient(failingChain);
@@ -69,17 +74,21 @@ describe('directoryAdapters', () => {
     ).rejects.toThrow('boom');
   });
 
-  it('resolves when publish ack times out', async () => {
+  it('resolves when publish ack times out but readback confirms persistence', async () => {
     vi.useFakeTimers();
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
     try {
-      const hangingChain: any = {
-        get: vi.fn(() => hangingChain),
-        once: vi.fn(),
-        put: vi.fn((_value: any, _cb?: (ack?: { err?: string }) => void) => undefined)
-      };
-      const client = createClient(hangingChain);
+      const store = new Map<string, unknown>();
+      const makeChain = (path: string[]): any => ({
+        get: vi.fn((key: string) => makeChain([...path, key])),
+        once: vi.fn((cb?: (data: unknown) => void) => cb?.(store.get(path.join('/')))),
+        put: vi.fn((value: unknown) => {
+          store.set(path.join('/'), value);
+        }),
+      });
+      const chain = makeChain([]);
+      const client = createClient(chain);
       const publishPromise = publishToDirectory(client, {
         schemaVersion: 'hermes-directory-v0',
         nullifier: 'timeout-case',
@@ -91,7 +100,7 @@ describe('directoryAdapters', () => {
 
       await vi.advanceTimersByTimeAsync(1000);
       await expect(publishPromise).resolves.toBeUndefined();
-      expect(warning).toHaveBeenCalledWith('[vh:directory] publish ack timed out, proceeding without ack');
+      expect(warning).toHaveBeenCalledWith('[vh:directory] publish ack timed out, requiring readback confirmation');
     } finally {
       warning.mockRestore();
       vi.useRealTimers();
@@ -108,7 +117,7 @@ describe('directoryAdapters', () => {
     try {
       const duplicateAckChain: any = {
         get: vi.fn(() => duplicateAckChain),
-        once: vi.fn(),
+        once: vi.fn((cb?: (data: unknown) => void) => cb?.(undefined)),
         put: vi.fn((_value: any, cb?: (ack?: { err?: string }) => void) => {
           cb?.({});
           cb?.({});

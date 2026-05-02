@@ -4,7 +4,8 @@ import {
   HermesCommentModerationSchema,
   type TrustedOperatorAuthorization,
 } from '@vh/data-model';
-import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
+import { createGuardedChain, type ChainWithGet } from './chain';
+import { writeWithDurability } from './durableWrite';
 import type { VennClient } from './types';
 
 function threadPath(threadId: string): string {
@@ -181,10 +182,6 @@ function readOnce<T>(chain: ChainWithGet<T>): Promise<T | null> {
   });
 }
 
-async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await putWithAckTimeout(chain, value, { timeoutMs: 2_500 });
-}
-
 export async function readForumCommentModeration(
   client: VennClient,
   threadId: string,
@@ -229,7 +226,43 @@ export async function writeForumCommentModeration(
   const moderationId = normalizeId(sanitized.moderation_id, 'moderationId');
   const operatorId = normalizeId(sanitized.operator_id, 'operatorId');
   assertTrustedOperatorAuthorization(operatorAuthorization, operatorId, 'moderate_story_thread');
-  await putWithAck(getForumCommentModerationChain(client, threadId, moderationId), sanitized);
-  await putWithAck(getForumLatestCommentModerationChain(client, threadId, commentId), sanitized);
+  await writeWithDurability({
+    chain: getForumCommentModerationChain(client, threadId, moderationId),
+    value: sanitized,
+    writeClass: 'forum-comment-moderation',
+    timeoutMs: 2_500,
+    timeoutError: 'forum comment moderation write timed out and readback did not confirm persistence',
+    onAckTimeout: () => console.warn('[vh:forum] moderation put ack timed out, requiring readback confirmation'),
+    readback: () => readForumCommentModeration(client, threadId, moderationId),
+    readbackPredicate: (observed) => {
+      const candidate = observed as HermesCommentModeration | null;
+      return Boolean(
+        candidate
+        && candidate.thread_id === threadId
+        && candidate.comment_id === commentId
+        && candidate.moderation_id === moderationId
+        && candidate.status === sanitized.status
+      );
+    },
+  });
+  await writeWithDurability({
+    chain: getForumLatestCommentModerationChain(client, threadId, commentId),
+    value: sanitized,
+    writeClass: 'forum-latest-comment-moderation',
+    timeoutMs: 2_500,
+    timeoutError: 'forum latest comment moderation write timed out and readback did not confirm persistence',
+    onAckTimeout: () => console.warn('[vh:forum] latest moderation put ack timed out, requiring readback confirmation'),
+    readback: () => readForumLatestCommentModeration(client, threadId, commentId),
+    readbackPredicate: (observed) => {
+      const candidate = observed as HermesCommentModeration | null;
+      return Boolean(
+        candidate
+        && candidate.thread_id === threadId
+        && candidate.comment_id === commentId
+        && candidate.moderation_id === moderationId
+        && candidate.status === sanitized.status
+      );
+    },
+  });
   return sanitized;
 }

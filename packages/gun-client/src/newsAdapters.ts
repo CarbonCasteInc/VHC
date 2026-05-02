@@ -4,7 +4,8 @@ import {
   StoryBundleSchema,
   type StoryBundle,
 } from '@vh/data-model';
-import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
+import { createGuardedChain, type ChainWithGet } from './chain';
+import { writeWithDurability, type DurableWriteResult } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -309,25 +310,50 @@ function warnNewsAckTimeout(): void {
       : '';
   suppressedNewsAckWarns = 0;
   lastNewsAckWarnAt = now;
-  console.warn(`[vh:news] put ack timed out, proceeding without ack${suffix}`);
+  console.warn(`[vh:news] put ack timed out, requiring readback confirmation${suffix}`);
 }
 
-async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
-  await putWithAckTimeout(chain, value, {
+async function putWithAck<T>(
+  chain: ChainWithGet<T>,
+  value: T,
+  options: {
+    readonly writeClass: string;
+    readonly timeoutError?: string;
+    readonly readback?: () => Promise<unknown>;
+    readonly readbackPredicate?: (observed: unknown) => boolean;
+  },
+): Promise<DurableWriteResult> {
+  return writeWithDurability({
+    chain,
+    value,
+    writeClass: options.writeClass,
     timeoutMs: NEWS_PUT_ACK_TIMEOUT_MS,
-    onTimeout: warnNewsAckTimeout,
+    timeoutError: options.timeoutError,
+    readback: options.readback,
+    readbackPredicate: options.readbackPredicate,
+    onAckTimeout: warnNewsAckTimeout,
   });
 }
 
 async function clearWithAck<T>(chain: ChainWithGet<T>): Promise<void> {
-  await putWithAck(chain as unknown as ChainWithGet<T | null>, null as T | null);
+  await putWithAck(chain as unknown as ChainWithGet<T | null>, null as T | null, {
+    writeClass: 'news-clear',
+    timeoutError: 'news clear timed out and readback did not confirm removal',
+    readback: () => readOnce(chain as unknown as ChainWithGet<T | null>),
+    readbackPredicate: (observed) => observed === null,
+  });
 }
 
 async function clearMapEntryWithAck(
   chain: ChainWithGet<Record<string, unknown>>,
   storyId: string,
 ): Promise<void> {
-  await putWithAck(chain, { [storyId]: null });
+  await putWithAck(chain, { [storyId]: null }, {
+    writeClass: 'news-map-clear',
+    timeoutError: 'news map clear timed out and readback did not confirm removal',
+    readback: () => readOnce(chain.get(storyId) as unknown as ChainWithGet<unknown>),
+    readbackPredicate: (observed) => observed === null,
+  });
 }
 
 /**
@@ -641,7 +667,22 @@ export async function writeNewsIngestionLease(
   lease: NewsIngestionLease,
 ): Promise<NewsIngestionLease> {
   const sanitized = sanitizeNewsIngestionLease(lease);
-  await putWithAck(getNewsIngestionLeaseChain(client), sanitized);
+  await putWithAck(getNewsIngestionLeaseChain(client), sanitized, {
+    writeClass: 'news-ingestion-lease',
+    timeoutError: 'news ingestion lease write timed out and readback did not confirm persistence',
+    readback: () => readNewsIngestionLease(client),
+    readbackPredicate: (observed) => {
+      const candidate = observed as NewsIngestionLease | null;
+      return Boolean(
+        candidate
+        && candidate.holder_id === sanitized.holder_id
+        && candidate.lease_token === sanitized.lease_token
+        && candidate.acquired_at === sanitized.acquired_at
+        && candidate.heartbeat_at === sanitized.heartbeat_at
+        && candidate.expires_at === sanitized.expires_at
+      );
+    },
+  });
   return sanitized;
 }
 
@@ -678,7 +719,21 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
   const encoded = encodeStoryBundleForGun(normalized);
   await putWithAck(
     getNewsStoryChain(client, normalized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
-    encoded
+    encoded,
+    {
+      writeClass: 'news-story',
+      timeoutError: 'news story write timed out and readback did not confirm persistence',
+      readback: () => readNewsStory(client, normalized.story_id),
+      readbackPredicate: (observed) => {
+        const candidate = observed as StoryBundle | null;
+        return Boolean(
+          candidate
+          && candidate.story_id === normalized.story_id
+          && candidate.provenance_hash === normalized.provenance_hash
+          && candidate.cluster_window_end === normalized.cluster_window_end
+        );
+      },
+    }
   );
   return normalized;
 }
@@ -775,7 +830,13 @@ export async function writeNewsLatestIndexEntry(
     throw new Error('storyId is required');
   }
   const normalizedLatestTimestamp = Math.max(0, Math.floor(latestTimestamp));
-  await putWithAck(getNewsLatestIndexChain(client).get(normalizedId), normalizedLatestTimestamp);
+  const chain = getNewsLatestIndexChain(client).get(normalizedId);
+  await putWithAck(chain, normalizedLatestTimestamp, {
+    writeClass: 'news-latest-index',
+    timeoutError: 'news latest-index write timed out and readback did not confirm persistence',
+    readback: () => readOnce(chain as unknown as ChainWithGet<unknown>),
+    readbackPredicate: (observed) => parseLatestTimestamp(observed) === normalizedLatestTimestamp,
+  });
 }
 
 /**
@@ -810,7 +871,13 @@ export async function writeNewsHotIndexEntry(
   }
 
   const normalizedHotness = parseHotnessScore(hotnessScore) ?? 0;
-  await putWithAck(getNewsHotIndexChain(client).get(normalizedId), normalizedHotness);
+  const chain = getNewsHotIndexChain(client).get(normalizedId);
+  await putWithAck(chain, normalizedHotness, {
+    writeClass: 'news-hot-index',
+    timeoutError: 'news hot-index write timed out and readback did not confirm persistence',
+    readback: () => readOnce(chain as unknown as ChainWithGet<unknown>),
+    readbackPredicate: (observed) => parseHotnessScore(observed) === normalizedHotness,
+  });
   return normalizedHotness;
 }
 

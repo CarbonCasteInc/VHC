@@ -73,8 +73,7 @@ function createNamespace<T>(
         const timer = setTimeout(() => {
           if (settled) return;
           settled = true;
-          console.warn('[vh:gun-client] put timed out, proceeding without ack');
-          resolve();
+          reject(new Error('namespace write timed out before Gun acknowledged persistence'));
         }, 1000);
 
         chain.put(value, (ack?: ChainAck) => {
@@ -217,6 +216,7 @@ export * from './sentimentEventAdapters';
 export * from './aggregateAdapters';
 export * from './sentimentAdapters';
 export * from './bridgeAdapters';
+export * from './durableWrite';
 export type { ChainWithGet } from './chain';
 export { default as SEA } from 'gun/sea';
 export const __internal = {

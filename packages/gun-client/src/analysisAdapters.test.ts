@@ -266,7 +266,7 @@ describe('analysisAdapters', () => {
       await expect(writePromise).resolves.toEqual(ARTIFACT);
 
       expect(mesh.writes).toHaveLength(2);
-      expect(warnSpy).toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+      expect(warnSpy).toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, requiring readback confirmation');
     } finally {
       warnSpy.mockRestore();
       vi.useRealTimers();
@@ -288,7 +288,35 @@ describe('analysisAdapters', () => {
       );
       await vi.advanceTimersByTimeAsync(5000);
       await rejected;
-      expect(warnSpy).toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+      expect(warnSpy).toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, requiring readback confirmation');
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('writeAnalysis resolves when latest pointer ack times out but readback confirms persistence', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    mesh.setPutDelay('news/stories/story-1/analysis_latest', 1100);
+    mesh.setRead('news/stories/story-1/analysis_latest', {
+      analysisKey: ARTIFACT.analysisKey,
+      provenance_hash: ARTIFACT.provenance_hash,
+      model_scope: ARTIFACT.model_scope,
+      created_at: ARTIFACT.created_at,
+      bundle_identity: ARTIFACT.bundle_identity,
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      const writePromise = writeAnalysis(client, ARTIFACT);
+      await vi.advanceTimersByTimeAsync(2500);
+      await expect(writePromise).resolves.toEqual(ARTIFACT);
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:gun-client] analysis latest pointer ack timed out, requiring readback confirmation',
+      );
     } finally {
       warnSpy.mockRestore();
       vi.useRealTimers();
@@ -307,7 +335,7 @@ describe('analysisAdapters', () => {
       await expect(writeAnalysis(client, ARTIFACT)).resolves.toEqual(ARTIFACT);
       await vi.advanceTimersByTimeAsync(1000);
 
-      expect(warnSpy).not.toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, proceeding best-effort');
+      expect(warnSpy).not.toHaveBeenCalledWith('[vh:gun-client] analysis put ack timed out, requiring readback confirmation');
       expect(clearTimeoutSpy).toHaveBeenCalled();
     } finally {
       clearTimeoutSpy.mockRestore();
