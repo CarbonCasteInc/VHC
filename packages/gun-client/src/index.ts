@@ -217,6 +217,7 @@ export * from './aggregateAdapters';
 export * from './sentimentAdapters';
 export * from './bridgeAdapters';
 export * from './durableWrite';
+export * from './relayAuth';
 export type { ChainWithGet } from './chain';
 export { default as SEA } from 'gun/sea';
 export const __internal = {

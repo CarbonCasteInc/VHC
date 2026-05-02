@@ -1,8 +1,8 @@
 # Mesh Hardening PR2 Review Ledger
 
 Date: 2026-05-02
-Branch: `coord/mesh-daemon-durability-pr3`
-Base: merged `main` after PR #561 (`77567bed`)
+Branch: `coord/mesh-production-relay-pr4`
+Base: merged `main` after PR #562 (`6a5bfe92`)
 
 ## Completed And Verified
 
@@ -56,14 +56,9 @@ Verification evidence:
 - `git diff --check` — passed.
 - `node tools/scripts/check-diff-coverage.mjs` — 295 files, 4,293 tests passed; every changed source file reached 100% diff line and branch coverage.
 
-Known unrelated test debt:
-- `pnpm --filter @vh/web-pwa typecheck:test` still fails on broad pre-existing fixture strictness issues across bridge/feed/forum/discovery tests. The production web typecheck and focused tests affected by this PR are green.
-
-## Queued
-
 ### PR3 — Daemon-Side Hardening
 
-Status: Done locally on `coord/mesh-daemon-durability-pr3`; ready for PR/CI.
+Status: Done and merged.
 
 Verified implementation:
 - Daemon `createNodeMeshClient` now defaults to `gunRadisk: true` with a deterministic per-daemon journal path from `VH_NEWS_DAEMON_GUN_FILE`, `VH_NEWS_DAEMON_STATE_DIR`, `VH_DAEMON_FEED_ARTIFACT_ROOT`, or `/tmp/vh-news-daemon/node-mesh-radisk/...`; hermetic tests can disable it with `VH_NEWS_DAEMON_GUN_RADISK=false`.
@@ -75,6 +70,8 @@ Verified implementation:
 - Daemon handle now exposes `enrichmentQueueStats()`, `enrichmentQueueDeadLetterCount()`, and `writeLaneStats()` for local health/inspection surfaces.
 
 Verification evidence:
+- PR #562 merged to `main` at `6a5bfe92`.
+- GitHub checks were green before merge: Change Detection, Ownership Scope, Quality Guard, Source Health, StoryCluster Correctness, Test & Build, Bundle Size, Lighthouse, E2E Tests.
 - `pnpm --filter @vh/news-aggregator exec vitest run src/daemonUtils.test.ts src/daemonWriteLane.test.ts src/analysisEvalReplay.test.ts src/bundleSynthesisDaemonConfig.test.ts src/bundleSynthesisWorker.test.ts src/daemon.test.ts src/daemon.env.test.ts src/daemon.production.test.ts src/daemon.storylines.test.ts --reporter=dot` — 9 files, 48 tests passed.
 - `pnpm --filter @vh/news-aggregator typecheck` — passed.
 - `pnpm --filter @vh/news-aggregator exec vitest run src/daemon.coverage.test.ts --reporter=dot` — 6 tests passed after updating the stopped-daemon expectation.
@@ -91,27 +88,45 @@ Acceptance target:
 - `kill -9` mid-synthesis does not lose candidate work because the in-flight synthesis candidate remains in `pending.json` until worker completion.
 - Accepted-but-unwritten syntheses can be replayed from eval artifacts after leadership acquisition.
 
-Remaining PR3 packaging work:
-- Run broad workspace gates and CI.
-- Open PR, merge on green, and refresh local `main`.
+Known unrelated test debt:
+- `pnpm --filter @vh/web-pwa typecheck:test` still fails on broad pre-existing fixture strictness issues across bridge/feed/forum/discovery tests. The production web typecheck and focused tests affected by PR2 were green.
+
+## Queued
 
 ### PR4 — Production Relay
 
-Queue after PR3.
+Status: Done locally on `coord/mesh-production-relay-pr4`; ready for PR/CI.
 
-Scope:
-- Add `/healthz`, `/readyz`, and `/metrics`.
-- Auth-gate graph-injection HTTP endpoints.
-- Split user-callable signed endpoints from daemon-only bearer-auth endpoints.
-- Add WS rate limits, body size caps, per-client backpressure, origin allowlist, and structured drop reasons.
-- Add compaction strategy for utility namespaces.
+Verified implementation:
+- Relay exposes `/healthz`, `/readyz`, and Prometheus-shaped `/metrics`.
+- Graph-injection HTTP endpoints are auth-gated when `VH_RELAY_AUTH_REQUIRED=true` or `NODE_ENV=production`.
+- User-callable fallback endpoints verify SEA device signatures with nonce/timestamp replay protection; daemon-only synthesis fallback requires a bearer token.
+- Browser/forum and aggregate relay fallbacks attach user signatures when a device keypair is available; daemon synthesis fallback attaches `VH_RELAY_DAEMON_TOKEN`.
+- Relay enforces origin allowlist, HTTP token-bucket rate limit, JSON body size cap, active connection cap, and byte-per-second socket drop handling with structured logs and counters.
+- Docker relay profile now binds `GUN_HOST=0.0.0.0`, runs with `NODE_ENV=production`, requires daemon token and allowed origins, and enables health-probe namespace compaction.
+- Built-preview mesh canary now asserts relay health, readiness, and metrics before exercising Gun write/readback and reconnect.
+- Historical `vh/__health/__vh_health_probe_*` compaction can run at startup and on interval, with compaction counters in `/metrics`.
+
+Verification evidence:
+- `pnpm --filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --reporter=dot` — 5 tests passed.
+- `pnpm exec vitest run apps/web-pwa/src/store/hermesForum.test.ts --config vitest.config.ts --reporter=dot` — 38 tests passed.
+- `pnpm --filter @vh/gun-client test` — 29 files, 348 tests passed.
+- `pnpm --filter @vh/gun-client typecheck` — passed.
+- `pnpm --filter @vh/e2e typecheck` — passed.
+- `pnpm --filter @vh/web-pwa typecheck` — passed.
+- `pnpm typecheck` — passed across the workspace.
+- `pnpm lint` — passed across the workspace.
+- `pnpm test:mesh:browser-canary` — built-preview mesh canary passed.
+- `VH_RELAY_DAEMON_TOKEN=dummy VH_RELAY_ALLOWED_ORIGINS=https://allowed.example docker compose -f infra/docker/docker-compose.yml config` — passed and rendered production relay env.
+- `git diff --check` — passed.
+- `node tools/scripts/check-diff-coverage.mjs` — passed; guard reported no coverage-eligible source files changed, so the targeted relay/gun-client/web/e2e tests above are the primary coverage evidence.
 
 Acceptance target:
-- Auth failures are rejected, noisy peers are dropped with structured reasons, and metrics expose write/ack/drop/radata signals.
+- Auth failures are rejected, signed user fallback writes and bearer-auth daemon writes are accepted, noisy peers are dropped with structured reasons, and metrics expose write/drop/radata/compaction signals.
 
 ### PR5 — Topology And Quorum
 
-Queue after PR4.
+Queued after PR4 merge.
 
 Scope:
 - Three-peer WSS topology.

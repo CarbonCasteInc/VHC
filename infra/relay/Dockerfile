@@ -2,6 +2,8 @@ FROM node:20.16.0-alpine3.19
 
 WORKDIR /app
 
+ENV NODE_ENV=production
+
 # Install the exact Gun version used in the monorepo
 RUN npm install gun@0.2020.1237
 

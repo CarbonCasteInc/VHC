@@ -5,6 +5,7 @@ import {
   type PointAggregateSnapshotV1,
 } from '@vh/data-model';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
+import { createRelayUserSignatureHeaders, type RelayDevicePair } from './relayAuth';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
@@ -229,6 +230,19 @@ function resolveRelayAggregateEndpoint(client: VennClient, path: 'voter' | 'poin
   }
 }
 
+function resolveClientDevicePair(client: VennClient): RelayDevicePair | null {
+  try {
+    const user = (client.gun as any)?.user?.();
+    const sea = user?._?.sea;
+    if (sea?.pub && sea?.priv) {
+      return { pub: String(sea.pub), priv: String(sea.priv) };
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 async function writeVoterNodeViaRelayFallback(
   client: VennClient,
   params: {
@@ -244,16 +258,20 @@ async function writeVoterNodeViaRelayFallback(
     return false;
   }
   try {
+    const body = {
+      topic_id: params.topicId,
+      synthesis_id: params.synthesisId,
+      epoch: params.epoch,
+      voter_id: params.voterId,
+      node: params.node,
+    };
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        topic_id: params.topicId,
-        synthesis_id: params.synthesisId,
-        epoch: params.epoch,
-        voter_id: params.voterId,
-        node: params.node,
-      }),
+      headers: {
+        'content-type': 'application/json',
+        ...await createRelayUserSignatureHeaders('/vh/aggregates/voter', body, resolveClientDevicePair(client)),
+      },
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
       return false;
@@ -286,10 +304,14 @@ async function writePointSnapshotViaRelayFallback(
     return false;
   }
   try {
+    const body = { snapshot };
     const response = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ snapshot }),
+      headers: {
+        'content-type': 'application/json',
+        ...await createRelayUserSignatureHeaders('/vh/aggregates/point-snapshot', body, resolveClientDevicePair(client)),
+      },
+      body: JSON.stringify(body),
     });
     if (!response.ok) {
       return false;

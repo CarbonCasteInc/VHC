@@ -1,6 +1,8 @@
-/* Minimal Gun relay for local/dev usage */
+/* Hardened Gun relay for local/dev and production-shaped mesh tests */
 const http = require('http');
 const { createRequire } = require('module');
+const crypto = require('crypto');
+const fs = require('fs');
 const path = require('path');
 
 function resolveGun() {
@@ -16,6 +18,7 @@ function resolveGun() {
 }
 
 const { Gun, gunRequire } = resolveGun();
+const seaShim = gunRequire('gun/sea/shim');
 
 // Provide required internal utilities that the WS adapter depends on.
 // These were deprecated in Gun but ws.js still uses Gun.text.random and Gun.obj.* helpers.
@@ -51,6 +54,324 @@ const radiskEnabled = process.env.GUN_RADISK !== 'false';
 const gunFile = radiskEnabled ? process.env.GUN_FILE || 'data' : false;
 const COMMENT_JSON_FIELD = '__comment_json';
 const COMMENT_INDEX_SCHEMA_VERSION = 'hermes-comment-index-v1';
+const ROUTE_KIND = {
+  USER: 'user',
+  DAEMON: 'daemon',
+};
+
+function boolEnv(name, fallback = false) {
+  const value = process.env[name];
+  if (value === undefined || value.trim() === '') return fallback;
+  return ['1', 'true', 'yes', 'on'].includes(value.trim().toLowerCase());
+}
+
+function numberEnv(name, fallback) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function csvEnv(name) {
+  return String(process.env[name] || '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+const authRequired = boolEnv('VH_RELAY_AUTH_REQUIRED', process.env.NODE_ENV === 'production');
+const daemonToken = String(process.env.VH_RELAY_DAEMON_TOKEN || '');
+const userFallbackToken = String(process.env.VH_RELAY_USER_FALLBACK_TOKEN || '');
+const allowedOrigins = csvEnv('VH_RELAY_ALLOWED_ORIGINS');
+const allowAnyOrigin = allowedOrigins.length === 0 || allowedOrigins.includes('*');
+const bodyLimitBytes = numberEnv('VH_RELAY_HTTP_BODY_LIMIT_BYTES', 1_000_000);
+const httpRateLimitPerMinute = numberEnv('VH_RELAY_HTTP_RATE_LIMIT_PER_MIN', 1_200);
+const wsBytesPerSecondLimit = numberEnv('VH_RELAY_WS_BYTES_PER_SEC', 1_000_000);
+const maxActiveConnections = numberEnv('VH_RELAY_MAX_ACTIVE_CONNECTIONS', 5_000);
+const userSignatureMaxSkewMs = numberEnv('VH_RELAY_USER_SIGNATURE_MAX_SKEW_MS', 5 * 60_000);
+const userNonceTtlMs = numberEnv('VH_RELAY_USER_NONCE_TTL_MS', 10 * 60_000);
+const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS', 0);
+
+const metrics = {
+  startedAt: Date.now(),
+  activeConnections: 0,
+  totalConnections: 0,
+  droppedConnections: 0,
+  httpRequests: 0,
+  httpResponses: new Map(),
+  writeAttempts: new Map(),
+  writeSuccesses: new Map(),
+  writeFailures: new Map(),
+  authRejects: 0,
+  rateLimited: 0,
+  bodyTooLarge: 0,
+  originRejects: 0,
+  wsUpgradeRejects: 0,
+  wsByteDrops: 0,
+  compactionRuns: 0,
+  compactionTombstones: 0,
+};
+
+const httpBuckets = new Map();
+const seenUserNonces = new Map();
+
+function incMap(map, key, by = 1) {
+  map.set(key, (map.get(key) || 0) + by);
+}
+
+function logEvent(level, event, fields = {}) {
+  const payload = {
+    ts: new Date().toISOString(),
+    service: 'vh-relay',
+    event,
+    ...fields,
+  };
+  const line = JSON.stringify(payload);
+  if (level === 'warn') console.warn(line);
+  else if (level === 'error') console.error(line);
+  else console.log(line);
+}
+
+function routeLabel(pathname) {
+  if (pathname.startsWith('/vh/forum/')) return pathname;
+  if (pathname.startsWith('/vh/topics/')) return pathname;
+  if (pathname.startsWith('/vh/aggregates/')) return pathname;
+  if (pathname === '/healthz' || pathname === '/readyz' || pathname === '/metrics') return pathname;
+  return pathname || '/';
+}
+
+function clientAddress(req) {
+  const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+  return forwarded || req.socket?.remoteAddress || 'unknown';
+}
+
+function secureEqual(a, b) {
+  if (!a || !b) return false;
+  const left = Buffer.from(String(a));
+  const right = Buffer.from(String(b));
+  return left.length === right.length && crypto.timingSafeEqual(left, right);
+}
+
+function isOriginAllowed(req) {
+  const origin = req.headers.origin;
+  if (!origin || allowAnyOrigin) return true;
+  return allowedOrigins.includes(origin);
+}
+
+function applyCors(req, res) {
+  const origin = req.headers.origin;
+  if (allowAnyOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  } else if (origin && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'content-type, authorization, x-vh-relay-token, x-vh-relay-device-pub, x-vh-relay-signature, x-vh-relay-nonce, x-vh-relay-timestamp, x-vh-device-pub, x-vh-signature, x-vh-nonce, x-vh-timestamp'
+  );
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+}
+
+function takeHttpToken(req) {
+  const now = Date.now();
+  const key = clientAddress(req);
+  const refillPerMs = httpRateLimitPerMinute / 60_000;
+  const bucket = httpBuckets.get(key) || { tokens: httpRateLimitPerMinute, updatedAt: now };
+  bucket.tokens = Math.min(
+    httpRateLimitPerMinute,
+    bucket.tokens + Math.max(0, now - bucket.updatedAt) * refillPerMs
+  );
+  bucket.updatedAt = now;
+  if (bucket.tokens < 1) {
+    httpBuckets.set(key, bucket);
+    metrics.rateLimited += 1;
+    return false;
+  }
+  bucket.tokens -= 1;
+  httpBuckets.set(key, bucket);
+  return true;
+}
+
+function makeHttpError(statusCode, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+}
+
+function bearerToken(req) {
+  const header = String(req.headers.authorization || '');
+  return header.toLowerCase().startsWith('bearer ') ? header.slice(7).trim() : '';
+}
+
+function relayToken(req) {
+  return String(req.headers['x-vh-relay-token'] || '').trim();
+}
+
+function readHeader(req, names) {
+  for (const name of names) {
+    const value = req.headers[name];
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return '';
+}
+
+function decodeSignatureHeader(value) {
+  if (!value || value.startsWith('SEA')) return value;
+  try {
+    return Buffer.from(value, 'base64url').toString('utf8');
+  } catch {
+    return value;
+  }
+}
+
+function cleanupSeenUserNonces(now = Date.now()) {
+  for (const [key, expiresAt] of seenUserNonces) {
+    if (expiresAt <= now) seenUserNonces.delete(key);
+  }
+}
+
+function rememberUserNonce(devicePub, nonce, now = Date.now()) {
+  cleanupSeenUserNonces(now);
+  const key = `${devicePub}:${nonce}`;
+  if (seenUserNonces.has(key)) {
+    return false;
+  }
+  seenUserNonces.set(key, now + userNonceTtlMs);
+  return true;
+}
+
+async function verifyUserSignature(req, pathname, body) {
+  const devicePub = readHeader(req, ['x-vh-relay-device-pub', 'x-vh-device-pub']);
+  const signature = decodeSignatureHeader(readHeader(req, ['x-vh-relay-signature', 'x-vh-signature']));
+  const nonce = readHeader(req, ['x-vh-relay-nonce', 'x-vh-nonce']);
+  const timestamp = readHeader(req, ['x-vh-relay-timestamp', 'x-vh-timestamp']);
+  if (!devicePub || !signature || !nonce || !timestamp) {
+    throw makeHttpError(401, 'user-signature-required');
+  }
+  const timestampMs = Number(timestamp);
+  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > userSignatureMaxSkewMs) {
+    throw makeHttpError(401, 'user-signature-stale');
+  }
+  if (!rememberUserNonce(devicePub, nonce)) {
+    throw makeHttpError(401, 'user-signature-replay');
+  }
+  const canonical = JSON.stringify({ path: pathname, body, nonce, timestamp: String(timestamp) });
+  const verified = await verifySeaSignature(signature, devicePub, canonical);
+  if (!verified) {
+    if (boolEnv('VH_RELAY_AUTH_DEBUG', false)) {
+      logEvent('warn', 'user_signature_invalid_debug', {
+        device_pub_prefix: devicePub.slice(0, 12),
+        canonical,
+        signature_prefix: signature.slice(0, 16),
+      });
+    }
+    throw makeHttpError(401, 'user-signature-invalid');
+  }
+}
+
+async function verifySeaSignature(signature, devicePub, canonical) {
+  try {
+    const parsed = JSON.parse(signature.startsWith('SEA') ? signature.slice(3) : signature);
+    const message = parsed?.m;
+    const signatureValue = parsed?.s;
+    const messageCanonical =
+      typeof message === 'string'
+        ? message
+        : message && typeof message === 'object'
+          ? JSON.stringify(message)
+          : '';
+    if (messageCanonical !== canonical || typeof signatureValue !== 'string') {
+      return false;
+    }
+    const [x, y] = String(devicePub).split('.');
+    if (!x || !y) return false;
+    const key = await (seaShim.ossl || seaShim.subtle).importKey(
+      'jwk',
+      { kty: 'EC', crv: 'P-256', x, y, ext: true, key_ops: ['verify'] },
+      { name: 'ECDSA', namedCurve: 'P-256' },
+      false,
+      ['verify']
+    );
+    const hash = await seaShim.subtle.digest(
+      { name: 'SHA-256' },
+      new seaShim.TextEncoder().encode(messageCanonical)
+    );
+    return await (seaShim.ossl || seaShim.subtle).verify(
+      { name: 'ECDSA', hash: { name: 'SHA-256' } },
+      key,
+      new Uint8Array(seaShim.Buffer.from(signatureValue, 'base64')),
+      new Uint8Array(hash)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function assertRouteAuth(req, pathname, body, kind) {
+  if (!authRequired) return;
+  if (kind === ROUTE_KIND.DAEMON) {
+    if (!daemonToken) {
+      throw makeHttpError(503, 'daemon-auth-not-configured');
+    }
+    if (secureEqual(bearerToken(req), daemonToken)) return;
+    throw makeHttpError(401, 'daemon-token-required');
+  }
+  if (userFallbackToken && secureEqual(relayToken(req), userFallbackToken)) return;
+  await verifyUserSignature(req, pathname, body);
+}
+
+function dirSizeBytes(target) {
+  if (!target || target === false) return 0;
+  try {
+    const stat = fs.statSync(target);
+    if (stat.isFile()) return stat.size;
+    if (!stat.isDirectory()) return 0;
+    let total = 0;
+    for (const entry of fs.readdirSync(target)) {
+      total += dirSizeBytes(path.join(target, entry));
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
+function metricsText() {
+  const lines = [];
+  const add = (name, value, labels = {}) => {
+    const labelEntries = Object.entries(labels);
+    const suffix = labelEntries.length
+      ? `{${labelEntries.map(([key, val]) => `${key}="${String(val).replace(/"/g, '\\"')}"`).join(',')}}`
+      : '';
+    lines.push(`${name}${suffix} ${value}`);
+  };
+  add('vh_relay_uptime_seconds', Math.floor((Date.now() - metrics.startedAt) / 1000));
+  add('vh_relay_active_connections', metrics.activeConnections);
+  add('vh_relay_total_connections', metrics.totalConnections);
+  add('vh_relay_dropped_connections_total', metrics.droppedConnections);
+  add('vh_relay_http_requests_total', metrics.httpRequests);
+  add('vh_relay_auth_rejects_total', metrics.authRejects);
+  add('vh_relay_rate_limited_total', metrics.rateLimited);
+  add('vh_relay_body_too_large_total', metrics.bodyTooLarge);
+  add('vh_relay_origin_rejects_total', metrics.originRejects);
+  add('vh_relay_ws_upgrade_rejects_total', metrics.wsUpgradeRejects);
+  add('vh_relay_ws_byte_drops_total', metrics.wsByteDrops);
+  add('vh_relay_compaction_runs_total', metrics.compactionRuns);
+  add('vh_relay_compaction_tombstones_total', metrics.compactionTombstones);
+  add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
+  for (const [status, count] of metrics.httpResponses) {
+    add('vh_relay_http_responses_total', count, { status });
+  }
+  for (const [route, count] of metrics.writeAttempts) {
+    add('vh_relay_write_attempts_total', count, { route });
+  }
+  for (const [route, count] of metrics.writeSuccesses) {
+    add('vh_relay_write_successes_total', count, { route });
+  }
+  for (const [route, count] of metrics.writeFailures) {
+    add('vh_relay_write_failures_total', count, { route });
+  }
+  return `${lines.join('\n')}\n`;
+}
 
 function sendJson(res, status, body) {
   res.statusCode = status;
@@ -58,22 +379,26 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function readJsonBody(req, limitBytes = 1_000_000) {
+function readJsonBody(req, limitBytes = bodyLimitBytes) {
   return new Promise((resolve, reject) => {
     let body = '';
+    let tooLarge = false;
     req.setEncoding('utf8');
     req.on('data', (chunk) => {
+      if (tooLarge) return;
       body += chunk;
       if (body.length > limitBytes) {
-        reject(new Error('body-too-large'));
-        req.destroy();
+        tooLarge = true;
+        metrics.bodyTooLarge += 1;
+        reject(makeHttpError(413, 'body-too-large'));
       }
     });
     req.on('end', () => {
+      if (tooLarge) return;
       try {
         resolve(body.trim() ? JSON.parse(body) : {});
       } catch {
-        reject(new Error('invalid-json'));
+        reject(makeHttpError(400, 'invalid-json'));
       }
     });
     req.on('error', reject);
@@ -577,10 +902,77 @@ async function writeAggregatePointSnapshot(gun, snapshot) {
   return clean;
 }
 
+function compactHistoricalHealthProbes(gun) {
+  metrics.compactionRuns += 1;
+  let tombstoned = 0;
+  try {
+    gun.get('vh').get('__health').map().once((value, key) => {
+      if (typeof key !== 'string' || !key.startsWith('__vh_health_probe_')) {
+        return;
+      }
+      tombstoned += 1;
+      metrics.compactionTombstones += 1;
+      gun.get('vh').get('__health').get(key).put(null);
+    });
+    logEvent('info', 'health_probe_compaction_started', { tombstoned });
+  } catch (error) {
+    logEvent('warn', 'health_probe_compaction_failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function handleWriteRoute(req, res, pathname, kind, write) {
+  const label = routeLabel(pathname);
+  incMap(metrics.writeAttempts, label);
+  try {
+    const body = await readJsonBody(req);
+    await assertRouteAuth(req, pathname, body, kind);
+    const payload = await write(body);
+    incMap(metrics.writeSuccesses, label);
+    sendJson(res, 200, { ok: true, ...payload });
+  } catch (error) {
+    const status = error?.statusCode || (String(error?.message || '').includes('required') ? 400 : 500);
+    if (status === 401 || status === 403 || status === 503) {
+      metrics.authRejects += 1;
+    }
+    incMap(metrics.writeFailures, label);
+    logEvent(status >= 500 ? 'error' : 'warn', 'write_route_failed', {
+      route: label,
+      status,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    sendJson(res, status, {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 const server = http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'content-type');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  metrics.httpRequests += 1;
+  res.on('finish', () => {
+    incMap(metrics.httpResponses, String(res.statusCode || 0));
+  });
+
+  const parsedUrl = new URL(req.url || '/', 'http://vh-relay.local');
+  const pathname = parsedUrl.pathname;
+  applyCors(req, res);
+
+  if (!isOriginAllowed(req)) {
+    metrics.originRejects += 1;
+    logEvent('warn', 'origin_rejected', {
+      origin: req.headers.origin || null,
+      path: pathname,
+    });
+    sendJson(res, 403, { ok: false, error: 'origin-not-allowed' });
+    return;
+  }
+
+  if (!takeHttpToken(req)) {
+    sendJson(res, 429, { ok: false, error: 'rate-limited' });
+    return;
+  }
 
   if (req.method === 'OPTIONS') {
     res.statusCode = 204;
@@ -588,82 +980,96 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/vh/forum/thread') {
-    readJsonBody(req)
-      .then((body) => writeForumThread(gun, body.thread))
-      .then((thread) => sendJson(res, 200, { ok: true, thread_id: thread.id }))
-      .catch((error) => sendJson(res, 500, {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error)
-      }));
+  if (req.method === 'GET' && pathname === '/healthz') {
+    sendJson(res, 200, {
+      ok: true,
+      service: 'vh-relay',
+      uptime_ms: Date.now() - metrics.startedAt,
+      radisk_enabled: radiskEnabled,
+      auth_required: authRequired,
+      active_connections: metrics.activeConnections,
+    });
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/vh/forum/comment') {
-    readJsonBody(req)
-      .then((body) => writeForumComment(gun, body.comment))
-      .then((comment) => sendJson(res, 200, {
-        ok: true,
+  if (req.method === 'GET' && pathname === '/readyz') {
+    const ready = !authRequired || Boolean(daemonToken);
+    sendJson(res, ready ? 200 : 503, {
+      ok: ready,
+      service: 'vh-relay',
+      auth_required: authRequired,
+      daemon_auth_configured: Boolean(daemonToken),
+      user_signature_auth_available: true,
+      radisk_enabled: radiskEnabled,
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/metrics') {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.end(metricsText());
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/forum/thread') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
+      const thread = await writeForumThread(gun, body.thread);
+      return { thread_id: thread.id };
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/vh/forum/comment') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
+      const comment = await writeForumComment(gun, body.comment);
+      return {
         thread_id: comment.threadId,
-        comment_id: comment.id
-      }))
-      .catch((error) => sendJson(res, 500, {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error)
-      }));
+        comment_id: comment.id,
+      };
+    });
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/vh/topics/synthesis') {
-    readJsonBody(req)
-      .then((body) => writeTopicSynthesis(gun, body.synthesis))
-      .then((synthesis) => sendJson(res, 200, {
-        ok: true,
+  if (req.method === 'POST' && pathname === '/vh/topics/synthesis') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.DAEMON, async (body) => {
+      const synthesis = await writeTopicSynthesis(gun, body.synthesis);
+      return {
         topic_id: synthesis.topic_id,
-        synthesis_id: synthesis.synthesis_id
-      }))
-      .catch((error) => sendJson(res, 500, {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error)
-      }));
+        synthesis_id: synthesis.synthesis_id,
+      };
+    });
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/vh/aggregates/voter') {
-    readJsonBody(req)
-      .then((body) => writeAggregateVoter(gun, body))
-      .then((write) => sendJson(res, 200, {
-        ok: true,
+  if (req.method === 'POST' && pathname === '/vh/aggregates/voter') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
+      const write = await writeAggregateVoter(gun, body);
+      return {
         topic_id: write.topic_id,
         synthesis_id: write.synthesis_id,
         epoch: write.epoch,
         voter_id: write.voter_id,
-        point_id: write.node.point_id
-      }))
-      .catch((error) => sendJson(res, 500, {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error)
-      }));
+        point_id: write.node.point_id,
+      };
+    });
     return;
   }
 
-  if (req.method === 'POST' && req.url === '/vh/aggregates/point-snapshot') {
-    readJsonBody(req)
-      .then((body) => writeAggregatePointSnapshot(gun, body.snapshot))
-      .then((snapshot) => sendJson(res, 200, {
-        ok: true,
+  if (req.method === 'POST' && pathname === '/vh/aggregates/point-snapshot') {
+    void handleWriteRoute(req, res, pathname, ROUTE_KIND.USER, async (body) => {
+      const snapshot = await writeAggregatePointSnapshot(gun, body.snapshot);
+      return {
         topic_id: snapshot.topic_id,
         synthesis_id: snapshot.synthesis_id,
         epoch: snapshot.epoch,
-        point_id: snapshot.point_id
-      }))
-      .catch((error) => sendJson(res, 500, {
-        ok: false,
-        error: error instanceof Error ? error.message : String(error)
-      }));
+        point_id: snapshot.point_id,
+      };
+    });
     return;
   }
 
+  res.statusCode = 200;
   res.end('vh relay alive\n');
 });
 
@@ -674,6 +1080,67 @@ const gun = Gun({
   file: gunFile,
   axe: false,
   peers: [] // explicit empty list to keep ws adapter happy
+});
+
+if (boolEnv('VH_RELAY_COMPACT_HEALTH_PROBES_ON_START', false)) {
+  setTimeout(() => compactHistoricalHealthProbes(gun), 1_000).unref?.();
+}
+if (healthProbeCompactionIntervalMs > 0) {
+  setInterval(() => compactHistoricalHealthProbes(gun), healthProbeCompactionIntervalMs).unref?.();
+}
+
+server.on('connection', (socket) => {
+  metrics.activeConnections += 1;
+  metrics.totalConnections += 1;
+  socket.on('close', () => {
+    metrics.activeConnections = Math.max(0, metrics.activeConnections - 1);
+  });
+  if (metrics.activeConnections > maxActiveConnections) {
+    metrics.droppedConnections += 1;
+    logEvent('warn', 'connection_dropped', {
+      reason: 'max-active-connections',
+      active_connections: metrics.activeConnections,
+      limit: maxActiveConnections,
+    });
+    socket.destroy();
+    return;
+  }
+
+  let windowStartedAt = Date.now();
+  let bytesInWindow = 0;
+  socket.on('data', (chunk) => {
+    const now = Date.now();
+    if (now - windowStartedAt >= 1_000) {
+      windowStartedAt = now;
+      bytesInWindow = 0;
+    }
+    bytesInWindow += Buffer.byteLength(chunk);
+    if (bytesInWindow > wsBytesPerSecondLimit) {
+      metrics.wsByteDrops += 1;
+      metrics.droppedConnections += 1;
+      logEvent('warn', 'connection_dropped', {
+        reason: 'bytes-per-second-limit',
+        bytes_in_window: bytesInWindow,
+        limit: wsBytesPerSecondLimit,
+      });
+      socket.destroy();
+    }
+  });
+});
+
+server.prependListener('upgrade', (req, socket) => {
+  if (!isOriginAllowed(req)) {
+    metrics.originRejects += 1;
+    metrics.wsUpgradeRejects += 1;
+    metrics.droppedConnections += 1;
+    logEvent('warn', 'ws_upgrade_rejected', {
+      reason: 'origin-not-allowed',
+      origin: req.headers.origin || null,
+      path: req.url || null,
+    });
+    socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+    socket.destroy();
+  }
 });
 
 server.listen(port, host, () => {

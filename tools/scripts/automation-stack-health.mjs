@@ -112,7 +112,7 @@ async function checkServices() {
 
   const [snapshotProbe, relayProbe, storyclusterProbe, webProbe] = await Promise.all([
     probeHttp(`http://127.0.0.1:${snapshotPort}/health`),
-    probeHttp(`http://127.0.0.1:${relayPort}/`),
+    probeHttp(`http://127.0.0.1:${relayPort}/healthz`),
     probeHttp(`http://127.0.0.1:${storyclusterPort}/ready`, 5000, {
       headers: {
         authorization: `Bearer ${args['storycluster-auth-token']}`,
