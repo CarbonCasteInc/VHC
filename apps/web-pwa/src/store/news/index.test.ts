@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StoryBundle } from '@vh/data-model';
+import type { StoryBundle, StorylineGroup } from '@vh/data-model';
 
 const hydrateNewsStoreMock = vi.fn<(...args: unknown[]) => boolean>();
 const hasForbiddenNewsPayloadFieldsMock = vi.fn<(payload: unknown) => boolean>();
@@ -50,6 +50,23 @@ function story(overrides: Partial<StoryBundle> = {}): StoryBundle {
     },
     provenance_hash: 'hash-1',
     created_at: 100,
+    ...overrides
+  };
+}
+
+function storyline(overrides: Partial<StorylineGroup> = {}): StorylineGroup {
+  return {
+    schemaVersion: 'storyline-group-v0',
+    storyline_id: 'storyline-direct',
+    topic_id: CANONICAL_TOPIC_ID,
+    canonical_story_id: 'story-direct',
+    story_ids: ['story-direct'],
+    headline: 'Direct storyline',
+    related_coverage: [],
+    entity_keys: ['policy'],
+    time_bucket: 'tb-1',
+    created_at: 100,
+    updated_at: 200,
     ...overrides
   };
 }
@@ -147,7 +164,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       store.getState().setStories([
         story({
           story_id: 's-one',
@@ -189,7 +206,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       store.getState().setStories([
         story({
           story_id: 'object-config-1',
@@ -218,7 +235,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       store.getState().setStories([
         story({
           story_id: 'empty-config-1',
@@ -250,7 +267,7 @@ describe('news store', () => {
       const { createNewsStore } = await import('./index');
       const store = createNewsStore({ resolveClient: () => null });
 
-      const baseSource = story().sources[0];
+      const baseSource = story().sources[0]!;
       const allowed = story({
         story_id: 'allowed',
         sources: [{ ...baseSource, source_id: 'source-allowed', url_hash: '55ee66ff' }]
@@ -470,6 +487,137 @@ describe('news store', () => {
     expect(store.getState().loading).toBe(false);
     expect(readNewsLatestIndexMock).not.toHaveBeenCalled();
     expect(readNewsHotIndexMock).not.toHaveBeenCalled();
+  });
+
+  it('ensureStory reads a persisted story by id and mirrors it into discovery', async () => {
+    const client = { id: 'client-direct-story' };
+    const directStory = story({
+      story_id: 'story-direct',
+      topic_id: 'b'.repeat(64),
+      headline: 'Direct story headline',
+      cluster_window_end: 555,
+    });
+    readNewsStoryMock.mockResolvedValue(directStory);
+
+    const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+    useDiscoveryStore.getState().reset();
+
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await expect(store.getState().ensureStory(' story-direct ')).resolves.toBe(true);
+
+    expect(readNewsStoryMock).toHaveBeenCalledWith(client, 'story-direct');
+    expect(store.getState().stories.map((item) => item.story_id)).toEqual(['story-direct']);
+    expect(store.getState().latestIndex).toEqual({ 'story-direct': 555 });
+    expect(useDiscoveryStore.getState().items).toEqual([
+      expect.objectContaining({
+        kind: 'NEWS_STORY',
+        story_id: 'story-direct',
+        topic_id: directStory.topic_id,
+        title: 'Direct story headline',
+      }),
+    ]);
+  });
+
+  it('ensureStory rejects empty ids and missing clients without mesh reads', async () => {
+    const { createNewsStore } = await import('./index');
+    const storeWithoutClient = createNewsStore({ resolveClient: () => null });
+
+    await expect(storeWithoutClient.getState().ensureStory('   ')).resolves.toBe(false);
+    await expect(storeWithoutClient.getState().ensureStory('story-without-client')).resolves.toBe(false);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+  });
+
+  it('ensureStory rejects missing, unconfigured, and failed direct reads', async () => {
+    const previousSources = process.env.VITE_NEWS_FEED_SOURCES;
+    process.env.VITE_NEWS_FEED_SOURCES = JSON.stringify([{ id: 'admitted-source' }]);
+    vi.resetModules();
+    try {
+      const client = { id: 'client-direct-story-failures' };
+      const { createNewsStore } = await import('./index');
+      const store = createNewsStore({ resolveClient: () => client as never });
+
+      readNewsStoryMock
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce(story({ story_id: 'story-unconfigured' }))
+        .mockRejectedValueOnce(new Error('mesh-read-failed'));
+
+      await expect(store.getState().ensureStory('story-missing')).resolves.toBe(false);
+      await expect(store.getState().ensureStory('story-unconfigured')).resolves.toBe(false);
+      await expect(store.getState().ensureStory('story-error')).resolves.toBe(false);
+
+      expect(store.getState().stories).toEqual([]);
+      expect(readNewsStoryMock.mock.calls.map(([, storyId]) => storyId)).toEqual([
+        'story-missing',
+        'story-unconfigured',
+        'story-error',
+      ]);
+    } finally {
+      if (previousSources === undefined) {
+        delete process.env.VITE_NEWS_FEED_SOURCES;
+      } else {
+        process.env.VITE_NEWS_FEED_SOURCES = previousSources;
+      }
+      vi.resetModules();
+    }
+  });
+
+  it('ensureStory loads referenced storylines but keeps direct hydration resilient to slow storyline reads', async () => {
+    const client = { id: 'client-direct-storyline' };
+    const directStory = story({
+      story_id: 'story-direct',
+      storyline_id: 'storyline-direct',
+      topic_id: 'd'.repeat(64),
+    });
+
+    readNewsStoryMock.mockResolvedValueOnce(directStory).mockResolvedValueOnce({
+      ...directStory,
+      story_id: 'story-direct-with-slow-storyline',
+      headline: 'Direct story with slow storyline',
+    });
+    readNewsStorylineMock.mockResolvedValueOnce(storyline()).mockRejectedValueOnce(new Error('storyline-read-timeout'));
+
+    const { createNewsStore } = await import('./index');
+    const store = createNewsStore({ resolveClient: () => client as never });
+
+    await expect(store.getState().ensureStory('story-direct')).resolves.toBe(true);
+    expect(store.getState().storylinesById).toEqual({ 'storyline-direct': storyline() });
+
+    await expect(store.getState().ensureStory('story-direct-with-slow-storyline')).resolves.toBe(true);
+    expect(store.getState().stories.map((item) => item.story_id).sort()).toEqual([
+      'story-direct',
+      'story-direct-with-slow-storyline',
+    ]);
+  });
+
+  it('ensureStory remirrors an already loaded story without rereading the mesh', async () => {
+    const directStory = story({
+      story_id: 'story-existing',
+      topic_id: 'c'.repeat(64),
+      headline: 'Existing story headline',
+      cluster_window_end: 777,
+    });
+
+    const { createNewsStore } = await import('./index');
+    const { useDiscoveryStore } = await import('../discovery');
+    useDiscoveryStore.getState().reset();
+
+    const store = createNewsStore({ resolveClient: () => ({ id: 'client' }) as never });
+    store.getState().setStories([directStory]);
+
+    await expect(store.getState().ensureStory('story-existing')).resolves.toBe(true);
+
+    expect(readNewsStoryMock).not.toHaveBeenCalled();
+    expect(store.getState().latestIndex).toEqual({ 'story-existing': 777 });
+    expect(useDiscoveryStore.getState().items).toEqual([
+      expect.objectContaining({
+        kind: 'NEWS_STORY',
+        story_id: 'story-existing',
+        topic_id: directStory.topic_id,
+      }),
+    ]);
   });
 
   it('refreshLatest loads latest/hot indexes + stories and clears loading', async () => {

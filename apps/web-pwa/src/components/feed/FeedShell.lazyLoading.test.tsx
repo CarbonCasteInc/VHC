@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 
-import { act, cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import React from 'react';
@@ -157,6 +157,33 @@ describe('FeedShell lazy loading', () => {
         } as unknown as IntersectionObserver;
       }),
     );
+  });
+
+  it('hydrates a direct story detail route that is outside the current feed window', async () => {
+    mockSearch = { detail: 'news:story-direct-route' };
+    const originalEnsureStory = useNewsStore.getState().ensureStory;
+    const ensureStory = vi.fn(async (storyId: string) => {
+      useDiscoveryStore.getState().mergeItems([
+        makeFeedItem({
+          topic_id: 'topic-direct-route',
+          story_id: storyId,
+          title: 'Direct route story',
+        }),
+      ]);
+      return true;
+    });
+    useNewsStore.setState({ ensureStory });
+
+    try {
+      render(<LiveFeedHarness />);
+
+      await waitFor(() => {
+        expect(ensureStory).toHaveBeenCalledWith('story-direct-route');
+      });
+      expect(await screen.findByTestId('news-card-detail-topic-direct-route')).toBeInTheDocument();
+    } finally {
+      useNewsStore.setState({ ensureStory: originalEnsureStory });
+    }
   });
 
   afterEach(() => {

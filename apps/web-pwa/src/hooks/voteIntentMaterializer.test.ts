@@ -14,6 +14,7 @@ import {
   scheduleVoteIntentReplay,
   voteIntentMaterializerInternal,
 } from './voteIntentMaterializer';
+import { projectIntentRecord } from './voteIntentProjection';
 
 function makeIntent(overrides: Partial<VoteIntentRecord> = {}): VoteIntentRecord {
   return {
@@ -313,7 +314,119 @@ describe('voteIntentMaterializer', () => {
     expect(meshWriteSpy).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
   });
 
-  it('replayVoteIntentQueue keeps intent pending after timeout recovery until a later acknowledged replay', async () => {
+  it('replayVoteIntentQueue writes the voter node before full aggregate fan-in', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
+
+    const readRowsSpy = vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
+    vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
+    const writeVoterSpy = vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+      point_id: 'point-1',
+      agreement: 1,
+      weight: 1,
+      updated_at: new Date(100).toISOString(),
+    });
+    vi.spyOn(GunClient, 'writePointAggregateSnapshot')
+      .mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
+
+    enqueueIntent(makeIntent({ intent_id: 'write-before-fanin', seq: 100, emitted_at: 100 }));
+
+    await expect(replayVoteIntentQueue({ limit: 10, now: () => 500 })).resolves.toEqual({ replayed: 1, failed: 0 });
+    expect(writeVoterSpy.mock.invocationCallOrder[0]!).toBeLessThan(readRowsSpy.mock.invocationCallOrder[0]!);
+  });
+
+  it('projectIntentRecord defers snapshot materialization when aggregate fan-in hangs', async () => {
+    vi.useFakeTimers();
+    const client = {} as VennClient;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: new Date(100).toISOString(),
+      });
+      vi.spyOn(GunClient, 'readAggregateVoterRows').mockReturnValue(new Promise(() => {}));
+      const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+      const result = projectIntentRecord({
+        client,
+        record: makeIntent({ intent_id: 'snapshot-critical-timeout', seq: 100, emitted_at: 100 }),
+        now: () => 500,
+        materializePointSnapshot,
+      });
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(result).resolves.toEqual({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        voter_node_ok: true,
+        snapshot_ok: false,
+        readback_recovered: false,
+        timed_out: false,
+      });
+      expect(writeSnapshotSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:vote:intent-replay:snapshot-materialization-deferred]',
+        expect.objectContaining({
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 1,
+          point_id: 'point-1',
+          timeout_ms: 3_000,
+        }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('projectIntentRecord logs string snapshot materialization failures without retrying the voter row', async () => {
+    const client = {} as VennClient;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
+        point_id: 'point-1',
+        agreement: 1,
+        weight: 1,
+        updated_at: new Date(100).toISOString(),
+      });
+      vi.spyOn(GunClient, 'readAggregateVoterRows').mockRejectedValue('rows-failed-string');
+      const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
+
+      await expect(projectIntentRecord({
+        client,
+        record: makeIntent({ intent_id: 'snapshot-string-failure', seq: 100, emitted_at: 100 }),
+        now: () => 500,
+        materializePointSnapshot,
+      })).resolves.toEqual({
+        topic_id: 'topic-1',
+        point_id: 'point-1',
+        voter_node_ok: true,
+        snapshot_ok: false,
+        readback_recovered: false,
+        timed_out: false,
+      });
+
+      expect(writeSnapshotSpy).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:vote:intent-replay:snapshot-materialization-failed]',
+        expect.objectContaining({
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 1,
+          point_id: 'point-1',
+          error: 'rows-failed-string',
+        }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('replayVoteIntentQueue clears readback-confirmed timeout recovery after snapshot projection', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
     const meshWriteSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
@@ -343,7 +456,7 @@ describe('voteIntentMaterializer', () => {
 
     const result = await replayVoteIntentQueue({ limit: 10, now: () => 500 });
 
-    expect(result).toEqual({ replayed: 0, failed: 1 });
+    expect(result).toEqual({ replayed: 1, failed: 0 });
     expect(writeSnapshotSpy).toHaveBeenCalledWith(
       client,
       expect.objectContaining({
@@ -352,7 +465,7 @@ describe('voteIntentMaterializer', () => {
         participants: 1,
       }),
     );
-    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-recovered']);
+    expect(getPendingIntents()).toEqual([]);
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:intent-replay:timeout-recovered]',
       expect.objectContaining({
@@ -368,12 +481,11 @@ describe('voteIntentMaterializer', () => {
       expect.objectContaining({
         topic_id: 'topic-1',
         point_id: 'point-1',
-        success: false,
+        success: true,
         timed_out: true,
         voter_node_ok: true,
         snapshot_ok: true,
         readback_recovered: true,
-        error: 'aggregate-write-needs-replay',
       }),
     );
   });
@@ -409,7 +521,7 @@ describe('voteIntentMaterializer', () => {
     expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-stale']);
   });
 
-  it('replayVoteIntentQueue keeps string timeout recoveries pending until a later acknowledged replay', async () => {
+  it('replayVoteIntentQueue clears string timeout recoveries after readback-confirmed snapshot projection', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
 
@@ -437,9 +549,9 @@ describe('voteIntentMaterializer', () => {
 
     const result = await replayVoteIntentQueue({ limit: 10, now: () => 501 });
 
-    expect(result).toEqual({ replayed: 0, failed: 1 });
+    expect(result).toEqual({ replayed: 1, failed: 0 });
     expect(writeSnapshotSpy).toHaveBeenCalledTimes(1);
-    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['timeout-string-recovered']);
+    expect(getPendingIntents()).toEqual([]);
   });
 
   it('replayVoteIntentQueue keeps intent pending when timeout readback point_id mismatches', async () => {
@@ -646,7 +758,8 @@ describe('voteIntentMaterializer', () => {
     await Promise.resolve();
     expect(replaySpy).toHaveBeenCalledTimes(1);
 
-    resolveReplay?.({ replayed: 0, failed: 0 });
+    const resolve = resolveReplay as ((value: { replayed: number; failed: number }) => void) | null;
+    resolve?.({ replayed: 0, failed: 0 });
     await Promise.resolve();
     await Promise.resolve();
   });
@@ -740,7 +853,7 @@ describe('voteIntentMaterializer', () => {
     expect(getPendingIntents()).toHaveLength(0);
 
     expect(writeVoterSpy).toHaveBeenCalledTimes(1);
-    expect(writeVoterSpy.mock.calls[0][5]).toEqual({
+    expect(writeVoterSpy.mock.calls[0]![5]).toEqual({
       point_id: 'point-1',
       agreement: 1,
       weight: 1,
@@ -748,16 +861,18 @@ describe('voteIntentMaterializer', () => {
     });
 
     expect(writeSnapshotSpy).toHaveBeenCalledTimes(1);
-    const snapshotArg = writeSnapshotSpy.mock.calls[0][1] as Record<string, unknown>;
+    const snapshotArg = writeSnapshotSpy.mock.calls[0]![1] as Record<string, unknown>;
     expect(PointAggregateSnapshotV1Schema.safeParse(snapshotArg).success).toBe(true);
     expect(snapshotArg).not.toHaveProperty('nullifier');
     expect(snapshotArg).not.toHaveProperty('constituency_proof');
     expect(snapshotArg).not.toHaveProperty('proof_ref');
   });
 
-  it('failed projection remains retryable in queue', async () => {
+  it('clears persisted voter-node intents even when snapshot materialization fails', async () => {
     const client = {} as VennClient;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const meshWriteSpy = vi.spyOn(SentimentTelemetry, 'logMeshWriteResult').mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([]);
     vi.spyOn(GunClient, 'readPointAggregateSnapshot').mockResolvedValue(null);
     vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
@@ -772,13 +887,19 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({ intent_id: 'retry-1', seq: 100, emitted_at: 100 }));
 
-    const first = await replayVoteIntentQueue({ limit: 10, now: () => 1000 });
-    expect(first).toEqual({ replayed: 0, failed: 1 });
-    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['retry-1']);
-
-    writeSnapshotSpy.mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
-    const second = await replayVoteIntentQueue({ limit: 10, now: () => 1001 });
-    expect(second).toEqual({ replayed: 1, failed: 0 });
+    const result = await replayVoteIntentQueue({ limit: 10, now: () => 1000 });
+    expect(result).toEqual({ replayed: 1, failed: 0 });
     expect(getPendingIntents()).toHaveLength(0);
+    expect(meshWriteSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        success: true,
+        voter_node_ok: true,
+        snapshot_ok: false,
+      }),
+    );
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[vh:vote:intent-replay:snapshot-materialization-failed]',
+      expect.objectContaining({ error: 'materialize-fail' }),
+    );
   });
 });

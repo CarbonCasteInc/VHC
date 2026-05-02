@@ -158,17 +158,13 @@ export async function replayVoteIntentQueue(options?: {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const needsReplay = message === 'aggregate-write-needs-replay';
       logMeshWriteResult({
         topic_id: record.topic_id,
         point_id: record.point_id,
         success: false,
         latency_ms: Math.max(0, now() - startedAt),
         error: message,
-        voter_node_ok: needsReplay ? true : undefined,
-        snapshot_ok: needsReplay ? true : undefined,
-        readback_recovered: needsReplay ? true : undefined,
-        timed_out: needsReplay || message.includes('aggregate-put-ack-timeout'),
+        timed_out: message.includes('aggregate-put-ack-timeout'),
       });
       throw error;
     }

@@ -107,6 +107,11 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
   let storeRef!: StoreApi<NewsState>;
   let refreshGeneration = 0;
 
+  const mirrorCurrentStories = async () => {
+    const state = storeRef.getState();
+    await mirrorStoriesIntoDiscovery([...state.stories], state.hotIndex, state.storylinesById);
+  };
+
   const startHydration = () => {
     const started = hydrateNewsStore(deps.resolveClient, storeRef);
     if (started && !storeRef.getState().hydrated) {
@@ -301,6 +306,51 @@ export function createNewsStore(overrides?: Partial<NewsDeps>): StoreApi<NewsSta
         delete nextStorylines[normalizedStorylineId];
         return { storylinesById: nextStorylines };
       });
+    },
+
+    async ensureStory(storyId: string) {
+      const normalizedStoryId = storyId.trim();
+      if (!normalizedStoryId) {
+        return false;
+      }
+
+      const existingStory = get().stories.find((story) => story.story_id === normalizedStoryId);
+      if (existingStory) {
+        get().upsertLatestIndex(existingStory.story_id, existingStory.cluster_window_end);
+        await mirrorCurrentStories();
+        return true;
+      }
+
+      const client = deps.resolveClient();
+      if (!client) {
+        return false;
+      }
+
+      get().startHydration();
+
+      try {
+        const story = parseStory(await readNewsStory(client, normalizedStoryId));
+        if (!story || !isStoryFromConfiguredSources(story)) {
+          return false;
+        }
+
+        get().upsertLatestIndex(story.story_id, story.cluster_window_end);
+        get().upsertStory(story);
+
+        try {
+          const storylines = await loadStorylinesForStories(client, [story]);
+          for (const storyline of storylines) {
+            get().upsertStoryline(storyline);
+          }
+        } catch {
+          // Direct story hydration should not fail just because related coverage is slow.
+        }
+
+        await mirrorCurrentStories();
+        return true;
+      } catch {
+        return false;
+      }
     },
 
     async refreshLatest(limit = 50) {

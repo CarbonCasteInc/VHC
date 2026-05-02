@@ -115,12 +115,12 @@ function createFakeMesh(): FakeMesh {
   };
 }
 
-function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
+function createClient(mesh: FakeMesh, guard: TopologyGuard, peers: string[] = []): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
 
   return {
-    config: { peers: [] },
+    config: { peers },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: guard,
@@ -410,6 +410,245 @@ describe('aggregateAdapters', () => {
     }
   });
 
+  it('readPointAggregateSnapshot resolves Gun-linked source_window child nodes', async () => {
+    const path = 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1';
+    const mesh = createFakeMesh();
+    mesh.setRead(path, {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'point-1',
+      agree: 1,
+      disagree: 0,
+      weight: 1,
+      participants: 1,
+      version: 1,
+      computed_at: 1,
+      source_window: { '#': `${path}/source_window` },
+    });
+    mesh.setRead(`${path}/source_window`, { from_seq: 1, to_seq: 1 });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(
+      readPointAggregateSnapshot(client, 'topic-1', 'synth-1', 4, 'point-1'),
+    ).resolves.toEqual({
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'point-1',
+      agree: 1,
+      disagree: 0,
+      weight: 1,
+      participants: 1,
+      version: 1,
+      computed_at: 1,
+      source_window: { from_seq: 1, to_seq: 1 },
+    });
+  });
+
+  it('writePointAggregateSnapshot recovers timed-out writes with Gun-linked source_window readback', async () => {
+    vi.useFakeTimers();
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+
+    try {
+      const path = 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1';
+      const mesh = createFakeMesh();
+      mesh.setPutHang(path);
+      mesh.setRead(path, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { '#': `${path}/source_window` },
+      });
+      mesh.setRead(`${path}/source_window`, { from_seq: 1, to_seq: 1 });
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard);
+
+      const pending = writePointAggregateSnapshot(client, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      await expect(pending).resolves.toEqual({
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+
+      expect(infoSpy).toHaveBeenCalledWith(
+        '[vh:aggregate:point-snapshot-write]',
+        expect.objectContaining({
+          point_id: 'point-1',
+          timed_out: true,
+          readback_confirmed: true,
+        }),
+      );
+    } finally {
+      infoSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('writePointAggregateSnapshot falls back to the relay aggregate endpoint when ack and readback time out', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const snapshot = {
+        schema_version: 'point-aggregate-snapshot-v1' as const,
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      };
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          point_id: 'point-1',
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const pending = writePointAggregateSnapshot(client, snapshot);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      await expect(pending).resolves.toEqual(snapshot);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:7777/vh/aggregates/point-snapshot',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ snapshot }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('writePointAggregateSnapshot rejects when relay fallback is unavailable or declines the write', async () => {
+    vi.useFakeTimers();
+    try {
+      const snapshot = {
+        schema_version: 'point-aggregate-snapshot-v1' as const,
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      };
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+      const invalidPeerMesh = createFakeMesh();
+      invalidPeerMesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1');
+      const invalidPeerClient = createClient(invalidPeerMesh, guard, ['http://[']);
+      const invalidPeerWrite = writePointAggregateSnapshot(invalidPeerClient, snapshot);
+      const invalidPeerAssertion = expect(invalidPeerWrite).rejects.toThrow('aggregate-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(8_000);
+      await invalidPeerAssertion;
+
+      const declinedMesh = createFakeMesh();
+      declinedMesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1');
+      const declinedClient = createClient(declinedMesh, guard, ['http://127.0.0.1:7777/gun']);
+      const fetchMock = vi.fn(async () => ({ ok: false }));
+      vi.stubGlobal('fetch', fetchMock);
+      const declinedWrite = writePointAggregateSnapshot(declinedClient, snapshot);
+      const declinedAssertion = expect(declinedWrite).rejects.toThrow('aggregate-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(8_000);
+      await declinedAssertion;
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('writePointAggregateSnapshot rejects when relay fallback fetch throws', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      vi.stubGlobal('fetch', vi.fn(async () => {
+        throw new Error('relay unavailable');
+      }));
+
+      const pending = writePointAggregateSnapshot(client, {
+        schema_version: 'point-aggregate-snapshot-v1',
+        topic_id: 'topic-1',
+        synthesis_id: 'synth-1',
+        epoch: 4,
+        point_id: 'point-1',
+        agree: 1,
+        disagree: 0,
+        weight: 1,
+        participants: 1,
+        version: 1,
+        computed_at: 1,
+        source_window: { from_seq: 1, to_seq: 1 },
+      });
+      const assertion = expect(pending).rejects.toThrow('aggregate-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      await assertion;
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it('writePointAggregateSnapshot surfaces non-timeout put errors', async () => {
     const mesh = createFakeMesh();
     mesh.setPutError('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1', 'boom');
@@ -535,6 +774,118 @@ describe('aggregateAdapters', () => {
       infoSpy.mockRestore();
       vi.useRealTimers();
     }
+  });
+
+  it('writeVoterNode falls back to the relay aggregate endpoint when ack and readback time out', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const node = {
+        point_id: 'point-1',
+        agreement: 1 as const,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      };
+      const fetchMock = vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          ok: true,
+          topic_id: 'topic-1',
+          synthesis_id: 'synth-1',
+          epoch: 4,
+          voter_id: 'voter-1',
+          point_id: 'point-1',
+        }),
+      }));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const pending = writeVoterNode(client, 'topic-1', 'synth-1', 4, 'voter-1', node);
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      await expect(pending).resolves.toEqual(node);
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:7777/vh/aggregates/voter',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            topic_id: 'topic-1',
+            synthesis_id: 'synth-1',
+            epoch: 4,
+            voter_id: 'voter-1',
+            node,
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('writeVoterNode rejects when relay fallback declines or throws', async () => {
+    vi.useFakeTimers();
+    try {
+      const node = {
+        point_id: 'point-1',
+        agreement: 1 as const,
+        weight: 1,
+        updated_at: '2026-02-18T22:20:00.000Z',
+      };
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+      const declinedMesh = createFakeMesh();
+      declinedMesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1');
+      const declinedClient = createClient(declinedMesh, guard, ['http://127.0.0.1:7777/gun']);
+      vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+      const declinedWrite = writeVoterNode(declinedClient, 'topic-1', 'synth-1', 4, 'voter-1', node);
+      const declinedAssertion = expect(declinedWrite).rejects.toThrow('aggregate-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(8_000);
+      await declinedAssertion;
+
+      const throwingMesh = createFakeMesh();
+      throwingMesh.setPutHang('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1');
+      const throwingClient = createClient(throwingMesh, guard, ['http://127.0.0.1:7777/gun']);
+      vi.stubGlobal('fetch', vi.fn(async () => {
+        throw new Error('relay unavailable');
+      }));
+      const throwingWrite = writeVoterNode(throwingClient, 'topic-1', 'synth-1', 4, 'voter-1', node);
+      const throwingAssertion = expect(throwingWrite).rejects.toThrow('aggregate-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(8_000);
+      await throwingAssertion;
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('readPointAggregateSnapshot returns null when nested source_window readback is invalid', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1', {
+      schema_version: 'point-aggregate-snapshot-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 4,
+      point_id: 'point-1',
+      agree: 1,
+      disagree: 0,
+      weight: 1,
+      participants: 1,
+      version: 1,
+      computed_at: 1,
+      source_window: { '#': 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1/source_window' },
+    });
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/points/point-1/source_window', {
+      from_seq: 'bad',
+      to_seq: 1,
+    });
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readPointAggregateSnapshot(client, 'topic-1', 'synth-1', 4, 'point-1')).resolves.toBeNull();
   });
 
   it('writeVoterNode ignores timeout/late ack callbacks after successful settlement', async () => {
@@ -1397,6 +1748,31 @@ describe('aggregateAdapters', () => {
       await vi.advanceTimersByTimeAsync(2_500);
       callback?.({ later: true });
 
+      await expect(pending).resolves.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('readOnce honors a per-call timeout override', async () => {
+    vi.useFakeTimers();
+    try {
+      const chain = {
+        once(_cb: (data: unknown) => void) {
+          // Simulate a Gun node that never answers.
+        },
+      } as ChainWithGet<unknown>;
+
+      const pending = aggregateAdapterInternal.readOnce(chain, 100);
+      await vi.advanceTimersByTimeAsync(99);
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
       await expect(pending).resolves.toBeNull();
     } finally {
       vi.useRealTimers();

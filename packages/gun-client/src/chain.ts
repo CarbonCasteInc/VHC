@@ -83,7 +83,9 @@ export function createGuardedChain<T>(
       },
       put(value: T, callback?: (ack?: ChainAck) => void) {
         guard.validateWrite(currentPath, value);
-        return waitForRemote(node, barrier).then(() => node.put(value, callback));
+        return waitForRemote(node, barrier).then(() => {
+          node.put(value, callback);
+        });
       },
       // Passthrough subscription methods from the underlying Gun chain
       on: typeof rawNode.on === 'function' ? rawNode.on.bind(rawNode) : undefined,

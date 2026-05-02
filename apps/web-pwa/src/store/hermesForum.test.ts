@@ -13,8 +13,10 @@ const {
   dateIndexWrites,
   tagIndexWrites,
   threadChain,
+  threadFieldChain,
   commentsChain,
   commentIndexChain,
+  getForumCommentsChainMock,
   getForumCommentIndexChainMock,
   getForumDateIndexChainMock,
   getForumTagIndexChainMock
@@ -24,8 +26,17 @@ const {
   const commentIndexWrites: any[] = [];
   const dateIndexWrites: Array<{ id: string; value: any }> = [];
   const tagIndexWrites: Array<{ tag: string; id: string; value: any }> = [];
+  const threadFieldChain = {
+    get: vi.fn(() => threadFieldChain),
+    once: vi.fn(),
+    put: vi.fn((_value: any, cb?: (ack?: { err?: string }) => void) => {
+      cb?.({});
+    })
+  } as any;
 
   const threadChain = {
+    get: vi.fn(() => threadFieldChain),
+    once: vi.fn(),
     put: vi.fn((value: any, cb?: (ack?: { err?: string }) => void) => {
       threadWrites.push(value);
       cb?.({});
@@ -55,6 +66,7 @@ const {
     })
   } as any;
 
+  const getForumCommentsChainMock = vi.fn(() => commentsChain);
   const getForumCommentIndexChainMock = vi.fn(() => commentIndexChain);
 
   const getForumDateIndexChainMock = vi.fn(() => ({
@@ -80,8 +92,10 @@ const {
     dateIndexWrites,
     tagIndexWrites,
     threadChain,
+    threadFieldChain,
     commentsChain,
     commentIndexChain,
+    getForumCommentsChainMock,
     getForumCommentIndexChainMock,
     getForumDateIndexChainMock,
     getForumTagIndexChainMock
@@ -93,7 +107,7 @@ vi.mock('@vh/gun-client', async (orig) => {
   return {
     ...actual,
     getForumThreadChain: vi.fn(() => threadChain),
-    getForumCommentsChain: vi.fn(() => commentsChain),
+    getForumCommentsChain: getForumCommentsChainMock,
     getForumCommentIndexChain: getForumCommentIndexChainMock,
     getForumDateIndexChain: getForumDateIndexChainMock,
     getForumTagIndexChain: getForumTagIndexChainMock
@@ -136,7 +150,21 @@ beforeEach(() => {
   commentIndexWrites.length = 0;
   dateIndexWrites.length = 0;
   tagIndexWrites.length = 0;
-  threadChain.put.mockClear();
+  threadChain.put.mockReset();
+  threadChain.put.mockImplementation((value: any, cb?: (ack?: { err?: string }) => void) => {
+    threadWrites.push(value);
+    cb?.({});
+  });
+  threadChain.get.mockReset();
+  threadChain.get.mockImplementation(() => threadFieldChain);
+  threadChain.once.mockReset();
+  threadFieldChain.put.mockReset();
+  threadFieldChain.put.mockImplementation((_value: any, cb?: (ack?: { err?: string }) => void) => {
+    cb?.({});
+  });
+  threadFieldChain.get.mockReset();
+  threadFieldChain.get.mockImplementation(() => threadFieldChain);
+  threadFieldChain.once.mockReset();
   commentsChain.put.mockClear();
   commentsChain.get.mockClear();
   commentsChain.map.mockClear();
@@ -144,19 +172,36 @@ beforeEach(() => {
   commentIndexChain.get.mockClear();
   commentIndexChain.once.mockClear();
   commentIndexChain.map.mockClear();
+  getForumCommentsChainMock.mockClear();
+  getForumCommentsChainMock.mockReturnValue(commentsChain);
   getForumCommentIndexChainMock.mockClear();
+  getForumCommentIndexChainMock.mockReturnValue(commentIndexChain);
   getForumDateIndexChainMock.mockClear();
   getForumTagIndexChainMock.mockClear();
 });
 
 describe('hermesForum store', () => {
   const setIdentity = (nullifier: string, trustScore = 1) => {
-    publishIdentity({ session: { nullifier, trustScore, scaledTrustScore: Math.round(trustScore * 10000) } });
+    publishIdentity({
+      session: {
+        nullifier,
+        trustScore,
+        scaledTrustScore: Math.round(trustScore * 10000),
+        expiresAt: Date.now() + 60_000,
+      },
+    });
     useXpLedger.getState().setActiveNullifier(nullifier);
   };
 
   it('rejects thread creation when trustScore is low', async () => {
-    publishIdentity({ session: { nullifier: 'low', trustScore: 0.2, scaledTrustScore: 2000 } });
+    publishIdentity({
+      session: {
+        nullifier: 'low',
+        trustScore: 0.2,
+        scaledTrustScore: 2000,
+        expiresAt: Date.now() + 60_000,
+      },
+    });
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-1', now: () => 1 });
     await expect(store.getState().createThread('title', 'content', [])).rejects.toThrow(
       'Insufficient trustScore for forum actions'
@@ -239,10 +284,14 @@ describe('hermesForum store', () => {
     });
   });
 
-  it('createThread resolves when the local Gun write does not acknowledge', async () => {
+  it('createThread resolves when an unacknowledged write is readable', async () => {
     setIdentity('unacked-thread-id');
-    threadChain.put.mockImplementationOnce((value: any) => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    threadChain.put.mockImplementation((value: any) => {
       threadWrites.push(value);
+    });
+    threadChain.once.mockImplementation((cb: (value: any) => void) => {
+      cb(threadWrites[0]);
     });
     const store = createForumStore({
       resolveClient: () => ({} as any),
@@ -251,12 +300,201 @@ describe('hermesForum store', () => {
       threadPutAckTimeoutMs: 1,
     });
 
+    try {
+      const thread = await store.getState().createThread('title', 'content', ['news']);
+
+      expect(thread).toMatchObject({ id: 'thread-unacked' });
+      expect(store.getState().threads.get('thread-unacked')).toMatchObject({ id: 'thread-unacked' });
+      expect(threadWrites[0]).toMatchObject({ id: 'thread-unacked' });
+      expect(threadChain.put).toHaveBeenCalledTimes(1);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('createThread projects scalar fields when an unacknowledged write is not directly readable', async () => {
+    setIdentity('unacked-thread-scalar-readback');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const scalarValues = new Map<string, unknown>();
+    threadChain.put.mockImplementation((value: any) => {
+      threadWrites.push(value);
+    });
+    threadChain.once.mockImplementation((cb: (value: any) => void) => {
+      cb(undefined);
+    });
+    threadChain.get.mockImplementation((field: string) => ({
+      put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
+        if (field !== '__thread_json') {
+          scalarValues.set(field, value);
+        }
+        cb?.({});
+      }),
+      once: vi.fn((cb: (value: unknown) => void) => {
+        cb(field === '__thread_json' ? undefined : scalarValues.get(field));
+      })
+    }));
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => 'thread-unacked-scalar-readback',
+      now: () => 1,
+      threadPutAckTimeoutMs: 1,
+    });
+
+    try {
+      const thread = await store.getState().createThread('title', 'content', ['news']);
+
+      expect(thread).toMatchObject({ id: 'thread-unacked-scalar-readback' });
+      expect(store.getState().threads.get('thread-unacked-scalar-readback')).toMatchObject({ id: 'thread-unacked-scalar-readback' });
+      expect(scalarValues.get('id')).toBe('thread-unacked-scalar-readback');
+      expect(scalarValues.get('tags')).toBe('[\"news\"]');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('createThread can confirm scalar projection before the full thread put acknowledges', async () => {
+    setIdentity('thread-scalar-fast-path');
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const scalarValues = new Map<string, unknown>();
+    threadChain.put.mockImplementation((value: any) => {
+      threadWrites.push(value);
+    });
+    threadChain.once.mockImplementation((cb: (value: any) => void) => {
+      cb(undefined);
+    });
+    threadChain.get.mockImplementation((field: string) => ({
+      put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
+        if (field !== '__thread_json') {
+          scalarValues.set(field, value);
+        }
+        cb?.({});
+      }),
+      once: vi.fn((cb: (value: unknown) => void) => {
+        cb(field === '__thread_json' ? undefined : scalarValues.get(field));
+      })
+    }));
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => 'thread-scalar-fast-path',
+      now: () => 1,
+      threadPutAckTimeoutMs: 60_000,
+    });
+
+    try {
+      const thread = await store.getState().createThread('title', 'content', ['news']);
+
+      expect(thread).toMatchObject({ id: 'thread-scalar-fast-path' });
+      expect(store.getState().threads.get('thread-scalar-fast-path')).toMatchObject({ id: 'thread-scalar-fast-path' });
+      expect(threadWrites[0]).toMatchObject({ id: 'thread-scalar-fast-path' });
+      expect(scalarValues.get('id')).toBe('thread-scalar-fast-path');
+      expect(scalarValues.get('content')).toBe('content');
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('createThread starts ack timeout after guarded put preflight resolves', async () => {
+    setIdentity('thread-guarded-put');
+    threadChain.put.mockImplementation((value: any, cb?: (ack?: { err?: string }) => void) => {
+      threadWrites.push(value);
+      return new Promise<void>((resolve) => {
+        setTimeout(() => {
+          cb?.({});
+          resolve();
+        }, 10);
+      });
+    });
+    threadChain.once.mockImplementation((cb: (value: any) => void) => {
+      cb(undefined);
+    });
+    threadChain.get.mockImplementation(() => ({
+      put: vi.fn((_value: unknown, cb?: (ack?: { err?: string }) => void) => {
+        cb?.({});
+      }),
+      once: vi.fn((cb: (value: unknown) => void) => {
+        cb(undefined);
+      })
+    }));
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => 'thread-guarded-put',
+      now: () => 1,
+      threadPutAckTimeoutMs: 1,
+    });
+
     const thread = await store.getState().createThread('title', 'content', ['news']);
 
-    expect(thread).toMatchObject({ id: 'thread-unacked' });
-    expect(store.getState().threads.get('thread-unacked')).toMatchObject({ id: 'thread-unacked' });
-    expect(threadWrites[0]).toMatchObject({ id: 'thread-unacked' });
+    expect(thread).toMatchObject({ id: 'thread-guarded-put' });
+    expect(threadChain.put).toHaveBeenCalledTimes(1);
+    expect(threadWrites[0]).toMatchObject({ id: 'thread-guarded-put' });
   });
+
+  it('createThread does not adopt Gun thenables before starting the ack timeout', async () => {
+    setIdentity('thread-gun-thenable');
+    const gunThenable = { then: vi.fn() };
+    threadChain.put.mockImplementation((value: any) => {
+      threadWrites.push(value);
+      return gunThenable;
+    });
+    threadChain.once.mockImplementation((cb: (value: any) => void) => {
+      cb(threadWrites[0]);
+    });
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => 'thread-gun-thenable',
+      now: () => 1,
+      threadPutAckTimeoutMs: 1,
+    });
+
+    const thread = await store.getState().createThread('title', 'content', ['news']);
+
+    expect(thread).toMatchObject({ id: 'thread-gun-thenable' });
+    expect(gunThenable.then).not.toHaveBeenCalled();
+    expect(store.getState().threads.get('thread-gun-thenable')).toMatchObject({ id: 'thread-gun-thenable' });
+  });
+
+  it('createThread can recover through the relay thread fallback when Gun readback fails', async () => {
+    setIdentity('thread-relay-fallback');
+    const originalFetch = globalThis.fetch;
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({ ok: true })
+    })) as unknown as typeof fetch;
+    globalThis.fetch = fetchMock;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    threadChain.put.mockImplementation(() => undefined);
+    threadChain.once.mockImplementation((cb: (value: any) => void) => {
+      cb(undefined);
+    });
+    threadChain.get.mockImplementation(() => ({
+      put: vi.fn(),
+      once: vi.fn((cb: (value: unknown) => void) => cb(undefined))
+    }));
+    const store = createForumStore({
+      resolveClient: () => ({ config: { peers: ['http://127.0.0.1:7777/gun'] } } as any),
+      randomId: () => 'thread-relay-fallback',
+      now: () => 1,
+      threadPutAckTimeoutMs: 1,
+    });
+
+    try {
+      const thread = await store.getState().createThread('title', 'content', ['news']);
+
+      expect(thread).toMatchObject({ id: 'thread-relay-fallback' });
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:7777/vh/forum/thread',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+        })
+      );
+      expect(store.getState().threads.get('thread-relay-fallback')).toMatchObject({ id: 'thread-relay-fallback' });
+      expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'posts/day')?.count).toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      warnSpy.mockRestore();
+    }
+  }, 8_000);
 
   it('createThread writes synthesis source context and not legacy analysis context', async () => {
     setIdentity('synthesis-thread');
@@ -560,6 +798,157 @@ describe('hermesForum store', () => {
     );
   });
 
+  it('createComment retries when the indexed comment is not durable on first readback', async () => {
+    setIdentity('budget-comment-durable-retry');
+    let storedComment: any;
+    let fullPutAttempts = 0;
+    const fieldValues = new Map<string, unknown>();
+    const fieldNodes = new Map<string, any>();
+    const commentNode = {
+      get: vi.fn((field: string) => {
+        if (!fieldNodes.has(field)) {
+          fieldNodes.set(field, {
+            put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
+              if (fullPutAttempts >= 2) {
+                fieldValues.set(field, value);
+              }
+              cb?.({});
+            }),
+            once: vi.fn((cb: (value: unknown) => void) => cb(fieldValues.get(field)))
+          });
+        }
+        return fieldNodes.get(field);
+      }),
+      put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
+        fullPutAttempts += 1;
+        if (fullPutAttempts >= 2) {
+          storedComment = value;
+        }
+        cb?.({});
+      }),
+      once: vi.fn((cb: (value: unknown) => void) => cb(storedComment))
+    };
+    const commentsRoot = {
+      get: vi.fn(() => commentNode)
+    };
+
+    let currentIndex: any;
+    const entryValues = new Map<string, unknown>();
+    const scalarNode = (field: string) => ({
+      put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
+        if (currentIndex && typeof currentIndex === 'object') {
+          currentIndex = { ...currentIndex, [field]: value };
+        }
+        cb?.({});
+      }),
+      once: vi.fn((cb: (value: unknown) => void) => cb(currentIndex?.[field]))
+    });
+    const indexChain = {
+      get: vi.fn((field: string) => scalarNode(field)),
+      once: vi.fn((cb: (value: unknown) => void) => cb(currentIndex)),
+      put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
+        currentIndex = value;
+        cb?.({});
+      })
+    };
+    const entriesChain = {
+      get: vi.fn((commentId: string) => ({
+        get: vi.fn((field: string) => scalarNode(field)),
+        once: vi.fn((cb: (value: unknown) => void) => cb(entryValues.get(commentId))),
+        put: vi.fn((value: unknown, cb?: (ack?: { err?: string }) => void) => {
+          entryValues.set(commentId, value);
+          cb?.({});
+        })
+      })),
+      map: vi.fn(() => ({
+        once: vi.fn((cb: (value: unknown, key?: string) => void) => {
+          for (const [key, value] of entryValues) {
+            cb(value, key);
+          }
+        })
+      }))
+    };
+    const indexRoot = {
+      get: vi.fn((key: string) => {
+        if (key === 'current') return indexChain;
+        if (key === 'entries') return entriesChain;
+        return indexChain.get(key);
+      })
+    };
+
+    getForumCommentsChainMock.mockReturnValue(commentsRoot as any);
+    getForumCommentIndexChainMock.mockReturnValue(indexRoot as any);
+    const store = createForumStore({
+      resolveClient: () => ({} as any),
+      randomId: () => 'comment-durable-retry',
+      now: () => 5,
+      confirmCommentDurability: true,
+      commentDurabilityTimeoutMs: 1
+    });
+
+    await store.getState().createComment('thread-1', 'hello', 'reply');
+
+    expect(commentNode.put).toHaveBeenCalledTimes(2);
+    expect(store.getState().comments.get('thread-1')?.map((comment) => comment.id)).toEqual(['comment-durable-retry']);
+    expect(useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'comments/day')?.count).toBe(1);
+  }, 10_000);
+
+  it('createComment falls back to the relay comment endpoint when durability does not converge', async () => {
+    vi.useFakeTimers();
+    setIdentity('budget-comment-relay-fallback');
+    const fieldNode = {
+      put: vi.fn(),
+      once: vi.fn((cb: (value: unknown) => void) => cb(undefined))
+    };
+    const commentNode = {
+      get: vi.fn(() => fieldNode),
+      put: vi.fn(),
+      once: vi.fn((cb: (value: unknown) => void) => cb(undefined))
+    };
+    const commentsRoot = {
+      get: vi.fn(() => commentNode)
+    };
+    getForumCommentsChainMock.mockReturnValue(commentsRoot as any);
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        thread_id: 'thread-1',
+        comment_id: 'comment-relay-fallback'
+      })
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    try {
+      const store = createForumStore({
+        resolveClient: () => ({ config: { peers: ['http://127.0.0.1:7777/gun'] } } as any),
+        randomId: () => 'comment-relay-fallback',
+        now: () => 5,
+        confirmCommentDurability: true,
+        commentDurabilityTimeoutMs: 1
+      });
+
+      const pending = store.getState().createComment('thread-1', 'hello', 'reply');
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(pending).resolves.toMatchObject({ id: 'comment-relay-fallback' });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        'http://127.0.0.1:7777/vh/forum/comment',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: expect.stringContaining('"id":"comment-relay-fallback"')
+        })
+      );
+      expect(store.getState().comments.get('thread-1')?.map((comment) => comment.id)).toEqual([
+        'comment-relay-fallback'
+      ]);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  }, 10_000);
+
   it('createComment denied at comments/day limit throws and does not write to Gun', async () => {
     setIdentity('budget-comment-limit');
     for (let i = 0; i < 50; i += 1) {
@@ -641,15 +1030,21 @@ describe('hermesForum store', () => {
     expect(after).toBe(before);
   });
 
-  it('createComment with Gun write failure does not consume budget', async () => {
+  it('createComment with persistent Gun write failure does not consume budget', async () => {
     setIdentity('budget-comment-gun-failure');
     const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-budget-gun-failure', now: () => 5 });
     const before = useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'comments/day')?.count ?? 0;
-    commentsChain.put.mockImplementationOnce((_value: any, cb?: (ack?: { err?: string }) => void) => {
+    const defaultCommentPut = commentsChain.put.getMockImplementation();
+    commentsChain.put.mockImplementation((_value: any, cb?: (ack?: { err?: string }) => void) => {
       cb?.({ err: 'fail' });
     });
 
-    await expect(store.getState().createComment('thread-1', 'hello', 'reply')).rejects.toThrow('fail');
+    try {
+      await expect(store.getState().createComment('thread-1', 'hello', 'reply')).rejects.toThrow('fail');
+      expect(commentsChain.put).toHaveBeenCalledTimes(3);
+    } finally {
+      commentsChain.put.mockImplementation(defaultCommentPut);
+    }
 
     const after = useXpLedger.getState().budget?.usage.find((entry) => entry.actionKey === 'comments/day')?.count ?? 0;
     expect(after).toBe(before);

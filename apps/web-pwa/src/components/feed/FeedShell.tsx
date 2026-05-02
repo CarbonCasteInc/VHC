@@ -13,10 +13,27 @@ import { useFeedShellRouteState } from './useFeedShellRouteState';
 
 const TOP_SCROLL_THRESHOLD_PX = 24;
 const PULL_REFRESH_THRESHOLD_PX = 72;
+const DIRECT_STORY_LOAD_RETRY_MS = 1_000;
+const DIRECT_STORY_LOAD_MAX_ATTEMPTS = 12;
 
 export interface FeedShellProps {
   /** Discovery feed hook result (injected for testability). */
   readonly feedResult: UseDiscoveryFeedResult;
+}
+
+function normalizeDirectNewsStoryId(detailId: string | null, storyId: string | null): string | null {
+  const normalizedStoryId = storyId?.trim();
+  if (normalizedStoryId) {
+    return normalizedStoryId;
+  }
+
+  const normalizedDetailId = detailId?.trim();
+  if (!normalizedDetailId?.startsWith('news:')) {
+    return null;
+  }
+
+  const candidate = normalizedDetailId.slice('news:'.length).trim();
+  return candidate && !candidate.includes(':') ? candidate : null;
 }
 
 /**
@@ -51,6 +68,7 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const setDiscoveryFeed = useStore(useFeedStore, (state) => state.setDiscoveryFeed);
   const discoveryItems = useStore(useDiscoveryStore, (state) => state.items);
   const refreshLatest = useStore(useNewsStore, (state) => state.refreshLatest);
+  const ensureStory = useStore(useNewsStore, (state) => state.ensureStory);
   const storylinesById = useStore(useNewsStore, (state) => state.storylinesById);
   const {
     expandedStoryId,
@@ -80,6 +98,10 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
   const [refreshing, setRefreshing] = useState(false);
 
   const focusedStoryline = selectedStorylineId ? storylinesById[selectedStorylineId] ?? null : null;
+  const directRouteStoryId = useMemo(
+    () => normalizeDirectNewsStoryId(searchDetailId, searchStoryId),
+    [searchDetailId, searchStoryId],
+  );
   const totalItems = pagedFeed.length;
   const newsCount = useMemo(
     () => pagedFeed.filter((item) => item.kind === 'NEWS_STORY').length,
@@ -264,6 +286,52 @@ export const FeedShell: React.FC<FeedShellProps> = ({ feedResult }) => {
     setDiscoveryFeed,
     sortMode,
   ]);
+
+  useEffect(() => {
+    if (!directRouteStoryId) {
+      return;
+    }
+
+    const storyAlreadyComposed =
+      feed.some(
+        (item) =>
+          item.kind === 'NEWS_STORY' &&
+          item.story_id?.trim() === directRouteStoryId,
+      ) ||
+      pagedFeed.some(
+        (item) =>
+          item.kind === 'NEWS_STORY' &&
+          item.story_id?.trim() === directRouteStoryId,
+      );
+    if (storyAlreadyComposed) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempts = 0;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const loadDirectStory = () => {
+      if (cancelled || attempts >= DIRECT_STORY_LOAD_MAX_ATTEMPTS) {
+        return;
+      }
+      attempts += 1;
+      void ensureStory(directRouteStoryId).then((loaded) => {
+        if (cancelled || loaded || attempts >= DIRECT_STORY_LOAD_MAX_ATTEMPTS) {
+          return;
+        }
+        retryTimer = setTimeout(loadDirectStory, DIRECT_STORY_LOAD_RETRY_MS);
+      });
+    };
+
+    loadDirectStory();
+    return () => {
+      cancelled = true;
+      if (retryTimer) {
+        clearTimeout(retryTimer);
+      }
+    };
+  }, [directRouteStoryId, ensureStory, feed, pagedFeed]);
 
   const onTouchStart = useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {

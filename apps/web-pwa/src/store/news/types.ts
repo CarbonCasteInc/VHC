@@ -40,6 +40,7 @@ export interface NewsState {
   setStorylines(storylines: StorylineGroup[]): void;
   upsertStoryline(storyline: StorylineGroup): void;
   removeStoryline(storylineId: string): void;
+  ensureStory(storyId: string): Promise<boolean>;
   refreshLatest(limit?: number): Promise<void>;
   startHydration(): void;
   setLoading(loading: boolean): void;

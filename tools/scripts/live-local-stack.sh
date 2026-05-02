@@ -182,7 +182,7 @@ load_profile_env() {
     else
       unset VH_STORYCLUSTER_REMOTE_MAX_ITEMS_PER_REQUEST
     fi
-    export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-10000}"
+    export VITE_NEWS_POLL_INTERVAL_MS="${VITE_NEWS_POLL_INTERVAL_MS:-300000}"
   fi
 
   if [[ "$STACK_MODE" == 'validated-snapshot' ]]; then
@@ -266,14 +266,18 @@ start_analysis_stub() {
 
 start_relay() {
   mkdir -p "$(dirname "$RELAY_DATA_PATH")"
-  rm -rf \
-    "$RELAY_DATA_PATH" \
-    "$RELAY_DATA_PATH"-* \
-    "$ROOT/data" \
-    "$ROOT/radata" \
-    "$ROOT/packages/gun-client/radata" \
-    "$ROOT/packages/e2e/radata" \
-    "$ROOT/services/news-aggregator/radata"
+  if [[ "$STACK_MODE" == 'public' && "${VH_LOCAL_STACK_RESET_RELAY:-false}" != 'true' ]]; then
+    info "Preserving public relay data at $RELAY_DATA_PATH (set VH_LOCAL_STACK_RESET_RELAY=true to reset)"
+  else
+    rm -rf \
+      "$RELAY_DATA_PATH" \
+      "$RELAY_DATA_PATH"-* \
+      "$ROOT/data" \
+      "$ROOT/radata" \
+      "$ROOT/packages/gun-client/radata" \
+      "$ROOT/packages/e2e/radata" \
+      "$ROOT/services/news-aggregator/radata"
+  fi
   info "Starting local Gun relay on :${RELAY_PORT}"
   : > "$RELAY_LOG"
   env GUN_PORT="$RELAY_PORT" GUN_FILE="$RELAY_DATA_PATH" GUN_RADISK="${GUN_RADISK:-true}" \

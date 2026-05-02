@@ -97,7 +97,7 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
     setStories: vi.fn(),
     upsertStory: vi.fn(),
     removeStory: vi.fn((storyId: string) => {
-      (state as { stories: StoryBundle[] }).stories = state.stories.filter((story) => story.story_id !== storyId);
+      (state as unknown as { stories: StoryBundle[] }).stories = state.stories.filter((story) => story.story_id !== storyId);
       delete (state.latestIndex as Record<string, number>)[storyId];
       delete (state.hotIndex as Record<string, number>)[storyId];
     }),
@@ -122,6 +122,7 @@ function createStore(initialLatestIndex: Record<string, number> = {}) {
     removeStoryline: vi.fn((storylineId: string) => {
       delete (state.storylinesById as Record<string, unknown>)[storylineId];
     }),
+    ensureStory: vi.fn(),
     refreshLatest: vi.fn(),
     startHydration: vi.fn(),
     setLoading: vi.fn(),
@@ -285,7 +286,7 @@ describe('hydrateNewsStore', () => {
 
     const { hydrateNewsStore } = await import('./hydration');
     const { store, state } = createStore();
-    state.stories = [story({ story_id: 'story-present' })];
+    (state as unknown as { stories: StoryBundle[] }).stories = [story({ story_id: 'story-present' })];
 
     hydrateNewsStore(() => client as never, store);
 

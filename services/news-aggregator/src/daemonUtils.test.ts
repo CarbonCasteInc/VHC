@@ -110,7 +110,7 @@ describe('daemonUtils', () => {
     expect(worker).not.toHaveBeenCalled();
   });
 
-  it('drops enrichment candidates when bounded queue is full', async () => {
+  it('evicts oldest pending enrichment candidates when bounded queue is full', async () => {
     const worker = vi.fn(async () => undefined);
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
     const onDrop = vi.fn();
@@ -125,19 +125,41 @@ describe('daemonUtils', () => {
     queue.enqueue({ ...CANDIDATE, story_id: 'story-3' });
 
     expect(onDrop).toHaveBeenCalledWith(
-      expect.objectContaining({ story_id: 'story-3' }),
+      expect.objectContaining({ story_id: 'story-1' }),
       { reason: 'queue_full', maxDepth: 2 },
     );
     expect(logger.warn).toHaveBeenCalledWith(
-      '[vh:news-daemon] enrichment queue full; dropped candidate',
-      { story_id: 'story-3', max_depth: 2 },
+      '[vh:news-daemon] enrichment queue full; evicted oldest candidate',
+      { story_id: 'story-1', replacement_story_id: 'story-3', max_depth: 2 },
     );
 
     await flushMicrotasks();
     await flushMicrotasks();
 
     expect(worker).toHaveBeenCalledTimes(2);
+    expect(worker).toHaveBeenNthCalledWith(1, expect.objectContaining({ story_id: 'story-2' }));
+    expect(worker).toHaveBeenNthCalledWith(2, expect.objectContaining({ story_id: 'story-3' }));
     expect(queue.size()).toBe(0);
+  });
+
+  it('deduplicates pending enrichment candidates by story id', async () => {
+    const worker = vi.fn(async () => undefined);
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const queue = createAsyncEnrichmentQueue(worker, logger);
+
+    queue.enqueue({ ...CANDIDATE, request: { ...CANDIDATE.request, prompt: 'stale' } });
+    queue.enqueue({ ...CANDIDATE, request: { ...CANDIDATE.request, prompt: 'fresh' } });
+
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(worker).toHaveBeenCalledTimes(1);
+    expect(worker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        story_id: 'story-1',
+        request: expect.objectContaining({ prompt: 'fresh' }),
+      }),
+    );
   });
 
   it('derives StoryCluster health URLs across pathname shapes', () => {
