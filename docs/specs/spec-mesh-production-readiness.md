@@ -5,7 +5,7 @@
 > Last Reviewed: 2026-05-03
 > Depends On: docs/foundational/System_Architecture.md, docs/foundational/STATUS.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-civic-sentiment.md, docs/reports/MESH_HARDENING_PR2_2026-05-02.md
 
-Version: 0.1
+Version: 0.2
 
 This spec defines the remaining path from the current hardened local-first mesh
 implementation to a production-grade distributed mesh. It is project-grounded:
@@ -67,8 +67,10 @@ Completed and verified:
 Current head at closeout:
 
 - `main` includes the PR5 topology/quorum implementation and closeout ledger.
-- `pnpm test:mesh:browser-canary` builds the app with three local relay peers
-  and validates browser write/readback plus a one-peer-unavailable drill.
+- `pnpm test:mesh:browser-canary` builds the app with three local relay peers,
+  validates app boot/health against those healthy relays, and separately
+  validates a raw browser Gun write/readback path with one intentionally
+  unavailable peer in that test client's peer list.
 - Full production relay topology drills remain queued because they require a
   real multi-relay deployment and relay-to-relay persistence/catch-up behavior,
   not just three local standalone relays.
@@ -76,8 +78,9 @@ Current head at closeout:
 Important boundary:
 
 - The current canary validates multi-peer client configuration and one bad peer
-  in the browser peer list. It does not prove production relay federation,
-  restarted-peer catch-up, network partition repair, or rolling-restart soak.
+  in a browser Gun peer list. It does not prove strict app boot with a dead
+  configured peer, production relay federation, restarted-peer catch-up, network
+  partition repair, or rolling-restart soak.
 
 ## 3. Core Runtime Surfaces
 
@@ -424,16 +427,34 @@ Regression traps:
 - Do not allow production builds to silently fall back to localhost.
 - Do not trust runtime-mutable global peer overrides in strict mode.
 
-### Slice 6 - Production Topology Deployment
+### Slice 6 - Production Topology Harness And Deployment
 
 Status: Queued.
 
 Purpose:
 
-- Move from a production-shaped local relay and preview canary to an actual
-  three-relay WSS topology with signed boot peer config.
+- Move from a production-shaped local relay and preview canary to a repeatable
+  three-relay topology that can be exercised locally before any release operator
+  points the app at live WSS relays.
+- Split the work into:
+  - Slice 6A: local production-shaped topology harness.
+  - Slice 6B: deployable three-relay WSS profile.
 
-Scope:
+Scope, Slice 6A:
+
+1. Add explicit relay peer configuration to `infra/relay/server.js`; the
+   production-shaped harness must not leave `peers: []` as the only topology.
+2. Start three local `NODE_ENV=production` relay processes with distinct
+   persistent radata directories, auth enabled, origin allowlists enabled, and
+   production limit env vars set.
+3. Configure relay-to-relay peer lists for those processes unless the
+   convergence decision gate below chooses a different strategy.
+4. Generate and serve a signed peer-config fixture for the Web PWA.
+5. Build/preview the Web PWA in strict peer-config mode against that signed
+   config.
+6. Emit a readiness report skeleton even before release-ready status exists.
+
+Scope, Slice 6B:
 
 1. Define the production relay deployment profile.
 2. Stand up three WSS relay processes.
@@ -447,13 +468,22 @@ Primary files likely touched:
 
 - `infra/docker/docker-compose.yml`
 - `infra/relay/server.js`
+- `infra/docker/.env.example` or a non-secret successor env template
 - a new production relay deployment doc under `docs/ops/`
 - a new signed peer-config generation utility under `tools/scripts/`
 - `packages/e2e/playwright.mesh-canary.config.ts` if the canary harness grows a
   production-topology profile
+- `packages/e2e/playwright.mesh-production.config.ts` for the production-shaped
+  harness
+- `packages/e2e/src/mesh/production-topology-drills.spec.ts`
+- a small relay process helper under `packages/e2e/src/mesh/` if Playwright
+  webServer config is not enough to express kill/restart drills
 
 Required environment variables:
 
+- `GUN_FILE`
+- `GUN_RADISK=true`
+- `VH_RELAY_PEERS` or the final implemented relay-peer-list env name
 - `VH_RELAY_AUTH_REQUIRED=true`
 - `VH_RELAY_DAEMON_TOKEN`
 - `VH_RELAY_ALLOWED_ORIGINS`
@@ -465,20 +495,34 @@ Required environment variables:
 - `VITE_GUN_PEER_MINIMUM=3`
 - `VITE_GUN_PEER_QUORUM_REQUIRED=2`
 - `VITE_VH_STRICT_PEER_CONFIG=true`
+- signed peer-config private key input for the generation utility; this must be
+  supplied from local secrets and must not be committed
 
-Open design decision:
+Convergence decision gate:
 
 - Relay-to-relay convergence is not established by the current `peers: []`,
-  `axe: false` relay mode. Before claiming production topology, choose and
-  document one strategy:
-  - enable and validate Gun/AXE relay-to-relay fan-out, or
-  - keep relays independent but add an explicit replication/sync layer, or
-  - run an authoritative relay cluster behind a load balancer and define
-    failover semantics as service-level failover rather than CRDT peer
-    federation.
+  `axe: false` relay mode.
+- The default Slice 6A strategy is explicit Gun relay-to-relay peer fan-out with
+  `axe: false`; do not enable AXE as a side effect of this slice.
+- The first topology drill must read directly from the restarted relay, not
+  from a browser client that can silently satisfy reads from another healthy
+  peer.
+- If explicit relay peer fan-out does not prove catch-up, stop and record
+  `status: blocked` or `review_required` in the readiness report. The next
+  branch must then choose one documented strategy:
+  - add an explicit replication/read-repair layer,
+  - enable and validate a scoped Gun/AXE topology,
+  - or define an authoritative relay cluster behind a load balancer and limit
+    the claim to service-level failover rather than CRDT peer federation.
+- No production topology release claim is allowed until one of those strategies
+  is implemented and drilled.
 
 Acceptance gates:
 
+- Slice 6A local harness command exists:
+  `pnpm test:mesh:topology-drills`
+- The harness starts three production-mode local relays with distinct radata
+  directories and non-empty relay peer lists.
 - A production-topology config command renders without missing env:
   `docker compose -f infra/docker/docker-compose.yml config`
 - Each relay returns healthy:
@@ -486,13 +530,20 @@ Acceptance gates:
   - `GET /readyz`
   - `GET /metrics`
 - Browser app boot rejects unsigned or insufficient peer config in strict mode.
-- Browser app boot accepts a signed three-peer WSS config.
+- Slice 6A browser app boot accepts a signed three-peer local config only when
+  local mesh peers are explicitly allowed for the harness.
+- Slice 6B browser app boot accepts a signed three-peer WSS config with local
+  peer allowance disabled.
 - Health panel reports quorum with actual peer health, not configured URL count.
 
 Definition of done:
 
-- A release operator can deploy the three-relay topology from documented
-  commands and can prove the app is reading signed peer config.
+- Slice 6A is done when a local production-shaped three-relay harness can be
+  started by a single named command and the app proves it is reading signed peer
+  config.
+- Slice 6B is done when a release operator can deploy the three-relay WSS
+  topology from documented commands and can prove the app is reading signed peer
+  config from that deployment.
 
 ### Slice 7 - Peer Failure, Restart, And Catch-Up Drills
 
@@ -503,16 +554,24 @@ Purpose:
 - Prove writes continue with one peer unavailable and prove restarted peers
   catch up without operator repair.
 
-Scope:
+Scope, Slice 7A:
 
 1. Add an e2e production-topology drill harness.
 2. Generate a deterministic test topic/story/thread context.
 3. Write through the browser with all peers healthy.
 4. Kill or firewall one relay.
 5. Write votes, thread, comment, and topic engagement while quorum remains.
-6. Restart the relay.
-7. Verify restarted relay catches up within SLA.
-8. Assert health reasons during failure and recovery.
+6. Verify browser write/readback through the remaining quorum.
+7. Assert health state during failure: one of three peers down must not emit
+   `peer-quorum-missing` while two healthy peers satisfy the configured quorum.
+
+Scope, Slice 7B:
+
+1. Restart the killed relay.
+2. Verify the restarted relay catches up within SLA by reading through that
+   relay path only.
+3. Assert health returns to nominal after recovery.
+4. Preserve a machine-readable comparison of per-relay observed objects.
 
 Primary files likely touched:
 
@@ -535,11 +594,12 @@ Minimum write classes under drill:
 Acceptance gates:
 
 - New command: `pnpm test:mesh:topology-drills`
-- One relay down: browser write/readback still confirms within SLA.
-- Restarted relay catches up within SLA.
+- Slice 7A: one relay down, browser write/readback still confirms within SLA.
+- Slice 7B: restarted relay catches up within SLA.
 - Health store shows `peer-quorum-missing` only when healthy peers fall below
   required quorum, not merely when one of three peers is down.
 - No duplicate public writes after relay restart.
+- Direct per-relay readback evidence is included in the drill artifact.
 
 SLA defaults:
 
@@ -553,6 +613,8 @@ Regression traps:
   it.
 - Do not use eval artifacts as proof of relay catch-up; drills must read from
   the restarted relay path.
+- Do not count a peer as caught up through a multi-peer browser client; use a
+  single-peer client or direct relay readback against the restarted relay.
 
 ### Slice 8 - Websocket Disconnect And Duplicate-Write Drills
 
@@ -713,6 +775,22 @@ Initial p95 budgets:
 | encrypted sentiment outbox | 5s |
 | daemon story/synthesis publication | 15s |
 
+Minimum release-ready sample floors:
+
+| Write class | Minimum successful samples |
+|---|---:|
+| health probe write/readback | 30 |
+| vote intent materialization | 20 |
+| aggregate snapshot | 20 |
+| topic engagement actor/summary | 20 |
+| forum thread | 10 |
+| forum comment | 20 |
+| encrypted sentiment outbox | 10 |
+| daemon story/synthesis publication | 5 |
+
+`insufficient_samples` blocks `release_ready` unless the write class is
+explicitly out of scope for that run and the gate records a `skipped` reason.
+
 These budgets are starting values for local production-shaped topology. Tighten
 or split them after the first real soak packet, but do not remove a budget
 without replacing it with a more specific one.
@@ -749,18 +827,34 @@ Required report schema:
 interface MeshProductionReadinessReport {
   schema_version: 'mesh-production-readiness-v1';
   generated_at: string;
-  git_sha: string;
+  repo: {
+    branch: string;
+    commit: string;
+    base_ref: string;
+    dirty: boolean;
+  };
+  run: {
+    mode: 'local_production_topology' | 'deployed_wss_topology';
+    started_at: string;
+    completed_at: string;
+    duration_ms: number;
+    command: string;
+  };
   status: 'release_ready' | 'review_required' | 'blocked';
   topology: {
+    strategy: 'relay_peer_fanout' | 'explicit_replication' | 'authoritative_cluster';
     configured_peer_count: number;
     quorum_required: number;
     signed_peer_config: boolean;
     relay_urls_redacted: string[];
+    relay_to_relay_peers_configured: boolean;
   };
   gates: Array<{
     name: string;
     status: 'pass' | 'fail' | 'skipped';
     command: string;
+    duration_ms: number;
+    exit_code: number | null;
     artifact_path?: string;
     reason?: string;
   }>;
@@ -770,14 +864,26 @@ interface MeshProductionReadinessReport {
     successes: number;
     terminal_failures: number;
     duplicate_count: number;
+    minimum_successful_samples: number;
     p95_ms: number | null;
     budget_ms: number;
     status: 'pass' | 'fail' | 'insufficient_samples';
+  }>;
+  per_relay_readback: Array<{
+    relay_id: string;
+    write_class: string;
+    object_id: string;
+    observed: boolean;
+    latency_ms: number | null;
   }>;
   health: {
     peer_quorum_minimum_observed: number;
     sustained_message_rate_max_per_sec: number;
     degradation_reasons_seen: string[];
+  };
+  release_claims: {
+    allowed: string[];
+    forbidden: string[];
   };
 }
 ```
@@ -788,11 +894,13 @@ Acceptance gates:
 - Report writes to a stable latest path, for example:
   `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
 - Release-ready means:
+  - report repo metadata identifies branch, commit, base ref, and dirty state
   - topology drills pass
   - disconnect/duplicate drill passes
   - partition/heal drill passes
   - 30-minute soak passes
   - no write class has terminal failures or duplicates
+  - all required write classes meet sample floors
   - all write classes with sufficient samples meet p95 budgets
 - The gate fails if a release commit claims production mesh without a passing
   report.
@@ -889,6 +997,16 @@ Each new reason must include:
 - operator interpretation
 - test coverage
 
+Non-blocking peer loss rule:
+
+- One unavailable peer in a three-peer topology with two healthy peers and
+  quorum required at two must remain non-blocking.
+- The health surface must still show the actual healthy/configured/required peer
+  counts.
+- `peer-quorum-missing` is reserved for below-quorum clients.
+- Add a new health reason only if the product needs a user-facing warning for
+  non-blocking peer loss; do not overload `peer-quorum-missing`.
+
 ### 5.3 Security Rules
 
 - No production graph-injection endpoint may accept unauthenticated writes.
@@ -920,10 +1038,16 @@ Implementation truth belongs in:
 - `docs/foundational/STATUS.md`
 - `docs/reports/MESH_HARDENING_PR2_2026-05-02.md`
 - future readiness reports under `.tmp/mesh-production-readiness/latest/`
+- promoted human-readable evidence summaries under
+  `docs/reports/evidence/mesh-production/`
 
 Normative mesh readiness contracts belong in this spec.
 
 Run instructions belong in `docs/ops/`.
+
+Generated `.tmp` packets are the machine proof source for a run. Tracked docs
+must summarize those packets and link exact artifact paths; they must not invent
+release claims that are absent from the generated report.
 
 ## 6. Required Commands
 
@@ -938,6 +1062,9 @@ Current commands:
 - `pnpm test:storycluster:correctness`
 - `pnpm check:storycluster:production-readiness`
 - `pnpm check:mvp-release-gates`
+- `pnpm check:public-beta-compliance`
+- `pnpm check:public-beta-launch-closeout`
+- `pnpm docs:check`
 - `pnpm live:stack:up`
 - `pnpm live:stack:down`
 - `pnpm mesh:compact-health-probes`
@@ -965,9 +1092,20 @@ Not allowed yet:
 - "Peer restart and network partition recovery are proven."
 - "Production users can rely on distributed quorum behavior."
 
-Allowed after Slices 6 through 12 pass:
+Allowed after Slice 6A and Slice 7A pass:
 
-- "The mesh has a production-shaped three-relay topology with signed peer config,
+- "The mesh has a local production-shaped three-relay topology harness with
+  signed peer config and a passing one-peer-kill quorum write/readback drill."
+
+Still not allowed after Slice 6A and Slice 7A:
+
+- "Restarted peers catch up automatically."
+- "The production WSS topology is deployed."
+- "The mesh has production-ready multi-relay failover."
+
+Allowed after Slices 6B through 12 pass:
+
+- "The mesh has a production WSS three-relay topology with signed peer config,
   authenticated relay fallbacks, named health degradation, peer-failure and
   partition drills, websocket duplicate-write drills, and a passing 30-minute
   rolling restart soak."
@@ -985,14 +1123,20 @@ Allowed after Slices 6 through 12 pass:
 
 ## 9. Immediate Next Slice
 
-The next implementation slice is Slice 6 plus the first part of Slice 7:
+The next implementation slice is Slice 6A plus Slice 7A:
 
-1. Create a production-shaped three-relay topology harness.
+1. Add a local production-shaped three-relay topology harness with production
+   relay env, persistent per-relay radata dirs, auth/origin/limit settings, and
+   explicit relay peer lists.
 2. Add signed peer-config generation and verification for that harness.
 3. Add `pnpm test:mesh:topology-drills`.
-4. Prove one-peer-kill write/readback behavior.
-5. Record the result in a new ops runbook and readiness report skeleton.
+4. Prove one-peer-kill write/readback behavior through the remaining quorum.
+5. Record direct per-relay readback evidence, even if restarted-peer catch-up is
+   not claimed yet.
+6. Record the result in a new ops runbook and readiness report skeleton.
 
 This is the narrowest next step because it tests the only major unproven claim
 left after PR #564: real distributed topology behavior beyond the local
-three-peer preview canary.
+three-peer preview canary. Do not start with a cloud WSS deployment until the
+local harness produces the first report packet; otherwise the team will be
+debugging deployment, signing, topology, and convergence at the same time.
