@@ -5,7 +5,7 @@
 > Last Reviewed: 2026-05-03
 > Depends On: docs/foundational/System_Architecture.md, docs/foundational/STATUS.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-civic-sentiment.md, docs/reports/MESH_HARDENING_PR2_2026-05-02.md
 
-Version: 0.2
+Version: 0.3
 
 This spec defines the remaining path from the current hardened local-first mesh
 implementation to a production-grade distributed mesh. It is project-grounded:
@@ -35,19 +35,34 @@ commit:
 5. Every critical daemon write is queued by class, persisted until terminal
    success or DLQ, and replayed after restart.
 6. Relay HTTP fallback routes are authenticated and replay-protected.
-7. Relay processes expose `/healthz`, `/readyz`, and `/metrics`; enforce origin,
+7. Relay-to-relay traffic has an explicit trust path; the topology does not
+   reopen unauthenticated graph injection through peer sockets.
+8. Relay processes expose `/healthz`, `/readyz`, and `/metrics`; enforce origin,
    body-size, rate-limit, active-connection, and bytes-per-second limits; and log
    structured drop/reject reasons.
-8. A one-peer failure does not stop writes from confirming.
-9. Restarted peers catch up within a stated SLA.
-10. Forced websocket disconnects and reconnects do not duplicate user writes.
-11. Network partition drills fail closed with a named health reason, then
+9. Every drill uses bounded test namespaces, correlation IDs, and cleanup rules.
+10. A one-peer failure does not stop writes from confirming.
+11. Restarted peers catch up within a stated SLA.
+12. Forced websocket disconnects and reconnects do not duplicate user writes.
+13. Tombstones, moderation hides, and removals are not resurrected after peer
+    restart or partition healing.
+14. Deliberate clock skew produces named bounded auth/health failures without
+    causing LWW divergence or false mesh-transport failures.
+15. Network partition drills fail closed with a named health reason, then
     converge without data loss or duplicate writes after healing.
-12. A 30-minute rolling restart soak passes with bounded p95 write latencies per
-    write class.
-13. CI or release automation runs the mesh canary and production topology drills
+16. Same-key concurrent write fixtures pass the documented conflict-resolution
+    matrix.
+17. A 30-minute rolling restart soak passes with bounded p95 write latencies,
+    resource budgets, and storage-growth budgets per write class and relay.
+18. Production peer-config lifecycle is explicit: issue, expiry, stale rejection,
+    rollback, key rotation, compromised-key revocation, and old-tab behavior.
+19. Production WSS peers and peer-config URLs are represented in CSP/connect-src,
+    and the service worker cannot cache stale peer config across topology rollout.
+20. CI or release automation runs the mesh canary and production topology drills
     as named commands, and failed drills flip both machine gates and user-visible
     health.
+21. A downstream full-app production canary passes after mesh readiness before
+    any "test group ready" claim.
 
 ## 2. Current Implementation Truth
 
@@ -444,15 +459,21 @@ Scope, Slice 6A:
 
 1. Add explicit relay peer configuration to `infra/relay/server.js`; the
    production-shaped harness must not leave `peers: []` as the only topology.
-2. Start three local `NODE_ENV=production` relay processes with distinct
+2. Add an explicit relay-to-relay authentication mode for the harness. The
+   accepted first implementation may be a peer bearer token, private-network
+   allowlist, mTLS, or signed peer handshake, but it must be documented and
+   exercised by a negative auth test.
+3. Start three local `NODE_ENV=production` relay processes with distinct
    persistent radata directories, auth enabled, origin allowlists enabled, and
    production limit env vars set.
-3. Configure relay-to-relay peer lists for those processes unless the
+4. Configure relay-to-relay peer lists for those processes unless the
    convergence decision gate below chooses a different strategy.
-4. Generate and serve a signed peer-config fixture for the Web PWA.
-5. Build/preview the Web PWA in strict peer-config mode against that signed
+5. Generate and serve a signed peer-config fixture for the Web PWA with
+   `issuedAt`, `expiresAt`, and `configId`.
+6. Build/preview the Web PWA in strict peer-config mode against that signed
    config.
-6. Emit a readiness report skeleton even before release-ready status exists.
+7. Write all drill data under `vh/__mesh_drills/<run_id>/...`.
+8. Emit a readiness report skeleton even before release-ready status exists.
 
 Scope, Slice 6B:
 
@@ -463,6 +484,9 @@ Scope, Slice 6B:
 5. Configure the Web PWA to fetch signed peer config at boot.
 6. Configure relay origin allowlists and daemon auth.
 7. Configure dashboard/metrics scraping for all three relays.
+8. Add production WSS peers and peer-config URLs to Web PWA `connect-src` CSP.
+9. Ensure service-worker update/caching rules cannot pin stale peer config or a
+   stale app shell through topology rollout.
 
 Primary files likely touched:
 
@@ -478,12 +502,20 @@ Primary files likely touched:
 - `packages/e2e/src/mesh/production-topology-drills.spec.ts`
 - a small relay process helper under `packages/e2e/src/mesh/` if Playwright
   webServer config is not enough to express kill/restart drills
+- `apps/web-pwa/index.html` and `apps/web-pwa/src/csp.test.ts` if CSP remains
+  meta-delivered for this release shape
+- `apps/web-pwa/public/sw.js` and service-worker registration tests for
+  peer-config cache behavior
 
 Required environment variables:
 
 - `GUN_FILE`
 - `GUN_RADISK=true`
 - `VH_RELAY_PEERS` or the final implemented relay-peer-list env name
+- `VH_RELAY_PEER_AUTH_MODE` or the final implemented relay-peer-auth mode name
+- relay peer credential material for the chosen auth mode; this must be supplied
+  from local secrets, secret manager, mTLS volume, or private network policy and
+  must not be committed
 - `VH_RELAY_AUTH_REQUIRED=true`
 - `VH_RELAY_DAEMON_TOKEN`
 - `VH_RELAY_ALLOWED_ORIGINS`
@@ -504,6 +536,11 @@ Convergence decision gate:
   `axe: false` relay mode.
 - The default Slice 6A strategy is explicit Gun relay-to-relay peer fan-out with
   `axe: false`; do not enable AXE as a side effect of this slice.
+- This is a time-boxed proof path, not an architecture commitment. If direct
+  restarted-relay readback is still failing after the bounded Slice 6A/7B proof
+  attempt, stop tuning Gun peer behavior and move to explicit
+  replication/read-repair unless a short written exception is approved in the
+  readiness report.
 - The first topology drill must read directly from the restarted relay, not
   from a browser client that can silently satisfy reads from another healthy
   peer.
@@ -523,6 +560,8 @@ Acceptance gates:
   `pnpm test:mesh:topology-drills`
 - The harness starts three production-mode local relays with distinct radata
   directories and non-empty relay peer lists.
+- Relay-to-relay auth rejects an unauthorized peer connection without weakening
+  browser/user fallback auth or daemon bearer auth.
 - A production-topology config command renders without missing env:
   `docker compose -f infra/docker/docker-compose.yml config`
 - Each relay returns healthy:
@@ -535,6 +574,9 @@ Acceptance gates:
 - Slice 6B browser app boot accepts a signed three-peer WSS config with local
   peer allowance disabled.
 - Health panel reports quorum with actual peer health, not configured URL count.
+- Peer-config fetch is not served from stale service-worker cache during config
+  rollover.
+- Production CSP allows only the expected WSS relay and peer-config origins.
 
 Definition of done:
 
@@ -573,12 +615,24 @@ Scope, Slice 7B:
 3. Assert health returns to nominal after recovery.
 4. Preserve a machine-readable comparison of per-relay observed objects.
 
+Scope, Slice 7C:
+
+1. Write deterministic drill objects.
+2. Tombstone, moderate, or remove those objects.
+3. Take one relay down before, during, and after the tombstone write across
+   separate drill cases.
+4. Restart or heal the relay.
+5. Assert tombstone/moderation/removal state wins on every relay and no stale
+   object is resurrected.
+
 Primary files likely touched:
 
 - `packages/e2e/src/mesh/production-topology-drills.spec.ts` (new)
 - `packages/e2e/playwright.mesh-production.config.ts` (new or extended)
 - root `package.json` scripts
 - `docs/ops/` runbook for topology drills
+- removal/tombstone adapter tests if any write class has ambiguous delete
+  semantics
 
 Minimum write classes under drill:
 
@@ -589,6 +643,10 @@ Minimum write classes under drill:
 - topic engagement summary
 - forum thread
 - forum comment
+- moderated forum comment
+- deleted/tombstoned health probe
+- removed or superseded synthetic story object
+- stale aggregate snapshot
 - news/story or synthetic public test artifact if daemon is part of the drill
 
 Acceptance gates:
@@ -596,6 +654,8 @@ Acceptance gates:
 - New command: `pnpm test:mesh:topology-drills`
 - Slice 7A: one relay down, browser write/readback still confirms within SLA.
 - Slice 7B: restarted relay catches up within SLA.
+- Slice 7C: tombstone, moderation, removal, and stale-aggregate states are not
+  resurrected after relay restart or partition healing.
 - Health store shows `peer-quorum-missing` only when healthy peers fall below
   required quorum, not merely when one of three peers is down.
 - No duplicate public writes after relay restart.
@@ -615,6 +675,10 @@ Regression traps:
   the restarted relay path.
 - Do not count a peer as caught up through a multi-peer browser client; use a
   single-peer client or direct relay readback against the restarted relay.
+- Do not rely on a missing read as proof of deletion; drills must assert the
+  canonical tombstone/moderation/removal marker where the data model has one.
+- Do not let old relay state win over a newer tombstone because its local clock
+  is ahead or because it missed the deletion event.
 
 ### Slice 8 - Websocket Disconnect And Duplicate-Write Drills
 
@@ -632,6 +696,8 @@ Scope:
 3. Confirm the local intent queue or durable write path retries as needed.
 4. Confirm canonical mesh state has one logical write.
 5. Confirm aggregate projections do not double-count.
+6. Exercise same-key concurrent writes from two tabs/devices against the
+   conflict-resolution matrix.
 
 Primary files likely touched:
 
@@ -652,6 +718,15 @@ Write classes under duplicate drill:
 - encrypted sentiment event
 - topic engagement actor/summary
 
+Conflict-resolution fixtures:
+
+| Fixture | Expected result |
+|---|---|
+| Same voter toggles stance from two tabs | One final voter row per deterministic voter/point key; aggregate projection reflects the winning final stance exactly once |
+| Same forum comment index replayed from two clients | One comment id and one index entry; UI reload shows one row |
+| Aggregate snapshot recomputed from stale and fresh voter rows | Snapshot version/source window advances monotonically; stale recomputation cannot overwrite fresher aggregate counts |
+| Topic engagement summary replayed after actor update | Summary does not double-count actor contribution and does not regress below the latest actor state |
+
 Acceptance gates:
 
 - Forced websocket close mid-vote produces one final voter row per
@@ -661,6 +736,7 @@ Acceptance gates:
 - Replayed encrypted sentiment events do not create duplicate event ids.
 - UI does not show duplicate comment/thread rows after reload.
 - Aggregate counts remain stable after reconnect.
+- Same-key concurrent write fixtures match the conflict-resolution matrix.
 
 Regression traps:
 
@@ -686,6 +762,9 @@ Scope:
 4. Verify health degradation reasons.
 5. Heal the partition.
 6. Verify convergence and no duplicate writes.
+7. Run one partition case with deliberate browser or relay clock skew.
+8. Distinguish clock-skew auth/write failures from mesh transport failures in
+   health and report output.
 
 Primary files likely touched:
 
@@ -699,6 +778,11 @@ Acceptance gates:
 - Quorum clients continue writes.
 - Heal converges all test namespace objects within SLA.
 - No duplicate votes/comments/thread heads after heal.
+- Deliberate clock skew causes named bounded failures such as
+  `clock-skew-detected` or `user-signature-stale`, not generic mesh transport
+  failure.
+- LWW-sensitive paths do not diverge when a skewed relay/browser participates in
+  the drill.
 
 SLA defaults:
 
@@ -709,6 +793,8 @@ Regression traps:
 
 - Do not hide below-quorum failure as "pending" indefinitely.
 - Do not accept stale local readback as distributed convergence.
+- Do not classify timestamp-skew signature rejects as relay outage.
+- Do not trust wall-clock ordering alone for deterministic conflict resolution.
 
 ### Slice 10 - Rolling Restart Soak
 
@@ -728,6 +814,7 @@ Scope:
 5. Collect p95 latencies and terminal failures by write class.
 6. Fail the run on duplicate writes, silent drops, or sustained message rate
    breach.
+7. Collect relay process resource metrics and storage-growth metrics.
 
 Primary commands:
 
@@ -753,6 +840,11 @@ Required metrics:
 - relay byte drops
 - relay auth rejects
 - relay radata size if available
+- relay RSS and heap usage
+- relay event-loop lag p95
+- relay open sockets/file descriptors where available
+- relay radata growth rate by run phase
+- test namespace object count and cleanup count
 
 Acceptance gates:
 
@@ -761,6 +853,9 @@ Acceptance gates:
 - Zero silent drops.
 - Zero duplicate canonical writes.
 - Health returns to nominal after each restart.
+- Relay resource budgets are met.
+- Radata growth is bounded for the test namespace and cleanup removes or
+  tombstones all drill-owned data that the runbook says is disposable.
 
 Initial p95 budgets:
 
@@ -774,6 +869,16 @@ Initial p95 budgets:
 | forum comment | 8s |
 | encrypted sentiment outbox | 5s |
 | daemon story/synthesis publication | 15s |
+
+Initial relay resource budgets:
+
+| Resource | Budget |
+|---|---:|
+| relay RSS per local harness process | 512 MB |
+| relay JS heap used per local harness process | 256 MB |
+| relay event-loop lag p95 | 100 ms |
+| active sockets per 5-user local soak | 250 |
+| radata growth per 30-minute local soak | 250 MB |
 
 Minimum release-ready sample floors:
 
@@ -810,7 +915,8 @@ Scope:
 2. Write a machine-readable report artifact.
 3. Add a human-readable evidence packet.
 4. Wire the report into the public-beta/release-readiness checklist.
-5. Document how to rerun and interpret failures.
+5. Add a downstream full-app production canary that runs after mesh readiness.
+6. Document how to rerun and interpret failures.
 
 Primary files likely touched:
 
@@ -827,6 +933,7 @@ Required report schema:
 interface MeshProductionReadinessReport {
   schema_version: 'mesh-production-readiness-v1';
   generated_at: string;
+  run_id: string;
   repo: {
     branch: string;
     commit: string;
@@ -848,6 +955,11 @@ interface MeshProductionReadinessReport {
     signed_peer_config: boolean;
     relay_urls_redacted: string[];
     relay_to_relay_peers_configured: boolean;
+    relay_to_relay_auth_mode: 'mtls' | 'peer_bearer_token' | 'private_network_allowlist' | 'signed_peer_handshake';
+    relay_to_relay_auth_negative_test: 'pass' | 'fail' | 'skipped';
+    peer_config_id: string;
+    peer_config_issued_at: string;
+    peer_config_expires_at: string;
   };
   gates: Array<{
     name: string;
@@ -869,13 +981,50 @@ interface MeshProductionReadinessReport {
     budget_ms: number;
     status: 'pass' | 'fail' | 'insufficient_samples';
   }>;
+  resource_slos: Array<{
+    resource: string;
+    observed: number | null;
+    budget: number;
+    unit: string;
+    status: 'pass' | 'fail' | 'insufficient_samples';
+  }>;
   per_relay_readback: Array<{
     relay_id: string;
     write_class: string;
     object_id: string;
+    write_id: string;
+    trace_id: string;
     observed: boolean;
     latency_ms: number | null;
   }>;
+  tombstone_drills: Array<{
+    object_id: string;
+    object_class: string;
+    tombstone_write_id: string;
+    down_relay_id: string;
+    resurrected: boolean;
+    status: 'pass' | 'fail';
+  }>;
+  conflict_fixtures: Array<{
+    fixture: string;
+    trace_id: string;
+    status: 'pass' | 'fail';
+    reason?: string;
+  }>;
+  clock_skew: {
+    skewed_actor: 'browser' | 'relay' | 'daemon' | null;
+    skew_ms: number;
+    named_failure: string | null;
+    lww_diverged: boolean;
+    status: 'pass' | 'fail' | 'skipped';
+  };
+  cleanup: {
+    namespace: string;
+    objects_written: number;
+    objects_cleaned_or_tombstoned: number;
+    retained_objects: number;
+    status: 'pass' | 'fail';
+  };
   health: {
     peer_quorum_minimum_observed: number;
     sustained_message_rate_max_per_sec: number;
@@ -884,6 +1033,12 @@ interface MeshProductionReadinessReport {
   release_claims: {
     allowed: string[];
     forbidden: string[];
+  };
+  downstream_canary?: {
+    command: string;
+    status: 'pass' | 'fail' | 'skipped';
+    report_path?: string;
+    reason?: string;
   };
 }
 ```
@@ -895,15 +1050,37 @@ Acceptance gates:
   `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
 - Release-ready means:
   - report repo metadata identifies branch, commit, base ref, and dirty state
+  - report has a `run_id` and every drill write has a joinable `write_id` and
+    `trace_id`
   - topology drills pass
   - disconnect/duplicate drill passes
+  - tombstone resurrection drill passes
+  - clock-skew drill passes
   - partition/heal drill passes
   - 30-minute soak passes
+  - conflict-resolution fixtures pass
   - no write class has terminal failures or duplicates
   - all required write classes meet sample floors
   - all write classes with sufficient samples meet p95 budgets
+  - relay resource budgets pass
+  - test namespace cleanup passes
 - The gate fails if a release commit claims production mesh without a passing
   report.
+- `pnpm check:mesh:production-readiness` is necessary but not sufficient for
+  "test group ready"; that claim also requires the downstream full-app canary to
+  pass.
+
+Downstream full-app canary:
+
+- New command: `pnpm check:production-app-canary`
+- Runs only after `pnpm check:mesh:production-readiness` passes.
+- Covers production WSS relay config, app preview/deploy shape, `/api/analyze`,
+  news synthesis publication, point stance write/readback, and story-thread
+  creation/comment flow.
+- Fails if it cannot consume the latest mesh readiness report or if that report
+  is not `release_ready`.
+- Emits a separate report; it may depend on mesh readiness but must not be
+  folded into the mesh readiness status.
 
 ### Slice 12 - Operational Runbook And Rollback
 
@@ -923,6 +1100,13 @@ Scope:
 4. Define how to rotate relay daemon tokens and peer config signing keys.
 5. Define how to compact health probe namespaces and inspect radata pressure.
 6. Define how to run and interpret readiness reports.
+7. Define peer-config lifecycle: `issuedAt`, `expiresAt`, stale rejection,
+   rollback to previous config, signing-key rotation, compromised-key
+   revocation, and old-tab behavior.
+8. Define CSP/connect-src updates for WSS relays and peer-config URLs.
+9. Define service-worker cache behavior for topology rollout and rollback.
+10. Define correlation ID lookup from browser logs through relay/daemon/report
+   artifacts.
 
 Primary files likely touched:
 
@@ -930,16 +1114,28 @@ Primary files likely touched:
 - `docs/plans/CANARY_ROLLBACK_PLAN.md` or successor rollback doc
 - `docs/feature-flags.md`
 - `docs/foundational/STATUS.md`
+- `apps/web-pwa/index.html`
+- `apps/web-pwa/src/csp.test.ts`
+- `apps/web-pwa/public/sw.js`
 
 Runbook must include:
 
 - deploy commands
 - required env var checklist
 - signed peer-config generation and verification
+- peer-config expiry and stale-config rejection canary
+- old-tab behavior when the active config expires or is revoked
+- rollback to previous signed peer config
+- signing-key rotation and compromised-key revocation procedure
 - `curl` probes for `/healthz`, `/readyz`, `/metrics`
 - expected health panel states
 - rollback to previous peer config
 - relay token rotation
+- relay-to-relay credential rotation
+- CSP/connect-src update checklist
+- service-worker cache-bust/rollout checklist
+- trace lookup procedure using `run_id`, `write_id`, and `trace_id`
+- test namespace cleanup and retained-object inspection
 - compaction command:
   `pnpm mesh:compact-health-probes`
 - readiness command:
@@ -951,6 +1147,10 @@ Acceptance gates:
   topology and produce a readiness report.
 - Missing env vars fail fast with actionable messages.
 - Rollback steps are tested at least once in the topology harness.
+- Peer-config expiry, stale rejection, rollback, key rotation, and revoked-key
+  canaries pass.
+- Service-worker and CSP rollout checks pass before a WSS peer-config rollout is
+  marked operator-ready.
 
 ## 5. Cross-Cutting Rules
 
@@ -976,7 +1176,28 @@ No new critical write class may ship without being classified here.
 | directory publish | browser/gun-client | identity-sensitive public pointer | durable write + topology guard |
 | news report/status | browser/operator/gun-client | public workflow/audit | durable write |
 
-### 5.2 Health Reasons
+### 5.2 Traceability And Test Namespace Rules
+
+Every production-topology drill must create:
+
+- `run_id`: one id for the whole readiness run.
+- `write_id`: one deterministic id per logical write attempt.
+- `trace_id`: one join key carried through browser logs, gun-client telemetry,
+  relay fallback/auth logs, daemon write-lane logs, and the readiness report.
+
+Drill data must live under `vh/__mesh_drills/<run_id>/...` unless a specific
+write class cannot be tested there. Any exception must record the production
+namespace touched, cleanup plan, and retained-object reason in the report.
+
+Cleanup rules:
+
+- Disposable drill data must be tombstoned or compacted by the run cleanup step.
+- Cleanup itself must be measured; a report with unknown cleanup state cannot be
+  `release_ready`.
+- Retained drill data must be bounded by run count or TTL and excluded from
+  production product reads.
+
+### 5.3 Health Reasons
 
 Production health must be reasoned, not binary. Valid mesh-related reasons:
 
@@ -984,6 +1205,7 @@ Production health must be reasoned, not binary. Valid mesh-related reasons:
 - `write-readback-failed`
 - `convergence-lagging`
 - `peer-quorum-missing`
+- `clock-skew-detected`
 - `analysis-relay-unavailable`
 - `local-storage-hydration-failed`
 - `client-out-of-date`
@@ -1007,18 +1229,51 @@ Non-blocking peer loss rule:
 - Add a new health reason only if the product needs a user-facing warning for
   non-blocking peer loss; do not overload `peer-quorum-missing`.
 
-### 5.3 Security Rules
+Clock-skew rule:
+
+- Timestamp-window failures from relay user-signature auth, peer handshake auth,
+  or signed peer-config validation must be named as clock/config/auth failures.
+- They must not be collapsed into generic write-readback or relay-unavailable
+  transport failures.
+
+### 5.4 Security Rules
 
 - No production graph-injection endpoint may accept unauthenticated writes.
 - User-callable relay fallback writes require user/device signatures.
 - Daemon-only writes require daemon bearer auth and must not be callable by
   browser fallback paths.
+- Relay-to-relay Gun peer sockets require their own trust path: mTLS, peer
+  bearer token, private-network allowlist, or signed peer handshake.
+- A relay-to-relay trust path must have a negative test proving unauthorized
+  peers cannot join the production fan-out topology.
 - Production origin allowlists must not be `*`.
 - Production app builds must reject missing peer config.
 - Production app builds must reject localhost and private test peers unless a
   local/test flag is explicitly set.
 
-### 5.4 Privacy Rules
+### 5.5 Peer-Config Lifecycle Rules
+
+Signed peer configs must include:
+
+- `configId`
+- `issuedAt`
+- `expiresAt`
+- peer URL list
+- minimum peer count
+- quorum required
+- signing key id or signer public key
+
+Production behavior:
+
+- Missing, expired, revoked, or unsigned config fails closed in strict mode.
+- Old tabs with expired or revoked config must refetch and revalidate before
+  continuing mesh writes.
+- Rollback uses a newly signed previous peer set, not an unsigned runtime
+  override.
+- Compromised signing-key revocation must be represented in the runbook and in
+  at least one canary.
+
+### 5.6 Privacy Rules
 
 This spec inherits `docs/specs/spec-data-topology-privacy-v0.md` and
 `docs/specs/spec-civic-sentiment.md`.
@@ -1031,7 +1286,7 @@ Specific mesh rules:
   token, or provider secret may be written to public `vh/*` namespaces.
 - Public aggregate objects must not be joinable back to person-level identity.
 
-### 5.5 Documentation Rules
+### 5.7 Documentation Rules
 
 Implementation truth belongs in:
 
@@ -1073,9 +1328,13 @@ Required new commands:
 
 - `pnpm test:mesh:topology-drills`
 - `pnpm test:mesh:disconnect-drills`
+- `pnpm test:mesh:tombstone-drills`
+- `pnpm test:mesh:clock-skew-drills`
+- `pnpm test:mesh:conflict-drills`
 - `pnpm test:mesh:partition-drills`
 - `pnpm test:mesh:soak`
 - `pnpm check:mesh:production-readiness`
+- `pnpm check:production-app-canary`
 
 ## 7. Release Claim Boundary
 
@@ -1096,12 +1355,16 @@ Allowed after Slice 6A and Slice 7A pass:
 
 - "The mesh has a local production-shaped three-relay topology harness with
   signed peer config and a passing one-peer-kill quorum write/readback drill."
+- "Relay fan-out remains a time-boxed proof path; the architecture commitment is
+  still pending restarted-relay readback and tombstone resurrection evidence."
 
 Still not allowed after Slice 6A and Slice 7A:
 
 - "Restarted peers catch up automatically."
+- "Tombstones, moderation, and removals survive relay restart or partition heal."
 - "The production WSS topology is deployed."
 - "The mesh has production-ready multi-relay failover."
+- "The app is ready for a test group."
 
 Allowed after Slices 6B through 12 pass:
 
@@ -1109,6 +1372,13 @@ Allowed after Slices 6B through 12 pass:
   authenticated relay fallbacks, named health degradation, peer-failure and
   partition drills, websocket duplicate-write drills, and a passing 30-minute
   rolling restart soak."
+
+Still not allowed after mesh readiness alone:
+
+- "The full app is test-group ready."
+
+That claim requires the downstream production-app canary after
+`pnpm check:mesh:production-readiness`.
 
 ## 8. Non-Goals For This Series
 
@@ -1128,12 +1398,22 @@ The next implementation slice is Slice 6A plus Slice 7A:
 1. Add a local production-shaped three-relay topology harness with production
    relay env, persistent per-relay radata dirs, auth/origin/limit settings, and
    explicit relay peer lists.
-2. Add signed peer-config generation and verification for that harness.
-3. Add `pnpm test:mesh:topology-drills`.
-4. Prove one-peer-kill write/readback behavior through the remaining quorum.
-5. Record direct per-relay readback evidence, even if restarted-peer catch-up is
+2. Add relay-to-relay auth for the harness and a negative unauthorized-peer
+   test.
+3. Add signed peer-config generation and verification for that harness,
+   including `configId`, `issuedAt`, and `expiresAt`.
+4. Add `run_id`, `write_id`, and `trace_id` propagation in the drill harness
+   and report skeleton.
+5. Write all drill data under `vh/__mesh_drills/<run_id>/...` and add cleanup
+   accounting.
+6. Add `pnpm test:mesh:topology-drills`.
+7. Prove one-peer-kill write/readback behavior through the remaining quorum.
+8. Record direct per-relay readback evidence, even if restarted-peer catch-up is
    not claimed yet.
-6. Record the result in a new ops runbook and readiness report skeleton.
+9. Stub the tombstone-resurrection and clock-skew drill report sections as
+   `skipped` with explicit reasons until Slice 7C/Slice 9 implement them; do not
+   allow those skipped sections to produce `release_ready`.
+10. Record the result in a new ops runbook and readiness report skeleton.
 
 This is the narrowest next step because it tests the only major unproven claim
 left after PR #564: real distributed topology behavior beyond the local
