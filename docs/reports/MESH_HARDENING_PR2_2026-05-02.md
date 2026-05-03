@@ -1,8 +1,8 @@
 # Mesh Hardening PR2 Review Ledger
 
 Date: 2026-05-02
-Branch: `coord/mesh-production-relay-pr4`
-Base: merged `main` after PR #562 (`6a5bfe92`)
+Branch: `main`
+Base: merged `main` after PR #564 (`e155a97b`)
 
 ## Completed And Verified
 
@@ -126,7 +126,7 @@ Acceptance target:
 
 ### PR5 — Topology And Quorum
 
-Status: Done locally on `coord/mesh-topology-quorum-pr5`; ready for PR/CI.
+Status: Done and merged.
 
 Verified implementation:
 - Added `apps/web-pwa/src/store/peerConfig.ts` as the single peer-topology resolver.
@@ -138,12 +138,14 @@ Verified implementation:
 - The root `pnpm test:mesh:browser-canary` command builds the app with an explicit three-peer local topology and local-peer permission for the production-preview artifact.
 
 Verification evidence:
-- `pnpm exec vitest run apps/web-pwa/src/store/peerConfig.test.ts apps/web-pwa/src/store/store.test.ts apps/web-pwa/src/hooks/useHealthMonitor.test.ts apps/web-pwa/src/components/dev/HealthIndicator.test.tsx --config vitest.config.ts --reporter=dot` — 4 files, 46 tests passed.
+- PR #564 merged to `main` at `e155a97b`.
+- GitHub checks were green before merge: Change Detection, Ownership Scope, Quality Guard, Source Health, StoryCluster Correctness, Test & Build, Bundle Size, Lighthouse, E2E Tests.
+- `pnpm exec vitest run apps/web-pwa/src/store/peerConfig.test.ts apps/web-pwa/src/store/store.test.ts apps/web-pwa/src/hooks/useHealthMonitor.test.ts apps/web-pwa/src/components/dev/HealthIndicator.test.tsx --config vitest.config.ts --reporter=dot` — 4 files, 53 tests passed.
 - `pnpm --filter @vh/e2e typecheck` — passed.
 - `pnpm --filter @vh/web-pwa typecheck` — passed.
 - `pnpm typecheck` — passed across the workspace.
 - `pnpm lint` — passed across the workspace.
-- `node tools/scripts/check-diff-coverage.mjs` — passed; guard reported no coverage-eligible source files changed, so focused peer-config/health/e2e tests are the primary source evidence.
+- `node tools/scripts/check-diff-coverage.mjs` — 297 files, 4,316 tests passed; changed source files reached 100% diff line and branch coverage.
 - `git diff --check` — passed.
 - `pnpm test:mesh:browser-canary` — passed against three built-preview relays with one-peer-unavailable drill.
 
