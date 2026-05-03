@@ -62,6 +62,9 @@ export const HealthIndicator: React.FC = () => {
   const meshWriteAckSamples = useHealthStore((s) => s.meshWriteAckSamples);
   const analysisRelayAvailable = useHealthStore((s) => s.analysisRelayAvailable);
   const convergenceLagP95Ms = useHealthStore((s) => s.convergenceLagP95Ms);
+  const peerQuorumConfigured = useHealthStore((s) => s.peerQuorumConfigured);
+  const peerQuorumHealthy = useHealthStore((s) => s.peerQuorumHealthy);
+  const peerQuorumRequired = useHealthStore((s) => s.peerQuorumRequired);
   const degradationMode = useHealthStore((s) => s.degradationMode);
   const degradationReasons = useHealthStore((s) => s.degradationReasons);
   const lastHealthCheck = useHealthStore((s) => s.lastHealthCheck);
@@ -108,6 +111,14 @@ export const HealthIndicator: React.FC = () => {
               <tr>
                 <td className="pr-2 text-slate-500">Convergence p95</td>
                 <td>{convergenceLagP95Ms !== null ? `${convergenceLagP95Ms}ms` : 'n/a'}</td>
+              </tr>
+              <tr>
+                <td className="pr-2 text-slate-500">Peer quorum</td>
+                <td>
+                  {peerQuorumConfigured > 0
+                    ? `${peerQuorumHealthy}/${peerQuorumConfigured} (need ${peerQuorumRequired})`
+                    : 'unknown'}
+                </td>
               </tr>
               <tr>
                 <td className="pr-2 text-slate-500">Last check</td>

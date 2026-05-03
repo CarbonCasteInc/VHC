@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { resolveClientFromAppStore } from '../store/clientResolver';
+import { peerHealthUrl, resolveQuorumRequired } from '../store/peerConfig';
 import { onMeshWriteResult, onConvergenceLag } from '../utils/sentimentTelemetry';
 
 type GunPeerState = 'connected' | 'degraded' | 'disconnected' | 'unknown';
@@ -23,6 +24,9 @@ export interface HealthState {
   readonly meshWriteAckSamples: number;
   readonly analysisRelayAvailable: boolean;
   readonly convergenceLagP95Ms: number | null;
+  readonly peerQuorumConfigured: number;
+  readonly peerQuorumHealthy: number;
+  readonly peerQuorumRequired: number;
   readonly degradationMode: DegradationMode;
   readonly degradationReasons: readonly DegradationReason[];
   readonly lastHealthCheck: string | null;
@@ -32,6 +36,7 @@ interface HealthStore extends HealthState {
   recordMeshWrite: (success: boolean) => void;
   recordConvergenceLag: (lagMs: number) => void;
   recordGunProbe: (state: GunPeerState, reason?: GunProbeFailureReason | null) => void;
+  recordPeerQuorum: (configured: number, healthy: number, required: number) => void;
   recordLocalStorageHydrationFailed: () => void;
   recordClientOutOfDate: () => void;
   recordMessageRateHigh: (high: boolean) => void;
@@ -46,6 +51,7 @@ const MESH_WRITE_ACK_RATE_THRESHOLD = 0.95;
 const CONVERGENCE_LAG_DEGRADED_MS = 10_000;
 const MESSAGE_RATE_DEGRADED_PER_SEC = readPositiveIntEnv('VITE_VH_GUN_MESSAGE_RATE_DEGRADED_PER_SEC', 200);
 const PROBE_TIMEOUT_MS = readPositiveIntEnv('VITE_VH_HEALTH_PROBE_TIMEOUT_MS', 3_000);
+const PEER_QUORUM_TIMEOUT_MS = readPositiveIntEnv('VITE_VH_PEER_QUORUM_TIMEOUT_MS', 2_000);
 const HEALTH_BROWSER_ID_KEY = 'vh_health_probe_browser_id_v1';
 
 const meshWriteResults: boolean[] = [];
@@ -83,7 +89,7 @@ function computeP95(samples: readonly number[]): number {
 }
 
 function deriveHealth(
-  state: Pick<HealthState, 'gunPeerState' | 'meshWriteAckRate' | 'meshWriteAckSamples' | 'analysisRelayAvailable' | 'convergenceLagP95Ms'>,
+  state: Pick<HealthState, 'gunPeerState' | 'meshWriteAckRate' | 'meshWriteAckSamples' | 'analysisRelayAvailable' | 'convergenceLagP95Ms' | 'peerQuorumConfigured' | 'peerQuorumHealthy' | 'peerQuorumRequired'>,
 ): Pick<HealthState, 'degradationMode' | 'degradationReasons'> {
   const reasons = new Set<DegradationReason>();
 
@@ -102,6 +108,9 @@ function deriveHealth(
   }
   if (state.convergenceLagP95Ms !== null && state.convergenceLagP95Ms > CONVERGENCE_LAG_DEGRADED_MS) {
     reasons.add('convergence-lagging');
+  }
+  if (state.peerQuorumConfigured > 0 && state.peerQuorumHealthy < state.peerQuorumRequired) {
+    reasons.add('peer-quorum-missing');
   }
   if (localStorageHydrationFailed) {
     reasons.add('local-storage-hydration-failed');
@@ -135,6 +144,9 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
   meshWriteAckSamples: 0,
   analysisRelayAvailable: true,
   convergenceLagP95Ms: null,
+  peerQuorumConfigured: 0,
+  peerQuorumHealthy: 0,
+  peerQuorumRequired: 0,
   degradationMode: 'none',
   degradationReasons: [],
   lastHealthCheck: null,
@@ -181,6 +193,26 @@ export const useHealthStore = create<HealthStore>((set, get) => ({
     set((state) => {
       const next = { ...state, gunPeerState };
       return { gunPeerState, ...deriveHealth(next) };
+    });
+  },
+
+  recordPeerQuorum(configured: number, healthy: number, required: number) {
+    const peerQuorumConfigured = Math.max(0, Math.floor(configured));
+    const peerQuorumHealthy = Math.max(0, Math.min(peerQuorumConfigured, Math.floor(healthy)));
+    const peerQuorumRequired = Math.max(0, Math.min(peerQuorumConfigured, Math.floor(required)));
+    set((state) => {
+      const next = {
+        ...state,
+        peerQuorumConfigured,
+        peerQuorumHealthy,
+        peerQuorumRequired,
+      };
+      return {
+        peerQuorumConfigured,
+        peerQuorumHealthy,
+        peerQuorumRequired,
+        ...deriveHealth(next),
+      };
     });
   },
 
@@ -265,6 +297,30 @@ function readOnceWithTimeout<T>(chain: { once?: (cb: (data: T | undefined) => vo
       resolve((data ?? null) as T | null);
     });
   });
+}
+
+// ── Peer quorum probe ───────────────────────────────────────────────────
+async function probePeerQuorum(): Promise<void> {
+  const client = resolveClientFromAppStore() as { config?: { peers?: string[] } } | null;
+  const peers = client?.config?.peers ?? [];
+  if (peers.length === 0) {
+    useHealthStore.getState().recordPeerQuorum(0, 0, 0);
+    return;
+  }
+  const required = resolveQuorumRequired(peers.length);
+  const checks = await Promise.all(peers.map(async (peer) => {
+    const healthUrl = peerHealthUrl(peer);
+    if (!healthUrl) {
+      return false;
+    }
+    try {
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(PEER_QUORUM_TIMEOUT_MS) });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }));
+  useHealthStore.getState().recordPeerQuorum(peers.length, checks.filter(Boolean).length, required);
 }
 
 // ── Gun peer probe ──────────────────────────────────────────────────────
@@ -352,9 +408,11 @@ export function startHealthMonitor(): () => void {
   }
 
   probeGunPeer();
+  void probePeerQuorum();
   void probeAnalysisRelay();
 
   const gunProbeInterval = setInterval(probeGunPeer, 10_000);
+  const peerQuorumInterval = setInterval(() => void probePeerQuorum(), 10_000);
   const relayProbeInterval = setInterval(() => void probeAnalysisRelay(), 30_000);
   const tickInterval = setInterval(() => {
     useHealthStore.getState().tick();
@@ -379,6 +437,7 @@ export function startHealthMonitor(): () => void {
 
   activeHealthMonitorStop = () => {
     clearInterval(gunProbeInterval);
+    clearInterval(peerQuorumInterval);
     clearInterval(relayProbeInterval);
     clearInterval(tickInterval);
     unsubMeshWrite();

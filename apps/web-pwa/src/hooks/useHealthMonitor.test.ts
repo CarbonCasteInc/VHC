@@ -109,6 +109,9 @@ describe('useHealthMonitor', () => {
         meshWriteAckSamples: 0,
         analysisRelayAvailable: true,
         convergenceLagP95Ms: null,
+        peerQuorumConfigured: 0,
+        peerQuorumHealthy: 0,
+        peerQuorumRequired: 0,
         degradationReasons: [],
         degradationMode: 'none',
         lastHealthCheck: null,
@@ -167,6 +170,9 @@ describe('useHealthMonitor', () => {
 
     useHealthStore.getState().recordMessageRateHigh(true);
     expect(useHealthStore.getState().degradationReasons).toContain('message-rate-high');
+
+    useHealthStore.getState().recordPeerQuorum(3, 1, 2);
+    expect(useHealthStore.getState().degradationReasons).toContain('peer-quorum-missing');
 
     useHealthStore.getState().tick();
     expect(useHealthStore.getState().lastHealthCheck).not.toBeNull();
@@ -574,6 +580,93 @@ describe('useHealthMonitor', () => {
     await flushPromises();
 
     expect(useHealthStore.getState().analysisRelayAvailable).toBe(false);
+
+    stop();
+  });
+
+  it('checks peer quorum with relay health endpoints', async () => {
+    const client = {
+      ...createMockClient((_payload, ack) => {
+        ack({ ok: { '': 1 } });
+      }),
+      config: {
+        peers: [
+          'http://127.0.0.1:7788/gun',
+          'http://127.0.0.1:7789/gun',
+          'http://127.0.0.1:7790/gun',
+        ],
+      },
+    };
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/analyze/config') {
+        return {
+          ok: true,
+          json: async () => ({ configured: true }),
+        };
+      }
+      return {
+        ok: url.includes(':7788') || url.includes(':7789'),
+        json: async () => ({ ok: true }),
+      };
+    });
+
+    const { startHealthMonitor, useHealthStore } = await loadHealthMonitorHarness({
+      client,
+      fetchImpl: fetchImpl as unknown as () => Promise<{ ok: boolean; json?: () => Promise<unknown> }>,
+    });
+
+    const stop = startHealthMonitor();
+    await flushPromises();
+
+    expect(useHealthStore.getState()).toMatchObject({
+      peerQuorumConfigured: 3,
+      peerQuorumHealthy: 2,
+      peerQuorumRequired: 2,
+    });
+    expect(useHealthStore.getState().degradationReasons).not.toContain('peer-quorum-missing');
+
+    stop();
+  });
+
+  it('marks peer quorum missing when peer health URLs are invalid or throw', async () => {
+    const client = {
+      ...createMockClient((_payload, ack) => {
+        ack({ ok: { '': 1 } });
+      }),
+      config: {
+        peers: [
+          'not a url',
+          'http://127.0.0.1:7788/gun',
+          'http://127.0.0.1:7789/gun',
+        ],
+      },
+    };
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/analyze/config') {
+        return {
+          ok: true,
+          json: async () => ({ configured: true }),
+        };
+      }
+      throw new Error(`peer health failed: ${url}`);
+    });
+
+    const { startHealthMonitor, useHealthStore } = await loadHealthMonitorHarness({
+      client,
+      fetchImpl: fetchImpl as unknown as () => Promise<{ ok: boolean; json?: () => Promise<unknown> }>,
+    });
+
+    const stop = startHealthMonitor();
+    await flushPromises();
+
+    expect(useHealthStore.getState()).toMatchObject({
+      peerQuorumConfigured: 3,
+      peerQuorumHealthy: 0,
+      peerQuorumRequired: 2,
+    });
+    expect(useHealthStore.getState().degradationReasons).toContain('peer-quorum-missing');
 
     stop();
   });

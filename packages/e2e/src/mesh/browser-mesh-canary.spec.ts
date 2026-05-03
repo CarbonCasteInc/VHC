@@ -2,7 +2,11 @@ import { test, expect } from '@playwright/test';
 import * as path from 'node:path';
 
 const relayPort = Number.parseInt(process.env.VH_MESH_CANARY_RELAY_PORT ?? '7788', 10);
-const peerUrl = `http://127.0.0.1:${relayPort}/gun`;
+const relayPorts = (process.env.VH_MESH_CANARY_RELAY_PORTS ?? `${relayPort},${relayPort + 1},${relayPort + 2}`)
+  .split(',')
+  .map((value) => Number.parseInt(value.trim(), 10))
+  .filter((value) => Number.isFinite(value));
+const peerUrls = relayPorts.map((port) => `http://127.0.0.1:${port}/gun`);
 const gunScriptPath = path.resolve(__dirname, '../../../gun-client/node_modules/gun/gun.js');
 
 type MeshCanaryWindow = Window & {
@@ -60,29 +64,31 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('built preview mesh can write, read back, stay quiet, tear down, and reconnect', async ({ page }) => {
-  const health = await page.request.get(`http://127.0.0.1:${relayPort}/healthz`);
-  expect(health.ok()).toBe(true);
-  await expect(health.json()).resolves.toMatchObject({ ok: true, service: 'vh-relay' });
-  const ready = await page.request.get(`http://127.0.0.1:${relayPort}/readyz`);
-  expect(ready.ok()).toBe(true);
+  for (const port of relayPorts) {
+    const health = await page.request.get(`http://127.0.0.1:${port}/healthz`);
+    expect(health.ok()).toBe(true);
+    await expect(health.json()).resolves.toMatchObject({ ok: true, service: 'vh-relay' });
+    const ready = await page.request.get(`http://127.0.0.1:${port}/readyz`);
+    expect(ready.ok()).toBe(true);
+  }
 
   await page.goto('/');
   await expect(page.locator('[data-testid="feed-shell"]')).toBeVisible({ timeout: 20_000 });
 
-  const initial = await page.evaluate(async (peer) => {
+  const initial = await page.evaluate(async (peers) => {
     const win = window as MeshCanaryWindow;
     if (!win.Gun) {
       throw new Error('gun-script-missing');
     }
     const gun = win.Gun({
-      peers: [peer],
+      peers,
       localStorage: false,
       radisk: false,
       file: false,
       axe: false,
     });
     const writerGun = win.Gun({
-      peers: [peer],
+      peers,
       localStorage: false,
       radisk: false,
       file: false,
@@ -181,7 +187,7 @@ test('built preview mesh can write, read back, stay quiet, tear down, and reconn
     gun.off?.();
     writerGun.off?.();
     return { beforeOff, observedNonces, afterOffNonce, nonce };
-  }, peerUrl);
+  }, peerUrls);
 
   expect(initial.beforeOff).toBeGreaterThan(0);
   expect(initial.observedNonces).not.toContain(initial.afterOffNonce);
@@ -199,12 +205,12 @@ test('built preview mesh can write, read back, stay quiet, tear down, and reconn
   });
   expect(steadyStateMessageRate).toBeLessThan(200);
 
-  const reconnect = await page.evaluate(async ({ peer, expectedNonce }) => {
+  const reconnect = await page.evaluate(async ({ peers, expectedNonce }) => {
     const win = window as MeshCanaryWindow;
     win.__VH_MESH_CANARY__?.forceCloseSockets();
     await new Promise((resolve) => setTimeout(resolve, 500));
     const gun = win.Gun!({
-      peers: [peer],
+      peers,
       localStorage: false,
       radisk: false,
       file: false,
@@ -259,12 +265,57 @@ test('built preview mesh can write, read back, stay quiet, tear down, and reconn
       readPrevious: before.matched,
       readNext: after.matched,
     };
-  }, { peer: peerUrl, expectedNonce: initial.nonce });
+  }, { peers: peerUrls, expectedNonce: initial.nonce });
 
   expect(reconnect.readPrevious).toBe(true);
   expect(reconnect.readNext).toBe(true);
 
-  const metrics = await page.request.get(`http://127.0.0.1:${relayPort}/metrics`);
+  const failover = await page.evaluate(async (peers) => {
+    const win = window as MeshCanaryWindow;
+    const gun = win.Gun!({
+      peers,
+      localStorage: false,
+      radisk: false,
+      file: false,
+      axe: false,
+    });
+    type Chain = {
+      get: (key: string) => Chain;
+      once: (callback: (value: unknown) => void) => unknown;
+      put: (value: unknown, callback?: (ack?: { err?: string }) => void) => unknown;
+    };
+    const node = (gun.get('vh') as Chain).get('__canary').get('one-peer-unavailable');
+    const nonce = `one-peer-down-${Date.now()}`;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('failover-put-timeout')), 8_000);
+      node.put({ schemaVersion: 'mesh-canary-v1', nonce, t: Date.now() }, (ack?: { err?: string }) => {
+        clearTimeout(timer);
+        if (ack?.err) reject(new Error(ack.err));
+        else resolve();
+      });
+    });
+    const deadline = Date.now() + 8_000;
+    while (Date.now() < deadline) {
+      const observed = await new Promise<Record<string, unknown> | null>((resolve) => {
+        const timer = setTimeout(() => resolve(null), 1_000);
+        node.once((value: unknown) => {
+          clearTimeout(timer);
+          resolve(value && typeof value === 'object' ? value as Record<string, unknown> : null);
+        });
+      });
+      if (observed?.nonce === nonce) {
+        gun.off?.();
+        return { readNext: true };
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    gun.off?.();
+    return { readNext: false };
+  }, [`http://127.0.0.1:9/gun`, ...peerUrls.slice(1)]);
+
+  expect(failover.readNext).toBe(true);
+
+  const metrics = await page.request.get(`http://127.0.0.1:${relayPorts[0]}/metrics`);
   expect(metrics.ok()).toBe(true);
   await expect(metrics.text()).resolves.toContain('vh_relay_http_requests_total');
 });

@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
-import { useAppStore, isE2EMode, resolveGunPeers, resolveGunLocalStorage } from './index';
+import {
+  useAppStore,
+  isE2EMode,
+  resolveGunPeers,
+  resolveGunPeerTopologySync,
+  resolveGunLocalStorage,
+} from './index';
 import { createClient } from '@vh/gun-client';
 import * as storeModule from './index';
 
@@ -43,6 +49,10 @@ vi.mock('@vh/gun-client', () => ({
   })),
   publishToDirectory: (...args: unknown[]) => mockPublishDirectory(...(args as [])),
   writeStoryBundle: vi.fn(),
+}));
+
+vi.mock('./synthesis/commentRuntime', () => ({
+  bootstrapSynthesisCommentRuntime: vi.fn(),
 }));
 
 class MemoryStorage {
@@ -91,9 +101,8 @@ describe('useAppStore', () => {
     expect(resolveGunPeers('localhost')).toEqual(['http://127.0.0.1:7777/gun']);
   });
 
-  it('resolves Tailscale first for non-local UI hosts without overrides', () => {
+  it('does not fall back to a hard-coded Tailscale peer for non-local dev hosts', () => {
     expect(resolveGunPeers('ccibootstrap.tail6cc9b5.ts.net')).toEqual([
-      'http://100.75.18.26:7777/gun',
       'http://127.0.0.1:7777/gun',
     ]);
   });
@@ -107,6 +116,57 @@ describe('useAppStore', () => {
 
     (globalThis as any).__VH_GUN_PEERS__ = [];
     expect(resolveGunPeers('127.0.0.1')).toEqual([]);
+  });
+
+  it('rejects missing explicit peer config in strict mode and ignores runtime global peers', () => {
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    (globalThis as any).__VH_GUN_PEERS__ = [
+      'https://runtime-a.example/gun',
+      'https://runtime-b.example/gun',
+      'https://runtime-c.example/gun',
+    ];
+
+    expect(() => resolveGunPeers('app.example')).toThrow('strict peer config requires explicit Gun peers');
+  });
+
+  it('requires three secure peers by default in strict mode', () => {
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    vi.stubEnv('VITE_GUN_PEERS', JSON.stringify([
+      'https://peer-a.example/gun',
+      'https://peer-b.example/gun',
+    ]));
+
+    expect(() => resolveGunPeers('app.example')).toThrow('requires at least 3 peers');
+
+    vi.stubEnv('VITE_GUN_PEERS', JSON.stringify([
+      'https://peer-a.example/gun',
+      'https://peer-b.example/gun',
+      'http://peer-c.example/gun',
+    ]));
+
+    expect(() => resolveGunPeers('app.example')).toThrow('rejects insecure peer');
+  });
+
+  it('allows local three-peer topology only when explicitly enabled', () => {
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    vi.stubEnv('VITE_VH_ALLOW_LOCAL_MESH_PEERS', 'true');
+    vi.stubEnv('VITE_GUN_PEERS', JSON.stringify([
+      'http://127.0.0.1:7788/gun',
+      'http://127.0.0.1:7789/gun',
+      'http://127.0.0.1:7790/gun',
+    ]));
+
+    expect(resolveGunPeerTopologySync('127.0.0.1')).toMatchObject({
+      peers: [
+        'http://127.0.0.1:7788/gun',
+        'http://127.0.0.1:7789/gun',
+        'http://127.0.0.1:7790/gun',
+      ],
+      strict: true,
+      minimumPeerCount: 3,
+      quorumRequired: 2,
+      source: 'env-peers',
+    });
   });
 
   it('passes the locality-aware default peers into the Gun client', async () => {
