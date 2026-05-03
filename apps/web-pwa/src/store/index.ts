@@ -11,11 +11,11 @@ import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
 import { createMockClient } from './mockClient';
 import { setClientResolver } from './clientResolver';
+import { resolveGunPeerTopology } from './peerConfig';
+export { resolveGunPeers, resolveGunPeerTopology, resolveGunPeerTopologySync } from './peerConfig';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
-const LOCAL_GUN_PEER = 'http://127.0.0.1:7777/gun';
-const TAILSCALE_GUN_PEER = 'http://100.75.18.26:7777/gun';
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
 
 interface AppState {
@@ -125,34 +125,6 @@ async function bootstrapRuntimeFeatures(client: VennClient, context: string): Pr
   }
 }
 
-function normalizeGunPeer(peer: unknown): string | null {
-  if (typeof peer !== 'string') {
-    return null;
-  }
-  const trimmed = peer.trim();
-  if (!trimmed) {
-    return null;
-  }
-  return trimmed.endsWith('/gun') ? trimmed : `${trimmed.replace(/\/+$/, '')}/gun`;
-}
-
-function normalizeGunPeerList(peers: readonly unknown[]): string[] {
-  return peers
-    .map((peer) => normalizeGunPeer(peer))
-    .filter((peer): peer is string => Boolean(peer));
-}
-
-function isLocalHostname(hostname: string | undefined): boolean {
-  const normalized = hostname?.trim().toLowerCase();
-  return normalized === 'localhost' || normalized === '127.0.0.1' || normalized === '::1';
-}
-
-function getRuntimeHostname(): string | undefined {
-  return typeof globalThis.location?.hostname === 'string'
-    ? globalThis.location.hostname
-    : undefined;
-}
-
 export function resolveGunLocalStorage(): boolean | undefined {
   const raw = (import.meta as any).env?.VITE_VH_GUN_LOCAL_STORAGE
     ?? (typeof process !== 'undefined' ? process.env?.VITE_VH_GUN_LOCAL_STORAGE : undefined);
@@ -167,31 +139,6 @@ export function resolveGunLocalStorage(): boolean | undefined {
     return true;
   }
   return undefined;
-}
-
-export function resolveGunPeers(runtimeHostname = getRuntimeHostname()): string[] {
-  const globalOverride = (globalThis as { __VH_GUN_PEERS__?: unknown }).__VH_GUN_PEERS__;
-  if (Array.isArray(globalOverride)) {
-    return normalizeGunPeerList(globalOverride);
-  }
-
-  const raw = (import.meta as any).env?.VITE_GUN_PEERS;
-  if (raw && typeof raw === 'string') {
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        return normalizeGunPeerList(parsed);
-      }
-    } catch {
-      const parts = normalizeGunPeerList(raw.split(','));
-      if (parts.length > 0) return parts;
-    }
-  }
-  if (isLocalHostname(runtimeHostname)) {
-    return [LOCAL_GUN_PEER];
-  }
-  // Non-local app hosts default to the Tailscale relay with localhost as a dev fallback.
-  return [TAILSCALE_GUN_PEER, LOCAL_GUN_PEER];
 }
 
 export async function authenticateGunUser(client: VennClient, devicePair: DevicePair): Promise<void> {
@@ -273,12 +220,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           return;
         }
 
+        const peerTopology = await resolveGunPeerTopology();
         const client = createClient({
-          peers: resolveGunPeers(),
+          peers: peerTopology.peers,
           gunLocalStorage: resolveGunLocalStorage(),
           requireSession: true
         });
-        console.info('[vh:web-pwa] using Gun peers', client.config.peers);
+        console.info('[vh:web-pwa] using Gun peers', {
+          peers: client.config.peers,
+          source: peerTopology.source,
+          strict: peerTopology.strict,
+          quorumRequired: peerTopology.quorumRequired,
+        });
         await Promise.race([
           client.hydrationBarrier.prepare(),
           new Promise<void>((_, reject) =>

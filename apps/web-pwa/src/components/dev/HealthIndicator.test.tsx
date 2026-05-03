@@ -11,6 +11,9 @@ const state = {
   meshWriteAckSamples: 0,
   analysisRelayAvailable: true,
   convergenceLagP95Ms: null,
+  peerQuorumConfigured: 0,
+  peerQuorumHealthy: 0,
+  peerQuorumRequired: 0,
   degradationMode: 'none',
   degradationReasons: [] as readonly string[],
   lastHealthCheck: null,
@@ -28,6 +31,9 @@ describe('HealthIndicator', () => {
     state.meshWriteAckSamples = 0;
     state.analysisRelayAvailable = true;
     state.convergenceLagP95Ms = null;
+    state.peerQuorumConfigured = 0;
+    state.peerQuorumHealthy = 0;
+    state.peerQuorumRequired = 0;
     state.degradationMode = 'none';
     state.degradationReasons = [];
     state.lastHealthCheck = null;
@@ -57,5 +63,19 @@ describe('HealthIndicator', () => {
 
     expect(screen.getByText('unknown (0 samples)')).toBeInTheDocument();
     expect(screen.getByText('Probe ack timeout, Gun message rate high')).toBeInTheDocument();
+  });
+
+  it('renders peer quorum counts and reason', () => {
+    state.degradationMode = 'mesh-degraded';
+    state.degradationReasons = ['peer-quorum-missing'];
+    state.peerQuorumConfigured = 3;
+    state.peerQuorumHealthy = 1;
+    state.peerQuorumRequired = 2;
+
+    render(<HealthIndicator />);
+    fireEvent.click(screen.getByLabelText('Health: Mesh Degraded'));
+
+    expect(screen.getByText('1/3 (need 2)')).toBeInTheDocument();
+    expect(screen.getByText('Peer quorum missing')).toBeInTheDocument();
   });
 });

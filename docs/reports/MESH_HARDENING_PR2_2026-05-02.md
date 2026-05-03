@@ -91,11 +91,9 @@ Acceptance target:
 Known unrelated test debt:
 - `pnpm --filter @vh/web-pwa typecheck:test` still fails on broad pre-existing fixture strictness issues across bridge/feed/forum/discovery tests. The production web typecheck and focused tests affected by PR2 were green.
 
-## Queued
-
 ### PR4 — Production Relay
 
-Status: Done locally on `coord/mesh-production-relay-pr4`; ready for PR/CI.
+Status: Done and merged.
 
 Verified implementation:
 - Relay exposes `/healthz`, `/readyz`, and Prometheus-shaped `/metrics`.
@@ -108,6 +106,8 @@ Verified implementation:
 - Historical `vh/__health/__vh_health_probe_*` compaction can run at startup and on interval, with compaction counters in `/metrics`.
 
 Verification evidence:
+- PR #563 merged to `main` at `af2db9e0`.
+- GitHub checks were green before merge: Change Detection, Ownership Scope, Quality Guard, Source Health, StoryCluster Correctness, Test & Build, Bundle Size, Lighthouse, E2E Tests.
 - `pnpm --filter @vh/e2e exec vitest run src/live/relay-server.vitest.mjs --reporter=dot` — 5 tests passed.
 - `pnpm exec vitest run apps/web-pwa/src/store/hermesForum.test.ts --config vitest.config.ts --reporter=dot` — 38 tests passed.
 - `pnpm --filter @vh/gun-client test` — 29 files, 348 tests passed.
@@ -126,15 +126,38 @@ Acceptance target:
 
 ### PR5 — Topology And Quorum
 
-Queued after PR4 merge.
+Status: Done locally on `coord/mesh-topology-quorum-pr5`; ready for PR/CI.
 
-Scope:
-- Three-peer WSS topology.
-- Signed peer config fetched at boot.
-- Remove hardcoded Tailscale fallback from production code paths.
-- Strip or reject runtime peer mutation in production builds.
-- Health reports quorum, not configured peer count.
-- Add failover, network partition, WS reconnect, and soak drills.
+Verified implementation:
+- Added `apps/web-pwa/src/store/peerConfig.ts` as the single peer-topology resolver.
+- Removed the hard-coded Tailscale fallback from web runtime peer resolution.
+- Strict production peer mode now requires explicit peer configuration, requires at least three peers by default, rejects insecure peers unless local mesh peers are explicitly allowed, and ignores the mutable `globalThis.__VH_GUN_PEERS__` escape hatch.
+- Added signed peer-config support for inline or remote JSON envelopes, verified through Gun SEA against `VITE_GUN_PEER_CONFIG_PUBLIC_KEY`.
+- Health monitoring now probes relay `/healthz` endpoints and reports `healthy/configured (need quorum)` instead of showing a vacuous peer URL count.
+- Built-preview mesh canary now runs three local relays, asserts health/readiness/metrics, and includes a one-peer-unavailable write/readback drill.
+- The root `pnpm test:mesh:browser-canary` command builds the app with an explicit three-peer local topology and local-peer permission for the production-preview artifact.
+
+Verification evidence:
+- `pnpm exec vitest run apps/web-pwa/src/store/peerConfig.test.ts apps/web-pwa/src/store/store.test.ts apps/web-pwa/src/hooks/useHealthMonitor.test.ts apps/web-pwa/src/components/dev/HealthIndicator.test.tsx --config vitest.config.ts --reporter=dot` — 4 files, 46 tests passed.
+- `pnpm --filter @vh/e2e typecheck` — passed.
+- `pnpm --filter @vh/web-pwa typecheck` — passed.
+- `pnpm typecheck` — passed across the workspace.
+- `pnpm lint` — passed across the workspace.
+- `node tools/scripts/check-diff-coverage.mjs` — passed; guard reported no coverage-eligible source files changed, so focused peer-config/health/e2e tests are the primary source evidence.
+- `git diff --check` — passed.
+- `pnpm test:mesh:browser-canary` — passed against three built-preview relays with one-peer-unavailable drill.
 
 Acceptance target:
-- One-peer kill and restart drill converges within SLA with no duplicate writes.
+- One-peer-unavailable write/readback drill converges within SLA; full peer kill/restart and network-partition drills remain queued for the production relay/topology environment where relay-to-relay persistence is available.
+
+## Queued
+
+### Production Topology Drills
+
+Scope:
+- Deploy three WSS relays with signed boot peer config.
+- Add peer kill/restart and network-partition drills against the hardened production relay environment.
+- Add 30-minute rolling-restart soak with no duplicate writes after forced WS reconnect.
+
+Acceptance target:
+- Kill one peer, write still confirms; restart peer catches up within SLA; forced WS disconnect does not duplicate user writes.
