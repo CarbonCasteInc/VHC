@@ -92,18 +92,18 @@ services:
     networks:
       - vh_net
 
-  attestation-verifier:
+  luma-verifier-dev:
     build:
-      context: ../../services/attestation-verifier
+      context: ../../services/luma-verifier-dev
       dockerfile: Dockerfile
-    image: vh/attestation-verifier:latest
+    image: vh/luma-verifier-dev:latest
     restart: unless-stopped
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.attestation.rule=PathPrefix(`/api/attestation`)"
       - "traefik.http.routers.attestation.entrypoints=web"
-      - "traefik.http.routers.attestation.service=attestation"
-      - "traefik.http.services.attestation.loadbalancer.server.port=3000"
+      - "traefik.http.routers.attestation.service=luma-verifier-dev"
+      - "traefik.http.services.luma-verifier-dev.loadbalancer.server.port=3000"
       - "traefik.http.middlewares.attestation-strip.stripprefix.prefixes=/api/attestation"
       - "traefik.http.routers.attestation.middlewares=attestation-strip"
     networks:

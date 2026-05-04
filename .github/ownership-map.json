@@ -53,7 +53,7 @@
   "team-e": {
     "branchPrefix": "team-e/",
     "paths": [
-      "services/attestation-verifier/**",
+      "services/luma-verifier-dev/**",
       "services/bridge-stub/**",
       "packages/contracts/scripts/**",
       "packages/contracts/deployments/**"

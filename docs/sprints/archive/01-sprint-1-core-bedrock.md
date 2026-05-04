@@ -27,7 +27,7 @@
 ### 1.1 Attestation Integration
 - [x] **Client:** Update `useIdentity` to fetch real/mock attestation from `AttestationVerifier` service.
 - [x] **API Contract:** Ensure payload fields use `camelCase` per `packages/types`.
-- [x] **Service:** Harden `attestation-verifier` to validate platform-specific chains (Apple AppAttest / Google Play Integrity).
+- [x] **Service:** Harden the LUMA DEV verifier path now located at `services/luma-verifier-dev`.
 - [x] **Session:** Implement `createSession` handshake: Client sends Attestation -> Service verifies -> Returns `trust_score` -> Client derives Nullifier.
     - *Constraint:* Session creation MUST fail if `trust_score` is insufficient.
     - *Constraint:* Default peers must be empty `[]` in offline/E2E mode (`VITE_E2E_MODE=true`).

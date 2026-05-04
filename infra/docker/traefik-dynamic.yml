@@ -6,14 +6,14 @@ http:
         - web
       middlewares:
         - attestation-strip
-      service: attestation-service
+      service: luma-verifier-dev-service
   middlewares:
     attestation-strip:
       stripPrefix:
         prefixes:
           - /api/attestation
   services:
-    attestation-service:
+    luma-verifier-dev-service:
       loadBalancer:
         servers:
-          - url: http://attestation-verifier:3000
+          - url: http://luma-verifier-dev:3000
