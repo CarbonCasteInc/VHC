@@ -2,10 +2,10 @@
 
 > Status: Execution Spec
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-05-03
-> Depends On: docs/foundational/System_Architecture.md, docs/foundational/STATUS.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-civic-sentiment.md, docs/reports/MESH_HARDENING_PR2_2026-05-02.md
+> Last Reviewed: 2026-05-04
+> Depends On: docs/foundational/System_Architecture.md, docs/foundational/STATUS.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-civic-sentiment.md, docs/specs/spec-luma-service-v0.md, docs/specs/spec-signed-pin-custody-v0.md, docs/reports/MESH_HARDENING_PR2_2026-05-02.md
 
-Version: 0.3
+Version: 0.4
 
 This spec defines the remaining path from the current hardened local-first mesh
 implementation to a production-grade distributed mesh. It is project-grounded:
@@ -44,8 +44,8 @@ commit:
 10. A one-peer failure does not stop writes from confirming.
 11. Restarted peers catch up within a stated SLA.
 12. Forced websocket disconnects and reconnects do not duplicate user writes.
-13. Tombstones, moderation hides, and removals are not resurrected after peer
-    restart or partition healing.
+13. State-resolution rules per §5.10 hold after peer restart or partition
+    healing; no class relies on a generic "delete wins" rule.
 14. Deliberate clock skew produces named bounded auth/health failures without
     causing LWW divergence or false mesh-transport failures.
 15. Network partition drills fail closed with a named health reason, then
@@ -63,6 +63,21 @@ commit:
     health.
 21. A downstream full-app production canary passes after mesh readiness before
     any "test group ready" claim.
+22. LUMA-owned write classes (any class whose canonical record carries
+    `_writerKind === 'luma'`) are claim-valid only when both transport readiness
+    and LUMA gate verification pass. Mesh readiness alone never validates LUMA
+    gate behavior.
+23. Any LUMA public-schema epoch change (changes to `_protocolVersion`,
+    `_writerKind` semantics, public-id derivation, `_authorScheme`, or any
+    schema in `vh/*` owned by `spec-luma-service-v0.md`) invalidates prior
+    canonical mesh readiness for affected write classes. Old reports remain
+    transport evidence only and MUST NOT be reused as release-claim evidence
+    after the epoch change.
+24. The mesh drill harness signs and writes drill data through a separate test
+    writer contract (§5.9) that is bounded to `vh/__mesh_drills/*` and to
+    test-only mesh profiles. The drill writer is not a LUMA `_writerKind` and
+    does not carry `SignedWriteEnvelope` shapes; product readers reject drill
+    writes if they encounter them.
 
 ## 2. Current Implementation Truth
 
@@ -617,13 +632,15 @@ Scope, Slice 7B:
 
 Scope, Slice 7C:
 
-1. Write deterministic drill objects.
-2. Tombstone, moderate, or remove those objects.
-3. Take one relay down before, during, and after the tombstone write across
+1. Write deterministic drill objects per the §5.10 State-Resolution Matrix.
+2. Apply the deletion semantics each class actually has (tombstone, hide/
+   restore latest-state, supersession by version/epoch, or no-op for
+   historical artifacts) — not a generic "delete wins" rule.
+3. Take one relay down before, during, and after the relevant write across
    separate drill cases.
 4. Restart or heal the relay.
-5. Assert tombstone/moderation/removal state wins on every relay and no stale
-   object is resurrected.
+5. Assert the §5.10 winning rule for each class on every relay; emit
+   `state-resolution-violation` if any rule is broken.
 
 Primary files likely touched:
 
@@ -654,8 +671,9 @@ Acceptance gates:
 - New command: `pnpm test:mesh:topology-drills`
 - Slice 7A: one relay down, browser write/readback still confirms within SLA.
 - Slice 7B: restarted relay catches up within SLA.
-- Slice 7C: tombstone, moderation, removal, and stale-aggregate states are not
-  resurrected after relay restart or partition healing.
+- Slice 7C: every class in §5.10 State-Resolution Matrix passes its
+  class-specific winning rule after relay restart or partition healing; no
+  generic "delete wins" assertion is allowed in the drill code.
 - Health store shows `peer-quorum-missing` only when healthy peers fall below
   required quorum, not merely when one of three peers is down.
 - No duplicate public writes after relay restart.
@@ -676,9 +694,9 @@ Regression traps:
 - Do not count a peer as caught up through a multi-peer browser client; use a
   single-peer client or direct relay readback against the restarted relay.
 - Do not rely on a missing read as proof of deletion; drills must assert the
-  canonical tombstone/moderation/removal marker where the data model has one.
-- Do not let old relay state win over a newer tombstone because its local clock
-  is ahead or because it missed the deletion event.
+  class-specific state-resolution rule from §5.10.
+- Do not let old relay state win over the §5.10 winning state because its local
+  clock is ahead or because it missed the relevant update.
 
 ### Slice 8 - Websocket Disconnect And Duplicate-Write Drills
 
@@ -948,6 +966,10 @@ interface MeshProductionReadinessReport {
     command: string;
   };
   status: 'release_ready' | 'review_required' | 'blocked';
+  schema_epoch: 'pre_luma_m0b' | 'post_luma_m0b' | string;
+  luma_profile: 'public-beta' | 'production-attestation' | 'none';
+  luma_dependency_status: Record<string, 'landed' | 'in-progress' | 'pending' | 'n/a'>;
+  drill_writer_kind_by_class: Record<string, 'mesh-drill' | 'luma' | 'system'>;
   topology: {
     strategy: 'relay_peer_fanout' | 'explicit_replication' | 'authoritative_cluster';
     configured_peer_count: number;
@@ -997,12 +1019,23 @@ interface MeshProductionReadinessReport {
     observed: boolean;
     latency_ms: number | null;
   }>;
-  tombstone_drills: Array<{
+  state_resolution_drills: Array<{
     object_id: string;
     object_class: string;
-    tombstone_write_id: string;
-    down_relay_id: string;
-    resurrected: boolean;
+    state_rule:
+      | 'tombstone-wins'
+      | 'best-effort-tombstone'
+      | 'hide-restore-latest'
+      | 'monotonic-supersession-version'
+      | 'monotonic-supersession-epoch'
+      | 'monotonic-status-transition'
+      | 'no-deletion-historical-artifact'
+      | 'last-write-wins-deterministic-id';
+    expected_winner_write_id: string;
+    observed_winner_write_id: string | null;
+    competing_write_ids: string[];
+    down_relay_id: string | null;
+    violation_reason: string | null;
     status: 'pass' | 'fail';
   }>;
   conflict_fixtures: Array<{
@@ -1013,6 +1046,7 @@ interface MeshProductionReadinessReport {
   }>;
   clock_skew: {
     skewed_actor: 'browser' | 'relay' | 'daemon' | null;
+    skewed_layer: 'luma-clock' | 'os-clock' | 'mixed' | null;
     skew_ms: number;
     named_failure: string | null;
     lww_diverged: boolean;
@@ -1033,6 +1067,7 @@ interface MeshProductionReadinessReport {
   release_claims: {
     allowed: string[];
     forbidden: string[];
+    invalidated_by_luma_epoch_change: boolean;
   };
   downstream_canary?: {
     command: string;
@@ -1052,10 +1087,13 @@ Acceptance gates:
   - report repo metadata identifies branch, commit, base ref, and dirty state
   - report has a `run_id` and every drill write has a joinable `write_id` and
     `trace_id`
+  - report carries `schema_epoch`, `luma_profile`,
+    `luma_dependency_status`, and `drill_writer_kind_by_class` (§5.13)
+  - `release_claims.invalidated_by_luma_epoch_change` is `false`
   - topology drills pass
   - disconnect/duplicate drill passes
-  - tombstone resurrection drill passes
-  - clock-skew drill passes
+  - state-resolution matrix (§5.10) passes class-by-class, recorded in `state_resolution_drills`
+  - clock-skew drill passes with `clock_skew.skewed_layer` recorded (§5.12)
   - partition/heal drill passes
   - 30-minute soak passes
   - conflict-resolution fixtures pass
@@ -1064,6 +1102,10 @@ Acceptance gates:
   - all write classes with sufficient samples meet p95 budgets
   - relay resource budgets pass
   - test namespace cleanup passes
+  - any LUMA-gated write class (drill_writer_kind `'luma'`) was exercised
+    against the LUMA reader path, not bypassed via drill writer contract
+  - any promoted evidence under `docs/reports/evidence/mesh-production/`
+    passed `pnpm check:mesh-evidence-scrub` (§5.7.1)
 - The gate fails if a release commit claims production mesh without a passing
   report.
 - `pnpm check:mesh:production-readiness` is necessary but not sufficient for
@@ -1210,6 +1252,25 @@ Production health must be reasoned, not binary. Valid mesh-related reasons:
 - `local-storage-hydration-failed`
 - `client-out-of-date`
 - `message-rate-high`
+- `mesh-drill-record-out-of-namespace` (drill record observed outside
+  `vh/__mesh_drills/*`; see §5.9)
+- `mesh-drill-signer-unknown` (drill record `_drillSignerId` does not
+  resolve to a pinned drill signer; see §5.9)
+- `mesh-drill-signature-suite-unsupported` (drill record names a signature
+  suite outside the v0-permitted set; see §5.9)
+- `mesh-drill-payload-digest-mismatch` (drill record `_drillPayloadDigest`
+  does not match `hex(JCS-hash(payload))`; see §5.9)
+- `mesh-author-scheme-unsupported` (record carries an `_authorScheme` the
+  reader does not implement; see §5.11)
+- `mesh-author-scheme-missing` (record class requires `_authorScheme` but it
+  is absent; see §5.11)
+- `mesh-schema-version-unknown` (record-level `schemaVersion` unknown to
+  reader; see §5.11)
+- `system-writer-validation-failed` (`_writerKind === 'system'` record
+  failed one of the LUMA §15 read-time validation conditions; carries the
+  failing condition tag from `spec-luma-service-v0.md` §15)
+- `state-resolution-violation` (a drill observed a state-resolution rule
+  from §5.10 being broken)
 
 Each new reason must include:
 
@@ -1275,8 +1336,8 @@ Production behavior:
 
 ### 5.6 Privacy Rules
 
-This spec inherits `docs/specs/spec-data-topology-privacy-v0.md` and
-`docs/specs/spec-civic-sentiment.md`.
+This spec inherits `docs/specs/spec-data-topology-privacy-v0.md`,
+`docs/specs/spec-civic-sentiment.md`, and `docs/specs/spec-luma-service-v0.md`.
 
 Specific mesh rules:
 
@@ -1285,6 +1346,12 @@ Specific mesh rules:
 - No nullifier, raw proof, district hash plus person identifier, API key, OAuth
   token, or provider secret may be written to public `vh/*` namespaces.
 - Public aggregate objects must not be joinable back to person-level identity.
+- LUMA-owned write classes inherit envelope/audience/scheme/public-id
+  derivation requirements from `spec-luma-service-v0.md`. Mesh readiness
+  asserts transport behavior (durability, readback, convergence, conflict,
+  catch-up, partition heal, soak budgets) for those records; it does not
+  assert LUMA gate behavior. LUMA gate behavior is asserted by
+  `pnpm check:luma-production-profile` and the LUMA acceptance tests.
 
 ### 5.7 Documentation Rules
 
@@ -1303,6 +1370,347 @@ Run instructions belong in `docs/ops/`.
 Generated `.tmp` packets are the machine proof source for a run. Tracked docs
 must summarize those packets and link exact artifact paths; they must not invent
 release claims that are absent from the generated report.
+
+#### 5.7.1 Evidence-promotion scrub gate
+
+`.tmp` readiness packets are unredacted machine proof. Promoting any field from
+a `.tmp` packet into a tracked artifact under `docs/reports/evidence/` requires
+running a scrub step. The scrub step MUST remove or redact:
+
+- raw mesh paths (replace with `redactedPathHash` per
+  `spec-luma-service-v0.md` §16.1)
+- raw `SignedWriteEnvelope` JSON or any envelope field other than
+  `idempotencyKey` and `audience`
+- relay daemon tokens, daemon bearer credentials, peer-config private key
+  material, drill writer signing key material, safety-bulletin signing material
+- raw `principalNullifier`, raw `verifierId` (use `verifierIdHash`), raw
+  device public key, raw session token
+- unredacted relay URLs (allowed: scheme + redacted host hash)
+- evidence vector material, biometric features, raw camera/IMU buffers
+- private contact information, support correspondence, personal abuse evidence
+
+A new release gate `pnpm check:mesh-evidence-scrub` MUST run against any
+candidate promotion; the gate fails if any forbidden field is present. The
+scrub script is the only sanctioned promotion path; manual copy-paste into
+`docs/reports/evidence/` is forbidden.
+
+Opaque correlation identifiers (`run_id`, `write_id`, `trace_id`,
+`drill_run_id`) are explicitly permitted in promoted evidence.
+
+### 5.8 LUMA Coherence Rules
+
+This section names cross-spec rules between mesh readiness and
+`spec-luma-service-v0.md`. It exists so neither spec drifts into the other's
+scope and so a release operator can tell at a glance which gate covers which
+behavior.
+
+Boundary:
+
+- Mesh owns transport, relay topology, peer-config lifecycle, durability,
+  readback, conflict resolution, partition behavior, soak budgets, drill
+  harness, and the readiness report.
+- LUMA owns identity, sessions, envelopes, public-id derivation, audience
+  binding, policy decisions, verifier transparency, safety bulletin, and
+  forbidden-claims discipline.
+- Reads of public mesh records are not gated by LUMA `canPerform`; mesh
+  readiness drills MAY exercise read paths without a session (`spec-luma-
+  service-v0.md` §10).
+- LUMA-gated writes (records carrying `_writerKind === 'luma'`) are
+  release-claim-valid only when readback passes through the LUMA reader path
+  AND mesh transport drills pass for that write class.
+- The drill harness MUST NOT bypass LUMA envelope verification for product
+  write paths; if a drill needs to exercise a LUMA-gated write class without a
+  real session, it uses the test writer contract in §5.9 under the drill
+  namespace, not the product namespace.
+
+Schema-epoch invalidation:
+
+- A LUMA public-schema epoch change is any change to `_protocolVersion`
+  semantics, `_writerKind` enum membership, public-id derivation
+  (`forumAuthorId`, `identityDirectoryKey`, `voterId`, future domains),
+  `_authorScheme` membership, or any `vh/*` schema migration owned by LUMA.
+- After a LUMA epoch change, prior canonical mesh readiness reports for
+  affected write classes are invalidated as release-claim evidence. The
+  reports remain valid as historical transport evidence and may be cited as
+  such, but a new readiness run is required before the affected write classes
+  may be re-claimed for release.
+- The mesh readiness report records the LUMA dependency state under which it
+  was generated (`luma_dependency_status`, §5.13 report schema) so a future
+  reader can tell whether a green report is still claim-valid.
+
+Profile coupling:
+
+- Mesh readiness profiles (`local_production_topology`, `deployed_wss_topology`)
+  are orthogonal to LUMA profiles (`dev`, `e2e`, `public-beta`,
+  `production-attestation`). A `deployed_wss_topology` run may be either
+  `public-beta` or `production-attestation` and the gate set differs.
+- The mesh readiness report records `luma_profile` so a downstream reader
+  knows which LUMA gates were assumed.
+- The downstream production-app canary (`pnpm check:production-app-canary`)
+  MUST assert that the LUMA profile in scope matches the mesh report's
+  `luma_profile`, and that the LUMA profile gates (
+  `pnpm check:luma-production-profile`, forbidden-claims gate, telemetry
+  redaction red test, adversarial harness corpus where required) pass.
+
+LUMA profile disablement:
+
+- If `production-attestation` is disabled by a LUMA `SignedSafetyBulletin`
+  `profileDisablements` entry (`spec-luma-service-v0.md` §18.1), mesh transport
+  may still be healthy and the mesh readiness gate may still pass; mesh and
+  transport are not the failure source.
+- The downstream production-app canary MUST fail closed in this state with a
+  LUMA-named reason (`profile_forbidden` or `session_revoked_by_bulletin`),
+  not a mesh transport reason. The canary may not silently degrade to
+  `public-beta`.
+- The canary report records the bulletin id and the disablement reason.
+
+### 5.9 Mesh Drill Test Writer Contract
+
+The mesh drill harness needs to author canonical-shaped records (forum
+threads, comments, aggregate snapshots, etc.) without a real LUMA session and
+without participating in LUMA's product `_writerKind` contract. This section
+defines the only sanctioned way to do that.
+
+Drill record shape:
+
+```ts
+interface MeshDrillRecord<TPayload> {
+  _drillRunId: string;             // joins to readiness report run_id
+  _drillWriterKind: 'mesh-drill';  // not in LUMA PublicProtocolFields union
+  _drillSignerId: string;          // pinned drill-signer key id from
+                                   // packages/e2e/fixtures/mesh-drill/
+  _drillSignatureSuite: 'jcs-ed25519-sha256-v1';
+  _drillAuthorScheme: string;      // e.g. 'mesh-drill-forum-author-v1';
+                                   // namespaced under 'mesh-drill-*' to
+                                   // keep disjoint from LUMA §15.1 schemes
+  _drillPayloadDigest: string;     // hex(JCS-hash(payload)); enables
+                                   // payload verification independent of
+                                   // record envelope
+  _drillSignature: string;         // signed by mesh drill signer (see
+                                   // §5.9.2). Coverage rule: signature
+                                   // is over JCS(record minus
+                                   // _drillSignature) under the named
+                                   // _drillSignatureSuite.
+  _drillIssuedAt: number;
+  _drillExpiresAt: number;         // bounded TTL; expired drill records
+                                   // are GC-eligible
+  _drillProfile: 'local_production_topology' | 'deployed_wss_topology' | 'e2e';
+  payload: TPayload;
+}
+```
+
+Signature verification rules:
+
+- A drill reader MUST resolve `_drillSignerId` against the pinned drill
+  signer set checked into `packages/e2e/fixtures/mesh-drill/`. An
+  unrecognized signer id rejects the record with
+  `mesh-drill-signer-unknown` (a new health reason; see §5.3).
+- A drill reader MUST verify `_drillSignature` over JCS(record minus
+  `_drillSignature`) under the suite named in `_drillSignatureSuite`. The
+  only suite permitted in v0 is `jcs-ed25519-sha256-v1`; other suites
+  reject with `mesh-drill-signature-suite-unsupported`.
+- A drill reader MUST verify that `_drillPayloadDigest === hex(JCS-hash(
+  payload))` and reject with `mesh-drill-payload-digest-mismatch`
+  otherwise.
+- All comparisons (signer id membership, digest equality, signature
+  verification) MUST be constant-time per the discipline mirrored from
+  `spec-luma-service-v0.md` §6.4.
+- The drill `_drillAuthorScheme` namespace is `'mesh-drill-*'`. Drill
+  schemes are NOT registered in LUMA's linkability-domain registry §9.3
+  and MUST NOT collide with LUMA-side `_authorScheme` values (LUMA
+  §15.1).
+
+Namespace and visibility:
+
+- Drill records MUST live under `vh/__mesh_drills/<run_id>/...`. No drill
+  record may appear in `vh/forum/*`, `vh/aggregates/*`, `vh/news/*`,
+  `vh/topics/*`, `vh/civic/*`, `vh/discovery/*`, or `vh/directory/*`.
+- The mesh drill namespace is added to the data-topology spec's allowed
+  public namespace list under the explicit profile-scoped rule (see
+  `spec-data-topology-privacy-v0.md` §2 and §8).
+- Product readers (`apps/web-pwa/src/store/{news,forum,topics,aggregates,
+  directory,civic}/**`) MUST NOT subscribe to `vh/__mesh_drills/*` and MUST
+  reject any drill record encountered through a product read path.
+- Test-profile readers under `packages/e2e/src/mesh/**` MAY subscribe to
+  `vh/__mesh_drills/*`.
+
+Profile scope:
+
+- Drill records are valid only in `local_production_topology` and `e2e` mesh
+  profiles. `deployed_wss_topology` MAY accept drill records only when the
+  LUMA profile is `dev` or `e2e`; production LUMA profiles MUST reject them
+  at relay level via origin/authority rules.
+- `_drillExpiresAt - _drillIssuedAt` MUST NOT exceed 7 days. Longer retention
+  requires a documented retained-object reason in the readiness report's
+  `cleanup.retained_objects` accounting and still cannot make drill data visible
+  to product readers.
+- Drill records carry their own `_drillExpiresAt`; relays running in
+  `production-attestation` LUMA profile MUST refuse new drill writes
+  regardless of namespace.
+
+Production reader rejection:
+
+- Any product reader that observes `_drillWriterKind` set on a record outside
+  `vh/__mesh_drills/*` MUST reject the record and log
+  `mesh-drill-record-out-of-namespace` (a new health reason; see §5.3).
+- Any product reader that observes a record under `vh/__mesh_drills/*` MUST
+  drop it without surfacing it to UI.
+
+LUMA enum is not widened:
+
+- `MeshDrillRecord._drillWriterKind` is intentionally a separate field from
+  LUMA's `PublicProtocolFields._writerKind`. The LUMA enum
+  (`'luma' | 'system' | 'legacy'`) is not extended by mesh.
+- A drill record does not carry `_writerKind`. A LUMA-shaped record never
+  carries `_drillWriterKind`. The two contracts are disjoint.
+
+#### 5.9.1 Drill record cleanup
+
+- Disposable drill data MUST be tombstoned or compacted by the run cleanup
+  step under §5.2.
+- Retained drill data MUST have a documented retention reason in the report,
+  bounded by run count or TTL, and excluded from production product reads.
+- A relay operator MAY compact `vh/__mesh_drills/*` at any time without
+  notice; drill harnesses MUST treat drill artifacts as ephemeral.
+
+#### 5.9.2 Drill signer key
+
+- The mesh drill signer key is owned by the mesh harness and managed under
+  `spec-signed-pin-custody-v0.md`.
+- The drill signer key MUST NOT sign anything other than drill records under
+  `vh/__mesh_drills/*`. Reuse for product writes, peer-config signing,
+  verifier-manifest signing, or safety-bulletin signing is a hard topology
+  violation.
+- Drill signer key compromise is a P2 incident: rotate the key, invalidate
+  past drill records via TTL, regenerate test fixtures. It is not a P0/P1
+  because no product data is at risk.
+
+### 5.10 State-Resolution Matrix
+
+"Tombstone wins" is correct for some classes and wrong for others. Forum
+moderation has hide/restore latest-state semantics; aggregate snapshots
+have supersession by version window; news reports have monotonic status
+transitions; aggregate voter nodes have last-write-wins on a deterministic
+id. This matrix names the actual resolution rule for each class and is the
+authority for §4 Slice 7C drill assertions and the `state_resolution_drills`
+report rows in §4 Slice 11.
+
+The `state_rule` column maps directly to the `state_resolution_drills.
+state_rule` enum in the report schema; a class's drill row MUST use the
+named rule.
+
+| Write class | `state_rule` | Resolution semantics | Drill assertion |
+|---|---|---|---|
+| health probe | `tombstone-wins` | tombstone marker wins permanently | After relay restart or partition heal, the tombstone marker is observed on every relay; no resurrection of the original probe payload. |
+| directory entry (LUMA) | `best-effort-tombstone` | best-effort tombstone (`spec-luma-service-v0.md` §13.2, §13.3) | After LUMA Reset Identity, the directory entry MAY take time to tombstone on every relay; mesh asserts no resurrection of the prior entry once the tombstone has propagated, but does not assert tombstone propagation latency stricter than the LUMA spec allows. |
+| forum comment | `hide-restore-latest` | latest `comment_moderations/latest/<comment_id>/` record wins (`spec-hermes-forum-v0.md` §2.3.2) | After relay restart or partition heal, the latest moderation record wins. A `hidden` record continues to suppress original markdown and reply/vote controls; a later `restored` record re-renders the comment. No older moderation state wins via clock skew. |
+| forum comment moderation record | `tombstone-wins` (within the moderation namespace) | latest moderation record per `(thread_id, comment_id)` is canonical | Latest moderation record observed on every relay after restart/heal; older moderation states never win. |
+| forum thread | `no-deletion-historical-artifact` | no native deletion (`spec-luma-service-v0.md` §13.3) | Mesh asserts no resurrection of moderation records and no duplication of the thread head. Reset Identity does not delete prior threads. |
+| aggregate snapshot | `monotonic-supersession-version` | supersession by `(synthesisId, epoch, source-window)` monotonicity | Newer snapshot wins. Stale recomputation cannot regress aggregate counts. Drill MUST inject a stale recomputation and assert the older value never overwrites the newer. |
+| aggregate voter node | `last-write-wins-deterministic-id` | deterministic id per `(topic_id, synthesis_id, epoch, voterId, point_id)`; final stance overwrites prior | One final voter row per deterministic key. Toggling stance overwrites within the same key; it does not produce a tombstone. |
+| story / synthesis publication | `monotonic-supersession-epoch` | supersession by `(topic_id, epoch, synthesis_id)` monotonicity | Newer epoch wins. No resurrection of an older synthesis after relay restart or partition heal. |
+| news report record | `monotonic-status-transition` | append-only audit; status moves `pending → reviewed → actioned` | Status transitions are monotonic per `report_id`; no regression to an earlier status. |
+| topic engagement summary | `monotonic-supersession-version` | supersession by latest actor contribution | Replayed actor update does not double-count. Summary does not regress below the latest actor state. |
+
+A new health reason `state-resolution-violation` is reserved for the case
+where a drill observes any of the above winning rules being broken. Adding
+this reason follows §5.3. The drill row in `state_resolution_drills` MUST
+populate `violation_reason` with a short string naming which rule was
+broken (e.g. `'observed older snapshot version overwriting newer'`,
+`'hidden comment re-rendered after relay restart'`,
+`'directory entry resurrected past tombstone propagation'`).
+
+The `state_resolution_drills` report rows (§4 Slice 11) are the canonical
+machine record. Each row carries `expected_winner_write_id`,
+`observed_winner_write_id`, `competing_write_ids`, the `state_rule` from
+this matrix, and the `violation_reason` (null when `status === 'pass'`).
+
+### 5.11 Protocol/Schema Reject Matrix
+
+LUMA mandates `_protocolVersion` and `_writerKind` on every public schema
+(`spec-luma-service-v0.md` §15). HERMES carries its own record-level
+`schemaVersion` (e.g. `'hermes-thread-v0'`, `'hermes-comment-v1'`). Mesh
+adapters need explicit behavior for every combination so quarantine is
+deterministic.
+
+| `_protocolVersion` | `schemaVersion` | `_authorScheme` | Reader behavior |
+|---|---|---|---|
+| known, ≤ reader max | known, supported | registered, supported | Accept. Validate envelope per `_writerKind` rule. |
+| known, ≤ reader max | known, supported | registered, unsupported by adapter | Quarantine via per-scheme migration adapter. Do not surface to product UI. Emit `mesh-author-scheme-unsupported`. |
+| known, ≤ reader max | unknown to reader | n/a | Quarantine via legacy/migration adapter for that record class. Emit `mesh-schema-version-unknown`. |
+| > reader max (future) | * | * | Refuse. Emit `protocol_version_unsupported` (LUMA `PolicyReason`). Do not quarantine: a future-version record cannot be safely migrated by a stale reader. |
+| missing `_protocolVersion` | * | * | Treat as `_writerKind === 'legacy'` and route through the migration adapter for that record type. Acceptance bounded by the four-layer migration model (`spec-data-topology-privacy-v0.md` §2; `spec-luma-service-v0.md` §15). |
+| present | present | missing on a record class that requires it | Quarantine. Emit `mesh-author-scheme-missing`. |
+
+Drill rules:
+
+- Slice 6A drills cover the first three rows under `vh/__mesh_drills/*` with
+  drill records (drill records use `_drillAuthorScheme`, not `_authorScheme`,
+  so the LUMA-side rules apply only when LUMA-shaped fixtures are exercised
+  post-M0.B).
+- Slice 7+ drills MUST cover the future-version reject row by writing a
+  fixture with `_protocolVersion` deliberately ahead of the reader's maximum.
+- The legacy row is exercised by replaying a fixture from the existing
+  `MESH_HARDENING_PR2_2026-05-02.md` corpus.
+
+Reader-side reject reasons enumerate into the mesh report `health.degradation_
+reasons_seen` so the readiness report shows which classes were exercised.
+
+### 5.12 Clock Discipline Boundary
+
+Two distinct clocks participate in mesh drills. They MUST stay distinct.
+
+Layer-specific outcomes:
+
+| Failure type | Clock surface | Expected outcome |
+|---|---|---|
+| LUMA session expiry | `Clock` interface (`spec-luma-service-v0.md` §12.2) | Session transitions to `degraded`; user re-attests. No mesh transport reason fires. |
+| `SignedWriteEnvelope.issuedAt` skew vs server | `Clock` interface | Reader rejects with `assurance_degraded` or `signature_suite_unsupported` (LUMA `PolicyReason`). No mesh transport reason. |
+| Relay user-signature timestamp window failure | OS-level clock on the relay or browser | Relay rejects with named auth failure; mesh maps to `clock-skew-detected` health reason. |
+| Peer-handshake timestamp window failure | OS-level clock on participating relays | Peer-config rejected with auth failure; mesh maps to `clock-skew-detected`. |
+| Signed peer-config validity window | OS-level clock on browser | Peer config rejected; browser fails closed in strict mode; mesh maps to `peer-quorum-missing` only if no valid peer config remains. |
+| LWW divergence under skew | OS-level clock on writers | Drill MUST assert no LWW divergence on deterministic-id records (votes, comments, aggregate snapshots) and MUST classify any divergence as a regression, not as expected behavior. |
+
+Drill harness rules:
+
+- Session/envelope skew tests MUST use the LUMA injectable `Clock` and not
+  mutate the OS clock. This makes the test reproducible and non-flaky on CI.
+- Peer-config and relay-auth timestamp tests MUST use the real OS clock or a
+  per-process clock-shim (no LUMA `Clock` indirection) because the validity
+  check happens on the actual signature payload.
+- The drill report records which clock layer was skewed (`clock_skew.skewed_
+  layer`), not just which actor (`browser`/`relay`/`daemon`).
+- A drill that conflates the two layers (e.g. drives session expiry by
+  mutating the OS clock) is a test-quality regression and the drill report
+  MUST mark the run `review_required`.
+
+### 5.13 Coherence Report Fields
+
+The mesh readiness report (§4 Slice 11) carries cross-spec coherence fields
+in addition to the per-class SLO and drill fields. These fields are required
+for any report that claims `release_ready`:
+
+- `schema_epoch` — string label naming the LUMA schema epoch under which
+  the run was generated. Allowed values: `'pre_luma_m0b'`, `'post_luma_m0b'`,
+  or a future epoch tag agreed under the LUMA roadmap.
+- `luma_profile` — `'public-beta' | 'production-attestation' | 'none'`.
+  `'none'` is allowed only for `local_production_topology` runs that exercise
+  no LUMA-gated write classes.
+- `luma_dependency_status` — object naming the LUMA milestone state assumed
+  by the run (e.g. `{ m0a: 'landed', m0b: 'landed', m0c: 'landed', m0d:
+  'in-progress', m1a: 'pending' }`). The reader uses this to decide whether
+  a green report is still claim-valid after subsequent LUMA work.
+- `drill_writer_kind_by_class` — object mapping `write_class` to the writer
+  contract used by the drill. Allowed values per class: `'mesh-drill'`
+  (drill writer contract, §5.9), `'luma'` (real `SignedWriteEnvelope`),
+  `'system'` (system-writer key, defined in `spec-data-topology-privacy-v0.
+  md` §8).
+- `release_claims.invalidated_by_luma_epoch_change` — boolean. Set true by
+  the report consumer when the report's `schema_epoch` is older than the
+  current LUMA epoch.
+
+Schema additions to `MeshProductionReadinessReport` are listed in §4 Slice
+11.
 
 ## 6. Required Commands
 
@@ -1328,13 +1736,18 @@ Required new commands:
 
 - `pnpm test:mesh:topology-drills`
 - `pnpm test:mesh:disconnect-drills`
-- `pnpm test:mesh:tombstone-drills`
+- `pnpm test:mesh:state-resolution-drills`
+  - `pnpm test:mesh:tombstone-drills` may remain as a compatibility alias, but
+    the canonical command covers every §5.10 state-resolution rule, not only
+    tombstones.
 - `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
 - `pnpm test:mesh:partition-drills`
 - `pnpm test:mesh:soak`
 - `pnpm check:mesh:production-readiness`
 - `pnpm check:production-app-canary`
+- `pnpm check:mesh-evidence-scrub` (gates promotion of `.tmp` packets to
+  `docs/reports/evidence/`; see §5.7.1)
 
 ## 7. Release Claim Boundary
 
@@ -1351,34 +1764,49 @@ Not allowed yet:
 - "Peer restart and network partition recovery are proven."
 - "Production users can rely on distributed quorum behavior."
 
-Allowed after Slice 6A and Slice 7A pass:
+Allowed after Slice 6A and Slice 7A pass (under `schema_epoch:
+pre_luma_m0b`):
 
 - "The mesh has a local production-shaped three-relay topology harness with
-  signed peer config and a passing one-peer-kill quorum write/readback drill."
+  signed peer config and a passing one-peer-kill quorum write/readback drill,
+  exercised against synthetic drill records under `vh/__mesh_drills/*` (mesh
+  drill test writer contract, §5.9)."
 - "Relay fan-out remains a time-boxed proof path; the architecture commitment is
-  still pending restarted-relay readback and tombstone resurrection evidence."
+  still pending restarted-relay readback and state-resolution evidence."
+- "Mesh transport behavior for LUMA-gated write classes is not yet claimed;
+  canonical drills require the LUMA M0.B schema epoch to land first."
 
 Still not allowed after Slice 6A and Slice 7A:
 
 - "Restarted peers catch up automatically."
-- "Tombstones, moderation, and removals survive relay restart or partition heal."
+- "State-resolution rules survive relay restart or partition heal."
 - "The production WSS topology is deployed."
 - "The mesh has production-ready multi-relay failover."
 - "The app is ready for a test group."
 
-Allowed after Slices 6B through 12 pass:
+Allowed after Slices 6B through 12 pass (under `schema_epoch:
+post_luma_m0b` with all LUMA-gated write classes drilled through the LUMA
+reader path):
 
 - "The mesh has a production WSS three-relay topology with signed peer config,
   authenticated relay fallbacks, named health degradation, peer-failure and
   partition drills, websocket duplicate-write drills, and a passing 30-minute
   rolling restart soak."
+- "LUMA-gated write classes (forum thread/comment, vote/aggregate, directory
+  publish, news report) have transport readiness under the current LUMA
+  schema epoch."
 
 Still not allowed after mesh readiness alone:
 
 - "The full app is test-group ready."
+- "LUMA gate behavior is verified by mesh." (LUMA gate verification is owned
+  by the LUMA acceptance tests and `pnpm check:luma-production-profile`.)
+- "Mesh readiness from a prior LUMA schema epoch covers the current epoch."
+  (See §5.8 schema-epoch invalidation.)
 
-That claim requires the downstream production-app canary after
-`pnpm check:mesh:production-readiness`.
+The full-app test-group claim requires the downstream production-app canary
+after `pnpm check:mesh:production-readiness`. The canary asserts LUMA profile
+match and LUMA profile gates per §5.8.
 
 ## 8. Non-Goals For This Series
 
@@ -1404,16 +1832,23 @@ The next implementation slice is Slice 6A plus Slice 7A:
    including `configId`, `issuedAt`, and `expiresAt`.
 4. Add `run_id`, `write_id`, and `trace_id` propagation in the drill harness
    and report skeleton.
-5. Write all drill data under `vh/__mesh_drills/<run_id>/...` and add cleanup
-   accounting.
-6. Add `pnpm test:mesh:topology-drills`.
-7. Prove one-peer-kill write/readback behavior through the remaining quorum.
-8. Record direct per-relay readback evidence, even if restarted-peer catch-up is
+5. Write all drill data under `vh/__mesh_drills/<run_id>/...` using the mesh
+   drill test writer contract (§5.9). Drill records carry
+   `_drillWriterKind: 'mesh-drill'` and `_drillSignature` only; they do not
+   carry LUMA `_writerKind` or `SignedWriteEnvelope`.
+6. Add cleanup accounting for the drill namespace (§5.9.1).
+7. Add `pnpm test:mesh:topology-drills`.
+8. Prove one-peer-kill write/readback behavior through the remaining quorum.
+9. Record direct per-relay readback evidence, even if restarted-peer catch-up is
    not claimed yet.
-9. Stub the tombstone-resurrection and clock-skew drill report sections as
-   `skipped` with explicit reasons until Slice 7C/Slice 9 implement them; do not
-   allow those skipped sections to produce `release_ready`.
-10. Record the result in a new ops runbook and readiness report skeleton.
+10. Stub the state-resolution, clock-skew, and LUMA-gated-write report sections
+    as `skipped` with explicit reasons until Slice 7C/Slice 9 and LUMA M0.B
+    implement them; do not allow those skipped sections to produce
+    `release_ready`.
+11. Set `schema_epoch: 'pre_luma_m0b'`, `luma_profile: 'none'`, and record
+    `luma_dependency_status` reflecting the actual LUMA milestone state at
+    the time of the run (§5.13).
+12. Record the result in a new ops runbook and readiness report skeleton.
 
 This is the narrowest next step because it tests the only major unproven claim
 left after PR #564: real distributed topology behavior beyond the local
