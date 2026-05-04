@@ -1036,12 +1036,19 @@ interface MeshProductionReadinessReport {
     competing_write_ids: string[];
     down_relay_id: string | null;
     violation_reason: string | null;
-    status: 'pass' | 'fail';
+    status: 'pass' | 'fail' | 'skipped';
+    reason?: string;
   }>;
   conflict_fixtures: Array<{
     fixture: string;
     trace_id: string;
-    status: 'pass' | 'fail';
+    status: 'pass' | 'fail' | 'skipped';
+    reason?: string;
+  }>;
+  luma_gated_write_drills: Array<{
+    write_class: string;
+    trace_id: string;
+    status: 'pass' | 'fail' | 'skipped';
     reason?: string;
   }>;
   clock_skew: {
