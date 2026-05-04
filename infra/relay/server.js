@@ -77,6 +77,26 @@ function csvEnv(name) {
     .filter(Boolean);
 }
 
+function normalizeGunPeer(peer) {
+  const trimmed = String(peer || '').trim();
+  if (!trimmed) return null;
+  return trimmed.endsWith('/gun') ? trimmed : `${trimmed.replace(/\/+$/, '')}/gun`;
+}
+
+function jsonOrCsvEnv(name) {
+  const raw = String(process.env[name] || '').trim();
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.map(normalizeGunPeer).filter(Boolean);
+    }
+  } catch {
+    // fall through to comma-separated parsing
+  }
+  return raw.split(',').map(normalizeGunPeer).filter(Boolean);
+}
+
 const authRequired = boolEnv('VH_RELAY_AUTH_REQUIRED', process.env.NODE_ENV === 'production');
 const daemonToken = String(process.env.VH_RELAY_DAEMON_TOKEN || '');
 const userFallbackToken = String(process.env.VH_RELAY_USER_FALLBACK_TOKEN || '');
@@ -89,6 +109,18 @@ const maxActiveConnections = numberEnv('VH_RELAY_MAX_ACTIVE_CONNECTIONS', 5_000)
 const userSignatureMaxSkewMs = numberEnv('VH_RELAY_USER_SIGNATURE_MAX_SKEW_MS', 5 * 60_000);
 const userNonceTtlMs = numberEnv('VH_RELAY_USER_NONCE_TTL_MS', 10 * 60_000);
 const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS', 0);
+const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
+const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
+const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
+const relayPeerAuthMode = String(process.env.VH_RELAY_PEER_AUTH_MODE || 'none').trim() || 'none';
+if (!relayPeerAuthModes.has(relayPeerAuthMode)) {
+  throw new Error(`Unsupported VH_RELAY_PEER_AUTH_MODE: ${relayPeerAuthMode}`);
+}
+const relayPeerBearerToken = String(process.env.VH_RELAY_PEER_TOKEN || '');
+const relayPeerAllowlist = csvEnv('VH_RELAY_PEER_ALLOWLIST');
+const effectiveRelayPeerAllowlist = relayPeerAllowlist.length > 0
+  ? relayPeerAllowlist
+  : ['loopback', 'private'];
 
 const metrics = {
   startedAt: Date.now(),
@@ -166,7 +198,7 @@ function applyCors(req, res) {
   }
   res.setHeader(
     'Access-Control-Allow-Headers',
-    'content-type, authorization, x-vh-relay-token, x-vh-relay-device-pub, x-vh-relay-signature, x-vh-relay-nonce, x-vh-relay-timestamp, x-vh-device-pub, x-vh-signature, x-vh-nonce, x-vh-timestamp'
+    'content-type, authorization, x-vh-relay-token, x-vh-relay-peer-token, x-vh-relay-device-pub, x-vh-relay-signature, x-vh-relay-nonce, x-vh-relay-timestamp, x-vh-device-pub, x-vh-signature, x-vh-nonce, x-vh-timestamp'
   );
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
 }
@@ -206,6 +238,11 @@ function relayToken(req) {
   return String(req.headers['x-vh-relay-token'] || '').trim();
 }
 
+function relayPeerRequestToken(req) {
+  const header = bearerToken(req);
+  return header || String(req.headers['x-vh-relay-peer-token'] || '').trim();
+}
+
 function readHeader(req, names) {
   for (const name of names) {
     const value = req.headers[name];
@@ -237,6 +274,65 @@ function rememberUserNonce(devicePub, nonce, now = Date.now()) {
   }
   seenUserNonces.set(key, now + userNonceTtlMs);
   return true;
+}
+
+function normalizeRemoteAddress(address) {
+  const value = String(address || '').trim().toLowerCase();
+  return value.startsWith('::ffff:') ? value.slice('::ffff:'.length) : value;
+}
+
+function isLoopbackAddress(address) {
+  const normalized = normalizeRemoteAddress(address);
+  return normalized === '127.0.0.1' || normalized === '::1' || normalized === 'localhost';
+}
+
+function isPrivateAddress(address) {
+  const normalized = normalizeRemoteAddress(address);
+  if (isLoopbackAddress(normalized)) return true;
+  if (normalized.startsWith('10.')) return true;
+  if (normalized.startsWith('192.168.')) return true;
+  const match = normalized.match(/^172\.(\d{1,2})\./);
+  if (match) {
+    const octet = Number(match[1]);
+    return octet >= 16 && octet <= 31;
+  }
+  return normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:');
+}
+
+function relayPeerAllowlistMatches(address) {
+  const normalized = normalizeRemoteAddress(address);
+  return effectiveRelayPeerAllowlist.some((entry) => {
+    const rule = String(entry || '').trim().toLowerCase();
+    if (!rule) return false;
+    if (rule === '*') return true;
+    if (['loopback', 'localhost'].includes(rule)) return isLoopbackAddress(normalized);
+    if (['private', 'private_network', 'private-network'].includes(rule)) {
+      return isPrivateAddress(normalized);
+    }
+    return normalizeRemoteAddress(rule) === normalized;
+  });
+}
+
+function relayPeerAuthDecision(req) {
+  if (relayPeerAuthMode === 'none') {
+    return { allowed: true, reason: 'relay-peer-auth-disabled' };
+  }
+  if (relayPeerAuthMode === 'peer_bearer_token') {
+    if (!relayPeerBearerToken) {
+      return { allowed: false, reason: 'relay-peer-token-not-configured' };
+    }
+    return secureEqual(relayPeerRequestToken(req), relayPeerBearerToken)
+      ? { allowed: true, reason: 'relay-peer-token-valid' }
+      : { allowed: false, reason: 'relay-peer-token-required' };
+  }
+  const remoteAddress = req.socket?.remoteAddress || '';
+  return relayPeerAllowlistMatches(remoteAddress)
+    ? { allowed: true, reason: 'relay-peer-private-network-allowed', remote_address: normalizeRemoteAddress(remoteAddress) }
+    : { allowed: false, reason: 'relay-peer-private-network-rejected', remote_address: normalizeRemoteAddress(remoteAddress) };
+}
+
+function isGunPeerSocketPath(pathname) {
+  return pathname === '/gun' || pathname.startsWith('/gun/');
 }
 
 async function verifyUserSignature(req, pathname, body) {
@@ -984,9 +1080,13 @@ const server = http.createServer((req, res) => {
     sendJson(res, 200, {
       ok: true,
       service: 'vh-relay',
+      relay_id: relayId,
       uptime_ms: Date.now() - metrics.startedAt,
       radisk_enabled: radiskEnabled,
       auth_required: authRequired,
+      relay_peer_count: relayPeers.length,
+      relay_peers_configured: relayPeers.length > 0,
+      relay_peer_auth_mode: relayPeerAuthMode,
       active_connections: metrics.activeConnections,
     });
     return;
@@ -997,10 +1097,37 @@ const server = http.createServer((req, res) => {
     sendJson(res, ready ? 200 : 503, {
       ok: ready,
       service: 'vh-relay',
+      relay_id: relayId,
       auth_required: authRequired,
       daemon_auth_configured: Boolean(daemonToken),
       user_signature_auth_available: true,
       radisk_enabled: radiskEnabled,
+      relay_peer_count: relayPeers.length,
+      relay_peers_configured: relayPeers.length > 0,
+      relay_peer_auth_mode: relayPeerAuthMode,
+      relay_peer_auth_configured: relayPeerAuthMode !== 'none',
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/vh/relay-peer/authz') {
+    const decision = relayPeerAuthDecision(req);
+    if (!decision.allowed) {
+      metrics.authRejects += 1;
+      logEvent('warn', 'relay_peer_auth_rejected', {
+        relay_id: relayId,
+        mode: relayPeerAuthMode,
+        reason: decision.reason,
+        remote_address: decision.remote_address || null,
+      });
+    }
+    sendJson(res, decision.allowed ? 200 : 403, {
+      ok: decision.allowed,
+      service: 'vh-relay',
+      relay_id: relayId,
+      relay_peer_auth_mode: relayPeerAuthMode,
+      reason: decision.reason,
+      remote_address: decision.remote_address || null,
     });
     return;
   }
@@ -1079,7 +1206,7 @@ const gun = Gun({
   radisk: radiskEnabled,
   file: gunFile,
   axe: false,
-  peers: [] // explicit empty list to keep ws adapter happy
+  peers: relayPeers
 });
 
 if (boolEnv('VH_RELAY_COMPACT_HEALTH_PROBES_ON_START', false)) {
@@ -1129,6 +1256,8 @@ server.on('connection', (socket) => {
 });
 
 server.prependListener('upgrade', (req, socket) => {
+  const parsedUrl = new URL(req.url || '/', 'http://vh-relay.local');
+  const pathname = parsedUrl.pathname;
   if (!isOriginAllowed(req)) {
     metrics.originRejects += 1;
     metrics.wsUpgradeRejects += 1;
@@ -1140,10 +1269,31 @@ server.prependListener('upgrade', (req, socket) => {
     });
     socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
     socket.destroy();
+    return;
+  }
+
+  if (isGunPeerSocketPath(pathname)) {
+    const decision = relayPeerAuthDecision(req);
+    if (!decision.allowed) {
+      metrics.authRejects += 1;
+      metrics.wsUpgradeRejects += 1;
+      metrics.droppedConnections += 1;
+      logEvent('warn', 'ws_upgrade_rejected', {
+        relay_id: relayId,
+        reason: decision.reason,
+        mode: relayPeerAuthMode,
+        path: req.url || null,
+        remote_address: decision.remote_address || null,
+      });
+      socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+    }
   }
 });
 
 server.listen(port, host, () => {
   // eslint-disable-next-line no-console
-  console.log(`[vh:relay] Gun relay listening on ${host}:${port}`);
+  console.log(
+    `[vh:relay] Gun relay listening on ${host}:${port} relay_id=${relayId} peer_count=${relayPeers.length} peer_auth=${relayPeerAuthMode}`
+  );
 });

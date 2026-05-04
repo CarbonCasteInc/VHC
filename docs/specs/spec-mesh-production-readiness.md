@@ -1036,12 +1036,19 @@ interface MeshProductionReadinessReport {
     competing_write_ids: string[];
     down_relay_id: string | null;
     violation_reason: string | null;
-    status: 'pass' | 'fail';
+    status: 'pass' | 'fail' | 'skipped';
+    reason?: string;
   }>;
   conflict_fixtures: Array<{
     fixture: string;
     trace_id: string;
-    status: 'pass' | 'fail';
+    status: 'pass' | 'fail' | 'skipped';
+    reason?: string;
+  }>;
+  luma_gated_write_drills: Array<{
+    write_class: string;
+    trace_id: string;
+    status: 'pass' | 'fail' | 'skipped';
     reason?: string;
   }>;
   clock_skew: {
@@ -1307,6 +1314,11 @@ Clock-skew rule:
   bearer token, private-network allowlist, or signed peer handshake.
 - A relay-to-relay trust path must have a negative test proving unauthorized
   peers cannot join the production fan-out topology.
+- Any trust path implemented on the shared `/gun` WebSocket route must state
+  whether browser clients are also subject to that rule. Private-network
+  allowlists are valid for the local/private harness only unless production
+  WSS separates relay-peer sockets from browser client sockets or moves to a
+  browser-compatible signed peer handshake.
 - Production origin allowlists must not be `*`.
 - Production app builds must reject missing peer config.
 - Production app builds must reject localhost and private test peers unless a

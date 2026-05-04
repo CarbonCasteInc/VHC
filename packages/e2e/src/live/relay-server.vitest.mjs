@@ -5,9 +5,14 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const gunRequire = createRequire('/Users/bldt/Desktop/VHC/VHC/packages/gun-client/package.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '../../../..');
+const relayServerPath = path.join(repoRoot, 'infra/relay/server.js');
+const gunRequire = createRequire(path.join(repoRoot, 'packages/gun-client/package.json'));
 const SEA = gunRequire('gun/sea');
 
 function findFreePort() {
@@ -79,6 +84,40 @@ function requestJson(url, { method = 'GET', headers = {}, body = undefined } = {
   });
 }
 
+function websocketUpgradeStatus(port, pathname = '/gun') {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect({ host: '127.0.0.1', port }, () => {
+      socket.write(
+        [
+          `GET ${pathname} HTTP/1.1`,
+          `Host: 127.0.0.1:${port}`,
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          'Sec-WebSocket-Version: 13',
+          'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==',
+          '',
+          '',
+        ].join('\r\n')
+      );
+    });
+    let raw = '';
+    socket.setEncoding('utf8');
+    socket.on('data', (chunk) => {
+      raw += chunk;
+      const match = raw.match(/^HTTP\/1\.1\s+(\d+)/);
+      if (match) {
+        socket.destroy();
+        resolve(Number(match[1]));
+      }
+    });
+    socket.on('error', reject);
+    socket.setTimeout(5_000, () => {
+      socket.destroy();
+      reject(new Error('websocket-upgrade-timeout'));
+    });
+  });
+}
+
 async function relaySignatureHeaders(pathname, body, pair) {
   const nonce = `nonce-${Date.now()}-${Math.random()}`;
   const timestamp = String(Date.now());
@@ -96,8 +135,8 @@ async function startRelay(children, tempDirs, env = {}) {
   const port = await findFreePort();
   const gunDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-test-'));
   tempDirs.add(gunDir);
-  const child = spawn('node', ['/Users/bldt/Desktop/VHC/VHC/infra/relay/server.js'], {
-    cwd: '/Users/bldt/Desktop/VHC/VHC',
+  const child = spawn(process.execPath, [relayServerPath], {
+    cwd: repoRoot,
     env: {
       ...process.env,
       GUN_HOST: '127.0.0.1',
@@ -186,6 +225,51 @@ describe('infra relay server', () => {
     expect(metrics.body).toContain('vh_relay_http_requests_total');
     expect(metrics.body).toContain('vh_relay_active_connections');
     expect(metrics.body).toContain('vh_relay_radata_bytes');
+  });
+
+  it('exposes explicit relay topology metadata when relay peers are configured', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_ID: 'relay-topology-test',
+      VH_RELAY_PEERS: JSON.stringify(['http://127.0.0.1:7788/gun', 'http://127.0.0.1:7789/gun']),
+      VH_RELAY_PEER_AUTH_MODE: 'private_network_allowlist',
+      VH_RELAY_PEER_ALLOWLIST: 'loopback',
+    });
+
+    await expect(requestJson(`http://127.0.0.1:${port}/healthz`)).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        relay_id: 'relay-topology-test',
+        relay_peer_count: 2,
+        relay_peers_configured: true,
+        relay_peer_auth_mode: 'private_network_allowlist',
+      }),
+    });
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/relay-peer/authz`)).resolves.toMatchObject({
+      statusCode: 200,
+      body: expect.objectContaining({
+        ok: true,
+        relay_id: 'relay-topology-test',
+        reason: 'relay-peer-private-network-allowed',
+      }),
+    });
+  });
+
+  it('rejects unauthorized relay peer websocket upgrades without weakening origin checks', async () => {
+    const { port } = await startRelay(children, tempDirs, {
+      VH_RELAY_ID: 'relay-peer-auth-test',
+      VH_RELAY_PEER_AUTH_MODE: 'private_network_allowlist',
+      VH_RELAY_PEER_ALLOWLIST: '10.255.255.255',
+    });
+
+    await expect(websocketUpgradeStatus(port)).resolves.toBe(403);
+    await expect(requestJson(`http://127.0.0.1:${port}/vh/relay-peer/authz`)).resolves.toMatchObject({
+      statusCode: 403,
+      body: expect.objectContaining({
+        ok: false,
+        reason: 'relay-peer-private-network-rejected',
+      }),
+    });
   });
 
   it('rejects unauthenticated user graph injection and accepts signed user writes when auth is required', async () => {

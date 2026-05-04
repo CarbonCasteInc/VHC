@@ -24,6 +24,7 @@
     "test:live:daemon-feed:semantic-soak": "node ./src/live/daemon-feed-semantic-soak.mjs",
     "test:live:daemon-feed:semantic-soak:readiness": "node ./src/live/daemon-feed-semantic-soak-readiness.mjs",
     "test:mesh:browser-canary": "playwright test --config=playwright.mesh-canary.config.ts src/mesh/browser-mesh-canary.spec.ts",
+    "test:mesh:topology-drills": "node ./src/mesh/production-topology-drills.mjs",
     "report:live:daemon-feed:fixture-candidate-intake": "node ./src/live/daemon-feed-fixture-candidate-intake.mjs",
     "report:offline-cluster-replay": "node ./src/live/daemon-feed-semantic-soak-offline-replay-report.mjs",
     "report:live:daemon-feed:production-readiness": "node ./src/live/storycluster-production-readiness.mjs",
