@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-26
-> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+> Last Reviewed: 2026-05-04
+> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md, docs/specs/spec-luma-service-v0.md, docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-signed-pin-custody-v0.md
 
 
-Version: 0.5
+Version: 0.6
 Status: Canonical (V2-first)
 
 Defines data placement, mesh path conventions, and privacy constraints for Season 0.
@@ -54,6 +54,7 @@ Allowed public V2 namespaces:
 - `vh/civic/reps/*`
 - `vh/forum/*`
 - `vh/aggregates/topics/*/syntheses/*/epochs/*/points/*` (PointAggregateSnapshotV1 delivery)
+- `vh/__mesh_drills/<run_id>/*` (test-only; profile-scoped per §7.1; rejected by product readers)
 
 Disallowed in public namespaces:
 
@@ -92,9 +93,11 @@ records.
    - identity key material
 2. Event-level sentiment is never plaintext on public mesh.
 3. No public object may contain both `district_hash` and a person-level identifier.
-4. Docs draft content is encrypted at rest and in transit outside device boundaries.
-5. VoteIntentRecord objects (containing voter_id and proof_ref) are sensitive and MUST NOT appear on public mesh paths.
-6. VoteAdmissionReceipt is internal client state only.
+4. Non-aggregate public objects MUST NOT carry `district_hash` at all. Cohort
+   size is meaningful only for aggregate/dashboard allow-listed paths.
+5. Docs draft content is encrypted at rest and in transit outside device boundaries.
+6. VoteIntentRecord objects (containing voter_id and proof_ref) are sensitive and MUST NOT appear on public mesh paths.
+7. VoteAdmissionReceipt is internal client state only.
 
 ## 4. Linked-social storage rules
 
@@ -122,4 +125,145 @@ If encrypted outbox is used:
 1. Static lint: forbid public writes with sensitive keys (`token`, `nullifier`, `district_hash`+identifier pairs).
 2. Runtime tests: ensure public synthesis/news/discovery objects pass redaction checks.
 3. Contract tests: verify vault-only classes cannot resolve to `vh/*` public paths.
-4. Cohort threshold tests: block publication for undersized district cohorts.
+4. Cohort threshold tests: block publication for undersized district cohorts
+   on aggregate/dashboard allow-listed paths. Non-aggregate public writes
+   carrying `district_hash` reject regardless of declared `cohortSize`.
+5. Static lint: enforce the protocol/schema reject matrix in
+   `spec-mesh-production-readiness.md` §5.11 at the adapter boundary.
+6. Static lint: drill records (records carrying `_drillWriterKind`) outside
+   `vh/__mesh_drills/*` are hard-rejected.
+7. Static lint: system-writer records (records carrying
+   `_writerKind: 'system'`) outside the namespaces enumerated in §8 are
+   hard-rejected.
+
+### 7.1 Mesh drill test namespace rule
+
+`vh/__mesh_drills/<run_id>/*` is the only sanctioned test namespace for
+mesh drill writers. The full drill writer contract (record shape, signing
+key, profile scope, cleanup) lives in `spec-mesh-production-readiness.md`
+§5.9. The data-topology rules that apply here:
+
+- Allowed only in mesh profiles `local_production_topology` and `e2e`. A
+  `deployed_wss_topology` mesh profile MAY allow drill writes only when
+  the LUMA profile is `dev` or `e2e`. Production LUMA profiles
+  (`public-beta`, `production-attestation`) MUST reject drill writes at
+  the relay level via origin/auth rules.
+- Records under this namespace carry `_drillWriterKind: 'mesh-drill'` and
+  `_drillSignature` (signed by the mesh drill signer key per
+  `spec-signed-pin-custody-v0.md` §3). They do NOT carry LUMA
+  `_writerKind` and do NOT carry `SignedWriteEnvelope`.
+- Product readers under `apps/web-pwa/src/store/{news,forum,topics,
+  aggregates,directory,civic}/**` MUST NOT subscribe to this namespace.
+- Drill records have a bounded `_drillExpiresAt` TTL. Relay operators MAY
+  compact this namespace at any time.
+- Promotion of any drill record content into tracked evidence under
+  `docs/reports/evidence/` MUST pass
+  `pnpm check:mesh-evidence-scrub` per `spec-mesh-production-readiness.md`
+  §5.7.1.
+
+## 8. System writer key contract
+
+`spec-luma-service-v0.md` §15 introduces three values for `_writerKind`:
+`'luma'`, `'system'`, and `'legacy'`. This section defines the system
+writer key contract that `'system'` records depend on. LUMA-aware readers
+MUST accept records carrying `_writerKind: 'system'` only when a valid
+system-writer pin exists for the current schema epoch and the §8.4 reader
+rules pass. Records carrying `_writerKind: 'system'` but missing a valid pin
+for the current schema epoch, or failing any §8.4 validation step, MUST be
+rejected/quarantined and MUST NOT surface through product readers. Legacy
+migration applies only to records missing `_writerKind` or explicitly carrying
+`_writerKind: 'legacy'`.
+
+The system writer key custody is owned by the cross-spec key-custody
+manifest in `spec-signed-pin-custody-v0.md` §3. This section names the
+allowed namespaces, allowed record classes, and signature shape.
+
+### 8.1 Custody and key location
+
+- The system writer key is generated and held by daemon and operator
+  paths only. It MUST NOT be bundled into any browser build (tree-shake
+  assertion required).
+- The public component is pinned at build time per
+  `spec-signed-pin-custody-v0.md` §3 (initial pin location: a file under
+  `apps/web-pwa/src/luma/system-writer-pin.json`).
+- The private component is held by the daemon process and operator
+  signing utilities under the custody architecture documented by the LUMA
+  verifier runbook (M2.A); for Season 0 the private component is held by
+  the news daemon process only.
+
+### 8.2 Allowed record classes
+
+`_writerKind: 'system'` is allowed for these classes only:
+
+| Record class | Owner spec | Path |
+|---|---|---|
+| News bundle / story | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>` |
+| Storyline | `spec-news-aggregator-v0.md` | (per news spec) |
+| Synthesis latest pointer | `topic-synthesis-v2.md` | `vh/topics/<topicId>/latest` |
+| Topic synthesis epoch | `topic-synthesis-v2.md` | `vh/topics/<topicId>/epochs/<epoch>/synthesis` |
+| Topic digest | `topic-synthesis-v2.md` | `vh/topics/<topicId>/digests/<digestId>` |
+| Discovery indexes | `spec-topic-discovery-ranking-v0.md` | `vh/discovery/*` |
+| Civic representative directory snapshot | `spec-civic-action-kit-v0.md` | `vh/civic/reps/<jurisdictionVersion>` |
+
+Forbidden uses:
+
+- User-author writes (forum thread, forum comment, vote, directory
+  publish, news report intake, civic forwarding receipts) — those go
+  through `_writerKind: 'luma'` and `SignedWriteEnvelope`.
+- Drill records — those use `_drillWriterKind: 'mesh-drill'` under
+  `vh/__mesh_drills/*`.
+- Any path under `vh/__mesh_drills/*`, `vh/forum/*` thread/comment
+  payloads, `vh/aggregates/*` per-voter records, or `vh/directory/*`
+  identity entries.
+
+### 8.3 Signature shape
+
+System-writer records MUST carry:
+
+```ts
+interface SystemWriterFields {
+  _writerKind: 'system';
+  _protocolVersion: string;          // matches LUMA public schema epoch
+  _systemWriterId: string;           // pinned id corresponding to the
+                                     // build-time pin
+  _systemSignature: string;          // Ed25519 signature over
+                                     // JCS-canonical(record \\ _systemSignature)
+                                     // using the system writer private key
+  _systemIssuedAt: number;
+}
+```
+
+The signature suite is `jcs-ed25519-sha256-v1` per `spec-luma-service-v0.
+md` §6.2. Constant-time discipline applies (LUMA §6.4).
+
+### 8.4 Reader rules
+
+- A reader MUST verify `_systemSignature` against the pinned public key
+  identified by `_systemWriterId`. Verification failure rejects the
+  record.
+- A reader MUST refuse a `_writerKind: 'system'` record whose path is not
+  in §8.2.
+- A reader MUST NOT pass `_writerKind: 'system'` records through LUMA
+  `canPerform` (LUMA §15).
+- During the migration window, readers MAY also accept records on the
+  same paths under `_writerKind: 'legacy'` and route through the
+  migration adapter for that record class.
+
+### 8.5 Rotation and compromise
+
+Rotation cadence and compromise procedure are defined in
+`spec-signed-pin-custody-v0.md` §5 and §6.5. Severity is P1: a forged
+system-writer signature can publish forged news/synthesis state under the
+canonical path. Response includes daemon pause, key rotation, audit of
+recent writes, and a re-publication pass.
+
+### 8.6 Cross-spec reference fix
+
+`spec-luma-service-v0.md` §15 references this section as the canonical
+source for the system writer key contract. M0.B implementation creates the
+concrete system-writer pin for the active schema epoch. Until that pin exists,
+LUMA-aware readers MUST reject/quarantine records carrying
+`_writerKind: 'system'`. When the pin exists but §8.4 validation fails,
+readers MUST also reject/quarantine the record and emit
+`system-writer-validation-failed`. The legacy migration path is reserved for
+records missing `_writerKind` or explicitly carrying `_writerKind: 'legacy'`.
