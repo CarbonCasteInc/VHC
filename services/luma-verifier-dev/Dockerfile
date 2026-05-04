@@ -11,8 +11,8 @@ WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /app/target/release/attestation-verifier /usr/local/bin/attestation-verifier
+COPY --from=builder /app/target/release/luma-verifier-dev /usr/local/bin/luma-verifier-dev
 
 EXPOSE 3000
 
-CMD ["attestation-verifier"]
+CMD ["luma-verifier-dev"]

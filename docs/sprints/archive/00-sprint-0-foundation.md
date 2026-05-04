@@ -84,7 +84,7 @@
 - [x] **Spec:** Define `AttestationPayload` interface in `packages/types`.
 - [x] **Native (iOS):** Implement Capacitor plugin stub for `DCAppAttestService` (Swift).
 - [x] **Native (Android):** Implement Capacitor plugin stub for `KeyGenParameterSpec` (Kotlin).
-- [x] **Service:** Build `services/attestation-verifier` (Rust/WASM) to verify Apple/Google cert chains.
+- [x] **Service:** Build the LUMA DEV verifier stub now located at `services/luma-verifier-dev` (Rust).
 - [x] **Test:** Write `attestation.test.ts` using mock certificates.
 
 ### 2.3 LUMA Core & Networking
