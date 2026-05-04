@@ -53,6 +53,12 @@ The current drill proves:
 - relay-peer auth negative coverage for unauthorized WebSocket peer upgrades;
 - TTL and tombstone cleanup accounting for the drill namespace.
 
+`VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
+harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
+path in this server, public production WSS rollout still needs a trust path
+that either separates relay-peer sockets from browser client sockets or uses a
+client-compatible signed peer handshake.
+
 ## Review Boundary
 
 The report status remains `review_required` for Slice 6A/7A because this command

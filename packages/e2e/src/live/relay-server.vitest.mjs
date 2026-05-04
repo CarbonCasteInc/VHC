@@ -5,9 +5,14 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import net from 'node:net';
+import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 
-const gunRequire = createRequire('/Users/bldt/Desktop/VHC/VHC/packages/gun-client/package.json');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repoRoot = path.resolve(__dirname, '../../../..');
+const relayServerPath = path.join(repoRoot, 'infra/relay/server.js');
+const gunRequire = createRequire(path.join(repoRoot, 'packages/gun-client/package.json'));
 const SEA = gunRequire('gun/sea');
 
 function findFreePort() {
@@ -130,8 +135,8 @@ async function startRelay(children, tempDirs, env = {}) {
   const port = await findFreePort();
   const gunDir = mkdtempSync(path.join(os.tmpdir(), 'vh-relay-test-'));
   tempDirs.add(gunDir);
-  const child = spawn('node', ['/Users/bldt/Desktop/VHC/VHC/infra/relay/server.js'], {
-    cwd: '/Users/bldt/Desktop/VHC/VHC',
+  const child = spawn(process.execPath, [relayServerPath], {
+    cwd: repoRoot,
     env: {
       ...process.env,
       GUN_HOST: '127.0.0.1',

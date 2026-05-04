@@ -728,7 +728,14 @@ async function runTopologyDrill() {
     }
 
     const resourceSlos = await collectMetrics(relays);
-    const corePassed = initialPassed && degradedPassed && authNegative.status === 'pass';
+    const cleanupPassed = cleanupCount === 2;
+    const corePassed = initialPassed && degradedPassed && authNegative.status === 'pass' && cleanupPassed;
+    const gateFailureReasons = [
+      !initialPassed ? 'all-live relay readback failed' : null,
+      !degradedPassed ? 'one-peer-down quorum readback failed' : null,
+      authNegative.status !== 'pass' ? 'relay-peer auth negative test failed' : null,
+      !cleanupPassed ? 'drill namespace tombstones were not fully acknowledged' : null,
+    ].filter(Boolean);
     const status = 'review_required';
     const completedAtMs = Date.now();
     const report = {
@@ -790,8 +797,8 @@ async function runTopologyDrill() {
           duration_ms: completedAtMs - startedAtMs,
           exit_code: corePassed ? 0 : 1,
           reason: corePassed
-            ? 'all-live and one-peer-down live relay readbacks passed'
-            : 'one or more required relay readbacks failed',
+            ? 'all-live and one-peer-down live relay readbacks passed; drill namespace tombstones were acknowledged'
+            : gateFailureReasons.join('; '),
         },
         {
           name: 'mesh-production-readiness-full-gate',
