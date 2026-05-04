@@ -69,7 +69,7 @@ Nullifier derivation is `sha256(NULLIFIER_SALT || device_key)` with a default
 salt of `vh-nullifier-salt` when the environment variable is unset
 (`services/luma-verifier-dev/src/main.rs:324`). The current Web PWA
 `buildAttestation()` creates a fresh random `deviceKey` during identity
-creation (`apps/web-pwa/src/hooks/useIdentity.ts:314`), which is why stable
+creation (`apps/web-pwa/src/hooks/useIdentity.ts:317`), which is why stable
 device credential lifecycle remains M0.D work and is outside this branch.
 
 The current test suite asserts the DEV truth label on health responses,
@@ -94,8 +94,8 @@ detection, and DEV disclaimer constants
 | Session response | `token`, `trustScore`, `nullifier`, `environment`, `disclaimer` (`services/luma-verifier-dev/src/main.rs:64`) | Canonical `SessionResponse` requires `scaledTrustScore`, `createdAt`, `expiresAt` and does not include DEV truth labels (`packages/types/src/session.ts:8`) | Drift is bridged by `packages/gun-client/src/auth.ts:28`; M2.A must formalize one shared schema. |
 | Token | `session-<unix seconds>` (`services/luma-verifier-dev/src/main.rs:157`) | Treated as an opaque bearer token by `useIdentity` (`apps/web-pwa/src/hooks/useIdentity.ts:153`) | DEV-only; not signed and not a production verifier token. |
 | Trust score | Heuristic per platform (`services/luma-verifier-dev/src/main.rs:228`) | Compared against `TRUST_MINIMUM` in client paths (`packages/gun-client/src/auth.ts:23`, `apps/web-pwa/src/hooks/useIdentity.ts:139`) | Current score is beta/dev compatibility, not Silver assurance. |
-| Nullifier | Hash of salt and device key (`services/luma-verifier-dev/src/main.rs:324`) | Stored as the active session nullifier (`apps/web-pwa/src/hooks/useIdentity.ts:153`) | Stable only when the same device key is reused; M0.D owns credential persistence. |
-| Nonce | Required and length-limited (`services/luma-verifier-dev/src/main.rs:197`) | Generated randomly by `buildAttestation()` (`apps/web-pwa/src/hooks/useIdentity.ts:314`) | No freshness or replay check today; M2.A/M2.B owns real nonce policy. |
+| Nullifier | Hash of salt and device key (`services/luma-verifier-dev/src/main.rs:324`) | Stored as the active session nullifier (`apps/web-pwa/src/hooks/useIdentity.ts:156`) | Stable only when the same device key is reused; M0.D owns credential persistence. |
+| Nonce | Required and length-limited (`services/luma-verifier-dev/src/main.rs:197`) | Generated randomly by `buildAttestation()` (`apps/web-pwa/src/hooks/useIdentity.ts:318`) | No freshness or replay check today; M2.A/M2.B owns real nonce policy. |
 | DEV truth label | Returned as `environment` and `disclaimer` (`services/luma-verifier-dev/src/main.rs:64`) | Not part of canonical `SessionResponse` (`packages/types/src/session.ts:8`) | Kept as runtime honesty label on the DEV stub. Production schemas must not inherit this shape by accident. |
 
 ## 4. Env-Name Drift
@@ -103,7 +103,7 @@ detection, and DEV disclaimer constants
 The Web PWA calls `VITE_ATTESTATION_URL` and defaults to
 `http://localhost:3000/verify` (`apps/web-pwa/src/hooks/useIdentity.ts:17`).
 The gun-client module separately reads `ATTESTATION_URL` from import meta or
-process env, with the same default URL (`packages/gun-client/src/auth.ts:6`).
+process env, with the same default URL (`packages/gun-client/src/auth.ts:7`).
 
 Policy decision: this branch records the drift only. M1.C owns the build-time
 assertion that both names resolve to the same URL in deployable profiles.
