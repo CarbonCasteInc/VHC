@@ -20,7 +20,7 @@ Use this section to avoid spec drift confusion:
 |------|----------------------------|-----------------------------|
 | Apps | `apps/web-pwa` is the only active app workspace | Add `apps/mobile` (Capacitor) and `apps/desktop` (Tauri) shells alongside web |
 | Packages | Core packages exist (`types`, `crypto`, `crdt`, `data-model`, `gun-client`, `ai-engine`, `contracts`, `e2e`, `ui`) plus `identity-vault` and `zk-circuits` | Preserve strict package boundaries while expanding toward full architecture |
-| Services | Limited service set (`attestation-verifier`, `bridge-stub`) | Full relay/turn/object-store/aggregation/certificate service mesh |
+| Services | Limited service set (`luma-verifier-dev`, `bridge-stub`) | Full relay/turn/object-store/aggregation/certificate service mesh |
 | Infra & tooling | `infra/docker`, `infra/relay`, and `tools/*` are present; some CLI/infrastructure pieces remain partial | Full `infra` + CLI orchestration model described below |
 | Typecheck workflow | Root `pnpm typecheck` exists, package coverage was expanded, and web-pwa test files are covered via `tsconfig.test.json` (`pnpm --filter @vh/web-pwa typecheck:test`) | Fresh-checkout `pnpm typecheck` should succeed without requiring prebuilt artifacts (tracked by Issue #27) |
 
@@ -52,7 +52,7 @@ The repository is managed via `pnpm workspaces`.
 │   ├── bootstrap-relay/    # Initial peer discovery
 │   ├── turn/               # CoTURN config
 │   ├── object-store/       # MinIO config
-│   ├── attestation-verifier/ # Hardware Attestation Verifier (Rust/WASM)
+│   ├── luma-verifier-dev/    # DEV-only LUMA verifier stub (Rust)
 │   ├── gun-peer/           # Super-peer relay (no plaintext access)
 │   ├── aggregator-headlines/ # Deterministic feed aggregation
 │   ├── analysis-relay/     # Privacy-preserving analytics

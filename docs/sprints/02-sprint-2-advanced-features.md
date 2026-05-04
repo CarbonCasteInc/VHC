@@ -245,7 +245,7 @@
   - [x] Define `RegionProof` as a tuple-shaped `publicSignals: [district_hash, nullifier, merkle_root]`.
   - [x] Add `ConstituencyProof` and `decodeRegionProof()` helper.
 
-- [x] **Attestation-Verifier (`services/attestation-verifier`):**
+- [x] **LUMA DEV verifier (`services/luma-verifier-dev`):**
   - [x] Implement `derive_nullifier(device_key)` (stable hash).
   - [x] Construct `SessionResponse` with:
         `token = "session-<device>-<nonce>-<timestamp>"`,

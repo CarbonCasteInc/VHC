@@ -3,12 +3,12 @@
 > Status: Draft v0.7 — execution-sequence document; the normative service contract has been extracted to `docs/specs/spec-luma-service-v0.md`.
 > Date: 2026-05-02 (v0.1 through v0.6); 2026-05-04 (v0.7 mesh-coherence pass)
 > Owner: VHC Spec Owners (proposed)
-> Depends On: `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/specs/spec-mesh-production-readiness.md`, `docs/specs/spec-signed-pin-custody-v0.md`, `docs/specs/secure-storage-policy.md`, `docs/foundational/LUMA_BriefWhitePaper.md`, `docs/foundational/STATUS.md`, `docs/foundational/System_Architecture.md`, `services/attestation-verifier/src/main.rs`, `apps/web-pwa/src/hooks/useIdentity.ts`, `packages/identity-vault/src/vault.ts`, `packages/identity-vault/src/types.ts`, `packages/gun-client/src/auth.ts`
+> Depends On: `docs/specs/spec-luma-service-v0.md`, `docs/specs/spec-identity-trust-constituency.md`, `docs/specs/spec-data-topology-privacy-v0.md`, `docs/specs/spec-mesh-production-readiness.md`, `docs/specs/spec-signed-pin-custody-v0.md`, `docs/specs/secure-storage-policy.md`, `docs/foundational/LUMA_BriefWhitePaper.md`, `docs/foundational/STATUS.md`, `docs/foundational/System_Architecture.md`, `docs/ops/luma-verifier-current-state.md`, `services/luma-verifier-dev/src/main.rs`, `apps/web-pwa/src/hooks/useIdentity.ts`, `packages/identity-vault/src/vault.ts`, `packages/identity-vault/src/types.ts`, `packages/gun-client/src/auth.ts`
 > Scope: Sequence the work that lands `docs/specs/spec-luma-service-v0.md` in code. Implementation milestones, codebase reality check, and open decisions only — normative contract material lives in the spec.
 
 ## Purpose
 
-LUMA today has a vision (`docs/foundational/LUMA_BriefWhitePaper.md`), Season 0 semantics (`docs/specs/spec-identity-trust-constituency.md`), transitional hooks in `apps/web-pwa` and `packages/gun-client`, and a DEV-only Rust stub in `services/attestation-verifier`. The v0 service contract is now in `docs/specs/spec-luma-service-v0.md`. This roadmap sequences the implementation work that turns that contract into shipped code.
+LUMA today has a vision (`docs/foundational/LUMA_BriefWhitePaper.md`), Season 0 semantics (`docs/specs/spec-identity-trust-constituency.md`), transitional hooks in `apps/web-pwa` and `packages/gun-client`, and a DEV-only Rust stub in `services/luma-verifier-dev`. The v0 service contract is now in `docs/specs/spec-luma-service-v0.md`. This roadmap sequences the implementation work that turns that contract into shipped code.
 
 This is a non-authoritative execution artifact (per `docs/README.md` precedence rules). Where this document and the spec disagree, the spec wins.
 
@@ -108,9 +108,9 @@ Every locked default below is normative under the spec section in parentheses; t
 | Identity semantics | `spec-identity-trust-constituency.md` v0.4 is canonical. | M0.B reconciles the identifier-topology conflict against the spec. |
 | Identifier taxonomy conflict | `spec-data-topology-privacy-v0.md` §2 forbids raw `nullifier` in public namespaces. `spec-hermes-forum-v0.md` §2.1 sets thread `author` to "principal nullifier"; `packages/data-model/src/schemas/hermes/directory.ts` publishes nullifier publicly; `packages/gun-client/src/topology.ts:99` exempts `vh/directory/` from PII guard. | M0.B is a hard prerequisite. |
 | Beta-local proof provider | `apps/web-pwa/src/store/bridge/realConstituencyProof.ts` returns deterministic `s0-root-…` material; `useConstituencyProof()` honestly labels `assurance: "beta_local"`. | M0.C wraps it behind a typed provider interface. |
-| Device-key randomization | `apps/web-pwa/src/hooks/useIdentity.ts:317` (`buildAttestation`) generates a fresh random `deviceKey` on every identity creation. The verifier derives nullifier from `deviceKey` (`services/attestation-verifier/src/main.rs:324`). | Contradicts identity spec §2.1.1. M0.D fixes it. |
+| Device-key randomization | `apps/web-pwa/src/hooks/useIdentity.ts:317` (`buildAttestation`) generates a fresh random `deviceKey` on every identity creation. The verifier derives nullifier from `deviceKey` (`services/luma-verifier-dev/src/main.rs:324`). | Contradicts identity spec §2.1.1. M0.D fixes it. |
 | SEA device pair rotation | `useIdentity.ts:114` calls `SEA.pair()` on every identity creation. | M0.D treats the SEA pair as a separate key compartment with its own lifecycle (Sign Out preserves it). |
-| Existing Rust verifier | `services/attestation-verifier/src/main.rs` is a DEV-only stub with `ENV_POSTURE = "DEV"`, length/prefix heuristics, `NULLIFIER_SALT` env-driven, no nonce, no signing, no audit. Source comment explicitly says do not deploy without replacing the stub verification logic. | M0.E records (docs-only). M0.F renames mechanically. M2.B builds a new service alongside. |
+| Existing Rust verifier | `services/luma-verifier-dev/src/main.rs` is a DEV-only stub with `ENV_POSTURE = "DEV"`, length/prefix heuristics, `NULLIFIER_SALT` env-driven, no nonce freshness, no signing, no audit. Source comment explicitly says do not deploy without replacing the stub verification logic. | M0.E records in `docs/ops/luma-verifier-current-state.md`. M0.F renames mechanically. M2.B builds a new service alongside. |
 | Rust ↔ TS schema drift | Rust `SessionResponse` returns `{ token, trustScore, nullifier, environment, disclaimer }`. TS spec expects `{ token, trustScore, scaledTrustScore, nullifier, createdAt, expiresAt }`. | M0.E records drift; M2.A formalizes a single shared schema. |
 | Vault structure | `packages/identity-vault/src/vault.ts` stores an opaque `Identity = Record<string, unknown>` blob keyed by `IDENTITY_KEY = 'identity'` at `VAULT_VERSION = 1`. `clearIdentity()` removes only that key. No `deviceCredential` separation. | M0.D bumps to `VAULT_VERSION = 2` with typed schema and key-compartment-aware accessors per spec §11. |
 | Secure-storage policy granularity | `secure-storage-policy.md` Tier 1 lumps "Master key, Identity record, Session token, Nullifier, Trust score". | M0.D produces the key-compartment manifest sub-spec under that authority (lands as part of spec §11). |
@@ -325,7 +325,7 @@ Open questions:
 
 ### M0.F — Mechanical verifier rename
 
-Goal: `git mv services/attestation-verifier services/luma-verifier-dev`. No behavior change.
+Goal: mechanically move the DEV verifier stub to `services/luma-verifier-dev`. No behavior change.
 
 Deliverables:
 - Directory rename.
@@ -335,7 +335,7 @@ Deliverables:
 
 Acceptance criteria:
 - Build, test, and dev-stack runbooks pass at the new path.
-- No reference to `services/attestation-verifier` remains.
+- No active/runtime reference to the previous verifier service path remains.
 
 ## Milestone M1 — Lifecycle hardening
 
@@ -447,7 +447,7 @@ Forbidden during M1.E: shipping a remote telemetry collector; logging unredacted
 
 Goal: produce `spec-luma-verifier-v0.md` (sibling spec under `docs/specs/`). Deferred until ops ownership, retention policy, custody model, and SLO numbers are settled.
 
-Inputs / dependencies: M0.A, M0.E complete; M1 complete; ops ownership decided (M2.A-4); retention policy decided (M2.A-3); custody model decided (M2.A-7).
+Inputs / dependencies: M0.A, M0.E complete, including `docs/ops/luma-verifier-current-state.md`; M1 complete; ops ownership decided (M2.A-4); retention policy decided (M2.A-3); custody model decided (M2.A-7).
 
 Deliverables (the verifier-spec section list, finalized at planning time):
 - Endpoint contract — `POST /verify`, `GET /challenge`, `GET /.well-known/jwks.json`, `GET /.well-known/luma-verifier-manifest`, `GET /.well-known/luma-verifier-revocations`, `GET /.well-known/luma-safety-bulletin`, `GET /health`.
@@ -711,3 +711,4 @@ The spec owns the locked decisions. The roadmap tracks decisions still required 
 | 0.5 | 2026-05-02 | Reviewer | Three P2 inline fixes; user's six v0.5 additions; six tuned items; four self-debt fills. Locked 11 more defaults; partitioned decisions index. Framing: release-operations and protocol-hardening pass. |
 | 0.6 | 2026-05-03 | Reviewer | Docs-only M0.A extraction. Created `docs/specs/spec-luma-service-v0.md` containing all normative cross-cutting contracts. Slimmed roadmap to execution sequence: pointer table replaces cross-cutting contracts; locked defaults remain as execution stance with spec-section refs; milestones reference spec sections rather than duplicate type/schema bodies. Removed two forbidden authority phrases for docs-governance compliance. Stopped claiming an exact open-decision count anywhere. Added canon-map row for the new spec; rolled the identity-spec row's `Last Reviewed` to 2026-05-02. |
 | 0.7 | 2026-05-04 | Reviewer | Mesh-coherence pass. M0.B expanded with adapter/materializer migration deliverables (`forumAdapters`, `directoryAdapters`, `aggregateAdapters`, `voteIntentMaterializer`, etc.), post-M0.B mesh re-run as exit gate, explicit M0.B/M0.C parallel write-set split with per-file ownership and shared-file sequencing rule. Pointer table adds rows for §1.5 mesh boundary and §16.5/§16.6 cross-spec trace allowance and profile-disablement canary rule. Locked defaults add mesh-coherence stance. Depends-on adds `spec-mesh-production-readiness.md` and `spec-signed-pin-custody-v0.md`. |
+| 0.8 | 2026-05-04 | Reviewer | M0.E/M0.F foundation prep. Added `docs/ops/luma-verifier-current-state.md` as the current-state DEV verifier input for M2.A and mechanically moved the DEV-only verifier to `services/luma-verifier-dev`; release note: DEV-only verifier moved; behavior unchanged. No public adapters, public schemas, provider interfaces, or mesh drill harness paths were migrated. |

@@ -1,5 +1,5 @@
 [package]
-name = "attestation-verifier"
+name = "luma-verifier-dev"
 version = "0.1.0"
 edition = "2021"
 
