@@ -1,11 +1,12 @@
 import { hkdfSync } from 'node:crypto';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   deriveForumAuthorId,
   deriveIdentityDirectoryKey,
   deriveVoterId,
   LUMA_IDENTIFIER_INFO,
+  type LumaIdentifierDerivationOptions,
   type VoterIdScope
 } from './identifiers';
 
@@ -23,6 +24,10 @@ function nodeHkdfHex(principalNullifier: string, salt: Buffer, info: string): st
       32
     )
   ).toString('hex');
+}
+
+function hexToArrayBuffer(hex: string): ArrayBuffer {
+  return Uint8Array.from(hex.match(/.{2}/g) ?? [], (byte) => Number.parseInt(byte, 16)).buffer;
 }
 
 describe('LUMA public id derivation', () => {
@@ -111,5 +116,36 @@ describe('LUMA public id derivation', () => {
       PRINCIPAL_NULLIFIER,
       { topicId: 'topic-alpha', epoch: '7' } as unknown as VoterIdScope
     )).rejects.toThrow('epoch must be a nonnegative integer');
+  });
+
+  it('uses an injected WebCrypto implementation when provided', async () => {
+    await expect(deriveForumAuthorId(
+      PRINCIPAL_NULLIFIER,
+      { crypto: { subtle: globalThis.crypto.subtle } }
+    )).resolves.toBe('7cf7ce7f3c163105e9b9a40a95d4cfb36fdcd8e8835df9012398fd3aed838639');
+  });
+
+  it('fails closed when WebCrypto is unavailable', async () => {
+    const originalCrypto = globalThis.crypto;
+    vi.stubGlobal('crypto', undefined);
+
+    try {
+      await expect(deriveForumAuthorId(PRINCIPAL_NULLIFIER, { crypto: {} }))
+        .rejects.toThrow('WebCrypto SubtleCrypto is required');
+    } finally {
+      vi.stubGlobal('crypto', originalCrypto);
+    }
+  });
+
+  it('fails closed if derivation collides with the raw principalNullifier', async () => {
+    const collidingCrypto = {
+      subtle: {
+        importKey: async () => ({}),
+        deriveBits: async () => hexToArrayBuffer(PRINCIPAL_NULLIFIER)
+      }
+    } satisfies LumaIdentifierDerivationOptions['crypto'];
+
+    await expect(deriveForumAuthorId(PRINCIPAL_NULLIFIER, { crypto: collidingCrypto }))
+      .rejects.toThrow('collided with the raw principalNullifier');
   });
 });
