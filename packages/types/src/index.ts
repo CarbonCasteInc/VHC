@@ -25,6 +25,20 @@ export {
   verifyConstituencyProof,
 } from './constituency-verification';
 
+export {
+  deriveForumAuthorId,
+  deriveIdentityDirectoryKey,
+  deriveVoterId,
+  LUMA_IDENTIFIER_INFO,
+  type ForumAuthorId,
+  type IdentityDirectoryKey,
+  type LumaIdentifierDerivationOptions,
+  type LumaIdentifierDomainName,
+  type PrincipalNullifier,
+  type VoterId,
+  type VoterIdScope
+} from './identifiers';
+
 export interface RegionProof {
   proof: string;
   publicSignals: string[];

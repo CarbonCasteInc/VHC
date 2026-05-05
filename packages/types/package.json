@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit",
-    "test": "echo 'No tests yet'",
+    "test": "vitest run --config ../../vitest.config.ts --dir ../../ packages/types/src",
     "lint": "echo 'No lint yet'"
   },
   "dependencies": {
