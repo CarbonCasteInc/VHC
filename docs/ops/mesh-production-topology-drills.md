@@ -2,7 +2,7 @@
 
 > Status: Active
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-05-04
+> Last Reviewed: 2026-05-05
 > Depends On: docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-signed-pin-custody-v0.md
 
 This runbook covers the first local production-shaped mesh topology proof path.
@@ -68,9 +68,35 @@ The current drill proves:
 - all-live relay peer fan-out from one writer relay to all three direct
   per-relay readers;
 - one-peer-kill write/readback through the remaining two-relay quorum;
+- bounded restarted-relay catch-up evidence by restarting the killed relay with
+  the same relay id, peer list, auth mode, and radata directory, then reading
+  the missed down-period write through that restarted relay only;
 - direct per-relay readback evidence with `run_id`, `write_id`, and `trace_id`;
 - relay-peer auth negative coverage for unauthorized WebSocket peer upgrades;
 - TTL and tombstone cleanup accounting for the drill namespace.
+
+The restarted-relay section distinguishes three outcomes:
+
+- `pass`: the restarted relay directly reads the missed down-period drill write
+  within the bounded local harness SLA;
+- `review_required`: the bounded evidence completed but produced incomplete or
+  ambiguous recovery evidence;
+- `blocked`: the bounded direct restarted-relay readback did not observe the
+  missed write, so relay peer fan-out cannot support an automatic recovery
+  claim without a topology decision.
+
+The command fails when the harness cannot complete, relay auth/readback/cleanup
+fails, or restarted-relay evidence cannot be collected. A completed bounded
+restart attempt may still produce a `review_required` report with
+`topology.restarted_relay_catchup.status: "blocked"`; that is an architecture
+decision signal, not a production-readiness pass.
+
+Optional timing overrides:
+
+```sh
+VH_MESH_DRILL_RESTART_CATCHUP_TIMEOUT_MS=30000
+VH_MESH_DRILL_RESTART_PEER_SETTLE_MS=1500
+```
 
 The signed browser canary separately proves:
 
@@ -91,13 +117,14 @@ client-compatible signed peer handshake.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6A/7A because this command
-does not claim restarted-relay catch-up, deployed WSS topology,
-state-resolution drills, clock-skew drills, partition/heal drills, soak budgets,
-evidence scrub promotion, or post-M0.B LUMA-gated write coverage. The transport
-drill and signed browser canary may each pass while the overall readiness status
-still remains `review_required`.
+The report status remains `review_required` for Slice 7B even when the local
+restarted-relay drill passes. A passing restarted-relay section means only that
+the restarted local relay directly read the missed synthetic drill write inside
+this bounded harness. It does not prove deployed WSS topology, state-resolution
+drills, clock-skew drills, partition/heal drills, soak budgets, evidence scrub
+promotion, or post-M0.B LUMA-gated write coverage.
 
-If direct restarted-relay readback is added later and remains brittle after the
-bounded proof attempt, record the failure in the report instead of tuning Gun
-peer behavior indefinitely.
+If direct restarted-relay readback is `blocked` or `review_required`, do not tune
+Gun peer behavior indefinitely. The next branch must choose and drill one
+strategy: explicit replication/read-repair, scoped Gun/AXE topology, or an
+authoritative relay cluster with a narrower service-level failover claim.
