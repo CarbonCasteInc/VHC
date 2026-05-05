@@ -10,7 +10,7 @@ It runs under `schema_epoch: pre_luma_m0b` and `luma_profile: none`.
 
 ## Command
 
-Run:
+Run the transport drill:
 
 ```sh
 pnpm test:mesh:topology-drills
@@ -31,6 +31,25 @@ Each run also writes the same report under:
 ```text
 .tmp/mesh-production-readiness/<run_id>/mesh-production-readiness-report.json
 ```
+
+Run the signed browser peer-config canary:
+
+```sh
+pnpm test:mesh:signed-peer-config-canary
+```
+
+That command generates a local signed peer-config fixture with `schemaVersion`,
+`configId`, `issuedAt`, `expiresAt`, `peers`, `minimumPeerCount`, and
+`quorumRequired`; builds/previews the Web PWA with
+`VITE_VH_STRICT_PEER_CONFIG=true`, `VITE_GUN_PEER_CONFIG_URL`,
+`VITE_GUN_PEER_CONFIG_PUBLIC_KEY`, and
+`VITE_VH_ALLOW_LOCAL_MESH_PEERS=true`; and asserts app boot used
+`resolveGunPeerTopology` with `source: remote-config`, `strict: true`,
+`signed: true`, three peers, and quorum two.
+
+The signed canary writes its report to the same latest report path only when the
+signed browser proof actually ran. Standalone `pnpm test:mesh:topology-drills`
+remains transport-only and must not report `signed_peer_config: true`.
 
 ## Drill Scope
 
@@ -53,6 +72,16 @@ The current drill proves:
 - relay-peer auth negative coverage for unauthorized WebSocket peer upgrades;
 - TTL and tombstone cleanup accounting for the drill namespace.
 
+The signed browser canary separately proves:
+
+- strict app boot from a signed remote peer-config fixture, not direct
+  `VITE_GUN_PEERS` injection;
+- deterministic fail-closed behavior for unsigned config, expired config,
+  fewer than three peers, bad signature, missing public key, and local peers
+  without `VITE_VH_ALLOW_LOCAL_MESH_PEERS=true`;
+- no usable Gun client is initialized for those negative cases, as observed by
+  the e2e-only topology proof hook.
+
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
 path in this server, public production WSS rollout still needs a trust path
@@ -62,10 +91,11 @@ client-compatible signed peer handshake.
 ## Review Boundary
 
 The report status remains `review_required` for Slice 6A/7A because this command
-does not claim restarted-relay catch-up, deployed WSS topology, browser signed
-peer-config boot, state-resolution drills, clock-skew drills, partition/heal
-drills, soak budgets, evidence scrub promotion, or post-M0.B LUMA-gated write
-coverage.
+does not claim restarted-relay catch-up, deployed WSS topology,
+state-resolution drills, clock-skew drills, partition/heal drills, soak budgets,
+evidence scrub promotion, or post-M0.B LUMA-gated write coverage. The transport
+drill and signed browser canary may each pass while the overall readiness status
+still remains `review_required`.
 
 If direct restarted-relay readback is added later and remains brittle after the
 bounded proof attempt, record the failure in the report instead of tuning Gun

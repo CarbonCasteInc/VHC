@@ -11,11 +11,12 @@ import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
 import { createMockClient } from './mockClient';
 import { setClientResolver } from './clientResolver';
-import { resolveGunPeerTopology } from './peerConfig';
+import { resolveGunPeerTopology, type GunPeerTopology } from './peerConfig';
 export { resolveGunPeers, resolveGunPeerTopology, resolveGunPeerTopologySync } from './peerConfig';
 
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
+const PEER_TOPOLOGY_PROOF_KEY = '__VH_PEER_TOPOLOGY_PROOF__';
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
 
 interface AppState {
@@ -30,6 +31,36 @@ interface AppState {
 }
 
 let initInFlight: Promise<void> | null = null;
+
+type PeerTopologyProof =
+  | {
+      status: 'resolved';
+      resolver: 'resolveGunPeerTopology';
+      topology: GunPeerTopology;
+      clientPeers: string[];
+    }
+  | {
+      status: 'failed';
+      resolver: 'resolveGunPeerTopology';
+      error: string;
+      clientPeers: [];
+    };
+
+function shouldExposePeerTopologyProof(): boolean {
+  const viteEnv = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env;
+  const raw = viteEnv?.VITE_VH_EXPOSE_PEER_TOPOLOGY;
+  if (typeof raw === 'boolean') return raw;
+  return typeof raw === 'string' && ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+function exposePeerTopologyProof(proof: PeerTopologyProof): void {
+  if (!shouldExposePeerTopologyProof()) {
+    return;
+  }
+  (globalThis as typeof globalThis & { [PEER_TOPOLOGY_PROOF_KEY]?: PeerTopologyProof })[
+    PEER_TOPOLOGY_PROOF_KEY
+  ] = proof;
+}
 
 function loadProfile(): Profile | null {
   try {
@@ -226,6 +257,12 @@ export const useAppStore = create<AppState>((set, get) => ({
           gunLocalStorage: resolveGunLocalStorage(),
           requireSession: true
         });
+        exposePeerTopologyProof({
+          status: 'resolved',
+          resolver: 'resolveGunPeerTopology',
+          topology: peerTopology,
+          clientPeers: client.config.peers,
+        });
         console.info('[vh:web-pwa] using Gun peers', {
           peers: client.config.peers,
           source: peerTopology.source,
@@ -263,6 +300,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         await bootstrapRuntimeFeatures(client, 'default');
       } catch (err) {
+        exposePeerTopologyProof({
+          status: 'failed',
+          resolver: 'resolveGunPeerTopology',
+          error: (err as Error).message,
+          clientPeers: [],
+        });
         set({ initializing: false, identityStatus: 'error', error: (err as Error).message });
       }
     };

@@ -3,6 +3,13 @@
 interface ImportMetaEnv {
   readonly VITE_E2E_MODE?: 'true' | 'false';
   readonly VITE_GUN_PEERS?: string;
+  readonly VITE_GUN_PEER_CONFIG_URL?: string;
+  readonly VITE_GUN_PEER_CONFIG_PUBLIC_KEY?: string;
+  readonly VITE_GUN_PEER_MINIMUM?: string;
+  readonly VITE_GUN_PEER_QUORUM_REQUIRED?: string;
+  readonly VITE_VH_STRICT_PEER_CONFIG?: 'true' | 'false';
+  readonly VITE_VH_ALLOW_LOCAL_MESH_PEERS?: 'true' | 'false';
+  readonly VITE_VH_EXPOSE_PEER_TOPOLOGY?: 'true' | 'false';
   readonly VITE_ATTESTATION_URL?: string;
   readonly VITE_ATTESTATION_TIMEOUT_MS?: string;
   readonly VITE_REMOTE_ENGINE_URL?: string;

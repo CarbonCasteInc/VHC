@@ -21,6 +21,7 @@
     "test:storycluster:publisher-canary": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:publisher-canary",
     "test:storycluster:consumer-smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:consumer-smoke",
     "test:mesh:browser-canary": "VITE_GUN_PEERS='[\"http://127.0.0.1:7788/gun\",\"http://127.0.0.1:7789/gun\",\"http://127.0.0.1:7790/gun\"]' VITE_GUN_PEER_MINIMUM=3 VITE_GUN_PEER_QUORUM_REQUIRED=2 VITE_VH_ALLOW_LOCAL_MESH_PEERS=true VITE_VH_GUN_LOCAL_STORAGE=false VITE_VH_SHOW_HEALTH=true pnpm --filter @vh/web-pwa build && pnpm --filter @vh/e2e test:mesh:browser-canary",
+    "test:mesh:signed-peer-config-canary": "node ./packages/e2e/src/mesh/signed-peer-config-canary.mjs",
     "test:mesh:topology-drills": "pnpm --filter @vh/e2e test:mesh:topology-drills",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
