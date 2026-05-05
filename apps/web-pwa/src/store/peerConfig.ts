@@ -3,6 +3,7 @@ export interface GunPeerTopology {
   readonly source: 'env-peers' | 'env-config' | 'remote-config' | 'runtime-global' | 'local-dev-fallback';
   readonly strict: boolean;
   readonly signed: boolean;
+  readonly configId?: string;
   readonly minimumPeerCount: number;
   readonly quorumRequired: number;
   readonly allowLocalPeers: boolean;
@@ -10,6 +11,7 @@ export interface GunPeerTopology {
 
 interface PeerConfigPayload {
   readonly schemaVersion?: string;
+  readonly configId?: unknown;
   readonly peers?: readonly unknown[];
   readonly minimumPeerCount?: unknown;
   readonly quorumRequired?: unknown;
@@ -141,10 +143,12 @@ function validateTopology(params: {
   strict: boolean;
   allowLocalPeers: boolean;
   minimumPeerCount: number;
+  quorumRequired?: number;
+  configId?: string;
   source: GunPeerTopology['source'];
   signed: boolean;
 }): GunPeerTopology {
-  const { peers, strict, allowLocalPeers, minimumPeerCount, source, signed } = params;
+  const { peers, strict, allowLocalPeers, minimumPeerCount, quorumRequired, configId, source, signed } = params;
   if (peers.length === 0) {
     if (!strict && source === 'runtime-global') {
       return {
@@ -173,8 +177,9 @@ function validateTopology(params: {
     source,
     strict,
     signed,
+    ...(configId ? { configId } : {}),
     minimumPeerCount,
-    quorumRequired: resolveQuorumRequired(peers.length),
+    quorumRequired: quorumRequired ?? resolveQuorumRequired(peers.length),
     allowLocalPeers,
   };
 }
@@ -235,6 +240,14 @@ function canonicalize(value: unknown): string {
   return JSON.stringify(value);
 }
 
+function positiveIntegerPayloadField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function timestampPayloadField(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null;
+}
+
 function parseInlinePeerConfig(raw: string): {
   payload: PeerConfigPayload;
   signature: string | null;
@@ -282,11 +295,42 @@ function topologyFromPayload(params: {
 }): GunPeerTopology {
   const { payload, signed, source, strict, allowLocalPeers } = params;
   const peers = normalizeGunPeerList(payload.peers ?? []);
-  const minimumPeerCount = typeof payload.minimumPeerCount === 'number' && payload.minimumPeerCount > 0
-    ? Math.floor(payload.minimumPeerCount)
-    : resolveMinimumPeerCount(strict);
+  const configId = typeof payload.configId === 'string' && payload.configId.trim()
+    ? payload.configId.trim()
+    : undefined;
+  const signedMinimumPeerCount = positiveIntegerPayloadField(payload.minimumPeerCount);
+  const signedQuorumRequired = positiveIntegerPayloadField(payload.quorumRequired);
+  const issuedAt = timestampPayloadField(payload.issuedAt);
+  const expiresAt = timestampPayloadField(payload.expiresAt);
+
+  if (strict && signed) {
+    if (!configId) {
+      throw new Error('[vh:gun] strict signed peer config requires configId');
+    }
+    if (!issuedAt) {
+      throw new Error('[vh:gun] strict signed peer config requires issuedAt');
+    }
+    if (!expiresAt) {
+      throw new Error('[vh:gun] strict signed peer config requires expiresAt');
+    }
+    if (expiresAt <= issuedAt) {
+      throw new Error('[vh:gun] strict signed peer config expiresAt must be after issuedAt');
+    }
+    if (!signedMinimumPeerCount) {
+      throw new Error('[vh:gun] strict signed peer config requires minimumPeerCount');
+    }
+    if (!signedQuorumRequired) {
+      throw new Error('[vh:gun] strict signed peer config requires quorumRequired');
+    }
+    if (signedQuorumRequired > peers.length) {
+      throw new Error('[vh:gun] strict signed peer config quorumRequired cannot exceed configured peers');
+    }
+  }
+
+  const minimumPeerCount = signedMinimumPeerCount ?? resolveMinimumPeerCount(strict);
+  const quorumRequired = signedQuorumRequired ?? undefined;
   const now = Date.now();
-  if (typeof payload.expiresAt === 'number' && payload.expiresAt <= now) {
+  if (expiresAt !== null && expiresAt <= now) {
     throw new Error('[vh:gun] peer config is expired');
   }
   return validateTopology({
@@ -294,6 +338,8 @@ function topologyFromPayload(params: {
     strict,
     allowLocalPeers,
     minimumPeerCount,
+    quorumRequired,
+    configId,
     source,
     signed,
   });

@@ -8,6 +8,21 @@ vi.mock('@vh/gun-client', () => ({
   },
 }));
 
+function canonicalize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map((entry) => canonicalize(entry)).join(',')}]`;
+  }
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .filter((key) => record[key] !== undefined && key !== 'signature' && key !== 'signerPub')
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalize(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
 beforeEach(() => {
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
@@ -96,12 +111,18 @@ describe('peerConfig', () => {
   });
 
   it('requires and verifies signed remote peer config in strict mode', async () => {
+    const issuedAt = Date.now() - 1_000;
+    const expiresAt = issuedAt + 86_400_000;
     const payload = {
+      schemaVersion: 'mesh-peer-config-v1',
+      configId: 'local-three-relay-signed-canary',
+      issuedAt,
+      expiresAt,
       minimumPeerCount: 3,
       peers: ['https://a.example/gun', 'https://b.example/gun', 'https://c.example/gun'],
+      quorumRequired: 2,
     };
-    const canonical = '{"minimumPeerCount":3,"peers":["https://a.example/gun","https://b.example/gun","https://c.example/gun"]}';
-    verifyMock.mockResolvedValue(canonical);
+    verifyMock.mockResolvedValue(canonicalize(payload));
     vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
     vi.stubEnv('VITE_GUN_PEER_CONFIG_URL', 'https://config.example/peers.json');
     vi.stubEnv('VITE_GUN_PEER_CONFIG_PUBLIC_KEY', 'peer-config-pub');
@@ -119,9 +140,87 @@ describe('peerConfig', () => {
       source: 'remote-config',
       strict: true,
       signed: true,
+      configId: 'local-three-relay-signed-canary',
       quorumRequired: 2,
     });
     expect(verifyMock).toHaveBeenCalledWith('signed-peer-config', 'peer-config-pub');
+  });
+
+  it('rejects local signed peer configs in strict mode unless the harness explicitly allows them', async () => {
+    const issuedAt = Date.now() - 1_000;
+    const expiresAt = issuedAt + 86_400_000;
+    const payload = {
+      schemaVersion: 'mesh-peer-config-v1',
+      configId: 'local-three-relay-signed-canary',
+      issuedAt,
+      expiresAt,
+      minimumPeerCount: 3,
+      peers: ['http://127.0.0.1:7788/gun', 'http://127.0.0.1:7789/gun', 'http://127.0.0.1:7790/gun'],
+      quorumRequired: 2,
+    };
+    verifyMock.mockResolvedValue(canonicalize(payload));
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    vi.stubEnv('VITE_GUN_PEER_CONFIG_URL', 'https://config.example/peers.json');
+    vi.stubEnv('VITE_GUN_PEER_CONFIG_PUBLIC_KEY', 'peer-config-pub');
+    vi.stubGlobal('fetch', vi.fn(async () => ({
+      ok: true,
+      text: async () => JSON.stringify({
+        payload,
+        signature: 'signed-peer-config',
+      }),
+    })));
+    const { resolveGunPeerTopology } = await import('./peerConfig');
+
+    await expect(resolveGunPeerTopology('app.example')).rejects.toThrow('rejects insecure peer');
+
+    vi.stubEnv('VITE_VH_ALLOW_LOCAL_MESH_PEERS', 'true');
+    await expect(resolveGunPeerTopology('app.example')).resolves.toMatchObject({
+      allowLocalPeers: true,
+      configId: 'local-three-relay-signed-canary',
+      peers: payload.peers,
+      quorumRequired: 2,
+    });
+  });
+
+  it('rejects strict signed peer configs with missing lifecycle fields or impossible quorum', async () => {
+    const { resolveGunPeerTopology } = await import('./peerConfig');
+    const issuedAt = Date.now() - 1_000;
+    const expiresAt = issuedAt + 86_400_000;
+    const basePayload = {
+      schemaVersion: 'mesh-peer-config-v1',
+      configId: 'local-three-relay-signed-canary',
+      issuedAt,
+      expiresAt,
+      minimumPeerCount: 3,
+      peers: ['https://a.example/gun', 'https://b.example/gun', 'https://c.example/gun'],
+      quorumRequired: 2,
+    };
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ ...basePayload, configId: '' }, 'strict signed peer config requires configId'],
+      [{ ...basePayload, issuedAt: undefined }, 'strict signed peer config requires issuedAt'],
+      [{ ...basePayload, expiresAt: undefined }, 'strict signed peer config requires expiresAt'],
+      [{ ...basePayload, minimumPeerCount: undefined }, 'strict signed peer config requires minimumPeerCount'],
+      [{ ...basePayload, quorumRequired: undefined }, 'strict signed peer config requires quorumRequired'],
+      [{ ...basePayload, expiresAt: issuedAt }, 'strict signed peer config expiresAt must be after issuedAt'],
+      [{ ...basePayload, quorumRequired: 4 }, 'strict signed peer config quorumRequired cannot exceed configured peers'],
+    ];
+
+    vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
+    vi.stubEnv('VITE_GUN_PEER_CONFIG_URL', 'https://config.example/peers.json');
+    vi.stubEnv('VITE_GUN_PEER_CONFIG_PUBLIC_KEY', 'peer-config-pub');
+
+    for (const [payload, expectedError] of cases) {
+      verifyMock.mockResolvedValueOnce(canonicalize(payload));
+      vi.stubGlobal('fetch', vi.fn(async () => ({
+        ok: true,
+        text: async () => JSON.stringify({
+          payload,
+          signature: 'signed-peer-config',
+        }),
+      })));
+
+      await expect(resolveGunPeerTopology('app.example')).rejects.toThrow(expectedError);
+    }
   });
 
   it('parses inline peer-config payload variants and rejects bad signatures', async () => {

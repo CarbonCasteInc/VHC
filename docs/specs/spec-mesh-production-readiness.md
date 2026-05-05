@@ -101,9 +101,13 @@ Current head at closeout:
   validates app boot/health against those healthy relays, and separately
   validates a raw browser Gun write/readback path with one intentionally
   unavailable peer in that test client's peer list.
-- Full production relay topology drills remain queued because they require a
-  real multi-relay deployment and relay-to-relay persistence/catch-up behavior,
-  not just three local standalone relays.
+- `pnpm test:mesh:topology-drills` proves the first local three-relay transport
+  path and one-peer-kill remaining-quorum readback under
+  `schema_epoch: pre_luma_m0b`.
+- `pnpm test:mesh:signed-peer-config-canary` is the app-facing companion proof:
+  it must build/preview the Web PWA with strict signed peer-config env and
+  assert boot consumed `resolveGunPeerTopology` with `source: remote-config`,
+  not direct `VITE_GUN_PEERS` injection.
 
 Important boundary:
 
@@ -573,6 +577,8 @@ Acceptance gates:
 
 - Slice 6A local harness command exists:
   `pnpm test:mesh:topology-drills`
+- Slice 6A signed app boot command exists:
+  `pnpm test:mesh:signed-peer-config-canary`
 - The harness starts three production-mode local relays with distinct radata
   directories and non-empty relay peer lists.
 - Relay-to-relay auth rejects an unauthorized peer connection without weakening
@@ -585,7 +591,15 @@ Acceptance gates:
   - `GET /metrics`
 - Browser app boot rejects unsigned or insufficient peer config in strict mode.
 - Slice 6A browser app boot accepts a signed three-peer local config only when
-  local mesh peers are explicitly allowed for the harness.
+  local mesh peers are explicitly allowed for the harness. This proof must
+  assert the app used `resolveGunPeerTopology` with `source: remote-config`,
+  `strict: true`, `signed: true`, the expected `configId`, three peers, and
+  quorum two.
+- Signed app boot negative cases fail closed before a usable Gun client is
+  initialized: unsigned config, expired config, missing lifecycle fields,
+  impossible quorum, fewer than three peers, bad signature, missing public key,
+  and local peers without
+  `VITE_VH_ALLOW_LOCAL_MESH_PEERS=true`.
 - Slice 6B browser app boot accepts a signed three-peer WSS config with local
   peer allowance disabled.
 - Health panel reports quorum with actual peer health, not configured URL count.
@@ -959,7 +973,10 @@ interface MeshProductionReadinessReport {
     dirty: boolean;
   };
   run: {
-    mode: 'local_production_topology' | 'deployed_wss_topology';
+    mode:
+      | 'local_production_topology'
+      | 'local_signed_peer_config_browser_boot'
+      | 'deployed_wss_topology';
     started_at: string;
     completed_at: string;
     duration_ms: number;
@@ -982,6 +999,15 @@ interface MeshProductionReadinessReport {
     peer_config_id: string;
     peer_config_issued_at: string;
     peer_config_expires_at: string;
+    app_peer_config?: {
+      source: 'remote-config';
+      strict: true;
+      signed: boolean;
+      config_id: string;
+      minimum_peer_count: number;
+      quorum_required: number;
+      local_mesh_peers_allowed: boolean;
+    };
   };
   gates: Array<{
     name: string;
@@ -1833,37 +1859,26 @@ match and LUMA profile gates per §5.8.
 
 ## 9. Immediate Next Slice
 
-The next implementation slice is Slice 6A plus Slice 7A:
+The current Slice 6A/7A local proof is intentionally split into two commands:
 
-1. Add a local production-shaped three-relay topology harness with production
-   relay env, persistent per-relay radata dirs, auth/origin/limit settings, and
-   explicit relay peer lists.
-2. Add relay-to-relay auth for the harness and a negative unauthorized-peer
-   test.
-3. Add signed peer-config generation and verification for that harness,
-   including `configId`, `issuedAt`, and `expiresAt`.
-4. Add `run_id`, `write_id`, and `trace_id` propagation in the drill harness
-   and report skeleton.
-5. Write all drill data under `vh/__mesh_drills/<run_id>/...` using the mesh
-   drill test writer contract (§5.9). Drill records carry
-   `_drillWriterKind: 'mesh-drill'` and `_drillSignature` only; they do not
-   carry LUMA `_writerKind` or `SignedWriteEnvelope`.
-6. Add cleanup accounting for the drill namespace (§5.9.1).
-7. Add `pnpm test:mesh:topology-drills`.
-8. Prove one-peer-kill write/readback behavior through the remaining quorum.
-9. Record direct per-relay readback evidence, even if restarted-peer catch-up is
-   not claimed yet.
-10. Stub the state-resolution, clock-skew, and LUMA-gated-write report sections
-    as `skipped` with explicit reasons until Slice 7C/Slice 9 and LUMA M0.B
-    implement them; do not allow those skipped sections to produce
-    `release_ready`.
-11. Set `schema_epoch: 'pre_luma_m0b'`, `luma_profile: 'none'`, and record
-    `luma_dependency_status` reflecting the actual LUMA milestone state at
-    the time of the run (§5.13).
-12. Record the result in a new ops runbook and readiness report skeleton.
+1. `pnpm test:mesh:topology-drills` is the transport proof. It starts the local
+   three-relay harness, writes synthetic drill records under
+   `vh/__mesh_drills/<run_id>/...`, proves one-peer-kill write/readback through
+   the remaining quorum, records direct per-relay readback evidence, and keeps
+   restarted-peer catch-up unclaimed.
+2. `pnpm test:mesh:signed-peer-config-canary` is the browser boot proof. It
+   generates and serves a signed local peer-config fixture with `configId`,
+   `issuedAt`, and `expiresAt`, builds/previews the Web PWA in strict mode, and
+   proves the app consumed `resolveGunPeerTopology` with `source:
+   remote-config`.
 
-This is the narrowest next step because it tests the only major unproven claim
-left after PR #564: real distributed topology behavior beyond the local
-three-peer preview canary. Do not start with a cloud WSS deployment until the
-local harness produces the first report packet; otherwise the team will be
-debugging deployment, signing, topology, and convergence at the same time.
+The next implementation slice after both local commands are green is either
+Slice 7B direct restarted-relay catch-up evidence or Slice 6B deployed WSS
+topology. Do not start a production WSS readiness claim until the local signed
+peer-config browser canary is green.
+
+Both local commands must keep state-resolution, clock-skew, and LUMA-gated-write
+report sections as `skipped` with explicit reasons until Slice 7C/Slice 9 and
+LUMA M0.B implement them. Skipped sections must not produce `release_ready`.
+Reports stay under `schema_epoch: 'pre_luma_m0b'` and `luma_profile: 'none'`
+until the LUMA schema epoch changes.
