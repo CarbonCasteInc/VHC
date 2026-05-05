@@ -5,7 +5,8 @@ import {
   deriveForumAuthorId,
   deriveIdentityDirectoryKey,
   deriveVoterId,
-  LUMA_IDENTIFIER_INFO
+  LUMA_IDENTIFIER_INFO,
+  type VoterIdScope
 } from './identifiers';
 
 const PRINCIPAL_NULLIFIER = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
@@ -95,5 +96,20 @@ describe('LUMA public id derivation', () => {
       .resolves.toBe('f8e51c913cf5a5705873dd7ef7b12cc3d03a6b06ff315c6f128a7fb727e69960');
     await expect(deriveVoterId(PRINCIPAL_NULLIFIER, { topicId: 'topic-beta', epoch: 7 }))
       .resolves.toBe('83210d493c373ce63d11498a2b648961cde5318b418bb8ce91f0cc78f615c1ec');
+  });
+
+  it('rejects ambiguous voterId scopes', async () => {
+    await expect(deriveVoterId(PRINCIPAL_NULLIFIER, { topicId: '', epoch: 7 }))
+      .rejects.toThrow('topicId is required');
+    await expect(deriveVoterId(PRINCIPAL_NULLIFIER, { topicId: '   ', epoch: 7 }))
+      .rejects.toThrow('topicId is required');
+    await expect(deriveVoterId(PRINCIPAL_NULLIFIER, { topicId: 'topic-alpha', epoch: -1 }))
+      .rejects.toThrow('epoch must be a nonnegative integer');
+    await expect(deriveVoterId(PRINCIPAL_NULLIFIER, { topicId: 'topic-alpha', epoch: 7.5 }))
+      .rejects.toThrow('epoch must be a nonnegative integer');
+    await expect(deriveVoterId(
+      PRINCIPAL_NULLIFIER,
+      { topicId: 'topic-alpha', epoch: '7' } as unknown as VoterIdScope
+    )).rejects.toThrow('epoch must be a nonnegative integer');
   });
 });

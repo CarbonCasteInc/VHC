@@ -50,7 +50,7 @@ export interface LumaIdentifierDerivationOptions {
 
 export interface VoterIdScope {
   topicId: string;
-  epoch: number | string;
+  epoch: number;
 }
 
 export async function deriveForumAuthorId(
@@ -141,18 +141,13 @@ function matchesRawNullifier(derived: string, principalNullifier: string): boole
 }
 
 function assertNonEmpty(value: string, fieldName: string): void {
-  if (value.length === 0) {
+  if (value.trim().length === 0) {
     throw new Error(`${fieldName} is required for LUMA public id derivation`);
   }
 }
 
-function assertValidEpoch(epoch: number | string): void {
-  if (typeof epoch === 'number') {
-    if (!Number.isInteger(epoch) || epoch < 0) {
-      throw new Error('epoch must be a nonnegative integer for LUMA voter id derivation');
-    }
-    return;
+function assertValidEpoch(epoch: number): void {
+  if (typeof epoch !== 'number' || !Number.isInteger(epoch) || epoch < 0) {
+    throw new Error('epoch must be a nonnegative integer for LUMA voter id derivation');
   }
-
-  assertNonEmpty(epoch, 'epoch');
 }
