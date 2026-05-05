@@ -168,11 +168,23 @@ async function main() {
     configId: `${configId}-insufficient-peers`,
     peers: peerUrls.slice(0, 2),
   };
+  const missingExpiresAtPayload = {
+    ...positivePayload,
+    configId: `${configId}-missing-expires-at`,
+  };
+  delete missingExpiresAtPayload.expiresAt;
+  const impossibleQuorumPayload = {
+    ...positivePayload,
+    configId: `${configId}-impossible-quorum`,
+    quorumRequired: peerUrls.length + 1,
+  };
 
   const positiveFixturePath = path.join(fixtureDir, 'signed-peer-config.json');
   const unsignedFixturePath = path.join(fixtureDir, 'unsigned-peer-config.json');
   const expiredFixturePath = path.join(fixtureDir, 'expired-peer-config.json');
   const insufficientPeersFixturePath = path.join(fixtureDir, 'insufficient-peers-peer-config.json');
+  const missingExpiresAtFixturePath = path.join(fixtureDir, 'missing-expires-at-peer-config.json');
+  const impossibleQuorumFixturePath = path.join(fixtureDir, 'impossible-quorum-peer-config.json');
   const badSignatureFixturePath = path.join(fixtureDir, 'bad-signature-peer-config.json');
   const manifestPath = path.join(artifactDir, 'signed-peer-config-manifest.json');
   const browserEvidencePath = path.join(artifactDir, 'signed-peer-config-browser-evidence.json');
@@ -182,6 +194,8 @@ async function main() {
   writeJson(unsignedFixturePath, { payload: positivePayload });
   writeJson(expiredFixturePath, await signPayload(expiredPayload, pair));
   writeJson(insufficientPeersFixturePath, await signPayload(insufficientPeersPayload, pair));
+  writeJson(missingExpiresAtFixturePath, await signPayload(missingExpiresAtPayload, pair));
+  writeJson(impossibleQuorumFixturePath, await signPayload(impossibleQuorumPayload, pair));
   writeJson(badSignatureFixturePath, {
     ...positiveFixture,
     signature: `bad-${positiveFixture.signature}`,
@@ -202,6 +216,8 @@ async function main() {
       unsigned: unsignedFixturePath,
       expired: expiredFixturePath,
       insufficientPeers: insufficientPeersFixturePath,
+      missingExpiresAt: missingExpiresAtFixturePath,
+      impossibleQuorum: impossibleQuorumFixturePath,
       badSignature: badSignatureFixturePath,
     },
   };
@@ -402,7 +418,7 @@ async function main() {
       allowed: allPassed
         ? [
             'The local Web PWA can boot in strict mode from a signed three-relay local peer-config fixture when local mesh peers are explicitly allowed.',
-            'Unsigned, expired, insufficient-peer, bad-signature, missing-public-key, and local-peers-without-allowance configurations fail closed before a usable Gun client is initialized.',
+            'Unsigned, expired, missing-lifecycle-field, impossible-quorum, insufficient-peer, bad-signature, missing-public-key, and local-peers-without-allowance configurations fail closed before a usable Gun client is initialized.',
           ]
         : [],
       forbidden: [

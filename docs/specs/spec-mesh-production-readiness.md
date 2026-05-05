@@ -596,8 +596,9 @@ Acceptance gates:
   `strict: true`, `signed: true`, the expected `configId`, three peers, and
   quorum two.
 - Signed app boot negative cases fail closed before a usable Gun client is
-  initialized: unsigned config, expired config, fewer than three peers, bad
-  signature, missing public key, and local peers without
+  initialized: unsigned config, expired config, missing lifecycle fields,
+  impossible quorum, fewer than three peers, bad signature, missing public key,
+  and local peers without
   `VITE_VH_ALLOW_LOCAL_MESH_PEERS=true`.
 - Slice 6B browser app boot accepts a signed three-peer WSS config with local
   peer allowance disabled.

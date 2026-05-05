@@ -77,8 +77,9 @@ The signed browser canary separately proves:
 - strict app boot from a signed remote peer-config fixture, not direct
   `VITE_GUN_PEERS` injection;
 - deterministic fail-closed behavior for unsigned config, expired config,
-  fewer than three peers, bad signature, missing public key, and local peers
-  without `VITE_VH_ALLOW_LOCAL_MESH_PEERS=true`;
+  missing lifecycle fields, impossible quorum, fewer than three peers, bad
+  signature, missing public key, and local peers without
+  `VITE_VH_ALLOW_LOCAL_MESH_PEERS=true`;
 - no usable Gun client is initialized for those negative cases, as observed by
   the e2e-only topology proof hook.
 

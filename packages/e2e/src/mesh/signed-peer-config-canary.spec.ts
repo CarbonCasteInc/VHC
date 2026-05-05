@@ -212,6 +212,18 @@ test('fails closed for fewer than three signed peers @common', async ({ page }) 
   await expectFailClosed(page, 'strict peer config requires at least 3 peers');
 });
 
+test('fails closed for signed config missing lifecycle fields @common', async ({ page }) => {
+  test.skip(mode !== 'common', `mode ${mode} runs a build-time fail-closed case`);
+  await routeConfig(page, readFixture('missingExpiresAt'));
+  await expectFailClosed(page, 'strict signed peer config requires expiresAt');
+});
+
+test('fails closed for signed config with impossible quorum @common', async ({ page }) => {
+  test.skip(mode !== 'common', `mode ${mode} runs a build-time fail-closed case`);
+  await routeConfig(page, readFixture('impossibleQuorum'));
+  await expectFailClosed(page, 'strict signed peer config quorumRequired cannot exceed configured peers');
+});
+
 test('fails closed for a bad peer-config signature @common', async ({ page }) => {
   test.skip(mode !== 'common', `mode ${mode} runs a build-time fail-closed case`);
   await routeConfig(page, readFixture('badSignature'));
