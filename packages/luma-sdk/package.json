@@ -17,6 +17,9 @@
     "test": "vitest run --config ./vitest.config.ts",
     "lint": "echo 'No lint yet'"
   },
+  "dependencies": {
+    "@vh/types": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.4.5",
     "vitest": "^2.1.4"

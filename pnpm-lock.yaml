@@ -72,6 +72,9 @@ importers:
       '@vh/identity-vault':
         specifier: workspace:*
         version: link:../../packages/identity-vault
+      '@vh/luma-sdk':
+        specifier: workspace:*
+        version: link:../../packages/luma-sdk
       '@vh/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -336,6 +339,10 @@ importers:
         version: 2.1.9(@types/node@20.17.19)(jsdom@24.1.3)
 
   packages/luma-sdk:
+    dependencies:
+      '@vh/types':
+        specifier: workspace:*
+        version: link:../types
     devDependencies:
       typescript:
         specifier: ^5.4.5

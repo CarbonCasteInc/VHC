@@ -2,11 +2,11 @@
 
 > Status: Normative Spec (Canonical)
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-27
+> Last Reviewed: 2026-05-05
 > Depends On: docs/foundational/System_Architecture.md, docs/foundational/LUMA_BriefWhitePaper.md
 
 
-Version: 0.4
+Version: 0.5
 Status: Canonical for Season 0 (Sprints 2-5)
 
 This spec is the single contract for identity, trustScore, and constituency across LUMA (identity), GWC (economics/governance), and VENN (civic signals). All client, mesh, and chain components must conform to these types and invariants.
@@ -193,9 +193,9 @@ The following mock behaviors exist in the codebase and are documented here as **
 
 The `ConstituencyProof` interface is the canonical shape for all constituency
 verification across the system. The active runtime proof acquisition path uses
-`getRealConstituencyProof()` (`apps/web-pwa/src/store/bridge/realConstituencyProof.ts`)
-through `useRegion()`. `getMockConstituencyProof()` remains a test/dev shape
-helper only and must not be the basis for production-like voting paths.
+`BetaLocalConstituencyProvider` from `@vh/luma-sdk` through `useRegion()`.
+`getMockConstituencyProof()` remains a test/dev shape helper only and must not
+be the basis for production-like voting paths.
 
 ```ts
 interface ConstituencyProof {
@@ -232,9 +232,9 @@ interface ProofVerificationResult {
 
 ### 4.3 Proof Acquisition: Current Season 0 Runtime State
 
-**Season 0 reality (runtime):** Constituency proof acquisition uses an
-attestation-bound deterministic provider (`getRealConstituencyProof`) built
-from session nullifier + configured district.
+**Season 0 reality (runtime):** Constituency proof acquisition uses the
+`BetaLocalConstituencyProvider` exported by `@vh/luma-sdk`, built from session
+nullifier + configured district.
 
 Current runtime behavior:
 - `useRegion()` derives proof from identity session nullifier and configured district hash.
@@ -249,6 +249,8 @@ Current runtime behavior:
   cryptographic acquisition and verification steps below are active.
 
 Transitional/test helpers:
+- `apps/web-pwa/src/store/bridge/realConstituencyProof.ts` is a soft-deprecated
+  compatibility shim over `@vh/luma-sdk` and is not a canonical app import.
 - `getMockConstituencyProof()` remains for tests/dev scaffolding only.
 - Production-like paths must not rely on mock proof helpers.
 
@@ -357,7 +359,8 @@ interface OnBehalfOfAssertion {
 | `useIdentity` hook | `apps/web-pwa/src/hooks/useIdentity.ts` | Season 0 transitional | Session creation, trust check at 0.5, dev fallback at 0.95, flag-gated lifecycle expiry, and local revocation. |
 | `useIdentity` tests | `apps/web-pwa/src/hooks/useIdentity.test.ts` | Season 0 transitional | Covers mock session paths. |
 | `TrustGate` component | `apps/web-pwa/src/components/hermes/forum/TrustGate.tsx` | Spec-aligned | Threshold-gated UI wrapper; checks `trustScore < 0.5`. |
-| `getRealConstituencyProof()` | `apps/web-pwa/src/store/bridge/realConstituencyProof.ts` | Season 0 beta-local | Deterministic proof shape derived from nullifier + configured district; not cryptographic residency proof. |
+| `BetaLocalConstituencyProvider` | `packages/luma-sdk/src/providers/index.ts` | Season 0 beta-local | Canonical provider for deterministic proof shape derived from nullifier + configured district; not cryptographic residency proof. |
+| Legacy constituency proof shim | `apps/web-pwa/src/store/bridge/realConstituencyProof.ts` | Soft-deprecated compatibility | Re-exports the SDK behavior for old callers; new app code imports `@vh/luma-sdk`. |
 | `getMockConstituencyProof()` | `apps/web-pwa/src/store/bridge/constituencyProof.ts` | Test/dev helper | Returns mock proof shape; voting paths reject mock proof values. |
 | `useGovernance` hook | `apps/web-pwa/src/hooks/useGovernance.ts` | Spec-aligned | `normalizeTrustScore()`, `MIN_TRUST_TO_VOTE = 0.7`. |
 | `ActionComposer` | `apps/web-pwa/src/components/bridge/ActionComposer.tsx` | Spec-aligned | Draft gate at 0.5, send gate at 0.7 (per CAK §7.1). |
@@ -381,7 +384,7 @@ This section explicitly defines the boundary between what Season 0 implements an
 | Off-chain session model | `SessionResponse` with `trustScore`, `nullifier`, `scaledTrustScore` | Phase 1 |
 | Trust-gated surfaces | All UI/action boundaries enforce `TRUST_THRESHOLDS` (§2) | Phase 1 |
 | Constituency proof interface | `ConstituencyProof { district_hash, nullifier, merkle_root }` shape is stable | Phase 1 |
-| Beta-local proof acquisition | `getRealConstituencyProof()` derives deterministic proof shape from nullifier + configured district; not cryptographic residency proof | Phase 1 beta-local |
+| Beta-local proof acquisition | `BetaLocalConstituencyProvider` derives deterministic proof shape from nullifier + configured district; not cryptographic residency proof | Phase 1 beta-local |
 | On-chain scaled attestation | Attestor bridge writes `scaledTrustScore` and `bytes32Nullifier` to UBE/QF/Faucet | Phase 1 |
 | Daily participation budgets | Per-nullifier action caps (posts, comments, votes, analyses, shares, moderation, civic_actions) | Phase 1 |
 | Familiar delegation | Scoped, expiring, revocable grants; trust + budget inheritance; Tier 3 human approval | Phase 1 |

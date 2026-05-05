@@ -1,7 +1,7 @@
 import { useIdentity } from './useIdentity';
 import type { ConstituencyProof } from '@vh/types';
+import { betaLocalConstituencyProvider } from '@vh/luma-sdk';
 import { useMemo } from 'react';
-import { getRealConstituencyProof } from '../store/bridge/realConstituencyProof';
 import { getConfiguredDistrict } from '../store/bridge/districtConfig';
 
 export function useRegion(): { proof: ConstituencyProof | null } {
@@ -11,7 +11,10 @@ export function useRegion(): { proof: ConstituencyProof | null } {
     const nullifier = identity?.session?.nullifier;
     if (!nullifier) return null;
 
-    return getRealConstituencyProof(nullifier, getConfiguredDistrict());
+    return betaLocalConstituencyProvider.getProofSync({
+      nullifier,
+      districtHash: getConfiguredDistrict()
+    });
   }, [identity?.session?.nullifier]);
 
   return { proof };

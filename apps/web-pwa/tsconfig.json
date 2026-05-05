@@ -16,7 +16,9 @@
       "@vh/data-model": ["../../packages/data-model/src/index.ts"],
       "@vh/data-model/*": ["../../packages/data-model/src/*"],
       "@vh/ai-engine": ["../../packages/ai-engine/src/index.ts"],
-      "@vh/ai-engine/*": ["../../packages/ai-engine/src/*"]
+      "@vh/ai-engine/*": ["../../packages/ai-engine/src/*"],
+      "@vh/luma-sdk": ["../../packages/luma-sdk/src/index.ts"],
+      "@vh/luma-sdk/*": ["../../packages/luma-sdk/src/*"]
     }
   },
   "include": ["src", "vite.config.ts"],

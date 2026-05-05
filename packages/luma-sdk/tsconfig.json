@@ -5,7 +5,7 @@
     "rootDir": "src",
     "composite": true,
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "declaration": true,
     "emitDeclarationOnly": false,
     "esModuleInterop": true,
