@@ -409,6 +409,7 @@ export default defineConfig({
       '@vh/ai-engine': path.resolve(__dirname, '../../packages/ai-engine/src'),
       '@vh/crypto': path.resolve(__dirname, '../../packages/crypto/src'),
       '@vh/data-model': path.resolve(__dirname, '../../packages/data-model/src'),
+      '@vh/luma-sdk': path.resolve(__dirname, '../../packages/luma-sdk/src'),
       '@vh/contracts': path.resolve(__dirname, '../../packages/contracts/typechain-types'),
       '@vh/identity-vault': path.resolve(__dirname, '../../packages/identity-vault/src')
     }

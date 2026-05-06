@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { verifyConstituencyProof } from '@vh/types';
 import { ConstituencyProofSchema } from '@vh/data-model';
 import {
@@ -18,6 +18,15 @@ function isTransitionalProof(proof: { district_hash: string; merkle_root: string
 describe('getRealConstituencyProof', () => {
   const nullifier = 'real-nullifier-abc';
   const district = 'us-ca-12-hash';
+  let warnSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('returns valid ConstituencyProof shape', () => {
     const proof = getRealConstituencyProof(nullifier, district);
@@ -28,6 +37,14 @@ describe('getRealConstituencyProof', () => {
     expect(proof.merkle_root).toBeTruthy();
     expect(proof.merkle_root).toMatch(
       new RegExp(`^${BETA_LOCAL_MERKLE_ROOT_PREFIX}`),
+    );
+  });
+
+  it('emits a soft-deprecation warning for legacy bridge callers', () => {
+    getRealConstituencyProof(nullifier, district);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[luma] getRealConstituencyProof is deprecated; import BetaLocalConstituencyProvider from @vh/luma-sdk.',
     );
   });
 

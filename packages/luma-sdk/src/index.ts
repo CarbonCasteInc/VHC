@@ -15,3 +15,36 @@ export {
   type LinkabilitySaltSource,
   type LinkabilityScope
 } from './linkabilityDomains';
+
+export {
+  assertProviderAllowed,
+  betaLocalConstituencyProvider,
+  BetaLocalAttestationProvider,
+  BetaLocalConstituencyProvider,
+  BETA_LOCAL_MERKLE_ROOT_PREFIX,
+  getBetaLocalConstituencyProof,
+  isBetaLocalConstituencyProof,
+  isProviderAllowed,
+  MockAttestationProvider,
+  MockConstituencyProvider,
+  PROVIDER_PROFILE_ALLOW_LIST,
+  RustDevStubAttestationProvider,
+  type AttestationProvider,
+  type AttestationProviderImplementation,
+  type AttestationProviderName,
+  type AttestationProviderOptions,
+  type AttestationProviderResult,
+  type AssuranceEnvelope,
+  type AssuranceLevel,
+  type AudienceTag,
+  type ClaimLevel,
+  type ClaimVector,
+  type ConstituencyProvider,
+  type ConstituencyProviderName,
+  type DeploymentProfile,
+  type DeviceCredential,
+  type EvidenceRef,
+  type IdentitySession,
+  type LumaProviderName,
+  type SignatureSuite
+} from './providers';

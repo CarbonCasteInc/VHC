@@ -11,6 +11,7 @@ export default defineConfig({
       '@vh/ai-engine': resolve(__dirname, 'packages/ai-engine/src/index.ts'),
       '@vh/gun-client': resolve(__dirname, 'packages/gun-client/src/index.ts'),
       '@vh/identity-vault': resolve(__dirname, 'packages/identity-vault/src/index.ts'),
+      '@vh/luma-sdk': resolve(__dirname, 'packages/luma-sdk/src/index.ts'),
       '@vh/types': resolve(__dirname, 'packages/types/src/index.ts')
     }
   },
