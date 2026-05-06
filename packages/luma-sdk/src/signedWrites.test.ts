@@ -318,11 +318,122 @@ describe('LUMA SignedWriteEnvelope SDK surface', () => {
       'uncanonicalizable payload',
       { payload: undefined },
       'invalid_payload_digest'
+    ],
+    [
+      'payload with undefined object member',
+      { payload: { ...VECTOR_PAYLOAD, ignored: undefined } },
+      'invalid_payload_digest'
+    ],
+    [
+      'payload with function object member',
+      { payload: { ...VECTOR_PAYLOAD, callback: () => null } },
+      'invalid_payload_digest'
+    ],
+    [
+      'payload with undefined array member',
+      { payload: { ...VECTOR_PAYLOAD, tags: ['m0b', undefined, 'jcs'] } },
+      'invalid_payload_digest'
     ]
   ])('fails closed while creating on %s', async (_label, patch, reason) => {
     await expect(createSignedWriteEnvelope(baseCreateInput(
       patch as Partial<CreateSignedWriteEnvelopeInput<typeof VECTOR_PAYLOAD>>
     ))).rejects.toMatchObject({ reason });
+  });
+
+  it.each([
+    ['root undefined', () => undefined],
+    ['root function', () => () => null],
+    ['root symbol', () => Symbol('payload')],
+    ['root bigint', () => BigInt(1)],
+    ['NaN number', () => Number.NaN],
+    ['Infinity number', () => Infinity],
+    ['undefined object member', () => ({ ok: true, skipped: undefined })],
+    ['function object member', () => ({ ok: true, callback: () => null })],
+    ['symbol object member', () => ({ ok: true, value: Symbol('hidden') })],
+    ['symbol-keyed object member', () => {
+      const payload = { ok: true } as Record<string | symbol, unknown>;
+      payload[Symbol('hidden')] = 'secret';
+      return payload;
+    }],
+    ['class instance object', () => new Date('2026-05-06T00:00:00.000Z')],
+    ['object accessor', () => {
+      const payload = { ok: true } as Record<string, unknown>;
+      Object.defineProperty(payload, 'hidden', {
+        enumerable: true,
+        get: () => 'secret'
+      });
+      return payload;
+    }],
+    ['non-enumerable object field', () => {
+      const payload = { ok: true } as Record<string, unknown>;
+      Object.defineProperty(payload, 'hidden', {
+        enumerable: false,
+        value: 'secret'
+      });
+      return payload;
+    }],
+    ['sparse array hole', () => {
+      const payload = [1, 2, 3];
+      delete payload[1];
+      return payload;
+    }],
+    ['array extra property', () => {
+      const payload = [1, 2, 3] as unknown[] & { extra?: string };
+      payload.extra = 'ignored';
+      return payload;
+    }],
+    ['array non-enumerable property', () => {
+      const payload = [1, 2, 3];
+      Object.defineProperty(payload, 'hidden', {
+        enumerable: false,
+        value: 'secret'
+      });
+      return payload;
+    }],
+    ['array accessor index', () => {
+      const payload = [1, 2, 3];
+      Object.defineProperty(payload, '1', {
+        enumerable: true,
+        get: () => 'secret'
+      });
+      return payload;
+    }],
+    ['array non-index string key', () => {
+      const payload = [1, 2, 3] as unknown[] & { '01'?: string };
+      payload['01'] = 'ignored';
+      return payload;
+    }],
+    ['array symbol property', () => {
+      const payload = [1, 2, 3] as unknown[] & Record<symbol, unknown>;
+      payload[Symbol('hidden')] = 'secret';
+      return payload;
+    }],
+    ['circular object', () => {
+      const payload = { ok: true, self: null as unknown };
+      payload.self = payload;
+      return payload;
+    }],
+    ['circular array', () => {
+      const payload: unknown[] = [];
+      payload.push(payload);
+      return payload;
+    }]
+  ])('rejects non-JSON canonicalization input: %s', (_label, makePayload) => {
+    expect(() => canonicalizeSignedWritePayload(makePayload())).toThrow(SignedWriteEnvelopeError);
+  });
+
+  it('wraps canonicalizer failures in a signed-write error', () => {
+    const payload = new Proxy({ ok: true }, {
+      get(target, property, receiver) {
+        if (property === 'ok') {
+          throw new Error('canonicalizer read failure');
+        }
+        return Reflect.get(target, property, receiver);
+      }
+    });
+
+    expect(() => canonicalizeSignedWritePayload(payload)).toThrow(SignedWriteEnvelopeError);
+    expect(() => canonicalizeSignedWritePayload(payload)).toThrow(/canonicalizer read failure/);
   });
 
   it.each([
@@ -405,6 +516,11 @@ describe('LUMA SignedWriteEnvelope SDK surface', () => {
       'tampered payload',
       { payload: { ...VECTOR_PAYLOAD, body: 'tampered' } },
       'payload_digest_mismatch'
+    ],
+    [
+      'non-JSON payload',
+      { payload: { ...VECTOR_PAYLOAD, ignored: undefined } },
+      'invalid_payload_digest'
     ],
     [
       'mismatched payloadDigest',

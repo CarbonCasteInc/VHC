@@ -352,7 +352,12 @@ async function validateSignedWriteEnvelope<TPayload>(
     return errorResult(error);
   }
 
-  const payloadDigest = await digestSignedWritePayload(envelope.payload);
+  let payloadDigest: string;
+  try {
+    payloadDigest = await digestSignedWritePayload(envelope.payload);
+  } catch (error) {
+    return errorResult(error);
+  }
   if (payloadDigest !== envelope.payloadDigest) {
     return invalidResult(
       'payload_digest_mismatch',
@@ -380,14 +385,110 @@ async function validateSignedWriteEnvelope<TPayload>(
 }
 
 function requireCanonicalJson(value: unknown, label: string): string {
-  const encoded = canonicalize(value);
-  if (typeof encoded !== 'string') {
+  try {
+    assertJsonCanonicalizable(value, label);
+    return canonicalize(value) as string;
+  } catch (error) {
+    if (error instanceof SignedWriteEnvelopeError) {
+      throw error;
+    }
     throw new SignedWriteEnvelopeError(
       'invalid_payload_digest',
-      `${label} must be RFC 8785 JSON-canonicalizable`
+      `${label} must be RFC 8785 JSON-canonicalizable: ${(error as Error).message}`
     );
   }
-  return encoded;
+}
+
+function assertJsonCanonicalizable(
+  value: unknown,
+  label: string,
+  seen: WeakSet<object> = new WeakSet()
+): void {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throwInvalidJsonValue(label);
+    }
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    if (seen.has(value)) {
+      throwInvalidJsonValue(label);
+    }
+    seen.add(value);
+
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      throwInvalidJsonValue(label);
+    }
+
+    const descriptors = Object.fromEntries(
+      Object.entries(Object.getOwnPropertyDescriptors(value))
+        .filter(([key]) => key !== 'length')
+    );
+
+    for (const [key, descriptor] of Object.entries(descriptors)) {
+      const index = Number(key);
+      if (
+        !Number.isInteger(index)
+        || String(index) !== key
+        || index < 0
+        || index >= value.length
+        || !descriptor.enumerable
+        || !('value' in descriptor)
+      ) {
+        throwInvalidJsonValue(label);
+      }
+    }
+
+    for (let index = 0; index < value.length; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (descriptor === undefined || !('value' in descriptor)) {
+        throwInvalidJsonValue(label);
+      }
+      assertJsonCanonicalizable(descriptor.value, label, seen);
+    }
+    seen.delete(value);
+    return;
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    if (seen.has(value)) {
+      throwInvalidJsonValue(label);
+    }
+
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+      throwInvalidJsonValue(label);
+    }
+
+    seen.add(value);
+    if (Object.getOwnPropertySymbols(value).length > 0) {
+      throwInvalidJsonValue(label);
+    }
+
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const descriptor of Object.values(descriptors)) {
+      if (!descriptor.enumerable || !('value' in descriptor)) {
+        throwInvalidJsonValue(label);
+      }
+      assertJsonCanonicalizable(descriptor.value, label, seen);
+    }
+    seen.delete(value);
+    return;
+  }
+
+  throwInvalidJsonValue(label);
+}
+
+function throwInvalidJsonValue(label: string): never {
+  throw new SignedWriteEnvelopeError(
+    'invalid_payload_digest',
+    `${label} must be strict JSON data for RFC 8785 canonicalization`
+  );
 }
 
 function requireEnvelopeVersion(value: unknown): typeof LUMA_SIGNED_WRITE_ENVELOPE_VERSION {
