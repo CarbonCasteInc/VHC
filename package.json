@@ -25,6 +25,7 @@
     "test:mesh:deployed-wss-peer-config": "pnpm --filter @vh/e2e test:mesh:deployed-wss-peer-config",
     "test:mesh:topology-drills": "pnpm --filter @vh/e2e test:mesh:topology-drills",
     "test:mesh:state-resolution-drills": "pnpm --filter @vh/e2e test:mesh:state-resolution-drills",
+    "test:mesh:disconnect-drills": "pnpm --filter @vh/e2e test:mesh:disconnect-drills",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
     "collect:storycluster:headline-soak": "pnpm report:news-sources:health && pnpm test:storycluster:smoke:readiness",

@@ -91,6 +91,23 @@ the drill namespace, and does not migrate LUMA schemas or adapters. The LUMA
 directory-entry row is recorded as `skipped` while the report runs under
 `schema_epoch: pre_luma_m0b` and `luma_profile: none`.
 
+Run the disconnect and duplicate-write drill:
+
+```sh
+pnpm test:mesh:disconnect-drills
+```
+
+That command starts the local three-relay production-shaped harness, writes
+synthetic duplicate/retry records under
+`vh/__mesh_drills/<run_id>/disconnect/*`, forces WebSocket closes around
+in-flight synthetic writes, retries against deterministic canonical keys, and
+verifies direct per-relay readback has one canonical logical write per key. It
+also runs a Web PWA browser canary through an e2e-only app hook that uses the
+app-created Gun client, forces a socket close, reloads the app to prove a fresh
+app-created client consumed the same topology, and retries the same canonical
+key. The hook is gated by `VITE_VH_EXPOSE_MESH_DISCONNECT_DRILL=true` and
+writes only to the drill namespace.
+
 ## Drill Scope
 
 The drill writes synthetic records only. Drill records live under:
@@ -98,6 +115,7 @@ The drill writes synthetic records only. Drill records live under:
 ```text
 vh/__mesh_drills/<run_id>/<write_id>
 vh/__mesh_drills/<run_id>/state_resolution/<case_id>/writes/<write_id>
+vh/__mesh_drills/<run_id>/disconnect/<case_id>/{attempts,canonical,indexes,projections}/*
 ```
 
 Drill records use `_drillWriterKind: 'mesh-drill'`. They do not use LUMA
@@ -174,6 +192,22 @@ The state-resolution drill separately proves:
 - `state-resolution-violation` appears in `health.degradation_reasons_seen`
   if any class-specific rule is broken.
 
+The disconnect drill separately proves:
+
+- forced WebSocket close/retry evidence is recorded for synthetic non-LUMA
+  duplicate-write rows;
+- direct relay readback of `canonical`, `indexes`, and `projections` nodes
+  observes one canonical logical write per deterministic key;
+- `write_class_slos[].duplicate_count` remains zero for vote intent replay,
+  aggregate voter node, aggregate snapshot, forum thread, forum comment,
+  encrypted sentiment event, and topic engagement actor/summary rows;
+- the Web PWA app-created Gun client can retry a synthetic drill write after
+  forced socket close and app reload without creating a duplicate canonical
+  key;
+- `disconnect-duplicate-write-violation` appears in
+  `health.degradation_reasons_seen` if a covered row duplicates or
+  double-counts.
+
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
 path in this server, public production WSS rollout still needs a trust path
@@ -182,18 +216,21 @@ client-compatible signed peer handshake.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B/7C even when the local
-restarted-relay drill, deployed-WSS local TLS profile, and state-resolution
-drill pass. A passing
+The report status remains `review_required` for Slice 6B/7B/7C/8 even when the
+local restarted-relay drill, deployed-WSS local TLS profile, state-resolution
+drill, and disconnect drill pass. A passing
 restarted-relay section means only that the restarted local relay directly read
 the missed synthetic drill write inside this bounded harness. A passing
 deployed-WSS section means only that the local TLS/WSS profile, signed WSS
-peer-config boot, CSP allowlist, and service-worker rollover proof passed. It
+peer-config boot, CSP allowlist, and service-worker rollover proof passed.
 A passing state-resolution section means only that non-LUMA synthetic §5.10
-winner rules were directly observed in the bounded local harness. It does not
-prove public WSS infrastructure, LUMA-gated write state resolution, clock-skew
-drills, broad partition/heal drills, soak budgets, evidence scrub promotion, or
-post-M0.B LUMA-gated write coverage.
+winner rules were directly observed in the bounded local harness. A passing
+disconnect section means only that covered synthetic non-LUMA duplicate/retry
+rows did not create duplicate canonical drill writes or double-counted
+projections inside this bounded harness. It does not prove public WSS
+infrastructure, LUMA-gated write state resolution, clock-skew drills, broad
+partition/heal drills, soak budgets, evidence scrub promotion, or post-M0.B
+LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one
