@@ -1,4 +1,7 @@
-import type { DelegationSigningKeyCompartment } from '../types';
+import type {
+  DelegationSigningKeyCompartment,
+  DelegationSigningPublicKey
+} from '../types';
 import { loadVaultV2, saveVaultV2 } from '../vault';
 import {
   base64UrlToBytes,
@@ -45,6 +48,13 @@ export async function signWithDelegationSigningKey(
   return bytesToBase64Url(new Uint8Array(signature));
 }
 
+export async function signWithStoredDelegationSigningKey(
+  message: string | Uint8Array
+): Promise<string> {
+  const key = await loadOrCreateDelegationSigningKey();
+  return signWithDelegationSigningKey(message, key);
+}
+
 export async function verifyWithDelegationSigningKey(input: {
   message: string | Uint8Array;
   signature: string;
@@ -61,6 +71,27 @@ export async function verifyWithDelegationSigningKey(input: {
     bytesToCryptoBufferSource(base64UrlToBytes(input.signature)),
     bytesFor(input.message)
   );
+}
+
+export async function verifyWithDelegationSigningPublicKey(input: {
+  message: string | Uint8Array;
+  signature: string;
+  key: DelegationSigningPublicKey;
+}): Promise<boolean> {
+  const key = validateDelegationSigningPublicKey(input.key);
+  return verifyWithDelegationSigningKey({
+    message: input.message,
+    signature: input.signature,
+    key
+  });
+}
+
+export async function getDelegationSigningPublicKey(): Promise<DelegationSigningPublicKey> {
+  return publicDelegationSigningKey(await loadOrCreateDelegationSigningKey());
+}
+
+export async function rotateStoredDelegationSigningKey(): Promise<DelegationSigningPublicKey> {
+  return publicDelegationSigningKey(await rotateDelegationSigningKey());
 }
 
 export function validateDelegationSigningKey(
@@ -81,6 +112,36 @@ export function validateDelegationSigningKey(
   }
 
   return value as DelegationSigningKeyCompartment;
+}
+
+export function validateDelegationSigningPublicKey(
+  value: unknown
+): DelegationSigningPublicKey {
+  if (
+    typeof value !== 'object'
+    || value === null
+    || (value as { signatureSuite?: unknown }).signatureSuite !== SIGNATURE_SUITE
+    || !encodedMaterial((value as { publicKey?: unknown }).publicKey)
+    || typeof (value as { createdAt?: unknown }).createdAt !== 'number'
+    || !Number.isSafeInteger((value as { createdAt: number }).createdAt)
+    || (value as { createdAt: number }).createdAt < 0
+    || 'privateKey' in value
+  ) {
+    throw new VaultCompartmentError('Invalid delegation signing public key');
+  }
+
+  return value as DelegationSigningPublicKey;
+}
+
+export function publicDelegationSigningKey(
+  key: DelegationSigningKeyCompartment
+): DelegationSigningPublicKey {
+  const validKey = validateDelegationSigningKey(key);
+  return Object.freeze({
+    signatureSuite: validKey.signatureSuite,
+    publicKey: Object.freeze({ ...validKey.publicKey }),
+    createdAt: validKey.createdAt
+  });
 }
 
 async function createDelegationSigningKey(): Promise<DelegationSigningKeyCompartment> {
@@ -163,6 +224,10 @@ function bytesToCryptoBufferSource(bytes: Uint8Array): BufferSource {
 export const delegationSigningKey = Object.freeze({
   loadOrCreate: loadOrCreateDelegationSigningKey,
   rotate: rotateDelegationSigningKey,
+  rotateStored: rotateStoredDelegationSigningKey,
+  publicKey: getDelegationSigningPublicKey,
   sign: signWithDelegationSigningKey,
+  signStored: signWithStoredDelegationSigningKey,
+  verifyPublic: verifyWithDelegationSigningPublicKey,
   verify: verifyWithDelegationSigningKey
 });

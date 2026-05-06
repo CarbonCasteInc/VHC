@@ -3,6 +3,12 @@ import { getDirectoryChain, lookupByNullifier, publishToDirectory } from './dire
 import { HydrationBarrier } from './sync/barrier';
 import type { VennClient } from './types';
 
+const DELEGATION_SIGNING_PUBLIC_KEY = Object.freeze({
+  signatureSuite: 'jcs-ed25519-sha256-v1',
+  publicKey: { encoding: 'base64url', material: 'delegation-public-key' },
+  createdAt: 1777777777000
+});
+
 function createMockChain() {
   const store = new Map<string, any>();
   const makeChain = (path: string[]): any => {
@@ -37,6 +43,7 @@ describe('directoryAdapters', () => {
       nullifier: 'alice',
       devicePub: 'alice-device',
       epub: 'alice-epub',
+      delegationSigningPublicKey: DELEGATION_SIGNING_PUBLIC_KEY,
       registeredAt: 1,
       lastSeenAt: 2
     };
@@ -94,6 +101,39 @@ describe('directoryAdapters', () => {
         nullifier: 'timeout-case',
         devicePub: 'device',
         epub: 'epub',
+        delegationSigningPublicKey: DELEGATION_SIGNING_PUBLIC_KEY,
+        registeredAt: 1,
+        lastSeenAt: 2
+      } as any);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(publishPromise).resolves.toBeUndefined();
+      expect(warning).toHaveBeenCalledWith('[vh:directory] publish ack timed out, requiring readback confirmation');
+    } finally {
+      warning.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps readback confirmation backward compatible for entries without delegation keys', async () => {
+    vi.useFakeTimers();
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      const store = new Map<string, unknown>();
+      const makeChain = (path: string[]): any => ({
+        get: vi.fn((key: string) => makeChain([...path, key])),
+        once: vi.fn((cb?: (data: unknown) => void) => cb?.(store.get(path.join('/')))),
+        put: vi.fn((value: unknown) => {
+          store.set(path.join('/'), value);
+        }),
+      });
+      const client = createClient(makeChain([]));
+      const publishPromise = publishToDirectory(client, {
+        schemaVersion: 'hermes-directory-v0',
+        nullifier: 'legacy-timeout-case',
+        devicePub: 'legacy-device',
+        epub: 'legacy-epub',
         registeredAt: 1,
         lastSeenAt: 2
       } as any);

@@ -23,6 +23,11 @@ vi.mock('@vh/identity-vault', () => ({
   loadIdentity: vi.fn(async () => vaultStore),
   saveIdentity: vi.fn(async (id: unknown) => { vaultStore = id; }),
   clearIdentity: vi.fn(async () => { vaultStore = null; }),
+  getDelegationSigningPublicKey: vi.fn(async () => ({
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    publicKey: { encoding: 'base64url', material: 'delegation-public-key' },
+    createdAt: 1777777777000
+  })),
   migrateLegacyLocalStorage: vi.fn(async () => {
     // Simulate migration: read from localStorage, store in vault, clear localStorage
     try {
@@ -260,9 +265,15 @@ describe('useAppStore', () => {
       nullifier: 'n1',
       devicePub: 'device-pub',
       epub: 'epub',
+      delegationSigningPublicKey: {
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        publicKey: { encoding: 'base64url', material: 'delegation-public-key' },
+        createdAt: 1777777777000
+      },
       registeredAt: expect.any(Number),
       lastSeenAt: expect.any(Number)
     });
+    expect(JSON.stringify(mockPublishDirectory.mock.calls[0]?.[1])).not.toContain('privateKey');
   });
 
   it('continues init when auth fails', async () => {

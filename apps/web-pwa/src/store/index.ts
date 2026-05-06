@@ -6,7 +6,7 @@ import {
 } from '@vh/gun-client';
 import type { DirectoryEntry, Profile } from '@vh/data-model';
 import type { DevicePair, IdentityRecord } from '@vh/types';
-import { migrateLegacyLocalStorage } from '@vh/identity-vault';
+import { getDelegationSigningPublicKey, migrateLegacyLocalStorage } from '@vh/identity-vault';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
 import { createMockClient } from './mockClient';
@@ -208,6 +208,7 @@ export async function publishDirectoryEntry(client: VennClient, identity: Identi
     nullifier: identity.session.nullifier,
     devicePub: identity.devicePair.pub,
     epub: identity.devicePair.epub,
+    delegationSigningPublicKey: await getDelegationSigningPublicKey(),
     registeredAt: Date.now(),
     lastSeenAt: Date.now()
   };

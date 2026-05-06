@@ -5,6 +5,7 @@ import {
   SessionResponseSchema,
   RegionProofSchema,
   type AttestationPayload,
+  type DirectoryEntry,
   type VerificationResult,
   type SessionResponse,
   type RegionProof
@@ -93,5 +94,24 @@ describe('types schemas', () => {
     const tuple: [string, string, string] = ['d-hash', 'n-1', 'root'];
     const decoded = decodeRegionProof(tuple);
     expect(decoded).toEqual({ district_hash: 'd-hash', nullifier: 'n-1', merkle_root: 'root' });
+  });
+
+  it('types directory entries with optional delegation signing public key only', () => {
+    const entry: DirectoryEntry = {
+      schemaVersion: 'hermes-directory-v0',
+      nullifier: 'identity-directory-id',
+      devicePub: 'device-pub',
+      epub: 'device-epub',
+      delegationSigningPublicKey: {
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        publicKey: { encoding: 'base64url', material: 'public-key-material' },
+        createdAt: 1777777777000
+      },
+      registeredAt: 1,
+      lastSeenAt: 2
+    };
+
+    expect(entry.delegationSigningPublicKey?.publicKey.material).toBe('public-key-material');
+    expect(JSON.stringify(entry)).not.toContain('privateKey');
   });
 });
