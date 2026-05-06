@@ -87,5 +87,13 @@ export function isValidIdentity(value: unknown): value is Identity {
 }
 
 export function isVaultV2(value: unknown): value is VaultV2 {
-  return isValidIdentity(value) && (value as { schemaVersion?: unknown }).schemaVersion === 2;
+  if (
+    !isValidIdentity(value)
+    || (value as { schemaVersion?: unknown }).schemaVersion !== VAULT_VERSION
+  ) {
+    return false;
+  }
+
+  const identityRecord = (value as { identityRecord?: unknown }).identityRecord;
+  return identityRecord === undefined || isValidIdentity(identityRecord);
 }

@@ -73,18 +73,22 @@ function deleteDatabase(name: string): Promise<void> {
   });
 }
 
-async function writeLegacyVaultRecord(identity: unknown): Promise<void> {
+async function writeEncryptedVaultRecord(version: number, payload: unknown): Promise<void> {
   const db = await openVaultDb();
   const key = await generateMasterKey();
   await idbPut(db, KEYS_STORE, MASTER_KEY, key);
-  const plaintext = new TextEncoder().encode(JSON.stringify(identity));
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
   const { iv, ciphertext } = await encrypt(key, plaintext);
   await idbPut(db, VAULT_STORE, IDENTITY_KEY, {
-    version: LEGACY_VAULT_VERSION,
+    version,
     iv,
     ciphertext
   } satisfies VaultRecord);
   db.close();
+}
+
+async function writeLegacyVaultRecord(identity: unknown): Promise<void> {
+  await writeEncryptedVaultRecord(LEGACY_VAULT_VERSION, identity);
 }
 
 beforeEach(async () => {
@@ -401,6 +405,21 @@ describe('Error branches', () => {
     const db2 = await openVaultDb();
     const remaining = await idbGet<VaultRecord>(db2, VAULT_STORE, IDENTITY_KEY);
     db2.close();
+    expect(remaining).toBeUndefined();
+  });
+
+  it('loadIdentity rejects v2 vault records with invalid identityRecord compartments', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: VAULT_VERSION,
+      identityRecord: 'not-an-identity-record'
+    });
+
+    await expect(loadIdentity()).resolves.toBeNull();
+    await expect(loadVaultV2()).resolves.toBeNull();
+
+    const db = await openVaultDb();
+    const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+    db.close();
     expect(remaining).toBeUndefined();
   });
 
@@ -804,6 +823,17 @@ describe('M0.D-1 vault v2 compartments', () => {
       schemaVersion: 2,
       identityRecord: LEGACY_IDENTITY
     });
+
+    await expect(loadIdentity()).resolves.toEqual(LEGACY_IDENTITY);
+  });
+
+  it('does not save invalid v2 identityRecord compartments through public writers', async () => {
+    await saveIdentity(LEGACY_IDENTITY);
+
+    await expect(saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: 'not-an-identity-record' as never
+    })).resolves.toBeUndefined();
 
     await expect(loadIdentity()).resolves.toEqual(LEGACY_IDENTITY);
   });

@@ -255,9 +255,14 @@ function migrateIdentityToVaultV2(identity: Identity): VaultV2 {
 }
 
 function normalizeVaultV2(vault: VaultV2): VaultV2 {
+  const identityRecord = vault.identityRecord;
+  if (identityRecord !== undefined && !isValidIdentity(identityRecord)) {
+    throw new Error('Invalid v2 identityRecord compartment');
+  }
+
   return {
     schemaVersion: VAULT_VERSION,
-    ...(vault.identityRecord ? { identityRecord: vault.identityRecord } : {}),
+    ...(identityRecord !== undefined ? { identityRecord } : {}),
     ...(vault.deviceCredential ? { deviceCredential: vault.deviceCredential } : {}),
     ...(vault.seaDevicePair ? { seaDevicePair: vault.seaDevicePair } : {}),
     ...(vault.delegationSigningKey ? { delegationSigningKey: vault.delegationSigningKey } : {})
