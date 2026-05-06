@@ -457,7 +457,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | Trust constants | ✅ Centralized | `packages/data-model/src/constants/trust.ts` — TRUST_MINIMUM (0.5), TRUST_ELEVATED (0.7) |
 | Session lifecycle | ✅ Feature-flagged | `packages/types/src/session-lifecycle.ts` — expiry, near-expiry, migration (`VITE_SESSION_LIFECYCLE_ENABLED`) |
 | Constituency proof verification | ✅ Feature-flagged | `packages/types/src/constituency-verification.ts` — nullifier/district/freshness checks (`VITE_CONSTITUENCY_PROOF_REAL`) |
-| Session revocation | ✅ Active (no flag) | `useIdentity.ts` — `revokeSession()` clears identity + proof state |
+| Identity lifecycle controls | ✅ Active (no flag) | `useIdentity.ts` — `signOut()` preserves device-bound compartments; `resetIdentity()` rotates them; `revokeSession()` is a deprecated shim |
 | Hardware TEE binding | ❌ Not implemented | No Secure Enclave/StrongBox code (Season 0 deferred §9.2) |
 | VIO liveness detection | ❌ Not implemented | No sensor fusion code (Season 0 deferred §9.2) |
 | Trust score calculation | ⚠️ Hardened stub | `main.rs` — structured validation, rate limiting; no real chain validation |
