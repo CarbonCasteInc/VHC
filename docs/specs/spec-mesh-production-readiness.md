@@ -684,7 +684,9 @@ Acceptance gates:
 
 - New command: `pnpm test:mesh:topology-drills`
 - Slice 7A: one relay down, browser write/readback still confirms within SLA.
-- Slice 7B: restarted relay catches up within SLA.
+- Slice 7B: restarted relay catches up within SLA, or the report marks the
+  bounded direct readback result `blocked`/`review_required` and names the next
+  topology strategy decision.
 - Slice 7C: every class in §5.10 State-Resolution Matrix passes its
   class-specific winning rule after relay restart or partition healing; no
   generic "delete wins" assertion is allowed in the drill code.
@@ -1008,10 +1010,31 @@ interface MeshProductionReadinessReport {
       quorum_required: number;
       local_mesh_peers_allowed: boolean;
     };
+    restarted_relay_catchup?: {
+      relay_id: string;
+      restarted_with_same_relay_id: boolean;
+      restarted_with_same_port: boolean;
+      restarted_with_same_radata_dir: boolean;
+      restarted_with_same_peer_list: boolean;
+      restarted_with_same_auth_mode: boolean;
+      missed_write_id: string;
+      trace_id: string;
+      status: 'pass' | 'review_required' | 'blocked';
+      reason: string;
+      restart_latency_ms: number | null;
+      catchup_latency_ms: number | null;
+      bounded_timeout_ms: number;
+      peer_settle_ms: number;
+      direct_readback_observed: boolean;
+      direct_readback_latency_ms: number | null;
+      baseline_readback_observed: boolean;
+      next_strategy_required: string[];
+    };
   };
   gates: Array<{
     name: string;
     status: 'pass' | 'fail' | 'skipped';
+    result_status?: 'pass' | 'review_required' | 'blocked';
     command: string;
     duration_ms: number;
     exit_code: number | null;
@@ -1857,25 +1880,32 @@ match and LUMA profile gates per §5.8.
   StoryCluster remains governed by the existing correctness and production
   readiness gates.
 
-## 9. Immediate Next Slice
+## 9. Current Local Proof Slices
 
 The current Slice 6A/7A local proof is intentionally split into two commands:
 
-1. `pnpm test:mesh:topology-drills` is the transport proof. It starts the local
-   three-relay harness, writes synthetic drill records under
-   `vh/__mesh_drills/<run_id>/...`, proves one-peer-kill write/readback through
-   the remaining quorum, records direct per-relay readback evidence, and keeps
-   restarted-peer catch-up unclaimed.
+1. `pnpm test:mesh:topology-drills` is the local transport and restarted-relay
+   proof. It starts the local three-relay harness, writes synthetic drill
+   records under `vh/__mesh_drills/<run_id>/...`, proves one-peer-kill
+   write/readback through the remaining quorum, records direct per-relay
+   readback evidence, then restarts the killed relay and attempts bounded direct
+   readback of the missed down-period write through that restarted relay only.
+   The restarted-relay section may report `pass`, `review_required`, or
+   `blocked`; any non-`pass` result must name the next topology strategy
+   decision rather than stretching the relay fan-out claim.
 2. `pnpm test:mesh:signed-peer-config-canary` is the browser boot proof. It
    generates and serves a signed local peer-config fixture with `configId`,
    `issuedAt`, and `expiresAt`, builds/previews the Web PWA in strict mode, and
    proves the app consumed `resolveGunPeerTopology` with `source:
    remote-config`.
 
-The next implementation slice after both local commands are green is either
-Slice 7B direct restarted-relay catch-up evidence or Slice 6B deployed WSS
-topology. Do not start a production WSS readiness claim until the local signed
-peer-config browser canary is green.
+The next implementation slice after both local commands are green depends on
+the restarted-relay result. If local restarted-relay catch-up is `pass`, Slice
+6B may move to deployed WSS topology without widening the claim beyond the
+local synthetic evidence. If local restarted-relay catch-up is `blocked` or
+`review_required`, the next branch must choose explicit replication/read-repair,
+scoped Gun/AXE topology, or an authoritative relay cluster before making a
+production recovery claim.
 
 Both local commands must keep state-resolution, clock-skew, and LUMA-gated-write
 report sections as `skipped` with explicit reasons until Slice 7C/Slice 9 and

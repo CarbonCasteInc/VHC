@@ -17,6 +17,14 @@ const gunRequire = createRequire(path.join(repoRoot, 'packages/gun-client/packag
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
 const READ_TIMEOUT_MS = Number.parseInt(process.env.VH_MESH_DRILL_READ_TIMEOUT_MS || '20000', 10);
 const WRITE_TIMEOUT_MS = Number.parseInt(process.env.VH_MESH_DRILL_WRITE_TIMEOUT_MS || '10000', 10);
+const RESTART_CATCHUP_TIMEOUT_MS = Number.parseInt(
+  process.env.VH_MESH_DRILL_RESTART_CATCHUP_TIMEOUT_MS || '30000',
+  10
+);
+const RESTART_PEER_SETTLE_MS = Number.parseInt(
+  process.env.VH_MESH_DRILL_RESTART_PEER_SETTLE_MS || '1500',
+  10
+);
 
 let gunWsInstalled = false;
 
@@ -228,6 +236,35 @@ async function waitForReady(relay, timeoutMs = 15000) {
   throw new Error(`relay ${relay.relay_id} not ready: ${lastError?.message || 'unknown'}`);
 }
 
+async function relayStatusSnapshot(relay) {
+  const [healthz, readyz] = await Promise.all([
+    requestJson(`${relay.baseUrl}/healthz`),
+    requestJson(`${relay.baseUrl}/readyz`),
+  ]);
+  return {
+    healthz_status_code: healthz.statusCode,
+    healthz_ok: Boolean(healthz.body?.ok),
+    readyz_status_code: readyz.statusCode,
+    readyz_ok: Boolean(readyz.body?.ok),
+    relay_id: readyz.body?.relay_id || healthz.body?.relay_id || relay.relay_id,
+    relay_peer_count: readyz.body?.relay_peer_count ?? healthz.body?.relay_peer_count ?? null,
+    relay_peers_configured: readyz.body?.relay_peers_configured ?? healthz.body?.relay_peers_configured ?? null,
+    relay_peer_auth_mode: readyz.body?.relay_peer_auth_mode ?? healthz.body?.relay_peer_auth_mode ?? null,
+    radisk_enabled: readyz.body?.radisk_enabled ?? healthz.body?.radisk_enabled ?? null,
+  };
+}
+
+function relayStatusIsNominal(snapshot) {
+  return Boolean(
+    snapshot?.healthz_status_code === 200 &&
+      snapshot.healthz_ok &&
+      snapshot.readyz_status_code === 200 &&
+      snapshot.readyz_ok &&
+      snapshot.relay_peers_configured &&
+      snapshot.radisk_enabled
+  );
+}
+
 async function startRelay({ relayId, port, peers, runDir, children }) {
   const radataDir = path.join(runDir, relayId, 'radata');
   fs.mkdirSync(radataDir, { recursive: true });
@@ -271,6 +308,7 @@ async function startRelay({ relayId, port, peers, runDir, children }) {
     peerUrl: `http://127.0.0.1:${port}/gun`,
     baseUrl: `http://127.0.0.1:${port}`,
     radataDir,
+    configuredPeerUrls: [...peers],
     child,
   };
   relay.ready = await waitForReady(relay);
@@ -479,14 +517,17 @@ async function writeRecordToPeer({ peer, runId, writeId, record, artifactDir }) 
   return runClientCommand('client-put', { peer, runId, writeId, recordPath }, WRITE_TIMEOUT_MS + 10000);
 }
 
-async function readRecordFromRelay(relay, record) {
+async function readRecordFromRelay(relay, record, options = {}) {
+  const timeoutMs = options.timeoutMs || READ_TIMEOUT_MS;
   return {
     relay_id: relay.relay_id,
     write_class: 'synthetic mesh drill object',
     object_id: record.objectId,
     write_id: record._drillWriteId,
     trace_id: record._drillTraceId,
-    phase: record.phase,
+    phase: options.phase || record.phase,
+    readback_context: options.readbackContext || 'direct-single-relay',
+    timeout_ms: timeoutMs,
     ...runClientCommand(
       'client-read',
       {
@@ -494,9 +535,9 @@ async function readRecordFromRelay(relay, record) {
         runId: record._drillRunId,
         writeId: record._drillWriteId,
         traceId: record._drillTraceId,
-        timeoutMs: READ_TIMEOUT_MS,
+        timeoutMs,
       },
-      READ_TIMEOUT_MS + 10000
+      timeoutMs + 10000
     ),
   };
 }
@@ -686,6 +727,7 @@ async function runTopologyDrill() {
 
     const downRelay = relays[1];
     await stopRelay(downRelay);
+    children.delete(downRelay.child);
     healthReasons.push('non-blocking-peer-loss');
     await sleep(1000);
     const liveRelays = [relays[0], relays[2]];
@@ -718,6 +760,72 @@ async function runTopologyDrill() {
       healthReasons.push('one-peer-down-quorum-write-readback-failed');
     }
 
+    let restartedRelay = null;
+    let restartedRelayReady = null;
+    let restartedRelayStatus = null;
+    let restartedCatchupReadback = null;
+    let restartedBaselineReadback = null;
+    let restartStartedAtMs = null;
+    let restartReadyAtMs = null;
+    let catchupReadStartedAtMs = null;
+    let catchupReadCompletedAtMs = null;
+    let restartedCatchupStatus = 'review_required';
+    let restartedCatchupReason = 'restarted relay catch-up was not attempted';
+    let restartedCatchupEvidenceCompleted = false;
+    let restartedCatchupError = null;
+    const restartPeerUrls = peerUrls.filter((_, peerIndex) => peerIndex !== 1);
+    try {
+      restartStartedAtMs = Date.now();
+      restartedRelay = await startRelay({
+        relayId: downRelay.relay_id,
+        port: downRelay.port,
+        peers: restartPeerUrls,
+        runDir,
+        children,
+      });
+      restartedRelayReady = restartedRelay.ready;
+      relays[1] = restartedRelay;
+      restartReadyAtMs = Date.now();
+      restartedRelayStatus = await relayStatusSnapshot(restartedRelay);
+      if (!relayStatusIsNominal(restartedRelayStatus)) {
+        throw new Error('restarted-relay-health-not-nominal');
+      }
+      await sleep(RESTART_PEER_SETTLE_MS);
+      catchupReadStartedAtMs = Date.now();
+      restartedCatchupReadback = await readRecordFromRelay(restartedRelay, degradedRecord, {
+        phase: 'restarted-relay-catch-up',
+        readbackContext: 'direct-restarted-relay-catch-up',
+        timeoutMs: RESTART_CATCHUP_TIMEOUT_MS,
+      });
+      catchupReadCompletedAtMs = Date.now();
+      restartedBaselineReadback = await readRecordFromRelay(restartedRelay, initialRecord, {
+        phase: 'restarted-relay-baseline',
+        readbackContext: 'direct-restarted-relay-baseline',
+        timeoutMs: Math.min(READ_TIMEOUT_MS, RESTART_CATCHUP_TIMEOUT_MS),
+      });
+      restartedCatchupEvidenceCompleted = true;
+      if (restartedCatchupReadback.observed && restartedBaselineReadback.observed) {
+        restartedCatchupStatus = 'pass';
+        restartedCatchupReason = 'restarted relay directly read the down-period write within the bounded local harness SLA';
+      } else if (!restartedCatchupReadback.observed) {
+        restartedCatchupStatus = 'blocked';
+        restartedCatchupReason = 'restarted relay did not directly read the down-period write within the bounded local harness SLA';
+        healthReasons.push('restarted-relay-catchup-blocked');
+      } else {
+        restartedCatchupStatus = 'review_required';
+        restartedCatchupReason = 'restarted relay read the down-period write, but missed the pre-kill baseline record after restart';
+        healthReasons.push('restarted-relay-baseline-readback-missed');
+      }
+      if (!restartedBaselineReadback.observed) {
+        healthReasons.push('restarted-relay-baseline-readback-missed');
+      }
+    } catch (error) {
+      restartedCatchupError = error instanceof Error ? error.message : String(error);
+      restartedCatchupStatus = 'review_required';
+      restartedCatchupReason = `restarted relay catch-up evidence was not completed: ${restartedCatchupError}`;
+      healthReasons.push('restarted-relay-harness-failed');
+    }
+
     for (const record of [initialRecord, degradedRecord]) {
       const tombstone = runClientCommand(
         'client-tombstone',
@@ -729,13 +837,30 @@ async function runTopologyDrill() {
 
     const resourceSlos = await collectMetrics(relays);
     const cleanupPassed = cleanupCount === 2;
-    const corePassed = initialPassed && degradedPassed && authNegative.status === 'pass' && cleanupPassed;
+    const restartLatencyMs = restartStartedAtMs !== null && restartReadyAtMs !== null
+      ? restartReadyAtMs - restartStartedAtMs
+      : null;
+    const catchupLatencyMs =
+      restartedCatchupReadback?.observed && restartReadyAtMs !== null && catchupReadStartedAtMs !== null
+        ? (catchupReadStartedAtMs - restartReadyAtMs) + restartedCatchupReadback.latency_ms
+        : null;
+    const transportCorePassed = initialPassed && degradedPassed && authNegative.status === 'pass' && cleanupPassed;
+    const commandPassed = transportCorePassed && restartedCatchupEvidenceCompleted;
+    const restartedCatchupGateStatus = restartedCatchupEvidenceCompleted ? 'pass' : 'fail';
     const gateFailureReasons = [
       !initialPassed ? 'all-live relay readback failed' : null,
       !degradedPassed ? 'one-peer-down quorum readback failed' : null,
       authNegative.status !== 'pass' ? 'relay-peer auth negative test failed' : null,
       !cleanupPassed ? 'drill namespace tombstones were not fully acknowledged' : null,
+      !restartedCatchupEvidenceCompleted ? 'restarted-relay catch-up evidence did not complete' : null,
     ].filter(Boolean);
+    const restartedCatchupNextStrategies = restartedCatchupStatus !== 'pass'
+      ? [
+          'explicit replication/read-repair layer',
+          'scoped Gun/AXE topology with its own drill evidence',
+          'authoritative relay cluster with service-level failover claim only',
+        ]
+      : [];
     const status = 'review_required';
     const completedAtMs = Date.now();
     const report = {
@@ -756,9 +881,11 @@ async function runTopologyDrill() {
         command: 'pnpm test:mesh:topology-drills',
       },
       status,
-      status_reason: corePassed
-        ? 'Slice 6A/7A local relay peer-fanout proof passed; full production readiness remains review_required because later mesh and LUMA-gated sections are skipped.'
-        : 'Slice 6A/7A local relay peer-fanout proof did not fully pass; inspect health reasons and per_relay_readback.',
+      status_reason: commandPassed && restartedCatchupStatus === 'pass'
+        ? 'Slice 7B local direct restarted-relay catch-up evidence passed; full production readiness remains review_required because later mesh and LUMA-gated sections are skipped.'
+        : commandPassed && restartedCatchupStatus === 'blocked'
+          ? 'Slice 7B bounded direct restarted-relay readback did not observe the down-period write; relay peer-fanout recovery remains blocked pending an explicit topology strategy decision.'
+          : 'Local topology proof did not fully complete; inspect health reasons, per_relay_readback, and restarted_relay_catchup evidence.',
       schema_epoch: 'pre_luma_m0b',
       luma_profile: 'none',
       luma_dependency_status: {
@@ -776,10 +903,10 @@ async function runTopologyDrill() {
         signed_peer_config: false,
         relay_urls_redacted: peerUrls.map(redactedRelayUrl),
         relay_ids: relays.map((relay) => relay.relay_id),
-        relay_peer_lists: relays.map((relay, index) => ({
+        relay_peer_lists: relays.map((relay) => ({
           relay_id: relay.relay_id,
-          configured_peer_count: peerUrls.filter((_, peerIndex) => peerIndex !== index).length,
-          peers_redacted: peerUrls.filter((_, peerIndex) => peerIndex !== index).map(redactedRelayUrl),
+          configured_peer_count: relay.configuredPeerUrls.length,
+          peers_redacted: relay.configuredPeerUrls.map(redactedRelayUrl),
         })),
         relay_to_relay_peers_configured: relays.every((relay) => relay.ready?.relay_peers_configured),
         relay_to_relay_auth_mode: 'private_network_allowlist',
@@ -788,17 +915,55 @@ async function runTopologyDrill() {
         peer_config_id: `local-three-relay-${runId}`,
         peer_config_issued_at: new Date(issuedAt).toISOString(),
         peer_config_expires_at: new Date(expiresAt).toISOString(),
+        restarted_relay_catchup: {
+          relay_id: downRelay.relay_id,
+          restarted_with_same_relay_id: Boolean(restartedRelay && restartedRelay.relay_id === downRelay.relay_id),
+          restarted_with_same_port: Boolean(restartedRelay && restartedRelay.port === downRelay.port),
+          restarted_with_same_radata_dir: Boolean(restartedRelay && restartedRelay.radataDir === downRelay.radataDir),
+          restarted_with_same_peer_list: JSON.stringify(restartedRelay?.configuredPeerUrls || []) === JSON.stringify(downRelay.configuredPeerUrls || []),
+          restarted_with_same_auth_mode: restartedRelayReady?.relay_peer_auth_mode === downRelay.ready?.relay_peer_auth_mode,
+          configured_peer_count_after_restart: restartPeerUrls.length,
+          configured_peers_after_restart_redacted: restartPeerUrls.map(redactedRelayUrl),
+          relay_peer_count_after_restart: restartedRelayReady?.relay_peer_count ?? null,
+          relay_peers_configured_after_restart: restartedRelayReady?.relay_peers_configured ?? null,
+          auth_mode_after_restart: restartedRelayReady?.relay_peer_auth_mode ?? null,
+          health_after_restart: restartedRelayStatus,
+          missed_write_id: degradedRecord._drillWriteId,
+          trace_id: degradedRecord._drillTraceId,
+          status: restartedCatchupStatus,
+          reason: restartedCatchupReason,
+          restart_latency_ms: restartLatencyMs,
+          catchup_latency_ms: catchupLatencyMs,
+          bounded_timeout_ms: RESTART_CATCHUP_TIMEOUT_MS,
+          peer_settle_ms: RESTART_PEER_SETTLE_MS,
+          catchup_read_started_at: catchupReadStartedAtMs === null ? null : new Date(catchupReadStartedAtMs).toISOString(),
+          catchup_read_completed_at: catchupReadCompletedAtMs === null ? null : new Date(catchupReadCompletedAtMs).toISOString(),
+          direct_readback_observed: Boolean(restartedCatchupReadback?.observed),
+          direct_readback_latency_ms: restartedCatchupReadback?.latency_ms ?? null,
+          baseline_readback_observed: Boolean(restartedBaselineReadback?.observed),
+          error: restartedCatchupError,
+          next_strategy_required: restartedCatchupNextStrategies,
+        },
       },
       gates: [
         {
           name: 'local-three-relay-peer-kill-write-readback',
-          status: corePassed ? 'pass' : 'fail',
+          status: transportCorePassed ? 'pass' : 'fail',
           command: 'pnpm test:mesh:topology-drills',
           duration_ms: completedAtMs - startedAtMs,
-          exit_code: corePassed ? 0 : 1,
-          reason: corePassed
+          exit_code: transportCorePassed ? 0 : 1,
+          reason: transportCorePassed
             ? 'all-live and one-peer-down live relay readbacks passed; drill namespace tombstones were acknowledged'
             : gateFailureReasons.join('; '),
+        },
+        {
+          name: 'local-restarted-relay-catchup',
+          status: restartedCatchupGateStatus,
+          result_status: restartedCatchupStatus,
+          command: 'pnpm test:mesh:topology-drills',
+          duration_ms: restartStartedAtMs === null ? 0 : completedAtMs - restartStartedAtMs,
+          exit_code: restartedCatchupEvidenceCompleted ? 0 : 1,
+          reason: restartedCatchupReason,
         },
         {
           name: 'mesh-production-readiness-full-gate',
@@ -806,7 +971,7 @@ async function runTopologyDrill() {
           command: 'pnpm check:mesh:production-readiness',
           duration_ms: 0,
           exit_code: null,
-          reason: 'full gate is not wired in this slice; signed browser peer-config, deployed WSS, restarted catch-up, state-resolution, clock-skew, partition, soak, evidence scrub, and post-M0.B LUMA-gated write sections remain pending',
+          reason: 'full gate is not wired in this slice; deployed WSS, state-resolution, clock-skew, partition, soak, evidence scrub, and post-M0.B LUMA-gated write sections remain pending',
         },
       ],
       write_class_slos: [
@@ -827,6 +992,8 @@ async function runTopologyDrill() {
         ...initialReadbacks,
         ...degradedLiveReadbacks,
         degradedDownReadback,
+        ...(restartedCatchupReadback ? [restartedCatchupReadback] : []),
+        ...(restartedBaselineReadback ? [restartedBaselineReadback] : []),
       ],
       peer_failure_drills: [
         {
@@ -837,8 +1004,23 @@ async function runTopologyDrill() {
           trace_id: degradedRecord._drillTraceId,
           status: degradedPassed ? 'pass' : 'fail',
           reason: degradedPassed
-            ? 'write/readback passed through remaining two-relay quorum; down relay catch-up not claimed'
+            ? 'write/readback passed through remaining two-relay quorum'
             : 'remaining quorum did not directly read back the degraded write',
+        },
+        {
+          name: 'restarted-relay-catch-up',
+          down_relay_id: downRelay.relay_id,
+          restarted_relay_id: restartedRelay?.relay_id || downRelay.relay_id,
+          live_relay_ids: liveRelays.map((relay) => relay.relay_id),
+          write_id: degradedRecord._drillWriteId,
+          trace_id: degradedRecord._drillTraceId,
+          status: restartedCatchupStatus,
+          restart_latency_ms: restartLatencyMs,
+          catchup_latency_ms: catchupLatencyMs,
+          bounded_timeout_ms: RESTART_CATCHUP_TIMEOUT_MS,
+          direct_single_relay_readback_observed: Boolean(restartedCatchupReadback?.observed),
+          reason: restartedCatchupReason,
+          next_strategy_required: restartedCatchupNextStrategies,
         },
       ],
       state_resolution_drills: [
@@ -852,7 +1034,7 @@ async function runTopologyDrill() {
           down_relay_id: null,
           violation_reason: null,
           status: 'skipped',
-          reason: 'Slice 7C state-resolution matrix is out of scope for the first pre-LUMA M0.B topology proof path.',
+          reason: 'Slice 7C state-resolution matrix is out of scope for the Slice 7B restarted-relay catch-up proof.',
         },
       ],
       conflict_fixtures: [
@@ -860,14 +1042,14 @@ async function runTopologyDrill() {
           fixture: 'duplicate-write-disconnect-fixtures',
           trace_id: traceId,
           status: 'skipped',
-          reason: 'Slice 8 duplicate-write and disconnect fixtures are not implemented in Slice 6A/7A.',
+          reason: 'Slice 8 duplicate-write and disconnect fixtures are not implemented in Slice 7B.',
         },
       ],
       clock_skew: {
         skewed_actor: null,
         skewed_layer: null,
         skew_ms: 0,
-        named_failure: 'skipped: Slice 9 clock-skew drill is out of scope for Slice 6A/7A.',
+        named_failure: 'skipped: Slice 9 clock-skew drill is out of scope for Slice 7B.',
         lww_diverged: false,
         status: 'skipped',
       },
@@ -893,14 +1075,18 @@ async function runTopologyDrill() {
         degradation_reasons_seen: Array.from(new Set(healthReasons)),
       },
       release_claims: {
-        allowed: corePassed
+        allowed: commandPassed
           ? [
               'The mesh has a local production-shaped three-relay topology harness with a passing one-peer-kill quorum write/readback drill against synthetic mesh drill records under vh/__mesh_drills/*.',
-              'One-peer-kill live-quorum write/readback is verified for the local harness; restarted-relay catch-up and state-resolution evidence remain pending.',
+              ...(restartedCatchupStatus === 'pass'
+                ? ['The restarted local relay directly read the missed down-period synthetic drill write within the bounded local harness SLA.']
+                : []),
             ]
           : [],
         forbidden: [
-          'Restarted peers catch up automatically.',
+          ...(restartedCatchupStatus === 'pass'
+            ? ['Restarted peers catch up automatically outside the local synthetic drill harness.']
+            : ['Restarted peers catch up automatically.']),
           'State-resolution rules survive relay restart or partition heal.',
           'The mesh has production-ready multi-relay failover.',
           'LUMA-gated write classes have mesh transport readiness under the current LUMA schema epoch.',
@@ -910,22 +1096,24 @@ async function runTopologyDrill() {
       downstream_canary: {
         command: 'pnpm check:mesh:production-readiness',
         status: 'skipped',
-        reason: 'full downstream canary is not wired in Slice 6A/7A',
+        reason: 'full downstream canary is not wired in Slice 7B',
       },
     };
 
     reportPaths = writeReport(report, artifactDir);
     console.log(JSON.stringify({
-      ok: corePassed,
+      ok: commandPassed,
       status,
       run_id: runId,
       report_path: reportPaths.reportPath,
       latest_report_path: reportPaths.latestReportPath,
       relay_fanout_passed: initialPassed && degradedPassed,
+      restarted_relay_catchup_status: restartedCatchupStatus,
+      restarted_relay_catchup_observed: Boolean(restartedCatchupReadback?.observed),
       health_reasons: report.health.degradation_reasons_seen,
     }, null, 2));
 
-    if (!corePassed) {
+    if (!commandPassed) {
       process.exitCode = 1;
     }
   } finally {
