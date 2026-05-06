@@ -65,6 +65,29 @@ describe('DirectoryEntrySchema', () => {
     expect(result.success).toBe(false);
   });
 
+  it('rejects delegation signing public keys carrying private key material', () => {
+    const result = DirectoryEntrySchema.safeParse({
+      schemaVersion: 'hermes-directory-v0',
+      nullifier: 'user-nullifier',
+      devicePub: 'device-pub',
+      epub: 'device-epub',
+      delegationSigningPublicKey: {
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        publicKey: {
+          encoding: 'base64url',
+          material: 'public-material',
+          privateKey: { encoding: 'base64url', material: 'secret-material' }
+        },
+        privateKey: { encoding: 'base64url', material: 'secret-material' },
+        createdAt: 1777777777000
+      },
+      registeredAt: Date.now(),
+      lastSeenAt: Date.now()
+    });
+
+    expect(result.success).toBe(false);
+  });
+
   it('rejects missing fields', () => {
     const result = DirectoryEntrySchema.safeParse({
       schemaVersion: 'hermes-directory-v0',

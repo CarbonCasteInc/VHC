@@ -5,9 +5,9 @@ export const DelegationSigningPublicKeySchema = z.object({
   publicKey: z.object({
     encoding: z.literal('base64url'),
     material: z.string().min(1)
-  }),
+  }).strict(),
   createdAt: z.number().int().nonnegative()
-});
+}).strict();
 
 export const DirectoryEntrySchema = z.object({
   schemaVersion: z.literal('hermes-directory-v0'),

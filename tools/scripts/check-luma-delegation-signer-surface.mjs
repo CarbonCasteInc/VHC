@@ -39,9 +39,11 @@ for (const token of [
 
 requireToken(identityVaultTypesSource, 'export interface DelegationSigningPublicKey', 'packages/identity-vault/src/types.ts');
 requireToken(dataModelDirectorySource, 'DelegationSigningPublicKeySchema.optional()', 'packages/data-model directory schema');
+requireToken(dataModelDirectorySource, '}).strict();', 'delegation signing public key schema');
 requireToken(typesIndexSource, 'delegationSigningPublicKey?: DelegationSigningPublicKey', 'packages/types DirectoryEntry');
 requireToken(webStoreSource, 'getDelegationSigningPublicKey', 'apps/web-pwa store');
 requireToken(webStoreSource, 'delegationSigningPublicKey: await getDelegationSigningPublicKey()', 'publishDirectoryEntry');
+requireToken(directoryAdapterSource, 'DirectoryEntrySchema.safeParse(data)', 'directory adapter lookup');
 requireToken(directoryAdapterSource, 'delegationSigningPublicKeyMatches(candidate, entry)', 'directory adapter readback');
 
 const publishDirectoryEntryStart = webStoreSource.indexOf('export async function publishDirectoryEntry');

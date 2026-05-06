@@ -1,4 +1,4 @@
-import type { DirectoryEntry } from '@vh/data-model';
+import { DirectoryEntrySchema, type DirectoryEntry } from '@vh/data-model';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import type { VennClient } from './types';
@@ -22,11 +22,8 @@ export async function lookupByNullifier(client: VennClient, nullifier: string): 
     const timeout = setTimeout(() => resolve(null), 3000);
     getDirectoryChain(client, nullifier).once((data) => {
       clearTimeout(timeout);
-      if (data && typeof data === 'object' && 'devicePub' in data) {
-        resolve(data as DirectoryEntry);
-      } else {
-        resolve(null);
-      }
+      const result = DirectoryEntrySchema.safeParse(data);
+      resolve(result.success ? result.data : null);
     });
   });
 }

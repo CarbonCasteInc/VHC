@@ -62,6 +62,31 @@ describe('directoryAdapters', () => {
     expect(result).toBeNull();
   });
 
+  it('returns null when stored delegation signing key data is not public-only', async () => {
+    const { chain, store } = createMockChain();
+    const client = createClient(chain);
+    store.set('vh/directory/leaky', {
+      schemaVersion: 'hermes-directory-v0',
+      nullifier: 'leaky',
+      devicePub: 'device',
+      epub: 'epub',
+      delegationSigningPublicKey: {
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        publicKey: {
+          encoding: 'base64url',
+          material: 'public-material',
+          privateKey: { encoding: 'base64url', material: 'secret-material' }
+        },
+        privateKey: { encoding: 'base64url', material: 'secret-material' },
+        createdAt: 1777777777000
+      },
+      registeredAt: 1,
+      lastSeenAt: 2
+    });
+
+    await expect(lookupByNullifier(client, 'leaky')).resolves.toBeNull();
+  });
+
   it('propagates errors from publish', async () => {
     const failingChain: any = {
       get: vi.fn(() => failingChain),
