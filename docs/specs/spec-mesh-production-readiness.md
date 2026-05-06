@@ -113,6 +113,11 @@ Current head at closeout:
   hermetic `local_tls_wss_profile` with signed HTTPS peer config, three
   `wss://` relays, local peer allowance disabled, CSP `connect-src` checks, and
   service-worker peer-config rollover checks.
+- `pnpm test:mesh:state-resolution-drills` is the Slice 7C state-resolution
+  proof: it writes synthetic non-LUMA §5.10 competing records under
+  `vh/__mesh_drills/<run_id>/state_resolution/*`, restarts/heals one relay
+  across before/during/after write windows, and verifies each class-specific
+  winner by direct single-relay readback.
 
 Important boundary:
 
@@ -120,8 +125,8 @@ Important boundary:
   in a browser Gun peer list. The deployed-WSS canary is a local TLS/WSS
   deployment-profile proof, not public infrastructure. These commands still do
   not prove strict app boot with a dead configured peer, production relay
-  federation beyond the bounded local harness, network partition repair, or
-  rolling-restart soak.
+  federation beyond the bounded local harness, LUMA-gated write
+  state-resolution, network partition repair, or rolling-restart soak.
 
 ## 3. Core Runtime Surfaces
 
@@ -1818,15 +1823,18 @@ Current commands:
 - `pnpm live:stack:down`
 - `pnpm mesh:compact-health-probes`
 
-Required new commands:
+Implemented mesh commands:
 
 - `pnpm test:mesh:topology-drills`
 - `pnpm test:mesh:deployed-wss-peer-config`
-- `pnpm test:mesh:disconnect-drills`
 - `pnpm test:mesh:state-resolution-drills`
   - `pnpm test:mesh:tombstone-drills` may remain as a compatibility alias, but
     the canonical command covers every §5.10 state-resolution rule, not only
     tombstones.
+
+Required new commands:
+
+- `pnpm test:mesh:disconnect-drills`
 - `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
 - `pnpm test:mesh:partition-drills`
@@ -1862,7 +1870,7 @@ pre_luma_m0b`):
   inside the bounded local harness."
 - "Relay fan-out remains a time-boxed proof path; the architecture commitment is
   still pending deployed WSS, state-resolution, partition/heal, and soak
-  evidence."
+  evidence until those later slices pass."
 - "Mesh transport behavior for LUMA-gated write classes is not yet claimed;
   canonical drills require the LUMA M0.B schema epoch to land first."
 
@@ -1875,11 +1883,24 @@ Allowed after Slice 6B local TLS/WSS profile proof:
 - "The deployed-WSS canary verifies expected CSP `connect-src` origins and
   service-worker peer-config rollover for the local TLS/WSS profile."
 
-Still not allowed after Slice 6B local TLS/WSS profile proof:
+Allowed after Slice 7C state-resolution drill proof:
+
+- "The bounded local three-relay harness directly observed non-LUMA synthetic
+  §5.10 state-resolution winners after one-relay restart/heal."
+- "The report records per-class `state_resolution_drills[]` rows for
+  tombstone, hide/restore latest-state, monotonic supersession, deterministic
+  last-write-wins, monotonic status transition, and no-deletion historical
+  artifact rules."
+- "The LUMA directory-entry best-effort tombstone rule remains skipped under
+  `schema_epoch: pre_luma_m0b` and `luma_profile: none`."
+
+Still not allowed after Slice 7C state-resolution drill proof:
 
 - "The production WSS topology is deployed on public infrastructure."
 - "Restarted peers catch up automatically outside the bounded local harness."
-- "State-resolution rules survive relay restart or partition heal."
+- "LUMA-gated write state-resolution rules are proven."
+- "State-resolution rules survive broad network partition/heal outside the
+  bounded one-relay local harness."
 - "The mesh has production-ready multi-relay failover."
 - "The app is ready for a test group."
 

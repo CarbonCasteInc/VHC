@@ -27,6 +27,7 @@
     "test:mesh:signed-peer-config-canary": "node ./src/mesh/signed-peer-config-canary.mjs",
     "test:mesh:deployed-wss-peer-config": "node ./src/mesh/deployed-wss-peer-config-canary.mjs",
     "test:mesh:topology-drills": "node ./src/mesh/production-topology-drills.mjs",
+    "test:mesh:state-resolution-drills": "node ./src/mesh/state-resolution-drills.mjs",
     "report:live:daemon-feed:fixture-candidate-intake": "node ./src/live/daemon-feed-fixture-candidate-intake.mjs",
     "report:offline-cluster-replay": "node ./src/live/daemon-feed-semantic-soak-offline-replay-report.mjs",
     "report:live:daemon-feed:production-readiness": "node ./src/live/storycluster-production-readiness.mjs",
