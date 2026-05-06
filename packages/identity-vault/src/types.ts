@@ -36,6 +36,15 @@ export interface DelegationSigningKeyCompartment {
   createdAt: number;
 }
 
+export interface DelegationSigningPublicKey {
+  signatureSuite: 'jcs-ed25519-sha256-v1';
+  publicKey: {
+    encoding: JsonSafeByteEncoding;
+    material: string;
+  };
+  createdAt: number;
+}
+
 export interface VaultV2 {
   schemaVersion: 2;
   identityRecord?: Identity;

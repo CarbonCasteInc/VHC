@@ -6,11 +6,17 @@ export {
 } from './deviceCredential';
 export {
   delegationSigningKey,
+  getDelegationSigningPublicKey,
   loadOrCreateDelegationSigningKey,
+  publicDelegationSigningKey,
   rotateDelegationSigningKey,
+  rotateStoredDelegationSigningKey,
   signWithDelegationSigningKey,
+  signWithStoredDelegationSigningKey,
   validateDelegationSigningKey,
-  verifyWithDelegationSigningKey
+  validateDelegationSigningPublicKey,
+  verifyWithDelegationSigningKey,
+  verifyWithDelegationSigningPublicKey
 } from './delegationSigningKey';
 export {
   loadOrCreateSeaDevicePair,

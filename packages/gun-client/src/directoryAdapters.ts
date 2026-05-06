@@ -1,4 +1,4 @@
-import type { DirectoryEntry } from '@vh/data-model';
+import { DirectoryEntrySchema, type DirectoryEntry } from '@vh/data-model';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import type { VennClient } from './types';
@@ -22,11 +22,8 @@ export async function lookupByNullifier(client: VennClient, nullifier: string): 
     const timeout = setTimeout(() => resolve(null), 3000);
     getDirectoryChain(client, nullifier).once((data) => {
       clearTimeout(timeout);
-      if (data && typeof data === 'object' && 'devicePub' in data) {
-        resolve(data as DirectoryEntry);
-      } else {
-        resolve(null);
-      }
+      const result = DirectoryEntrySchema.safeParse(data);
+      resolve(result.success ? result.data : null);
     });
   });
 }
@@ -49,8 +46,23 @@ export function publishToDirectory(client: VennClient, entry: DirectoryEntry): P
           && candidate.nullifier === entry.nullifier
           && candidate.devicePub === entry.devicePub
           && candidate.epub === entry.epub
+          && delegationSigningPublicKeyMatches(candidate, entry)
         );
       },
     })
     .then(() => undefined);
+}
+
+function delegationSigningPublicKeyMatches(candidate: DirectoryEntry, expected: DirectoryEntry): boolean {
+  const expectedKey = expected.delegationSigningPublicKey;
+  if (!expectedKey) return true;
+
+  const candidateKey = candidate.delegationSigningPublicKey;
+  return Boolean(
+    candidateKey
+    && candidateKey.signatureSuite === expectedKey.signatureSuite
+    && candidateKey.publicKey.encoding === expectedKey.publicKey.encoding
+    && candidateKey.publicKey.material === expectedKey.publicKey.material
+    && candidateKey.createdAt === expectedKey.createdAt
+  );
 }

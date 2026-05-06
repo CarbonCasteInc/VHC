@@ -29,6 +29,7 @@ import {
   randomBase64Url,
   seaDevicePair,
   validateDelegationSigningKey,
+  validateDelegationSigningPublicKey,
   validateDeviceCredential,
   validateSeaDevicePair,
   VaultCompartmentError
@@ -636,6 +637,53 @@ describe('M0.D-1 vault v2 compartments', () => {
 
     const rotated = await delegationSigningKey.rotate();
     expect(rotated.publicKey.material).not.toBe(first.publicKey.material);
+  });
+
+  it('signs through the stored-key facade and exposes only public delegation material', async () => {
+    const vector = 'vh:luma:m0d-delegation-signer-surface:v1';
+    const publicKey = await delegationSigningKey.publicKey();
+    const signature = await delegationSigningKey.signStored(vector);
+
+    expect(JSON.stringify(publicKey)).not.toContain('privateKey');
+    expect(() => validateDelegationSigningPublicKey({
+      ...publicKey,
+      privateKey: { encoding: 'base64url', material: 'secret' }
+    })).toThrow(VaultCompartmentError);
+    await expect(delegationSigningKey.verifyPublic({
+      key: publicKey,
+      message: vector,
+      signature
+    })).resolves.toBe(true);
+
+    await clearIdentity();
+    expect(await delegationSigningKey.publicKey()).toEqual(publicKey);
+    await expect(delegationSigningKey.verifyPublic({
+      key: publicKey,
+      message: vector,
+      signature: await delegationSigningKey.signStored(vector)
+    })).resolves.toBe(true);
+  });
+
+  it('rotates stored delegation signing material only through the explicit helper', async () => {
+    const vector = 'vh:luma:m0d-delegation-rotation:v1';
+    const firstPublicKey = await delegationSigningKey.publicKey();
+    const firstSignature = await delegationSigningKey.signStored(vector);
+
+    const rotatedPublicKey = await delegationSigningKey.rotateStored();
+    expect(rotatedPublicKey.publicKey.material).not.toBe(firstPublicKey.publicKey.material);
+    expect(JSON.stringify(rotatedPublicKey)).not.toContain('privateKey');
+
+    await expect(delegationSigningKey.verifyPublic({
+      key: rotatedPublicKey,
+      message: vector,
+      signature: firstSignature
+    })).resolves.toBe(false);
+
+    await expect(delegationSigningKey.verifyPublic({
+      key: rotatedPublicKey,
+      message: vector,
+      signature: await delegationSigningKey.signStored(vector)
+    })).resolves.toBe(true);
   });
 
   it('handles delegation signing Uint8Array messages and rejects unsupported suites', async () => {

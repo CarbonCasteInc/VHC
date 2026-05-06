@@ -161,12 +161,22 @@ export interface HermesMessage {
   deviceId?: string;
 }
 
+export interface DelegationSigningPublicKey {
+  signatureSuite: 'jcs-ed25519-sha256-v1';
+  publicKey: {
+    encoding: 'base64url';
+    material: string;
+  };
+  createdAt: number;
+}
+
 export interface DirectoryEntry {
   schemaVersion: 'hermes-directory-v0';
   nullifier: string;
   devicePub: string;
   epub: string;
   displayName?: string;
+  delegationSigningPublicKey?: DelegationSigningPublicKey;
   registeredAt: number;
   lastSeenAt: number;
 }
