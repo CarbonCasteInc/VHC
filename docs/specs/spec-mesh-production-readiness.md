@@ -118,6 +118,12 @@ Current head at closeout:
   `vh/__mesh_drills/<run_id>/state_resolution/*`, restarts/heals one relay
   across before/during/after write windows, and verifies each class-specific
   winner by direct single-relay readback.
+- `pnpm test:mesh:disconnect-drills` is the Slice 8 disconnect/duplicate-write
+  proof: it writes synthetic non-LUMA duplicate/retry records under
+  `vh/__mesh_drills/<run_id>/disconnect/*`, forces WebSocket closes around
+  in-flight writes, retries against deterministic canonical keys, verifies
+  direct relay readback has zero duplicate canonical writes, and runs a gated
+  Web PWA app-client retry/reload canary for the synthetic drill namespace.
 
 Important boundary:
 
@@ -126,7 +132,8 @@ Important boundary:
   deployment-profile proof, not public infrastructure. These commands still do
   not prove strict app boot with a dead configured peer, production relay
   federation beyond the bounded local harness, LUMA-gated write
-  state-resolution, network partition repair, or rolling-restart soak.
+  state-resolution, network partition repair, clock-skew behavior, or
+  rolling-restart soak.
 
 ## 3. Core Runtime Surfaces
 
@@ -1357,6 +1364,9 @@ Production health must be reasoned, not binary. Valid mesh-related reasons:
   failing condition tag from `spec-luma-service-v0.md` §15)
 - `state-resolution-violation` (a drill observed a state-resolution rule
   from §5.10 being broken)
+- `disconnect-duplicate-write-violation` (a drill observed a forced
+  WebSocket disconnect/retry or same-key fixture creating duplicate canonical
+  writes or double-counted projections)
 
 Each new reason must include:
 
@@ -1831,10 +1841,10 @@ Implemented mesh commands:
   - `pnpm test:mesh:tombstone-drills` may remain as a compatibility alias, but
     the canonical command covers every §5.10 state-resolution rule, not only
     tombstones.
+- `pnpm test:mesh:disconnect-drills`
 
 Required new commands:
 
-- `pnpm test:mesh:disconnect-drills`
 - `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
 - `pnpm test:mesh:partition-drills`
@@ -1901,6 +1911,28 @@ Still not allowed after Slice 7C state-resolution drill proof:
 - "LUMA-gated write state-resolution rules are proven."
 - "State-resolution rules survive broad network partition/heal outside the
   bounded one-relay local harness."
+- "The mesh has production-ready multi-relay failover."
+- "The app is ready for a test group."
+
+Allowed after Slice 8 disconnect/duplicate-write drill proof:
+
+- "The bounded local three-relay harness directly observed zero duplicate
+  canonical synthetic mesh drill writes for covered non-LUMA retry and
+  same-key fixture rows after forced WebSocket disconnect/reconnect."
+- "The report records `write_class_slos[].duplicate_count === 0` for covered
+  synthetic vote intent replay, aggregate voter node, aggregate snapshot, forum
+  thread, forum comment, encrypted sentiment event, and topic engagement
+  actor/summary rows."
+- "The Web PWA app-created Gun client can retry a synthetic drill write after
+  forced socket close and app reload without creating a duplicate canonical
+  drill key."
+
+Still not allowed after Slice 8 disconnect/duplicate-write drill proof:
+
+- "Duplicate-write behavior is proven for LUMA-gated production records."
+- "Broad partition/heal behavior is production-ready."
+- "Clock-skew behavior is production-ready."
+- "Thirty-minute soak behavior is production-ready."
 - "The mesh has production-ready multi-relay failover."
 - "The app is ready for a test group."
 

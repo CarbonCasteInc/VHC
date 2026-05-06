@@ -17,6 +17,7 @@ export { resolveGunPeers, resolveGunPeerTopology, resolveGunPeerTopologySync } f
 const PROFILE_KEY = 'vh_profile';
 const E2E_OVERRIDE_KEY = '__VH_E2E_OVERRIDE__';
 const PEER_TOPOLOGY_PROOF_KEY = '__VH_PEER_TOPOLOGY_PROOF__';
+const MESH_DISCONNECT_DRILL_KEY = '__VH_MESH_DISCONNECT_DRILL__';
 type IdentityStatus = 'idle' | 'creating' | 'ready' | 'error';
 
 interface AppState {
@@ -46,9 +47,34 @@ type PeerTopologyProof =
       clientPeers: [];
     };
 
+type MeshDisconnectDrillWriteArgs = {
+  runId: string;
+  caseId: string;
+  section: 'canonical' | 'attempts' | 'indexes' | 'projections';
+  nodeId: string;
+  record: Record<string, unknown> | null;
+  timeoutMs?: number;
+};
+
+type MeshDisconnectDrillReadArgs = Omit<MeshDisconnectDrillWriteArgs, 'record'>;
+
+type MeshDisconnectDrillApi = {
+  topology: GunPeerTopology;
+  clientPeers: string[];
+  writeNode: (args: MeshDisconnectDrillWriteArgs) => Promise<{ ok: boolean; latency_ms: number; error: string | null }>;
+  readNode: (args: MeshDisconnectDrillReadArgs) => Promise<{ observed: boolean; latency_ms: number | null; record: Record<string, unknown> | null }>;
+};
+
 function shouldExposePeerTopologyProof(): boolean {
   const viteEnv = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env;
   const raw = viteEnv?.VITE_VH_EXPOSE_PEER_TOPOLOGY;
+  if (typeof raw === 'boolean') return raw;
+  return typeof raw === 'string' && ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
+}
+
+function truthyViteEnv(name: string): boolean {
+  const viteEnv = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env;
+  const raw = viteEnv?.[name];
   if (typeof raw === 'boolean') return raw;
   return typeof raw === 'string' && ['1', 'true', 'yes', 'on'].includes(raw.trim().toLowerCase());
 }
@@ -60,6 +86,94 @@ function exposePeerTopologyProof(proof: PeerTopologyProof): void {
   (globalThis as typeof globalThis & { [PEER_TOPOLOGY_PROOF_KEY]?: PeerTopologyProof })[
     PEER_TOPOLOGY_PROOF_KEY
   ] = proof;
+}
+
+function shouldExposeMeshDisconnectDrill(): boolean {
+  return truthyViteEnv('VITE_VH_EXPOSE_MESH_DISCONNECT_DRILL');
+}
+
+function meshDisconnectDrillChain(client: VennClient, args: MeshDisconnectDrillReadArgs): any {
+  return (client.mesh as any)
+    .get('__mesh_drills')
+    .get(args.runId)
+    .get('disconnect')
+    .get(args.caseId)
+    .get(args.section)
+    .get(args.nodeId);
+}
+
+function stripGunMetadata(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return null;
+  }
+  const { _, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+
+function exposeMeshDisconnectDrill(client: VennClient, topology: GunPeerTopology): void {
+  if (!shouldExposeMeshDisconnectDrill()) {
+    return;
+  }
+
+  const api: MeshDisconnectDrillApi = {
+    topology,
+    clientPeers: client.config.peers,
+    writeNode(args) {
+      const startedAt = Date.now();
+      const timeoutMs = Math.max(100, Math.floor(args.timeoutMs ?? 1_500));
+      const chain = meshDisconnectDrillChain(client, args);
+      return new Promise((resolve) => {
+        let settled = false;
+        const timer = setTimeout(() => {
+          if (settled) return;
+          settled = true;
+          resolve({ ok: false, latency_ms: Date.now() - startedAt, error: 'browser-drill-put-ack-timeout' });
+        }, timeoutMs);
+        chain.put(args.record, (ack?: { err?: unknown }) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve({
+            ok: !ack?.err,
+            latency_ms: Date.now() - startedAt,
+            error: ack?.err ? String(ack.err) : null,
+          });
+        });
+      });
+    },
+    async readNode(args) {
+      const startedAt = Date.now();
+      const timeoutMs = Math.max(100, Math.floor(args.timeoutMs ?? 5_000));
+      const chain = meshDisconnectDrillChain(client, args);
+      let latest: Record<string, unknown> | null = null;
+      while (Date.now() - startedAt < timeoutMs) {
+        const observed = await new Promise<Record<string, unknown> | null>((resolve) => {
+          let settled = false;
+          const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            resolve(null);
+          }, Math.min(750, Math.max(100, timeoutMs - (Date.now() - startedAt))));
+          chain.once((value: unknown) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            resolve(stripGunMetadata(value));
+          });
+        });
+        if (observed) {
+          latest = observed;
+          return { observed: true, latency_ms: Date.now() - startedAt, record: observed };
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return { observed: false, latency_ms: null, record: latest };
+    },
+  };
+
+  (globalThis as typeof globalThis & { [MESH_DISCONNECT_DRILL_KEY]?: MeshDisconnectDrillApi })[
+    MESH_DISCONNECT_DRILL_KEY
+  ] = api;
 }
 
 function loadProfile(): Profile | null {
@@ -264,6 +378,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           topology: peerTopology,
           clientPeers: client.config.peers,
         });
+        exposeMeshDisconnectDrill(client, peerTopology);
         console.info('[vh:web-pwa] using Gun peers', {
           peers: client.config.peers,
           source: peerTopology.source,

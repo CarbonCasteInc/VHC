@@ -10,6 +10,7 @@ interface ImportMetaEnv {
   readonly VITE_VH_STRICT_PEER_CONFIG?: 'true' | 'false';
   readonly VITE_VH_ALLOW_LOCAL_MESH_PEERS?: 'true' | 'false';
   readonly VITE_VH_EXPOSE_PEER_TOPOLOGY?: 'true' | 'false';
+  readonly VITE_VH_EXPOSE_MESH_DISCONNECT_DRILL?: 'true' | 'false';
   readonly VITE_ATTESTATION_URL?: string;
   readonly VITE_ATTESTATION_TIMEOUT_MS?: string;
   readonly VITE_REMOTE_ENGINE_URL?: string;
