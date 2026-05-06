@@ -283,6 +283,7 @@ async function main() {
     VITE_VH_GUN_LOCAL_STORAGE: 'false',
     VITE_VH_SHOW_HEALTH: 'true',
     VITE_VH_CSP_CONNECT_SRC: expectedCspConnectSrc.join(' '),
+    VITE_VH_CSP_STRICT_CONNECT_SRC: 'true',
   };
 
   const steps = [];
@@ -367,6 +368,7 @@ async function main() {
       csp: {
         status: allPassed ? 'pass' : 'fail',
         connect_src_expected_origins: expectedCspConnectSrc,
+        strict_connect_src: true,
         broad_https_wss_wildcards_allowed: false,
       },
       service_worker_peer_config_rollover: {

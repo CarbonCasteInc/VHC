@@ -233,6 +233,14 @@ test('renders CSP connect-src for only the expected WSS and peer-config origins'
     expect(connectSrc).toContain(expected);
   }
   const connectSrcTokens = connectSrc.split(/\s+/);
+  expect(new Set(connectSrcTokens.slice(1))).toEqual(new Set([
+    "'self'",
+    ...manifest.expectedCspConnectSrc,
+  ]));
+  expect(connectSrcTokens).not.toContain('http://localhost:*');
+  expect(connectSrcTokens).not.toContain('ws://localhost:*');
+  expect(connectSrcTokens).not.toContain('http://127.0.0.1:*');
+  expect(connectSrcTokens).not.toContain('ws://127.0.0.1:*');
   expect(connectSrcTokens).not.toContain('https:');
   expect(connectSrcTokens).not.toContain('wss:');
   expect(connectSrc).not.toContain('https://evil.example');

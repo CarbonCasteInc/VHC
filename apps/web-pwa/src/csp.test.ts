@@ -93,20 +93,36 @@ describe('index.html content security policy', () => {
       'wss://relay-c.mesh.example',
       'https://mesh-config.example',
       'ftp://ignored.example',
+      'wss://*.ignored.example',
       'wss://relay-a.mesh.example',
-    ].join(' '));
+    ].join(' '), { strictConnectSrc: true });
 
+    expect(connectSrc).toBe([
+      "'self'",
+      'wss://relay-a.mesh.example',
+      'wss://relay-b.mesh.example',
+      'wss://relay-c.mesh.example',
+      'https://mesh-config.example',
+    ].join(' '));
     expect(connectSrc).toContain('wss://relay-a.mesh.example');
     expect(connectSrc).toContain('wss://relay-b.mesh.example');
     expect(connectSrc).toContain('wss://relay-c.mesh.example');
     expect(connectSrc).toContain('https://mesh-config.example');
     expect(connectSrc).not.toContain('ftp://ignored.example');
+    expect(connectSrc).not.toContain('*.ignored.example');
+    expect(connectSrc).not.toContain('http://localhost:*');
+    expect(connectSrc).not.toContain('ws://localhost:*');
     expect(connectSrc.split(/\s+/)).not.toContain('https:');
     expect(connectSrc.split(/\s+/)).not.toContain('wss:');
 
     expect(parseExtraConnectSrc('wss://relay-a.mesh.example wss://relay-a.mesh.example')).toEqual([
       'wss://relay-a.mesh.example',
     ]);
+    expect(parseExtraConnectSrc("'self'")).toEqual(["'self'"]);
     expect(parseExtraConnectSrc('wss://relay-a.mesh.example/gun')).toEqual([]);
+    expect(parseExtraConnectSrc('wss://*.mesh.example')).toEqual([]);
+    expect(parseExtraConnectSrc('data://mesh.example')).toEqual([]);
+    expect(parseExtraConnectSrc('https:///mesh.example')).toEqual([]);
+    expect(parseExtraConnectSrc('not-a-url')).toEqual([]);
   });
 });

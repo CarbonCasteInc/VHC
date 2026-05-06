@@ -283,7 +283,9 @@ function createCspHtmlPlugin(): Plugin {
   return {
     name: 'vh-csp-html',
     transformIndexHtml(html) {
-      const csp = escapeHtmlAttribute(buildCspContent(process.env.VITE_VH_CSP_CONNECT_SRC));
+      const csp = escapeHtmlAttribute(buildCspContent(process.env.VITE_VH_CSP_CONNECT_SRC, {
+        strictConnectSrc: readBooleanEnv(process.env.VITE_VH_CSP_STRICT_CONNECT_SRC),
+      }));
       return html.replace(
         /(<meta\s+http-equiv="Content-Security-Policy"\s+content=")([^"]*)("\s*\/>)/i,
         `$1${csp}$3`,

@@ -68,9 +68,9 @@ asserts app boot used `resolveGunPeerTopology` with `source: remote-config`,
 `strict: true`, `signed: true`, three `wss://` peers, quorum two, and
 `local_mesh_peers_allowed: false`. It also proves local/insecure peers fail
 closed with local peer allowance disabled, CSP `connect-src` contains the
-expected WSS relay and HTTPS peer-config origins without broad `https:`/`wss:`
-wildcards, and signed peer-config rollover is fetched fresh instead of being
-pinned by service-worker cache.
+expected WSS relay and HTTPS peer-config origins, plus `'self'`, without dev
+localhost sources or broad `https:`/`wss:` wildcards, and signed peer-config
+rollover is fetched fresh instead of being pinned by service-worker cache.
 
 ## Drill Scope
 

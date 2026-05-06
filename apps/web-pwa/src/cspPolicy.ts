@@ -12,7 +12,21 @@ export const BASE_CONNECT_SRC = [
   'ws://100.75.18.26:7777',
 ] as const;
 
-const SAFE_SOURCE_PATTERN = /^(?:'self'|https?:\/\/[A-Za-z0-9.*:_-]+|wss?:\/\/[A-Za-z0-9.*:_-]+)$/;
+export interface BuildCspOptions {
+  readonly strictConnectSrc?: boolean;
+}
+
+function safeExtraConnectSrc(entry: string): boolean {
+  if (entry === "'self'") return true;
+  if (entry.includes('*')) return false;
+  try {
+    const url = new URL(entry);
+    if (!['http:', 'https:', 'ws:', 'wss:'].includes(url.protocol)) return false;
+    return url.origin === entry;
+  } catch {
+    return false;
+  }
+}
 
 export function parseExtraConnectSrc(raw: string | undefined): string[] {
   return Array.from(new Set(
@@ -20,23 +34,24 @@ export function parseExtraConnectSrc(raw: string | undefined): string[] {
       .split(/[\s,]+/)
       .map((entry) => entry.trim())
       .filter(Boolean)
-      .filter((entry) => SAFE_SOURCE_PATTERN.test(entry)),
+      .filter(safeExtraConnectSrc),
   ));
 }
 
-export function buildConnectSrc(extraConnectSrc?: string): string {
+export function buildConnectSrc(extraConnectSrc?: string, options: BuildCspOptions = {}): string {
+  const baseConnectSrc = options.strictConnectSrc ? ["'self'"] : BASE_CONNECT_SRC;
   return Array.from(new Set([
-    ...BASE_CONNECT_SRC,
+    ...baseConnectSrc,
     ...parseExtraConnectSrc(extraConnectSrc),
   ])).join(' ');
 }
 
-export function buildCspContent(extraConnectSrc?: string): string {
+export function buildCspContent(extraConnectSrc?: string, options: BuildCspOptions = {}): string {
   return [
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    `connect-src ${buildConnectSrc(extraConnectSrc)}`,
+    `connect-src ${buildConnectSrc(extraConnectSrc, options)}`,
     "frame-src 'self' https:",
     "img-src 'self' https: data: blob: http://localhost:* http://127.0.0.1:*",
     "worker-src 'self' blob:",
