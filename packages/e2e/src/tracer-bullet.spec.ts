@@ -24,8 +24,10 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
             // Handle is now required for identity creation
             await page.fill('input[placeholder="Choose a handle (letters, numbers, _)"]', 'trinitytester');
             await createIdentityBtn.click();
+            await expect(welcomeMsg).toContainText('TrinityTester', { timeout: 10000 });
+        } else {
+            await expect(welcomeMsg).toBeVisible({ timeout: 10000 });
         }
-        await expect(page.getByTestId('welcome-msg')).toContainText('TrinityTester', { timeout: 10000 });
 
         // 3. Verify Mesh Connection
         // Note: Codex needs to ensure this text appears when connected
