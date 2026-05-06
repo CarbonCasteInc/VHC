@@ -5,7 +5,12 @@ import { TRUST_MINIMUM } from '@vh/data-model';
 import { SEA, createSession } from '@vh/gun-client';
 import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../store';
 import { getHandleError, isValidHandle } from '../utils/handle';
-import { migrateLegacyLocalStorage, clearIdentity as vaultClear } from '@vh/identity-vault';
+import {
+  clearIdentity as vaultClear,
+  deviceCredential,
+  migrateLegacyLocalStorage,
+  seaDevicePair
+} from '@vh/identity-vault';
 import { publishIdentity, clearPublishedIdentity } from '../store/identityProvider';
 import { useXpLedger } from '../store/xpLedger';
 import { loadIdentityRecord, saveIdentityRecord } from '../utils/vaultTyped';
@@ -101,7 +106,8 @@ export function useIdentity() {
   const createIdentity = useCallback(async (handle?: string) => {
     try {
       setStatus('creating');
-      const attestation = buildAttestation();
+      const deviceCredentialCompartment = await deviceCredential.loadOrCreate();
+      const attestation = buildAttestation(deviceCredentialCompartment.material);
       const trimmedHandle = handle?.trim();
       if (trimmedHandle) {
         const validationError = getHandleError(trimmedHandle);
@@ -111,7 +117,7 @@ export function useIdentity() {
       }
 
       let session: { token: string; trustScore: number; nullifier: string };
-      const devicePair = await SEA.pair();
+      const devicePair = await seaDevicePair.loadOrCreate(() => SEA.pair());
 
       if (E2E_MODE) {
         session = { token: `mock-session-${randomToken()}`, trustScore: 1, nullifier: `mock-nullifier-${randomToken()}` };
@@ -252,8 +258,8 @@ export function useIdentity() {
    * Revoke the current session (spec §2.1.3).
    *
    * Always available regardless of feature flag — this is a user-initiated
-   * security action. Clears session, vault, published identity, and
-   * delegation grants. Preserves nullifier derivation material.
+   * security action. Clears session/identity state, published identity, and
+   * delegation grants. Stable vault key compartments are preserved.
    */
   const revokeSession = useCallback(async () => {
     setIdentity(null);
@@ -301,12 +307,12 @@ export function useIdentity() {
   };
 }
 
-function buildAttestation(): IdentityRecord['attestation'] {
+function buildAttestation(deviceKey: string): IdentityRecord['attestation'] {
   if (E2E_MODE) {
     return {
       platform: 'web',
       integrityToken: 'test-token',
-      deviceKey: 'mock-device',
+      deviceKey,
       nonce: 'mock-nonce'
     };
   }
@@ -314,7 +320,7 @@ function buildAttestation(): IdentityRecord['attestation'] {
   return {
     platform: 'web',
     integrityToken: randomToken(),
-    deviceKey: randomToken(),
+    deviceKey,
     nonce: randomToken()
   };
 }

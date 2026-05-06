@@ -7,7 +7,8 @@ const VAULT_CONFIG = {
   keysStore: 'keys',
   identityKey: 'identity',
   masterKey: 'master',
-  vaultVersion: 1,
+  legacyVaultVersion: 1,
+  currentVaultVersion: 2,
   aesGcmIvBytes: 12,
 } as const;
 
@@ -24,6 +25,12 @@ export interface VaultIdentity {
     [key: string]: unknown;
   };
   [key: string]: unknown;
+}
+
+interface VaultRecord {
+  version?: unknown;
+  iv?: unknown;
+  ciphertext?: unknown;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -91,13 +98,12 @@ export async function readVaultIdentity(page: Page): Promise<VaultIdentity | nul
         return null;
       }
 
-      const record = rawRecord as {
-        version?: unknown;
-        iv?: unknown;
-        ciphertext?: unknown;
-      };
+      const record = rawRecord as VaultRecord;
 
-      if (record.version !== config.vaultVersion) {
+      if (
+        record.version !== config.legacyVaultVersion
+        && record.version !== config.currentVaultVersion
+      ) {
         return null;
       }
 
@@ -123,6 +129,13 @@ export async function readVaultIdentity(page: Page): Promise<VaultIdentity | nul
 
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
         return null;
+      }
+
+      if (record.version === config.currentVaultVersion) {
+        const identityRecord = (parsed as { identityRecord?: unknown }).identityRecord;
+        return identityRecord && typeof identityRecord === 'object' && !Array.isArray(identityRecord)
+          ? identityRecord
+          : null;
       }
 
       return parsed;
@@ -179,6 +192,52 @@ export async function writeVaultIdentity(page: Page, identity: VaultIdentity): P
         tx.onerror = () => reject(tx.error ?? new Error(`Failed to write ${storeName}/${key}`));
       });
 
+    const asArrayBuffer = (value: unknown): ArrayBuffer | null => {
+      if (value instanceof ArrayBuffer) {
+        return value;
+      }
+
+      if (ArrayBuffer.isView(value)) {
+        const view = value as ArrayBufferView;
+        const bytes = new Uint8Array(view.byteLength);
+        bytes.set(new Uint8Array(view.buffer, view.byteOffset, view.byteLength));
+        return bytes.buffer;
+      }
+
+      return null;
+    };
+
+    const asUint8Array = (value: unknown): Uint8Array | null => {
+      if (value instanceof Uint8Array) {
+        return value;
+      }
+
+      const buffer = asArrayBuffer(value);
+      return buffer ? new Uint8Array(buffer) : null;
+    };
+
+    const decryptRecord = async (
+      key: CryptoKey,
+      record: { iv?: unknown; ciphertext?: unknown },
+    ): Promise<unknown | null> => {
+      const iv = asUint8Array(record.iv);
+      const ciphertext = asArrayBuffer(record.ciphertext);
+      if (!iv || !ciphertext) {
+        return null;
+      }
+
+      try {
+        const decrypted = await crypto.subtle.decrypt(
+          { name: 'AES-GCM', iv: iv as unknown as BufferSource },
+          key,
+          ciphertext as ArrayBuffer,
+        );
+        return JSON.parse(new TextDecoder().decode(decrypted));
+      } catch {
+        return null;
+      }
+    };
+
     const db = await openDb();
 
     try {
@@ -188,12 +247,37 @@ export async function writeVaultIdentity(page: Page, identity: VaultIdentity): P
       }
 
       const rawRecord = await idbGet(db, config.vaultStore, config.identityKey);
+      const existingRecord =
+        rawRecord && typeof rawRecord === 'object'
+          ? rawRecord as { version?: unknown; iv?: unknown; ciphertext?: unknown }
+          : null;
       const existingVersion =
-        rawRecord && typeof rawRecord === 'object' && typeof (rawRecord as { version?: unknown }).version === 'number'
-          ? (rawRecord as { version: number }).version
-          : config.vaultVersion;
+        existingRecord && existingRecord.version === config.currentVaultVersion
+          ? config.currentVaultVersion
+          : config.legacyVaultVersion;
 
-      const plaintext = new TextEncoder().encode(JSON.stringify(nextIdentity));
+      let nextVaultPayload: unknown = nextIdentity;
+      if (existingVersion === config.currentVaultVersion && existingRecord) {
+        const existingPayload = await decryptRecord(rawMasterKey, existingRecord);
+        const stableCompartments =
+          existingPayload && typeof existingPayload === 'object' && !Array.isArray(existingPayload)
+            ? existingPayload as {
+                deviceCredential?: unknown;
+                seaDevicePair?: unknown;
+                delegationSigningKey?: unknown;
+              }
+            : {};
+
+        nextVaultPayload = {
+          schemaVersion: config.currentVaultVersion,
+          identityRecord: nextIdentity,
+          ...(stableCompartments.deviceCredential ? { deviceCredential: stableCompartments.deviceCredential } : {}),
+          ...(stableCompartments.seaDevicePair ? { seaDevicePair: stableCompartments.seaDevicePair } : {}),
+          ...(stableCompartments.delegationSigningKey ? { delegationSigningKey: stableCompartments.delegationSigningKey } : {}),
+        };
+      }
+
+      const plaintext = new TextEncoder().encode(JSON.stringify(nextVaultPayload));
       const iv = crypto.getRandomValues(new Uint8Array(config.aesGcmIvBytes));
       const ciphertext = await crypto.subtle.encrypt(
         { name: 'AES-GCM', iv },

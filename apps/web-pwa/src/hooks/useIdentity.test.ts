@@ -159,6 +159,107 @@ describe('useIdentity', () => {
     expect((snapshot as any).session.token).toBeUndefined();
   });
 
+  it('reuses vault-owned device credential and SEA pair across session revocation', async () => {
+    createSessionMock
+      .mockResolvedValueOnce({
+        token: 'srv-token-1',
+        trustScore: 0.82,
+        nullifier: 'stable-nullifier-1'
+      })
+      .mockResolvedValueOnce({
+        token: 'srv-token-2',
+        trustScore: 0.83,
+        nullifier: 'stable-nullifier-2'
+      });
+
+    const useIdentity = await loadHook();
+    const { result } = renderHook(() => useIdentity());
+
+    await waitFor(() => expect(result.current.status).toBe('anonymous'));
+
+    await act(async () => {
+      await result.current.createIdentity();
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    const firstDeviceKey = createSessionMock.mock.calls[0]?.[0]?.deviceKey;
+    const firstDevicePair = result.current.identity?.devicePair;
+    expect(firstDeviceKey).toEqual(expect.any(String));
+    expect(firstDevicePair).toEqual({ pub: 'pub', priv: 'priv', epub: 'epub', epriv: 'epriv' });
+    expect(pairMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.revokeSession();
+    });
+    await waitFor(() => expect(result.current.status).toBe('anonymous'));
+
+    await act(async () => {
+      await result.current.createIdentity();
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    expect(createSessionMock.mock.calls[1]?.[0]?.deviceKey).toBe(firstDeviceKey);
+    expect(result.current.identity?.devicePair).toEqual(firstDevicePair);
+    expect(pairMock).toHaveBeenCalledTimes(1);
+
+    const fromVault = await vaultLoad();
+    expect((fromVault as any)?.attestation.deviceKey).toBe(firstDeviceKey);
+    expect((fromVault as any)?.devicePair).toEqual(firstDevicePair);
+  });
+
+  it('promotes legacy attestation/device pair into stable vault compartments', async () => {
+    const legacyDevicePair = {
+      pub: 'legacy-pub',
+      priv: 'legacy-priv',
+      epub: 'legacy-epub',
+      epriv: 'legacy-epriv'
+    };
+    const legacy = {
+      id: 'legacy-id',
+      createdAt: 500,
+      attestation: {
+        platform: 'web',
+        integrityToken: 'lt',
+        deviceKey: 'legacy-device-key',
+        nonce: 'ln'
+      },
+      session: {
+        token: 'lt',
+        trustScore: 0.8,
+        scaledTrustScore: 8000,
+        nullifier: 'legacy-null'
+      },
+      devicePair: legacyDevicePair,
+      handle: 'legacy_user'
+    };
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(legacy));
+    createSessionMock.mockResolvedValue({
+      token: 'srv-token',
+      trustScore: 0.84,
+      nullifier: 'fresh-nullifier'
+    });
+
+    const useIdentity = await loadHook();
+    const { result } = renderHook(() => useIdentity());
+
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+    expect(result.current.identity?.session.nullifier).toBe('legacy-null');
+
+    await act(async () => {
+      await result.current.revokeSession();
+    });
+    await waitFor(() => expect(result.current.status).toBe('anonymous'));
+
+    await act(async () => {
+      await result.current.createIdentity();
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    expect(createSessionMock.mock.calls[0]?.[0]?.deviceKey).toBe('legacy-device-key');
+    expect(result.current.identity?.devicePair).toEqual(legacyDevicePair);
+    expect(pairMock).not.toHaveBeenCalled();
+  });
+
   it('clamps scaled trust score to 10000 when verifier reports >1', async () => {
     createSessionMock.mockResolvedValue({
       token: 'srv-token',
