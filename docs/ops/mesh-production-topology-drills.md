@@ -72,12 +72,32 @@ expected WSS relay and HTTPS peer-config origins, plus `'self'`, without dev
 localhost sources or broad `https:`/`wss:` wildcards, and signed peer-config
 rollover is fetched fresh instead of being pinned by service-worker cache.
 
+Run the state-resolution drill:
+
+```sh
+pnpm test:mesh:state-resolution-drills
+```
+
+That command starts the same local three-relay production-shaped harness and
+writes synthetic competing records under
+`vh/__mesh_drills/<run_id>/state_resolution/*`. It covers the non-LUMA §5.10
+state-resolution rows with direct single-relay readback after bounded one-relay
+restart/heal windows: relay B down before relevant writes, relay B down during
+the winning write window, and relay B down after competing writes have landed.
+
+The drill computes winners from the records observed on each relay. It does not
+use browser multi-peer readback as proof, does not subscribe product readers to
+the drill namespace, and does not migrate LUMA schemas or adapters. The LUMA
+directory-entry row is recorded as `skipped` while the report runs under
+`schema_epoch: pre_luma_m0b` and `luma_profile: none`.
+
 ## Drill Scope
 
 The drill writes synthetic records only. Drill records live under:
 
 ```text
 vh/__mesh_drills/<run_id>/<write_id>
+vh/__mesh_drills/<run_id>/state_resolution/<case_id>/writes/<write_id>
 ```
 
 Drill records use `_drillWriterKind: 'mesh-drill'`. They do not use LUMA
@@ -141,6 +161,19 @@ The deployed-WSS canary separately proves:
 - CSP and service-worker rollover checks pass before a WSS peer-config rollout
   is treated as valid evidence.
 
+The state-resolution drill separately proves:
+
+- `state_resolution_drills[]` rows are populated for every non-LUMA §5.10 rule;
+- per-relay observed winners match the expected winner write id for
+  `tombstone-wins`, `hide-restore-latest`,
+  `monotonic-supersession-version`, `monotonic-supersession-epoch`,
+  `monotonic-status-transition`, `no-deletion-historical-artifact`, and
+  `last-write-wins-deterministic-id`;
+- the LUMA directory-entry `best-effort-tombstone` row is skipped with an
+  explicit pre-M0.B reason;
+- `state-resolution-violation` appears in `health.degradation_reasons_seen`
+  if any class-specific rule is broken.
+
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
 path in this server, public production WSS rollout still needs a trust path
@@ -149,14 +182,17 @@ client-compatible signed peer handshake.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B even when the local
-restarted-relay drill and deployed-WSS local TLS profile pass. A passing
+The report status remains `review_required` for Slice 6B/7B/7C even when the local
+restarted-relay drill, deployed-WSS local TLS profile, and state-resolution
+drill pass. A passing
 restarted-relay section means only that the restarted local relay directly read
 the missed synthetic drill write inside this bounded harness. A passing
 deployed-WSS section means only that the local TLS/WSS profile, signed WSS
 peer-config boot, CSP allowlist, and service-worker rollover proof passed. It
-does not prove public WSS infrastructure, state-resolution drills, clock-skew
-drills, partition/heal drills, soak budgets, evidence scrub promotion, or
+A passing state-resolution section means only that non-LUMA synthetic §5.10
+winner rules were directly observed in the bounded local harness. It does not
+prove public WSS infrastructure, LUMA-gated write state resolution, clock-skew
+drills, broad partition/heal drills, soak budgets, evidence scrub promotion, or
 post-M0.B LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
