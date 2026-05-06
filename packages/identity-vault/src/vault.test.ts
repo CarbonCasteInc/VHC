@@ -1,11 +1,38 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import 'fake-indexeddb/auto';
-import { loadIdentity, saveIdentity, clearIdentity } from './vault';
+import {
+  loadIdentity,
+  loadVaultV2,
+  saveIdentity,
+  saveVaultV2,
+  updateVaultV2,
+  clearIdentity
+} from './vault';
 import { migrateLegacyLocalStorage } from './migrate';
 import { openVaultDb, idbGet, idbPut, idbDelete } from './db';
-import { VAULT_STORE, KEYS_STORE, IDENTITY_KEY, MASTER_KEY, LEGACY_STORAGE_KEY, VAULT_VERSION } from './types';
-import type { Identity, VaultRecord } from './types';
+import {
+  VAULT_STORE,
+  KEYS_STORE,
+  IDENTITY_KEY,
+  MASTER_KEY,
+  LEGACY_STORAGE_KEY,
+  LEGACY_VAULT_VERSION,
+  VAULT_VERSION
+} from './types';
+import type { DelegationSigningKeyCompartment, Identity, VaultRecord } from './types';
+import { encrypt, generateMasterKey } from './crypto';
+import {
+  base64UrlToBytes,
+  delegationSigningKey,
+  deviceCredential,
+  randomBase64Url,
+  seaDevicePair,
+  validateDelegationSigningKey,
+  validateDeviceCredential,
+  validateSeaDevicePair,
+  VaultCompartmentError
+} from './compartments';
 
 const TEST_IDENTITY: Identity = {
   displayName: 'Alice Nakamoto',
@@ -13,6 +40,26 @@ const TEST_IDENTITY: Identity = {
   priv: 'sk_secret_private_key_data',
   session: { nullifier: 'test-null', trustScore: 0.9 },
   customField: 42,
+};
+
+const LEGACY_DEVICE_KEY = 'legacy-device-key-exact';
+const LEGACY_SEA_PAIR = Object.freeze({
+  pub: 'legacy-pub',
+  priv: 'legacy-priv',
+  epub: 'legacy-epub',
+  epriv: 'legacy-epriv'
+});
+const LEGACY_IDENTITY: Identity = {
+  ...TEST_IDENTITY,
+  id: 'legacy-id',
+  createdAt: 1700000000000,
+  attestation: {
+    platform: 'web',
+    integrityToken: 'legacy-integrity',
+    deviceKey: LEGACY_DEVICE_KEY,
+    nonce: 'legacy-nonce'
+  },
+  devicePair: LEGACY_SEA_PAIR
 };
 
 /**
@@ -24,6 +71,20 @@ function deleteDatabase(name: string): Promise<void> {
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
+}
+
+async function writeLegacyVaultRecord(identity: unknown): Promise<void> {
+  const db = await openVaultDb();
+  const key = await generateMasterKey();
+  await idbPut(db, KEYS_STORE, MASTER_KEY, key);
+  const plaintext = new TextEncoder().encode(JSON.stringify(identity));
+  const { iv, ciphertext } = await encrypt(key, plaintext);
+  await idbPut(db, VAULT_STORE, IDENTITY_KEY, {
+    version: LEGACY_VAULT_VERSION,
+    iv,
+    ciphertext
+  } satisfies VaultRecord);
+  db.close();
 }
 
 beforeEach(async () => {
@@ -426,5 +487,378 @@ describe('Edge cases', () => {
     const updated: Identity = { displayName: 'Bob', pub: 'pk2', priv: 'sk2' };
     await saveIdentity(updated);
     expect(await loadIdentity()).toEqual(updated);
+  });
+});
+
+describe('M0.D-1 vault v2 compartments', () => {
+  it('migrates a v1 vault record to v2 idempotently and preserves legacy key material', async () => {
+    await writeLegacyVaultRecord(LEGACY_IDENTITY);
+
+    await expect(loadIdentity()).resolves.toEqual(LEGACY_IDENTITY);
+    const migrated = await loadVaultV2();
+    expect(migrated).toMatchObject({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      deviceCredential: {
+        schemaVersion: 1,
+        material: LEGACY_DEVICE_KEY,
+        createdAt: LEGACY_IDENTITY.createdAt,
+        source: 'legacy-v1'
+      },
+      seaDevicePair: {
+        schemaVersion: 1,
+        ...LEGACY_SEA_PAIR,
+        createdAt: LEGACY_IDENTITY.createdAt
+      }
+    });
+
+    const db = await openVaultDb();
+    const rawRecord = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+    db.close();
+    expect(rawRecord?.version).toBe(VAULT_VERSION);
+
+    await expect(loadIdentity()).resolves.toEqual(LEGACY_IDENTITY);
+    await expect(loadVaultV2()).resolves.toEqual(migrated);
+  });
+
+  it('migrates legacy localStorage into v2 and reuses attestation.deviceKey exactly', async () => {
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(LEGACY_IDENTITY));
+
+    await expect(migrateLegacyLocalStorage()).resolves.toBe('migrated');
+    const vault = await loadVaultV2();
+
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(vault?.deviceCredential?.material).toBe(LEGACY_DEVICE_KEY);
+    expect(vault?.deviceCredential?.source).toBe('legacy-v1');
+  });
+
+  it('loadOrCreate keeps generated device credentials stable until rotation', async () => {
+    const first = await deviceCredential.loadOrCreate();
+    const second = await deviceCredential.loadOrCreate();
+    const rotated = await deviceCredential.rotate();
+
+    expect(first.material).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(second).toEqual(first);
+    expect(rotated.material).not.toBe(first.material);
+    expect(rotated.source).toBe('generated');
+  });
+
+  it('rejects malformed device credential compartments without replacement', async () => {
+    const valid = await deviceCredential.rotate();
+
+    expect(() => validateDeviceCredential({
+      ...valid,
+      source: 'unknown'
+    })).toThrow(VaultCompartmentError);
+    expect(() => validateDeviceCredential({
+      ...valid,
+      source: undefined
+    })).toThrow(VaultCompartmentError);
+  });
+
+  it('loadOrCreate keeps SEA device pairs stable and rotates only through the helper', async () => {
+    const first = await seaDevicePair.loadOrCreate(() => LEGACY_SEA_PAIR);
+    const second = await seaDevicePair.loadOrCreate(() => {
+      throw new Error('should not create a second SEA pair');
+    });
+    const rotated = await seaDevicePair.rotate(() => ({
+      pub: 'rotated-pub',
+      priv: 'rotated-priv',
+      epub: 'rotated-epub',
+      epriv: 'rotated-epriv'
+    }));
+
+    expect(second).toEqual(first);
+    expect(rotated).toMatchObject({
+      pub: 'rotated-pub',
+      priv: 'rotated-priv',
+      epub: 'rotated-epub',
+      epriv: 'rotated-epriv'
+    });
+  });
+
+  it('fails closed on malformed SEA compartment creation and validation', async () => {
+    await expect(seaDevicePair.rotate(() => ({
+      pub: 'missing-epriv-pub',
+      priv: 'missing-epriv-priv',
+      epub: 'missing-epriv-epub',
+      epriv: ''
+    }))).rejects.toThrow(VaultCompartmentError);
+
+    expect(() => validateSeaDevicePair({
+      schemaVersion: 1,
+      pub: 'pub',
+      priv: 'priv',
+      epub: 'epub',
+      epriv: '',
+      createdAt: 0
+    })).toThrow(VaultCompartmentError);
+  });
+
+  it('keeps delegation signing keys stable and signs/verifies the frozen M0.D vector', async () => {
+    const vector = 'vh:luma:m0d-vault-compartment-vector:v1';
+    const first = await delegationSigningKey.loadOrCreate();
+    const firstSignature = await delegationSigningKey.sign(vector, first);
+    const second = await delegationSigningKey.loadOrCreate();
+    const secondSignature = await delegationSigningKey.sign(vector, second);
+
+    expect(second).toEqual(first);
+    expect(secondSignature).toBe(firstSignature);
+    await expect(delegationSigningKey.verify({
+      key: first,
+      message: vector,
+      signature: firstSignature
+    })).resolves.toBe(true);
+    await expect(delegationSigningKey.verify({
+      key: first,
+      message: `${vector}:tampered`,
+      signature: firstSignature
+    })).resolves.toBe(false);
+
+    const rotated = await delegationSigningKey.rotate();
+    expect(rotated.publicKey.material).not.toBe(first.publicKey.material);
+  });
+
+  it('handles delegation signing Uint8Array messages and rejects unsupported suites', async () => {
+    const vector = new Uint8Array([1, 2, 3, 4]);
+    const key = await delegationSigningKey.rotate();
+    const signature = await delegationSigningKey.sign(vector, key);
+
+    await expect(delegationSigningKey.verify({
+      key,
+      message: vector,
+      signature
+    })).resolves.toBe(true);
+
+    await expect(delegationSigningKey.verify({
+      key: { publicKey: key.publicKey, signatureSuite: 'bad-suite' as never },
+      message: vector,
+      signature
+    })).rejects.toThrow(VaultCompartmentError);
+
+    expect(() => validateDelegationSigningKey({
+      ...key,
+      createdAt: -1
+    })).toThrow(VaultCompartmentError);
+  });
+
+  it('fails closed when Ed25519 key generation returns an invalid shape', async () => {
+    const originalSubtle = crypto.subtle;
+    Object.defineProperty(crypto, 'subtle', {
+      value: { generateKey: vi.fn().mockResolvedValue({}) },
+      configurable: true
+    });
+
+    try {
+      await expect(delegationSigningKey.rotate()).rejects.toThrow(VaultCompartmentError);
+    } finally {
+      Object.defineProperty(crypto, 'subtle', { value: originalSubtle, configurable: true });
+    }
+  });
+
+  it('uses standard ArrayBuffer sources when the Node Buffer helper is absent', async () => {
+    const originalBuffer = (globalThis as typeof globalThis & { Buffer?: unknown }).Buffer;
+    const originalSubtle = crypto.subtle;
+    const fakePrivateKey = {} as CryptoKey;
+    const fakePublicKey = {} as CryptoKey;
+    const fakeSubtle = {
+      importKey: vi.fn()
+        .mockResolvedValueOnce(fakePrivateKey)
+        .mockResolvedValueOnce(fakePublicKey),
+      sign: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]).buffer),
+      verify: vi.fn().mockResolvedValue(true)
+    };
+    const key: DelegationSigningKeyCompartment = {
+      schemaVersion: 1,
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      publicKey: { encoding: 'base64url', material: 'AQID' },
+      privateKey: { encoding: 'base64url', material: 'BAUG' },
+      createdAt: 0
+    };
+
+    Object.defineProperty(globalThis, 'Buffer', { value: undefined, configurable: true });
+    Object.defineProperty(crypto, 'subtle', { value: fakeSubtle, configurable: true });
+
+    try {
+      await expect(delegationSigningKey.sign(new Uint8Array([9]), key)).resolves.toBe('AQID');
+      await expect(delegationSigningKey.verify({
+        key,
+        message: new Uint8Array([9]),
+        signature: 'AQID'
+      })).resolves.toBe(true);
+      expect(fakeSubtle.importKey.mock.calls[0]?.[1]).toBeInstanceOf(ArrayBuffer);
+      expect(fakeSubtle.importKey.mock.calls[1]?.[1]).toBeInstanceOf(ArrayBuffer);
+    } finally {
+      Object.defineProperty(globalThis, 'Buffer', { value: originalBuffer, configurable: true });
+      Object.defineProperty(crypto, 'subtle', { value: originalSubtle, configurable: true });
+    }
+  });
+
+  it('exposes JSON-safe base64url helpers that fail closed on invalid runtime inputs', () => {
+    expect(base64UrlToBytes('AQID')).toEqual(new Uint8Array([1, 2, 3]));
+    expect(() => base64UrlToBytes('AQ+')).toThrow(VaultCompartmentError);
+
+    const originalGetRandomValues = crypto.getRandomValues;
+    Object.defineProperty(crypto, 'getRandomValues', { value: undefined, configurable: true });
+    try {
+      expect(() => randomBase64Url(4)).toThrow(VaultCompartmentError);
+    } finally {
+      Object.defineProperty(crypto, 'getRandomValues', {
+        value: originalGetRandomValues,
+        configurable: true
+      });
+    }
+  });
+
+  it('rotation helpers can initialize fresh material from an empty v2 vault', async () => {
+    const emptyVaultPair = await seaDevicePair.rotate(() => LEGACY_SEA_PAIR);
+    await clearIdentity();
+    const rotatedCredential = await deviceCredential.rotate();
+    await clearIdentity();
+    const rotatedPair = await seaDevicePair.rotate(() => LEGACY_SEA_PAIR);
+    await clearIdentity();
+    const rotatedDelegationKey = await delegationSigningKey.rotate();
+
+    expect(emptyVaultPair).toMatchObject(LEGACY_SEA_PAIR);
+    expect(rotatedCredential.material).toEqual(expect.any(String));
+    expect(rotatedPair).toMatchObject(LEGACY_SEA_PAIR);
+    expect(rotatedDelegationKey.publicKey.material).toEqual(expect.any(String));
+  });
+
+  it('clears identity/session data without deleting stable v2 compartments', async () => {
+    const firstCredential = await deviceCredential.loadOrCreate();
+    const firstPair = await seaDevicePair.loadOrCreate(() => LEGACY_SEA_PAIR);
+    const firstDelegationKey = await delegationSigningKey.loadOrCreate();
+    await saveIdentity(LEGACY_IDENTITY);
+
+    await clearIdentity();
+
+    expect(await loadIdentity()).toBeNull();
+    expect(await deviceCredential.loadOrCreate()).toEqual(firstCredential);
+    expect(await seaDevicePair.loadOrCreate(() => {
+      throw new Error('SEA pair should have been preserved');
+    })).toEqual(firstPair);
+    expect(await delegationSigningKey.loadOrCreate()).toEqual(firstDelegationKey);
+  });
+
+  it('persists compartment byte material as JSON-safe strings', async () => {
+    await deviceCredential.loadOrCreate();
+    await delegationSigningKey.loadOrCreate();
+
+    const vault = await loadVaultV2();
+    expect(vault?.deviceCredential?.material).toEqual(expect.any(String));
+    expect(vault?.delegationSigningKey?.publicKey.material).toEqual(expect.any(String));
+    expect(vault?.delegationSigningKey?.privateKey.material).toEqual(expect.any(String));
+    expect(JSON.parse(JSON.stringify(vault))).toEqual(vault);
+  });
+
+  it('fails closed instead of regenerating over malformed v2 compartments', async () => {
+    await saveIdentity({
+      ...LEGACY_IDENTITY,
+      deviceCredential: {
+        schemaVersion: 1,
+        material: '',
+        createdAt: 0,
+        source: 'legacy-v1'
+      }
+    });
+    const vault = await loadVaultV2();
+    await saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      deviceCredential: {
+        schemaVersion: 1,
+        material: '',
+        createdAt: 0,
+        source: 'legacy-v1'
+      } as never
+    });
+
+    expect(vault?.deviceCredential?.material).toBe(LEGACY_DEVICE_KEY);
+    await expect(deviceCredential.loadOrCreate()).rejects.toThrow(VaultCompartmentError);
+  });
+
+  it('preserves fail-closed semantics for malformed v2 SEA compartments', async () => {
+    await saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      seaDevicePair: {
+        schemaVersion: 1,
+        pub: 'pub',
+        priv: 'priv',
+        epub: 'epub',
+        epriv: '',
+        createdAt: 0
+      } as never
+    });
+
+    await expect(seaDevicePair.loadOrCreate(() => LEGACY_SEA_PAIR))
+      .rejects.toThrow(VaultCompartmentError);
+  });
+
+  it('updates v2 vault records through the typed mutator', async () => {
+    await expect(updateVaultV2((vault) => ({
+      ...vault,
+      identityRecord: LEGACY_IDENTITY
+    }))).resolves.toMatchObject({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY
+    });
+
+    await expect(loadIdentity()).resolves.toEqual(LEGACY_IDENTITY);
+  });
+
+  it('typed v2 accessors fail closed when IndexedDB is unavailable', async () => {
+    const original = globalThis.indexedDB;
+    try {
+      // @ts-expect-error — intentionally removing for test
+      delete globalThis.indexedDB;
+      await expect(loadVaultV2()).resolves.toBeNull();
+      await expect(saveVaultV2({ schemaVersion: 2 })).resolves.toBeUndefined();
+      await expect(updateVaultV2((vault) => vault)).resolves.toBeNull();
+    } finally {
+      globalThis.indexedDB = original;
+    }
+  });
+
+  it('clearIdentity is a no-op when only stable compartments are absent', async () => {
+    await expect(clearIdentity()).resolves.toBeUndefined();
+    expect(await loadVaultV2()).toBeNull();
+  });
+
+  it('rejects invalid legacy v1 vault payloads before v2 migration', async () => {
+    await writeLegacyVaultRecord(['not-an-identity']);
+
+    await expect(loadVaultV2()).resolves.toBeNull();
+
+    const db = await openVaultDb();
+    const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+    db.close();
+    expect(remaining).toBeUndefined();
+  });
+
+  it('does not promote invalid legacy device or SEA material into v2 compartments', async () => {
+    const legacyWithInvalidCompartments: Identity = {
+      ...TEST_IDENTITY,
+      attestation: {
+        platform: 'web',
+        integrityToken: 'tok',
+        deviceKey: '',
+        nonce: 'nonce'
+      },
+      devicePair: {
+        pub: 'pub',
+        priv: 'priv',
+        epub: 'epub',
+        epriv: ''
+      }
+    };
+
+    await saveIdentity(legacyWithInvalidCompartments);
+    const vault = await loadVaultV2();
+
+    expect(vault?.identityRecord).toEqual(legacyWithInvalidCompartments);
+    expect(vault?.deviceCredential).toBeUndefined();
+    expect(vault?.seaDevicePair).toBeUndefined();
   });
 });

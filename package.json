@@ -37,6 +37,7 @@
     "check:linkability-domain-registry": "node ./tools/scripts/check-linkability-domain-registry.mjs",
     "check:luma-provider-surface": "node ./tools/scripts/check-luma-provider-surface.mjs",
     "check:luma-signed-write-surface": "node ./tools/scripts/check-luma-signed-write-surface.mjs",
+    "check:luma-vault-compartments": "node ./tools/scripts/check-luma-vault-compartments.mjs",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",

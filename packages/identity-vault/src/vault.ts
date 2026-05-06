@@ -11,9 +11,17 @@ import {
   IDENTITY_KEY,
   MASTER_KEY,
   VAULT_VERSION,
+  LEGACY_VAULT_VERSION,
   isValidIdentity,
+  isVaultV2,
 } from './types';
-import type { Identity, VaultRecord } from './types';
+import type {
+  DeviceCredentialCompartment,
+  Identity,
+  SeaDevicePairCompartment,
+  VaultRecord,
+  VaultV2
+} from './types';
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -100,32 +108,8 @@ export async function loadIdentity(): Promise<Identity | null> {
   if (!isVaultAvailable()) return null;
 
   return withDb(null, async (db) => {
-    const record = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
-    if (!record) return null;
-
-    // M2: version gate — reject records from incompatible future versions
-    if (record.version !== VAULT_VERSION) return null;
-
-    const key = await getMasterKey(db);
-    if (!key) return null;
-
-    const plaintext = await decrypt(key, record.iv, record.ciphertext);
-    if (!plaintext) {
-      // Tamper detected — wipe corrupt record
-      await idbDelete(db, VAULT_STORE, IDENTITY_KEY).catch(() => {});
-      return null;
-    }
-
-    const json = decoder.decode(plaintext);
-    const parsed: unknown = JSON.parse(json);
-
-    // M1: runtime shape validation — zero-trust on stored data
-    if (!isValidIdentity(parsed)) {
-      await idbDelete(db, VAULT_STORE, IDENTITY_KEY).catch(() => {});
-      return null;
-    }
-
-    return parsed;
+    const vault = await loadVaultV2FromDb(db);
+    return vault?.identityRecord ?? null;
   });
 }
 
@@ -137,27 +121,194 @@ export async function saveIdentity(identity: Identity): Promise<void> {
   if (!isVaultAvailable()) return;
 
   return withDb(undefined, async (db) => {
-    const key = await ensureMasterKey(db);
-    const plaintext = encoder.encode(JSON.stringify(identity));
-    const { iv, ciphertext } = await encrypt(key, plaintext);
-
-    const record: VaultRecord = {
-      version: VAULT_VERSION,
-      iv,
-      ciphertext,
-    };
-
-    await idbPut(db, VAULT_STORE, IDENTITY_KEY, record);
+    const existing = await loadVaultV2FromDb(db);
+    const next = mergeIdentityIntoVault(existing ?? emptyVaultV2(), identity);
+    await saveVaultV2ToDb(db, next);
   });
 }
 
 /**
- * Remove the identity from the vault (keeps the master key).
+ * Remove the identity/session compartment from the vault (keeps the master key
+ * and stable v2 key compartments).
  */
 export async function clearIdentity(): Promise<void> {
   if (!isVaultAvailable()) return;
 
   return withDb(undefined, async (db) => {
-    await idbDelete(db, VAULT_STORE, IDENTITY_KEY);
+    const vault = await loadVaultV2FromDb(db);
+    if (!vault) return;
+
+    const { identityRecord: _identityRecord, ...stableCompartments } = vault;
+    await saveVaultV2ToDb(db, stableCompartments);
   });
+}
+
+export async function loadVaultV2(): Promise<VaultV2 | null> {
+  if (!isVaultAvailable()) return null;
+
+  return withDb(null, async (db) => loadVaultV2FromDb(db));
+}
+
+export async function saveVaultV2(vault: VaultV2): Promise<void> {
+  if (!isVaultAvailable()) return;
+
+  return withDb(undefined, async (db) => {
+    await saveVaultV2ToDb(db, normalizeVaultV2(vault));
+  });
+}
+
+export async function updateVaultV2(mutator: (vault: VaultV2) => VaultV2): Promise<VaultV2 | null> {
+  if (!isVaultAvailable()) return null;
+
+  return withDb(null, async (db) => {
+    const current = await loadVaultV2FromDb(db) ?? emptyVaultV2();
+    const next = normalizeVaultV2(mutator(current));
+    await saveVaultV2ToDb(db, next);
+    return next;
+  });
+}
+
+function emptyVaultV2(): VaultV2 {
+  return { schemaVersion: VAULT_VERSION };
+}
+
+async function loadVaultV2FromDb(db: IDBDatabase): Promise<VaultV2 | null> {
+  const record = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+  if (!record) return null;
+
+  const parsed = await decryptVaultRecord(db, record);
+  if (!parsed) return null;
+
+  if (record.version === VAULT_VERSION) {
+    if (!isVaultV2(parsed)) {
+      await idbDelete(db, VAULT_STORE, IDENTITY_KEY).catch(() => {});
+      return null;
+    }
+    return normalizeVaultV2(parsed);
+  }
+
+  if (record.version === LEGACY_VAULT_VERSION) {
+    if (!isValidIdentity(parsed)) {
+      await idbDelete(db, VAULT_STORE, IDENTITY_KEY).catch(() => {});
+      return null;
+    }
+
+    const migrated = migrateIdentityToVaultV2(parsed);
+    await saveVaultV2ToDb(db, migrated);
+    return migrated;
+  }
+
+  return null;
+}
+
+async function decryptVaultRecord(
+  db: IDBDatabase,
+  record: VaultRecord
+): Promise<unknown | null> {
+  const key = await getMasterKey(db);
+  if (!key) return null;
+
+  const plaintext = await decrypt(key, record.iv, record.ciphertext);
+  if (!plaintext) {
+    await idbDelete(db, VAULT_STORE, IDENTITY_KEY).catch(() => {});
+    return null;
+  }
+
+  try {
+    return JSON.parse(decoder.decode(plaintext));
+  } catch {
+    await idbDelete(db, VAULT_STORE, IDENTITY_KEY).catch(() => {});
+    return null;
+  }
+}
+
+async function saveVaultV2ToDb(db: IDBDatabase, vault: VaultV2): Promise<void> {
+  const key = await ensureMasterKey(db);
+  const plaintext = encoder.encode(JSON.stringify(normalizeVaultV2(vault)));
+  const { iv, ciphertext } = await encrypt(key, plaintext);
+
+  const record: VaultRecord = {
+    version: VAULT_VERSION,
+    iv,
+    ciphertext,
+  };
+
+  await idbPut(db, VAULT_STORE, IDENTITY_KEY, record);
+}
+
+function mergeIdentityIntoVault(vault: VaultV2, identity: Identity): VaultV2 {
+  return normalizeVaultV2({
+    ...vault,
+    identityRecord: identity,
+    deviceCredential: vault.deviceCredential ?? legacyDeviceCredential(identity),
+    seaDevicePair: vault.seaDevicePair ?? legacySeaDevicePair(identity)
+  });
+}
+
+function migrateIdentityToVaultV2(identity: Identity): VaultV2 {
+  return normalizeVaultV2({
+    ...emptyVaultV2(),
+    identityRecord: identity,
+    deviceCredential: legacyDeviceCredential(identity),
+    seaDevicePair: legacySeaDevicePair(identity)
+  });
+}
+
+function normalizeVaultV2(vault: VaultV2): VaultV2 {
+  return {
+    schemaVersion: VAULT_VERSION,
+    ...(vault.identityRecord ? { identityRecord: vault.identityRecord } : {}),
+    ...(vault.deviceCredential ? { deviceCredential: vault.deviceCredential } : {}),
+    ...(vault.seaDevicePair ? { seaDevicePair: vault.seaDevicePair } : {}),
+    ...(vault.delegationSigningKey ? { delegationSigningKey: vault.delegationSigningKey } : {})
+  };
+}
+
+function legacyDeviceCredential(identity: Identity): DeviceCredentialCompartment | undefined {
+  const attestation = identity.attestation;
+  if (!isValidIdentity(attestation)) return undefined;
+
+  const material = attestation.deviceKey;
+  if (typeof material !== 'string' || material.length === 0) return undefined;
+
+  return {
+    schemaVersion: 1,
+    material,
+    createdAt: createdAtFromIdentity(identity),
+    source: 'legacy-v1'
+  };
+}
+
+function legacySeaDevicePair(identity: Identity): SeaDevicePairCompartment | undefined {
+  const pair = identity.devicePair;
+  if (!isValidIdentity(pair)) return undefined;
+
+  const { pub, priv, epub, epriv } = pair;
+  if (
+    typeof pub !== 'string'
+    || typeof priv !== 'string'
+    || typeof epub !== 'string'
+    || typeof epriv !== 'string'
+    || pub.length === 0
+    || priv.length === 0
+    || epub.length === 0
+    || epriv.length === 0
+  ) {
+    return undefined;
+  }
+
+  return {
+    schemaVersion: 1,
+    pub,
+    priv,
+    epub,
+    epriv,
+    createdAt: createdAtFromIdentity(identity)
+  };
+}
+
+function createdAtFromIdentity(identity: Identity): number {
+  return typeof identity.createdAt === 'number' && Number.isSafeInteger(identity.createdAt)
+    ? identity.createdAt
+    : Date.now();
 }

@@ -4,6 +4,46 @@
  */
 export type Identity = Record<string, unknown>;
 
+export type JsonSafeByteEncoding = 'base64url';
+
+export interface DeviceCredentialCompartment {
+  schemaVersion: 1;
+  material: string;
+  createdAt: number;
+  source: 'generated' | 'legacy-v1';
+}
+
+export interface SeaDevicePairCompartment {
+  schemaVersion: 1;
+  pub: string;
+  priv: string;
+  epub: string;
+  epriv: string;
+  createdAt: number;
+}
+
+export interface DelegationSigningKeyCompartment {
+  schemaVersion: 1;
+  signatureSuite: 'jcs-ed25519-sha256-v1';
+  publicKey: {
+    encoding: JsonSafeByteEncoding;
+    material: string;
+  };
+  privateKey: {
+    encoding: JsonSafeByteEncoding;
+    material: string;
+  };
+  createdAt: number;
+}
+
+export interface VaultV2 {
+  schemaVersion: 2;
+  identityRecord?: Identity;
+  deviceCredential?: DeviceCredentialCompartment;
+  seaDevicePair?: SeaDevicePairCompartment;
+  delegationSigningKey?: DelegationSigningKeyCompartment;
+}
+
 /**
  * Record stored in IndexedDB "vault" object store.
  */
@@ -29,7 +69,10 @@ export const IDENTITY_KEY = 'identity';
 export const MASTER_KEY = 'master';
 
 /** Current vault record version. */
-export const VAULT_VERSION = 1;
+export const VAULT_VERSION = 2;
+
+/** Legacy opaque identity vault record version. */
+export const LEGACY_VAULT_VERSION = 1;
 
 /** Legacy localStorage key consumed during migration. */
 export const LEGACY_STORAGE_KEY = 'vh_identity';
@@ -41,4 +84,8 @@ export const LEGACY_STORAGE_KEY = 'vh_identity';
  */
 export function isValidIdentity(value: unknown): value is Identity {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export function isVaultV2(value: unknown): value is VaultV2 {
+  return isValidIdentity(value) && (value as { schemaVersion?: unknown }).schemaVersion === 2;
 }
