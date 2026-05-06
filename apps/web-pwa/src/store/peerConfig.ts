@@ -440,7 +440,10 @@ export async function resolveGunPeerTopology(runtimeHostname = getRuntimeHostnam
 
   const remoteConfigUrl = envValue(GUN_PEER_CONFIG_URL_ENV);
   if (remoteConfigUrl && remoteConfigUrl.trim()) {
-    const response = await fetch(remoteConfigUrl, { signal: AbortSignal.timeout(5_000) });
+    const response = await fetch(remoteConfigUrl, {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(5_000),
+    });
     if (!response.ok) {
       throw new Error(`[vh:gun] failed to fetch peer config: ${response.status}`);
     }

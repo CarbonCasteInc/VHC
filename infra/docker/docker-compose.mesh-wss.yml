@@ -1,0 +1,131 @@
+name: vh-mesh-wss-topology
+
+services:
+  traefik:
+    image: traefik:v3.1
+    command:
+      - --api.dashboard=true
+      - --providers.file.directory=/etc/traefik/dynamic
+      - --providers.file.watch=true
+      - --entrypoints.websecure.address=:443
+    ports:
+      - "${VH_MESH_WSS_HTTPS_PORT:-8443}:443"
+    volumes:
+      - ./mesh-wss-traefik.yml:/etc/traefik/dynamic/mesh-wss.yml:ro
+      - ${VH_MESH_WSS_CERTS_DIR:-./certs}:/certs:ro
+    networks:
+      - vh_mesh_wss
+
+  relay-a:
+    build:
+      context: ../relay
+      dockerfile: Dockerfile
+    image: vh/gun-relay:latest
+    restart: unless-stopped
+    environment:
+      GUN_PORT: "7777"
+      GUN_HOST: "0.0.0.0"
+      GUN_FILE: "/app/data"
+      GUN_RADISK: "true"
+      NODE_ENV: "production"
+      VH_RELAY_ID: "mesh-wss-relay-a"
+      VH_RELAY_PEERS: '["wss://relay-b.${VH_MESH_WSS_DOMAIN:-mesh.local}/gun","wss://relay-c.${VH_MESH_WSS_DOMAIN:-mesh.local}/gun"]'
+      VH_RELAY_PEER_AUTH_MODE: "${VH_RELAY_PEER_AUTH_MODE:-private_network_allowlist}"
+      VH_RELAY_PEER_ALLOWLIST: "${VH_RELAY_PEER_ALLOWLIST:-private}"
+      VH_RELAY_AUTH_REQUIRED: "true"
+      VH_RELAY_DAEMON_TOKEN: "${VH_RELAY_DAEMON_TOKEN:-replace-me-daemon-token}"
+      VH_RELAY_ALLOWED_ORIGINS: "${VH_RELAY_ALLOWED_ORIGINS:-https://app.mesh.local}"
+      VH_RELAY_HTTP_RATE_LIMIT_PER_MIN: "${VH_RELAY_HTTP_RATE_LIMIT_PER_MIN:-1200}"
+      VH_RELAY_WS_BYTES_PER_SEC: "${VH_RELAY_WS_BYTES_PER_SEC:-1000000}"
+      VH_RELAY_MAX_ACTIVE_CONNECTIONS: "${VH_RELAY_MAX_ACTIVE_CONNECTIONS:-5000}"
+      VH_RELAY_COMPACT_HEALTH_PROBES_ON_START: "${VH_RELAY_COMPACT_HEALTH_PROBES_ON_START:-true}"
+      VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS: "${VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS:-3600000}"
+    volumes:
+      - relay_a_data:/app/data
+    networks:
+      - vh_mesh_wss
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mesh-relay-a.rule=Host(`relay-a.${VH_MESH_WSS_DOMAIN:-mesh.local}`)"
+      - "traefik.http.routers.mesh-relay-a.entrypoints=websecure"
+      - "traefik.http.routers.mesh-relay-a.tls=true"
+      - "traefik.http.services.mesh-relay-a.loadbalancer.server.port=7777"
+
+  relay-b:
+    build:
+      context: ../relay
+      dockerfile: Dockerfile
+    image: vh/gun-relay:latest
+    restart: unless-stopped
+    environment:
+      GUN_PORT: "7777"
+      GUN_HOST: "0.0.0.0"
+      GUN_FILE: "/app/data"
+      GUN_RADISK: "true"
+      NODE_ENV: "production"
+      VH_RELAY_ID: "mesh-wss-relay-b"
+      VH_RELAY_PEERS: '["wss://relay-a.${VH_MESH_WSS_DOMAIN:-mesh.local}/gun","wss://relay-c.${VH_MESH_WSS_DOMAIN:-mesh.local}/gun"]'
+      VH_RELAY_PEER_AUTH_MODE: "${VH_RELAY_PEER_AUTH_MODE:-private_network_allowlist}"
+      VH_RELAY_PEER_ALLOWLIST: "${VH_RELAY_PEER_ALLOWLIST:-private}"
+      VH_RELAY_AUTH_REQUIRED: "true"
+      VH_RELAY_DAEMON_TOKEN: "${VH_RELAY_DAEMON_TOKEN:-replace-me-daemon-token}"
+      VH_RELAY_ALLOWED_ORIGINS: "${VH_RELAY_ALLOWED_ORIGINS:-https://app.mesh.local}"
+      VH_RELAY_HTTP_RATE_LIMIT_PER_MIN: "${VH_RELAY_HTTP_RATE_LIMIT_PER_MIN:-1200}"
+      VH_RELAY_WS_BYTES_PER_SEC: "${VH_RELAY_WS_BYTES_PER_SEC:-1000000}"
+      VH_RELAY_MAX_ACTIVE_CONNECTIONS: "${VH_RELAY_MAX_ACTIVE_CONNECTIONS:-5000}"
+      VH_RELAY_COMPACT_HEALTH_PROBES_ON_START: "${VH_RELAY_COMPACT_HEALTH_PROBES_ON_START:-true}"
+      VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS: "${VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS:-3600000}"
+    volumes:
+      - relay_b_data:/app/data
+    networks:
+      - vh_mesh_wss
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mesh-relay-b.rule=Host(`relay-b.${VH_MESH_WSS_DOMAIN:-mesh.local}`)"
+      - "traefik.http.routers.mesh-relay-b.entrypoints=websecure"
+      - "traefik.http.routers.mesh-relay-b.tls=true"
+      - "traefik.http.services.mesh-relay-b.loadbalancer.server.port=7777"
+
+  relay-c:
+    build:
+      context: ../relay
+      dockerfile: Dockerfile
+    image: vh/gun-relay:latest
+    restart: unless-stopped
+    environment:
+      GUN_PORT: "7777"
+      GUN_HOST: "0.0.0.0"
+      GUN_FILE: "/app/data"
+      GUN_RADISK: "true"
+      NODE_ENV: "production"
+      VH_RELAY_ID: "mesh-wss-relay-c"
+      VH_RELAY_PEERS: '["wss://relay-a.${VH_MESH_WSS_DOMAIN:-mesh.local}/gun","wss://relay-b.${VH_MESH_WSS_DOMAIN:-mesh.local}/gun"]'
+      VH_RELAY_PEER_AUTH_MODE: "${VH_RELAY_PEER_AUTH_MODE:-private_network_allowlist}"
+      VH_RELAY_PEER_ALLOWLIST: "${VH_RELAY_PEER_ALLOWLIST:-private}"
+      VH_RELAY_AUTH_REQUIRED: "true"
+      VH_RELAY_DAEMON_TOKEN: "${VH_RELAY_DAEMON_TOKEN:-replace-me-daemon-token}"
+      VH_RELAY_ALLOWED_ORIGINS: "${VH_RELAY_ALLOWED_ORIGINS:-https://app.mesh.local}"
+      VH_RELAY_HTTP_RATE_LIMIT_PER_MIN: "${VH_RELAY_HTTP_RATE_LIMIT_PER_MIN:-1200}"
+      VH_RELAY_WS_BYTES_PER_SEC: "${VH_RELAY_WS_BYTES_PER_SEC:-1000000}"
+      VH_RELAY_MAX_ACTIVE_CONNECTIONS: "${VH_RELAY_MAX_ACTIVE_CONNECTIONS:-5000}"
+      VH_RELAY_COMPACT_HEALTH_PROBES_ON_START: "${VH_RELAY_COMPACT_HEALTH_PROBES_ON_START:-true}"
+      VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS: "${VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS:-3600000}"
+    volumes:
+      - relay_c_data:/app/data
+    networks:
+      - vh_mesh_wss
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.mesh-relay-c.rule=Host(`relay-c.${VH_MESH_WSS_DOMAIN:-mesh.local}`)"
+      - "traefik.http.routers.mesh-relay-c.entrypoints=websecure"
+      - "traefik.http.routers.mesh-relay-c.tls=true"
+      - "traefik.http.services.mesh-relay-c.loadbalancer.server.port=7777"
+
+volumes:
+  relay_a_data:
+  relay_b_data:
+  relay_c_data:
+
+networks:
+  vh_mesh_wss:
+    driver: bridge

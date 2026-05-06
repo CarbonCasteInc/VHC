@@ -34,6 +34,13 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
+  // Peer topology config must never be pinned by an old service worker during
+  // relay rollout or rollback.
+  if (request.method === 'GET' && /\/mesh-peer-config(?:[-\w]*)?\.json$/.test(url.pathname)) {
+    event.respondWith(fetch(request, { cache: 'no-store' }));
+    return;
+  }
+
   // Navigation requests (HTML) -> network first so a previous tab can pick up
   // a new app shell instead of staying pinned to stale cache-first HTML.
   if (request.mode === 'navigate') {

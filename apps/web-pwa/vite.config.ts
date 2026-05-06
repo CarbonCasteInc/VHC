@@ -6,6 +6,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { relayAnalysis, resolveAnalysisRelayConfig } from './src/server/analysisRelay';
 import { applyNewsSourceHealthEnv } from './src/server/newsSourceHealthEnv';
+import { buildCspContent } from './src/cspPolicy';
 
 const ARTICLE_TEXT_CACHE_TTL_MS = 5 * 60 * 1000;
 const ARTICLE_TEXT_MAX_CHARS = 24_000;
@@ -270,10 +271,31 @@ function createAnalysisRelayPlugin(): Plugin {
   };
 }
 
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function createCspHtmlPlugin(): Plugin {
+  return {
+    name: 'vh-csp-html',
+    transformIndexHtml(html) {
+      const csp = escapeHtmlAttribute(buildCspContent(process.env.VITE_VH_CSP_CONNECT_SRC));
+      return html.replace(
+        /(<meta\s+http-equiv="Content-Security-Policy"\s+content=")([^"]*)("\s*\/>)/i,
+        `$1${csp}$3`,
+      );
+    },
+  };
+}
+
 export default defineConfig({
   // Keep article-text proxy available in all modes so feed source reliability
   // probing continues to work when analysis relay is enabled.
-  plugins: [react(), createArticleTextProxyPlugin(), createAnalysisRelayPlugin()],
+  plugins: [react(), createCspHtmlPlugin(), createArticleTextProxyPlugin(), createAnalysisRelayPlugin()],
   server: {
     host: true,
     port: 2048,
