@@ -48,3 +48,35 @@ export {
   type LumaProviderName,
   type SignatureSuite
 } from './providers';
+
+export {
+  canonicalizeSignedWriteEnvelopeForSigning,
+  canonicalizeSignedWritePayload,
+  CLIENT_SIGNED_WRITE_SIGNATURE_SUITE,
+  createLumaPublicAuthorId,
+  createSignedWriteEnvelope,
+  deriveSignedWriteIdempotencyKey,
+  digestSignedWritePayload,
+  isLumaPublicAuthorId,
+  LUMA_SIGNED_WRITE_AUDIENCES,
+  LUMA_SIGNED_WRITE_ENVELOPE_VERSION,
+  LUMA_SIGNED_WRITE_PROFILES,
+  LUMA_SIGNED_WRITE_PROTOCOL_VERSION,
+  LUMA_SIGNED_WRITE_SIGNATURE_SUITES,
+  signedWriteEnvelopeSigningInput,
+  SignedWriteEnvelopeError,
+  verifySignedWriteEnvelope,
+  type ClientSignedWriteSignatureSuite,
+  type CreateSignedWriteEnvelopeInput,
+  type LumaPublicAuthorId,
+  type SignedWriteEnvelope,
+  type SignedWriteSessionRef,
+  type SignedWriteSignHook,
+  type SignedWriteSignHookInput,
+  type SignedWriteVerificationFailureReason,
+  type SignedWriteVerificationResult,
+  type SignedWriteVerifyHook,
+  type SignedWriteVerifyHookInput,
+  type UnsignedSignedWriteEnvelope,
+  type VerifySignedWriteEnvelopeInput
+} from './signedWrites';
