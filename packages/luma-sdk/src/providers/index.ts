@@ -32,7 +32,6 @@ export type SignatureSuite =
   | 'jcs-ed25519-sha256-v1'
   | 'jcs-mldsa65-shake256-v1'
   | 'jcs-mldsa87-shake256-v1';
-export type ProviderSignatureSuite = SignatureSuite | 'mock-v1' | 'dev-stub-v1';
 
 export interface ClaimVector {
   device_integrity: ClaimLevel;
@@ -46,20 +45,16 @@ export interface ClaimVector {
 export type EvidenceRef =
   | { kind: 'local'; vaultKey: string }
   | { kind: 'verifier'; verifierId: string; ref: string };
-export type ProviderTestEvidenceRef =
-  | { kind: 'mock'; ref: string }
-  | { kind: 'dev-stub'; ref: string };
-export type ProviderEvidenceRef = EvidenceRef | ProviderTestEvidenceRef;
 
 export interface AssuranceEnvelope {
   envelopeVersion: 1;
-  signatureSuite: ProviderSignatureSuite;
+  signatureSuite: SignatureSuite;
   assuranceLevel: AssuranceLevel;
   claimVector: ClaimVector;
   verifierId: string;
   policyVersion: string;
   evidenceDigest: string;
-  evidenceRecordRef: ProviderEvidenceRef;
+  evidenceRecordRef: EvidenceRef;
   limitations: string[];
   issuedAt: number;
   expiresAt: number;

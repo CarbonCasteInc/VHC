@@ -37,7 +37,7 @@ function fakeAttestationResult(): AttestationProviderResult {
     },
     envelope: {
       envelopeVersion: 1,
-      signatureSuite: 'mock-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
       assuranceLevel: 'beta_local',
       claimVector: {
         device_integrity: 'beta_local',
@@ -51,8 +51,8 @@ function fakeAttestationResult(): AttestationProviderResult {
       policyVersion: 'test-v1',
       evidenceDigest: 'evidence-digest',
       evidenceRecordRef: {
-        kind: 'mock',
-        ref: 'evidence/test'
+        kind: 'local',
+        vaultKey: 'evidence/test'
       },
       limitations: ['test-limitation'],
       issuedAt: 1,

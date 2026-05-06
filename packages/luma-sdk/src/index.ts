@@ -46,8 +46,5 @@ export {
   type EvidenceRef,
   type IdentitySession,
   type LumaProviderName,
-  type ProviderEvidenceRef,
-  type ProviderSignatureSuite,
-  type ProviderTestEvidenceRef,
   type SignatureSuite
 } from './providers';
