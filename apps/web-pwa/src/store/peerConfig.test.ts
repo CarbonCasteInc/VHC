@@ -126,13 +126,14 @@ describe('peerConfig', () => {
     vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');
     vi.stubEnv('VITE_GUN_PEER_CONFIG_URL', 'https://config.example/peers.json');
     vi.stubEnv('VITE_GUN_PEER_CONFIG_PUBLIC_KEY', 'peer-config-pub');
-    vi.stubGlobal('fetch', vi.fn(async () => ({
+    const fetchMock = vi.fn(async () => ({
       ok: true,
       text: async () => JSON.stringify({
         payload,
         signature: 'signed-peer-config',
       }),
-    })));
+    }));
+    vi.stubGlobal('fetch', fetchMock);
     const { resolveGunPeerTopology } = await import('./peerConfig');
 
     await expect(resolveGunPeerTopology('app.example')).resolves.toMatchObject({
@@ -144,6 +145,9 @@ describe('peerConfig', () => {
       quorumRequired: 2,
     });
     expect(verifyMock).toHaveBeenCalledWith('signed-peer-config', 'peer-config-pub');
+    expect(fetchMock).toHaveBeenCalledWith('https://config.example/peers.json', expect.objectContaining({
+      cache: 'no-store',
+    }));
   });
 
   it('rejects local signed peer configs in strict mode unless the harness explicitly allows them', async () => {

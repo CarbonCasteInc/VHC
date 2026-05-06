@@ -51,6 +51,27 @@ The signed canary writes its report to the same latest report path only when the
 signed browser proof actually ran. Standalone `pnpm test:mesh:topology-drills`
 remains transport-only and must not report `signed_peer_config: true`.
 
+Run the deployed-WSS peer-config canary:
+
+```sh
+pnpm test:mesh:deployed-wss-peer-config
+```
+
+That command renders the deployable three-relay WSS compose profile, then starts
+a hermetic local TLS/WSS profile: three production-mode HTTP relays behind local
+TLS/WSS proxies, a HTTPS signed peer-config endpoint, and a built Web PWA
+preview. The report records `run.mode: deployed_wss_topology` and
+`deployment_scope: local_tls_wss_profile`.
+
+This is a WSS trust-boundary proof, not a public infrastructure deployment. It
+asserts app boot used `resolveGunPeerTopology` with `source: remote-config`,
+`strict: true`, `signed: true`, three `wss://` peers, quorum two, and
+`local_mesh_peers_allowed: false`. It also proves local/insecure peers fail
+closed with local peer allowance disabled, CSP `connect-src` contains the
+expected WSS relay and HTTPS peer-config origins, plus `'self'`, without dev
+localhost sources or broad `https:`/`wss:` wildcards, and signed peer-config
+rollover is fetched fresh instead of being pinned by service-worker cache.
+
 ## Drill Scope
 
 The drill writes synthetic records only. Drill records live under:
@@ -109,6 +130,17 @@ The signed browser canary separately proves:
 - no usable Gun client is initialized for those negative cases, as observed by
   the e2e-only topology proof hook.
 
+The deployed-WSS canary separately proves:
+
+- the deployable compose profile renders with three explicit WSS relay IDs and
+  persistent per-relay volumes;
+- app boot consumes a signed three-peer `wss://` config with local peer
+  allowance disabled;
+- relay `/healthz`, `/readyz`, and `/metrics` are reachable through the WSS/TLS
+  boundary;
+- CSP and service-worker rollover checks pass before a WSS peer-config rollout
+  is treated as valid evidence.
+
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
 path in this server, public production WSS rollout still needs a trust path
@@ -117,12 +149,15 @@ client-compatible signed peer handshake.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 7B even when the local
-restarted-relay drill passes. A passing restarted-relay section means only that
-the restarted local relay directly read the missed synthetic drill write inside
-this bounded harness. It does not prove deployed WSS topology, state-resolution
-drills, clock-skew drills, partition/heal drills, soak budgets, evidence scrub
-promotion, or post-M0.B LUMA-gated write coverage.
+The report status remains `review_required` for Slice 6B/7B even when the local
+restarted-relay drill and deployed-WSS local TLS profile pass. A passing
+restarted-relay section means only that the restarted local relay directly read
+the missed synthetic drill write inside this bounded harness. A passing
+deployed-WSS section means only that the local TLS/WSS profile, signed WSS
+peer-config boot, CSP allowlist, and service-worker rollover proof passed. It
+does not prove public WSS infrastructure, state-resolution drills, clock-skew
+drills, partition/heal drills, soak budgets, evidence scrub promotion, or
+post-M0.B LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one

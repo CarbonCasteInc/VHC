@@ -108,13 +108,20 @@ Current head at closeout:
   it must build/preview the Web PWA with strict signed peer-config env and
   assert boot consumed `resolveGunPeerTopology` with `source: remote-config`,
   not direct `VITE_GUN_PEERS` injection.
+- `pnpm test:mesh:deployed-wss-peer-config` is the Slice 6B WSS boundary
+  proof: it renders the deployable three-relay WSS compose profile, then runs a
+  hermetic `local_tls_wss_profile` with signed HTTPS peer config, three
+  `wss://` relays, local peer allowance disabled, CSP `connect-src` checks, and
+  service-worker peer-config rollover checks.
 
 Important boundary:
 
 - The current canary validates multi-peer client configuration and one bad peer
-  in a browser Gun peer list. It does not prove strict app boot with a dead
-  configured peer, production relay federation, restarted-peer catch-up, network
-  partition repair, or rolling-restart soak.
+  in a browser Gun peer list. The deployed-WSS canary is a local TLS/WSS
+  deployment-profile proof, not public infrastructure. These commands still do
+  not prove strict app boot with a dead configured peer, production relay
+  federation beyond the bounded local harness, network partition repair, or
+  rolling-restart soak.
 
 ## 3. Core Runtime Surfaces
 
@@ -584,7 +591,7 @@ Acceptance gates:
 - Relay-to-relay auth rejects an unauthorized peer connection without weakening
   browser/user fallback auth or daemon bearer auth.
 - A production-topology config command renders without missing env:
-  `docker compose -f infra/docker/docker-compose.yml config`
+  `docker compose -f infra/docker/docker-compose.mesh-wss.yml config`
 - Each relay returns healthy:
   - `GET /healthz`
   - `GET /readyz`
@@ -602,6 +609,11 @@ Acceptance gates:
   `VITE_VH_ALLOW_LOCAL_MESH_PEERS=true`.
 - Slice 6B browser app boot accepts a signed three-peer WSS config with local
   peer allowance disabled.
+- Slice 6B command exists:
+  `pnpm test:mesh:deployed-wss-peer-config`
+- Slice 6B report records whether the proof ran against
+  `deployment_scope: local_tls_wss_profile` or a real public deployment. A local
+  TLS profile pass MUST NOT be described as public WSS infrastructure deployed.
 - Health panel reports quorum with actual peer health, not configured URL count.
 - Peer-config fetch is not served from stale service-worker cache during config
   rollover.
@@ -979,6 +991,7 @@ interface MeshProductionReadinessReport {
       | 'local_production_topology'
       | 'local_signed_peer_config_browser_boot'
       | 'deployed_wss_topology';
+    deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
     completed_at: string;
     duration_ms: number;
@@ -991,6 +1004,7 @@ interface MeshProductionReadinessReport {
   drill_writer_kind_by_class: Record<string, 'mesh-drill' | 'luma' | 'system'>;
   topology: {
     strategy: 'relay_peer_fanout' | 'explicit_replication' | 'authoritative_cluster';
+    deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     configured_peer_count: number;
     quorum_required: number;
     signed_peer_config: boolean;
@@ -1009,6 +1023,17 @@ interface MeshProductionReadinessReport {
       minimum_peer_count: number;
       quorum_required: number;
       local_mesh_peers_allowed: boolean;
+    };
+    csp?: {
+      status: 'pass' | 'fail' | 'skipped';
+      connect_src_expected_origins: string[];
+      broad_https_wss_wildcards_allowed: boolean;
+    };
+    service_worker_peer_config_rollover?: {
+      status: 'pass' | 'fail' | 'skipped';
+      first_config_id: string;
+      second_config_id: string;
+      fetch_cache_mode: 'no-store' | string;
     };
     restarted_relay_catchup?: {
       relay_id: string;
@@ -1796,6 +1821,7 @@ Current commands:
 Required new commands:
 
 - `pnpm test:mesh:topology-drills`
+- `pnpm test:mesh:deployed-wss-peer-config`
 - `pnpm test:mesh:disconnect-drills`
 - `pnpm test:mesh:state-resolution-drills`
   - `pnpm test:mesh:tombstone-drills` may remain as a compatibility alias, but
@@ -1825,23 +1851,35 @@ Not allowed yet:
 - "Peer restart and network partition recovery are proven."
 - "Production users can rely on distributed quorum behavior."
 
-Allowed after Slice 6A and Slice 7A pass (under `schema_epoch:
+Allowed after Slice 6A, Slice 7A, and Slice 7B pass (under `schema_epoch:
 pre_luma_m0b`):
 
 - "The mesh has a local production-shaped three-relay topology harness with
   signed peer config and a passing one-peer-kill quorum write/readback drill,
   exercised against synthetic drill records under `vh/__mesh_drills/*` (mesh
   drill test writer contract, §5.9)."
+- "The restarted local relay directly read a missed synthetic down-period write
+  inside the bounded local harness."
 - "Relay fan-out remains a time-boxed proof path; the architecture commitment is
-  still pending restarted-relay readback and state-resolution evidence."
+  still pending deployed WSS, state-resolution, partition/heal, and soak
+  evidence."
 - "Mesh transport behavior for LUMA-gated write classes is not yet claimed;
   canonical drills require the LUMA M0.B schema epoch to land first."
 
-Still not allowed after Slice 6A and Slice 7A:
+Allowed after Slice 6B local TLS/WSS profile proof:
 
-- "Restarted peers catch up automatically."
+- "The app can boot in strict mode from a signed three-peer `wss://` config with
+  local mesh peer allowance disabled in a hermetic local TLS/WSS profile."
+- "The deployable WSS compose profile renders with three explicit relay IDs and
+  persistent per-relay storage."
+- "The deployed-WSS canary verifies expected CSP `connect-src` origins and
+  service-worker peer-config rollover for the local TLS/WSS profile."
+
+Still not allowed after Slice 6B local TLS/WSS profile proof:
+
+- "The production WSS topology is deployed on public infrastructure."
+- "Restarted peers catch up automatically outside the bounded local harness."
 - "State-resolution rules survive relay restart or partition heal."
-- "The production WSS topology is deployed."
 - "The mesh has production-ready multi-relay failover."
 - "The app is ready for a test group."
 
