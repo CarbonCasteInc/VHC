@@ -3,6 +3,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DelegationGrant } from '@vh/types';
 import {
+  clearDelegationStorageForPrincipal,
   createMockDelegationStore,
   delegationStorageKey,
   useDelegationStore,
@@ -187,6 +188,17 @@ describe('delegation persistence helpers', () => {
     };
     circular.familiarsById.self = circular;
     expect(() => persistForPrincipal(circular)).not.toThrow();
+  });
+
+  it('clears storage for one principal without touching other principals', () => {
+    localStorage.setItem(delegationStorageKey('principal-1'), '{"grants":[]}');
+    localStorage.setItem(delegationStorageKey('principal-2'), '{"grants":[]}');
+
+    clearDelegationStorageForPrincipal('principal-1');
+    clearDelegationStorageForPrincipal('');
+
+    expect(localStorage.getItem(delegationStorageKey('principal-1'))).toBeNull();
+    expect(localStorage.getItem(delegationStorageKey('principal-2'))).toBe('{"grants":[]}');
   });
 
   it('buildInitialState hydrates from published identity and storage', () => {

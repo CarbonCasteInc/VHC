@@ -6,7 +6,7 @@ import {
   type DelegationTier
 } from '@vh/types';
 import { getPublishedIdentity } from '../identityProvider';
-import { safeGetItem, safeSetItem } from '../../utils/safeStorage';
+import { safeGetItem, safeRemoveItem, safeSetItem } from '../../utils/safeStorage';
 import type {
   DelegationStateData,
   SerializedDelegationState
@@ -16,6 +16,11 @@ export const DELEGATION_STORAGE_KEY_PREFIX = 'vh_delegation_v1:';
 
 export function delegationStorageKey(principalNullifier: string): string {
   return `${DELEGATION_STORAGE_KEY_PREFIX}${principalNullifier}`;
+}
+
+export function clearDelegationStorageForPrincipal(principalNullifier: string): void {
+  if (!principalNullifier) return;
+  safeRemoveItem(delegationStorageKey(principalNullifier));
 }
 
 export function readIdentityNullifier(): string | null {

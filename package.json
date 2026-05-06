@@ -41,6 +41,7 @@
     "check:luma-signed-write-surface": "node ./tools/scripts/check-luma-signed-write-surface.mjs",
     "check:luma-vault-compartments": "node ./tools/scripts/check-luma-vault-compartments.mjs",
     "check:luma-delegation-signer-surface": "node ./tools/scripts/check-luma-delegation-signer-surface.mjs",
+    "check:luma-identity-lifecycle": "node ./tools/scripts/check-luma-identity-lifecycle.mjs",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",

@@ -38,6 +38,7 @@ export type {
 } from './types';
 
 export {
+  clearDelegationStorageForPrincipal,
   DELEGATION_STORAGE_KEY_PREFIX,
   delegationStorageKey
 } from './persistence';

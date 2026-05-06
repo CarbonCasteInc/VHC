@@ -106,20 +106,25 @@ interface SessionResponse {
 }
 ```
 
-### 2.1.3 Session Revocation
+### 2.1.3 Sign Out And Reset Identity
 
-**Current state:** Local session revocation is implemented. `useIdentity.revokeSession()`
-clears identity state, published identity, sentiment signal state, and the local
-identity vault. Remote lost-device revocation remains deferred.
+**Current state:** Local lifecycle controls are implemented. `useIdentity.signOut()`
+clears active session state, published identity, active XP nullifier, active
+delegation runtime principal, and sentiment signal state while preserving
+device-bound vault compartments. `useIdentity.resetIdentity()` rotates
+device-bound compartments and clears old-principal delegation storage.
+`useIdentity.revokeSession()` remains as a deprecated compatibility shim over
+`signOut()`. Remote lost-device revocation remains deferred.
 
 **Target contract:**
-- A user MAY revoke their own session via an explicit "Sign Out" / "Clear Identity" action.
-- Revocation MUST:
-  1. Clear `SessionResponse` from local state and IndexedDB vault.
+- A user MAY end their current session via an explicit Sign Out action.
+- Sign Out MUST:
+  1. Clear `SessionResponse` from local state and the vault `identityRecord`.
   2. Clear any cached `ConstituencyProof`.
-  3. Invalidate the session token (local-only; no server-side token list in Season 0).
-  4. Revoke all active `DelegationGrant` records for familiars bound to this session.
-- Revocation MUST NOT delete the nullifier derivation material (device key) - re-attestation should yield the same nullifier.
+  3. Invalidate the session token locally; no server-side token list exists in Season 0.
+  4. Preserve device-bound nullifier derivation material, SEA device material, delegation signing material, XP history, and old-principal delegation storage.
+- A user MAY rotate their local identity via an explicit Reset Identity action.
+- Reset Identity MUST rotate device-bound nullifier derivation material, SEA device material, and delegation signing material; clear old-principal delegation storage; and preserve historical public artifacts without implying deletion or repudiation.
 - Remote revocation (e.g., revoking a lost device's session from another device) is DEFERRED to multi-device recovery (§5) + Gold assurance.
 
 ### 2.1.4 Timeout Semantics
@@ -415,7 +420,7 @@ These items work in Season 0 but are explicitly marked as transitional and MUST 
 
 1. **Threshold consolidation still incomplete on older surfaces:** Shared trust constants exist, but some older docs/surfaces still reference raw `0.5` and `0.7` boundaries. Target: active code paths should import canonical constants where practical.
 2. **Session expiry is flag-gated:** lifecycle fields and lazy expiry checks exist, but lifecycle enforcement depends on `VITE_SESSION_LIFECYCLE_ENABLED=true`; lifecycle-disabled sessions remain transitional non-expiring sessions.
-3. **No session revocation UI:** `useIdentity.revokeSession()` exists, but a user-facing "Sign Out" or "Clear Identity" flow still needs product wiring.
+3. **No identity lifecycle UI:** `useIdentity.signOut()` and `useIdentity.resetIdentity()` exist, but user-facing account controls still need product wiring.
 4. **Beta-local constituency proof:** voting paths reject mock proof values and use deterministic proof derivation, but cryptographic residency proof acquisition is still deferred (see §4.4).
 5. **Device-bound nullifier:** Nullifier is per-device, not per-human. Target: multi-device linking with higher assurance (see §5).
 6. **Dev fallback trust score:** `0.95` fallback on attestation timeout is convenient but masks real verifier issues. Target: remove or gate behind explicit dev flag.

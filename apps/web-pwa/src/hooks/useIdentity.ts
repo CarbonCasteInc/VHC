@@ -7,6 +7,7 @@ import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../stor
 import { getHandleError, isValidHandle } from '../utils/handle';
 import {
   clearIdentity as vaultClear,
+  delegationSigningKey,
   deviceCredential,
   migrateLegacyLocalStorage,
   seaDevicePair
@@ -15,6 +16,7 @@ import { publishIdentity, clearPublishedIdentity } from '../store/identityProvid
 import { useXpLedger } from '../store/xpLedger';
 import { loadIdentityRecord, saveIdentityRecord } from '../utils/vaultTyped';
 import { useSentimentState } from './useSentimentState';
+import { clearDelegationStorageForPrincipal, useDelegationStore } from '../store/delegation';
 
 const E2E_MODE = (import.meta as any).env?.VITE_E2E_MODE === 'true';
 const DEV_MODE = (import.meta as any).env?.DEV === true || (import.meta as any).env?.MODE === 'development';
@@ -254,23 +256,51 @@ export function useIdentity() {
     [identity]
   );
 
-  /**
-   * Revoke the current session (spec §2.1.3).
-   *
-   * Always available regardless of feature flag — this is a user-initiated
-   * security action. Clears session/identity state, published identity, and
-   * delegation grants. Stable vault key compartments are preserved.
-   */
-  const revokeSession = useCallback(async () => {
+  const clearActiveIdentityRuntime = useCallback(() => {
     setIdentity(null);
     setStatus('anonymous');
     setError(undefined);
     clearPublishedIdentity();
     useXpLedger.getState().setActiveNullifier(null);
-    // Constituency proof is derived from identity — clearing identity invalidates all proofs (spec §2.1.3)
+    useDelegationStore.getState().setActivePrincipal(null);
+    // Constituency proof is derived from identity, so clearing identity invalidates all proofs.
     useSentimentState.setState({ signals: [] });
-    await vaultClear().catch(() => {});
   }, []);
+
+  /**
+   * End the current session while preserving device-bound identity compartments
+   * (LUMA §13 Sign Out).
+   */
+  const signOut = useCallback(async () => {
+    clearActiveIdentityRuntime();
+    await vaultClear().catch(() => {});
+  }, [clearActiveIdentityRuntime]);
+
+  /**
+   * Rotate the local device-bound identity and clear old-principal delegation
+   * storage (LUMA §13 Reset Identity).
+   */
+  const resetIdentity = useCallback(async () => {
+    const oldPrincipal = identity?.session.nullifier ?? null;
+    clearActiveIdentityRuntime();
+    if (oldPrincipal) {
+      clearDelegationStorageForPrincipal(oldPrincipal);
+    }
+
+    await vaultClear().catch(() => {});
+    await deviceCredential.rotate();
+    await seaDevicePair.rotate(() => SEA.pair());
+    await delegationSigningKey.rotateStored();
+  }, [clearActiveIdentityRuntime, identity?.session.nullifier]);
+
+  /**
+   * @deprecated Use signOut(). This compatibility shim preserves the pre-M0.D
+   * hook surface while the app migrates call sites.
+   */
+  const revokeSession = useCallback(async () => {
+    console.warn('[vh:identity] useIdentity.revokeSession() is deprecated; use signOut() instead');
+    await signOut();
+  }, [signOut]);
 
   /**
    * Check session validity at action boundaries (spec §2.1.4).
@@ -301,6 +331,8 @@ export function useIdentity() {
     startLinkSession,
     completeLinkSession,
     updateHandle,
+    signOut,
+    resetIdentity,
     revokeSession,
     checkSessionExpiry,
     validateHandle: isValidHandle
