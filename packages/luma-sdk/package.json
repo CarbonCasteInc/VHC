@@ -18,7 +18,8 @@
     "lint": "echo 'No lint yet'"
   },
   "dependencies": {
-    "@vh/types": "workspace:*"
+    "@vh/types": "workspace:*",
+    "canonicalize": "^3.0.0"
   },
   "devDependencies": {
     "typescript": "^5.4.5",
