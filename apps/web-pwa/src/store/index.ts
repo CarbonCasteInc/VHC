@@ -110,6 +110,23 @@ function stripGunMetadata(value: unknown): Record<string, unknown> | null {
   return rest;
 }
 
+function isCompleteMeshDisconnectDrillRecord(
+  record: Record<string, unknown> | null,
+  args: MeshDisconnectDrillReadArgs,
+): boolean {
+  if (!record) return false;
+  const canonicalMatches = args.section !== 'canonical' || record._drillCanonicalId === args.nodeId;
+  return (
+    record._drillRunId === args.runId &&
+    canonicalMatches &&
+    typeof record._drillTraceId === 'string' &&
+    typeof record._drillWriteId === 'string' &&
+    typeof record._drillPayloadDigest === 'string' &&
+    typeof record._drillLogicalKey === 'string' &&
+    typeof record.stateJson === 'string'
+  );
+}
+
 function exposeMeshDisconnectDrill(client: VennClient, topology: GunPeerTopology): void {
   if (!shouldExposeMeshDisconnectDrill()) {
     return;
@@ -163,7 +180,9 @@ function exposeMeshDisconnectDrill(client: VennClient, topology: GunPeerTopology
         });
         if (observed) {
           latest = observed;
-          return { observed: true, latency_ms: Date.now() - startedAt, record: observed };
+          if (isCompleteMeshDisconnectDrillRecord(observed, args)) {
+            return { observed: true, latency_ms: Date.now() - startedAt, record: observed };
+          }
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
       }

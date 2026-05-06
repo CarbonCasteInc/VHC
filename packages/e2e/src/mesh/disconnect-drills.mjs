@@ -373,6 +373,18 @@ function readOnce(chain, timeoutMs = 1000) {
   });
 }
 
+function isCompleteDrillRecord(record, runId) {
+  return (
+    record?._drillRunId === runId &&
+    typeof record._drillTraceId === 'string' &&
+    typeof record._drillWriteId === 'string' &&
+    typeof record._drillPayloadDigest === 'string' &&
+    typeof record._drillCanonicalId === 'string' &&
+    typeof record._drillLogicalKey === 'string' &&
+    typeof record.stateJson === 'string'
+  );
+}
+
 async function putNode({ peer, runId, caseId, section, nodeId, record, timeoutMs = WRITE_TIMEOUT_MS, proxy = null }) {
   const gun = createGun([peer]);
   const forcedDisconnect = { requested: false, closed_socket_count: 0 };
@@ -401,7 +413,7 @@ async function readNode({ peer, runId, caseId, section, nodeId, timeoutMs = READ
     while (Date.now() - startedAt < timeoutMs) {
       const observed = await readOnce(chain, Math.min(1000, Math.max(250, timeoutMs - (Date.now() - startedAt))));
       if (observed) latest = observed;
-      if (observed?._drillRunId === runId) {
+      if (isCompleteDrillRecord(observed, runId)) {
         return {
           observed: true,
           latency_ms: Date.now() - startedAt,
@@ -851,6 +863,24 @@ function evaluateCase(caseDef, readbacks) {
   };
 }
 
+async function cleanupNode({ peer, runId, caseDef, section, nodeId }) {
+  const attempts = [];
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    const result = await putNode({ peer, runId, caseId: caseDef.caseId, section, nodeId, record: null, timeoutMs: 8000 });
+    attempts.push({
+      attempt,
+      ok: result.ok,
+      latency_ms: result.latency_ms,
+      error: result.error,
+    });
+    if (result.ok) {
+      return { ok: true, attempts };
+    }
+    await sleep(250 * attempt);
+  }
+  return { ok: false, attempts };
+}
+
 async function cleanupCase({ peer, runId, caseDef }) {
   const nodes = [
     ...caseDef.attempts.map((attempt) => ['attempts', attempt.writeId]),
@@ -859,11 +889,22 @@ async function cleanupCase({ peer, runId, caseDef }) {
     ['projections', caseDef.projectionId],
   ];
   let cleaned = 0;
+  const failures = [];
   for (const [section, nodeId] of nodes) {
-    const result = await putNode({ peer, runId, caseId: caseDef.caseId, section, nodeId, record: null, timeoutMs: 5000 });
-    if (result.ok) cleaned += 1;
+    const result = await cleanupNode({ peer, runId, caseDef, section, nodeId });
+    if (result.ok) {
+      cleaned += 1;
+    } else {
+      failures.push({
+        case_id: caseDef.caseId,
+        object_class: caseDef.objectClass,
+        section,
+        node_id: nodeId,
+        attempts: result.attempts,
+      });
+    }
   }
-  return { expected: nodes.length, cleaned };
+  return { expected: nodes.length, cleaned, failures };
 }
 
 function runStep(name, command, args, env) {
@@ -883,6 +924,63 @@ function runStep(name, command, args, env) {
     status: exitCode === 0 ? 'pass' : 'fail',
     reason: exitCode === 0 ? undefined : result.error?.message ?? `exit ${exitCode}`,
   };
+}
+
+function browserWriteResultRows({ evidence, caseDef }) {
+  if (!evidence || typeof evidence !== 'object') return [];
+
+  const rows = [];
+  const push = ({ result, section, nodeId, writeId, attemptId, disconnectScenario }) => {
+    if (!result || typeof result !== 'object') return;
+    rows.push({
+      case_id: caseDef.caseId,
+      write_class: caseDef.objectClass,
+      section,
+      node_id: nodeId,
+      write_id: writeId,
+      attempt_id: attemptId,
+      disconnect_scenario: disconnectScenario,
+      source: 'web-pwa-app-client',
+      ok: Boolean(result.ok),
+      latency_ms: Number.isFinite(result.latency_ms) ? result.latency_ms : null,
+      error: result.error ?? null,
+    });
+  };
+
+  push({
+    result: evidence.first_write,
+    section: 'canonical',
+    nodeId: caseDef.canonicalId,
+    writeId: caseDef.attempts[0].writeId,
+    attemptId: caseDef.attempts[0].attemptId,
+    disconnectScenario: 'forced-websocket-close-during-inflight-write',
+  });
+  push({
+    result: evidence.retry_write,
+    section: 'canonical',
+    nodeId: caseDef.canonicalId,
+    writeId: caseDef.attempts[caseDef.attempts.length - 1].writeId,
+    attemptId: caseDef.attempts[caseDef.attempts.length - 1].attemptId,
+    disconnectScenario: 'retry-after-reconnect',
+  });
+  push({
+    result: evidence.index_write,
+    section: 'indexes',
+    nodeId: caseDef.indexId,
+    writeId: caseDef.indexRecord._drillWriteId,
+    attemptId: caseDef.indexRecord._drillAttemptId,
+    disconnectScenario: 'post-reconnect-index-write',
+  });
+  push({
+    result: evidence.projection_write,
+    section: 'projections',
+    nodeId: caseDef.projectionId,
+    writeId: caseDef.projectionRecord._drillWriteId,
+    attemptId: caseDef.projectionRecord._drillAttemptId,
+    disconnectScenario: 'post-reconnect-projection-write',
+  });
+
+  return rows;
 }
 
 async function runBrowserDrill({ runId, traceId, relays, peerUrls, artifactDir, appPort, issuedAt, expiresAt }) {
@@ -976,6 +1074,7 @@ async function runBrowserDrill({ runId, traceId, relays, peerUrls, artifactDir, 
     caseDef,
     steps,
     evidence,
+    writeResults: browserWriteResultRows({ evidence, caseDef }),
     readbacks,
     evaluation: {
       ...evaluation,
@@ -1085,15 +1184,18 @@ async function runDisconnectDrill() {
       issuedAt: Date.now(),
       expiresAt,
     });
+    allWriteResults.push(...browser.writeResults);
     allReadbacks.push(...browser.readbacks);
     evaluations.push(browser.evaluation);
 
     let cleanupExpected = 0;
     let cleanupCleaned = 0;
+    const cleanupFailures = [];
     for (const caseDef of [...cases, browser.caseDef]) {
       const cleanup = await cleanupCase({ peer: relays[0].peerUrl, runId, caseDef });
       cleanupExpected += cleanup.expected;
       cleanupCleaned += cleanup.cleaned;
+      cleanupFailures.push(...cleanup.failures);
     }
 
     const resourceSlos = await collectMetrics(relays);
@@ -1186,16 +1288,25 @@ async function runDisconnectDrill() {
         const caseDef = allCaseDefs.find((entry) => entry.caseId === row.object_id?.split(`-${runId}`)[0] || entry.fixture === row.fixture);
         const writes = allWriteResults.filter((write) => write.case_id === caseDef?.caseId);
         const latencies = writes.map((write) => write.latency_ms).filter((value) => Number.isFinite(value));
+        const minimumSuccessfulSamples = caseDef?.attempts.length ?? row.retry_attempt_ids.length;
+        const successes = writes.filter((write) => write.ok).length;
+        const terminalFailures = writes.filter((write) => !write.ok && write.disconnect_scenario !== 'forced-websocket-close-during-inflight-write').length;
+        const status =
+          row.status !== 'pass'
+            ? 'fail'
+            : successes >= minimumSuccessfulSamples
+              ? 'pass'
+              : 'insufficient_samples';
         return {
           write_class: row.object_class,
           attempts: caseDef?.attempts.length ?? row.retry_attempt_ids.length,
-          successes: writes.filter((write) => write.ok).length,
-          terminal_failures: writes.filter((write) => !write.ok && write.disconnect_scenario !== 'forced-websocket-close-during-inflight-write').length,
+          successes,
+          terminal_failures: terminalFailures,
           duplicate_count: row.duplicate_count,
-          minimum_successful_samples: caseDef?.attempts.length ?? row.retry_attempt_ids.length,
+          minimum_successful_samples: minimumSuccessfulSamples,
           p95_ms: latencies.length > 0 ? latencies.sort((a, b) => a - b)[Math.min(latencies.length - 1, Math.ceil(latencies.length * 0.95) - 1)] : null,
           budget_ms: WRITE_TIMEOUT_MS,
-          status: row.status === 'pass' ? 'pass' : 'fail',
+          status,
         };
       }),
       resource_slos: resourceSlos,
@@ -1255,6 +1366,7 @@ async function runDisconnectDrill() {
         objects_written: cleanupExpected,
         objects_cleaned_or_tombstoned: cleanupCleaned,
         retained_objects: Math.max(0, cleanupExpected - cleanupCleaned),
+        failures: cleanupFailures,
         status: cleanupPassed ? 'pass' : 'fail',
       },
       health: {
