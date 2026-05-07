@@ -11,7 +11,7 @@ const repoRoot = path.resolve(__dirname, '../../../..');
 const latestDir = path.join(repoRoot, '.tmp/mesh-production-readiness/latest');
 const SOURCE_REPORT_FRESHNESS_TOLERANCE_MS = 5000;
 
-const SOURCE_GATES = [
+export const SOURCE_GATES = [
   {
     id: 'topology',
     name: 'local production topology',
@@ -59,6 +59,12 @@ const SOURCE_GATES = [
     name: 'bounded rolling restart soak',
     command: ['pnpm', 'test:mesh:soak'],
     expectedMode: 'local_rolling_restart_soak',
+  },
+  {
+    id: 'peer_config_rollback',
+    name: 'peer-config rollback drill',
+    command: ['pnpm', 'test:mesh:peer-config-rollback-drill'],
+    expectedMode: 'local_tls_wss_peer_config_rollback',
   },
 ];
 
@@ -356,6 +362,7 @@ function buildReleaseBlockers(sources) {
 function pickTopology(sources) {
   const reports = sources.map((source) => source.report).filter(Boolean);
   const deployed = sources.find((source) => source.id === 'deployed_wss')?.report;
+  const rollback = sources.find((source) => source.id === 'peer_config_rollback')?.report;
   const topology = sources.find((source) => source.id === 'topology')?.report;
   const readRepair = sources.find((source) => source.id === 'read_repair')?.report;
   const soak = sources.find((source) => source.id === 'soak')?.report;
@@ -368,7 +375,7 @@ function pickTopology(sources) {
       readRepair?.topology?.selected_strategy_scope ||
       soak?.topology?.selected_strategy_scope ||
       'aggregate of existing synthetic mesh drill proof paths only',
-    deployment_scope: deployed?.run?.deployment_scope || deployed?.topology?.deployment_scope || 'local_tls_wss_profile',
+    deployment_scope: deployed?.run?.deployment_scope || rollback?.run?.deployment_scope || deployed?.topology?.deployment_scope || 'local_tls_wss_profile',
     configured_peer_count: maxFinite(topologies.map((entry) => entry.configured_peer_count), 3),
     quorum_required: maxFinite(topologies.map((entry) => entry.quorum_required), 2),
     signed_peer_config: topologies.some((entry) => entry.signed_peer_config === true),
@@ -383,20 +390,30 @@ function pickTopology(sources) {
       topology?.topology?.relay_to_relay_auth_negative_test ||
       readRepair?.topology?.relay_to_relay_auth_negative_test ||
       'skipped',
-    peer_config_id: deployed?.topology?.peer_config_id || signed?.topology?.peer_config_id || soak?.topology?.peer_config_id || 'aggregate',
+    peer_config_id:
+      rollback?.topology?.peer_config_rollback?.rollback_config_id ||
+      deployed?.topology?.peer_config_id ||
+      signed?.topology?.peer_config_id ||
+      soak?.topology?.peer_config_id ||
+      'aggregate',
     peer_config_issued_at:
+      rollback?.topology?.peer_config_issued_at ||
       deployed?.topology?.peer_config_issued_at ||
       signed?.topology?.peer_config_issued_at ||
       soak?.topology?.peer_config_issued_at ||
       new Date().toISOString(),
     peer_config_expires_at:
+      rollback?.topology?.peer_config_expires_at ||
       deployed?.topology?.peer_config_expires_at ||
       signed?.topology?.peer_config_expires_at ||
       soak?.topology?.peer_config_expires_at ||
       new Date().toISOString(),
-    app_peer_config: deployed?.topology?.app_peer_config || signed?.topology?.app_peer_config,
-    csp: deployed?.topology?.csp,
-    service_worker_peer_config_rollover: deployed?.topology?.service_worker_peer_config_rollover,
+    app_peer_config: rollback?.topology?.app_peer_config || deployed?.topology?.app_peer_config || signed?.topology?.app_peer_config,
+    csp: rollback?.topology?.csp || deployed?.topology?.csp,
+    service_worker_peer_config_rollover:
+      rollback?.topology?.service_worker_peer_config_rollover ||
+      deployed?.topology?.service_worker_peer_config_rollover,
+    peer_config_rollback: rollback?.topology?.peer_config_rollback,
     restarted_relay_catchup: topology?.topology?.restarted_relay_catchup,
     read_repair: readRepair?.topology?.read_repair || soak?.topology?.read_repair,
   };
@@ -597,7 +614,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
         fixture: 'full-conflict-resolution-fixtures',
         trace_id: runId,
         status: 'skipped',
-        reason: 'pnpm test:mesh:conflict-drills is not implemented in Slice 11A',
+        reason: 'pnpm test:mesh:conflict-drills is not implemented',
       },
     ],
     read_repair_drills: readRepairRows,
@@ -607,7 +624,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
         write_class: 'LUMA-gated production write classes through LUMA reader path',
         trace_id: runId,
         status: 'skipped',
-        reason: 'Slice 11A aggregates existing synthetic mesh-drill evidence only; no LUMA _writerKind, _authorScheme, adapters, envelopes, custody, or schema migration work is exercised.',
+        reason: 'The aggregate gate uses existing synthetic mesh-drill evidence only; no LUMA _writerKind, _authorScheme, adapters, envelopes, custody, or schema migration work is exercised.',
       },
     ],
     clock_skew: buildClockSkew(sources),

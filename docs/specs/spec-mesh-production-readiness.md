@@ -1089,6 +1089,7 @@ interface MeshProductionReadinessReport {
       | 'local_partition_heal_topology'
       | 'local_read_repair_strategy'
       | 'local_rolling_restart_soak'
+      | 'local_tls_wss_peer_config_rollback'
       | 'aggregate_production_readiness';
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
@@ -1134,7 +1135,37 @@ interface MeshProductionReadinessReport {
       status: 'pass' | 'fail' | 'skipped';
       first_config_id: string;
       second_config_id: string;
+      rollback_config_id?: string;
       fetch_cache_mode: 'no-store' | string;
+    };
+    peer_config_rollback?: {
+      status: 'pass' | 'fail' | 'skipped';
+      deployment_scope: 'local_tls_wss_profile' | 'public_wss_deployment';
+      initial_config_id: string;
+      forward_config_id: string;
+      rollback_config_id: string;
+      rollback_reuses_stale_config_file: boolean;
+      rollback_signed_after_forward_config: boolean;
+      previous_topology_shape_restored: boolean;
+      fail_closed_cases: Array<{
+        fixture: string;
+        expected_error: string;
+        observed_error: string | null;
+        opened_socket_hosts: string[];
+        status: 'pass' | 'fail';
+      }>;
+      old_tab_behavior: {
+        status: 'pass' | 'fail' | 'skipped';
+        behavior?: string;
+        reason?: string;
+        fail_closed_signal?: string;
+      };
+      key_rotation_evidence: {
+        status: 'pass' | 'fail' | 'skipped';
+        accepted_key_fingerprint?: string;
+        rejected_key_fingerprint?: string;
+        reason: string;
+      };
     };
     restarted_relay_catchup?: {
       relay_id: string;
@@ -1376,6 +1407,8 @@ Acceptance gates:
   - all write classes with sufficient samples meet p95 budgets
   - relay resource budgets pass
   - test namespace cleanup passes
+  - peer-config rollback drill passes with fail-closed invalid fixtures and a
+    fresh rollback config, not a stale cached config
   - any LUMA-gated write class (drill_writer_kind `'luma'`) was exercised
     against the LUMA reader path, not bypassed via drill writer contract
   - any promoted evidence under `docs/reports/evidence/mesh-production/`
@@ -1400,7 +1433,9 @@ Downstream full-app canary:
 
 ### Slice 12 - Operational Runbook And Rollback
 
-Status: Queued.
+Status: Slice 12A implemented for local TLS/WSS peer-config rollback rehearsal
+and operator runbook. Public WSS rollback, runtime key distribution, evidence
+scrub promotion, and downstream full-app canary remain unclaimed.
 
 Purpose:
 
@@ -1426,7 +1461,7 @@ Scope:
 
 Primary files likely touched:
 
-- a new mesh production topology runbook under `docs/ops/`
+- `docs/ops/mesh-production-operator-runbook.md`
 - `docs/plans/CANARY_ROLLBACK_PLAN.md` or successor rollback doc
 - `docs/feature-flags.md`
 - `docs/foundational/STATUS.md`
@@ -1467,6 +1502,21 @@ Acceptance gates:
   canaries pass.
 - Service-worker and CSP rollout checks pass before a WSS peer-config rollout is
   marked operator-ready.
+
+Slice 12A implemented command:
+
+- `pnpm test:mesh:peer-config-rollback-drill`
+
+Slice 12A command scope:
+
+- uses the local TLS/WSS deployed-shape harness, not public WSS infrastructure
+- verifies signed config A, signed config B, invalid fail-closed fixtures, and a
+  freshly issued signed rollback config for the previous topology shape
+- records fail-closed signal as failed topology proof plus zero accepted peer
+  socket hosts
+- records key-rotation evidence only as wrong-key/revoked-key rejection; runtime
+  trusted-key replacement without a new build is not claimed
+- writes no `vh/__mesh_drills/*` records and exercises no LUMA write classes
 
 ## 5. Cross-Cutting Rules
 
@@ -2026,6 +2076,7 @@ Implemented mesh commands:
 - `pnpm test:mesh:partition-drills`
 - `pnpm test:mesh:read-repair-drills`
 - `pnpm test:mesh:soak`
+- `pnpm test:mesh:peer-config-rollback-drill`
 - `pnpm check:mesh:production-readiness`
 
 Required new commands:
@@ -2169,6 +2220,27 @@ Still not allowed after Slice 11A aggregate evidence-packet proof:
 - "The default shortened local command satisfies the canonical thirty-minute
   soak claim."
 - "Public WSS infrastructure is production-proven."
+- "The full clock-skew matrix is production-ready."
+- "LUMA-gated production write classes are mesh-readiness-proven."
+- "The app is ready for a test group."
+
+Allowed after Slice 12A operator rollback proof:
+
+- "The local TLS/WSS profile has an operator-rehearsed signed peer-config
+  rollback drill: config A, config B, invalid fail-closed fixtures, and a fresh
+  rollback-to-previous-topology-shape config."
+- "The operator runbook names deploy, rollback, CSP, service-worker,
+  signing-key, relay-token, health-probe, trace-lookup, and evidence
+  interpretation steps for the bounded local profile."
+
+Still not allowed after Slice 12A operator rollback proof:
+
+- "The mesh is `release_ready`."
+- "Public WSS rollback is production-proven."
+- "Runtime peer-config signing-key rotation works without rebuilding the app or
+  otherwise distributing a new trusted key."
+- "The default shortened local command satisfies the canonical thirty-minute
+  soak claim."
 - "The full clock-skew matrix is production-ready."
 - "LUMA-gated production write classes are mesh-readiness-proven."
 - "The app is ready for a test group."
