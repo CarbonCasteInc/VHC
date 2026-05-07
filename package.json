@@ -29,6 +29,7 @@
     "test:mesh:partition-drills": "pnpm --filter @vh/e2e test:mesh:partition-drills",
     "test:mesh:read-repair-drills": "pnpm --filter @vh/e2e test:mesh:read-repair-drills",
     "test:mesh:soak": "pnpm --filter @vh/e2e test:mesh:soak",
+    "check:mesh:production-readiness": "pnpm --filter @vh/e2e check:mesh:production-readiness",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",
     "collect:storycluster:headline-soak": "pnpm report:news-sources:health && pnpm test:storycluster:smoke:readiness",

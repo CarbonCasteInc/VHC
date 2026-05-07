@@ -482,7 +482,8 @@ Regression traps:
 
 ### Slice 6 - Production Topology Harness And Deployment
 
-Status: Queued.
+Status: Implemented through the local topology harness, signed peer-config
+canary, and local TLS/WSS deployment-shape proof commands.
 
 Purpose:
 
@@ -1040,7 +1041,9 @@ without replacing it with a more specific one.
 
 ### Slice 11 - Release Gate And Evidence Packet
 
-Status: Queued.
+Status: Implemented as an aggregate evidence-packet scaffold. The command
+produces a complete `review_required` packet when implemented proof commands
+pass but release-ready blockers remain.
 
 Purpose:
 
@@ -1085,7 +1088,8 @@ interface MeshProductionReadinessReport {
       | 'deployed_wss_topology'
       | 'local_partition_heal_topology'
       | 'local_read_repair_strategy'
-      | 'local_rolling_restart_soak';
+      | 'local_rolling_restart_soak'
+      | 'aggregate_production_readiness';
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
     completed_at: string;
@@ -1326,6 +1330,9 @@ Acceptance gates:
 - New command: `pnpm check:mesh:production-readiness`
 - Report writes to a stable latest path, for example:
   `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`
+- The command exits `0` when all implemented source proof commands pass and the
+  aggregate truthfully records `review_required` blockers. It exits non-zero
+  for malformed, missing, stale, dirty, failed, or overclaiming source evidence.
 - Release-ready means:
   - report repo metadata identifies branch, commit, base ref, and dirty state
   - report has a `run_id` and every drill write has a joinable `write_id` and
@@ -1995,12 +2002,12 @@ Implemented mesh commands:
 - `pnpm test:mesh:partition-drills`
 - `pnpm test:mesh:read-repair-drills`
 - `pnpm test:mesh:soak`
+- `pnpm check:mesh:production-readiness`
 
 Required new commands:
 
 - `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
-- `pnpm check:mesh:production-readiness`
 - `pnpm check:production-app-canary`
 - `pnpm check:mesh-evidence-scrub` (gates promotion of `.tmp` packets to
   `docs/reports/evidence/`; see §5.7.1)
@@ -2122,6 +2129,24 @@ Still not allowed after Slice 10 shortened rolling-restart soak proof:
 - "LUMA-gated production write classes are soak-proven."
 - "Public WSS infrastructure is soak-proven."
 - "The mesh has production-ready multi-relay failover."
+- "The app is ready for a test group."
+
+Allowed after Slice 11A aggregate evidence-packet proof:
+
+- "`pnpm check:mesh:production-readiness` can rerun the implemented mesh proof
+  commands and copy their source reports into one operator-facing aggregate
+  packet."
+- "The aggregate packet names the current `review_required` blockers instead of
+  relying on scattered one-off drill reports."
+
+Still not allowed after Slice 11A aggregate evidence-packet proof:
+
+- "The mesh is `release_ready`."
+- "The default shortened local command satisfies the canonical thirty-minute
+  soak claim."
+- "Public WSS infrastructure is production-proven."
+- "The full clock-skew matrix is production-ready."
+- "LUMA-gated production write classes are mesh-readiness-proven."
 - "The app is ready for a test group."
 
 Allowed after Slices 6B through 12 pass (under `schema_epoch:
