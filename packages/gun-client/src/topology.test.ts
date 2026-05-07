@@ -191,8 +191,21 @@ describe('TopologyGuard', () => {
     ).not.toThrow();
   });
 
-  it('allows directory entries that contain nullifier', () => {
+  it('allows LUMA directory entries by identityDirectoryKey and rejects the old PII bypass', () => {
     const guard = new TopologyGuard();
+    expect(() =>
+      guard.validateWrite('vh/directory/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', {
+        schemaVersion: 'hermes-directory-v1',
+        _protocolVersion: 'luma-public-v1',
+        _writerKind: 'luma',
+        _authorScheme: 'identity-directory-v1',
+        identityDirectoryKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        devicePub: 'pub',
+        epub: 'epub',
+        registeredAt: 1,
+        lastSeenAt: 1
+      })
+    ).not.toThrow();
     expect(() =>
       guard.validateWrite('vh/directory/alice', {
         schemaVersion: 'hermes-directory-v0',
@@ -202,7 +215,7 @@ describe('TopologyGuard', () => {
         registeredAt: 1,
         lastSeenAt: 1
       })
-    ).not.toThrow();
+    ).toThrow(/PII in public path/);
   });
 
   it('rejects invalid hermes prefixes and raw user paths', () => {

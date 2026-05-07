@@ -174,34 +174,33 @@ test.describe('Multi-User: Messaging', () => {
     await setupUser(alice.page, 'Alice');
     await setupUser(bob.page, 'Bob');
 
-    // Navigate Alice to messages and get her full contact data (JSON with nullifier + epub)
+    // Navigate Alice to messages and get her full contact data (JSON with identityDirectoryKey + epub)
     await alice.page.goto('/hermes/messages');
     // IDChip requires clicking "Show QR" to reveal the contact data
     await alice.page.getByText('Show QR').click();
     await alice.page.getByTestId('idchip-data').waitFor({ state: 'attached', timeout: 5_000 });
     const aliceContactJson = await alice.page.getByTestId('idchip-data').textContent();
     expect(aliceContactJson).toBeTruthy();
-    expect(aliceContactJson).toContain('nullifier');
+    expect(aliceContactJson).toContain('identityDirectoryKey');
+    expect(aliceContactJson).not.toContain('nullifier');
 
-    // Parse Alice's contact to get her nullifier for directory verification
+    // Parse Alice's contact to get her LUMA directory key for directory verification
     const aliceContact = JSON.parse(aliceContactJson ?? '{}');
-    expect(aliceContact.nullifier).toBeTruthy();
+    expect(aliceContact.identityDirectoryKey).toMatch(/^[0-9a-f]{64}$/);
     expect(aliceContact.epub).toBeTruthy();
 
-    // Manually seed Alice's directory entry in shared mesh (simulates Gun sync)
-    // This is necessary because the mock client's directory publish may not propagate
-    // through the shared mesh fixture automatically
-    const aliceIdentity = await readVaultIdentity(alice.page);
-    if (aliceIdentity?.devicePair?.pub && aliceIdentity?.devicePair?.epub) {
-      sharedMesh.write(`vh/directory/${aliceContact.nullifier}`, {
-        schemaVersion: 'hermes-directory-v0',
-        nullifier: aliceContact.nullifier,
-        devicePub: aliceIdentity.devicePair.pub,
-        epub: aliceIdentity.devicePair.epub,
-        registeredAt: Date.now(),
-        lastSeenAt: Date.now()
-      });
-    }
+    await expect.poll(
+      () => sharedMesh.read(`vh/directory/${aliceContact.identityDirectoryKey}`),
+      { timeout: 5_000 }
+    ).toMatchObject({
+      schemaVersion: 'hermes-directory-v1',
+      identityDirectoryKey: aliceContact.identityDirectoryKey,
+      epub: aliceContact.epub,
+      signedWriteEnvelope: {
+        audience: 'vh-directory-entry',
+        publicAuthor: aliceContact.identityDirectoryKey
+      }
+    });
 
     // Bob navigates to messages and initiates chat with Alice
     await bob.page.goto('/hermes/messages');
@@ -224,8 +223,8 @@ test.describe('Multi-User: Messaging', () => {
     await setupUser(alice.page, 'Alice');
     await alice.page.goto('/hermes/messages');
 
-    // Try to start chat with unknown nullifier
-    await alice.page.getByTestId('contact-key-input').fill('unknown-nullifier-12345');
+    // Try to start chat with an unknown identity directory key.
+    await alice.page.getByTestId('contact-key-input').fill('unknown-identity-directory-key');
     await alice.page.getByTestId('start-chat-btn').click();
 
     // Should show error about recipient not found

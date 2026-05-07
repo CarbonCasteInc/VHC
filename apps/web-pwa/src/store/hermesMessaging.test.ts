@@ -59,7 +59,7 @@ vi.mock('@vh/gun-client', async (orig) => {
     getHermesInboxChain: vi.fn(() => mockInbox),
     getHermesOutboxChain: vi.fn(() => mockOutbox),
     getHermesChatChain: vi.fn(() => mockChatLeaf),
-    lookupByNullifier: (...args: unknown[]) => lookupMock(...(args as []))
+    lookupByIdentityDirectoryKey: (...args: unknown[]) => lookupMock(...(args as []))
   };
 });
 
@@ -80,10 +80,14 @@ beforeEach(() => {
   signMock.mockResolvedValue('signed');
   lookupMock.mockReset();
   lookupMock.mockResolvedValue({
-    schemaVersion: 'hermes-directory-v0',
-    nullifier: 'bob',
+    schemaVersion: 'hermes-directory-v1',
+    _protocolVersion: 'luma-public-v1',
+    _writerKind: 'luma',
+    _authorScheme: 'identity-directory-v1',
+    identityDirectoryKey: 'bob',
     devicePub: 'bob-device',
     epub: 'epub-bob',
+    signedWriteEnvelope: {} as never,
     registeredAt: 1,
     lastSeenAt: 1
   });

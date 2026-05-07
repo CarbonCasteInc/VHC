@@ -303,6 +303,9 @@ importers:
       '@vh/data-model':
         specifier: workspace:*
         version: link:../data-model
+      '@vh/luma-sdk':
+        specifier: workspace:*
+        version: link:../luma-sdk
       '@vh/types':
         specifier: workspace:*
         version: link:../types

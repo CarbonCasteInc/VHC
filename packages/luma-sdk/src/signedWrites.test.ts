@@ -15,6 +15,7 @@ import {
   deriveSignedWriteIdempotencyKey,
   digestSignedWritePayload,
   isLumaPublicAuthorId,
+  LUMA_SIGNED_WRITE_AUDIENCES,
   LUMA_SIGNED_WRITE_PROTOCOL_VERSION,
   signedWriteEnvelopeSigningInput,
   SignedWriteEnvelopeError,
@@ -135,6 +136,15 @@ function withEnvelopePatch(
 }
 
 describe('LUMA SignedWriteEnvelope SDK surface', () => {
+  it('registers the directory entry audience for M0.B directory migration', async () => {
+    expect(LUMA_SIGNED_WRITE_AUDIENCES).toContain('vh-directory-entry');
+    await expect(deriveSignedWriteIdempotencyKey({
+      payloadDigest: EXPECTED_PAYLOAD_DIGEST,
+      audience: 'vh-directory-entry',
+      sequence: 1
+    })).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('creates and verifies the frozen M0.B JCS/Ed25519 vector', async () => {
     const envelope = await createVectorEnvelope();
     const verification = await verifySignedWriteEnvelope({

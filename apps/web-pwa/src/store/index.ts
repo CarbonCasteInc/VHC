@@ -4,9 +4,27 @@ import {
   publishToDirectory,
   type VennClient,
 } from '@vh/gun-client';
-import type { DirectoryEntry, Profile } from '@vh/data-model';
-import type { DevicePair, IdentityRecord } from '@vh/types';
-import { getDelegationSigningPublicKey, migrateLegacyLocalStorage } from '@vh/identity-vault';
+import {
+  DIRECTORY_ENTRY_AUTHOR_SCHEME,
+  DIRECTORY_ENTRY_PROTOCOL_VERSION,
+  DIRECTORY_ENTRY_WRITER_KIND,
+  type DirectoryEntry,
+  type DirectoryEntryPayload,
+  type Profile
+} from '@vh/data-model';
+import {
+  createLumaPublicAuthorId,
+  createSignedWriteEnvelope,
+  digestSignedWritePayload,
+  type DeploymentProfile,
+  type SignedWriteSessionRef
+} from '@vh/luma-sdk';
+import { deriveIdentityDirectoryKey, migrateSessionFields, type DevicePair, type IdentityRecord } from '@vh/types';
+import {
+  getDelegationSigningPublicKey,
+  migrateLegacyLocalStorage,
+  signWithStoredDelegationSigningKey
+} from '@vh/identity-vault';
 import { safeGetItem, safeSetItem } from '../utils/safeStorage';
 import { loadIdentityRecord } from '../utils/vaultTyped';
 import { createMockClient } from './mockClient';
@@ -32,6 +50,7 @@ interface AppState {
 }
 
 let initInFlight: Promise<void> | null = null;
+let directoryPublishQueue: Promise<unknown> = Promise.resolve();
 
 type PeerTopologyProof =
   | {
@@ -223,6 +242,50 @@ export function isE2EMode(): boolean {
   return (import.meta as any).env?.VITE_E2E_MODE === 'true';
 }
 
+export function lumaDirectoryDeploymentProfile(): DeploymentProfile {
+  if (isE2EMode()) return 'e2e';
+  const viteEnv = (import.meta as unknown as { env?: Record<string, string | boolean | undefined> }).env;
+  const configured = viteEnv?.VITE_LUMA_PROFILE;
+  if (
+    configured === 'dev'
+    || configured === 'public-beta'
+    || configured === 'production-attestation'
+  ) {
+    return configured;
+  }
+  if (viteEnv?.DEV === true || viteEnv?.MODE === 'development') return 'dev';
+  return 'public-beta';
+}
+
+export async function deriveCurrentStateSignedWriteSessionRef(
+  identity: IdentityRecord
+): Promise<SignedWriteSessionRef> {
+  const session = identity.session;
+  return {
+    tokenHash: await digestSignedWritePayload({ token: session.token }),
+    envelopeDigest: await digestSignedWritePayload({
+      kind: 'vh-current-session-ref-v0',
+      nullifier: session.nullifier,
+      scaledTrustScore: session.scaledTrustScore,
+      createdAt: session.createdAt,
+      expiresAt: session.expiresAt
+    })
+  };
+}
+
+function currentOrigin(): string {
+  const origin = (globalThis as typeof globalThis & { location?: { origin?: string } }).location?.origin;
+  return typeof origin === 'string' && origin.length > 0 ? origin : 'vh://local';
+}
+
+function randomNonceHex(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
 function shouldBootstrapFeedBridges(): boolean {
   const viteEnv = (import.meta as unknown as {
     env?: {
@@ -333,20 +396,55 @@ export async function authenticateGunUser(client: VennClient, devicePair: Device
 }
 
 export async function publishDirectoryEntry(client: VennClient, identity: IdentityRecord): Promise<void> {
+  const publish = directoryPublishQueue.then(() => publishDirectoryEntryNow(client, identity));
+  directoryPublishQueue = publish.catch(() => undefined);
+  return publish;
+}
+
+async function publishDirectoryEntryNow(client: VennClient, identity: IdentityRecord): Promise<void> {
   if (!identity.devicePair) {
     throw new Error('Device keypair missing');
   }
-  const entry: DirectoryEntry = {
-    schemaVersion: 'hermes-directory-v0',
-    nullifier: identity.session.nullifier,
+  const identityDirectoryKey = await deriveIdentityDirectoryKey(identity.session.nullifier);
+  const now = Date.now();
+  const payload: DirectoryEntryPayload = {
+    schemaVersion: 'hermes-directory-v1',
+    _protocolVersion: DIRECTORY_ENTRY_PROTOCOL_VERSION,
+    _writerKind: DIRECTORY_ENTRY_WRITER_KIND,
+    _authorScheme: DIRECTORY_ENTRY_AUTHOR_SCHEME,
+    identityDirectoryKey,
     devicePub: identity.devicePair.pub,
     epub: identity.devicePair.epub,
+    ...(identity.handle ? { displayName: identity.handle } : {}),
     delegationSigningPublicKey: await getDelegationSigningPublicKey(),
-    registeredAt: Date.now(),
-    lastSeenAt: Date.now()
+    registeredAt: now,
+    lastSeenAt: now
+  };
+  const signedWriteEnvelope = await createSignedWriteEnvelope({
+    profile: lumaDirectoryDeploymentProfile(),
+    audience: 'vh-directory-entry',
+    origin: currentOrigin(),
+    scheme: DIRECTORY_ENTRY_AUTHOR_SCHEME,
+    publicAuthor: createLumaPublicAuthorId(identityDirectoryKey, DIRECTORY_ENTRY_AUTHOR_SCHEME),
+    sessionRef: await deriveCurrentStateSignedWriteSessionRef(identity),
+    payload,
+    sequence: now,
+    nonce: randomNonceHex(),
+    issuedAt: now,
+    sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
+  });
+  const entry: DirectoryEntry = {
+    ...payload,
+    signedWriteEnvelope: {
+      ...signedWriteEnvelope,
+      audience: 'vh-directory-entry',
+      scheme: DIRECTORY_ENTRY_AUTHOR_SCHEME,
+      publicAuthor: identityDirectoryKey,
+      payload
+    }
   };
   await publishToDirectory(client, entry);
-  console.info('[vh:directory] Published entry for', identity.session.nullifier.slice(0, 20) + '...');
+  console.info('[vh:directory] Published entry for', identityDirectoryKey.slice(0, 20) + '...');
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -416,7 +514,10 @@ export const useAppStore = create<AppState>((set, get) => ({
         const profile = loadProfile();
         // Migration runs in useIdentity's ensureMigrated(); safe to call again (idempotent)
         await migrateLegacyLocalStorage();
-        const identity = await loadIdentityRecord();
+        const loadedIdentity = await loadIdentityRecord();
+        const identity = loadedIdentity
+          ? { ...loadedIdentity, session: migrateSessionFields(loadedIdentity.session) }
+          : null;
         if (identity?.devicePair) {
           try {
             await authenticateGunUser(client, identity.devicePair);

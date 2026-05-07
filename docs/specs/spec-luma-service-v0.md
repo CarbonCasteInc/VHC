@@ -173,6 +173,7 @@ interface SignedWriteEnvelope<TPayload> {
 }
 
 type AudienceTag =
+  | 'vh-directory-entry'
   | 'vh-forum-thread'
   | 'vh-forum-comment'
   | 'vh-stance-vote'
@@ -185,7 +186,10 @@ type AudienceTag =
   | 'vh-onchain-bridge';
 ```
 
-`AudienceTag` is a closed enum. Adding an audience requires a Protocol RFC.
+`AudienceTag` is a closed enum. Adding an audience requires a Protocol RFC. The
+`vh-directory-entry` audience was added by LUMA-RFC-0001 for directory-v1 public
+record migration; it is scoped only to `vh/directory/<identityDirectoryKey>/`
+records and MUST NOT be reused by forum, aggregate, vault, or provider surfaces.
 
 ### 5.1 Reader rules
 

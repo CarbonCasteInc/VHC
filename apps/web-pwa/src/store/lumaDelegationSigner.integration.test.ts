@@ -10,7 +10,7 @@ import {
   signWithStoredDelegationSigningKey,
   verifyWithDelegationSigningPublicKey
 } from '@vh/identity-vault';
-import type { IdentityRecord } from '@vh/types';
+import { deriveIdentityDirectoryKey, type IdentityRecord } from '@vh/types';
 import { publishDirectoryEntry } from './index';
 
 const mockPublishToDirectory = vi.hoisted(() => vi.fn());
@@ -63,6 +63,19 @@ describe('LUMA delegation signer directory preflight', () => {
     await publishDirectoryEntry({} as never, IDENTITY_RECORD);
 
     const publishedEntry = mockPublishToDirectory.mock.calls[0]?.[1] as DirectoryEntry;
+    const identityDirectoryKey = await deriveIdentityDirectoryKey(IDENTITY_RECORD.session.nullifier);
+    const { signedWriteEnvelope, ...signedPayload } = publishedEntry;
+
+    expect(publishedEntry).toMatchObject({
+      schemaVersion: 'hermes-directory-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'identity-directory-v1',
+      identityDirectoryKey,
+      devicePub: IDENTITY_RECORD.devicePair?.pub,
+      epub: IDENTITY_RECORD.devicePair?.epub
+    });
+    expect(JSON.stringify(publishedEntry)).not.toContain(IDENTITY_RECORD.session.nullifier);
     expect(publishedEntry.delegationSigningPublicKey).toEqual({
       signatureSuite: 'jcs-ed25519-sha256-v1',
       publicKey: {
@@ -72,6 +85,24 @@ describe('LUMA delegation signer directory preflight', () => {
       createdAt: expect.any(Number)
     });
     expect(JSON.stringify(publishedEntry)).not.toContain('privateKey');
+    expect(signedWriteEnvelope).toMatchObject({
+      audience: 'vh-directory-entry',
+      scheme: 'identity-directory-v1',
+      publicAuthor: identityDirectoryKey,
+      payload: signedPayload
+    });
+
+    await expect(verifySignedWriteEnvelope({
+      envelope: signedWriteEnvelope,
+      verify: ({ canonicalBytes, signature }) => verifyWithDelegationSigningPublicKey({
+        key: publishedEntry.delegationSigningPublicKey!,
+        message: canonicalBytes,
+        signature
+      })
+    })).resolves.toMatchObject({
+      valid: true,
+      envelope: signedWriteEnvelope
+    });
 
     const envelope = await createSignedWriteEnvelope({
       profile: 'public-beta',

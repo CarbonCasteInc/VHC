@@ -24,6 +24,7 @@
   "dependencies": {
     "@vh/crypto": "workspace:*",
     "@vh/data-model": "workspace:*",
+    "@vh/luma-sdk": "workspace:*",
     "@vh/types": "workspace:*",
     "gun": "0.2020.1237",
     "idb": "^8.0.3"

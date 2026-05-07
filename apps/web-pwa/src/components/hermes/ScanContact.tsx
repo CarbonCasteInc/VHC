@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Button } from '@vh/ui';
 import { useChatStore } from '../../store/hermesMessaging';
 import { useRouter } from '@tanstack/react-router';
-import { lookupByNullifier } from '@vh/gun-client';
+import { lookupByIdentityDirectoryKey } from '@vh/gun-client';
 import { useAppStore } from '../../store';
 
 async function tryBarcodeScan(video: HTMLVideoElement): Promise<string | null> {
@@ -33,12 +33,12 @@ export const ScanContact: React.FC = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const parseContactData = (input: string): { nullifier: string; epub?: string; handle?: string } => {
+  const parseContactData = (input: string): { identityDirectoryKey: string; epub?: string; handle?: string } => {
     try {
       const parsed = JSON.parse(input);
-      if (parsed && typeof parsed.nullifier === 'string') {
+      if (parsed && typeof parsed.identityDirectoryKey === 'string') {
         return {
-          nullifier: parsed.nullifier,
+          identityDirectoryKey: parsed.identityDirectoryKey,
           epub: typeof parsed.epub === 'string' ? parsed.epub : undefined,
           handle: typeof parsed.handle === 'string' ? parsed.handle : undefined
         };
@@ -46,17 +46,17 @@ export const ScanContact: React.FC = () => {
     } catch {
       /* legacy string input */
     }
-    return { nullifier: input };
+    return { identityDirectoryKey: input };
   };
 
   const navigateToChannel = async (input: string) => {
     setError(null);
-    const { nullifier, epub, handle } = parseContactData(input);
+    const { identityDirectoryKey, epub, handle } = parseContactData(input);
     let resolvedEpub = epub;
     let devicePub: string | undefined;
     if (client) {
       try {
-        const entry = await lookupByNullifier(client, nullifier);
+        const entry = await lookupByIdentityDirectoryKey(client, identityDirectoryKey);
         if (entry) {
           devicePub = entry.devicePub;
           if (!resolvedEpub && entry.epub) {
@@ -72,7 +72,7 @@ export const ScanContact: React.FC = () => {
       return;
     }
     try {
-      const channel = await getOrCreateChannel(nullifier, resolvedEpub, devicePub, handle);
+      const channel = await getOrCreateChannel(identityDirectoryKey, resolvedEpub, devicePub, handle);
       router.navigate({ to: '/hermes/messages/$channelId', params: { channelId: channel.id } });
     } catch (err) {
       setError((err as Error).message);

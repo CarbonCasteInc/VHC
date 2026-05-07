@@ -15,6 +15,7 @@ export const LUMA_SIGNED_WRITE_PROTOCOL_VERSION = 'luma-write-v1';
 export const CLIENT_SIGNED_WRITE_SIGNATURE_SUITE = 'jcs-ed25519-sha256-v1';
 
 export const LUMA_SIGNED_WRITE_AUDIENCES = Object.freeze([
+  'vh-directory-entry',
   'vh-forum-thread',
   'vh-forum-comment',
   'vh-stance-vote',
