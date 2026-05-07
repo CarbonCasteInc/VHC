@@ -6,12 +6,37 @@ import type {
   TrustedOperatorAuthorization,
   TrustedOperatorCapability,
 } from '@vh/data-model';
+import { deriveForumAuthorId, type IdentityRecord } from '@vh/types';
 import type { VennClient } from '@vh/gun-client';
 import { createNewsReportsStore } from './newsReports';
 import { useForumStore } from './hermesForum';
 import { useSynthesisStore } from './synthesis';
 
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'news-report-delegation-signature')
+}));
+
 const CLIENT = {} as VennClient;
+const RAW_REPORTER_NULLIFIER = 'news-report-raw-principal-nullifier';
+const FAKE_IDENTITY: IdentityRecord = {
+  id: 'identity-1',
+  createdAt: 1,
+  attestation: {
+    platform: 'web',
+    integrityToken: 'integrity-token',
+    deviceKey: 'device-key',
+    nonce: 'nonce'
+  },
+  handle: 'Lou',
+  session: {
+    token: 'session-token',
+    trustScore: 1,
+    scaledTrustScore: 10_000,
+    nullifier: RAW_REPORTER_NULLIFIER,
+    createdAt: 1_700_000_000_000,
+    expiresAt: 1_700_086_400_000
+  }
+};
 
 function operatorAuthorization(
   operatorId: string,
@@ -83,10 +108,11 @@ describe('news report store', () => {
   });
 
   it('submits synthesis reports with target, reporter, reason, and audit metadata', async () => {
+    const expectedReporterId = await deriveForumAuthorId(RAW_REPORTER_NULLIFIER);
     const writeReport = vi.fn(async (_client: VennClient, report: HermesNewsReport) => report);
     const store = createNewsReportsStore({
       resolveClient: () => CLIENT,
-      getReporterId: () => 'reporter-1',
+      getIdentity: () => FAKE_IDENTITY,
       now: () => 123,
       randomId: () => 'synthesis-1',
       writeReport,
@@ -103,11 +129,25 @@ describe('news report store', () => {
     });
 
     expect(report).toMatchObject({
+      schemaVersion: 'hermes-news-report-v2',
       report_id: 'report-synthesis-1',
-      reporter_id: 'reporter-1',
+      reporter_id: expectedReporterId,
       reporter_handle: 'Lou',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
       status: 'pending',
       audit: { action: 'news_report' },
+      signedWriteEnvelope: {
+        audience: 'vh-news-report',
+        scheme: 'forum-author-v1',
+        publicAuthor: expectedReporterId,
+        payload: expect.objectContaining({
+          report_id: 'report-synthesis-1',
+          reporter_id: expectedReporterId,
+          reason_code: 'inaccurate_summary',
+        }),
+      },
       target: {
         type: 'synthesis',
         topic_id: 'topic-1',
@@ -116,15 +156,17 @@ describe('news report store', () => {
         story_id: 'story-1',
       },
     });
+    expect(JSON.stringify(report)).not.toContain(RAW_REPORTER_NULLIFIER);
     expect(writeReport).toHaveBeenCalledWith(CLIENT, report);
     expect(store.getState().getPendingReports()).toEqual([report]);
   });
 
   it('submits story-thread comment reports without mutating moderation state', async () => {
+    const expectedReporterId = await deriveForumAuthorId(RAW_REPORTER_NULLIFIER);
     const writeReport = vi.fn(async (_client: VennClient, report: HermesNewsReport) => report);
     const store = createNewsReportsStore({
       resolveClient: () => CLIENT,
-      getReporterId: () => 'reporter-2',
+      getIdentity: () => FAKE_IDENTITY,
       now: () => 124,
       randomId: () => 'comment-1',
       writeReport,
@@ -139,8 +181,20 @@ describe('news report store', () => {
     });
 
     expect(report).toMatchObject({
+      schemaVersion: 'hermes-news-report-v2',
       report_id: 'report-comment-1',
-      reporter_id: 'reporter-2',
+      reporter_id: expectedReporterId,
+      signedWriteEnvelope: {
+        audience: 'vh-news-report',
+        publicAuthor: expectedReporterId,
+        payload: expect.objectContaining({
+          target: expect.objectContaining({
+            type: 'story_thread_comment',
+            thread_id: 'news-story:story-1',
+            comment_id: 'comment-1',
+          }),
+        }),
+      },
       status: 'pending',
       target: {
         type: 'story_thread_comment',
@@ -459,7 +513,7 @@ describe('news report store', () => {
   it('rejects submissions without mesh client or identity', async () => {
     const noClientStore = createNewsReportsStore({
       resolveClient: () => null,
-      getReporterId: () => 'reporter-1',
+      getIdentity: () => FAKE_IDENTITY,
     });
     await expect(
       noClientStore.getState().submitSynthesisReport({
@@ -472,7 +526,7 @@ describe('news report store', () => {
 
     const noIdentityStore = createNewsReportsStore({
       resolveClient: () => CLIENT,
-      getReporterId: () => null,
+      getIdentity: () => null,
     });
     await expect(
       noIdentityStore.getState().submitCommentReport({
@@ -486,7 +540,7 @@ describe('news report store', () => {
   it('rejects blank submission identifiers and resets local state', async () => {
     const store = createNewsReportsStore({
       resolveClient: () => CLIENT,
-      getReporterId: () => 'reporter-1',
+      getIdentity: () => FAKE_IDENTITY,
       writeReport: vi.fn(async (_client, report) => report),
     });
 

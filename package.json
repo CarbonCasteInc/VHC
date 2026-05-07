@@ -52,6 +52,7 @@
     "check:luma-forum-author-v1": "node ./tools/scripts/check-luma-forum-author-v1.mjs",
     "check:luma-aggregate-voter-v1": "node ./tools/scripts/check-luma-aggregate-voter-v1.mjs",
     "check:luma-forum-post-v1": "node ./tools/scripts/check-luma-forum-post-v1.mjs",
+    "check:luma-news-report-v1": "node ./tools/scripts/check-luma-news-report-v1.mjs",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",

@@ -70,9 +70,11 @@ Disallowed in public namespaces:
 News report and moderation paths are public audit/workflow surfaces. They MUST
 NOT include private contact information, raw identity artifacts, private proof
 material, provider secrets, or personal support correspondence. `reporter_id`
-and `operator_id` are public pseudonymous identifiers; product copy must not
-present these records as a complete compliance, appeal, or case-management
-system.
+and `operator_id` are public pseudonymous identifiers; for new LUMA news report
+intake, `reporter_id` is the derived `forumAuthorId` carried with
+`_writerKind: 'luma'` and `SignedWriteEnvelope.audience = 'vh-news-report'`,
+never a raw principal nullifier. Product copy must not present these records as
+a complete compliance, appeal, or case-management system.
 
 Public beta support requests are currently handled by the repository GitHub
 Issue Form linked from `/support`, not by a private mesh support desk. Those

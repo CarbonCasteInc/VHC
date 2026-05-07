@@ -1,5 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { HermesNewsReport, TrustedOperatorAuthorization } from '@vh/data-model';
+import {
+  NEWS_REPORT_AUDIENCE,
+  NEWS_REPORT_AUTHOR_SCHEME,
+  NEWS_REPORT_PUBLIC_PROTOCOL_VERSION,
+  NEWS_REPORT_WRITER_KIND,
+  newsReportSignedPayload,
+  type HermesNewsReport,
+  type HermesNewsReportSignedPayload,
+  type HermesNewsReportV2,
+  type TrustedOperatorAuthorization
+} from '@vh/data-model';
 import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './index';
@@ -44,6 +54,29 @@ const OPERATOR_AUTHORIZATION: TrustedOperatorAuthorization = {
   ],
   granted_at: 100,
 };
+
+const V2_REPORTER_ID = 'a'.repeat(64);
+const V2_HEX_64 = 'b'.repeat(64);
+const V2_HEX_32 = 'c'.repeat(32);
+
+const V2_REPORT = makeNewsReportV2({
+  schemaVersion: 'hermes-news-report-v2',
+  _protocolVersion: NEWS_REPORT_PUBLIC_PROTOCOL_VERSION,
+  _writerKind: NEWS_REPORT_WRITER_KIND,
+  _authorScheme: NEWS_REPORT_AUTHOR_SCHEME,
+  report_id: 'report-v2',
+  target: {
+    type: 'synthesis',
+    topic_id: 'topic-1',
+    synthesis_id: 'synthesis-1',
+    epoch: 2,
+    story_id: 'story-1',
+  },
+  reason_code: 'inaccurate_summary',
+  reason: 'Wrong source attribution.',
+  reporter_id: V2_REPORTER_ID,
+  created_at: 123,
+});
 
 const REVIEWED_REPORT: HermesNewsReport = {
   ...REPORT,
@@ -146,6 +179,23 @@ describe('newsReportAdapters', () => {
     );
   });
 
+  it('writes and reads LUMA v2 news report records', async () => {
+    const chain = createMockChain();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(chain, guard);
+
+    await expect(writeNewsReport(client, V2_REPORT)).resolves.toEqual(V2_REPORT);
+
+    expect(guard.validateWrite).toHaveBeenCalledWith('vh/news/reports/report-v2/', V2_REPORT);
+    expect(guard.validateWrite).toHaveBeenCalledWith(
+      'vh/news/reports/index/status/pending/report-v2/',
+      { report_id: 'report-v2', created_at: 123, target_type: 'synthesis' },
+    );
+
+    chain.once.mockImplementationOnce((cb?: (data: unknown) => void) => cb?.(V2_REPORT));
+    await expect(readNewsReport(client, 'report-v2')).resolves.toEqual(V2_REPORT);
+  });
+
   it('requires trusted operator authorization for reviewed or actioned report writes', async () => {
     const chain = createMockChain();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -209,6 +259,14 @@ describe('newsReportAdapters', () => {
 
     chain.once.mockImplementationOnce((cb?: (data: unknown) => void) => cb?.('not-a-report'));
     await expect(readNewsReport(client, 'report-1')).resolves.toBeNull();
+
+    chain.once.mockImplementationOnce((cb?: (data: unknown) => void) =>
+      cb?.({
+        ...V2_REPORT,
+        reporter_id: 'raw-principal-nullifier',
+      }),
+    );
+    await expect(readNewsReport(client, 'report-v2')).resolves.toBeNull();
   });
 
   it('hydrates deterministic pending queues and filters stale or mismatched entries', async () => {
@@ -325,3 +383,35 @@ describe('newsReportAdapters', () => {
     await expect(writeNewsReport(client, REPORT)).rejects.toThrow('index boom');
   });
 });
+
+function makeNewsReportV2(payload: HermesNewsReportSignedPayload): HermesNewsReportV2 {
+  const signedPayload = newsReportSignedPayload(payload);
+  return {
+    ...signedPayload,
+    status: 'pending',
+    audit: {
+      action: 'news_report',
+    },
+    signedWriteEnvelope: {
+      envelopeVersion: 1,
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+      protocolVersion: 'luma-write-v1',
+      profile: 'public-beta',
+      audience: NEWS_REPORT_AUDIENCE,
+      origin: 'https://vh.example',
+      scheme: NEWS_REPORT_AUTHOR_SCHEME,
+      publicAuthor: signedPayload.reporter_id,
+      sessionRef: {
+        tokenHash: V2_HEX_64,
+        envelopeDigest: V2_HEX_64,
+      },
+      payload: signedPayload,
+      payloadDigest: V2_HEX_64,
+      sequence: signedPayload.created_at,
+      nonce: V2_HEX_32,
+      idempotencyKey: V2_HEX_64,
+      issuedAt: signedPayload.created_at,
+      signature: 'news-report-signature',
+    },
+  };
+}
