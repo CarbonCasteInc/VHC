@@ -18,6 +18,7 @@ export type AudienceTag =
   | 'vh-directory-entry'
   | 'vh-forum-thread'
   | 'vh-forum-comment'
+  | 'vh-forum-post'
   | 'vh-aggregate-voter'
   | 'vh-stance-vote'
   | 'vh-stance-clear'

@@ -116,7 +116,7 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
     } finally { setSaving(false); }
   }, [canSave, saving, docId, content, sourceContext, createDraft, saveDraft, title, docType]);
 
-  const handlePublish = useCallback(() => {
+  const handlePublish = useCallback(async () => {
     if (!canSave || publishing || published) return;
     setPublishing(true);
     try {
@@ -130,9 +130,11 @@ export const ArticleEditor: React.FC<ArticleEditorProps> = ({
       } else {
         saveDraft(cid, { title, encryptedContent: content, type: docType });
       }
-      publishArticle(cid);
-      setPublished(true);
-      onComplete?.(cid);
+      const didPublish = await publishArticle(cid);
+      if (didPublish) {
+        setPublished(true);
+        onComplete?.(cid);
+      }
     } finally { setPublishing(false); }
   }, [canSave, publishing, published, docId, content, sourceContext, createDraft, saveDraft, title, docType, publishArticle, onComplete]);
 

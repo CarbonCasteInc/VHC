@@ -5,11 +5,14 @@ import {
   deriveUrlTopicId,
   FORUM_AUTHOR_SCHEME,
   FORUM_COMMENT_AUDIENCE,
+  FORUM_POST_AUDIENCE,
   FORUM_PUBLIC_PROTOCOL_VERSION,
   FORUM_THREAD_AUDIENCE,
   FORUM_WRITER_KIND,
   ForumPostSchema,
+  ForumPostSchemaV1,
   forumCommentSignedPayload,
+  forumPostSignedPayload,
   forumThreadSignedPayload,
   HermesCommentModerationSchema,
   HermesCommentSchema,
@@ -128,6 +131,30 @@ function signedCommentEnvelope(payload = forumCommentSignedPayload(baseCommentV2
   } as const;
 }
 
+function signedPostEnvelope(payload = forumPostSignedPayload(basePostV1())) {
+  return {
+    envelopeVersion: 1,
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    protocolVersion: 'luma-write-v1',
+    profile: 'public-beta',
+    audience: FORUM_POST_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: FORUM_AUTHOR_SCHEME,
+    publicAuthor: payload.author,
+    sessionRef: {
+      tokenHash: HEX_64,
+      envelopeDigest: 'b'.repeat(64)
+    },
+    payload,
+    payloadDigest: 'c'.repeat(64),
+    sequence: now,
+    nonce: HEX_32,
+    idempotencyKey: 'd'.repeat(64),
+    issuedAt: now,
+    signature: 'signature'
+  } as const;
+}
+
 function baseThreadV1() {
   const payload = {
     schemaVersion: 'hermes-thread-v1' as const,
@@ -170,6 +197,30 @@ function baseCommentV2() {
     upvotes: 0,
     downvotes: 0,
     signedWriteEnvelope: signedCommentEnvelope(payload)
+  };
+}
+
+function basePostV1() {
+  const payload = {
+    schemaVersion: 'hermes-post-v1' as const,
+    _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: FORUM_WRITER_KIND,
+    _authorScheme: FORUM_AUTHOR_SCHEME,
+    id: 'post-luma-1',
+    threadId: 'thread-luma-1',
+    parentId: null,
+    topicId: 'topic-luma-1',
+    author: FORUM_AUTHOR_ID,
+    type: 'article' as const,
+    content: 'Signed article publish-back content',
+    timestamp: now,
+    articleRefId: 'article-luma-1'
+  };
+  return {
+    ...payload,
+    upvotes: 0,
+    downvotes: 0,
+    signedWriteEnvelope: signedPostEnvelope(payload)
   };
 }
 
@@ -831,6 +882,85 @@ describe('ForumPostSchema', () => {
     expect(parsed.articleRefId).toBe('doc-article-1');
   });
 
+  it('accepts LUMA v1 article posts with forum-author metadata and signed envelope', () => {
+    const post = basePostV1();
+    const parsed = ForumPostSchemaV1.parse(post);
+
+    expect(parsed).toMatchObject({
+      schemaVersion: 'hermes-post-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
+      author: expect.stringMatching(/^[0-9a-f]{64}$/),
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-forum-post',
+        scheme: 'forum-author-v1',
+        publicAuthor: post.author,
+        payload: forumPostSignedPayload(post)
+      })
+    });
+  });
+
+  it('omits undefined optional fields from LUMA post signed payloads', () => {
+    const payload = forumPostSignedPayload({
+      ...basePostV1(),
+      via: undefined
+    });
+
+    expect(Object.prototype.hasOwnProperty.call(payload, 'via')).toBe(false);
+  });
+
+  it('rejects LUMA v1 posts with raw-author, publicAuthor, audience, or signed payload mismatches', () => {
+    const post = basePostV1();
+
+    expect(ForumPostSchema.safeParse({ ...post, author: 'raw-nullifier' }).success).toBe(false);
+    expect(ForumPostSchema.safeParse({
+      ...post,
+      signedWriteEnvelope: {
+        ...post.signedWriteEnvelope,
+        publicAuthor: OTHER_FORUM_AUTHOR_ID
+      }
+    }).success).toBe(false);
+    expect(ForumPostSchema.safeParse({
+      ...post,
+      signedWriteEnvelope: {
+        ...post.signedWriteEnvelope,
+        audience: 'vh-forum-thread'
+      }
+    }).success).toBe(false);
+    expect(ForumPostSchema.safeParse({
+      ...post,
+      content: 'Tampered post content after signing'
+    }).success).toBe(false);
+  });
+
+  it('accepts LUMA post signed payloads regardless of envelope payload key order', () => {
+    const post = basePostV1();
+    const reorderedPayload = {
+      articleRefId: post.signedWriteEnvelope.payload.articleRefId,
+      timestamp: post.signedWriteEnvelope.payload.timestamp,
+      content: post.signedWriteEnvelope.payload.content,
+      type: post.signedWriteEnvelope.payload.type,
+      author: post.signedWriteEnvelope.payload.author,
+      topicId: post.signedWriteEnvelope.payload.topicId,
+      parentId: post.signedWriteEnvelope.payload.parentId,
+      threadId: post.signedWriteEnvelope.payload.threadId,
+      id: post.signedWriteEnvelope.payload.id,
+      _authorScheme: post.signedWriteEnvelope.payload._authorScheme,
+      _writerKind: post.signedWriteEnvelope.payload._writerKind,
+      _protocolVersion: post.signedWriteEnvelope.payload._protocolVersion,
+      schemaVersion: post.signedWriteEnvelope.payload.schemaVersion
+    };
+
+    expect(ForumPostSchema.safeParse({
+      ...post,
+      signedWriteEnvelope: {
+        ...post.signedWriteEnvelope,
+        payload: reorderedPayload
+      }
+    }).success).toBe(true);
+  });
+
   it('accepts reply with via field', () => {
     const parsed = ForumPostSchema.parse({ ...baseReplyPost, via: 'human' });
     expect(parsed.via).toBe('human');
@@ -927,7 +1057,7 @@ describe('ForumPostSchema', () => {
 
   it('rejects invalid schemaVersion', () => {
     expect(
-      ForumPostSchema.safeParse({ ...baseReplyPost, schemaVersion: 'hermes-post-v1' }).success
+      ForumPostSchema.safeParse({ ...baseReplyPost, schemaVersion: 'hermes-post-v9' }).success
     ).toBe(false);
   });
 

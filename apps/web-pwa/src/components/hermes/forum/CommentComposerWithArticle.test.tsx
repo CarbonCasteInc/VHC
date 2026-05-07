@@ -3,7 +3,7 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { CommentComposerWithArticle } from './CommentComposerWithArticle';
 import { REPLY_WARNING_THRESHOLD, REPLY_CHAR_LIMIT } from './CommentComposer';
 
@@ -62,7 +62,7 @@ const mockSaveDraft = vi.fn((docId: string, updates: any) => {
   }
 });
 
-const mockPublishArticle = vi.fn((docId: string) => {
+const mockPublishArticle = vi.fn(async (docId: string) => {
   const existing = storeDocuments.get(docId);
   if (existing) {
     storeDocuments.set(docId, {
@@ -70,7 +70,9 @@ const mockPublishArticle = vi.fn((docId: string) => {
       publishedAt: Date.now(),
       publishedArticleId: `pub-${docId}`,
     });
+    return true;
   }
+  return false;
 });
 
 vi.mock('../../../store/hermesDocs', () => ({
@@ -196,7 +198,7 @@ describe('CommentComposerWithArticle', () => {
     expect(contentInput.value).toBe(text);
   });
 
-  it('editor complete callback closes editor', () => {
+  it('editor complete callback closes editor', async () => {
     render(<CommentComposerWithArticle threadId="thread-1" />);
     typeIntoComposer('x'.repeat(REPLY_WARNING_THRESHOLD));
     fireEvent.click(screen.getByTestId('convert-to-article-btn'));
@@ -207,9 +209,11 @@ describe('CommentComposerWithArticle', () => {
     fireEvent.click(screen.getByTestId('publish-btn'));
 
     // After publish, editor closes and composer returns
-    expect(
-      screen.getByTestId('comment-composer-container'),
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('comment-composer-container'),
+      ).toBeInTheDocument();
+    });
   });
 
   it('uses custom sourceContext when provided', () => {

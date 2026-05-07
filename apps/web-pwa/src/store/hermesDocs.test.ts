@@ -13,13 +13,30 @@ import { useDiscoveryStore } from './discovery';
 import { useAppStore } from './index';
 import type { StoreApi, UseBoundStore } from 'zustand';
 
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'test-delegation-signature')
+}));
+
 // ── Helpers ───────────────────────────────────────────────────────────
 
 let counter = 0;
+const TEST_PRINCIPAL_NULLIFIER = 'test-principal-nullifier';
+const fakeIdentity = {
+  handle: 'test-handle',
+  session: {
+    token: 'test-session-token',
+    nullifier: TEST_PRINCIPAL_NULLIFIER,
+    trustScore: 1,
+    scaledTrustScore: 9000,
+    createdAt: 1_700_000_000_000,
+    expiresAt: 1_700_086_400_000,
+  },
+};
 const fakeDeps: Partial<DocsDeps> = {
   now: () => 1_700_000_000_000 + counter++,
   randomId: () => `id-${counter++}`,
   owner: () => 'test-owner',
+  identity: () => fakeIdentity as any,
   publishBack: () => {},
 };
 
@@ -155,10 +172,10 @@ describe('hermesDocs store – saveDraft', () => {
     expect(store.getState().documents.size).toBe(0);
   });
 
-  it('does not allow saving a published document', () => {
+  it('does not allow saving a published document', async () => {
     const store = makeStore();
     const doc = store.getState().createDraft('pub');
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
     const beforeSave = store.getState().getDraft(doc!.id)!.title;
     store.getState().saveDraft(doc!.id, { title: 'changed' });
     expect(store.getState().getDraft(doc!.id)!.title).toBe(beforeSave);
@@ -166,16 +183,16 @@ describe('hermesDocs store – saveDraft', () => {
 });
 
 describe('hermesDocs store – publishArticle', () => {
-  it('sets publishedAt and publishedArticleId', () => {
+  it('sets publishedAt and publishedArticleId', async () => {
     const store = makeStore();
     const doc = store.getState().createDraft('to publish');
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
     const published = store.getState().getDraft(doc!.id);
     expect(published!.publishedAt).toBeGreaterThan(0);
     expect(published!.publishedArticleId).toBeTruthy();
   });
 
-  it('wires full DocPublishLink contract and publish-back payloads', () => {
+  it('wires full DocPublishLink contract and publish-back payloads', async () => {
     const publishBack = vi.fn();
     const store = createDocsStore({
       ...fakeDeps,
@@ -189,7 +206,7 @@ describe('hermesDocs store – publishArticle', () => {
     });
     store.getState().saveDraft(doc!.id, { title: 'Linked Article' });
 
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
 
     expect(publishBack).toHaveBeenCalledTimes(1);
     const artifacts = publishBack.mock.calls[0][0];
@@ -204,12 +221,23 @@ describe('hermesDocs store – publishArticle', () => {
     });
     expect(artifacts.forumThread).toBeUndefined();
     expect(artifacts.forumPost).toMatchObject({
-      schemaVersion: 'hermes-post-v0',
+      schemaVersion: 'hermes-post-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
       threadId: 'thread-1',
       topicId: 'topic-1',
       type: 'article',
       articleRefId: link.articleId,
+      author: expect.stringMatching(/^[0-9a-f]{64}$/),
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-forum-post',
+        scheme: 'forum-author-v1',
+        publicAuthor: expect.stringMatching(/^[0-9a-f]{64}$/),
+      }),
     });
+    expect(artifacts.forumPost.author).not.toBe(TEST_PRINCIPAL_NULLIFIER);
+    expect(artifacts.forumPost.author).not.toBe(doc!.owner);
     expect(artifacts.discoveryItem).toMatchObject({
       topic_id: link.articleId,
       kind: 'ARTICLE',
@@ -226,21 +254,49 @@ describe('hermesDocs store – publishArticle', () => {
     expect(published.publishedAt).toBe(link.publishedAt);
   });
 
-  it('creates a deterministic forum thread payload when sourceThreadId is absent', () => {
+  it('creates a deterministic forum thread payload when sourceThreadId is absent', async () => {
     const publishBack = vi.fn();
     const store = createDocsStore({
       ...fakeDeps,
       publishBack,
     }, true);
-    const doc = store.getState().createDraft('deterministic');
+    const doc = store.getState().createDraft('deterministic', {
+      sourceTopicId: 'topic-without-thread',
+      sourceSynthesisId: 'synth-without-thread',
+      sourceEpoch: 9,
+    });
 
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
 
     const artifacts = publishBack.mock.calls[0][0];
     const expectedThreadId = `article-thread-${doc!.id}`;
     expect(artifacts.link.threadId).toBe(expectedThreadId);
     expect(artifacts.forumThread?.id).toBe(expectedThreadId);
+    expect(artifacts.forumThread?.schemaVersion).toBe('hermes-thread-v1');
+    expect(artifacts.forumThread?.sourceEpoch).toBe(9);
+    expect(artifacts.forumThread?.signedWriteEnvelope.audience).toBe('vh-forum-thread');
     expect(artifacts.forumPost.threadId).toBe(expectedThreadId);
+  });
+
+  it('fails closed through the default identity accessor when no active identity exists', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const publishBack = vi.fn();
+      const store = createDocsStore({
+        now: () => 1_700_000_000_000,
+        randomId: () => 'default-identity-doc',
+        owner: () => 'default-identity-owner',
+        publishBack,
+      }, true);
+      const doc = store.getState().createDraft('unsigned default identity publish');
+
+      await expect(store.getState().publishArticle(doc!.id)).resolves.toBe(false);
+
+      expect(publishBack).not.toHaveBeenCalled();
+      expect(store.getState().getDraft(doc!.id)!.publishedAt).toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('writes forum publish payloads and discovery ARTICLE item on default runtime path', async () => {
@@ -253,11 +309,12 @@ describe('hermesDocs store – publishArticle', () => {
       now: () => 1_700_000_000_000,
       randomId: () => `runtime-${++idCounter}`,
       owner: () => 'runtime-owner',
+      identity: () => fakeIdentity as any,
     }, true);
 
     const doc = store.getState().createDraft('runtime payload');
     store.getState().saveDraft(doc!.id, { title: 'Runtime Linked Article' });
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
 
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -268,15 +325,20 @@ describe('hermesDocs store – publishArticle', () => {
     expect(writes.get(`vh/forum/threads/${expectedThreadId}`)).toEqual(
       expect.objectContaining({
         id: expectedThreadId,
-        schemaVersion: 'hermes-thread-v0',
+        schemaVersion: 'hermes-thread-v1',
+        _writerKind: 'luma',
+        signedWriteEnvelope: expect.objectContaining({ audience: 'vh-forum-thread' }),
       }),
     );
     expect(writes.get(expectedPostPath)).toEqual(
       expect.objectContaining({
-        schemaVersion: 'hermes-post-v0',
+        schemaVersion: 'hermes-post-v1',
+        _writerKind: 'luma',
         threadId: expectedThreadId,
         type: 'article',
         articleRefId: published.publishedArticleId,
+        author: expect.stringMatching(/^[0-9a-f]{64}$/),
+        signedWriteEnvelope: expect.objectContaining({ audience: 'vh-forum-post' }),
       }),
     );
     expect(useDiscoveryStore.getState().items).toContainEqual(
@@ -288,30 +350,46 @@ describe('hermesDocs store – publishArticle', () => {
     );
   });
 
-  it('does not double-publish', () => {
+  it('does not double-publish', async () => {
     const store = makeStore();
     const doc = store.getState().createDraft('once');
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
     const firstPublished = store.getState().getDraft(doc!.id)!;
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
     const secondPublished = store.getState().getDraft(doc!.id)!;
     expect(firstPublished.publishedAt).toBe(secondPublished.publishedAt);
     expect(firstPublished.publishedArticleId).toBe(secondPublished.publishedArticleId);
   });
 
-  it('no-ops for non-existent docId', () => {
+  it('no-ops for non-existent docId', async () => {
     const store = makeStore();
-    store.getState().publishArticle('ghost');
+    await store.getState().publishArticle('ghost');
     expect(store.getState().documents.size).toBe(0);
+  });
+
+  it('fails closed without an active identity and does not mark the document published', async () => {
+    const publishBack = vi.fn();
+    const store = createDocsStore({
+      ...fakeDeps,
+      identity: () => null,
+      publishBack,
+    }, true);
+    const doc = store.getState().createDraft('unsigned publish');
+
+    await expect(store.getState().publishArticle(doc!.id)).resolves.toBe(false);
+
+    expect(publishBack).not.toHaveBeenCalled();
+    expect(store.getState().getDraft(doc!.id)!.publishedAt).toBeUndefined();
+    expect(store.getState().getDraft(doc!.id)!.publishedArticleId).toBeUndefined();
   });
 });
 
 describe('hermesDocs store – listPublished', () => {
-  it('returns only published documents', () => {
+  it('returns only published documents', async () => {
     const store = makeStore();
     const doc1 = store.getState().createDraft('draft1');
     const doc2 = store.getState().createDraft('draft2');
-    store.getState().publishArticle(doc1!.id);
+    await store.getState().publishArticle(doc1!.id);
     const published = store.getState().listPublished();
     expect(published).toHaveLength(1);
     expect(published[0].id).toBe(doc1!.id);
@@ -324,13 +402,13 @@ describe('hermesDocs store – listPublished', () => {
     expect(store.getState().listPublished()).toHaveLength(0);
   });
 
-  it('returns all published documents', () => {
+  it('returns all published documents', async () => {
     const store = makeStore();
     const doc1 = store.getState().createDraft('a');
     const doc2 = store.getState().createDraft('b');
     const doc3 = store.getState().createDraft('c');
-    store.getState().publishArticle(doc1!.id);
-    store.getState().publishArticle(doc3!.id);
+    await store.getState().publishArticle(doc1!.id);
+    await store.getState().publishArticle(doc3!.id);
     const published = store.getState().listPublished();
     expect(published).toHaveLength(2);
     expect(published.map((d) => d.id)).toContain(doc1!.id);
@@ -349,11 +427,11 @@ describe('hermesDocs store – getDraft / listDrafts', () => {
     expect(store.getState().getDraft('nope')).toBeUndefined();
   });
 
-  it('listDrafts excludes published documents', () => {
+  it('listDrafts excludes published documents', async () => {
     const store = makeStore();
     const doc1 = store.getState().createDraft('draft1');
     const doc2 = store.getState().createDraft('draft2');
-    store.getState().publishArticle(doc1!.id);
+    await store.getState().publishArticle(doc1!.id);
     const drafts = store.getState().listDrafts();
     expect(drafts).toHaveLength(1);
     expect(drafts[0].id).toBe(doc2!.id);
@@ -406,9 +484,9 @@ describe('hermesDocs store – flag off', () => {
     expect(disabled.getState().documents.size).toBe(0);
   });
 
-  it('publishArticle is no-op when disabled', () => {
+  it('publishArticle is no-op when disabled', async () => {
     const store = makeStore(false);
-    store.getState().publishArticle('anything');
+    await store.getState().publishArticle('anything');
     expect(store.getState().documents.size).toBe(0);
   });
 
@@ -454,8 +532,8 @@ describe('createMockHermesDocsStore', () => {
     expect(store.getState().enabled).toBe(true);
   });
 
-  it('supports full CRUD cycle', () => {
-    const store = createMockHermesDocsStore();
+  it('supports full CRUD cycle', async () => {
+    const store = createMockHermesDocsStore({ identity: () => fakeIdentity as any });
     const doc = store.getState().createDraft('mock content');
     expect(doc).not.toBeNull();
     expect(doc!.owner).toBe('mock-owner');
@@ -463,21 +541,21 @@ describe('createMockHermesDocsStore', () => {
     store.getState().saveDraft(doc!.id, { title: 'Mock Title' });
     expect(store.getState().getDraft(doc!.id)!.title).toBe('Mock Title');
 
-    store.getState().publishArticle(doc!.id);
+    await store.getState().publishArticle(doc!.id);
     expect(store.getState().getDraft(doc!.id)!.publishedAt).toBeGreaterThan(0);
   });
 
-  it('publishArticle catches publishBack errors gracefully', () => {
+  it('publishArticle catches publishBack errors gracefully', async () => {
     const publishBack = vi.fn(() => {
       throw new Error('runtime write failed');
     });
-    const store = createMockHermesDocsStore({ publishBack });
+    const store = createMockHermesDocsStore({ identity: () => fakeIdentity as any, publishBack });
     store.getState().createDraft('text');
     const docs = Array.from(store.getState().documents.values());
     const docId = docs[0].id;
 
-    // Should not throw — error is caught internally
-    expect(() => store.getState().publishArticle(docId)).not.toThrow();
+    // Should not reject — error is caught internally
+    await expect(store.getState().publishArticle(docId)).resolves.toBe(true);
     expect(publishBack).toHaveBeenCalledTimes(1);
     // doc is now published despite publishBack error (state updated before publishBack call)
     const published = store.getState().documents.get(docId);
@@ -494,5 +572,21 @@ describe('createMockHermesDocsStore', () => {
     });
     const doc = store.getState().createDraft('text');
     expect(doc!.owner).toBe('custom-owner');
+  });
+
+  it('uses the default mock-store identity accessor and fails closed without identity', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const publishBack = vi.fn();
+      const store = createMockHermesDocsStore({ publishBack });
+      const doc = store.getState().createDraft('mock unsigned');
+
+      await expect(store.getState().publishArticle(doc!.id)).resolves.toBe(false);
+
+      expect(publishBack).not.toHaveBeenCalled();
+      expect(store.getState().getDraft(doc!.id)!.publishedAt).toBeUndefined();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 });

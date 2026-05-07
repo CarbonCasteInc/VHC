@@ -320,7 +320,7 @@ appeals, and a broader case-management console.
 ```ts
 type PostType = 'reply' | 'article';
 
-interface ForumPost {
+interface ForumPostV0 {
   id: string;
   schemaVersion: 'hermes-post-v0';
   threadId: string;
@@ -337,6 +337,29 @@ interface ForumPost {
   // required when type='article'
   articleRefId?: string;
 }
+
+interface ForumPostSignedPayload {
+  id: string;
+  schemaVersion: 'hermes-post-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
+  threadId: string;
+  parentId: string | null;
+  topicId: string;
+  author: string; // 64-char forumAuthorId, not raw principal nullifier
+  via?: 'human' | 'familiar';
+  type: PostType;
+  content: string;
+  timestamp: number;
+  articleRefId?: string;
+}
+
+interface ForumPostV1 extends ForumPostSignedPayload {
+  upvotes: number;
+  downvotes: number;
+  signedWriteEnvelope: SignedWriteEnvelope<ForumPostSignedPayload>;
+}
 ```
 
 Constraints:
@@ -344,6 +367,12 @@ Constraints:
 - `reply` max 240 chars (hard block)
 - `article` is longform and Docs-backed
 - If reply input exceeds 240, client must block send and surface `Convert to Article`
+- New post writes MUST use `hermes-post-v1`, `forumAuthorId`, and
+  `SignedWriteEnvelope.audience = 'vh-forum-post'`. `hermes-post-v0` is
+  legacy read-compatible only.
+- Hermes Docs publish-back MUST fail closed when the active LUMA identity is
+  unavailable; it MUST NOT publish public posts with `doc.owner` or a raw
+  principal nullifier as `ForumPost.author`.
 
 ### 2.5 Size limits and proposal elevation rules
 
@@ -717,3 +746,4 @@ UX:
 11. Comment moderation schema rejects malformed/path-mismatched payloads, preserves audit metadata, and hides moderated story-reply content without changing deterministic `news-story:*` thread identity.
 12. News report schema and Gun adapters reject malformed/path-mismatched payloads, preserve operator audit metadata, and route pending reports to audited synthesis correction or comment moderation actions.
 13. LUMA forum-author migration: new thread/comment writes carry 64-char `forumAuthorId`, `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`, `_authorScheme: 'forum-author-v1'`, and a valid `SignedWriteEnvelope`; legacy v0/v1 hydration stays compatible.
+14. LUMA ForumPost publish-back migration: new Docs article publish-back records carry `hermes-post-v1`, 64-char `forumAuthorId`, `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`, `_authorScheme: 'forum-author-v1'`, and `SignedWriteEnvelope.audience = 'vh-forum-post'`; fallback article threads use `hermes-thread-v1`.

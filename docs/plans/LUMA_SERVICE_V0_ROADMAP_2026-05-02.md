@@ -178,6 +178,7 @@ Deliverables:
 - Adapter and materializer migration (the surfaces the mesh hardening
   series already touched, now on the LUMA epoch):
   - `packages/gun-client/src/forumAdapters.ts`: thread/comment writes use `forumAuthorId`, carry `_writerKind: 'luma'`, embed `SignedWriteEnvelope` with audience `vh-forum-thread` / `vh-forum-comment`.
+  - `apps/web-pwa/src/store/hermesDocs.ts`: Docs article publish-back writes `hermes-post-v1` with `forumAuthorId` and `SignedWriteEnvelope.audience = 'vh-forum-post'`; fallback article threads use the existing LUMA `hermes-thread-v1` helper path.
   - `packages/gun-client/src/directoryAdapters.ts`: directory publish uses `identityDirectoryKey` and the LUMA envelope. Coordinate with mesh hardening durability rules in `spec-mesh-production-readiness.md` §5.1 (no regression on durable-write contract).
   - `packages/gun-client/src/aggregateAdapters.ts`: aggregate voter node uses scoped `voterId` per `(topic_id, epoch)`. No raw nullifier in any field. Aggregate snapshot retains supersession-by-version semantics from mesh spec §5.10.
   - `packages/gun-client/src/sentimentEventAdapters.ts`: encrypted outbox writer-kind is unchanged (`~<devicePub>/outbox/sentiment/*` per Open M0.B-3); add `_protocolVersion` and explicit topology classification.
@@ -187,7 +188,7 @@ Deliverables:
   - Topology lint: fail-closed `district_hash` rule (only on aggregate-class paths with cohort proof).
   - Topology lint: protocol/schema reject matrix from mesh spec §5.11 enforced at the adapter layer.
   - Topology lint: drill record outside `vh/__mesh_drills/*` is hard-rejected.
-  - New release gates: `pnpm check:public-namespace-leaks`, `pnpm check:linkability-domain-registry`, `pnpm check:luma-directory-v1`, `pnpm check:luma-forum-author-v1`, `pnpm check:luma-aggregate-voter-v1`.
+  - New release gates: `pnpm check:public-namespace-leaks`, `pnpm check:linkability-domain-registry`, `pnpm check:luma-directory-v1`, `pnpm check:luma-forum-author-v1`, `pnpm check:luma-aggregate-voter-v1`, `pnpm check:luma-forum-post-v1`.
   - Re-run `pnpm test:live:five-user-engagement` against the new taxonomy.
 - Mesh re-run gate (post-M0.B): schema-epoch revalidation only.
   - After all adapter and materializer migration deliverables land, re-run `pnpm check:mesh:production-readiness` against the new schema epoch with `schema_epoch: 'post_luma_m0b'`. The drill harness exercises migrated write classes through their real post-M0.B reader path, not the mesh drill writer contract.
@@ -716,3 +717,4 @@ The spec owns the locked decisions. The roadmap tracks decisions still required 
 | 0.8 | 2026-05-04 | Reviewer | M0.E/M0.F foundation prep. Added `docs/ops/luma-verifier-current-state.md` as the current-state DEV verifier input for M2.A and mechanically moved the DEV-only verifier to `services/luma-verifier-dev`; release note: DEV-only verifier moved; behavior unchanged. No public adapters, public schemas, provider interfaces, or mesh drill harness paths were migrated. |
 | 0.9 | 2026-05-07 | Reviewer | M0.B forum-author narrow slice. Thread/comment writes move to `forumAuthorId`, `hermes-thread-v1` / `hermes-comment-v2`, and `SignedWriteEnvelope` audiences `vh-forum-thread` / `vh-forum-comment`; forum post, nomination, aggregate/voter, sentiment outbox, mesh drills, relay, and service migrations remain out of scope. Added `pnpm check:luma-forum-author-v1`. |
 | 0.10 | 2026-05-07 | Reviewer | M0.B aggregate voter narrow slice. Aggregate voter node writes move to scoped LUMA `voterId`, `aggregate-voter-node-v1`, and `SignedWriteEnvelope` audience `vh-aggregate-voter`; point aggregate snapshots, sentiment outbox encryption, mesh drills, relay, services, and unrelated adapters remain out of scope. Added `pnpm check:luma-aggregate-voter-v1`. |
+| 0.11 | 2026-05-07 | Reviewer | M0.B ForumPost publish-back narrow slice. Hermes Docs article publish-back moves to `hermes-post-v1`, `forumAuthorId`, and `SignedWriteEnvelope` audience `vh-forum-post`; fallback article threads use `hermes-thread-v1`. News reports, nominations, aggregate voters, mesh drills, relay, services, and unrelated adapters remain out of scope. Added `pnpm check:luma-forum-post-v1`. |

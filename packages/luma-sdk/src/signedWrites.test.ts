@@ -154,6 +154,15 @@ describe('LUMA SignedWriteEnvelope SDK surface', () => {
     })).resolves.toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('registers the forum post audience for M0.B publish-back migration', async () => {
+    expect(LUMA_SIGNED_WRITE_AUDIENCES).toContain('vh-forum-post');
+    await expect(deriveSignedWriteIdempotencyKey({
+      payloadDigest: EXPECTED_PAYLOAD_DIGEST,
+      audience: 'vh-forum-post',
+      sequence: 1
+    })).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('creates and verifies the frozen M0.B JCS/Ed25519 vector', async () => {
     const envelope = await createVectorEnvelope();
     const verification = await verifySignedWriteEnvelope({

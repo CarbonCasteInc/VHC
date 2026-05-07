@@ -31,11 +31,12 @@ const mockSaveDraft = vi.fn((docId: string, updates: any) => {
   if (existing) storeDocuments.set(docId, { ...existing, ...updates, lastModifiedAt: Date.now() });
 });
 
-const mockPublishArticle = vi.fn((docId: string) => {
+const mockPublishArticle = vi.fn(async (docId: string) => {
   const existing = storeDocuments.get(docId);
   if (existing) storeDocuments.set(docId, {
     ...existing, publishedAt: Date.now(), publishedArticleId: `pub-${docId}`,
   });
+  return Boolean(existing);
 });
 
 const mockGetDraft = vi.fn((docId: string) => storeDocuments.get(docId));
@@ -233,21 +234,21 @@ describe('ArticleEditor', () => {
       expect(screen.getByTestId('save-draft-btn')).toBeDisabled();
     });
 
-    it('sets publishedAt on publish', () => {
+    it('sets publishedAt on publish', async () => {
       render(<ArticleEditor initialContent="content" />);
       fireEvent.change(screen.getByTestId('article-title-input'), { target: { value: 'My Article' } });
       fireEvent.click(screen.getByTestId('publish-btn'));
       expect(mockCreateDraft).toHaveBeenCalled();
-      expect(mockPublishArticle).toHaveBeenCalled();
-      expect(screen.getByTestId('published-banner')).toBeInTheDocument();
+      await waitFor(() => expect(mockPublishArticle).toHaveBeenCalled());
+      await waitFor(() => expect(screen.getByTestId('published-banner')).toBeInTheDocument());
     });
 
-    it('calls onComplete with docId after publish', () => {
+    it('calls onComplete with docId after publish', async () => {
       const onComplete = vi.fn();
       render(<ArticleEditor initialContent="content" onComplete={onComplete} />);
       fireEvent.change(screen.getByTestId('article-title-input'), { target: { value: 'Title' } });
       fireEvent.click(screen.getByTestId('publish-btn'));
-      expect(onComplete).toHaveBeenCalledWith('test-doc-0');
+      await waitFor(() => expect(onComplete).toHaveBeenCalledWith('test-doc-0'));
     });
 
     it('passes source context to createDraft', () => {
