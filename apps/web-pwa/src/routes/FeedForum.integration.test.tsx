@@ -71,6 +71,10 @@ vi.mock('@vh/gun-client', async (importOriginal) => {
   };
 });
 
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'forum-delegation-signature')
+}));
+
 describe('Feed ↔ Forum integration', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -117,9 +121,12 @@ describe('Feed ↔ Forum integration', () => {
     const nullifier = 'feed-forum-integration-user';
     publishIdentity({
       session: {
+        token: `token-${nullifier}`,
         nullifier,
         trustScore: 1,
-        scaledTrustScore: 10000
+        scaledTrustScore: 10000,
+        createdAt: 1,
+        expiresAt: Date.now() + 60_000
       }
     });
     useXpLedger.getState().setActiveNullifier(nullifier);

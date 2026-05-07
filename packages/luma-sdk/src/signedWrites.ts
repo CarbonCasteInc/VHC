@@ -704,8 +704,16 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     );
   }
 
-  const digestInput = new ArrayBuffer(bytes.byteLength);
-  new Uint8Array(digestInput).set(bytes);
+  const nodeBuffer = (globalThis as typeof globalThis & {
+    Buffer?: { from(input: Uint8Array): Uint8Array };
+  }).Buffer;
+  let digestInput: BufferSource;
+  if (nodeBuffer) {
+    digestInput = nodeBuffer.from(bytes) as unknown as BufferSource;
+  } else {
+    digestInput = new ArrayBuffer(bytes.byteLength);
+    new Uint8Array(digestInput).set(bytes);
+  }
   const digest = await subtle.digest('SHA-256', digestInput);
   return bytesToHex(new Uint8Array(digest));
 }

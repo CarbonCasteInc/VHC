@@ -237,7 +237,7 @@ export interface ProposalExtension {
   updatedAt: number;
 }
 
-export interface HermesThread {
+export interface HermesThreadV0 {
   id: string;
   schemaVersion: 'hermes-thread-v0';
   title: string;
@@ -257,6 +257,60 @@ export interface HermesThread {
   downvotes: number;
   score: number;
 }
+
+export interface SignedWriteSessionRef {
+  tokenHash: string;
+  envelopeDigest: string;
+}
+
+export interface ForumThreadSignedPayload {
+  schemaVersion: 'hermes-thread-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
+  id: string;
+  title: string;
+  content: string;
+  author: string;
+  timestamp: number;
+  tags: string[];
+  sourceSynthesisId?: string;
+  sourceEpoch?: number;
+  topicId?: string;
+  sourceUrl?: string;
+  urlHash?: string;
+  isHeadline?: boolean;
+  proposal?: ProposalExtension;
+}
+
+export interface ForumThreadSignedWriteEnvelope {
+  envelopeVersion: 1;
+  signatureSuite: 'jcs-ed25519-sha256-v1';
+  protocolVersion: 'luma-write-v1';
+  profile: 'dev' | 'e2e' | 'public-beta' | 'production-attestation';
+  audience: 'vh-forum-thread';
+  origin: string;
+  scheme: 'forum-author-v1';
+  publicAuthor: string;
+  sessionRef: SignedWriteSessionRef;
+  payload: ForumThreadSignedPayload;
+  payloadDigest: string;
+  sequence: number;
+  nonce: string;
+  idempotencyKey: string;
+  issuedAt: number;
+  signature: string;
+}
+
+export interface HermesThreadV1 extends ForumThreadSignedPayload {
+  sourceAnalysisId?: string;
+  upvotes: number;
+  downvotes: number;
+  score: number;
+  signedWriteEnvelope: ForumThreadSignedWriteEnvelope;
+}
+
+export type HermesThread = HermesThreadV0 | HermesThreadV1;
 
 interface BaseHermesCommentCommon {
   id: string;
@@ -283,8 +337,43 @@ export type HermesCommentV1 = BaseHermesCommentCommon & {
   targetId?: string;
 };
 
-export type HermesCommentHydratable = HermesCommentV0 | HermesCommentV1;
-export type HermesComment = HermesCommentV1;
+export type ForumCommentSignedPayload = Omit<BaseHermesCommentCommon, 'upvotes' | 'downvotes'> & {
+  schemaVersion: 'hermes-comment-v2';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
+  stance: 'concur' | 'counter' | 'discuss';
+  targetId?: string;
+};
+
+export interface ForumCommentSignedWriteEnvelope {
+  envelopeVersion: 1;
+  signatureSuite: 'jcs-ed25519-sha256-v1';
+  protocolVersion: 'luma-write-v1';
+  profile: 'dev' | 'e2e' | 'public-beta' | 'production-attestation';
+  audience: 'vh-forum-comment';
+  origin: string;
+  scheme: 'forum-author-v1';
+  publicAuthor: string;
+  sessionRef: SignedWriteSessionRef;
+  payload: ForumCommentSignedPayload;
+  payloadDigest: string;
+  sequence: number;
+  nonce: string;
+  idempotencyKey: string;
+  issuedAt: number;
+  signature: string;
+}
+
+export type HermesCommentV2 = ForumCommentSignedPayload & {
+  upvotes: number;
+  downvotes: number;
+  signedWriteEnvelope: ForumCommentSignedWriteEnvelope;
+  type?: 'reply' | 'counterpoint';
+};
+
+export type HermesCommentHydratable = HermesCommentV0 | HermesCommentV1 | HermesCommentV2;
+export type HermesComment = HermesCommentV1 | HermesCommentV2;
 
 export type HermesModerationAction = 'hide' | 'remove';
 

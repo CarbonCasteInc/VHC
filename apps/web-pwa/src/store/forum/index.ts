@@ -1,9 +1,9 @@
 import { create, type StoreApi } from 'zustand';
 import {
   computeThreadScore, deriveTopicId, deriveUrlTopicId, HermesCommentSchema,
-  HermesCommentModerationSchema, HermesCommentWriteSchema, HermesThreadSchema, migrateCommentToV1
+  HermesCommentModerationSchema, HermesThreadSchema, migrateCommentToV1
 } from '@vh/data-model';
-import type { HermesComment, HermesCommentHydratable, HermesThread, IdentityRecord } from '@vh/types';
+import { deriveForumAuthorId, type HermesComment, type HermesCommentHydratable, type HermesThread, type IdentityRecord } from '@vh/types';
 import {
   createRelayUserSignatureHeaders,
   getForumCommentIndexChain,
@@ -30,6 +30,11 @@ import { notifySynthesisPipeline } from './synthesisBridge';
 import { normalizeThreadSourceContext } from './sourceContext';
 import { recordGunMessageActivity } from '../../hooks/useHealthMonitor';
 import { getFullIdentity } from '../identityProvider';
+import {
+  assertLumaForumIdentity,
+  createLumaForumCommentRecord,
+  createLumaForumThreadRecord
+} from './lumaRecords';
 
 export type { ForumState } from './types';
 export { stripUndefined } from './helpers';
@@ -66,6 +71,9 @@ const THREAD_READ_TIMEOUT_MS = 1_500;
 const COMMENT_SCALAR_FIELDS = [
   'id',
   'schemaVersion',
+  '_protocolVersion',
+  '_writerKind',
+  '_authorScheme',
   'threadId',
   'parentId',
   'content',
@@ -75,11 +83,15 @@ const COMMENT_SCALAR_FIELDS = [
   'targetId',
   'via',
   'upvotes',
-  'downvotes'
+  'downvotes',
+  'signedWriteEnvelope'
 ] as const;
 const THREAD_SCALAR_FIELDS = [
   'id',
   'schemaVersion',
+  '_protocolVersion',
+  '_writerKind',
+  '_authorScheme',
   'title',
   'content',
   'author',
@@ -95,6 +107,7 @@ const THREAD_SCALAR_FIELDS = [
   'sourceEpoch',
   'sourceUrl',
   'urlHash',
+  'signedWriteEnvelope',
   THREAD_JSON_FIELD
 ] as const;
 
@@ -984,6 +997,9 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     const assembled = stripUndefined({
       id: typeof fields.id === 'string' && fields.id.trim().length > 0 ? fields.id : commentId,
       schemaVersion: fields.schemaVersion,
+      _protocolVersion: fields._protocolVersion,
+      _writerKind: fields._writerKind,
+      _authorScheme: fields._authorScheme,
       threadId: fields.threadId,
       parentId: fields.parentId === undefined ? null : fields.parentId,
       content: fields.content,
@@ -993,7 +1009,8 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       targetId: fields.targetId,
       via: fields.via,
       upvotes: fields.upvotes ?? 0,
-      downvotes: fields.downvotes ?? 0
+      downvotes: fields.downvotes ?? 0,
+      signedWriteEnvelope: fields.signedWriteEnvelope
     });
     return ingestComment(threadId, assembled, commentId);
   };
@@ -1249,25 +1266,16 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     userVotes: initialVotes,
     async createThread(title, content, tags, sourceContext, opts) {
       triggerHydration();
-      const identity = ensureIdentity();
+      ensureIdentity();
+      const identity = assertLumaForumIdentity(getFullIdentity<IdentityRecord>());
       const budgetCheck = useXpLedger.getState().canPerformAction('posts/day');
       if (!budgetCheck.allowed) {
         throw new Error(`Budget denied: ${budgetCheck.reason}`);
       }
       const client = ensureClient(deps.resolveClient);
       const threadId = opts?.threadId?.trim() || deps.randomId();
-      const threadData: Record<string, unknown> = {
-        id: threadId,
-        schemaVersion: 'hermes-thread-v0',
-        title,
-        content,
-        author: identity.session.nullifier,
-        timestamp: deps.now(),
-        tags,
-        upvotes: 0,
-        downvotes: 0,
-        score: 0
-      };
+      const timestamp = deps.now();
+      const threadData: Record<string, unknown> = {};
       const normalizedSourceContext = normalizeThreadSourceContext(sourceContext);
       if (normalizedSourceContext.sourceSynthesisId) {
         threadData.sourceSynthesisId = normalizedSourceContext.sourceSynthesisId;
@@ -1291,7 +1299,20 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       if (opts?.isHeadline) {
         threadData.isHeadline = true;
       }
-      const thread: HermesThread = HermesThreadSchema.parse(threadData);
+      const thread: HermesThread = HermesThreadSchema.parse(await createLumaForumThreadRecord({
+        identity,
+        id: threadId,
+        title,
+        content,
+        timestamp,
+        tags,
+        sourceSynthesisId: typeof threadData.sourceSynthesisId === 'string' ? threadData.sourceSynthesisId : undefined,
+        sourceEpoch: typeof threadData.sourceEpoch === 'number' ? threadData.sourceEpoch : undefined,
+        topicId: typeof threadData.topicId === 'string' ? threadData.topicId : undefined,
+        sourceUrl: typeof threadData.sourceUrl === 'string' ? threadData.sourceUrl : undefined,
+        urlHash: typeof threadData.urlHash === 'string' ? threadData.urlHash : undefined,
+        isHeadline: threadData.isHeadline === true ? true : undefined
+      }));
       const withScore = { ...thread, score: computeThreadScore(thread, deps.now()) };
       const threadForGun = serializeThreadForGun(withScore);
       const hasUndefined = Object.entries(threadForGun).some(([, v]) => v === undefined);
@@ -1328,7 +1349,8 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     },
     async createComment(threadId, content, stanceInput, parentId, targetId, via) {
       triggerHydration();
-      const identity = ensureIdentity();
+      ensureIdentity();
+      const identity = assertLumaForumIdentity(getFullIdentity<IdentityRecord>());
       const budgetCheck = useXpLedger.getState().canPerformAction('comments/day');
       if (!budgetCheck.allowed) {
         throw new Error(`Budget denied: ${budgetCheck.reason}`);
@@ -1339,19 +1361,16 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       if (stance !== 'concur' && stance !== 'counter' && stance !== 'discuss') {
         throw new Error('Invalid stance');
       }
-      const comment: HermesComment = HermesCommentWriteSchema.parse({
+      const comment: HermesComment = await createLumaForumCommentRecord({
+        identity,
         id: deps.randomId(),
-        schemaVersion: 'hermes-comment-v1',
         threadId,
         parentId: parentId ?? null,
         content,
-        author: identity.session.nullifier,
         timestamp: deps.now(),
         stance,
         targetId: targetId ?? undefined,
-        via,
-        upvotes: 0,
-        downvotes: 0
+        via
       });
       const cleanComment = stripUndefined(comment);
       const withLegacyType: HermesComment = {
@@ -1387,6 +1406,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
     async vote(targetId, direction) {
       const identity = ensureIdentity();
       const client = ensureClient(deps.resolveClient);
+      const forumAuthorId = await deriveForumAuthorId(identity.session.nullifier);
       const previous = get().userVotes.get(targetId) ?? null;
       if (previous === direction) return;
       const nextVotes = new Map(get().userVotes).set(targetId, direction);
@@ -1404,7 +1424,7 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
         });
         const prevScore = thread.upvotes - thread.downvotes;
         const nextScore = updatedThread.upvotes - updatedThread.downvotes;
-        if (thread.author === identity.session.nullifier) {
+        if (thread.author === forumAuthorId || thread.author === identity.session.nullifier) {
           [3, 10].forEach((threshold) => {
             if (prevScore < threshold && nextScore >= threshold) {
               useXpLedger.getState().applyForumXP({ type: 'quality_bonus', contentId: targetId, threshold: threshold as 3 | 10 });
@@ -1425,15 +1445,16 @@ export function createForumStore(overrides?: Partial<ForumDeps>) {
       nextComments.set(threadId, comments.map((c) => (c.id === targetId ? updatedComment : c)));
       set((state) => ({ ...state, comments: nextComments, userVotes: nextVotes }));
       persistVotes(identity.session.nullifier, nextVotes);
+      const { type: _legacyType, ...commentForGun } = updatedComment;
       await new Promise<void>((resolve, reject) => {
-        getForumCommentsChain(client, threadId).get(targetId).put(updatedComment, (ack?: { err?: string }) => {
+        getForumCommentsChain(client, threadId).get(targetId).put(commentForGun as HermesComment, (ack?: { err?: string }) => {
           if (ack?.err) { reject(new Error(ack.err)); return; }
           resolve();
         });
       });
       const prevScore = comment.upvotes - comment.downvotes;
       const nextScore = updatedComment.upvotes - updatedComment.downvotes;
-      if (comment.author === identity.session.nullifier) {
+      if (comment.author === forumAuthorId || comment.author === identity.session.nullifier) {
         [3, 10].forEach((threshold) => {
           if (prevScore < threshold && nextScore >= threshold) {
             useXpLedger.getState().applyForumXP({ type: 'quality_bonus', contentId: targetId, threshold: threshold as 3 | 10 });

@@ -1,15 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   computeThreadScore,
   deriveTopicId,
   deriveUrlTopicId,
+  FORUM_AUTHOR_SCHEME,
+  FORUM_COMMENT_AUDIENCE,
+  FORUM_PUBLIC_PROTOCOL_VERSION,
+  FORUM_THREAD_AUDIENCE,
+  FORUM_WRITER_KIND,
   ForumPostSchema,
+  forumCommentSignedPayload,
+  forumThreadSignedPayload,
   HermesCommentModerationSchema,
   HermesCommentSchema,
   HermesCommentSchemaV0,
   HermesCommentSchemaV1,
+  HermesCommentSchemaV2,
   HermesCommentWriteSchema,
   HermesThreadSchema,
+  HermesThreadSchemaV1,
   ModerationEventSchema,
   migrateCommentToV1,
   ProposalExtensionSchema,
@@ -19,6 +28,10 @@ import {
 } from './forum';
 
 const now = Date.now();
+const FORUM_AUTHOR_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const OTHER_FORUM_AUTHOR_ID = 'abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd';
+const HEX_32 = '00112233445566778899aabbccddeeff';
+const HEX_64 = 'a'.repeat(64);
 
 const baseThread = {
   id: 'thread-1',
@@ -66,6 +79,104 @@ const baseCommentV1 = {
   upvotes: 0,
   downvotes: 0
 };
+
+function signedThreadEnvelope(payload = forumThreadSignedPayload(baseThreadV1())) {
+  return {
+    envelopeVersion: 1,
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    protocolVersion: 'luma-write-v1',
+    profile: 'public-beta',
+    audience: FORUM_THREAD_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: FORUM_AUTHOR_SCHEME,
+    publicAuthor: payload.author,
+    sessionRef: {
+      tokenHash: HEX_64,
+      envelopeDigest: 'b'.repeat(64)
+    },
+    payload,
+    payloadDigest: 'c'.repeat(64),
+    sequence: now,
+    nonce: HEX_32,
+    idempotencyKey: 'd'.repeat(64),
+    issuedAt: now,
+    signature: 'signature'
+  } as const;
+}
+
+function signedCommentEnvelope(payload = forumCommentSignedPayload(baseCommentV2())) {
+  return {
+    envelopeVersion: 1,
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    protocolVersion: 'luma-write-v1',
+    profile: 'public-beta',
+    audience: FORUM_COMMENT_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: FORUM_AUTHOR_SCHEME,
+    publicAuthor: payload.author,
+    sessionRef: {
+      tokenHash: HEX_64,
+      envelopeDigest: 'b'.repeat(64)
+    },
+    payload,
+    payloadDigest: 'c'.repeat(64),
+    sequence: now,
+    nonce: HEX_32,
+    idempotencyKey: 'd'.repeat(64),
+    issuedAt: now,
+    signature: 'signature'
+  } as const;
+}
+
+function baseThreadV1() {
+  const payload = {
+    schemaVersion: 'hermes-thread-v1' as const,
+    _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: FORUM_WRITER_KIND,
+    _authorScheme: FORUM_AUTHOR_SCHEME,
+    id: 'thread-luma-1',
+    title: 'A LUMA civic conversation',
+    content: 'Signed markdown content',
+    author: FORUM_AUTHOR_ID,
+    timestamp: now,
+    tags: ['infrastructure'],
+    topicId: 'topic-1'
+  };
+  return {
+    ...payload,
+    upvotes: 0,
+    downvotes: 0,
+    score: 0,
+    signedWriteEnvelope: signedThreadEnvelope(payload)
+  };
+}
+
+function baseCommentV2() {
+  const payload = {
+    schemaVersion: 'hermes-comment-v2' as const,
+    _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: FORUM_WRITER_KIND,
+    _authorScheme: FORUM_AUTHOR_SCHEME,
+    id: 'comment-luma-1',
+    threadId: 'thread-luma-1',
+    parentId: null,
+    content: 'Signed comment content',
+    author: FORUM_AUTHOR_ID,
+    timestamp: now,
+    stance: 'concur' as const
+  };
+  return {
+    ...payload,
+    upvotes: 0,
+    downvotes: 0,
+    signedWriteEnvelope: signedCommentEnvelope(payload)
+  };
+}
+
+function commentV2WriteRecord() {
+  const { signedWriteEnvelope: _signedWriteEnvelope, ...record } = baseCommentV2();
+  return record;
+}
 
 describe('HermesThreadSchema', () => {
   it('accepts existing thread without new fields (backward compat)', () => {
@@ -169,6 +280,63 @@ describe('HermesThreadSchema', () => {
       })
     ).toThrow();
   });
+
+  it('accepts LUMA v1 threads with forum-author metadata and signed envelope', () => {
+    const thread = baseThreadV1();
+    const parsed = HermesThreadSchemaV1.parse(thread);
+
+    expect(parsed).toMatchObject({
+      schemaVersion: 'hermes-thread-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
+      author: expect.stringMatching(/^[0-9a-f]{64}$/),
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-forum-thread',
+        scheme: 'forum-author-v1',
+        publicAuthor: thread.author,
+        payload: forumThreadSignedPayload(thread)
+      })
+    });
+  });
+
+  it('omits undefined optional fields from LUMA thread signed payloads', () => {
+    const payload = forumThreadSignedPayload({
+      ...baseThreadV1(),
+      sourceSynthesisId: undefined,
+      sourceEpoch: undefined,
+      topicId: undefined,
+      sourceUrl: undefined,
+      urlHash: undefined,
+      isHeadline: undefined,
+      proposal: undefined
+    });
+
+    expect(Object.prototype.hasOwnProperty.call(payload, 'sourceSynthesisId')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payload, 'sourceEpoch')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payload, 'topicId')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payload, 'sourceUrl')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payload, 'urlHash')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payload, 'isHeadline')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payload, 'proposal')).toBe(false);
+  });
+
+  it('rejects LUMA v1 threads with raw-author, publicAuthor, or signed payload mismatches', () => {
+    const thread = baseThreadV1();
+
+    expect(HermesThreadSchema.safeParse({ ...thread, author: 'raw-nullifier' }).success).toBe(false);
+    expect(HermesThreadSchema.safeParse({
+      ...thread,
+      signedWriteEnvelope: {
+        ...thread.signedWriteEnvelope,
+        publicAuthor: OTHER_FORUM_AUTHOR_ID
+      }
+    }).success).toBe(false);
+    expect(HermesThreadSchema.safeParse({
+      ...thread,
+      title: 'Tampered title after signing'
+    }).success).toBe(false);
+  });
 });
 
 describe('ProposalExtensionSchema', () => {
@@ -246,6 +414,54 @@ describe('HermesCommentSchema', () => {
   it('accepts a v0 reply without targetId', () => {
     const parsed = HermesCommentSchema.parse(baseCommentV0);
     expect(parsed.targetId).toBeUndefined();
+  });
+
+  it('accepts LUMA v2 comments without redefining legacy v1', () => {
+    const comment = baseCommentV2();
+    const parsed = HermesCommentSchemaV2.parse(comment);
+
+    expect(parsed).toMatchObject({
+      schemaVersion: 'hermes-comment-v2',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
+      author: expect.stringMatching(/^[0-9a-f]{64}$/),
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-forum-comment',
+        scheme: 'forum-author-v1',
+        publicAuthor: comment.author,
+        payload: forumCommentSignedPayload(comment)
+      })
+    });
+    expect(HermesCommentSchemaV1.safeParse(baseCommentV1).success).toBe(true);
+  });
+
+  it('omits undefined optional fields from LUMA comment signed payloads', () => {
+    const payload = forumCommentSignedPayload({
+      ...baseCommentV2(),
+      targetId: undefined,
+      via: undefined
+    });
+
+    expect(Object.prototype.hasOwnProperty.call(payload, 'targetId')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(payload, 'via')).toBe(false);
+  });
+
+  it('rejects LUMA v2 comments with raw-author, publicAuthor, or signed payload mismatches', () => {
+    const comment = baseCommentV2();
+
+    expect(HermesCommentSchema.safeParse({ ...comment, author: 'raw-nullifier' }).success).toBe(false);
+    expect(HermesCommentSchema.safeParse({
+      ...comment,
+      signedWriteEnvelope: {
+        ...comment.signedWriteEnvelope,
+        publicAuthor: OTHER_FORUM_AUTHOR_ID
+      }
+    }).success).toBe(false);
+    expect(HermesCommentSchema.safeParse({
+      ...comment,
+      content: 'Tampered comment after signing'
+    }).success).toBe(false);
   });
 
   it('requires targetId for v0 counterpoints', () => {
@@ -352,18 +568,22 @@ describe('HermesCommentSchema', () => {
 
 describe('HermesCommentWriteSchema', () => {
   it('rejects legacy type on write payloads', () => {
-    const result = HermesCommentWriteSchema.safeParse({ ...baseCommentV1, type: 'reply' });
+    const result = HermesCommentWriteSchema.safeParse({ ...commentV2WriteRecord(), type: 'reply' });
     expect(result.success).toBe(false);
   });
 
-  it('accepts canonical v1 payload', () => {
-    const parsed = HermesCommentWriteSchema.parse(baseCommentV1);
+  it('accepts canonical LUMA v2 write payload', () => {
+    const parsed = HermesCommentWriteSchema.parse(commentV2WriteRecord());
     expect(parsed.stance).toBe('concur');
     expect((parsed as any).type).toBeUndefined();
+    expect(parsed.schemaVersion).toBe('hermes-comment-v2');
   });
 
-  it('accepts canonical v1 payload with discuss stance', () => {
-    const parsed = HermesCommentWriteSchema.parse({ ...baseCommentV1, stance: 'discuss' as const });
+  it('accepts canonical LUMA v2 payload with discuss stance', () => {
+    const parsed = HermesCommentWriteSchema.parse({
+      ...commentV2WriteRecord(),
+      stance: 'discuss' as const
+    });
     expect(parsed.stance).toBe('discuss');
     expect((parsed as any).type).toBeUndefined();
   });
@@ -428,13 +648,17 @@ describe('comment via field', () => {
   });
 
   it('accepts write schema payloads with and without via', () => {
-    expect(HermesCommentWriteSchema.safeParse(baseCommentV1).success).toBe(true);
-    expect(HermesCommentWriteSchema.safeParse({ ...baseCommentV1, via: 'human' }).success).toBe(true);
+    const payload = commentV2WriteRecord();
+    expect(HermesCommentWriteSchema.safeParse(payload).success).toBe(true);
+    expect(HermesCommentWriteSchema.safeParse({ ...payload, via: 'human' }).success).toBe(true);
   });
 
   it('rejects invalid via values', () => {
     expect(HermesCommentSchemaV1.safeParse({ ...baseCommentV1, via: 'bot' }).success).toBe(false);
-    expect(HermesCommentWriteSchema.safeParse({ ...baseCommentV1, via: 'bot' }).success).toBe(false);
+    expect(HermesCommentWriteSchema.safeParse({
+      ...commentV2WriteRecord(),
+      via: 'bot'
+    }).success).toBe(false);
   });
 });
 
@@ -450,6 +674,18 @@ describe('topic derivation', () => {
     await expect(sha256Hex('hello')).resolves.toBe(
       '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
     );
+  });
+
+  it('sha256Hex hashes without a global Buffer fallback', async () => {
+    const originalBuffer = globalThis.Buffer;
+    vi.stubGlobal('Buffer', undefined);
+    try {
+      await expect(sha256Hex('abc')).resolves.toBe(
+        'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+      );
+    } finally {
+      vi.stubGlobal('Buffer', originalBuffer);
+    }
   });
 
   it('sha256Hex is deterministic', async () => {
@@ -516,6 +752,13 @@ describe('migrateCommentToV1', () => {
     const migrated = migrateCommentToV1({ ...baseCommentV1, type: 'reply' });
     expect(migrated).toMatchObject(baseCommentV1);
     expect((migrated as any).type).toBeUndefined();
+  });
+
+  it('passes through LUMA v2 comments without downgrading schema version', () => {
+    const comment = baseCommentV2();
+    const migrated = migrateCommentToV1(comment);
+    expect(migrated).toEqual(comment);
+    expect(migrated.schemaVersion).toBe('hermes-comment-v2');
   });
 });
 

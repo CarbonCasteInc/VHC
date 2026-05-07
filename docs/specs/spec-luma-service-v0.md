@@ -2,10 +2,10 @@
 
 > Status: Draft Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-05-04
+> Last Reviewed: 2026-05-07
 > Depends On: docs/specs/spec-identity-trust-constituency.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/secure-storage-policy.md, docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-signed-pin-custody-v0.md, docs/foundational/LUMA_BriefWhitePaper.md, docs/foundational/System_Architecture.md
 
-Version: 0.2
+Version: 0.3
 Status: Draft for Season 0 LUMA service boundary and SDK contract; transitions to Canonical on M0.A review signoff.
 
 This spec defines the LUMA service contract: API boundary, SDK surface, identity types, write-envelope shape, policy engine, storage model, session lifecycle, transparency posture, and acceptance tests. It is the canonical owner of LUMA service-level concerns. Identity, trust, and constituency *semantics* (thresholds, beta-local proof contract, familiar invariants, Season 0 fence) remain owned by `docs/specs/spec-identity-trust-constituency.md`; this spec defers to it on conflict.
@@ -190,6 +190,12 @@ type AudienceTag =
 `vh-directory-entry` audience was added by LUMA-RFC-0001 for directory-v1 public
 record migration; it is scoped only to `vh/directory/<identityDirectoryKey>/`
 records and MUST NOT be reused by forum, aggregate, vault, or provider surfaces.
+The `vh-forum-thread` and `vh-forum-comment` audiences are scoped to current
+forum-author records only: `hermes-thread-v1` at
+`vh/forum/threads/<threadId>` and `hermes-comment-v2` at
+`vh/forum/threads/<threadId>/comments/<commentId>`. Readers MUST reject a
+forum envelope when `publicAuthor`, `_authorScheme`, audience, or canonical
+payload does not match the record being read.
 
 ### 5.1 Reader rules
 

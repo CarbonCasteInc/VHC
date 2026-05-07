@@ -1,9 +1,17 @@
 import type { HermesComment, HermesCommentModeration, HermesThread } from '@vh/types';
 import {
   assertTrustedOperatorAuthorization,
+  HermesCommentSchemaV2,
   HermesCommentModerationSchema,
+  HermesThreadSchemaV1,
+  type ForumCommentSignedPayload,
+  type ForumThreadSignedPayload,
   type TrustedOperatorAuthorization,
 } from '@vh/data-model';
+import {
+  verifySignedWriteEnvelope,
+  type SignedWriteVerifyHook
+} from '@vh/luma-sdk';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import type { VennClient } from './types';
@@ -121,6 +129,49 @@ export function getForumTagIndexChain(client: VennClient, tag: string): ChainWit
     .get('tags')
     .get(tag) as unknown as ChainWithGet<Record<string, string>>;
   return createGuardedChain(chain, client.hydrationBarrier, client.topologyGuard, tagIndexPath(tag));
+}
+
+export async function validateForumThreadRecord(
+  value: unknown,
+  expectedThreadId: string,
+  verify: SignedWriteVerifyHook<ForumThreadSignedPayload>
+): Promise<HermesThread | null> {
+  const result = HermesThreadSchemaV1.safeParse(stripGunMetadata(value));
+  if (!result.success) {
+    return null;
+  }
+  const thread = result.data;
+  if (thread.id !== expectedThreadId) {
+    return null;
+  }
+
+  const verification = await verifySignedWriteEnvelope({
+    envelope: thread.signedWriteEnvelope,
+    verify
+  });
+  return verification.valid ? thread : null;
+}
+
+export async function validateForumCommentRecord(
+  value: unknown,
+  expectedThreadId: string,
+  expectedCommentId: string,
+  verify: SignedWriteVerifyHook<ForumCommentSignedPayload>
+): Promise<HermesComment | null> {
+  const result = HermesCommentSchemaV2.safeParse(stripGunMetadata(value));
+  if (!result.success) {
+    return null;
+  }
+  const comment = result.data;
+  if (comment.threadId !== expectedThreadId || comment.id !== expectedCommentId) {
+    return null;
+  }
+
+  const verification = await verifySignedWriteEnvelope({
+    envelope: comment.signedWriteEnvelope,
+    verify
+  });
+  return verification.valid ? comment : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
