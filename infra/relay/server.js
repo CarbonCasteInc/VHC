@@ -4,6 +4,7 @@ const { createRequire } = require('module');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { monitorEventLoopDelay } = require('perf_hooks');
 
 function resolveGun() {
   try {
@@ -142,6 +143,8 @@ const metrics = {
   compactionRuns: 0,
   compactionTombstones: 0,
 };
+const eventLoopDelay = monitorEventLoopDelay({ resolution: 20 });
+eventLoopDelay.enable();
 
 const httpBuckets = new Map();
 const seenUserNonces = new Map();
@@ -455,6 +458,10 @@ function metricsText() {
   add('vh_relay_compaction_runs_total', metrics.compactionRuns);
   add('vh_relay_compaction_tombstones_total', metrics.compactionTombstones);
   add('vh_relay_radata_bytes', dirSizeBytes(gunFile));
+  const memory = process.memoryUsage();
+  add('vh_relay_process_rss_bytes', memory.rss);
+  add('vh_relay_process_heap_used_bytes', memory.heapUsed);
+  add('vh_relay_event_loop_lag_p95_ms', Math.round(eventLoopDelay.percentile(95) / 1e6));
   for (const [status, count] of metrics.httpResponses) {
     add('vh_relay_http_responses_total', count, { status });
   }

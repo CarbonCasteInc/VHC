@@ -919,7 +919,10 @@ Regression traps:
 
 ### Slice 10 - Rolling Restart Soak
 
-Status: Queued.
+Status: Implemented as a bounded local rolling-restart soak command. The
+default developer command may run shorter than 30 minutes, but the report MUST
+record that it does not satisfy the canonical 30-minute soak claim unless the
+observed duration reaches the configured 30-minute budget.
 
 Purpose:
 
@@ -945,6 +948,20 @@ Primary commands:
   - `pnpm test:live:five-user-engagement`
 - New:
   - `pnpm test:mesh:soak`
+
+The command writes only synthetic mesh drill records under
+`vh/__mesh_drills/<run_id>/soak/*`, uses `_drillWriterKind: 'mesh-drill'`, and
+does not exercise LUMA-gated write classes. On post-M0.B branches the report
+uses `schema_epoch: 'post_luma_m0b'` with `luma_profile: 'none'`; this is not
+the M0.B per-class LUMA transport revalidation gate.
+
+The report carries a `soak` block with requested duration, canonical duration,
+`full_duration_satisfied`, restart events, browser reconnect evidence,
+terminal-failure counts, duplicate counts, repair events if explicit
+read-repair was needed, and silent-drop counts. A shortened local pass may mark
+the local soak gate `pass`, but the top-level report remains `review_required`
+and the release claim boundary still forbids "thirty-minute soak behavior is
+production-ready."
 
 Required metrics:
 
@@ -1067,7 +1084,8 @@ interface MeshProductionReadinessReport {
       | 'local_signed_peer_config_browser_boot'
       | 'deployed_wss_topology'
       | 'local_partition_heal_topology'
-      | 'local_read_repair_strategy';
+      | 'local_read_repair_strategy'
+      | 'local_rolling_restart_soak';
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
     completed_at: string;
@@ -1154,6 +1172,43 @@ interface MeshProductionReadinessReport {
     artifact_path?: string;
     reason?: string;
   }>;
+  soak?: {
+    status: 'pass' | 'fail' | 'review_required';
+    requested_duration_ms: number;
+    canonical_duration_ms: number;
+    full_duration_satisfied: boolean;
+    shortened_run: boolean;
+    lanes: Array<{
+      lane_id: string;
+      actor_count: number;
+    }>;
+    restart_events: Array<{
+      relay_id: string;
+      stopped_at: string;
+      completed_at: string;
+      downtime_ms: number;
+      ready_ok: boolean;
+      health_returned_to_nominal: boolean;
+    }>;
+    repair_events: Array<{
+      sample_id: string;
+      object_class: string;
+      repaired_relays: string[];
+      attempts: number;
+      successes: number;
+      latency_ms: number;
+      post_repair_status: 'pass' | 'fail';
+    }>;
+    browser_reconnect: {
+      status: 'pass' | 'fail' | 'skipped';
+      evidence_path?: string;
+      forced_close_count: number | null;
+      opened_event_count: number | null;
+    };
+    duplicate_canonical_writes: number;
+    silent_drops: number;
+    terminal_failures: number;
+  };
   write_class_slos: Array<{
     write_class: string;
     attempts: number;
@@ -1939,12 +1994,12 @@ Implemented mesh commands:
 - `pnpm test:mesh:disconnect-drills`
 - `pnpm test:mesh:partition-drills`
 - `pnpm test:mesh:read-repair-drills`
+- `pnpm test:mesh:soak`
 
 Required new commands:
 
 - `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
-- `pnpm test:mesh:soak`
 - `pnpm check:mesh:production-readiness`
 - `pnpm check:production-app-canary`
 - `pnpm check:mesh-evidence-scrub` (gates promotion of `.tmp` packets to
@@ -2049,6 +2104,23 @@ Still not allowed after Slice 9 partition/heal drill proof:
 - "Full clock-skew matrix behavior is production-ready."
 - "LUMA-gated public write partition/heal behavior is proven."
 - "Thirty-minute soak behavior is production-ready."
+- "The mesh has production-ready multi-relay failover."
+- "The app is ready for a test group."
+
+Allowed after Slice 10 shortened rolling-restart soak proof:
+
+- "The bounded local three-relay harness completed a rolling restart soak using
+  deterministic synthetic mesh drill records, browser reconnect evidence, and
+  populated local relay resource budgets."
+- "The bounded local soak report recorded zero duplicate canonical synthetic
+  drill writes and zero terminal write failures for covered rows."
+
+Still not allowed after Slice 10 shortened rolling-restart soak proof:
+
+- "The default shortened local command satisfies the canonical thirty-minute
+  soak claim."
+- "LUMA-gated production write classes are soak-proven."
+- "Public WSS infrastructure is soak-proven."
 - "The mesh has production-ready multi-relay failover."
 - "The app is ready for a test group."
 

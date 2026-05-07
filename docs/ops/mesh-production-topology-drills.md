@@ -5,8 +5,11 @@
 > Last Reviewed: 2026-05-05
 > Depends On: docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-signed-pin-custody-v0.md
 
-This runbook covers the first local production-shaped mesh topology proof path.
-It runs under `schema_epoch: pre_luma_m0b` and `luma_profile: none`.
+This runbook covers the local production-shaped mesh topology proof path.
+Early transport/state proofs ran under `schema_epoch: pre_luma_m0b`; post-M0.B
+commands may report `schema_epoch: post_luma_m0b`. The mesh drill profile stays
+`luma_profile: none` unless a later slice explicitly exercises LUMA-gated write
+classes through the LUMA reader path.
 
 ## Command
 
@@ -259,6 +262,28 @@ This command proves only the explicit repair strategy for synthetic
 automatic partition-heal `review_required` outcome into an automatic recovery
 claim, and it does not exercise LUMA-gated write classes.
 
+Run the bounded rolling restart soak with:
+
+```bash
+pnpm test:mesh:soak
+```
+
+The soak command starts the local three-relay harness, builds/previews the Web
+PWA for a browser reconnect lane, runs deterministic two-user and five-user
+synthetic mesh workload lanes, restarts relays one at a time, writes through the
+remaining quorum while a relay is down, verifies direct per-relay readback after
+restart, and records local relay resource/radata metrics. The default developer
+duration may be shorter than the canonical 30-minute soak; the report records
+`soak.full_duration_satisfied: false` for shortened runs and must not use that
+run to claim thirty-minute production soak readiness. Use
+`VH_MESH_SOAK_DURATION_MS=1800000 pnpm test:mesh:soak` when collecting the
+canonical duration packet.
+
+This command proves only bounded local synthetic soak behavior under
+`vh/__mesh_drills/<run_id>/soak/*`. It does not exercise LUMA-gated write
+classes, public WSS infrastructure, evidence promotion, or the full
+`pnpm check:mesh:production-readiness` gate.
+
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
 path in this server, public production WSS rollout still needs a trust path
@@ -267,9 +292,10 @@ client-compatible signed peer handshake.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B even when the
+The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10 even when the
 local restarted-relay drill, deployed-WSS local TLS profile, state-resolution
-drill, disconnect drill, partition/heal drill, and read-repair drill pass. A passing
+drill, disconnect drill, partition/heal drill, read-repair drill, and bounded
+rolling-restart soak pass. A passing
 restarted-relay section means only that the restarted local relay directly read
 the missed synthetic drill write inside this bounded harness. A passing
 deployed-WSS section means only that the local TLS/WSS profile, signed WSS
@@ -285,10 +311,13 @@ and one stale relay user-signature timestamp was classified correctly. A
 completed but automatic relay catch-up after heal is not proven and must feed a
 topology-strategy decision. A passing read-repair section means only that
 synthetic drill records missed by relay B were repaired through explicit replay
-from surviving-quorum direct readback. Neither outcome proves public WSS
+from surviving-quorum direct readback. A passing bounded soak section means only
+that deterministic synthetic local-harness restart/reconnect rows met their
+recorded budgets; if `soak.full_duration_satisfied` is false it is not the
+canonical 30-minute soak claim. Neither outcome proves public WSS
 infrastructure, automatic peer-federation recovery, LUMA-gated write state
-resolution, the full clock-skew matrix, soak budgets, evidence scrub promotion,
-or post-M0.B LUMA-gated write coverage.
+resolution, the full clock-skew matrix, evidence scrub promotion, or post-M0.B
+LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one
