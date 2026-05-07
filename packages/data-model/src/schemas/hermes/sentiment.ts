@@ -186,7 +186,11 @@ export const AggregateVoterNodeV1Schema = AggregateVoterSignedPayloadSchema.exte
   }
 
   const payload = tryAggregateVoterSignedPayload(value);
-  if (payload && !sameCanonicalJson(value.signedWriteEnvelope.payload, payload)) {
+  const envelopePayload = tryAggregateVoterSignedPayload(value.signedWriteEnvelope.payload);
+  if (
+    payload &&
+    (!envelopePayload || !sameCanonicalJson(envelopePayload, payload))
+  ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['signedWriteEnvelope', 'payload'],

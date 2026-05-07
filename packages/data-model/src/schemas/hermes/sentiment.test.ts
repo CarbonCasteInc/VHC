@@ -261,6 +261,33 @@ describe('AggregateVoterNodeSchema', () => {
     expect(aggregateVoterSignedPayload(validLumaNode)).toEqual(validPayload);
   });
 
+  it('accepts LUMA v1 signed payloads regardless of object key insertion order', () => {
+    const reorderedPayload = {
+      updated_at: validPayload.updated_at,
+      weight: validPayload.weight,
+      agreement: validPayload.agreement,
+      point_id: validPayload.point_id,
+      voter_id: validPayload.voter_id,
+      epoch: validPayload.epoch,
+      synthesis_id: validPayload.synthesis_id,
+      topic_id: validPayload.topic_id,
+      _authorScheme: validPayload._authorScheme,
+      _writerKind: validPayload._writerKind,
+      _protocolVersion: validPayload._protocolVersion,
+      schema_version: validPayload.schema_version,
+    };
+
+    expect(
+      AggregateVoterNodeV1Schema.safeParse({
+        ...validLumaNode,
+        signedWriteEnvelope: {
+          ...validEnvelope,
+          payload: reorderedPayload,
+        },
+      }).success,
+    ).toBe(true);
+  });
+
   it('rejects LUMA v1 aggregate voter nodes with raw authors or signed payload mismatches', () => {
     expect(
       AggregateVoterNodeV1Schema.safeParse({
