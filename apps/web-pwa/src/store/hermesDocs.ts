@@ -12,9 +12,7 @@ import { create } from 'zustand';
 import {
   DocPublishLinkSchema,
   FeedItemSchema,
-  ForumPostSchema,
   HermesDocumentSchema,
-  HermesThreadSchema,
   type DocPublishLink,
   type FeedItem,
   type ForumPost,
@@ -22,8 +20,15 @@ import {
   type HermesThread,
 } from '@vh/data-model';
 import { getForumThreadChain } from '@vh/gun-client';
+import type { IdentityRecord } from '@vh/types';
 import { useDiscoveryStore } from './discovery';
+import { getFullIdentity } from './identityProvider';
 import { useAppStore } from './index';
+import {
+  assertLumaForumIdentity,
+  createLumaForumPostRecord,
+  createLumaForumThreadRecord
+} from './forum/lumaRecords';
 import { serializeThreadForGun, stripUndefined } from './forum/helpers';
 
 // ── Feature flag ──────────────────────────────────────────────────────
@@ -55,7 +60,7 @@ export interface DocsState {
   enabled: boolean;
   createDraft: (fromReplyText: string, sourceContext?: SourceContext) => HermesDocument | null;
   saveDraft: (docId: string, updates: Partial<Pick<HermesDocument, 'title' | 'encryptedContent' | 'type'>>) => void;
-  publishArticle: (docId: string) => void;
+  publishArticle: (docId: string) => Promise<boolean>;
   getDraft: (docId: string) => HermesDocument | undefined;
   listDrafts: () => HermesDocument[];
   listPublished: () => HermesDocument[];
@@ -65,6 +70,7 @@ export interface DocsDeps {
   now: () => number;
   randomId: () => string;
   owner: () => string;
+  identity: () => IdentityRecord | null;
   publishBack: (artifacts: PublishBackArtifacts) => void;
 }
 
@@ -83,10 +89,12 @@ function toForumContent(content: string): string {
   return content.slice(0, FORUM_CONTENT_LIMIT);
 }
 
-export function createPublishBackArtifacts(
+export async function createPublishBackArtifacts(
   doc: HermesDocument,
   deps: Pick<DocsDeps, 'now' | 'randomId'>,
-): PublishBackArtifacts {
+  identityRecord: IdentityRecord | null,
+): Promise<PublishBackArtifacts> {
+  const identity = assertLumaForumIdentity(identityRecord);
   const threadId = doc.sourceThreadId ?? `${FORUM_THREAD_PREFIX}${doc.id}`;
   const topicId = doc.sourceTopicId ?? threadId;
   const publishedAt = deps.now();
@@ -104,18 +112,15 @@ export function createPublishBackArtifacts(
 
   const forumContent = toForumContent(doc.encryptedContent);
 
-  const forumPost = ForumPostSchema.parse({
+  const forumPost = await createLumaForumPostRecord({
     id: `post-${link.articleId}`,
-    schemaVersion: 'hermes-post-v0',
     threadId: /* v8 ignore next -- threadId always set via fallback */ link.threadId ?? threadId,
     parentId: null,
     topicId: link.topicId,
-    author: doc.owner,
+    identity,
     type: 'article',
     content: forumContent,
     timestamp: link.publishedAt,
-    upvotes: 0,
-    downvotes: 0,
     articleRefId: link.articleId,
   });
 
@@ -133,20 +138,17 @@ export function createPublishBackArtifacts(
 
   const forumThread = doc.sourceThreadId
     ? undefined
-    : HermesThreadSchema.parse({
+    : await createLumaForumThreadRecord({
+      identity,
       id: threadId,
-      schemaVersion: 'hermes-thread-v0',
       title: doc.title,
       content: forumContent,
-      author: doc.owner,
       timestamp: link.publishedAt,
       tags: ['article'],
       topicId: link.topicId,
       /* v8 ignore next -- both branches tested via with/without synthesisId tests */
       ...(link.synthesisId ? { sourceSynthesisId: link.synthesisId } : {}),
-      upvotes: 0,
-      downvotes: 0,
-      score: 0,
+      ...(link.epoch != null ? { sourceEpoch: link.epoch } : {}),
     });
 
   return {
@@ -204,6 +206,7 @@ export function createDocsStore(overrides?: Partial<DocsDeps>, forceEnabled?: bo
     now: overrides?.now ?? (() => Date.now()),
     randomId: overrides?.randomId ?? defaultRandomId,
     owner: overrides?.owner ?? (() => 'anonymous'),
+    identity: overrides?.identity ?? (() => getFullIdentity<IdentityRecord>()),
     publishBack: overrides?.publishBack ?? publishBackToRuntime,
   };
 
@@ -263,14 +266,20 @@ export function createDocsStore(overrides?: Partial<DocsDeps>, forceEnabled?: bo
       });
     },
 
-    publishArticle(docId: string) {
-      if (!get().enabled) return;
+    async publishArticle(docId: string): Promise<boolean> {
+      if (!get().enabled) return false;
 
       const existing = get().documents.get(docId);
-      if (!existing) return;
-      if (existing.publishedAt != null) return; // already published
+      if (!existing) return false;
+      if (existing.publishedAt != null) return false; // already published
 
-      const artifacts = createPublishBackArtifacts(existing, deps);
+      let artifacts: PublishBackArtifacts;
+      try {
+        artifacts = await createPublishBackArtifacts(existing, deps, deps.identity());
+      } catch (error) {
+        console.warn('[vh:docs] publish back LUMA signing failed', error);
+        return false;
+      }
 
       const published: HermesDocument = {
         ...existing,
@@ -295,6 +304,7 @@ export function createDocsStore(overrides?: Partial<DocsDeps>, forceEnabled?: bo
       } catch (error) {
         console.warn('[vh:docs] publish back failed', error);
       }
+      return true;
     },
 
     getDraft(docId: string): HermesDocument | undefined {
@@ -323,6 +333,7 @@ export function createMockHermesDocsStore(overrides?: Partial<DocsDeps>) {
       now: overrides?.now ?? (() => Date.now()),
       randomId: overrides?.randomId ?? (() => `mock-doc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`),
       owner: overrides?.owner ?? (() => 'mock-owner'),
+      identity: overrides?.identity ?? (() => getFullIdentity<IdentityRecord>()),
       publishBack: overrides?.publishBack ?? publishBackToRuntime,
     },
     true, // force enabled

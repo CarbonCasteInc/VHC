@@ -210,12 +210,12 @@ allowed namespaces, allowed record classes, and signature shape.
 
 Forbidden uses:
 
-- User-author writes (forum thread, forum comment, vote, directory
+- User-author writes (forum thread, forum comment, forum post, vote, directory
   publish, news report intake, civic forwarding receipts) — those go
   through `_writerKind: 'luma'` and `SignedWriteEnvelope`.
 - Drill records — those use `_drillWriterKind: 'mesh-drill'` under
   `vh/__mesh_drills/*`.
-- Any path under `vh/__mesh_drills/*`, `vh/forum/*` thread/comment
+- Any path under `vh/__mesh_drills/*`, `vh/forum/*` thread/comment/post
   payloads, `vh/aggregates/*` per-voter records, or `vh/directory/*`
   identity entries.
 

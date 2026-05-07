@@ -683,6 +683,15 @@ including the row in aggregate fan-in. Legacy bare voter nodes MAY be
 compatibility-read by migration adapters, but new public writes MUST use the
 LUMA v1 envelope shape.
 
+`ForumPostV1` uses schema version `hermes-post-v1` and signs a
+`ForumPostSignedPayload` through the standard envelope. It carries
+`_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
+`_authorScheme: 'forum-author-v1'`, and `SignedWriteEnvelope.audience =
+'vh-forum-post'`. Readers MUST validate that `ForumPost.author`,
+`signedWriteEnvelope.publicAuthor`, and the signed payload `author` match the
+same `forumAuthorId`. Hermes Docs publish-back MUST use this shape for new
+article posts and MUST use `hermes-thread-v1` for fallback article threads.
+
 Adding a new `_authorScheme` value is a Protocol RFC under §1.4 and requires
 a corresponding linkability-domain registry entry under §9.3. Removing a
 value is also an RFC; legacy records under the old scheme remain readable

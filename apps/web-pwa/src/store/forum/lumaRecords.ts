@@ -1,10 +1,13 @@
 import {
   FORUM_AUTHOR_SCHEME,
   FORUM_COMMENT_AUDIENCE,
+  FORUM_POST_AUDIENCE,
   FORUM_PUBLIC_PROTOCOL_VERSION,
   FORUM_THREAD_AUDIENCE,
   FORUM_WRITER_KIND,
   type ForumCommentSignedPayload,
+  type ForumPost,
+  type ForumPostSignedPayload,
   type ForumThreadSignedPayload
 } from '@vh/data-model';
 import {
@@ -58,6 +61,19 @@ interface CommentRecordInput {
   readonly timestamp: number;
   readonly stance: 'concur' | 'counter' | 'discuss';
   readonly targetId?: string;
+  readonly via?: 'human' | 'familiar';
+}
+
+interface PostRecordInput {
+  readonly identity: LumaForumIdentity;
+  readonly id: string;
+  readonly threadId: string;
+  readonly parentId: string | null;
+  readonly topicId: string;
+  readonly type: 'reply' | 'article';
+  readonly content: string;
+  readonly timestamp: number;
+  readonly articleRefId?: string;
   readonly via?: 'human' | 'familiar';
 }
 
@@ -196,6 +212,53 @@ export async function createLumaForumCommentRecord(input: CommentRecordInput): P
     signedWriteEnvelope: {
       ...signedWriteEnvelope,
       audience: FORUM_COMMENT_AUDIENCE,
+      scheme: FORUM_AUTHOR_SCHEME,
+      publicAuthor: forumAuthorId,
+      payload
+    }
+  };
+}
+
+export async function createLumaForumPostRecord(input: PostRecordInput): Promise<ForumPost> {
+  const forumAuthorId = await deriveForumAuthorId(input.identity.session.nullifier);
+  const timestamp = input.timestamp;
+  const payload: ForumPostSignedPayload = stripUndefined({
+    schemaVersion: 'hermes-post-v1',
+    _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: FORUM_WRITER_KIND,
+    _authorScheme: FORUM_AUTHOR_SCHEME,
+    id: input.id,
+    threadId: input.threadId,
+    parentId: input.parentId,
+    topicId: input.topicId,
+    author: forumAuthorId,
+    via: input.via,
+    type: input.type,
+    content: input.content,
+    timestamp,
+    articleRefId: input.articleRefId
+  });
+  const signedWriteEnvelope = await createSignedWriteEnvelope({
+    profile: lumaForumDeploymentProfile(),
+    audience: FORUM_POST_AUDIENCE,
+    origin: currentOrigin(),
+    scheme: FORUM_AUTHOR_SCHEME,
+    publicAuthor: createLumaPublicAuthorId(forumAuthorId, FORUM_AUTHOR_SCHEME),
+    sessionRef: await deriveForumSignedWriteSessionRef(input.identity),
+    payload,
+    sequence: timestamp,
+    nonce: randomNonceHex(),
+    issuedAt: timestamp,
+    sign: ({ canonicalBytes }) => signWithStoredDelegationSigningKey(canonicalBytes)
+  });
+
+  return {
+    ...payload,
+    upvotes: 0,
+    downvotes: 0,
+    signedWriteEnvelope: {
+      ...signedWriteEnvelope,
+      audience: FORUM_POST_AUDIENCE,
       scheme: FORUM_AUTHOR_SCHEME,
       publicAuthor: forumAuthorId,
       payload

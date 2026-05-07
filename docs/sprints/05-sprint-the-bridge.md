@@ -285,11 +285,14 @@ type ForumPostType = 'reply' | 'article';
 
 interface ForumPost {
   id: string;
-  schemaVersion: 'hermes-post-v0';
+  schemaVersion: 'hermes-post-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
   threadId: string;
   parentId: string | null;
   topicId: string;
-  author: string;
+  author: string; // derived forumAuthorId, never raw nullifier/doc.owner
   via?: 'human' | 'familiar';
   type: ForumPostType;
   content: string; // reply <= 240
@@ -297,6 +300,7 @@ interface ForumPost {
   timestamp: number;
   upvotes: number;
   downvotes: number;
+  signedWriteEnvelope: SignedWriteEnvelope<ForumPostSignedPayload>;
 }
 ```
 
@@ -305,6 +309,7 @@ Tasks:
 - [ ] Enforce cap at UI + schema boundary
 - [ ] Add conversion route and docs handoff payload
 - [ ] Preserve thread/topic context on publish
+- [ ] Publish-back uses `vh-forum-post` signed writes and v1 fallback threads
 - [ ] Add tests for overflow and conversion path
 
 ### 3.3 Storage paths

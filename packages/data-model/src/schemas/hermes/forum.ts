@@ -9,6 +9,7 @@ export const FORUM_AUTHOR_SCHEME = 'forum-author-v1';
 export const FORUM_WRITER_KIND = 'luma';
 export const FORUM_THREAD_AUDIENCE = 'vh-forum-thread';
 export const FORUM_COMMENT_AUDIENCE = 'vh-forum-comment';
+export const FORUM_POST_AUDIENCE = 'vh-forum-post';
 
 const LowerHex64Schema = z.string().regex(/^[0-9a-f]{64}$/);
 const LowerHex32Schema = z.string().regex(/^[0-9a-f]{32}$/);
@@ -300,46 +301,118 @@ const POST_TYPE = z.enum(['reply', 'article']);
 
 const REPLY_CONTENT_LIMIT = 240;
 
-export const ForumPostSchema = z
-  .object({
-    id: z.string().min(1),
-    schemaVersion: z.literal('hermes-post-v0'),
-    threadId: z.string().min(1),
-    parentId: z.string().min(1).nullable(),
-    topicId: z.string().min(1),
-    author: z.string().min(1),
-    via: z.enum(['human', 'familiar']).optional(),
-    type: POST_TYPE,
-    content: z.string().min(1).max(CONTENT_LIMIT),
-    timestamp: z.number().int().nonnegative(),
-    upvotes: z.number().int().nonnegative(),
-    downvotes: z.number().int().nonnegative(),
-    articleRefId: z.string().min(1).optional()
-  })
-  .superRefine((value, ctx) => {
-    if (value.type === 'reply' && value.content.length > REPLY_CONTENT_LIMIT) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['content'],
-        message: `Reply content must not exceed ${REPLY_CONTENT_LIMIT} characters`
-      });
-    }
-    if (value.type === 'article' && !value.articleRefId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['articleRefId'],
-        message: 'articleRefId is required for article posts'
-      });
-    }
-    if (value.type === 'reply' && value.articleRefId) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['articleRefId'],
-        message: 'articleRefId must be omitted for reply posts'
-      });
-    }
-  });
+const ForumPostBaseFields = {
+  id: z.string().min(1),
+  threadId: z.string().min(1),
+  parentId: z.string().min(1).nullable(),
+  topicId: z.string().min(1),
+  via: z.enum(['human', 'familiar']).optional(),
+  type: POST_TYPE,
+  content: z.string().min(1).max(CONTENT_LIMIT),
+  timestamp: z.number().int().nonnegative(),
+  articleRefId: z.string().min(1).optional()
+} as const satisfies Record<string, z.ZodTypeAny>;
 
+function refineForumPostContent(
+  value: {
+    readonly type: z.infer<typeof POST_TYPE>;
+    readonly content: string;
+    readonly articleRefId?: string;
+  },
+  ctx: z.RefinementCtx
+): void {
+  if (value.type === 'reply' && value.content.length > REPLY_CONTENT_LIMIT) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['content'],
+      message: `Reply content must not exceed ${REPLY_CONTENT_LIMIT} characters`
+    });
+  }
+  if (value.type === 'article' && !value.articleRefId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['articleRefId'],
+      message: 'articleRefId is required for article posts'
+    });
+  }
+  if (value.type === 'reply' && value.articleRefId) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['articleRefId'],
+      message: 'articleRefId must be omitted for reply posts'
+    });
+  }
+}
+
+export const ForumPostSchemaV0 = z.object({
+  schemaVersion: z.literal('hermes-post-v0'),
+  ...ForumPostBaseFields,
+  author: z.string().min(1),
+  upvotes: z.number().int().nonnegative(),
+  downvotes: z.number().int().nonnegative()
+}).superRefine(refineForumPostContent);
+
+const ForumPostSignedPayloadObjectSchema = z.object({
+  schemaVersion: z.literal('hermes-post-v1'),
+  _protocolVersion: z.literal(FORUM_PUBLIC_PROTOCOL_VERSION),
+  _writerKind: z.literal(FORUM_WRITER_KIND),
+  _authorScheme: z.literal(FORUM_AUTHOR_SCHEME),
+  ...ForumPostBaseFields,
+  author: LowerHex64Schema
+}).strict();
+
+export const ForumPostSignedPayloadSchema = ForumPostSignedPayloadObjectSchema.superRefine(refineForumPostContent);
+
+export const ForumPostSignedWriteEnvelopeSchema = z.object({
+  envelopeVersion: z.literal(1),
+  signatureSuite: z.literal('jcs-ed25519-sha256-v1'),
+  protocolVersion: z.literal('luma-write-v1'),
+  profile: z.enum(['dev', 'e2e', 'public-beta', 'production-attestation']),
+  audience: z.literal(FORUM_POST_AUDIENCE),
+  origin: z.string().min(1),
+  scheme: z.literal(FORUM_AUTHOR_SCHEME),
+  publicAuthor: LowerHex64Schema,
+  sessionRef: ForumSignedWriteSessionRefSchema,
+  payload: ForumPostSignedPayloadSchema,
+  payloadDigest: LowerHex64Schema,
+  sequence: z.number().int().nonnegative(),
+  nonce: LowerHex32Schema,
+  idempotencyKey: LowerHex64Schema,
+  issuedAt: z.number().int().nonnegative(),
+  signature: z.string().min(1)
+}).strict();
+
+export const ForumPostSchemaV1 = ForumPostSignedPayloadObjectSchema.extend({
+  upvotes: z.number().int().nonnegative(),
+  downvotes: z.number().int().nonnegative(),
+  signedWriteEnvelope: ForumPostSignedWriteEnvelopeSchema
+}).strict().superRefine((value, ctx) => {
+  refineForumPostContent(value, ctx);
+
+  if (value.signedWriteEnvelope.publicAuthor !== value.author) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'publicAuthor'],
+      message: 'signedWriteEnvelope.publicAuthor must match post author'
+    });
+  }
+
+  const payload = tryForumPostSignedPayload(value);
+  if (payload && !sameCanonicalJson(value.signedWriteEnvelope.payload, payload)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'payload'],
+      message: 'signedWriteEnvelope.payload must match immutable post payload'
+    });
+  }
+});
+
+export const ForumPostSchema = z.union([ForumPostSchemaV0, ForumPostSchemaV1]);
+
+export type ForumPostV0 = z.infer<typeof ForumPostSchemaV0>;
+export type ForumPostSignedPayload = z.infer<typeof ForumPostSignedPayloadSchema>;
+export type ForumPostSignedWriteEnvelope = z.infer<typeof ForumPostSignedWriteEnvelopeSchema>;
+export type ForumPostV1 = z.infer<typeof ForumPostSchemaV1>;
 export type ForumPost = z.infer<typeof ForumPostSchema>;
 export const REPLY_CONTENT_MAX = REPLY_CONTENT_LIMIT;
 
@@ -405,6 +478,25 @@ export function forumCommentSignedPayload(comment: ForumCommentSignedPayload): F
   }));
 }
 
+export function forumPostSignedPayload(post: ForumPostSignedPayload): ForumPostSignedPayload {
+  return ForumPostSignedPayloadSchema.parse(stripUndefinedFields({
+    schemaVersion: post.schemaVersion,
+    _protocolVersion: post._protocolVersion,
+    _writerKind: post._writerKind,
+    _authorScheme: post._authorScheme,
+    id: post.id,
+    threadId: post.threadId,
+    parentId: post.parentId,
+    topicId: post.topicId,
+    author: post.author,
+    via: post.via,
+    type: post.type,
+    content: post.content,
+    timestamp: post.timestamp,
+    articleRefId: post.articleRefId
+  }));
+}
+
 export function migrateCommentToV1(comment: HermesCommentV0 | HermesCommentV1 | HermesCommentV2): HermesComment {
   if (comment.schemaVersion === 'hermes-comment-v1') {
     const { type: _omit, ...rest } = comment;
@@ -432,7 +524,20 @@ export function computeThreadScore(thread: HermesThread, now: number): number {
 }
 
 function sameCanonicalJson(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return stableJson(a) === stableJson(b);
+}
+
+function stableJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') {
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, field]) => field !== undefined)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `{${entries.map(([key, field]) => `${JSON.stringify(key)}:${stableJson(field)}`).join(',')}}`;
 }
 
 function stripUndefinedFields<T extends Record<string, unknown>>(value: T): T {
@@ -450,6 +555,14 @@ function tryForumThreadSignedPayload(thread: ForumThreadSignedPayload): ForumThr
 function tryForumCommentSignedPayload(comment: ForumCommentSignedPayload): ForumCommentSignedPayload | null {
   try {
     return forumCommentSignedPayload(comment);
+  } catch {
+    return null;
+  }
+}
+
+function tryForumPostSignedPayload(post: ForumPostSignedPayload): ForumPostSignedPayload | null {
+  try {
+    return forumPostSignedPayload(post);
   } catch {
     return null;
   }

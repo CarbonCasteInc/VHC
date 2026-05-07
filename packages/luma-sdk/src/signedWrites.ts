@@ -18,6 +18,7 @@ export const LUMA_SIGNED_WRITE_AUDIENCES = Object.freeze([
   'vh-directory-entry',
   'vh-forum-thread',
   'vh-forum-comment',
+  'vh-forum-post',
   'vh-aggregate-voter',
   'vh-stance-vote',
   'vh-stance-clear',
