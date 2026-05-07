@@ -62,10 +62,19 @@ describe('useSentimentState storage bootstrap/persist guards', () => {
       resolveClientFromAppStore: () => null,
     }));
 
-    vi.doMock('@vh/data-model', () => ({
-      deriveAggregateVoterId: vi.fn().mockResolvedValue('voter-mock'),
+    vi.doMock('@vh/data-model', async (importOriginal) => ({
+      ...await importOriginal<typeof import('@vh/data-model')>(),
       deriveTopicEngagementActorId: vi.fn().mockResolvedValue('topic-actor-mock'),
       deriveVoteIntentId: vi.fn().mockResolvedValue('intent-mock'),
+    }));
+
+    vi.doMock('@vh/types', async (importOriginal) => ({
+      ...await importOriginal<typeof import('@vh/types')>(),
+      deriveVoterId: vi.fn().mockResolvedValue('0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'),
+    }));
+
+    vi.doMock('@vh/identity-vault', () => ({
+      signWithStoredDelegationSigningKey: vi.fn().mockResolvedValue('aggregate-delegation-signature'),
     }));
 
     vi.doMock('@vh/gun-client', () => ({

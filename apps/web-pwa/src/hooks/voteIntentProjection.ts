@@ -11,6 +11,7 @@ import {
   type AggregateVoterPointRow,
   type VennClient,
 } from '@vh/gun-client';
+import { createLumaAggregateVoterNodeFromVoterId } from './lumaAggregateVoterRecords';
 
 export interface PointTuple {
   topic_id: string;
@@ -179,7 +180,19 @@ export async function projectIntentRecord(params: {
   let timedOut = false;
   let nextRow: AggregateVoterPointRow | null = null;
 
-  const updatedAtIso = new Date(normalizeNonNegativeInt(params.record.emitted_at)).toISOString();
+  const normalizedEmittedAt = normalizeNonNegativeInt(params.record.emitted_at);
+  const updatedAtIso = new Date(normalizedEmittedAt).toISOString();
+  const lumaVoterNode = await createLumaAggregateVoterNodeFromVoterId({
+    voterId: params.record.voter_id,
+    topicId: tuple.topic_id,
+    synthesisId: tuple.synthesis_id,
+    epoch: tuple.epoch,
+    pointId: tuple.point_id,
+    agreement: params.record.agreement,
+    weight: params.record.weight,
+    updatedAt: updatedAtIso,
+    sequence: normalizedEmittedAt,
+  });
 
   try {
     await writeVoterNode(
@@ -188,22 +201,12 @@ export async function projectIntentRecord(params: {
       tuple.synthesis_id,
       tuple.epoch,
       params.record.voter_id,
-      {
-        point_id: tuple.point_id,
-        agreement: params.record.agreement,
-        weight: params.record.weight,
-        updated_at: updatedAtIso,
-      },
+      lumaVoterNode,
     );
 
     nextRow = {
       voter_id: params.record.voter_id,
-      node: {
-        point_id: tuple.point_id,
-        agreement: params.record.agreement,
-        weight: params.record.weight,
-        updated_at: updatedAtIso,
-      },
+      node: lumaVoterNode,
       updated_at_ms: normalizeNonNegativeInt(params.record.emitted_at),
     };
     voterNodeOk = true;

@@ -2,11 +2,11 @@
 
 > Status: Normative Spec (Canonical)
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-03
+> Last Reviewed: 2026-05-07
 > Depends On: docs/foundational/System_Architecture.md, docs/specs/topic-synthesis-v2.md
 
 
-Version: 0.3
+Version: 0.4
 Status: Canonical (V2-first)
 
 Normative contract for sentiment, Eye, and Lightbulb behavior in Season 0.
@@ -184,6 +184,17 @@ The canonical vote architecture separates into four planes:
 2. **Event plane** — durable, idempotent `VoteIntentRecord` stream with last-write-wins per `(voter_id, topic_id, synthesis_id, epoch, point_id)`.
 3. **Projection plane** — asynchronous materializer produces `PointAggregateSnapshotV1` from intent stream. Deterministic replay from checkpoint.
 4. **Delivery plane** — publishes signed/versioned aggregate snapshots to `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/points/<pointId>`.
+
+LUMA M0.B projection also publishes the public aggregate voter node for the
+accepted vote tuple at
+`vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/voters/<voterId>/<pointId>`.
+The public node is `aggregate-voter-node-v1`, carries `_writerKind: 'luma'`,
+`_authorScheme: 'voter-v1'`, and a `SignedWriteEnvelope` with audience
+`vh-aggregate-voter`. Its `voter_id` is the LUMA `voterId` derived for
+`(topic_id, epoch)` and MUST NOT be a raw nullifier or the legacy
+`sha256(nullifier + topic_id)` value. `VoteIntentRecord` remains local durable
+queue state only; it can feed replay/materialization, but it is never copied to
+public mesh paths.
 
 **Deprecated patterns:**
 - ~~Direct dual remote write (sentiment outbox + aggregate voter node) as front-door correctness gate.~~

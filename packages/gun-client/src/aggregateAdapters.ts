@@ -1,9 +1,17 @@
 import {
+  AGGREGATE_VOTER_NODE_VERSION,
   AggregateVoterNodeSchema,
+  AggregateVoterNodeV1Schema,
   PointAggregateSnapshotV1Schema,
   type AggregateVoterNode,
+  type AggregateVoterNodeV1,
+  type AggregateVoterSignedPayload,
   type PointAggregateSnapshotV1,
 } from '@vh/data-model';
+import {
+  verifySignedWriteEnvelope,
+  type SignedWriteVerifyHook,
+} from '@vh/luma-sdk';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
 import { createRelayUserSignatureHeaders, type RelayDevicePair } from './relayAuth';
 import { readGunTimeoutMs } from './runtimeConfig';
@@ -21,6 +29,13 @@ export interface AggregateVoterPointRow {
   readonly voter_id: string;
   readonly node: AggregateVoterNode;
   readonly updated_at_ms: number;
+}
+
+interface AggregateVoterPathContext {
+  readonly topicId: string;
+  readonly synthesisId: string;
+  readonly epoch: number;
+  readonly pointId: string;
 }
 
 const FORBIDDEN_PUBLIC_AGGREGATE_KEYS = new Set<string>([
@@ -48,6 +63,51 @@ function stripGunMetadata(data: unknown): unknown {
   }
   const { _, ...rest } = data as Record<string, unknown> & { _?: unknown };
   return rest;
+}
+
+function isAggregateVoterNodeV1(node: AggregateVoterNode): node is AggregateVoterNodeV1 {
+  return (node as { schema_version?: unknown }).schema_version === AGGREGATE_VOTER_NODE_VERSION;
+}
+
+function aggregateVoterNodeMatchesPath(
+  node: AggregateVoterNode,
+  context: AggregateVoterPathContext,
+  voterId: string,
+): boolean {
+  if (!isAggregateVoterNodeV1(node)) {
+    return true;
+  }
+
+  return (
+    node.topic_id === context.topicId
+    && node.synthesis_id === context.synthesisId
+    && node.epoch === context.epoch
+    && node.voter_id === voterId
+    && node.point_id === context.pointId
+  );
+}
+
+function parseAggregateVoterNodeForPath(
+  value: unknown,
+  context: AggregateVoterPathContext,
+  voterId: string,
+): AggregateVoterNode | null {
+  const parsed = AggregateVoterNodeSchema.safeParse(stripGunMetadata(value));
+  if (!parsed.success) {
+    return null;
+  }
+
+  return aggregateVoterNodeMatchesPath(parsed.data, context, voterId) ? parsed.data : null;
+}
+
+function assertAggregateVoterNodeMatchesPath(
+  node: AggregateVoterNode,
+  context: AggregateVoterPathContext,
+  voterId: string,
+): void {
+  if (!aggregateVoterNodeMatchesPath(node, context, voterId)) {
+    throw new Error('Aggregate voter LUMA metadata does not match public path');
+  }
 }
 
 function normalizeRequiredId(value: string, name: string): string {
@@ -252,7 +312,12 @@ async function writeVoterNodeViaRelayFallback(
     readonly voterId: string;
     readonly node: AggregateVoterNode;
   },
+  options: { readonly allowLumaV1: boolean } = { allowLumaV1: true },
 ): Promise<boolean> {
+  if (!options.allowLumaV1 && isAggregateVoterNodeV1(params.node)) {
+    return false;
+  }
+
   const endpoint = resolveRelayAggregateEndpoint(client, 'voter');
   if (!endpoint) {
     return false;
@@ -439,7 +504,7 @@ function rowsOverlapSnapshotWindow(
 function parseVoterPointRow(
   voterId: string,
   voterPayload: unknown,
-  pointId: string,
+  context: AggregateVoterPathContext,
 ): AggregateVoterPointRow | null {
   if (voterId === '_' || !voterId.trim()) {
     return null;
@@ -450,27 +515,27 @@ function parseVoterPointRow(
     return null;
   }
 
-  const pointPayload = stripGunMetadata(voterRecord[pointId]);
-  const parsed = AggregateVoterNodeSchema.safeParse(pointPayload);
-  if (!parsed.success) {
+  const pointPayload = voterRecord[context.pointId];
+  const parsed = parseAggregateVoterNodeForPath(pointPayload, context, voterId);
+  if (!parsed) {
     return null;
   }
 
   return {
     voter_id: voterId,
-    node: parsed.data,
-    updated_at_ms: parseUpdatedAtMs(parsed.data.updated_at),
+    node: parsed,
+    updated_at_ms: parseUpdatedAtMs(parsed.updated_at),
   };
 }
 
-function collectVoterRows(raw: unknown, pointId: string): AggregateVoterPointRow[] {
+function collectVoterRows(raw: unknown, context: AggregateVoterPathContext): AggregateVoterPointRow[] {
   if (!isRecord(raw)) {
     return [];
   }
 
   const rows: AggregateVoterPointRow[] = [];
   for (const [voterId, voterPayload] of Object.entries(raw)) {
-    const row = parseVoterPointRow(voterId, voterPayload, pointId);
+    const row = parseVoterPointRow(voterId, voterPayload, context);
     if (row) {
       rows.push(row);
     }
@@ -495,7 +560,7 @@ const MAP_FANIN_MAX_MS = 1500;
 
 async function collectVoterRowsViaMap(
   votersChain: ChainWithGet<unknown>,
-  pointId: string,
+  context: AggregateVoterPathContext,
 ): Promise<AggregateVoterPointRow[]> {
   const chainAny = votersChain as unknown as {
     map?: () => {
@@ -522,7 +587,7 @@ async function collectVoterRowsViaMap(
       }
 
       lastEventAt = Date.now();
-      const row = parseVoterPointRow(voterId, voterPayload, pointId);
+      const row = parseVoterPointRow(voterId, voterPayload, context);
       if (!row) {
         return;
       }
@@ -638,19 +703,19 @@ async function collectVoterIdsViaMap(votersChain: ChainWithGet<unknown>): Promis
 async function readVoterPointRow(
   votersChain: ChainWithGet<unknown>,
   voterId: string,
-  pointId: string,
+  context: AggregateVoterPathContext,
 ): Promise<AggregateVoterPointRow | null> {
   const normalizedVoterId = voterId.trim();
-  const raw = await readOnce(votersChain.get(normalizedVoterId).get(pointId));
-  const parsed = AggregateVoterNodeSchema.safeParse(stripGunMetadata(raw));
-  if (!parsed.success) {
+  const raw = await readOnce(votersChain.get(normalizedVoterId).get(context.pointId));
+  const parsed = parseAggregateVoterNodeForPath(raw, context, normalizedVoterId);
+  if (!parsed) {
     return null;
   }
 
   return {
     voter_id: normalizedVoterId,
-    node: parsed.data,
-    updated_at_ms: parseUpdatedAtMs(parsed.data.updated_at),
+    node: parsed,
+    updated_at_ms: parseUpdatedAtMs(parsed.updated_at),
   };
 }
 
@@ -723,6 +788,13 @@ export async function writeVoterNode(
   const normalizedEpoch = normalizeEpoch(epoch);
   const normalizedVoterId = normalizeRequiredId(voterId, 'voterId');
   const normalizedPointId = normalizeRequiredId(sanitized.point_id, 'point_id');
+  const context = {
+    topicId: normalizedTopicId,
+    synthesisId: normalizedSynthesisId,
+    epoch: Number(normalizedEpoch),
+    pointId: normalizedPointId,
+  };
+  assertAggregateVoterNodeMatchesPath(sanitized, context, normalizedVoterId);
 
   const path = aggregateVoterPointPath(
     normalizedTopicId,
@@ -779,7 +851,7 @@ export async function writeVoterNode(
         epoch: Number(normalizedEpoch),
         voterId: normalizedVoterId,
         node: sanitized,
-      });
+      }, { allowLumaV1: false });
       if (relayed) {
         console.info('[vh:aggregate:voter-write]', {
           topic_id: normalizedTopicId,
@@ -939,6 +1011,48 @@ export async function writePointAggregateSnapshot(
   return sanitized;
 }
 
+export async function validateAggregateVoterNodeRecord(
+  value: unknown,
+  expected: {
+    readonly topicId: string;
+    readonly synthesisId: string;
+    readonly epoch: number;
+    readonly voterId: string;
+    readonly pointId: string;
+  },
+  verify: SignedWriteVerifyHook<AggregateVoterSignedPayload>,
+): Promise<AggregateVoterNodeV1 | null> {
+  const normalizedTopicId = normalizeRequiredId(expected.topicId, 'topicId');
+  const normalizedSynthesisId = normalizeRequiredId(expected.synthesisId, 'synthesisId');
+  const normalizedEpoch = Number(normalizeEpoch(expected.epoch));
+  const normalizedVoterId = normalizeRequiredId(expected.voterId, 'voterId');
+  const normalizedPointId = normalizeRequiredId(expected.pointId, 'pointId');
+  const result = AggregateVoterNodeV1Schema.safeParse(stripGunMetadata(value));
+  if (!result.success) {
+    return null;
+  }
+
+  const node = result.data;
+  if (!aggregateVoterNodeMatchesPath(
+    node,
+    {
+      topicId: normalizedTopicId,
+      synthesisId: normalizedSynthesisId,
+      epoch: normalizedEpoch,
+      pointId: normalizedPointId,
+    },
+    normalizedVoterId,
+  )) {
+    return null;
+  }
+
+  const verification = await verifySignedWriteEnvelope({
+    envelope: node.signedWriteEnvelope,
+    verify,
+  });
+  return verification.valid ? node : null;
+}
+
 export async function readAggregateVoterNode(
   client: VennClient,
   topicId: string,
@@ -953,6 +1067,12 @@ export async function readAggregateVoterNode(
   const normalizedEpoch = Number(normalizeEpoch(epoch));
   const normalizedVoterId = normalizeRequiredId(voterId, 'voterId');
   const normalizedPointId = normalizeRequiredId(pointId, 'pointId');
+  const context = {
+    topicId: normalizedTopicId,
+    synthesisId: normalizedSynthesisId,
+    epoch: normalizedEpoch,
+    pointId: normalizedPointId,
+  };
 
   const chain = getAggregateVotersChain(
     client,
@@ -964,8 +1084,7 @@ export async function readAggregateVoterNode(
     .get(normalizedPointId) as unknown as ChainWithGet<unknown>;
 
   const raw = await readOnce(chain, options?.readTimeoutMs);
-  const parsed = AggregateVoterNodeSchema.safeParse(stripGunMetadata(raw));
-  return parsed.success ? parsed.data : null;
+  return parseAggregateVoterNodeForPath(raw, context, normalizedVoterId);
 }
 
 async function confirmAggregateVoterNodeReadback(
@@ -1008,6 +1127,12 @@ export async function readAggregateVoterRows(
   const normalizedSynthesisId = normalizeRequiredId(synthesisId, 'synthesisId');
   const normalizedEpoch = Number(normalizeEpoch(epoch));
   const normalizedPointId = normalizeRequiredId(pointId, 'pointId');
+  const context = {
+    topicId: normalizedTopicId,
+    synthesisId: normalizedSynthesisId,
+    epoch: normalizedEpoch,
+    pointId: normalizedPointId,
+  };
 
   const votersChain = getAggregateVotersChain(
     client,
@@ -1016,9 +1141,9 @@ export async function readAggregateVoterRows(
     normalizedEpoch,
   ) as unknown as ChainWithGet<unknown>;
 
-  const mapRows = await collectVoterRowsViaMap(votersChain, normalizedPointId);
+  const mapRows = await collectVoterRowsViaMap(votersChain, context);
   const raw = await readOnce(votersChain);
-  const rawRows = collectVoterRows(raw, normalizedPointId);
+  const rawRows = collectVoterRows(raw, context);
 
   const candidateVoterIds = new Set<string>(collectVoterIds(raw));
   for (const row of mapRows) {
@@ -1037,7 +1162,7 @@ export async function readAggregateVoterRows(
   }
 
   const recoveredRows = await Promise.all(
-    Array.from(candidateVoterIds).map((voterId) => readVoterPointRow(votersChain, voterId, normalizedPointId)),
+    Array.from(candidateVoterIds).map((voterId) => readVoterPointRow(votersChain, voterId, context)),
   );
 
   return mergeRowsByVoter([

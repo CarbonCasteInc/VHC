@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-05-04
+> Last Reviewed: 2026-05-07
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md, docs/specs/spec-luma-service-v0.md, docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-signed-pin-custody-v0.md
 
 
-Version: 0.6
+Version: 0.7
 Status: Canonical (V2-first)
 
 Defines data placement, mesh path conventions, and privacy constraints for Season 0.
@@ -32,6 +32,7 @@ Defines data placement, mesh path conventions, and privacy constraints for Seaso
 | Civic forwarding receipts | local authoritative | aggregate counters only | optional encrypted backup | - | - | Sensitive |
 | Representative directory data | local cache | `vh/civic/reps/<jurisdictionVersion>` | - | - | signed source snapshot | Public |
 | PointAggregateSnapshotV1 | local cache | `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/points/<pointId>` | - | optional hash anchor | - | Public |
+| AggregateVoterNodeV1 | local cache | `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/voters/<voterId>/<pointId>` | - | optional hash anchor | - | Public scoped pseudonym |
 | VoteIntentRecord | local durable queue | forbidden | optional encrypted backup | - | - | Sensitive |
 | VoteAdmissionReceipt | local state | forbidden | - | - | - | Internal |
 | Hermes forum thread/comment/moderation | local cache/index | `vh/forum/*` including `comment_moderations/*` | - | optional hash anchor for public audit | - | Public/Public audit |
@@ -54,6 +55,7 @@ Allowed public V2 namespaces:
 - `vh/civic/reps/*`
 - `vh/forum/*`
 - `vh/aggregates/topics/*/syntheses/*/epochs/*/points/*` (PointAggregateSnapshotV1 delivery)
+- `vh/aggregates/topics/*/syntheses/*/epochs/*/voters/*/*` (AggregateVoterNodeV1 scoped public voter node)
 - `vh/__mesh_drills/<run_id>/*` (test-only; profile-scoped per §7.1; rejected by product readers)
 
 Disallowed in public namespaces:
@@ -97,7 +99,8 @@ records.
    size is meaningful only for aggregate/dashboard allow-listed paths.
 5. Docs draft content is encrypted at rest and in transit outside device boundaries.
 6. VoteIntentRecord objects (containing voter_id and proof_ref) are sensitive and MUST NOT appear on public mesh paths.
-7. VoteAdmissionReceipt is internal client state only.
+7. AggregateVoterNodeV1 is public only when it uses the scoped LUMA `voterId`, `_authorScheme: 'voter-v1'`, `_writerKind: 'luma'`, and a valid `vh-aggregate-voter` envelope. It MUST NOT contain raw nullifiers, proof material, private signing keys, `district_hash`, or local `VoteIntentRecord` fields.
+8. VoteAdmissionReceipt is internal client state only.
 
 ## 4. Linked-social storage rules
 
