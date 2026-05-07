@@ -47,12 +47,10 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
         await expect(page.getByText('Summary', { exact: true })).toBeVisible();
         await expect(page.getByText('Biases', { exact: true })).toBeVisible();
 
-        // 7. Link Device UI Flow
-        await page.getByTestId('link-device-btn').click();
-        const code = await page.getByTestId('link-code').innerText();
-        await page.fill('[data-testid="link-input"]', code);
-        await page.getByTestId('link-complete-btn').click();
-        await expect(page.getByTestId('linked-count')).toContainText(/Linked devices: 1/);
+        // 7. Multi-device linking is explicitly deferred until the LUMA Phase 3+ identity graph.
+        await expect(page.getByTestId('link-device-btn')).toBeDisabled();
+        await expect(page.getByTestId('linked-count')).toContainText(/Device linking: deferred/);
+        await expect(page.getByTestId('link-code')).toHaveCount(0);
 
         // 8. Verify Persistence (Reload)
         await page.reload();
@@ -60,6 +58,6 @@ test.describe('The Tracer Bullet: E2E Integration', () => {
         await expect(createIdentityBtn).not.toBeVisible();
         // Mesh should reconnect
         await expect(page.getByText(/Peers:?\s+\d+/)).toBeVisible();
-        await expect(page.getByTestId('linked-count')).toContainText(/Linked devices: 1/);
+        await expect(page.getByTestId('linked-count')).toContainText(/Device linking: deferred/);
     });
 });

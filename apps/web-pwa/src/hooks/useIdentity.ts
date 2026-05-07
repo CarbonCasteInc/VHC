@@ -32,6 +32,19 @@ export type SessionExpiryCheck =
   | { valid: true; warning?: 'near-expiry' }
   | { valid: false; reason: 'expired' };
 
+export const MULTI_DEVICE_LINK_DEFERRED_CODE = 'luma.multidevice.deferred' as const;
+
+export class MultiDeviceLinkDeferredError extends Error {
+  readonly code = MULTI_DEVICE_LINK_DEFERRED_CODE;
+  readonly capability = 'multi-device-link';
+  readonly phase = 'Phase 3+';
+
+  constructor(method: 'linkDevice' | 'startLinkSession' | 'completeLinkSession') {
+    super(`${method} is deferred until LUMA Phase 3+ multi-device identity linking lands`);
+    this.name = 'MultiDeviceLinkDeferredError';
+  }
+}
+
 /** Module-level migration guard — runs at most once. */
 let migrationPromise: Promise<void> | null = null;
 
@@ -59,6 +72,10 @@ function randomToken(): string {
     return crypto.randomUUID();
   }
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function rejectMultiDeviceLink(method: 'linkDevice' | 'startLinkSession' | 'completeLinkSession'): never {
+  throw new MultiDeviceLinkDeferredError(method);
 }
 
 export function useIdentity() {
@@ -203,40 +220,23 @@ export function useIdentity() {
     if (!identity) {
       throw new Error('Identity not ready');
     }
-    const newDevice = `device-${randomToken()}`;
-    const updated: IdentityRecord = {
-      ...identity,
-      linkedDevices: [...(identity.linkedDevices ?? []), newDevice]
-    };
-    await persistIdentity(updated);
-    setIdentity(updated);
-    return newDevice;
+    rejectMultiDeviceLink('linkDevice');
   }, [identity]);
 
   const startLinkSession = useCallback(async () => {
     if (!identity) {
       throw new Error('Identity not ready');
     }
-    const code = `link-${randomToken()}`;
-    const updated: IdentityRecord = { ...identity, pendingLinkCode: code };
-    await persistIdentity(updated);
-    setIdentity(updated);
-    return code;
+    rejectMultiDeviceLink('startLinkSession');
   }, [identity]);
 
   const completeLinkSession = useCallback(
     async (code: string) => {
-      if (!identity || !identity.pendingLinkCode) {
-        throw new Error('No pending link');
+      void code;
+      if (!identity) {
+        throw new Error('Identity not ready');
       }
-      if (code !== identity.pendingLinkCode) {
-        throw new Error('Invalid link code');
-      }
-      const linked = [...(identity.linkedDevices ?? []), `linked-${randomToken()}`];
-      const updated: IdentityRecord = { ...identity, linkedDevices: linked, pendingLinkCode: undefined };
-      await persistIdentity(updated);
-      setIdentity(updated);
-      return linked;
+      rejectMultiDeviceLink('completeLinkSession');
     },
     [identity]
   );

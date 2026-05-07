@@ -18,16 +18,11 @@ export const DashboardContent: React.FC = () => {
   const {
     identity,
     status: identityRecordStatus,
-    createIdentity: createIdentityRecord,
-    startLinkSession,
-    completeLinkSession
+    createIdentity: createIdentityRecord
   } = useIdentity();
   const [username, setUsername] = useState('');
   const [handleInput, setHandleInput] = useState('');
   const [handleErrorMsg, setHandleErrorMsg] = useState<string | null>(null);
-  const [linkModalOpen, setLinkModalOpen] = useState(false);
-  const [generatedCode, setGeneratedCode] = useState<string | null>(null);
-  const [incomingCode, setIncomingCode] = useState('');
   const [workerFactory, setWorkerFactory] = useState<(() => Worker) | undefined>();
   const {
     state: { status, progress, result, message },
@@ -89,26 +84,6 @@ export const DashboardContent: React.FC = () => {
     const demo = `A local-first stack powers civic analysis. The system processes text on-device to surface bias and provide balanced counterpoints.`;
     if (!profile) return;
     analyze(demo);
-  };
-
-  const handleStartLink = async () => {
-    try {
-      const code = await startLinkSession();
-      setGeneratedCode(code);
-      setLinkModalOpen(true);
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleCompleteLink = async () => {
-    try {
-      await completeLinkSession(incomingCode.trim());
-      setLinkModalOpen(false);
-      setIncomingCode('');
-    } catch (err) {
-      console.error(err);
-    }
   };
 
   return (
@@ -200,7 +175,7 @@ export const DashboardContent: React.FC = () => {
               </span>
             )}
             <span className="text-slate-500" data-testid="linked-count">
-              Linked devices: {(identity?.linkedDevices ?? []).length}
+              Device linking: deferred
             </span>
           </div>
 
@@ -209,9 +184,17 @@ export const DashboardContent: React.FC = () => {
             <Button variant="secondary" onClick={() => console.log('open settings')}>
               Open Settings
             </Button>
-            <Button variant="ghost" onClick={handleStartLink} data-testid="link-device-btn">
-              Link Device
+            <Button
+              variant="ghost"
+              disabled
+              aria-describedby="link-device-deferred"
+              data-testid="link-device-btn"
+            >
+              Link Device Deferred
             </Button>
+            <span id="link-device-deferred" className="sr-only" data-testid="link-device-deferred">
+              Multi-device identity linking is deferred to LUMA Phase 3+.
+            </span>
             <Button
               variant="ghost"
               onClick={handleAnalyze}
@@ -228,39 +211,6 @@ export const DashboardContent: React.FC = () => {
           </div>
 
           <HandleEditor />
-
-          {linkModalOpen && (
-            <div className="rounded-lg border border-slate-200 bg-card p-4 shadow-lg dark:border-slate-700">
-              <p className="font-semibold text-slate-900">Link Device</p>
-              <p className="text-sm text-slate-700">Share this link code with the device you want to link.</p>
-              {generatedCode && (
-                <div className="mt-2 rounded border border-dashed border-slate-300 bg-card-muted px-3 py-2 text-sm font-mono text-slate-800" data-testid="link-code">
-                  {generatedCode}
-                </div>
-              )}
-              <div className="mt-3 space-y-2">
-                <label className="text-xs uppercase tracking-wide text-slate-500">Simulate incoming link</label>
-                <div className="flex gap-2">
-                  <input
-                    className="w-full rounded border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none"
-                    placeholder="Paste code here"
-                    value={incomingCode}
-                    onChange={(e) => setIncomingCode(e.target.value)}
-                    data-testid="link-input"
-                  />
-                  <Button onClick={handleCompleteLink} data-testid="link-complete-btn">
-                    Complete
-                  </Button>
-                </div>
-              </div>
-              <div className="mt-3 flex items-center justify-between text-xs text-slate-600">
-                <span>Linked devices: {(identity?.linkedDevices ?? []).length}</span>
-                <Button variant="ghost" onClick={() => setLinkModalOpen(false)}>
-                  Close
-                </Button>
-              </div>
-            </div>
-          )}
 
           <Suspense fallback={<div className="rounded-lg border border-slate-200 bg-card p-4 text-sm text-slate-700 dark:border-slate-700">Loading analyses…</div>}>
             <AnalysisFeed />

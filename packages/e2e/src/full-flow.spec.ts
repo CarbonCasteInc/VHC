@@ -20,7 +20,7 @@ async function ensureIdentity(page: Page, username: string) {
 }
 
 test.describe('Golden Path E2E', () => {
-  test('Identity -> Attestation -> Wallet -> UBE -> Analysis -> Device Link', async ({ page }) => {
+  test('Identity -> Attestation -> Wallet -> UBE -> Analysis -> Device Link Deferred', async ({ page }) => {
     page.on('console', (msg) => console.error(`BROWSER LOG: ${msg.text()}`));
     page.on('pageerror', (err) => console.error(`BROWSER ERROR: ${err.message}`));
 
@@ -46,12 +46,9 @@ test.describe('Golden Path E2E', () => {
     await expect(page.getByText('Summary', { exact: true })).toBeVisible();
     await expect(page.getByText('Biases', { exact: true })).toBeVisible();
 
-    // Device linking (single-page flow)
-    await page.getByTestId('link-device-btn').click();
-    const linkCode = (await page.getByTestId('link-code').innerText()).trim();
-    expect(linkCode).toBeTruthy();
-    await page.getByTestId('link-input').fill(linkCode);
-    await page.getByTestId('link-complete-btn').click();
-    await expect(page.getByTestId('linked-count')).toContainText('1', { timeout: 5_000 });
+    // Multi-device linking is explicitly deferred until the LUMA Phase 3+ identity graph.
+    await expect(page.getByTestId('link-device-btn')).toBeDisabled();
+    await expect(page.getByTestId('linked-count')).toContainText('Device linking: deferred');
+    await expect(page.getByTestId('link-code')).toHaveCount(0);
   });
 });
