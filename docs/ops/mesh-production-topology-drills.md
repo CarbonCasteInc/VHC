@@ -284,6 +284,30 @@ This command proves only bounded local synthetic soak behavior under
 classes, public WSS infrastructure, evidence promotion, or the full
 `pnpm check:mesh:production-readiness` gate.
 
+Run the aggregate production-readiness gate with:
+
+```bash
+pnpm check:mesh:production-readiness
+```
+
+The aggregate command reruns the implemented mesh proof commands, copies each
+source `.tmp/mesh-production-readiness/latest/*` packet before the next command
+overwrites it, and writes a new aggregate packet to the stable latest path. The
+validator requires each copied source report to match the expected gate command,
+run mode, commit, clean-state policy, and current gate-run timestamp window. The
+packet includes `mesh-production-readiness-report.json`,
+`mesh-production-readiness-evidence.md`, and copied source reports under
+`source-reports/<gate>/`.
+
+For Slice 11A, a successful aggregate command still reports
+`status: review_required` while release blockers remain. Expected blockers
+include the canonical 30-minute soak, public WSS deployment proof, full
+clock-skew matrix, conflict-resolution fixtures, evidence scrub promotion,
+downstream full-app canary, and LUMA-gated write coverage through the LUMA
+reader path. The command exits non-zero for missing, malformed, dirty, stale, or
+failed source evidence, and for any overclaiming packet that would emit
+`release_ready` before the blockers are gone.
+
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
 path in this server, public production WSS rollout still needs a trust path
@@ -292,10 +316,10 @@ client-compatible signed peer handshake.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10 even when the
+The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10/11A even when the
 local restarted-relay drill, deployed-WSS local TLS profile, state-resolution
 drill, disconnect drill, partition/heal drill, read-repair drill, and bounded
-rolling-restart soak pass. A passing
+rolling-restart soak pass and the aggregate evidence packet is well formed. A passing
 restarted-relay section means only that the restarted local relay directly read
 the missed synthetic drill write inside this bounded harness. A passing
 deployed-WSS section means only that the local TLS/WSS profile, signed WSS
@@ -314,7 +338,9 @@ synthetic drill records missed by relay B were repaired through explicit replay
 from surviving-quorum direct readback. A passing bounded soak section means only
 that deterministic synthetic local-harness restart/reconnect rows met their
 recorded budgets; if `soak.full_duration_satisfied` is false it is not the
-canonical 30-minute soak claim. Neither outcome proves public WSS
+canonical 30-minute soak claim. A passing aggregate section means only that the
+implemented source reports were collected, validated, copied, and summarized in
+one operator packet. None of these outcomes proves public WSS
 infrastructure, automatic peer-federation recovery, LUMA-gated write state
 resolution, the full clock-skew matrix, evidence scrub promotion, or post-M0.B
 LUMA-gated write coverage.
