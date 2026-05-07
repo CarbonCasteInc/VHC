@@ -805,7 +805,9 @@ Regression traps:
 
 ### Slice 9 - Network Partition And Healing Drill
 
-Status: Queued.
+Status: Implemented as a bounded local evidence path; report remains
+`review_required` unless every downstream production-readiness section is
+implemented.
 
 Purpose:
 
@@ -826,9 +828,22 @@ Scope:
 
 Primary files likely touched:
 
-- production topology e2e harness
-- relay test utilities for blocking/unblocking ports or routes
-- health monitor tests if degradation reason semantics need tightening
+- `packages/e2e/src/mesh/partition-drills.mjs`
+- `infra/relay/server.js` for explicit Gun multicast disablement in
+  production-shaped relay config
+- root and `@vh/e2e` package scripts
+- docs/runbook wording for local bounded partition/heal evidence
+
+Canonical command:
+
+- `pnpm test:mesh:partition-drills`
+
+The command MUST complete and write a report for both outcomes. A passing
+partition-heal row proves automatic local heal convergence for the bounded
+synthetic records. A `review_required` row means the partition/fail-closed
+phases completed but the isolated relay did not directly read partition-period
+records after heal within SLA; in that case the report MUST name the topology
+strategy decision instead of claiming partition recovery.
 
 Acceptance gates:
 
@@ -1083,11 +1098,11 @@ interface MeshProductionReadinessReport {
     attempts: number;
     successes: number;
     terminal_failures: number;
-    duplicate_count: number;
+    duplicate_count: number | null;
     minimum_successful_samples: number;
     p95_ms: number | null;
     budget_ms: number;
-    status: 'pass' | 'fail' | 'insufficient_samples';
+    status: 'pass' | 'fail' | 'insufficient_samples' | 'review_required';
   }>;
   resource_slos: Array<{
     resource: string;
@@ -1842,12 +1857,12 @@ Implemented mesh commands:
     the canonical command covers every §5.10 state-resolution rule, not only
     tombstones.
 - `pnpm test:mesh:disconnect-drills`
+- `pnpm test:mesh:partition-drills`
 
 Required new commands:
 
 - `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
-- `pnpm test:mesh:partition-drills`
 - `pnpm test:mesh:soak`
 - `pnpm check:mesh:production-readiness`
 - `pnpm check:production-app-canary`
@@ -1932,6 +1947,26 @@ Still not allowed after Slice 8 disconnect/duplicate-write drill proof:
 - "Duplicate-write behavior is proven for LUMA-gated production records."
 - "Broad partition/heal behavior is production-ready."
 - "Clock-skew behavior is production-ready."
+- "Thirty-minute soak behavior is production-ready."
+- "The mesh has production-ready multi-relay failover."
+- "The app is ready for a test group."
+
+Allowed after Slice 9 partition/heal drill proof rows pass:
+
+- "The bounded local three-relay harness directly observed remaining-quorum
+  synthetic writes while one relay was isolated by local proxy controls."
+- "The bounded local three-relay harness directly observed heal convergence for
+  synthetic partition-period drill records by direct single-relay readback from
+  every relay."
+- "The partition drill classified one stale relay user-signature timestamp as a
+  clock-skew/auth-window failure without using the LUMA `Clock` interface or
+  LUMA signed envelopes."
+
+Still not allowed after Slice 9 partition/heal drill proof:
+
+- "Public WSS infrastructure is partition/heal production-ready."
+- "Full clock-skew matrix behavior is production-ready."
+- "LUMA-gated public write partition/heal behavior is proven."
 - "Thirty-minute soak behavior is production-ready."
 - "The mesh has production-ready multi-relay failover."
 - "The app is ready for a test group."

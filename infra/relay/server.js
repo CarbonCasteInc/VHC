@@ -109,6 +109,7 @@ const maxActiveConnections = numberEnv('VH_RELAY_MAX_ACTIVE_CONNECTIONS', 5_000)
 const userSignatureMaxSkewMs = numberEnv('VH_RELAY_USER_SIGNATURE_MAX_SKEW_MS', 5 * 60_000);
 const userNonceTtlMs = numberEnv('VH_RELAY_USER_NONCE_TTL_MS', 10 * 60_000);
 const healthProbeCompactionIntervalMs = numberEnv('VH_RELAY_HEALTH_PROBE_COMPACTION_INTERVAL_MS', 0);
+const gunMulticastEnabled = boolEnv('GUN_MULTICAST', false);
 const relayId = String(process.env.VH_RELAY_ID || `local-relay-${port}`).trim();
 const relayPeers = Array.from(new Set(jsonOrCsvEnv('VH_RELAY_PEERS')));
 const relayPeerAuthModes = new Set(['none', 'private_network_allowlist', 'peer_bearer_token']);
@@ -1206,6 +1207,7 @@ const gun = Gun({
   radisk: radiskEnabled,
   file: gunFile,
   axe: false,
+  multicast: gunMulticastEnabled,
   peers: relayPeers
 });
 
