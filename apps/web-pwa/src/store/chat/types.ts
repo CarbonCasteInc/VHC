@@ -42,7 +42,7 @@ export interface ChatDeps {
   deriveChannelId: (participants: string[]) => Promise<string>;
   deriveSharedSecret: (recipientDevicePub: string, senderPair: { epub: string; epriv: string }) => Promise<string>;
   encryptMessagePayload: (plaintext: HermesPayload, secret: string) => Promise<string>;
-  lookupDirectory: (client: VennClient, nullifier: string) => Promise<DirectoryEntry | null>;
+  lookupDirectory: (client: VennClient, identityDirectoryKey: string) => Promise<DirectoryEntry | null>;
   now: () => number;
   randomId: () => string;
 }

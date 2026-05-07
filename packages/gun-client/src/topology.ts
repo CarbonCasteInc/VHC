@@ -96,8 +96,7 @@ export class TopologyGuard {
       throw new Error(`Topology violation: disallowed path ${path}`);
     }
     if (rule.classification === 'public') {
-      const allowPII = rule.pathPrefix === 'vh/directory/';
-      if (!allowPII && containsPII(data)) {
+      if (containsPII(data)) {
         throw new Error(`Topology violation: PII in public path ${path}`);
       }
     }

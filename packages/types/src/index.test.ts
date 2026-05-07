@@ -98,8 +98,11 @@ describe('types schemas', () => {
 
   it('types directory entries with optional delegation signing public key only', () => {
     const entry: DirectoryEntry = {
-      schemaVersion: 'hermes-directory-v0',
-      nullifier: 'identity-directory-id',
+      schemaVersion: 'hermes-directory-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'identity-directory-v1',
+      identityDirectoryKey: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
       devicePub: 'device-pub',
       epub: 'device-epub',
       delegationSigningPublicKey: {
@@ -108,10 +111,33 @@ describe('types schemas', () => {
         createdAt: 1777777777000
       },
       registeredAt: 1,
-      lastSeenAt: 2
+      lastSeenAt: 2,
+      signedWriteEnvelope: {
+        envelopeVersion: 1,
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        protocolVersion: 'luma-write-v1',
+        profile: 'public-beta',
+        audience: 'vh-directory-entry',
+        origin: 'https://vh.example',
+        scheme: 'identity-directory-v1',
+        publicAuthor: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        sessionRef: {
+          tokenHash: 'token-hash',
+          envelopeDigest: 'envelope-digest'
+        },
+        payload: {},
+        payloadDigest: 'payload-digest',
+        sequence: 1,
+        nonce: 'nonce',
+        idempotencyKey: 'idempotency-key',
+        issuedAt: 1,
+        signature: 'signature'
+      }
     };
 
     expect(entry.delegationSigningPublicKey?.publicKey.material).toBe('public-key-material');
+    expect(entry.identityDirectoryKey).toHaveLength(64);
     expect(JSON.stringify(entry)).not.toContain('privateKey');
+    expect(JSON.stringify(entry)).not.toContain('nullifier');
   });
 });

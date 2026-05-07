@@ -43,8 +43,8 @@ requireToken(dataModelDirectorySource, '}).strict();', 'delegation signing publi
 requireToken(typesIndexSource, 'delegationSigningPublicKey?: DelegationSigningPublicKey', 'packages/types DirectoryEntry');
 requireToken(webStoreSource, 'getDelegationSigningPublicKey', 'apps/web-pwa store');
 requireToken(webStoreSource, 'delegationSigningPublicKey: await getDelegationSigningPublicKey()', 'publishDirectoryEntry');
-requireToken(directoryAdapterSource, 'DirectoryEntrySchema.safeParse(data)', 'directory adapter lookup');
-requireToken(directoryAdapterSource, 'delegationSigningPublicKeyMatches(candidate, entry)', 'directory adapter readback');
+requireToken(directoryAdapterSource, 'validateDirectoryEntry(data, identityDirectoryKey)', 'directory adapter lookup');
+requireToken(directoryAdapterSource, 'delegationSigningPublicKeyMatches(candidate, validatedEntry)', 'directory adapter readback');
 
 const publishDirectoryEntryStart = webStoreSource.indexOf('export async function publishDirectoryEntry');
 const publishDirectoryEntryEnd = webStoreSource.indexOf('export const useAppStore');

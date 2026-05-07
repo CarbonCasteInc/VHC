@@ -8,7 +8,7 @@ import {
   getHermesChatChain,
   getHermesInboxChain,
   getHermesOutboxChain,
-  lookupByNullifier,
+  lookupByIdentityDirectoryKey,
   type ChainWithGet
 } from '@vh/gun-client';
 import { useAppStore } from '../index';
@@ -33,7 +33,7 @@ function createRealChatStore(deps?: Partial<ChatDeps>) {
     deriveChannelId,
     deriveSharedSecret,
     encryptMessagePayload,
-    lookupDirectory: lookupByNullifier,
+    lookupDirectory: lookupByIdentityDirectoryKey,
     now: () => Date.now(),
     randomId: () =>
       typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`

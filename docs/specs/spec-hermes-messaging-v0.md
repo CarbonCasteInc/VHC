@@ -2,8 +2,8 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-03-03
-> Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
+> Last Reviewed: 2026-05-07
+> Depends On: docs/foundational/System_Architecture.md, docs/specs/spec-luma-service-v0.md, docs/CANON_MAP.md
 
 
 **Version:** 0.2
@@ -106,14 +106,14 @@ Gun paths use **device public keys** (not nullifiers) because Gun's `~pubkey/` n
 | `vh/hermes/inbox/<devicePub>/<msgId>` | Public | Recipient's inbox — sender writes here for delivery |
 | `~<devicePub>/hermes/outbox/<msgId>` | Authenticated | Sender's outbox — for multi-device sync |
 | `~<devicePub>/hermes/chats/<channelId>/<msgId>` | Authenticated | Local chat history |
-| `vh/directory/<nullifier>` | Public | Directory service — nullifier → device keys lookup |
+| `vh/directory/<identityDirectoryKey>` | Public | Directory service — LUMA directory public id → device keys lookup |
 
 **Key distinction:**
 - **Public paths** (`vh/...`) — Anyone can write, used for message delivery
 - **Authenticated paths** (`~<devicePub>/...`) — Requires `gun.user().auth(devicePair)`, only owner can write
 
 **TopologyGuard Classification:**
-- `vh/directory/` — Classified as `sensitive` (contains PII: nullifier ↔ device key mapping)
+- `vh/directory/` — Classified as public LUMA directory data. M0.B directory-v1 entries MUST use `identityDirectoryKey`, `_writerKind: 'luma'`, `_authorScheme: 'identity-directory-v1'`, and `SignedWriteEnvelope.audience: 'vh-directory-entry'`; raw-nullifier v0 records fail the public PII guard and are legacy-read-only.
 - `vh/hermes/inbox/` — Classified as `sensitive` (encrypted messages)
 - `~*/hermes/outbox`, `~*/hermes/chats` — Classified as `sensitive` (authenticated user data)
 
@@ -179,36 +179,48 @@ The plaintext `HermesPayload` is serialized to JSON and encrypted before storage
 
 ### 3.5 Directory Service
 
-The directory service maps **nullifiers** (identity keys) to **device keys** (pub/epub), enabling message delivery without prior contact exchange.
+The directory service maps LUMA **identity directory keys** to **device keys** (pub/epub), enabling message delivery without exposing the raw principal nullifier in the public directory namespace.
 
 **Schema:**
 ```typescript
 interface DirectoryEntry {
-  schemaVersion: 'hermes-directory-v0';
-  nullifier: string;        // Identity key
+  schemaVersion: 'hermes-directory-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'identity-directory-v1';
+  identityDirectoryKey: string; // HKDF public id; record key
   devicePub: string;        // ECDSA pub — for inbox routing
   epub: string;             // ECDH epub — for encryption
-  displayName?: string;     // Optional human-readable name (legacy)
+  displayName?: string;     // Optional human-readable name
+  delegationSigningPublicKey?: DelegationSigningPublicKey;
   registeredAt: number;     // First registration timestamp
   lastSeenAt: number;       // Last activity timestamp
-  // NOTE: No 'handle' field — handles are local-only (Sprint 3.5 privacy decision)
+  signedWriteEnvelope: SignedWriteEnvelope<DirectoryEntryPayload>;
 }
 ```
 
-> **Privacy Note (Sprint 3.5):** The `DirectoryEntry` schema intentionally does NOT include a `handle` field. User-chosen handles are exchanged peer-to-peer via QR/copy and stored locally in `ContactRecord`. This prevents handles from being exposed on the public Gun mesh.
+> **Privacy Note:** Directory-v1 MUST NOT include raw `nullifier`, private key
+> material, wallet signer material, or `district_hash`. User-chosen handles are
+> exchanged via QR/copy and may be mirrored as `displayName`; callers still treat
+> local `ContactRecord.handle` as the display authority.
 
-**Gun Path:** `vh/directory/<nullifier>`
+**Gun Path:** `vh/directory/<identityDirectoryKey>`
 
 **Operations:**
 ```typescript
 // Lookup recipient's device keys
-lookupByNullifier(client, nullifier): Promise<DirectoryEntry | null>
+lookupByIdentityDirectoryKey(client, identityDirectoryKey): Promise<DirectoryEntry | null>
 
 // Publish own entry (on identity creation and app init)
 publishToDirectory(client, entry): Promise<void>
 ```
 
-**Multi-device (v0):** "Last device wins" — latest `publishToDirectory` overwrites. Formal multi-device sync is v1+.
+**Legacy support:** `hermes-directory-v0` records under raw-nullifier paths are
+read-only compatibility records. New product flows publish and look up v1
+records only.
+
+**Multi-device:** Real multi-device link cryptography is deferred. Directory-v1
+continues the current last-publish-wins behavior for the active device key set.
 
 ### 3.6 Gun Authentication
 
@@ -317,18 +329,18 @@ function handleMessage(message: Message) {
 > **Handle Privacy (Sprint 3.5):** The `handle` field is exchanged peer-to-peer only. It is NOT written to the public `DirectoryEntry` in Gun. Handles are stored locally in `ContactRecord` and never leave the device except via explicit QR/copy sharing.
 
 **Flow:**
-1. **Alice** shows QR Code or copies contact JSON (contains `{ nullifier, epub }`)
+1. **Alice** shows QR Code or copies contact JSON (contains `{ identityDirectoryKey, epub }`)
 2. **Bob** scans QR / pastes contact JSON
 3. **Bob's app** parses contact data:
-   - Extracts `nullifier` and `epub`
+   - Extracts `identityDirectoryKey` and `epub`
    - Looks up `devicePub` from directory service
    - If directory lookup fails, shows error "Recipient not found"
-4. **Bob's app** creates channel with `deriveChannelId([aliceNullifier, bobNullifier])`
+4. **Bob's app** creates channel with the peer identity-directory key and the local identity key.
 5. **Bob** sends first message → written to Alice's inbox at `vh/hermes/inbox/<aliceDevicePub>`
 
 **Directory Service:** While contact exchange provides `epub` directly, the directory service provides `devicePub` for message routing. Users must have published to the directory (happens on identity creation/app init) to receive messages.
 
-**Legacy Support:** If contact data is just a nullifier string (no JSON), the app falls back to directory-only lookup for both `epub` and `devicePub`.
+**Legacy Support:** If contact data is just a string (no JSON), the app treats it as an identity directory key and performs v1 directory lookup for both `epub` and `devicePub`.
 
 ---
 
@@ -378,11 +390,11 @@ function handleMessage(message: Message) {
 
 **Directory & Auth (Complete):**
 - [x] Implement `DirectoryEntry` schema in `packages/data-model/src/schemas/hermes/directory.ts`
-- [x] Implement directory adapters: `lookupByNullifier`, `publishToDirectory`
+- [x] Implement directory adapters: `lookupByIdentityDirectoryKey`, legacy read-only `lookupByNullifier`, `publishToDirectory`
 - [x] Implement Gun authentication: `authenticateGunUser()` on app init
 - [x] Update Gun adapters to use `devicePub` paths and `gun.user()` for authenticated writes
-- [x] Update `ContactQR` to export JSON `{ nullifier, epub }`
-- [x] Update `ScanContact` to parse JSON contact format and lookup directory
+- [x] Update `ContactQR` to export JSON `{ identityDirectoryKey, epub }`
+- [x] Update `ScanContact` to parse JSON contact format and lookup directory-v1 records
 
 **Persistence & Polish (Complete):**
 - [x] Implement channel persistence: `vh_channels:<nullifier>` in localStorage

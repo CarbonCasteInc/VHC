@@ -28,6 +28,7 @@ vi.mock('@vh/identity-vault', () => ({
     publicKey: { encoding: 'base64url', material: 'delegation-public-key' },
     createdAt: 1777777777000
   })),
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'delegation-signature'),
   migrateLegacyLocalStorage: vi.fn(async () => {
     // Simulate migration: read from localStorage, store in vault, clear localStorage
     try {
@@ -254,15 +255,25 @@ describe('useAppStore', () => {
     (globalThis as any).localStorage.setItem(
       'vh_identity',
       JSON.stringify({
-        session: { nullifier: 'n1', trustScore: 1 },
+        session: {
+          token: 'session-token-1',
+          nullifier: 'n1',
+          trustScore: 1,
+          scaledTrustScore: 10000,
+          createdAt: 1777777777000,
+          expiresAt: 0
+        },
         devicePair: { pub: 'device-pub', priv: 'priv', epub: 'epub', epriv: 'epriv' }
       })
     );
     await useAppStore.getState().init();
     expect(mockGunAuth).toHaveBeenCalled();
     expect(mockPublishDirectory).toHaveBeenCalledWith(expect.anything(), {
-      schemaVersion: 'hermes-directory-v0',
-      nullifier: 'n1',
+      schemaVersion: 'hermes-directory-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'identity-directory-v1',
+      identityDirectoryKey: expect.stringMatching(/^[0-9a-f]{64}$/),
       devicePub: 'device-pub',
       epub: 'epub',
       delegationSigningPublicKey: {
@@ -271,9 +282,21 @@ describe('useAppStore', () => {
         createdAt: 1777777777000
       },
       registeredAt: expect.any(Number),
-      lastSeenAt: expect.any(Number)
+      lastSeenAt: expect.any(Number),
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-directory-entry',
+        scheme: 'identity-directory-v1',
+        publicAuthor: expect.stringMatching(/^[0-9a-f]{64}$/),
+        payloadDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+        idempotencyKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+        signature: 'delegation-signature'
+      })
     });
-    expect(JSON.stringify(mockPublishDirectory.mock.calls[0]?.[1])).not.toContain('privateKey');
+    const directoryEntry = mockPublishDirectory.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(directoryEntry.identityDirectoryKey).toBe((directoryEntry.signedWriteEnvelope as any).publicAuthor);
+    expect(JSON.stringify(directoryEntry)).not.toContain('"nullifier"');
+    expect(JSON.stringify(directoryEntry)).not.toContain('n1');
+    expect(JSON.stringify(directoryEntry)).not.toContain('privateKey');
   });
 
   it('continues init when auth fails', async () => {
@@ -281,7 +304,14 @@ describe('useAppStore', () => {
     (globalThis as any).localStorage.setItem(
       'vh_identity',
       JSON.stringify({
-        session: { nullifier: 'n2', trustScore: 1 },
+        session: {
+          token: 'session-token-2',
+          nullifier: 'n2',
+          trustScore: 1,
+          scaledTrustScore: 10000,
+          createdAt: 1777777777000,
+          expiresAt: 0
+        },
         devicePair: { pub: 'device-pub', priv: 'priv', epub: 'epub', epriv: 'epriv' }
       })
     );

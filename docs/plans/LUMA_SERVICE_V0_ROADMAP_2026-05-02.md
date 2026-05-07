@@ -167,7 +167,7 @@ Deliverables:
   - Update `spec-civic-sentiment.md` §6 and §12: keep `VoteIntentRecord` local/sensitive, define the public aggregate voter node as scoped `voterId` per `(topic_id, epoch)`, and align deterministic aggregate keys with LUMA §9.3.
   - Add `spec-data-topology-privacy-v0.md` §8 System Writer Key contract referenced from `spec-luma-service-v0.md` §15.
 - Schema and field migration:
-  - Update `packages/data-model/src/schemas/hermes/directory.ts` to use `identityDirectoryKey`. Bump schema version (`hermes-directory-v1`).
+  - Update `packages/data-model/src/schemas/hermes/directory.ts` to use `identityDirectoryKey`. Bump schema version (`hermes-directory-v1`). Directory-v1 lands as the first narrow adapter slice with `SignedWriteEnvelope.audience = 'vh-directory-entry'` per `docs/rfcs/luma-rfc-0001-directory-entry-audience.md`.
   - Add `_protocolVersion` and `_writerKind` fields to every public schema per spec §15.
   - Add `_authorScheme` field at the field level for migrating records.
   - Remove `vh/directory/` PII bypass at `packages/gun-client/src/topology.ts:99`. Tighten `containsPII` allow-list.
@@ -187,7 +187,7 @@ Deliverables:
   - Topology lint: fail-closed `district_hash` rule (only on aggregate-class paths with cohort proof).
   - Topology lint: protocol/schema reject matrix from mesh spec §5.11 enforced at the adapter layer.
   - Topology lint: drill record outside `vh/__mesh_drills/*` is hard-rejected.
-  - New release gates: `pnpm check:public-namespace-leaks`, `pnpm check:linkability-domain-registry`.
+  - New release gates: `pnpm check:public-namespace-leaks`, `pnpm check:linkability-domain-registry`, `pnpm check:luma-directory-v1`.
   - Re-run `pnpm test:live:five-user-engagement` against the new taxonomy.
 - Mesh re-run gate (post-M0.B): schema-epoch revalidation only.
   - After all adapter and materializer migration deliverables land, re-run `pnpm check:mesh:production-readiness` against the new schema epoch with `schema_epoch: 'post_luma_m0b'`. The drill harness exercises migrated write classes through their real post-M0.B reader path, not the mesh drill writer contract.
@@ -206,7 +206,7 @@ Acceptance criteria:
 
 - All public `vh/*` mesh writes pass the topology lint, including the
   protocol/schema reject matrix and the drill-record-out-of-namespace rule.
-- `pnpm test --filter @vh/types --filter @vh/data-model --filter @vh/gun-client --filter @vh/luma-sdk` green.
+- `pnpm --filter @vh/types test`, `pnpm --filter @vh/data-model test`, `pnpm --filter @vh/gun-client test`, and `pnpm --filter @vh/luma-sdk test` green.
 - Property test: no two domain derivations collide.
 - Property test: `voterId` differs across topic and across epoch.
 - Lint test: a non-aggregate public write with `district_hash` is rejected even when `cohortSize` is declared.

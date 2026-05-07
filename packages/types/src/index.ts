@@ -171,6 +171,41 @@ export interface DelegationSigningPublicKey {
 }
 
 export interface DirectoryEntry {
+  schemaVersion: 'hermes-directory-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'identity-directory-v1';
+  identityDirectoryKey: string;
+  devicePub: string;
+  epub: string;
+  displayName?: string;
+  delegationSigningPublicKey?: DelegationSigningPublicKey;
+  registeredAt: number;
+  lastSeenAt: number;
+  signedWriteEnvelope: {
+    envelopeVersion: 1;
+    signatureSuite: 'jcs-ed25519-sha256-v1';
+    protocolVersion: 'luma-write-v1';
+    profile: 'dev' | 'e2e' | 'public-beta' | 'production-attestation';
+    audience: 'vh-directory-entry';
+    origin: string;
+    scheme: 'identity-directory-v1';
+    publicAuthor: string;
+    sessionRef: {
+      tokenHash: string;
+      envelopeDigest: string;
+    };
+    payload: unknown;
+    payloadDigest: string;
+    sequence: number;
+    nonce: string;
+    idempotencyKey: string;
+    issuedAt: number;
+    signature: string;
+  };
+}
+
+export interface LegacyDirectoryEntry {
   schemaVersion: 'hermes-directory-v0';
   nullifier: string;
   devicePub: string;

@@ -15,6 +15,7 @@ export type LumaProviderName = ConstituencyProviderName | AttestationProviderNam
 
 export type DeviceCredential = string;
 export type AudienceTag =
+  | 'vh-directory-entry'
   | 'vh-forum-thread'
   | 'vh-forum-comment'
   | 'vh-stance-vote'

@@ -29,7 +29,7 @@
 | Section | Gap | Resolution |
 |---------|-----|------------|
 | **2. Messaging** | Gun path uses nullifier | ✅ Now uses `vh/hermes/inbox/${devicePub}` + authenticated user paths |
-| **2. Messaging** | No directory service | ✅ `directoryAdapters.ts` — `lookupByNullifier`, `publishToDirectory` |
+| **2. Messaging** | No directory service | ✅ `directoryAdapters.ts` — `lookupByIdentityDirectoryKey`, legacy read-only `lookupByNullifier`, `publishToDirectory` |
 | **2. Messaging** | No Gun authentication | ✅ `authenticateGunUser()` on init, publishes to directory |
 | **2. Messaging** | Chain wrapper missing `.on()` | ✅ Added `on`, `off`, `map` passthrough in `createGuardedChain` |
 | **2. Messaging** | E2E test truncated contact | ✅ Added `contact-data` testid with full JSON |
