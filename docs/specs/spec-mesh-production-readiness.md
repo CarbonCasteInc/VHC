@@ -869,6 +869,54 @@ Regression traps:
 - Do not classify timestamp-skew signature rejects as relay outage.
 - Do not trust wall-clock ordering alone for deterministic conflict resolution.
 
+### Slice 9B - Explicit Read-Repair Strategy Drill
+
+Status: Implemented as a bounded local strategy proof after Slice 9 produced a
+truthful `review_required` automatic partition-heal result.
+
+Purpose:
+
+- Choose and drill one topology strategy for missed partition-period records
+  after heal before starting rolling restart soak.
+
+Selected strategy for this slice:
+
+- `explicit_read_repair` for synthetic mesh drill records only.
+- Repair source is direct surviving-quorum readback from relay A/C.
+- Repair target is the healed relay B, using the same deterministic
+  `vh/__mesh_drills/<run_id>/read_repair/*` paths.
+
+Canonical command:
+
+- `pnpm test:mesh:read-repair-drills`
+
+The command MUST keep automatic partition heal separate from explicit repair. It
+first records the healed relay's bounded pre-repair direct-readback miss, then
+replays the exact surviving-quorum synthetic drill records to the repaired relay,
+then verifies direct single-relay readback on A/B/C with zero duplicate canonical
+ids where index evidence is complete.
+
+Acceptance gates:
+
+- Relay B is isolated from relay A/C during partition-period writes.
+- Relay A/C directly read the partition-period canonical/index/projection rows
+  before repair.
+- Relay B directly misses those rows after heal and before explicit repair.
+- The repair source relays and repaired paths are recorded.
+- Relay B directly reads repaired rows after explicit repair.
+- Duplicate canonical-id counts remain zero where observable.
+- Top-level report status remains `review_required`; this slice proves a
+  bounded strategy for synthetic drill records, not automatic partition heal or
+  production LUMA-gated write repair.
+
+Regression traps:
+
+- Do not use in-memory expected fixtures as the repair source; use direct
+  surviving-quorum readback evidence.
+- Do not claim automatic peer-federation recovery from a passing read-repair row.
+- Do not widen this slice to AXE, rolling soak, public WSS partition proof, or
+  LUMA-gated write classes.
+
 ### Slice 10 - Rolling Restart Soak
 
 Status: Queued.
@@ -1017,7 +1065,9 @@ interface MeshProductionReadinessReport {
     mode:
       | 'local_production_topology'
       | 'local_signed_peer_config_browser_boot'
-      | 'deployed_wss_topology';
+      | 'deployed_wss_topology'
+      | 'local_partition_heal_topology'
+      | 'local_read_repair_strategy';
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
     completed_at: string;
@@ -1031,6 +1081,8 @@ interface MeshProductionReadinessReport {
   drill_writer_kind_by_class: Record<string, 'mesh-drill' | 'luma' | 'system'>;
   topology: {
     strategy: 'relay_peer_fanout' | 'explicit_replication' | 'authoritative_cluster';
+    selected_strategy?: 'explicit_read_repair' | 'scoped_axe' | 'authoritative_cluster';
+    selected_strategy_scope?: string;
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     configured_peer_count: number;
     quorum_required: number;
@@ -1081,6 +1133,15 @@ interface MeshProductionReadinessReport {
       direct_readback_latency_ms: number | null;
       baseline_readback_observed: boolean;
       next_strategy_required: string[];
+    };
+    read_repair?: {
+      selected_strategy: 'explicit_read_repair';
+      repair_source_relays: string[];
+      repaired_relay_id: string;
+      repair_source: 'direct-surviving-quorum-readback' | string;
+      repair_latency_ms: number;
+      pre_repair_miss_observed: boolean;
+      post_repair_direct_readback_passed: boolean;
     };
   };
   gates: Array<{
@@ -1145,6 +1206,25 @@ interface MeshProductionReadinessReport {
     trace_id: string;
     status: 'pass' | 'fail' | 'skipped';
     reason?: string;
+  }>;
+  read_repair_drills?: Array<{
+    fixture: string;
+    object_id: string;
+    object_class: string;
+    logical_key: string;
+    canonical_id: string;
+    selected_strategy: 'explicit_read_repair';
+    repair_source_relays: string[];
+    repaired_relay_id: string;
+    expected_final_write_id: string;
+    pre_repair_miss: boolean;
+    pre_repair_observed_rows: number;
+    repair_attempts: number;
+    repair_successes: number;
+    repair_latency_ms: number;
+    duplicate_count: number | null;
+    status: 'pass' | 'review_required' | 'blocked';
+    reason: string;
   }>;
   luma_gated_write_drills: Array<{
     write_class: string;
@@ -1858,6 +1938,7 @@ Implemented mesh commands:
     tombstones.
 - `pnpm test:mesh:disconnect-drills`
 - `pnpm test:mesh:partition-drills`
+- `pnpm test:mesh:read-repair-drills`
 
 Required new commands:
 

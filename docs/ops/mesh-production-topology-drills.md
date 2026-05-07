@@ -238,6 +238,27 @@ This is still a local harness evidence path. It is not the full
 `pnpm test:mesh:clock-skew-drills` matrix, public WSS partition proof, soak
 proof, or LUMA-gated write proof.
 
+Run the bounded explicit read-repair strategy drill with:
+
+```bash
+pnpm test:mesh:read-repair-drills
+```
+
+The read-repair drill starts the same local three-relay topology and isolates
+relay B from relay A/C. It writes synthetic partition-period `canonical`,
+`indexes`, and `projections` records through the surviving quorum, heals the
+partition, records relay B's bounded pre-repair direct-readback miss, then
+repairs relay B by replaying the exact records observed through direct A/C
+readback. The report writes `read_repair_drills[]` rows with
+`selected_strategy: explicit_read_repair`, source relays, repaired relay,
+pre-repair miss evidence, repair latency, post-repair direct readback, and
+duplicate counts.
+
+This command proves only the explicit repair strategy for synthetic
+`vh/__mesh_drills/<run_id>/read_repair/*` records. It does not convert Slice 9's
+automatic partition-heal `review_required` outcome into an automatic recovery
+claim, and it does not exercise LUMA-gated write classes.
+
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
 path in this server, public production WSS rollout still needs a trust path
@@ -246,9 +267,9 @@ client-compatible signed peer handshake.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B/7C/8/9 even when the
+The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B even when the
 local restarted-relay drill, deployed-WSS local TLS profile, state-resolution
-drill, disconnect drill, and partition/heal drill pass. A passing
+drill, disconnect drill, partition/heal drill, and read-repair drill pass. A passing
 restarted-relay section means only that the restarted local relay directly read
 the missed synthetic drill write inside this bounded harness. A passing
 deployed-WSS section means only that the local TLS/WSS profile, signed WSS
@@ -262,9 +283,12 @@ only that one local isolated-relay partition healed for synthetic drill records
 and one stale relay user-signature timestamp was classified correctly. A
 `review_required` partition/heal section means the partition/fail-closed phases
 completed but automatic relay catch-up after heal is not proven and must feed a
-topology-strategy decision. Neither outcome proves public WSS infrastructure,
-LUMA-gated write state resolution, the full clock-skew matrix, soak budgets,
-evidence scrub promotion, or post-M0.B LUMA-gated write coverage.
+topology-strategy decision. A passing read-repair section means only that
+synthetic drill records missed by relay B were repaired through explicit replay
+from surviving-quorum direct readback. Neither outcome proves public WSS
+infrastructure, automatic peer-federation recovery, LUMA-gated write state
+resolution, the full clock-skew matrix, soak budgets, evidence scrub promotion,
+or post-M0.B LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one
