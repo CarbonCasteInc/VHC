@@ -1371,6 +1371,7 @@ async function runReadRepairDrill() {
     const partitionLiveFailures = partitionReadbacks.filter((row) => !row.observed);
     const writeFailures = allWriteResults.filter((row) => !row.ok);
     const repairFailures = repairWriteRows.filter((row) => !row.ok);
+    const repairSourceRelayIds = Array.from(new Set(repairWriteRows.map((row) => row.source_relay_id).filter(Boolean))).sort();
     const failedPostRepairEvaluations = postRepairEvaluations.filter((row) => row.status !== 'pass');
     const baselinePassed = baselineEvaluation.status === 'pass';
     const preRepairMissedRelayB = cases.every((caseDef) =>
@@ -1489,7 +1490,7 @@ async function runReadRepairDrill() {
         peer_config_expires_at: new Date(expiresAt).toISOString(),
         read_repair: {
           selected_strategy: 'explicit_read_repair',
-          repair_source_relays: ['relay-a', 'relay-c'],
+          repair_source_relays: repairSourceRelayIds,
           repaired_relay_id: 'relay-b',
           repair_source: 'direct-surviving-quorum-readback',
           repair_latency_ms: repairLatencyMs,
