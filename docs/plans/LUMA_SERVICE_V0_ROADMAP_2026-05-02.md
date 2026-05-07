@@ -279,7 +279,7 @@ Deliverables:
 - `packages/identity-vault/src/compartments/` typed accessors per spec §11.2.
 - `useIdentity.createIdentity()` reads `deviceCredential.loadOrCreate()`.
 - Split `useIdentity.revokeSession()` into `signOut()` and `resetIdentity()` per spec §13.2. `revokeSession` becomes a deprecation shim calling `signOut()`.
-- Multi-device link flow (`linkDevice` / `startLinkSession` / `completeLinkSession`) explicitly stub-marked.
+- Multi-device link flow (`linkDevice` / `startLinkSession` / `completeLinkSession`) explicitly stub-marked: fail closed with no fake link codes, no `pendingLinkCode` persistence, and no `linkedDevices` mutation.
 - `delegationSigningKey` Ed25519 generation and persistence; public component published in directory entry per spec §11.4.
 - `walletBinding` semantics implemented per spec §11.5 (LUMA never holds wallet signing keys).
 - Constant-time HMAC for verifier-side and any client-side nullifier derivation per spec §6.4 and §11.3.
@@ -289,6 +289,7 @@ Acceptance criteria:
 - Unit test: `createIdentity → signOut → createIdentity` yields the same `principalNullifier`.
 - Unit test: `createIdentity → resetIdentity → createIdentity` yields a different `principalNullifier`.
 - Unit test: `signOut` preserves `seaDevicePair`; `resetIdentity` rotates it.
+- Unit test: multi-device link stubs fail closed and do not mutate identity state.
 - Unit test: vault v1 → v2 migration is idempotent.
 - Unit test: `delegationSigningKey` public component appears in the directory entry; familiar `OnBehalfOfAssertion` validates against it.
 - Unit test: `walletBinding` Reset Identity clears the binding and a re-bind prompt is surfaced.

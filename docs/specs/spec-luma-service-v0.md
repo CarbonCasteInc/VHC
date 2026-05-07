@@ -951,7 +951,7 @@ A recorded full-product engagement run is replayed; every emitted `LumaEvent` is
 | Lazarus social recovery | Phase 2 | `recoveryKey` compartment (reserved in §11.2) |
 | Canary System | Phase 4+ | Verifier-side; outside this spec |
 | Per-human nullifier binding (cross-device) | Phase 3+ | `PrincipalId` projection rule (§3) |
-| Real multi-device linking cryptography | Phase 3+ | New SDK surface; `linkDevice` stub today |
+| Real multi-device linking cryptography | Phase 3+ | New SDK surface; current `linkDevice` / link-session app stubs fail closed and write no fake linked-device state |
 | Dynamic trust adjustment | Season 1+ | Mid-session envelope mutation (§12.6 already permits degradation) |
 | Remote session revocation | Phase 3+ | Extension of §13 + safety bulletin (§18 already supports `revokedVerifierIds` and `revokedPolicyHashes`) |
 | Federation / multi-verifier | Season 1+ | Verifier-pin set rather than single pin |
@@ -961,4 +961,4 @@ A recorded full-product engagement run is replayed; every emitted `LumaEvent` is
 | Account merging across devices | Phase 3+ | Out of scope |
 | Username squatting reclaim | Season 1+ | Out of scope |
 
-Implementations MUST NOT build features from this list without a successor spec or RFC that resolves prerequisites.
+Implementations MUST NOT build features from this list without a successor spec or RFC that resolves prerequisites. Compatibility stubs for deferred capabilities MUST fail closed and MUST NOT create fake public state, fake vault state, or UI evidence that implies the capability works.

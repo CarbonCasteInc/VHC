@@ -127,6 +127,18 @@ device-bound compartments and clears old-principal delegation storage.
 - Reset Identity MUST rotate device-bound nullifier derivation material, SEA device material, and delegation signing material; clear old-principal delegation storage; and preserve historical public artifacts without implying deletion or repudiation.
 - Remote revocation (e.g., revoking a lost device's session from another device) is DEFERRED to multi-device recovery (§5) + Gold assurance.
 
+### 2.1.3.1 Multi-Device Link Deferral
+
+**Current state:** `useIdentity.linkDevice()`, `useIdentity.startLinkSession()`,
+and `useIdentity.completeLinkSession()` are compatibility stubs. They MUST fail
+closed with `luma.multidevice.deferred`, MUST NOT generate link codes, MUST NOT
+persist `pendingLinkCode`, and MUST NOT mutate `linkedDevices`.
+
+Real multi-device identity linking remains Phase 3+ work because it requires a
+cross-device identity graph and higher-assurance proof that two device-bound
+credentials belong to the same human. Product surfaces MAY show a disabled or
+deferred state, but MUST NOT present simulated linking as functional.
+
 ### 2.1.4 Timeout Semantics
 
 **Current state:** `useIdentity.checkSessionExpiry()` checks expiry at action

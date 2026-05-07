@@ -42,6 +42,11 @@ function deleteDatabase(name: string): Promise<void> {
 }
 
 async function loadHook(e2eMode = false) {
+  const freshMod = await loadIdentityModule(e2eMode);
+  return freshMod.useIdentity;
+}
+
+async function loadIdentityModule(e2eMode = false) {
   vi.resetModules();
   vi.stubGlobal('import.meta', {
     env: {
@@ -50,8 +55,7 @@ async function loadHook(e2eMode = false) {
     }
   });
 
-  const freshMod = await import('./useIdentity');
-  return freshMod.useIdentity;
+  return import('./useIdentity');
 }
 
 function mockVerifierByDeviceCredential(trustScore = 0.83) {
@@ -303,6 +307,48 @@ describe('useIdentity', () => {
     } finally {
       warning.mockRestore();
     }
+  });
+
+  it('fails closed for deferred multi-device link methods without mutating identity state', async () => {
+    mockVerifierByDeviceCredential();
+    const identityModule = await loadIdentityModule();
+    const { MULTI_DEVICE_LINK_DEFERRED_CODE, useIdentity } = identityModule;
+    const { result } = renderHook(() => useIdentity());
+
+    await waitFor(() => expect(result.current.status).toBe('anonymous'));
+    await act(async () => {
+      await result.current.createIdentity();
+    });
+    await waitFor(() => expect(result.current.status).toBe('ready'));
+
+    const originalIdentity = result.current.identity;
+    expect(originalIdentity).toBeTruthy();
+    expect(originalIdentity?.linkedDevices).toBeUndefined();
+    expect(originalIdentity?.pendingLinkCode).toBeUndefined();
+
+    await expect(result.current.linkDevice()).rejects.toMatchObject({
+      code: MULTI_DEVICE_LINK_DEFERRED_CODE,
+      capability: 'multi-device-link',
+      phase: 'Phase 3+'
+    });
+    await expect(result.current.startLinkSession()).rejects.toMatchObject({
+      code: MULTI_DEVICE_LINK_DEFERRED_CODE,
+      capability: 'multi-device-link',
+      phase: 'Phase 3+'
+    });
+    await expect(result.current.completeLinkSession('legacy-code')).rejects.toMatchObject({
+      code: MULTI_DEVICE_LINK_DEFERRED_CODE,
+      capability: 'multi-device-link',
+      phase: 'Phase 3+'
+    });
+
+    expect(result.current.identity).toEqual(originalIdentity);
+    expect(result.current.identity?.linkedDevices).toBeUndefined();
+    expect(result.current.identity?.pendingLinkCode).toBeUndefined();
+
+    const fromVault = await vaultLoad();
+    expect((fromVault as any)?.linkedDevices).toBeUndefined();
+    expect((fromVault as any)?.pendingLinkCode).toBeUndefined();
   });
 
   it('promotes legacy attestation/device pair into stable vault compartments', async () => {

@@ -372,16 +372,16 @@
 
 ## Part 7: Multi-Device Sync (If Applicable)
 
-> ✅ **PARTIALLY READY:**
+> ⏸️ **DEFERRED:**
 > - Outbox subscription implemented — messages sent from other devices should sync
-> - Device linking flow exists
+> - Multi-device identity linking is deferred to LUMA Phase 3+; the current app must show a disabled/deferred state only
 > 
-> ⚠️ **Note:** Cross-device sync depends on Gun relay being online and identity propagation
+> ⚠️ **Note:** Cross-device sync depends on future identity-graph work, Gun relay availability, and identity propagation
 
-### 7.1 Device Linking
-- [ ] On primary device, locate "Link Device" option
-- [ ] On secondary device, scan QR or enter code
-- [ ] Verify devices are linked
+### 7.1 Device Linking Deferred State
+- [ ] On primary device, locate the disabled "Link Device Deferred" control
+- [ ] Verify no QR code, link code, paste-code input, or "complete link" action is exposed
+- [ ] Verify the UI states that multi-device identity linking is deferred
 
 ### 7.2 Cross-Device Message Sync
 - [ ] Send message from Device A
