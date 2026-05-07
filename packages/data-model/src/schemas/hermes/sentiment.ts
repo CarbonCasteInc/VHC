@@ -4,6 +4,14 @@ import { z } from 'zod';
 export const STORY_ANALYSIS_ARTIFACT_VERSION = 'story-analysis-v1' as const;
 
 const NonEmptyString = z.string().min(1);
+const LowerHex64Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const LowerHex32Schema = z.string().regex(/^[0-9a-f]{32}$/);
+
+export const AGGREGATE_PUBLIC_PROTOCOL_VERSION = 'luma-public-v1' as const;
+export const AGGREGATE_VOTER_NODE_VERSION = 'aggregate-voter-node-v1' as const;
+export const AGGREGATE_VOTER_AUTHOR_SCHEME = 'voter-v1' as const;
+export const AGGREGATE_VOTER_WRITER_KIND = 'luma' as const;
+export const AGGREGATE_VOTER_AUDIENCE = 'vh-aggregate-voter' as const;
 
 export const StoryAnalysisFrameSchema = z
   .object({
@@ -111,12 +119,17 @@ export const SentimentEventSchema = z
   })
   .strict();
 
+const AggregateVoterSignedWriteSessionRefSchema = z.object({
+  tokenHash: z.string().min(1),
+  envelopeDigest: z.string().min(1),
+}).strict();
+
 /**
- * Public voter contribution node (per voter + per point).
+ * Legacy public voter contribution node (per voter + per point).
  * Stored under:
  * vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/voters/<voterId>/<pointId>
  */
-export const AggregateVoterNodeSchema = z
+export const LegacyAggregateVoterNodeSchema = z
   .object({
     point_id: NonEmptyString,
     agreement: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
@@ -124,6 +137,68 @@ export const AggregateVoterNodeSchema = z
     updated_at: NonEmptyString,
   })
   .strict();
+
+export const AggregateVoterSignedPayloadSchema = z
+  .object({
+    schema_version: z.literal(AGGREGATE_VOTER_NODE_VERSION),
+    _protocolVersion: z.literal(AGGREGATE_PUBLIC_PROTOCOL_VERSION),
+    _writerKind: z.literal(AGGREGATE_VOTER_WRITER_KIND),
+    _authorScheme: z.literal(AGGREGATE_VOTER_AUTHOR_SCHEME),
+    topic_id: NonEmptyString,
+    synthesis_id: NonEmptyString,
+    epoch: z.number().int().nonnegative(),
+    voter_id: LowerHex64Schema,
+    point_id: NonEmptyString,
+    agreement: z.union([z.literal(-1), z.literal(0), z.literal(1)]),
+    weight: z.number().min(0).max(2),
+    updated_at: NonEmptyString,
+  })
+  .strict();
+
+export const AggregateVoterSignedWriteEnvelopeSchema = z.object({
+  envelopeVersion: z.literal(1),
+  signatureSuite: z.literal('jcs-ed25519-sha256-v1'),
+  protocolVersion: z.literal('luma-write-v1'),
+  profile: z.enum(['dev', 'e2e', 'public-beta', 'production-attestation']),
+  audience: z.literal(AGGREGATE_VOTER_AUDIENCE),
+  origin: z.string().min(1),
+  scheme: z.literal(AGGREGATE_VOTER_AUTHOR_SCHEME),
+  publicAuthor: LowerHex64Schema,
+  sessionRef: AggregateVoterSignedWriteSessionRefSchema,
+  payload: AggregateVoterSignedPayloadSchema,
+  payloadDigest: LowerHex64Schema,
+  sequence: z.number().int().nonnegative(),
+  nonce: LowerHex32Schema,
+  idempotencyKey: LowerHex64Schema,
+  issuedAt: z.number().int().nonnegative(),
+  signature: z.string().min(1),
+}).strict();
+
+export const AggregateVoterNodeV1Schema = AggregateVoterSignedPayloadSchema.extend({
+  signedWriteEnvelope: AggregateVoterSignedWriteEnvelopeSchema,
+}).strict().superRefine((value, ctx) => {
+  if (value.signedWriteEnvelope.publicAuthor !== value.voter_id) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'publicAuthor'],
+      message: 'signedWriteEnvelope.publicAuthor must match aggregate voter_id',
+    });
+  }
+
+  const payload = tryAggregateVoterSignedPayload(value);
+  if (payload && !sameCanonicalJson(value.signedWriteEnvelope.payload, payload)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'payload'],
+      message: 'signedWriteEnvelope.payload must match immutable aggregate voter payload',
+    });
+  }
+});
+
+export const AggregateVoterNodeSchema = z.union([
+  AggregateVoterNodeV1Schema,
+  LegacyAggregateVoterNodeSchema,
+]);
 
 export const VoteAdmissionReceiptSchema = z
   .object({
@@ -221,6 +296,10 @@ export type StoryAnalysisBundleIdentity = z.infer<typeof StoryAnalysisBundleIden
 export type StoryAnalysisArtifact = z.infer<typeof StoryAnalysisArtifactSchema>;
 export type StoryAnalysisLatestPointer = z.infer<typeof StoryAnalysisLatestPointerSchema>;
 export type SentimentEvent = z.infer<typeof SentimentEventSchema>;
+export type LegacyAggregateVoterNode = z.infer<typeof LegacyAggregateVoterNodeSchema>;
+export type AggregateVoterSignedPayload = z.infer<typeof AggregateVoterSignedPayloadSchema>;
+export type AggregateVoterSignedWriteEnvelope = z.infer<typeof AggregateVoterSignedWriteEnvelopeSchema>;
+export type AggregateVoterNodeV1 = z.infer<typeof AggregateVoterNodeV1Schema>;
 export type AggregateVoterNode = z.infer<typeof AggregateVoterNodeSchema>;
 export type VoteAdmissionReceipt = z.infer<typeof VoteAdmissionReceiptSchema>;
 export type VoteIntentRecord = z.infer<typeof VoteIntentRecordSchema>;
@@ -338,6 +417,25 @@ export async function deriveAggregateVoterId(params: {
   return sha256(payload);
 }
 
+export function aggregateVoterSignedPayload(
+  node: AggregateVoterSignedPayload
+): AggregateVoterSignedPayload {
+  return AggregateVoterSignedPayloadSchema.parse({
+    schema_version: node.schema_version,
+    _protocolVersion: node._protocolVersion,
+    _writerKind: node._writerKind,
+    _authorScheme: node._authorScheme,
+    topic_id: node.topic_id,
+    synthesis_id: node.synthesis_id,
+    epoch: node.epoch,
+    voter_id: node.voter_id,
+    point_id: node.point_id,
+    agreement: node.agreement,
+    weight: node.weight,
+    updated_at: node.updated_at,
+  });
+}
+
 /**
  * topic engagement actor id = sha256(localSecret + topicId)
  *
@@ -392,4 +490,18 @@ export async function deriveVoteIntentId(params: {
     normalizeHashToken(params.point_id),
   ].join('|');
   return sha256(payload);
+}
+
+function sameCanonicalJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function tryAggregateVoterSignedPayload(
+  node: AggregateVoterSignedPayload
+): AggregateVoterSignedPayload | null {
+  try {
+    return aggregateVoterSignedPayload(node);
+  } catch {
+    return null;
+  }
 }

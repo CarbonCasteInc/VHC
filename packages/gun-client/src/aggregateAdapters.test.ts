@@ -1,5 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import SEA from 'gun/sea';
+import {
+  AGGREGATE_PUBLIC_PROTOCOL_VERSION,
+  AGGREGATE_VOTER_AUDIENCE,
+  AGGREGATE_VOTER_AUTHOR_SCHEME,
+  AGGREGATE_VOTER_NODE_VERSION,
+  AGGREGATE_VOTER_WRITER_KIND,
+  type AggregateVoterSignedPayload,
+} from '@vh/data-model';
+import {
+  createLumaPublicAuthorId,
+  createSignedWriteEnvelope,
+} from '@vh/luma-sdk';
 import type { ChainWithGet } from './chain';
 import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
@@ -13,6 +25,7 @@ import {
   readAggregateVoterNode,
   readAggregateVoterRows,
   readPointAggregateSnapshot,
+  validateAggregateVoterNodeRecord,
   writePointAggregateSnapshot,
   writeVoterNode,
 } from './aggregateAdapters';
@@ -167,6 +180,50 @@ function createClientWithoutMap(reads: Map<string, unknown>, guard: TopologyGuar
   };
 }
 
+const LUMA_VOTER_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+
+async function createLumaAggregateVoterNode(
+  overrides: Partial<AggregateVoterSignedPayload> = {},
+) {
+  const payload: AggregateVoterSignedPayload = {
+    schema_version: AGGREGATE_VOTER_NODE_VERSION,
+    _protocolVersion: AGGREGATE_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: AGGREGATE_VOTER_WRITER_KIND,
+    _authorScheme: AGGREGATE_VOTER_AUTHOR_SCHEME,
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 4,
+    voter_id: LUMA_VOTER_ID,
+    point_id: 'point-1',
+    agreement: 1,
+    weight: 1,
+    updated_at: '2026-02-18T22:20:00.000Z',
+    ...overrides,
+  };
+  const signature = 'aggregate-signature';
+  const signedWriteEnvelope = await createSignedWriteEnvelope({
+    profile: 'public-beta',
+    audience: AGGREGATE_VOTER_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: AGGREGATE_VOTER_AUTHOR_SCHEME,
+    publicAuthor: createLumaPublicAuthorId(payload.voter_id, AGGREGATE_VOTER_AUTHOR_SCHEME),
+    sessionRef: {
+      tokenHash: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      envelopeDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+    },
+    payload,
+    sequence: 1_777_777_777_000,
+    nonce: '00112233445566778899aabbccddeeff',
+    issuedAt: 1_777_777_777_000,
+    sign: () => signature,
+  });
+
+  return {
+    ...payload,
+    signedWriteEnvelope,
+  };
+}
+
 describe('aggregateAdapters', () => {
   it('builds voter chain and guards nested writes', async () => {
     const mesh = createFakeMesh();
@@ -240,6 +297,91 @@ describe('aggregateAdapters', () => {
       path: 'aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/voter-1/point-1',
       value: node,
     });
+  });
+
+  it('writeVoterNode accepts LUMA v1 voter nodes only when metadata matches the public path', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const node = await createLumaAggregateVoterNode();
+
+    const result = await writeVoterNode(client, 'topic-1', 'synth-1', 4, LUMA_VOTER_ID, node);
+
+    expect(result).toEqual(node);
+    expect(mesh.writes[0]).toEqual({
+      path: `aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`,
+      value: node,
+    });
+
+    await expect(
+      writeVoterNode(
+        client,
+        'topic-1',
+        'synth-1',
+        4,
+        'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        node,
+      ),
+    ).rejects.toThrow('metadata does not match public path');
+  });
+
+  it('validates LUMA aggregate voter envelopes and rejects tampering', async () => {
+    const node = await createLumaAggregateVoterNode();
+    const verify = vi.fn(async ({ signature }) => signature === 'aggregate-signature');
+
+    await expect(validateAggregateVoterNodeRecord(
+      node,
+      {
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 4,
+        voterId: LUMA_VOTER_ID,
+        pointId: 'point-1',
+      },
+      verify,
+    )).resolves.toEqual(node);
+
+    await expect(validateAggregateVoterNodeRecord(
+      { ...node, signedWriteEnvelope: { ...node.signedWriteEnvelope, signature: 'bad' } },
+      {
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 4,
+        voterId: LUMA_VOTER_ID,
+        pointId: 'point-1',
+      },
+      verify,
+    )).resolves.toBeNull();
+
+    await expect(validateAggregateVoterNodeRecord(
+      node,
+      {
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 4,
+        voterId: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        pointId: 'point-1',
+      },
+      verify,
+    )).resolves.toBeNull();
+  });
+
+  it('returns null for malformed LUMA aggregate voter records before signature verification', async () => {
+    const verify = vi.fn(async () => true);
+
+    await expect(validateAggregateVoterNodeRecord(
+      { schema_version: AGGREGATE_VOTER_NODE_VERSION, point_id: 'point-1' },
+      {
+        topicId: 'topic-1',
+        synthesisId: 'synth-1',
+        epoch: 4,
+        voterId: LUMA_VOTER_ID,
+        pointId: 'point-1',
+      },
+      verify,
+    )).resolves.toBeNull();
+
+    expect(verify).not.toHaveBeenCalled();
   });
 
   it('writePointAggregateSnapshot validates schema and writes to canonical points path', async () => {
@@ -842,6 +984,29 @@ describe('aggregateAdapters', () => {
     }
   });
 
+  it('writeVoterNode does not downgrade LUMA v1 nodes through legacy relay fallback', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPutHang(`aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`);
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+      const node = await createLumaAggregateVoterNode();
+
+      const pending = writeVoterNode(client, 'topic-1', 'synth-1', 4, LUMA_VOTER_ID, node);
+      const assertion = expect(pending).rejects.toThrow('aggregate-put-ack-timeout');
+      await vi.advanceTimersByTimeAsync(8_000);
+      await assertion;
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
   it('writeVoterNode rejects when relay fallback declines or throws', async () => {
     vi.useFakeTimers();
     try {
@@ -997,6 +1162,26 @@ describe('aggregateAdapters', () => {
     });
 
     await expect(readAggregateVoterNode(client, 'topic-1', 'synth-1', 4, 'voterA', 'pointB')).resolves.toBeNull();
+  });
+
+  it('readAggregateVoterNode preserves v1 rows and quarantines path metadata mismatches', async () => {
+    const mesh = createFakeMesh();
+    const node = await createLumaAggregateVoterNode();
+    mesh.setRead(`aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/${LUMA_VOTER_ID}/point-1`, node);
+    mesh.setRead('aggregates/topics/topic-1/syntheses/synth-1/epochs/4/voters/ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/point-1', node);
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readAggregateVoterNode(client, 'topic-1', 'synth-1', 4, LUMA_VOTER_ID, 'point-1')).resolves.toEqual(node);
+    await expect(readAggregateVoterNode(
+      client,
+      'topic-1',
+      'synth-1',
+      4,
+      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+      'point-1',
+    )).resolves.toBeNull();
   });
 
   it('readAggregateVoterRows clamps pre-epoch updated_at timestamps to zero', async () => {

@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AGGREGATE_PUBLIC_PROTOCOL_VERSION,
+  AGGREGATE_VOTER_AUDIENCE,
+  AGGREGATE_VOTER_AUTHOR_SCHEME,
+  AGGREGATE_VOTER_NODE_VERSION,
+  AGGREGATE_VOTER_WRITER_KIND,
   AggregateVoterNodeSchema,
+  AggregateVoterNodeV1Schema,
+  aggregateVoterSignedPayload,
   POINT_AGGREGATE_SNAPSHOT_VERSION,
   PointAggregateSnapshotV1Schema,
   SentimentEventSchema,
@@ -181,6 +188,50 @@ describe('SentimentEventSchema', () => {
 });
 
 describe('AggregateVoterNodeSchema', () => {
+  const voterId = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+  const digest = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+  const idempotencyKey = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+  const nonce = '00112233445566778899aabbccddeeff';
+  const validPayload = {
+    schema_version: AGGREGATE_VOTER_NODE_VERSION,
+    _protocolVersion: AGGREGATE_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: AGGREGATE_VOTER_WRITER_KIND,
+    _authorScheme: AGGREGATE_VOTER_AUTHOR_SCHEME,
+    topic_id: 'topic-1',
+    synthesis_id: 'synth-1',
+    epoch: 4,
+    voter_id: voterId,
+    point_id: 'point-1',
+    agreement: -1 as const,
+    weight: 1,
+    updated_at: '2026-02-18T22:00:00.000Z',
+  };
+  const validEnvelope = {
+    envelopeVersion: 1 as const,
+    signatureSuite: 'jcs-ed25519-sha256-v1' as const,
+    protocolVersion: 'luma-write-v1' as const,
+    profile: 'public-beta' as const,
+    audience: AGGREGATE_VOTER_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: AGGREGATE_VOTER_AUTHOR_SCHEME,
+    publicAuthor: voterId,
+    sessionRef: {
+      tokenHash: digest,
+      envelopeDigest: digest,
+    },
+    payload: validPayload,
+    payloadDigest: digest,
+    sequence: 1_777_777_777_000,
+    nonce,
+    idempotencyKey,
+    issuedAt: 1_777_777_777_000,
+    signature: 'signature',
+  };
+  const validLumaNode = {
+    ...validPayload,
+    signedWriteEnvelope: validEnvelope,
+  };
+
   it('accepts valid aggregate voter node', () => {
     expect(
       AggregateVoterNodeSchema.safeParse({
@@ -200,6 +251,51 @@ describe('AggregateVoterNodeSchema', () => {
         weight: 1,
         updated_at: '2026-02-18T22:00:00.000Z',
         nullifier: 'should-not-appear',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts LUMA v1 aggregate voter nodes with voter-v1 metadata and signed envelope', () => {
+    expect(AggregateVoterNodeV1Schema.safeParse(validLumaNode).success).toBe(true);
+    expect(AggregateVoterNodeSchema.safeParse(validLumaNode).success).toBe(true);
+    expect(aggregateVoterSignedPayload(validLumaNode)).toEqual(validPayload);
+  });
+
+  it('rejects LUMA v1 aggregate voter nodes with raw authors or signed payload mismatches', () => {
+    expect(
+      AggregateVoterNodeV1Schema.safeParse({
+        ...validLumaNode,
+        voter_id: 'raw-nullifier',
+      }).success,
+    ).toBe(false);
+
+    expect(
+      AggregateVoterNodeV1Schema.safeParse({
+        ...validLumaNode,
+        signedWriteEnvelope: {
+          ...validEnvelope,
+          publicAuthor: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      AggregateVoterNodeV1Schema.safeParse({
+        ...validLumaNode,
+        signedWriteEnvelope: {
+          ...validEnvelope,
+          payload: {
+            ...validPayload,
+            agreement: 1,
+          },
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      AggregateVoterNodeV1Schema.safeParse({
+        ...validLumaNode,
+        _authorScheme: 'forum-author-v1',
       }).success,
     ).toBe(false);
   });

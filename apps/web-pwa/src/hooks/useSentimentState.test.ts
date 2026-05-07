@@ -3,14 +3,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as GunClient from '@vh/gun-client';
 import * as DataModel from '@vh/data-model';
+import * as Types from '@vh/types';
 import * as ClientResolver from '../store/clientResolver';
 import * as VoteIntentMaterializer from './voteIntentMaterializer';
 import { useSentimentState } from './useSentimentState';
 import { createBudgetMock } from '../test-utils/budgetMock';
 
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'aggregate-delegation-signature'),
+}));
+
 const TOPIC = 't1';
 const POINT = 'p1';
 const ANALYSIS = 'a1';
+const LUMA_VOTER_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
 
 const mockSetActiveNullifier = vi.fn();
 const mockCanPerformAction = vi.fn();
@@ -27,9 +33,43 @@ function proofFor(nullifier = 'n') {
 }
 
 async function flushProjection(): Promise<void> {
-  for (let index = 0; index < 12; index += 1) {
+  for (let index = 0; index < 16; index += 1) {
+    await Promise.resolve();
+    await nextTaskTurn();
+  }
+  for (let index = 0; index < 48; index += 1) {
     await Promise.resolve();
   }
+}
+
+function nextTaskTurn(): Promise<void> {
+  return new Promise((resolve) => {
+    const Channel = globalThis.MessageChannel;
+    if (!Channel) {
+      resolve();
+      return;
+    }
+    const channel = new Channel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      channel.port2.close();
+      resolve();
+    };
+    channel.port2.postMessage(undefined);
+  });
+}
+
+async function waitForMockCall(
+  spy: { readonly mock: { readonly calls: unknown[][] } },
+  matches: (call: unknown[]) => boolean,
+): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (spy.mock.calls.some(matches)) {
+      return;
+    }
+    await flushProjection();
+  }
+  throw new Error('Timed out waiting for expected mock call');
 }
 
 describe('useSentimentState', () => {
@@ -49,7 +89,7 @@ describe('useSentimentState', () => {
     budgetMock.install();
 
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(null);
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-1');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue(LUMA_VOTER_ID);
     vi.spyOn(DataModel, 'deriveTopicEngagementActorId').mockResolvedValue('topic-actor-1');
     vi.spyOn(DataModel, 'deriveVoteIntentId').mockResolvedValue('intent-default');
     vi.spyOn(VoteIntentMaterializer, 'scheduleVoteIntentReplay').mockImplementation(() => {});
@@ -872,8 +912,8 @@ describe('useSentimentState', () => {
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
     const deriveVoterIdSpy = vi
-      .spyOn(DataModel, 'deriveAggregateVoterId')
-      .mockResolvedValue('voter-9');
+      .spyOn(Types, 'deriveVoterId')
+      .mockResolvedValue('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
     const writeEventSpy = vi.spyOn(GunClient, 'writeSentimentEvent');
     const writeVoterSpy = vi.spyOn(GunClient, 'writeVoterNode');
 
@@ -900,22 +940,39 @@ describe('useSentimentState', () => {
       }),
     );
 
-    expect(deriveVoterIdSpy).toHaveBeenCalledWith({
-      nullifier: 'projected',
-      topic_id: TOPIC,
+    expect(deriveVoterIdSpy).toHaveBeenCalledWith('projected', {
+      topicId: TOPIC,
+      epoch: 4,
     });
+
+    await waitForMockCall(writeVoterSpy, ([, , , , voterId]) => (
+      voterId === 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+    ));
 
     expect(writeVoterSpy).toHaveBeenCalledWith(
       fakeClient,
       TOPIC,
       'synth-9',
       4,
-      'voter-9',
+      'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
       expect.objectContaining({
+        schema_version: 'aggregate-voter-node-v1',
+        _protocolVersion: 'luma-public-v1',
+        _writerKind: 'luma',
+        _authorScheme: 'voter-v1',
+        topic_id: TOPIC,
+        synthesis_id: 'synth-9',
+        epoch: 4,
+        voter_id: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
         point_id: POINT,
         agreement: 1,
         weight: 1,
         updated_at: expect.any(String),
+        signedWriteEnvelope: expect.objectContaining({
+          audience: 'vh-aggregate-voter',
+          scheme: 'voter-v1',
+          publicAuthor: 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+        }),
       }),
     );
 
@@ -930,7 +987,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-readback');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee');
     vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
       point_id: POINT,
       agreement: 1,
@@ -949,7 +1006,12 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('readback-ok'),
     });
 
-    await flushProjection();
+    await waitForMockCall(infoSpy, ([label, payload]) => (
+      label === '[vh:vote:voter-node-readback]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { voter_id?: unknown }).voter_id === 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+    ));
 
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:vote:voter-node-readback]',
@@ -957,7 +1019,7 @@ describe('useSentimentState', () => {
         topic_id: TOPIC,
         synthesis_id: 'synth-9',
         epoch: 4,
-        voter_id: 'voter-readback',
+        voter_id: 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
         point_id: POINT,
         found: true,
         agreement: 1,
@@ -975,7 +1037,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-snapshot');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd');
     vi.spyOn(GunClient, 'writeVoterNode').mockResolvedValue({
       point_id: POINT,
       agreement: 1,
@@ -997,6 +1059,7 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+    await waitForMockCall(writeSnapshotSpy, ([client]) => client === fakeClient);
 
     expect(writeSnapshotSpy).toHaveBeenCalledWith(
       fakeClient,
@@ -1020,7 +1083,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-readback-nulls');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc');
     vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({ point_id: POINT } as never);
     const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
 
@@ -1034,7 +1097,12 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('readback-null-fields'),
     });
 
-    await flushProjection();
+    await waitForMockCall(infoSpy, ([label, payload]) => (
+      label === '[vh:vote:voter-node-readback]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { voter_id?: unknown }).voter_id === 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc'
+    ));
 
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:vote:voter-node-readback]',
@@ -1042,7 +1110,7 @@ describe('useSentimentState', () => {
         topic_id: TOPIC,
         synthesis_id: 'synth-9',
         epoch: 4,
-        voter_id: 'voter-readback-nulls',
+        voter_id: 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
         point_id: POINT,
         found: true,
         agreement: null,
@@ -1060,7 +1128,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-readback-non-error');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
     vi.spyOn(GunClient, 'readAggregateVoterNode').mockRejectedValue('readback-string-failure');
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -1074,7 +1142,12 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('readback-fail'),
     });
 
-    await flushProjection();
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:voter-node-readback]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { voter_id?: unknown }).voter_id === 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+    ));
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:voter-node-readback]',
@@ -1082,7 +1155,7 @@ describe('useSentimentState', () => {
         topic_id: TOPIC,
         synthesis_id: 'synth-9',
         epoch: 4,
-        voter_id: 'voter-readback-non-error',
+        voter_id: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
         point_id: POINT,
         found: false,
         error: 'readback-string-failure',
@@ -1098,7 +1171,7 @@ describe('useSentimentState', () => {
       mesh: { get: () => ({}) },
     } as never;
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-write-fail-readback');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa');
     vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
     vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
       point_id: POINT,
@@ -1119,6 +1192,21 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:voter-node-readback]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { voter_id?: unknown }).voter_id === 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    ));
+    await waitForMockCall(warnSpy, ([label]) => (
+      label === '[vh:sentiment] Failed to project aggregate voter node:'
+    ));
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { error?: unknown }).error === 'aggregate-put-ack-timeout'
+    ));
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:voter-node-readback]',
@@ -1126,7 +1214,7 @@ describe('useSentimentState', () => {
         topic_id: TOPIC,
         synthesis_id: 'synth-9',
         epoch: 4,
-        voter_id: 'voter-write-fail-readback',
+        voter_id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
         point_id: POINT,
         found: true,
         write_error: 'aggregate-put-ack-timeout',
@@ -1147,7 +1235,7 @@ describe('useSentimentState', () => {
     } as never;
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(250);
     vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(fakeClient);
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-timeout-recovered');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('9999999999999999999999999999999999999999999999999999999999999999');
     vi.spyOn(GunClient, 'writeVoterNode').mockRejectedValue(new Error('aggregate-put-ack-timeout'));
     vi.spyOn(GunClient, 'readAggregateVoterNode').mockResolvedValue({
       point_id: POINT,
@@ -1172,6 +1260,19 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+    await waitForMockCall(infoSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { success?: unknown }).success === true
+      && (payload as { readback_recovered?: unknown }).readback_recovered === true
+    ));
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:voter-node-readback]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { voter_id?: unknown }).voter_id === '9999999999999999999999999999999999999999999999999999999999999999'
+    ));
 
     expect(writeSnapshotSpy).toHaveBeenCalledWith(
       fakeClient,
@@ -1187,7 +1288,7 @@ describe('useSentimentState', () => {
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:voter-node-readback]',
       expect.objectContaining({
-        voter_id: 'voter-timeout-recovered',
+        voter_id: '9999999999999999999999999999999999999999999999999999999999999999',
         write_error: 'aggregate-put-ack-timeout',
       }),
     );
@@ -1208,6 +1309,7 @@ describe('useSentimentState', () => {
     );
 
     nowSpy.mockRestore();
+    warnSpy.mockRestore();
     infoSpy.mockRestore();
   });
 
@@ -1232,6 +1334,10 @@ describe('useSentimentState', () => {
     });
 
     await flushProjection();
+
+    await waitForMockCall(warnSpy, ([label]) => (
+      label === '[vh:sentiment] Failed to project aggregate voter node:'
+    ));
 
     expect(useSentimentState.getState().getAgreement(TOPIC, POINT, 'synth-9', 4)).toBe(1);
     expect(warnSpy).toHaveBeenCalledWith(
@@ -1264,7 +1370,12 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('projected-err-string'),
     });
 
-    await flushProjection();
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { error?: unknown }).error === 'outbox-string-failure; aggregate-string-failure'
+    ));
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1304,7 +1415,12 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('projected-err-string-aggregate-only'),
     });
 
-    await flushProjection();
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { error?: unknown }).error === 'aggregate-only-string-failure'
+    ));
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1489,7 +1605,13 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('no-transports'),
     });
 
-    await flushProjection();
+    await waitForMockCall(infoSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { error?: unknown; success?: unknown }).success === false
+      && (payload as { error?: unknown }).error === 'sentiment-transport-unavailable'
+    ));
 
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1535,6 +1657,14 @@ describe('useSentimentState', () => {
 
     await flushProjection();
     await vi.runAllTimersAsync();
+    await flushProjection();
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { success?: unknown }).success === false
+      && (payload as { error?: unknown }).error === 'sentiment-outbox-timeout'
+    ));
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1589,7 +1719,12 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('telemetry-timeout-recovered'),
     });
 
-    await flushProjection();
+    await waitForMockCall(infoSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { success?: unknown }).success === true
+    ));
 
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1637,6 +1772,14 @@ describe('useSentimentState', () => {
 
     await flushProjection();
     await vi.runAllTimersAsync();
+    await flushProjection();
+    await waitForMockCall(warnSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { success?: unknown }).success === false
+      && (payload as { error?: unknown }).error === 'sentiment-outbox-not-acknowledged'
+    ));
 
     expect(warnSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1671,7 +1814,12 @@ describe('useSentimentState', () => {
       constituency_proof: proofFor('telemetry-success'),
     });
 
-    await flushProjection();
+    await waitForMockCall(infoSpy, ([label, payload]) => (
+      label === '[vh:vote:mesh-write]'
+      && typeof payload === 'object'
+      && payload !== null
+      && (payload as { success?: unknown }).success === true
+    ));
 
     expect(infoSpy).toHaveBeenCalledWith(
       '[vh:vote:mesh-write]',
@@ -1761,7 +1909,7 @@ describe('useSentimentState', () => {
   });
 
   it('admitted vote creates VoteIntentRecord in durable queue', async () => {
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockResolvedValue('voter-intent');
+    vi.spyOn(Types, 'deriveVoterId').mockResolvedValue('8888888888888888888888888888888888888888888888888888888888888888');
     vi.spyOn(DataModel, 'deriveVoteIntentId').mockResolvedValue('intent-123');
 
     useSentimentState.getState().setAgreement({
@@ -1782,7 +1930,7 @@ describe('useSentimentState', () => {
     expect(queue.length).toBeGreaterThanOrEqual(1);
     const intent = queue.find((r) => r.intent_id === 'intent-123');
     expect(intent).toBeDefined();
-    expect(intent!.voter_id).toBe('voter-intent');
+    expect(intent!.voter_id).toBe('8888888888888888888888888888888888888888888888888888888888888888');
     expect(intent!.topic_id).toBe(TOPIC);
     // proof_ref is opaque, not the raw proof
     expect(intent!.proof_ref).toMatch(/^pref-/);
@@ -1808,7 +1956,7 @@ describe('useSentimentState', () => {
   });
 
   it('logs warning when VoteIntent enqueue derivation fails', async () => {
-    vi.spyOn(DataModel, 'deriveAggregateVoterId').mockRejectedValueOnce(new Error('intent-derive-failed'));
+    vi.spyOn(Types, 'deriveVoterId').mockRejectedValueOnce(new Error('intent-derive-failed'));
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const scheduleReplaySpy = vi.mocked(VoteIntentMaterializer.scheduleVoteIntentReplay);
     scheduleReplaySpy.mockClear();

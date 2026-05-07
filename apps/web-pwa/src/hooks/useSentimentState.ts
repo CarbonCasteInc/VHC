@@ -1,7 +1,6 @@
 import { create } from 'zustand';
-import type { SentimentSignal, ConstituencyProof } from '@vh/types';
+import { deriveVoterId, type SentimentSignal, type ConstituencyProof } from '@vh/types';
 import {
-  deriveAggregateVoterId,
   deriveTopicEngagementActorId,
   deriveVoteIntentId,
   type VoteAdmissionReceipt,
@@ -36,6 +35,7 @@ import {
 } from './pointAggregateSnapshot';
 import { enqueueIntent } from './voteIntentQueue';
 import { scheduleVoteIntentReplay } from './voteIntentMaterializer';
+import { createLumaAggregateVoterNodeFromPrincipal } from './lumaAggregateVoterRecords';
 
 interface SentimentStore {
   agreements: Record<string, Agreement>;
@@ -471,20 +471,30 @@ async function projectSignalToMesh(signal: SentimentSignal): Promise<void> {
   }
 
   try {
-    const voterId = await deriveAggregateVoterId({
-      nullifier: signal.constituency_proof.nullifier,
-      topic_id: signal.topic_id,
+    const aggregateVoterRecord = await createLumaAggregateVoterNodeFromPrincipal({
+      principalNullifier: signal.constituency_proof.nullifier,
+      topicId: signal.topic_id,
+      synthesisId: signal.synthesis_id,
+      epoch: signal.epoch,
+      pointId: signal.point_id,
+      agreement: signal.agreement,
+      weight: signal.weight,
+      updatedAt: asIsoTimestamp(signal.emitted_at),
+      sequence: signal.emitted_at,
     });
+    const voterId = aggregateVoterRecord.voterId;
 
     let writeError: unknown = null;
     let projectedRow: AggregateVoterPointRow | null = null;
     try {
-      const writtenNode = await writeVoterNode(client, signal.topic_id, signal.synthesis_id, signal.epoch, voterId, {
-        point_id: signal.point_id,
-        agreement: signal.agreement,
-        weight: signal.weight,
-        updated_at: asIsoTimestamp(signal.emitted_at),
-      });
+      const writtenNode = await writeVoterNode(
+        client,
+        signal.topic_id,
+        signal.synthesis_id,
+        signal.epoch,
+        voterId,
+        aggregateVoterRecord.node,
+      );
       projectedRow = {
         voter_id: voterId,
         node: writtenNode,
@@ -730,9 +740,9 @@ export const useSentimentState = create<SentimentStore>((set, get) => ({
       const signal: SentimentSignal = emittedSignal;
       void (async () => {
         try {
-          const voterId = await deriveAggregateVoterId({
-            nullifier: constituency_proof.nullifier,
-            topic_id: topicId,
+          const voterId = await deriveVoterId(constituency_proof.nullifier, {
+            topicId,
+            epoch: normalizedEpoch,
           });
           const intentId = await deriveVoteIntentId({
             voter_id: voterId,

@@ -16,10 +16,53 @@ import {
 } from './voteIntentMaterializer';
 import { projectIntentRecord } from './voteIntentProjection';
 
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'aggregate-delegation-signature'),
+}));
+
+const LUMA_VOTER_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const LUMA_VOTER_ID_2 = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff';
+
+async function flushSignedWriteTasks(): Promise<void> {
+  for (let index = 0; index < 16; index += 1) {
+    await Promise.resolve();
+    await nextTaskTurn();
+  }
+}
+
+function nextTaskTurn(): Promise<void> {
+  return new Promise((resolve) => {
+    const Channel = globalThis.MessageChannel;
+    if (!Channel) {
+      resolve();
+      return;
+    }
+    const channel = new Channel();
+    channel.port1.onmessage = () => {
+      channel.port1.close();
+      channel.port2.close();
+      resolve();
+    };
+    channel.port2.postMessage(undefined);
+  });
+}
+
+async function waitForMockCall(
+  spy: { readonly mock: { readonly calls: unknown[][] } },
+): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (spy.mock.calls.length > 0) {
+      return;
+    }
+    await flushSignedWriteTasks();
+  }
+  throw new Error('Timed out waiting for expected mock call');
+}
+
 function makeIntent(overrides: Partial<VoteIntentRecord> = {}): VoteIntentRecord {
   return {
     intent_id: `intent-${Math.random().toString(36).slice(2, 8)}`,
-    voter_id: 'voter-1',
+    voter_id: LUMA_VOTER_ID,
     topic_id: 'topic-1',
     synthesis_id: 'synth-1',
     epoch: 1,
@@ -224,7 +267,7 @@ describe('voteIntentMaterializer', () => {
 
     vi.spyOn(GunClient, 'readAggregateVoterRows').mockResolvedValue([
       {
-        voter_id: 'voter-9',
+        voter_id: LUMA_VOTER_ID_2,
         node: {
           point_id: 'point-1',
           agreement: 1,
@@ -248,7 +291,7 @@ describe('voteIntentMaterializer', () => {
     enqueueIntent(
       makeIntent({
         intent_id: 'replace-existing',
-        voter_id: 'voter-9',
+        voter_id: LUMA_VOTER_ID_2,
         agreement: -1,
         weight: 1.4,
         seq: 100,
@@ -308,7 +351,7 @@ describe('voteIntentMaterializer', () => {
       'topic-1',
       'synth-1',
       1,
-      'voter-1',
+      LUMA_VOTER_ID,
       expect.objectContaining({ updated_at: new Date(0).toISOString() }),
     );
     expect(meshWriteSpy).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
@@ -347,7 +390,9 @@ describe('voteIntentMaterializer', () => {
         weight: 1,
         updated_at: new Date(100).toISOString(),
       });
-      vi.spyOn(GunClient, 'readAggregateVoterRows').mockReturnValue(new Promise(() => {}));
+      const readRowsSpy = vi
+        .spyOn(GunClient, 'readAggregateVoterRows')
+        .mockReturnValue(new Promise(() => {}));
       const writeSnapshotSpy = vi.spyOn(GunClient, 'writePointAggregateSnapshot');
 
       const result = projectIntentRecord({
@@ -356,7 +401,10 @@ describe('voteIntentMaterializer', () => {
         now: () => 500,
         materializePointSnapshot,
       });
+      await waitForMockCall(readRowsSpy);
+      await flushSignedWriteTasks();
       await vi.advanceTimersByTimeAsync(3_000);
+      await flushSignedWriteTasks();
 
       await expect(result).resolves.toEqual({
         topic_id: 'topic-1',
@@ -447,7 +495,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'timeout-recovered',
-      voter_id: 'voter-timeout',
+      voter_id: LUMA_VOTER_ID,
       agreement: 1,
       weight: 1,
       seq: 120,
@@ -473,7 +521,7 @@ describe('voteIntentMaterializer', () => {
         synthesis_id: 'synth-1',
         epoch: 1,
         point_id: 'point-1',
-        voter_id: 'voter-timeout',
+        voter_id: LUMA_VOTER_ID,
         intent_id: 'timeout-recovered',
       }),
     );
@@ -507,7 +555,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'timeout-stale',
-      voter_id: 'voter-timeout-stale',
+      voter_id: LUMA_VOTER_ID,
       agreement: 1,
       weight: 1,
       seq: 120,
@@ -540,7 +588,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'timeout-string-recovered',
-      voter_id: 'voter-timeout-string',
+      voter_id: LUMA_VOTER_ID,
       agreement: 1,
       weight: 1,
       seq: 120,
@@ -571,7 +619,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'timeout-mismatch-point',
-      voter_id: 'voter-timeout-point',
+      voter_id: LUMA_VOTER_ID,
       agreement: 1,
       weight: 1,
       seq: 120,
@@ -602,7 +650,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'timeout-mismatch-agreement',
-      voter_id: 'voter-timeout-agreement',
+      voter_id: LUMA_VOTER_ID,
       agreement: 1,
       weight: 1,
       seq: 120,
@@ -633,7 +681,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'timeout-invalid-timestamp',
-      voter_id: 'voter-timeout-invalid-ts',
+      voter_id: LUMA_VOTER_ID,
       agreement: 1,
       weight: 1,
       seq: 120,
@@ -659,7 +707,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'non-timeout-error',
-      voter_id: 'voter-non-timeout',
+      voter_id: LUMA_VOTER_ID,
       agreement: 1,
       weight: 1,
       seq: 120,
@@ -684,7 +732,7 @@ describe('voteIntentMaterializer', () => {
 
     enqueueIntent(makeIntent({
       intent_id: 'string-hard-fail',
-      voter_id: 'voter-string-hard-fail',
+      voter_id: LUMA_VOTER_ID,
     }));
 
     await expect(replayVoteIntentQueue({ limit: 10, now: () => 506 })).resolves.toEqual({ replayed: 0, failed: 1 });
@@ -698,6 +746,21 @@ describe('voteIntentMaterializer', () => {
       }),
     );
     expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['string-hard-fail']);
+  });
+
+  it('replayVoteIntentQueue fails closed instead of forging legacy voter ids into v1 envelopes', async () => {
+    const client = {} as VennClient;
+    vi.spyOn(ClientResolver, 'resolveClientFromAppStore').mockReturnValue(client);
+    const writeVoterSpy = vi.spyOn(GunClient, 'writeVoterNode');
+
+    enqueueIntent(makeIntent({
+      intent_id: 'legacy-voter-id',
+      voter_id: 'legacy-voter-id',
+    }));
+
+    await expect(replayVoteIntentQueue({ limit: 10, now: () => 507 })).resolves.toEqual({ replayed: 0, failed: 1 });
+    expect(writeVoterSpy).not.toHaveBeenCalled();
+    expect(getPendingIntents().map((item) => item.intent_id)).toEqual(['legacy-voter-id']);
   });
 
   it('replayVoteIntentQueue uses default replay limit when none is provided', async () => {
@@ -845,7 +908,7 @@ describe('voteIntentMaterializer', () => {
       .spyOn(GunClient, 'writePointAggregateSnapshot')
       .mockImplementation(async (_client, snapshot) => PointAggregateSnapshotV1Schema.parse(snapshot));
 
-    enqueueIntent(makeIntent({ intent_id: 'queue-1', voter_id: 'voter-9', seq: 100, emitted_at: 100 }));
+    enqueueIntent(makeIntent({ intent_id: 'queue-1', voter_id: LUMA_VOTER_ID_2, seq: 100, emitted_at: 100 }));
 
     const result = await replayVoteIntentQueue({ limit: 10, now: () => 777 });
 
@@ -853,12 +916,25 @@ describe('voteIntentMaterializer', () => {
     expect(getPendingIntents()).toHaveLength(0);
 
     expect(writeVoterSpy).toHaveBeenCalledTimes(1);
-    expect(writeVoterSpy.mock.calls[0]![5]).toEqual({
+    expect(writeVoterSpy.mock.calls[0]![5]).toEqual(expect.objectContaining({
+      schema_version: 'aggregate-voter-node-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'voter-v1',
+      topic_id: 'topic-1',
+      synthesis_id: 'synth-1',
+      epoch: 1,
+      voter_id: LUMA_VOTER_ID_2,
       point_id: 'point-1',
       agreement: 1,
       weight: 1,
       updated_at: new Date(100).toISOString(),
-    });
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-aggregate-voter',
+        publicAuthor: LUMA_VOTER_ID_2,
+        scheme: 'voter-v1',
+      }),
+    }));
 
     expect(writeSnapshotSpy).toHaveBeenCalledTimes(1);
     const snapshotArg = writeSnapshotSpy.mock.calls[0]![1] as Record<string, unknown>;

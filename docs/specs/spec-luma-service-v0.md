@@ -656,7 +656,7 @@ Required record classes carrying `_authorScheme` (post-M0.B):
 | Forum comment | `vh/forum/threads/<threadId>/comments/<commentId>` | `Comment.author` | `forum-author-v1` | global, on-reset-identity |
 | Forum post (reply/article) | `vh/forum/threads/<threadId>/posts/<postId>` | `ForumPost.author` | `forum-author-v1` | global, on-reset-identity |
 | Identity directory entry | `vh/directory/<identityDirectoryKey>` | record key | `identity-directory-v1` | global, on-reset-identity |
-| Aggregate voter node | `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/points/<pointId>/voters/<voterId>` | `voter_id` | `voter-v1` | scoped to (topic, epoch), unlinkable across scope |
+| Aggregate voter node | `vh/aggregates/topics/<topicId>/syntheses/<synthesisId>/epochs/<epoch>/voters/<voterId>/<pointId>` | `voter_id` | `voter-v1` | scoped to (topic, epoch), unlinkable across scope |
 | News report (reporter id) | `vh/news/reports/<reportId>` | `NewsReport.reporter_id` | `forum-author-v1` | global, on-reset-identity |
 | Forum nomination | `vh/forum/nominations/<nominationId>` | `NominationEvent.nominatorAuthorId` | `forum-author-v1` | global, on-reset-identity |
 
@@ -673,6 +673,15 @@ record-derived id):
 | Aggregate snapshot (`PointAggregateSnapshotV1`, topic engagement summary) | record-derived id; not author-scoped |
 | Comment moderation record (`CommentModeration.operator_id`) | operator id is a system-writer-signed pseudonym; carries `_writerKind: 'system'`, no `_authorScheme` |
 | News report operator action (`audit.operator_id`) | same as above |
+
+`AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
+`_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
+`_authorScheme: 'voter-v1'`, and `SignedWriteEnvelope.audience =
+'vh-aggregate-voter'`. Readers MUST validate that the path `voterId`, payload
+`voter_id`, envelope `publicAuthor`, and signed payload tuple all match before
+including the row in aggregate fan-in. Legacy bare voter nodes MAY be
+compatibility-read by migration adapters, but new public writes MUST use the
+LUMA v1 envelope shape.
 
 Adding a new `_authorScheme` value is a Protocol RFC under §1.4 and requires
 a corresponding linkability-domain registry entry under §9.3. Removing a
