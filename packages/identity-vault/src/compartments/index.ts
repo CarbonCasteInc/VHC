@@ -26,6 +26,17 @@ export {
   type SeaDevicePairInput
 } from './seaDevicePair';
 export {
+  clearWalletBinding,
+  loadWalletBinding,
+  normalizeWalletAddress,
+  normalizeWalletChainId,
+  saveWalletBinding,
+  validateWalletBinding,
+  walletBinding,
+  walletBindingMatchesPrincipal,
+  type WalletBindingInput
+} from './walletBinding';
+export {
   base64UrlToBytes,
   bytesToBase64Url,
   randomBase64Url,

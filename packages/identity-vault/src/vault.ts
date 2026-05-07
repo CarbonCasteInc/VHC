@@ -14,13 +14,15 @@ import {
   LEGACY_VAULT_VERSION,
   isValidIdentity,
   isVaultV2,
+  isWalletBindingCompartment,
 } from './types';
 import type {
   DeviceCredentialCompartment,
   Identity,
   SeaDevicePairCompartment,
   VaultRecord,
-  VaultV2
+  VaultV2,
+  WalletBindingCompartment
 } from './types';
 
 const encoder = new TextEncoder();
@@ -259,13 +261,18 @@ function normalizeVaultV2(vault: VaultV2): VaultV2 {
   if (identityRecord !== undefined && !isValidIdentity(identityRecord)) {
     throw new Error('Invalid v2 identityRecord compartment');
   }
+  const walletBinding = vault.walletBinding;
+  if (walletBinding !== undefined && !isWalletBindingCompartment(walletBinding)) {
+    throw new Error('Invalid v2 walletBinding compartment');
+  }
 
   return {
     schemaVersion: VAULT_VERSION,
     ...(identityRecord !== undefined ? { identityRecord } : {}),
     ...(vault.deviceCredential ? { deviceCredential: vault.deviceCredential } : {}),
     ...(vault.seaDevicePair ? { seaDevicePair: vault.seaDevicePair } : {}),
-    ...(vault.delegationSigningKey ? { delegationSigningKey: vault.delegationSigningKey } : {})
+    ...(vault.delegationSigningKey ? { delegationSigningKey: vault.delegationSigningKey } : {}),
+    ...(walletBinding ? { walletBinding: walletBinding as WalletBindingCompartment } : {})
   };
 }
 

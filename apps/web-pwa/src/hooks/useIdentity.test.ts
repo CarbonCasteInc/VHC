@@ -9,6 +9,7 @@ import {
   loadIdentity as vaultLoad,
   clearIdentity as vaultClear,
   LEGACY_STORAGE_KEY,
+  walletBinding,
 } from '@vh/identity-vault';
 import type { Identity } from '@vh/identity-vault';
 import type { AttestationPayload } from '@vh/types';
@@ -205,6 +206,13 @@ describe('useIdentity', () => {
     useXpLedger.getState().addXp('civic', 4);
     localStorage.setItem(delegationStorageKey(firstNullifier!), '{"grants":[{"grantId":"g-1"}]}');
     useDelegationStore.getState().setActivePrincipal(firstNullifier!);
+    const firstWalletBinding = await walletBinding.save({
+      address: '0x1111111111111111111111111111111111111111',
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: firstNullifier!,
+      now: 1000
+    });
 
     await act(async () => {
       await result.current.signOut();
@@ -215,6 +223,7 @@ describe('useIdentity', () => {
     expect(useXpLedger.getState().activeNullifier).toBeNull();
     expect(await deviceCredential.loadOrCreate()).toEqual(firstDeviceCredential);
     expect(await delegationSigningKey.publicKey()).toEqual(firstDelegationPublicKey);
+    expect(await walletBinding.load()).toEqual(firstWalletBinding);
 
     await act(async () => {
       await result.current.createIdentity();
@@ -256,6 +265,13 @@ describe('useIdentity', () => {
     const firstDelegationPublicKey = await delegationSigningKey.publicKey();
     localStorage.setItem(delegationStorageKey(firstNullifier), '{"grants":[{"grantId":"old"}]}');
     useDelegationStore.getState().setActivePrincipal(firstNullifier);
+    await walletBinding.save({
+      address: '0x2222222222222222222222222222222222222222',
+      chainId: '31337',
+      providerKind: 'e2e-mock',
+      boundPrincipalNullifier: firstNullifier,
+      now: 1000
+    });
 
     await act(async () => {
       await result.current.resetIdentity();
@@ -265,6 +281,7 @@ describe('useIdentity', () => {
     expect(localStorage.getItem(delegationStorageKey(firstNullifier))).toBeNull();
     expect(useDelegationStore.getState().activePrincipal).toBeNull();
     expect(await vaultLoad()).toBeNull();
+    expect(await walletBinding.load()).toBeNull();
     expect(await deviceCredential.loadOrCreate()).not.toEqual(firstDeviceCredential);
     expect(await delegationSigningKey.publicKey()).not.toEqual(firstDelegationPublicKey);
     expect(pairMock).toHaveBeenCalledTimes(2);

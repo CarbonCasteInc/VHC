@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { BrowserProvider, Contract, JsonRpcProvider, formatUnits, parseUnits } from 'ethers';
+import { walletBinding } from '@vh/identity-vault';
 import { isE2EMode } from '../store';
+import { getPublishedIdentity } from '../store/identityProvider';
+import type { WalletBindingCompartment, WalletProviderKind } from '@vh/identity-vault';
 
 const RVU_ABI = ['function balanceOf(address account) view returns (uint256)'];
 const UBE_ABI = [
@@ -51,6 +54,7 @@ export function useWallet() {
   const [provider, setProvider] = useState<BrowserProvider | null>(null);
   const [balance, setBalance] = useState<bigint | null>(null);
   const [claimStatus, setClaimStatus] = useState<ClaimStatus | null>(null);
+  const [boundWallet, setBoundWallet] = useState<WalletBindingCompartment | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [claiming, setClaiming] = useState(false);
@@ -64,10 +68,39 @@ export function useWallet() {
 
   const hasConfig = useMemo(() => Boolean(UBE_ADDRESS && RVU_ADDRESS), []);
 
+  const refreshBinding = useCallback(async () => {
+    try {
+      setBoundWallet(await walletBinding.load());
+    } catch (err) {
+      setBoundWallet(null);
+      setError((err as Error).message);
+    }
+  }, []);
+
+  const bindCurrentIdentity = useCallback(async (input: {
+    address: string;
+    chainId: string | number | bigint;
+    providerKind: WalletProviderKind;
+  }) => {
+    const principalNullifier = getPublishedIdentity()?.session.nullifier;
+    if (!principalNullifier) {
+      setBoundWallet(null);
+      return null;
+    }
+
+    const binding = await walletBinding.save({
+      ...input,
+      boundPrincipalNullifier: principalNullifier
+    });
+    setBoundWallet(binding);
+    return binding;
+  }, []);
+
   const connect = useCallback(async () => {
     if (e2e) {
       const now = Math.floor(Date.now() / 1000);
-      setAccount('0xE2E0000000000000000000000000000000000000');
+      const address = '0xE2E0000000000000000000000000000000000000';
+      setAccount(address);
       setBalance(parseUnits('250', 18));
       setClaimStatus({
         eligible: true,
@@ -75,6 +108,11 @@ export function useWallet() {
         trustScore: 9500,
         expiresAt: now + 7 * 24 * 60 * 60,
         nullifier: MOCK_NULLIFIER
+      });
+      await bindCurrentIdentity({
+        address,
+        chainId: '31337',
+        providerKind: 'e2e-mock'
       });
       setError(null);
       return;
@@ -88,6 +126,14 @@ export function useWallet() {
       const [address] = await browserProvider.send('eth_requestAccounts', []);
       setProvider(browserProvider);
       setAccount(address);
+      if (getPublishedIdentity()?.session.nullifier) {
+        const network = await browserProvider.getNetwork();
+        await bindCurrentIdentity({
+          address,
+          chainId: network.chainId,
+          providerKind: 'browser-injected'
+        });
+      }
       setError(null);
     } catch (err) {
       setError((err as Error).message);
@@ -181,6 +227,10 @@ export function useWallet() {
     }
   }, [account, provider, refresh]);
 
+  useEffect(() => {
+    void refreshBinding();
+  }, [refreshBinding]);
+
   const formattedBalance = useMemo(() => {
     if (balance === null) return null;
     const value = Number.parseFloat(formatUnits(balance, 18));
@@ -191,6 +241,7 @@ export function useWallet() {
   return {
     account,
     balance,
+    walletBinding: boundWallet,
     formattedBalance,
     claimStatus,
     loading,
@@ -198,6 +249,7 @@ export function useWallet() {
     error,
     connect,
     refresh,
+    refreshBinding,
     claimUBE
   };
 }
