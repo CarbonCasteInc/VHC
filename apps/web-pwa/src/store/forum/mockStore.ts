@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { HermesCommentModerationSchema, HermesCommentSchema, HermesCommentWriteSchema, HermesThreadSchema, migrateCommentToV1 } from '@vh/data-model';
+import { HermesCommentModerationSchema, HermesCommentSchema, HermesThreadSchema, migrateCommentToV1 } from '@vh/data-model';
 import type { HermesComment, HermesCommentHydratable, HermesCommentModeration, HermesThread } from '@vh/types';
 import type { CommentStanceInput, ForumState } from './types';
 import { loadIdentity, loadVotesFromStorage, persistVotes } from './persistence';
@@ -14,6 +14,12 @@ import {
   visibleCommentsForThread
 } from './helpers';
 import { normalizeThreadSourceContext } from './sourceContext';
+import { getFullIdentity } from '../identityProvider';
+import {
+  assertLumaForumIdentity,
+  createLumaForumCommentRecord,
+  createLumaForumThreadRecord
+} from './lumaRecords';
 
 export function createMockForumStore() {
   const mesh = (() => {
@@ -36,21 +42,18 @@ export function createMockForumStore() {
     commentModeration: new Map(),
     userVotes: initialVotes,
     async createThread(title, content, tags, sourceContext) {
-      const identity = ensureIdentity();
+      ensureIdentity();
+      const identity = assertLumaForumIdentity(getFullIdentity());
       const normalizedSourceContext = normalizeThreadSourceContext(sourceContext);
-      const thread: HermesThread = {
+      const thread = await createLumaForumThreadRecord({
+        identity,
         id: `mock-thread-${Date.now()}`,
-        schemaVersion: 'hermes-thread-v0',
         title,
         content,
-        author: identity.session.nullifier,
         timestamp: Date.now(),
         tags,
         ...normalizedSourceContext,
-        upvotes: 0,
-        downvotes: 0,
-        score: 0
-      };
+      });
       const cleanThread = stripUndefined(thread);
       const nextThreads = new Map(get().threads).set(cleanThread.id, cleanThread);
       set((state) => ({ ...state, threads: nextThreads }));
@@ -60,23 +63,21 @@ export function createMockForumStore() {
     },
     async createComment(threadId, content, stanceInput, parentId, targetId) {
       ensureIdentity();
+      const identity = assertLumaForumIdentity(getFullIdentity());
       const stance: Exclude<CommentStanceInput, 'reply' | 'counterpoint'> =
         stanceInput === 'counterpoint' ? 'counter' : stanceInput === 'reply' ? 'concur' : stanceInput;
       if (stance !== 'concur' && stance !== 'counter' && stance !== 'discuss') {
         throw new Error('Invalid stance');
       }
-      const comment: HermesComment = HermesCommentWriteSchema.parse({
+      const comment: HermesComment = await createLumaForumCommentRecord({
+        identity,
         id: `mock-comment-${Date.now()}`,
-        schemaVersion: 'hermes-comment-v1',
         threadId,
         parentId: parentId ?? null,
         content,
-        author: 'mock-author',
         timestamp: Date.now(),
         stance,
-        targetId: targetId ?? undefined,
-        upvotes: 0,
-        downvotes: 0
+        targetId: targetId ?? undefined
       });
       const cleanComment = stripUndefined(comment);
       const withLegacyType: HermesComment = {
@@ -146,11 +147,15 @@ export function createMockForumStore() {
       const commentModeration = new Map<string, Map<string, HermesCommentModeration>>();
       (items ?? []).forEach((entry: any) => {
         const value = entry.value ?? entry;
-        if (value?.schemaVersion === 'hermes-thread-v0') {
+        if (value?.schemaVersion === 'hermes-thread-v0' || value?.schemaVersion === 'hermes-thread-v1') {
           const parsed = parseThreadFromGun(value as Record<string, unknown>);
           const validated = HermesThreadSchema.safeParse(parsed);
           if (validated.success) threads.set(validated.data.id, validated.data);
-        } else if (value?.schemaVersion === 'hermes-comment-v0' || value?.schemaVersion === 'hermes-comment-v1') {
+        } else if (
+          value?.schemaVersion === 'hermes-comment-v0'
+          || value?.schemaVersion === 'hermes-comment-v1'
+          || value?.schemaVersion === 'hermes-comment-v2'
+        ) {
           const entryPath = entry.path ?? '';
           const match = entryPath.match(/vh\/forum\/threads\/([^/]+)\/comments/);
           const threadId = match?.[1] ?? value.threadId;

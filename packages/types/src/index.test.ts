@@ -6,6 +6,8 @@ import {
   RegionProofSchema,
   type AttestationPayload,
   type DirectoryEntry,
+  type HermesComment,
+  type HermesThread,
   type VerificationResult,
   type SessionResponse,
   type RegionProof
@@ -139,5 +141,85 @@ describe('types schemas', () => {
     expect(entry.identityDirectoryKey).toHaveLength(64);
     expect(JSON.stringify(entry)).not.toContain('privateKey');
     expect(JSON.stringify(entry)).not.toContain('nullifier');
+  });
+
+  it('types LUMA forum thread and comment public-author records', () => {
+    const forumAuthorId = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    const threadPayload = {
+      schemaVersion: 'hermes-thread-v1' as const,
+      _protocolVersion: 'luma-public-v1' as const,
+      _writerKind: 'luma' as const,
+      _authorScheme: 'forum-author-v1' as const,
+      id: 'thread-1',
+      title: 'LUMA thread',
+      content: 'Thread body',
+      author: forumAuthorId,
+      timestamp: 1,
+      tags: ['luma']
+    };
+    const thread: HermesThread = {
+      ...threadPayload,
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      signedWriteEnvelope: {
+        envelopeVersion: 1,
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        protocolVersion: 'luma-write-v1',
+        profile: 'public-beta',
+        audience: 'vh-forum-thread',
+        origin: 'https://vh.example',
+        scheme: 'forum-author-v1',
+        publicAuthor: forumAuthorId,
+        sessionRef: { tokenHash: 'token-hash', envelopeDigest: 'envelope-digest' },
+        payload: threadPayload,
+        payloadDigest: 'payload-digest',
+        sequence: 1,
+        nonce: 'nonce',
+        idempotencyKey: 'idempotency-key',
+        issuedAt: 1,
+        signature: 'signature'
+      }
+    };
+    const commentPayload = {
+      schemaVersion: 'hermes-comment-v2' as const,
+      _protocolVersion: 'luma-public-v1' as const,
+      _writerKind: 'luma' as const,
+      _authorScheme: 'forum-author-v1' as const,
+      id: 'comment-1',
+      threadId: 'thread-1',
+      parentId: null,
+      content: 'Comment body',
+      author: forumAuthorId,
+      timestamp: 2,
+      stance: 'concur' as const
+    };
+    const comment: HermesComment = {
+      ...commentPayload,
+      upvotes: 0,
+      downvotes: 0,
+      signedWriteEnvelope: {
+        envelopeVersion: 1,
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        protocolVersion: 'luma-write-v1',
+        profile: 'public-beta',
+        audience: 'vh-forum-comment',
+        origin: 'https://vh.example',
+        scheme: 'forum-author-v1',
+        publicAuthor: forumAuthorId,
+        sessionRef: { tokenHash: 'token-hash', envelopeDigest: 'envelope-digest' },
+        payload: commentPayload,
+        payloadDigest: 'payload-digest',
+        sequence: 2,
+        nonce: 'nonce',
+        idempotencyKey: 'idempotency-key',
+        issuedAt: 2,
+        signature: 'signature'
+      }
+    };
+
+    expect(thread.author).toBe(forumAuthorId);
+    expect(comment.author).toBe(forumAuthorId);
+    expect(JSON.stringify({ thread, comment })).not.toContain('principal-nullifier');
   });
 });

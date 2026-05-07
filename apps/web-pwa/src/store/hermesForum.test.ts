@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { deriveTopicId, deriveUrlTopicId } from '@vh/data-model';
-import type { HermesThread } from '@vh/types';
+import { deriveForumAuthorId, type HermesThread } from '@vh/types';
 import { createForumStore } from './hermesForum';
 import { useXpLedger } from './xpLedger';
 import { publishIdentity, clearPublishedIdentity } from './identityProvider';
@@ -129,6 +129,10 @@ vi.mock('@vh/gun-client', async (orig) => {
   };
 });
 
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'forum-delegation-signature')
+}));
+
 const memoryStorage = () => {
   const store = new Map<string, string>();
   return {
@@ -196,13 +200,23 @@ beforeEach(() => {
   getForumTagIndexChainMock.mockClear();
 });
 
+async function waitForMockCall(mock: { mock: { calls: unknown[] } }, count = 1): Promise<void> {
+  for (let i = 0; i < 50 && mock.mock.calls.length < count; i += 1) {
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.resolve();
+  }
+  expect(mock.mock.calls.length).toBeGreaterThanOrEqual(count);
+}
+
 describe('hermesForum store', () => {
   const setIdentity = (nullifier: string, trustScore = 1) => {
     publishIdentity({
       session: {
+        token: `token-${nullifier}`,
         nullifier,
         trustScore,
         scaledTrustScore: Math.round(trustScore * 10000),
+        createdAt: 1,
         expiresAt: Date.now() + 60_000,
       },
     });
@@ -212,9 +226,11 @@ describe('hermesForum store', () => {
   it('rejects thread creation when trustScore is low', async () => {
     publishIdentity({
       session: {
+        token: 'token-low',
         nullifier: 'low',
         trustScore: 0.2,
         scaledTrustScore: 2000,
+        createdAt: 1,
         expiresAt: Date.now() + 60_000,
       },
     });
@@ -297,6 +313,40 @@ describe('hermesForum store', () => {
       id: 'news-story:story-1',
       topicId: 'story-topic-1',
       isHeadline: true,
+    });
+  });
+
+  it('createThread writes LUMA forum-author v1 metadata without the raw nullifier', async () => {
+    const rawNullifier = 'forum-thread-author-nullifier';
+    setIdentity(rawNullifier);
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'thread-luma-author', now: () => 1 });
+
+    const thread = await store.getState().createThread('title', 'content', ['news']);
+    const expectedForumAuthorId = await deriveForumAuthorId(rawNullifier);
+
+    expect(thread).toMatchObject({
+      schemaVersion: 'hermes-thread-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
+      author: expectedForumAuthorId,
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-forum-thread',
+        scheme: 'forum-author-v1',
+        publicAuthor: expectedForumAuthorId,
+        signature: 'forum-delegation-signature'
+      })
+    });
+    expect((thread as any).signedWriteEnvelope.payload).toMatchObject({
+      id: 'thread-luma-author',
+      author: expectedForumAuthorId
+    });
+    expect(JSON.stringify(threadWrites[0])).not.toContain(rawNullifier);
+    expect(threadWrites[0]).toMatchObject({
+      author: expectedForumAuthorId,
+      signedWriteEnvelope: expect.objectContaining({
+        publicAuthor: expectedForumAuthorId
+      })
     });
   });
 
@@ -879,6 +929,41 @@ describe('hermesForum store', () => {
     );
   });
 
+  it('createComment writes LUMA forum-author v1 metadata without the raw nullifier', async () => {
+    const rawNullifier = 'forum-comment-author-nullifier';
+    setIdentity(rawNullifier);
+    const store = createForumStore({ resolveClient: () => ({} as any), randomId: () => 'comment-luma-author', now: () => 5 });
+
+    const comment = await store.getState().createComment('thread-1', 'hello', 'reply');
+    const expectedForumAuthorId = await deriveForumAuthorId(rawNullifier);
+
+    expect(comment).toMatchObject({
+      schemaVersion: 'hermes-comment-v2',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
+      author: expectedForumAuthorId,
+      signedWriteEnvelope: expect.objectContaining({
+        audience: 'vh-forum-comment',
+        scheme: 'forum-author-v1',
+        publicAuthor: expectedForumAuthorId,
+        signature: 'forum-delegation-signature'
+      })
+    });
+    expect((comment as any).signedWriteEnvelope.payload).toMatchObject({
+      id: 'comment-luma-author',
+      threadId: 'thread-1',
+      author: expectedForumAuthorId
+    });
+    expect(JSON.stringify(commentWrites[0])).not.toContain(rawNullifier);
+    expect(commentWrites[0]).toMatchObject({
+      author: expectedForumAuthorId,
+      signedWriteEnvelope: expect.objectContaining({
+        publicAuthor: expectedForumAuthorId
+      })
+    });
+  });
+
   it('createComment retries when the indexed comment is not durable on first readback', async () => {
     setIdentity('budget-comment-durable-retry');
     let storedComment: any;
@@ -1010,6 +1095,7 @@ describe('hermesForum store', () => {
       });
 
       const pending = store.getState().createComment('thread-1', 'hello', 'reply');
+      await waitForMockCall(commentNode.put);
       await vi.advanceTimersByTimeAsync(10_000);
       await expect(pending).resolves.toMatchObject({ id: 'comment-relay-fallback' });
 

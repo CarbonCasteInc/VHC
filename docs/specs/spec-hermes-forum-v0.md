@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-04-27
+> Last Reviewed: 2026-05-07
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md
 
 
-Version: 0.12
+Version: 0.13
 Status: Canonical for Season 0 (V2-first alignment)
 Context: Public topic discourse, reply/article publishing, and elevation entrypoint.
 
@@ -28,10 +28,10 @@ This spec restores implementation-level details from Sprint 3/3.5 while aligning
 ```ts
 interface Thread {
   id: string;
-  schemaVersion: 'hermes-thread-v0';
+  schemaVersion: 'hermes-thread-v0' | 'hermes-thread-v1';
   title: string; // <= 200
   content: string; // markdown, <= 10_000
-  author: string; // principal nullifier
+  author: string; // v1 forumAuthorId; v0 legacy records may carry raw nullifier
   timestamp: number;
   topicId: string;
   tags: string[];
@@ -54,6 +54,15 @@ interface Thread {
   score: number; // computed view
 }
 
+interface LumaThread extends Thread {
+  schemaVersion: 'hermes-thread-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
+  author: string; // 64-char lowercase hex forumAuthorId
+  signedWriteEnvelope: SignedWriteEnvelope<ForumThreadSignedPayload>;
+}
+
 interface ProposalExtension {
   fundingRequest: string;
   recipient: string;
@@ -71,6 +80,9 @@ Back-compat notes:
 - Read path accepts `sourceAnalysisId`; write path emits `sourceSynthesisId`.
 - Missing `sourceEpoch` is valid for legacy records.
 - News story detail may pass an explicit deterministic `threadId` when creating a headline thread. This is limited to story-linked forum threads and does not change native forum thread id generation.
+- Current writes emit `hermes-thread-v1`. Legacy `hermes-thread-v0` records remain read/hydration compatible only.
+- `hermes-thread-v1.author` is the globally linkable `forumAuthorId` from LUMA §9.3 (`forum-author-v1`); it is not a raw principal nullifier. It is stable until Reset Identity and changes only when the underlying principal rotates.
+- The `SignedWriteEnvelope` audience for thread writes is `vh-forum-thread`. The signed payload covers immutable creation fields and excludes mutable counters (`upvotes`, `downvotes`, `score`) and the legacy read alias `sourceAnalysisId`.
 
 ### 2.2 Topic linkage rules
 
@@ -92,11 +104,11 @@ function deriveThreadTopicId(threadId: string): string {
 ```ts
 interface Comment {
   id: string;
-  schemaVersion: 'hermes-comment-v1';
+  schemaVersion: 'hermes-comment-v1' | 'hermes-comment-v2';
   threadId: string;
   parentId: string | null;
   content: string; // markdown, <= 10_000
-  author: string;
+  author: string; // v2 forumAuthorId; v0/v1 legacy records may carry raw nullifier
   via?: 'human' | 'familiar';
   timestamp: number;
 
@@ -110,31 +122,43 @@ interface Comment {
   upvotes: number;
   downvotes: number;
 }
+
+interface LumaComment extends Comment {
+  schemaVersion: 'hermes-comment-v2';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
+  author: string; // 64-char lowercase hex forumAuthorId
+  signedWriteEnvelope: SignedWriteEnvelope<ForumCommentSignedPayload>;
+}
 ```
 
-#### 2.3.1 Migration (v0 -> v1)
+#### 2.3.1 Migration (v0/v1 -> v2)
 
 Read path requirements:
 
-- Accept both `hermes-comment-v0` and `hermes-comment-v1`
+- Accept `hermes-comment-v0`, `hermes-comment-v1`, and `hermes-comment-v2`
 - Map `type: 'counterpoint'` -> `stance: 'counter'`
 - Map `type: 'reply'` -> `stance: 'concur'`
 - Preserve `targetId` only for legacy compatibility
+- Validate `hermes-comment-v2` with `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`, `_authorScheme: 'forum-author-v1'`, and `SignedWriteEnvelope.audience = 'vh-forum-comment'`
 
 Write path requirements:
 
-- Always write `schemaVersion: 'hermes-comment-v1'`
+- Always write `schemaVersion: 'hermes-comment-v2'`
 - Always write `stance`
 - Never write `type` for new comments
 - New comments may use `concur`, `counter`, or `discuss`; legacy `type`
   migration maps only `reply` -> `concur` and `counterpoint` -> `counter`.
+- New comments write `author` as `forumAuthorId`, never raw principal nullifier. The signed payload covers immutable comment fields and excludes mutable counters (`upvotes`, `downvotes`).
 
 Zod contract pattern:
 
 ```ts
 export const HermesCommentSchema = z.union([
   HermesCommentSchemaV0, // read-only
-  HermesCommentSchemaV1, // read/write
+  HermesCommentSchemaV1, // legacy read/hydration
+  HermesCommentSchemaV2, // current LUMA write/read
 ]);
 ```
 
@@ -646,6 +670,7 @@ Core:
 - [ ] Reply/article post publication path beyond comments
 - [x] Trust gating for write/vote/elevate boundaries
 - [x] Ranking (`Hot/New/Top`) and score computation
+- [x] Thread/comment writes use `forumAuthorId` and LUMA signed-write envelopes (`hermes-thread-v1`, `hermes-comment-v2`)
 
 Storage and sync:
 
@@ -691,3 +716,4 @@ UX:
 10. Feed-shell regression: forum cards remain discoverable through the `Topics` filter without requiring a primary HERMES tab in the public app chrome.
 11. Comment moderation schema rejects malformed/path-mismatched payloads, preserves audit metadata, and hides moderated story-reply content without changing deterministic `news-story:*` thread identity.
 12. News report schema and Gun adapters reject malformed/path-mismatched payloads, preserve operator audit metadata, and route pending reports to audited synthesis correction or comment moderation actions.
+13. LUMA forum-author migration: new thread/comment writes carry 64-char `forumAuthorId`, `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`, `_authorScheme: 'forum-author-v1'`, and a valid `SignedWriteEnvelope`; legacy v0/v1 hydration stays compatible.

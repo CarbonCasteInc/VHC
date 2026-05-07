@@ -185,6 +185,10 @@ vi.mock('@vh/gun-client', async (orig) => {
   };
 });
 
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'forum-delegation-signature')
+}));
+
 const memoryStorage = () => {
   const store = new Map<string, string>();
   return {
@@ -244,9 +248,26 @@ beforeEach(() => {
   getForumTagIndexChainMock.mockClear();
 });
 
+async function waitForMockCall(mock: { mock: { calls: unknown[] } }, count = 1): Promise<void> {
+  for (let i = 0; i < 50 && mock.mock.calls.length < count; i += 1) {
+    await vi.advanceTimersByTimeAsync(1);
+    await Promise.resolve();
+  }
+  expect(mock.mock.calls.length).toBeGreaterThanOrEqual(count);
+}
+
 describe('hermesForum store (comments & hydration)', () => {
   const setIdentity = (nullifier: string, trustScore = 1) => {
-    publishIdentity({ session: { nullifier, trustScore, scaledTrustScore: Math.round(trustScore * 10000) } });
+    publishIdentity({
+      session: {
+        token: `token-${nullifier}`,
+        nullifier,
+        trustScore,
+        scaledTrustScore: Math.round(trustScore * 10000),
+        createdAt: 1,
+        expiresAt: Date.now() + 60_000
+      }
+    });
     useXpLedger.getState().setActiveNullifier(nullifier);
   };
 
@@ -342,7 +363,7 @@ describe('hermesForum store (comments & hydration)', () => {
       isOwnThread: false,
       isSubstantive: true
     });
-    expect(commentWrites[0].schemaVersion).toBe('hermes-comment-v1');
+    expect(commentWrites[0].schemaVersion).toBe('hermes-comment-v2');
     expect(commentWrites[0].stance).toBe('concur');
     expect(commentWrites[0].type).toBeUndefined();
     forumSpy.mockRestore();
@@ -360,7 +381,7 @@ describe('hermesForum store (comments & hydration)', () => {
 
     await store.getState().createComment('thread-1', 'hello', 'discuss');
 
-    expect(commentWrites[0].schemaVersion).toBe('hermes-comment-v1');
+    expect(commentWrites[0].schemaVersion).toBe('hermes-comment-v2');
     expect(commentWrites[0].stance).toBe('discuss');
     forumSpy.mockRestore();
   });
@@ -389,7 +410,7 @@ describe('hermesForum store (comments & hydration)', () => {
     );
     expect(JSON.parse(envelopeWrite)).toMatchObject({
       id: 'comment-indexed',
-      schemaVersion: 'hermes-comment-v1',
+      schemaVersion: 'hermes-comment-v2',
       threadId: 'thread-index',
       content: 'indexed write'
     });
@@ -497,6 +518,7 @@ describe('hermesForum store (comments & hydration)', () => {
       });
 
       const pending = store.getState().createComment('thread-1', 'fallback write', 'discuss');
+      await waitForMockCall(commentsChain.put);
       await vi.advanceTimersByTimeAsync(__FORUM_TESTING__.COMMENT_PUT_ACK_TIMEOUT_MS);
       await vi.advanceTimersByTimeAsync(__FORUM_TESTING__.COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS);
       const comment = await pending;
@@ -531,6 +553,7 @@ describe('hermesForum store (comments & hydration)', () => {
       });
 
       const pending = store.getState().createComment('thread-thenable', 'thenable fallback write', 'discuss');
+      await waitForMockCall(commentsChain.put);
       await vi.advanceTimersByTimeAsync(__FORUM_TESTING__.COMMENT_PUT_ACK_TIMEOUT_MS);
       await vi.advanceTimersByTimeAsync(__FORUM_TESTING__.COMMENT_INDEX_ENTRY_SNAPSHOT_DRAIN_MS);
       const comment = await pending;

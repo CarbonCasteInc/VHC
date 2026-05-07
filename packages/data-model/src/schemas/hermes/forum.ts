@@ -4,6 +4,14 @@ const TITLE_LIMIT = 200;
 const CONTENT_LIMIT = 10_000;
 
 export const THREAD_TOPIC_PREFIX = 'thread:';
+export const FORUM_PUBLIC_PROTOCOL_VERSION = 'luma-public-v1';
+export const FORUM_AUTHOR_SCHEME = 'forum-author-v1';
+export const FORUM_WRITER_KIND = 'luma';
+export const FORUM_THREAD_AUDIENCE = 'vh-forum-thread';
+export const FORUM_COMMENT_AUDIENCE = 'vh-forum-comment';
+
+const LowerHex64Schema = z.string().regex(/^[0-9a-f]{64}$/);
+const LowerHex32Schema = z.string().regex(/^[0-9a-f]{32}$/);
 
 export const ProposalExtensionSchema = z.object({
   fundingRequest: z.string().min(1),
@@ -18,12 +26,15 @@ export const ProposalExtensionSchema = z.object({
 
 export type ProposalExtension = z.infer<typeof ProposalExtensionSchema>;
 
-export const HermesThreadSchema = z.object({
+const ForumSignedWriteSessionRefSchema = z.object({
+  tokenHash: z.string().min(1),
+  envelopeDigest: z.string().min(1)
+}).strict();
+
+const ForumThreadBaseFields = {
   id: z.string().min(1),
-  schemaVersion: z.literal('hermes-thread-v0'),
   title: z.string().min(1).max(TITLE_LIMIT),
   content: z.string().min(1).max(CONTENT_LIMIT),
-  author: z.string().min(1),
   timestamp: z.number().int().nonnegative(),
   tags: z.array(z.string().min(1)),
   sourceSynthesisId: z.string().min(1).optional(),
@@ -37,7 +48,72 @@ export const HermesThreadSchema = z.object({
   upvotes: z.number().int().nonnegative(),
   downvotes: z.number().int().nonnegative(),
   score: z.number()
+} as const satisfies Record<string, z.ZodTypeAny>;
+
+export const HermesThreadSchemaV0 = z.object({
+  schemaVersion: z.literal('hermes-thread-v0'),
+  ...ForumThreadBaseFields,
+  author: z.string().min(1)
 });
+
+export const ForumThreadSignedPayloadSchema = z.object({
+  schemaVersion: z.literal('hermes-thread-v1'),
+  _protocolVersion: z.literal(FORUM_PUBLIC_PROTOCOL_VERSION),
+  _writerKind: z.literal(FORUM_WRITER_KIND),
+  _authorScheme: z.literal(FORUM_AUTHOR_SCHEME),
+  ...ForumThreadBaseFields,
+  author: LowerHex64Schema
+}).omit({
+  upvotes: true,
+  downvotes: true,
+  score: true,
+  sourceAnalysisId: true
+}).strict();
+
+export const ForumThreadSignedWriteEnvelopeSchema = z.object({
+  envelopeVersion: z.literal(1),
+  signatureSuite: z.literal('jcs-ed25519-sha256-v1'),
+  protocolVersion: z.literal('luma-write-v1'),
+  profile: z.enum(['dev', 'e2e', 'public-beta', 'production-attestation']),
+  audience: z.literal(FORUM_THREAD_AUDIENCE),
+  origin: z.string().min(1),
+  scheme: z.literal(FORUM_AUTHOR_SCHEME),
+  publicAuthor: LowerHex64Schema,
+  sessionRef: ForumSignedWriteSessionRefSchema,
+  payload: ForumThreadSignedPayloadSchema,
+  payloadDigest: LowerHex64Schema,
+  sequence: z.number().int().nonnegative(),
+  nonce: LowerHex32Schema,
+  idempotencyKey: LowerHex64Schema,
+  issuedAt: z.number().int().nonnegative(),
+  signature: z.string().min(1)
+}).strict();
+
+export const HermesThreadSchemaV1 = ForumThreadSignedPayloadSchema.extend({
+  upvotes: z.number().int().nonnegative(),
+  downvotes: z.number().int().nonnegative(),
+  score: z.number(),
+  signedWriteEnvelope: ForumThreadSignedWriteEnvelopeSchema
+}).strict().superRefine((value, ctx) => {
+  if (value.signedWriteEnvelope.publicAuthor !== value.author) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'publicAuthor'],
+      message: 'signedWriteEnvelope.publicAuthor must match thread author'
+    });
+  }
+
+  const payload = tryForumThreadSignedPayload(value);
+  if (payload && !sameCanonicalJson(value.signedWriteEnvelope.payload, payload)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'payload'],
+      message: 'signedWriteEnvelope.payload must match immutable thread payload'
+    });
+  }
+});
+
+export const HermesThreadSchema = z.union([HermesThreadSchemaV0, HermesThreadSchemaV1]);
 
 const BaseCommentFields = {
   threadId: z.string().min(1),
@@ -113,9 +189,68 @@ export const HermesCommentSchemaV1 = HermesCommentSchemaV1Base.superRefine((valu
   }
 });
 
-export const HermesCommentSchema = z.union([HermesCommentSchemaV0, HermesCommentSchemaV1]);
+export const ForumCommentSignedPayloadSchema = z.object({
+  schemaVersion: z.literal('hermes-comment-v2'),
+  _protocolVersion: z.literal(FORUM_PUBLIC_PROTOCOL_VERSION),
+  _writerKind: z.literal(FORUM_WRITER_KIND),
+  _authorScheme: z.literal(FORUM_AUTHOR_SCHEME),
+  ...BaseCommentFields,
+  author: LowerHex64Schema,
+  stance: z.enum(['concur', 'counter', 'discuss']),
+  targetId: z.string().min(1).optional()
+}).omit({
+  upvotes: true,
+  downvotes: true
+}).strict();
 
-export const HermesCommentWriteSchema = HermesCommentSchemaV1Base.omit({ type: true }).strict();
+export const ForumCommentSignedWriteEnvelopeSchema = z.object({
+  envelopeVersion: z.literal(1),
+  signatureSuite: z.literal('jcs-ed25519-sha256-v1'),
+  protocolVersion: z.literal('luma-write-v1'),
+  profile: z.enum(['dev', 'e2e', 'public-beta', 'production-attestation']),
+  audience: z.literal(FORUM_COMMENT_AUDIENCE),
+  origin: z.string().min(1),
+  scheme: z.literal(FORUM_AUTHOR_SCHEME),
+  publicAuthor: LowerHex64Schema,
+  sessionRef: ForumSignedWriteSessionRefSchema,
+  payload: ForumCommentSignedPayloadSchema,
+  payloadDigest: LowerHex64Schema,
+  sequence: z.number().int().nonnegative(),
+  nonce: LowerHex32Schema,
+  idempotencyKey: LowerHex64Schema,
+  issuedAt: z.number().int().nonnegative(),
+  signature: z.string().min(1)
+}).strict();
+
+const HermesCommentSchemaV2Base = ForumCommentSignedPayloadSchema.extend({
+  upvotes: z.number().int().nonnegative(),
+  downvotes: z.number().int().nonnegative()
+}).strict();
+
+export const HermesCommentSchemaV2 = HermesCommentSchemaV2Base.extend({
+  signedWriteEnvelope: ForumCommentSignedWriteEnvelopeSchema
+}).strict().superRefine((value, ctx) => {
+  if (value.signedWriteEnvelope.publicAuthor !== value.author) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'publicAuthor'],
+      message: 'signedWriteEnvelope.publicAuthor must match comment author'
+    });
+  }
+
+  const payload = tryForumCommentSignedPayload(value);
+  if (payload && !sameCanonicalJson(value.signedWriteEnvelope.payload, payload)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['signedWriteEnvelope', 'payload'],
+      message: 'signedWriteEnvelope.payload must match immutable comment payload'
+    });
+  }
+});
+
+export const HermesCommentSchema = z.union([HermesCommentSchemaV0, HermesCommentSchemaV1, HermesCommentSchemaV2]);
+
+export const HermesCommentWriteSchema = HermesCommentSchemaV2Base;
 
 export const ModerationEventSchema = z.object({
   id: z.string().min(1),
@@ -145,10 +280,17 @@ export const HermesCommentModerationSchema = z.object({
   }).strict()
 }).strict();
 
+export type HermesThreadV0 = z.infer<typeof HermesThreadSchemaV0>;
+export type ForumThreadSignedPayload = z.infer<typeof ForumThreadSignedPayloadSchema>;
+export type ForumThreadSignedWriteEnvelope = z.infer<typeof ForumThreadSignedWriteEnvelopeSchema>;
+export type HermesThreadV1 = z.infer<typeof HermesThreadSchemaV1>;
 export type HermesThread = z.infer<typeof HermesThreadSchema>;
 export type HermesCommentV0 = z.infer<typeof HermesCommentSchemaV0>;
 export type HermesCommentV1 = z.infer<typeof HermesCommentSchemaV1>;
-export type HermesComment = HermesCommentV1;
+export type ForumCommentSignedPayload = z.infer<typeof ForumCommentSignedPayloadSchema>;
+export type ForumCommentSignedWriteEnvelope = z.infer<typeof ForumCommentSignedWriteEnvelopeSchema>;
+export type HermesCommentV2 = z.infer<typeof HermesCommentSchemaV2>;
+export type HermesComment = HermesCommentV1 | HermesCommentV2;
 export type ModerationEvent = z.infer<typeof ModerationEventSchema>;
 export type HermesCommentModeration = z.infer<typeof HermesCommentModerationSchema>;
 
@@ -203,7 +345,14 @@ export const REPLY_CONTENT_MAX = REPLY_CONTENT_LIMIT;
 
 export async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const nodeBuffer = (globalThis as typeof globalThis & {
+    Buffer?: { from(bytes: Uint8Array): Uint8Array };
+  }).Buffer;
+  const digestInput = nodeBuffer ? nodeBuffer.from(data) : new ArrayBuffer(data.byteLength);
+  if (!nodeBuffer) {
+    new Uint8Array(digestInput).set(data);
+  }
+  const hashBuffer = await crypto.subtle.digest('SHA-256', digestInput);
   const hashArray = new Uint8Array(hashBuffer);
   return Array.from(hashArray, (b) => b.toString(16).padStart(2, '0')).join('');
 }
@@ -216,15 +365,59 @@ export async function deriveUrlTopicId(url: string): Promise<string> {
   return sha256Hex(url);
 }
 
-export function migrateCommentToV1(comment: HermesCommentV0 | HermesCommentV1): HermesCommentV1 {
+export function forumThreadSignedPayload(thread: ForumThreadSignedPayload): ForumThreadSignedPayload {
+  return ForumThreadSignedPayloadSchema.parse(stripUndefinedFields({
+    schemaVersion: thread.schemaVersion,
+    _protocolVersion: thread._protocolVersion,
+    _writerKind: thread._writerKind,
+    _authorScheme: thread._authorScheme,
+    id: thread.id,
+    title: thread.title,
+    content: thread.content,
+    author: thread.author,
+    timestamp: thread.timestamp,
+    tags: thread.tags,
+    sourceSynthesisId: thread.sourceSynthesisId,
+    sourceEpoch: thread.sourceEpoch,
+    topicId: thread.topicId,
+    sourceUrl: thread.sourceUrl,
+    urlHash: thread.urlHash,
+    isHeadline: thread.isHeadline,
+    proposal: thread.proposal
+  }));
+}
+
+export function forumCommentSignedPayload(comment: ForumCommentSignedPayload): ForumCommentSignedPayload {
+  return ForumCommentSignedPayloadSchema.parse(stripUndefinedFields({
+    schemaVersion: comment.schemaVersion,
+    _protocolVersion: comment._protocolVersion,
+    _writerKind: comment._writerKind,
+    _authorScheme: comment._authorScheme,
+    id: comment.id,
+    threadId: comment.threadId,
+    parentId: comment.parentId,
+    content: comment.content,
+    author: comment.author,
+    timestamp: comment.timestamp,
+    stance: comment.stance,
+    targetId: comment.targetId,
+    via: comment.via
+  }));
+}
+
+export function migrateCommentToV1(comment: HermesCommentV0 | HermesCommentV1 | HermesCommentV2): HermesComment {
   if (comment.schemaVersion === 'hermes-comment-v1') {
     const { type: _omit, ...rest } = comment;
-    return HermesCommentWriteSchema.parse(rest);
+    return HermesCommentSchemaV1Base.omit({ type: true }).strict().parse(rest);
+  }
+
+  if (comment.schemaVersion === 'hermes-comment-v2') {
+    return comment;
   }
 
   const stance = comment.type === 'counterpoint' ? 'counter' : 'concur';
   const { type: _legacyType, ...rest } = comment;
-  return HermesCommentWriteSchema.parse({
+  return HermesCommentSchemaV1Base.omit({ type: true }).strict().parse({
     ...rest,
     schemaVersion: 'hermes-comment-v1',
     stance
@@ -236,4 +429,28 @@ export function computeThreadScore(thread: HermesThread, now: number): number {
   const lambda = 0.0144; // half-life ~48h
   const decayFactor = Math.exp(-lambda * ageHours);
   return (thread.upvotes - thread.downvotes) * decayFactor;
+}
+
+function sameCanonicalJson(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function stripUndefinedFields<T extends Record<string, unknown>>(value: T): T {
+  return Object.fromEntries(Object.entries(value).filter(([, field]) => field !== undefined)) as T;
+}
+
+function tryForumThreadSignedPayload(thread: ForumThreadSignedPayload): ForumThreadSignedPayload | null {
+  try {
+    return forumThreadSignedPayload(thread);
+  } catch {
+    return null;
+  }
+}
+
+function tryForumCommentSignedPayload(comment: ForumCommentSignedPayload): ForumCommentSignedPayload | null {
+  try {
+    return forumCommentSignedPayload(comment);
+  } catch {
+    return null;
+  }
 }

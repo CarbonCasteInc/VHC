@@ -1,5 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { TrustedOperatorAuthorization } from '@vh/data-model';
+import {
+  FORUM_AUTHOR_SCHEME,
+  FORUM_COMMENT_AUDIENCE,
+  FORUM_PUBLIC_PROTOCOL_VERSION,
+  FORUM_THREAD_AUDIENCE,
+  FORUM_WRITER_KIND,
+  type ForumCommentSignedPayload,
+  type ForumThreadSignedPayload,
+  type TrustedOperatorAuthorization
+} from '@vh/data-model';
+import {
+  createLumaPublicAuthorId,
+  createSignedWriteEnvelope
+} from '@vh/luma-sdk';
 import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './index';
@@ -14,6 +27,8 @@ import {
   getForumThreadChain,
   readForumCommentModeration,
   readForumLatestCommentModeration,
+  validateForumCommentRecord,
+  validateForumThreadRecord,
   writeForumCommentModeration
 } from './forumAdapters';
 
@@ -45,6 +60,15 @@ const OPERATOR_AUTHORIZATION: TrustedOperatorAuthorization = {
   ],
   granted_at: 100,
 };
+const FORUM_AUTHOR_ID = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+const OTHER_FORUM_AUTHOR_ID = 'abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd';
+const SESSION_REF = Object.freeze({
+  tokenHash: 'a'.repeat(64),
+  envelopeDigest: 'b'.repeat(64)
+});
+const NONCE = '00112233445566778899aabbccddeeff';
+const ISSUED_AT = 1777777777000;
+const ED25519 = 'Ed25519';
 
 function createMockChain() {
   const chain: any = {};
@@ -74,6 +98,133 @@ function createClient(chain: any, guard: TopologyGuard): VennClient {
   };
 }
 
+function bytesToBase64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function bytesToBufferSource(bytes: Uint8Array): BufferSource {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+async function createSignedForumThread(
+  overrides: Partial<ForumThreadSignedPayload> = {},
+  envelopeOverrides: Record<string, unknown> = {}
+) {
+  const keyPair = await crypto.subtle.generateKey(ED25519, true, ['sign', 'verify']);
+  if (!('privateKey' in keyPair) || !('publicKey' in keyPair)) {
+    throw new Error('Ed25519 key generation failed');
+  }
+  const payload: ForumThreadSignedPayload = {
+    schemaVersion: 'hermes-thread-v1',
+    _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: FORUM_WRITER_KIND,
+    _authorScheme: FORUM_AUTHOR_SCHEME,
+    id: 'thread-luma-1',
+    title: 'Signed thread',
+    content: 'Signed body',
+    author: FORUM_AUTHOR_ID,
+    timestamp: ISSUED_AT,
+    tags: ['luma'],
+    topicId: 'topic-1',
+    ...overrides
+  };
+  const signedWriteEnvelope = await createSignedWriteEnvelope({
+    profile: 'public-beta',
+    audience: FORUM_THREAD_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: FORUM_AUTHOR_SCHEME,
+    publicAuthor: createLumaPublicAuthorId(payload.author, FORUM_AUTHOR_SCHEME),
+    sessionRef: SESSION_REF,
+    payload,
+    sequence: ISSUED_AT,
+    nonce: NONCE,
+    issuedAt: ISSUED_AT,
+    sign: async ({ canonicalBytes }) => bytesToBase64Url(new Uint8Array(
+      await crypto.subtle.sign(ED25519, keyPair.privateKey, bytesToBufferSource(canonicalBytes))
+    ))
+  });
+
+  return {
+    record: {
+      ...payload,
+      upvotes: 0,
+      downvotes: 0,
+      score: 0,
+      signedWriteEnvelope: {
+        ...signedWriteEnvelope,
+        ...envelopeOverrides
+      }
+    },
+    verify: ({ canonicalBytes, signature }: { canonicalBytes: Uint8Array; signature: string }) =>
+      crypto.subtle.verify(
+        ED25519,
+        keyPair.publicKey,
+        bytesToBufferSource(new Uint8Array(Buffer.from(signature, 'base64url'))),
+        bytesToBufferSource(canonicalBytes)
+      )
+  };
+}
+
+async function createSignedForumComment(
+  overrides: Partial<ForumCommentSignedPayload> = {},
+  envelopeOverrides: Record<string, unknown> = {}
+) {
+  const keyPair = await crypto.subtle.generateKey(ED25519, true, ['sign', 'verify']);
+  if (!('privateKey' in keyPair) || !('publicKey' in keyPair)) {
+    throw new Error('Ed25519 key generation failed');
+  }
+  const payload: ForumCommentSignedPayload = {
+    schemaVersion: 'hermes-comment-v2',
+    _protocolVersion: FORUM_PUBLIC_PROTOCOL_VERSION,
+    _writerKind: FORUM_WRITER_KIND,
+    _authorScheme: FORUM_AUTHOR_SCHEME,
+    id: 'comment-luma-1',
+    threadId: 'thread-luma-1',
+    parentId: null,
+    content: 'Signed comment',
+    author: FORUM_AUTHOR_ID,
+    timestamp: ISSUED_AT,
+    stance: 'concur',
+    ...overrides
+  };
+  const signedWriteEnvelope = await createSignedWriteEnvelope({
+    profile: 'public-beta',
+    audience: FORUM_COMMENT_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: FORUM_AUTHOR_SCHEME,
+    publicAuthor: createLumaPublicAuthorId(payload.author, FORUM_AUTHOR_SCHEME),
+    sessionRef: SESSION_REF,
+    payload,
+    sequence: ISSUED_AT,
+    nonce: NONCE,
+    issuedAt: ISSUED_AT,
+    sign: async ({ canonicalBytes }) => bytesToBase64Url(new Uint8Array(
+      await crypto.subtle.sign(ED25519, keyPair.privateKey, bytesToBufferSource(canonicalBytes))
+    ))
+  });
+
+  return {
+    record: {
+      ...payload,
+      upvotes: 0,
+      downvotes: 0,
+      signedWriteEnvelope: {
+        ...signedWriteEnvelope,
+        ...envelopeOverrides
+      }
+    },
+    verify: ({ canonicalBytes, signature }: { canonicalBytes: Uint8Array; signature: string }) =>
+      crypto.subtle.verify(
+        ED25519,
+        keyPair.publicKey,
+        bytesToBufferSource(new Uint8Array(Buffer.from(signature, 'base64url'))),
+        bytesToBufferSource(canonicalBytes)
+      )
+  };
+}
+
 describe('forumAdapters', () => {
   it('guards thread writes', async () => {
     const chain = createMockChain();
@@ -82,6 +233,50 @@ describe('forumAdapters', () => {
     const threadChain = getForumThreadChain(client, 'thread-1');
     await threadChain.put({ title: 't', content: 'c' } as any);
     expect(guard.validateWrite).toHaveBeenCalledWith('vh/forum/threads/thread-1/', expect.anything());
+  });
+
+  it('validates LUMA forum thread envelope binding and rejects tampering', async () => {
+    const { record, verify } = await createSignedForumThread();
+
+    await expect(validateForumThreadRecord(record, 'thread-luma-1', verify)).resolves.toEqual(record);
+    await expect(validateForumThreadRecord(record, 'other-thread', verify)).resolves.toBeNull();
+    await expect(validateForumThreadRecord({ ...record, title: 'tampered' }, 'thread-luma-1', verify)).resolves.toBeNull();
+    await expect(validateForumThreadRecord({
+      ...record,
+      signedWriteEnvelope: {
+        ...record.signedWriteEnvelope,
+        publicAuthor: OTHER_FORUM_AUTHOR_ID
+      }
+    }, 'thread-luma-1', verify)).resolves.toBeNull();
+    await expect(validateForumThreadRecord({
+      ...record,
+      signedWriteEnvelope: {
+        ...record.signedWriteEnvelope,
+        signature: 'bad-signature'
+      }
+    }, 'thread-luma-1', verify)).resolves.toBeNull();
+  });
+
+  it('validates LUMA forum comment envelope binding and rejects tampering', async () => {
+    const { record, verify } = await createSignedForumComment();
+
+    await expect(validateForumCommentRecord(record, 'thread-luma-1', 'comment-luma-1', verify)).resolves.toEqual(record);
+    await expect(validateForumCommentRecord(record, 'thread-luma-1', 'other-comment', verify)).resolves.toBeNull();
+    await expect(validateForumCommentRecord({ ...record, content: 'tampered' }, 'thread-luma-1', 'comment-luma-1', verify)).resolves.toBeNull();
+    await expect(validateForumCommentRecord({
+      ...record,
+      signedWriteEnvelope: {
+        ...record.signedWriteEnvelope,
+        publicAuthor: OTHER_FORUM_AUTHOR_ID
+      }
+    }, 'thread-luma-1', 'comment-luma-1', verify)).resolves.toBeNull();
+    await expect(validateForumCommentRecord({
+      ...record,
+      signedWriteEnvelope: {
+        ...record.signedWriteEnvelope,
+        signature: 'bad-signature'
+      }
+    }, 'thread-luma-1', 'comment-luma-1', verify)).resolves.toBeNull();
   });
 
   it('guards comment writes', async () => {
