@@ -67,6 +67,7 @@ type PeerTopologyProof =
     };
 
 type MeshDisconnectDrillWriteArgs = {
+  namespace?: string;
   runId: string;
   caseId: string;
   section: 'canonical' | 'attempts' | 'indexes' | 'projections';
@@ -112,10 +113,11 @@ function shouldExposeMeshDisconnectDrill(): boolean {
 }
 
 function meshDisconnectDrillChain(client: VennClient, args: MeshDisconnectDrillReadArgs): any {
+  const namespace = args.namespace || 'disconnect';
   return (client.mesh as any)
     .get('__mesh_drills')
     .get(args.runId)
-    .get('disconnect')
+    .get(namespace)
     .get(args.caseId)
     .get(args.section)
     .get(args.nodeId);
