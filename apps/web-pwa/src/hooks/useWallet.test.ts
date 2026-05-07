@@ -9,8 +9,28 @@ const storeMock = vi.hoisted(() => ({
   isE2EMode: vi.fn()
 }));
 
+const identityProviderMock = vi.hoisted(() => ({
+  current: null as null | { session: { nullifier: string } },
+  getPublishedIdentity: vi.fn()
+}));
+
+const identityVaultMock = vi.hoisted(() => ({
+  walletBinding: {
+    load: vi.fn(),
+    save: vi.fn()
+  }
+}));
+
 vi.mock('../store', () => ({
   isE2EMode: storeMock.isE2EMode
+}));
+
+vi.mock('../store/identityProvider', () => ({
+  getPublishedIdentity: identityProviderMock.getPublishedIdentity
+}));
+
+vi.mock('@vh/identity-vault', () => ({
+  walletBinding: identityVaultMock.walletBinding
 }));
 
 const ethersHoist = vi.hoisted(() => {
@@ -21,7 +41,8 @@ const ethersHoist = vi.hoisted(() => {
   };
   const send = vi.fn();
   const getSigner = vi.fn();
-  return { contract, send, getSigner };
+  const getNetwork = vi.fn();
+  return { contract, send, getSigner, getNetwork };
 });
 
 vi.mock('ethers', async () => {
@@ -35,6 +56,7 @@ vi.mock('ethers', async () => {
     }
     send = (...args: unknown[]) => mocks.send(...args);
     getSigner = (...args: unknown[]) => mocks.getSigner(...args);
+    getNetwork = (...args: unknown[]) => mocks.getNetwork(...args);
   }
 
   class FakeJsonRpcProvider {
@@ -135,6 +157,19 @@ async function getWalletTestHelpers() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  identityProviderMock.current = null;
+  identityProviderMock.getPublishedIdentity.mockImplementation(() => identityProviderMock.current);
+  identityVaultMock.walletBinding.load.mockResolvedValue(null);
+  identityVaultMock.walletBinding.save.mockImplementation(async (input: any) => ({
+    schemaVersion: 1,
+    address: String(input.address).toLowerCase(),
+    chainId: String(input.chainId),
+    providerKind: input.providerKind,
+    boundPrincipalNullifier: input.boundPrincipalNullifier,
+    boundAt: 1000,
+    updatedAt: 1000
+  }));
+  ethersHoist.getNetwork.mockResolvedValue({ chainId: 1n });
 });
 
 afterEach(() => {
@@ -190,6 +225,7 @@ describe('useWallet', () => {
     });
     expect(ethersMocks.send).toHaveBeenCalledWith('eth_requestAccounts', []);
     expect(result.current.account).toBe('0xabc');
+    expect(identityVaultMock.walletBinding.save).not.toHaveBeenCalled();
 
     await act(async () => {
       await result.current.refresh();
@@ -204,6 +240,45 @@ describe('useWallet', () => {
     expect(ethersMocks.contract.claim).toHaveBeenCalled();
     expect(claimWait).toHaveBeenCalled();
     await waitFor(() => expect(result.current.claimStatus?.eligible).toBe(true));
+  });
+
+  it('persists a vault wallet binding only when an active identity is published', async () => {
+    const useWallet = await loadHook({}, false);
+    const ethersMocks = await getEthersMocks();
+    const address = '0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD';
+    identityProviderMock.current = { session: { nullifier: 'principal-1' } };
+    ethersMocks.send.mockResolvedValue([address]);
+    ethersMocks.getNetwork.mockResolvedValue({ chainId: 31337n });
+    Object.defineProperty(window, 'ethereum', { value: { ok: true }, configurable: true });
+
+    const { result } = renderHook(() => useWallet());
+
+    await waitFor(() => expect(identityVaultMock.walletBinding.load).toHaveBeenCalled());
+    await act(async () => {
+      await result.current.connect();
+    });
+
+    expect(identityVaultMock.walletBinding.save).toHaveBeenCalledWith({
+      address,
+      chainId: 31337n,
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-1'
+    });
+    expect(result.current.walletBinding).toMatchObject({
+      address: address.toLowerCase(),
+      chainId: '31337',
+      boundPrincipalNullifier: 'principal-1'
+    });
+  });
+
+  it('fails closed when the stored wallet binding cannot be validated', async () => {
+    identityVaultMock.walletBinding.load.mockRejectedValue(new Error('Invalid walletBinding compartment'));
+    const useWallet = await loadHook({}, false);
+
+    const { result } = renderHook(() => useWallet());
+
+    await waitFor(() => expect(result.current.error).toBe('Invalid walletBinding compartment'));
+    expect(result.current.walletBinding).toBeNull();
   });
 
   it('handles connection and refresh errors gracefully', async () => {

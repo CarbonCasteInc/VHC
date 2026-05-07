@@ -281,7 +281,7 @@ Deliverables:
 - Split `useIdentity.revokeSession()` into `signOut()` and `resetIdentity()` per spec §13.2. `revokeSession` becomes a deprecation shim calling `signOut()`.
 - Multi-device link flow (`linkDevice` / `startLinkSession` / `completeLinkSession`) explicitly stub-marked: fail closed with no fake link codes, no `pendingLinkCode` persistence, and no `linkedDevices` mutation.
 - `delegationSigningKey` Ed25519 generation and persistence; public component published in directory entry per spec §11.4.
-- `walletBinding` semantics implemented per spec §11.5 (LUMA never holds wallet signing keys).
+- `walletBinding` semantics implemented per spec §11.5: vault-only binding record, Sign Out preservation, Reset Identity clearing, and re-bind prompt (LUMA never holds wallet signing keys).
 - Constant-time HMAC for verifier-side and any client-side nullifier derivation per spec §6.4 and §11.3.
 
 Acceptance criteria:
@@ -293,6 +293,7 @@ Acceptance criteria:
 - Unit test: vault v1 → v2 migration is idempotent.
 - Unit test: `delegationSigningKey` public component appears in the directory entry; familiar `OnBehalfOfAssertion` validates against it.
 - Unit test: `walletBinding` Reset Identity clears the binding and a re-bind prompt is surfaced.
+- `pnpm check:luma-wallet-binding` confirms the typed binding surface, lifecycle wiring, UI prompt, and no wallet key/provider persistence.
 - `pnpm check:luma-production-profile` confirms only v2 vault in non-`dev` profiles.
 
 Forbidden during M0.D: cross-device per-human nullifier binding; verifier-side derivation algorithm change beyond constant-time enforcement; persisting credentials outside the vault.

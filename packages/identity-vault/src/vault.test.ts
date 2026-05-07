@@ -17,6 +17,7 @@ import {
   IDENTITY_KEY,
   MASTER_KEY,
   LEGACY_STORAGE_KEY,
+  isWalletBindingCompartment,
   LEGACY_VAULT_VERSION,
   VAULT_VERSION
 } from './types';
@@ -28,10 +29,12 @@ import {
   deviceCredential,
   randomBase64Url,
   seaDevicePair,
+  validateWalletBinding,
   validateDelegationSigningKey,
   validateDelegationSigningPublicKey,
   validateDeviceCredential,
   validateSeaDevicePair,
+  walletBinding,
   VaultCompartmentError
 } from './compartments';
 
@@ -707,6 +710,165 @@ describe('M0.D-1 vault v2 compartments', () => {
       ...key,
       createdAt: -1
     })).toThrow(VaultCompartmentError);
+  });
+
+  it('saves, loads, updates, and clears JSON-safe wallet binding records', async () => {
+    await expect(walletBinding.clear()).resolves.toBeUndefined();
+
+    await saveIdentity(LEGACY_IDENTITY);
+    await expect(walletBinding.clear()).resolves.toBeUndefined();
+
+    const first = await walletBinding.save({
+      address: '0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD',
+      chainId: 31337n,
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-1',
+      now: 1000
+    });
+
+    expect(first).toEqual({
+      schemaVersion: 1,
+      address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+      chainId: '31337',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-1',
+      boundAt: 1000,
+      updatedAt: 1000
+    });
+    expect(await walletBinding.load()).toEqual(first);
+    expect(walletBinding.matchesPrincipal(first, 'principal-1')).toBe(true);
+    expect(JSON.parse(JSON.stringify(await loadVaultV2()))?.walletBinding).toEqual(first);
+
+    const updated = await walletBinding.save({
+      address: first.address,
+      chainId: first.chainId,
+      providerKind: first.providerKind,
+      boundPrincipalNullifier: first.boundPrincipalNullifier,
+      now: 1500
+    });
+    expect(updated.boundAt).toBe(1000);
+    expect(updated.updatedAt).toBe(1500);
+
+    await walletBinding.clear();
+    const vault = await loadVaultV2();
+    expect(vault?.identityRecord).toEqual(LEGACY_IDENTITY);
+    expect(vault?.walletBinding).toBeUndefined();
+    expect(await walletBinding.load()).toBeNull();
+  });
+
+  it('rejects invalid wallet binding shape and private-key-shaped records', async () => {
+    const valid = await walletBinding.save({
+      address: '0x1111111111111111111111111111111111111111',
+      chainId: '1',
+      providerKind: 'e2e-mock',
+      boundPrincipalNullifier: 'principal-wallet',
+      now: 2000
+    });
+
+    expect(() => validateWalletBinding({
+      ...valid,
+      privateKey: 'do-not-store'
+    })).toThrow(VaultCompartmentError);
+    expect(() => validateWalletBinding({
+      ...valid,
+      provider: { request() {} }
+    })).toThrow(VaultCompartmentError);
+    expect(() => validateWalletBinding({
+      ...valid,
+      signer: { signMessage() {} }
+    })).toThrow(VaultCompartmentError);
+    expect(() => validateWalletBinding(null)).toThrow(VaultCompartmentError);
+    expect(() => validateWalletBinding([])).toThrow(VaultCompartmentError);
+    expect(() => validateWalletBinding({
+      ...valid,
+      updatedAt: valid.boundAt - 1
+    })).toThrow(VaultCompartmentError);
+    expect(walletBinding.matchesPrincipal(null, 'principal-wallet')).toBe(false);
+    expect(walletBinding.matchesPrincipal(valid, null)).toBe(false);
+    expect(walletBinding.normalizeChainId('31337')).toBe('31337');
+    expect(walletBinding.normalizeChainId(31337)).toBe('31337');
+    expect(() => walletBinding.normalizeChainId(-1n)).toThrow(VaultCompartmentError);
+    expect(() => walletBinding.normalizeChainId(-1)).toThrow(VaultCompartmentError);
+    expect(() => walletBinding.normalizeChainId(1.5)).toThrow(VaultCompartmentError);
+    expect(() => validateWalletBinding({
+      ...valid,
+      boundAt: -1
+    })).toThrow(VaultCompartmentError);
+    await expect(walletBinding.save({
+      address: '0xabc',
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-wallet'
+    })).rejects.toThrow(VaultCompartmentError);
+    await expect(walletBinding.save({
+      address: valid.address,
+      chainId: '01',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-wallet'
+    })).rejects.toThrow(VaultCompartmentError);
+    await expect(walletBinding.save({
+      address: valid.address,
+      chainId: '1',
+      providerKind: 'wallet-connect' as never,
+      boundPrincipalNullifier: 'principal-wallet'
+    })).rejects.toThrow(VaultCompartmentError);
+    await expect(walletBinding.save({
+      address: valid.address,
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: ''
+    })).rejects.toThrow(VaultCompartmentError);
+    await expect(walletBinding.save({
+      address: valid.address,
+      chainId: '1',
+      providerKind: 'browser-injected',
+      boundPrincipalNullifier: 'principal-wallet',
+      now: -1
+    })).rejects.toThrow(VaultCompartmentError);
+  });
+
+  it('fails closed when a v2 vault contains a malformed wallet binding compartment', async () => {
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: {
+        schemaVersion: 1,
+        address: '0x2222222222222222222222222222222222222222',
+        chainId: '1',
+        providerKind: 'browser-injected',
+        boundPrincipalNullifier: 'principal-wallet',
+        boundAt: 1,
+        updatedAt: 1,
+        privateKey: 'leak'
+      }
+    });
+
+    await expect(loadVaultV2()).resolves.toBeNull();
+
+    const db = await openVaultDb();
+    const remaining = await idbGet<VaultRecord>(db, VAULT_STORE, IDENTITY_KEY);
+    db.close();
+    expect(remaining).toBeUndefined();
+  });
+
+  it('rejects malformed wallet binding compartments through v2 shape guards and public writers', async () => {
+    expect(isWalletBindingCompartment(null)).toBe(false);
+    expect(isWalletBindingCompartment([])).toBe(false);
+
+    await writeEncryptedVaultRecord(VAULT_VERSION, {
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: []
+    });
+    await expect(loadVaultV2()).resolves.toBeNull();
+
+    await saveIdentity(LEGACY_IDENTITY);
+    await expect(saveVaultV2({
+      schemaVersion: 2,
+      identityRecord: LEGACY_IDENTITY,
+      walletBinding: [] as never
+    })).resolves.toBeUndefined();
+    expect(await loadIdentity()).toEqual(LEGACY_IDENTITY);
   });
 
   it('fails closed when Ed25519 key generation returns an invalid shape', async () => {

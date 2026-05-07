@@ -6,11 +6,14 @@ export type {
   JsonSafeByteEncoding,
   SeaDevicePairCompartment,
   VaultRecord,
-  VaultV2
+  VaultV2,
+  WalletBindingCompartment,
+  WalletProviderKind
 } from './types';
 export {
   LEGACY_STORAGE_KEY,
   LEGACY_VAULT_VERSION,
+  isWalletBindingCompartment,
   isValidIdentity,
   isVaultV2,
   VAULT_VERSION
@@ -27,18 +30,23 @@ export { migrateLegacyLocalStorage } from './migrate';
 export {
   base64UrlToBytes,
   bytesToBase64Url,
+  clearWalletBinding,
   delegationSigningKey,
   deviceCredential,
   getDelegationSigningPublicKey,
   loadOrCreateDelegationSigningKey,
   loadOrCreateDeviceCredential,
   loadOrCreateSeaDevicePair,
+  loadWalletBinding,
+  normalizeWalletAddress,
+  normalizeWalletChainId,
   publicDelegationSigningKey,
   randomBase64Url,
   rotateDelegationSigningKey,
   rotateDeviceCredential,
   rotateSeaDevicePair,
   rotateStoredDelegationSigningKey,
+  saveWalletBinding,
   seaDevicePair,
   signWithDelegationSigningKey,
   signWithStoredDelegationSigningKey,
@@ -47,8 +55,12 @@ export {
   validateDelegationSigningPublicKey,
   validateDeviceCredential,
   validateSeaDevicePair,
+  validateWalletBinding,
   VaultCompartmentError,
   verifyWithDelegationSigningKey,
   verifyWithDelegationSigningPublicKey,
-  type SeaDevicePairInput
+  walletBinding,
+  walletBindingMatchesPrincipal,
+  type SeaDevicePairInput,
+  type WalletBindingInput
 } from './compartments';

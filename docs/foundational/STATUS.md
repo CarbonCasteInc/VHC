@@ -458,6 +458,7 @@ Operational live profiles intentionally override selected flags to enable the fu
 | Session lifecycle | ✅ Feature-flagged | `packages/types/src/session-lifecycle.ts` — expiry, near-expiry, migration (`VITE_SESSION_LIFECYCLE_ENABLED`) |
 | Constituency proof verification | ✅ Feature-flagged | `packages/types/src/constituency-verification.ts` — nullifier/district/freshness checks (`VITE_CONSTITUENCY_PROOF_REAL`) |
 | Identity lifecycle controls | ✅ Active (no flag) | `useIdentity.ts` — `signOut()` preserves device-bound compartments; `resetIdentity()` rotates them; `revokeSession()` is a deprecated shim |
+| Wallet binding lifecycle | ✅ Active (no flag) | `identity-vault` + `useWallet.ts` — vault-only binding record, preserved on Sign Out, cleared on Reset Identity, re-bind prompt surfaced |
 | Multi-device identity linking | ⏸️ Deferred | `useIdentity.ts` — `linkDevice()`, `startLinkSession()`, and `completeLinkSession()` fail closed; no fake linked-device state is written |
 | Hardware TEE binding | ❌ Not implemented | No Secure Enclave/StrongBox code (Season 0 deferred §9.2) |
 | VIO liveness detection | ❌ Not implemented | No sensor fusion code (Season 0 deferred §9.2) |

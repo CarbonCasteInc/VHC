@@ -139,6 +139,19 @@ cross-device identity graph and higher-assurance proof that two device-bound
 credentials belong to the same human. Product surfaces MAY show a disabled or
 deferred state, but MUST NOT present simulated linking as functional.
 
+### 2.1.3.2 Wallet Binding Current State
+
+**Current state:** Wallet connection state remains in `useWallet`, but the
+identity binding record is vault-owned. `walletBinding` stores normalized
+address, decimal-string chain id, closed provider kind, bound principal
+nullifier, and timestamps. It MUST NOT store wallet private keys, signers,
+provider objects, balances, claim status, or external wallet capabilities.
+
+Sign Out preserves the binding because it preserves device-bound identity
+continuity. Reset Identity clears the binding because the previous wallet
+address was bound to the old `principalNullifier`; the wallet panel MUST surface
+a re-bind state for the new identity.
+
 ### 2.1.4 Timeout Semantics
 
 **Current state:** `useIdentity.checkSessionExpiry()` checks expiry at action

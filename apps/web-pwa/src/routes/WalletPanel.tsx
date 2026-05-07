@@ -37,6 +37,8 @@ export const WalletPanel: React.FC = () => {
     connect: connectWallet,
     refresh: refreshWallet,
     claimUBE,
+    walletBinding,
+    refreshBinding,
     loading: walletLoading,
     claiming: claimingUBE,
     error: walletError
@@ -46,6 +48,7 @@ export const WalletPanel: React.FC = () => {
   const { slideToPostEnabled, setSlideToPostEnabled } = useForumPreferences();
   const [localNextClaimAt, setLocalNextClaimAt] = useState<number>(0);
   const [localBalanceDelta, setLocalBalanceDelta] = useState<bigint>(0n);
+  const activePrincipal = identity?.session.nullifier ?? null;
 
   // Persist local cooldown per device to avoid accidental spam
   useEffect(() => {
@@ -64,6 +67,10 @@ export const WalletPanel: React.FC = () => {
     }
   }, [localNextClaimAt]);
 
+  useEffect(() => {
+    void refreshBinding();
+  }, [activePrincipal, refreshBinding]);
+
   const trustScoreFloat =
     identity?.session?.trustScore ??
     (identity?.session?.scaledTrustScore != null ? identity.session.scaledTrustScore / 10000 : undefined);
@@ -80,6 +87,20 @@ export const WalletPanel: React.FC = () => {
   }, [identity, claimStatus]);
   const slideToPostActive = slideToPostEnabled === true;
   const slideToPostLabel = slideToPostEnabled === null ? 'Off (default)' : slideToPostActive ? 'On' : 'Off';
+  const normalizedAccount = account ? account.toLowerCase() : null;
+  const walletBoundToCurrentIdentity = Boolean(
+    activePrincipal
+    && walletBinding?.boundPrincipalNullifier === activePrincipal
+    && (!normalizedAccount || walletBinding.address === normalizedAccount)
+  );
+  const walletBindingLabel = !activePrincipal
+    ? 'Create identity before binding'
+    : !account
+      ? 'Connect wallet to bind'
+      : walletBoundToCurrentIdentity
+        ? 'Bound to this identity'
+        : 'Re-bind wallet to current identity';
+  const walletBindingNeedsRebind = Boolean(activePrincipal && account && !walletBoundToCurrentIdentity);
 
   return (
     <div className="rounded-2xl border border-slate-200/80 bg-card p-5 shadow-sm shadow-slate-900/5 dark:border-slate-700">
@@ -89,15 +110,22 @@ export const WalletPanel: React.FC = () => {
           <p className="text-xs text-slate-600">{shortAddress(account)}</p>
         </div>
         <div className="flex gap-2">
-          {!account && (
+          {(!account || walletBindingNeedsRebind) && (
             <Button onClick={() => void connectWallet()} disabled={walletLoading}>
-              Connect Wallet
+              {account ? 'Re-bind Wallet' : 'Connect Wallet'}
             </Button>
           )}
           <Button variant="ghost" onClick={() => void refreshWallet()} disabled={walletLoading || !account}>
             {walletLoading ? 'Refreshing…' : 'Refresh'}
           </Button>
         </div>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-slate-100 bg-card-muted px-3 py-2 dark:border-slate-700/70">
+        <p className="text-xs uppercase tracking-wide text-slate-500">Wallet Binding</p>
+        <p className="text-sm font-semibold text-slate-900" data-testid="wallet-binding-status">
+          {walletBindingLabel}
+        </p>
       </div>
 
       <div className="mt-3 grid gap-3 sm:grid-cols-3">

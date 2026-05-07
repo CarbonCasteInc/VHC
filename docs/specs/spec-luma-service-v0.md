@@ -482,6 +482,8 @@ Ed25519 keypair generated at first identity creation, persisted in the vault. Si
 
 `walletBinding` stores the address and connection metadata, not the wallet's signing key. External wallets (MetaMask, WalletConnect, etc.) hold their own keys; LUMA "rotate" means clear the binding record and prompt the user to re-bind on next claim. Internal wallets (if any) follow the same external-key principle: LUMA never holds wallet signing keys.
 
+Current M0.D implementation stores the binding as a typed v2 vault compartment with normalized wallet address, decimal-string `chainId`, closed provider kind, `boundPrincipalNullifier`, `boundAt`, and `updatedAt`. No wallet private key, signer, provider object, balance, claim status, or external-wallet capability is stored. `useWallet` may refresh or replace the vault record only when an active published identity exists; `WalletPanel` treats a connected wallet without a current-principal binding as "Re-bind wallet to current identity."
+
 ### 11.6 Evidence retention and zeroization
 
 | Stage | Retention | Notes |

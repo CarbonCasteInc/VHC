@@ -7,6 +7,7 @@ import { authenticateGunUser, publishDirectoryEntry, useAppStore } from '../stor
 import { getHandleError, isValidHandle } from '../utils/handle';
 import {
   clearIdentity as vaultClear,
+  clearWalletBinding,
   delegationSigningKey,
   deviceCredential,
   migrateLegacyLocalStorage,
@@ -288,6 +289,7 @@ export function useIdentity() {
     }
 
     await vaultClear().catch(() => {});
+    await clearWalletBinding().catch(() => {});
     await deviceCredential.rotate();
     await seaDevicePair.rotate(() => SEA.pair());
     await delegationSigningKey.rotateStored();

@@ -8,6 +8,7 @@ import '@testing-library/jest-dom/vitest';
 const lastOnClickRef = vi.hoisted(() => ({ handler: null as any }));
 const connect = vi.fn();
 const refresh = vi.fn();
+const refreshBinding = vi.fn();
 const claimUBE = vi.fn();
 
 const mockUseWallet = vi.fn();
@@ -50,8 +51,10 @@ function setupWalletState(state: Partial<ReturnType<typeof mockUseWallet>>) {
     loading: false,
     claiming: false,
     error: null,
+    walletBinding: null,
     connect,
     refresh,
+    refreshBinding,
     claimUBE,
     ...state
   });
@@ -80,8 +83,65 @@ describe('WalletPanel', () => {
   it('renders disconnected state and triggers connect', () => {
     render(<WalletPanel />);
     expect(screen.getByText(/Wallet not connected/)).toBeInTheDocument();
+    expect(screen.getByTestId('wallet-binding-status')).toHaveTextContent('Create identity before binding');
 
     fireEvent.click(screen.getByText('Connect Wallet'));
+    expect(connect).toHaveBeenCalled();
+  });
+
+  it('shows bound wallet state for the current identity', () => {
+    identityMock.identity = {
+      id: 'id',
+      createdAt: Date.now(),
+      attestation: { platform: 'web', integrityToken: 't', deviceKey: 'd', nonce: 'n' },
+      session: { token: 'tok', trustScore: 0.9, scaledTrustScore: 9000, nullifier: 'principal-1' }
+    };
+    identityMock.status = 'ready';
+    setupWalletState({
+      account: '0xABCDEFabcdefABCDEFabcdefABCDEFabcdefABCD',
+      walletBinding: {
+        schemaVersion: 1,
+        address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+        chainId: '31337',
+        providerKind: 'browser-injected',
+        boundPrincipalNullifier: 'principal-1',
+        boundAt: 1000,
+        updatedAt: 1000
+      }
+    });
+
+    render(<WalletPanel />);
+
+    expect(refreshBinding).toHaveBeenCalled();
+    expect(screen.getByTestId('wallet-binding-status')).toHaveTextContent('Bound to this identity');
+    expect(screen.queryByText('Re-bind Wallet')).not.toBeInTheDocument();
+  });
+
+  it('surfaces a re-bind prompt when wallet binding is missing or belongs to an old principal', () => {
+    identityMock.identity = {
+      id: 'id',
+      createdAt: Date.now(),
+      attestation: { platform: 'web', integrityToken: 't', deviceKey: 'd', nonce: 'n' },
+      session: { token: 'tok', trustScore: 0.9, scaledTrustScore: 9000, nullifier: 'new-principal' }
+    };
+    identityMock.status = 'ready';
+    setupWalletState({
+      account: '0x1111111111111111111111111111111111111111',
+      walletBinding: {
+        schemaVersion: 1,
+        address: '0x1111111111111111111111111111111111111111',
+        chainId: '1',
+        providerKind: 'browser-injected',
+        boundPrincipalNullifier: 'old-principal',
+        boundAt: 1000,
+        updatedAt: 1000
+      }
+    });
+
+    render(<WalletPanel />);
+
+    expect(screen.getByTestId('wallet-binding-status')).toHaveTextContent('Re-bind wallet to current identity');
+    fireEvent.click(screen.getByText('Re-bind Wallet'));
     expect(connect).toHaveBeenCalled();
   });
 
