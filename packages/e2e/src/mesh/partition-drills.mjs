@@ -1274,7 +1274,7 @@ async function runPartitionDrill() {
       cleanupPassed &&
       partitionDegradationMs <= PARTITION_DEGRADATION_SLA_MS &&
       healConvergenceMs <= HEAL_CONVERGENCE_SLA_MS + 15000;
-    const gateStatus = strictProofPassed ? 'pass' : drillCompletedTruthfully ? 'review_required' : 'fail';
+    const gateResultStatus = strictProofPassed ? 'pass' : drillCompletedTruthfully ? 'review_required' : 'blocked';
     const allReadbacks = [
       ...baselineReadbacks,
       ...belowQuorum.readbacks,
@@ -1334,7 +1334,8 @@ async function runPartitionDrill() {
       gates: [
         {
           name: 'local-network-partition-heal-drill',
-          status: gateStatus,
+          status: drillCompletedTruthfully ? 'pass' : 'fail',
+          result_status: gateResultStatus,
           command: 'pnpm test:mesh:partition-drills',
           duration_ms: completedAtMs - startedAtMs,
           exit_code: drillCompletedTruthfully ? 0 : 1,
@@ -1364,18 +1365,30 @@ async function runPartitionDrill() {
       write_class_slos: evaluations.map((row) => {
         const writes = allWriteResults.filter((write) => write.case_id === row.object_id?.split(`-${runId}`)[0]);
         const latencies = writes.map((write) => write.latency_ms).filter((value) => Number.isFinite(value));
+        const attempts = writes.length;
+        const successes = writes.filter((write) => write.ok).length;
+        const terminalFailures = writes.filter((write) => !write.ok).length;
+        const status =
+          attempts === 0
+            ? 'insufficient_samples'
+            : row.status === 'pass' && successes >= attempts
+              ? 'pass'
+              : row.status === 'pass'
+                ? 'insufficient_samples'
+                : 'review_required';
         return {
           write_class: row.object_class,
-          attempts: 1,
-          successes: writes.filter((write) => write.ok).length,
-          terminal_failures: writes.filter((write) => !write.ok).length,
+          attempts,
+          successes,
+          terminal_failures: terminalFailures,
           duplicate_count: row.duplicate_count,
+          minimum_successful_samples: attempts,
           p95_ms:
             latencies.length > 0
               ? latencies.sort((a, b) => a - b)[Math.min(latencies.length - 1, Math.ceil(latencies.length * 0.95) - 1)]
               : null,
           budget_ms: WRITE_TIMEOUT_MS,
-          status: row.status === 'pass' ? 'pass' : 'review_required',
+          status,
         };
       }),
       resource_slos: resourceSlos,

@@ -1098,11 +1098,11 @@ interface MeshProductionReadinessReport {
     attempts: number;
     successes: number;
     terminal_failures: number;
-    duplicate_count: number;
+    duplicate_count: number | null;
     minimum_successful_samples: number;
     p95_ms: number | null;
     budget_ms: number;
-    status: 'pass' | 'fail' | 'insufficient_samples';
+    status: 'pass' | 'fail' | 'insufficient_samples' | 'review_required';
   }>;
   resource_slos: Array<{
     resource: string;
