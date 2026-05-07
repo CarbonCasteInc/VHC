@@ -251,6 +251,19 @@ describe('ArticleEditor', () => {
       await waitFor(() => expect(onComplete).toHaveBeenCalledWith('test-doc-0'));
     });
 
+    it('does not complete when publishArticle fails closed', async () => {
+      mockPublishArticle.mockResolvedValueOnce(false);
+      const onComplete = vi.fn();
+      render(<ArticleEditor initialContent="content" onComplete={onComplete} />);
+      fireEvent.change(screen.getByTestId('article-title-input'), { target: { value: 'Title' } });
+      fireEvent.click(screen.getByTestId('publish-btn'));
+
+      await waitFor(() => expect(mockPublishArticle).toHaveBeenCalledWith('test-doc-0'));
+      expect(onComplete).not.toHaveBeenCalled();
+      expect(screen.queryByTestId('published-banner')).not.toBeInTheDocument();
+      expect(screen.getByTestId('editor-heading')).toHaveTextContent('Edit Article');
+    });
+
     it('passes source context to createDraft', () => {
       const ctx = { sourceTopicId: 'topic-1', sourceThreadId: 'thread-1', sourceSynthesisId: 'synth-1' };
       render(<ArticleEditor initialContent="content" sourceContext={ctx} />);
