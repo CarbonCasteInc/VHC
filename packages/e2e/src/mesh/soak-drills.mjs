@@ -991,7 +991,7 @@ async function runBrowserSoak({ runId, traceId, relays, peerUrls, artifactDir, a
     VITE_GUN_PEER_MINIMUM: '3',
     VITE_GUN_PEER_QUORUM_REQUIRED: '2',
     VITE_VH_ALLOW_LOCAL_MESH_PEERS: 'true',
-    VITE_VH_GUN_LOCAL_STORAGE: 'true',
+    VITE_VH_GUN_LOCAL_STORAGE: 'false',
     VITE_VH_SHOW_HEALTH: 'true',
     VITE_VH_EXPOSE_PEER_TOPOLOGY: 'true',
     VITE_VH_EXPOSE_MESH_DISCONNECT_DRILL: 'true',
@@ -1562,7 +1562,7 @@ async function runSoakDrill() {
           duration_ms: completedAtMs - startedAtMs,
           exit_code: commandPassed ? 0 : 1,
           reason: commandPassed
-            ? 'bounded local three-relay soak completed with zero duplicate canonical writes, zero terminal failures, restart health recovery, browser reconnect evidence, and cleanup'
+            ? 'bounded local three-relay soak completed with zero duplicate canonical writes, zero terminal failures, restart health recovery, browser reconnect evidence, exposed relay resource metrics, and cleanup'
             : [...new Set(healthReasons)].join('; '),
         },
         {
@@ -1639,7 +1639,7 @@ async function runSoakDrill() {
           ? [
               'The bounded local three-relay harness completed a rolling restart soak with deterministic synthetic mesh drill records and zero duplicate canonical writes.',
               'The bounded local Web PWA app-client lane reconnected after forced WebSocket close and wrote deterministic synthetic soak records.',
-              'Relay resource and radata growth budgets were populated for the local harness.',
+              'Relay resource and radata growth budgets exposed by the local harness were populated.',
             ]
           : [],
         forbidden: [
