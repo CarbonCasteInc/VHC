@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../../..');
 const latestDir = path.join(repoRoot, '.tmp/mesh-production-readiness/latest');
+const SOURCE_REPORT_FRESHNESS_TOLERANCE_MS = 5000;
 
 const SOURCE_GATES = [
   {
@@ -105,6 +106,11 @@ function commandText(command) {
   return command.join(' ');
 }
 
+function parseTimestampMs(value) {
+  if (typeof value !== 'string' || value.length === 0) return NaN;
+  return Date.parse(value);
+}
+
 function hasScript(scriptName) {
   try {
     const rootPackage = readJson(path.join(repoRoot, 'package.json'));
@@ -146,7 +152,16 @@ function reportPathForSource(sourceDir) {
   return path.join(sourceDir, 'mesh-production-readiness-report.json');
 }
 
-function validationFailuresForSource({ gate, report, exitCode, currentCommit, sourceReportPath, requireClean }) {
+export function validationFailuresForSource({
+  gate,
+  report,
+  exitCode,
+  currentCommit,
+  sourceReportPath,
+  requireClean,
+  startedAtMs,
+  completedAtMs,
+}) {
   const failures = [];
   if (exitCode !== 0) {
     failures.push(`command exited ${exitCode}`);
@@ -163,6 +178,23 @@ function validationFailuresForSource({ gate, report, exitCode, currentCommit, so
   }
   if (gate.expectedMode && report.run?.mode !== gate.expectedMode) {
     failures.push(`expected run.mode ${gate.expectedMode}, observed ${report.run?.mode || 'missing'}`);
+  }
+  const expectedCommand = commandText(gate.command);
+  if (report.run?.command !== expectedCommand) {
+    failures.push(`expected run.command ${expectedCommand}, observed ${report.run?.command || 'missing'}`);
+  }
+  const reportCompletedAtMs = parseTimestampMs(report.run?.completed_at || report.generated_at);
+  if (!Number.isFinite(reportCompletedAtMs)) {
+    failures.push('missing or invalid source report completion timestamp');
+  } else if (
+    Number.isFinite(startedAtMs) &&
+    Number.isFinite(completedAtMs) &&
+    (reportCompletedAtMs < startedAtMs - SOURCE_REPORT_FRESHNESS_TOLERANCE_MS ||
+      reportCompletedAtMs > completedAtMs + SOURCE_REPORT_FRESHNESS_TOLERANCE_MS)
+  ) {
+    failures.push(
+      `source report completion timestamp ${report.run?.completed_at || report.generated_at} is outside this gate run window`,
+    );
   }
   if (report.repo?.commit !== currentCommit) {
     failures.push(`report commit ${report.repo?.commit || 'missing'} does not match ${currentCommit}`);
@@ -235,6 +267,8 @@ function runSourceGate({ gate, artifactDir, currentCommit, requireClean }) {
     currentCommit,
     sourceReportPath,
     requireClean,
+    startedAtMs: startedAt,
+    completedAtMs: completedAt,
   });
   if (parseError) failures.push(`failed to parse source report: ${parseError}`);
   return {
@@ -542,6 +576,8 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
       result_status: source.source_status,
       run_id: source.report?.run_id || null,
       run_mode: source.report?.run?.mode || null,
+      run_command: source.report?.run?.command || null,
+      source_completed_at: source.report?.run?.completed_at || source.report?.generated_at || null,
       schema_epoch: source.report?.schema_epoch || null,
       luma_profile: source.report?.luma_profile || null,
       repo_dirty: source.report?.repo?.dirty ?? null,
@@ -648,7 +684,9 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(`[vh:mesh-production-readiness] fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main().catch((error) => {
+    console.error(`[vh:mesh-production-readiness] fatal: ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
+    process.exit(1);
+  });
+}

@@ -293,6 +293,8 @@ pnpm check:mesh:production-readiness
 The aggregate command reruns the implemented mesh proof commands, copies each
 source `.tmp/mesh-production-readiness/latest/*` packet before the next command
 overwrites it, and writes a new aggregate packet to the stable latest path. The
+validator requires each copied source report to match the expected gate command,
+run mode, commit, clean-state policy, and current gate-run timestamp window. The
 packet includes `mesh-production-readiness-report.json`,
 `mesh-production-readiness-evidence.md`, and copied source reports under
 `source-reports/<gate>/`.

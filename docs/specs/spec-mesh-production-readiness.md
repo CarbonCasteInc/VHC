@@ -1166,6 +1166,27 @@ interface MeshProductionReadinessReport {
       post_repair_direct_readback_passed: boolean;
     };
   };
+  source_reports?: Array<{
+    id: string;
+    name: string;
+    command: string;
+    status: 'pass' | 'fail';
+    result_status: 'release_ready' | 'review_required' | 'blocked' | 'missing';
+    run_id: string | null;
+    run_mode: string | null;
+    run_command: string | null;
+    source_completed_at: string | null;
+    schema_epoch: string | null;
+    luma_profile: string | null;
+    repo_dirty: boolean | null;
+    report_path: string;
+    failures: string[];
+  }>;
+  release_readiness_blockers?: Array<{
+    id: string;
+    command: string;
+    reason: string;
+  }>;
   gates: Array<{
     name: string;
     status: 'pass' | 'fail' | 'skipped';
@@ -1333,6 +1354,9 @@ Acceptance gates:
 - The command exits `0` when all implemented source proof commands pass and the
   aggregate truthfully records `review_required` blockers. It exits non-zero
   for malformed, missing, stale, dirty, failed, or overclaiming source evidence.
+  Each copied source report must match the expected gate command, run mode,
+  current commit, clean-state policy, and the current aggregate gate-run
+  timestamp window.
 - Release-ready means:
   - report repo metadata identifies branch, commit, base ref, and dirty state
   - report has a `run_id` and every drill write has a joinable `write_id` and
