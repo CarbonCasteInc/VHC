@@ -5,7 +5,7 @@ import {
   type FeedSource,
   type TopicMapping,
 } from '@vh/ai-engine';
-import type { NewsIngestionLease } from '@vh/gun-client';
+import type { NewsIngestionLease, SystemWriterPin, SystemWriterSignHook, VennClientConfig } from '@vh/gun-client';
 import { resolveStarterFeedSources, type ResolvedStarterFeedSources } from './sourceRegistry';
 export {
   createAsyncEnrichmentQueue,
@@ -35,6 +35,130 @@ export interface StoryClusterRemoteConfig {
 export function readEnvVar(name: string): string | undefined {
   const value = process.env?.[name];
   return typeof value === 'string' ? value : undefined;
+}
+
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+const SYSTEM_WRITER_PRIVATE_KEY_ENV_VARS = [
+  'VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL',
+  'VH_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL',
+] as const;
+const SYSTEM_WRITER_PIN_JSON_ENV_VARS = [
+  'VH_NEWS_SYSTEM_WRITER_PIN_JSON',
+  'VH_SYSTEM_WRITER_PIN_JSON',
+] as const;
+const SYSTEM_WRITER_PUBLIC_KEY_ENV_VARS = [
+  'VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL',
+  'VH_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL',
+] as const;
+
+function base64UrlToBytes(value: string): Uint8Array {
+  return new Uint8Array(Buffer.from(value, 'base64url'));
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function bytesToBufferSource(bytes: Uint8Array): BufferSource {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+function readFirstEnvVar(names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = readEnvVar(name)?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function parseSystemWriterPinJson(value: string): SystemWriterPin {
+  const parsed = JSON.parse(value) as SystemWriterPin;
+  if (
+    parsed.pinVersion !== 1
+    || parsed.schemaEpoch !== 'luma-public-v1'
+    || parsed.maxProtocolVersion !== 'luma-public-v1'
+    || parsed.signatureSuite !== 'jcs-ed25519-sha256-v1'
+    || !Array.isArray(parsed.writers)
+    || parsed.writers.length === 0
+  ) {
+    throw new Error('system writer pin JSON is not a valid luma-public-v1 pin');
+  }
+  return parsed;
+}
+
+function resolveSystemWriterPin(writerId: string): SystemWriterPin | undefined {
+  const pinJson = readFirstEnvVar(SYSTEM_WRITER_PIN_JSON_ENV_VARS);
+  if (pinJson) {
+    return parseSystemWriterPinJson(pinJson);
+  }
+
+  const publicKeyMaterial = readFirstEnvVar(SYSTEM_WRITER_PUBLIC_KEY_ENV_VARS);
+  if (!publicKeyMaterial) {
+    return undefined;
+  }
+
+  return {
+    pinVersion: 1,
+    schemaEpoch: 'luma-public-v1',
+    maxProtocolVersion: 'luma-public-v1',
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    writers: [
+      {
+        id: writerId,
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: publicKeyMaterial,
+        },
+      },
+    ],
+  };
+}
+
+async function createSystemWriterSignHook(privateKeyPkcs8Base64Url: string): Promise<SystemWriterSignHook> {
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle) {
+    throw new Error('WebCrypto is required for system writer signing');
+  }
+  const privateKey = await subtle.importKey(
+    'pkcs8',
+    bytesToBufferSource(base64UrlToBytes(privateKeyPkcs8Base64Url)),
+    'Ed25519',
+    false,
+    ['sign']
+  );
+
+  return async ({ canonicalBytes }) => bytesToBase64Url(new Uint8Array(
+    await subtle.sign('Ed25519', privateKey, bytesToBufferSource(canonicalBytes))
+  ));
+}
+
+export async function resolveSystemWriterClientConfigFromEnv(): Promise<Pick<
+  VennClientConfig,
+  'systemWriterId' | 'systemWriterPin' | 'systemWriterSign'
+>> {
+  const configuredWriterId = firstNonEmpty(
+    readEnvVar('VH_NEWS_SYSTEM_WRITER_ID'),
+    readEnvVar('VH_SYSTEM_WRITER_ID'),
+  );
+  const writerId = configuredWriterId ?? DEFAULT_SYSTEM_WRITER_ID;
+  const privateKeyPkcs8 = readFirstEnvVar(SYSTEM_WRITER_PRIVATE_KEY_ENV_VARS);
+  const pin = resolveSystemWriterPin(writerId);
+  const sign = privateKeyPkcs8 ? await createSystemWriterSignHook(privateKeyPkcs8) : undefined;
+
+  if (!configuredWriterId && !pin && !sign) {
+    return {};
+  }
+
+  return {
+    systemWriterId: writerId,
+    ...(pin ? { systemWriterPin: pin } : {}),
+    ...(sign ? { systemWriterSign: sign } : {}),
+  };
 }
 function firstNonEmpty(...values: Array<string | undefined>): string | undefined {
   for (const value of values) {

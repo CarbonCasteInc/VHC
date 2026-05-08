@@ -241,6 +241,15 @@ allowed namespaces, allowed record classes, and signature shape.
 | Civic representative directory snapshot | `spec-civic-action-kit-v0.md` | `vh/civic/reps/<jurisdictionVersion>` |
 | Topic engagement summary | `spec-civic-sentiment-v0.md` / topic engagement adapters | `vh/aggregates/topics/<topicId>/engagement/summary` |
 
+Implementation status:
+- `vh/news/stories/<storyId>` is the first concrete M0.B system-writer adapter
+  migration. New story-node writes use the shared validator contract above and
+  carry the system-writer metadata on the stored public node.
+- `vh/news/index/latest/*`, `vh/news/index/hot/*`, storylines, analysis
+  artifacts, synthesis records, discovery indexes, and topic engagement
+  records are intentionally outside that first adapter slice and must migrate
+  through separate branches.
+
 Forbidden uses:
 
 - User-author writes (forum thread, forum comment, forum post, forum nomination,

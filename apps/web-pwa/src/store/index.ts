@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   createClient,
   publishToDirectory,
+  type SystemWriterPin,
   type VennClient,
 } from '@vh/gun-client';
 import {
@@ -30,6 +31,7 @@ import { loadIdentityRecord } from '../utils/vaultTyped';
 import { createMockClient } from './mockClient';
 import { setClientResolver } from './clientResolver';
 import { resolveGunPeerTopology, type GunPeerTopology } from './peerConfig';
+import systemWriterPin from '../luma/system-writer-pin.json';
 export { resolveGunPeers, resolveGunPeerTopology, resolveGunPeerTopologySync } from './peerConfig';
 
 const PROFILE_KEY = 'vh_profile';
@@ -51,6 +53,46 @@ interface AppState {
 
 let initInFlight: Promise<void> | null = null;
 let directoryPublishQueue: Promise<unknown> = Promise.resolve();
+
+function isSystemWriterPin(value: unknown): value is SystemWriterPin {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<SystemWriterPin>;
+  return candidate.pinVersion === 1
+    && candidate.schemaEpoch === 'luma-public-v1'
+    && candidate.maxProtocolVersion === 'luma-public-v1'
+    && candidate.signatureSuite === 'jcs-ed25519-sha256-v1'
+    && Array.isArray(candidate.writers)
+    && candidate.writers.length > 0
+    && candidate.writers.every((writer) => (
+      writer
+      && typeof writer.id === 'string'
+      && writer.id.trim() === writer.id
+      && writer.id.length > 0
+      && (writer.status === 'active' || writer.status === 'retired')
+      && writer.publicKey?.encoding === 'spki-base64url'
+      && typeof writer.publicKey.material === 'string'
+      && writer.publicKey.material.trim() === writer.publicKey.material
+      && writer.publicKey.material.length > 0
+    ));
+}
+
+function resolveClientSystemWriterPin(): SystemWriterPin {
+  const bakedPin = systemWriterPin as SystemWriterPin;
+  const e2ePinJson = import.meta.env.DEV
+    ? import.meta.env.VITE_E2E_SYSTEM_WRITER_PIN_JSON?.trim()
+    : undefined;
+  if (!e2ePinJson) return bakedPin;
+  try {
+    const parsed = JSON.parse(e2ePinJson) as unknown;
+    if (isSystemWriterPin(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // Fall through to the baked public pin.
+  }
+  console.warn('[vh:web-pwa] ignoring invalid E2E system writer pin override');
+  return bakedPin;
+}
 
 type PeerTopologyProof =
   | {
@@ -489,7 +531,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         const client = createClient({
           peers: peerTopology.peers,
           gunLocalStorage: resolveGunLocalStorage(),
-          requireSession: true
+          requireSession: true,
+          systemWriterPin: resolveClientSystemWriterPin()
         });
         exposePeerTopologyProof({
           status: 'resolved',

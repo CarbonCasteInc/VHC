@@ -97,6 +97,20 @@ describe('playwright.daemon-first-feed.config', () => {
     expect(sourceIds).toEqual(['guardian-us', 'nbc-politics', 'pbs-politics']);
   });
 
+  it('passes the E2E system-writer public pin override to the web app only', async () => {
+    const config = await loadConfig('run-system-writer-pin-check');
+    const entries = config.webServer;
+    const appServer = entries[entries.length - 1];
+    const pin = JSON.parse(appServer.env.VITE_E2E_SYSTEM_WRITER_PIN_JSON);
+
+    expect(pin).toMatchObject({
+      pinVersion: 1,
+      schemaEpoch: 'luma-public-v1',
+      signatureSuite: 'jcs-ed25519-sha256-v1',
+    });
+    expect(pin.writers[0].id).toBe('vh-e2e-news-daemon-system-writer-v1');
+  });
+
   it('propagates analysis relay model and timeout overrides when the live relay is enabled', async () => {
     const config = await loadConfig('run-analysis-relay-check', {
       OPENAI_API_KEY: 'test-openai-key',

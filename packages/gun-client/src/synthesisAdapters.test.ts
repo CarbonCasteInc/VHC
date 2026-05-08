@@ -129,7 +129,10 @@ function createClient(mesh: FakeMesh, guard: TopologyGuard, peers: string[] = []
   barrier.markReady();
 
   return {
-    config: { peers },
+    config: {
+      peers,
+      systemWriterSign: vi.fn(async () => 'test-system-story-signature')
+    },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: guard,

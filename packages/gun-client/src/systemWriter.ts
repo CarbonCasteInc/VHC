@@ -55,6 +55,17 @@ export interface SystemWriterRecordFields {
   readonly _systemIssuedAt: number;
 }
 
+export type UnsignedSystemWriterRecordFields = Omit<SystemWriterRecordFields, '_systemSignature'>;
+
+export interface SystemWriterSignInput {
+  readonly canonicalBytes: Uint8Array;
+  readonly writerId: string;
+  readonly path: string;
+  readonly record: Record<string, unknown> & UnsignedSystemWriterRecordFields;
+}
+
+export type SystemWriterSignHook = (input: SystemWriterSignInput) => string | Promise<string>;
+
 export interface SystemWriterVerifyInput {
   readonly canonicalBytes: Uint8Array;
   readonly signature: string;

@@ -189,7 +189,8 @@ Deliverables:
   - Topology lint: fail-closed `district_hash` rule (only on aggregate-class paths with cohort proof).
   - Topology lint: protocol/schema reject matrix from mesh spec §5.11 enforced at the adapter layer.
   - Topology lint: drill record outside `vh/__mesh_drills/*` is hard-rejected.
-  - New release gates: `pnpm check:public-namespace-leaks`, `pnpm check:linkability-domain-registry`, `pnpm check:luma-directory-v1`, `pnpm check:luma-forum-author-v1`, `pnpm check:luma-aggregate-voter-v1`, `pnpm check:luma-forum-post-v1`, `pnpm check:luma-news-report-v1`, `pnpm check:luma-forum-nomination-v1`.
+  - New release gates: `pnpm check:public-namespace-leaks`, `pnpm check:linkability-domain-registry`, `pnpm check:luma-directory-v1`, `pnpm check:luma-forum-author-v1`, `pnpm check:luma-aggregate-voter-v1`, `pnpm check:luma-forum-post-v1`, `pnpm check:luma-news-report-v1`, `pnpm check:luma-forum-nomination-v1`, `pnpm check:luma-news-story-system-v1`.
+  - News bundle/story system-writer migration starts with `vh/news/stories/<storyId>` only: story nodes carry `_writerKind: 'system'` and validate with the shared system-writer validator, while latest/hot indexes, storylines, analysis, synthesis, discovery, and topic engagement migrate in later slices.
   - Re-run `pnpm test:live:five-user-engagement` against the new taxonomy.
 - Mesh re-run gate (post-M0.B): schema-epoch revalidation only.
   - After all adapter and materializer migration deliverables land, re-run `pnpm check:mesh:production-readiness` against the new schema epoch with `schema_epoch: 'post_luma_m0b'`. The drill harness exercises migrated write classes through their real post-M0.B reader path, not the mesh drill writer contract.

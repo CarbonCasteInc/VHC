@@ -7,6 +7,16 @@ import {
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability, type DurableWriteResult } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  canonicalizeSystemWriterRecordBytes,
+  validateSystemWriterRecord,
+  type SystemWriterRecordFields,
+  type SystemWriterValidationFailure,
+  type UnsignedSystemWriterRecordFields,
+} from './systemWriter';
 import type { VennClient } from './types';
 
 export type NewsLatestIndex = Record<string, number>;
@@ -65,11 +75,22 @@ const FORBIDDEN_NEWS_KEYS = new Set<string>([
 ]);
 
 const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
 );
 const ROOT_INDEX_SETTLE_MS = 150;
+
+export interface SystemWriterStoryBundleRecord extends Record<string, unknown>, SystemWriterRecordFields {
+  readonly [STORY_BUNDLE_JSON_KEY]: string;
+  readonly story_id: string;
+  readonly created_at: number;
+  readonly schemaVersion: StoryBundle['schemaVersion'];
+}
+
+type UnsignedSystemWriterStoryBundleRecord =
+  Omit<SystemWriterStoryBundleRecord, '_systemSignature'> & UnsignedSystemWriterRecordFields;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -458,6 +479,59 @@ function encodeStoryBundleForGun(story: StoryBundle): Record<string, unknown> {
   };
 }
 
+function resolveSystemWriterId(client: VennClient): string {
+  const configured = client.config.systemWriterId?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  const activePinnedWriter = client.config.systemWriterPin?.writers.find((writer) => writer.status === 'active');
+  return activePinnedWriter?.id ?? DEFAULT_SYSTEM_WRITER_ID;
+}
+
+function resolveSystemWriterIssuedAt(client: VennClient): number {
+  const issuedAt = client.config.systemWriterNow?.() ?? Date.now();
+  if (!Number.isSafeInteger(issuedAt) || issuedAt < 0) {
+    throw new Error('system writer issued-at must be a non-negative safe integer');
+  }
+  return issuedAt;
+}
+
+async function buildSystemWriterStoryRecord(
+  client: VennClient,
+  story: StoryBundle,
+): Promise<SystemWriterStoryBundleRecord> {
+  const sign = client.config.systemWriterSign;
+  if (!sign) {
+    throw new Error('system writer signer is required for news story writes');
+  }
+
+  const writerId = resolveSystemWriterId(client);
+  const path = storyPath(story.story_id);
+  const unsignedRecord: UnsignedSystemWriterStoryBundleRecord = {
+    ...encodeStoryBundleForGun(story),
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: writerId,
+    _systemIssuedAt: resolveSystemWriterIssuedAt(client),
+  } as UnsignedSystemWriterStoryBundleRecord;
+  const canonicalBytes = canonicalizeSystemWriterRecordBytes(unsignedRecord);
+  const signature = await sign({
+    canonicalBytes,
+    writerId,
+    path,
+    record: unsignedRecord,
+  });
+  if (typeof signature !== 'string' || signature.trim() !== signature || signature.length === 0) {
+    throw new Error('system writer signer returned an invalid signature');
+  }
+
+  return {
+    ...unsignedRecord,
+    _systemSignature: signature,
+  } as SystemWriterStoryBundleRecord;
+}
+
 function decodeStoryBundlePayload(payload: unknown): unknown {
   if (!isRecord(payload)) {
     return payload;
@@ -475,8 +549,8 @@ function decodeStoryBundlePayload(payload: unknown): unknown {
   }
 }
 
-function parseStoryBundle(data: unknown): StoryBundle | null {
-  const payload = decodeStoryBundlePayload(stripGunMetadata(data));
+function parseLegacyStoryBundle(data: unknown): StoryBundle | null {
+  const payload = decodeStoryBundlePayload(data);
   if (hasForbiddenNewsPayloadFields(payload)) {
     return null;
   }
@@ -485,6 +559,63 @@ function parseStoryBundle(data: unknown): StoryBundle | null {
     return null;
   }
   return parsed.data;
+}
+
+function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && value._writerKind === SYSTEM_WRITER_KIND;
+}
+
+function carriesLumaProtocolFields(value: unknown): boolean {
+  return isRecord(value) && (
+    '_protocolVersion' in value
+    || '_writerKind' in value
+    || '_systemWriterId' in value
+    || '_systemSignature' in value
+    || '_systemIssuedAt' in value
+    || '_authorScheme' in value
+    || 'signedWriteEnvelope' in value
+  );
+}
+
+function emitSystemWriterValidationFailure(
+  failure: SystemWriterValidationFailure,
+): void {
+  console.warn(`[vh:news] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+    globalThis.dispatchEvent(
+      new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
+    );
+  }
+}
+
+async function parseStoryBundleFromStoredRecord(
+  client: VennClient,
+  storyId: string,
+  data: unknown,
+): Promise<StoryBundle | null> {
+  const payload = stripGunMetadata(data);
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: storyPath(storyId),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+
+    const parsed = parseLegacyStoryBundle(payload);
+    return parsed?.story_id === storyId ? parsed : null;
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  const parsed = parseLegacyStoryBundle(payload);
+  return parsed?.story_id === storyId ? parsed : null;
 }
 
 function sanitizeStoryBundle(data: unknown): StoryBundle {
@@ -694,7 +825,7 @@ export async function readNewsStory(client: VennClient, storyId: string): Promis
   if (raw === null) {
     return null;
   }
-  const parsed = parseStoryBundle(raw);
+  const parsed = await parseStoryBundleFromStoredRecord(client, storyId, raw);
   if (!parsed) {
     return null;
   }
@@ -716,7 +847,7 @@ export async function writeNewsStory(client: VennClient, story: unknown): Promis
   const sanitized = sanitizeStoryBundle(story);
   await assertCanonicalNewsTopicId(sanitized);
   const normalized = await enforceCreatedAtFirstWriteWins(client, sanitized);
-  const encoded = encodeStoryBundleForGun(normalized);
+  const encoded = await buildSystemWriterStoryRecord(client, normalized);
   await putWithAck(
     getNewsStoryChain(client, normalized.story_id) as unknown as ChainWithGet<Record<string, unknown>>,
     encoded,

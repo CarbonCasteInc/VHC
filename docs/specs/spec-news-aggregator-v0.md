@@ -149,6 +149,24 @@ Canonical publication contract:
 `created_at` contract:
 - `created_at` is the initial publish timestamp for a `story_id`; when the earliest source publish time is available it should seed this value, otherwise the initial cluster publish time may seed it; it MUST remain immutable after initial publish.
 
+Public story-node storage contract:
+- Product code continues to consume the `StoryBundle` DTO above.
+- New writes to `vh/news/stories/<storyId>` MUST store the bundle inside the
+  node's `__story_bundle_json` field and MUST carry `_protocolVersion:
+  'luma-public-v1'`, `_writerKind: 'system'`, `_systemWriterId`,
+  `_systemIssuedAt`, and `_systemSignature`.
+- `_systemSignature` uses `jcs-ed25519-sha256-v1` over
+  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
+  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+- The signed story node MUST NOT carry `_authorScheme` or
+  `SignedWriteEnvelope`; story bundles are system-published, not user-authored.
+- Legacy bare `story-bundle-v0` nodes remain read-compatible. A node carrying
+  `_writerKind: 'system'` but failing system-writer validation is rejected and
+  MUST NOT route through the legacy reader.
+- Latest/hot indexes under `vh/news/index/latest/*` and
+  `vh/news/index/hot/*` are not part of this M0.B story-node migration and do
+  not gain system-writer metadata in this slice.
+
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
 - Discovery NEWS_STORY projections should forward this value as `FeedItem.story_id` when available.

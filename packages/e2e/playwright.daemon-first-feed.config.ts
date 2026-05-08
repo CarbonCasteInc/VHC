@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { defineConfig, devices, type TestConfig } from '@playwright/test';
 import { buildPortClearShellCommand } from './src/live/daemonFirstFeedProcesses';
+import { E2E_SYSTEM_WRITER_PIN_JSON } from './src/live/lumaSystemWriterTestFixture';
 
 process.env.VH_DAEMON_FEED_RUN_ID ??= `${Date.now()}-${process.pid}`;
 
@@ -420,6 +421,7 @@ const localWebServers: TestConfig['webServer'] = [
       VITE_NEWS_RUNTIME_ROLE: 'consumer',
       VH_DAEMON_FEED_USE_FIXTURE_FEED: useFixtureFeed ? 'true' : 'false',
       VH_DAEMON_FEED_FIXTURE_BASE_URL: fixtureFeedBaseUrl,
+      VITE_E2E_SYSTEM_WRITER_PIN_JSON: E2E_SYSTEM_WRITER_PIN_JSON,
       VITE_GUN_PEERS: `["${gunPeerUrl}"]`,
       VITE_NEWS_FEED_SOURCES: resolveDevFeedSourcesJson(),
       ...resolveAnalysisRelayEnv(),
