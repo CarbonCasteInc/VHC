@@ -9,6 +9,14 @@ const rolloverFixturePath = process.env.VH_MESH_DEPLOYED_WSS_ROLLOVER_CONFIG_PAT
 const certPath = process.env.VH_MESH_TLS_CERT_PATH;
 const keyPath = process.env.VH_MESH_TLS_KEY_PATH;
 const controlToken = process.env.VH_MESH_DEPLOYED_WSS_CONTROL_TOKEN ?? '';
+const optionalFixtureEnv = {
+  rollback: process.env.VH_MESH_PEER_CONFIG_ROLLBACK_CONFIG_PATH,
+  expired: process.env.VH_MESH_PEER_CONFIG_EXPIRED_CONFIG_PATH,
+  unsigned: process.env.VH_MESH_PEER_CONFIG_UNSIGNED_CONFIG_PATH,
+  bad_signature: process.env.VH_MESH_PEER_CONFIG_BAD_SIGNATURE_CONFIG_PATH,
+  wrong_key: process.env.VH_MESH_PEER_CONFIG_WRONG_KEY_CONFIG_PATH,
+  local_peers: process.env.VH_MESH_PEER_CONFIG_LOCAL_PEERS_CONFIG_PATH,
+};
 
 if (!Number.isFinite(port) || port <= 0) {
   throw new Error('VH_MESH_DEPLOYED_WSS_CONFIG_PORT must be a positive integer');
@@ -20,8 +28,34 @@ if (!certPath || !keyPath) {
   throw new Error('VH_MESH_TLS_CERT_PATH and VH_MESH_TLS_KEY_PATH are required');
 }
 
-let activeFixturePath = positiveFixturePath;
+const fixtures = new Map([
+  ['positive', positiveFixturePath],
+  ['rollover', rolloverFixturePath],
+  ...Object.entries(optionalFixtureEnv).filter((entry) => Boolean(entry[1])),
+]);
+let activeFixtureLabel = 'positive';
 let configHits = 0;
+const configHitsByLabel = {};
+
+function activeFixturePath() {
+  return fixtures.get(activeFixtureLabel) ?? positiveFixturePath;
+}
+
+function readRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('error', reject);
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf8');
+        resolve(raw ? JSON.parse(raw) : {});
+      } catch (error) {
+        reject(error);
+      }
+    });
+  });
+}
 
 function applyCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -40,7 +74,7 @@ const server = https.createServer(
     cert: fs.readFileSync(certPath),
     key: fs.readFileSync(keyPath),
   },
-  (req, res) => {
+  async (req, res) => {
     applyCors(res);
     if (req.method === 'OPTIONS') {
       res.writeHead(204);
@@ -55,8 +89,10 @@ const server = https.createServer(
     if (req.method === 'GET' && url.pathname === '/__state') {
       sendJson(res, 200, {
         ok: true,
-        active: activeFixturePath === rolloverFixturePath ? 'rollover' : 'positive',
+        active: activeFixtureLabel,
+        available: Array.from(fixtures.keys()),
         config_hits: configHits,
+        config_hits_by_label: configHitsByLabel,
       });
       return;
     }
@@ -65,14 +101,36 @@ const server = https.createServer(
         sendJson(res, 403, { ok: false, error: 'forbidden' });
         return;
       }
-      activeFixturePath = rolloverFixturePath;
+      activeFixtureLabel = 'rollover';
       sendJson(res, 200, { ok: true, active: 'rollover' });
+      return;
+    }
+    if (req.method === 'POST' && url.pathname === '/__control/select') {
+      if (controlToken && req.headers['x-vh-mesh-control-token'] !== controlToken) {
+        sendJson(res, 403, { ok: false, error: 'forbidden' });
+        return;
+      }
+      let body;
+      try {
+        body = await readRequestBody(req);
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) });
+        return;
+      }
+      const active = typeof body.active === 'string' ? body.active : '';
+      if (!fixtures.has(active)) {
+        sendJson(res, 400, { ok: false, error: `unknown fixture ${active || 'missing'}`, available: Array.from(fixtures.keys()) });
+        return;
+      }
+      activeFixtureLabel = active;
+      sendJson(res, 200, { ok: true, active: activeFixtureLabel });
       return;
     }
     if (req.method === 'GET' && url.pathname === '/mesh-peer-config.json') {
       try {
         configHits += 1;
-        const body = fs.readFileSync(activeFixturePath, 'utf8');
+        configHitsByLabel[activeFixtureLabel] = (configHitsByLabel[activeFixtureLabel] ?? 0) + 1;
+        const body = fs.readFileSync(activeFixturePath(), 'utf8');
         res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
         res.end(body);
       } catch (error) {

@@ -75,6 +75,19 @@ expected WSS relay and HTTPS peer-config origins, plus `'self'`, without dev
 localhost sources or broad `https:`/`wss:` wildcards, and signed peer-config
 rollover is fetched fresh instead of being pinned by service-worker cache.
 
+Run the operator peer-config rollback drill:
+
+```sh
+pnpm test:mesh:peer-config-rollback-drill
+```
+
+That command uses the same hermetic local TLS/WSS profile with local peer
+allowance disabled. It verifies signed config A, signed config B, fail-closed
+rejection for expired, unsigned, bad-signature, wrong-key, and local-peer
+configs, then rollback to the previous topology shape through a freshly issued
+signed rollback config. Rollback evidence must not be based on accepting an old
+cached config file.
+
 Run the state-resolution drill:
 
 ```sh
@@ -299,7 +312,7 @@ packet includes `mesh-production-readiness-report.json`,
 `mesh-production-readiness-evidence.md`, and copied source reports under
 `source-reports/<gate>/`.
 
-For Slice 11A, a successful aggregate command still reports
+For Slice 11A and Slice 12A, a successful aggregate command still reports
 `status: review_required` while release blockers remain. Expected blockers
 include the canonical 30-minute soak, public WSS deployment proof, full
 clock-skew matrix, conflict-resolution fixtures, evidence scrub promotion,
@@ -314,12 +327,22 @@ path in this server, public production WSS rollout still needs a trust path
 that either separates relay-peer sockets from browser client sockets or uses a
 client-compatible signed peer handshake.
 
+## Operator Runbook
+
+The operator-facing rollback/deploy path is documented in
+`docs/ops/mesh-production-operator-runbook.md`. The current rehearsed rollback
+claim is local TLS/WSS only: reload/refetch accepts a fresh rollback config and
+invalid configs fail closed. It is not a public WSS rollback proof and it does
+not prove runtime signing-key rotation without rebuilding or otherwise
+distributing a new trusted key.
+
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10/11A even when the
+The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10/11A/12A even when the
 local restarted-relay drill, deployed-WSS local TLS profile, state-resolution
 drill, disconnect drill, partition/heal drill, read-repair drill, and bounded
-rolling-restart soak pass and the aggregate evidence packet is well formed. A passing
+rolling-restart soak pass, peer-config rollback drill passes, and the aggregate
+evidence packet is well formed. A passing
 restarted-relay section means only that the restarted local relay directly read
 the missed synthetic drill write inside this bounded harness. A passing
 deployed-WSS section means only that the local TLS/WSS profile, signed WSS
@@ -341,7 +364,8 @@ recorded budgets; if `soak.full_duration_satisfied` is false it is not the
 canonical 30-minute soak claim. A passing aggregate section means only that the
 implemented source reports were collected, validated, copied, and summarized in
 one operator packet. None of these outcomes proves public WSS
-infrastructure, automatic peer-federation recovery, LUMA-gated write state
+infrastructure, automatic peer-federation recovery, runtime peer-config key
+rotation without a new trusted-key distribution path, LUMA-gated write state
 resolution, the full clock-skew matrix, evidence scrub promotion, or post-M0.B
 LUMA-gated write coverage.
 

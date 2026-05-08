@@ -32,6 +32,7 @@
     "test:mesh:partition-drills": "node ./src/mesh/partition-drills.mjs",
     "test:mesh:read-repair-drills": "node ./src/mesh/read-repair-drills.mjs",
     "test:mesh:soak": "node ./src/mesh/soak-drills.mjs",
+    "test:mesh:peer-config-rollback-drill": "node ./src/mesh/peer-config-rollback-drill.mjs",
     "check:mesh:production-readiness": "node ./src/mesh/production-readiness-check.mjs",
     "report:live:daemon-feed:fixture-candidate-intake": "node ./src/live/daemon-feed-fixture-candidate-intake.mjs",
     "report:offline-cluster-replay": "node ./src/live/daemon-feed-semantic-soak-offline-replay-report.mjs",

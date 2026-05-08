@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { validationFailuresForSource } from './production-readiness-check.mjs';
+import { SOURCE_GATES, validationFailuresForSource } from './production-readiness-check.mjs';
 
 const thisFile = fileURLToPath(import.meta.url);
 const currentCommit = 'abc123';
@@ -47,6 +47,14 @@ function failuresFor({ gate, report }) {
 }
 
 describe('production-readiness source evidence validation', () => {
+  it('includes the peer-config rollback drill as command-matched source evidence', () => {
+    expect(SOURCE_GATES).toContainEqual(expect.objectContaining({
+      id: 'peer_config_rollback',
+      command: ['pnpm', 'test:mesh:peer-config-rollback-drill'],
+      expectedMode: 'local_tls_wss_peer_config_rollback',
+    }));
+  });
+
   it('accepts a fresh source report for the exact gate command', () => {
     const failures = failuresFor({
       gate: {
