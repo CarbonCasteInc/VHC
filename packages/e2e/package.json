@@ -35,6 +35,7 @@
     "test:mesh:peer-config-rollback-drill": "node ./src/mesh/peer-config-rollback-drill.mjs",
     "test:mesh:clock-skew-drills": "node ./src/mesh/clock-skew-drills.mjs",
     "test:mesh:conflict-drills": "node ./src/mesh/conflict-drills.mjs",
+    "check:mesh-evidence-scrub": "node ./src/mesh/evidence-scrub-check.mjs",
     "check:mesh:production-readiness": "node ./src/mesh/production-readiness-check.mjs",
     "report:live:daemon-feed:fixture-candidate-intake": "node ./src/live/daemon-feed-fixture-candidate-intake.mjs",
     "report:offline-cluster-replay": "node ./src/live/daemon-feed-semantic-soak-offline-replay-report.mjs",

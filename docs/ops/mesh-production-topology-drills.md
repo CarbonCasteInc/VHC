@@ -342,21 +342,24 @@ pnpm check:mesh:production-readiness
 
 The aggregate command reruns the implemented mesh proof commands, copies each
 source `.tmp/mesh-production-readiness/latest/*` packet before the next command
-overwrites it, and writes a new aggregate packet to the stable latest path. The
-validator requires each copied source report to match the expected gate command,
-run mode, commit, clean-state policy, and current gate-run timestamp window. The
-packet includes `mesh-production-readiness-report.json`,
-`mesh-production-readiness-evidence.md`, and copied source reports under
-`source-reports/<gate>/`.
+overwrites it, builds a candidate aggregate in the current run directory, then
+runs `pnpm check:mesh-evidence-scrub -- --source-dir <run-dir>` against that
+explicit packet. The final aggregate is written only after the scrub source
+report is recorded. The validator requires each copied source report to match
+the expected gate command, run mode, commit, clean-state policy, and current
+gate-run timestamp window. The packet includes
+`mesh-production-readiness-report.json`, `mesh-production-readiness-evidence.md`,
+and copied source reports under `source-reports/<gate>/`; after Slice 14A it has
+12 source reports, including `source-reports/evidence_scrub/`.
 
-For Slice 11A through Slice 13B, a successful aggregate command still reports
+For Slice 11A through Slice 14A, a successful aggregate command still reports
 `status: review_required` while release blockers remain. Expected blockers
-after Slice 13B include the canonical 30-minute soak, public WSS deployment
-proof, evidence scrub promotion, downstream full-app canary, and LUMA-gated
-write coverage through the LUMA reader path. The command exits non-zero for
-missing, malformed, dirty, stale, failed, command-mismatched, or incomplete
-source evidence, and for any overclaiming packet that would emit
-`release_ready` before the blockers are gone.
+after Slice 14A include the canonical 30-minute soak, public WSS deployment
+proof, downstream full-app canary, and LUMA-gated write coverage through the
+LUMA reader path. The command exits non-zero for missing, malformed, dirty,
+stale, failed, command-mismatched, unscrubbed, or incomplete source evidence,
+and for any overclaiming packet that would emit `release_ready` before the
+blockers are gone.
 
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
@@ -375,12 +378,12 @@ distributing a new trusted key.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10/11A/12A/13A/13B even when the
-local restarted-relay drill, deployed-WSS local TLS profile, state-resolution
-drill, disconnect drill, partition/heal drill, read-repair drill, and bounded
-rolling-restart soak pass, peer-config rollback drill passes, and the aggregate
-evidence packet is well formed. A passing
-restarted-relay section means only that the restarted local relay directly read
+The report status remains `review_required` for Slice
+6B/7B/7C/8/9/9B/10/11A/12A/13A/13B/14A even when the local restarted-relay
+drill, deployed-WSS local TLS profile, state-resolution drill, disconnect
+drill, partition/heal drill, read-repair drill, bounded rolling-restart soak,
+peer-config rollback drill, and aggregate evidence packet are well formed. A
+passing restarted-relay section means only that the restarted local relay directly read
 the missed synthetic drill write inside this bounded harness. A passing
 deployed-WSS section means only that the local TLS/WSS profile, signed WSS
 peer-config boot, CSP allowlist, and service-worker rollover proof passed.
@@ -403,12 +406,17 @@ the local non-LUMA mesh clock/auth window matrix passed. A passing conflict
 section means only that local synthetic conflict/protocol fixtures passed and
 did not become LUMA schema migration evidence. A passing aggregate section
 means only that the implemented source reports were collected, validated,
-copied, and summarized in one operator packet. None of these outcomes proves
+copied, and summarized in one operator packet. A passing evidence-scrub section
+means only that the candidate aggregate packet was deterministically transformed
+into `.tmp/mesh-production-readiness/promoted/<run_id>/` and the promoted output
+was rescanned for raw tokens, private key material, unsafe origins, unsafe
+absolute paths, stale placeholder evidence, overclaims, and disallowed writer
+kinds. None of these outcomes proves
 public WSS
 infrastructure, automatic peer-federation recovery, runtime peer-config key
 rotation without a new trusted-key distribution path, LUMA-gated write state
-resolution, public WSS clock-skew or conflict behavior, evidence scrub
-promotion, or post-M0.B LUMA-gated write coverage.
+resolution, public WSS clock-skew or conflict behavior, or post-M0.B
+LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one

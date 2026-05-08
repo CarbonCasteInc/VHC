@@ -10,6 +10,9 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../../..');
 const latestDir = path.join(repoRoot, '.tmp/mesh-production-readiness/latest');
 const SOURCE_REPORT_FRESHNESS_TOLERANCE_MS = 5000;
+const EVIDENCE_SCRUB_SOURCE_ID = 'evidence_scrub';
+const EVIDENCE_SCRUB_MODE = 'mesh_evidence_scrub_promotion';
+const EVIDENCE_SCRUB_REPORT_NAME = 'evidence-scrub-source-report.json';
 const REQUIRED_CONFLICT_FIXTURES = [
   'same-key-concurrent-deterministic-writes',
   'stale-overwrite-attempt-rejected',
@@ -88,6 +91,12 @@ export const SOURCE_GATES = [
     expectedMode: 'local_conflict_resolution_fixtures',
   },
 ];
+
+const EVIDENCE_SCRUB_GATE = {
+  id: EVIDENCE_SCRUB_SOURCE_ID,
+  name: 'evidence scrub promotion',
+  expectedMode: EVIDENCE_SCRUB_MODE,
+};
 
 function nowIsoCompact(date = new Date()) {
   return date.toISOString().replaceAll('-', '').replaceAll(':', '').replace(/\.\d{3}Z$/, 'Z');
@@ -350,6 +359,93 @@ function runSourceGate({ gate, artifactDir, currentCommit, requireClean }) {
   };
 }
 
+function parseLastJsonObject(text) {
+  if (typeof text !== 'string' || text.trim().length === 0) return null;
+  const start = text.lastIndexOf('\n{');
+  const first = text.indexOf('{');
+  if (start < 0 && first < 0) return null;
+  const jsonText = start >= 0 ? text.slice(start + 1) : text.slice(first);
+  if (!jsonText || jsonText.trim().length === 0) return null;
+  return JSON.parse(jsonText);
+}
+
+function runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }) {
+  const sourceDirArg = path.relative(repoRoot, artifactDir);
+  const command = ['pnpm', 'check:mesh-evidence-scrub', '--', '--source-dir', sourceDirArg];
+  const startedAt = Date.now();
+  const result = spawnSync(command[0], command.slice(1), {
+    cwd: repoRoot,
+    env: process.env,
+    encoding: 'utf8',
+    stdio: ['inherit', 'pipe', 'pipe'],
+  });
+  const completedAt = Date.now();
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+
+  const exitCode = typeof result.status === 'number' ? result.status : 1;
+  const sourceDir = path.join(artifactDir, 'source-reports', EVIDENCE_SCRUB_SOURCE_ID);
+  fs.rmSync(sourceDir, { recursive: true, force: true });
+  fs.mkdirSync(sourceDir, { recursive: true });
+
+  let report = null;
+  let output = null;
+  let parseError = null;
+  try {
+    output = parseLastJsonObject(result.stdout || '');
+  } catch (error) {
+    parseError = error instanceof Error ? error.message : String(error);
+  }
+  const producedReportPath = output?.source_report_path;
+  const copiedReportPath = reportPathForSource(sourceDir);
+  if (producedReportPath && fs.existsSync(producedReportPath)) {
+    fs.copyFileSync(producedReportPath, copiedReportPath);
+    fs.copyFileSync(producedReportPath, path.join(sourceDir, EVIDENCE_SCRUB_REPORT_NAME));
+  }
+  if (fs.existsSync(copiedReportPath)) {
+    try {
+      report = readJson(copiedReportPath);
+    } catch (error) {
+      parseError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
+  const failures = validationFailuresForSource({
+    gate: {
+      ...EVIDENCE_SCRUB_GATE,
+      command,
+    },
+    report,
+    exitCode,
+    currentCommit,
+    sourceReportPath: copiedReportPath,
+    requireClean,
+    startedAtMs: startedAt,
+    completedAtMs: completedAt,
+  });
+  if (report?.evidence_scrub?.status !== 'pass') {
+    failures.push(`evidence_scrub.status is ${report?.evidence_scrub?.status || 'missing'}`);
+  }
+  if (parseError) failures.push(`failed to parse evidence scrub output/report: ${parseError}`);
+
+  return {
+    id: EVIDENCE_SCRUB_SOURCE_ID,
+    name: EVIDENCE_SCRUB_GATE.name,
+    command: commandText(command),
+    expected_mode: EVIDENCE_SCRUB_MODE,
+    started_at: new Date(startedAt).toISOString(),
+    completed_at: new Date(completedAt).toISOString(),
+    duration_ms: completedAt - startedAt,
+    exit_code: exitCode,
+    report,
+    source_dir: sourceDir,
+    report_path: copiedReportPath,
+    source_status: report?.status || 'missing',
+    status: failures.length === 0 ? 'pass' : 'fail',
+    failures: unique(failures),
+  };
+}
+
 function buildReleaseBlockers(sources) {
   const blockers = [];
   const sourceById = new Map(sources.map((source) => [source.id, source]));
@@ -391,11 +487,18 @@ function buildReleaseBlockers(sources) {
       reason: 'conflict-resolution fixture source report is missing, stale, failed, or incomplete',
     });
   }
+  const evidenceScrub = sourceById.get(EVIDENCE_SCRUB_SOURCE_ID);
   if (!hasScript('check:mesh-evidence-scrub')) {
     blockers.push({
       id: 'evidence-scrub-promotion',
       command: 'pnpm check:mesh-evidence-scrub',
       reason: 'evidence scrub gate for promoted docs/reports/evidence packets is not implemented',
+    });
+  } else if (evidenceScrub?.status !== 'pass' || evidenceScrub.report?.evidence_scrub?.status !== 'pass') {
+    blockers.push({
+      id: 'evidence-scrub-promotion',
+      command: 'pnpm check:mesh-evidence-scrub',
+      reason: 'candidate aggregate packet has not passed deterministic evidence scrub and promoted-packet rescan',
     });
   }
   if (!hasScript('check:production-app-canary')) {
@@ -590,12 +693,17 @@ ${report.release_claims.forbidden.map((claim) => `- ${claim}`).join('\n')}
 `;
 }
 
-function writeAggregatePacket({ report, manifest, artifactDir }) {
+function writePacketFiles({ report, manifest, artifactDir }) {
   fs.mkdirSync(artifactDir, { recursive: true });
   const reportPath = path.join(artifactDir, 'mesh-production-readiness-report.json');
   const manifestPath = path.join(artifactDir, 'mesh-production-readiness-evidence.md');
   writeJson(reportPath, report);
   fs.writeFileSync(manifestPath, manifest);
+  return { reportPath, manifestPath };
+}
+
+function writeAggregatePacket({ report, manifest, artifactDir }) {
+  const { reportPath, manifestPath } = writePacketFiles({ report, manifest, artifactDir });
 
   fs.rmSync(latestDir, { recursive: true, force: true });
   fs.mkdirSync(latestDir, { recursive: true });
@@ -741,11 +849,34 @@ async function main() {
   for (const gate of SOURCE_GATES) {
     sources.push(runSourceGate({ gate, artifactDir, currentCommit, requireClean }));
   }
+  const initialBlockers = buildReleaseBlockers(sources);
+  const initialCommandPassed = sources.every((source) => source.status === 'pass');
+  const candidateCompletedAt = Date.now();
+  const candidateReport = buildReport({
+    runId,
+    startedAt,
+    completedAt: candidateCompletedAt,
+    sources,
+    blockers: initialBlockers,
+    commandPassed: initialCommandPassed,
+  });
+  const provisionalReportPath = path.join(artifactDir, 'mesh-production-readiness-report.json');
+  const candidateManifest = buildManifest({
+    report: candidateReport,
+    sources,
+    blockers: initialBlockers,
+    reportPath: provisionalReportPath,
+  });
+  writePacketFiles({ report: candidateReport, manifest: candidateManifest, artifactDir });
+
+  if (initialCommandPassed) {
+    sources.push(runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }));
+  }
+
   const blockers = buildReleaseBlockers(sources);
   const commandPassed = sources.every((source) => source.status === 'pass');
   const completedAt = Date.now();
   const report = buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed });
-  const provisionalReportPath = path.join(artifactDir, 'mesh-production-readiness-report.json');
   const manifest = buildManifest({ report, sources, blockers, reportPath: provisionalReportPath });
   const paths = writeAggregatePacket({ report, manifest, artifactDir });
 
