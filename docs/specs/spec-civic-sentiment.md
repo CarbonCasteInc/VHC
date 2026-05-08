@@ -125,7 +125,10 @@ Lightbulb:
 
 ## 6. Storage and topology
 
-- `SentimentSignal` event-level records: local or encrypted outbox only
+- `SentimentSignal` event-level records: local or encrypted outbox only; new
+  outbox writes use `sentiment-outbox-envelope-v1` with `_protocolVersion:
+  'luma-sensitive-v1'` and `topologyClass:
+  'sensitive-encrypted-outbox'`
 - public mesh: aggregate-only projections
 - per-user Eye/Lightbulb weights are persisted on-device for stable reload behavior
 - topic engagement summary path: `vh/aggregates/topics/<topicId>/engagement/summary`
@@ -147,6 +150,8 @@ District dashboards must remain aggregate-only:
 3. Toggle semantics tests (`+/-` and neutral reset) by `(topic_id, synthesis_id, epoch, point_id)`.
 4. Aggregate projection determinism tests by `(topic_id, synthesis_id, epoch)`.
 5. Privacy tests: ensure district dashboard payloads are aggregate-only.
+6. Public namespace leak tests: ensure local `VoteIntentRecord` fields and
+   raw sentiment proof material never appear under public `vh/*` paths.
 
 ## 9. FPD production-wiring clarifications (2026-02-19)
 

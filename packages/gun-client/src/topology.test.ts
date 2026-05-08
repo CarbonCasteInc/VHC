@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { TopologyGuard } from './topology';
 
+function encryptedSentimentEnvelope(ciphertext = 'abc123') {
+  return {
+    schemaVersion: 'sentiment-outbox-envelope-v1',
+    _protocolVersion: 'luma-sensitive-v1',
+    topologyClass: 'sensitive-encrypted-outbox',
+    __encrypted: true,
+    ciphertext,
+  };
+}
+
 describe('TopologyGuard', () => {
   it('blocks PII in public path', () => {
     const guard = new TopologyGuard();
@@ -237,12 +247,21 @@ describe('TopologyGuard', () => {
   it('requires encryption for sentiment outbox path', () => {
     const guard = new TopologyGuard();
     expect(() => guard.validateWrite('~alice/outbox/sentiment/evt-1', { plaintext: true })).toThrow();
+    expect(() => guard.validateWrite('~alice/outbox/sentiment/evt-1', { __encrypted: true })).toThrow(
+      /sentiment outbox requires ciphertext/,
+    );
+    expect(() =>
+      guard.validateWrite('~alice/outbox/sentiment/evt-1', { __encrypted: true, ciphertext: 'abc123' })
+    ).toThrow(/sentiment outbox requires v1 sensitive envelope metadata/);
+    expect(() =>
+      guard.validateWrite('~alice/outbox/sentiment/evt-1', encryptedSentimentEnvelope())
+    ).not.toThrow();
     expect(() =>
       guard.validateWrite('~alice/outbox/sentiment/evt-1', {
-        __encrypted: true,
-        ciphertext: 'abc123'
+        ...encryptedSentimentEnvelope(),
+        _writerKind: 'luma',
       })
-    ).not.toThrow();
+    ).toThrow(/sentiment outbox must not carry public LUMA write fields/);
   });
 
   it('rejects unencrypted writes to hermes docKeys path', () => {

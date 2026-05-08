@@ -993,7 +993,15 @@ A recorded full-product engagement run is replayed; every emitted `LumaEvent` is
 
 ### 21.5 Public-namespace leak gate
 
-`pnpm check:public-namespace-leaks` runs against a recorded mesh fixture and fails on raw nullifier presence in records written after the cutover commit timestamp. Legacy records are not counted.
+`pnpm check:public-namespace-leaks` is path-aware. It fails on post-cutover
+public `vh/*` records carrying raw nullifiers, constituency proof material,
+`district_hash` outside the aggregate cohort allow-list, district/person
+identifier pairs, or local `VoteIntentRecord` fields. Legacy records are not
+counted. Encrypted sentiment outbox records under
+`~<devicePub>/outbox/sentiment/*` are ignored by this public-namespace gate
+because they are sensitive encrypted outbox records, not public mesh records.
+When a recorded mesh fixture is supplied, the gate applies the same rules to
+that fixture.
 
 ### 21.6 Linkability-domain registry gate
 

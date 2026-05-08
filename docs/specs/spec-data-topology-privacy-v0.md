@@ -2,11 +2,11 @@
 
 > Status: Normative Spec
 > Owner: VHC Spec Owners
-> Last Reviewed: 2026-05-07
+> Last Reviewed: 2026-05-08
 > Depends On: docs/foundational/System_Architecture.md, docs/CANON_MAP.md, docs/specs/spec-luma-service-v0.md, docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-signed-pin-custody-v0.md
 
 
-Version: 0.7
+Version: 0.8
 Status: Canonical (V2-first)
 
 Defines data placement, mesh path conventions, and privacy constraints for Season 0.
@@ -21,7 +21,7 @@ Defines data placement, mesh path conventions, and privacy constraints for Seaso
 | TopicSynthesisCorrection | local cache/index | `vh/topics/<topicId>/synthesis_corrections/*` | - | optional hash anchor | - | Public audit |
 | Topic latest pointer | local cache/index | `vh/topics/<topicId>/latest` | - | - | - | Public |
 | HermesNewsReport | local cache/operator queue | `vh/news/reports/*` and `vh/news/reports/index/status/*` | - | - | - | Public workflow/audit |
-| SentimentSignal event | local state | forbidden | `~<devicePub>/outbox/sentiment/<eventId>` | - | - | Sensitive |
+| SentimentSignal event | local state | forbidden | `~<devicePub>/outbox/sentiment/<eventId>` as `sentiment-outbox-envelope-v1` | - | - | Sensitive |
 | AggregateSentiment (legacy summary) | local cache | compatibility-only; canonical public point aggregates use `PointAggregateSnapshotV1` below | - | optional aggregate anchor | - | Public |
 | TopicEngagementAggregateV1 | local cache | `vh/aggregates/topics/<topicId>/engagement/summary` | - | optional aggregate anchor | - | Public |
 | Linked-social OAuth tokens | vault (encrypted) | forbidden | optional encrypted backup | - | - | Secret |
@@ -112,6 +112,12 @@ records.
 7. AggregateVoterNodeV1 is public only when it uses the scoped LUMA `voterId`, `_authorScheme: 'voter-v1'`, `_writerKind: 'luma'`, and a valid `vh-aggregate-voter` envelope. It MUST NOT contain raw nullifiers, proof material, private signing keys, `district_hash`, or local `VoteIntentRecord` fields.
 8. NominationEventV1 is public only when it uses the derived `forumAuthorId` in `nominatorAuthorId`, `_authorScheme: 'forum-author-v1'`, `_writerKind: 'luma'`, and a valid `vh-forum-nomination` envelope. It MUST NOT contain raw nullifiers, proof material, private signing keys, or `district_hash`.
 9. VoteAdmissionReceipt is internal client state only.
+10. `~<devicePub>/outbox/sentiment/*` is a sensitive encrypted outbox, not a
+    public LUMA record. New writes carry `schemaVersion:
+    'sentiment-outbox-envelope-v1'`, `_protocolVersion:
+    'luma-sensitive-v1'`, `topologyClass: 'sensitive-encrypted-outbox'`,
+    `__encrypted: true`, and `ciphertext`. They MUST NOT carry `_writerKind`,
+    `_authorScheme`, or `SignedWriteEnvelope`.
 
 ## 4. Linked-social storage rules
 
@@ -131,6 +137,8 @@ records.
 If encrypted outbox is used:
 
 - payloads must be encrypted per recipient
+- sentiment outbox records must use `sentiment-outbox-envelope-v1` metadata
+  for new writes; legacy bare encrypted envelopes are read-compatible only
 - decrypted aggregate outputs must strip person-level identifiers
 - dashboards may expose district-level aggregates only after cohort threshold checks
 
@@ -149,6 +157,12 @@ If encrypted outbox is used:
 7. Static lint: system-writer records (records carrying
    `_writerKind: 'system'`) outside the namespaces enumerated in §8 are
    hard-rejected.
+8. Static lint: `pnpm check:public-namespace-leaks` fails on post-cutover
+   public `vh/*` records carrying raw nullifiers, proof material,
+   `district_hash` outside aggregate cohort allow-lists, district/person
+   identifier pairs, or local `VoteIntentRecord` fields. The same gate
+   ignores encrypted sentiment outbox records because they are sensitive
+   `~<devicePub>/outbox/sentiment/*` records, not public namespace records.
 
 ### 7.1 Mesh drill test namespace rule
 
