@@ -253,7 +253,7 @@ type NewsReportTarget =
       topic_id?: string;
     };
 
-interface NewsReport {
+interface NewsReportV1 {
   schemaVersion: 'hermes-news-report-v1';
   report_id: string;
   target: NewsReportTarget;
@@ -273,6 +273,36 @@ interface NewsReport {
     notes?: string;
   };
 }
+
+interface NewsReportSignedPayload {
+  schemaVersion: 'hermes-news-report-v2';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
+  report_id: string;
+  target: NewsReportTarget;
+  reason_code: NewsReportReasonCode;
+  reason?: string;
+  reporter_id: string; // forumAuthorId, never raw principal nullifier
+  reporter_handle?: string;
+  created_at: number;
+}
+
+interface NewsReportV2 extends NewsReportSignedPayload {
+  status: NewsReportStatus;
+  audit: {
+    action: 'news_report';
+    operator_id?: string;
+    reviewed_at?: number;
+    resolution?: NewsReportResolution;
+    correction_id?: string;
+    moderation_id?: string;
+    notes?: string;
+  };
+  signedWriteEnvelope: SignedWriteEnvelope<NewsReportSignedPayload>;
+}
+
+type NewsReport = NewsReportV1 | NewsReportV2;
 ```
 
 Storage paths:
@@ -284,6 +314,15 @@ Storage paths:
 Read/write requirements:
 
 - validate records with `HermesNewsReportSchema`;
+- new user intake writes use `hermes-news-report-v2`, derived
+  `forumAuthorId` in `reporter_id`, `_protocolVersion: 'luma-public-v1'`,
+  `_writerKind: 'luma'`, `_authorScheme: 'forum-author-v1'`, and
+  `SignedWriteEnvelope.audience = 'vh-news-report'`;
+- `hermes-news-report-v1` is legacy/read- and operator-action-compatible, but
+  new user submissions must not emit v1 raw-reporter records;
+- the signed v2 payload covers immutable intake fields only. It excludes
+  mutable workflow fields `status` and `audit`, so trusted operator
+  review/action updates do not invalidate the reporter intake envelope;
 - reject report records whose embedded `report_id` does not match the path
   being read;
 - validate status queue pointers and filter stale queue entries by the actual
@@ -706,6 +745,7 @@ Storage and sync:
 - [x] Gun adapters for threads/comments/indexes
 - [x] Gun adapters for audited comment hide/restore moderation
 - [x] Gun adapters for typed news report intake and status queue indexes
+- [x] News report intake writes use derived `forumAuthorId` and LUMA signed-write envelopes (`hermes-news-report-v2`, `vh-news-report`)
 - [x] Gun adapters require trusted beta operator authorization for reviewed reports, synthesis corrections, and comment moderation writes
 - [ ] Gun adapters for standalone post publication path
 - [x] Hydration with required-field checks and Zod validation

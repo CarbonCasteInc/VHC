@@ -18,9 +18,11 @@ import {
   writeTopicSynthesisCorrection,
   type VennClient,
 } from '@vh/gun-client';
+import type { IdentityRecord } from '@vh/types';
 import { resolveClientFromAppStore } from './clientResolver';
-import { loadIdentity } from './forum/persistence';
+import { getFullIdentity } from './identityProvider';
 import { useForumStore } from './hermesForum';
+import { createLumaNewsReportRecord } from './newsReportLumaRecords';
 import { useSynthesisStore } from './synthesis';
 
 export type NewsReportOperatorAction =
@@ -73,7 +75,7 @@ interface NewsReportsDeps {
   resolveClient: () => VennClient | null;
   now: () => number;
   randomId: () => string;
-  getReporterId: () => string | null;
+  getIdentity: () => IdentityRecord | null;
   readReport: (client: VennClient, reportId: string) => Promise<HermesNewsReport | null>;
   readQueue: (client: VennClient, status: HermesNewsReportStatus) => Promise<HermesNewsReport[]>;
   writeReport: (
@@ -106,8 +108,8 @@ function normalizeRequired(value: string, name: string): string {
   return normalized;
 }
 
-function resolveDefaultReporterId(): string | null {
-  return loadIdentity()?.session.nullifier ?? null;
+function resolveDefaultIdentity(): IdentityRecord | null {
+  return getFullIdentity<IdentityRecord>();
 }
 
 function defaultRandomId(): string {
@@ -153,11 +155,11 @@ function ensureClient(client: VennClient | null): VennClient {
   return client;
 }
 
-function ensureReporter(reporterId: string | null): string {
-  if (!reporterId) {
+function ensureIdentity(identity: IdentityRecord | null): IdentityRecord {
+  if (!identity) {
     throw new Error('Identity is required to submit a report');
   }
-  return reporterId;
+  return identity;
 }
 
 function ensureTrustedOperatorAuthorization(
@@ -175,7 +177,7 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
     resolveClient: resolveClientFromAppStore,
     now: () => Date.now(),
     randomId: defaultRandomId,
-    getReporterId: resolveDefaultReporterId,
+    getIdentity: resolveDefaultIdentity,
     readReport: readNewsReport,
     readQueue: readNewsReportsByStatus,
     writeReport: writeNewsReport,
@@ -231,10 +233,10 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
 
     async submitSynthesisReport(input) {
       const client = ensureClient(deps.resolveClient());
-      const reporterId = ensureReporter(deps.getReporterId());
-      const report: HermesNewsReport = HermesNewsReportSchema.parse({
-        schemaVersion: 'hermes-news-report-v1',
-        report_id: `report-${deps.randomId()}`,
+      const identity = ensureIdentity(deps.getIdentity());
+      const report: HermesNewsReport = HermesNewsReportSchema.parse(await createLumaNewsReportRecord({
+        identity,
+        reportId: `report-${deps.randomId()}`,
         target: {
           type: 'synthesis',
           topic_id: normalizeRequired(input.topicId, 'topicId'),
@@ -242,16 +244,11 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
           epoch: input.epoch,
           story_id: normalizeOptional(input.storyId),
         },
-        reason_code: input.reasonCode,
+        reasonCode: input.reasonCode,
         reason: normalizeOptional(input.reason),
-        reporter_id: reporterId,
-        reporter_handle: normalizeOptional(input.reporterHandle),
-        created_at: deps.now(),
-        status: 'pending',
-        audit: {
-          action: 'news_report',
-        },
-      });
+        reporterHandle: normalizeOptional(input.reporterHandle),
+        createdAt: deps.now(),
+      }));
       const written = await deps.writeReport(client, report);
       get().setReport(written);
       return written;
@@ -259,10 +256,10 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
 
     async submitCommentReport(input) {
       const client = ensureClient(deps.resolveClient());
-      const reporterId = ensureReporter(deps.getReporterId());
-      const report: HermesNewsReport = HermesNewsReportSchema.parse({
-        schemaVersion: 'hermes-news-report-v1',
-        report_id: `report-${deps.randomId()}`,
+      const identity = ensureIdentity(deps.getIdentity());
+      const report: HermesNewsReport = HermesNewsReportSchema.parse(await createLumaNewsReportRecord({
+        identity,
+        reportId: `report-${deps.randomId()}`,
         target: {
           type: 'story_thread_comment',
           thread_id: normalizeRequired(input.threadId, 'threadId'),
@@ -270,16 +267,11 @@ export function createNewsReportsStore(overrides?: Partial<NewsReportsDeps>) {
           story_id: normalizeOptional(input.storyId),
           topic_id: normalizeOptional(input.topicId),
         },
-        reason_code: input.reasonCode,
+        reasonCode: input.reasonCode,
         reason: normalizeOptional(input.reason),
-        reporter_id: reporterId,
-        reporter_handle: normalizeOptional(input.reporterHandle),
-        created_at: deps.now(),
-        status: 'pending',
-        audit: {
-          action: 'news_report',
-        },
-      });
+        reporterHandle: normalizeOptional(input.reporterHandle),
+        createdAt: deps.now(),
+      }));
       const written = await deps.writeReport(client, report);
       get().setReport(written);
       return written;
