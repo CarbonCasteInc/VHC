@@ -46,7 +46,10 @@ function isSensitiveOutboxPath(recordPath) {
 }
 
 function isAggregateCohortPath(recordPath) {
-  return recordPath.startsWith('vh/aggregates/') && !recordPath.includes('/voters/');
+  return (
+    /^vh\/aggregates\/.+\/districts\/[^/]+\/[^/]+\/?$/.test(recordPath)
+    || recordPath.startsWith('vh/bridge/stats/')
+  );
 }
 
 function isLegacyRecord(record) {
@@ -249,6 +252,12 @@ const redFixtures = [
     path: 'vh/aggregates/topics/topic-1/districts/district-1/summary',
     record: { district_hash: 'district-1', cohortSize: 99, participants: 99 },
     match: /district_hash requires cohortSize >= 100/,
+  },
+  {
+    name: 'point aggregate district hash outside district cohort allow-list',
+    path: 'vh/aggregates/topics/topic-1/syntheses/synth-1/epochs/1/points/point-1',
+    record: { district_hash: 'district-1', cohortSize: 100, participants: 100 },
+    match: /non-aggregate public record carries district_hash/,
   },
   {
     name: 'district hash paired with voter id',
