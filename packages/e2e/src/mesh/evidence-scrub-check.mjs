@@ -20,6 +20,7 @@ const SOURCE_REPORT_NAME = 'mesh-production-readiness-report.json';
 const STALE_PLACEHOLDER_FIXTURES = new Set(['full-conflict-resolution-fixtures']);
 const ALLOWED_WRITER_KINDS = new Set(['mesh-drill']);
 const URL_PATTERN = /\b(?:https?|wss?):\/\/[^\s"'`<>)]+/gi;
+const LOCAL_ENDPOINT_PATTERN = /\b(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])(?::\d{2,5})?\b/gi;
 const MACHINE_PATH_PATTERN = /(^|[\s"'`=:(])\/(?:Users|home|private|var\/folders|tmp)\//g;
 const PRIVATE_KEY_BLOCK_PATTERN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY-----/g;
 const BEARER_PATTERN = /\bBearer\s+(?!\[redacted)[A-Za-z0-9._~+/=-]{12,}/gi;
@@ -111,6 +112,11 @@ function scrubString(value, key, redactions) {
     return redactedUrl(match);
   });
 
+  next = next.replace(LOCAL_ENDPOINT_PATTERN, (match) => {
+    redactions.urls += 1;
+    return `redactedLocalEndpointHash:${sha(match, 12)}`;
+  });
+
   if (looksLikeAbsoluteMachinePath(next)) {
     redactions.paths += 1;
     return safeRelativeLabel(next);
@@ -122,12 +128,27 @@ function scrubString(value, key, redactions) {
     return `${prefix}${safeRelativeLabel(rawPath)}`;
   });
 
+  for (const fixture of STALE_PLACEHOLDER_FIXTURES) {
+    if (next.includes(fixture)) {
+      redactions.stalePlaceholders += 1;
+      next = next.replaceAll(fixture, `[removed-stale-placeholder:${sha(fixture, 12)}]`);
+    }
+  }
+
   return next;
 }
 
 function scrubJson(value, key, redactions) {
   if (Array.isArray(value)) {
-    return value.map((entry) => scrubJson(entry, key, redactions));
+    return value
+      .map((entry) => scrubJson(entry, key, redactions))
+      .filter((entry) => {
+        if (entry && typeof entry === 'object' && STALE_PLACEHOLDER_FIXTURES.has(entry.fixture)) {
+          redactions.stalePlaceholders += 1;
+          return false;
+        }
+        return true;
+      });
   }
   if (value && typeof value === 'object') {
     const out = {};
@@ -293,7 +314,7 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir } = {}) {
 }
 
 function scrubPacket({ sourceDir, promotedDir }) {
-  const redactions = { paths: 0, urls: 0, secrets: 0 };
+  const redactions = { paths: 0, urls: 0, secrets: 0, stalePlaceholders: 0 };
   fs.rmSync(promotedDir, { recursive: true, force: true });
   fs.mkdirSync(promotedDir, { recursive: true });
 
@@ -338,6 +359,15 @@ export function scanPromotedPacket({ promotedDir }) {
     MACHINE_PATH_PATTERN.lastIndex = 0;
     if (MACHINE_PATH_PATTERN.test(text)) {
       findings.push(`${relativePath}: unsafe absolute machine path remains`);
+    }
+    LOCAL_ENDPOINT_PATTERN.lastIndex = 0;
+    for (const match of text.matchAll(LOCAL_ENDPOINT_PATTERN)) {
+      findings.push(`${relativePath}: unsafe local endpoint remains at ${match[0]}`);
+    }
+    for (const fixture of STALE_PLACEHOLDER_FIXTURES) {
+      if (text.includes(fixture)) {
+        findings.push(`${relativePath}: stale placeholder evidence remains at ${fixture}`);
+      }
     }
     URL_PATTERN.lastIndex = 0;
     for (const match of text.matchAll(URL_PATTERN)) {
@@ -481,7 +511,7 @@ export function runEvidenceScrub({ sourceDir = defaultSourceDir, command = null 
   const validation = validateAggregatePacket({ sourceDir });
   const runId = makeId('mesh-evidence-scrub');
   const promotedDir = path.join(promotedRoot, validation.report?.run_id || runId);
-  let redactions = { paths: 0, urls: 0, secrets: 0 };
+  let redactions = { paths: 0, urls: 0, secrets: 0, stalePlaceholders: 0 };
   let scanFailures = [];
 
   if (validation.report) {

@@ -86,12 +86,20 @@ function evidenceScrubPacket({ status = 'review_required', blockers = [{ id: 'ca
       command: 'pnpm test:mesh:topology-drills',
     },
     run_id: 'source-topology-run',
+    conflict_fixtures: [
+      {
+        fixture: 'full-conflict-resolution-fixtures',
+        status: 'skipped',
+        reason: 'stale placeholder must not survive promoted evidence',
+      },
+    ],
   });
   writeJson(sourceReportPath, source);
   writeJson(path.join(sourceDir, 'source-reports/topology/raw-control.json'), {
     controlToken: 'mesh-control-token-should-not-survive',
     peerUrl: 'wss://127.0.0.1:7790/gun',
     artifactPath: '/Users/bldt/Desktop/VHC/VHC/.tmp/raw-packet.json',
+    opened_socket_hosts: ['127.0.0.1:7790'],
   });
 
   const aggregate = {
@@ -375,6 +383,7 @@ describe('mesh evidence scrub promotion', () => {
 
       expect(promotedText).not.toContain('/Users/bldt/');
       expect(promotedText).not.toContain('127.0.0.1');
+      expect(promotedText).not.toContain('full-conflict-resolution-fixtures');
       expect(promotedText).not.toContain('mesh-control-token-should-not-survive');
       expect(promotedText).not.toContain('raw-token-value-that-must-not-survive');
       expect(promotedText).toContain('redacted-host-');
