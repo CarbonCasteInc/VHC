@@ -55,6 +55,14 @@ describe('production-readiness source evidence validation', () => {
     }));
   });
 
+  it('includes the clock-skew matrix drill as command-matched source evidence', () => {
+    expect(SOURCE_GATES).toContainEqual(expect.objectContaining({
+      id: 'clock_skew',
+      command: ['pnpm', 'test:mesh:clock-skew-drills'],
+      expectedMode: 'local_clock_skew_matrix',
+    }));
+  });
+
   it('accepts a fresh source report for the exact gate command', () => {
     const failures = failuresFor({
       gate: {
@@ -99,5 +107,27 @@ describe('production-readiness source evidence validation', () => {
     expect(failures).toContain(
       'source report completion timestamp 2026-05-06T23:59:00.000Z is outside this gate run window',
     );
+  });
+
+  it('rejects clock-skew source evidence unless the matrix passed', () => {
+    const failures = failuresFor({
+      gate: {
+        id: 'clock_skew',
+        command: ['pnpm', 'test:mesh:clock-skew-drills'],
+        expectedMode: 'local_clock_skew_matrix',
+      },
+      report: sourceReport({
+        run: {
+          ...sourceReport().run,
+          mode: 'local_clock_skew_matrix',
+          command: 'pnpm test:mesh:clock-skew-drills',
+        },
+        clock_skew: {
+          status: 'skipped',
+        },
+      }),
+    });
+
+    expect(failures).toContain('clock_skew.status is skipped');
   });
 });

@@ -254,6 +254,24 @@ This is still a local harness evidence path. It is not the full
 `pnpm test:mesh:clock-skew-drills` matrix, public WSS partition proof, soak
 proof, or LUMA-gated write proof.
 
+Run the full local non-LUMA clock-skew/auth-window matrix with:
+
+```bash
+pnpm test:mesh:clock-skew-drills
+```
+
+The clock-skew drill starts the local three-relay harness and writes synthetic
+records under `vh/__mesh_drills/<run_id>/clock_skew/*` with
+`_drillWriterKind: 'mesh-drill'`. It proves stale and future relay
+user-signature timestamps map to `user-signature-stale` /
+`clock-skew-detected`, strict signed peer-config expired and future-issued
+configs fail closed in the browser without accepted peer sockets, and skewed
+writer timestamps on deterministic drill records do not create direct readback
+LWW divergence across relays. Relay-peer timestamp auth is recorded as
+`skipped`/`not_applicable` while v0 uses `private_network_allowlist` or token
+auth without a timestamped signed peer handshake. LUMA session/envelope rows
+remain explicitly skipped for LUMA reader gates.
+
 Run the bounded explicit read-repair strategy drill with:
 
 ```bash
@@ -312,14 +330,14 @@ packet includes `mesh-production-readiness-report.json`,
 `mesh-production-readiness-evidence.md`, and copied source reports under
 `source-reports/<gate>/`.
 
-For Slice 11A and Slice 12A, a successful aggregate command still reports
+For Slice 11A through Slice 13A, a successful aggregate command still reports
 `status: review_required` while release blockers remain. Expected blockers
-include the canonical 30-minute soak, public WSS deployment proof, full
-clock-skew matrix, conflict-resolution fixtures, evidence scrub promotion,
-downstream full-app canary, and LUMA-gated write coverage through the LUMA
-reader path. The command exits non-zero for missing, malformed, dirty, stale, or
-failed source evidence, and for any overclaiming packet that would emit
-`release_ready` before the blockers are gone.
+after Slice 13A include the canonical 30-minute soak, public WSS deployment
+proof, conflict-resolution fixtures, evidence scrub promotion, downstream
+full-app canary, and LUMA-gated write coverage through the LUMA reader path.
+The command exits non-zero for missing, malformed, dirty, stale, failed, or
+command-mismatched source evidence, and for any overclaiming packet that would
+emit `release_ready` before the blockers are gone.
 
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
@@ -366,8 +384,8 @@ implemented source reports were collected, validated, copied, and summarized in
 one operator packet. None of these outcomes proves public WSS
 infrastructure, automatic peer-federation recovery, runtime peer-config key
 rotation without a new trusted-key distribution path, LUMA-gated write state
-resolution, the full clock-skew matrix, evidence scrub promotion, or post-M0.B
-LUMA-gated write coverage.
+resolution, public WSS clock-skew behavior, evidence scrub promotion, or
+post-M0.B LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one

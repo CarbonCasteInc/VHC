@@ -66,6 +66,12 @@ export const SOURCE_GATES = [
     command: ['pnpm', 'test:mesh:peer-config-rollback-drill'],
     expectedMode: 'local_tls_wss_peer_config_rollback',
   },
+  {
+    id: 'clock_skew',
+    name: 'clock-skew/auth-window matrix',
+    command: ['pnpm', 'test:mesh:clock-skew-drills'],
+    expectedMode: 'local_clock_skew_matrix',
+  },
 ];
 
 function nowIsoCompact(date = new Date()) {
@@ -213,6 +219,9 @@ export function validationFailuresForSource({
   }
   if (report.cleanup?.status === 'fail') {
     failures.push('source cleanup failed');
+  }
+  if (gate.id === 'clock_skew' && report.clock_skew?.status !== 'pass') {
+    failures.push(`clock_skew.status is ${report.clock_skew?.status || 'missing'}`);
   }
   for (const row of report.write_class_slos || []) {
     if ((row.terminal_failures || 0) > 0) {
@@ -420,6 +429,14 @@ function pickTopology(sources) {
 }
 
 function buildClockSkew(sources) {
+  const clockSkew = sources.find((source) => source.id === 'clock_skew')?.report?.clock_skew;
+  if (clockSkew?.status === 'pass') {
+    return {
+      ...clockSkew,
+      source_gate: 'clock_skew',
+      bounded_partition_evidence: sources.find((source) => source.id === 'partition')?.report?.clock_skew || null,
+    };
+  }
   const partitionClockSkew = sources.find((source) => source.id === 'partition')?.report?.clock_skew;
   return {
     skewed_actor: partitionClockSkew?.skewed_actor || null,
@@ -551,6 +568,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
   const lumaRows = normalizeReportRows(sources, 'luma_gated_write_drills');
   const degradationReasons = unique(sourceReports.flatMap((report) => report.health?.degradation_reasons_seen || []));
   const soakReport = sources.find((source) => source.id === 'soak')?.report;
+  const clockSkewPassed = sources.find((source) => source.id === 'clock_skew')?.report?.clock_skew?.status === 'pass';
 
   return {
     schema_version: 'mesh-production-readiness-v1',
@@ -639,13 +657,16 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
         ? [
             'Existing implemented mesh proof commands can be rerun and aggregated into one local evidence packet.',
             'The aggregate packet identifies source reports, copied artifacts, current commit, dirty state, and unresolved release blockers.',
+            ...(clockSkewPassed
+              ? ['The local non-LUMA mesh clock-skew/auth-window matrix source gate passed for applicable mesh surfaces.']
+              : []),
           ]
         : [],
       forbidden: [
         'The mesh is release_ready.',
         'The default shortened local soak satisfies the canonical thirty-minute soak claim.',
         'Public WSS infrastructure is production-proven.',
-        'The full clock-skew matrix is production-ready.',
+        ...(clockSkewPassed ? ['Public WSS clock-skew behavior is production-proven.'] : ['The full clock-skew matrix is production-ready.']),
         'LUMA-gated production write classes are mesh-readiness-proven.',
         'The full app is test-group ready.',
       ],
