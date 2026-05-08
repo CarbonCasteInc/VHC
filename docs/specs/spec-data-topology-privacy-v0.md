@@ -76,6 +76,14 @@ intake, `reporter_id` is the derived `forumAuthorId` carried with
 never a raw principal nullifier. Product copy must not present these records as
 a complete compliance, appeal, or case-management system.
 
+Forum nomination paths are also public workflow surfaces. New
+`hermes-nomination-v1` records use `nominatorAuthorId` as the derived
+`forumAuthorId`, carry
+`_writerKind: 'luma'`, and bind immutable nomination fields with
+`SignedWriteEnvelope.audience = 'vh-forum-nomination'`; raw principal
+nullifiers are local budget inputs only and MUST NOT appear in the public
+nomination record or envelope.
+
 Public beta support requests are currently handled by the repository GitHub
 Issue Form linked from `/support`, not by a private mesh support desk. Those
 issues are public workflow records and MUST NOT request or include private
@@ -102,7 +110,8 @@ records.
 5. Docs draft content is encrypted at rest and in transit outside device boundaries.
 6. VoteIntentRecord objects (containing voter_id and proof_ref) are sensitive and MUST NOT appear on public mesh paths.
 7. AggregateVoterNodeV1 is public only when it uses the scoped LUMA `voterId`, `_authorScheme: 'voter-v1'`, `_writerKind: 'luma'`, and a valid `vh-aggregate-voter` envelope. It MUST NOT contain raw nullifiers, proof material, private signing keys, `district_hash`, or local `VoteIntentRecord` fields.
-8. VoteAdmissionReceipt is internal client state only.
+8. NominationEventV1 is public only when it uses the derived `forumAuthorId` in `nominatorAuthorId`, `_authorScheme: 'forum-author-v1'`, `_writerKind: 'luma'`, and a valid `vh-forum-nomination` envelope. It MUST NOT contain raw nullifiers, proof material, private signing keys, or `district_hash`.
+9. VoteAdmissionReceipt is internal client state only.
 
 ## 4. Linked-social storage rules
 
@@ -212,8 +221,8 @@ allowed namespaces, allowed record classes, and signature shape.
 
 Forbidden uses:
 
-- User-author writes (forum thread, forum comment, forum post, vote, directory
-  publish, news report intake, civic forwarding receipts) — those go
+- User-author writes (forum thread, forum comment, forum post, forum nomination,
+  vote, directory publish, news report intake, civic forwarding receipts) — those go
   through `_writerKind: 'luma'` and `SignedWriteEnvelope`.
 - Drill records — those use `_drillWriterKind: 'mesh-drill'` under
   `vh/__mesh_drills/*`.

@@ -7,6 +7,7 @@ import {
   isElevationEnabled,
   checkNominationBudget,
   executeNomination,
+  createLumaNominationEvent,
 } from './index';
 
 describe('bridge barrel re-exports', () => {
@@ -21,5 +22,6 @@ describe('bridge barrel re-exports', () => {
     expect(typeof isElevationEnabled).toBe('function');
     expect(typeof checkNominationBudget).toBe('function');
     expect(typeof executeNomination).toBe('function');
+    expect(typeof createLumaNominationEvent).toBe('function');
   });
 });

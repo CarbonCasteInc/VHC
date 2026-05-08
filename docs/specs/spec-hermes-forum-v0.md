@@ -551,14 +551,26 @@ interface NominationPolicy {
 }
 
 interface NominationEvent {
+  schemaVersion: 'hermes-nomination-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
   id: string;
   topicId: string;
   sourceType: 'news' | 'topic' | 'article';
   sourceId: string;
-  nominatorNullifier: string;
+  nominatorAuthorId: string;
   createdAt: number;
+  signedWriteEnvelope: SignedWriteEnvelope<NominationSignedPayload>; // audience: 'vh-forum-nomination'
 }
 ```
+
+`nominatorAuthorId` is the globally linkable `forumAuthorId` from LUMA §9.3
+(`forum-author-v1`); it is not a raw principal nullifier. The bridge may use
+the active principal nullifier locally for `civic_actions/day` budget
+enforcement, but new nomination records under `vh/forum/nominations/*` MUST NOT
+include raw nullifiers. Legacy nomination fixtures with `nominatorNullifier`
+remain compatibility-readable only.
 
 ### 5.2 Elevation outputs
 
@@ -739,6 +751,7 @@ Core:
 - [x] Trust gating for write/vote/elevate boundaries
 - [x] Ranking (`Hot/New/Top`) and score computation
 - [x] Thread/comment writes use `forumAuthorId` and LUMA signed-write envelopes (`hermes-thread-v1`, `hermes-comment-v2`)
+- [x] Nomination bridge records use `forumAuthorId` and LUMA signed-write envelopes (`hermes-nomination-v1`, `vh-forum-nomination`)
 
 Storage and sync:
 

@@ -11,8 +11,13 @@ export {
   checkNominationBudget,
   executeNomination,
   type BudgetPreflightResult,
+  type NominationInput,
   type NominationResult,
 } from './nominationFlow';
+export {
+  createLumaNominationEvent,
+  type NominationRecordInput,
+} from './nominationLumaRecords';
 
 export {
   getDirectory,

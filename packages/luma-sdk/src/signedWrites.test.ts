@@ -163,6 +163,15 @@ describe('LUMA SignedWriteEnvelope SDK surface', () => {
     })).resolves.toMatch(/^[0-9a-f]{64}$/);
   });
 
+  it('registers the forum nomination audience for M0.B nomination migration', async () => {
+    expect(LUMA_SIGNED_WRITE_AUDIENCES).toContain('vh-forum-nomination');
+    await expect(deriveSignedWriteIdempotencyKey({
+      payloadDigest: EXPECTED_PAYLOAD_DIGEST,
+      audience: 'vh-forum-nomination',
+      sequence: 1
+    })).resolves.toMatch(/^[0-9a-f]{64}$/);
+  });
+
   it('registers the news report audience for M0.B report-intake migration', async () => {
     expect(LUMA_SIGNED_WRITE_AUDIENCES).toContain('vh-news-report');
     await expect(deriveSignedWriteIdempotencyKey({

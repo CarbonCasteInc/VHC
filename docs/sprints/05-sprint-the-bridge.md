@@ -333,11 +333,15 @@ interface NominationPolicy {
 }
 
 interface NominationEvent {
+  schemaVersion: 'hermes-nomination-v1';
+  _protocolVersion: 'luma-public-v1';
+  _writerKind: 'luma';
+  _authorScheme: 'forum-author-v1';
   id: string;
   topicId: string;
   sourceType: 'news' | 'topic' | 'article';
   sourceId: string;
-  nominatorNullifier: string;
+  nominatorAuthorId: string; // derived forumAuthorId, not a raw nullifier
   createdAt: number;
 }
 ```
