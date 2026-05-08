@@ -352,14 +352,24 @@ gate-run timestamp window. The packet includes
 and copied source reports under `source-reports/<gate>/`; after Slice 14A it has
 12 source reports, including `source-reports/evidence_scrub/`.
 
-For Slice 11A through Slice 14A, a successful aggregate command still reports
-`status: review_required` while release blockers remain. Expected blockers
-after Slice 14A include the canonical 30-minute soak, public WSS deployment
-proof, downstream full-app canary, and LUMA-gated write coverage through the
-LUMA reader path. The command exits non-zero for missing, malformed, dirty,
-stale, failed, command-mismatched, unscrubbed, or incomplete source evidence,
-and for any overclaiming packet that would emit `release_ready` before the
-blockers are gone.
+For Slice 11A through Slice 14B, a successful aggregate command still reports
+`status: review_required` while release blockers remain. Expected blockers after
+Slice 14A include the canonical 30-minute soak, public WSS deployment proof,
+downstream full-app canary, and LUMA-gated write coverage through the LUMA
+reader path. After Slice 14B, the aggregate no longer treats the downstream
+full-app canary as unimplemented, but the separate canary command still blocks
+until the mesh report is `release_ready` and real downstream observation exists.
+The aggregate command exits non-zero for missing, malformed, dirty, stale,
+failed, command-mismatched, unscrubbed, or incomplete source evidence, and for
+any overclaiming packet that would emit `release_ready` before the blockers are
+gone.
+
+After Slice 14B, `pnpm check:production-app-canary` is a separate fail-closed
+downstream gate. It defaults to the latest mesh readiness report but accepts
+`--mesh-report <path>` / `VH_PRODUCTION_APP_CANARY_MESH_REPORT`; while the mesh
+packet remains `review_required`, the expected canary outcome is a blocked
+`.tmp/production-app-canary/<run_id>/production-app-canary-report.json` with
+`reason: mesh_not_release_ready` and a non-zero exit.
 
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
@@ -379,7 +389,7 @@ distributing a new trusted key.
 ## Review Boundary
 
 The report status remains `review_required` for Slice
-6B/7B/7C/8/9/9B/10/11A/12A/13A/13B/14A even when the local restarted-relay
+6B/7B/7C/8/9/9B/10/11A/12A/13A/13B/14A/14B even when the local restarted-relay
 drill, deployed-WSS local TLS profile, state-resolution drill, disconnect
 drill, partition/heal drill, read-repair drill, bounded rolling-restart soak,
 peer-config rollback drill, and aggregate evidence packet are well formed. A
@@ -411,7 +421,10 @@ means only that the candidate aggregate packet was deterministically transformed
 into `.tmp/mesh-production-readiness/promoted/<run_id>/` and the promoted output
 was rescanned for raw tokens, private key material, unsafe origins, unsafe
 absolute paths, stale placeholder evidence, overclaims, and disallowed writer
-kinds. None of these outcomes proves
+kinds. The Slice 14B downstream canary command is separate from mesh readiness;
+on current `review_required` mesh evidence, its expected non-zero blocked report
+proves only that the app-level readiness claim is fail-closed. None of these
+outcomes proves
 public WSS
 infrastructure, automatic peer-federation recovery, runtime peer-config key
 rotation without a new trusted-key distribution path, LUMA-gated write state

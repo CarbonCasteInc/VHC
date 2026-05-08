@@ -1426,21 +1426,31 @@ Acceptance gates:
 
 Downstream full-app canary:
 
-- New command: `pnpm check:production-app-canary`
+- Command: `pnpm check:production-app-canary`
 - Runs only after `pnpm check:mesh:production-readiness` passes.
+- Defaults to
+  `.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json`;
+  operators and tests may override with `--mesh-report <path>` or
+  `VH_PRODUCTION_APP_CANARY_MESH_REPORT`.
+- Operators may require a LUMA profile with `--expected-luma-profile <profile>`
+  or `VH_PRODUCTION_APP_CANARY_LUMA_PROFILE`.
 - Covers production WSS relay config, app preview/deploy shape, `/api/analyze`,
   news synthesis publication, point stance write/readback, and story-thread
   creation/comment flow.
 - Fails if it cannot consume the latest mesh readiness report or if that report
   is not `release_ready`.
+- Slice 14B implements the fail-closed preflight/report shell only: while mesh
+  readiness is still `review_required`, the command emits a `blocked`
+  production-app canary report with `reason: mesh_not_release_ready` and exits
+  non-zero by design.
 - Emits a separate report; it may depend on mesh readiness but must not be
   folded into the mesh readiness status.
 
 ### Slice 12 - Operational Runbook And Rollback
 
 Status: Slice 12A implemented for local TLS/WSS peer-config rollback rehearsal
-and operator runbook. Public WSS rollback, runtime key distribution, evidence
-scrub promotion, and downstream full-app canary remain unclaimed.
+and operator runbook. Public WSS rollback, runtime key distribution, and a
+passing downstream full-app canary remain unclaimed.
 
 Purpose:
 
@@ -2116,9 +2126,6 @@ Implemented mesh commands:
 - `pnpm test:mesh:conflict-drills`
 - `pnpm check:mesh-evidence-scrub`
 - `pnpm check:mesh:production-readiness`
-
-Required new commands:
-
 - `pnpm check:production-app-canary`
 
 ## 7. Release Claim Boundary
@@ -2342,6 +2349,26 @@ Still not allowed after Slice 14A evidence scrub and promotion gate:
 - "The default shortened local command satisfies the canonical thirty-minute
   soak claim."
 - "The app is ready for a test group."
+
+Allowed after Slice 14B downstream production-app canary gate v1:
+
+- "`pnpm check:production-app-canary` reads an explicit `--mesh-report` or the
+  current mesh readiness `latest` report and writes
+  `.tmp/production-app-canary/<run_id>/production-app-canary-report.json` plus a
+  `latest` copy."
+- "The production-app canary fails closed and exits non-zero when the mesh
+  report is missing, malformed, stale, dirty, from the wrong commit, LUMA
+  profile-mismatched, or not `release_ready`."
+- "The mesh production-readiness aggregate records the downstream canary as a
+  separate implemented gate and does not fold canary status into mesh
+  readiness."
+
+Still not allowed after Slice 14B downstream production-app canary gate v1:
+
+- "The production app canary passed."
+- "The full app is test-group ready."
+- "Downstream `/api/analyze`, synthesis publication, point stance, or
+  story-thread flows were observed by the canary."
 
 Allowed after Slices 6B through 14A plus downstream LUMA-gated coverage pass
 (under `schema_epoch: post_luma_m0b` with all LUMA-gated write classes drilled
