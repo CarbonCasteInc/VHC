@@ -252,7 +252,7 @@ Implementation status:
   shared validator contract and carry system-writer metadata on the stored
   public node. Legacy bare `storyline-group-v0` nodes remain read-compatible.
 - `vh/news/index/latest/<storyId>` and `vh/news/index/hot/<storyId>` are the
-  next concrete M0.B system-writer adapter migration. New latest/hot child
+  third concrete M0.B system-writer adapter migration. New latest/hot child
   index-node writes use the same shared validator contract and carry
   system-writer metadata on the stored public child node. Legacy scalar,
   string, object, and explicit legacy-marked index entries remain
