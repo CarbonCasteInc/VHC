@@ -212,8 +212,13 @@ allowed namespaces, allowed record classes, and signature shape.
   paths only. It MUST NOT be bundled into any browser build (tree-shake
   assertion required).
 - The public component is pinned at build time per
-  `spec-signed-pin-custody-v0.md` §3 (initial pin location: a file under
-  `apps/web-pwa/src/luma/system-writer-pin.json`).
+  `spec-signed-pin-custody-v0.md` §3. The M0.B foundation pin is
+  `apps/web-pwa/src/luma/system-writer-pin.json`; it contains only
+  public key material, the active schema epoch, and the accepted signature
+  suite.
+- The shared reader validator is `packages/gun-client/src/systemWriter.ts`.
+  Product readers and daemon adapters that consume `_writerKind: 'system'`
+  records MUST use this validator rather than local signature/path checks.
 - The private component is held by the daemon process and operator
   signing utilities under the custody architecture documented by the LUMA
   verifier runbook (M2.A); for Season 0 the private component is held by
@@ -226,12 +231,15 @@ allowed namespaces, allowed record classes, and signature shape.
 | Record class | Owner spec | Path |
 |---|---|---|
 | News bundle / story | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>` |
-| Storyline | `spec-news-aggregator-v0.md` | (per news spec) |
+| Storyline | `spec-news-aggregator-v0.md` | `vh/news/storylines/<storylineId>` |
+| Story analysis artifact | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>/analysis/<analysisId>` |
+| Story analysis latest pointer | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>/analysis_latest` |
 | Synthesis latest pointer | `topic-synthesis-v2.md` | `vh/topics/<topicId>/latest` |
 | Topic synthesis epoch | `topic-synthesis-v2.md` | `vh/topics/<topicId>/epochs/<epoch>/synthesis` |
 | Topic digest | `topic-synthesis-v2.md` | `vh/topics/<topicId>/digests/<digestId>` |
 | Discovery indexes | `spec-topic-discovery-ranking-v0.md` | `vh/discovery/*` |
 | Civic representative directory snapshot | `spec-civic-action-kit-v0.md` | `vh/civic/reps/<jurisdictionVersion>` |
+| Topic engagement summary | `spec-civic-sentiment-v0.md` / topic engagement adapters | `vh/aggregates/topics/<topicId>/engagement/summary` |
 
 Forbidden uses:
 
@@ -243,6 +251,10 @@ Forbidden uses:
 - Any path under `vh/__mesh_drills/*`, `vh/forum/*` thread/comment/post
   payloads, `vh/aggregates/*` per-voter records, or `vh/directory/*`
   identity entries.
+- Point aggregate snapshots and topic engagement actor nodes remain outside
+  this M0.B system-writer validator until their owning specs explicitly
+  promote them into this table. They MUST NOT be accepted by default through
+  a broad `vh/aggregates/*` allow-list.
 
 ### 8.3 Signature shape
 
@@ -288,8 +300,11 @@ recent writes, and a re-publication pass.
 ### 8.6 Cross-spec reference fix
 
 `spec-luma-service-v0.md` §15 references this section as the canonical
-source for the system writer key contract. M0.B implementation creates the
-concrete system-writer pin for the active schema epoch. Until that pin exists,
+source for the system writer key contract. The M0.B foundation implementation
+creates the concrete system-writer pin for the active schema epoch at
+`apps/web-pwa/src/luma/system-writer-pin.json` and the shared fail-closed
+reader validator at `packages/gun-client/src/systemWriter.ts`. If that pin
+is missing, malformed, or does not resolve the record's `_systemWriterId`,
 LUMA-aware readers MUST reject/quarantine records carrying
 `_writerKind: 'system'`. When the pin exists but §8.4 validation fails,
 readers MUST also reject/quarantine the record and emit

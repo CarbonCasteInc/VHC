@@ -309,6 +309,9 @@ importers:
       '@vh/types':
         specifier: workspace:*
         version: link:../types
+      canonicalize:
+        specifier: ^3.0.0
+        version: 3.0.0
       gun:
         specifier: 0.2020.1237
         version: 0.2020.1237
