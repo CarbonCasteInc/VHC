@@ -2,6 +2,7 @@ import type { IGunInstance } from 'gun';
 import type { ChainWithGet } from './chain';
 import type { StorageAdapter } from './storage/types';
 import type { HydrationBarrier } from './sync/barrier';
+import type { SystemWriterPin, SystemWriterSignHook, SystemWriterVerifyHook } from './systemWriter';
 import type { TopologyGuard } from './topology';
 
 export interface VennClientConfig {
@@ -12,6 +13,11 @@ export interface VennClientConfig {
   gunLocalStorage?: boolean;
   gunRadisk?: boolean;
   gunFile?: string | false;
+  systemWriterPin?: SystemWriterPin | null;
+  systemWriterVerify?: SystemWriterVerifyHook;
+  systemWriterSign?: SystemWriterSignHook;
+  systemWriterId?: string;
+  systemWriterNow?: () => number;
 }
 
 export interface Namespace<T = unknown> {

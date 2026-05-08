@@ -31,6 +31,7 @@ interface ImportMetaEnv {
   readonly VITE_NEWS_SOURCE_RELIABILITY_MIN_SUCCESS_COUNT?: string;
   readonly VITE_NEWS_SOURCE_RELIABILITY_CACHE_TTL_MS?: string;
   readonly VITE_NEWS_BRIDGE_ENABLED?: 'true' | 'false';
+  readonly VITE_E2E_SYSTEM_WRITER_PIN_JSON?: string;
   readonly VITE_SYNTHESIS_BRIDGE_ENABLED?: 'true' | 'false';
   readonly VITE_HERMES_DOCS_ENABLED?: 'true' | 'false';
   readonly VITE_DOCS_COLLAB_ENABLED?: 'true' | 'false';

@@ -10,8 +10,14 @@ import {
   TARGET_LATEST_INDEX_PAYLOAD_FIXTURE,
 } from './__fixtures__/latestIndexMigrationFixtures';
 import type { TopologyGuard } from './topology';
-import type { VennClient } from './types';
+import type { VennClient, VennClientConfig } from './types';
 import { HydrationBarrier } from './sync/barrier';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  type SystemWriterPin,
+  type SystemWriterSignHook,
+} from './systemWriter';
 import {
   DEFAULT_NEWS_HOTNESS_CONFIG,
   computeStoryHotness,
@@ -33,6 +39,7 @@ import {
   removeNewsHotIndexEntry,
   removeNewsLatestIndexEntry,
   removeNewsStory,
+  type SystemWriterStoryBundleRecord,
   writeNewsBundle,
   writeNewsHotIndexEntry,
   writeNewsIngestionLease,
@@ -148,12 +155,29 @@ function createFakeMesh(): FakeMesh {
   };
 }
 
-function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
+const ED25519 = 'Ed25519';
+const STORY_BUNDLE_JSON_KEY = '__story_bundle_json';
+const TEST_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+const TEST_SYSTEM_ISSUED_AT = 1_700_000_030_000;
+const TEST_SYSTEM_SIGNATURE = 'test-system-signature';
+const defaultSystemWriterSign: SystemWriterSignHook = () => TEST_SYSTEM_SIGNATURE;
+
+function createClient(
+  mesh: FakeMesh,
+  guard: TopologyGuard,
+  config: Partial<VennClientConfig> = {},
+): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
 
   return {
-    config: { peers: [] },
+    config: {
+      peers: [],
+      systemWriterId: TEST_SYSTEM_WRITER_ID,
+      systemWriterNow: () => TEST_SYSTEM_ISSUED_AT,
+      systemWriterSign: defaultSystemWriterSign,
+      ...config,
+    },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: guard,
@@ -167,6 +191,65 @@ function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
     linkDevice: vi.fn(),
     shutdown: vi.fn()
   };
+}
+
+function bytesToBase64Url(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64url');
+}
+
+function bytesToBufferSource(bytes: Uint8Array): BufferSource {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+async function createRealSystemWriterHooks(): Promise<{
+  pin: SystemWriterPin;
+  sign: SystemWriterSignHook;
+}> {
+  const keyPair = await crypto.subtle.generateKey(ED25519, true, ['sign', 'verify']);
+  const publicKeySpki = new Uint8Array(await crypto.subtle.exportKey('spki', keyPair.publicKey));
+  const pin: SystemWriterPin = {
+    pinVersion: 1,
+    schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+    maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    signatureSuite: 'jcs-ed25519-sha256-v1',
+    writers: [
+      {
+        id: TEST_SYSTEM_WRITER_ID,
+        status: 'active',
+        publicKey: {
+          encoding: 'spki-base64url',
+          material: bytesToBase64Url(publicKeySpki),
+        },
+      },
+    ],
+  };
+  return {
+    pin,
+    sign: async ({ canonicalBytes }) => bytesToBase64Url(new Uint8Array(
+      await crypto.subtle.sign(ED25519, keyPair.privateKey, bytesToBufferSource(canonicalBytes))
+    )),
+  };
+}
+
+function expectSystemStoryRecord(
+  value: unknown,
+  options: { readonly writerId?: string } = {},
+): SystemWriterStoryBundleRecord {
+  expect(value).toMatchObject({
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: options.writerId ?? TEST_SYSTEM_WRITER_ID,
+    _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+    _systemSignature: expect.any(String),
+    story_id: STORY.story_id,
+    created_at: expect.any(Number),
+    schemaVersion: STORY.schemaVersion,
+  });
+  expect(value).not.toHaveProperty('_authorScheme');
+  expect(value).not.toHaveProperty('signedWriteEnvelope');
+  return value as SystemWriterStoryBundleRecord;
 }
 
 const STORY: StoryBundle = {
@@ -255,11 +338,8 @@ describe('newsAdapters', () => {
     expect(result).toEqual(STORY);
     expect(mesh.writes).toHaveLength(1);
     expect(mesh.writes[0].path).toBe('news/stories/story-123');
-    expect(mesh.writes[0].value).toMatchObject({
-      story_id: STORY.story_id,
-      created_at: STORY.created_at,
-      schemaVersion: STORY.schemaVersion
-    });
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    expect(record._systemSignature).toBe(TEST_SYSTEM_SIGNATURE);
     expect(typeof (mesh.writes[0].value as Record<string, unknown>).__story_bundle_json).toBe('string');
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
@@ -325,6 +405,7 @@ describe('newsAdapters', () => {
     });
 
     expect(result.created_at).toBe(frozenCreatedAt);
+    expectSystemStoryRecord(mesh.writes[0].value);
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string),
     ).toMatchObject({
@@ -356,6 +437,37 @@ describe('newsAdapters', () => {
 
     expect(result.created_at).toBe(1_700_000_010_000);
     expect(mesh.writes).toHaveLength(1);
+    expectSystemStoryRecord(mesh.writes[0].value);
+    expect(
+      JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string),
+    ).toMatchObject({
+      story_id: 'story-123',
+      created_at: 1_700_000_010_000,
+    });
+  });
+
+  it('writeNewsStory enforces first-write-wins created_at from valid system records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(client, {
+      ...STORY,
+      created_at: 1_700_000_010_000,
+    });
+    const existingRecord = mesh.writes[0].value;
+    mesh.writes.length = 0;
+    mesh.setRead('news/stories/story-123', existingRecord);
+
+    const result = await writeNewsStory(client, {
+      ...STORY,
+      created_at: 1_700_000_999_000,
+    });
+
+    expect(result.created_at).toBe(1_700_000_010_000);
     expect(
       JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string),
     ).toMatchObject({
@@ -398,6 +510,108 @@ describe('newsAdapters', () => {
         refresh_token: 'secret'
       })
     ).rejects.toThrow('forbidden identity/token fields');
+  });
+
+  it('writeNewsStory fails closed without a system writer signer and does not write a bare story', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterSign: undefined });
+
+    await expect(writeNewsStory(client, STORY)).rejects.toThrow('system writer signer is required');
+    expect(mesh.writes).toHaveLength(0);
+  });
+
+  it.each([
+    ['NaN', Number.NaN],
+    ['negative', -1],
+  ])('writeNewsStory rejects invalid system issued-at values: %s', async (_label, issuedAt) => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterNow: () => issuedAt });
+
+    await expect(writeNewsStory(client, STORY)).rejects.toThrow('system writer issued-at');
+    expect(mesh.writes).toHaveLength(0);
+  });
+
+  it.each([
+    ['non-string', 123],
+    ['blank', ''],
+    ['padded', ' signature'],
+  ])('writeNewsStory rejects invalid system writer signatures: %s', async (_label, signature) => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      systemWriterSign: vi.fn(async () => signature) as unknown as SystemWriterSignHook,
+    });
+
+    await expect(writeNewsStory(client, STORY)).rejects.toThrow('system writer signer returned an invalid signature');
+    expect(mesh.writes).toHaveLength(0);
+  });
+
+  it('writeNewsStory resolves writer id from the active pin when explicit id is blank', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const sign = vi.fn(async () => TEST_SYSTEM_SIGNATURE);
+    const client = createClient(mesh, guard, {
+      systemWriterId: ' ',
+      systemWriterPin: {
+        pinVersion: 1,
+        schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+        maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        writers: [
+          {
+            id: 'pinned-news-writer-v1',
+            status: 'active',
+            publicKey: {
+              encoding: 'spki-base64url',
+              material: 'public-material',
+            },
+          },
+        ],
+      },
+      systemWriterSign: sign,
+    });
+
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value, { writerId: 'pinned-news-writer-v1' });
+    expect(record._systemWriterId).toBe('pinned-news-writer-v1');
+    expect(sign).toHaveBeenCalledWith(expect.objectContaining({
+      writerId: 'pinned-news-writer-v1',
+    }));
+  });
+
+  it('writeNewsStory falls back to the default system writer id when no active pin writer exists', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const sign = vi.fn(async () => TEST_SYSTEM_SIGNATURE);
+    const client = createClient(mesh, guard, {
+      systemWriterId: undefined,
+      systemWriterPin: {
+        pinVersion: 1,
+        schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+        maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        writers: [
+          {
+            id: 'retired-news-writer-v1',
+            status: 'retired',
+            publicKey: {
+              encoding: 'spki-base64url',
+              material: 'public-material',
+            },
+          },
+        ],
+      },
+      systemWriterSign: sign,
+    });
+
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    expect(record._systemWriterId).toBe(TEST_SYSTEM_WRITER_ID);
+    expect(sign).toHaveBeenCalledWith(expect.objectContaining({
+      writerId: TEST_SYSTEM_WRITER_ID,
+    }));
   });
 
   it('writeNewsStory surfaces put ack errors', async () => {
@@ -531,7 +745,7 @@ describe('newsAdapters', () => {
 
   it('readNewsStory parses encoded bundle payloads', async () => {
     const mesh = createFakeMesh();
-    mesh.setRead('news/stories/story-encoded', {
+    mesh.setRead('news/stories/story-123', {
       __story_bundle_json: JSON.stringify(STORY),
       story_id: STORY.story_id,
       created_at: STORY.created_at
@@ -539,8 +753,156 @@ describe('newsAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
-    const story = await readNewsStory(client, 'story-encoded');
+    const story = await readNewsStory(client, 'story-123');
     expect(story).toEqual(STORY);
+  });
+
+  it('readNewsStory validates signed system story records through the shared system-writer validator', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    expect(record._systemSignature).not.toBe(TEST_SYSTEM_SIGNATURE);
+    mesh.setRead('news/stories/story-123', record);
+
+    await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
+  });
+
+  it('readNewsStory rejects tampered system story metadata and payloads', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+
+    const cases: Array<[string, SystemWriterStoryBundleRecord]> = [
+      [
+        'payload',
+        {
+          ...record,
+          [STORY_BUNDLE_JSON_KEY]: JSON.stringify({ ...STORY, headline: 'tampered' }),
+        },
+      ],
+      ['protocol version', { ...record, _protocolVersion: 'luma-public-v2' }],
+      ['writer kind', { ...record, _writerKind: 'legacy' as never }],
+      ['writer id', { ...record, _systemWriterId: 'unknown-writer' }],
+      ['issued-at', { ...record, _systemIssuedAt: record._systemIssuedAt + 1 }],
+      ['signature', { ...record, _systemSignature: 'bad-signature' }],
+      [
+        'user author fields',
+        {
+          ...record,
+          _authorScheme: 'forum-author-v1',
+        } as unknown as SystemWriterStoryBundleRecord,
+      ],
+      [
+        'client envelope',
+        {
+          ...record,
+          signedWriteEnvelope: { signature: 'not-for-system' },
+        } as unknown as SystemWriterStoryBundleRecord,
+      ],
+    ];
+
+    for (const [_label, tampered] of cases) {
+      mesh.setRead('news/stories/story-123', tampered);
+      await expect(readNewsStory(client, 'story-123')).resolves.toBeNull();
+    }
+  });
+
+  it('readNewsStory rejects system records whose signed story id does not match the path', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(client, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    mesh.setRead('news/stories/different-story', record);
+
+    await expect(readNewsStory(client, 'different-story')).resolves.toBeNull();
+  });
+
+  it('readNewsStory fails closed for system records when the pin is unavailable', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(signingClient, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    mesh.setRead('news/stories/story-123', record);
+    const readerWithoutPin = createClient(mesh, guard, { systemWriterPin: null });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      await expect(readNewsStory(readerWithoutPin, 'story-123')).resolves.toBeNull();
+      expect(warning).toHaveBeenCalledWith(
+        '[vh:news] system-writer-validation-failed',
+        expect.objectContaining({
+          event: 'system-writer-validation-failed',
+          reason: 'missing-pin',
+          path: 'vh/news/stories/story-123',
+        })
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('readNewsStory dispatches system-writer validation events when browser event APIs are available', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsStory(signingClient, STORY);
+    const record = expectSystemStoryRecord(mesh.writes[0].value);
+    mesh.setRead('news/stories/story-123', record);
+    const readerWithoutPin = createClient(mesh, guard, { systemWriterPin: null });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const dispatchEvent = vi.fn();
+    class TestCustomEvent {
+      readonly type: string;
+      readonly detail: unknown;
+
+      constructor(type: string, init?: { detail?: unknown }) {
+        this.type = type;
+        this.detail = init?.detail;
+      }
+    }
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchEvent);
+
+    try {
+      await expect(readNewsStory(readerWithoutPin, 'story-123')).resolves.toBeNull();
+      expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'system-writer-validation-failed',
+        detail: expect.objectContaining({
+          reason: 'missing-pin',
+          path: 'vh/news/stories/story-123',
+        }),
+      }));
+    } finally {
+      warning.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 
   it('readNewsStory returns null for malformed encoded bundle payloads', async () => {
@@ -641,11 +1003,11 @@ describe('newsAdapters', () => {
 
     try {
       const mesh = createFakeMesh();
-      mesh.setRead('news/stories/settled-story', STORY);
+      mesh.setRead('news/stories/story-123', STORY);
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard);
 
-      await expect(readNewsStory(client, 'settled-story')).resolves.toEqual(STORY);
+      await expect(readNewsStory(client, 'story-123')).resolves.toEqual(STORY);
 
       // With clearTimeout disabled, timeout callback still runs and must short-circuit.
       await vi.advanceTimersByTimeAsync(2_500);
@@ -968,19 +1330,17 @@ describe('newsAdapters', () => {
       expect(result.story_id).toBe('story-123');
       expect(mesh.writes).toHaveLength(3);
       expect(mesh.writes[0].path).toBe('news/stories/story-123');
-      expect(mesh.writes[0].value).toMatchObject({
-        story_id: STORY.story_id,
-        created_at: STORY.created_at,
-        schemaVersion: STORY.schemaVersion
-      });
+      expectSystemStoryRecord(mesh.writes[0].value);
       expect(
         JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
       ).toEqual(STORY);
       expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.cluster_window_end });
+      expect(typeof mesh.writes[1].value).toBe('number');
       expect(mesh.writes[2]).toEqual({
         path: 'news/index/hot/story-123',
         value: computeStoryHotness(STORY, Date.now()),
       });
+      expect(typeof mesh.writes[2].value).toBe('number');
     } finally {
       vi.useRealTimers();
     }

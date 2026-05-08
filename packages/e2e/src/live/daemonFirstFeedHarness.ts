@@ -19,6 +19,11 @@ import {
 } from './browserNewsStore';
 import { nudgeFeed } from './feedReadiness';
 import { resolveDaemonFeedSourcesJson } from './daemonFeedSources';
+import {
+  E2E_SYSTEM_WRITER_ID,
+  E2E_SYSTEM_WRITER_PIN_JSON,
+  E2E_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL,
+} from './lumaSystemWriterTestFixture';
 
 export const SHOULD_RUN = process.env.VH_RUN_DAEMON_FIRST_FEED === 'true';
 export const GUN_PORT = Number(process.env.VH_DAEMON_FEED_GUN_PORT ?? '8777');
@@ -260,6 +265,9 @@ function commonEnv(): NodeJS.ProcessEnv {
     VH_STORYCLUSTER_REMOTE_AUTH_HEADER: storyclusterRemote.authHeader,
     VH_STORYCLUSTER_REMOTE_AUTH_SCHEME: storyclusterRemote.authScheme,
     VH_NEWS_DAEMON_HOLDER_ID: 'vh-e2e-news-daemon',
+    VH_NEWS_SYSTEM_WRITER_ID: E2E_SYSTEM_WRITER_ID,
+    VH_NEWS_SYSTEM_WRITER_PIN_JSON: E2E_SYSTEM_WRITER_PIN_JSON,
+    VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL: E2E_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL,
   };
 }
 

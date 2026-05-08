@@ -31,6 +31,7 @@ import {
   parseStoryClusterRemoteConfig,
   parseTopicMapping,
   readEnvVar,
+  resolveSystemWriterClientConfigFromEnv,
   resolveLeaseHolderId,
   verifyStoryClusterHealth,
   type AsyncEnrichmentQueueOptions,
@@ -396,11 +397,13 @@ export async function startNewsAggregatorDaemonFromEnv(): Promise<NewsAggregator
     mkdirSync(path.dirname(gunFile), { recursive: true });
   }
   const writeLanes = createDaemonWriteLaneRegistry({ logger: console });
+  const systemWriterConfig = await resolveSystemWriterClientConfigFromEnv();
   const client = createNodeMeshClient({
     peers: gunPeers.length > 0 ? gunPeers : undefined,
     requireSession: false,
     gunRadisk,
     gunFile,
+    ...systemWriterConfig,
   });
   const bundleSynthesisEnrichment = createBundleSynthesisEnrichmentFromEnv(client, console, {
     runWrite: writeLanes.run,

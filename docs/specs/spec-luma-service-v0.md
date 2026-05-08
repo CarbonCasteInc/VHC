@@ -688,6 +688,12 @@ record-derived id):
 | Comment moderation record (`CommentModeration.operator_id`) | operator id is a system-writer-signed pseudonym; carries `_writerKind: 'system'`, no `_authorScheme` |
 | News report operator action (`audit.operator_id`) | same as above |
 
+M0.B implementation note: `vh/news/stories/<storyId>` is the first concrete
+system-writer adapter migration. It signs the stored story-node wrapper with
+the build-pinned system-writer key and leaves latest/hot indexes, storylines,
+analysis, synthesis, discovery, and topic engagement for later system-writer
+slices.
+
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
 `_authorScheme: 'voter-v1'`, and `SignedWriteEnvelope.audience =

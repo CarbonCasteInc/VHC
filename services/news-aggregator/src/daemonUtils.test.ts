@@ -15,6 +15,7 @@ import {
   parseTopicMapping,
   resolveFeedSourceConfig,
   resolveLeaseHolderId,
+  resolveSystemWriterClientConfigFromEnv,
   verifyStoryClusterHealth,
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_TOPIC_MAPPING,
@@ -453,6 +454,121 @@ describe('daemonUtils', () => {
       '{"peer":"https://x.example/gun"}',
     ]);
     expect(parseGunPeers('[invalid-json')).toEqual([]);
+  });
+
+  it('omits system-writer client config when no system-writer env is present', async () => {
+    await expect(resolveSystemWriterClientConfigFromEnv()).resolves.toEqual({});
+  });
+
+  it('resolves system-writer public pin metadata from env', async () => {
+    vi.stubEnv('VH_SYSTEM_WRITER_ID', 'writer-env-v1');
+    vi.stubEnv('VH_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL', 'public-material');
+
+    await expect(resolveSystemWriterClientConfigFromEnv()).resolves.toMatchObject({
+      systemWriterId: 'writer-env-v1',
+      systemWriterPin: {
+        pinVersion: 1,
+        schemaEpoch: 'luma-public-v1',
+        maxProtocolVersion: 'luma-public-v1',
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        writers: [
+          {
+            id: 'writer-env-v1',
+            status: 'active',
+            publicKey: {
+              encoding: 'spki-base64url',
+              material: 'public-material',
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it('prefers news-specific system-writer env over generic fallbacks', async () => {
+    vi.stubEnv('VH_SYSTEM_WRITER_ID', 'generic-writer-v1');
+    vi.stubEnv('VH_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL', 'generic-public-material');
+    vi.stubEnv('VH_NEWS_SYSTEM_WRITER_ID', 'news-writer-v1');
+    vi.stubEnv('VH_NEWS_SYSTEM_WRITER_PUBLIC_KEY_SPKI_BASE64URL', 'news-public-material');
+
+    await expect(resolveSystemWriterClientConfigFromEnv()).resolves.toMatchObject({
+      systemWriterId: 'news-writer-v1',
+      systemWriterPin: {
+        writers: [
+          {
+            id: 'news-writer-v1',
+            publicKey: {
+              material: 'news-public-material',
+            },
+          },
+        ],
+      },
+    });
+  });
+
+  it('resolves system-writer pin JSON and signer hook from daemon-only env', async () => {
+    const importedKey = { key: 'private-key' };
+    const importKey = vi.fn(async () => importedKey);
+    const sign = vi.fn(async () => new Uint8Array([1, 2, 3]).buffer);
+    vi.stubGlobal('crypto', {
+      subtle: {
+        importKey,
+        sign,
+      },
+    });
+    vi.stubEnv('VH_NEWS_SYSTEM_WRITER_ID', 'writer-json-v1');
+    vi.stubEnv(
+      'VH_NEWS_SYSTEM_WRITER_PIN_JSON',
+      JSON.stringify({
+        pinVersion: 1,
+        schemaEpoch: 'luma-public-v1',
+        maxProtocolVersion: 'luma-public-v1',
+        signatureSuite: 'jcs-ed25519-sha256-v1',
+        writers: [
+          {
+            id: 'writer-json-v1',
+            status: 'active',
+            publicKey: {
+              encoding: 'spki-base64url',
+              material: 'public-material',
+            },
+          },
+        ],
+      }),
+    );
+    vi.stubEnv(
+      'VH_NEWS_SYSTEM_WRITER_PRIVATE_KEY_PKCS8_BASE64URL',
+      Buffer.from('private-material').toString('base64url'),
+    );
+
+    const config = await resolveSystemWriterClientConfigFromEnv();
+    expect(config.systemWriterId).toBe('writer-json-v1');
+    expect(config.systemWriterPin?.writers[0]?.id).toBe('writer-json-v1');
+    await expect(config.systemWriterSign?.({
+      canonicalBytes: new Uint8Array([9]),
+      writerId: 'writer-json-v1',
+      path: 'vh/news/stories/story-1/',
+      record: {
+        _protocolVersion: 'luma-public-v1',
+        _writerKind: 'system',
+        _systemWriterId: 'writer-json-v1',
+        _systemIssuedAt: 1,
+      },
+    })).resolves.toBe('AQID');
+    expect(importKey).toHaveBeenCalledWith(
+      'pkcs8',
+      expect.any(ArrayBuffer),
+      'Ed25519',
+      false,
+      ['sign'],
+    );
+    expect(sign).toHaveBeenCalledWith('Ed25519', importedKey, expect.any(ArrayBuffer));
+  });
+
+  it('rejects invalid system-writer pin JSON', async () => {
+    vi.stubEnv('VH_SYSTEM_WRITER_PIN_JSON', JSON.stringify({ pinVersion: 0 }));
+
+    await expect(resolveSystemWriterClientConfigFromEnv()).rejects.toThrow('system writer pin JSON');
   });
 
   it('resolves starter feed sources through the source-health policy surface', () => {
