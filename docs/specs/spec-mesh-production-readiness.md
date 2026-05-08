@@ -1091,6 +1091,7 @@ interface MeshProductionReadinessReport {
       | 'local_rolling_restart_soak'
       | 'local_tls_wss_peer_config_rollback'
       | 'local_clock_skew_matrix'
+      | 'local_conflict_resolution_fixtures'
       | 'aggregate_production_readiness';
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
@@ -1591,6 +1592,8 @@ Production health must be reasoned, not binary. Valid mesh-related reasons:
   is absent; see §5.11)
 - `mesh-schema-version-unknown` (record-level `schemaVersion` unknown to
   reader; see §5.11)
+- `protocol_version_unsupported` (record-level `_protocolVersion` is ahead
+  of the reader maximum; see §5.11 and `spec-luma-service-v0.md` §15)
 - `system-writer-validation-failed` (`_writerKind === 'system'` record
   failed one of the LUMA §15 read-time validation conditions; carries the
   failing condition tag from `spec-luma-service-v0.md` §15)
@@ -1985,6 +1988,13 @@ Drill rules:
   fixture with `_protocolVersion` deliberately ahead of the reader's maximum.
 - The legacy row is exercised by replaying a fixture from the existing
   `MESH_HARDENING_PR2_2026-05-02.md` corpus.
+- Slice 13B implements `pnpm test:mesh:conflict-drills` for applicable
+  non-LUMA conflict/protocol rows under `run.mode:
+  local_conflict_resolution_fixtures`. It uses synthetic mesh drill records
+  under `vh/__mesh_drills/<run_id>/conflict/*`, keeps
+  `_drillWriterKind: 'mesh-drill'`, does not migrate LUMA public schemas or
+  adapters, and records the legacy corpus row as `skipped` with a
+  corpus-not-present reason when no replayable legacy corpus exists.
 
 Reader-side reject reasons enumerate into the mesh report `health.degradation_
 reasons_seen` so the readiness report shows which classes were exercised.
@@ -2085,11 +2095,11 @@ Implemented mesh commands:
 - `pnpm test:mesh:soak`
 - `pnpm test:mesh:peer-config-rollback-drill`
 - `pnpm test:mesh:clock-skew-drills`
+- `pnpm test:mesh:conflict-drills`
 - `pnpm check:mesh:production-readiness`
 
 Required new commands:
 
-- `pnpm test:mesh:conflict-drills`
 - `pnpm check:production-app-canary`
 - `pnpm check:mesh-evidence-scrub` (gates promotion of `.tmp` packets to
   `docs/reports/evidence/`; see §5.7.1)
@@ -2271,7 +2281,28 @@ Still not allowed after Slice 13A clock-skew/auth-window proof:
 - "LUMA-gated production write classes are mesh-readiness-proven."
 - "The app is ready for a test group."
 
-Allowed after Slices 6B through 13A pass (under `schema_epoch:
+Allowed after Slice 13B conflict/protocol fixture proof:
+
+- "`pnpm test:mesh:conflict-drills` exercises local synthetic non-LUMA
+  conflict/protocol fixtures for deterministic same-key winners, stale
+  overwrite rejection, future protocol rejection, unknown schema quarantine,
+  and missing/unsupported drill author-scheme quarantine."
+- "The aggregate readiness packet can remove the
+  `conflict-resolution-fixtures` blocker when the Slice 13B source report is
+  fresh, clean, command-matched, and has `conflict.status: pass` with all
+  required non-LUMA rows passing."
+
+Still not allowed after Slice 13B conflict/protocol fixture proof:
+
+- "The mesh is `release_ready`."
+- "Public WSS conflict behavior is production-proven."
+- "LUMA public schema migrations or LUMA-gated write classes are
+  mesh-readiness-proven."
+- "The default shortened local command satisfies the canonical thirty-minute
+  soak claim."
+- "The app is ready for a test group."
+
+Allowed after Slices 6B through 13B pass (under `schema_epoch:
 post_luma_m0b` with all LUMA-gated write classes drilled through the LUMA
 reader path):
 

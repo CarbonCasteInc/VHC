@@ -10,6 +10,15 @@ const __dirname = path.dirname(__filename);
 const repoRoot = path.resolve(__dirname, '../../../..');
 const latestDir = path.join(repoRoot, '.tmp/mesh-production-readiness/latest');
 const SOURCE_REPORT_FRESHNESS_TOLERANCE_MS = 5000;
+const REQUIRED_CONFLICT_FIXTURES = [
+  'same-key-concurrent-deterministic-writes',
+  'stale-overwrite-attempt-rejected',
+  'future-protocol-version-rejected',
+  'unknown-schema-version-quarantined',
+  'missing-drill-author-scheme-quarantined',
+  'unsupported-drill-author-scheme-quarantined',
+];
+const CONFLICT_PLACEHOLDER_FIXTURE = 'full-conflict-resolution-fixtures';
 
 export const SOURCE_GATES = [
   {
@@ -71,6 +80,12 @@ export const SOURCE_GATES = [
     name: 'clock-skew/auth-window matrix',
     command: ['pnpm', 'test:mesh:clock-skew-drills'],
     expectedMode: 'local_clock_skew_matrix',
+  },
+  {
+    id: 'conflict',
+    name: 'conflict/protocol fixtures',
+    command: ['pnpm', 'test:mesh:conflict-drills'],
+    expectedMode: 'local_conflict_resolution_fixtures',
   },
 ];
 
@@ -160,6 +175,24 @@ function normalizeReportRows(sources, field) {
   });
 }
 
+export function conflictRowsForAggregate({ sources, conflictPassed, runId }) {
+  const rows = normalizeReportRows(sources, 'conflict_fixtures').filter(
+    (row) => row.fixture !== CONFLICT_PLACEHOLDER_FIXTURE,
+  );
+  if (conflictPassed) {
+    return rows;
+  }
+  return [
+    ...rows,
+    {
+      fixture: CONFLICT_PLACEHOLDER_FIXTURE,
+      trace_id: runId,
+      status: 'skipped',
+      reason: 'pnpm test:mesh:conflict-drills is not implemented or did not produce a passing source report',
+    },
+  ];
+}
+
 function reportPathForSource(sourceDir) {
   return path.join(sourceDir, 'mesh-production-readiness-report.json');
 }
@@ -222,6 +255,19 @@ export function validationFailuresForSource({
   }
   if (gate.id === 'clock_skew' && report.clock_skew?.status !== 'pass') {
     failures.push(`clock_skew.status is ${report.clock_skew?.status || 'missing'}`);
+  }
+  if (gate.id === 'conflict') {
+    if (report.conflict?.status !== 'pass') {
+      failures.push(`conflict.status is ${report.conflict?.status || 'missing'}`);
+    }
+    for (const fixture of REQUIRED_CONFLICT_FIXTURES) {
+      const row = (report.conflict_fixtures || []).find((entry) => entry.fixture === fixture);
+      if (!row) {
+        failures.push(`missing conflict fixture ${fixture}`);
+      } else if (row.status !== 'pass') {
+        failures.push(`conflict fixture ${fixture} status is ${row.status || 'missing'}`);
+      }
+    }
   }
   for (const row of report.write_class_slos || []) {
     if ((row.terminal_failures || 0) > 0) {
@@ -309,6 +355,7 @@ function buildReleaseBlockers(sources) {
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const soak = sourceById.get('soak')?.report;
   const deployed = sourceById.get('deployed_wss')?.report;
+  const conflict = sourceById.get('conflict')?.report;
 
   if (!soak?.soak?.full_duration_satisfied) {
     blockers.push({
@@ -331,11 +378,17 @@ function buildReleaseBlockers(sources) {
       reason: 'full clock-skew/auth-window matrix command is not implemented',
     });
   }
-  if (!hasScript('test:mesh:conflict-drills')) {
+  const conflictRows = conflict?.conflict_fixtures || [];
+  const conflictPassed =
+    conflict?.conflict?.status === 'pass' &&
+    REQUIRED_CONFLICT_FIXTURES.every((fixture) =>
+      conflictRows.some((row) => row.fixture === fixture && row.status === 'pass'),
+    );
+  if (!conflictPassed) {
     blockers.push({
       id: 'conflict-resolution-fixtures',
       command: 'pnpm test:mesh:conflict-drills',
-      reason: 'conflict-resolution fixture command is not implemented',
+      reason: 'conflict-resolution fixture source report is missing, stale, failed, or incomplete',
     });
   }
   if (!hasScript('check:mesh-evidence-scrub')) {
@@ -562,13 +615,13 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
   const writeClassSlos = normalizeReportRows(sources, 'write_class_slos');
   const resourceSlos = normalizeReportRows(sources, 'resource_slos');
   const perRelayReadback = normalizeReportRows(sources, 'per_relay_readback');
-  const conflictRows = normalizeReportRows(sources, 'conflict_fixtures');
   const stateResolutionRows = normalizeReportRows(sources, 'state_resolution_drills');
   const readRepairRows = normalizeReportRows(sources, 'read_repair_drills');
   const lumaRows = normalizeReportRows(sources, 'luma_gated_write_drills');
   const degradationReasons = unique(sourceReports.flatMap((report) => report.health?.degradation_reasons_seen || []));
   const soakReport = sources.find((source) => source.id === 'soak')?.report;
   const clockSkewPassed = sources.find((source) => source.id === 'clock_skew')?.report?.clock_skew?.status === 'pass';
+  const conflictPassed = sources.find((source) => source.id === 'conflict')?.report?.conflict?.status === 'pass';
 
   return {
     schema_version: 'mesh-production-readiness-v1',
@@ -626,15 +679,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
     resource_slos: resourceSlos,
     per_relay_readback: perRelayReadback,
     state_resolution_drills: stateResolutionRows,
-    conflict_fixtures: [
-      ...conflictRows,
-      {
-        fixture: 'full-conflict-resolution-fixtures',
-        trace_id: runId,
-        status: 'skipped',
-        reason: 'pnpm test:mesh:conflict-drills is not implemented',
-      },
-    ],
+    conflict_fixtures: conflictRowsForAggregate({ sources, conflictPassed, runId }),
     read_repair_drills: readRepairRows,
     luma_gated_write_drills: [
       ...lumaRows,
@@ -660,6 +705,9 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
             ...(clockSkewPassed
               ? ['The local non-LUMA mesh clock-skew/auth-window matrix source gate passed for applicable mesh surfaces.']
               : []),
+            ...(conflictPassed
+              ? ['The local non-LUMA mesh conflict/protocol fixture source gate passed for applicable synthetic rows.']
+              : []),
           ]
         : [],
       forbidden: [
@@ -667,6 +715,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
         'The default shortened local soak satisfies the canonical thirty-minute soak claim.',
         'Public WSS infrastructure is production-proven.',
         ...(clockSkewPassed ? ['Public WSS clock-skew behavior is production-proven.'] : ['The full clock-skew matrix is production-ready.']),
+        'Public WSS conflict behavior is production-proven.',
         'LUMA-gated production write classes are mesh-readiness-proven.',
         'The full app is test-group ready.',
       ],
