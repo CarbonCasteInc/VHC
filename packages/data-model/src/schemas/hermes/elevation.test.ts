@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NOMINATION_AUDIENCE,
+  NOMINATION_AUTHOR_SCHEME,
+  NOMINATION_PUBLIC_PROTOCOL_VERSION,
+  NOMINATION_WRITER_KIND,
+  nominationSignedPayload,
+  LegacyNominationEventSchema,
   NominationEventSchema,
+  NominationEventSchemaV1,
+  NominationSignedPayloadSchema,
   NominationPolicySchema,
   ElevationArtifactsSchema,
 } from './elevation';
@@ -16,6 +24,49 @@ const validNominationEvent = {
   sourceId: 'src-99',
   nominatorNullifier: 'nullifier-abc',
   createdAt: now,
+};
+
+const publicAuthor = 'a'.repeat(64);
+const otherPublicAuthor = 'b'.repeat(64);
+const hex64 = 'c'.repeat(64);
+const hex32 = 'd'.repeat(32);
+
+const validNominationSignedPayload = {
+  schemaVersion: 'hermes-nomination-v1' as const,
+  _protocolVersion: NOMINATION_PUBLIC_PROTOCOL_VERSION,
+  _writerKind: NOMINATION_WRITER_KIND,
+  _authorScheme: NOMINATION_AUTHOR_SCHEME,
+  id: 'nom-2',
+  topicId: 'topic-42',
+  sourceType: 'article' as const,
+  sourceId: 'article-99',
+  nominatorAuthorId: publicAuthor,
+  createdAt: now,
+};
+
+const validLumaNominationEvent = {
+  ...validNominationSignedPayload,
+  signedWriteEnvelope: {
+    envelopeVersion: 1 as const,
+    signatureSuite: 'jcs-ed25519-sha256-v1' as const,
+    protocolVersion: 'luma-write-v1' as const,
+    profile: 'public-beta' as const,
+    audience: NOMINATION_AUDIENCE,
+    origin: 'https://vh.example',
+    scheme: NOMINATION_AUTHOR_SCHEME,
+    publicAuthor,
+    sessionRef: {
+      tokenHash: 'token-hash',
+      envelopeDigest: 'envelope-digest',
+    },
+    payload: validNominationSignedPayload,
+    payloadDigest: hex64,
+    sequence: now,
+    nonce: hex32,
+    idempotencyKey: hex64,
+    issuedAt: now,
+    signature: 'delegation-signature',
+  },
 };
 
 const validNominationPolicy = {
@@ -37,12 +88,13 @@ const validElevationArtifacts = {
 /* ── NominationEventSchema ───────────────────────────────────── */
 
 describe('NominationEventSchema', () => {
-  it('parses a valid minimal event', () => {
+  it('parses a valid legacy minimal event', () => {
     const result = NominationEventSchema.safeParse(validNominationEvent);
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data).toEqual(validNominationEvent);
     }
+    expect(LegacyNominationEventSchema.safeParse(validNominationEvent).success).toBe(true);
   });
 
   it('accepts all valid sourceType values', () => {
@@ -119,6 +171,94 @@ describe('NominationEventSchema', () => {
       createdAt: 1.5,
     });
     expect(result.success).toBe(false);
+  });
+
+  it('parses a valid LUMA nomination event', () => {
+    const result = NominationEventSchema.safeParse(validLumaNominationEvent);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toEqual(validLumaNominationEvent);
+    }
+    expect(NominationEventSchemaV1.safeParse(validLumaNominationEvent).success).toBe(true);
+  });
+
+  it('normalizes the immutable nomination signed payload', () => {
+    expect(nominationSignedPayload({
+      ...validNominationSignedPayload,
+      unknown: 'ignored',
+    } as typeof validNominationSignedPayload)).toEqual(validNominationSignedPayload);
+    expect(NominationSignedPayloadSchema.safeParse(validNominationSignedPayload).success).toBe(true);
+  });
+
+  it.each([
+    ['raw public author', { nominatorAuthorId: 'raw-principal-nullifier' }],
+    ['wrong protocol', { _protocolVersion: 'legacy-public-v0' }],
+    ['wrong writer kind', { _writerKind: 'legacy' }],
+    ['wrong author scheme', { _authorScheme: 'identity-directory-v1' }],
+  ])('rejects invalid LUMA nomination payload field: %s', (_label, patch) => {
+    const result = NominationEventSchemaV1.safeParse({
+      ...validLumaNominationEvent,
+      ...patch,
+      signedWriteEnvelope: {
+        ...validLumaNominationEvent.signedWriteEnvelope,
+        payload: {
+          ...validLumaNominationEvent.signedWriteEnvelope.payload,
+          ...patch,
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    ['wrong audience', { audience: 'vh-forum-post' }],
+    ['wrong scheme', { scheme: 'voter-v1' }],
+    ['raw public author', { publicAuthor: 'raw-principal-nullifier' }],
+    ['mismatched public author', { publicAuthor: otherPublicAuthor }],
+  ])('rejects invalid LUMA nomination envelope field: %s', (_label, envelopePatch) => {
+    const result = NominationEventSchemaV1.safeParse({
+      ...validLumaNominationEvent,
+      signedWriteEnvelope: {
+        ...validLumaNominationEvent.signedWriteEnvelope,
+        ...envelopePatch,
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it.each([
+    ['id', { id: 'nom-tampered' }],
+    ['topicId', { topicId: 'topic-tampered' }],
+    ['sourceType', { sourceType: 'topic' }],
+    ['sourceId', { sourceId: 'source-tampered' }],
+    ['nominatorAuthorId', { nominatorAuthorId: otherPublicAuthor }],
+    ['createdAt', { createdAt: now + 1 }],
+  ])('rejects tampered immutable nomination payload field: %s', (_field, payloadPatch) => {
+    const result = NominationEventSchemaV1.safeParse({
+      ...validLumaNominationEvent,
+      signedWriteEnvelope: {
+        ...validLumaNominationEvent.signedWriteEnvelope,
+        payload: {
+          ...validLumaNominationEvent.signedWriteEnvelope.payload,
+          ...payloadPatch,
+        },
+      },
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('matches signed v1 payloads independent of object key order', () => {
+    const reversedPayload = Object.fromEntries(
+      Object.entries(validNominationSignedPayload).reverse()
+    );
+    const result = NominationEventSchemaV1.safeParse({
+      ...validLumaNominationEvent,
+      signedWriteEnvelope: {
+        ...validLumaNominationEvent.signedWriteEnvelope,
+        payload: reversedPayload,
+      },
+    });
+    expect(result.success).toBe(true);
   });
 });
 

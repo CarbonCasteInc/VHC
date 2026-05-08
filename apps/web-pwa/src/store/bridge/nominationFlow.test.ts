@@ -1,5 +1,10 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { initializeNullifierBudget, type NullifierBudget } from '@vh/types';
+import {
+  deriveForumAuthorId,
+  initializeNullifierBudget,
+  type IdentityRecord,
+  type NullifierBudget
+} from '@vh/types';
 import { NominationEventSchema, ElevationArtifactsSchema } from '@vh/data-model';
 import {
   isElevationEnabled,
@@ -8,6 +13,10 @@ import {
 } from './nominationFlow';
 import { consumeCivicActionsBudget } from '../../store/xpLedgerBudget';
 import type { ElevationContext } from './elevationArtifacts';
+
+vi.mock('@vh/identity-vault', () => ({
+  signWithStoredDelegationSigningKey: vi.fn(async () => 'nomination-delegation-signature')
+}));
 
 /* ── test data ──────────────────────────────────────────────── */
 
@@ -23,8 +32,26 @@ const nomination = {
   topicId: 'topic-42',
   sourceType: 'news' as const,
   sourceId: 'src-99',
-  nominatorNullifier: nullifier,
   createdAt: Date.now(),
+};
+
+const identity: IdentityRecord = {
+  id: 'identity-1',
+  createdAt: 1,
+  attestation: {
+    platform: 'web',
+    integrityToken: 'integrity-token',
+    deviceKey: 'device-key',
+    nonce: 'nonce'
+  },
+  session: {
+    token: 'session-token',
+    trustScore: 1,
+    scaledTrustScore: 10_000,
+    nullifier,
+    createdAt: 1_700_000_000_000,
+    expiresAt: 1_700_086_400_000
+  }
 };
 
 const context: ElevationContext = {
@@ -93,19 +120,39 @@ describe('executeNomination', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it('succeeds with valid budget and enabled flag', async () => {
+    const expectedAuthorId = await deriveForumAuthorId(nullifier);
     const result = await executeNomination(
       nomination,
       context,
       freshBudget(),
-      nullifier,
+      identity,
     );
 
-    // Validate nomination matches input
-    expect(result.nomination).toBe(nomination);
+    // Validate nomination is the derived public-author event, not the raw input.
+    expect(result.nomination).toMatchObject({
+      schemaVersion: 'hermes-nomination-v1',
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'luma',
+      _authorScheme: 'forum-author-v1',
+      id: nomination.id,
+      topicId: nomination.topicId,
+      sourceType: nomination.sourceType,
+      sourceId: nomination.sourceId,
+      nominatorAuthorId: expectedAuthorId,
+      signedWriteEnvelope: {
+        audience: 'vh-forum-nomination',
+        publicAuthor: expectedAuthorId,
+        payload: expect.objectContaining({
+          nominatorAuthorId: expectedAuthorId
+        })
+      }
+    });
     expect(NominationEventSchema.safeParse(result.nomination).success).toBe(true);
+    expect(JSON.stringify(result.nomination)).not.toContain(nullifier);
 
     // Validate artifacts schema
     expect(ElevationArtifactsSchema.safeParse(result.artifacts).success).toBe(true);
@@ -117,8 +164,14 @@ describe('executeNomination', () => {
   it('throws when elevation is disabled', async () => {
     vi.stubEnv('VITE_ELEVATION_ENABLED', 'false');
     await expect(
-      executeNomination(nomination, context, freshBudget(), nullifier),
+      executeNomination(nomination, context, freshBudget(), identity),
     ).rejects.toThrow('Elevation feature is not enabled');
+  });
+
+  it('throws without an identity session before consuming budget', async () => {
+    await expect(
+      executeNomination(nomination, context, freshBudget(), null),
+    ).rejects.toThrow('LUMA forum nominations require a full identity session');
   });
 
   it('throws when budget is exhausted', async () => {
@@ -129,7 +182,7 @@ describe('executeNomination', () => {
     }
 
     await expect(
-      executeNomination(nomination, context, budget, nullifier),
+      executeNomination(nomination, context, budget, identity),
     ).rejects.toThrow();
   });
 
@@ -138,7 +191,7 @@ describe('executeNomination', () => {
       nomination,
       context,
       null, // null triggers fresh initialization
-      nullifier,
+      identity,
     );
     expect(result.updatedBudget.nullifier).toBe(nullifier);
     expect(result.updatedBudget.date).toBe(today);
@@ -149,7 +202,7 @@ describe('executeNomination', () => {
       nomination,
       context,
       freshBudget(),
-      nullifier,
+      identity,
     );
     expect(result.artifacts.sourceTopicId).toBe(context.sourceTopicId);
     expect(result.artifacts.sourceSynthesisId).toBe(context.sourceSynthesisId);
@@ -157,8 +210,8 @@ describe('executeNomination', () => {
   });
 
   it('returns deterministic artifact IDs for same context', async () => {
-    const a = await executeNomination(nomination, context, freshBudget(), nullifier);
-    const b = await executeNomination(nomination, context, freshBudget(), nullifier);
+    const a = await executeNomination(nomination, context, freshBudget(), identity);
+    const b = await executeNomination(nomination, context, freshBudget(), identity);
     expect(a.artifacts.briefDocId).toBe(b.artifacts.briefDocId);
     expect(a.artifacts.proposalScaffoldId).toBe(b.artifacts.proposalScaffoldId);
     expect(a.artifacts.talkingPointsId).toBe(b.artifacts.talkingPointsId);

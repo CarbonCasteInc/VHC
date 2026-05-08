@@ -6,13 +6,14 @@
  * - spec-civic-action-kit-v0.md §2.5 (civic_actions/day = 3)
  */
 
-import type { NullifierBudget } from '@vh/types';
+import type { IdentityRecord, NullifierBudget } from '@vh/types';
 import type { NominationEvent, ElevationArtifacts } from '@vh/data-model';
 import {
   checkCivicActionsBudget,
   consumeCivicActionsBudget,
 } from '../../store/xpLedgerBudget';
 import { generateElevationArtifacts, type ElevationContext } from './elevationArtifacts';
+import { createLumaNominationEvent } from './nominationLumaRecords';
 
 /* ── Feature flag ───────────────────────────────────────────── */
 
@@ -66,31 +67,48 @@ export interface NominationResult {
   updatedBudget: NullifierBudget;
 }
 
+export interface NominationInput {
+  id: string;
+  topicId: string;
+  sourceType: 'news' | 'topic' | 'article';
+  sourceId: string;
+  createdAt: number;
+}
+
 /**
  * Execute a full nomination: budget consume + artifact generation.
  *
  * Throws if:
  * - Elevation feature is disabled
+ * - identity is missing a complete session
  * - civic_actions/day budget exceeded (consumeCivicActionsBudget throws)
  */
 export async function executeNomination(
-  event: NominationEvent,
+  event: NominationInput,
   context: ElevationContext,
   currentBudget: NullifierBudget | null,
-  nullifier: string,
+  identity: IdentityRecord | null,
 ): Promise<NominationResult> {
   if (!isElevationEnabled()) {
     throw new Error('Elevation feature is not enabled');
   }
 
+  if (!identity?.session?.nullifier) {
+    throw new Error('LUMA forum nominations require a full identity session');
+  }
+
   // Final enforcement: consume budget (throws Error(check.reason) on deny)
-  const updatedBudget = consumeCivicActionsBudget(currentBudget, nullifier);
+  const updatedBudget = consumeCivicActionsBudget(currentBudget, identity.session.nullifier);
 
   // Generate deterministic artifacts
   const artifacts = await generateElevationArtifacts(context);
+  const nomination = await createLumaNominationEvent({
+    identity,
+    ...event
+  });
 
   return {
-    nomination: event,
+    nomination,
     artifacts,
     updatedBudget,
   };

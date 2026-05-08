@@ -19,6 +19,7 @@ export type AudienceTag =
   | 'vh-forum-thread'
   | 'vh-forum-comment'
   | 'vh-forum-post'
+  | 'vh-forum-nomination'
   | 'vh-news-report'
   | 'vh-aggregate-voter'
   | 'vh-stance-vote'

@@ -177,6 +177,7 @@ type AudienceTag =
   | 'vh-forum-thread'
   | 'vh-forum-comment'
   | 'vh-forum-post'
+  | 'vh-forum-nomination'
   | 'vh-news-report'
   | 'vh-aggregate-voter'
   | 'vh-stance-vote'
@@ -199,9 +200,9 @@ forum-author records only: `hermes-thread-v1` at
 `vh/forum/threads/<threadId>/comments/<commentId>`. Readers MUST reject a
 forum envelope when `publicAuthor`, `_authorScheme`, audience, or canonical
 payload does not match the record being read.
-The `vh-forum-post`, `vh-news-report`, and `vh-aggregate-voter` audiences are
-similarly scoped to their named public surfaces and MUST NOT be reused by other
-record classes.
+The `vh-forum-post`, `vh-forum-nomination`, `vh-news-report`, and
+`vh-aggregate-voter` audiences are similarly scoped to their named public
+surfaces and MUST NOT be reused by other record classes.
 
 ### 5.1 Reader rules
 
@@ -709,6 +710,16 @@ fields and excludes mutable operator workflow fields (`status`, `audit`), so
 trusted-operator review/action updates do not invalidate the original user
 intake signature. `hermes-news-report-v1` remains legacy read/action
 compatible, but new user submissions MUST use v2.
+
+`NominationEventV1` uses schema version `hermes-nomination-v1` and signs a
+`NominationSignedPayload` through the standard envelope. It carries
+`_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
+`_authorScheme: 'forum-author-v1'`, and `SignedWriteEnvelope.audience =
+'vh-forum-nomination'`. Readers MUST validate that
+`NominationEvent.nominatorAuthorId`, `signedWriteEnvelope.publicAuthor`, and
+the signed payload `nominatorAuthorId` match the same `forumAuthorId`.
+Legacy nomination fixtures with `nominatorNullifier` remain compatibility-read
+only; new bridge outputs MUST use v1.
 
 Adding a new `_authorScheme` value is a Protocol RFC under §1.4 and requires
 a corresponding linkability-domain registry entry under §9.3. Removing a
