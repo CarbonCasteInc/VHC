@@ -110,6 +110,8 @@ for (const token of [
   'readNewsStoryline rejects system records whose signed storyline id does not match the path',
   'readNewsStoryline fails closed for system records when the pin is unavailable',
   'writeNewsStoryline fails closed without a system writer signer and does not write a bare storyline',
+  'writeNewsStoryline resolves active-pin and default system writer ids without signer material',
+  'writeNewsStoryline rejects invalid system writer timestamps and signatures',
 ]) {
   requireToken(storylineAdapterTestSource, token, 'news storyline system writer tests');
 }

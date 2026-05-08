@@ -381,6 +381,17 @@ describe('storylineAdapters', () => {
       systemWriterVerify: undefined,
     });
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('dispatchEvent', dispatchEvent);
+    vi.stubGlobal('CustomEvent', class TestCustomEvent {
+      type: string;
+      detail: unknown;
+
+      constructor(type: string, init?: { detail?: unknown }) {
+        this.type = type;
+        this.detail = init?.detail;
+      }
+    });
 
     try {
       await expect(readNewsStoryline(readerWithoutPin, 'storyline-1')).resolves.toBeNull();
@@ -392,8 +403,16 @@ describe('storylineAdapters', () => {
           path: 'vh/news/storylines/storyline-1',
         })
       );
+      expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'system-writer-validation-failed',
+        detail: expect.objectContaining({
+          reason: 'missing-pin',
+          path: 'vh/news/storylines/storyline-1',
+        }),
+      }));
     } finally {
       warning.mockRestore();
+      vi.unstubAllGlobals();
     }
   });
 
@@ -406,12 +425,76 @@ describe('storylineAdapters', () => {
     expect(mesh.writes).toHaveLength(0);
   });
 
+  it('writeNewsStoryline resolves active-pin and default system writer ids without signer material', async () => {
+    const pinnedMesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const pinnedWriterId = 'vh-system-writer-pinned-v1';
+    const pinnedClient = createClient(pinnedMesh, guard, {
+      systemWriterId: undefined,
+      systemWriterPin: {
+        ...TEST_SYSTEM_WRITER_PIN,
+        writers: [
+          {
+            ...TEST_SYSTEM_WRITER_PIN.writers[0]!,
+            id: pinnedWriterId,
+          },
+        ],
+      },
+      systemWriterSign: ({ writerId }) => {
+        expect(writerId).toBe(pinnedWriterId);
+        return TEST_SYSTEM_SIGNATURE;
+      },
+    });
+
+    await writeNewsStoryline(pinnedClient, STORYLINE);
+    expect(pinnedMesh.writes[0]?.value).toMatchObject({
+      _systemWriterId: pinnedWriterId,
+    });
+
+    const defaultMesh = createFakeMesh();
+    const defaultClient = createClient(defaultMesh, guard, {
+      systemWriterId: undefined,
+      systemWriterPin: null,
+      systemWriterNow: undefined,
+      systemWriterSign: ({ writerId }) => {
+        expect(writerId).toBe(TEST_SYSTEM_WRITER_ID);
+        return TEST_SYSTEM_SIGNATURE;
+      },
+    });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(TEST_SYSTEM_ISSUED_AT + 42));
+    try {
+      await writeNewsStoryline(defaultClient, STORYLINE);
+      expect(defaultMesh.writes[0]?.value).toMatchObject({
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT + 42,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('writeNewsStoryline rejects invalid system writer timestamps and signatures', async () => {
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+    await expect(writeNewsStoryline(
+      createClient(createFakeMesh(), guard, { systemWriterNow: () => -1 }),
+      STORYLINE,
+    )).rejects.toThrow('system writer issued-at');
+    await expect(writeNewsStoryline(
+      createClient(createFakeMesh(), guard, { systemWriterSign: () => ' invalid-signature' }),
+      STORYLINE,
+    )).rejects.toThrow('system writer signer returned an invalid signature');
+  });
+
   it('removes storyline root entry and node, and ignores invalid reads', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
     await expect(readNewsStoryline(client, 'storyline-missing')).resolves.toBeNull();
+    mesh.setRead('news/storylines/storyline-string', 'not-a-record');
+    await expect(readNewsStoryline(client, 'storyline-string')).resolves.toBeNull();
     mesh.setRead('news/storylines/storyline-1', { invalid: true });
     await expect(readNewsStoryline(client, 'storyline-1')).resolves.toBeNull();
 
