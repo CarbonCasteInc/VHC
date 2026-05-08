@@ -245,10 +245,18 @@ Implementation status:
 - `vh/news/stories/<storyId>` is the first concrete M0.B system-writer adapter
   migration. New story-node writes use the shared validator contract above and
   carry the system-writer metadata on the stored public node.
-- `vh/news/index/latest/*`, `vh/news/index/hot/*`, storylines, analysis
-  artifacts, synthesis records, discovery indexes, and topic engagement
-  records are intentionally outside that first adapter slice and must migrate
+- `vh/news/storylines/<storylineId>` is the second concrete M0.B
+  system-writer adapter migration. New storyline-node writes use the same
+  shared validator contract and carry system-writer metadata on the stored
+  public node. Legacy bare `storyline-group-v0` nodes remain read-compatible.
+- `vh/news/index/latest/*`, `vh/news/index/hot/*`, analysis artifacts,
+  synthesis records, discovery indexes, and topic engagement records are
+  intentionally outside the story/storyline adapter slices and must migrate
   through separate branches.
+- `pnpm check:luma-news-storyline-system-v1` enforces that only
+  `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
+  `vh/news/storylines/` root map and removal tombstones stay legacy bare
+  writes.
 
 Forbidden uses:
 

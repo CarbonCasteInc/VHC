@@ -217,6 +217,25 @@ Storyline publication contract:
 2. storyline groups are separate related-coverage artifacts and must not widen `StoryBundle.sources`;
 3. canonical source basis remains the `StoryBundle` event-bundle projection.
 
+Public storyline-node storage contract:
+- Product code continues to consume the `StorylineGroup` DTO above.
+- New writes to `vh/news/storylines/<storylineId>` MUST store the storyline
+  group inside the node's `__storyline_group_json` field and MUST carry
+  `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'system'`,
+  `_systemWriterId`, `_systemIssuedAt`, and `_systemSignature`.
+- `_systemSignature` uses `jcs-ed25519-sha256-v1` over
+  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
+  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+- The signed storyline node MUST NOT carry `_authorScheme` or
+  `SignedWriteEnvelope`; storyline groups are system-published, not
+  user-authored.
+- Legacy bare `storyline-group-v0` nodes remain read-compatible. A node
+  carrying `_writerKind: 'system'` but failing system-writer validation is
+  rejected and MUST NOT route through the legacy reader.
+- The `vh/news/storylines/` root map and removal tombstones are not part of
+  this M0.B storyline-node migration and do not gain system-writer metadata in
+  this slice.
+
 ### 5.1 Latest-index migration contract (PR0 freeze)
 
 Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest activity** timestamps.

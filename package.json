@@ -60,6 +60,7 @@
     "check:public-namespace-leaks": "node ./tools/scripts/check-public-namespace-leaks.mjs",
     "check:luma-system-writer-surface": "node ./tools/scripts/check-luma-system-writer-surface.mjs",
     "check:luma-news-story-system-v1": "node ./tools/scripts/check-luma-news-story-system-v1.mjs",
+    "check:luma-news-storyline-system-v1": "node ./tools/scripts/check-luma-news-storyline-system-v1.mjs",
     "report:news-sources:admission": "pnpm --filter @vh/news-aggregator report:source-admission",
     "report:news-sources:health": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-health",
     "scout:news-sources:candidates": "NODE_OPTIONS=--max-old-space-size=4096 pnpm --filter @vh/news-aggregator report:source-scout",
