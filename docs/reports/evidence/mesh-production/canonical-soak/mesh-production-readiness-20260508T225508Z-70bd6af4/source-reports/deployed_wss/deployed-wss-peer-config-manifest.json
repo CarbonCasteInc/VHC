@@ -1,0 +1,35 @@
+{
+  "runId": "mesh-deployed-wss-1778280942703-7ba2bade",
+  "traceId": "trace-1778280942704-6088791e",
+  "configId": "deployed-wss-three-relay-mesh-deployed-wss-1778280942703-7ba2bade",
+  "rolloverConfigId": "deployed-wss-three-relay-mesh-deployed-wss-1778280942703-7ba2bade-rollover",
+  "configUrl": "https://redacted-host-24d6d934ac86/mesh-peer-config.json",
+  "controlUrl": "https://redacted-host-24d6d934ac86/__control/rollover",
+  "stateUrl": "https://redacted-host-24d6d934ac86/__state",
+  "controlToken": "[redacted:d1b7d1373af1]",
+  "peerUrls": [
+    "wss://redacted-host-3f1bc1a3ba28/gun",
+    "wss://redacted-host-8180323a3be6/gun",
+    "wss://redacted-host-b29db15c5e47/gun"
+  ],
+  "relayIds": [
+    "deployed-wss-relay-a",
+    "deployed-wss-relay-b",
+    "deployed-wss-relay-c"
+  ],
+  "publicKey": "-SjoWjNHjCoS4mtduU_uAyNmZEmEBn66__Ra8moxQDc.WpCncwINQuTa0DRGlS5SVVeAPthxUxBNlvFLrBxbP4o",
+  "issuedAt": 1778280942709,
+  "expiresAt": 1778284542709,
+  "deploymentScope": "local_tls_wss_profile",
+  "expectedCspConnectSrc": [
+    "wss://redacted-host-3f1bc1a3ba28",
+    "wss://redacted-host-8180323a3be6",
+    "wss://redacted-host-b29db15c5e47",
+    "https://redacted-host-24d6d934ac86"
+  ],
+  "fixtures": {
+    "positive": "./.tmp/mesh-production-readiness/mesh-deployed-wss-1778280942703-7ba2bade/fixtures/deployed-wss-peer-config.json",
+    "rollover": "./.tmp/mesh-production-readiness/mesh-deployed-wss-1778280942703-7ba2bade/fixtures/deployed-wss-peer-config-rollover.json",
+    "insecurePeers": "./.tmp/mesh-production-readiness/mesh-deployed-wss-1778280942703-7ba2bade/fixtures/deployed-wss-insecure-peers-config.json"
+  }
+}
