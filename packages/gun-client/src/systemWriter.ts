@@ -18,6 +18,8 @@ export type SystemWriterValidationReason =
 
 export type SystemWriterAllowedClass =
   | 'news-story'
+  | 'news-latest-index'
+  | 'news-hot-index'
   | 'news-story-analysis'
   | 'news-story-analysis-latest'
   | 'news-storyline'
@@ -118,6 +120,24 @@ const ALLOWED_SYSTEM_WRITER_PATHS: readonly AllowedSystemWriterPath[] = [
       && segments[1] === 'news'
       && segments[2] === 'stories'
       && hasPathValue(pathSegment(segments, 3)),
+  },
+  {
+    recordClass: 'news-latest-index',
+    matches: (segments) => segments.length === 5
+      && segments[0] === 'vh'
+      && segments[1] === 'news'
+      && segments[2] === 'index'
+      && segments[3] === 'latest'
+      && hasPathValue(pathSegment(segments, 4)),
+  },
+  {
+    recordClass: 'news-hot-index',
+    matches: (segments) => segments.length === 5
+      && segments[0] === 'vh'
+      && segments[1] === 'news'
+      && segments[2] === 'index'
+      && segments[3] === 'hot'
+      && hasPathValue(pathSegment(segments, 4)),
   },
   {
     recordClass: 'news-story-analysis',

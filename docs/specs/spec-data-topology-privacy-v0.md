@@ -231,6 +231,8 @@ allowed namespaces, allowed record classes, and signature shape.
 | Record class | Owner spec | Path |
 |---|---|---|
 | News bundle / story | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>` |
+| News latest index entry | `spec-news-aggregator-v0.md` | `vh/news/index/latest/<storyId>` |
+| News hot index entry | `spec-news-aggregator-v0.md` | `vh/news/index/hot/<storyId>` |
 | Storyline | `spec-news-aggregator-v0.md` | `vh/news/storylines/<storylineId>` |
 | Story analysis artifact | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>/analysis/<analysisId>` |
 | Story analysis latest pointer | `spec-news-aggregator-v0.md` | `vh/news/stories/<storyId>/analysis_latest` |
@@ -249,13 +251,23 @@ Implementation status:
   system-writer adapter migration. New storyline-node writes use the same
   shared validator contract and carry system-writer metadata on the stored
   public node. Legacy bare `storyline-group-v0` nodes remain read-compatible.
-- `vh/news/index/latest/*`, `vh/news/index/hot/*`, analysis artifacts,
-  synthesis records, discovery indexes, and topic engagement records are
-  intentionally outside the story/storyline adapter slices and must migrate
-  through separate branches.
+- `vh/news/index/latest/<storyId>` and `vh/news/index/hot/<storyId>` are the
+  next concrete M0.B system-writer adapter migration. New latest/hot child
+  index-node writes use the same shared validator contract and carry
+  system-writer metadata on the stored public child node. Legacy scalar,
+  string, object, and explicit legacy-marked index entries remain
+  read-compatible.
+- Analysis artifacts, synthesis records, discovery indexes, and topic
+  engagement records are intentionally outside the story/storyline/index
+  adapter slices and must migrate through separate branches.
 - `pnpm check:luma-news-storyline-system-v1` enforces that only
   `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
   `vh/news/storylines/` root map and removal tombstones stay legacy bare
+  writes.
+- `pnpm check:luma-news-index-system-v1` enforces that only
+  `vh/news/index/latest/<storyId>` and `vh/news/index/hot/<storyId>` child
+  nodes migrated in this slice; the `vh/news/index/latest/` and
+  `vh/news/index/hot/` root maps plus removal tombstones stay legacy bare
   writes.
 
 Forbidden uses:

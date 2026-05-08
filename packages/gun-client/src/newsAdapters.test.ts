@@ -39,6 +39,8 @@ import {
   removeNewsHotIndexEntry,
   removeNewsLatestIndexEntry,
   removeNewsStory,
+  type SystemWriterHotIndexRecord,
+  type SystemWriterLatestIndexRecord,
   type SystemWriterStoryBundleRecord,
   writeNewsBundle,
   writeNewsHotIndexEntry,
@@ -161,6 +163,22 @@ const TEST_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
 const TEST_SYSTEM_ISSUED_AT = 1_700_000_030_000;
 const TEST_SYSTEM_SIGNATURE = 'test-system-signature';
 const defaultSystemWriterSign: SystemWriterSignHook = () => TEST_SYSTEM_SIGNATURE;
+const TEST_SYSTEM_PIN: SystemWriterPin = {
+  pinVersion: 1,
+  schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+  maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+  signatureSuite: 'jcs-ed25519-sha256-v1',
+  writers: [
+    {
+      id: TEST_SYSTEM_WRITER_ID,
+      status: 'active',
+      publicKey: {
+        encoding: 'spki-base64url',
+        material: 'test-public-key',
+      },
+    },
+  ],
+};
 
 function createClient(
   mesh: FakeMesh,
@@ -250,6 +268,44 @@ function expectSystemStoryRecord(
   expect(value).not.toHaveProperty('_authorScheme');
   expect(value).not.toHaveProperty('signedWriteEnvelope');
   return value as SystemWriterStoryBundleRecord;
+}
+
+function expectSystemLatestIndexRecord(
+  value: unknown,
+  storyId: string,
+  latestActivityAt: number,
+): SystemWriterLatestIndexRecord {
+  expect(value).toMatchObject({
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: TEST_SYSTEM_WRITER_ID,
+    _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+    _systemSignature: expect.any(String),
+    story_id: storyId,
+    latest_activity_at: latestActivityAt,
+  });
+  expect(value).not.toHaveProperty('_authorScheme');
+  expect(value).not.toHaveProperty('signedWriteEnvelope');
+  return value as SystemWriterLatestIndexRecord;
+}
+
+function expectSystemHotIndexRecord(
+  value: unknown,
+  storyId: string,
+  hotness: number,
+): SystemWriterHotIndexRecord {
+  expect(value).toMatchObject({
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: TEST_SYSTEM_WRITER_ID,
+    _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+    _systemSignature: expect.any(String),
+    story_id: storyId,
+    hotness,
+  });
+  expect(value).not.toHaveProperty('_authorScheme');
+  expect(value).not.toHaveProperty('signedWriteEnvelope');
+  return value as SystemWriterHotIndexRecord;
 }
 
 const STORY: StoryBundle = {
@@ -1173,6 +1229,225 @@ describe('newsAdapters', () => {
     await expect(readNewsHotIndex(client)).resolves.toEqual({ 'story-a': 0.61 });
   });
 
+  it('readNewsLatestIndex and readNewsHotIndex validate signed system index records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-a', 123.9);
+    await writeNewsHotIndexEntry(client, 'story-a', 0.912345678);
+    const latestRecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const hotRecord = expectSystemHotIndexRecord(mesh.writes[1].value, 'story-a', 0.912346);
+    expect(latestRecord._systemSignature).not.toBe(TEST_SYSTEM_SIGNATURE);
+    expect(hotRecord._systemSignature).not.toBe(TEST_SYSTEM_SIGNATURE);
+
+    mesh.setRead('news/index/latest', { 'story-a': latestRecord });
+    mesh.setRead('news/index/hot', { 'story-a': hotRecord });
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({ 'story-a': 123 });
+    await expect(readNewsHotIndex(client)).resolves.toEqual({ 'story-a': 0.912346 });
+  });
+
+  it('readNewsLatestIndex and readNewsHotIndex validate signed sparse child index records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-a', 123);
+    await writeNewsHotIndexEntry(client, 'story-a', 0.5);
+    const latestRecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const hotRecord = expectSystemHotIndexRecord(mesh.writes[1].value, 'story-a', 0.5);
+    mesh.setOnSequence('news/index/latest', [
+      { value: { _: { '#': 'vh/news/index/latest', '>': { 'story-a': 123 } } } },
+    ]);
+    mesh.setOnSequence('news/index/hot', [
+      { value: { _: { '#': 'vh/news/index/hot', '>': { 'story-a': 123 } } } },
+    ]);
+    mesh.setRead('news/index/latest/story-a', latestRecord);
+    mesh.setRead('news/index/hot/story-a', hotRecord);
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({ 'story-a': 123 });
+    await expect(readNewsHotIndex(client)).resolves.toEqual({ 'story-a': 0.5 });
+  });
+
+  it('readNewsLatestIndex and readNewsHotIndex reject tampered system index records', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-a', 123);
+    await writeNewsHotIndexEntry(client, 'story-a', 0.5);
+    const latestRecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const hotRecord = expectSystemHotIndexRecord(mesh.writes[1].value, 'story-a', 0.5);
+    const latestCases: SystemWriterLatestIndexRecord[] = [
+      { ...latestRecord, latest_activity_at: 124 },
+      { ...latestRecord, _protocolVersion: 'luma-public-v2' },
+      { ...latestRecord, _writerKind: 'legacy' as never },
+      { ...latestRecord, _systemWriterId: 'unknown-writer' },
+      { ...latestRecord, _systemIssuedAt: latestRecord._systemIssuedAt + 1 },
+      { ...latestRecord, _systemSignature: 'bad-signature' },
+      { ...latestRecord, _authorScheme: 'forum-author-v1' } as unknown as SystemWriterLatestIndexRecord,
+      { ...latestRecord, signedWriteEnvelope: { signature: 'not-for-system' } } as unknown as SystemWriterLatestIndexRecord,
+    ];
+    const hotCases: SystemWriterHotIndexRecord[] = [
+      { ...hotRecord, hotness: 0.6 },
+      { ...hotRecord, _protocolVersion: 'luma-public-v2' },
+      { ...hotRecord, _writerKind: 'legacy' as never },
+      { ...hotRecord, _systemWriterId: 'unknown-writer' },
+      { ...hotRecord, _systemIssuedAt: hotRecord._systemIssuedAt + 1 },
+      { ...hotRecord, _systemSignature: 'bad-signature' },
+      { ...hotRecord, _authorScheme: 'forum-author-v1' } as unknown as SystemWriterHotIndexRecord,
+      { ...hotRecord, signedWriteEnvelope: { signature: 'not-for-system' } } as unknown as SystemWriterHotIndexRecord,
+    ];
+
+    mesh.setRead('news/index/latest/story-a', 123);
+    for (const tampered of latestCases) {
+      mesh.setRead('news/index/latest', {
+        'story-a': tampered,
+        _: { '#': 'vh/news/index/latest', '>': { 'story-a': 123 } },
+      });
+      await expect(readNewsLatestIndex(client)).resolves.toEqual({});
+    }
+    mesh.setRead('news/index/hot/story-a', 0.5);
+    for (const tampered of hotCases) {
+      mesh.setRead('news/index/hot', {
+        'story-a': tampered,
+        _: { '#': 'vh/news/index/hot', '>': { 'story-a': 123 } },
+      });
+      await expect(readNewsHotIndex(client)).resolves.toEqual({});
+    }
+  });
+
+  it('readNewsLatestIndex and readNewsHotIndex reject signed index records whose story id does not match the path', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+
+    await writeNewsLatestIndexEntry(client, 'story-a', 123);
+    await writeNewsHotIndexEntry(client, 'story-a', 0.5);
+    const latestRecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const hotRecord = expectSystemHotIndexRecord(mesh.writes[1].value, 'story-a', 0.5);
+    mesh.setRead('news/index/latest', { 'story-b': latestRecord });
+    mesh.setRead('news/index/hot', { 'story-b': hotRecord });
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({});
+    await expect(readNewsHotIndex(client)).resolves.toEqual({});
+  });
+
+  it('readNewsLatestIndex and readNewsHotIndex fail closed for system index records when the pin is unavailable', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const hooks = await createRealSystemWriterHooks();
+    const signingClient = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    await writeNewsLatestIndexEntry(signingClient, 'story-a', 123);
+    await writeNewsHotIndexEntry(signingClient, 'story-a', 0.5);
+    const latestRecord = expectSystemLatestIndexRecord(mesh.writes[0].value, 'story-a', 123);
+    const hotRecord = expectSystemHotIndexRecord(mesh.writes[1].value, 'story-a', 0.5);
+    mesh.setRead('news/index/latest', { 'story-a': latestRecord });
+    mesh.setRead('news/index/hot', { 'story-a': hotRecord });
+    const readerWithoutPin = createClient(mesh, guard, { systemWriterPin: null });
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    try {
+      await expect(readNewsLatestIndex(readerWithoutPin)).resolves.toEqual({});
+      await expect(readNewsHotIndex(readerWithoutPin)).resolves.toEqual({});
+      expect(warning).toHaveBeenCalledWith(
+        '[vh:news] system-writer-validation-failed',
+        expect.objectContaining({
+          event: 'system-writer-validation-failed',
+          reason: 'missing-pin',
+          path: 'vh/news/index/latest/story-a',
+        })
+      );
+      expect(warning).toHaveBeenCalledWith(
+        '[vh:news] system-writer-validation-failed',
+        expect.objectContaining({
+          event: 'system-writer-validation-failed',
+          reason: 'missing-pin',
+          path: 'vh/news/index/hot/story-a',
+        })
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it('readNewsLatestIndex and readNewsHotIndex keep legacy-marked index entries read-compatible without downgrading protected fields', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('news/index/latest', {
+      'legacy-scalar': 123,
+      'legacy-string': '124',
+      'legacy-object': { created_at: 125 },
+      'legacy-marked': {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: 'legacy',
+        latest_activity_at: 126,
+      },
+      'legacy-bad-protocol': {
+        _protocolVersion: 'luma-public-v2',
+        _writerKind: 'legacy',
+        latest_activity_at: 127,
+      },
+      'legacy-downgrade': {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: 'legacy',
+        _systemSignature: 'not-allowed',
+        latest_activity_at: 128,
+      },
+    });
+    mesh.setRead('news/index/hot', {
+      'legacy-scalar': 0.5,
+      'legacy-string': '0.6',
+      'legacy-object': { hotness: 0.7 },
+      'legacy-marked': {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: 'legacy',
+        hotness: 0.8,
+      },
+      'legacy-downgrade': {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: 'legacy',
+        signedWriteEnvelope: { signature: 'not-allowed' },
+        hotness: 0.9,
+      },
+    });
+
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterPin: null });
+
+    await expect(readNewsLatestIndex(client)).resolves.toEqual({
+      'legacy-scalar': 123,
+      'legacy-string': 124,
+      'legacy-object': 125,
+      'legacy-marked': 126,
+    });
+    await expect(readNewsHotIndex(client)).resolves.toEqual({
+      'legacy-scalar': 0.5,
+      'legacy-string': 0.6,
+      'legacy-object': 0.7,
+      'legacy-marked': 0.8,
+    });
+  });
+
   it('news adapter internals expose sparse-index helper behavior', async () => {
     expect(newsAdapterInternal.extractIndexChildKeys(null)).toEqual([]);
     expect(
@@ -1193,12 +1468,12 @@ describe('newsAdapters', () => {
       })),
     } as unknown as Parameters<typeof newsAdapterInternal.readIndexedEntries>[0];
 
-    await expect(newsAdapterInternal.readIndexedEntries(chain, { _: {} }, () => 1)).resolves.toEqual({});
+    await expect(newsAdapterInternal.readIndexedEntries(chain, { _: {} }, () => Promise.resolve(1))).resolves.toEqual({});
     await expect(
       newsAdapterInternal.readIndexedEntries(
         chain,
         { _: { '>': { 'story-a': 1, 'story-b': 2 } } },
-        (value) => (typeof value === 'number' ? value : null),
+        (_storyId, value) => Promise.resolve(typeof value === 'number' ? value : null),
       ),
     ).resolves.toEqual({ 'story-a': 12 });
   });
@@ -1291,10 +1566,25 @@ describe('newsAdapters', () => {
     const client = createClient(mesh, guard);
 
     await writeNewsLatestIndexEntry(client, ' story-a ', 123.9);
-    expect(mesh.writes[0]).toEqual({ path: 'news/index/latest/story-a', value: 123 });
+    expect(mesh.writes[0]).toEqual({
+      path: 'news/index/latest/story-a',
+      value: expect.objectContaining({
+        _protocolVersion: 'luma-public-v1',
+        _writerKind: 'system',
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: 'story-a',
+        latest_activity_at: 123,
+      }),
+    });
 
     await writeNewsLatestIndexEntry(client, 'story-b', -10);
-    expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-b', value: 0 });
+    expect(mesh.writes[1]).toEqual({
+      path: 'news/index/latest/story-b',
+      value: expect.objectContaining({
+        story_id: 'story-b',
+        latest_activity_at: 0,
+      }),
+    });
 
     await expect(writeNewsLatestIndexEntry(client, '   ', 1)).rejects.toThrow('storyId is required');
   });
@@ -1305,15 +1595,106 @@ describe('newsAdapters', () => {
     const client = createClient(mesh, guard);
 
     await expect(writeNewsHotIndexEntry(client, ' story-a ', 0.912345678)).resolves.toBe(0.912346);
-    expect(mesh.writes[0]).toEqual({ path: 'news/index/hot/story-a', value: 0.912346 });
+    expect(mesh.writes[0]).toEqual({
+      path: 'news/index/hot/story-a',
+      value: expect.objectContaining({
+        _protocolVersion: 'luma-public-v1',
+        _writerKind: 'system',
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: 'story-a',
+        hotness: 0.912346,
+      }),
+    });
 
     await expect(writeNewsHotIndexEntry(client, 'story-b', Number.NaN)).resolves.toBe(0);
-    expect(mesh.writes[1]).toEqual({ path: 'news/index/hot/story-b', value: 0 });
+    expect(mesh.writes[1]).toEqual({
+      path: 'news/index/hot/story-b',
+      value: expect.objectContaining({
+        story_id: 'story-b',
+        hotness: 0,
+      }),
+    });
 
     await expect(writeNewsHotIndexEntry(client, 'story-c', -1)).resolves.toBe(0);
-    expect(mesh.writes[2]).toEqual({ path: 'news/index/hot/story-c', value: 0 });
+    expect(mesh.writes[2]).toEqual({
+      path: 'news/index/hot/story-c',
+      value: expect.objectContaining({
+        story_id: 'story-c',
+        hotness: 0,
+      }),
+    });
 
     await expect(writeNewsHotIndexEntry(client, '   ', 0.1)).rejects.toThrow('storyId is required');
+  });
+
+  it('writeNewsLatestIndexEntry and writeNewsHotIndexEntry confirm signed readback after ack timeout', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, {
+        systemWriterPin: TEST_SYSTEM_PIN,
+        systemWriterVerify: () => true,
+      });
+
+      mesh.setPutHang('news/index/latest/story-a');
+      mesh.setRead('news/index/latest/story-a', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: 'story-a',
+        latest_activity_at: 123,
+      });
+      const latestPromise = writeNewsLatestIndexEntry(client, 'story-a', 123);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(latestPromise).resolves.toBeUndefined();
+
+      mesh.setPutHang('news/index/hot/story-a');
+      mesh.setRead('news/index/hot/story-a', {
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: TEST_SYSTEM_WRITER_ID,
+        _systemIssuedAt: TEST_SYSTEM_ISSUED_AT,
+        _systemSignature: TEST_SYSTEM_SIGNATURE,
+        story_id: 'story-a',
+        hotness: 0.5,
+      });
+      const hotPromise = writeNewsHotIndexEntry(client, 'story-a', 0.5);
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(hotPromise).resolves.toBe(0.5);
+
+      mesh.setPutHang('news/index/latest/story-missing');
+      mesh.setRead('news/index/latest/story-missing', null);
+      const missingLatestPromise = expect(
+        writeNewsLatestIndexEntry(client, 'story-missing', 1)
+      ).rejects.toThrow('news latest-index write timed out');
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      await missingLatestPromise;
+
+      mesh.setPutHang('news/index/hot/story-missing');
+      mesh.setRead('news/index/hot/story-missing', null);
+      const missingHotPromise = expect(
+        writeNewsHotIndexEntry(client, 'story-missing', 0.25)
+      ).rejects.toThrow('news hot-index write timed out');
+      await vi.advanceTimersByTimeAsync(1000);
+      await vi.advanceTimersByTimeAsync(2000);
+      await missingHotPromise;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('writeNewsLatestIndexEntry and writeNewsHotIndexEntry fail closed without a system writer signer', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterSign: undefined });
+
+    await expect(writeNewsLatestIndexEntry(client, 'story-a', 123)).rejects.toThrow('system writer signer is required');
+    await expect(writeNewsHotIndexEntry(client, 'story-a', 0.5)).rejects.toThrow('system writer signer is required');
+    expect(mesh.writes).toHaveLength(0);
   });
 
   it('writeNewsBundle writes story, latest index, and deterministic hot index', async () => {
@@ -1334,13 +1715,24 @@ describe('newsAdapters', () => {
       expect(
         JSON.parse((mesh.writes[0].value as Record<string, unknown>).__story_bundle_json as string)
       ).toEqual(STORY);
-      expect(mesh.writes[1]).toEqual({ path: 'news/index/latest/story-123', value: STORY.cluster_window_end });
-      expect(typeof mesh.writes[1].value).toBe('number');
+      expect(mesh.writes[1]).toEqual({
+        path: 'news/index/latest/story-123',
+        value: expect.objectContaining({
+          _writerKind: 'system',
+          story_id: STORY.story_id,
+          latest_activity_at: STORY.cluster_window_end,
+        }),
+      });
+      expectSystemLatestIndexRecord(mesh.writes[1].value, STORY.story_id, STORY.cluster_window_end);
       expect(mesh.writes[2]).toEqual({
         path: 'news/index/hot/story-123',
-        value: computeStoryHotness(STORY, Date.now()),
+        value: expect.objectContaining({
+          _writerKind: 'system',
+          story_id: STORY.story_id,
+          hotness: computeStoryHotness(STORY, Date.now()),
+        }),
       });
-      expect(typeof mesh.writes[2].value).toBe('number');
+      expectSystemHotIndexRecord(mesh.writes[2].value, STORY.story_id, computeStoryHotness(STORY, Date.now()));
     } finally {
       vi.useRealTimers();
     }
