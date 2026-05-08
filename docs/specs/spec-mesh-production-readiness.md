@@ -1041,9 +1041,10 @@ without replacing it with a more specific one.
 
 ### Slice 11 - Release Gate And Evidence Packet
 
-Status: Implemented as an aggregate evidence-packet scaffold. The command
-produces a complete `review_required` packet when implemented proof commands
-pass but release-ready blockers remain.
+Status: Implemented as an aggregate evidence-packet scaffold with a
+post-aggregate evidence scrub promotion gate. The command produces a complete
+`review_required` packet when implemented proof commands and the scrub source
+report pass but release-ready blockers remain.
 
 Purpose:
 
@@ -1092,14 +1093,15 @@ interface MeshProductionReadinessReport {
       | 'local_tls_wss_peer_config_rollback'
       | 'local_clock_skew_matrix'
       | 'local_conflict_resolution_fixtures'
-      | 'aggregate_production_readiness';
+      | 'aggregate_production_readiness'
+      | 'mesh_evidence_scrub_promotion';
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
     completed_at: string;
     duration_ms: number;
     command: string;
   };
-  status: 'release_ready' | 'review_required' | 'blocked';
+  status: 'release_ready' | 'review_required' | 'blocked' | 'pass';
   schema_epoch: 'pre_luma_m0b' | 'post_luma_m0b' | string;
   luma_profile: 'public-beta' | 'production-attestation' | 'none';
   luma_dependency_status: Record<string, 'landed' | 'in-progress' | 'pending' | 'n/a'>;
@@ -1204,7 +1206,7 @@ interface MeshProductionReadinessReport {
     name: string;
     command: string;
     status: 'pass' | 'fail';
-    result_status: 'release_ready' | 'review_required' | 'blocked' | 'missing';
+    result_status: 'release_ready' | 'review_required' | 'blocked' | 'missing' | 'pass';
     run_id: string | null;
     run_mode: string | null;
     run_command: string | null;
@@ -1413,8 +1415,9 @@ Acceptance gates:
     fresh rollback config, not a stale cached config
   - any LUMA-gated write class (drill_writer_kind `'luma'`) was exercised
     against the LUMA reader path, not bypassed via drill writer contract
-  - any promoted evidence under `docs/reports/evidence/mesh-production/`
-    passed `pnpm check:mesh-evidence-scrub` (§5.7.1)
+  - any promoted evidence under `.tmp/mesh-production-readiness/promoted/` or
+    `docs/reports/evidence/mesh-production/` passed
+    `pnpm check:mesh-evidence-scrub` (§5.7.1)
 - The gate fails if a release commit claims production mesh without a passing
   report.
 - `pnpm check:mesh:production-readiness` is necessary but not sufficient for
@@ -1709,9 +1712,18 @@ release claims that are absent from the generated report.
 
 #### 5.7.1 Evidence-promotion scrub gate
 
+Status: Implemented for `.tmp` promotion staging as
+`pnpm check:mesh-evidence-scrub`. The command consumes
+`.tmp/mesh-production-readiness/latest` by default, or an explicit
+`--source-dir` / `VH_MESH_EVIDENCE_SOURCE_DIR` packet. The production-readiness
+aggregate gate MUST call it against the current run directory, not the mutable
+`latest` alias, then record an `evidence_scrub` source report before writing
+the final aggregate.
+
 `.tmp` readiness packets are unredacted machine proof. Promoting any field from
-a `.tmp` packet into a tracked artifact under `docs/reports/evidence/` requires
-running a scrub step. The scrub step MUST remove or redact:
+a `.tmp` packet into a tracked artifact under `docs/reports/evidence/` or into
+the local promotion staging directory requires running a scrub step. The scrub
+step MUST remove or redact:
 
 - raw mesh paths (replace with `redactedPathHash` per
   `spec-luma-service-v0.md` §16.1)
@@ -1725,10 +1737,16 @@ running a scrub step. The scrub step MUST remove or redact:
 - evidence vector material, biometric features, raw camera/IMU buffers
 - private contact information, support correspondence, personal abuse evidence
 
-A new release gate `pnpm check:mesh-evidence-scrub` MUST run against any
-candidate promotion; the gate fails if any forbidden field is present. The
-scrub script is the only sanctioned promotion path; manual copy-paste into
-`docs/reports/evidence/` is forbidden.
+A release gate `pnpm check:mesh-evidence-scrub` MUST run against any candidate
+promotion; the gate fails closed for missing, stale, dirty, or overclaiming
+aggregate evidence, missing referenced source reports, stale placeholder
+evidence, raw daemon tokens, bearer credentials, private signing material,
+unredacted relay/config origins, unsafe absolute machine paths, implied
+LUMA-gated write coverage, or writer kinds outside synthetic mesh evidence. The
+gate writes the scrubbed packet under
+`.tmp/mesh-production-readiness/promoted/<run_id>/` and rescans the transformed
+output before passing. The scrub script is the only sanctioned promotion path;
+manual copy-paste into `docs/reports/evidence/` is forbidden.
 
 Opaque correlation identifiers (`run_id`, `write_id`, `trace_id`,
 `drill_run_id`) are explicitly permitted in promoted evidence.
@@ -2096,13 +2114,12 @@ Implemented mesh commands:
 - `pnpm test:mesh:peer-config-rollback-drill`
 - `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
+- `pnpm check:mesh-evidence-scrub`
 - `pnpm check:mesh:production-readiness`
 
 Required new commands:
 
 - `pnpm check:production-app-canary`
-- `pnpm check:mesh-evidence-scrub` (gates promotion of `.tmp` packets to
-  `docs/reports/evidence/`; see §5.7.1)
 
 ## 7. Release Claim Boundary
 
@@ -2302,9 +2319,33 @@ Still not allowed after Slice 13B conflict/protocol fixture proof:
   soak claim."
 - "The app is ready for a test group."
 
-Allowed after Slices 6B through 13B pass (under `schema_epoch:
-post_luma_m0b` with all LUMA-gated write classes drilled through the LUMA
-reader path):
+Allowed after Slice 14A evidence scrub and promotion gate:
+
+- "`pnpm check:mesh-evidence-scrub` deterministically promotes a mesh readiness
+  packet from `.tmp/mesh-production-readiness/latest` or an explicit
+  `--source-dir` into `.tmp/mesh-production-readiness/promoted/<run_id>/`."
+- "The aggregate readiness packet can remove the `evidence-scrub-promotion`
+  blocker only when the `evidence_scrub` source report is fresh, clean,
+  command-matched, and has `evidence_scrub.status: pass`."
+- "The promoted packet has been rescanned for raw tokens, bearer credentials,
+  private signing material, unredacted relay/config origins, unsafe absolute
+  machine paths, stale placeholder evidence, release overclaims, implied
+  LUMA-gated write coverage, and disallowed writer kinds."
+
+Still not allowed after Slice 14A evidence scrub and promotion gate:
+
+- "The mesh is `release_ready`."
+- "Public WSS infrastructure or public WSS conflict behavior is
+  production-proven."
+- "LUMA public schema migrations or LUMA-gated write classes are
+  mesh-readiness-proven."
+- "The default shortened local command satisfies the canonical thirty-minute
+  soak claim."
+- "The app is ready for a test group."
+
+Allowed after Slices 6B through 14A plus downstream LUMA-gated coverage pass
+(under `schema_epoch: post_luma_m0b` with all LUMA-gated write classes drilled
+through the LUMA reader path):
 
 - "The mesh has a production WSS three-relay topology with signed peer config,
   authenticated relay fallbacks, named health degradation, peer-failure and
