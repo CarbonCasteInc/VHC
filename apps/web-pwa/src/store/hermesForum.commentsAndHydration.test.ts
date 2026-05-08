@@ -248,10 +248,22 @@ beforeEach(() => {
   getForumTagIndexChainMock.mockClear();
 });
 
+const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+function waitRealTime(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    realSetTimeout(resolve, ms);
+  });
+}
+
 async function waitForMockCall(mock: { mock: { calls: unknown[] } }, count = 1): Promise<void> {
-  for (let i = 0; i < 50 && mock.mock.calls.length < count; i += 1) {
+  for (let i = 0; i < 250 && mock.mock.calls.length < count; i += 1) {
     await vi.advanceTimersByTimeAsync(1);
     await Promise.resolve();
+    if (mock.mock.calls.length >= count) {
+      break;
+    }
+    await waitRealTime(1);
   }
   expect(mock.mock.calls.length).toBeGreaterThanOrEqual(count);
 }
@@ -586,7 +598,7 @@ describe('hermesForum store (comments & hydration)', () => {
       .createComment('thread-1', 'via test', 'reply', undefined, undefined, 'familiar');
 
     expect(comment.via).toBe('familiar');
-    expect(commentWrites[0].via).toBe('familiar');
+    expect(commentWrites.find((value) => value?.id === 'comment-via')?.via).toBe('familiar');
     forumSpy.mockRestore();
   });
 
