@@ -330,6 +330,9 @@ function topologyFromPayload(params: {
   const minimumPeerCount = signedMinimumPeerCount ?? resolveMinimumPeerCount(strict);
   const quorumRequired = signedQuorumRequired ?? undefined;
   const now = Date.now();
+  if (issuedAt !== null && issuedAt > now) {
+    throw new Error('[vh:gun] peer config is not yet valid');
+  }
   if (expiresAt !== null && expiresAt <= now) {
     throw new Error('[vh:gun] peer config is expired');
   }

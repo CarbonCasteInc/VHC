@@ -30,6 +30,7 @@
     "test:mesh:read-repair-drills": "pnpm --filter @vh/e2e test:mesh:read-repair-drills",
     "test:mesh:soak": "pnpm --filter @vh/e2e test:mesh:soak",
     "test:mesh:peer-config-rollback-drill": "pnpm --filter @vh/e2e test:mesh:peer-config-rollback-drill",
+    "test:mesh:clock-skew-drills": "pnpm --filter @vh/e2e test:mesh:clock-skew-drills",
     "check:mesh:production-readiness": "pnpm --filter @vh/e2e check:mesh:production-readiness",
     "test:storycluster:smoke": "pnpm --filter @vh/e2e test:live:daemon-feed:build && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak",
     "test:storycluster:smoke:readiness": "pnpm --filter @vh/e2e test:live:daemon-feed:build && (pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak || true) && pnpm --filter @vh/e2e test:live:daemon-feed:semantic-soak:readiness",

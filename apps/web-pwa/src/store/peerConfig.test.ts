@@ -207,6 +207,7 @@ describe('peerConfig', () => {
       [{ ...basePayload, quorumRequired: undefined }, 'strict signed peer config requires quorumRequired'],
       [{ ...basePayload, expiresAt: issuedAt }, 'strict signed peer config expiresAt must be after issuedAt'],
       [{ ...basePayload, quorumRequired: 4 }, 'strict signed peer config quorumRequired cannot exceed configured peers'],
+      [{ ...basePayload, issuedAt: Date.now() + 60_000, expiresAt: Date.now() + 120_000 }, 'peer config is not yet valid'],
     ];
 
     vi.stubEnv('VITE_VH_STRICT_PEER_CONFIG', 'true');

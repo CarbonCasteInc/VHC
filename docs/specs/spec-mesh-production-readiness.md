@@ -1090,6 +1090,7 @@ interface MeshProductionReadinessReport {
       | 'local_read_repair_strategy'
       | 'local_rolling_restart_soak'
       | 'local_tls_wss_peer_config_rollback'
+      | 'local_clock_skew_matrix'
       | 'aggregate_production_readiness';
     deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
     started_at: string;
@@ -1999,7 +2000,7 @@ Layer-specific outcomes:
 | LUMA session expiry | `Clock` interface (`spec-luma-service-v0.md` §12.2) | Session transitions to `degraded`; user re-attests. No mesh transport reason fires. |
 | `SignedWriteEnvelope.issuedAt` skew vs server | `Clock` interface | Reader rejects with `assurance_degraded` or `signature_suite_unsupported` (LUMA `PolicyReason`). No mesh transport reason. |
 | Relay user-signature timestamp window failure | OS-level clock on the relay or browser | Relay rejects with named auth failure; mesh maps to `clock-skew-detected` health reason. |
-| Peer-handshake timestamp window failure | OS-level clock on participating relays | Peer-config rejected with auth failure; mesh maps to `clock-skew-detected`. |
+| Peer-handshake timestamp window failure | OS-level clock on participating relays | If the deployed relay-peer auth mode includes timestamped relay-peer signatures, the handshake is rejected with a named auth failure and mesh maps to `clock-skew-detected`. For v0 `private_network_allowlist`/token relay-peer auth, the row is recorded as `skipped`/`not_applicable` with the auth-mode reason. |
 | Signed peer-config validity window | OS-level clock on browser | Peer config rejected; browser fails closed in strict mode; mesh maps to `peer-quorum-missing` only if no valid peer config remains. |
 | LWW divergence under skew | OS-level clock on writers | Drill MUST assert no LWW divergence on deterministic-id records (votes, comments, aggregate snapshots) and MUST classify any divergence as a regression, not as expected behavior. |
 
@@ -2015,6 +2016,12 @@ Drill harness rules:
 - A drill that conflates the two layers (e.g. drives session expiry by
   mutating the OS clock) is a test-quality regression and the drill report
   MUST mark the run `review_required`.
+- Slice 13A implements `pnpm test:mesh:clock-skew-drills` for applicable
+  non-LUMA mesh clock/auth windows under `run.mode:
+  local_clock_skew_matrix`. It uses synthetic mesh drill records under
+  `vh/__mesh_drills/<run_id>/clock_skew/*`, keeps
+  `_drillWriterKind: 'mesh-drill'`, and records LUMA session/envelope rows as
+  `skipped` until the LUMA reader gates own them.
 
 ### 5.13 Coherence Report Fields
 
@@ -2077,11 +2084,11 @@ Implemented mesh commands:
 - `pnpm test:mesh:read-repair-drills`
 - `pnpm test:mesh:soak`
 - `pnpm test:mesh:peer-config-rollback-drill`
+- `pnpm test:mesh:clock-skew-drills`
 - `pnpm check:mesh:production-readiness`
 
 Required new commands:
 
-- `pnpm test:mesh:clock-skew-drills`
 - `pnpm test:mesh:conflict-drills`
 - `pnpm check:production-app-canary`
 - `pnpm check:mesh-evidence-scrub` (gates promotion of `.tmp` packets to
@@ -2245,7 +2252,26 @@ Still not allowed after Slice 12A operator rollback proof:
 - "LUMA-gated production write classes are mesh-readiness-proven."
 - "The app is ready for a test group."
 
-Allowed after Slices 6B through 12 pass (under `schema_epoch:
+Allowed after Slice 13A clock-skew/auth-window proof:
+
+- "`pnpm test:mesh:clock-skew-drills` exercises the local non-LUMA mesh
+  clock-skew/auth-window matrix for relay user signatures, strict signed
+  peer-config validity windows, and deterministic synthetic drill records."
+- "The aggregate readiness packet can remove the `full-clock-skew-matrix`
+  blocker when the Slice 13A source report is fresh, clean, command-matched,
+  and has `clock_skew.status: pass`."
+
+Still not allowed after Slice 13A clock-skew/auth-window proof:
+
+- "The mesh is `release_ready`."
+- "Public WSS clock-skew behavior is production-proven."
+- "LUMA session/envelope clock behavior is mesh-readiness-proven."
+- "The default shortened local command satisfies the canonical thirty-minute
+  soak claim."
+- "LUMA-gated production write classes are mesh-readiness-proven."
+- "The app is ready for a test group."
+
+Allowed after Slices 6B through 13A pass (under `schema_epoch:
 post_luma_m0b` with all LUMA-gated write classes drilled through the LUMA
 reader path):
 

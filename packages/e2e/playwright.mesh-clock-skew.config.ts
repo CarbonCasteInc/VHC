@@ -1,0 +1,42 @@
+import { defineConfig, devices } from '@playwright/test';
+import * as path from 'node:path';
+
+const appPort = Number.parseInt(process.env.VH_MESH_CLOCK_SKEW_APP_PORT ?? '2448', 10);
+const configPort = Number.parseInt(process.env.VH_MESH_CLOCK_SKEW_CONFIG_PORT ?? '2449', 10);
+const appUrl = process.env.VH_MESH_CLOCK_SKEW_APP_URL ?? `http://127.0.0.1:${appPort}/`;
+const repoRoot = path.resolve(__dirname, '../..');
+const fixturePath = process.env.VH_MESH_CLOCK_SKEW_CONFIG_PATH
+  ?? path.join(repoRoot, '.tmp/mesh-production-readiness/latest/peer-config-expired.json');
+
+export default defineConfig({
+  testDir: '.',
+  timeout: 90_000,
+  expect: { timeout: 10_000 },
+  use: {
+    ...devices['Desktop Chrome'],
+    baseURL: appUrl,
+    trace: 'retain-on-failure',
+  },
+  reporter: [['list']],
+  webServer: [
+    {
+      command: `env VH_MESH_SIGNED_CANARY_CONFIG_PORT=${configPort} VH_MESH_SIGNED_PEER_CONFIG_PATH=${fixturePath} node ${repoRoot}/packages/e2e/src/mesh/signed-peer-config-server.mjs`,
+      url: `http://127.0.0.1:${configPort}/healthz`,
+      timeout: 15_000,
+      reuseExistingServer: false,
+      cwd: repoRoot,
+    },
+    {
+      command: `pnpm --filter @vh/web-pwa exec vite preview --host 127.0.0.1 --port ${appPort} --strictPort`,
+      url: appUrl,
+      timeout: 45_000,
+      reuseExistingServer: false,
+      cwd: repoRoot,
+      env: {
+        ...process.env,
+        VITE_VH_GUN_LOCAL_STORAGE: 'false',
+        VITE_VH_SHOW_HEALTH: 'true',
+      },
+    },
+  ],
+});
