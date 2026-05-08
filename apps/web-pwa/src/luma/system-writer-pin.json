@@ -1,0 +1,16 @@
+{
+  "pinVersion": 1,
+  "schemaEpoch": "luma-public-v1",
+  "maxProtocolVersion": "luma-public-v1",
+  "signatureSuite": "jcs-ed25519-sha256-v1",
+  "writers": [
+    {
+      "id": "vh-system-writer-dev-v1",
+      "status": "active",
+      "publicKey": {
+        "encoding": "spki-base64url",
+        "material": "MCowBQYDK2VwAyEAT4VbH05BneR1LcEJwKI8dc_NU-kiwKqGcOdct9dwihU"
+      }
+    }
+  ]
+}

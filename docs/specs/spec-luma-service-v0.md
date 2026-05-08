@@ -637,6 +637,13 @@ Reader rules:
   - `_systemSignature` verifies under the named signature suite (`spec-data-topology-privacy-v0.md` §8.3) over JCS(record minus `_systemSignature`);
   - the record's `_protocolVersion` is at or below the reader's known maximum and matches the schema epoch the system-writer pin was issued for.
 
+  The M0.B foundation implementation pins the public key at
+  `apps/web-pwa/src/luma/system-writer-pin.json` and exposes the shared
+  reader validator from `packages/gun-client/src/systemWriter.ts`. Adapters
+  MUST use that validator when migrating system-published records; they MUST
+  NOT duplicate path/signature checks or route system writes through the
+  client `SignedWriteEnvelope` APIs.
+
   If any condition fails, the reader MUST reject/quarantine the record, MUST
   NOT surface it to product UI, MUST NOT route it through the legacy migration
   adapter, and MUST emit `system-writer-validation-failed` carrying the failing

@@ -26,6 +26,7 @@
     "@vh/data-model": "workspace:*",
     "@vh/luma-sdk": "workspace:*",
     "@vh/types": "workspace:*",
+    "canonicalize": "^3.0.0",
     "gun": "0.2020.1237",
     "idb": "^8.0.3"
   },
