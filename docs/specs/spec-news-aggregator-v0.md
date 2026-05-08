@@ -163,9 +163,9 @@ Public story-node storage contract:
 - Legacy bare `story-bundle-v0` nodes remain read-compatible. A node carrying
   `_writerKind: 'system'` but failing system-writer validation is rejected and
   MUST NOT route through the legacy reader.
-- Latest/hot indexes under `vh/news/index/latest/*` and
-  `vh/news/index/hot/*` are not part of this M0.B story-node migration and do
-  not gain system-writer metadata in this slice.
+- Latest/hot index entries under `vh/news/index/latest/<storyId>` and
+  `vh/news/index/hot/<storyId>` migrate through their own M0.B index-entry
+  contract below. They are written after the story node by `writeNewsBundle`.
 
 PR0 identity wiring freeze:
 - `StoryBundle.story_id` is the canonical NEWS_STORY identity key.
@@ -206,6 +206,7 @@ Analysis frame/reframe output contract:
 
 - `vh/news/stories/<storyId>`
 - `vh/news/index/latest/<storyId>`
+- `vh/news/index/hot/<storyId>`
 - `vh/news/storylines/<storylineId>`
 - optional: `vh/news/source/<sourceId>/<itemId>` for debug snapshots
 - analysis artifacts: `vh/news/stories/<storyId>/analysis/<analysisKey>`
@@ -240,16 +241,45 @@ Public storyline-node storage contract:
 
 Canonical target semantics for `vh/news/index/latest/<storyId>` are **latest activity** timestamps.
 
-- Target write shape: scalar timestamp (activity, aligned with `cluster_window_end`).
+- Target write shape: system-writer signed child node with `story_id` and
+  `latest_activity_at` (activity, aligned with `cluster_window_end`).
 - Transitional read compatibility (must be supported):
   - scalar timestamp string/number
   - object payloads carrying `cluster_window_end` or `latest_activity_at`
   - legacy object payloads carrying `created_at`
+  - explicit `_writerKind: 'legacy'` entries when they carry no downgraded
+    system/user-author fields
 - Canonical mixed-object precedence (when multiple keys are present):
   1. `cluster_window_end`
   2. `latest_activity_at`
   3. `created_at`
-- Migration discipline: reader dual-compat first; writer cutover to activity semantics in PR1.
+- Migration discipline: readers validate `_writerKind: 'system'` entries with
+  the shared system-writer validator and fail closed on invalid system-marked
+  entries rather than downgrading them through the legacy parser.
+
+Public latest/hot index-entry storage contract:
+- Product code continues to consume `Record<string, number>` DTOs from
+  `readNewsLatestIndex` and `readNewsHotIndex`.
+- New writes to `vh/news/index/latest/<storyId>` MUST store an object carrying
+  `story_id`, `latest_activity_at`, `_protocolVersion: 'luma-public-v1'`,
+  `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
+  `_systemSignature`.
+- New writes to `vh/news/index/hot/<storyId>` MUST store an object carrying
+  `story_id`, `hotness`, `_protocolVersion: 'luma-public-v1'`,
+  `_writerKind: 'system'`, `_systemWriterId`, `_systemIssuedAt`, and
+  `_systemSignature`.
+- `_systemSignature` uses `jcs-ed25519-sha256-v1` over
+  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
+  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+- Signed latest/hot index entries MUST NOT carry `_authorScheme` or
+  `SignedWriteEnvelope`; they are system-published, not user-authored.
+- Legacy scalar, string, object, and explicit legacy-marked entries remain
+  read-compatible. Entries carrying `_writerKind: 'system'` but failing
+  system-writer validation are rejected and MUST NOT route through the legacy
+  reader.
+- The `vh/news/index/latest/` and `vh/news/index/hot/` root maps plus removal
+  tombstones are not part of this M0.B index-entry migration and do not gain
+  system-writer metadata in this slice.
 
 ## 6. Privacy and safety
 

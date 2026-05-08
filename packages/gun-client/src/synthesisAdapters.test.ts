@@ -1114,11 +1114,23 @@ describe('synthesisAdapters', () => {
     expect(mesh.writes[0]?.path).toBe('news/stories/story-1');
     expect(mesh.writes[1]).toEqual({
       path: 'news/index/latest/story-1',
-      value: STORY.cluster_window_end
+      value: expect.objectContaining({
+        _protocolVersion: 'luma-public-v1',
+        _writerKind: 'system',
+        _systemSignature: 'test-system-story-signature',
+        story_id: STORY.story_id,
+        latest_activity_at: STORY.cluster_window_end
+      })
     });
     expect(mesh.writes[2]?.path).toBe('news/index/hot/story-1');
-    expect(typeof mesh.writes[2]?.value).toBe('number');
-    expect((mesh.writes[2]?.value as number) >= 0).toBe(true);
+    expect(mesh.writes[2]?.value).toMatchObject({
+      _protocolVersion: 'luma-public-v1',
+      _writerKind: 'system',
+      _systemSignature: 'test-system-story-signature',
+      story_id: STORY.story_id,
+      hotness: expect.any(Number)
+    });
+    expect(((mesh.writes[2]?.value as Record<string, unknown>).hotness as number) >= 0).toBe(true);
 
     const encodedStoryWrite = mesh.writes[0]?.value as Record<string, unknown>;
     expect(encodedStoryWrite).toMatchObject({

@@ -89,8 +89,15 @@ export interface SystemWriterStoryBundleRecord extends Record<string, unknown>, 
   readonly schemaVersion: StoryBundle['schemaVersion'];
 }
 
-type UnsignedSystemWriterStoryBundleRecord =
-  Omit<SystemWriterStoryBundleRecord, '_systemSignature'> & UnsignedSystemWriterRecordFields;
+export interface SystemWriterLatestIndexRecord extends Record<string, unknown>, SystemWriterRecordFields {
+  readonly story_id: string;
+  readonly latest_activity_at: number;
+}
+
+export interface SystemWriterHotIndexRecord extends Record<string, unknown>, SystemWriterRecordFields {
+  readonly story_id: string;
+  readonly hotness: number;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object';
@@ -167,8 +174,16 @@ function latestIndexPath(): string {
   return 'vh/news/index/latest/';
 }
 
+function latestIndexEntryPath(storyId: string): string {
+  return `vh/news/index/latest/${storyId}/`;
+}
+
 function hotIndexPath(): string {
   return 'vh/news/index/hot/';
+}
+
+function hotIndexEntryPath(storyId: string): string {
+  return `vh/news/index/hot/${storyId}/`;
 }
 
 function ingestionLeasePath(): string {
@@ -290,7 +305,8 @@ function extractIndexChildKeys(value: unknown): string[] {
 async function readIndexedEntries(
   chain: ChainWithGet<unknown>,
   raw: unknown,
-  parseEntry: (value: unknown) => number | null,
+  parseEntry: (storyId: string, value: unknown) => Promise<number | null>,
+  blockedStoryIds: ReadonlySet<string> = new Set(),
 ): Promise<Record<string, number>> {
   const keys = extractIndexChildKeys(raw);
   if (keys.length === 0) {
@@ -298,8 +314,11 @@ async function readIndexedEntries(
   }
 
   const entries = await Promise.all(keys.map(async (storyId) => {
+    if (blockedStoryIds.has(storyId)) {
+      return null;
+    }
     const value = await readOnce(chain.get(storyId) as unknown as ChainWithGet<unknown>);
-    const parsed = parseEntry(value);
+    const parsed = await parseEntry(storyId, value);
     return parsed === null ? null : ([storyId, parsed] as const);
   }));
 
@@ -497,24 +516,25 @@ function resolveSystemWriterIssuedAt(client: VennClient): number {
   return issuedAt;
 }
 
-async function buildSystemWriterStoryRecord(
+async function signSystemWriterRecord<T extends Record<string, unknown>>(
   client: VennClient,
-  story: StoryBundle,
-): Promise<SystemWriterStoryBundleRecord> {
+  path: string,
+  payload: T,
+  missingSignerError: string,
+): Promise<T & SystemWriterRecordFields> {
   const sign = client.config.systemWriterSign;
   if (!sign) {
-    throw new Error('system writer signer is required for news story writes');
+    throw new Error(missingSignerError);
   }
 
   const writerId = resolveSystemWriterId(client);
-  const path = storyPath(story.story_id);
-  const unsignedRecord: UnsignedSystemWriterStoryBundleRecord = {
-    ...encodeStoryBundleForGun(story),
+  const unsignedRecord: T & UnsignedSystemWriterRecordFields = {
+    ...payload,
     _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
     _writerKind: SYSTEM_WRITER_KIND,
     _systemWriterId: writerId,
     _systemIssuedAt: resolveSystemWriterIssuedAt(client),
-  } as UnsignedSystemWriterStoryBundleRecord;
+  } as T & UnsignedSystemWriterRecordFields;
   const canonicalBytes = canonicalizeSystemWriterRecordBytes(unsignedRecord);
   const signature = await sign({
     canonicalBytes,
@@ -529,7 +549,51 @@ async function buildSystemWriterStoryRecord(
   return {
     ...unsignedRecord,
     _systemSignature: signature,
-  } as SystemWriterStoryBundleRecord;
+  } as T & SystemWriterRecordFields;
+}
+
+async function buildSystemWriterStoryRecord(
+  client: VennClient,
+  story: StoryBundle,
+): Promise<SystemWriterStoryBundleRecord> {
+  return signSystemWriterRecord(
+    client,
+    storyPath(story.story_id),
+    encodeStoryBundleForGun(story),
+    'system writer signer is required for news story writes',
+  ) as Promise<SystemWriterStoryBundleRecord>;
+}
+
+async function buildSystemWriterLatestIndexRecord(
+  client: VennClient,
+  storyId: string,
+  latestActivityAt: number,
+): Promise<SystemWriterLatestIndexRecord> {
+  return signSystemWriterRecord(
+    client,
+    latestIndexEntryPath(storyId),
+    {
+      story_id: storyId,
+      latest_activity_at: latestActivityAt,
+    },
+    'system writer signer is required for news latest-index writes',
+  ) as Promise<SystemWriterLatestIndexRecord>;
+}
+
+async function buildSystemWriterHotIndexRecord(
+  client: VennClient,
+  storyId: string,
+  hotness: number,
+): Promise<SystemWriterHotIndexRecord> {
+  return signSystemWriterRecord(
+    client,
+    hotIndexEntryPath(storyId),
+    {
+      story_id: storyId,
+      hotness,
+    },
+    'system writer signer is required for news hot-index writes',
+  ) as Promise<SystemWriterHotIndexRecord>;
 }
 
 function decodeStoryBundlePayload(payload: unknown): unknown {
@@ -565,6 +629,10 @@ function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unk
   return isRecord(value) && value._writerKind === SYSTEM_WRITER_KIND;
 }
 
+function isLegacyMarkedRecord(value: Record<string, unknown>): boolean {
+  return value._writerKind === 'legacy';
+}
+
 function carriesLumaProtocolFields(value: unknown): boolean {
   return isRecord(value) && (
     '_protocolVersion' in value
@@ -575,6 +643,31 @@ function carriesLumaProtocolFields(value: unknown): boolean {
     || '_authorScheme' in value
     || 'signedWriteEnvelope' in value
   );
+}
+
+function carriesLumaProtocolFieldsForIndexEntry(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const carriesSystemOrUserFields =
+    '_systemWriterId' in value
+    || '_systemSignature' in value
+    || '_systemIssuedAt' in value
+    || '_authorScheme' in value
+    || 'signedWriteEnvelope' in value;
+
+  if (isLegacyMarkedRecord(value)) {
+    return carriesSystemOrUserFields
+      || ('_protocolVersion' in value && value._protocolVersion !== SYSTEM_WRITER_PROTOCOL_VERSION);
+  }
+
+  return '_protocolVersion' in value || '_writerKind' in value || carriesSystemOrUserFields;
+}
+
+function blocksLegacyIndexFallback(value: unknown): boolean {
+  const payload = stripGunMetadata(value);
+  return isSystemWriterMarkedRecord(payload) || carriesLumaProtocolFieldsForIndexEntry(payload);
 }
 
 function emitSystemWriterValidationFailure(
@@ -616,6 +709,88 @@ async function parseStoryBundleFromStoredRecord(
 
   const parsed = parseLegacyStoryBundle(payload);
   return parsed?.story_id === storyId ? parsed : null;
+}
+
+async function parseNewsIndexEntryFromStoredRecord(
+  client: VennClient,
+  path: string,
+  storyId: string,
+  data: unknown,
+  parseEntry: (value: unknown) => number | null,
+): Promise<number | null> {
+  const payload = stripGunMetadata(data);
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path,
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+    if (payload.story_id !== storyId) {
+      return null;
+    }
+    return parseEntry(payload);
+  }
+
+  if (carriesLumaProtocolFieldsForIndexEntry(payload)) {
+    return null;
+  }
+
+  return parseEntry(payload);
+}
+
+async function parseLatestIndexEntry(
+  client: VennClient,
+  storyId: string,
+  value: unknown,
+): Promise<number | null> {
+  return parseNewsIndexEntryFromStoredRecord(
+    client,
+    latestIndexEntryPath(storyId),
+    storyId,
+    value,
+    parseLatestTimestamp,
+  );
+}
+
+async function parseHotIndexEntry(
+  client: VennClient,
+  storyId: string,
+  value: unknown,
+): Promise<number | null> {
+  return parseNewsIndexEntryFromStoredRecord(
+    client,
+    hotIndexEntryPath(storyId),
+    storyId,
+    value,
+    parseHotnessScore,
+  );
+}
+
+async function readNewsLatestIndexEntry(
+  client: VennClient,
+  storyId: string,
+): Promise<number | null> {
+  const raw = await readOnce(getNewsLatestIndexChain(client).get(storyId) as unknown as ChainWithGet<unknown>);
+  if (raw === null) {
+    return null;
+  }
+  return parseLatestIndexEntry(client, storyId, raw);
+}
+
+async function readNewsHotIndexEntry(
+  client: VennClient,
+  storyId: string,
+): Promise<number | null> {
+  const raw = await readOnce(getNewsHotIndexChain(client).get(storyId) as unknown as ChainWithGet<unknown>);
+  if (raw === null) {
+    return null;
+  }
+  return parseHotIndexEntry(client, storyId, raw);
 }
 
 function sanitizeStoryBundle(data: unknown): StoryBundle {
@@ -904,11 +1079,15 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
   }
 
   const index: NewsLatestIndex = {};
+  const blockedStoryIds = new Set<string>();
   for (const [storyId, value] of Object.entries(raw)) {
     if (storyId === '_') {
       continue;
     }
-    const timestamp = parseLatestTimestamp(value);
+    if (blocksLegacyIndexFallback(value)) {
+      blockedStoryIds.add(storyId);
+    }
+    const timestamp = await parseLatestIndexEntry(client, storyId, value);
     if (timestamp !== null) {
       index[storyId] = timestamp;
     }
@@ -916,7 +1095,12 @@ export async function readNewsLatestIndex(client: VennClient): Promise<NewsLates
   if (Object.keys(index).length > 0) {
     return index;
   }
-  return readIndexedEntries(latestChain, raw, parseLatestTimestamp);
+  return readIndexedEntries(
+    latestChain,
+    raw,
+    (storyId, value) => parseLatestIndexEntry(client, storyId, value),
+    blockedStoryIds,
+  );
 }
 
 /**
@@ -933,11 +1117,15 @@ export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex
   }
 
   const index: NewsHotIndex = {};
+  const blockedStoryIds = new Set<string>();
   for (const [storyId, value] of Object.entries(raw)) {
     if (storyId === '_') {
       continue;
     }
-    const hotness = parseHotnessScore(value);
+    if (blocksLegacyIndexFallback(value)) {
+      blockedStoryIds.add(storyId);
+    }
+    const hotness = await parseHotIndexEntry(client, storyId, value);
     if (hotness !== null) {
       index[storyId] = hotness;
     }
@@ -945,7 +1133,12 @@ export async function readNewsHotIndex(client: VennClient): Promise<NewsHotIndex
   if (Object.keys(index).length > 0) {
     return index;
   }
-  return readIndexedEntries(hotChain, raw, parseHotnessScore);
+  return readIndexedEntries(
+    hotChain,
+    raw,
+    (storyId, value) => parseHotIndexEntry(client, storyId, value),
+    blockedStoryIds,
+  );
 }
 
 /**
@@ -961,12 +1154,13 @@ export async function writeNewsLatestIndexEntry(
     throw new Error('storyId is required');
   }
   const normalizedLatestTimestamp = Math.max(0, Math.floor(latestTimestamp));
-  const chain = getNewsLatestIndexChain(client).get(normalizedId);
-  await putWithAck(chain, normalizedLatestTimestamp, {
+  const encoded = await buildSystemWriterLatestIndexRecord(client, normalizedId, normalizedLatestTimestamp);
+  const chain = getNewsLatestIndexChain(client).get(normalizedId) as unknown as ChainWithGet<Record<string, unknown>>;
+  await putWithAck(chain, encoded, {
     writeClass: 'news-latest-index',
     timeoutError: 'news latest-index write timed out and readback did not confirm persistence',
-    readback: () => readOnce(chain as unknown as ChainWithGet<unknown>),
-    readbackPredicate: (observed) => parseLatestTimestamp(observed) === normalizedLatestTimestamp,
+    readback: () => readNewsLatestIndexEntry(client, normalizedId),
+    readbackPredicate: (observed) => observed === normalizedLatestTimestamp,
   });
 }
 
@@ -1002,12 +1196,13 @@ export async function writeNewsHotIndexEntry(
   }
 
   const normalizedHotness = parseHotnessScore(hotnessScore) ?? 0;
-  const chain = getNewsHotIndexChain(client).get(normalizedId);
-  await putWithAck(chain, normalizedHotness, {
+  const encoded = await buildSystemWriterHotIndexRecord(client, normalizedId, normalizedHotness);
+  const chain = getNewsHotIndexChain(client).get(normalizedId) as unknown as ChainWithGet<Record<string, unknown>>;
+  await putWithAck(chain, encoded, {
     writeClass: 'news-hot-index',
     timeoutError: 'news hot-index write timed out and readback did not confirm persistence',
-    readback: () => readOnce(chain as unknown as ChainWithGet<unknown>),
-    readbackPredicate: (observed) => parseHotnessScore(observed) === normalizedHotness,
+    readback: () => readNewsHotIndexEntry(client, normalizedId),
+    readbackPredicate: (observed) => observed === normalizedHotness,
   });
   return normalizedHotness;
 }

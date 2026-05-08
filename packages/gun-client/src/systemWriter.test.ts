@@ -143,6 +143,8 @@ describe('system writer validation foundation', () => {
 
   it('accepts only the explicit system writer path matrix', () => {
     expect(getSystemWriterAllowedClass('vh/news/stories/story-1')).toBe('news-story');
+    expect(getSystemWriterAllowedClass('vh/news/index/latest/story-1')).toBe('news-latest-index');
+    expect(getSystemWriterAllowedClass('vh/news/index/hot/story-1')).toBe('news-hot-index');
     expect(getSystemWriterAllowedClass('vh/news/stories/story-1/analysis/a1')).toBe('news-story-analysis');
     expect(getSystemWriterAllowedClass('vh/news/stories/story-1/analysis_latest')).toBe('news-story-analysis-latest');
     expect(getSystemWriterAllowedClass('vh/news/storylines/storyline-1')).toBe('news-storyline');
@@ -153,6 +155,8 @@ describe('system writer validation foundation', () => {
     expect(getSystemWriterAllowedClass('vh/civic/reps/jurisdiction-v1')).toBe('civic-representative-snapshot');
     expect(getSystemWriterAllowedClass('vh/aggregates/topics/topic-1/engagement/summary')).toBe('topic-engagement-summary');
     expect(isSystemWriterAllowedPath('vh/forum/threads/thread-1')).toBe(false);
+    expect(isSystemWriterAllowedPath('vh/news/index/latest')).toBe(false);
+    expect(isSystemWriterAllowedPath('vh/news/index/hot')).toBe(false);
     expect(isSystemWriterAllowedPath('vh/__mesh_drills/run-1/records/1')).toBe(false);
     expect(isSystemWriterAllowedPath('vh/aggregates/topics/topic-1/syntheses/s1/epochs/1/voters/v1/p1')).toBe(false);
     expect(isSystemWriterAllowedPath('vh/directory/identity-key')).toBe(false);

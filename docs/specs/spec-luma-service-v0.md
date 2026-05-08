@@ -681,6 +681,7 @@ record-derived id):
 | Record class | Reason |
 | --- | --- |
 | News bundle / story | system writer; no user author |
+| News latest/hot index entries | system writer; no user author |
 | Storyline | system writer; no user author |
 | Topic synthesis (epoch + latest pointer) | system writer; no user author |
 | Topic digest | system writer; no user author |
@@ -690,13 +691,17 @@ record-derived id):
 | Comment moderation record (`CommentModeration.operator_id`) | operator id is a system-writer-signed pseudonym; carries `_writerKind: 'system'`, no `_authorScheme` |
 | News report operator action (`audit.operator_id`) | same as above |
 
-M0.B implementation note: `vh/news/stories/<storyId>` and
-`vh/news/storylines/<storylineId>` are the first concrete news-domain
-system-writer adapter migrations. They sign the stored story/storyline node
-wrappers with the build-pinned system-writer key and leave latest/hot indexes,
-analysis, synthesis, discovery, and topic engagement for later system-writer
-slices. The storyline migration does not migrate the `vh/news/storylines/`
-root map or removal tombstones into system records.
+M0.B implementation note: `vh/news/stories/<storyId>`,
+`vh/news/storylines/<storylineId>`, `vh/news/index/latest/<storyId>`, and
+`vh/news/index/hot/<storyId>` are the concrete news-domain system-writer
+adapter migrations that have landed. They sign the stored story, storyline,
+latest-index child, and hot-index child node wrappers with the build-pinned
+system-writer key and leave analysis, synthesis, discovery, and topic
+engagement for later system-writer slices. The storyline migration does not
+migrate the `vh/news/storylines/` root map or removal tombstones into system
+records. The index migration does not migrate the `vh/news/index/latest/` or
+`vh/news/index/hot/` root maps, nor any removal tombstones, into system
+records.
 
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
