@@ -2,14 +2,40 @@ import { StorylineGroupSchema, type StorylineGroup } from '@vh/data-model';
 import { createGuardedChain, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  canonicalizeSystemWriterRecordBytes,
+  validateSystemWriterRecord,
+  type SystemWriterRecordFields,
+  type SystemWriterValidationFailure,
+  type UnsignedSystemWriterRecordFields,
+} from './systemWriter';
 import type { VennClient } from './types';
 
 const STORYLINE_GROUP_JSON_KEY = '__storyline_group_json';
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
 );
 const STORYLINE_ACK_TIMEOUT_MS = 1_000;
+
+export interface SystemWriterStorylineRecord extends Record<string, unknown>, SystemWriterRecordFields {
+  readonly [STORYLINE_GROUP_JSON_KEY]: string;
+  readonly storyline_id: string;
+  readonly canonical_story_id: string;
+  readonly updated_at: number;
+  readonly schemaVersion: StorylineGroup['schemaVersion'];
+}
+
+type UnsignedSystemWriterStorylineRecord =
+  Omit<SystemWriterStorylineRecord, '_systemSignature'> & UnsignedSystemWriterRecordFields;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
 
 function storylinesPath(): string {
   return 'vh/news/storylines/';
@@ -91,6 +117,59 @@ function encodeStorylineGroup(group: StorylineGroup): Record<string, unknown> {
   };
 }
 
+function resolveSystemWriterId(client: VennClient): string {
+  const configured = client.config.systemWriterId?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  const activePinnedWriter = client.config.systemWriterPin?.writers.find((writer) => writer.status === 'active');
+  return activePinnedWriter?.id ?? DEFAULT_SYSTEM_WRITER_ID;
+}
+
+function resolveSystemWriterIssuedAt(client: VennClient): number {
+  const issuedAt = client.config.systemWriterNow?.() ?? Date.now();
+  if (!Number.isSafeInteger(issuedAt) || issuedAt < 0) {
+    throw new Error('system writer issued-at must be a non-negative safe integer');
+  }
+  return issuedAt;
+}
+
+async function buildSystemWriterStorylineRecord(
+  client: VennClient,
+  group: StorylineGroup,
+): Promise<SystemWriterStorylineRecord> {
+  const sign = client.config.systemWriterSign;
+  if (!sign) {
+    throw new Error('system writer signer is required for news storyline writes');
+  }
+
+  const writerId = resolveSystemWriterId(client);
+  const path = storylinePath(group.storyline_id);
+  const unsignedRecord: UnsignedSystemWriterStorylineRecord = {
+    ...encodeStorylineGroup(group),
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: writerId,
+    _systemIssuedAt: resolveSystemWriterIssuedAt(client),
+  } as UnsignedSystemWriterStorylineRecord;
+  const canonicalBytes = canonicalizeSystemWriterRecordBytes(unsignedRecord);
+  const signature = await sign({
+    canonicalBytes,
+    writerId,
+    path,
+    record: unsignedRecord,
+  });
+  if (typeof signature !== 'string' || signature.trim() !== signature || signature.length === 0) {
+    throw new Error('system writer signer returned an invalid signature');
+  }
+
+  return {
+    ...unsignedRecord,
+    _systemSignature: signature,
+  } as SystemWriterStorylineRecord;
+}
+
 function decodeStorylinePayload(payload: Record<string, unknown>): unknown {
   const encoded = payload[STORYLINE_GROUP_JSON_KEY];
   if (typeof encoded !== 'string') {
@@ -104,18 +183,95 @@ function decodeStorylinePayload(payload: Record<string, unknown>): unknown {
   }
 }
 
+function stripGunMetadata(data: unknown): unknown {
+  if (!isRecord(data)) {
+    return data;
+  }
+  const { _, ...clean } = data as Record<string, unknown> & { _?: unknown };
+  return clean;
+}
+
 function parseStorylineGroup(data: unknown): StorylineGroup | null {
-  if (!data || typeof data !== 'object') {
+  const payload = stripGunMetadata(data);
+  if (!isRecord(payload)) {
     return null;
   }
 
-  const { _, ...clean } = data as Record<string, unknown> & { _?: unknown };
-  const parsed = StorylineGroupSchema.safeParse(decodeStorylinePayload(clean));
+  const parsed = StorylineGroupSchema.safeParse(decodeStorylinePayload(payload));
   return parsed.success ? parsed.data : null;
 }
 
 function sanitizeStorylineGroup(group: unknown): StorylineGroup {
   return StorylineGroupSchema.parse(group);
+}
+
+function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && value._writerKind === SYSTEM_WRITER_KIND;
+}
+
+function isLegacyMarkedRecord(value: Record<string, unknown>): boolean {
+  return value._writerKind === 'legacy';
+}
+
+function carriesLumaProtocolFields(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  const carriesSystemOrUserFields =
+    '_systemWriterId' in value
+    || '_systemSignature' in value
+    || '_systemIssuedAt' in value
+    || '_authorScheme' in value
+    || 'signedWriteEnvelope' in value;
+
+  if (isLegacyMarkedRecord(value)) {
+    return carriesSystemOrUserFields
+      || ('_protocolVersion' in value && value._protocolVersion !== SYSTEM_WRITER_PROTOCOL_VERSION);
+  }
+
+  return '_protocolVersion' in value || '_writerKind' in value || carriesSystemOrUserFields;
+}
+
+function emitSystemWriterValidationFailure(
+  failure: SystemWriterValidationFailure,
+): void {
+  console.warn(`[vh:storylines] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+    globalThis.dispatchEvent(
+      new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
+    );
+  }
+}
+
+async function parseStorylineGroupFromStoredRecord(
+  client: VennClient,
+  storylineId: string,
+  data: unknown,
+): Promise<StorylineGroup | null> {
+  const payload = stripGunMetadata(data);
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: storylinePath(storylineId),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+
+    const parsed = parseStorylineGroup(payload);
+    return parsed?.storyline_id === storylineId ? parsed : null;
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  const parsed = parseStorylineGroup(payload);
+  return parsed?.storyline_id === storylineId ? parsed : null;
 }
 
 export function getNewsStorylinesChain(
@@ -154,7 +310,7 @@ export async function readNewsStoryline(
   if (raw === null) {
     return null;
   }
-  return parseStorylineGroup(raw);
+  return parseStorylineGroupFromStoredRecord(client, storylineId, raw);
 }
 
 export async function writeNewsStoryline(
@@ -162,9 +318,10 @@ export async function writeNewsStoryline(
   storyline: unknown,
 ): Promise<StorylineGroup> {
   const sanitized = sanitizeStorylineGroup(storyline);
+  const encoded = await buildSystemWriterStorylineRecord(client, sanitized);
   await putWithAck(
-    getNewsStorylineChain(client, sanitized.storyline_id),
-    encodeStorylineGroup(sanitized),
+    getNewsStorylineChain(client, sanitized.storyline_id) as unknown as ChainWithGet<Record<string, unknown>>,
+    encoded,
     {
       writeClass: 'storyline',
       timeoutError: 'storyline write timed out and readback did not confirm persistence',

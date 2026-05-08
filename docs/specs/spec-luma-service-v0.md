@@ -647,10 +647,11 @@ Reader rules:
   If any condition fails, the reader MUST reject/quarantine the record, MUST
   NOT surface it to product UI, MUST NOT route it through the legacy migration
   adapter, and MUST emit `system-writer-validation-failed` carrying the failing
-  condition (one of `unknown-signer-id`, `path-not-allowed`,
-  `signature-invalid`, `protocol-version-mismatch`). The legacy migration
-  adapter is reserved for records missing `_writerKind` or explicitly carrying
-  `_writerKind === 'legacy'`.
+  condition (one of `invalid-record-shape`, `forbidden-field`, `missing-pin`,
+  `unknown-signer-id`, `path-not-allowed`, `signature-invalid`,
+  `protocol-version-mismatch`). The legacy migration adapter is reserved for
+  records missing `_writerKind` or explicitly carrying `_writerKind ===
+  'legacy'`.
 - `legacy` is a read-only classification for records written before the field was introduced; readers handle these via the migration adapter for that record type.
 - Records written through the mesh drill test writer contract carry `_drillWriterKind`, not `_writerKind`. They live only under `vh/__mesh_drills/*` (mesh spec §5.9). LUMA readers MUST NOT process drill records and MUST NOT extend the `_writerKind` enum to include drill writers.
 
@@ -680,6 +681,7 @@ record-derived id):
 | Record class | Reason |
 | --- | --- |
 | News bundle / story | system writer; no user author |
+| Storyline | system writer; no user author |
 | Topic synthesis (epoch + latest pointer) | system writer; no user author |
 | Topic digest | system writer; no user author |
 | Discovery indexes | system writer |
@@ -688,11 +690,13 @@ record-derived id):
 | Comment moderation record (`CommentModeration.operator_id`) | operator id is a system-writer-signed pseudonym; carries `_writerKind: 'system'`, no `_authorScheme` |
 | News report operator action (`audit.operator_id`) | same as above |
 
-M0.B implementation note: `vh/news/stories/<storyId>` is the first concrete
-system-writer adapter migration. It signs the stored story-node wrapper with
-the build-pinned system-writer key and leaves latest/hot indexes, storylines,
+M0.B implementation note: `vh/news/stories/<storyId>` and
+`vh/news/storylines/<storylineId>` are the first concrete news-domain
+system-writer adapter migrations. They sign the stored story/storyline node
+wrappers with the build-pinned system-writer key and leave latest/hot indexes,
 analysis, synthesis, discovery, and topic engagement for later system-writer
-slices.
+slices. The storyline migration does not migrate the `vh/news/storylines/`
+root map or removal tombstones into system records.
 
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,
