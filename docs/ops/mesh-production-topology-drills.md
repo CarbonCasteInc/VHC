@@ -272,6 +272,25 @@ LWW divergence across relays. Relay-peer timestamp auth is recorded as
 auth without a timestamped signed peer handshake. LUMA session/envelope rows
 remain explicitly skipped for LUMA reader gates.
 
+Run the local synthetic conflict/protocol fixture matrix with:
+
+```bash
+pnpm test:mesh:conflict-drills
+```
+
+The conflict drill starts the local three-relay harness and writes only
+synthetic records under `vh/__mesh_drills/<run_id>/conflict/*` with
+`_drillWriterKind: 'mesh-drill'`. It proves same-key deterministic candidate
+writes resolve to one canonical winner, stale overwrite attempts do not replace
+the newer synthetic row, future `_protocolVersion` fixtures are rejected, and
+unknown schema or missing/unsupported drill author-scheme fixtures are
+quarantined without becoming canonical records. If no replayable legacy corpus
+exists, the legacy replay row is `skipped` with `corpus-not-present`.
+
+This command does not migrate LUMA public schemas, does not add LUMA
+`_writerKind` or `_authorScheme` coverage, and does not prove public WSS
+conflict behavior.
+
 Run the bounded explicit read-repair strategy drill with:
 
 ```bash
@@ -330,14 +349,14 @@ packet includes `mesh-production-readiness-report.json`,
 `mesh-production-readiness-evidence.md`, and copied source reports under
 `source-reports/<gate>/`.
 
-For Slice 11A through Slice 13A, a successful aggregate command still reports
+For Slice 11A through Slice 13B, a successful aggregate command still reports
 `status: review_required` while release blockers remain. Expected blockers
-after Slice 13A include the canonical 30-minute soak, public WSS deployment
-proof, conflict-resolution fixtures, evidence scrub promotion, downstream
-full-app canary, and LUMA-gated write coverage through the LUMA reader path.
-The command exits non-zero for missing, malformed, dirty, stale, failed, or
-command-mismatched source evidence, and for any overclaiming packet that would
-emit `release_ready` before the blockers are gone.
+after Slice 13B include the canonical 30-minute soak, public WSS deployment
+proof, evidence scrub promotion, downstream full-app canary, and LUMA-gated
+write coverage through the LUMA reader path. The command exits non-zero for
+missing, malformed, dirty, stale, failed, command-mismatched, or incomplete
+source evidence, and for any overclaiming packet that would emit
+`release_ready` before the blockers are gone.
 
 `VH_RELAY_PEER_AUTH_MODE=private_network_allowlist` is a local/private-network
 harness mode. Because Gun relay and browser clients share the `/gun` WebSocket
@@ -356,7 +375,7 @@ distributing a new trusted key.
 
 ## Review Boundary
 
-The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10/11A/12A even when the
+The report status remains `review_required` for Slice 6B/7B/7C/8/9/9B/10/11A/12A/13A/13B even when the
 local restarted-relay drill, deployed-WSS local TLS profile, state-resolution
 drill, disconnect drill, partition/heal drill, read-repair drill, and bounded
 rolling-restart soak pass, peer-config rollback drill passes, and the aggregate
@@ -379,13 +398,17 @@ synthetic drill records missed by relay B were repaired through explicit replay
 from surviving-quorum direct readback. A passing bounded soak section means only
 that deterministic synthetic local-harness restart/reconnect rows met their
 recorded budgets; if `soak.full_duration_satisfied` is false it is not the
-canonical 30-minute soak claim. A passing aggregate section means only that the
-implemented source reports were collected, validated, copied, and summarized in
-one operator packet. None of these outcomes proves public WSS
+canonical 30-minute soak claim. A passing clock-skew section means only that
+the local non-LUMA mesh clock/auth window matrix passed. A passing conflict
+section means only that local synthetic conflict/protocol fixtures passed and
+did not become LUMA schema migration evidence. A passing aggregate section
+means only that the implemented source reports were collected, validated,
+copied, and summarized in one operator packet. None of these outcomes proves
+public WSS
 infrastructure, automatic peer-federation recovery, runtime peer-config key
 rotation without a new trusted-key distribution path, LUMA-gated write state
-resolution, public WSS clock-skew behavior, evidence scrub promotion, or
-post-M0.B LUMA-gated write coverage.
+resolution, public WSS clock-skew or conflict behavior, evidence scrub
+promotion, or post-M0.B LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one

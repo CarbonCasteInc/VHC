@@ -1,7 +1,11 @@
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
-import { SOURCE_GATES, validationFailuresForSource } from './production-readiness-check.mjs';
+import {
+  SOURCE_GATES,
+  conflictRowsForAggregate,
+  validationFailuresForSource,
+} from './production-readiness-check.mjs';
 
 const thisFile = fileURLToPath(import.meta.url);
 const currentCommit = 'abc123';
@@ -60,6 +64,14 @@ describe('production-readiness source evidence validation', () => {
       id: 'clock_skew',
       command: ['pnpm', 'test:mesh:clock-skew-drills'],
       expectedMode: 'local_clock_skew_matrix',
+    }));
+  });
+
+  it('includes the conflict fixture drill as command-matched source evidence', () => {
+    expect(SOURCE_GATES).toContainEqual(expect.objectContaining({
+      id: 'conflict',
+      command: ['pnpm', 'test:mesh:conflict-drills'],
+      expectedMode: 'local_conflict_resolution_fixtures',
     }));
   });
 
@@ -129,5 +141,74 @@ describe('production-readiness source evidence validation', () => {
     });
 
     expect(failures).toContain('clock_skew.status is skipped');
+  });
+
+  it('rejects conflict source evidence unless every required fixture passed', () => {
+    const failures = failuresFor({
+      gate: {
+        id: 'conflict',
+        command: ['pnpm', 'test:mesh:conflict-drills'],
+        expectedMode: 'local_conflict_resolution_fixtures',
+      },
+      report: sourceReport({
+        run: {
+          ...sourceReport().run,
+          mode: 'local_conflict_resolution_fixtures',
+          command: 'pnpm test:mesh:conflict-drills',
+        },
+        conflict: {
+          status: 'pass',
+        },
+        conflict_fixtures: [
+          {
+            fixture: 'same-key-concurrent-deterministic-writes',
+            status: 'pass',
+          },
+        ],
+      }),
+    });
+
+    expect(failures).toContain('missing conflict fixture future-protocol-version-rejected');
+  });
+
+  it('drops stale conflict placeholder rows once the conflict source gate passes', () => {
+    const rows = conflictRowsForAggregate({
+      runId: 'mesh-production-readiness-test',
+      conflictPassed: true,
+      sources: [
+        {
+          id: 'older_gate',
+          report: {
+            run_id: 'older-report',
+            conflict_fixtures: [
+              {
+                fixture: 'full-conflict-resolution-fixtures',
+                status: 'skipped',
+              },
+            ],
+          },
+        },
+        {
+          id: 'conflict',
+          report: {
+            run_id: 'conflict-report',
+            conflict_fixtures: [
+              {
+                fixture: 'future-protocol-version-rejected',
+                status: 'pass',
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        fixture: 'future-protocol-version-rejected',
+        source_gate: 'conflict',
+        source_run_id: 'conflict-report',
+      }),
+    ]);
   });
 });
