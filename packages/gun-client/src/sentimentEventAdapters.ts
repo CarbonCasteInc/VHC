@@ -9,7 +9,14 @@ import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
 import type { VennClient } from './types';
 
+export const SENTIMENT_OUTBOX_ENVELOPE_SCHEMA_VERSION = 'sentiment-outbox-envelope-v1' as const;
+export const SENTIMENT_OUTBOX_PROTOCOL_VERSION = 'luma-sensitive-v1' as const;
+export const SENTIMENT_OUTBOX_TOPOLOGY_CLASS = 'sensitive-encrypted-outbox' as const;
+
 export interface EncryptedSentimentEnvelope {
+  readonly schemaVersion: typeof SENTIMENT_OUTBOX_ENVELOPE_SCHEMA_VERSION;
+  readonly _protocolVersion: typeof SENTIMENT_OUTBOX_PROTOCOL_VERSION;
+  readonly topologyClass: typeof SENTIMENT_OUTBOX_TOPOLOGY_CLASS;
   readonly __encrypted: true;
   readonly ciphertext: string;
 }
@@ -69,13 +76,24 @@ async function encryptSentimentEvent(
   }
 
   return {
+    schemaVersion: SENTIMENT_OUTBOX_ENVELOPE_SCHEMA_VERSION,
+    _protocolVersion: SENTIMENT_OUTBOX_PROTOCOL_VERSION,
+    topologyClass: SENTIMENT_OUTBOX_TOPOLOGY_CLASS,
     __encrypted: true,
     ciphertext: typeof encrypted === 'string' ? encrypted : JSON.stringify(encrypted),
   };
 }
 
+function carriesPublicWriteFields(envelope: Record<string, unknown>): boolean {
+  return '_writerKind' in envelope || '_authorScheme' in envelope || 'signedWriteEnvelope' in envelope;
+}
+
 async function decryptSentimentEvent(client: VennClient, envelope: unknown): Promise<SentimentEvent | null> {
   if (!isRecord(envelope) || envelope.__encrypted !== true || typeof envelope.ciphertext !== 'string') {
+    return null;
+  }
+
+  if (carriesPublicWriteFields(envelope)) {
     return null;
   }
 

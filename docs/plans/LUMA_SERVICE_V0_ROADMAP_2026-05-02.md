@@ -212,6 +212,10 @@ Acceptance criteria:
 - Property test: no two domain derivations collide.
 - Property test: `voterId` differs across topic and across epoch.
 - Lint test: a non-aggregate public write with `district_hash` is rejected even when `cohortSize` is declared.
+- Public namespace leak gate: `pnpm check:public-namespace-leaks` fails on raw
+  nullifiers, proof material, district-hash/person-identifier pairs, and local
+  `VoteIntentRecord` fields in post-cutover public `vh/*` records while
+  ignoring encrypted sentiment outbox records.
 - Migration test: every adapter listed above produces records carrying `_protocolVersion`, `_writerKind`, and (where required) `_authorScheme`. Legacy fixtures route through the migration adapter without surfacing to product UI.
 - Materializer test: `voteIntentMaterializer.ts` derives `voterId` for the correct `(topic_id, epoch)` and writes the public aggregate voter node carrying `_writerKind: 'luma'` and a valid `SignedWriteEnvelope`. Local `VoteIntentRecord` does not appear on any public path.
 - Mesh re-run: `pnpm check:mesh:production-readiness` produces a report with `schema_epoch: 'post_luma_m0b'` that meets the per-class conditions enumerated in the "Mesh re-run gate (post-M0.B)" deliverable above. The overall report status MAY be `review_required` if non-schema mesh slices are pending; the M0.B exit gate inspects per-class pass for the migrated write classes, not the overall report status.
@@ -220,7 +224,9 @@ Forbidden during M0.B:
 
 - Changing on-chain attestation keying.
 - Renaming `principalNullifier`.
-- Migrating sentiment/outbox payloads (defer per Open M0.B-3).
+- Migrating plaintext sentiment payload contents or moving sentiment events to
+  public mesh. M0.B only classifies the encrypted outbox envelope and preserves
+  the `~<devicePub>/outbox/sentiment/*` path.
 - Touching `packages/luma-sdk` provider interfaces (those belong to M0.C; coordinate the shared `packages/luma-sdk/src/index.ts` via the sequencing rule in "Parallel M0.B/M0.C write-set split" below).
 - Claiming per-class transport readiness for any write class migrated by M0.B before the post-M0.B mesh re-run produces a report meeting the per-class conditions in the "Mesh re-run gate" deliverable above. (M0.B does not require the overall mesh report to be `release_ready`; it requires the per-class pass for the migrated classes.)
 - Widening LUMA's `_writerKind` enum to include `'mesh-drill'` or any drill writer kind. Drill writer is namespace-scoped and lives outside the LUMA enum (mesh spec §5.9).
@@ -667,7 +673,7 @@ The spec owns the locked decisions. The roadmap tracks decisions still required 
 
 | ID | Topic | Default proposal |
 | --- | --- | --- |
-| M0.B-3 | `~<devicePub>/outbox/sentiment/*` unchanged | yes |
+| M0.B-3 | `~<devicePub>/outbox/sentiment/*` unchanged | yes; classified with `sentiment-outbox-envelope-v1` metadata only |
 | M0.D-2 | Real multi-device link in M0.D vs deferred | deferred |
 | M0.D-3 | XP/reputation continuity across Sign Out | preserved |
 | M0.D-4 | Legacy-vault migration policy | reuse existing `deviceKey` as `deviceCredential` |
@@ -721,3 +727,4 @@ The spec owns the locked decisions. The roadmap tracks decisions still required 
 | 0.11 | 2026-05-07 | Reviewer | M0.B ForumPost publish-back narrow slice. Hermes Docs article publish-back moves to `hermes-post-v1`, `forumAuthorId`, and `SignedWriteEnvelope` audience `vh-forum-post`; fallback article threads use `hermes-thread-v1`. News reports, nominations, aggregate voters, mesh drills, relay, services, and unrelated adapters remain out of scope. Added `pnpm check:luma-forum-post-v1`. |
 | 0.12 | 2026-05-07 | Reviewer | M0.B news report intake narrow slice. New report submissions move to `hermes-news-report-v2`, derived `forumAuthorId` in `reporter_id`, and `SignedWriteEnvelope` audience `vh-news-report`; legacy `hermes-news-report-v1` remains read/operator-action compatible, and operator status/audit updates stay outside the immutable intake envelope. Added `pnpm check:luma-news-report-v1`. |
 | 0.13 | 2026-05-07 | Reviewer | M0.B forum nomination narrow slice. Nomination bridge outputs move to `hermes-nomination-v1`, derived `forumAuthorId` in `nominatorAuthorId`, and `SignedWriteEnvelope` audience `vh-forum-nomination`; legacy `nominatorNullifier` fixtures remain compatibility-read only, and local budget nullifier use stays out of the public nomination record. Added `pnpm check:luma-forum-nomination-v1`. |
+| 0.14 | 2026-05-08 | Reviewer | M0.B encrypted sentiment outbox classification and public namespace leak gate. Sentiment outbox remains under `~<devicePub>/outbox/sentiment/*`, new writes carry `sentiment-outbox-envelope-v1` with `luma-sensitive-v1` topology metadata, legacy bare encrypted envelopes remain read-compatible only, and `pnpm check:public-namespace-leaks` guards post-cutover public `vh/*` records. |

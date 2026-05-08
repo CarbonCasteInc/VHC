@@ -71,6 +71,10 @@ function containsPII(value: unknown): boolean {
   );
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object';
+}
+
 function matchesRule(path: string, rule: TopologyRule): boolean {
   if (!rule.pathPrefix.includes('*')) {
     return path.startsWith(rule.pathPrefix);
@@ -81,6 +85,28 @@ function matchesRule(path: string, rule: TopologyRule): boolean {
     .replace(/\*/g, '[^/]+');
   const regex = new RegExp(`^${escaped}`);
   return regex.test(path);
+}
+
+function isSentimentOutboxPath(path: string): boolean {
+  return matchesRule(path, { pathPrefix: '~*/outbox/sentiment/*', classification: 'sensitive' });
+}
+
+function validateSentimentOutboxEnvelope(path: string, data: unknown): void {
+  if (!isRecord(data) || typeof data.ciphertext !== 'string' || data.ciphertext.length === 0) {
+    throw new Error(`Topology violation: sentiment outbox requires ciphertext at ${path}`);
+  }
+
+  if (
+    data.schemaVersion !== 'sentiment-outbox-envelope-v1'
+    || data._protocolVersion !== 'luma-sensitive-v1'
+    || data.topologyClass !== 'sensitive-encrypted-outbox'
+  ) {
+    throw new Error(`Topology violation: sentiment outbox requires v1 sensitive envelope metadata at ${path}`);
+  }
+
+  if ('_writerKind' in data || '_authorScheme' in data || 'signedWriteEnvelope' in data) {
+    throw new Error(`Topology violation: sentiment outbox must not carry public LUMA write fields at ${path}`);
+  }
 }
 
 export class TopologyGuard {
@@ -104,6 +130,9 @@ export class TopologyGuard {
       // Expect payload to be encrypted/encapsulated
       if (!data || typeof data !== 'object' || !(data as Record<string, unknown>).__encrypted) {
         throw new Error(`Topology violation: sensitive write without encryption flag at ${path}`);
+      }
+      if (isSentimentOutboxPath(path)) {
+        validateSentimentOutboxEnvelope(path, data);
       }
     }
     // local requires no sync; guard not enforced here because writes are in-app only

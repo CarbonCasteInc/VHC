@@ -4,6 +4,9 @@ import { HydrationBarrier } from './sync/barrier';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import {
+  SENTIMENT_OUTBOX_ENVELOPE_SCHEMA_VERSION,
+  SENTIMENT_OUTBOX_PROTOCOL_VERSION,
+  SENTIMENT_OUTBOX_TOPOLOGY_CLASS,
   getSentimentOutboxChain,
   readUserEvents,
   sentimentEventAdapterInternal,
@@ -130,6 +133,16 @@ const EVENT: SentimentEvent = {
   emitted_at: 1_700_000_000_000,
 };
 
+function encryptedSentimentEnvelope(ciphertext: string) {
+  return {
+    schemaVersion: SENTIMENT_OUTBOX_ENVELOPE_SCHEMA_VERSION,
+    _protocolVersion: SENTIMENT_OUTBOX_PROTOCOL_VERSION,
+    topologyClass: SENTIMENT_OUTBOX_TOPOLOGY_CLASS,
+    __encrypted: true as const,
+    ciphertext,
+  };
+}
+
 describe('sentimentEventAdapters', () => {
   beforeEach(() => {
     encryptMock.mockReset();
@@ -142,11 +155,11 @@ describe('sentimentEventAdapters', () => {
     const client = createClient(userNode, guard);
 
     const outbox = getSentimentOutboxChain(client);
-    await outbox.get('event-1').put({ __encrypted: true, ciphertext: 'cipher' });
+    await outbox.get('event-1').put(encryptedSentimentEnvelope('cipher'));
 
     expect(guard.validateWrite).toHaveBeenCalledWith(
       '~device-pub-1/outbox/sentiment/event-1/',
-      { __encrypted: true, ciphertext: 'cipher' },
+      encryptedSentimentEnvelope('cipher'),
     );
   });
 
@@ -170,8 +183,14 @@ describe('sentimentEventAdapters', () => {
     expect(encryptMock).toHaveBeenCalledWith(JSON.stringify(EVENT), { epub: 'epub-1', epriv: 'epriv-1' });
     expect(userNode.writes[0]).toEqual({
       path: `outbox/sentiment/${expectedEventId}`,
-      value: { __encrypted: true, ciphertext: 'encrypted-payload' },
+      value: encryptedSentimentEnvelope('encrypted-payload'),
     });
+    expect(JSON.stringify(userNode.writes[0].value)).not.toContain(EVENT.constituency_proof.nullifier);
+    expect(JSON.stringify(userNode.writes[0].value)).not.toContain(EVENT.constituency_proof.district_hash);
+    expect(JSON.stringify(userNode.writes[0].value)).not.toContain(EVENT.constituency_proof.merkle_root);
+    expect(userNode.writes[0].value).not.toHaveProperty('_writerKind');
+    expect(userNode.writes[0].value).not.toHaveProperty('_authorScheme');
+    expect(userNode.writes[0].value).not.toHaveProperty('signedWriteEnvelope');
 
     encryptMock.mockResolvedValueOnce({ ct: 'cipher-object' });
     await writeSentimentEvent(client, { ...EVENT, point_id: 'point-2' });
@@ -209,12 +228,16 @@ describe('sentimentEventAdapters', () => {
 
     userNode.setRead('outbox/sentiment', {
       _: { '#': 'gun-meta' },
-      e1: { __encrypted: true, ciphertext: 'enc-1' },
+      e1: encryptedSentimentEnvelope('enc-1'),
       e2: { __encrypted: true, ciphertext: 'enc-2' },
-      ignoredOtherEpoch: { __encrypted: true, ciphertext: 'enc-3' },
+      ignoredOtherEpoch: encryptedSentimentEnvelope('enc-3'),
       malformedEnvelope: { ciphertext: 'enc-4' },
-      undecipherableEnvelope: { __encrypted: true, ciphertext: 'enc-5' },
-      invalidDecryptedPayload: { __encrypted: true, ciphertext: 'enc-6' },
+      undecipherableEnvelope: encryptedSentimentEnvelope('enc-5'),
+      invalidDecryptedPayload: encryptedSentimentEnvelope('enc-6'),
+      publicWritePretender: {
+        ...encryptedSentimentEnvelope('enc-7'),
+        _writerKind: 'luma',
+      },
       nonObjectEnvelope: 7,
     });
 
@@ -227,6 +250,7 @@ describe('sentimentEventAdapters', () => {
       if (ciphertext === 'enc-6') {
         return JSON.stringify({ topic_id: 'topic-1' });
       }
+      if (ciphertext === 'enc-7') return JSON.stringify({ ...EVENT, point_id: 'point-7' });
       return null;
     });
 
@@ -267,7 +291,7 @@ describe('sentimentEventAdapters', () => {
       point_id: EVENT.point_id,
     });
     userNode.setPutHang(`outbox/sentiment/${eventId}`);
-    userNode.setRead(`outbox/sentiment/${eventId}`, { __encrypted: true, ciphertext: 'encrypted-payload' });
+    userNode.setRead(`outbox/sentiment/${eventId}`, encryptedSentimentEnvelope('encrypted-payload'));
     encryptMock.mockResolvedValueOnce('encrypted-payload');
     decryptMock.mockResolvedValueOnce(JSON.stringify(EVENT));
 
