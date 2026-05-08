@@ -12,6 +12,7 @@ import {
 import {
   SOURCE_GATES,
   conflictRowsForAggregate,
+  downstreamCanaryMetadata,
   validationFailuresForSource,
 } from './production-readiness-check.mjs';
 
@@ -361,6 +362,22 @@ describe('production-readiness source evidence validation', () => {
         source_run_id: 'conflict-report',
       }),
     ]);
+  });
+});
+
+describe('downstreamCanaryMetadata', () => {
+  it('distinguishes implemented separate canary from absent canary', () => {
+    expect(downstreamCanaryMetadata({ scriptImplemented: false })).toMatchObject({
+      command: 'pnpm check:production-app-canary',
+      status: 'skipped',
+      reason: expect.stringContaining('not implemented'),
+    });
+
+    expect(downstreamCanaryMetadata({ scriptImplemented: true })).toMatchObject({
+      command: 'pnpm check:production-app-canary',
+      status: 'skipped',
+      reason: expect.stringContaining('implemented as a separate fail-closed gate'),
+    });
   });
 });
 

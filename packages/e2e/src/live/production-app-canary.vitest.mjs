@@ -1,0 +1,179 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+import {
+  buildProductionAppCanaryReport,
+  parseProductionAppCanaryOptions,
+  PRODUCTION_APP_CANARY_SCHEMA_VERSION,
+  runProductionAppCanary,
+} from './production-app-canary.mjs';
+
+const nowMs = Date.parse('2026-05-08T18:00:00.000Z');
+
+function writeJson(filePath, value) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function meshReport(overrides = {}) {
+  return {
+    schema_version: 'mesh-production-readiness-v1',
+    generated_at: '2026-05-08T17:55:00.000Z',
+    run_id: 'mesh-production-readiness-test',
+    repo: {
+      commit: 'abc123',
+      dirty: false,
+    },
+    status: 'review_required',
+    schema_epoch: 'post_luma_m0b',
+    luma_profile: 'none',
+    release_readiness_blockers: [
+      {
+        id: 'canonical-30-minute-soak',
+        command: 'VH_MESH_SOAK_DURATION_MS=1800000 pnpm test:mesh:soak',
+        reason: 'latest soak evidence is shortened',
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function git(args) {
+  if (args.join(' ') === 'rev-parse --abbrev-ref HEAD') return 'coord/test';
+  if (args.join(' ') === 'rev-parse HEAD') return 'abc123';
+  if (args.join(' ') === 'status --short') return '';
+  return '';
+}
+
+describe('production-app-canary', () => {
+  it('defaults to the repo latest mesh report and supports CLI/env overrides', () => {
+    expect(parseProductionAppCanaryOptions({
+      argv: [],
+      env: {},
+      repoRoot: '/repo',
+    }).meshReportPath).toBe('/repo/.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json');
+
+    expect(parseProductionAppCanaryOptions({
+      argv: [],
+      env: { VH_PRODUCTION_APP_CANARY_MESH_REPORT: '.tmp/env-report.json' },
+      repoRoot: '/repo',
+    }).meshReportPath).toBe('/repo/.tmp/env-report.json');
+
+    expect(parseProductionAppCanaryOptions({
+      argv: ['--mesh-report', '.tmp/cli-report.json', '--expected-luma-profile=production-attestation'],
+      env: { VH_PRODUCTION_APP_CANARY_MESH_REPORT: '.tmp/env-report.json' },
+      repoRoot: '/repo',
+    })).toMatchObject({
+      meshReportPath: '/repo/.tmp/cli-report.json',
+      expectedLumaProfile: 'production-attestation',
+    });
+  });
+
+  it('blocks current review_required mesh evidence without faking an app canary pass', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
+    const meshReportPath = path.join(repoRoot, '.tmp/mesh-production-readiness/latest/mesh-production-readiness-report.json');
+    writeJson(meshReportPath, meshReport());
+
+    const result = runProductionAppCanary({
+      repoRoot,
+      outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
+      argv: ['--mesh-report', meshReportPath],
+      env: {},
+      now: () => nowMs,
+      randomBytes: () => Buffer.from('00112233', 'hex'),
+      git,
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(result.report).toMatchObject({
+      schema_version: PRODUCTION_APP_CANARY_SCHEMA_VERSION,
+      status: 'blocked',
+      reason: 'mesh_not_release_ready',
+      mesh_report: {
+        loaded: true,
+        run_id: 'mesh-production-readiness-test',
+        status: 'review_required',
+        source_commit: 'abc123',
+      },
+      luma_profile: {
+        observed: 'none',
+        expected: 'none',
+        status: 'pass',
+      },
+      downstream_observation: {
+        status: 'not_run',
+        reason: 'prerequisites_blocked',
+      },
+    });
+    expect(fs.existsSync(result.reportPath)).toBe(true);
+    expect(fs.existsSync(result.latestReportPath)).toBe(true);
+  });
+
+  it('fails closed on LUMA profile mismatch before downstream observation', () => {
+    const report = buildProductionAppCanaryReport({
+      runId: 'production-app-canary-test',
+      startedAtMs: nowMs,
+      completedAtMs: nowMs,
+      command: 'pnpm check:production-app-canary -- --expected-luma-profile production-attestation',
+      repo: { branch: 'coord/test', commit: 'abc123', dirty: false },
+      meshReportPath: '/repo/.tmp/mesh.json',
+      meshReport: meshReport({ status: 'release_ready', release_readiness_blockers: [] }),
+      expectedLumaProfile: 'production-attestation',
+    });
+
+    expect(report.status).toBe('blocked');
+    expect(report.reason).toBe('luma_profile_mismatch');
+    expect(report.luma_profile).toMatchObject({
+      observed: 'none',
+      expected: 'production-attestation',
+      status: 'blocked',
+    });
+  });
+
+  it('still refuses to pass release_ready mesh evidence until real downstream observation exists', () => {
+    const report = buildProductionAppCanaryReport({
+      runId: 'production-app-canary-test',
+      startedAtMs: nowMs,
+      completedAtMs: nowMs,
+      command: 'pnpm check:production-app-canary',
+      repo: { branch: 'coord/test', commit: 'abc123', dirty: false },
+      meshReportPath: '/repo/.tmp/mesh.json',
+      meshReport: meshReport({ status: 'release_ready', release_readiness_blockers: [] }),
+    });
+
+    expect(report.status).toBe('blocked');
+    expect(report.reason).toBe('downstream_observation_not_implemented');
+    expect(report.release_claims.forbidden).toContain('The production app canary passed.');
+    expect(report.checks.find((check) => check.id === 'downstream_observation')).toMatchObject({
+      status: 'blocked',
+      reason: 'downstream_observation_not_implemented',
+    });
+  });
+
+  it('fails closed on stale, dirty, and wrong-commit mesh reports', () => {
+    const report = buildProductionAppCanaryReport({
+      runId: 'production-app-canary-test',
+      startedAtMs: nowMs,
+      completedAtMs: nowMs,
+      command: 'pnpm check:production-app-canary',
+      repo: { branch: 'coord/test', commit: 'abc123', dirty: false },
+      meshReportPath: '/repo/.tmp/mesh.json',
+      meshReport: meshReport({
+        generated_at: '2026-05-06T17:55:00.000Z',
+        repo: {
+          commit: 'def456',
+          dirty: true,
+        },
+      }),
+    });
+
+    expect(report.reason).toBe('stale_mesh_report');
+    expect(report.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'mesh_report_fresh', status: 'blocked', reason: 'stale_mesh_report' }),
+      expect.objectContaining({ id: 'mesh_report_clean_repo', status: 'blocked', reason: 'mesh_report_dirty' }),
+      expect.objectContaining({ id: 'mesh_report_current_commit', status: 'blocked', reason: 'mesh_report_wrong_commit' }),
+    ]));
+  });
+});

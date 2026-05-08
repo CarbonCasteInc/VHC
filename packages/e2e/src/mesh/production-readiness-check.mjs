@@ -173,6 +173,16 @@ function sumFinite(values) {
   return values.filter((value) => Number.isFinite(value)).reduce((sum, value) => sum + value, 0);
 }
 
+export function downstreamCanaryMetadata({ scriptImplemented = hasScript('check:production-app-canary') } = {}) {
+  return {
+    command: 'pnpm check:production-app-canary',
+    status: 'skipped',
+    reason: scriptImplemented
+      ? 'downstream full-app production canary is implemented as a separate fail-closed gate and is not folded into mesh readiness status'
+      : 'downstream full-app production canary is not implemented and must not be folded into mesh readiness status',
+  };
+}
+
 function normalizeReportRows(sources, field) {
   return sources.flatMap((source) => {
     const rows = Array.isArray(source.report?.[field]) ? source.report[field] : [];
@@ -829,11 +839,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
       ],
       invalidated_by_luma_epoch_change: false,
     },
-    downstream_canary: {
-      command: 'pnpm check:production-app-canary',
-      status: 'skipped',
-      reason: 'downstream full-app production canary is not implemented and must not be folded into mesh readiness status',
-    },
+    downstream_canary: downstreamCanaryMetadata(),
   };
 }
 
