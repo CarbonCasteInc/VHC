@@ -2,7 +2,7 @@ import { TopicSynthesisV2Schema, type TopicSynthesisV2 } from '@vh/data-model';
 import type { VennClient } from './types';
 import {
   hasForbiddenSynthesisPayloadFields,
-  readTopicLatestSynthesis,
+  readTopicLatestSynthesisStatus,
   writeTopicLatestSynthesis,
 } from './synthesisAdapters';
 
@@ -28,7 +28,11 @@ export async function writeTopicLatestSynthesisIfNotDowngrade(
     throw new Error('Synthesis payload contains forbidden identity/token fields');
   }
   const sanitized = TopicSynthesisV2Schema.parse(synthesis);
-  const existing = await readTopicLatestSynthesis(client, sanitized.topic_id);
+  const existingResult = await readTopicLatestSynthesisStatus(client, sanitized.topic_id);
+  if (existingResult.state === 'blocked') {
+    throw new Error('Latest topic synthesis is an invalid system-writer record');
+  }
+  const existing = existingResult.state === 'valid' ? existingResult.synthesis : null;
 
   if (existing) {
     if (existing.epoch > sanitized.epoch) {

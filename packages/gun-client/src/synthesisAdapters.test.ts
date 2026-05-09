@@ -11,6 +11,15 @@ import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import { HydrationBarrier } from './sync/barrier';
 import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_SIGNATURE_SUITE,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  canonicalizeSystemWriterRecordBytes,
+  type SystemWriterPin,
+  type SystemWriterSignHook,
+} from './systemWriter';
+import {
   getTopicEpochCandidateChain,
   getTopicEpochCandidatesChain,
   getTopicLatestSynthesisCorrectionChain,
@@ -21,6 +30,7 @@ import {
   readTopicEpochCandidate,
   readTopicEpochCandidates,
   readTopicEpochSynthesis,
+  readTopicLatestSynthesisStatus,
   readTopicLatestSynthesisCorrection,
   readTopicLatestSynthesis,
   readTopicSynthesisCorrection,
@@ -38,6 +48,26 @@ const CANDIDATE_SYNTHESIS_JSON_KEY = '__candidate_synthesis_json';
 const TOPIC_SYNTHESIS_JSON_KEY = '__topic_synthesis_json';
 const TOPIC_SYNTHESIS_CORRECTION_JSON_KEY = '__topic_synthesis_correction_json';
 const TOPIC_DIGEST_JSON_KEY = '__topic_digest_json';
+const ED25519 = 'Ed25519';
+const WRITER_ID = 'vh-system-writer-test-v1';
+const ISSUED_AT = 1_777_777_777_000;
+
+const DEFAULT_SYSTEM_WRITER_PIN: SystemWriterPin = {
+  pinVersion: 1,
+  schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+  maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+  signatureSuite: SYSTEM_WRITER_SIGNATURE_SUITE,
+  writers: [
+    {
+      id: WRITER_ID,
+      status: 'active',
+      publicKey: {
+        encoding: 'spki-base64url',
+        material: 'test-public-key',
+      },
+    },
+  ],
+};
 
 interface FakeMesh {
   root: any;
@@ -124,14 +154,116 @@ function createFakeMesh(): FakeMesh {
   };
 }
 
-function createClient(mesh: FakeMesh, guard: TopologyGuard, peers: string[] = []): VennClient {
+function bytesToBase64Url(bytes: ArrayBuffer | Uint8Array): string {
+  return Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString('base64url');
+}
+
+function bytesToCryptoBufferSource(bytes: Uint8Array): BufferSource {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+const defaultSystemWriterSign: SystemWriterSignHook = ({ writerId, path, canonicalBytes }) =>
+  `test-signature:${writerId}:${path}:${canonicalBytes.byteLength}`;
+
+async function createRealSystemWriterHooks(): Promise<{
+  readonly pin: SystemWriterPin;
+  readonly sign: SystemWriterSignHook;
+}> {
+  const keyPair = await crypto.subtle.generateKey(ED25519, true, ['sign', 'verify']);
+  if (!('privateKey' in keyPair) || !('publicKey' in keyPair)) {
+    throw new Error('Ed25519 key generation failed');
+  }
+  const spki = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+  return {
+    pin: {
+      pinVersion: 1,
+      schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+      maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      signatureSuite: SYSTEM_WRITER_SIGNATURE_SUITE,
+      writers: [
+        {
+          id: WRITER_ID,
+          status: 'active',
+          publicKey: {
+            encoding: 'spki-base64url',
+            material: bytesToBase64Url(spki),
+          },
+        },
+      ],
+    },
+    sign: async ({ canonicalBytes }) => {
+      const signature = await crypto.subtle.sign(
+        ED25519,
+        keyPair.privateKey,
+        bytesToCryptoBufferSource(canonicalBytes),
+      );
+      return bytesToBase64Url(signature);
+    },
+  };
+}
+
+async function signSystemWriterTestRecord(
+  sign: SystemWriterSignHook,
+  path: string,
+  record: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const signature = await sign({
+    canonicalBytes: canonicalizeSystemWriterRecordBytes(record),
+    writerId: WRITER_ID,
+    path,
+    record: record as Parameters<SystemWriterSignHook>[0]['record'],
+  });
+  return {
+    ...record,
+    _systemSignature: signature,
+  };
+}
+
+async function createSignedSynthesisFixture(synthesis: TopicSynthesisV2 = SYNTHESIS): Promise<{
+  readonly mesh: FakeMesh;
+  readonly client: VennClient;
+  readonly epochRecord: Record<string, unknown>;
+  readonly latestRecord: Record<string, unknown>;
+}> {
+  const hooks = await createRealSystemWriterHooks();
+  const mesh = createFakeMesh();
+  const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+  const client = createClient(mesh, guard, [], {
+    systemWriterPin: hooks.pin,
+    systemWriterSign: hooks.sign,
+    systemWriterVerify: undefined,
+  });
+
+  await writeTopicSynthesis(client, synthesis);
+
+  return {
+    mesh,
+    client,
+    epochRecord: mesh.writes[0].value as Record<string, unknown>,
+    latestRecord: mesh.writes[1].value as Record<string, unknown>,
+  };
+}
+
+function createClient(
+  mesh: FakeMesh,
+  guard: TopologyGuard,
+  peers: string[] = [],
+  config: Partial<VennClient['config']> = {},
+): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
 
   return {
     config: {
       peers,
-      systemWriterSign: vi.fn(async () => 'test-system-story-signature')
+      systemWriterId: WRITER_ID,
+      systemWriterNow: () => ISSUED_AT,
+      systemWriterPin: DEFAULT_SYSTEM_WRITER_PIN,
+      systemWriterSign: defaultSystemWriterSign,
+      systemWriterVerify: vi.fn(() => true),
+      ...config,
     },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
@@ -458,8 +590,19 @@ describe('synthesisAdapters', () => {
       topic_id: SYNTHESIS.topic_id,
       epoch: SYNTHESIS.epoch,
       synthesis_id: SYNTHESIS.synthesis_id,
-      created_at: SYNTHESIS.created_at
+      created_at: SYNTHESIS.created_at,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/topics/topic-1/epochs/2/synthesis/`),
     });
+    expect(mesh.writes[0]?.value).toEqual(
+      expect.not.objectContaining({
+        _authorScheme: expect.anything(),
+        signedWriteEnvelope: expect.anything(),
+      }),
+    );
 
     await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
 
@@ -525,8 +668,19 @@ describe('synthesisAdapters', () => {
       topic_id: SYNTHESIS.topic_id,
       epoch: SYNTHESIS.epoch,
       synthesis_id: SYNTHESIS.synthesis_id,
-      created_at: SYNTHESIS.created_at
+      created_at: SYNTHESIS.created_at,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/topics/topic-1/latest/`),
     });
+    expect(mesh.writes[0]?.value).toEqual(
+      expect.not.objectContaining({
+        _authorScheme: expect.anything(),
+        signedWriteEnvelope: expect.anything(),
+      }),
+    );
 
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
 
@@ -565,59 +719,276 @@ describe('synthesisAdapters', () => {
     await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
   });
 
-  it('falls back to relay synthesis writes when latest synthesis put acknowledgements time out', async () => {
-    vi.useFakeTimers();
+  it('validates real signed system writer epoch and latest synthesis records', async () => {
+    const { mesh, client, epochRecord, latestRecord } = await createSignedSynthesisFixture();
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', epochRecord);
+    mesh.setRead('topics/topic-1/latest', latestRecord);
+
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+    await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({
+      state: 'valid',
+      synthesis: SYNTHESIS,
+    });
+  });
+
+  it('rejects tampered or path-mismatched system writer synthesis records', async () => {
+    const { mesh, client, epochRecord, latestRecord } = await createSignedSynthesisFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     try {
-      const mesh = createFakeMesh();
-      mesh.setPendingPut('topics/topic-1/latest');
-      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
-      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
-      const fetchMock = vi.fn(async () => ({
-        ok: true,
-        json: async () => ({
-          ok: true,
-          topic_id: SYNTHESIS.topic_id,
-          synthesis_id: SYNTHESIS.synthesis_id
-        })
-      }));
-      vi.stubGlobal('fetch', fetchMock);
+      for (const record of [
+        { ...epochRecord, [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify({ ...SYNTHESIS, facts_summary: 'Tampered' }) },
+        { ...epochRecord, _protocolVersion: 'luma-public-v2' },
+        { ...epochRecord, _systemWriterId: 'unknown-writer' },
+        { ...epochRecord, _systemIssuedAt: ISSUED_AT + 1 },
+        { ...epochRecord, _systemSignature: `${String(epochRecord._systemSignature)}tampered` },
+        { ...epochRecord, _writerKind: 'legacy' },
+      ]) {
+        mesh.setRead('topics/topic-1/epochs/2/synthesis', record);
+        await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+      }
 
-      const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
-      await vi.advanceTimersByTimeAsync(5_000);
+      mesh.setRead('topics/topic-1/epochs/3/synthesis', epochRecord);
+      await expect(readTopicEpochSynthesis(client, 'topic-1', 3)).resolves.toBeNull();
 
-      await expect(writePromise).resolves.toEqual(SYNTHESIS);
-      expect(fetchMock).toHaveBeenCalledWith(
-        'http://127.0.0.1:7777/vh/topics/synthesis',
-        expect.objectContaining({
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ synthesis: SYNTHESIS })
-        })
-      );
+      mesh.setRead('topics/topic-2/latest', latestRecord);
+      await expect(readTopicLatestSynthesis(client, 'topic-2')).resolves.toBeNull();
     } finally {
-      vi.unstubAllGlobals();
-      vi.useRealTimers();
+      warnSpy.mockRestore();
     }
   });
 
-  it('recovers latest synthesis writes from epoch readback before relay fallback', async () => {
+  it('fails closed with system-writer-validation-failed when the synthesis pin is missing', async () => {
+    const { epochRecord } = await createSignedSynthesisFixture();
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', epochRecord);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, [], { systemWriterPin: null });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+
+    try {
+      await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'missing-pin',
+          path: 'vh/topics/topic-1/epochs/2/synthesis',
+        }),
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'missing-pin',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('rejects invalid system latest synthesis without scalar fallback or safe-write downgrade', async () => {
+    const { latestRecord } = await createSignedSynthesisFixture();
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/latest', {
+      ...latestRecord,
+      [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify({ ...SYNTHESIS, facts_summary: 'Tampered' }),
+    });
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, [], { systemWriterPin: null });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+      await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({ state: 'blocked' });
+      await expect(writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS)).rejects.toThrow(
+        'Latest topic synthesis is an invalid system-writer record',
+      );
+      expect(mesh.writes).toHaveLength(0);
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('keeps legacy scalar latest fallback when the latest root is non-object noise', async () => {
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/latest', 'legacy-root-placeholder');
+    mesh.setRead('topics/topic-1/latest/__topic_synthesis_json', JSON.stringify(SYNTHESIS));
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+    await expect(readTopicLatestSynthesisStatus(client, 'topic-1')).resolves.toEqual({
+      state: 'valid',
+      synthesis: SYNTHESIS,
+    });
+  });
+
+  it('keeps safe legacy-marked synthesis records readable and rejects downgrade fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const legacyRecord = {
+      _writerKind: 'legacy',
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(SYNTHESIS),
+      schemaVersion: SYNTHESIS.schemaVersion,
+      topic_id: SYNTHESIS.topic_id,
+      epoch: SYNTHESIS.epoch,
+      synthesis_id: SYNTHESIS.synthesis_id,
+      created_at: SYNTHESIS.created_at,
+    };
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', legacyRecord);
+    mesh.setRead('topics/topic-1/latest', legacyRecord);
+
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toEqual(SYNTHESIS);
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toEqual(SYNTHESIS);
+
+    mesh.setRead('topics/topic-1/epochs/2/synthesis', {
+      ...legacyRecord,
+      _systemSignature: 'downgraded-system-field',
+    });
+    mesh.setRead('topics/topic-1/latest', {
+      ...legacyRecord,
+      signedWriteEnvelope: {},
+    });
+
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+  });
+
+  it('fails synthesis signing before persistence when signer metadata is unavailable or malformed', async () => {
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+    const missingSignerMesh = createFakeMesh();
+    await expect(
+      writeTopicSynthesis(createClient(missingSignerMesh, guard, [], { systemWriterSign: undefined }), SYNTHESIS),
+    ).rejects.toThrow('system writer signer is required for topic synthesis writes');
+    expect(missingSignerMesh.writes).toEqual([]);
+
+    const invalidSignatureMesh = createFakeMesh();
+    await expect(
+      writeTopicSynthesis(createClient(invalidSignatureMesh, guard, [], { systemWriterSign: () => ' invalid-signature' }), SYNTHESIS),
+    ).rejects.toThrow('system writer signer returned an invalid signature');
+    expect(invalidSignatureMesh.writes).toEqual([]);
+
+    const latestBuildFailureMesh = createFakeMesh();
+    await expect(
+      writeTopicSynthesis(createClient(latestBuildFailureMesh, guard, [], {
+        systemWriterSign: ({ path }) => path.includes('/latest/') ? '' : 'valid-signature',
+      }), SYNTHESIS),
+    ).rejects.toThrow('system writer signer returned an invalid signature');
+    expect(latestBuildFailureMesh.writes).toEqual([]);
+
+    const invalidTimestampMesh = createFakeMesh();
+    await expect(
+      writeTopicSynthesis(createClient(invalidTimestampMesh, guard, [], { systemWriterNow: () => -1 }), SYNTHESIS),
+    ).rejects.toThrow('system writer issued-at must be a non-negative safe integer');
+    expect(invalidTimestampMesh.writes).toEqual([]);
+  });
+
+  it('blocks validly signed synthesis records whose top-level path fields do not match', async () => {
+    const hooks = await createRealSystemWriterHooks();
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, [], {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+      systemWriterVerify: undefined,
+    });
+    const baseRecord = {
+      [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(SYNTHESIS),
+      schemaVersion: SYNTHESIS.schemaVersion,
+      topic_id: SYNTHESIS.topic_id,
+      epoch: SYNTHESIS.epoch,
+      synthesis_id: SYNTHESIS.synthesis_id,
+      created_at: SYNTHESIS.created_at,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+    };
+
+    mesh.setRead(
+      'topics/topic-1/epochs/2/synthesis',
+      await signSystemWriterTestRecord(hooks.sign, 'vh/topics/topic-1/epochs/2/synthesis/', {
+        ...baseRecord,
+        epoch: 3,
+      }),
+    );
+    await expect(readTopicEpochSynthesis(client, 'topic-1', 2)).resolves.toBeNull();
+
+    mesh.setRead(
+      'topics/topic-1/latest',
+      await signSystemWriterTestRecord(hooks.sign, 'vh/topics/topic-1/latest/', {
+        ...baseRecord,
+        topic_id: 'topic-2',
+      }),
+    );
+    await expect(readTopicLatestSynthesis(client, 'topic-1')).resolves.toBeNull();
+  });
+
+  it('does not publish bare relay fallback when latest synthesis put acknowledgements time out', async () => {
     vi.useFakeTimers();
     try {
       const mesh = createFakeMesh();
       mesh.setPendingPut('topics/topic-1/latest');
-      mesh.setRead('topics/topic-1/epochs/2/synthesis', {
-        _: { '#': 'meta' },
-        ...SYNTHESIS,
-      });
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
       const fetchMock = vi.fn();
       vi.stubGlobal('fetch', fetchMock);
 
       const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
+      const assertion = expect(writePromise).rejects.toThrow(
+        'synthesis write timed out and signed readback did not confirm persistence',
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      await assertion;
+      expect(fetchMock).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
+    }
+  });
+
+  it('recovers latest synthesis writes from signed latest readback', async () => {
+    vi.useFakeTimers();
+    try {
+      const mesh = createFakeMesh();
+      mesh.setPendingPut('topics/topic-1/latest');
+      const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+      const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
+      for (let attempt = 0; attempt < 5 && mesh.writes.length === 0; attempt += 1) {
+        await vi.advanceTimersByTimeAsync(0);
+      }
+      expect(mesh.writes[0]?.value).toBeDefined();
+      mesh.setRead('topics/topic-1/latest', mesh.writes[0]?.value);
+      const assertion = expect(writePromise).resolves.toEqual(SYNTHESIS);
       await vi.advanceTimersByTimeAsync(5_000);
 
-      await expect(writePromise).resolves.toEqual(SYNTHESIS);
+      await assertion;
       expect(fetchMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();
@@ -635,7 +1006,7 @@ describe('synthesisAdapters', () => {
 
       const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
       const assertion = expect(writePromise).rejects.toThrow(
-        'synthesis write timed out and readback/fallback did not confirm persistence',
+        'synthesis write timed out and signed readback did not confirm persistence',
       );
       await vi.advanceTimersByTimeAsync(6_000);
       await assertion;
@@ -644,7 +1015,7 @@ describe('synthesisAdapters', () => {
     }
   });
 
-  it('rejects latest synthesis writes when relay fallback is unavailable or declines the write', async () => {
+  it('rejects latest synthesis writes when signed readback cannot confirm persistence', async () => {
     vi.useFakeTimers();
     try {
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
@@ -654,7 +1025,7 @@ describe('synthesisAdapters', () => {
       const invalidPeerClient = createClient(invalidPeerMesh, guard, ['http://[']);
       const invalidPeerWrite = writeTopicLatestSynthesis(invalidPeerClient, SYNTHESIS);
       const invalidPeerAssertion = expect(invalidPeerWrite).rejects.toThrow(
-        'synthesis write timed out and readback/fallback did not confirm persistence',
+        'synthesis write timed out and signed readback did not confirm persistence',
       );
       await vi.advanceTimersByTimeAsync(5_000);
       await invalidPeerAssertion;
@@ -665,7 +1036,7 @@ describe('synthesisAdapters', () => {
       vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
       const declinedWrite = writeTopicLatestSynthesis(declinedClient, SYNTHESIS);
       const declinedAssertion = expect(declinedWrite).rejects.toThrow(
-        'synthesis write timed out and readback/fallback did not confirm persistence',
+        'synthesis write timed out and signed readback did not confirm persistence',
       );
       await vi.advanceTimersByTimeAsync(5_000);
       await declinedAssertion;
@@ -675,7 +1046,7 @@ describe('synthesisAdapters', () => {
     }
   });
 
-  it('rejects latest synthesis writes when relay fallback fetch throws', async () => {
+  it('rejects latest synthesis writes when signed readback remains unavailable', async () => {
     vi.useFakeTimers();
     try {
       const mesh = createFakeMesh();
@@ -683,12 +1054,12 @@ describe('synthesisAdapters', () => {
       const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
       const client = createClient(mesh, guard, ['http://127.0.0.1:7777/gun']);
       vi.stubGlobal('fetch', vi.fn(async () => {
-        throw new Error('relay unavailable');
+        throw new Error('fetch should not be used');
       }));
 
       const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
       const assertion = expect(writePromise).rejects.toThrow(
-        'synthesis write timed out and readback/fallback did not confirm persistence',
+        'synthesis write timed out and signed readback did not confirm persistence',
       );
       await vi.advanceTimersByTimeAsync(5_000);
 
@@ -903,6 +1274,13 @@ describe('synthesisAdapters', () => {
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
 
+    await expect(writeTopicLatestSynthesisIfNotDowngrade(client, SYNTHESIS)).resolves.toMatchObject({
+      status: 'written',
+      previous: null,
+    });
+    expect(mesh.writes).toHaveLength(1);
+    mesh.writes.length = 0;
+
     mesh.setRead('topics/topic-1/latest', {
       ...SYNTHESIS,
       synthesis_id: 'synth-3',
@@ -1004,14 +1382,24 @@ describe('synthesisAdapters', () => {
       topic_id: SYNTHESIS.topic_id,
       epoch: SYNTHESIS.epoch,
       synthesis_id: SYNTHESIS.synthesis_id,
-      created_at: SYNTHESIS.created_at
+      created_at: SYNTHESIS.created_at,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/topics/topic-1/epochs/2/synthesis/`),
     });
     expectGunJsonEnvelope(mesh.writes[1]?.value, TOPIC_SYNTHESIS_JSON_KEY, SYNTHESIS, {
       schemaVersion: SYNTHESIS.schemaVersion,
       topic_id: SYNTHESIS.topic_id,
       epoch: SYNTHESIS.epoch,
       synthesis_id: SYNTHESIS.synthesis_id,
-      created_at: SYNTHESIS.created_at
+      created_at: SYNTHESIS.created_at,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/topics/topic-1/latest/`),
     });
   });
 
@@ -1053,7 +1441,7 @@ describe('synthesisAdapters', () => {
 
       const writePromise = writeTopicLatestSynthesis(client, SYNTHESIS);
       const assertion = expect(writePromise).rejects.toThrow(
-        'synthesis write timed out and readback/fallback did not confirm persistence',
+        'synthesis write timed out and signed readback did not confirm persistence',
       );
       await vi.advanceTimersByTimeAsync(5_000);
       await assertion;
@@ -1117,7 +1505,9 @@ describe('synthesisAdapters', () => {
       value: expect.objectContaining({
         _protocolVersion: 'luma-public-v1',
         _writerKind: 'system',
-        _systemSignature: 'test-system-story-signature',
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+        _systemSignature: expect.any(String),
         story_id: STORY.story_id,
         latest_activity_at: STORY.cluster_window_end
       })
@@ -1126,7 +1516,9 @@ describe('synthesisAdapters', () => {
     expect(mesh.writes[2]?.value).toMatchObject({
       _protocolVersion: 'luma-public-v1',
       _writerKind: 'system',
-      _systemSignature: 'test-system-story-signature',
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: expect.any(String),
       story_id: STORY.story_id,
       hotness: expect.any(Number)
     });
