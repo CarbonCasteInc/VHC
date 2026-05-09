@@ -298,7 +298,10 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir } = {}) {
       failures.push(`write class ${writeClass} has disallowed writer kind ${writerKind}`);
     }
   }
-  if ((report.luma_gated_write_drills || []).some((row) => row.status === 'pass')) {
+  if (
+    report.luma_gated_write_coverage?.status !== 'pass' &&
+    (report.luma_gated_write_drills || []).some((row) => row.status === 'pass')
+  ) {
     failures.push('aggregate implies LUMA-gated write coverage in a mesh-only evidence packet');
   }
   failures.push(...sourceReportFailures({ aggregate: report, sourceDir: resolvedSourceDir }));

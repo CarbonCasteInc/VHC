@@ -36,6 +36,7 @@
     "test:mesh:peer-config-rollback-drill": "node ./src/mesh/peer-config-rollback-drill.mjs",
     "test:mesh:clock-skew-drills": "node ./src/mesh/clock-skew-drills.mjs",
     "test:mesh:conflict-drills": "node ./src/mesh/conflict-drills.mjs",
+    "test:mesh:luma-gated-write-coverage": "node ./src/mesh/luma-gated-write-coverage.mjs",
     "check:mesh-evidence-scrub": "node ./src/mesh/evidence-scrub-check.mjs",
     "check:mesh:production-readiness": "node ./src/mesh/production-readiness-check.mjs",
     "check:production-app-canary": "node ./src/live/production-app-canary.mjs",

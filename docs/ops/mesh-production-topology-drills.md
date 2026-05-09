@@ -2,7 +2,7 @@
 
 > Status: Active
 > Owner: VHC Core Engineering
-> Last Reviewed: 2026-05-05
+> Last Reviewed: 2026-05-09
 > Depends On: docs/specs/spec-mesh-production-readiness.md, docs/specs/spec-data-topology-privacy-v0.md, docs/specs/spec-signed-pin-custody-v0.md
 
 This runbook covers the local production-shaped mesh topology proof path.
@@ -116,6 +116,29 @@ rejection for expired, unsigned, bad-signature, wrong-key, and local-peer
 configs, then rollback to the previous topology shape through a freshly issued
 signed rollback config. Rollback evidence must not be based on accepting an old
 cached config file.
+
+Run the LUMA-gated write coverage gate:
+
+```sh
+pnpm test:mesh:luma-gated-write-coverage
+```
+
+With the current mesh-only profile, the expected result is a non-zero exit and
+a blocked report at:
+
+```text
+.tmp/mesh-luma-gated-write-coverage/latest/mesh-luma-gated-write-coverage-report.json
+```
+
+The blocked default is intentional: `luma_profile: none` does not exercise
+LUMA-owned `_writerKind`, `_authorScheme`, envelope, custody, adapter, public-id
+derivation, or reader-path behavior. To validate real LUMA coverage, provide an
+explicit report with `VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT` or
+`--source-report <path>`. The report must be current-commit, clean, under
+`schema_epoch: post_luma_m0b`, use a non-`none` LUMA profile, and prove every
+required LUMA-gated write class through the LUMA reader path. A single passing
+LUMA row, a synthetic `vh/__mesh_drills/*` row, or a merged
+`drill_writer_kind_by_class` value of `luma` is not enough.
 
 Run the state-resolution drill:
 
@@ -392,7 +415,12 @@ exists.
 The aggregate command exits non-zero for missing, malformed, dirty, stale,
 failed, command-mismatched, unscrubbed, or incomplete source evidence, and for
 any overclaiming packet that would emit `release_ready` before the blockers are
-gone.
+gone. The default blocked LUMA coverage command is not one of the 12 aggregate
+source reports while the mesh profile remains `luma_profile: none`; the
+aggregate consumes LUMA coverage only from an explicit
+`VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT` path and fails closed if that report
+is malformed, stale, dirty, wrong-epoch, partial, synthetic-only, or
+overclaiming.
 
 After Slice 14B, `pnpm check:production-app-canary` is a separate fail-closed
 downstream gate. It defaults to the latest mesh readiness report but accepts
@@ -459,7 +487,10 @@ public WSS command proves public WSS deployment only when it exits zero with
 fail-closed input validation. None of these outcomes proves automatic
 peer-federation recovery, runtime peer-config key rotation without a new
 trusted-key distribution path, LUMA-gated write state resolution, public WSS
-clock-skew or conflict behavior, or post-M0.B LUMA-gated write coverage.
+clock-skew or conflict behavior, or post-M0.B LUMA-gated write coverage. A
+passing Slice 14E LUMA coverage report means only that explicit coverage
+evidence satisfied the all-required-class reader-path contract; it does not
+claim LUMA gate behavior itself, which remains owned by LUMA acceptance gates.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one

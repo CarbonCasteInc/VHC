@@ -4,6 +4,12 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  DEFAULT_LUMA_SCHEMA_EPOCH,
+  LUMA_GATED_WRITE_COVERAGE_COMMAND,
+  LUMA_GATED_WRITE_COVERAGE_REPORT_ENV,
+  validateLumaCoverageReport,
+} from './luma-gated-write-coverage.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -319,6 +325,60 @@ export function validationFailuresForSource({
   return unique(failures);
 }
 
+function resolveMaybeRelative(filePath) {
+  return filePath ? path.resolve(repoRoot, filePath) : null;
+}
+
+export function loadLumaCoverageEvidence({
+  currentCommit,
+  requireClean = true,
+  reportPath = process.env[LUMA_GATED_WRITE_COVERAGE_REPORT_ENV] || null,
+  expectedSchemaEpoch = process.env.VH_MESH_LUMA_GATED_WRITE_COVERAGE_SCHEMA_EPOCH || DEFAULT_LUMA_SCHEMA_EPOCH,
+  expectedLumaProfile = process.env.VH_MESH_LUMA_GATED_WRITE_COVERAGE_LUMA_PROFILE || null,
+} = {}) {
+  if (!reportPath) {
+    return {
+      provided: false,
+      status: 'pending',
+      report_path: null,
+      validation: {
+        ok: false,
+        status: 'blocked',
+        failures: ['no explicit LUMA-gated write coverage report was provided'],
+        required_write_classes: [],
+      },
+    };
+  }
+
+  const resolvedReportPath = resolveMaybeRelative(reportPath);
+  let report = null;
+  let validation = null;
+  try {
+    report = readJson(resolvedReportPath);
+    validation = validateLumaCoverageReport(report, {
+      currentCommit,
+      requireClean,
+      expectedSchemaEpoch,
+      expectedLumaProfile,
+    });
+  } catch (error) {
+    validation = {
+      ok: false,
+      status: 'blocked',
+      failures: [`failed to read LUMA-gated write coverage report: ${error instanceof Error ? error.message : String(error)}`],
+      required_write_classes: [],
+    };
+  }
+
+  return {
+    provided: true,
+    status: validation.ok ? 'pass' : 'blocked',
+    report_path: resolvedReportPath,
+    report,
+    validation,
+  };
+}
+
 function runSourceGate({ gate, artifactDir, currentCommit, requireClean }) {
   const startedAt = Date.now();
   const result = spawnSync(gate.command[0], gate.command.slice(1), {
@@ -456,7 +516,7 @@ function runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }) {
   };
 }
 
-export function buildReleaseBlockers(sources) {
+export function buildReleaseBlockers(sources, { lumaCoverageEvidence = null } = {}) {
   const blockers = [];
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const soak = sourceById.get('soak')?.report;
@@ -519,15 +579,14 @@ export function buildReleaseBlockers(sources) {
     });
   }
 
-  const lumaRows = sources.flatMap((source) => source.report?.luma_gated_write_drills || []);
-  const lumaPassed = lumaRows.some((row) => row.status === 'pass');
-  const drillWriterKinds = mergeMaps(sources.map((source) => source.report?.drill_writer_kind_by_class));
-  const hasLumaWriter = Object.values(drillWriterKinds).includes('luma');
-  if (!lumaPassed || !hasLumaWriter) {
+  const lumaCoveragePassed = Boolean(lumaCoverageEvidence?.provided && lumaCoverageEvidence.validation?.ok);
+  if (!lumaCoveragePassed) {
     blockers.push({
       id: 'luma-gated-write-coverage',
-      command: 'future LUMA-gated mesh write drill through the LUMA reader path',
-      reason: 'current mesh packet uses synthetic mesh-drill records and does not prove LUMA-gated production write classes',
+      command: LUMA_GATED_WRITE_COVERAGE_COMMAND,
+      reason: lumaCoverageEvidence?.provided
+        ? 'explicit LUMA-gated write coverage report is missing required classes, stale, dirty, wrong-epoch, synthetic-only, or otherwise invalid'
+        : 'no explicit LUMA-gated write coverage report proves every required class through the LUMA reader path',
     });
   }
 
@@ -723,7 +782,7 @@ function writeAggregatePacket({ report, manifest, artifactDir }) {
   return { reportPath, manifestPath, latestReportPath: path.join(latestDir, 'mesh-production-readiness-report.json') };
 }
 
-function buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed }) {
+function buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed, lumaCoverageEvidence = null }) {
   const currentCommit = runGit(['rev-parse', 'HEAD']);
   const dirty = runGit(['status', '--short']).length > 0;
   const sourceReports = sources.map((source) => source.report).filter(Boolean);
@@ -736,6 +795,16 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
   const stateResolutionRows = normalizeReportRows(sources, 'state_resolution_drills');
   const readRepairRows = normalizeReportRows(sources, 'read_repair_drills');
   const lumaRows = normalizeReportRows(sources, 'luma_gated_write_drills');
+  const lumaCoverageProvided = Boolean(lumaCoverageEvidence?.provided);
+  const lumaCoveragePassed = Boolean(lumaCoverageProvided && lumaCoverageEvidence.validation?.ok);
+  const lumaCoverageStatus = lumaCoveragePassed ? 'pass' : lumaCoverageProvided ? 'blocked' : 'pending';
+  const lumaCoverageRows = (lumaCoverageEvidence?.validation?.required_write_classes || []).map((row) => ({
+    ...row,
+    status: row.status === 'pass' ? 'pass' : 'skipped',
+    trace_id: row.trace_id || runId,
+    source_gate: 'luma_gated_write_coverage',
+    source_run_id: lumaCoverageEvidence?.report?.run_id || null,
+  }));
   const degradationReasons = unique(sourceReports.flatMap((report) => report.health?.degradation_reasons_seen || []));
   const soakReport = sources.find((source) => source.id === 'soak')?.report;
   const clockSkewPassed = sources.find((source) => source.id === 'clock_skew')?.report?.clock_skew?.status === 'pass';
@@ -769,7 +838,7 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
     luma_profile: 'none',
     luma_dependency_status: {
       luma_m0b_schema_epoch: 'landed',
-      luma_gated_write_drills: 'pending',
+      luma_gated_write_drills: lumaCoverageStatus,
       luma_profile_gates: 'n/a',
     },
     drill_writer_kind_by_class: mergeMaps(sourceReports.map((report) => report.drill_writer_kind_by_class)),
@@ -799,13 +868,24 @@ function buildReport({ runId, startedAt, completedAt, sources, blockers, command
     state_resolution_drills: stateResolutionRows,
     conflict_fixtures: conflictRowsForAggregate({ sources, conflictPassed, runId }),
     read_repair_drills: readRepairRows,
+    luma_gated_write_coverage: {
+      command: LUMA_GATED_WRITE_COVERAGE_COMMAND,
+      report_env: LUMA_GATED_WRITE_COVERAGE_REPORT_ENV,
+      report_path: lumaCoverageEvidence?.report_path || null,
+      status: lumaCoverageStatus,
+      failures: lumaCoverageEvidence?.validation?.failures || [],
+      required_write_classes: lumaCoverageEvidence?.validation?.required_write_classes || [],
+    },
     luma_gated_write_drills: [
       ...lumaRows,
+      ...lumaCoverageRows,
       {
         write_class: 'LUMA-gated production write classes through LUMA reader path',
         trace_id: runId,
-        status: 'skipped',
-        reason: 'The aggregate gate uses existing synthetic mesh-drill evidence only; no LUMA _writerKind, _authorScheme, adapters, envelopes, custody, or schema migration work is exercised.',
+        status: lumaCoveragePassed ? 'pass' : 'skipped',
+        reason: lumaCoveragePassed
+          ? 'Explicit LUMA-gated write coverage report satisfied every required class through the LUMA reader path.'
+          : 'The aggregate gate uses existing synthetic mesh-drill evidence only; no LUMA _writerKind, _authorScheme, adapters, envelopes, custody, or schema migration work is exercised.',
       },
     ],
     clock_skew: buildClockSkew(sources),
@@ -851,12 +931,14 @@ async function main() {
 
   const currentCommit = runGit(['rev-parse', 'HEAD']);
   const requireClean = process.env.VH_MESH_PRODUCTION_READINESS_ALLOW_DIRTY !== 'true';
+  const lumaCoverageEvidence = loadLumaCoverageEvidence({ currentCommit, requireClean });
   const sources = [];
   for (const gate of SOURCE_GATES) {
     sources.push(runSourceGate({ gate, artifactDir, currentCommit, requireClean }));
   }
-  const initialBlockers = buildReleaseBlockers(sources);
-  const initialCommandPassed = sources.every((source) => source.status === 'pass');
+  const initialBlockers = buildReleaseBlockers(sources, { lumaCoverageEvidence });
+  const lumaCoverageCommandPassed = !lumaCoverageEvidence.provided || lumaCoverageEvidence.validation.ok;
+  const initialCommandPassed = sources.every((source) => source.status === 'pass') && lumaCoverageCommandPassed;
   const candidateCompletedAt = Date.now();
   const candidateReport = buildReport({
     runId,
@@ -865,6 +947,7 @@ async function main() {
     sources,
     blockers: initialBlockers,
     commandPassed: initialCommandPassed,
+    lumaCoverageEvidence,
   });
   const provisionalReportPath = path.join(artifactDir, 'mesh-production-readiness-report.json');
   const candidateManifest = buildManifest({
@@ -879,10 +962,10 @@ async function main() {
     sources.push(runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }));
   }
 
-  const blockers = buildReleaseBlockers(sources);
-  const commandPassed = sources.every((source) => source.status === 'pass');
+  const blockers = buildReleaseBlockers(sources, { lumaCoverageEvidence });
+  const commandPassed = sources.every((source) => source.status === 'pass') && lumaCoverageCommandPassed;
   const completedAt = Date.now();
-  const report = buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed });
+  const report = buildReport({ runId, startedAt, completedAt, sources, blockers, commandPassed, lumaCoverageEvidence });
   const manifest = buildManifest({ report, sources, blockers, reportPath: provisionalReportPath });
   const paths = writeAggregatePacket({ report, manifest, artifactDir });
 
