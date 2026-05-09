@@ -281,9 +281,15 @@ importers:
 
   packages/e2e:
     dependencies:
+      '@vh/data-model':
+        specifier: workspace:*
+        version: link:../data-model
       '@vh/gun-client':
         specifier: workspace:*
         version: link:../gun-client
+      '@vh/luma-sdk':
+        specifier: workspace:*
+        version: link:../luma-sdk
     devDependencies:
       '@playwright/test':
         specifier: ^1.42.1

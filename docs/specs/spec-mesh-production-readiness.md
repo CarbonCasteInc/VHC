@@ -2474,6 +2474,21 @@ Slice 14E strict coverage contract:
   report, synthetic `vh/__mesh_drills/*` row, `_drillWriterKind:
   'mesh-drill'`, or overclaiming release-ready statement keeps the blocker.
 
+Slice 14F hermetic reader-path evidence:
+
+- `pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e` is the
+  deterministic local evidence producer for the strict gate. The no-argument
+  command remains blocked under `luma_profile: none`.
+- Local E2E mode must generate its source rows from writes and readbacks through
+  existing LUMA-aware adapter paths, then immediately validate that generated
+  source report with the same strict coverage validator.
+- The local E2E packet uses `luma_profile: e2e`; it is acceptable evidence for
+  clearing only `luma-gated-write-coverage` in a local aggregate run. It is not
+  a production LUMA profile, a public WSS proof, or a downstream app canary.
+- Recent LUMA system-writer story, storyline, index, and analysis gates remain
+  protected-surface guardrails. They do not count as any of the five required
+  user LUMA-gated write coverage classes.
+
 Still not allowed after mesh readiness alone:
 
 - "The full app is test-group ready."
