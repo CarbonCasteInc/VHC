@@ -140,6 +140,22 @@ required LUMA-gated write class through the LUMA reader path. A single passing
 LUMA row, a synthetic `vh/__mesh_drills/*` row, or a merged
 `drill_writer_kind_by_class` value of `luma` is not enough.
 
+For deterministic local evidence, run the explicit hermetic LUMA reader-path
+mode:
+
+```sh
+pnpm test:mesh:luma-gated-write-coverage -- --mode local-e2e
+```
+
+This mode builds the required local packages, writes and reads back forum
+thread, forum comment, aggregate voter, directory publish, and news report
+records through the existing LUMA-aware adapter paths, and then validates the
+generated source rows through the same strict coverage gate. It emits
+`luma_profile: e2e` only for this local hermetic evidence packet. The default
+no-argument command remains blocked, and recent LUMA system-writer story,
+storyline, index, and analysis checks remain separate guardrails rather than
+coverage classes for this blocker.
+
 Run the state-resolution drill:
 
 ```sh

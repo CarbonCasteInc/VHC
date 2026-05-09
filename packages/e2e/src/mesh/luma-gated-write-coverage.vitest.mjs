@@ -4,7 +4,10 @@ import {
   DEFAULT_LUMA_SCHEMA_EPOCH,
   LUMA_GATED_WRITE_COVERAGE_COMMAND,
   LUMA_GATED_WRITE_COVERAGE_SCHEMA_VERSION,
+  LOCAL_E2E_LUMA_PROFILE,
+  LOCAL_E2E_MODE,
   REQUIRED_LUMA_WRITE_CLASSES,
+  buildLocalE2eCoverageSourceReport,
   buildLumaCoverageReport,
   validateLumaCoverageReport,
 } from './luma-gated-write-coverage.mjs';
@@ -123,5 +126,74 @@ describe('LUMA-gated write coverage validator', () => {
     expect(report.luma_profile).toBe('none');
     expect(report.failures).toContain('luma_profile is none and no LUMA reader-path coverage report was provided');
     expect(report.luma_gated_write_drills.every((row) => row.status === 'skipped')).toBe(true);
+  });
+
+  it('builds a passing local-e2e source report from all required reader-path rows', () => {
+    const report = buildLocalE2eCoverageSourceReport({
+      runId: 'mesh-luma-gated-write-coverage-test',
+      startedAt,
+      completedAt,
+      currentCommit,
+      branch: 'coord/test',
+      dirty: false,
+      rows: passingRows({
+        repo_commit: currentCommit,
+        reader_path: 'luma_reader_path',
+      }),
+      guardedWritePaths: ['vh/forum/threads/thread-1/'],
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.run.mode).toBe(LOCAL_E2E_MODE);
+    expect(report.luma_profile).toBe(LOCAL_E2E_LUMA_PROFILE);
+    expect(report.validation.ok).toBe(true);
+    expect(report.local_e2e.guarded_write_paths).toEqual(['vh/forum/threads/thread-1/']);
+  });
+
+  it('wraps a local-e2e source report as a passing gate report', () => {
+    const sourceReport = buildLocalE2eCoverageSourceReport({
+      runId: 'mesh-luma-gated-write-coverage-test',
+      startedAt,
+      completedAt,
+      currentCommit,
+      branch: 'coord/test',
+      dirty: false,
+      rows: passingRows({
+        repo_commit: currentCommit,
+      }),
+    });
+
+    const report = buildLumaCoverageReport({
+      runId: 'mesh-luma-gated-write-coverage-test',
+      startedAt,
+      completedAt,
+      currentCommit,
+      branch: 'coord/test',
+      dirty: false,
+      sourceReport,
+      expectedLumaProfile: LOCAL_E2E_LUMA_PROFILE,
+    });
+
+    expect(report.status).toBe('pass');
+    expect(report.luma_profile).toBe(LOCAL_E2E_LUMA_PROFILE);
+    expect(report.luma_gated_write_coverage.required_write_classes.every((row) => row.status === 'pass')).toBe(true);
+    expect(report.luma_gated_write_drills.every((row) => row.writer_kind === 'luma')).toBe(true);
+  });
+
+  it('blocks local-e2e source reports generated from dirty repos', () => {
+    const report = buildLocalE2eCoverageSourceReport({
+      runId: 'mesh-luma-gated-write-coverage-test',
+      startedAt,
+      completedAt,
+      currentCommit,
+      branch: 'coord/test',
+      dirty: true,
+      rows: passingRows({
+        repo_commit: currentCommit,
+      }),
+    });
+
+    expect(report.status).toBe('blocked');
+    expect(report.failures).toContain('report repo.dirty is not false');
   });
 });
