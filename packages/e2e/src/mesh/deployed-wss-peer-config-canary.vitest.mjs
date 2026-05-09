@@ -83,7 +83,7 @@ describe('public WSS proof input validation', () => {
   it('rejects localhost, private-network, insecure, and broad CSP proof inputs', () => {
     const parsed = parsePublicProofConfig(validEnv({
       VH_MESH_PUBLIC_PEER_CONFIG_URL: 'https://127.0.0.1:8443/mesh-peer-config.json',
-      VH_MESH_PUBLIC_WSS_PEERS: 'ws://relay-a.mesh.example.com/gun,wss://10.1.2.3/gun,wss://relay.local/gun',
+      VH_MESH_PUBLIC_WSS_PEERS: 'ws://relay-a.mesh.example.com/gun,wss://10.1.2.3/gun,wss://[::ffff:10.1.2.3]/gun,wss://[fd00::1]/gun,wss://[2001:db8::1]/gun,wss://relay.local/gun',
       VH_MESH_PUBLIC_CSP_CONNECT_SRC: "'self' https: wss://*.mesh.example.com ws://relay-a.mesh.example.com",
       VH_MESH_PUBLIC_APP_URL: 'http://app.mesh.example.com/',
     }));
@@ -92,6 +92,9 @@ describe('public WSS proof input validation', () => {
     expect(parsed.failures.join('\n')).toContain('public peer-config URL https://127.0.0.1:8443/mesh-peer-config.json rejected');
     expect(parsed.failures.join('\n')).toContain('public WSS peer ws://relay-a.mesh.example.com/gun must use wss:');
     expect(parsed.failures.join('\n')).toContain('public WSS peer wss://10.1.2.3/gun rejected');
+    expect(parsed.failures.join('\n')).toContain('uses an IPv4-embedded IPv6 literal');
+    expect(parsed.failures.join('\n')).toContain('public WSS peer wss://[fd00::1]/gun rejected');
+    expect(parsed.failures.join('\n')).toContain('public WSS peer wss://[2001:db8::1]/gun rejected');
     expect(parsed.failures.join('\n')).toContain('public WSS peer wss://relay.local/gun rejected');
     expect(parsed.failures.join('\n')).toContain('CSP connect-src token https: is too broad');
     expect(parsed.failures.join('\n')).toContain('CSP connect-src token wss://*.mesh.example.com is too broad');
