@@ -201,6 +201,31 @@ function hostHash(value) {
   return crypto.createHash('sha256').update(value).digest('hex').slice(0, 12);
 }
 
+function parseIpv6Hextets(value) {
+  const parts = value.split('::');
+  if (parts.length > 2) return null;
+  const left = parts[0] ? parts[0].split(':') : [];
+  const right = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  if (left.some((part) => part.length === 0) || right.some((part) => part.length === 0)) return null;
+  const missing = parts.length === 2 ? 8 - left.length - right.length : 0;
+  if (missing < 0 || (parts.length === 1 && left.length !== 8)) return null;
+  const hextets = [
+    ...left,
+    ...Array.from({ length: missing }, () => '0'),
+    ...right,
+  ].map((part) => Number.parseInt(part, 16));
+  if (hextets.length !== 8 || hextets.some((part) => !Number.isInteger(part) || part < 0 || part > 0xffff)) {
+    return null;
+  }
+  return hextets;
+}
+
+function isIpv4EmbeddedIpv6(hextets) {
+  const leadingZeros = hextets.slice(0, 5).every((part) => part === 0);
+  if (leadingZeros && hextets[5] === 0xffff) return true;
+  return hextets.slice(0, 6).every((part) => part === 0) && (hextets[6] !== 0 || hextets[7] !== 0);
+}
+
 function redactedPublicUrl(value) {
   try {
     const url = new URL(value);
@@ -245,12 +270,21 @@ function hostnameIsPublic(hostname) {
   }
 
   if (net.isIP(normalized) === 6) {
-    const first = Number.parseInt(normalized.split(':')[0] || '0', 16);
+    const hextets = parseIpv6Hextets(normalized);
+    if (hextets && isIpv4EmbeddedIpv6(hextets)) {
+      return { ok: false, reason: `host ${hostname} uses an IPv4-embedded IPv6 literal; use a public DNS name or direct public IPv4 literal` };
+    }
+    const first = hextets?.[0] ?? Number.parseInt(normalized.split(':')[0] || '0', 16);
+    const second = hextets?.[1] ?? 0;
     const privateRange =
       normalized === '::' ||
       normalized === '::1' ||
-      normalized.startsWith('fe80:') ||
-      (Number.isFinite(first) && (first & 0xfe00) === 0xfc00);
+      (Number.isFinite(first) && (first & 0xffc0) === 0xfe80) ||
+      (Number.isFinite(first) && (first & 0xfe00) === 0xfc00) ||
+      (Number.isFinite(first) && (first & 0xff00) === 0xff00) ||
+      (first === 0x0100 && second === 0) ||
+      (first === 0x2001 && second === 0x0002) ||
+      (first === 0x2001 && second === 0x0db8);
     return privateRange ? { ok: false, reason: `host ${hostname} is not publicly routable` } : { ok: true };
   }
 
