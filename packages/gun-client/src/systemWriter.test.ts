@@ -4,6 +4,7 @@ import {
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_SIGNATURE_SUITE,
   SYSTEM_WRITER_VALIDATION_EVENT,
+  buildSignedSystemWriterRecord,
   canonicalizeSystemWriterRecordBytes,
   canonicalizeSystemWriterRecordForSigning,
   getSystemWriterAllowedClass,
@@ -11,6 +12,7 @@ import {
   isSystemWriterPin,
   validateSystemWriterRecord,
   type SystemWriterPin,
+  type SystemWriterSignHook,
 } from './systemWriter';
 
 const ED25519 = 'Ed25519';
@@ -495,5 +497,71 @@ describe('system writer validation foundation', () => {
       valid: false,
       reason: 'signature-invalid',
     });
+  });
+
+  it('builds signed records through an injected signer hook only', async () => {
+    const { pin } = await createTestPin();
+    const sign: SystemWriterSignHook = vi.fn(async ({ canonicalBytes, writerId, path, record }) => {
+      expect(writerId).toBe(WRITER_ID);
+      expect(path).toBe('vh/news/stories/story-1/');
+      expect(record).toMatchObject({
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+      });
+      return `signature-${canonicalBytes.byteLength}`;
+    });
+
+    const record = await buildSignedSystemWriterRecord({
+      path: 'vh/news/stories/story-1/',
+      payload: {
+        schemaVersion: 'news-story-v1',
+        story_id: 'story-1',
+      },
+      sign,
+      pin,
+      now: () => ISSUED_AT,
+      defaultWriterId: 'default-writer',
+      missingSignerError: 'signer missing',
+    });
+
+    expect(sign).toHaveBeenCalledTimes(1);
+    expect(record).toMatchObject({
+      schemaVersion: 'news-story-v1',
+      story_id: 'story-1',
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: expect.stringMatching(/^signature-/),
+    });
+  });
+
+  it('fails signed-record building before persistence preconditions can be bypassed', async () => {
+    await expect(buildSignedSystemWriterRecord({
+      path: 'vh/news/stories/story-1/',
+      payload: { story_id: 'story-1' },
+      sign: undefined,
+      defaultWriterId: WRITER_ID,
+      missingSignerError: 'signer missing',
+    })).rejects.toThrow('signer missing');
+
+    await expect(buildSignedSystemWriterRecord({
+      path: 'vh/news/stories/story-1/',
+      payload: { story_id: 'story-1' },
+      sign: () => ' invalid-signature',
+      defaultWriterId: WRITER_ID,
+      missingSignerError: 'signer missing',
+    })).rejects.toThrow('system writer signer returned an invalid signature');
+
+    await expect(buildSignedSystemWriterRecord({
+      path: 'vh/news/stories/story-1/',
+      payload: { story_id: 'story-1' },
+      sign: () => 'signature',
+      now: () => -1,
+      defaultWriterId: WRITER_ID,
+      missingSignerError: 'signer missing',
+    })).rejects.toThrow('system writer issued-at must be a non-negative safe integer');
   });
 });

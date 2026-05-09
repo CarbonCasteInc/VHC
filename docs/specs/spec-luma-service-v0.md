@@ -683,6 +683,7 @@ record-derived id):
 | News bundle / story | system writer; no user author |
 | News latest/hot index entries | system writer; no user author |
 | Storyline | system writer; no user author |
+| Story analysis artifacts and analysis latest pointer | system writer; no user author |
 | Topic synthesis (epoch + latest pointer) | system writer; no user author |
 | Topic digest | system writer; no user author |
 | Discovery indexes | system writer |
@@ -693,15 +694,22 @@ record-derived id):
 
 M0.B implementation note: `vh/news/stories/<storyId>`,
 `vh/news/storylines/<storylineId>`, `vh/news/index/latest/<storyId>`, and
-`vh/news/index/hot/<storyId>` are the concrete news-domain system-writer
-adapter migrations that have landed. They sign the stored story, storyline,
-latest-index child, and hot-index child node wrappers with the build-pinned
-system-writer key and leave analysis, synthesis, discovery, and topic
-engagement for later system-writer slices. The storyline migration does not
-migrate the `vh/news/storylines/` root map or removal tombstones into system
-records. The index migration does not migrate the `vh/news/index/latest/` or
-`vh/news/index/hot/` root maps, nor any removal tombstones, into system
-records.
+`vh/news/index/hot/<storyId>`,
+`vh/news/stories/<storyId>/analysis/<analysisKey>`, and
+`vh/news/stories/<storyId>/analysis_latest` are the concrete news-domain
+system-writer adapter migrations that have landed. They sign the stored story,
+storyline, latest-index child, hot-index child, analysis artifact, and
+analysis latest pointer node wrappers with the build-pinned system-writer key
+and leave synthesis, discovery, and topic engagement for later system-writer
+slices. The storyline migration does not migrate the `vh/news/storylines/`
+root map or removal tombstones into system records. The index migration does
+not migrate the `vh/news/index/latest/` or `vh/news/index/hot/` root maps, nor
+any removal tombstones, into system records. The analysis migration does not
+migrate the `vh/news/stories/<storyId>/analysis/` root map,
+`analysis_pending`, or removal tombstones into system records.
+
+`pnpm check:luma-news-analysis-system-v1` guards the analysis artifact and
+analysis latest pointer system-writer migration.
 
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,

@@ -7,9 +7,19 @@ import {
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet, type PutAckResult } from './chain';
 import { writeWithDurability } from './durableWrite';
 import { readGunTimeoutMs } from './runtimeConfig';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  buildSignedSystemWriterRecord,
+  validateSystemWriterRecord,
+  type SystemWriterRecordFields,
+  type SystemWriterValidationFailure,
+} from './systemWriter';
 import type { VennClient } from './types';
 
 const ANALYSIS_ARTIFACT_CODEC = 'analysis-artifact-json-v1' as const;
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
 
 interface StoryAnalysisBundleIdentityPayload {
   readonly bundle_revision: string;
@@ -23,7 +33,7 @@ type StoryAnalysisArtifactWithBundleIdentity = StoryAnalysisArtifact & {
   readonly bundle_identity?: StoryAnalysisBundleIdentityPayload;
 };
 
-interface EncodedStoryAnalysisArtifact {
+interface EncodedStoryAnalysisArtifact extends Record<string, unknown> {
   readonly __analysis_artifact_codec: typeof ANALYSIS_ARTIFACT_CODEC;
   readonly artifact_json: string;
   readonly story_id: string;
@@ -33,6 +43,15 @@ interface EncodedStoryAnalysisArtifact {
   readonly created_at: string;
   readonly bundle_identity?: StoryAnalysisBundleIdentityPayload;
 }
+
+type SystemWriterStoryAnalysisArtifactRecord = EncodedStoryAnalysisArtifact & SystemWriterRecordFields;
+
+type StoryAnalysisLatestPointerRecord = StoryAnalysisLatestPointer & Record<string, unknown> & {
+  readonly story_id: string;
+};
+
+type SystemWriterStoryAnalysisLatestPointerRecord =
+  StoryAnalysisLatestPointerRecord & SystemWriterRecordFields;
 
 const FORBIDDEN_ANALYSIS_KEYS = new Set<string>([
   'identity',
@@ -152,11 +171,15 @@ function encodeStoryAnalysisArtifact(artifact: StoryAnalysisArtifact): EncodedSt
   };
 }
 
-function decodeStoryAnalysisArtifact(payload: unknown): StoryAnalysisArtifact | null {
-  if (!isRecord(payload)) {
-    return null;
+function stripSafeLegacyProtocolFields(payload: Record<string, unknown>): Record<string, unknown> {
+  if (!isLegacyMarkedRecord(payload)) {
+    return payload;
   }
+  const { _writerKind: _omittedWriterKind, _protocolVersion: _omittedProtocolVersion, ...legacyPayload } = payload;
+  return legacyPayload;
+}
 
+function decodeStoryAnalysisArtifact(payload: Record<string, unknown>): StoryAnalysisArtifact | null {
   if (payload.__analysis_artifact_codec !== ANALYSIS_ARTIFACT_CODEC) {
     return null;
   }
@@ -177,8 +200,8 @@ function decodeStoryAnalysisArtifact(payload: unknown): StoryAnalysisArtifact | 
   }
 }
 
-function parseStoryAnalysisArtifact(data: unknown): StoryAnalysisArtifact | null {
-  const payload = stripGunMetadata(data);
+function parseStoryAnalysisArtifactPayload(data: Record<string, unknown>): StoryAnalysisArtifact | null {
+  const payload = stripSafeLegacyProtocolFields(data);
   if (hasForbiddenAnalysisPayloadFields(payload)) {
     return null;
   }
@@ -192,13 +215,26 @@ function parseStoryAnalysisArtifact(data: unknown): StoryAnalysisArtifact | null
   return parsed.success ? parsed.data : null;
 }
 
-function parseLatestPointer(data: unknown): StoryAnalysisLatestPointer | null {
-  const payload = stripGunMetadata(data);
+function parseLatestPointerPayload(data: Record<string, unknown>): StoryAnalysisLatestPointer | null {
+  const payload = stripSafeLegacyProtocolFields(data);
   if (hasForbiddenAnalysisPayloadFields(payload)) {
     return null;
   }
   const parsed = StoryAnalysisLatestPointerSchema.safeParse(payload);
   return parsed.success ? parsed.data : null;
+}
+
+function parseSystemLatestPointerPayload(data: Record<string, unknown>): StoryAnalysisLatestPointer | null {
+  const candidate: Record<string, unknown> = {
+    analysisKey: data.analysisKey,
+    provenance_hash: data.provenance_hash,
+    model_scope: data.model_scope,
+    created_at: data.created_at,
+  };
+  if ('bundle_identity' in data) {
+    candidate.bundle_identity = data.bundle_identity;
+  }
+  return parseLatestPointerPayload(candidate);
 }
 
 function parseCreatedAtMs(createdAt: string): number {
@@ -243,6 +279,42 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<PutAckRe
   });
 }
 
+async function buildSystemWriterAnalysisArtifactRecord(
+  client: VennClient,
+  artifact: StoryAnalysisArtifact,
+): Promise<SystemWriterStoryAnalysisArtifactRecord> {
+  return buildSignedSystemWriterRecord({
+    path: storyAnalysisPath(artifact.story_id, artifact.analysisKey),
+    payload: encodeStoryAnalysisArtifact(artifact),
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for news analysis writes',
+  }) as Promise<SystemWriterStoryAnalysisArtifactRecord>;
+}
+
+async function buildSystemWriterAnalysisLatestPointerRecord(
+  client: VennClient,
+  storyId: string,
+  pointer: StoryAnalysisLatestPointer,
+): Promise<SystemWriterStoryAnalysisLatestPointerRecord> {
+  return buildSignedSystemWriterRecord({
+    path: storyAnalysisLatestPath(storyId),
+    payload: {
+      story_id: storyId,
+      ...pointer,
+    },
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for news analysis latest-pointer writes',
+  }) as Promise<SystemWriterStoryAnalysisLatestPointerRecord>;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -266,6 +338,140 @@ async function confirmAnalysisArtifactReadback(
     }
   }
   return false;
+}
+
+function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && value._writerKind === SYSTEM_WRITER_KIND;
+}
+
+function isLegacyMarkedRecord(value: Record<string, unknown>): boolean {
+  return value._writerKind === 'legacy';
+}
+
+function carriesLumaProtocolFields(value: Record<string, unknown>): boolean {
+  const carriesSystemOrUserFields =
+    '_systemWriterId' in value
+    || '_systemSignature' in value
+    || '_systemIssuedAt' in value
+    || '_authorScheme' in value
+    || 'signedWriteEnvelope' in value;
+
+  if (isLegacyMarkedRecord(value)) {
+    return carriesSystemOrUserFields
+      || ('_protocolVersion' in value && value._protocolVersion !== SYSTEM_WRITER_PROTOCOL_VERSION);
+  }
+
+  return '_protocolVersion' in value || '_writerKind' in value || carriesSystemOrUserFields;
+}
+
+function emitSystemWriterValidationFailure(
+  failure: SystemWriterValidationFailure,
+): void {
+  console.warn(`[vh:analysis] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+    globalThis.dispatchEvent(
+      new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
+    );
+  }
+}
+
+function pathMatchesArtifact(
+  payload: Record<string, unknown>,
+  artifact: StoryAnalysisArtifact | null,
+  storyId: string,
+  analysisKey: string,
+): artifact is StoryAnalysisArtifact {
+  return Boolean(
+    artifact
+    && payload.story_id === storyId
+    && payload.analysisKey === analysisKey
+    && artifact.story_id === storyId
+    && artifact.analysisKey === analysisKey
+  );
+}
+
+async function parseStoryAnalysisArtifactFromStoredRecord(
+  client: VennClient,
+  storyId: string,
+  analysisKey: string,
+  data: unknown,
+  options: { requireLegacyPathMatch?: boolean } = {},
+): Promise<StoryAnalysisArtifact | null> {
+  const payload = stripGunMetadata(data);
+  if (!isRecord(payload)) {
+    return null;
+  }
+
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: storyAnalysisPath(storyId, analysisKey),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return null;
+    }
+
+    const parsed = parseStoryAnalysisArtifactPayload(payload);
+    return pathMatchesArtifact(payload, parsed, storyId, analysisKey) ? parsed : null;
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return null;
+  }
+
+  const parsed = parseStoryAnalysisArtifactPayload(payload);
+  if (!parsed) {
+    return null;
+  }
+  if (options.requireLegacyPathMatch === false) {
+    return parsed;
+  }
+  return parsed.story_id === storyId && parsed.analysisKey === analysisKey ? parsed : null;
+}
+
+type LatestPointerParseResult =
+  | { readonly state: 'valid'; readonly pointer: StoryAnalysisLatestPointer }
+  | { readonly state: 'legacy-invalid' }
+  | { readonly state: 'blocked' };
+
+async function parseLatestPointerFromStoredRecord(
+  client: VennClient,
+  storyId: string,
+  data: unknown,
+): Promise<LatestPointerParseResult> {
+  const payload = stripGunMetadata(data);
+  if (!isRecord(payload)) {
+    return { state: 'legacy-invalid' };
+  }
+
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: storyAnalysisLatestPath(storyId),
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return { state: 'blocked' };
+    }
+
+    const pointer = parseSystemLatestPointerPayload(payload);
+    if (!pointer || payload.story_id !== storyId) {
+      return { state: 'blocked' };
+    }
+    return { state: 'valid', pointer };
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return { state: 'blocked' };
+  }
+
+  const pointer = parseLatestPointerPayload(payload);
+  return pointer ? { state: 'valid', pointer } : { state: 'legacy-invalid' };
 }
 
 export function getStoryAnalysisRootChain(
@@ -337,35 +543,48 @@ export async function writeAnalysis(
   const sanitized = StoryAnalysisArtifactSchema.parse(artifact) as StoryAnalysisArtifactWithBundleIdentity;
   const normalizedStoryId = normalizeRequiredId(sanitized.story_id, 'story_id');
   const normalizedAnalysisKey = normalizeRequiredId(sanitized.analysisKey, 'analysisKey');
+  const normalizedArtifact: StoryAnalysisArtifactWithBundleIdentity = {
+    ...sanitized,
+    story_id: normalizedStoryId,
+    analysisKey: normalizedAnalysisKey,
+  };
 
-  const encoded = encodeStoryAnalysisArtifact(sanitized);
+  const pointer: StoryAnalysisLatestPointer = {
+    analysisKey: normalizedArtifact.analysisKey,
+    provenance_hash: normalizedArtifact.provenance_hash,
+    model_scope: normalizedArtifact.model_scope,
+    created_at: normalizedArtifact.created_at,
+    ...(normalizedArtifact.bundle_identity ? { bundle_identity: normalizedArtifact.bundle_identity } : {}),
+  };
+  const encoded = await buildSystemWriterAnalysisArtifactRecord(client, normalizedArtifact);
+  const latestPointer = await buildSystemWriterAnalysisLatestPointerRecord(client, normalizedStoryId, pointer);
+
   const artifactWrite = await putWithAck(
-    getStoryAnalysisChain(client, normalizedStoryId, normalizedAnalysisKey) as unknown as ChainWithGet<EncodedStoryAnalysisArtifact>,
+    getStoryAnalysisChain(client, normalizedStoryId, normalizedAnalysisKey) as unknown as ChainWithGet<SystemWriterStoryAnalysisArtifactRecord>,
     encoded,
   );
   if (artifactWrite.timedOut) {
-    const confirmed = await confirmAnalysisArtifactReadback(client, sanitized);
+    const confirmed = await confirmAnalysisArtifactReadback(client, normalizedArtifact);
     if (!confirmed) {
       throw new Error('analysis artifact write timed out and readback did not confirm persistence');
     }
   }
 
-  const pointer: StoryAnalysisLatestPointer = {
-    analysisKey: sanitized.analysisKey,
-    provenance_hash: sanitized.provenance_hash,
-    model_scope: sanitized.model_scope,
-    created_at: sanitized.created_at,
-    ...(sanitized.bundle_identity ? { bundle_identity: sanitized.bundle_identity } : {}),
-  };
-
   await writeWithDurability({
-    chain: getStoryAnalysisLatestChain(client, normalizedStoryId),
-    value: pointer,
+    chain: getStoryAnalysisLatestChain(client, normalizedStoryId) as unknown as ChainWithGet<SystemWriterStoryAnalysisLatestPointerRecord>,
+    value: latestPointer,
     writeClass: 'analysis-latest-pointer',
     timeoutMs: PUT_ACK_TIMEOUT_MS,
     timeoutError: 'analysis latest pointer write timed out and readback did not confirm persistence',
     onAckTimeout: () => console.warn('[vh:gun-client] analysis latest pointer ack timed out, requiring readback confirmation'),
-    readback: async () => parseLatestPointer(await readOnce(getStoryAnalysisLatestChain(client, normalizedStoryId))),
+    readback: async () => {
+      const result = await parseLatestPointerFromStoredRecord(
+        client,
+        normalizedStoryId,
+        await readOnce(getStoryAnalysisLatestChain(client, normalizedStoryId)),
+      );
+      return result.state === 'valid' ? result.pointer : null;
+    },
     readbackPredicate: (observed) => {
       const candidate = observed as StoryAnalysisLatestPointer | null;
       return Boolean(
@@ -376,7 +595,7 @@ export async function writeAnalysis(
       );
     },
   });
-  return sanitized;
+  return normalizedArtifact;
 }
 
 export async function readAnalysis(
@@ -384,12 +603,14 @@ export async function readAnalysis(
   storyId: string,
   analysisKey: string,
 ): Promise<StoryAnalysisArtifact | null> {
-  const raw = await readOnce(getStoryAnalysisChain(client, storyId, analysisKey));
+  const normalizedStoryId = normalizeRequiredId(storyId, 'storyId');
+  const normalizedAnalysisKey = normalizeRequiredId(analysisKey, 'analysisKey');
+  const raw = await readOnce(getStoryAnalysisChain(client, normalizedStoryId, normalizedAnalysisKey));
   if (raw === null) {
     return null;
   }
 
-  return parseStoryAnalysisArtifact(raw);
+  return parseStoryAnalysisArtifactFromStoredRecord(client, normalizedStoryId, normalizedAnalysisKey, raw);
 }
 
 export async function readLatestAnalysis(
@@ -399,10 +620,14 @@ export async function readLatestAnalysis(
 ): Promise<StoryAnalysisArtifact | null> {
   const normalizedStoryId = normalizeRequiredId(storyId, 'storyId');
   const pointerRaw = await readOnce(getStoryAnalysisLatestChain(client, normalizedStoryId));
-  const pointer = parseLatestPointer(pointerRaw);
+  const pointer = await parseLatestPointerFromStoredRecord(client, normalizedStoryId, pointerRaw);
 
-  if (pointer?.analysisKey) {
-    return readAnalysis(client, normalizedStoryId, pointer.analysisKey);
+  if (pointer.state === 'valid') {
+    return readAnalysis(client, normalizedStoryId, pointer.pointer.analysisKey);
+  }
+
+  if (pointer.state === 'blocked') {
+    return null;
   }
 
   if (options.fallbackToList === false) {
@@ -417,8 +642,9 @@ export async function listAnalyses(
   client: VennClient,
   storyId: string,
 ): Promise<StoryAnalysisArtifact[]> {
+  const normalizedStoryId = normalizeRequiredId(storyId, 'storyId');
   const raw = await readOnce(
-    getStoryAnalysisRootChain(client, storyId) as unknown as ChainWithGet<unknown>,
+    getStoryAnalysisRootChain(client, normalizedStoryId) as unknown as ChainWithGet<unknown>,
   );
 
   if (!isRecord(raw)) {
@@ -431,7 +657,13 @@ export async function listAnalyses(
       continue;
     }
 
-    const parsed = parseStoryAnalysisArtifact(value);
+    const parsed = await parseStoryAnalysisArtifactFromStoredRecord(
+      client,
+      normalizedStoryId,
+      analysisKey,
+      value,
+      { requireLegacyPathMatch: false },
+    );
     if (parsed) {
       results.push(parsed);
     }

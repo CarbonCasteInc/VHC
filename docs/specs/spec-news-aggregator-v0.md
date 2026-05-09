@@ -281,6 +281,42 @@ Public latest/hot index-entry storage contract:
   tombstones are not part of this M0.B index-entry migration and do not gain
   system-writer metadata in this slice.
 
+### 5.2 Analysis migration contract (PR0 freeze)
+
+Canonical target semantics for story analysis persistence remain unchanged:
+analysis artifacts are keyed by the tuple `story_id`, `provenance_hash`,
+`pipeline_version`, `model_scope`, and `schema_version`, and the latest pointer
+identifies the latest compatible `analysisKey` for a story.
+
+Public analysis storage contract:
+- Product code continues to consume `StoryAnalysisArtifact` DTOs from
+  `readAnalysis`, `readLatestAnalysis`, and `listAnalyses`.
+- New writes to `vh/news/stories/<storyId>/analysis/<analysisKey>` MUST store
+  the existing encoded artifact wrapper and MUST carry `_protocolVersion:
+  'luma-public-v1'`, `_writerKind: 'system'`, `_systemWriterId`,
+  `_systemIssuedAt`, and `_systemSignature`.
+- New writes to `vh/news/stories/<storyId>/analysis_latest` MUST store an
+  object carrying the latest-pointer fields plus `story_id`,
+  `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'system'`,
+  `_systemWriterId`, `_systemIssuedAt`, and `_systemSignature`.
+- `_systemSignature` uses `jcs-ed25519-sha256-v1` over
+  JCS-canonical(node minus `_systemSignature`) and MUST validate through the
+  shared system-writer validator in `packages/gun-client/src/systemWriter.ts`.
+- Signed analysis artifacts and latest pointers MUST NOT carry `_authorScheme`
+  or `SignedWriteEnvelope`; generated analysis is system-published, not
+  user-authored.
+- Legacy bare and explicit safe legacy-marked analysis artifacts/pointers
+  remain read-compatible. Records carrying `_writerKind: 'system'` but failing
+  system-writer validation are rejected and MUST NOT route through the legacy
+  reader. Records carrying protected system/user fields under `_writerKind:
+  'legacy'` are rejected as downgrade attempts.
+- A system-marked `analysis_latest` record that fails validation blocks list
+  fallback for that read. Legacy missing or malformed latest pointers may still
+  fall back to `listAnalyses`.
+- The `vh/news/stories/<storyId>/analysis/` root map, `analysis_pending`, and
+  removal tombstones are not part of this M0.B analysis-node migration and do
+  not gain system-writer metadata in this slice.
+
 ## 6. Privacy and safety
 
 - News artifacts are public and must not include identity fields.
