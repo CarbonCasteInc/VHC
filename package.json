@@ -33,6 +33,7 @@
     "test:mesh:peer-config-rollback-drill": "pnpm --filter @vh/e2e test:mesh:peer-config-rollback-drill",
     "test:mesh:clock-skew-drills": "pnpm --filter @vh/e2e test:mesh:clock-skew-drills",
     "test:mesh:conflict-drills": "pnpm --filter @vh/e2e test:mesh:conflict-drills",
+    "test:mesh:luma-gated-write-coverage": "pnpm --filter @vh/e2e test:mesh:luma-gated-write-coverage",
     "check:mesh-evidence-scrub": "pnpm --filter @vh/e2e check:mesh-evidence-scrub",
     "check:mesh:production-readiness": "pnpm --filter @vh/e2e check:mesh:production-readiness",
     "check:production-app-canary": "pnpm --filter @vh/e2e check:production-app-canary",

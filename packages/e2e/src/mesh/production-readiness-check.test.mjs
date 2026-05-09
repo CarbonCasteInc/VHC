@@ -10,6 +10,12 @@ import {
   validateAggregatePacket,
 } from './evidence-scrub-check.mjs';
 import {
+  LUMA_GATED_WRITE_COVERAGE_COMMAND,
+  LUMA_GATED_WRITE_COVERAGE_SCHEMA_VERSION,
+  REQUIRED_LUMA_WRITE_CLASSES,
+  validateLumaCoverageReport,
+} from './luma-gated-write-coverage.mjs';
+import {
   SOURCE_GATES,
   buildReleaseBlockers,
   conflictRowsForAggregate,
@@ -45,6 +51,47 @@ function sourceReport(overrides = {}) {
     write_class_slos: [],
     resource_slos: [],
     ...overrides,
+  };
+}
+
+function passingLumaCoverageReport(overrides = {}) {
+  return {
+    schema_version: LUMA_GATED_WRITE_COVERAGE_SCHEMA_VERSION,
+    generated_at: '2026-05-07T00:00:10.000Z',
+    run_id: 'mesh-luma-gated-write-coverage-test',
+    repo: {
+      commit: currentCommit,
+      dirty: false,
+    },
+    run: {
+      mode: 'luma_gated_write_coverage',
+      started_at: '2026-05-07T00:00:01.000Z',
+      completed_at: '2026-05-07T00:00:10.000Z',
+      command: LUMA_GATED_WRITE_COVERAGE_COMMAND,
+    },
+    status: 'pass',
+    schema_epoch: 'post_luma_m0b',
+    luma_profile: 'e2e',
+    luma_gated_write_drills: REQUIRED_LUMA_WRITE_CLASSES.map((definition, index) => ({
+      write_class: definition.id,
+      trace_id: `luma-trace-${index}`,
+      status: 'pass',
+      writer_kind: 'luma',
+      reader_path: 'luma_reader_path',
+      schema_epoch: 'post_luma_m0b',
+      luma_profile: 'e2e',
+    })),
+    ...overrides,
+  };
+}
+
+function lumaCoverageEvidence(report = passingLumaCoverageReport()) {
+  return {
+    provided: true,
+    status: 'pass',
+    report_path: '/tmp/mesh-luma-gated-write-coverage-report.json',
+    report,
+    validation: validateLumaCoverageReport(report, { currentCommit }),
   };
 }
 
@@ -262,6 +309,80 @@ describe('production-readiness source evidence validation', () => {
     expect(blockers.map((blocker) => blocker.id)).toContain('luma-gated-write-coverage');
   });
 
+  it('does not run the default-blocked LUMA coverage command as a source gate', () => {
+    expect(SOURCE_GATES.map((gate) => gate.id)).not.toContain('luma_gated_write_coverage');
+  });
+
+  it('keeps the LUMA blocker for legacy partial row plus luma writer kind evidence', () => {
+    const blockers = buildReleaseBlockers([
+      {
+        id: 'legacy_luma_shape',
+        report: {
+          luma_gated_write_drills: [
+            {
+              write_class: 'forum thread',
+              status: 'pass',
+              trace_id: 'legacy-row',
+            },
+          ],
+          drill_writer_kind_by_class: {
+            'forum thread': 'luma',
+          },
+        },
+      },
+    ]);
+
+    expect(blockers).toContainEqual(expect.objectContaining({
+      id: 'luma-gated-write-coverage',
+      command: LUMA_GATED_WRITE_COVERAGE_COMMAND,
+    }));
+  });
+
+  it('clears the LUMA blocker only with explicit all-class reader-path evidence', () => {
+    const blockers = buildReleaseBlockers(
+      [
+        {
+          id: 'soak',
+          report: {
+            soak: {
+              full_duration_satisfied: true,
+            },
+          },
+        },
+        {
+          id: 'deployed_wss',
+          report: {
+            run: { deployment_scope: 'public_wss_deployment' },
+          },
+        },
+        {
+          id: 'conflict',
+          report: {
+            conflict: { status: 'pass' },
+            conflict_fixtures: [
+              'same-key-concurrent-deterministic-writes',
+              'stale-overwrite-attempt-rejected',
+              'future-protocol-version-rejected',
+              'unknown-schema-version-quarantined',
+              'missing-drill-author-scheme-quarantined',
+              'unsupported-drill-author-scheme-quarantined',
+            ].map((fixture) => ({ fixture, status: 'pass' })),
+          },
+        },
+        {
+          id: 'evidence_scrub',
+          status: 'pass',
+          report: {
+            evidence_scrub: { status: 'pass' },
+          },
+        },
+      ],
+      { lumaCoverageEvidence: lumaCoverageEvidence() },
+    );
+
+    expect(blockers.map((blocker) => blocker.id)).not.toContain('luma-gated-write-coverage');
+  });
+
   it('accepts a fresh source report for the exact gate command', () => {
     const failures = failuresFor({
       gate: {
@@ -463,6 +584,32 @@ describe('mesh evidence scrub promotion', () => {
 
       expect(validation.ok).toBe(false);
       expect(validation.failures).toContain('write class forum-post has disallowed writer kind luma');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('allows passing LUMA rows only when explicit coverage status passed', () => {
+    const sourceDir = evidenceScrubPacket();
+    try {
+      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+      aggregate.luma_gated_write_coverage = {
+        status: 'pass',
+        report_path: '/tmp/mesh-luma-gated-write-coverage-report.json',
+      };
+      aggregate.luma_gated_write_drills = [
+        {
+          write_class: 'forum_thread',
+          trace_id: 'luma-coverage-pass',
+          status: 'pass',
+        },
+      ];
+      writeJson(aggregatePath, aggregate);
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.failures).not.toContain('aggregate implies LUMA-gated write coverage in a mesh-only evidence packet');
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

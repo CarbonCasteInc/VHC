@@ -122,6 +122,14 @@ Current head at closeout:
   CSP mismatch, relay health failure, or app boot failure. Only a passing run
   may emit `deployment_scope: public_wss_deployment`; blocked runs emit
   `public_wss_deployment_blocked`.
+- `pnpm test:mesh:luma-gated-write-coverage` is the Slice 14E LUMA coverage
+  gate. By default it writes a blocked report because `luma_profile: none`
+  cannot prove LUMA-owned `_writerKind`, `_authorScheme`, envelope, custody,
+  adapter, public-id derivation, or reader-path behavior. It may pass only from
+  explicit current-commit, clean, `post_luma_m0b` evidence proving every
+  required LUMA-gated write class through the LUMA reader path. One passing
+  LUMA row, synthetic mesh-drill evidence, or any merged
+  `drill_writer_kind_by_class` value is insufficient.
 - `pnpm test:mesh:state-resolution-drills` is the Slice 7C state-resolution
   proof: it writes synthetic non-LUMA §5.10 competing records under
   `vh/__mesh_drills/<run_id>/state_resolution/*`, restarts/heals one relay
@@ -1428,8 +1436,10 @@ Acceptance gates:
   - public WSS deployment proof passes with
     `run.deployment_scope: public_wss_deployment`; local TLS/WSS evidence and
     blocked public attempts do not satisfy this item
-  - any LUMA-gated write class (drill_writer_kind `'luma'`) was exercised
-    against the LUMA reader path, not bypassed via drill writer contract
+  - every required LUMA-gated write class is proven by explicit current-commit
+    evidence through the LUMA reader path under the current schema epoch;
+    partial rows, stale reports, synthetic mesh-drill rows, and writer-kind
+    summaries do not satisfy this item
   - any promoted evidence under `.tmp/mesh-production-readiness/promoted/` or
     `docs/reports/evidence/mesh-production/` passed
     `pnpm check:mesh-evidence-scrub` (§5.7.1)
@@ -2447,6 +2457,22 @@ drilled through the LUMA reader path):
 - "LUMA-gated write classes (forum thread/comment, vote/aggregate, directory
   publish, news report) have transport readiness under the current LUMA
   schema epoch."
+
+Slice 14E strict coverage contract:
+
+- The aggregate may clear `luma-gated-write-coverage` only from an explicit
+  `VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT` packet or equivalent direct report
+  argument, not by scanning stale `.tmp/latest` output.
+- The report must use `schema_version: mesh-luma-gated-write-coverage-v1`,
+  `status: pass`, `schema_epoch: post_luma_m0b`, a non-`none` `luma_profile`,
+  current `repo.commit`, and `repo.dirty: false`.
+- Required classes are forum thread, forum comment, vote or aggregate,
+  directory publish, and news report/status. Each class must have a passing row
+  with `writer_kind` or `_writerKind` equal to `luma`, a LUMA reader/readback
+  path marker, and a `trace_id`.
+- Any missing class, skipped class, wrong epoch, wrong profile, dirty or stale
+  report, synthetic `vh/__mesh_drills/*` row, `_drillWriterKind:
+  'mesh-drill'`, or overclaiming release-ready statement keeps the blocker.
 
 Still not allowed after mesh readiness alone:
 
