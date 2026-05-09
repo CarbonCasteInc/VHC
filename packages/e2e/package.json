@@ -26,6 +26,7 @@
     "test:mesh:browser-canary": "playwright test --config=playwright.mesh-canary.config.ts src/mesh/browser-mesh-canary.spec.ts",
     "test:mesh:signed-peer-config-canary": "node ./src/mesh/signed-peer-config-canary.mjs",
     "test:mesh:deployed-wss-peer-config": "node ./src/mesh/deployed-wss-peer-config-canary.mjs",
+    "test:mesh:deployed-wss-peer-config:public": "VH_MESH_DEPLOYED_WSS_PUBLIC_PROOF=true node ./src/mesh/deployed-wss-peer-config-canary.mjs",
     "test:mesh:topology-drills": "node ./src/mesh/production-topology-drills.mjs",
     "test:mesh:state-resolution-drills": "node ./src/mesh/state-resolution-drills.mjs",
     "test:mesh:disconnect-drills": "node ./src/mesh/disconnect-drills.mjs",

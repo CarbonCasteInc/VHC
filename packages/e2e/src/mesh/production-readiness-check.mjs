@@ -456,7 +456,7 @@ function runEvidenceScrubGate({ artifactDir, currentCommit, requireClean }) {
   };
 }
 
-function buildReleaseBlockers(sources) {
+export function buildReleaseBlockers(sources) {
   const blockers = [];
   const sourceById = new Map(sources.map((source) => [source.id, source]));
   const soak = sourceById.get('soak')?.report;
@@ -473,8 +473,8 @@ function buildReleaseBlockers(sources) {
   if (deployed?.run?.deployment_scope !== 'public_wss_deployment') {
     blockers.push({
       id: 'public-wss-deployment-proof',
-      command: 'pnpm test:mesh:deployed-wss-peer-config',
-      reason: 'current WSS evidence is the hermetic local TLS profile, not public WSS infrastructure',
+      command: 'pnpm test:mesh:deployed-wss-peer-config:public',
+      reason: 'current WSS evidence is the hermetic local TLS profile or a blocked public proof, not passing public WSS infrastructure evidence',
     });
   }
   if (!hasScript('test:mesh:clock-skew-drills')) {
