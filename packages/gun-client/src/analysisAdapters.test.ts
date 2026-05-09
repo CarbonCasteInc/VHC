@@ -1,6 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { StoryAnalysisArtifact } from '@vh/data-model';
 import { HydrationBarrier } from './sync/barrier';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_SIGNATURE_SUITE,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  canonicalizeSystemWriterRecordBytes,
+  type SystemWriterPin,
+  type SystemWriterSignHook,
+} from './systemWriter';
 import type { TopologyGuard } from './topology';
 import type { VennClient } from './types';
 import {
@@ -21,6 +30,60 @@ interface FakeMesh {
   setReadDelay: (path: string, delayMs: number) => void;
   setPutError: (path: string, err: string) => void;
   setPutDelay: (path: string, delayMs: number) => void;
+}
+
+const ED25519 = 'Ed25519';
+const WRITER_ID = 'vh-system-writer-test-v1';
+const ISSUED_AT = 1_777_777_777_000;
+
+function bytesToBase64Url(bytes: ArrayBuffer | Uint8Array): string {
+  return Buffer.from(bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)).toString('base64url');
+}
+
+function bytesToCryptoBufferSource(bytes: Uint8Array): BufferSource {
+  const copy = new Uint8Array(bytes.byteLength);
+  copy.set(bytes);
+  return copy.buffer;
+}
+
+const defaultSystemWriterSign: SystemWriterSignHook = ({ writerId, path, canonicalBytes }) =>
+  `test-signature:${writerId}:${path}:${canonicalBytes.byteLength}`;
+
+async function createRealSystemWriterHooks(): Promise<{
+  readonly pin: SystemWriterPin;
+  readonly sign: SystemWriterSignHook;
+}> {
+  const keyPair = await crypto.subtle.generateKey(ED25519, true, ['sign', 'verify']);
+  if (!('privateKey' in keyPair) || !('publicKey' in keyPair)) {
+    throw new Error('Ed25519 key generation failed');
+  }
+  const spki = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+  return {
+    pin: {
+      pinVersion: 1,
+      schemaEpoch: SYSTEM_WRITER_PROTOCOL_VERSION,
+      maxProtocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      signatureSuite: SYSTEM_WRITER_SIGNATURE_SUITE,
+      writers: [
+        {
+          id: WRITER_ID,
+          status: 'active',
+          publicKey: {
+            encoding: 'spki-base64url',
+            material: bytesToBase64Url(spki),
+          },
+        },
+      ],
+    },
+    sign: async ({ canonicalBytes }) => {
+      const signature = await crypto.subtle.sign(
+        ED25519,
+        keyPair.privateKey,
+        bytesToCryptoBufferSource(canonicalBytes),
+      );
+      return bytesToBase64Url(signature);
+    },
+  };
 }
 
 function createFakeMesh(): FakeMesh {
@@ -74,12 +137,22 @@ function createFakeMesh(): FakeMesh {
   };
 }
 
-function createClient(mesh: FakeMesh, guard: TopologyGuard): VennClient {
+function createClient(
+  mesh: FakeMesh,
+  guard: TopologyGuard,
+  config: Partial<VennClient['config']> = {},
+): VennClient {
   const barrier = new HydrationBarrier();
   barrier.markReady();
 
   return {
-    config: { peers: [] },
+    config: {
+      peers: [],
+      systemWriterId: WRITER_ID,
+      systemWriterNow: () => ISSUED_AT,
+      systemWriterSign: defaultSystemWriterSign,
+      ...config,
+    },
     hydrationBarrier: barrier,
     storage: {} as VennClient['storage'],
     topologyGuard: guard,
@@ -133,6 +206,47 @@ const ARTIFACT: StoryAnalysisArtifact = {
     cluster_window_end: 1_700_003_600_000,
   },
 };
+
+async function createSignedAnalysisFixture(artifact: StoryAnalysisArtifact = ARTIFACT): Promise<{
+  readonly mesh: FakeMesh;
+  readonly client: VennClient;
+  readonly artifactRecord: Record<string, unknown>;
+  readonly pointerRecord: Record<string, unknown>;
+}> {
+  const hooks = await createRealSystemWriterHooks();
+  const mesh = createFakeMesh();
+  const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+  const client = createClient(mesh, guard, {
+    systemWriterPin: hooks.pin,
+    systemWriterSign: hooks.sign,
+  });
+
+  await writeAnalysis(client, artifact);
+
+  return {
+    mesh,
+    client,
+    artifactRecord: mesh.writes[0].value as Record<string, unknown>,
+    pointerRecord: mesh.writes[1].value as Record<string, unknown>,
+  };
+}
+
+async function signSystemWriterTestRecord(
+  sign: SystemWriterSignHook,
+  path: string,
+  record: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const signature = await sign({
+    canonicalBytes: canonicalizeSystemWriterRecordBytes(record),
+    writerId: WRITER_ID,
+    path,
+    record: record as Parameters<SystemWriterSignHook>[0]['record'],
+  });
+  return {
+    ...record,
+    _systemSignature: signature,
+  };
+}
 
 describe('analysisAdapters', () => {
   it('builds story analysis root chain and guards nested writes', async () => {
@@ -191,6 +305,17 @@ describe('analysisAdapters', () => {
         model_scope: ARTIFACT.model_scope,
         created_at: ARTIFACT.created_at,
         bundle_identity: ARTIFACT.bundle_identity,
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+        _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/news/stories/story-1/analysis/analysis-1/`),
+      }),
+    );
+    expect(mesh.writes[0].value).toEqual(
+      expect.not.objectContaining({
+        _authorScheme: expect.anything(),
+        signedWriteEnvelope: expect.anything(),
       }),
     );
 
@@ -199,17 +324,29 @@ describe('analysisAdapters', () => {
 
     expect(mesh.writes[1]).toEqual({
       path: 'news/stories/story-1/analysis_latest',
-      value: {
+      value: expect.objectContaining({
+        story_id: ARTIFACT.story_id,
         analysisKey: ARTIFACT.analysisKey,
         provenance_hash: ARTIFACT.provenance_hash,
         model_scope: ARTIFACT.model_scope,
         created_at: ARTIFACT.created_at,
         bundle_identity: ARTIFACT.bundle_identity,
-      },
+        _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+        _writerKind: SYSTEM_WRITER_KIND,
+        _systemWriterId: WRITER_ID,
+        _systemIssuedAt: ISSUED_AT,
+        _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/news/stories/story-1/analysis_latest/`),
+      }),
     });
+    expect(mesh.writes[1].value).toEqual(
+      expect.not.objectContaining({
+        _authorScheme: expect.anything(),
+        signedWriteEnvelope: expect.anything(),
+      }),
+    );
   });
 
-  it('writeAnalysis preserves legacy artifacts without bundle identity', async () => {
+  it('writeAnalysis omits optional bundle identity from signed records when absent', async () => {
     const mesh = createFakeMesh();
     const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
     const client = createClient(mesh, guard);
@@ -224,12 +361,13 @@ describe('analysisAdapters', () => {
     );
     expect(mesh.writes[1]).toEqual({
       path: 'news/stories/story-1/analysis_latest',
-      value: {
+      value: expect.objectContaining({
+        story_id: ARTIFACT.story_id,
         analysisKey: ARTIFACT.analysisKey,
         provenance_hash: ARTIFACT.provenance_hash,
         model_scope: ARTIFACT.model_scope,
         created_at: ARTIFACT.created_at,
-      },
+      }),
     });
   });
 
@@ -247,6 +385,36 @@ describe('analysisAdapters', () => {
     ).rejects.toThrow('forbidden identity/token fields');
 
     await expect(writeAnalysis(client, ARTIFACT)).rejects.toThrow('write failed');
+  });
+
+  it('writeAnalysis fails before persistence when system signing is unavailable or malformed', async () => {
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+    const missingSignerMesh = createFakeMesh();
+    await expect(
+      writeAnalysis(createClient(missingSignerMesh, guard, { systemWriterSign: undefined }), ARTIFACT),
+    ).rejects.toThrow('system writer signer is required for news analysis writes');
+    expect(missingSignerMesh.writes).toEqual([]);
+
+    const invalidSignatureMesh = createFakeMesh();
+    await expect(
+      writeAnalysis(createClient(invalidSignatureMesh, guard, { systemWriterSign: () => ' invalid-signature' }), ARTIFACT),
+    ).rejects.toThrow('system writer signer returned an invalid signature');
+    expect(invalidSignatureMesh.writes).toEqual([]);
+
+    const pointerBuildFailureMesh = createFakeMesh();
+    await expect(
+      writeAnalysis(createClient(pointerBuildFailureMesh, guard, {
+        systemWriterSign: ({ path }) => path.includes('analysis_latest') ? '' : 'valid-signature',
+      }), ARTIFACT),
+    ).rejects.toThrow('system writer signer returned an invalid signature');
+    expect(pointerBuildFailureMesh.writes).toEqual([]);
+
+    const invalidTimestampMesh = createFakeMesh();
+    await expect(
+      writeAnalysis(createClient(invalidTimestampMesh, guard, { systemWriterNow: () => -1 }), ARTIFACT),
+    ).rejects.toThrow('system writer issued-at must be a non-negative safe integer');
+    expect(invalidTimestampMesh.writes).toEqual([]);
   });
 
   it('writeAnalysis resolves on ack timeout once readback confirms persistence and ignores a late ack callback', async () => {
@@ -318,6 +486,33 @@ describe('analysisAdapters', () => {
         '[vh:gun-client] analysis latest pointer ack timed out, requiring readback confirmation',
       );
     } finally {
+      warnSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it('writeAnalysis rejects when latest pointer ack times out and readback is invalid', async () => {
+    vi.useFakeTimers();
+    const mesh = createFakeMesh();
+    mesh.setPutDelay('news/stories/story-1/analysis_latest', 1100);
+    mesh.setRead('news/stories/story-1/analysis_latest', 42);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    try {
+      const writePromise = writeAnalysis(client, ARTIFACT);
+      const rejected = expect(writePromise).rejects.toThrow(
+        'analysis latest pointer write timed out and readback did not confirm persistence',
+      );
+      await vi.advanceTimersByTimeAsync(3500);
+      await rejected;
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[vh:gun-client] analysis latest pointer ack timed out, requiring readback confirmation',
+      );
+    } finally {
+      infoSpy.mockRestore();
       warnSpy.mockRestore();
       vi.useRealTimers();
     }
@@ -412,6 +607,127 @@ describe('analysisAdapters', () => {
     await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
   });
 
+  it('readAnalysis and readLatestAnalysis validate real signed system writer records', async () => {
+    const { mesh, client, artifactRecord, pointerRecord } = await createSignedAnalysisFixture();
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', artifactRecord);
+    mesh.setRead('news/stories/story-1/analysis_latest', pointerRecord);
+
+    await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
+    await expect(readLatestAnalysis(client, 'story-1')).resolves.toEqual(ARTIFACT);
+  });
+
+  it('readAnalysis rejects tampered or path-mismatched system writer artifacts', async () => {
+    const { mesh, client, artifactRecord } = await createSignedAnalysisFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      for (const record of [
+        { ...artifactRecord, artifact_json: JSON.stringify({ ...ARTIFACT, summary: 'Tampered summary' }) },
+        { ...artifactRecord, _protocolVersion: 'luma-public-v2' },
+        { ...artifactRecord, _systemWriterId: 'unknown-writer' },
+        { ...artifactRecord, _systemIssuedAt: ISSUED_AT + 1 },
+        { ...artifactRecord, _systemSignature: `${String(artifactRecord._systemSignature)}tampered` },
+      ]) {
+        mesh.setRead('news/stories/story-1/analysis/analysis-1', record);
+        await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toBeNull();
+      }
+
+      mesh.setRead('news/stories/story-1/analysis/wrong-key', artifactRecord);
+      await expect(readAnalysis(client, 'story-1', 'wrong-key')).resolves.toBeNull();
+
+      mesh.setRead('news/stories/story-1/analysis/analysis-1', {
+        ...artifactRecord,
+        _writerKind: 'legacy',
+      });
+      await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('readAnalysis fails closed with system-writer-validation-failed when the pin is missing', async () => {
+    const { artifactRecord } = await createSignedAnalysisFixture();
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', artifactRecord);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterPin: null });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:analysis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'missing-pin',
+          path: 'vh/news/stories/story-1/analysis/analysis-1',
+        }),
+      );
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('dispatches browser system-writer validation events when available', async () => {
+    const { artifactRecord } = await createSignedAnalysisFixture();
+    const mesh = createFakeMesh();
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', artifactRecord);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, { systemWriterPin: null });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const dispatchEventSpy = vi.fn(() => true);
+    const hadDispatchEvent = 'dispatchEvent' in globalThis;
+    const previousDispatchEvent = globalThis.dispatchEvent;
+    const hadCustomEvent = 'CustomEvent' in globalThis;
+    const previousCustomEvent = globalThis.CustomEvent;
+    const TestCustomEvent = class {
+      readonly type: string;
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        this.type = type;
+        this.detail = init?.detail;
+      }
+    } as unknown as typeof CustomEvent;
+
+    Object.defineProperty(globalThis, 'dispatchEvent', {
+      configurable: true,
+      value: dispatchEventSpy,
+    });
+    Object.defineProperty(globalThis, 'CustomEvent', {
+      configurable: true,
+      value: TestCustomEvent,
+    });
+
+    try {
+      await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toBeNull();
+      expect(dispatchEventSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({ reason: 'missing-pin' }),
+        }),
+      );
+    } finally {
+      if (hadDispatchEvent) {
+        Object.defineProperty(globalThis, 'dispatchEvent', {
+          configurable: true,
+          value: previousDispatchEvent,
+        });
+      } else {
+        delete (globalThis as typeof globalThis & { dispatchEvent?: unknown }).dispatchEvent;
+      }
+      if (hadCustomEvent) {
+        Object.defineProperty(globalThis, 'CustomEvent', {
+          configurable: true,
+          value: previousCustomEvent,
+        });
+      } else {
+        delete (globalThis as typeof globalThis & { CustomEvent?: unknown }).CustomEvent;
+      }
+      warnSpy.mockRestore();
+    }
+  });
+
   it('readAnalysis returns null for missing/invalid/non-object/forbidden payload', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('news/stories/story-1/analysis/missing', undefined);
@@ -449,6 +765,12 @@ describe('analysisAdapters', () => {
     await expect(readAnalysis(client, 'story-1', 'encoded-malformed-json')).resolves.toBeNull();
     await expect(readAnalysis(client, 'story-1', 'encoded-forbidden')).resolves.toBeNull();
     await expect(readAnalysis(client, 'story-1', 'encoded-invalid-schema')).resolves.toBeNull();
+
+    mesh.setRead('news/stories/story-1/analysis/path-mismatch', {
+      ...ARTIFACT,
+      analysisKey: 'other-analysis',
+    });
+    await expect(readAnalysis(client, 'story-1', 'path-mismatch')).resolves.toBeNull();
   });
 
   it('readLatestAnalysis uses pointer and falls back to list sorting when pointer is invalid', async () => {
@@ -502,6 +824,164 @@ describe('analysisAdapters', () => {
       only: newer,
     });
     await expect(readLatestAnalysis(client, 'story-1', { fallbackToList: false })).resolves.toBeNull();
+
+    mesh.setRead('news/stories/story-1/analysis_latest', 42);
+    mesh.setRead('news/stories/story-1/analysis', {
+      only: newer,
+    });
+    await expect(readLatestAnalysis(client, 'story-1')).resolves.toEqual(newer);
+  });
+
+  it('readLatestAnalysis rejects invalid system latest pointers without legacy fallback', async () => {
+    const { mesh, client, pointerRecord } = await createSignedAnalysisFixture();
+    const newer = { ...ARTIFACT, analysisKey: 'newer', created_at: '2026-02-18T23:00:00.000Z' };
+    mesh.setRead('news/stories/story-1/analysis', {
+      newer,
+    });
+
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      mesh.setRead('news/stories/story-1/analysis_latest', {
+        ...pointerRecord,
+        analysisKey: 'newer',
+      });
+      await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
+
+      mesh.setRead('news/stories/story-1/analysis_latest', {
+        ...pointerRecord,
+        story_id: 'other-story',
+      });
+      await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
+
+      mesh.setRead('news/stories/story-1/analysis_latest', {
+        _writerKind: 'legacy',
+        _systemWriterId: WRITER_ID,
+        analysisKey: 'newer',
+        provenance_hash: 'prov-1',
+        model_scope: 'model:default',
+        created_at: '2026-02-18T23:00:00.000Z',
+      });
+      await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('readLatestAnalysis blocks validly signed latest pointers whose payload does not bind to the story', async () => {
+    const hooks = await createRealSystemWriterHooks();
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+    });
+    const newer = { ...ARTIFACT, analysisKey: 'newer', created_at: '2026-02-18T23:00:00.000Z' };
+    mesh.setRead('news/stories/story-1/analysis', {
+      newer,
+    });
+
+    const baseRecord = {
+      story_id: 'story-1',
+      analysisKey: ARTIFACT.analysisKey,
+      provenance_hash: ARTIFACT.provenance_hash,
+      model_scope: ARTIFACT.model_scope,
+      created_at: ARTIFACT.created_at,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+    };
+    const path = 'vh/news/stories/story-1/analysis_latest/';
+
+    mesh.setRead(
+      'news/stories/story-1/analysis_latest',
+      await signSystemWriterTestRecord(hooks.sign, path, {
+        ...baseRecord,
+        analysisKey: 123,
+      }),
+    );
+    await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
+
+    mesh.setRead(
+      'news/stories/story-1/analysis_latest',
+      await signSystemWriterTestRecord(hooks.sign, path, {
+        ...baseRecord,
+        story_id: 'other-story',
+      }),
+    );
+    await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
+  });
+
+  it('keeps safe legacy-marked analysis artifacts and latest pointers read-compatible', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const legacyArtifact = {
+      _: { '#': 'gun-meta' },
+      _writerKind: 'legacy',
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      __analysis_artifact_codec: 'analysis-artifact-json-v1',
+      artifact_json: JSON.stringify(ARTIFACT),
+      story_id: ARTIFACT.story_id,
+      analysisKey: ARTIFACT.analysisKey,
+      provenance_hash: ARTIFACT.provenance_hash,
+      model_scope: ARTIFACT.model_scope,
+      created_at: ARTIFACT.created_at,
+    };
+    const legacyPointer = {
+      _writerKind: 'legacy',
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      analysisKey: ARTIFACT.analysisKey,
+      provenance_hash: ARTIFACT.provenance_hash,
+      model_scope: ARTIFACT.model_scope,
+      created_at: ARTIFACT.created_at,
+      bundle_identity: ARTIFACT.bundle_identity,
+    };
+
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', legacyArtifact);
+    mesh.setRead('news/stories/story-1/analysis_latest', legacyPointer);
+
+    await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toEqual(ARTIFACT);
+    await expect(readLatestAnalysis(client, 'story-1')).resolves.toEqual(ARTIFACT);
+
+    mesh.setRead('news/stories/story-1/analysis/analysis-1', {
+      ...legacyArtifact,
+      _systemSignature: 'downgraded-system-field',
+    });
+    mesh.setRead('news/stories/story-1/analysis_latest', {
+      ...legacyPointer,
+      signedWriteEnvelope: {},
+    });
+
+    await expect(readAnalysis(client, 'story-1', 'analysis-1')).resolves.toBeNull();
+    await expect(readLatestAnalysis(client, 'story-1')).resolves.toBeNull();
+  });
+
+  it('listAnalyses validates system children and excludes invalid signed entries', async () => {
+    const validArtifact = { ...ARTIFACT, analysisKey: 'valid', created_at: '2026-02-18T23:00:00.000Z' };
+    const invalidArtifact = { ...ARTIFACT, analysisKey: 'invalid', created_at: '2026-02-18T22:30:00.000Z' };
+    const validFixture = await createSignedAnalysisFixture(validArtifact);
+    const invalidFixture = await createSignedAnalysisFixture(invalidArtifact);
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, {
+      systemWriterPin: (validFixture.client.config.systemWriterPin as SystemWriterPin),
+      systemWriterSign: validFixture.client.config.systemWriterSign,
+    });
+    mesh.setRead('news/stories/story-1/analysis', {
+      valid: validFixture.artifactRecord,
+      invalid: {
+        ...invalidFixture.artifactRecord,
+        artifact_json: JSON.stringify({ ...invalidArtifact, summary: 'Tampered' }),
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      await expect(listAnalyses(client, 'story-1')).resolves.toEqual([validArtifact]);
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it('detects forbidden payload fields recursively', () => {

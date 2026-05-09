@@ -257,9 +257,15 @@ Implementation status:
   system-writer metadata on the stored public child node. Legacy scalar,
   string, object, and explicit legacy-marked index entries remain
   read-compatible.
-- Analysis artifacts, synthesis records, discovery indexes, and topic
-  engagement records are intentionally outside the story/storyline/index
-  adapter slices and must migrate through separate branches.
+- `vh/news/stories/<storyId>/analysis/<analysisId>` and
+  `vh/news/stories/<storyId>/analysis_latest` are the fourth concrete M0.B
+  news-domain system-writer adapter migration. New analysis artifact and
+  latest-pointer writes use the shared validator contract and carry
+  system-writer metadata on the stored public child nodes. Legacy bare and
+  explicit safe legacy-marked analysis records remain read-compatible.
+- Synthesis records, discovery indexes, and topic engagement records are
+  intentionally outside the story/storyline/index/analysis adapter slices and
+  must migrate through separate branches.
 - `pnpm check:luma-news-storyline-system-v1` enforces that only
   `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
   `vh/news/storylines/` root map and removal tombstones stay legacy bare
@@ -269,6 +275,11 @@ Implementation status:
   nodes migrated in this slice; the `vh/news/index/latest/` and
   `vh/news/index/hot/` root maps plus removal tombstones stay legacy bare
   writes.
+- `pnpm check:luma-news-analysis-system-v1` enforces that only
+  `vh/news/stories/<storyId>/analysis/<analysisId>` and
+  `vh/news/stories/<storyId>/analysis_latest` migrated in this slice; the
+  analysis root map, `analysis_pending`, and removal tombstones stay outside
+  system-writer metadata.
 
 Forbidden uses:
 

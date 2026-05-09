@@ -77,7 +77,7 @@ for (const token of [
   'SYSTEM_WRITER_PROTOCOL_VERSION',
   'SYSTEM_WRITER_KIND',
   'SYSTEM_WRITER_VALIDATION_EVENT',
-  'canonicalizeSystemWriterRecordBytes',
+  'buildSignedSystemWriterRecord',
   'validateSystemWriterRecord',
   'buildSystemWriterStoryRecord',
   'system writer signer is required for news story writes',

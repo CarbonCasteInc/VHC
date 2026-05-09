@@ -11,11 +11,10 @@ import {
   SYSTEM_WRITER_KIND,
   SYSTEM_WRITER_PROTOCOL_VERSION,
   SYSTEM_WRITER_VALIDATION_EVENT,
-  canonicalizeSystemWriterRecordBytes,
+  buildSignedSystemWriterRecord,
   validateSystemWriterRecord,
   type SystemWriterRecordFields,
   type SystemWriterValidationFailure,
-  type UnsignedSystemWriterRecordFields,
 } from './systemWriter';
 import type { VennClient } from './types';
 
@@ -498,58 +497,22 @@ function encodeStoryBundleForGun(story: StoryBundle): Record<string, unknown> {
   };
 }
 
-function resolveSystemWriterId(client: VennClient): string {
-  const configured = client.config.systemWriterId?.trim();
-  if (configured) {
-    return configured;
-  }
-
-  const activePinnedWriter = client.config.systemWriterPin?.writers.find((writer) => writer.status === 'active');
-  return activePinnedWriter?.id ?? DEFAULT_SYSTEM_WRITER_ID;
-}
-
-function resolveSystemWriterIssuedAt(client: VennClient): number {
-  const issuedAt = client.config.systemWriterNow?.() ?? Date.now();
-  if (!Number.isSafeInteger(issuedAt) || issuedAt < 0) {
-    throw new Error('system writer issued-at must be a non-negative safe integer');
-  }
-  return issuedAt;
-}
-
 async function signSystemWriterRecord<T extends Record<string, unknown>>(
   client: VennClient,
   path: string,
   payload: T,
   missingSignerError: string,
 ): Promise<T & SystemWriterRecordFields> {
-  const sign = client.config.systemWriterSign;
-  if (!sign) {
-    throw new Error(missingSignerError);
-  }
-
-  const writerId = resolveSystemWriterId(client);
-  const unsignedRecord: T & UnsignedSystemWriterRecordFields = {
-    ...payload,
-    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
-    _writerKind: SYSTEM_WRITER_KIND,
-    _systemWriterId: writerId,
-    _systemIssuedAt: resolveSystemWriterIssuedAt(client),
-  } as T & UnsignedSystemWriterRecordFields;
-  const canonicalBytes = canonicalizeSystemWriterRecordBytes(unsignedRecord);
-  const signature = await sign({
-    canonicalBytes,
-    writerId,
+  return buildSignedSystemWriterRecord({
     path,
-    record: unsignedRecord,
+    payload,
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError,
   });
-  if (typeof signature !== 'string' || signature.trim() !== signature || signature.length === 0) {
-    throw new Error('system writer signer returned an invalid signature');
-  }
-
-  return {
-    ...unsignedRecord,
-    _systemSignature: signature,
-  } as T & SystemWriterRecordFields;
 }
 
 async function buildSystemWriterStoryRecord(

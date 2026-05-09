@@ -86,6 +86,17 @@ export interface ValidateSystemWriterRecordInput {
   readonly verify?: SystemWriterVerifyHook;
 }
 
+export interface BuildSignedSystemWriterRecordInput<T extends Record<string, unknown>> {
+  readonly path: string;
+  readonly payload: T;
+  readonly sign?: SystemWriterSignHook;
+  readonly pin?: SystemWriterPin | null;
+  readonly writerId?: string;
+  readonly now?: () => number;
+  readonly defaultWriterId: string;
+  readonly missingSignerError: string;
+}
+
 export interface SystemWriterValidationSuccess {
   readonly valid: true;
   readonly path: string;
@@ -268,6 +279,42 @@ export function canonicalizeSystemWriterRecordBytes(record: unknown): Uint8Array
   return utf8(canonicalizeSystemWriterRecordForSigning(record));
 }
 
+export async function buildSignedSystemWriterRecord<T extends Record<string, unknown>>(
+  input: BuildSignedSystemWriterRecordInput<T>
+): Promise<T & SystemWriterRecordFields> {
+  if (!input.sign) {
+    throw new Error(input.missingSignerError);
+  }
+
+  const writerId = resolveSystemWriterId({
+    configuredWriterId: input.writerId,
+    pin: input.pin,
+    defaultWriterId: input.defaultWriterId,
+  });
+  const unsignedRecord: T & UnsignedSystemWriterRecordFields = {
+    ...input.payload,
+    _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+    _writerKind: SYSTEM_WRITER_KIND,
+    _systemWriterId: writerId,
+    _systemIssuedAt: resolveSystemWriterIssuedAt(input.now),
+  } as T & UnsignedSystemWriterRecordFields;
+  const canonicalBytes = canonicalizeSystemWriterRecordBytes(unsignedRecord);
+  const signature = await input.sign({
+    canonicalBytes,
+    writerId,
+    path: input.path,
+    record: unsignedRecord,
+  });
+  if (typeof signature !== 'string' || signature.trim() !== signature || signature.length === 0) {
+    throw new Error('system writer signer returned an invalid signature');
+  }
+
+  return {
+    ...unsignedRecord,
+    _systemSignature: signature,
+  } as T & SystemWriterRecordFields;
+}
+
 export async function validateSystemWriterRecord(
   input: ValidateSystemWriterRecordInput
 ): Promise<SystemWriterValidationResult> {
@@ -436,6 +483,28 @@ function pathSegment(segments: readonly string[], index: number): string {
 
 function normalizePath(path: string): string {
   return path.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
+function resolveSystemWriterId(input: {
+  readonly configuredWriterId?: string;
+  readonly pin?: SystemWriterPin | null;
+  readonly defaultWriterId: string;
+}): string {
+  const configured = input.configuredWriterId?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  const activePinnedWriter = input.pin?.writers.find((writer) => writer.status === 'active');
+  return activePinnedWriter?.id ?? input.defaultWriterId;
+}
+
+function resolveSystemWriterIssuedAt(now?: () => number): number {
+  const issuedAt = now?.() ?? Date.now();
+  if (!Number.isSafeInteger(issuedAt) || issuedAt < 0) {
+    throw new Error('system writer issued-at must be a non-negative safe integer');
+  }
+  return issuedAt;
 }
 
 function utf8(value: string): Uint8Array {
