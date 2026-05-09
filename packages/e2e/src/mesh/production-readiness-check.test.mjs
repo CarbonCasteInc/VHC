@@ -11,6 +11,7 @@ import {
 } from './evidence-scrub-check.mjs';
 import {
   SOURCE_GATES,
+  buildReleaseBlockers,
   conflictRowsForAggregate,
   downstreamCanaryMetadata,
   validationFailuresForSource,
@@ -225,6 +226,40 @@ describe('production-readiness source evidence validation', () => {
       command: ['pnpm', 'test:mesh:conflict-drills'],
       expectedMode: 'local_conflict_resolution_fixtures',
     }));
+  });
+
+  it('points the public WSS blocker at the explicit public proof command', () => {
+    const blockers = buildReleaseBlockers([
+      {
+        id: 'deployed_wss',
+        report: {
+          run: { deployment_scope: 'local_tls_wss_profile' },
+          write_class_slos: [],
+          resource_slos: [],
+        },
+      },
+    ]);
+
+    expect(blockers).toContainEqual(expect.objectContaining({
+      id: 'public-wss-deployment-proof',
+      command: 'pnpm test:mesh:deployed-wss-peer-config:public',
+    }));
+  });
+
+  it('removes only the public WSS blocker when deployed evidence is public scoped', () => {
+    const blockers = buildReleaseBlockers([
+      {
+        id: 'deployed_wss',
+        report: {
+          run: { deployment_scope: 'public_wss_deployment' },
+          write_class_slos: [],
+          resource_slos: [],
+        },
+      },
+    ]);
+
+    expect(blockers.map((blocker) => blocker.id)).not.toContain('public-wss-deployment-proof');
+    expect(blockers.map((blocker) => blocker.id)).toContain('luma-gated-write-coverage');
   });
 
   it('accepts a fresh source report for the exact gate command', () => {

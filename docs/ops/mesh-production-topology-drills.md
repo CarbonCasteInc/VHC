@@ -75,6 +75,35 @@ expected WSS relay and HTTPS peer-config origins, plus `'self'`, without dev
 localhost sources or broad `https:`/`wss:` wildcards, and signed peer-config
 rollover is fetched fresh instead of being pinned by service-worker cache.
 
+Run the explicit public WSS deployment proof only when real public endpoints
+are available:
+
+```sh
+VH_MESH_PUBLIC_PEER_CONFIG_URL=https://<public-config-origin>/mesh-peer-config.json \
+VH_MESH_PUBLIC_PEER_CONFIG_PUBLIC_KEY=<public signer key> \
+VH_MESH_PUBLIC_CONFIG_ID=<expected config id> \
+VH_MESH_PUBLIC_WSS_PEERS='["wss://<relay-a>/gun","wss://<relay-b>/gun","wss://<relay-c>/gun"]' \
+VH_MESH_PUBLIC_CSP_CONNECT_SRC="'self' https://<public-config-origin> wss://<relay-a> wss://<relay-b> wss://<relay-c>" \
+VH_MESH_PUBLIC_MINIMUM_PEER_COUNT=3 \
+VH_MESH_PUBLIC_QUORUM_REQUIRED=2 \
+VH_MESH_PUBLIC_APP_URL=https://<public app origin>/ \
+pnpm test:mesh:deployed-wss-peer-config:public
+```
+
+If `VH_MESH_PUBLIC_RELAY_HEALTH_ENDPOINTS` is omitted, the proof derives
+`https://<relay>/healthz`, `/readyz`, and `/metrics` from each WSS peer. If a
+rollover/cache proof is required, provide
+`VH_MESH_PUBLIC_ROLLOVER_PEER_CONFIG_URL`, `VH_MESH_PUBLIC_ROLLOVER_CONFIG_ID`,
+and `VH_MESH_PUBLIC_ROLLOVER_APP_URL` together.
+
+The public command fails closed on missing inputs, localhost/private/link-local
+or `.local` endpoints, `ws://`/`http://` relay peers, unsigned/stale/future
+signed configs, wrong config id, wrong quorum, peer-list mismatch, broad CSP
+tokens, relay health failures, or browser app boot failure. Only a passing
+public run may emit `deployment_scope: public_wss_deployment`; blocked public
+runs emit `public_wss_deployment_blocked` and do not retire the readiness
+blocker.
+
 Run the operator peer-config rollback drill:
 
 ```sh
@@ -352,13 +381,14 @@ gate-run timestamp window. The packet includes
 and copied source reports under `source-reports/<gate>/`; after Slice 14A it has
 12 source reports, including `source-reports/evidence_scrub/`.
 
-For Slice 11A through Slice 14B, a successful aggregate command still reports
+For Slice 11A through Slice 14C, a successful aggregate command still reports
 `status: review_required` while release blockers remain. Expected blockers after
-Slice 14A include the canonical 30-minute soak, public WSS deployment proof,
-downstream full-app canary, and LUMA-gated write coverage through the LUMA
-reader path. After Slice 14B, the aggregate no longer treats the downstream
-full-app canary as unimplemented, but the separate canary command still blocks
-until the mesh report is `release_ready` and real downstream observation exists.
+Slice 14C are public WSS deployment proof and LUMA-gated write coverage through
+the LUMA reader path. After Slice 14D, public WSS proof is implemented as an
+explicit operator-input gate, but the blocker remains until that public command
+passes against real public endpoints. The separate downstream app canary still
+blocks until the mesh report is `release_ready` and real downstream observation
+exists.
 The aggregate command exits non-zero for missing, malformed, dirty, stale,
 failed, command-mismatched, unscrubbed, or incomplete source evidence, and for
 any overclaiming packet that would emit `release_ready` before the blockers are
@@ -423,13 +453,13 @@ was rescanned for raw tokens, private key material, unsafe origins, unsafe
 absolute paths, stale placeholder evidence, overclaims, and disallowed writer
 kinds. The Slice 14B downstream canary command is separate from mesh readiness;
 on current `review_required` mesh evidence, its expected non-zero blocked report
-proves only that the app-level readiness claim is fail-closed. None of these
-outcomes proves
-public WSS
-infrastructure, automatic peer-federation recovery, runtime peer-config key
-rotation without a new trusted-key distribution path, LUMA-gated write state
-resolution, public WSS clock-skew or conflict behavior, or post-M0.B
-LUMA-gated write coverage.
+proves only that the app-level readiness claim is fail-closed. The Slice 14D
+public WSS command proves public WSS deployment only when it exits zero with
+`deployment_scope: public_wss_deployment`; a blocked public attempt proves only
+fail-closed input validation. None of these outcomes proves automatic
+peer-federation recovery, runtime peer-config key rotation without a new
+trusted-key distribution path, LUMA-gated write state resolution, public WSS
+clock-skew or conflict behavior, or post-M0.B LUMA-gated write coverage.
 
 If direct restarted-relay readback is `blocked` or `review_required`, do not tune
 Gun peer behavior indefinitely. The next branch must choose and drill one

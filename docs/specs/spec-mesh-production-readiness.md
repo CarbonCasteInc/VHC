@@ -113,6 +113,15 @@ Current head at closeout:
   hermetic `local_tls_wss_profile` with signed HTTPS peer config, three
   `wss://` relays, local peer allowance disabled, CSP `connect-src` checks, and
   service-worker peer-config rollover checks.
+- `pnpm test:mesh:deployed-wss-peer-config:public` is the Slice 14D public WSS
+  proof mode: it requires operator-provided public peer-config URL, signer
+  public key, config id, expected public `wss://` peers, exact CSP
+  `connect-src`, quorum, relay health endpoints or derivable health paths, and
+  public app URL. It fails closed for missing inputs, localhost/private
+  endpoints, insecure schemes, unsigned/stale/future configs, wrong quorum,
+  CSP mismatch, relay health failure, or app boot failure. Only a passing run
+  may emit `deployment_scope: public_wss_deployment`; blocked runs emit
+  `public_wss_deployment_blocked`.
 - `pnpm test:mesh:state-resolution-drills` is the Slice 7C state-resolution
   proof: it writes synthetic non-LUMA §5.10 competing records under
   `vh/__mesh_drills/<run_id>/state_resolution/*`, restarts/heals one relay
@@ -624,9 +633,12 @@ Acceptance gates:
   peer allowance disabled.
 - Slice 6B command exists:
   `pnpm test:mesh:deployed-wss-peer-config`
+- Slice 14D public proof command exists:
+  `pnpm test:mesh:deployed-wss-peer-config:public`
 - Slice 6B report records whether the proof ran against
-  `deployment_scope: local_tls_wss_profile` or a real public deployment. A local
-  TLS profile pass MUST NOT be described as public WSS infrastructure deployed.
+  `deployment_scope: local_tls_wss_profile`, `public_wss_deployment_blocked`,
+  or a passing real public deployment. A local TLS profile pass or blocked
+  public attempt MUST NOT be described as public WSS infrastructure deployed.
 - Health panel reports quorum with actual peer health, not configured URL count.
 - Peer-config fetch is not served from stale service-worker cache during config
   rollover.
@@ -1095,7 +1107,7 @@ interface MeshProductionReadinessReport {
       | 'local_conflict_resolution_fixtures'
       | 'aggregate_production_readiness'
       | 'mesh_evidence_scrub_promotion';
-    deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
+    deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment' | 'public_wss_deployment_blocked';
     started_at: string;
     completed_at: string;
     duration_ms: number;
@@ -1110,13 +1122,13 @@ interface MeshProductionReadinessReport {
     strategy: 'relay_peer_fanout' | 'explicit_replication' | 'authoritative_cluster';
     selected_strategy?: 'explicit_read_repair' | 'scoped_axe' | 'authoritative_cluster';
     selected_strategy_scope?: string;
-    deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment';
+    deployment_scope?: 'local_tls_wss_profile' | 'public_wss_deployment' | 'public_wss_deployment_blocked';
     configured_peer_count: number;
     quorum_required: number;
     signed_peer_config: boolean;
     relay_urls_redacted: string[];
     relay_to_relay_peers_configured: boolean;
-    relay_to_relay_auth_mode: 'mtls' | 'peer_bearer_token' | 'private_network_allowlist' | 'signed_peer_handshake';
+    relay_to_relay_auth_mode: 'mtls' | 'peer_bearer_token' | 'private_network_allowlist' | 'signed_peer_handshake' | 'public_tls_wss';
     relay_to_relay_auth_negative_test: 'pass' | 'fail' | 'skipped';
     peer_config_id: string;
     peer_config_issued_at: string;
@@ -1131,7 +1143,7 @@ interface MeshProductionReadinessReport {
       local_mesh_peers_allowed: boolean;
     };
     csp?: {
-      status: 'pass' | 'fail' | 'skipped';
+      status: 'pass' | 'fail' | 'skipped' | 'not_exercised';
       connect_src_expected_origins: string[];
       broad_https_wss_wildcards_allowed: boolean;
     };
@@ -1413,6 +1425,9 @@ Acceptance gates:
   - test namespace cleanup passes
   - peer-config rollback drill passes with fail-closed invalid fixtures and a
     fresh rollback config, not a stale cached config
+  - public WSS deployment proof passes with
+    `run.deployment_scope: public_wss_deployment`; local TLS/WSS evidence and
+    blocked public attempts do not satisfy this item
   - any LUMA-gated write class (drill_writer_kind `'luma'`) was exercised
     against the LUMA reader path, not bypassed via drill writer contract
   - any promoted evidence under `.tmp/mesh-production-readiness/promoted/` or
@@ -1445,6 +1460,35 @@ Downstream full-app canary:
   non-zero by design.
 - Emits a separate report; it may depend on mesh readiness but must not be
   folded into the mesh readiness status.
+
+Public WSS deployment proof:
+
+- Command: `pnpm test:mesh:deployed-wss-peer-config:public`
+- Equivalent aggregate source mode: set
+  `VH_MESH_DEPLOYED_WSS_PUBLIC_PROOF=true` before
+  `pnpm check:mesh:production-readiness` so the deployed-WSS source gate uses
+  public proof behavior while preserving the expected source command.
+- Required inputs: `VH_MESH_PUBLIC_PEER_CONFIG_URL`,
+  `VH_MESH_PUBLIC_PEER_CONFIG_PUBLIC_KEY`, `VH_MESH_PUBLIC_CONFIG_ID`,
+  `VH_MESH_PUBLIC_WSS_PEERS`, `VH_MESH_PUBLIC_CSP_CONNECT_SRC`,
+  `VH_MESH_PUBLIC_MINIMUM_PEER_COUNT`, `VH_MESH_PUBLIC_QUORUM_REQUIRED`, and
+  `VH_MESH_PUBLIC_APP_URL`.
+- Optional input: `VH_MESH_PUBLIC_RELAY_HEALTH_ENDPOINTS`, as a JSON object
+  keyed by peer URL, host, or origin. When omitted, the harness derives
+  `https://<peer>/healthz`, `/readyz`, and `/metrics` from each WSS peer.
+- Optional rollover proof requires all of
+  `VH_MESH_PUBLIC_ROLLOVER_PEER_CONFIG_URL`,
+  `VH_MESH_PUBLIC_ROLLOVER_CONFIG_ID`, and
+  `VH_MESH_PUBLIC_ROLLOVER_APP_URL`.
+- The command exits non-zero and writes a blocked deployed-WSS source report
+  when inputs are missing or point at localhost, loopback, private,
+  link-local, `.local`, insecure, unsigned, stale, future-issued,
+  wrong-config, wrong-peer, wrong-quorum, broad-CSP, unhealthy, or non-booting
+  public surfaces.
+- Only a passing public run may emit
+  `run.deployment_scope: public_wss_deployment`; blocked public evidence uses
+  `public_wss_deployment_blocked` and never removes
+  `public-wss-deployment-proof`.
 
 ### Slice 12 - Operational Runbook And Rollback
 
@@ -2113,6 +2157,7 @@ Implemented mesh commands:
 
 - `pnpm test:mesh:topology-drills`
 - `pnpm test:mesh:deployed-wss-peer-config`
+- `pnpm test:mesh:deployed-wss-peer-config:public`
 - `pnpm test:mesh:state-resolution-drills`
   - `pnpm test:mesh:tombstone-drills` may remain as a compatibility alias, but
     the canonical command covers every §5.10 state-resolution rule, not only
@@ -2370,9 +2415,30 @@ Still not allowed after Slice 14B downstream production-app canary gate v1:
 - "Downstream `/api/analyze`, synthesis publication, point stance, or
   story-thread flows were observed by the canary."
 
-Allowed after Slices 6B through 14A plus downstream LUMA-gated coverage pass
-(under `schema_epoch: post_luma_m0b` with all LUMA-gated write classes drilled
-through the LUMA reader path):
+Allowed after Slice 14D public WSS deployment proof harness v1:
+
+- "`pnpm test:mesh:deployed-wss-peer-config:public` exists and writes a
+  deployed-WSS source report that fails closed when required public inputs are
+  missing, private/local, unsigned, stale, wrong-quorum, CSP-mismatched,
+  unhealthy, or non-booting."
+- "The public proof harness only emits
+  `run.deployment_scope: public_wss_deployment` after real public WSS inputs
+  pass signed peer-config, exact peer-list, quorum, relay health, CSP, and app
+  boot checks."
+- "Without real public endpoints, the expected result is a blocked source report
+  with `deployment_scope: public_wss_deployment_blocked`; mesh readiness keeps
+  `public-wss-deployment-proof`."
+
+Still not allowed after Slice 14D harness v1 without a passing public run:
+
+- "Public WSS infrastructure is production-proven."
+- "Public WSS conflict, partition/heal, clock-skew, rollback, or soak behavior
+  is production-proven."
+- "The mesh is `release_ready` while LUMA-gated write coverage remains pending."
+
+Allowed after a passing public WSS proof plus downstream LUMA-gated coverage
+pass (under `schema_epoch: post_luma_m0b` with all LUMA-gated write classes
+drilled through the LUMA reader path):
 
 - "The mesh has a production WSS three-relay topology with signed peer config,
   authenticated relay fallbacks, named health degradation, peer-failure and
