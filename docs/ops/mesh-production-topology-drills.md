@@ -153,8 +153,19 @@ records through the existing LUMA-aware adapter paths, and then validates the
 generated source rows through the same strict coverage gate. It emits
 `luma_profile: e2e` only for this local hermetic evidence packet. The default
 no-argument command remains blocked, and recent LUMA system-writer story,
-storyline, index, and analysis checks remain separate guardrails rather than
-coverage classes for this blocker.
+storyline, index, analysis, topic synthesis, and topic digest checks remain
+separate guardrails rather than coverage classes for this blocker.
+
+When a passing report is supplied through
+`VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT`, `pnpm
+check:mesh:production-readiness` copies that exact report into the aggregate
+packet under
+`supporting-evidence/luma-gated-write-coverage/mesh-luma-gated-write-coverage-report.json`.
+The aggregate still has 12 mesh source reports; the LUMA coverage report is
+supporting evidence, not a thirteenth mesh source gate. Promotion scrub fails
+closed if a passing LUMA coverage section points only at missing `.tmp` state
+or if the in-packet report is absent, stale, dirty, wrong-epoch, wrong-profile,
+or inconsistent with the aggregate summary.
 
 Run the state-resolution drill:
 
@@ -429,6 +440,11 @@ pnpm check:mesh-evidence-scrub -- --source-dir docs/reports/evidence/mesh-produc
 
 Without that override, the scrub gate intentionally treats the packet as stale
 once the evidence commit or merge commit changes `HEAD`.
+
+Passing LUMA coverage must be durable inside the packet before promotion. A
+packet whose `luma_gated_write_coverage.report_path` points at an external or
+missing `.tmp/mesh-luma-gated-write-coverage/...` report is not independently
+reviewable and must fail `pnpm check:mesh-evidence-scrub`.
 
 For Slice 11A through Slice 14C, a successful aggregate command still reports
 `status: review_required` while release blockers remain. Expected blockers after

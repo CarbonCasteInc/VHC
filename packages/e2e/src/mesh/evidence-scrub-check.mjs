@@ -4,6 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import {
+  DEFAULT_LUMA_SCHEMA_EPOCH,
+  LUMA_GATED_WRITE_COVERAGE_REPORT_NAME,
+  LUMA_GATED_WRITE_COVERAGE_SCHEMA_VERSION,
+  validateLumaCoverageReport,
+} from './luma-gated-write-coverage.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,6 +23,7 @@ export const EVIDENCE_SCRUB_MODE = 'mesh_evidence_scrub_promotion';
 const AGGREGATE_REPORT = 'mesh-production-readiness-report.json';
 const AGGREGATE_MANIFEST = 'mesh-production-readiness-evidence.md';
 const SOURCE_REPORT_NAME = 'mesh-production-readiness-report.json';
+const LUMA_COVERAGE_SUPPORT_PREFIX = 'supporting-evidence/luma-gated-write-coverage/';
 const STALE_PLACEHOLDER_FIXTURES = new Set(['full-conflict-resolution-fixtures']);
 const ALLOWED_WRITER_KINDS = new Set(['mesh-drill']);
 const URL_PATTERN = /\b(?:https?|wss?):\/\/[^\s"'`<>)]+/gi;
@@ -56,6 +63,10 @@ function readJson(filePath) {
 function writeJson(filePath, value) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function unique(values) {
+  return [...new Set(values.filter((value) => value !== undefined && value !== null && value !== ''))];
 }
 
 function safeRelativeLabel(filePath) {
@@ -241,6 +252,114 @@ function sourceReportFailures({ aggregate, sourceDir }) {
   return failures;
 }
 
+function normalizePacketRelativePath(value) {
+  return String(value || '')
+    .replaceAll('\\', '/')
+    .replace(/^\.\//, '');
+}
+
+function resolveInPacketPath(sourceDir, relativePath) {
+  const normalized = normalizePacketRelativePath(relativePath);
+  const resolved = path.resolve(sourceDir, normalized);
+  const relative = path.relative(sourceDir, resolved);
+  if (relative.startsWith('..') || path.isAbsolute(relative)) return null;
+  return { normalized, resolved };
+}
+
+function lumaCoverageEvidenceFailures({ aggregate, sourceDir }) {
+  const failures = [];
+  const coverage = aggregate.luma_gated_write_coverage || {};
+
+  if (coverage.status !== 'pass') {
+    return failures;
+  }
+
+  if (!coverage.report_path || typeof coverage.report_path !== 'string') {
+    failures.push('passing LUMA coverage is missing a durable report_path');
+    return failures;
+  }
+  if (path.isAbsolute(coverage.report_path)) {
+    failures.push('passing LUMA coverage report_path must be packet-relative');
+    return failures;
+  }
+
+  const resolved = resolveInPacketPath(sourceDir, coverage.report_path);
+  if (!resolved) {
+    failures.push('passing LUMA coverage report_path escapes the evidence packet');
+    return failures;
+  }
+  if (!resolved.normalized.startsWith(LUMA_COVERAGE_SUPPORT_PREFIX)) {
+    failures.push('passing LUMA coverage report_path must point inside supporting-evidence/luma-gated-write-coverage');
+  }
+  if (path.basename(resolved.normalized) !== LUMA_GATED_WRITE_COVERAGE_REPORT_NAME) {
+    failures.push(`passing LUMA coverage report_path must end with ${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`);
+  }
+  if (resolved.normalized.startsWith('.tmp/') || resolved.normalized.startsWith('/.tmp/')) {
+    failures.push('passing LUMA coverage report_path points at non-durable .tmp state');
+  }
+  if (!fs.existsSync(resolved.resolved)) {
+    failures.push(`missing durable LUMA coverage report at ${coverage.report_path}`);
+    return failures;
+  }
+
+  let report = null;
+  try {
+    report = readJson(resolved.resolved);
+  } catch (error) {
+    failures.push(`failed to parse durable LUMA coverage report: ${error instanceof Error ? error.message : String(error)}`);
+    return failures;
+  }
+
+  const expectedSchemaEpoch = coverage.schema_epoch || aggregate.schema_epoch || DEFAULT_LUMA_SCHEMA_EPOCH;
+  const expectedLumaProfile = coverage.luma_profile || null;
+  const validation = validateLumaCoverageReport(report, {
+    currentCommit: aggregate.repo?.commit || null,
+    requireClean: true,
+    expectedSchemaEpoch,
+    expectedLumaProfile,
+  });
+  failures.push(...validation.failures.map((failure) => `durable LUMA coverage report invalid: ${failure}`));
+
+  if (coverage.schema_version !== LUMA_GATED_WRITE_COVERAGE_SCHEMA_VERSION) {
+    failures.push(`LUMA coverage schema_version is ${coverage.schema_version || 'missing'}`);
+  }
+  if (!coverage.source_run_id || coverage.source_run_id !== report.run_id) {
+    failures.push(`LUMA coverage source_run_id ${coverage.source_run_id || 'missing'} does not match durable report ${report.run_id || 'missing'}`);
+  }
+  if (coverage.source_commit !== report.repo?.commit) {
+    failures.push(`LUMA coverage source_commit ${coverage.source_commit || 'missing'} does not match durable report ${report.repo?.commit || 'missing'}`);
+  }
+  if (coverage.source_commit !== aggregate.repo?.commit) {
+    failures.push(`LUMA coverage source_commit ${coverage.source_commit || 'missing'} does not match aggregate commit ${aggregate.repo?.commit || 'missing'}`);
+  }
+  if (coverage.source_dirty !== false || report.repo?.dirty !== false) {
+    failures.push('LUMA coverage source_dirty or durable report repo.dirty is not false');
+  }
+  if (coverage.schema_epoch !== report.schema_epoch) {
+    failures.push(`LUMA coverage schema_epoch ${coverage.schema_epoch || 'missing'} does not match durable report ${report.schema_epoch || 'missing'}`);
+  }
+  if (!coverage.luma_profile || coverage.luma_profile === 'none' || coverage.luma_profile !== report.luma_profile) {
+    failures.push(`LUMA coverage luma_profile ${coverage.luma_profile || 'missing'} does not match durable report ${report.luma_profile || 'missing'}`);
+  }
+
+  const aggregateClasses = new Map((coverage.required_write_classes || []).map((row) => [row.write_class, row]));
+  for (const row of validation.required_write_classes || []) {
+    const aggregateRow = aggregateClasses.get(row.write_class);
+    if (!aggregateRow) {
+      failures.push(`LUMA coverage aggregate summary is missing ${row.write_class}`);
+      continue;
+    }
+    if (aggregateRow.status !== 'pass') {
+      failures.push(`LUMA coverage aggregate summary for ${row.write_class} is ${aggregateRow.status || 'missing'}`);
+    }
+    if (row.status === 'pass' && aggregateRow.trace_id !== row.trace_id) {
+      failures.push(`LUMA coverage aggregate summary trace_id for ${row.write_class} does not match durable report`);
+    }
+  }
+
+  return unique(failures);
+}
+
 export function validateAggregatePacket({ sourceDir = defaultSourceDir, expectedCommit = runGit(['rev-parse', 'HEAD']) } = {}) {
   const failures = [];
   const resolvedSourceDir = path.resolve(repoRoot, sourceDir);
@@ -304,6 +423,7 @@ export function validateAggregatePacket({ sourceDir = defaultSourceDir, expected
     failures.push('aggregate implies LUMA-gated write coverage in a mesh-only evidence packet');
   }
   failures.push(...sourceReportFailures({ aggregate: report, sourceDir: resolvedSourceDir }));
+  failures.push(...lumaCoverageEvidenceFailures({ aggregate: report, sourceDir: resolvedSourceDir }));
 
   return {
     ok: failures.length === 0,
@@ -520,17 +640,20 @@ export function runEvidenceScrub({ sourceDir = defaultSourceDir, expectedCommit 
   const promotedDir = path.join(promotedRoot, validation.report?.run_id || runId);
   let redactions = { paths: 0, urls: 0, secrets: 0, stalePlaceholders: 0 };
   let scanFailures = [];
+  let promotedValidationFailures = [];
 
   if (validation.report) {
     redactions = scrubPacket({ sourceDir: validation.sourceDir, promotedDir });
     scanFailures = scanPromotedPacket({ promotedDir });
+    const promotedValidation = validateAggregatePacket({ sourceDir: promotedDir, expectedCommit });
+    promotedValidationFailures = promotedValidation.failures.map((failure) => `promoted packet validation failed: ${failure}`);
   } else {
     fs.rmSync(promotedDir, { recursive: true, force: true });
     fs.mkdirSync(promotedDir, { recursive: true });
   }
 
   const completedAt = Date.now();
-  const failures = [...validation.failures, ...scanFailures];
+  const failures = [...validation.failures, ...scanFailures, ...promotedValidationFailures];
   const scrubReport = buildScrubReport({
     runId,
     sourceReport: validation.report,

@@ -11,6 +11,7 @@ import {
 } from './evidence-scrub-check.mjs';
 import {
   LUMA_GATED_WRITE_COVERAGE_COMMAND,
+  LUMA_GATED_WRITE_COVERAGE_REPORT_NAME,
   LUMA_GATED_WRITE_COVERAGE_SCHEMA_VERSION,
   REQUIRED_LUMA_WRITE_CLASSES,
   validateLumaCoverageReport,
@@ -20,6 +21,7 @@ import {
   buildReleaseBlockers,
   conflictRowsForAggregate,
   downstreamCanaryMetadata,
+  persistLumaCoverageEvidenceForPacket,
   validationFailuresForSource,
 } from './production-readiness-check.mjs';
 
@@ -254,6 +256,53 @@ function evidenceScrubPacket({
   return sourceDir;
 }
 
+function addDurableLumaCoverageToPacket(sourceDir, { reportOverrides = {}, writeReport = true, reportPath = null } = {}) {
+  const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
+  const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
+  const durableRelativePath = reportPath || `./supporting-evidence/luma-gated-write-coverage/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`;
+  const durablePath = path.resolve(sourceDir, durableRelativePath.replace(/^\.\//, ''));
+  const report = passingLumaCoverageReport({
+    repo: {
+      commit: aggregate.repo.commit,
+      dirty: false,
+    },
+    ...reportOverrides,
+  });
+  const validation = validateLumaCoverageReport(report, {
+    currentCommit: aggregate.repo.commit,
+    expectedLumaProfile: report.luma_profile,
+  });
+
+  if (writeReport) {
+    writeJson(durablePath, report);
+  }
+  aggregate.luma_gated_write_coverage = {
+    command: LUMA_GATED_WRITE_COVERAGE_COMMAND,
+    report_env: 'VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT',
+    report_path: durableRelativePath,
+    source_run_id: report.run_id,
+    source_commit: report.repo.commit,
+    source_dirty: report.repo.dirty,
+    schema_version: report.schema_version,
+    schema_epoch: report.schema_epoch,
+    luma_profile: report.luma_profile,
+    status: 'pass',
+    failures: validation.failures,
+    required_write_classes: validation.required_write_classes,
+  };
+  aggregate.luma_dependency_status.luma_gated_write_drills = 'pass';
+  aggregate.luma_gated_write_drills = [
+    ...validation.required_write_classes,
+    {
+      write_class: 'LUMA-gated production write classes through LUMA reader path',
+      trace_id: aggregate.run_id,
+      status: 'pass',
+    },
+  ];
+  writeJson(aggregatePath, aggregate);
+  return { aggregate, report, durablePath, durableRelativePath };
+}
+
 describe('production-readiness source evidence validation', () => {
   it('includes the peer-config rollback drill as command-matched source evidence', () => {
     expect(SOURCE_GATES).toContainEqual(expect.objectContaining({
@@ -385,6 +434,35 @@ describe('production-readiness source evidence validation', () => {
     );
 
     expect(blockers.map((blocker) => blocker.id)).not.toContain('luma-gated-write-coverage');
+  });
+
+  it('copies passing LUMA coverage evidence into durable packet supporting evidence', () => {
+    const artifactDir = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-mesh-luma-support-'));
+    const sourceReportPath = path.join(artifactDir, 'input-luma-coverage.json');
+    const report = passingLumaCoverageReport();
+    writeJson(sourceReportPath, report);
+
+    try {
+      const persisted = persistLumaCoverageEvidenceForPacket({
+        artifactDir,
+        lumaCoverageEvidence: {
+          ...lumaCoverageEvidence(report),
+          report_path: sourceReportPath,
+          original_report_path: sourceReportPath,
+        },
+      });
+
+      const durablePath = path.join(
+        artifactDir,
+        'supporting-evidence/luma-gated-write-coverage',
+        LUMA_GATED_WRITE_COVERAGE_REPORT_NAME,
+      );
+      expect(persisted.report_path).toBe(`./supporting-evidence/luma-gated-write-coverage/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`);
+      expect(persisted.supporting_evidence.report_path).toBe(persisted.report_path);
+      expect(JSON.parse(fs.readFileSync(durablePath, 'utf8'))).toEqual(report);
+    } finally {
+      fs.rmSync(artifactDir, { recursive: true, force: true });
+    }
   });
 
   it('accepts a fresh source report for the exact gate command', () => {
@@ -620,24 +698,96 @@ describe('mesh evidence scrub promotion', () => {
   it('allows passing LUMA rows only when explicit coverage status passed', () => {
     const sourceDir = evidenceScrubPacket();
     try {
-      const aggregatePath = path.join(sourceDir, 'mesh-production-readiness-report.json');
-      const aggregate = JSON.parse(fs.readFileSync(aggregatePath, 'utf8'));
-      aggregate.luma_gated_write_coverage = {
-        status: 'pass',
-        report_path: '/tmp/mesh-luma-gated-write-coverage-report.json',
-      };
-      aggregate.luma_gated_write_drills = [
-        {
-          write_class: 'forum_thread',
-          trace_id: 'luma-coverage-pass',
-          status: 'pass',
-        },
-      ];
-      writeJson(aggregatePath, aggregate);
+      addDurableLumaCoverageToPacket(sourceDir);
 
       const validation = validateAggregatePacket({ sourceDir });
 
+      expect(validation.ok).toBe(true);
       expect(validation.failures).not.toContain('aggregate implies LUMA-gated write coverage in a mesh-only evidence packet');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects passing LUMA coverage when the durable copied report is missing', () => {
+    const sourceDir = evidenceScrubPacket();
+    try {
+      addDurableLumaCoverageToPacket(sourceDir, { writeReport: false });
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        `missing durable LUMA coverage report at ./supporting-evidence/luma-gated-write-coverage/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`,
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects passing LUMA coverage when it points at dangling .tmp state', () => {
+    const sourceDir = evidenceScrubPacket();
+    try {
+      addDurableLumaCoverageToPacket(sourceDir, {
+        writeReport: false,
+        reportPath: `./.tmp/mesh-luma-gated-write-coverage/latest/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`,
+      });
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        'passing LUMA coverage report_path must point inside supporting-evidence/luma-gated-write-coverage',
+      );
+      expect(validation.failures).toContain('passing LUMA coverage report_path points at non-durable .tmp state');
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects stale durable LUMA coverage reports with the wrong commit', () => {
+    const sourceDir = evidenceScrubPacket();
+    try {
+      addDurableLumaCoverageToPacket(sourceDir, {
+        reportOverrides: {
+          repo: {
+            commit: '2222222222222222222222222222222222222222',
+            dirty: false,
+          },
+        },
+      });
+
+      const validation = validateAggregatePacket({ sourceDir });
+
+      expect(validation.ok).toBe(false);
+      expect(validation.failures).toContain(
+        `durable LUMA coverage report invalid: report commit 2222222222222222222222222222222222222222 does not match ${liveCommit()}`,
+      );
+    } finally {
+      fs.rmSync(sourceDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves durable LUMA coverage evidence through scrub promotion', () => {
+    const sourceDir = evidenceScrubPacket();
+    try {
+      addDurableLumaCoverageToPacket(sourceDir);
+
+      const result = runEvidenceScrub({
+        sourceDir,
+        command: `pnpm check:mesh-evidence-scrub -- --source-dir ${path.relative(repoRoot, sourceDir)}`,
+      });
+
+      expect(result.ok).toBe(true);
+      const promotedDir = path.resolve(repoRoot, result.promoted_dir.replace(/^\.\//, ''));
+      const promotedReport = JSON.parse(fs.readFileSync(path.join(promotedDir, 'mesh-production-readiness-report.json'), 'utf8'));
+      const promotedLumaPath = path.join(promotedDir, promotedReport.luma_gated_write_coverage.report_path.replace(/^\.\//, ''));
+
+      expect(promotedReport.luma_gated_write_coverage.report_path).toBe(
+        `./supporting-evidence/luma-gated-write-coverage/${LUMA_GATED_WRITE_COVERAGE_REPORT_NAME}`,
+      );
+      expect(fs.existsSync(promotedLumaPath)).toBe(true);
+      expect(validateAggregatePacket({ sourceDir: promotedDir }).ok).toBe(true);
     } finally {
       fs.rmSync(sourceDir, { recursive: true, force: true });
     }

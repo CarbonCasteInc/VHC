@@ -1810,8 +1810,9 @@ promotion; the gate fails closed for missing, stale, dirty, or overclaiming
 aggregate evidence, missing referenced source reports, stale placeholder
 evidence, raw daemon tokens, bearer credentials, private signing material,
 unredacted relay/config origins, unsafe absolute machine paths, implied
-LUMA-gated write coverage, or writer kinds outside synthetic mesh evidence. The
-gate writes the scrubbed packet under
+LUMA-gated write coverage, dangling LUMA coverage `.tmp` references, missing
+durable LUMA coverage reports, or writer kinds outside synthetic mesh evidence.
+The gate writes the scrubbed packet under
 `.tmp/mesh-production-readiness/promoted/<run_id>/` and rescans the transformed
 output before passing. The scrub script is the only sanctioned promotion path;
 manual copy-paste into `docs/reports/evidence/` is forbidden.
@@ -2489,9 +2490,26 @@ Slice 14F hermetic reader-path evidence:
 - The local E2E packet uses `luma_profile: e2e`; it is acceptable evidence for
   clearing only `luma-gated-write-coverage` in a local aggregate run. It is not
   a production LUMA profile, a public WSS proof, or a downstream app canary.
-- Recent LUMA system-writer story, storyline, index, and analysis gates remain
-  protected-surface guardrails. They do not count as any of the five required
-  user LUMA-gated write coverage classes.
+- Recent LUMA system-writer story, storyline, index, analysis, topic
+  synthesis, and topic digest gates remain protected-surface guardrails. They
+  do not count as any of the five required user LUMA-gated write coverage
+  classes.
+
+Slice 14H durable in-packet LUMA coverage evidence:
+
+- When `VH_MESH_LUMA_GATED_WRITE_COVERAGE_REPORT` validates, the aggregate
+  command MUST copy that exact report into the readiness packet under
+  `supporting-evidence/luma-gated-write-coverage/mesh-luma-gated-write-coverage-report.json`.
+- The aggregate MUST keep the mesh `source_reports` count unchanged; LUMA
+  coverage is supporting evidence described by `luma_gated_write_coverage`, not
+  a thirteenth mesh source gate.
+- The aggregate MUST record the copied report path, source run id, source
+  commit, dirty state, schema version, schema epoch, LUMA profile, required
+  class statuses, and trace IDs.
+- Promotion scrub MUST fail closed if passing LUMA coverage points outside the
+  packet, points at `.tmp`-only state, omits the copied report, or if the copied
+  report is stale, dirty, wrong-epoch, wrong-profile, missing a required class,
+  or inconsistent with the aggregate summary.
 
 Still not allowed after mesh readiness alone:
 
