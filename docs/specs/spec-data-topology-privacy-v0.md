@@ -271,9 +271,15 @@ Implementation status:
   public nodes. Legacy bare and explicit safe legacy-marked synthesis wrappers
   remain read-compatible, while invalid system-marked latest records fail
   closed without scalar fallback.
-- Topic digests, discovery indexes, and topic engagement records are
-  intentionally outside the story/storyline/index/analysis/topic-synthesis
-  adapter slices and must migrate through separate branches.
+- Topic digest record nodes at `vh/topics/<topicId>/digests/<digestId>` are
+  the sixth concrete M0.B system-writer adapter migration. New digest writes
+  use the shared validator contract and carry system-writer metadata on the
+  stored public nodes. Legacy bare and explicit safe legacy-marked digest
+  wrappers remain read-compatible, while invalid system-marked digest records
+  fail closed without legacy downgrade.
+- Discovery indexes and topic engagement records are intentionally outside the
+  story/storyline/index/analysis/topic-synthesis/topic-digest adapter slices
+  and must migrate through separate branches.
 - `pnpm check:luma-news-storyline-system-v1` enforces that only
   `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
   `vh/news/storylines/` root map and removal tombstones stay legacy bare
@@ -293,6 +299,10 @@ Implementation status:
   `vh/topics/<topicId>/latest` migrated in this slice; candidates,
   corrections, digests, discovery indexes, topic engagement, and removal
   tombstones stay outside this system-writer migration.
+- `pnpm check:luma-topic-digest-system-v1` enforces that only
+  `vh/topics/<topicId>/digests/<digestId>` migrated in this slice; candidates,
+  corrections, discovery indexes, topic engagement, and removal tombstones stay
+  outside this system-writer migration.
 
 Forbidden uses:
 

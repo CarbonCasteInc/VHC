@@ -246,6 +246,29 @@ async function createSignedSynthesisFixture(synthesis: TopicSynthesisV2 = SYNTHE
   };
 }
 
+async function createSignedDigestFixture(digest: TopicDigest = DIGEST): Promise<{
+  readonly mesh: FakeMesh;
+  readonly client: VennClient;
+  readonly digestRecord: Record<string, unknown>;
+}> {
+  const hooks = await createRealSystemWriterHooks();
+  const mesh = createFakeMesh();
+  const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+  const client = createClient(mesh, guard, [], {
+    systemWriterPin: hooks.pin,
+    systemWriterSign: hooks.sign,
+    systemWriterVerify: undefined,
+  });
+
+  await writeTopicDigest(client, digest);
+
+  return {
+    mesh,
+    client,
+    digestRecord: mesh.writes[0].value as Record<string, unknown>,
+  };
+}
+
 function createClient(
   mesh: FakeMesh,
   guard: TopologyGuard,
@@ -1450,7 +1473,7 @@ describe('synthesisAdapters', () => {
     }
   });
 
-  it('writes and reads digest payloads', async () => {
+  it('writes signed digest payloads without user-author envelope fields', async () => {
     const mesh = createFakeMesh();
     mesh.setRead('topics/topic-1/digests/digest-1', {
       _: { '#': 'meta' },
@@ -1467,8 +1490,15 @@ describe('synthesisAdapters', () => {
       digest_id: DIGEST.digest_id,
       topic_id: DIGEST.topic_id,
       window_start: DIGEST.window_start,
-      window_end: DIGEST.window_end
+      window_end: DIGEST.window_end,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+      _systemSignature: expect.stringContaining(`test-signature:${WRITER_ID}:vh/topics/topic-1/digests/digest-1/`),
     });
+    expect(mesh.writes[0]?.value).not.toHaveProperty('_authorScheme');
+    expect(mesh.writes[0]?.value).not.toHaveProperty('signedWriteEnvelope');
 
     await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
 
@@ -1485,6 +1515,190 @@ describe('synthesisAdapters', () => {
     await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
 
     mesh.setRead('topics/topic-1/digests/digest-1', { ...DIGEST, district_hash: 'forbidden' });
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+  });
+
+  it('validates real signed system writer topic digest records', async () => {
+    const { mesh, client, digestRecord } = await createSignedDigestFixture();
+    mesh.setRead('topics/topic-1/digests/digest-1', digestRecord);
+
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
+  });
+
+  it('rejects tampered or path-mismatched system writer topic digest records', async () => {
+    const { mesh, client, digestRecord } = await createSignedDigestFixture();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    try {
+      for (const record of [
+        { ...digestRecord, [TOPIC_DIGEST_JSON_KEY]: JSON.stringify({ ...DIGEST, key_claims: ['tampered'] }) },
+        { ...digestRecord, _protocolVersion: 'luma-public-v2' },
+        { ...digestRecord, _systemWriterId: 'unknown-writer' },
+        { ...digestRecord, _systemIssuedAt: ISSUED_AT + 1 },
+        { ...digestRecord, _systemSignature: `${String(digestRecord._systemSignature)}tampered` },
+        { ...digestRecord, _writerKind: 'legacy' },
+      ]) {
+        mesh.setRead('topics/topic-1/digests/digest-1', record);
+        await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+      }
+
+      mesh.setRead('topics/topic-2/digests/digest-1', digestRecord);
+      await expect(readTopicDigest(client, 'topic-2', 'digest-1')).resolves.toBeNull();
+
+      mesh.setRead('topics/topic-1/digests/digest-2', digestRecord);
+      await expect(readTopicDigest(client, 'topic-1', 'digest-2')).resolves.toBeNull();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('fails closed with system-writer-validation-failed when the topic digest pin is missing', async () => {
+    const { digestRecord } = await createSignedDigestFixture();
+    const mesh = createFakeMesh();
+    mesh.setRead('topics/topic-1/digests/digest-1', digestRecord);
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, [], { systemWriterPin: null });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    class TestCustomEvent extends Event {
+      readonly detail: unknown;
+
+      constructor(type: string, init?: CustomEventInit) {
+        super(type);
+        this.detail = init?.detail;
+      }
+    }
+    const dispatchSpy = vi.fn(() => true);
+    vi.stubGlobal('CustomEvent', TestCustomEvent);
+    vi.stubGlobal('dispatchEvent', dispatchSpy);
+
+    try {
+      await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+      expect(warnSpy).toHaveBeenCalledWith(
+        `[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`,
+        expect.objectContaining({
+          event: SYSTEM_WRITER_VALIDATION_EVENT,
+          reason: 'missing-pin',
+          path: 'vh/topics/topic-1/digests/digest-1',
+        }),
+      );
+      expect(dispatchSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: SYSTEM_WRITER_VALIDATION_EVENT,
+          detail: expect.objectContaining({
+            event: SYSTEM_WRITER_VALIDATION_EVENT,
+            reason: 'missing-pin',
+          }),
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      warnSpy.mockRestore();
+    }
+  });
+
+  it('keeps legacy digest records readable and rejects downgraded legacy fields', async () => {
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard);
+    const legacyRecord = {
+      _writerKind: 'legacy',
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      [TOPIC_DIGEST_JSON_KEY]: JSON.stringify(DIGEST),
+      digest_id: DIGEST.digest_id,
+      topic_id: DIGEST.topic_id,
+      window_start: DIGEST.window_start,
+      window_end: DIGEST.window_end,
+    };
+
+    mesh.setRead('topics/topic-1/digests/digest-1', { ...DIGEST });
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
+
+    mesh.setRead('topics/topic-1/digests/digest-1', legacyRecord);
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toEqual(DIGEST);
+
+    mesh.setRead('topics/topic-1/digests/digest-1', 'legacy-root-placeholder');
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+
+    for (const record of [
+      { ...legacyRecord, _systemWriterId: WRITER_ID },
+      { ...legacyRecord, _systemIssuedAt: ISSUED_AT },
+      { ...legacyRecord, _systemSignature: 'downgraded-system-field' },
+      { ...legacyRecord, _authorScheme: 'forum-author-v1' },
+      { ...legacyRecord, signedWriteEnvelope: {} },
+    ]) {
+      mesh.setRead('topics/topic-1/digests/digest-1', record);
+      await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+    }
+  });
+
+  it('fails topic digest signing before persistence when signer metadata is unavailable or malformed', async () => {
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+
+    const missingSignerMesh = createFakeMesh();
+    await expect(
+      writeTopicDigest(createClient(missingSignerMesh, guard, [], { systemWriterSign: undefined }), DIGEST),
+    ).rejects.toThrow('system writer signer is required for topic digest writes');
+    expect(missingSignerMesh.writes).toEqual([]);
+
+    const invalidSignatureMesh = createFakeMesh();
+    await expect(
+      writeTopicDigest(createClient(invalidSignatureMesh, guard, [], { systemWriterSign: () => ' invalid-signature' }), DIGEST),
+    ).rejects.toThrow('system writer signer returned an invalid signature');
+    expect(invalidSignatureMesh.writes).toEqual([]);
+
+    const invalidTimestampMesh = createFakeMesh();
+    await expect(
+      writeTopicDigest(createClient(invalidTimestampMesh, guard, [], { systemWriterNow: () => -1 }), DIGEST),
+    ).rejects.toThrow('system writer issued-at must be a non-negative safe integer');
+    expect(invalidTimestampMesh.writes).toEqual([]);
+  });
+
+  it('blocks validly signed topic digest records whose top-level path fields do not match', async () => {
+    const hooks = await createRealSystemWriterHooks();
+    const mesh = createFakeMesh();
+    const guard = { validateWrite: vi.fn() } as unknown as TopologyGuard;
+    const client = createClient(mesh, guard, [], {
+      systemWriterPin: hooks.pin,
+      systemWriterSign: hooks.sign,
+      systemWriterVerify: undefined,
+    });
+    const baseRecord = {
+      [TOPIC_DIGEST_JSON_KEY]: JSON.stringify(DIGEST),
+      digest_id: DIGEST.digest_id,
+      topic_id: DIGEST.topic_id,
+      window_start: DIGEST.window_start,
+      window_end: DIGEST.window_end,
+      _protocolVersion: SYSTEM_WRITER_PROTOCOL_VERSION,
+      _writerKind: SYSTEM_WRITER_KIND,
+      _systemWriterId: WRITER_ID,
+      _systemIssuedAt: ISSUED_AT,
+    };
+
+    mesh.setRead(
+      'topics/topic-1/digests/digest-1',
+      await signSystemWriterTestRecord(hooks.sign, 'vh/topics/topic-1/digests/digest-1/', {
+        ...baseRecord,
+        topic_id: 'topic-2',
+      }),
+    );
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+
+    mesh.setRead(
+      'topics/topic-1/digests/digest-1',
+      await signSystemWriterTestRecord(hooks.sign, 'vh/topics/topic-1/digests/digest-1/', {
+        ...baseRecord,
+        digest_id: 'digest-2',
+      }),
+    );
+    await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
+
+    mesh.setRead(
+      'topics/topic-1/digests/digest-1',
+      await signSystemWriterTestRecord(hooks.sign, 'vh/topics/topic-1/digests/digest-1/', {
+        ...baseRecord,
+        [TOPIC_DIGEST_JSON_KEY]: JSON.stringify({ ...DIGEST, digest_id: 'digest-2' }),
+      }),
+    );
     await expect(readTopicDigest(client, 'topic-1', 'digest-1')).resolves.toBeNull();
   });
 

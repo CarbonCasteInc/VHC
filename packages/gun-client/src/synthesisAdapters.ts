@@ -58,8 +58,23 @@ type EncodedTopicSynthesisRecord = Record<string, unknown> & {
 
 type SystemWriterTopicSynthesisRecord = EncodedTopicSynthesisRecord & SystemWriterRecordFields;
 
+type EncodedTopicDigestRecord = Record<string, unknown> & {
+  readonly [TOPIC_DIGEST_JSON_KEY]: string;
+  readonly digest_id: string;
+  readonly topic_id: string;
+  readonly window_start: number;
+  readonly window_end: number;
+};
+
+type SystemWriterTopicDigestRecord = EncodedTopicDigestRecord & SystemWriterRecordFields;
+
 export type TopicSynthesisReadResult =
   | { readonly state: 'valid'; readonly synthesis: TopicSynthesisV2 }
+  | { readonly state: 'legacy-invalid' }
+  | { readonly state: 'blocked' };
+
+type TopicDigestReadResult =
+  | { readonly state: 'valid'; readonly digest: TopicDigest }
   | { readonly state: 'legacy-invalid' }
   | { readonly state: 'blocked' };
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
@@ -239,7 +254,7 @@ function encodeSynthesisCorrectionForGun(correction: TopicSynthesisCorrection): 
   };
 }
 
-function encodeDigestForGun(digest: TopicDigest): Record<string, unknown> {
+function encodeDigestForGun(digest: TopicDigest): EncodedTopicDigestRecord {
   return {
     [TOPIC_DIGEST_JSON_KEY]: JSON.stringify(digest),
     digest_id: digest.digest_id,
@@ -280,8 +295,12 @@ function parseSynthesisCorrection(data: unknown): TopicSynthesisCorrection | nul
   return parsed.success ? parsed.data : null;
 }
 
-function parseDigest(data: unknown): TopicDigest | null {
-  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), TOPIC_DIGEST_JSON_KEY);
+function parseDigest(data: Record<string, unknown>): TopicDigest | null {
+  const stripped = stripGunMetadata(data) as Record<string, unknown>;
+  const payload = decodeGunJsonEnvelope(
+    stripSafeLegacyProtocolFields(stripped),
+    TOPIC_DIGEST_JSON_KEY
+  );
   if (hasForbiddenSynthesisPayloadFields(payload)) {
     return null;
   }
@@ -327,6 +346,22 @@ async function buildSystemWriterLatestSynthesisRecord(
     defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
     missingSignerError: 'system writer signer is required for topic synthesis latest writes',
   }) as Promise<SystemWriterTopicSynthesisRecord>;
+}
+
+async function buildSystemWriterDigestRecord(
+  client: VennClient,
+  digest: TopicDigest,
+): Promise<SystemWriterTopicDigestRecord> {
+  return buildSignedSystemWriterRecord({
+    path: topicDigestPath(digest.topic_id, digest.digest_id),
+    payload: encodeDigestForGun(digest),
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for topic digest writes',
+  }) as Promise<SystemWriterTopicDigestRecord>;
 }
 
 function normalizeSynthesisForPath(synthesis: TopicSynthesisV2): TopicSynthesisV2 {
@@ -401,6 +436,20 @@ function pathMatchesSynthesis(
   return true;
 }
 
+function pathMatchesDigest(
+  payload: Record<string, unknown>,
+  digest: TopicDigest | null,
+  expected: { readonly topicId: string; readonly digestId: string; readonly requireTopLevel: boolean },
+): digest is TopicDigest {
+  if (!digest || digest.topic_id !== expected.topicId || digest.digest_id !== expected.digestId) {
+    return false;
+  }
+  if (!expected.requireTopLevel) {
+    return true;
+  }
+  return payload.topic_id === expected.topicId && payload.digest_id === expected.digestId;
+}
+
 async function parseSynthesisFromStoredRecord(
   client: VennClient,
   input: {
@@ -448,6 +497,56 @@ async function parseSynthesisFromStoredRecord(
     requireTopLevel: false,
   })
     ? { state: 'valid', synthesis: parsed }
+    : { state: 'legacy-invalid' };
+}
+
+async function parseDigestFromStoredRecord(
+  client: VennClient,
+  input: {
+    readonly path: string;
+    readonly topicId: string;
+    readonly digestId: string;
+    readonly data: unknown;
+  },
+): Promise<TopicDigestReadResult> {
+  const payload = stripGunMetadata(input.data);
+  if (!isRecord(payload)) {
+    return { state: 'legacy-invalid' };
+  }
+
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: input.path,
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return { state: 'blocked' };
+    }
+
+    const parsed = parseDigest(payload);
+    return pathMatchesDigest(payload, parsed, {
+      topicId: input.topicId,
+      digestId: input.digestId,
+      requireTopLevel: true,
+    })
+      ? { state: 'valid', digest: parsed }
+      : { state: 'blocked' };
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return { state: 'blocked' };
+  }
+
+  const parsed = parseDigest(payload);
+  return pathMatchesDigest(payload, parsed, {
+    topicId: input.topicId,
+    digestId: input.digestId,
+    requireTopLevel: false,
+  })
+    ? { state: 'valid', digest: parsed }
     : { state: 'legacy-invalid' };
 }
 
@@ -854,25 +953,39 @@ export async function writeTopicSynthesis(client: VennClient, synthesis: unknown
 }
 
 export async function readTopicDigest(client: VennClient, topicId: string, digestId: string): Promise<TopicDigest | null> {
-  const raw = await readOnce(getTopicDigestChain(client, normalizeTopicId(topicId), normalizeId(digestId, 'digestId')));
+  const normalizedTopicId = normalizeTopicId(topicId);
+  const normalizedDigestId = normalizeId(digestId, 'digestId');
+  const raw = await readOnce(getTopicDigestChain(client, normalizedTopicId, normalizedDigestId));
   if (raw === null) {
     return null;
   }
-  return parseDigest(raw);
+  const result = await parseDigestFromStoredRecord(client, {
+    path: topicDigestPath(normalizedTopicId, normalizedDigestId),
+    topicId: normalizedTopicId,
+    digestId: normalizedDigestId,
+    data: raw,
+  });
+  return result.state === 'valid' ? result.digest : null;
 }
 
 export async function writeTopicDigest(client: VennClient, digest: unknown): Promise<TopicDigest> {
   assertNoForbiddenSynthesisFields(digest);
   const sanitized = TopicDigestInputSchema.parse(digest);
+  const normalized = {
+    ...sanitized,
+    topic_id: normalizeTopicId(sanitized.topic_id),
+    digest_id: normalizeId(sanitized.digest_id, 'digestId'),
+  };
+  const record = await buildSystemWriterDigestRecord(client, normalized);
   await putWithAck(
     getTopicDigestChain(
       client,
-      normalizeTopicId(sanitized.topic_id),
-      normalizeId(sanitized.digest_id, 'digestId')
+      normalized.topic_id,
+      normalized.digest_id
     ) as unknown as ChainWithGet<Record<string, unknown>>,
-    encodeDigestForGun(sanitized)
+    record
   );
-  return sanitized;
+  return normalized;
 }
 
 export { readNewsStory as readStoryBundle, writeNewsBundle as writeStoryBundle } from './newsAdapters';

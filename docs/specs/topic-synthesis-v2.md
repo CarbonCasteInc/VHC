@@ -174,6 +174,7 @@ Public mesh paths:
 - `vh/topics/<topicId>/epochs/<epoch>/candidates/<candidateId>`
 - `vh/topics/<topicId>/epochs/<epoch>/synthesis`
 - `vh/topics/<topicId>/latest` (pointer)
+- `vh/topics/<topicId>/digests/<digestId>`
 
 Sensitive material (proofs, tokens, identity) is forbidden in these paths.
 
@@ -187,9 +188,21 @@ with `system-writer-validation-failed`; invalid system records are not
 downgraded through legacy parsing or scalar fallback. Legacy bare and explicit
 safe `_writerKind: 'legacy'` synthesis wrappers remain read-compatible, but
 legacy-marked records carrying downgraded system/user fields are rejected.
-Candidate, correction, digest, discovery, and topic-engagement records are not
-part of this epoch/latest synthesis migration. `pnpm
-check:luma-topic-synthesis-system-v1` guards this contract.
+
+New `vh/topics/<topicId>/digests/<digestId>` writes are also system-writer
+signed records. They store the encoded `TopicDigest` wrapper plus the same
+system-writer metadata fields. Readers validate system-marked digest records
+with the shared system-writer validator, verify both top-level and encoded
+`topic_id` / `digest_id` against the requested path, and fail closed with
+`system-writer-validation-failed`; invalid system records are not downgraded
+through legacy parsing. Legacy bare and explicit safe `_writerKind: 'legacy'`
+digest wrappers remain read-compatible, but legacy-marked records carrying
+downgraded system/user fields are rejected.
+
+Candidate, correction, discovery, and topic-engagement records are not part of
+these epoch/latest/digest system-writer migrations. `pnpm
+check:luma-topic-synthesis-system-v1` guards the epoch/latest contract, and
+`pnpm check:luma-topic-digest-system-v1` guards the digest contract.
 
 ## 7. Invariants
 
