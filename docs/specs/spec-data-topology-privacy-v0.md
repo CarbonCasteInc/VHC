@@ -285,10 +285,18 @@ Implementation status:
   remain read-compatible, while invalid system-marked summary records fail
   closed without legacy downgrade. Topic engagement actor nodes remain
   topic-scoped actor records and are not system-writer records.
+- Civic representative directory snapshots at
+  `vh/civic/reps/<jurisdictionVersion>` are the eighth concrete M0.B
+  system-writer adapter migration. New snapshot writes use the shared validator
+  contract, carry system-writer metadata and an explicit `jurisdictionVersion`
+  path-binding field on the stored public node, and validate the directory
+  payload with `RepresentativeDirectorySchema`. Legacy bare and explicit safe
+  legacy-marked directory snapshots remain read-compatible, while invalid
+  system-marked snapshots fail closed without legacy downgrade.
 - Discovery indexes and topic engagement actor records are intentionally
   outside the story/storyline/index/analysis/topic-synthesis/topic-digest/topic
-  engagement summary adapter slices and must migrate or remain scoped through
-  separate branches/contracts.
+  engagement summary/civic representative snapshot adapter slices and must
+  migrate or remain scoped through separate branches/contracts.
 - `pnpm check:luma-news-storyline-system-v1` enforces that only
   `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
   `vh/news/storylines/` root map and removal tombstones stay legacy bare
@@ -317,6 +325,11 @@ Implementation status:
   topic engagement actor nodes, discovery indexes, aggregate voter/snapshot
   adapters, mesh evidence artifacts, and removal tombstones stay outside this
   system-writer migration.
+- `pnpm check:luma-civic-reps-system-v1` enforces that only
+  `vh/civic/reps/<jurisdictionVersion>` migrated in this slice; identity
+  directory schemas, bridge action/receipt/stat adapters, discovery indexes,
+  mesh evidence artifacts, relay, and browser signing surfaces stay outside
+  this system-writer migration.
 
 Forbidden uses:
 
