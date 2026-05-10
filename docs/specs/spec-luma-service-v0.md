@@ -697,19 +697,26 @@ M0.B implementation note: `vh/news/stories/<storyId>`,
 `vh/news/index/hot/<storyId>`,
 `vh/news/stories/<storyId>/analysis/<analysisKey>`, and
 `vh/news/stories/<storyId>/analysis_latest` are the concrete news-domain
-system-writer adapter migrations that have landed. They sign the stored story,
-storyline, latest-index child, hot-index child, analysis artifact, and
-analysis latest pointer node wrappers with the build-pinned system-writer key
-and leave synthesis, discovery, and topic engagement for later system-writer
-slices. The storyline migration does not migrate the `vh/news/storylines/`
-root map or removal tombstones into system records. The index migration does
-not migrate the `vh/news/index/latest/` or `vh/news/index/hot/` root maps, nor
-any removal tombstones, into system records. The analysis migration does not
-migrate the `vh/news/stories/<storyId>/analysis/` root map,
-`analysis_pending`, or removal tombstones into system records.
+system-writer adapter migrations that have landed. `vh/topics/<topicId>/epochs/<epoch>/synthesis`
+and `vh/topics/<topicId>/latest` topic synthesis epoch/latest records have
+also landed as a topic-domain system-writer migration. They sign the stored
+story, storyline, latest-index child, hot-index child, analysis artifact,
+analysis latest pointer, topic synthesis epoch, and topic synthesis latest
+node wrappers with the build-pinned system-writer key and leave topic digests,
+discovery, and topic engagement for later system-writer slices. The storyline
+migration does not migrate the `vh/news/storylines/` root map or removal
+tombstones into system records. The index migration does not migrate the
+`vh/news/index/latest/` or `vh/news/index/hot/` root maps, nor any removal
+tombstones, into system records. The analysis migration does not migrate the
+`vh/news/stories/<storyId>/analysis/` root map, `analysis_pending`, or removal
+tombstones into system records. The topic synthesis migration does not migrate
+candidates, corrections, digests, discovery indexes, topic engagement, or
+removal tombstones into system records.
 
 `pnpm check:luma-news-analysis-system-v1` guards the analysis artifact and
 analysis latest pointer system-writer migration.
+`pnpm check:luma-topic-synthesis-system-v1` guards the topic synthesis
+epoch/latest records system-writer migration.
 
 `AggregateVoterNodeV1` uses schema version `aggregate-voter-node-v1`,
 `_protocolVersion: 'luma-public-v1'`, `_writerKind: 'luma'`,

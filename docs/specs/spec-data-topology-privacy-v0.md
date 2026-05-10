@@ -263,9 +263,17 @@ Implementation status:
   latest-pointer writes use the shared validator contract and carry
   system-writer metadata on the stored public child nodes. Legacy bare and
   explicit safe legacy-marked analysis records remain read-compatible.
-- Synthesis records, discovery indexes, and topic engagement records are
-  intentionally outside the story/storyline/index/analysis adapter slices and
-  must migrate through separate branches.
+- Topic synthesis epoch record nodes at
+  `vh/topics/<topicId>/epochs/<epoch>/synthesis` and Topic synthesis latest record
+  nodes at `vh/topics/<topicId>/latest` are the fifth concrete M0.B
+  system-writer adapter migration. New epoch/latest synthesis writes use the
+  shared validator contract and carry system-writer metadata on the stored
+  public nodes. Legacy bare and explicit safe legacy-marked synthesis wrappers
+  remain read-compatible, while invalid system-marked latest records fail
+  closed without scalar fallback.
+- Topic digests, discovery indexes, and topic engagement records are
+  intentionally outside the story/storyline/index/analysis/topic-synthesis
+  adapter slices and must migrate through separate branches.
 - `pnpm check:luma-news-storyline-system-v1` enforces that only
   `vh/news/storylines/<storylineId>` nodes migrated in this slice; the
   `vh/news/storylines/` root map and removal tombstones stay legacy bare
@@ -280,6 +288,11 @@ Implementation status:
   `vh/news/stories/<storyId>/analysis_latest` migrated in this slice; the
   analysis root map, `analysis_pending`, and removal tombstones stay outside
   system-writer metadata.
+- `pnpm check:luma-topic-synthesis-system-v1` enforces that only
+  `vh/topics/<topicId>/epochs/<epoch>/synthesis` and
+  `vh/topics/<topicId>/latest` migrated in this slice; candidates,
+  corrections, digests, discovery indexes, topic engagement, and removal
+  tombstones stay outside this system-writer migration.
 
 Forbidden uses:
 

@@ -12,8 +12,16 @@ import {
 } from '@vh/data-model';
 import { createGuardedChain, putWithAckTimeout, type ChainWithGet } from './chain';
 import { writeWithDurability } from './durableWrite';
-import { createRelayDaemonAuthHeaders } from './relayAuth';
 import { readGunTimeoutMs } from './runtimeConfig';
+import {
+  SYSTEM_WRITER_KIND,
+  SYSTEM_WRITER_PROTOCOL_VERSION,
+  SYSTEM_WRITER_VALIDATION_EVENT,
+  buildSignedSystemWriterRecord,
+  validateSystemWriterRecord,
+  type SystemWriterRecordFields,
+  type SystemWriterValidationFailure,
+} from './systemWriter';
 import type { VennClient } from './types';
 const FORBIDDEN_SYNTHESIS_KEYS = new Set<string>([
   'identity',
@@ -37,6 +45,23 @@ const CANDIDATE_SYNTHESIS_JSON_KEY = '__candidate_synthesis_json';
 const TOPIC_SYNTHESIS_JSON_KEY = '__topic_synthesis_json';
 const TOPIC_SYNTHESIS_CORRECTION_JSON_KEY = '__topic_synthesis_correction_json';
 const TOPIC_DIGEST_JSON_KEY = '__topic_digest_json';
+const DEFAULT_SYSTEM_WRITER_ID = 'vh-system-writer-dev-v1';
+
+type EncodedTopicSynthesisRecord = Record<string, unknown> & {
+  readonly [TOPIC_SYNTHESIS_JSON_KEY]: string;
+  readonly schemaVersion: TopicSynthesisV2['schemaVersion'];
+  readonly topic_id: string;
+  readonly epoch: number;
+  readonly synthesis_id: string;
+  readonly created_at: number;
+};
+
+type SystemWriterTopicSynthesisRecord = EncodedTopicSynthesisRecord & SystemWriterRecordFields;
+
+export type TopicSynthesisReadResult =
+  | { readonly state: 'valid'; readonly synthesis: TopicSynthesisV2 }
+  | { readonly state: 'legacy-invalid' }
+  | { readonly state: 'blocked' };
 const READ_ONCE_TIMEOUT_MS = readGunTimeoutMs(
   ['VITE_VH_GUN_SYNTHESIS_READ_TIMEOUT_MS', 'VH_GUN_SYNTHESIS_READ_TIMEOUT_MS', 'VITE_VH_GUN_READ_TIMEOUT_MS', 'VH_GUN_READ_TIMEOUT_MS'],
   2_500,
@@ -189,7 +214,7 @@ function encodeCandidateForGun(candidate: CandidateSynthesis): Record<string, un
   };
 }
 
-function encodeSynthesisForGun(synthesis: TopicSynthesisV2): Record<string, unknown> {
+function encodeSynthesisForGun(synthesis: TopicSynthesisV2): EncodedTopicSynthesisRecord {
   return {
     [TOPIC_SYNTHESIS_JSON_KEY]: JSON.stringify(synthesis),
     schemaVersion: synthesis.schemaVersion,
@@ -233,8 +258,12 @@ function parseCandidate(data: unknown): CandidateSynthesis | null {
   return parsed.success ? parsed.data : null;
 }
 
-function parseSynthesis(data: unknown): TopicSynthesisV2 | null {
-  const payload = decodeGunJsonEnvelope(stripGunMetadata(data), TOPIC_SYNTHESIS_JSON_KEY);
+function parseSynthesis(data: Record<string, unknown>): TopicSynthesisV2 | null {
+  const stripped = stripGunMetadata(data);
+  const payload = decodeGunJsonEnvelope(
+    stripSafeLegacyProtocolFields(stripped as Record<string, unknown>),
+    TOPIC_SYNTHESIS_JSON_KEY
+  );
   if (hasForbiddenSynthesisPayloadFields(payload)) {
     return null;
   }
@@ -266,6 +295,160 @@ function parseSynthesisPayload(payload: unknown): TopicSynthesisV2 | null {
   }
   const parsed = TopicSynthesisV2Schema.safeParse(payload);
   return parsed.success ? parsed.data : null;
+}
+
+async function buildSystemWriterEpochSynthesisRecord(
+  client: VennClient,
+  synthesis: TopicSynthesisV2,
+): Promise<SystemWriterTopicSynthesisRecord> {
+  return buildSignedSystemWriterRecord({
+    path: topicEpochSynthesisPath(synthesis.topic_id, normalizeEpoch(synthesis.epoch)),
+    payload: encodeSynthesisForGun(synthesis),
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for topic synthesis writes',
+  }) as Promise<SystemWriterTopicSynthesisRecord>;
+}
+
+async function buildSystemWriterLatestSynthesisRecord(
+  client: VennClient,
+  synthesis: TopicSynthesisV2,
+): Promise<SystemWriterTopicSynthesisRecord> {
+  return buildSignedSystemWriterRecord({
+    path: topicLatestPath(synthesis.topic_id),
+    payload: encodeSynthesisForGun(synthesis),
+    sign: client.config.systemWriterSign,
+    pin: client.config.systemWriterPin,
+    writerId: client.config.systemWriterId,
+    now: client.config.systemWriterNow,
+    defaultWriterId: DEFAULT_SYSTEM_WRITER_ID,
+    missingSignerError: 'system writer signer is required for topic synthesis latest writes',
+  }) as Promise<SystemWriterTopicSynthesisRecord>;
+}
+
+function normalizeSynthesisForPath(synthesis: TopicSynthesisV2): TopicSynthesisV2 {
+  return {
+    ...synthesis,
+    topic_id: normalizeTopicId(synthesis.topic_id),
+    epoch: Number(normalizeEpoch(synthesis.epoch)),
+  };
+}
+
+function isSystemWriterMarkedRecord(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && value._writerKind === SYSTEM_WRITER_KIND;
+}
+
+function isLegacyMarkedRecord(value: Record<string, unknown>): boolean {
+  return value._writerKind === 'legacy';
+}
+
+function stripSafeLegacyProtocolFields(payload: Record<string, unknown>): Record<string, unknown> {
+  if (!isLegacyMarkedRecord(payload)) {
+    return payload;
+  }
+  const { _writerKind: _omittedWriterKind, _protocolVersion: _omittedProtocolVersion, ...legacyPayload } = payload;
+  return legacyPayload;
+}
+
+function carriesLumaProtocolFields(value: Record<string, unknown>): boolean {
+  const carriesSystemOrUserFields =
+    '_systemWriterId' in value
+    || '_systemSignature' in value
+    || '_systemIssuedAt' in value
+    || '_authorScheme' in value
+    || 'signedWriteEnvelope' in value;
+
+  if (isLegacyMarkedRecord(value)) {
+    return carriesSystemOrUserFields
+      || ('_protocolVersion' in value && value._protocolVersion !== SYSTEM_WRITER_PROTOCOL_VERSION);
+  }
+
+  return '_protocolVersion' in value || '_writerKind' in value || carriesSystemOrUserFields;
+}
+
+function emitSystemWriterValidationFailure(failure: SystemWriterValidationFailure): void {
+  console.warn(`[vh:synthesis] ${SYSTEM_WRITER_VALIDATION_EVENT}`, failure);
+  if (typeof globalThis.dispatchEvent === 'function' && typeof CustomEvent !== 'undefined') {
+    globalThis.dispatchEvent(
+      new CustomEvent(SYSTEM_WRITER_VALIDATION_EVENT, { detail: failure })
+    );
+  }
+}
+
+function pathMatchesSynthesis(
+  payload: Record<string, unknown>,
+  synthesis: TopicSynthesisV2 | null,
+  expected: { readonly topicId: string; readonly epoch?: string; readonly requireTopLevel: boolean },
+): synthesis is TopicSynthesisV2 {
+  if (!synthesis || synthesis.topic_id !== expected.topicId) {
+    return false;
+  }
+  if (expected.epoch !== undefined && String(synthesis.epoch) !== expected.epoch) {
+    return false;
+  }
+  if (!expected.requireTopLevel) {
+    return true;
+  }
+  if (payload.topic_id !== expected.topicId) {
+    return false;
+  }
+  if (expected.epoch !== undefined && String(payload.epoch) !== expected.epoch) {
+    return false;
+  }
+  return true;
+}
+
+async function parseSynthesisFromStoredRecord(
+  client: VennClient,
+  input: {
+    readonly path: string;
+    readonly topicId: string;
+    readonly epoch?: string;
+    readonly data: unknown;
+  },
+): Promise<TopicSynthesisReadResult> {
+  const payload = stripGunMetadata(input.data);
+  if (!isRecord(payload)) {
+    return { state: 'legacy-invalid' };
+  }
+
+  if (isSystemWriterMarkedRecord(payload)) {
+    const validation = await validateSystemWriterRecord({
+      path: input.path,
+      record: payload,
+      pin: client.config.systemWriterPin,
+      verify: client.config.systemWriterVerify,
+    });
+    if (!validation.valid) {
+      emitSystemWriterValidationFailure(validation);
+      return { state: 'blocked' };
+    }
+
+    const parsed = parseSynthesis(payload);
+    return pathMatchesSynthesis(payload, parsed, {
+      topicId: input.topicId,
+      epoch: input.epoch,
+      requireTopLevel: true,
+    })
+      ? { state: 'valid', synthesis: parsed }
+      : { state: 'blocked' };
+  }
+
+  if (carriesLumaProtocolFields(payload)) {
+    return { state: 'blocked' };
+  }
+
+  const parsed = parseSynthesis(payload);
+  return pathMatchesSynthesis(payload, parsed, {
+    topicId: input.topicId,
+    epoch: input.epoch,
+    requireTopLevel: false,
+  })
+    ? { state: 'valid', synthesis: parsed }
+    : { state: 'legacy-invalid' };
 }
 
 function parseSynthesisCorrectionPayload(payload: unknown): TopicSynthesisCorrection | null {
@@ -329,65 +512,19 @@ async function putWithAck<T>(chain: ChainWithGet<T>, value: T): Promise<void> {
   }
 }
 
-function resolveRelaySynthesisEndpoint(client: VennClient): string | null {
-  const peer = client.config?.peers?.[0];
-  if (!peer || typeof fetch !== 'function') {
-    return null;
-  }
-  try {
-    const url = new URL(peer, 'http://127.0.0.1/');
-    return `${url.origin}/vh/topics/synthesis`;
-  } catch {
-    return null;
-  }
-}
-
-async function writeSynthesisViaRelayFallback(client: VennClient, synthesis: TopicSynthesisV2): Promise<boolean> {
-  const endpoint = resolveRelaySynthesisEndpoint(client);
-  if (!endpoint) {
-    return false;
-  }
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', ...createRelayDaemonAuthHeaders() },
-      body: JSON.stringify({ synthesis }),
-    });
-    if (!response.ok) {
-      return false;
-    }
-    const payload = await response.json().catch(() => null) as {
-      ok?: unknown;
-      topic_id?: unknown;
-      synthesis_id?: unknown;
-    } | null;
-    return payload?.ok === true
-      && payload.topic_id === synthesis.topic_id
-      && payload.synthesis_id === synthesis.synthesis_id;
-  } catch {
-    return false;
-  }
-}
-
-async function putSynthesisWithAckOrRelayFallback(
-  client: VennClient,
+async function putSystemWriterSynthesisWithDurability(
   chain: ChainWithGet<Record<string, unknown>>,
-  encoded: Record<string, unknown>,
-  synthesis: TopicSynthesisV2
+  record: SystemWriterTopicSynthesisRecord,
+  synthesis: TopicSynthesisV2,
+  readback: () => Promise<TopicSynthesisV2 | null>,
 ): Promise<void> {
   await writeWithDurability({
     chain,
-    value: encoded,
+    value: record,
     writeClass: 'topic-synthesis',
     timeoutMs: PUT_ACK_TIMEOUT_MS,
-    timeoutError: 'synthesis write timed out and readback/fallback did not confirm persistence',
-    readback: async () => {
-      const byEpoch = await readTopicEpochSynthesis(client, synthesis.topic_id, synthesis.epoch);
-      if (byEpoch?.synthesis_id === synthesis.synthesis_id) {
-        return byEpoch;
-      }
-      return readTopicLatestSynthesis(client, synthesis.topic_id);
-    },
+    timeoutError: 'synthesis write timed out and signed readback did not confirm persistence',
+    readback,
     readbackAttempts: 1,
     readbackPredicate: (observed) => {
       const candidate = observed as TopicSynthesisV2 | null;
@@ -398,8 +535,7 @@ async function putSynthesisWithAckOrRelayFallback(
         && candidate.epoch === synthesis.epoch
       );
     },
-    relayFallback: () => writeSynthesisViaRelayFallback(client, synthesis),
-    onAckTimeout: () => console.warn('[vh:synthesis] put ack timed out, requiring readback or relay fallback'),
+    onAckTimeout: () => console.warn('[vh:synthesis] put ack timed out, requiring signed readback confirmation'),
   });
 }
 
@@ -554,46 +690,79 @@ export async function readTopicEpochSynthesis(client: VennClient, topicId: strin
     const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
     return scalarParsed?.topic_id === normalizedTopicId && String(scalarParsed.epoch) === normalizedEpoch ? scalarParsed : null;
   }
-  const parsed = parseSynthesis(raw) ?? await readSynthesisFromEnvelopeScalar(chain);
-  return parsed?.topic_id === normalizedTopicId && String(parsed.epoch) === normalizedEpoch ? parsed : null;
+  const result = await parseSynthesisFromStoredRecord(client, {
+    path: topicEpochSynthesisPath(normalizedTopicId, normalizedEpoch),
+    topicId: normalizedTopicId,
+    epoch: normalizedEpoch,
+    data: raw,
+  });
+  if (result.state === 'valid') {
+    return result.synthesis;
+  }
+  if (result.state === 'blocked') {
+    return null;
+  }
+
+  const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
+  return scalarParsed?.topic_id === normalizedTopicId && String(scalarParsed.epoch) === normalizedEpoch ? scalarParsed : null;
 }
 
 export async function writeTopicEpochSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
   assertNoForbiddenSynthesisFields(synthesis);
-  const sanitized = TopicSynthesisV2Schema.parse(synthesis);
-  await putSynthesisWithAckOrRelayFallback(
-    client,
+  const sanitized = normalizeSynthesisForPath(TopicSynthesisV2Schema.parse(synthesis));
+  const record = await buildSystemWriterEpochSynthesisRecord(client, sanitized);
+  await putSystemWriterSynthesisWithDurability(
     getTopicEpochSynthesisChain(
       client,
-      normalizeTopicId(sanitized.topic_id),
+      sanitized.topic_id,
       normalizeEpoch(sanitized.epoch)
     ) as unknown as ChainWithGet<Record<string, unknown>>,
-    encodeSynthesisForGun(sanitized),
-    sanitized
+    record,
+    sanitized,
+    () => readTopicEpochSynthesis(client, sanitized.topic_id, sanitized.epoch)
   );
   return sanitized;
 }
 
-export async function readTopicLatestSynthesis(client: VennClient, topicId: string): Promise<TopicSynthesisV2 | null> {
+export async function readTopicLatestSynthesisStatus(client: VennClient, topicId: string): Promise<TopicSynthesisReadResult> {
   const normalizedTopicId = normalizeTopicId(topicId);
   const chain = getTopicLatestSynthesisChain(client, normalizedTopicId);
   const raw = await readOnce(chain);
   if (raw === null) {
     const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
-    return scalarParsed?.topic_id === normalizedTopicId ? scalarParsed : null;
+    return scalarParsed?.topic_id === normalizedTopicId
+      ? { state: 'valid', synthesis: scalarParsed }
+      : { state: 'legacy-invalid' };
   }
-  const parsed = parseSynthesis(raw) ?? await readSynthesisFromEnvelopeScalar(chain);
-  return parsed?.topic_id === normalizedTopicId ? parsed : null;
+  const result = await parseSynthesisFromStoredRecord(client, {
+    path: topicLatestPath(normalizedTopicId),
+    topicId: normalizedTopicId,
+    data: raw,
+  });
+  if (result.state !== 'legacy-invalid') {
+    return result;
+  }
+
+  const scalarParsed = await readSynthesisFromEnvelopeScalar(chain);
+  return scalarParsed?.topic_id === normalizedTopicId
+    ? { state: 'valid', synthesis: scalarParsed }
+    : { state: 'legacy-invalid' };
+}
+
+export async function readTopicLatestSynthesis(client: VennClient, topicId: string): Promise<TopicSynthesisV2 | null> {
+  const result = await readTopicLatestSynthesisStatus(client, topicId);
+  return result.state === 'valid' ? result.synthesis : null;
 }
 
 export async function writeTopicLatestSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
   assertNoForbiddenSynthesisFields(synthesis);
-  const sanitized = TopicSynthesisV2Schema.parse(synthesis);
-  await putSynthesisWithAckOrRelayFallback(
-    client,
-    getTopicLatestSynthesisChain(client, normalizeTopicId(sanitized.topic_id)) as unknown as ChainWithGet<Record<string, unknown>>,
-    encodeSynthesisForGun(sanitized),
-    sanitized
+  const sanitized = normalizeSynthesisForPath(TopicSynthesisV2Schema.parse(synthesis));
+  const record = await buildSystemWriterLatestSynthesisRecord(client, sanitized);
+  await putSystemWriterSynthesisWithDurability(
+    getTopicLatestSynthesisChain(client, sanitized.topic_id) as unknown as ChainWithGet<Record<string, unknown>>,
+    record,
+    sanitized,
+    () => readTopicLatestSynthesis(client, sanitized.topic_id)
   );
   return sanitized;
 }
@@ -660,8 +829,27 @@ export async function writeTopicSynthesisCorrection(
 }
 
 export async function writeTopicSynthesis(client: VennClient, synthesis: unknown): Promise<TopicSynthesisV2> {
-  const sanitized = await writeTopicEpochSynthesis(client, synthesis);
-  await writeTopicLatestSynthesis(client, sanitized);
+  assertNoForbiddenSynthesisFields(synthesis);
+  const sanitized = normalizeSynthesisForPath(TopicSynthesisV2Schema.parse(synthesis));
+  const epochRecord = await buildSystemWriterEpochSynthesisRecord(client, sanitized);
+  const latestRecord = await buildSystemWriterLatestSynthesisRecord(client, sanitized);
+
+  await putSystemWriterSynthesisWithDurability(
+    getTopicEpochSynthesisChain(
+      client,
+      sanitized.topic_id,
+      normalizeEpoch(sanitized.epoch)
+    ) as unknown as ChainWithGet<Record<string, unknown>>,
+    epochRecord,
+    sanitized,
+    () => readTopicEpochSynthesis(client, sanitized.topic_id, sanitized.epoch)
+  );
+  await putSystemWriterSynthesisWithDurability(
+    getTopicLatestSynthesisChain(client, sanitized.topic_id) as unknown as ChainWithGet<Record<string, unknown>>,
+    latestRecord,
+    sanitized,
+    () => readTopicLatestSynthesis(client, sanitized.topic_id)
+  );
   return sanitized;
 }
 

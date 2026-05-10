@@ -177,6 +177,20 @@ Public mesh paths:
 
 Sensitive material (proofs, tokens, identity) is forbidden in these paths.
 
+Current storage contract: new `vh/topics/<topicId>/epochs/<epoch>/synthesis`
+and `vh/topics/<topicId>/latest` writes are system-writer signed records.
+They store the encoded `TopicSynthesisV2` wrapper plus
+`_protocolVersion: 'luma-public-v1'`, `_writerKind: 'system'`,
+`_systemWriterId`, `_systemIssuedAt`, and `_systemSignature`. Readers validate
+system-marked records with the shared system-writer validator and fail closed
+with `system-writer-validation-failed`; invalid system records are not
+downgraded through legacy parsing or scalar fallback. Legacy bare and explicit
+safe `_writerKind: 'legacy'` synthesis wrappers remain read-compatible, but
+legacy-marked records carrying downgraded system/user fields are rejected.
+Candidate, correction, digest, discovery, and topic-engagement records are not
+part of this epoch/latest synthesis migration. `pnpm
+check:luma-topic-synthesis-system-v1` guards this contract.
+
 ## 7. Invariants
 
 1. `synthesis_id` uniquely identifies `{topic_id, epoch, content}`.
