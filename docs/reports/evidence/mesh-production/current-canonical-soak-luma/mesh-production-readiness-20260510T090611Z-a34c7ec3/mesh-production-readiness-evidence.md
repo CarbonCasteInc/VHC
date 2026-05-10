@@ -7,6 +7,7 @@
 - Schema epoch: `post_luma_m0b`
 - LUMA profile: `none`
 - Report: `./.tmp/mesh-production-readiness/mesh-production-readiness-20260510T090611Z-a34c7ec3/mesh-production-readiness-report.json`
+- LUMA coverage report: `./supporting-evidence/luma-gated-write-coverage/mesh-luma-gated-write-coverage-report.json`
 
 ## Source Reports
 
