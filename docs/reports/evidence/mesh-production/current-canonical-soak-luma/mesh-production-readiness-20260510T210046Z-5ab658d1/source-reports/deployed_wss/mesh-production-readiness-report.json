@@ -1,0 +1,185 @@
+{
+  "schema_version": "mesh-production-readiness-v1",
+  "generated_at": "2026-05-10T21:01:25.054Z",
+  "run_id": "mesh-deployed-wss-1778446877562-83956e1e",
+  "repo": {
+    "branch": "coord/mesh-current-main-canonical-durable-luma-evidence-2",
+    "commit": "e5ae7272f59f023aa5dd6fabcede91d1e3994568",
+    "base_ref": "origin/main",
+    "dirty": false
+  },
+  "run": {
+    "mode": "deployed_wss_topology",
+    "deployment_scope": "local_tls_wss_profile",
+    "started_at": "2026-05-10T21:01:17.562Z",
+    "completed_at": "2026-05-10T21:01:25.054Z",
+    "duration_ms": 7492,
+    "command": "pnpm test:mesh:deployed-wss-peer-config"
+  },
+  "status": "review_required",
+  "status_reason": "Slice 6B deployed-WSS local TLS profile proof passed; full mesh production readiness remains review_required because public deployment, state-resolution, clock-skew, partition/heal, soak, evidence scrub, and post-M0.B LUMA-gated write sections remain pending.",
+  "schema_epoch": "pre_luma_m0b",
+  "luma_profile": "none",
+  "luma_dependency_status": {
+    "luma_m0b_schema_epoch": "pending",
+    "luma_gated_write_drills": "n/a",
+    "luma_profile_gates": "n/a"
+  },
+  "drill_writer_kind_by_class": {
+    "synthetic mesh drill object": "mesh-drill"
+  },
+  "topology": {
+    "strategy": "relay_peer_fanout",
+    "deployment_scope": "local_tls_wss_profile",
+    "configured_peer_count": 3,
+    "quorum_required": 2,
+    "signed_peer_config": true,
+    "relay_urls_redacted": [
+      "wss://redacted-host-9d516b522123/gun",
+      "wss://redacted-host-da8b36ebfcd0/gun",
+      "wss://redacted-host-f00e48333804/gun"
+    ],
+    "relay_ids": [
+      "deployed-wss-relay-a",
+      "deployed-wss-relay-b",
+      "deployed-wss-relay-c"
+    ],
+    "relay_to_relay_peers_configured": true,
+    "relay_to_relay_auth_mode": "private_network_allowlist",
+    "relay_to_relay_auth_negative_test": "skipped",
+    "relay_to_relay_auth_negative_test_reason": "covered by pnpm test:mesh:topology-drills; Slice 6B keeps the same local/private relay-peer trust path and proves the browser WSS boundary",
+    "peer_config_id": "deployed-wss-three-relay-mesh-deployed-wss-1778446877562-83956e1e",
+    "peer_config_issued_at": "2026-05-10T21:01:17.567Z",
+    "peer_config_expires_at": "2026-05-10T22:01:17.567Z",
+    "peer_config_rollover_id": "deployed-wss-three-relay-mesh-deployed-wss-1778446877562-83956e1e-rollover",
+    "app_peer_config": {
+      "source": "remote-config",
+      "strict": true,
+      "signed": true,
+      "config_id": "deployed-wss-three-relay-mesh-deployed-wss-1778446877562-83956e1e",
+      "minimum_peer_count": 3,
+      "quorum_required": 2,
+      "local_mesh_peers_allowed": false
+    },
+    "csp": {
+      "status": "pass",
+      "connect_src_expected_origins": [
+        "wss://redacted-host-0fac91c3cc39",
+        "wss://redacted-host-e84c48b6e0eb",
+        "wss://redacted-host-d9d40ab1b4de",
+        "https://redacted-host-c9079cac3d91"
+      ],
+      "strict_connect_src": true,
+      "broad_https_wss_wildcards_allowed": false
+    },
+    "service_worker_peer_config_rollover": {
+      "status": "pass",
+      "first_config_id": "deployed-wss-three-relay-mesh-deployed-wss-1778446877562-83956e1e",
+      "second_config_id": "deployed-wss-three-relay-mesh-deployed-wss-1778446877562-83956e1e-rollover",
+      "fetch_cache_mode": "no-store"
+    }
+  },
+  "gates": [
+    {
+      "name": "deployed-wss-compose-config",
+      "status": "pass",
+      "command": "docker compose -f infra/docker/docker-compose.mesh-wss.yml config",
+      "duration_ms": 55,
+      "exit_code": 0
+    },
+    {
+      "name": "build-deployed-wss-peer-config",
+      "status": "pass",
+      "command": "pnpm --filter @vh/web-pwa build",
+      "duration_ms": 4508,
+      "exit_code": 0
+    },
+    {
+      "name": "playwright-deployed-wss-peer-config",
+      "status": "pass",
+      "command": "pnpm --filter @vh/e2e exec playwright test --config=playwright.mesh-deployed-wss.config.ts src/mesh/deployed-wss-peer-config-canary.spec.ts",
+      "duration_ms": 2892,
+      "exit_code": 0
+    },
+    {
+      "name": "local-three-relay-peer-kill-write-readback",
+      "status": "skipped",
+      "command": "pnpm test:mesh:topology-drills",
+      "duration_ms": 0,
+      "exit_code": null,
+      "reason": "standalone local transport proof remains owned by pnpm test:mesh:topology-drills and is run separately as a regression gate"
+    }
+  ],
+  "write_class_slos": [],
+  "resource_slos": [],
+  "per_relay_readback": [],
+  "peer_failure_drills": [
+    {
+      "name": "one-peer-kill-write-readback",
+      "status": "skipped",
+      "reason": "Slice 6B proves deployed-WSS app boot/config lifecycle; peer-kill and restarted-relay drills remain covered by pnpm test:mesh:topology-drills."
+    }
+  ],
+  "state_resolution_drills": [
+    {
+      "object_id": "state-resolution-matrix-skip-pre-luma-m0b",
+      "object_class": "state-resolution matrix",
+      "state_rule": "last-write-wins-deterministic-id",
+      "expected_winner_write_id": "skipped",
+      "observed_winner_write_id": null,
+      "competing_write_ids": [],
+      "down_relay_id": null,
+      "violation_reason": null,
+      "status": "skipped",
+      "reason": "Slice 7C state-resolution matrix is out of scope for the deployed-WSS browser boot proof."
+    }
+  ],
+  "clock_skew": {
+    "skewed_actor": null,
+    "skewed_layer": null,
+    "skew_ms": 0,
+    "named_failure": "skipped: Slice 9 clock-skew drill is out of scope for the deployed-WSS browser boot proof.",
+    "lww_diverged": false,
+    "status": "skipped"
+  },
+  "luma_gated_write_drills": [
+    {
+      "write_class": "LUMA-gated public mesh writes",
+      "trace_id": "trace-1778446877562-939d6fbf",
+      "status": "skipped",
+      "reason": "schema_epoch is pre_luma_m0b and luma_profile is none; no LUMA _writerKind, _authorScheme, SignedWriteEnvelope, or adapter migration work was exercised."
+    }
+  ],
+  "cleanup": {
+    "namespace": "no vh/__mesh_drills writes in deployed-WSS peer-config browser canary",
+    "ttl_ms": 3600000,
+    "objects_written": 0,
+    "objects_cleaned_or_tombstoned": 0,
+    "retained_objects": 0,
+    "status": "pass"
+  },
+  "health": {
+    "peer_quorum_minimum_observed": 3,
+    "sustained_message_rate_max_per_sec": 0,
+    "degradation_reasons_seen": []
+  },
+  "release_claims": {
+    "allowed": [
+      "A local TLS/WSS production-shaped three-relay profile can render, start, and serve health/ready/metrics through WSS origins.",
+      "The Web PWA can boot in strict mode from a signed three-peer WSS config with local mesh peer allowance disabled.",
+      "The deployed-WSS canary observed peer-config rollover by configId and did not use stale service-worker cache."
+    ],
+    "forbidden": [
+      "The production WSS topology is deployed on public infrastructure.",
+      "The mesh is release_ready.",
+      "State-resolution, partition/heal, clock-skew, soak, or LUMA-gated write behavior is production-ready.",
+      "LUMA-gated write classes have mesh transport readiness under the current LUMA schema epoch."
+    ],
+    "invalidated_by_luma_epoch_change": true
+  },
+  "downstream_canary": {
+    "command": "pnpm check:mesh:production-readiness",
+    "status": "skipped",
+    "reason": "full downstream production-readiness gate is not wired in this slice"
+  }
+}

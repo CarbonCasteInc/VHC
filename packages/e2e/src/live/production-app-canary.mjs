@@ -84,6 +84,28 @@ function resolveRepoPath(repoRoot, candidate) {
   return path.isAbsolute(candidate) ? candidate : path.resolve(repoRoot, candidate);
 }
 
+function repoRelativePath(repoRoot, filePath) {
+  const relativePath = path.relative(repoRoot, filePath);
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) return null;
+  return relativePath.split(path.sep).join('/');
+}
+
+function committedEvidencePacketRoot(repoRoot, meshReportPath) {
+  const relativePath = repoRelativePath(repoRoot, meshReportPath);
+  if (!relativePath) return null;
+  const marker = '/mesh-production-readiness-report.json';
+  if (!relativePath.endsWith(marker)) return null;
+  const packetRoot = relativePath.slice(0, -marker.length);
+  return packetRoot.startsWith('docs/reports/evidence/mesh-production/') ? packetRoot : null;
+}
+
+function lines(value) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 export function parseProductionAppCanaryOptions({
   argv = [],
   env = process.env,
@@ -125,10 +147,73 @@ function checkStatus(condition, blockedReason = null) {
     : { status: 'blocked', reason: blockedReason };
 }
 
+function evaluateMeshReportCommit({
+  meshReport,
+  meshReportPath,
+  currentCommit,
+  repoRoot = defaultRepoRoot,
+  git = runGit,
+} = {}) {
+  const observedCommit = meshReport?.repo?.commit || null;
+  if (!observedCommit || !currentCommit) {
+    return {
+      ok: false,
+      expected_commit: currentCommit || null,
+      observed_commit: observedCommit,
+      accepted_via: null,
+    };
+  }
+  if (observedCommit === currentCommit) {
+    return {
+      ok: true,
+      expected_commit: currentCommit,
+      observed_commit: observedCommit,
+      accepted_via: 'current_commit',
+    };
+  }
+
+  const packetRoot = committedEvidencePacketRoot(repoRoot, meshReportPath);
+  if (!packetRoot) {
+    return {
+      ok: false,
+      expected_commit: currentCommit,
+      observed_commit: observedCommit,
+      accepted_via: null,
+    };
+  }
+
+  const parentCommits = lines(git(['rev-list', '--parents', '-n', '1', currentCommit], { repoRoot }))
+    .flatMap((line) => line.split(/\s+/).slice(1));
+  const sourceIsDirectParent = parentCommits.includes(observedCommit);
+  const changedPaths = lines(git(['diff', '--name-only', observedCommit, currentCommit], { repoRoot }));
+  const diffLimitedToPacket =
+    changedPaths.length > 0 &&
+    changedPaths.every((changedPath) => changedPath === packetRoot || changedPath.startsWith(`${packetRoot}/`));
+
+  if (sourceIsDirectParent && diffLimitedToPacket) {
+    return {
+      ok: true,
+      expected_commit: currentCommit,
+      observed_commit: observedCommit,
+      accepted_via: 'committed_evidence_packet_from_parent',
+      packet_root: packetRoot,
+    };
+  }
+
+  return {
+    ok: false,
+    expected_commit: currentCommit,
+    observed_commit: observedCommit,
+    accepted_via: null,
+    packet_root: packetRoot,
+  };
+}
+
 function buildChecks({
   meshReport,
   meshReadError,
   currentCommit,
+  meshReportCommitStatus,
   expectedLumaProfile,
   maxMeshReportAgeMs,
   nowMs,
@@ -164,9 +249,10 @@ function buildChecks({
 
   checks.push({
     id: 'mesh_report_current_commit',
-    ...checkStatus(meshReportLoaded && meshReport.repo?.commit === currentCommit, 'mesh_report_wrong_commit'),
-    expected_commit: currentCommit || null,
-    observed_commit: meshReport?.repo?.commit || null,
+    ...checkStatus(meshReportLoaded && meshReportCommitStatus?.ok, 'mesh_report_wrong_commit'),
+    expected_commit: meshReportCommitStatus?.expected_commit || currentCommit || null,
+    observed_commit: meshReportCommitStatus?.observed_commit || meshReport?.repo?.commit || null,
+    accepted_via: meshReportCommitStatus?.accepted_via || null,
   });
 
   checks.push({
@@ -207,6 +293,7 @@ export function buildProductionAppCanaryReport({
   meshReportPath,
   meshReport,
   meshReadError = null,
+  meshReportCommitStatus = null,
   expectedLumaProfile = null,
   maxMeshReportAgeMs = DEFAULT_MESH_REPORT_MAX_AGE_MS,
 } = {}) {
@@ -214,6 +301,12 @@ export function buildProductionAppCanaryReport({
     meshReport,
     meshReadError,
     currentCommit: repo?.commit,
+    meshReportCommitStatus: meshReportCommitStatus || {
+      ok: Boolean(meshReport?.repo?.commit && repo?.commit && meshReport.repo.commit === repo.commit),
+      expected_commit: repo?.commit || null,
+      observed_commit: meshReport?.repo?.commit || null,
+      accepted_via: meshReport?.repo?.commit && repo?.commit && meshReport.repo.commit === repo.commit ? 'current_commit' : null,
+    },
     expectedLumaProfile,
     maxMeshReportAgeMs,
     nowMs: completedAtMs,
@@ -334,6 +427,13 @@ export function runProductionAppCanary({
     meshReportPath: options.meshReportPath,
     meshReport,
     meshReadError,
+    meshReportCommitStatus: evaluateMeshReportCommit({
+      meshReport,
+      meshReportPath: options.meshReportPath,
+      currentCommit: repo.commit,
+      repoRoot,
+      git,
+    }),
     expectedLumaProfile: options.expectedLumaProfile,
     maxMeshReportAgeMs: options.maxMeshReportAgeMs,
   });

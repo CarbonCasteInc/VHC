@@ -1,0 +1,17 @@
+{
+  "runId": "mesh-clock-skew-20260510T213850Z-a5bf5b78",
+  "traceId": "trace-20260510T213850Z-046ed17e",
+  "configUrl": "http://redacted-host-e2f7439fad85/mesh-peer-config.json",
+  "peerUrls": [
+    "wss://redacted-host-ea79a6588c5f/gun",
+    "wss://redacted-host-910338c7360c/gun",
+    "wss://redacted-host-46cfe0ee5766/gun"
+  ],
+  "publicKey": "gYIvQ3_Jc5z4I5tkDqqfK2V3TlUacqafgq-ECBjqDPU.xCnkV2vUAYE-v32tTPb1zSkBP4MryNRJQGWENiVwyg8",
+  "fixtures": {
+    "expired": "./.tmp/mesh-production-readiness/mesh-clock-skew-20260510T213850Z-a5bf5b78/fixtures/peer-config-expired.json",
+    "futureIssued": "./.tmp/mesh-production-readiness/mesh-clock-skew-20260510T213850Z-a5bf5b78/fixtures/peer-config-future-issued.json",
+    "browserClockExpired": "./.tmp/mesh-production-readiness/mesh-clock-skew-20260510T213850Z-a5bf5b78/fixtures/peer-config-browser-clock-expired.json"
+  },
+  "browserClockNowMs": 1778449206277
+}

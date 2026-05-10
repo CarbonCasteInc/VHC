@@ -176,4 +176,81 @@ describe('production-app-canary', () => {
       expect.objectContaining({ id: 'mesh_report_current_commit', status: 'blocked', reason: 'mesh_report_wrong_commit' }),
     ]));
   });
+
+  it('accepts a docs evidence packet generated at the immediate parent when the current diff is limited to that packet', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
+    const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
+    const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
+    writeJson(meshReportPath, meshReport());
+
+    const result = runProductionAppCanary({
+      repoRoot,
+      outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
+      argv: ['--mesh-report', meshReportPath],
+      env: {},
+      now: () => nowMs,
+      randomBytes: () => Buffer.from('00112233', 'hex'),
+      git: (args) => {
+        const command = args.join(' ');
+        if (command === 'rev-parse --abbrev-ref HEAD') return 'coord/test';
+        if (command === 'rev-parse HEAD') return 'branch456';
+        if (command === 'status --short') return '';
+        if (command === 'rev-list --parents -n 1 branch456') return 'branch456 abc123';
+        if (command === 'diff --name-only abc123 branch456') {
+          return [
+            `${packetRoot}/mesh-production-readiness-report.json`,
+            `${packetRoot}/source-reports/soak/mesh-production-readiness-report.json`,
+          ].join('\n');
+        }
+        return '';
+      },
+    });
+
+    expect(result.report.reason).toBe('mesh_not_release_ready');
+    expect(result.report.checks.find((check) => check.id === 'mesh_report_current_commit')).toMatchObject({
+      status: 'pass',
+      observed_commit: 'abc123',
+      expected_commit: 'branch456',
+      accepted_via: 'committed_evidence_packet_from_parent',
+    });
+  });
+
+  it('does not accept a parent-generated docs packet when the current diff touches anything outside that packet', () => {
+    const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'vh-production-app-canary-'));
+    const packetRoot = 'docs/reports/evidence/mesh-production/current-canonical-soak-luma/mesh-production-readiness-test';
+    const meshReportPath = path.join(repoRoot, packetRoot, 'mesh-production-readiness-report.json');
+    writeJson(meshReportPath, meshReport());
+
+    const result = runProductionAppCanary({
+      repoRoot,
+      outputRoot: path.join(repoRoot, '.tmp/production-app-canary'),
+      argv: ['--mesh-report', meshReportPath],
+      env: {},
+      now: () => nowMs,
+      randomBytes: () => Buffer.from('00112233', 'hex'),
+      git: (args) => {
+        const command = args.join(' ');
+        if (command === 'rev-parse --abbrev-ref HEAD') return 'coord/test';
+        if (command === 'rev-parse HEAD') return 'branch456';
+        if (command === 'status --short') return '';
+        if (command === 'rev-list --parents -n 1 branch456') return 'branch456 abc123';
+        if (command === 'diff --name-only abc123 branch456') {
+          return [
+            `${packetRoot}/mesh-production-readiness-report.json`,
+            'packages/e2e/src/live/production-app-canary.mjs',
+          ].join('\n');
+        }
+        return '';
+      },
+    });
+
+    expect(result.report.reason).toBe('mesh_report_wrong_commit');
+    expect(result.report.checks.find((check) => check.id === 'mesh_report_current_commit')).toMatchObject({
+      status: 'blocked',
+      reason: 'mesh_report_wrong_commit',
+      observed_commit: 'abc123',
+      expected_commit: 'branch456',
+      accepted_via: null,
+    });
+  });
 });

@@ -1,0 +1,34 @@
+{
+  "gate": "deployed-wss-signed-peer-config-browser-boot",
+  "run_id": "mesh-deployed-wss-1778446877562-83956e1e",
+  "trace_id": "trace-1778446877562-939d6fbf",
+  "config_id": "deployed-wss-three-relay-mesh-deployed-wss-1778446877562-83956e1e",
+  "proof": {
+    "status": "resolved",
+    "resolver": "resolveGunPeerTopology",
+    "topology": {
+      "peers": [
+        "wss://redacted-host-0fac91c3cc39/gun",
+        "wss://redacted-host-e84c48b6e0eb/gun",
+        "wss://redacted-host-d9d40ab1b4de/gun"
+      ],
+      "source": "remote-config",
+      "strict": true,
+      "signed": true,
+      "configId": "deployed-wss-three-relay-mesh-deployed-wss-1778446877562-83956e1e",
+      "minimumPeerCount": 3,
+      "quorumRequired": 2,
+      "allowLocalPeers": false
+    },
+    "clientPeers": [
+      "wss://redacted-host-0fac91c3cc39/gun",
+      "wss://redacted-host-e84c48b6e0eb/gun",
+      "wss://redacted-host-d9d40ab1b4de/gun"
+    ]
+  },
+  "opened_socket_hosts": [
+    "redactedLocalEndpointHash:0fac91c3cc39",
+    "redactedLocalEndpointHash:e84c48b6e0eb",
+    "redactedLocalEndpointHash:d9d40ab1b4de"
+  ]
+}
